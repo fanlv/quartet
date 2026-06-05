@@ -26,8 +26,8 @@ interface FlowOutlineProps {
   onUpdateRepeatCount: (nodeId: string, count: number) => void;
 }
 
-function fallbackStepTitle(_node: FlowNode, index: number, t: TFunction): string {
-  return t('loop.outline.emptyStep', { index: index + 1 });
+function fallbackStepTitle(node: FlowNode, index: number, t: TFunction): string {
+  return node.label?.trim() || t('loop.outline.emptyStep', { index: index + 1 });
 }
 
 function renderNodeStatus(issue: FlowIssue | undefined, t: TFunction) {

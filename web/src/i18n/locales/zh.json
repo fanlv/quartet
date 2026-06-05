@@ -253,6 +253,8 @@
     },
     "step": {
       "agentPlaceholder": "请选择 Agent",
+      "stepName": "步骤名称",
+      "stepNamePlaceholder": "步骤 {{index}}",
       "status": {
         "ready": "已就绪",
         "todo": "待完善"

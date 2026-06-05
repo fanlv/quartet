@@ -1,17 +1,43 @@
 import { expect, test, type APIRequestContext, type Page } from '../fixtures/test'
 import { e2eAuthToken } from '../fixtures/e2e-environment'
 
-// This suite drives the REAL model flow. There is no QUARTET_E2E mode, no
-// replay model, and no /api/v1/e2e/* control or fixture API. Test data is
-// created through the same business APIs a user hits, and assertions check
-// structural / state signals (message nodes appear, stream reaches a terminal
-// state, list ordering, rename/delete persistence) rather than fixed model
-// text — a live model's wording is not deterministic.
+// This suite drives REAL agent links. There is no QUARTET_E2E mode, no replay
+// model, and no /api/v1/e2e/* control or fixture API. Test data is created
+// through the same business APIs a user hits, and assertions check structural
+// / state signals (message nodes appear, stream reaches a terminal state, list
+// ordering, rename/delete persistence) rather than fixed model text — a live
+// agent's wording is not deterministic.
 //
-// Fault links that a real model cannot trigger (HTTP send failure, SSE auth
+// The primary chat-link coverage runs against an ACP agent discovered at
+// runtime from the backend's own probe list (GET /api/v1/agent/list). The user
+// primarily uses the ACP path, and ACP needs no models.json — the subprocess
+// carries its own login state in $HOME. If no ACP agent is installed the chat
+// spec skips itself rather than failing.
+//
+// Fault links that a real agent cannot trigger (HTTP send failure, SSE auth
 // rejection, resume 410 recovery, event-buffer GC) are covered at the
 // component layer (web/src/utils/sse-client.test.ts) and in Go unit tests
 // (services/job/event_buffer_test.go), not here.
+
+// discoverACPAgent calls the backend's agent list and returns the first
+// installed ACP agent (anything whose type is not the built-in "eino" model
+// entry), along with its probe-picked default mode. Returns null when no ACP
+// agent is installed so the caller can skip. This mirrors how the real UI
+// discovers agents — InstalledACPAgents() in services/agent/probe.
+type DiscoveredACPAgent = { agentType: string; defaultModeId: string }
+
+async function discoverACPAgent(request: APIRequestContext): Promise<DiscoveredACPAgent | null> {
+  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
+  const res = await request.get('/api/v1/agent/list', { headers })
+  expect(res.ok(), `agent list failed: ${res.status()} ${await res.text()}`).toBeTruthy()
+  const body = await res.json()
+  const agents: Array<{ type: string; model_id?: string; modes?: { currentModeId?: string } }> = body.agentList || []
+  // ACP agents have a probe command as their type and an empty model_id;
+  // Eino model entries use type === 'eino' with a numeric model_id.
+  const acp = agents.find((a) => a.type && a.type !== 'eino' && !a.model_id)
+  if (!acp) return null
+  return { agentType: acp.type, defaultModeId: acp.modes?.currentModeId || '' }
+}
 
 const MODEL_ID = process.env.QUARTET_E2E_MODEL_ID || '1000001'
 

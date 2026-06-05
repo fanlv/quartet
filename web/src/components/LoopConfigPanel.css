@@ -1002,6 +1002,47 @@
   gap: 10px;
 }
 
+.loop-round-name-label {
+  min-width: 0;
+  max-width: 180px;
+  color: #18181b;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loop-round-name-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.loop-round-name-field-label {
+  color: #666;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.loop-round-name-input {
+  min-height: 34px;
+  width: 100%;
+  padding: 0 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #fff;
+  color: #18181b;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.loop-round-name-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
 .loop-round-inline-control {
   display: flex;
   align-items: center;

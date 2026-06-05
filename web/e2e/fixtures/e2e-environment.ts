@@ -12,12 +12,16 @@ const frontendPort = Number(process.env.VITE_E2E_PORT || 5174)
 const backendURL = process.env.VITE_E2E_BACKEND_URL || `http://127.0.0.1:${backendPort}`
 const frontendURL = `http://127.0.0.1:${frontendPort}`
 
-// E2E now drives the REAL model flow (no replay model, no QUARTET_E2E mode).
-// The isolated backend therefore needs real provider credentials, supplied
-// via env. We seed an isolated models.json + settings.json into the temp
-// LOCAL_MEMORY so the run is self-contained but still calls a live model.
-// Missing credentials fail the run loudly rather than silently skipping —
-// a green E2E must mean the real chat/tool/loop links actually ran.
+// E2E drives REAL agent links (no replay model, no QUARTET_E2E mode). The
+// primary chat-link coverage runs against an installed ACP agent discovered
+// at runtime from the backend's own probe list (/api/v1/agent/list), so the
+// default run needs NO model credentials — the ACP subprocess carries its own
+// login state in $HOME.
+//
+// Seeding an Eino model is OPTIONAL: only when QUARTET_E2E_MODEL_API_KEY is
+// supplied do we write an isolated models.json so an Eino chat link can also
+// be exercised. Without it the run still boots and the ACP + link-agnostic
+// specs run normally.
 export const e2eModelClass = process.env.QUARTET_E2E_MODEL_CLASS || 'ark'
 export const e2eModelID = process.env.QUARTET_E2E_MODEL_ID || '1000001'
 const e2eModelDisplayName = process.env.QUARTET_E2E_MODEL_DISPLAY_NAME || 'Quartet E2E Model'
@@ -173,55 +177,55 @@ function prepareLocalMemory(localMemory: string) {
   fs.chmodSync(path.join(localMemory, 'workspaces'), 0o777)
 }
 
-// seedModelConfig writes an isolated models.json + settings.json into the
-// temp LOCAL_MEMORY so the backend has a usable REAL model without going
-// through the online provider-validation UI. Credentials come from env; if
-// the API key is missing we fail the whole run with an explicit message so
-// nobody mistakes a skipped real-model run for a passing one.
-function seedModelConfig(localMemory: string) {
-  if (!e2eModelAPIKey) {
-    throw new Error(
-      'E2E real-model run requires QUARTET_E2E_MODEL_API_KEY (and optionally ' +
-        'QUARTET_E2E_MODEL_CLASS / _MODEL_NAME / _BASE_URL / _MODEL_ID). ' +
-        'No credentials were provided, so the chat / tool / loop links cannot ' +
-        'run against a live model. Set the credentials or run `make test-web` ' +
-        '(component + Go layers) which need no model.',
-    )
-  }
-  if (!e2eModelName) {
-    throw new Error(
-      'E2E real-model run requires QUARTET_E2E_MODEL_NAME (the upstream model ' +
-        'identifier, e.g. the provider model id). It was empty.',
-    )
-  }
-
-  const now = Date.now()
-  const models = {
-    models: [
-      {
-        id: Number(e2eModelID),
-        model_class: e2eModelClass,
-        display_name: e2eModelDisplayName,
-        connection: {
-          api_key: e2eModelAPIKey,
-          base_url: e2eModelBaseURL || undefined,
-          model: e2eModelName,
-        },
-        status: 1,
-        created_at: now,
-        updated_at: now,
-      },
-    ],
-  }
-  fs.writeFileSync(path.join(localMemory, 'agent', 'models.json'), `${JSON.stringify(models, null, 2)}\n`)
-
-  const settings = {
+// seedAgentConfig writes settings.json (always) and, when Eino credentials
+// are supplied, an isolated models.json into the temp LOCAL_MEMORY.
+//
+//   - settings.json always carries the E2E username + default IM workspace.
+//   - When QUARTET_E2E_MODEL_API_KEY (and _MODEL_NAME) are set, an Eino model
+//     is seeded and title/message agents point at it, enabling Eino chat
+//     coverage.
+//   - Otherwise no model is seeded: the default run relies on an installed
+//     ACP agent (discovered at runtime) for chat-link coverage. The ACP
+//     subprocess uses its own login state in $HOME, so no models.json is
+//     needed and the run must NOT fail for lack of credentials.
+function seedAgentConfig(localMemory: string) {
+  const settings: Record<string, unknown> = {
     username: 'Quartet E2E',
     avatar_url: '',
-    title_agent: { agent_type: 'eino', model_id: e2eModelID },
-    message_agent: { agent_type: 'eino', model_id: e2eModelID },
     im_workspace_id: 'ws-1',
   }
+
+  if (e2eModelAPIKey) {
+    if (!e2eModelName) {
+      throw new Error(
+        'QUARTET_E2E_MODEL_API_KEY was set but QUARTET_E2E_MODEL_NAME (the ' +
+          'upstream model identifier) was empty — cannot seed an Eino model. ' +
+          'Set both, or unset the API key to run the default ACP-only flow.',
+      )
+    }
+    const now = Date.now()
+    const models = {
+      models: [
+        {
+          id: Number(e2eModelID),
+          model_class: e2eModelClass,
+          display_name: e2eModelDisplayName,
+          connection: {
+            api_key: e2eModelAPIKey,
+            base_url: e2eModelBaseURL || undefined,
+            model: e2eModelName,
+          },
+          status: 1,
+          created_at: now,
+          updated_at: now,
+        },
+      ],
+    }
+    fs.writeFileSync(path.join(localMemory, 'agent', 'models.json'), `${JSON.stringify(models, null, 2)}\n`)
+    settings.title_agent = { agent_type: 'eino', model_id: e2eModelID }
+    settings.message_agent = { agent_type: 'eino', model_id: e2eModelID }
+  }
+
   fs.writeFileSync(path.join(localMemory, 'agent', 'settings.json'), `${JSON.stringify(settings, null, 2)}\n`)
 }
 
@@ -259,7 +263,7 @@ async function globalSetup() {
   const localMemory = path.join(runDir, 'local-memory')
   fs.mkdirSync(logDir, { recursive: true })
   prepareLocalMemory(localMemory)
-  seedModelConfig(localMemory)
+  seedAgentConfig(localMemory)
 
   fs.writeFileSync(path.join(runDir, 'env.json'), `${JSON.stringify({
     backendURL,

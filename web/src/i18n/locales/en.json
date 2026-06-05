@@ -258,6 +258,8 @@
     },
     "step": {
       "agentPlaceholder": "Select Agent",
+      "stepName": "Step name",
+      "stepNamePlaceholder": "Step {{index}}",
       "status": {
         "ready": "Ready",
         "todo": "Incomplete"

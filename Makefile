@@ -5,6 +5,7 @@ CERTS_DIR := $(CURDIR)/certs
 WEB_BINARY := $(CURDIR)/bin/quartet-web
 BACKEND_LOG := /tmp/quartet-backend.log
 FRONTEND_LOG := /tmp/quartet-vite.log
+STOP_PROCESS_TREE := $(CURDIR)/scripts/stop-process-tree.sh
 BUILD_TIME ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 GIT_DIRTY ?= $(shell if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then echo true; else echo false; fi)
@@ -88,31 +89,7 @@ dev:
 run: web
 
 web:
-	@stop_process_tree() { \
-		_spt_root="$$1"; \
-		if [ -z "$$_spt_root" ]; then return 0; fi; \
-		_spt_all="$$_spt_root"; \
-		_spt_queue="$$_spt_root"; \
-		while [ -n "$$_spt_queue" ]; do \
-			_spt_next=""; \
-			for _spt_p in $$_spt_queue; do \
-				_spt_ch=$$($$SUDO pgrep -P "$$_spt_p" 2>/dev/null || true); \
-				if [ -n "$$_spt_ch" ]; then \
-					_spt_all="$$_spt_all $$_spt_ch"; \
-					_spt_next="$$_spt_next $$_spt_ch"; \
-				fi; \
-			done; \
-			_spt_queue="$$_spt_next"; \
-		done; \
-		$$SUDO kill $$_spt_all 2>/dev/null || true; \
-		sleep 2; \
-		for _spt_p in $$_spt_all; do \
-			if $$SUDO kill -0 "$$_spt_p" 2>/dev/null; then \
-				$$SUDO kill -9 "$$_spt_p" 2>/dev/null || true; \
-			fi; \
-		done; \
-	}; \
-	if [ -z "$$LOCAL_MEMORY" ]; then \
+	@if [ -z "$$LOCAL_MEMORY" ]; then \
 		echo "❌ LOCAL_MEMORY environment variable is not set. Please set it first."; \
 		echo "   Example: export LOCAL_MEMORY=/path/to/local_memory"; \
 		exit 1; \
@@ -123,7 +100,6 @@ web:
 	echo "✅ LOCAL_MEMORY directories ready: $$LOCAL_MEMORY/{workspaces,knowledge,agent,bin,im}"; \
 	echo "🧹 Cleaning previous logs: $(BACKEND_LOG), $(FRONTEND_LOG)"; \
 	: > $(BACKEND_LOG); : > $(FRONTEND_LOG); \
-	rm -f /tmp/.quartet-restart-*.sh 2>/dev/null || true; \
 	echo "🚀 Starting web services..."; \
 	if [ -f "$(CERTS_DIR)/cert.pem" ] && [ -f "$(CERTS_DIR)/key.pem" ]; then \
 		frontend_port=443; \
@@ -160,7 +136,7 @@ web:
 		if [ -n "$$_vite_orphans" ]; then \
 			echo "🧹 Killing orphan vite processes (cwd deleted):$$_vite_orphans"; \
 			for _vp in $$_vite_orphans; do \
-				stop_process_tree "$$_vp"; \
+				$$SUDO "$(STOP_PROCESS_TREE)" "$$_vp"; \
 			done; \
 		fi; \
 		_self_pgid=$$(ps -o pgid= -p $$$$ 2>/dev/null | tr -d ' '); \
@@ -178,13 +154,13 @@ web:
 		if [ -n "$$_make_orphans" ]; then \
 			echo "🧹 Killing orphan 'make web' process trees (PPID=1):$$_make_orphans"; \
 			for _mp in $$_make_orphans; do \
-				stop_process_tree "$$_mp"; \
+				$$SUDO "$(STOP_PROCESS_TREE)" "$$_mp"; \
 			done; \
 		fi; \
 	fi; \
 	if [ -n "$$frontend_pid" ]; then \
 		echo "🔄 Stopping existing frontend (pid: $$frontend_pid)..."; \
-		stop_process_tree "$$frontend_pid"; \
+		$$SUDO "$(STOP_PROCESS_TREE)" "$$frontend_pid"; \
 		for i in 1 2 3 4 5; do \
 			sleep 1; \
 			if ! $$SUDO lsof -tiTCP:$$frontend_port -sTCP:LISTEN >/dev/null 2>&1; then \
@@ -198,10 +174,8 @@ web:
 	fi; \
 	if [ -n "$$backend_orphans" ]; then \
 		echo "🧹 Killing orphan quartet-web processes (not bound to port $(BACKEND_PORT)):$$backend_orphans"; \
-		kill $$backend_orphans 2>/dev/null || true; \
-		sleep 1; \
 		for _p in $$backend_orphans; do \
-			if kill -0 "$$_p" 2>/dev/null; then kill -9 "$$_p" 2>/dev/null || true; fi; \
+			"$(STOP_PROCESS_TREE)" "$$_p"; \
 		done; \
 	fi; \
 	echo "📦 Building backend..."; \
@@ -323,31 +297,7 @@ web-logs:
 
 web-stop:
 	@echo "🛑 Stopping web services..."
-	@stop_process_tree() { \
-		_spt_root="$$1"; \
-		if [ -z "$$_spt_root" ]; then return 0; fi; \
-		_spt_all="$$_spt_root"; \
-		_spt_queue="$$_spt_root"; \
-		while [ -n "$$_spt_queue" ]; do \
-			_spt_next=""; \
-			for _spt_p in $$_spt_queue; do \
-				_spt_ch=$$($$SUDO pgrep -P "$$_spt_p" 2>/dev/null || true); \
-				if [ -n "$$_spt_ch" ]; then \
-					_spt_all="$$_spt_all $$_spt_ch"; \
-					_spt_next="$$_spt_next $$_spt_ch"; \
-				fi; \
-			done; \
-			_spt_queue="$$_spt_next"; \
-		done; \
-		$$SUDO kill $$_spt_all 2>/dev/null || true; \
-		sleep 2; \
-		for _spt_p in $$_spt_all; do \
-			if $$SUDO kill -0 "$$_spt_p" 2>/dev/null; then \
-				$$SUDO kill -9 "$$_spt_p" 2>/dev/null || true; \
-			fi; \
-		done; \
-	}; \
-	if [ -f "$(CERTS_DIR)/cert.pem" ] && [ -f "$(CERTS_DIR)/key.pem" ]; then \
+	@if [ -f "$(CERTS_DIR)/cert.pem" ] && [ -f "$(CERTS_DIR)/key.pem" ]; then \
 		frontend_port=443; \
 		if [ "$$(id -u)" != "0" ]; then SUDO="sudo"; else SUDO=""; fi; \
 	else \
@@ -364,49 +314,23 @@ web-stop:
 	frontend_pid=$$( $$SUDO lsof -tiTCP:$$frontend_port -sTCP:LISTEN 2>/dev/null); \
 	if [ -n "$$backend_pid" ]; then \
 		echo "Stopping backend (pid: $$backend_pid)..."; \
-		stop_process_tree "$$backend_pid"; \
+		"$(STOP_PROCESS_TREE)" "$$backend_pid"; \
 	fi; \
 	if [ -n "$$backend_orphans" ]; then \
 		echo "🧹 Killing orphan quartet-web processes:$$backend_orphans"; \
-		kill $$backend_orphans 2>/dev/null || true; \
-		sleep 1; \
 		for _p in $$backend_orphans; do \
-			if kill -0 "$$_p" 2>/dev/null; then kill -9 "$$_p" 2>/dev/null || true; fi; \
+			"$(STOP_PROCESS_TREE)" "$$_p"; \
 		done; \
 	fi; \
 	if [ -n "$$frontend_pid" ]; then \
 		echo "Stopping frontend (pid: $$frontend_pid)..."; \
-		stop_process_tree "$$frontend_pid"; \
+		$$SUDO "$(STOP_PROCESS_TREE)" "$$frontend_pid"; \
 	fi; \
 	echo "✅ All services stopped"
 
 backend-stop:
 	@echo "🛑 Stopping backend only (frontend untouched)..."
-	@stop_process_tree() { \
-		_spt_root="$$1"; \
-		if [ -z "$$_spt_root" ]; then return 0; fi; \
-		_spt_all="$$_spt_root"; \
-		_spt_queue="$$_spt_root"; \
-		while [ -n "$$_spt_queue" ]; do \
-			_spt_next=""; \
-			for _spt_p in $$_spt_queue; do \
-				_spt_ch=$$(pgrep -P "$$_spt_p" 2>/dev/null || true); \
-				if [ -n "$$_spt_ch" ]; then \
-					_spt_all="$$_spt_all $$_spt_ch"; \
-					_spt_next="$$_spt_next $$_spt_ch"; \
-				fi; \
-			done; \
-			_spt_queue="$$_spt_next"; \
-		done; \
-		kill $$_spt_all 2>/dev/null || true; \
-		sleep 2; \
-		for _spt_p in $$_spt_all; do \
-			if kill -0 "$$_spt_p" 2>/dev/null; then \
-				kill -9 "$$_spt_p" 2>/dev/null || true; \
-			fi; \
-		done; \
-	}; \
-	backend_pid=$$(lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN 2>/dev/null); \
+	@backend_pid=$$(lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN 2>/dev/null); \
 	backend_orphans=""; \
 	for _p in $$(pgrep -x quartet-web 2>/dev/null); do \
 		if [ "$$_p" != "$$backend_pid" ]; then \
@@ -415,16 +339,14 @@ backend-stop:
 	done; \
 	if [ -n "$$backend_pid" ]; then \
 		echo "Stopping backend (pid: $$backend_pid, port: $(BACKEND_PORT))..."; \
-		stop_process_tree "$$backend_pid"; \
+		"$(STOP_PROCESS_TREE)" "$$backend_pid"; \
 	else \
 		echo "ℹ️  No backend running on port $(BACKEND_PORT)"; \
 	fi; \
 	if [ -n "$$backend_orphans" ]; then \
 		echo "🧹 Killing orphan quartet-web processes:$$backend_orphans"; \
-		kill $$backend_orphans 2>/dev/null || true; \
-		sleep 1; \
 		for _p in $$backend_orphans; do \
-			if kill -0 "$$_p" 2>/dev/null; then kill -9 "$$_p" 2>/dev/null || true; fi; \
+			"$(STOP_PROCESS_TREE)" "$$_p"; \
 		done; \
 	fi; \
 	if lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN >/dev/null 2>&1; then \

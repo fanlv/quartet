@@ -197,6 +197,9 @@ export function FlowStepEditor({
         <div className="loop-round-header-left" onClick={toggleCollapsed}>
           <span className={`loop-round-collapse-arrow${collapsed ? ' collapsed' : ''}`}>▾</span>
           <span className="loop-round-index-badge">Step {stepIndex + 1}</span>
+          {node.label?.trim() && (
+            <span className="loop-round-name-label" title={node.label}>{node.label.trim()}</span>
+          )}
           <span
             className={`loop-round-type-icon${isShellRound ? ' shell' : ' prompt'}`}
             title={isShellRound ? 'Shell' : 'Prompt'}
@@ -240,6 +243,17 @@ export function FlowStepEditor({
 
       {!collapsed && (
         <div className="loop-round-body">
+          <div className="loop-round-name-field">
+            <label className="loop-round-name-field-label">{t('loop.step.stepName')}</label>
+            <input
+              className="loop-round-name-input"
+              type="text"
+              value={node.label || ''}
+              onChange={(e) => handleFieldChange('label', e.target.value)}
+              placeholder={t('loop.step.stepNamePlaceholder', { index: stepIndex + 1 })}
+            />
+          </div>
+
           <div className="loop-round-type-toggle">
             <button
               className={`loop-round-type-btn${roundType === 'prompt' ? ' active' : ''}`}
