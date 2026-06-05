@@ -1,0 +1,657 @@
+/* ScheduleEditModal
+   Visual language aligned with the rest of the app (Settings / Workspaces):
+   blue primary (#2563eb), neutral grays, blue focus rings, soft shadows. */
+.schedule-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(17, 24, 39, 0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 1000;
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.schedule-modal {
+  background: #fff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 720px;
+  max-height: min(94vh, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px rgba(17, 24, 39, 0.18), 0 2px 8px rgba(17, 24, 39, 0.06);
+  margin: min(6vh, 48px) 0 12px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.schedule-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.schedule-modal-header h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: #111827;
+  letter-spacing: -0.01em;
+}
+
+.schedule-modal-close {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  color: #9ca3af;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.schedule-modal-close:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.schedule-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px 20px;
+  align-content: start;
+}
+
+/* Wide content (template + preview, cron, run info, advanced, errors) spans
+   both columns; short fields default to a single grid cell so they pair up. */
+.schedule-field-full,
+.schedule-advanced,
+.schedule-error {
+  grid-column: 1 / -1;
+}
+
+.schedule-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.schedule-field > label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4b5563;
+  letter-spacing: 0.01em;
+}
+
+.schedule-field input[type="text"],
+.schedule-field input[type="number"] {
+  padding: 9px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 9px;
+  font-size: 14px;
+  color: #1f2937;
+  outline: none;
+  background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.schedule-field input::placeholder {
+  color: #b3bac5;
+}
+
+.schedule-field input:focus {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.schedule-field-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.schedule-field-hint {
+  font-size: 12px;
+  color: #9ca3af;
+  line-height: 1.4;
+}
+
+/* Toggle switch */
+.schedule-toggle {
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.schedule-toggle.on {
+  background: #2563eb;
+}
+
+.schedule-toggle.off {
+  background: #d1d5db;
+}
+
+.schedule-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: left 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.schedule-toggle.on .schedule-toggle-thumb {
+  left: 22px;
+}
+
+.schedule-toggle.off .schedule-toggle-thumb {
+  left: 2px;
+}
+
+/* Workspace bind checkbox (create view) */
+.schedule-ws-bind {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #4b5563;
+  cursor: pointer;
+  max-width: 60%;
+  text-align: right;
+  justify-content: flex-end;
+}
+
+.schedule-ws-bind input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #2563eb;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.schedule-ws-bind input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Select */
+.schedule-select {
+  padding: 9px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 9px;
+  font-size: 14px;
+  color: #1f2937;
+  outline: none;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.schedule-select:focus {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.schedule-no-templates {
+  color: #9ca3af;
+  font-size: 13px;
+  padding: 10px 12px;
+  background: #f9fafb;
+  border: 1px dashed #e5e7eb;
+  border-radius: 9px;
+}
+
+/* Agent / Model / Mode selector row */
+.schedule-selectors-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.schedule-selectors-row .chat-model-selector {
+  position: relative;
+}
+
+/* Fixed-position dropdown portaled to body */
+.schedule-fixed-dropdown {
+  position: fixed !important;
+  bottom: auto !important;
+  max-height: 240px;
+  z-index: 1100;
+}
+
+.schedule-config-preview {
+  font-size: 12px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  padding: 7px 11px;
+  border-radius: 8px;
+}
+
+/* Bound workspace (edit view) */
+.schedule-ws-bound {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: #374151;
+  background: #fafbfc;
+  border: 1px solid #f0f0f0;
+  padding: 10px 12px;
+  border-radius: 9px;
+}
+
+.schedule-ws-bound-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.schedule-ws-bound-name {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.schedule-ws-bound-workdir {
+  color: #9ca3af;
+  font-size: 12px;
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Advanced */
+.schedule-advanced {
+  border: 1px solid #f0f0f0;
+  border-radius: 10px;
+  padding: 0;
+  background: #fafbfc;
+  transition: border-color 0.15s;
+}
+
+.schedule-advanced[open] {
+  border-color: #e5e7eb;
+}
+
+.schedule-advanced > summary {
+  padding: 11px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #4b5563;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.schedule-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.schedule-advanced > summary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid #9ca3af;
+  border-bottom: 1.5px solid #9ca3af;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+
+.schedule-advanced[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.schedule-advanced-fields {
+  padding: 4px 14px 14px;
+  display: flex;
+  flex-direction: row;
+  gap: 24px;
+}
+
+.schedule-advanced-fields .schedule-field {
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.schedule-advanced-fields input[type="number"] {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #fff;
+}
+
+/* Run info — paired half-width next to the bound workspace; stacked lines. */
+.schedule-run-info {
+  font-size: 13px;
+  color: #4b5563;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: #fafbfc;
+  border: 1px solid #f0f0f0;
+  padding: 10px 14px;
+  border-radius: 10px;
+}
+
+.schedule-run-info > div {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Error */
+.schedule-error {
+  color: #dc2626;
+  font-size: 13px;
+  padding: 9px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+}
+
+/* Footer */
+.schedule-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-top: 1px solid #f0f0f0;
+  background: #fcfcfd;
+}
+
+.schedule-modal-footer-right {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.schedule-btn {
+  padding: 8px 18px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.schedule-btn:active {
+  transform: scale(0.97);
+}
+
+.schedule-btn-cancel {
+  background: #fff;
+  color: #374151;
+  border-color: #e5e7eb;
+}
+
+.schedule-btn-cancel:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+.schedule-btn-save {
+  background: #2563eb;
+  color: #fff;
+}
+
+.schedule-btn-save:hover {
+  background: #1d4ed8;
+}
+
+.schedule-btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.schedule-btn-save:disabled:active {
+  transform: none;
+}
+
+.schedule-btn-trigger {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #dbeafe;
+}
+
+.schedule-btn-trigger:hover {
+  background: #dbeafe;
+  border-color: #bfdbfe;
+}
+
+/* CronInput */
+.cron-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cron-input-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.cron-tab {
+  padding: 4px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  color: #6b7280;
+  transition: all 0.15s;
+}
+
+.cron-tab:hover {
+  border-color: #d1d5db;
+  background: #f9fafb;
+}
+
+.cron-tab.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.cron-tab.active:hover {
+  background: #1d4ed8;
+}
+
+.cron-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.cron-preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 0;
+}
+
+.cron-preset-btn:hover {
+  border-color: #bfdbfe;
+  background: #f9fafb;
+}
+
+.cron-preset-btn.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.cron-preset-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.cron-preset-btn.active .cron-preset-label {
+  color: #1d4ed8;
+}
+
+/* Description hidden in the modal to keep preset cards single-line and the
+   form compact; the human-readable cron label below already explains the
+   selected expression. */
+.cron-preset-desc {
+  display: none;
+}
+
+.cron-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cron-custom-input {
+  padding: 9px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 9px;
+  font-size: 14px;
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.cron-custom-input:focus {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.cron-custom-input.error {
+  border-color: #f87171;
+}
+
+.cron-custom-input.error:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+.cron-error {
+  color: #dc2626;
+  font-size: 12px;
+}
+
+.cron-help {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.cron-human-label {
+  font-size: 13px;
+  color: #1d4ed8;
+  font-weight: 500;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .schedule-modal {
+    max-width: 100%;
+    max-height: calc(100% - 24px);
+    border-radius: 16px;
+    margin-top: 0;
+  }
+
+  .schedule-modal-overlay {
+    padding: max(12px, env(safe-area-inset-top, 0px)) 12px max(12px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .schedule-modal-body {
+    padding: 16px;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .schedule-advanced-fields {
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .schedule-modal-header {
+    padding: 16px 16px 12px;
+  }
+
+  .schedule-modal-footer {
+    padding: 12px 16px;
+  }
+
+  .cron-presets {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+
+  .cron-preset-btn {
+    min-width: 0;
+    padding: 7px 9px;
+  }
+
+  .schedule-selectors-row {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .schedule-selectors-row .chat-model-selector {
+    width: 100%;
+  }
+
+  .schedule-selectors-row .model-tag {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .schedule-selectors-row .model-dropdown {
+    width: 100%;
+  }
+}
+
+/* iPad */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .schedule-modal {
+    max-width: 640px;
+    margin-top: min(8vh, 56px);
+  }
+}

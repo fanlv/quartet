@@ -1,0 +1,78 @@
+package model
+
+import (
+	"fmt"
+	"math/rand/v2"
+	"time"
+)
+
+type Workspace struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Workdir     string    `json:"workdir"`
+	Color       string    `json:"color,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	Deleted     bool      `json:"deleted,omitempty"`
+
+	// Sandbox records the last-known sandbox container binding for this
+	// workspace. Only populated once the workspace has been used in
+	// container form (RunInSandbox=true). The runtime port is NOT stored
+	// here — it is re-discovered from docker each time the container
+	// comes up.
+	Sandbox *SandboxRef `json:"sandbox,omitempty"`
+}
+
+// SandboxRef is the persisted pointer from a workspace to its sandbox
+// container. ProjectName is the compose project id used to address the
+// container across process restarts; Template identifies which sandbox
+// image/compose flavour this container was provisioned from, so future
+// multi-template / custom-image work can key off it.
+type SandboxRef struct {
+	ProjectName string `json:"project_name"`
+	Template    string `json:"template,omitempty"`
+}
+
+func NewWorkspace(title, description, workdir string) *Workspace {
+	return &Workspace{
+		ID:          newWorkspaceID(),
+		Title:       title,
+		Description: description,
+		Workdir:     workdir,
+		Color:       RandomWorkspaceColor(),
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+}
+
+func newWorkspaceID() string {
+	t := time.Now()
+	// Microsecond-resolution timestamp + a 32-bit random tag. Same-microsecond
+	// collisions have ~1/2^32 probability per pair, which even under burst
+	// workspace creation (batch imports, tests) effectively never triggers.
+	return fmt.Sprintf("ws-%s-%06d-%08x", t.Format("20060102-150405"), t.Nanosecond()/1000, rand.Uint32())
+}
+
+// RandomWorkspaceColor returns a hex string (#rrggbb) with a random hue and
+// pinned saturation/lightness so every workspace sits in a visually consistent
+// band while still being distinct from its neighbours.
+func RandomWorkspaceColor() string {
+	return hslToHex(rand.IntN(360), 70, 55)
+}
+
+func hslToHex(h, s, l int) string {
+	sf := float64(s) / 100
+	lf := float64(l) / 100
+	a := sf * min(lf, 1-lf)
+	k := func(n float64) float64 {
+		v := n + float64(h)/30
+		return v - 12*float64(int(v)/12)
+	}
+	f := func(n float64) int {
+		x := k(n)
+		m := max(-1.0, min(x-3, min(9-x, 1)))
+		return int(255*(lf-a*m) + 0.5)
+	}
+	return fmt.Sprintf("#%02x%02x%02x", f(0), f(8), f(4))
+}

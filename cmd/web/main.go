@@ -1,0 +1,363 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"os"
+	"os/signal"
+	"runtime/debug"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/hlog"
+	"github.com/fanlv/quartet/cmd/web/handler"
+	acpagent "github.com/fanlv/quartet/pkg/acp"
+	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/pkg/messaging/media"
+	"github.com/fanlv/quartet/pkg/sandbox"
+	svcacp "github.com/fanlv/quartet/services/agent/acp"
+	acpprobe "github.com/fanlv/quartet/services/agent/probe"
+	"github.com/fanlv/quartet/services/schedule"
+	"github.com/fanlv/quartet/types/consts"
+	"github.com/hertz-contrib/cors"
+)
+
+const defaultListenAddr = "127.0.0.1:8090"
+
+const maxRequestBodySize = 16 << 20 // 16 MiB: 10 MiB upload cap + multipart overhead.
+const httpShutdownTimeout = 5 * time.Second
+const sandboxShutdownTimeout = 2 * time.Minute
+
+// Filled by `go build -ldflags` in Makefile. Keep defaults explicit so
+// `go run ./cmd/web` and ad-hoc builds still produce a useful startup log
+// instead of silently omitting version fields.
+var (
+	buildTime   = "unknown"
+	buildCommit = "unknown"
+	buildDirty  = "unknown"
+)
+
+// listenAddr returns the address the HTTP server binds to. By default it is
+// 127.0.0.1:8090 so a misconfigured machine cannot accidentally expose the
+// file-read/write/shell APIs to the network. Operators that need LAN access
+// can explicitly opt in by setting QUARTET_LISTEN_ADDR (e.g. "0.0.0.0:8090").
+func listenAddr() string {
+	if v := os.Getenv(consts.EnvKeyListenAddr); v != "" {
+		return v
+	}
+	return defaultListenAddr
+}
+
+// corsOrigins parses QUARTET_CORS_ORIGINS into a comma-separated allowlist.
+// The default (empty) falls back to same-origin only: we don't emit an ACAO
+// header for cross-origin requests, which is the safe default for a local
+// server that ships with no web client on a third-party origin. Operators
+// who proxy the UI from a different origin can set the env var explicitly.
+// The literal "*" is accepted for dev workflows; combined with the built-in
+// auth token it's still gated, but anyone relying on it should be aware.
+func corsOrigins() []string {
+	v := strings.TrimSpace(os.Getenv(consts.EnvKeyCORSOrigins))
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func logStartupBuildInfo(ctx context.Context) {
+	exe, exeErr := os.Executable()
+	if exeErr != nil {
+		exe = "unknown:" + exeErr.Error()
+	}
+	wd, wdErr := os.Getwd()
+	if wdErr != nil {
+		wd = "unknown:" + wdErr.Error()
+	}
+
+	goVersion := "unknown"
+	vcsRevision := "unknown"
+	vcsTime := "unknown"
+	vcsModified := "unknown"
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		goVersion = bi.GoVersion
+		for _, setting := range bi.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				if setting.Value != "" {
+					vcsRevision = setting.Value
+				}
+			case "vcs.time":
+				if setting.Value != "" {
+					vcsTime = setting.Value
+				}
+			case "vcs.modified":
+				if setting.Value != "" {
+					vcsModified = setting.Value
+				}
+			}
+		}
+	}
+
+	logger.Infof(ctx,
+		"[startup] quartet-web binary: pid=%d exe=%s cwd=%s buildTime=%s buildCommit=%s buildDirty=%s go=%s vcsRevision=%s vcsTime=%s vcsModified=%s",
+		os.Getpid(), exe, wd, buildTime, buildCommit, buildDirty, goVersion, vcsRevision, vcsTime, vcsModified)
+}
+
+// waitForListenReady polls the given TCP address until a dial succeeds, meaning
+// the HTTP listener is actually accepting connections. Returns early if the
+// server goroutine reports an error (listener bind failed) or if the root
+// context is cancelled. Callers should treat a non-nil error as "the server is
+// not ready and likely won't become ready" rather than a transient.
+func waitForListenReady(ctx context.Context, addr string, timeout time.Duration, serverErr <-chan error) error {
+	deadline := time.Now().Add(timeout)
+	dialer := net.Dialer{Timeout: 500 * time.Millisecond}
+	for {
+		select {
+		case err := <-serverErr:
+			if err != nil {
+				return fmt.Errorf("server goroutine exited before ready: %w", err)
+			}
+			return fmt.Errorf("server goroutine exited before ready with nil error")
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("listener not ready after %s: last dial error: %v", timeout, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func main() {
+	// Honor QUARTET_LOG_LEVEL at boot. Silently ignored when unset or when
+	// the value is unknown — the logger keeps its Info default.
+	if lvl := os.Getenv(consts.EnvKeyLogLevel); lvl != "" {
+		logger.SetLevel(lvl)
+	}
+
+	logStartupBuildInfo(context.Background())
+	if os.Getenv("LOCAL_MEMORY") == "" {
+		logger.Fatalf(context.Background(), "LOCAL_MEMORY environment variable is required")
+	}
+
+	// Root context is cancellable by SIGINT/SIGTERM and is the parent of all
+	// long-running background tasks (eviction loops, schedulers, IM listeners,
+	// etc.). When main returns, every descendant ctx is cancelled, which lets
+	// retry/sleep loops exit cleanly instead of hanging onto external services
+	// during shutdown.
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	// Register ACP command allowlist and settings-backed env provider
+	// before anything constructs an ACP connection. pkg/acp rejects
+	// unregistered commands and skips env injection when no provider is
+	// installed, and handler.NewHandler calls probe.WarmupACPSessionCache
+	// which opens real NewConn subprocesses — so these two registrations
+	// must land BEFORE NewHandler, not after it. Split from init() (was
+	// services/agent/acp/env.go + services/agent/probe/probe.go) so
+	// startup wiring is visible here instead of piggybacking on import
+	// ordering.
+	acpprobe.InitAllowedAgentCommands()
+	svcacp.InitEnvProvider()
+
+	// Clean up orphaned ACP subprocesses left by a previous crash before
+	// creating any new connections. Must run BEFORE handler.NewHandler,
+	// which calls probe.WarmupACPSessionCache and may spawn fresh ACP
+	// subprocesses — racing the cleanup window otherwise.
+	acpagent.CleanupOrphanedConns()
+
+	h, err := handler.NewHandler(ctx)
+	if err != nil {
+		logger.Fatalf(ctx, "Failed to initialize handler: %v", err)
+	}
+
+	s := newServer()
+	registerRoutes(s, h)
+
+	// Pre-bind probe: reserve the TCP port BEFORE starting any background
+	// worker (scheduler, ACP reaper, IM listeners) so a duplicate-process
+	// launch fails fast with a clear error instead of silently running its
+	// schedulers / IM connections alongside the real instance. We hold the
+	// probe listener until just before Hertz binds so another process can't
+	// steal the port between probe close and Hertz listen.
+	addr := listenAddr()
+	probe, err := net.Listen("tcp", addr)
+	if err != nil {
+		logger.Fatalf(ctx, "bind probe failed on %s: %v (is another quartet instance already running?)", addr, err)
+	}
+
+	// Initialize and start the scheduler (reuse handler's schedule service to share state)
+	schSvc := h.GetScheduleService()
+	trigger := h.ScheduleTrigger
+	scheduler := schedule.NewScheduler(schSvc, trigger)
+	h.SetScheduler(scheduler)
+	scheduler.Start(ctx)
+	defer scheduler.Stop()
+
+	// Spin() swallows Run() errors and then returns silently; if the listener
+	// fails (e.g. port already in use) main would block on <-ctx.Done() with
+	// no server running. Use Engine.Run() directly so early errors cancel the
+	// root context and trigger the normal shutdown path.
+	//
+	// Hertz's netpoll listener panics (not returns err) when bind fails, so a
+	// plain `safe.Go` would recover the panic and leave `serverErr` silent —
+	// main would then block on <-ctx.Done() while the scheduler/ACP reaper/IM
+	// listeners keep running. Handle the panic inline and forward it as an
+	// error so the select below can cancel the root context.
+	serverErr := make(chan error, 1)
+	// Release the probe listener the instant before Hertz binds. A zero-RTT
+	// race window remains, but a duplicate process that arrives in this gap
+	// would have failed the probe above and exited.
+	if err := probe.Close(); err != nil {
+		logger.Warnf(ctx, "bind probe close failed: %v", err)
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				serverErr <- fmt.Errorf("HTTP server panic: %v\n%s", r, debug.Stack())
+			}
+		}()
+		serverErr <- s.Engine.Run()
+	}()
+	// Self-check: dial the port until the Hertz listener is actually accepting
+	// connections. Without this, "Server is running on ..." fires ~0ms after the
+	// goroutine starts but BEFORE Hertz finishes binding — misleading any
+	// operator or start-up watcher (e.g. `make web`) that treats this log line
+	// as the ready signal. The probe above already proved the port is grabbable,
+	// so a failure here is unusual and points at a real problem (listener goroutine
+	// panicked between probe.Close and Hertz's Listen) rather than a transient.
+	if err := waitForListenReady(ctx, addr, 5*time.Second, serverErr); err != nil {
+		logger.Errorf(ctx, "HTTP server readiness self-check failed on %s: %v", addr, err)
+		cancel()
+	} else {
+		logger.Infof(ctx, "Server is running on %s", addr)
+	}
+	if os.Getenv(consts.EnvKeyAgentAuth) == "" {
+		logger.Warnf(ctx, "[security] %s is not set; API access is OPEN — every request is allowed. Set %s to a token before exposing this server to untrusted networks.",
+			consts.EnvKeyAgentAuth, consts.EnvKeyAgentAuth)
+	} else {
+		logger.Infof(ctx, "[security] %s is set; API access requires a matching token", consts.EnvKeyAgentAuth)
+	}
+
+	// Start the idle reaper to periodically close unused ACP connections,
+	// preventing unbounded subprocess memory growth.
+	stopReaper := acpagent.StartIdleReaper()
+	media.StartCacheCleanup(ctx)
+
+	h.StartIMListeners(ctx)
+
+	select {
+	case <-ctx.Done():
+	case err := <-serverErr:
+		if err != nil {
+			logger.Errorf(ctx, "HTTP server exited: %v", err)
+		}
+		cancel()
+	}
+	logger.Info("Shutting down server...")
+
+	stopReaper()
+
+	// Stop IM listeners (Lark WebSocket / WeChat iLink) BEFORE HTTP shutdown
+	// so their goroutines unwind under our control. Without this, the SDK
+	// read loops race with the implicit context cancel triggered by signal
+	// handling and emit a misleading "[lark/sdk] receive message failed:
+	// ... use of closed network connection" WARN on every restart even though
+	// the close is fully expected. The shutdown-aware sdkLogger then sees
+	// listener.stopped == true and demotes the disconnect log to Debug.
+	h.StopIMListeners()
+
+	// Shut down the HTTP server first so it stops accepting new requests and
+	// drains in-flight ones within httpShutdownTimeout. This must happen
+	// BEFORE StopAll: otherwise a request that lands in the StopAll race
+	// window can register a fresh job goroutine right after StopAll snapshots
+	// s.cancels, leaving it leaked through process exit. It also keeps the
+	// container alive for any in-flight request still touching a sandbox
+	// (stream flush, final write) — sandbox.Shutdown happens last.
+	httpShutdownCtx, httpShutdownCancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
+	defer httpShutdownCancel()
+	if err := s.Shutdown(httpShutdownCtx); err != nil {
+		logger.Errorf(ctx, "Server shutdown error: %v", err)
+	}
+
+	// Stop all running jobs so their goroutines can save final state and exit cleanly.
+	h.GetJobService().StopAll()
+
+	// Flush usage-stats writes so the last debounced batch lands on disk
+	// before exit. Best-effort: failures are logged inside the service.
+	if us := h.GetUsageStats(); us != nil {
+		us.Flush(ctx)
+	}
+
+	acpagent.CloseAllConns()
+
+	// Tear down every per-workspace sandbox container with an independent,
+	// much larger budget than HTTP shutdown. Sharing the same 5s ctx makes
+	// later compose-down calls inherit an already-expired deadline and leak
+	// containers on busy exits.
+	sandboxShutdownCtx, sandboxShutdownCancel := context.WithTimeout(context.Background(), sandboxShutdownTimeout)
+	defer sandboxShutdownCancel()
+	sandbox.Shutdown(sandboxShutdownCtx)
+
+	logger.Info("Server stopped")
+}
+
+func newServer() *server.Hertz {
+	// Route Hertz's own logs through pkg/logger so timestamps and levels match
+	// the rest of the backend log. Default hlog emits `2026/05/07 17:19:17.873 ...
+	// [Info] HERTZ: ...` which would interleave with our own
+	// `2026-05-07 17:19:17 INFO ...` format and break `grep`.
+	hlog.SetLogger(&hlogBridge{level: hlog.LevelInfo})
+	// Suppress Hertz's per-route "[Debug] HERTZ: Method=... absolutePath=..."
+	// registration lines (hundreds at boot) so the business log isn't diluted.
+	// Info is still emitted, which preserves "Using network library=netpoll"
+	// and "HTTP server listening on address=..." — the two startup signals we
+	// want to keep visible.
+	hlog.SetLevel(hlog.LevelInfo)
+
+	h := server.Default(
+		server.WithHostPorts(listenAddr()),
+		server.WithExitWaitTime(httpShutdownTimeout),
+		server.WithIdleTimeout(30*time.Minute),
+		server.WithStreamBody(true),
+		server.WithMaxRequestBodySize(maxRequestBodySize),
+	)
+
+	origins := corsOrigins()
+	if len(origins) > 0 {
+		h.Use(cors.New(cors.Config{
+			AllowOrigins:     origins,
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"Content-Type", "Authorization", "X-Requested-With", consts.HeaderAgentAuth},
+			ExposeHeaders:    []string{"Content-Length"},
+			AllowCredentials: false,
+			MaxAge:           24 * time.Hour,
+		}))
+		logger.Infof(context.Background(), "[cors] cross-origin enabled for: %s", strings.Join(origins, ", "))
+	} else {
+		// Previous releases hard-coded AllowOrigins=["*"]; the default flipped
+		// to same-origin only. Emit a one-line hint so operators upgrading a
+		// deployment that serves the UI from a different origin can set
+		// QUARTET_CORS_ORIGINS explicitly instead of debugging ACAO failures.
+		logger.Infof(context.Background(), "[cors] same-origin only (set %s=<origin,...> to allow cross-origin; previous releases defaulted to '*')", consts.EnvKeyCORSOrigins)
+	}
+
+	h.Use(loggerMiddleware())
+
+	return h
+}

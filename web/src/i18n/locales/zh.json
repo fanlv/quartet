@@ -1,0 +1,845 @@
+{
+  "common": {
+    "save": "保存",
+    "saving": "保存中...",
+    "cancel": "取消",
+    "close": "关闭",
+    "delete": "删除",
+    "edit": "编辑",
+    "loading": "加载中...",
+    "retry": "重试",
+    "saveSuccess": "保存成功",
+    "saveFailed": "保存失败",
+    "loadFailed": "加载失败",
+    "networkError": "网络错误",
+    "notSet": "未设置",
+    "default": "默认",
+    "enabled": "启用",
+    "disabled": "禁用",
+    "auto": "自动",
+    "yes": "是",
+    "no": "否",
+    "confirm": "确认",
+    "browse": "浏览",
+    "create": "创建",
+    "search": "搜索",
+    "searching": "搜索中...",
+    "install": "安装",
+    "installing": "安装中...",
+    "uninstall": "卸载",
+    "copySuccess": "复制成功",
+    "copyFailed": "复制失败",
+    "copyPath": "复制路径",
+    "copyContent": "复制内容"
+  },
+  "app": {
+    "jobMissingNotice": "Job {{jobId}} 不存在或已被删除。已清理失效 URL，并返回工作空间首页。"
+  },
+  "sidebar": {
+    "newChat": "新对话",
+    "jobHistory": "历史记录",
+    "loading": "加载中...",
+    "noConversations": "暂无对话记录",
+    "loadMore": "加载更多",
+    "loadingMore": "加载中…",
+    "settings": "设置",
+    "deleteJob": "删除任务",
+    "deleteConfirmMessage": "确定要删除 \"{{title}}\" 吗？",
+    "noAgentsAvailable": "暂无可用 Agent",
+    "selectAgent": "选择 Agent"
+  },
+  "welcome": {
+    "title": "今天想聊点什么？",
+    "subtitle": "面向每位开发者的可信 AI 工作平台",
+    "suggestions": {
+      "weather": "今天北京天气怎么样？",
+      "aiProgress": "帮我搜索 AI 最新进展",
+      "whatCanYouDo": "你能帮我做什么？",
+      "claudeProgress": "帮我搜索 Claude 和 Claude Code 最新进展",
+      "hotNews": "帮我搜索今天热点新闻"
+    }
+  },
+  "chat": {
+    "placeholder": "有什么可以帮你的？",
+    "cancelQueue": "取消排队",
+    "uploadImage": "上传图片",
+    "stopGeneration": "停止生成",
+    "sendMessage": "发送消息",
+    "queueSend": "排队发送",
+    "waitingToSend": "等待发送...",
+    "imagesCount": "{{count}} 张图片",
+    "switchWorkspace": "切换工作空间",
+    "thinking": "AI 正在思考...",
+    "deepThinking": "深度思考",
+    "renameTitle": "重命名",
+    "titleSave": "保存",
+    "titleCancel": "取消",
+    "titleEmpty": "标题不能为空",
+    "titleTooLong": "标题过长（最多 {{max}} 个字符）"
+  },
+  "connection": {
+    "restored": "连接已恢复",
+    "disconnected": "服务器断开，正在重连..."
+  },
+  "system": {
+    "restartWeb": "重启 Web",
+    "restartWebRunning": "正在重启 Web...",
+    "restartWebFailed": "重启失败：{{message}}",
+    "restartWebConfirmTitle": "确认重启 Web？",
+    "restartWebConfirmMessage": "将执行 `make web`，当前页面会短暂断开连接。确认继续吗？",
+    "restartWebCancel": "取消",
+    "restartWebConfirm": "重启"
+  },
+  "loop": {
+    "emptySavedTemplates": "暂无已保存的模板",
+    "noVariablesPrefix": "暂无变量，可放仓库名、分支名等复用信息。用",
+    "noVariablesSuffix": "引用。",
+    "noShellScripts": "暂无 Shell",
+    "panel": {
+      "title": "Loop 任务配置"
+    },
+    "workspace": {
+      "defaultLabel": "使用当前工作空间"
+    },
+    "progress": {
+      "lastError": "最近失败原因",
+      "session": "会话 {{current}} / {{total}}",
+      "step": "步骤 {{current}} / {{total}}"
+    },
+    "template": {
+      "label": "模板",
+      "placeholder": "选择模板...",
+      "currentLabel": "当前模板",
+      "libraryButton": "模板库",
+      "libraryTitle": "模板库",
+      "librarySubtitle": "搜索、查看并应用已保存的 Loop 模板。",
+      "searchPlaceholder": "搜索模板名称...",
+      "selectedTag": "当前",
+      "useTemplate": "使用模板",
+      "updatedAt": "更新于 {{time}}",
+      "unsavedNotice": "使用模板会覆盖当前未保存的配置。",
+      "emptyLibraryTitle": "还没有保存模板",
+      "emptyLibraryDesc": "把当前 Loop 配置保存成模板后，可以在这里快速复用。",
+      "emptySearchTitle": "没有匹配的模板",
+      "emptySearchDesc": "换一个关键词，或导入一份 LoopConfig JSON。",
+      "deleteTitle": "删除该模板",
+      "categoryScheduled": "定时任务",
+      "categoryOther": "其他模板",
+      "scheduleBadgeTitle": "被 {{count}} 个定时任务引用",
+      "scheduleBadge": "定时 × {{count}}",
+      "errors": {
+        "updateFailed": "更新失败，请检查模板是否仍存在"
+      }
+    },
+    "variables": {
+      "label": "变量",
+      "emptyHint": "暂无变量，可放仓库名、分支名等复用信息。用 <0>{{varTag}}</0> 引用。",
+      "countHint": "{{count}} 个变量，用 <0>{{varTag}}</0> 引用",
+      "keyPlaceholder": "变量名",
+      "valuePlaceholder": "变量值"
+    },
+    "flow": {
+      "title": "执行流程",
+      "meta": "{{nodes}} 个节点 · {{steps}} 步",
+      "steps": "{{count}} 步"
+    },
+    "state": {
+      "unsaved": "未保存",
+      "clean": "已保存"
+    },
+    "tabs": {
+      "flow": "流程",
+      "config": "配置",
+      "variables": "变量"
+    },
+    "outline": {
+      "emptyStep": "步骤 {{index}}",
+      "emptyShell": "未选择 Shell",
+      "groupMeta": "迭代 × {{iterations}} · {{steps}} 步",
+      "stepMeta": "{{mode}}",
+      "stepMetaRepeat": "重复 × {{repeat}}"
+    },
+    "inspector": {
+      "stepTitle": "Step 配置",
+      "groupTitle": "循环组配置",
+      "groupName": "循环组名称",
+      "ready": "配置完整",
+      "empty": "请选择一个节点"
+    },
+    "validation": {
+      "promptRequired": "步骤缺少消息内容",
+      "scriptRequired": "Shell 步骤未选择脚本",
+      "groupEmpty": "循环组没有子节点"
+    },
+    "footer": {
+      "blank": "空白配置",
+      "template": "模板「{{name}}」",
+      "nodes": "{{count}} 个节点",
+      "variables": "{{count}} 个变量",
+      "firstIssue": "错误：{{message}}"
+    },
+    "actions": {
+      "addVariable": "+ 新增",
+      "addStep": "+ 添加步骤",
+      "addGroup": "+ 添加循环组",
+      "add": "+ 添加",
+      "addMenuStep": "添加步骤",
+      "addMenuGroup": "添加循环组",
+      "more": "更多",
+      "moreTitle": "更多操作",
+      "reset": "重置",
+      "resetTitle": "重置表单",
+      "copyConfig": "复制配置",
+      "copyConfigTitle": "复制 LoopConfig JSON",
+      "importConfig": "导入配置",
+      "importConfigTitle": "导入 LoopConfig JSON",
+      "updateTemplate": "更新模板",
+      "updateTemplateTitle": "更新当前模板",
+      "saveAsTemplate": "保存为模板",
+      "saveAsTemplateTitle": "保存为新模板",
+      "duplicate": "复制",
+      "moveUp": "上移",
+      "moveDown": "下移",
+      "jumpToIssue": "跳到问题",
+      "start": "开始 Loop"
+    },
+    "toast": {
+      "copiedConfig": "已复制 LoopConfig",
+      "importedConfig": "已导入配置"
+    },
+    "import": {
+      "errors": {
+        "missingFlow": "无效的配置：缺少 flow 字段",
+        "jsonParseFailed": "JSON 解析失败，请检查格式"
+      }
+    },
+    "dialog": {
+      "save": {
+        "title": "保存为模板",
+        "placeholder": "请输入模板名称..."
+      },
+      "update": {
+        "title": "更新模板",
+        "desc": "将覆盖模板「{{name}}」的当前内容。",
+        "placeholder": "模板名称...",
+        "confirm": "确认更新",
+        "updating": "更新中..."
+      },
+      "delete": {
+        "title": "确认删除",
+        "desc": "确定要删除模板「{{name}}」吗？"
+      },
+      "deleteNode": {
+        "title": "删除节点",
+        "desc": "确定要删除当前流程节点吗？"
+      },
+      "leave": {
+        "title": "确认离开",
+        "desc": "有未保存的修改，确定要离开吗？",
+        "stay": "继续编辑",
+        "confirm": "确定离开"
+      },
+      "import": {
+        "title": "导入 LoopConfig",
+        "hint": "粘贴 LoopConfig JSON 配置",
+        "confirm": "导入"
+      }
+    },
+    "group": {
+      "mainLabel": "主循环",
+      "defaultLabel": "循环组 {{index}}",
+      "iteration": "迭代",
+      "stepsMeta": "{{count}} 步"
+    },
+    "step": {
+      "agentPlaceholder": "请选择 Agent",
+      "status": {
+        "ready": "已就绪",
+        "todo": "待完善"
+      },
+      "inline": {
+        "repeat": "重复",
+        "session": "会话"
+      },
+      "roundMode": {
+        "none": {
+          "label": "不开新会话",
+          "desc": "复用已有会话"
+        },
+        "beforeRound": {
+          "label": "Round 循环前新建",
+          "desc": "本轮开始前创建新会话"
+        },
+        "eachRepeat": {
+          "label": "Round 每次循环重复新建",
+          "desc": "每次重复都创建新会话"
+        }
+      },
+      "agentOverride": {
+        "label": "会话 Agent / Model"
+      },
+      "settings": {
+        "label": "设置"
+      },
+      "insertVar": {
+        "button": "插入变量",
+        "title": "向消息中插入变量",
+        "groupDefined": "自定义变量",
+        "groupShell": "Shell 变量",
+        "groupBuiltin": "内置变量",
+        "empty": "暂无可用变量"
+      },
+      "message": {
+        "label": "消息内容",
+        "hint": "支持快速插入变量标签",
+        "placeholder": "请输入本轮消息内容..."
+      },
+      "quickInsert": "快捷插入",
+      "insertVarTitle": "插入 {{tag}}",
+      "builtinVarsLabel": "内置变量",
+      "builtinVarInsertTitle": "{{desc}} — 插入 {{tag}}",
+      "builtinVars": {
+        "currentTime": "当前时间 (RFC3339)",
+        "currentPath": "当前步骤路径",
+        "lastAssistantMsg": "上一轮 AI 回复",
+        "jobTitle": "Job 标题",
+        "jobWorkdir": "工作目录"
+      },
+      "shell": {
+        "label": "选择 Shell",
+        "hint": "脚本内容会在下方只读预览",
+        "selectPlaceholder": "点击选择 Shell...",
+        "searchPlaceholder": "搜索 Shell...",
+        "previewTitle": "脚本预览",
+        "note": "Shell 中可通过内置函数设置变量：<0>{{setCmd}}</0>，后续 Step 可通过 <1>{{varTag}}</1> 引用。跳出当前循环：<2>{{breakCmd}}</2>，退出整个工作流：<3>{{returnCmd}}</3>。",
+        "detectedVars": "检测到变量"
+      }
+    }
+  },
+  "settings": {
+    "title": "设置",
+    "tabs": {
+      "general": "系统设置",
+      "workspace": "工作空间",
+      "token": "Token",
+      "model": "模型管理",
+      "prompt": "Prompt 设置",
+      "skill": "技能管理",
+      "acp": "ACP 配置",
+      "lark": "Lark 配置",
+      "wechat": "微信配置",
+      "script": "Shell 管理",
+      "logs": "日志"
+    },
+    "general": {
+      "sectionTitle": "用户配置",
+      "language": "语言",
+      "languageDesc": "选择界面显示语言",
+      "username": "用户名",
+      "usernamePlaceholder": "User",
+      "usernameDesc": "显示在聊天界面中的用户名，默认为 User",
+      "avatar": "头像链接",
+      "avatarPlaceholder": "https://example.com/avatar.png",
+      "avatarDesc": "用户头像的图片链接，留空则使用默认头像",
+      "builtinModel": "内置模型",
+      "builtinModelDesc": "用于自动生成对话标题等内置功能，选择 Agent 后自动使用对应模型，留空则不启用",
+      "messageModel": "消息模型",
+      "messageModelDesc": "收到 IM 消息后自动调用该 Agent 生成回复，留空则不启用"
+    },
+    "token": {
+      "sectionTitle": "鉴权 Token",
+      "sectionDesc": "设置你的鉴权 Token。",
+      "placeholder": "请输入 Token（留空则不携带）",
+      "show": "显示",
+      "hide": "隐藏",
+      "clear": "清空",
+      "paste": "粘贴",
+      "statusNotSet": "当前状态：未设置",
+      "statusSet": "当前状态：已设置（长度 {{length}}）",
+      "lastSaved": "最近保存：",
+      "gateTitle": "需要鉴权",
+      "gateDescNeedToken": "当前实例已开启鉴权，请输入访问 Token 后继续。",
+      "gateDescInvalidToken": "已保存的 Token 被服务端拒绝，请重新输入有效的 Token。",
+      "gateProbing": "正在校验访问凭证…",
+      "gateProbeFailed": "无法访问 /api/v1/health，请确认后端已启动后重试。",
+      "gateContinue": "继续"
+    },
+    "model": {
+      "sectionTitle": "模型列表",
+      "providerCount": "共 {{count}} 个提供商",
+      "addModel": "+ 添加模型",
+      "configuredCount": "已配置 {{count}} 个模型",
+      "noModels": "暂无配置的模型",
+      "confirmDelete": "确认删除该模型？删除后不可恢复",
+      "deleteFailed": "删除失败",
+      "createFailed": "创建失败",
+      "addModelTitle": "添加 {{provider}} 模型",
+      "displayName": "显示名称",
+      "modelName": "模型名称",
+      "apiKey": "API Key",
+      "baseUrl": "Base URL",
+      "baseUrlPlaceholder": "选填",
+      "enableBase64Url": "启用 Base64 URL",
+      "thinkingMode": "思考模式",
+      "region": "Region",
+      "regionPlaceholder": "选填，例如：cn-beijing",
+      "useAzure": "使用 Azure OpenAI",
+      "apiVersion": "API Version",
+      "apiVersionPlaceholder": "选填，例如：2024-06-01",
+      "backend": "Backend",
+      "backendDefault": "默认 (Gemini API)",
+      "project": "Project",
+      "projectPlaceholder": "选填，GCP 项目 ID",
+      "location": "Location",
+      "locationPlaceholder": "选填，例如：us-central1",
+      "fillRequired": "请填写显示名称和模型名称",
+      "fillApiKey": "请填写 API Key",
+      "notConfigured": "未配置",
+      "model": "模型",
+      "thinkingModeLabel": "思考模式:",
+      "azure": "Azure",
+      "loadModelListFailed": "加载模型列表失败",
+      "status": {
+        "enabled": "启用",
+        "disabled": "禁用"
+      },
+      "placeholders": {
+        "displayName": "例如：{{example}}",
+        "model": "例如：{{example}}",
+        "apiKey": "密钥"
+      }
+    },
+    "prompt": {
+      "groups": {
+        "conversation": "对话 Prompt",
+        "workspace": "工作空间文档",
+        "memory": "记忆体系"
+      },
+      "tabs": {
+        "systemPrompt": "系统提示词",
+        "groupChatPrompt": "群聊 Prompt",
+        "homeAgentsMd": "默认工作空间",
+        "soul": "SOUL.md",
+        "user": "USER.md",
+        "memory": "MEMORY.md"
+      },
+      "placeholders": {
+        "systemPrompt": "输入系统提示词...",
+        "groupChatPrompt": "输入群聊 Prompt，可使用 {{ChatID}} {{SenderID}} {{Content}}...",
+        "homeAgentsMd": "输入默认工作空间的 AGENTS.md 内容...",
+        "soul": "输入 SOUL.md 内容（Sophia 的灵魂设定）...",
+        "user": "输入 USER.md 内容（主人信息）...",
+        "memory": "输入 MEMORY.md 内容（长期记忆）..."
+      },
+      "titles": {
+        "systemPrompt": "系统提示词",
+        "groupChatPrompt": "群聊 Prompt",
+        "homeAgentsMd": "AGENTS.md · 默认工作空间",
+        "soul": "SOUL.md",
+        "user": "USER.md",
+        "memory": "MEMORY.md"
+      },
+      "descriptions": {
+        "systemPrompt": "默认的系统提示词，将应用于所有新对话，支持引用 {{SOUL.MD}} / {{USER.MD}} / {{MEMORY.MD}}。",
+        "groupChatPrompt": "配置 IM 群聊场景使用的 Prompt，支持消息变量，也支持引用 {{SOUL.MD}} / {{USER.MD}} / {{MEMORY.MD}}。",
+        "homeAgentsMd": "默认工作空间的项目级指令，同时写入 AGENTS.md 与 CLAUDE.md，支持引用 {{SOUL.MD}} / {{USER.MD}} / {{MEMORY.MD}}。",
+        "soul": "灵魂设定，定义人格、行为风格与使命。",
+        "user": "个人信息与偏好",
+        "memory": "长期记忆，记录重要的事实、约定与上下文。"
+      },
+      "linesAndChars": "{{lines}} 行 · {{chars}} 字符",
+      "saved": "✓ 已保存",
+      "saveChanges": "保存更改",
+      "loadFailed": "加载失败",
+      "saveFailed": "保存失败，请重试",
+      "memoryReference": "记忆引用",
+      "groupChatVariables": "群聊变量",
+      "clickToInsert": "点击快速插入到当前光标位置",
+      "vars": {
+        "Platform": "消息平台",
+        "MessageID": "消息 ID",
+        "ParentID": "父消息 ID",
+        "RootID": "根消息 ID",
+        "ChatID": "群聊 ID",
+        "ChatType": "聊天类型",
+        "SenderID": "发送者 ID",
+        "MessageType": "消息类型",
+        "Content": "消息内容",
+        "CreateTime": "创建时间",
+        "UpdateTime": "更新时间",
+        "Mentions": "@ 提及列表",
+        "MentionsCount": "@ 提及数量",
+        "RawEvent": "原始事件 JSON"
+      },
+      "refs": {
+        "SOUL": "插入 SOUL.md 的完整内容",
+        "USER": "插入 USER.md 的完整内容",
+        "MEMORY": "插入 MEMORY.md 的完整内容"
+      }
+    },
+    "skill": {
+      "sectionTitle": "技能列表",
+      "scopeProject": "项目级",
+      "scopeGlobal": "全局级",
+      "checkUpdate": "检查更新",
+      "checking": "检查中...",
+      "installSkill": "+ 安装技能",
+      "searchPlaceholder": "搜索已安装的技能...",
+      "updateCheckResult": "更新检查结果",
+      "updateAll": "全部更新",
+      "updating": "更新中...",
+      "allUpdated": "所有技能已更新到最新版本",
+      "noMatchingSkills": "没有匹配的技能",
+      "noSkillsInstalled": "暂无已安装的技能",
+      "installHint": "点击「安装技能」按钮来搜索和安装新技能",
+      "confirmUninstall": "确认卸载技能 \"{{name}}\"？",
+      "uninstallFailed": "卸载失败",
+      "uninstalled": "已卸载 {{name}}",
+      "installed": "已安装 {{name}}",
+      "installFailed": "安装失败",
+      "searchFailed": "搜索失败",
+      "checkFailed": "检查更新失败",
+      "updateFailed": "更新失败",
+      "checkComplete": "检查完成",
+      "installModal": {
+        "title": "安装技能",
+        "packageLabel": "包名或仓库地址",
+        "packagePlaceholder": "例如: vercel-labs/agent-skills",
+        "installGlobal": "安装为全局技能",
+        "installToAgents": "安装到以下 Agent",
+        "orSearch": "或搜索技能",
+        "searchPlaceholder": "搜索关键词，例如: react, typescript",
+        "installs": "installs"
+      }
+    },
+    "acp": {
+      "sectionTitle": "ACP 环境变量",
+      "sectionDesc": "为不同的 ACP Agent 配置环境变量，保存后对新启动的 ACP 连接生效。可通过开关控制单条变量是否生效。",
+      "noAgents": "未检测到可用的 ACP Agent，请确认已安装相关 Agent 命令行工具。",
+      "varKeyPlaceholder": "变量名，如 API_KEY",
+      "varValuePlaceholder": "变量值",
+      "addEnvVar": "+ 添加环境变量",
+      "activeTooltip": "已启用",
+      "inactiveTooltip": "已禁用"
+    },
+    "lark": {
+      "sectionTitle": "Lark 机器人配置",
+      "appId": "App ID",
+      "appIdPlaceholder": "cli_xxxxxxxxxx",
+      "appIdDesc": "飞书开放平台的应用 App ID",
+      "appSecret": "App Secret",
+      "appSecretPlaceholder": "输入 App Secret",
+      "appSecretDesc": "飞书开放平台的应用 App Secret，也可以通过环境变量 LARKSUITE_CLI_APP_ID / LARKSUITE_CLI_APP_SECRET 设置",
+      "imAdminId": "IM 管理员 OpenID",
+      "imAdminIdPlaceholder": "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "imAdminIdDesc": "允许在飞书私聊里使用 IM 命令/对话的管理员 OpenID",
+      "groupBotId": "群聊触发 Bot OpenID",
+      "groupBotIdPlaceholder": "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "groupBotIdDesc": "群聊中 @ 该 Bot 时触发回复"
+    },
+    "wechat": {
+      "sectionTitle": "微信账号（个人号 · iLink）",
+      "sectionDesc": "⚠️ 采用腾讯 iLink 私有协议，存在封号风险，建议仅用小号 / 实验号接入。仅支持私聊，不支持群聊。",
+      "loggedIn": "✅ 已登录",
+      "expired": "⚠️ 已掉线 · 请重新扫码",
+      "ilinkBotId": "iLink Bot ID",
+      "ilinkUserId": "iLink 用户 ID",
+      "status": "状态",
+      "logout": "退出登录",
+      "reScan": "重新扫码",
+      "scanLogin": "扫码登录",
+      "gettingQrCode": "正在获取二维码…",
+      "scanWithWeChat": "请用微信扫码登录",
+      "scanned": "已扫描，请在手机上确认",
+      "qrExpired": "二维码已失效，请重新获取",
+      "loginSuccess": "登录成功",
+      "loginFailed": "登录失败",
+      "loginTimeout": "登录超时，请重新获取二维码",
+      "loggedOut": "已退出登录",
+      "logoutFailed": "退出失败",
+      "confirmLogout": "确认退出 {{id}} 吗？",
+      "adminWhitelist": "Admin 白名单",
+      "adminWhitelistDesc": "只有白名单里的 iLink 用户 ID 发的消息会被路由到 Agent。登录账号本身会自动加入；其他人首次发消息时会进入下方「待审批」列表。",
+      "noAdmin": "尚未配置任何 admin",
+      "selfTag": "自己 · 不可删",
+      "pendingApproval": "待审批（未授权用户消息）",
+      "pendingDesc": "最近 20 条来自未授权用户的消息，按最新优先排序。",
+      "noPending": "暂无待审批联系人",
+      "noTextContent": "(无文本内容)",
+      "addAsAdmin": "加为 admin",
+      "dismiss": "忽略",
+      "addFailed": "添加失败",
+      "actionFailed": "操作失败",
+      "removeFailed": "移除失败",
+      "confirmRemoveAdmin": "确认移除 admin {{id}} 吗？"
+    },
+    "workspace": {
+      "title": "工作空间",
+      "regenerateColors": "重新生成颜色",
+      "regenerating": "生成中...",
+      "createWorkspace": "新建工作空间",
+      "noWorkspaces": "暂无工作空间（默认工作空间 ws-1 应由后端自动创建，请检查后端）",
+      "defaultBadge": "默认",
+      "defaultPrefs": "默认：{{agent}} / {{model}}",
+      "deleteWorkspace": "删除工作空间",
+      "deleteConfirm": "确定删除工作空间 \"{{title}}\" 吗？",
+      "deleteFailed": "删除失败",
+      "regenerateFailed": "重新生成失败",
+      "cannotDeleteDefault": "默认工作空间不可删除",
+      "formCreate": "新建工作空间",
+      "formEdit": "编辑工作空间",
+      "formDefaultHint": "默认工作空间 ID 为 {{id}}，可以改名/改路径，不可删除。",
+      "formName": "名称 *",
+      "formNamePlaceholder": "工作空间名称",
+      "formDescription": "描述",
+      "formDescPlaceholder": "可选描述",
+      "formWorkdir": "工作目录 *",
+      "formWorkdirPlaceholder": "/path/to/workdir",
+      "formDefaultAgent": "默认 Agent（可选）",
+      "formDefaultAgentOption": "— 使用系统默认 —",
+      "formDefaultAgentHint": "保存在浏览器本地（localStorage）。IM 端不读取此偏好。",
+      "formDefaultModel": "默认模型（可选）",
+      "formDefaultModelOption": "— 使用 Agent 默认 —"
+    },
+    "logs": {
+      "level": "级别",
+      "filter": "过滤",
+      "source": "来源",
+      "keyword": "关键词",
+      "keywordPlaceholder": "搜索日志内容…",
+      "autoRefresh": "自动刷新",
+      "pauseScroll": "暂停滚动",
+      "resume": "继续",
+      "refresh": "刷新",
+      "clearBuffer": "清空缓冲",
+      "confirmClear": "确定要清空所有日志缓冲吗？",
+      "totalEntries": "共 {{count}} 条",
+      "noLogs": "暂无日志",
+      "levelDebug": "Debug（详细）",
+      "levelInfo": "Info（默认）",
+      "levelWarn": "Warn",
+      "levelError": "Error",
+      "filterAll": "全部",
+      "filterDebugPlus": "Debug+",
+      "filterInfoPlus": "Info+",
+      "filterWarnPlus": "Warn+",
+      "filterErrorOnly": "Error",
+      "sourceAll": "前端 + 后端",
+      "sourceBackend": "仅后端",
+      "sourceFrontend": "仅前端"
+    }
+  },
+  "cron": {
+    "presets": {
+      "everyHour": "每小时",
+      "everyHourDesc": "每小时整点",
+      "everyDay9": "每天 9:00",
+      "everyDay9Desc": "每天上午 9:00",
+      "everyDay18": "每天 18:00",
+      "everyDay18Desc": "每天下午 6:00",
+      "weekday9": "工作日 9:00",
+      "weekday9Desc": "周一至周五 9:00",
+      "everyMonday9": "每周一 9:00",
+      "everyMonday9Desc": "每周一 9:00",
+      "every30min": "每30分钟",
+      "every30minDesc": "每半小时",
+      "every5min": "每5分钟",
+      "every5minDesc": "每5分钟",
+      "every1min": "每1分钟",
+      "every1minDesc": "每分钟执行"
+    },
+    "human": {
+      "everyMinute": "每分钟",
+      "everyNMinutes": "每 {{n}} 分钟",
+      "everyHourAtMinute": "每小时第 {{min}} 分",
+      "everyNHours": "每 {{n}} 小时",
+      "everyDayAt": "每天 {{time}}",
+      "dowAt": "{{dow}} {{time}}"
+    },
+    "dow": {
+      "0": "周日",
+      "1": "周一",
+      "2": "周二",
+      "3": "周三",
+      "4": "周四",
+      "5": "周五",
+      "6": "周六",
+      "1-5": "工作日",
+      "0,6": "周末"
+    },
+    "tabs": {
+      "preset": "常用",
+      "custom": "自定义"
+    },
+    "validation": {
+      "fiveFields": "需要5个字段: 分 时 日 月 周"
+    },
+    "placeholder": "分 时 日 月 周  例: 0 9 * * 1-5",
+    "help": "格式: 分(0-59) 时(0-23) 日(1-31) 月(1-12) 周(0-6, 0=周日)"
+  },
+  "schedule": {
+    "createTitle": "新建定时任务",
+    "editTitle": "编辑定时任务",
+    "selectTemplate": "选择模板",
+    "noTemplates": "暂无模板，请先在 Loop 配置中保存模板",
+    "selectTemplatePlaceholder": "请选择模板...",
+    "configPreview": "已选配置: {{nodes}} 个节点",
+    "configPreviewVars": ", {{vars}} 个变量",
+    "taskName": "任务名称",
+    "taskNamePlaceholder": "例如: 每日代码审查",
+    "taskNameRequired": "请输入任务名称",
+    "selectTemplateRequired": "请选择一个模板",
+    "workspaceBinding": "工作空间绑定",
+    "bindCurrent": "绑定当前工作空间",
+    "unboundHint": "独立于工作空间（触发时使用默认工作空间）",
+    "boundWorkspace": "绑定的工作空间",
+    "boundWorkspaceDefault": "默认工作空间（触发时使用）",
+    "enable": "启用",
+    "frequency": "执行频率",
+    "advanced": "高级选项",
+    "maxConcurrent": "最大并发数",
+    "maxConcurrentHint": "前一次未完成时跳过触发",
+    "timeout": "超时 (分钟)",
+    "timeoutHint": "0 表示不限时",
+    "runInfo": "执行信息",
+    "runCount": "已执行 {{count}} 次",
+    "lastRun": "上次执行:",
+    "nextRun": "下次执行:",
+    "lastStatus": "上次状态:",
+    "triggerNow": "立即执行"
+  },
+  "message": {
+    "systemMessage": "系统消息",
+    "availableCommands": "可用命令",
+    "chatStatus": "聊天状态",
+    "jobList": "Job 列表",
+    "workspaceList": "工作空间列表",
+    "current": "当前",
+    "usage": "用法",
+    "aliases": "别名",
+    "copyPathSuccess": "已复制路径: {{name}}",
+    "copyPathFailed": "复制路径失败",
+    "fileTruncated": "文件超过 1MB，仅展示前 1MB 内容",
+    "binaryFile": "二进制文件，无法预览",
+    "readFileFailed": "读取文件失败",
+    "networkReadFailed": "网络错误，无法读取文件"
+  },
+  "script": {
+    "newShell": "+ 新建 Shell",
+    "backToList": "返回列表",
+    "searchPlaceholder": "搜索 Shell...",
+    "noScripts": "暂无 Shell，点击上方按钮创建",
+    "noMatch": "没有匹配的 Shell",
+    "confirmDeleteTitle": "确认删除",
+    "confirmDeleteMessage": "确定要删除 Shell「{{name}}」吗？",
+    "form": {
+      "name": "名称",
+      "namePlaceholder": "Shell 名称",
+      "description": "描述（可选）",
+      "descriptionPlaceholder": "简要描述用途",
+      "content": "内容",
+      "contentPlaceholder": "请输入 Shell 内容...\n支持 {{varTag}} 占位符",
+      "note": "Shell 中可通过内置函数设置变量：<0>{{setCmd}}</0>，后续 Step 可通过 <1>{{varTag}}</1> 引用。跳出当前循环：<2>{{breakCmd}}</2>，退出整个工作流：<3>{{returnCmd}}</3>。"
+    },
+    "saving": "保存中...",
+    "update": "更新",
+    "create": "创建"
+  },
+  "home": {
+    "loading": "加载中...",
+    "filterByWorkspace": "按工作空间筛选",
+    "filterByWorkspaceShort": "筛选",
+    "allWorkspaces": "全部工作空间",
+    "hideScheduledJobs": "隐藏定时任务",
+    "hideScheduledJobsShort": "隐藏定时",
+    "newTask": "新建任务",
+    "noJobsInWorkspace": "该工作空间下暂无 Job",
+    "dayStatsTurns_other": "{{count}} 轮",
+    "disabled": "已禁用",
+    "lastRun": "上次执行",
+    "neverRun": "未执行",
+    "runCount_other": "共 {{count}} 次",
+    "lastStatus": {
+      "success": "成功",
+      "failed": "失败",
+      "running": "运行中",
+      "stopped": "已停止",
+      "never": "未执行"
+    }
+  },
+  "fileViewer": {
+    "lines": "{{count}} 行"
+  },
+  "stats": {
+    "title": "使用统计",
+    "topbarTooltip": "使用统计",
+    "tokensLocalEstimateNote": "Token 数为本地估算，并非 API 计费值。",
+    "tokenTotalHelp": "总 Token 来自整轮 history 的本地估算，不要求等于助手回复、思考和工具调用 Token 之和。",
+    "rangeLabel": "时间范围",
+    "range7d": "7 天",
+    "range30d": "30 天",
+    "range90d": "90 天",
+    "rangeAll": "全部",
+    "rangeCustom": "自定义",
+    "customFrom": "起",
+    "customTo": "止",
+    "metric": {
+      "duration": "时长",
+      "counts": "次数",
+      "tokens": "Token 数"
+    },
+    "subMetric": {
+      "turns": "轮次",
+      "assistant": "助手回复",
+      "thought": "思考",
+      "toolCall": "工具调用",
+      "tokenTotal": "总计"
+    },
+    "view": {
+      "byWorkspace": "按工作空间",
+      "byModel": "按模型",
+      "byTool": "按工具",
+      "trend": "每日趋势"
+    },
+    "table": {
+      "workspace": "工作空间",
+      "model": "模型",
+      "tool": "工具",
+      "duration": "时长",
+      "turns": "轮次",
+      "assistant": "助手回复",
+      "thought": "思考",
+      "toolCall": "工具调用",
+      "tokenTotal": "总 Token",
+      "tokenAssistant": "助手回复 Token",
+      "tokenThought": "思考 Token",
+      "tokenToolCall": "工具调用 Token",
+      "calls": "调用次数",
+      "deletedSuffix": "（已删除）"
+    },
+    "tools": {
+      "noToolsInRange": "所选范围内未记录任何工具调用"
+    },
+    "chart": {
+      "totalLabel": "总计",
+      "shareOfTotal": "占总量 {{pct}}%",
+      "othersHidden": "另有 {{count}} 项未展示"
+    },
+    "trend": {
+      "axisUnit": "单位：{{unit}}",
+      "unit": {
+        "minute": "分钟",
+        "hour": "小时",
+        "count": "次",
+        "tokens": "tokens"
+      }
+    },
+    "tokensNotApplicable": "本期不按工具维度细分 token。",
+    "unknownModel": "未知模型",
+    "noDataInRange": "所选范围内尚无使用记录。",
+    "loading": "加载中…",
+    "unknownError": "未知错误",
+    "fetchError": "加载失败：{{message}}",
+    "retry": "重试"
+  }
+}

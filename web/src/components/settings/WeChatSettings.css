@@ -1,0 +1,176 @@
+/* WeChat settings panel — custom styles (wechat-*) are scoped here.
+   Reuses settings-section / settings-btn / settings-message from Settings.css. */
+
+.wechat-account-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+}
+
+.wechat-account-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wechat-account-label {
+  flex: 0 0 100px;
+  color: #666;
+  font-size: 13px;
+}
+
+.wechat-account-code {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: #f0f0f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  word-break: break-all;
+  min-width: 0;
+}
+
+.wechat-account-status {
+  font-size: 13px;
+}
+
+.wechat-account-status.online {
+  color: #52c41a;
+}
+
+.wechat-account-status.expired {
+  color: #f5222d;
+  font-weight: 500;
+}
+
+.wechat-qr-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.wechat-qr-img {
+  width: 220px;
+  height: 220px;
+  max-width: 80vw;
+  max-height: 80vw;
+  object-fit: contain;
+  border: 4px solid #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: #fff;
+  image-rendering: pixelated; /* keep QR pixels crisp at all zoom levels */
+}
+
+.wechat-qr-status {
+  color: #666;
+  font-size: 14px;
+  text-align: center;
+}
+
+.wechat-admin-list,
+.wechat-pending-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wechat-admin-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+
+.wechat-admin-tag {
+  font-size: 12px;
+  color: #999;
+  padding: 2px 8px;
+  background: #f0f0f0;
+  border-radius: 10px;
+}
+
+.wechat-pending-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+
+.wechat-pending-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wechat-pending-hint {
+  color: #333;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.wechat-pending-time {
+  color: #999;
+  font-size: 12px;
+}
+
+.wechat-pending-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.wechat-empty {
+  color: #999;
+  font-style: italic;
+  font-size: 13px;
+  margin: 0;
+}
+
+.settings-btn-small {
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+  min-height: 28px !important;
+}
+
+/* Mobile / iPad adaptations — ensure the QR stays scannable and the admin /
+   pending lists don't overflow horizontally on narrow screens. */
+@media (max-width: 768px) {
+  .wechat-account-label {
+    flex-basis: 80px;
+  }
+  .wechat-qr-img {
+    width: 240px;
+    height: 240px;
+  }
+  .wechat-pending-main {
+    flex: 1 1 100%;
+  }
+  .wechat-pending-actions {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+  .wechat-admin-item {
+    padding: 10px 12px;
+  }
+}

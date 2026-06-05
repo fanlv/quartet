@@ -1,0 +1,142 @@
+.file-mention-popup {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 4px;
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 100;
+  padding: 4px;
+}
+
+.file-mention-header {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #999;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.file-mention-empty {
+  padding: 16px 12px;
+  text-align: center;
+  color: #aaa;
+  font-size: 13px;
+}
+
+.file-mention-loading {
+  padding: 16px 12px;
+  text-align: center;
+  color: #aaa;
+  font-size: 13px;
+}
+
+.file-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.file-mention-item:hover,
+.file-mention-item.active {
+  background: #f0f0f0;
+}
+
+.file-mention-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.file-mention-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.file-mention-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-mention-dir {
+  font-size: 11px;
+  color: #999;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* @ tag display in textarea area (visual chip) */
+.mention-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #e8f0fe;
+  color: #1a73e8;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  vertical-align: baseline;
+  cursor: default;
+}
+
+.mention-tag .mention-icon {
+  font-size: 12px;
+}
+
+.mention-tag .mention-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 10px;
+  color: #1a73e8;
+  cursor: pointer;
+  margin-left: 2px;
+}
+
+.mention-tag .mention-remove:hover {
+  background: rgba(26, 115, 232, 0.15);
+}
+
+/* Mobile adaptation */
+@media (max-width: 768px) {
+  .file-mention-popup {
+    max-height: 200px;
+    border-radius: 8px;
+  }
+
+  .file-mention-item {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .file-mention-name {
+    font-size: 14px;
+  }
+
+  .file-mention-dir {
+    font-size: 12px;
+  }
+}

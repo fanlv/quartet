@@ -1,0 +1,144 @@
+.acp-agent-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.acp-agent-tab {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #555;
+  background: #f0f0f0;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.acp-agent-tab:hover {
+  background: #e5e5e5;
+  color: #333;
+}
+
+.acp-agent-tab.active {
+  background: #0066ff;
+  color: #fff;
+}
+
+.acp-env-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.acp-env-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: opacity 0.15s;
+}
+
+.acp-env-row.acp-env-disabled {
+  opacity: 0.5;
+}
+
+.acp-env-toggle {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.acp-env-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.acp-env-toggle-slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #ccc;
+  border-radius: 20px;
+  transition: background 0.2s;
+}
+
+.acp-env-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 2px;
+  bottom: 2px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.acp-env-toggle input:checked + .acp-env-toggle-slider {
+  background: #0066ff;
+}
+
+.acp-env-toggle input:checked + .acp-env-toggle-slider::before {
+  transform: translateX(16px);
+}
+
+.acp-env-key {
+  flex: 2;
+  min-width: 0;
+}
+
+.acp-env-eq {
+  font-size: 16px;
+  font-weight: 600;
+  color: #888;
+  flex-shrink: 0;
+}
+
+.acp-env-value {
+  flex: 3;
+  min-width: 0;
+}
+
+.acp-env-remove {
+  flex-shrink: 0;
+  padding: 8px 10px !important;
+  font-size: 12px;
+  line-height: 1;
+}
+
+@media (max-width: 768px) {
+  .acp-agent-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .acp-agent-tab {
+    flex-shrink: 0;
+  }
+
+  .acp-env-row {
+    flex-wrap: wrap;
+  }
+
+  .acp-env-toggle {
+    order: -1;
+  }
+
+  .acp-env-key,
+  .acp-env-value {
+    flex: 1 1 calc(100% - 52px);
+  }
+
+  .acp-env-eq {
+    display: none;
+  }
+}

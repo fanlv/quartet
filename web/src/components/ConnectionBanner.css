@@ -1,0 +1,64 @@
+.connection-banner {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 20px;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  animation: connection-toast-in 0.3s ease-out;
+}
+
+.connection-banner.disconnected {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.connection-banner.recovered {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  animation: connection-toast-in 0.3s ease-out, connection-toast-out 0.5s ease-out 2.5s forwards;
+}
+
+.connection-banner-text {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.connection-banner-icon {
+  flex-shrink: 0;
+}
+
+@keyframes connection-toast-in {
+  from {
+    transform: translateY(-12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes connection-toast-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@media (max-width: 768px) {
+  .connection-banner {
+    top: 8px;
+    right: 10px;
+    padding: 5px 12px;
+    font-size: 11px;
+  }
+}

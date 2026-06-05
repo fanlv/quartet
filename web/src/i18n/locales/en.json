@@ -1,0 +1,852 @@
+{
+  "common": {
+    "save": "Save",
+    "saving": "Saving...",
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "edit": "Edit",
+    "loading": "Loading...",
+    "retry": "Retry",
+    "saveSuccess": "Saved successfully",
+    "saveFailed": "Save failed",
+    "loadFailed": "Load failed",
+    "networkError": "Network error",
+    "notSet": "Not set",
+    "default": "Default",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "auto": "Auto",
+    "yes": "Yes",
+    "no": "No",
+    "confirm": "Confirm",
+    "browse": "Browse",
+    "create": "Create",
+    "search": "Search",
+    "searching": "Searching...",
+    "install": "Install",
+    "installing": "Installing...",
+    "uninstall": "Uninstall",
+    "copySuccess": "Copied",
+    "copyFailed": "Copy failed",
+    "copyPath": "Copy path",
+    "copyContent": "Copy content"
+  },
+  "app": {
+    "jobMissingNotice": "Job {{jobId}} does not exist or has been deleted. Cleared the stale URL and returned to the workspace home."
+  },
+  "sidebar": {
+    "newChat": "New Chat",
+    "jobHistory": "Job History",
+    "loading": "Loading...",
+    "noConversations": "No conversations yet",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…",
+    "settings": "Settings",
+    "deleteJob": "Delete Job",
+    "deleteConfirmMessage": "Are you sure you want to delete \"{{title}}\"?",
+    "noAgentsAvailable": "No agents available",
+    "selectAgent": "Select Agent"
+  },
+  "welcome": {
+    "title": "What's on your mind?",
+    "subtitle": "Trusted AI Work Platform for Every Developer",
+    "suggestions": {
+      "weather": "What's the weather like in Beijing today?",
+      "aiProgress": "Search for the latest AI progress",
+      "whatCanYouDo": "What can you do for me?",
+      "claudeProgress": "Search for the latest Claude and Claude Code progress",
+      "hotNews": "Search for today's hot news"
+    }
+  },
+  "chat": {
+    "placeholder": "What can I help you?",
+    "cancelQueue": "Cancel queue",
+    "uploadImage": "Upload image",
+    "stopGeneration": "Stop generation",
+    "sendMessage": "Send message",
+    "queueSend": "Queue send",
+    "waitingToSend": "Waiting to send...",
+    "imagesCount": "{{count}} image(s)",
+    "switchWorkspace": "Switch workspace",
+    "thinking": "AI is thinking...",
+    "deepThinking": "Deep thinking",
+    "renameTitle": "Rename",
+    "titleSave": "Save",
+    "titleCancel": "Cancel",
+    "titleEmpty": "Title cannot be empty",
+    "titleTooLong": "Title too long (max {{max}} characters)"
+  },
+  "connection": {
+    "restored": "Connection restored",
+    "disconnected": "Server disconnected, retrying..."
+  },
+  "system": {
+    "restartWeb": "Restart Web",
+    "restartWebRunning": "Restarting Web...",
+    "restartWebFailed": "Restart failed: {{message}}",
+    "restartWebConfirmTitle": "Restart Web?",
+    "restartWebConfirmMessage": "This will run `make web` and briefly disconnect the current page. Continue?",
+    "restartWebCancel": "Cancel",
+    "restartWebConfirm": "Restart"
+  },
+  "loop": {
+    "emptySavedTemplates": "No saved templates yet",
+    "noVariablesPrefix": "No variables yet. You can store reusable info such as repo name or branch name. Use",
+    "noVariablesSuffix": "to reference it.",
+    "noShellScripts": "No Shell scripts yet",
+    "panel": {
+      "title": "Loop Config"
+    },
+    "workspace": {
+      "defaultLabel": "Use current workspace"
+    },
+    "progress": {
+      "lastError": "Last error",
+      "session": "Session {{current}} / {{total}}",
+      "step": "Step {{current}} / {{total}}"
+    },
+    "template": {
+      "label": "Template",
+      "placeholder": "Select template...",
+      "currentLabel": "Current template",
+      "libraryButton": "Template library",
+      "libraryTitle": "Template library",
+      "librarySubtitle": "Search, inspect, and apply saved Loop templates.",
+      "searchPlaceholder": "Search template names...",
+      "selectedTag": "Current",
+      "useTemplate": "Use template",
+      "updatedAt": "Updated {{time}}",
+      "unsavedNotice": "Using a template will replace the current unsaved config.",
+      "emptyLibraryTitle": "No templates saved yet",
+      "emptyLibraryDesc": "Save the current Loop config as a template to reuse it from here.",
+      "emptySearchTitle": "No matching templates",
+      "emptySearchDesc": "Try another keyword, or import a LoopConfig JSON.",
+      "deleteTitle": "Delete this template",
+      "categoryScheduled": "Scheduled Tasks",
+      "categoryOther": "Other Templates",
+      "scheduleBadgeTitle": "Used by {{count}} scheduled task(s)",
+      "scheduleBadge": "Scheduled x {{count}}",
+      "errors": {
+        "updateFailed": "Update failed. Please check if the template still exists"
+      }
+    },
+    "variables": {
+      "label": "Variables",
+      "emptyHint": "No variables yet. Store reusable info such as repo name or branch name. Use <0>{{varTag}}</0> to reference it.",
+      "countHint_one": "{{count}} variable. Reference it with <0>{{varTag}}</0>.",
+      "countHint_other": "{{count}} variables. Reference them with <0>{{varTag}}</0>.",
+      "keyPlaceholder": "Variable name",
+      "valuePlaceholder": "Variable value"
+    },
+    "flow": {
+      "title": "Flow",
+      "meta": "{{nodes}} node(s) · {{steps}} step(s)",
+      "steps_one": "{{count}} step",
+      "steps_other": "{{count}} steps"
+    },
+    "state": {
+      "unsaved": "Unsaved",
+      "clean": "Saved"
+    },
+    "tabs": {
+      "flow": "Flow",
+      "config": "Config",
+      "variables": "Variables"
+    },
+    "outline": {
+      "emptyStep": "Step {{index}}",
+      "emptyShell": "No Shell selected",
+      "groupMeta": "{{iterations}} iteration(s) · {{steps}} step(s)",
+      "stepMeta": "{{mode}}",
+      "stepMetaRepeat": "Repeat x {{repeat}}"
+    },
+    "inspector": {
+      "stepTitle": "Step config",
+      "groupTitle": "Group config",
+      "groupName": "Group name",
+      "ready": "Ready",
+      "empty": "Select a node"
+    },
+    "validation": {
+      "promptRequired": "Step message is required",
+      "scriptRequired": "Shell step needs a script",
+      "groupEmpty": "Group has no child nodes"
+    },
+    "footer": {
+      "blank": "Blank config",
+      "template": "Template \"{{name}}\"",
+      "nodes_one": "{{count}} node",
+      "nodes_other": "{{count}} nodes",
+      "variables_one": "{{count}} variable",
+      "variables_other": "{{count}} variables",
+      "firstIssue": "Error: {{message}}"
+    },
+    "actions": {
+      "addVariable": "+ Add",
+      "addStep": "+ Add Step",
+      "addGroup": "+ Add Group",
+      "add": "+ Add",
+      "addMenuStep": "Add Step",
+      "addMenuGroup": "Add Group",
+      "more": "More",
+      "moreTitle": "More actions",
+      "reset": "Reset",
+      "resetTitle": "Reset form",
+      "copyConfig": "Copy config",
+      "copyConfigTitle": "Copy LoopConfig JSON",
+      "importConfig": "Import",
+      "importConfigTitle": "Import LoopConfig JSON",
+      "updateTemplate": "Update",
+      "updateTemplateTitle": "Update current template",
+      "saveAsTemplate": "Save as template",
+      "saveAsTemplateTitle": "Save as new template",
+      "duplicate": "Duplicate",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "jumpToIssue": "Go to issue",
+      "start": "Start Loop"
+    },
+    "toast": {
+      "copiedConfig": "Copied LoopConfig",
+      "importedConfig": "Imported config"
+    },
+    "import": {
+      "errors": {
+        "missingFlow": "Invalid config: missing flow field",
+        "jsonParseFailed": "JSON parse failed. Please check the format"
+      }
+    },
+    "dialog": {
+      "save": {
+        "title": "Save as template",
+        "placeholder": "Enter template name..."
+      },
+      "update": {
+        "title": "Update template",
+        "desc": "This will overwrite the current content of template \"{{name}}\".",
+        "placeholder": "Template name...",
+        "confirm": "Confirm update",
+        "updating": "Updating..."
+      },
+      "delete": {
+        "title": "Confirm delete",
+        "desc": "Delete template \"{{name}}\"?"
+      },
+      "deleteNode": {
+        "title": "Delete node",
+        "desc": "Delete this flow node?"
+      },
+      "leave": {
+        "title": "Confirm leave",
+        "desc": "You have unsaved changes. Leave anyway?",
+        "stay": "Keep editing",
+        "confirm": "Leave"
+      },
+      "import": {
+        "title": "Import LoopConfig",
+        "hint": "Paste LoopConfig JSON",
+        "confirm": "Import"
+      }
+    },
+    "group": {
+      "mainLabel": "Main loop",
+      "defaultLabel": "Group {{index}}",
+      "iteration": "Iterations",
+      "stepsMeta_one": "{{count}} step",
+      "stepsMeta_other": "{{count}} steps"
+    },
+    "step": {
+      "agentPlaceholder": "Select Agent",
+      "status": {
+        "ready": "Ready",
+        "todo": "Incomplete"
+      },
+      "inline": {
+        "repeat": "Repeat",
+        "session": "Session"
+      },
+      "roundMode": {
+        "none": {
+          "label": "Reuse session",
+          "desc": "Reuse existing session"
+        },
+        "beforeRound": {
+          "label": "New before round",
+          "desc": "Create a new session before this round"
+        },
+        "eachRepeat": {
+          "label": "New for each repeat",
+          "desc": "Create a new session for every repeat"
+        }
+      },
+      "agentOverride": {
+        "label": "Session Agent / Model"
+      },
+      "settings": {
+        "label": "Settings"
+      },
+      "insertVar": {
+        "button": "Insert variable",
+        "title": "Insert a variable into the message",
+        "groupDefined": "Variables",
+        "groupShell": "Shell variables",
+        "groupBuiltin": "Built-in",
+        "empty": "No variables defined yet"
+      },
+      "message": {
+        "label": "Message",
+        "hint": "Supports quick variable insertion",
+        "placeholder": "Enter message..."
+      },
+      "quickInsert": "Quick insert",
+      "insertVarTitle": "Insert {{tag}}",
+      "builtinVarsLabel": "Built-in variables",
+      "builtinVarInsertTitle": "{{desc}} — Insert {{tag}}",
+      "builtinVars": {
+        "currentTime": "Current time (RFC3339)",
+        "currentPath": "Current step path",
+        "lastAssistantMsg": "Last AI reply",
+        "jobTitle": "Job title",
+        "jobWorkdir": "Workdir"
+      },
+      "shell": {
+        "label": "Shell",
+        "hint": "Script content is previewed below (read-only)",
+        "selectPlaceholder": "Select Shell...",
+        "searchPlaceholder": "Search Shell...",
+        "previewTitle": "Script preview",
+        "note": "In Shell, set variables via <0>{{setCmd}}</0>. Later steps can reference them with <1>{{varTag}}</1>. Break current loop: <2>{{breakCmd}}</2>. Exit workflow: <3>{{returnCmd}}</3>.",
+        "detectedVars": "Detected variables"
+      }
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "tabs": {
+      "general": "General",
+      "workspace": "Workspaces",
+      "token": "Token",
+      "model": "Models",
+      "prompt": "Prompts",
+      "skill": "Skills",
+      "acp": "ACP",
+      "lark": "Lark",
+      "wechat": "WeChat",
+      "script": "Shell Scripts",
+      "logs": "Logs"
+    },
+    "general": {
+      "sectionTitle": "User Settings",
+      "language": "Language",
+      "languageDesc": "Select display language for the interface",
+      "username": "Username",
+      "usernamePlaceholder": "User",
+      "usernameDesc": "Username displayed in chat interface, default is User",
+      "avatar": "Avatar URL",
+      "avatarPlaceholder": "https://example.com/avatar.png",
+      "avatarDesc": "Image URL for user avatar, leave empty for default",
+      "builtinModel": "Built-in Model",
+      "builtinModelDesc": "Used for auto-generating conversation titles and other built-in features. Select an Agent to use its model. Leave empty to disable",
+      "messageModel": "Message Model",
+      "messageModelDesc": "Automatically calls this Agent to generate replies when IM messages are received. Leave empty to disable"
+    },
+    "token": {
+      "sectionTitle": "Auth Token",
+      "sectionDesc": "Set your authentication token.",
+      "placeholder": "Enter token (leave empty to skip)",
+      "show": "Show",
+      "hide": "Hide",
+      "clear": "Clear",
+      "paste": "Paste",
+      "statusNotSet": "Status: Not set",
+      "statusSet": "Status: Set (length {{length}})",
+      "lastSaved": "Last saved:",
+      "gateTitle": "Authentication Required",
+      "gateDescNeedToken": "This instance requires authentication. Please enter your access token to continue.",
+      "gateDescInvalidToken": "The saved token was rejected by the server. Please re-enter a valid token.",
+      "gateProbing": "Verifying access…",
+      "gateProbeFailed": "Could not reach the server at /api/v1/health. Check that the backend is running, then retry.",
+      "gateContinue": "Continue"
+    },
+    "model": {
+      "sectionTitle": "Model List",
+      "providerCount": "{{count}} provider(s)",
+      "addModel": "+ Add Model",
+      "configuredCount": "{{count}} model(s) configured",
+      "noModels": "No models configured",
+      "confirmDelete": "Confirm delete this model? This cannot be undone",
+      "deleteFailed": "Delete failed",
+      "createFailed": "Create failed",
+      "addModelTitle": "Add {{provider}} Model",
+      "displayName": "Display Name",
+      "modelName": "Model Name",
+      "apiKey": "API Key",
+      "baseUrl": "Base URL",
+      "baseUrlPlaceholder": "Optional",
+      "enableBase64Url": "Enable Base64 URL",
+      "thinkingMode": "Thinking Mode",
+      "region": "Region",
+      "regionPlaceholder": "Optional, e.g.: cn-beijing",
+      "useAzure": "Use Azure OpenAI",
+      "apiVersion": "API Version",
+      "apiVersionPlaceholder": "Optional, e.g.: 2024-06-01",
+      "backend": "Backend",
+      "backendDefault": "Default (Gemini API)",
+      "project": "Project",
+      "projectPlaceholder": "Optional, GCP project ID",
+      "location": "Location",
+      "locationPlaceholder": "Optional, e.g.: us-central1",
+      "fillRequired": "Please fill in display name and model name",
+      "fillApiKey": "Please fill in API Key",
+      "notConfigured": "Not configured",
+      "model": "Model",
+      "thinkingModeLabel": "Thinking:",
+      "azure": "Azure",
+      "loadModelListFailed": "Failed to load model list",
+      "status": {
+        "enabled": "Enabled",
+        "disabled": "Disabled"
+      },
+      "placeholders": {
+        "displayName": "e.g.: {{example}}",
+        "model": "e.g.: {{example}}",
+        "apiKey": "Secret key"
+      }
+    },
+    "prompt": {
+      "groups": {
+        "conversation": "Conversation Prompts",
+        "workspace": "Workspace Documents",
+        "memory": "Memory System"
+      },
+      "tabs": {
+        "systemPrompt": "System Prompt",
+        "groupChatPrompt": "Group Chat Prompt",
+        "homeAgentsMd": "Default Workspace",
+        "soul": "SOUL.md",
+        "user": "USER.md",
+        "memory": "MEMORY.md"
+      },
+      "placeholders": {
+        "systemPrompt": "Enter system prompt...",
+        "groupChatPrompt": "Enter group chat prompt, supports {{ChatID}} {{SenderID}} {{Content}}...",
+        "homeAgentsMd": "Enter default workspace AGENTS.md content...",
+        "soul": "Enter SOUL.md content (Sophia's soul settings)...",
+        "user": "Enter USER.md content (owner information)...",
+        "memory": "Enter MEMORY.md content (long-term memory)..."
+      },
+      "titles": {
+        "systemPrompt": "System Prompt",
+        "groupChatPrompt": "Group Chat Prompt",
+        "homeAgentsMd": "AGENTS.md · Default Workspace",
+        "soul": "SOUL.md",
+        "user": "USER.md",
+        "memory": "MEMORY.md"
+      },
+      "descriptions": {
+        "systemPrompt": "Default system prompt applied to all new conversations. Supports referencing {{SOUL.MD}} / {{USER.MD}} / {{MEMORY.MD}}.",
+        "groupChatPrompt": "Configure the prompt for IM group chat scenarios. Supports message variables and referencing {{SOUL.MD}} / {{USER.MD}} / {{MEMORY.MD}}.",
+        "homeAgentsMd": "Project-level instructions for the default workspace. Written to both AGENTS.md and CLAUDE.md. Supports referencing {{SOUL.MD}} / {{USER.MD}} / {{MEMORY.MD}}.",
+        "soul": "Soul settings, defining personality, behavior style, and mission.",
+        "user": "Personal information and preferences.",
+        "memory": "Long-term memory, recording important facts, agreements, and context."
+      },
+      "linesAndChars": "{{lines}} lines · {{chars}} characters",
+      "saved": "✓ Saved",
+      "saveChanges": "Save Changes",
+      "loadFailed": "Load failed",
+      "saveFailed": "Save failed, please retry",
+      "memoryReference": "Memory References",
+      "groupChatVariables": "Group Chat Variables",
+      "clickToInsert": "Click to quickly insert at cursor position",
+      "vars": {
+        "Platform": "Message platform",
+        "MessageID": "Message ID",
+        "ParentID": "Parent message ID",
+        "RootID": "Root message ID",
+        "ChatID": "Chat ID",
+        "ChatType": "Chat type",
+        "SenderID": "Sender ID",
+        "MessageType": "Message type",
+        "Content": "Message content",
+        "CreateTime": "Created time",
+        "UpdateTime": "Updated time",
+        "Mentions": "@ mention list",
+        "MentionsCount": "@ mention count",
+        "RawEvent": "Raw event JSON"
+      },
+      "refs": {
+        "SOUL": "Insert full SOUL.md content",
+        "USER": "Insert full USER.md content",
+        "MEMORY": "Insert full MEMORY.md content"
+      }
+    },
+    "skill": {
+      "sectionTitle": "Skill List",
+      "scopeProject": "Project",
+      "scopeGlobal": "Global",
+      "checkUpdate": "Check Updates",
+      "checking": "Checking...",
+      "installSkill": "+ Install Skill",
+      "searchPlaceholder": "Search installed skills...",
+      "updateCheckResult": "Update Check Results",
+      "updateAll": "Update All",
+      "updating": "Updating...",
+      "allUpdated": "All skills updated to latest version",
+      "noMatchingSkills": "No matching skills",
+      "noSkillsInstalled": "No skills installed",
+      "installHint": "Click \"Install Skill\" button to search and install new skills",
+      "confirmUninstall": "Confirm uninstall skill \"{{name}}\"?",
+      "uninstallFailed": "Uninstall failed",
+      "uninstalled": "Uninstalled {{name}}",
+      "installed": "Installed {{name}}",
+      "installFailed": "Install failed",
+      "searchFailed": "Search failed",
+      "checkFailed": "Check update failed",
+      "updateFailed": "Update failed",
+      "checkComplete": "Check complete",
+      "installModal": {
+        "title": "Install Skill",
+        "packageLabel": "Package name or repository URL",
+        "packagePlaceholder": "e.g.: vercel-labs/agent-skills",
+        "installGlobal": "Install as global skill",
+        "installToAgents": "Install to following Agents",
+        "orSearch": "or search skills",
+        "searchPlaceholder": "Search keywords, e.g.: react, typescript",
+        "installs": "installs"
+      }
+    },
+    "acp": {
+      "sectionTitle": "ACP Environment Variables",
+      "sectionDesc": "Configure environment variables for different ACP Agents. Takes effect on new ACP connections after saving. Use toggle to control whether each variable is active.",
+      "noAgents": "No ACP Agents detected. Please ensure the relevant Agent CLI tools are installed.",
+      "varKeyPlaceholder": "Variable name, e.g. API_KEY",
+      "varValuePlaceholder": "Variable value",
+      "addEnvVar": "+ Add Environment Variable",
+      "activeTooltip": "Enabled",
+      "inactiveTooltip": "Disabled"
+    },
+    "lark": {
+      "sectionTitle": "Lark Bot Configuration",
+      "appId": "App ID",
+      "appIdPlaceholder": "cli_xxxxxxxxxx",
+      "appIdDesc": "App ID from Lark Open Platform",
+      "appSecret": "App Secret",
+      "appSecretPlaceholder": "Enter App Secret",
+      "appSecretDesc": "App Secret from Lark Open Platform. Can also be set via env vars LARKSUITE_CLI_APP_ID / LARKSUITE_CLI_APP_SECRET",
+      "imAdminId": "IM Admin OpenID",
+      "imAdminIdPlaceholder": "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "imAdminIdDesc": "Admin OpenID allowed to use IM commands/chat in Lark private messages",
+      "groupBotId": "Group Chat Trigger Bot OpenID",
+      "groupBotIdPlaceholder": "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "groupBotIdDesc": "Triggers reply when @ this Bot in group chat"
+    },
+    "wechat": {
+      "sectionTitle": "WeChat Account (Personal · iLink)",
+      "sectionDesc": "⚠️ Uses Tencent iLink private protocol. Risk of account ban. Recommend using only test accounts. Supports private chat only, not group chat.",
+      "loggedIn": "✅ Logged in",
+      "expired": "⚠️ Offline · Please re-scan",
+      "ilinkBotId": "iLink Bot ID",
+      "ilinkUserId": "iLink User ID",
+      "status": "Status",
+      "logout": "Logout",
+      "reScan": "Re-scan",
+      "scanLogin": "Scan to Login",
+      "gettingQrCode": "Getting QR code…",
+      "scanWithWeChat": "Scan with WeChat to login",
+      "scanned": "Scanned, please confirm on phone",
+      "qrExpired": "QR code expired, please get a new one",
+      "loginSuccess": "Login successful",
+      "loginFailed": "Login failed",
+      "loginTimeout": "Login timed out, please get a new QR code",
+      "loggedOut": "Logged out",
+      "logoutFailed": "Logout failed",
+      "confirmLogout": "Confirm logout {{id}}?",
+      "adminWhitelist": "Admin Whitelist",
+      "adminWhitelistDesc": "Only iLink user IDs in the whitelist will have their messages routed to the Agent. The logged-in account is automatically added. Others will appear in the \"Pending\" list below when they first send a message.",
+      "noAdmin": "No admins configured",
+      "selfTag": "Self · Cannot delete",
+      "pendingApproval": "Pending (Unauthorized user messages)",
+      "pendingDesc": "Most recent 20 messages from unauthorized users, sorted by newest first.",
+      "noPending": "No pending contacts",
+      "noTextContent": "(No text content)",
+      "addAsAdmin": "Add as admin",
+      "dismiss": "Dismiss",
+      "addFailed": "Add failed",
+      "actionFailed": "Action failed",
+      "removeFailed": "Remove failed",
+      "confirmRemoveAdmin": "Confirm remove admin {{id}}?"
+    },
+    "workspace": {
+      "title": "Workspaces",
+      "regenerateColors": "Regenerate Colors",
+      "regenerating": "Generating...",
+      "createWorkspace": "New Workspace",
+      "noWorkspaces": "No workspaces (default workspace ws-1 should be auto-created by backend, please check)",
+      "defaultBadge": "Default",
+      "defaultPrefs": "Default: {{agent}} / {{model}}",
+      "deleteWorkspace": "Delete Workspace",
+      "deleteConfirm": "Are you sure you want to delete workspace \"{{title}}\"?",
+      "deleteFailed": "Delete failed",
+      "regenerateFailed": "Regenerate failed",
+      "cannotDeleteDefault": "Cannot delete default workspace",
+      "formCreate": "New Workspace",
+      "formEdit": "Edit Workspace",
+      "formDefaultHint": "Default workspace ID is {{id}}. Can rename/change path, cannot delete.",
+      "formName": "Name *",
+      "formNamePlaceholder": "Workspace name",
+      "formDescription": "Description",
+      "formDescPlaceholder": "Optional description",
+      "formWorkdir": "Work Directory *",
+      "formWorkdirPlaceholder": "/path/to/workdir",
+      "formDefaultAgent": "Default Agent (optional)",
+      "formDefaultAgentOption": "— Use system default —",
+      "formDefaultAgentHint": "Saved in browser localStorage. IM side does not read this preference.",
+      "formDefaultModel": "Default Model (optional)",
+      "formDefaultModelOption": "— Use Agent default —"
+    },
+    "logs": {
+      "level": "Level",
+      "filter": "Filter",
+      "source": "Source",
+      "keyword": "Keyword",
+      "keywordPlaceholder": "Search log content…",
+      "autoRefresh": "Auto refresh",
+      "pauseScroll": "Pause scroll",
+      "resume": "Resume",
+      "refresh": "Refresh",
+      "clearBuffer": "Clear buffer",
+      "confirmClear": "Are you sure you want to clear all log buffer?",
+      "totalEntries": "{{count}} entries total",
+      "noLogs": "No logs",
+      "levelDebug": "Debug (verbose)",
+      "levelInfo": "Info (default)",
+      "levelWarn": "Warn",
+      "levelError": "Error",
+      "filterAll": "All",
+      "filterDebugPlus": "Debug+",
+      "filterInfoPlus": "Info+",
+      "filterWarnPlus": "Warn+",
+      "filterErrorOnly": "Error",
+      "sourceAll": "Frontend + Backend",
+      "sourceBackend": "Backend only",
+      "sourceFrontend": "Frontend only"
+    }
+  },
+  "cron": {
+    "presets": {
+      "everyHour": "Every hour",
+      "everyHourDesc": "At the top of every hour",
+      "everyDay9": "Daily 9:00",
+      "everyDay9Desc": "Every day at 9:00 AM",
+      "everyDay18": "Daily 18:00",
+      "everyDay18Desc": "Every day at 6:00 PM",
+      "weekday9": "Weekdays 9:00",
+      "weekday9Desc": "Mon–Fri at 9:00",
+      "everyMonday9": "Monday 9:00",
+      "everyMonday9Desc": "Every Monday at 9:00",
+      "every30min": "Every 30 min",
+      "every30minDesc": "Every half hour",
+      "every5min": "Every 5 min",
+      "every5minDesc": "Every 5 minutes",
+      "every1min": "Every 1 min",
+      "every1minDesc": "Every minute"
+    },
+    "human": {
+      "everyMinute": "Every minute",
+      "everyNMinutes": "Every {{n}} minutes",
+      "everyHourAtMinute": "Every hour at minute {{min}}",
+      "everyNHours": "Every {{n}} hours",
+      "everyDayAt": "Every day at {{time}}",
+      "dowAt": "{{dow}} {{time}}"
+    },
+    "dow": {
+      "0": "Sun",
+      "1": "Mon",
+      "2": "Tue",
+      "3": "Wed",
+      "4": "Thu",
+      "5": "Fri",
+      "6": "Sat",
+      "1-5": "Weekdays",
+      "0,6": "Weekends"
+    },
+    "tabs": {
+      "preset": "Presets",
+      "custom": "Custom"
+    },
+    "validation": {
+      "fiveFields": "Requires 5 fields: min hour day month weekday"
+    },
+    "placeholder": "min hour day month weekday  e.g. 0 9 * * 1-5",
+    "help": "Format: min(0-59) hour(0-23) day(1-31) month(1-12) weekday(0-6, 0=Sun)"
+  },
+  "schedule": {
+    "createTitle": "New Scheduled Task",
+    "editTitle": "Edit Scheduled Task",
+    "selectTemplate": "Select Template",
+    "noTemplates": "No templates yet. Please save a template in Loop config first",
+    "selectTemplatePlaceholder": "Select template...",
+    "configPreview": "Selected config: {{nodes}} node(s)",
+    "configPreviewVars": ", {{vars}} variable(s)",
+    "taskName": "Task Name",
+    "taskNamePlaceholder": "e.g.: Daily Code Review",
+    "taskNameRequired": "Please enter task name",
+    "selectTemplateRequired": "Please select a template",
+    "workspaceBinding": "Workspace Binding",
+    "bindCurrent": "Bind to current workspace",
+    "unboundHint": "Independent of workspace (uses default workspace at trigger time)",
+    "boundWorkspace": "Bound workspace",
+    "boundWorkspaceDefault": "Default workspace (used at trigger time)",
+    "enable": "Enable",
+    "frequency": "Frequency",
+    "advanced": "Advanced Options",
+    "maxConcurrent": "Max Concurrent",
+    "maxConcurrentHint": "Skip trigger if previous run not finished",
+    "timeout": "Timeout (minutes)",
+    "timeoutHint": "0 means no limit",
+    "runInfo": "Run Information",
+    "runCount": "Executed {{count}} time(s)",
+    "lastRun": "Last run:",
+    "nextRun": "Next run:",
+    "lastStatus": "Last status:",
+    "triggerNow": "Run Now"
+  },
+  "message": {
+    "systemMessage": "System Message",
+    "availableCommands": "Available Commands",
+    "chatStatus": "Chat Status",
+    "jobList": "Job List",
+    "workspaceList": "Workspace List",
+    "current": "Current",
+    "usage": "Usage",
+    "aliases": "Aliases",
+    "copyPathSuccess": "Copied path: {{name}}",
+    "copyPathFailed": "Copy path failed",
+    "fileTruncated": "File exceeds 1MB, showing first 1MB only",
+    "binaryFile": "Binary file, cannot preview",
+    "readFileFailed": "Failed to read file",
+    "networkReadFailed": "Network error, cannot read file"
+  },
+  "script": {
+    "newShell": "+ New Shell",
+    "backToList": "Back to list",
+    "searchPlaceholder": "Search Shell...",
+    "noScripts": "No Shell scripts yet, click above to create",
+    "noMatch": "No matching Shell scripts",
+    "confirmDeleteTitle": "Confirm Delete",
+    "confirmDeleteMessage": "Are you sure you want to delete Shell \"{{name}}\"?",
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "Shell name",
+      "description": "Description (optional)",
+      "descriptionPlaceholder": "Briefly describe what it does",
+      "content": "Content",
+      "contentPlaceholder": "Enter Shell content...\nSupports {{varTag}} placeholders",
+      "note": "In Shell, set variables via <0>{{setCmd}}</0>. Later steps can reference them with <1>{{varTag}}</1>. Break current loop: <2>{{breakCmd}}</2>. Exit workflow: <3>{{returnCmd}}</3>."
+    },
+    "saving": "Saving...",
+    "update": "Update",
+    "create": "Create"
+  },
+  "home": {
+    "loading": "Loading...",
+    "filterByWorkspace": "Filter by workspace",
+    "filterByWorkspaceShort": "Filter",
+    "allWorkspaces": "All workspaces",
+    "hideScheduledJobs": "Hide scheduled jobs",
+    "hideScheduledJobsShort": "Hide scheduled",
+    "newTask": "New Task",
+    "noJobsInWorkspace": "No jobs in this workspace",
+    "dayStatsTurns_one": "{{count}} turn/loop",
+    "dayStatsTurns_other": "{{count}} turns/loops",
+    "disabled": "Disabled",
+    "lastRun": "Last run",
+    "neverRun": "Never run",
+    "runCount_one": "{{count}} run",
+    "runCount_other": "{{count}} runs",
+    "lastStatus": {
+      "success": "Success",
+      "failed": "Failed",
+      "running": "Running",
+      "stopped": "Stopped",
+      "never": "Never run"
+    }
+  },
+  "fileViewer": {
+    "lines": "{{count}} lines"
+  },
+  "stats": {
+    "title": "Usage Statistics",
+    "topbarTooltip": "Statistics",
+    "tokensLocalEstimateNote": "Token counts are local tokenizer estimates, not API billing values.",
+    "tokenTotalHelp": "Total tokens come from the whole-round history estimate and are not required to equal assistant + thought + tool-call tokens.",
+    "rangeLabel": "Range",
+    "range7d": "7 days",
+    "range30d": "30 days",
+    "range90d": "90 days",
+    "rangeAll": "All",
+    "rangeCustom": "Custom",
+    "customFrom": "From",
+    "customTo": "To",
+    "metric": {
+      "duration": "Duration",
+      "counts": "Counts",
+      "tokens": "Tokens"
+    },
+    "subMetric": {
+      "turns": "Turns",
+      "assistant": "Assistant",
+      "thought": "Thought",
+      "toolCall": "Tool calls",
+      "tokenTotal": "Total"
+    },
+    "view": {
+      "byWorkspace": "By Workspace",
+      "byModel": "By Model",
+      "byTool": "By Tool",
+      "trend": "Daily trend"
+    },
+    "table": {
+      "workspace": "Workspace",
+      "model": "Model",
+      "tool": "Tool",
+      "duration": "Duration",
+      "turns": "Turns",
+      "assistant": "Assistant",
+      "thought": "Thought",
+      "toolCall": "Tool calls",
+      "tokenTotal": "Total tokens",
+      "tokenAssistant": "Assistant tokens",
+      "tokenThought": "Thought tokens",
+      "tokenToolCall": "Tool call tokens",
+      "calls": "Calls",
+      "deletedSuffix": "(deleted)"
+    },
+    "tools": {
+      "noToolsInRange": "No tool calls recorded in this range"
+    },
+    "chart": {
+      "totalLabel": "Total",
+      "shareOfTotal": "{{pct}}% of total",
+      "othersHidden": "+{{count}} more not shown"
+    },
+    "trend": {
+      "axisUnit": "Unit: {{unit}}",
+      "unit": {
+        "minute": "min",
+        "hour": "hours",
+        "count": "times",
+        "tokens": "tokens"
+      }
+    },
+    "tokensNotApplicable": "Token breakdown by tool is not collected in this release.",
+    "unknownModel": "Unknown model",
+    "noDataInRange": "No usage recorded in the selected range.",
+    "loading": "Loading…",
+    "unknownError": "Unknown error",
+    "fetchError": "Failed to load: {{message}}",
+    "retry": "Retry"
+  }
+}
