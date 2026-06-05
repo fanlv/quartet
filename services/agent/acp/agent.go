@@ -3,7 +3,6 @@ package acp
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,7 +18,6 @@ import (
 	"github.com/fanlv/quartet/services/agent/round"
 	"github.com/fanlv/quartet/types/agui"
 	"github.com/fanlv/quartet/types/model"
-	"github.com/fanlv/quartet/types/msgextra"
 )
 
 // tokenUsageMinInterval throttles the per-flush local token recompute used
@@ -945,14 +943,6 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 
 	a.builder.SetLogLabel(fmt.Sprintf("acp jobId=%s sessionId=%s acpSession=%s", jobID, a.sessionID, acpSession))
 	a.builder.Reset(handler, func(msgs []*schema.Message) {
-		// Drop subprocess "replay echo" assistant messages before they reach
-		// disk. After a restart / long idle the subprocess re-emits a prior
-		// turn's assistant reply as it re-aligns its session context; that
-		// echo is a duplicate of history already on disk, yet it arrives with
-		// a fresh msg_id so neither disk nor the frontend can dedup it by id.
-		// Persisting it pollutes messages.jsonl (and survives a refresh). See
-		// isReplayEchoMessage for the detection heuristic.
-		msgs = dropReplayEchoMessages(logCtx, acpSession, msgs)
 		if len(msgs) == 0 {
 			return
 		}
@@ -1364,82 +1354,6 @@ func (a *ACPAgent) UpdateACPMode(ctx context.Context, mode string) error {
 	a.mu.Unlock()
 	logger.Debugf(ctx, "[acp] set mode: acpSession=%s mode=%s", acpSession, mode)
 	return nil
-}
-
-// replayEchoMaxElapsedMs bounds how long a flushed assistant message may have
-// taken to still count as a replay echo. A genuine streamed reply takes
-// hundreds of ms to seconds (chunks arrive over the wire); a replay echo is
-// reconstructed from subprocess memory and lands effectively instantaneously
-// (observed started_at/finished_at deltas of 0–1ms). The small slack absorbs
-// timer granularity without admitting any real generation.
-const replayEchoMaxElapsedMs = 50
-
-// isReplayEchoMessage reports whether an assistant message is a subprocess
-// replay echo rather than freshly generated content. Two signals must hold
-// together so a legitimate reply that merely happens to be short cannot be
-// misclassified:
-//
-//  1. Content starts with the replayEchoPrefix placeholder — the structural
-//     fingerprint of a replayed (empty) content block.
-//  2. The message was produced effectively instantaneously (finished_at
-//     minus started_at within replayEchoMaxElapsedMs) — replays are
-//     reconstructed from memory, not streamed.
-func isReplayEchoMessage(m *schema.Message) bool {
-	if m == nil || m.Role != schema.Assistant {
-		return false
-	}
-
-	started := extraInt64(m.Extra, msgextra.KeyStartedAt)
-	finished := extraInt64(m.Extra, msgextra.KeyFinishedAt)
-	if started == 0 || finished == 0 {
-		// Missing timing: fall back to the prefix signal alone. A replayed
-		// block always carries the prefix; a real reply never does, so the
-		// prefix by itself is already decisive.
-		return true
-	}
-	return finished-started <= replayEchoMaxElapsedMs
-}
-
-// extraInt64 reads a Unix-millis timestamp stored on schema.Message.Extra.
-// Timestamps are written as int64 but may survive a JSON round-trip as
-// float64, so both are accepted. Returns 0 when absent or another type.
-func extraInt64(extra map[string]any, key string) int64 {
-	if extra == nil {
-		return 0
-	}
-	switch v := extra[key].(type) {
-	case int64:
-		return v
-	case float64:
-		return int64(v)
-	case int:
-		return int64(v)
-	default:
-		return 0
-	}
-}
-
-// dropReplayEchoMessages filters subprocess replay-echo assistant messages out
-// of a flush batch before it is persisted. Logs each drop at INFO so the
-// behaviour is visible during diagnosis. Returns the input slice unchanged
-// when nothing is dropped (the common case) to avoid an allocation.
-func dropReplayEchoMessages(ctx context.Context, acpSession pkgacp.SessionID, msgs []*schema.Message) []*schema.Message {
-	if !slices.ContainsFunc(msgs, isReplayEchoMessage) {
-		return msgs
-	}
-	kept := make([]*schema.Message, 0, len(msgs))
-	for _, m := range msgs {
-		if isReplayEchoMessage(m) {
-			preview := m.Content
-			if len(preview) > 80 {
-				preview = preview[:80]
-			}
-			logger.Infof(ctx, "[acp] dropped subprocess replay-echo message before persist: acpSession=%s contentPreview=%q", acpSession, preview)
-			continue
-		}
-		kept = append(kept, m)
-	}
-	return kept
 }
 
 func extractTextFromMessages(messages []*schema.Message) string {
