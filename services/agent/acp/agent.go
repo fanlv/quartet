@@ -1366,13 +1366,6 @@ func (a *ACPAgent) UpdateACPMode(ctx context.Context, mode string) error {
 	return nil
 }
 
-// replayEchoPrefix is the literal text an ACP subprocess emits for an empty
-// content block when it replays a prior assistant turn. The string is the
-// subprocess's own rendering (it appears nowhere in our codebase); a real
-// streamed reply never starts with it. One replayed turn can carry several
-// such blocks back to back (e.g. "[No content][No content][No content]…").
-const replayEchoPrefix = "[No content]"
-
 // replayEchoMaxElapsedMs bounds how long a flushed assistant message may have
 // taken to still count as a replay echo. A genuine streamed reply takes
 // hundreds of ms to seconds (chunks arrive over the wire); a replay echo is
@@ -1395,9 +1388,7 @@ func isReplayEchoMessage(m *schema.Message) bool {
 	if m == nil || m.Role != schema.Assistant {
 		return false
 	}
-	if !strings.HasPrefix(m.Content, replayEchoPrefix) {
-		return false
-	}
+
 	started := extraInt64(m.Extra, msgextra.KeyStartedAt)
 	finished := extraInt64(m.Extra, msgextra.KeyFinishedAt)
 	if started == 0 || finished == 0 {
