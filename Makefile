@@ -391,19 +391,3 @@ web-status:
 
 clean:
 	rm -rf bin
-
-docker-build:
-	docker build -t quartet/quartet:latest --platform=linux/amd64 .
-	docker build -t quartet/quartet:latest --platform=linux/arm64 --build-arg TARGETARCH=arm64 .
-
-docker-build-load:
-	docker build --load -t quartet/quartet:latest .
-
-docker-run:
-	docker run -p 8090:8090 -p 8000:8000 -p 8001:8001 -p 9222:9222 -p 5900:5900 -p 6080:6080 \
-		-e JWT_SECRET=your-secret-key \
-		-e SANDBOX_SRV_URL=http://localhost:8000 \
-		-e MCP_HUB_URL=http://localhost:8001 \
-		--privileged \
-		--name quartet \
-		quartet/quartet:latest
