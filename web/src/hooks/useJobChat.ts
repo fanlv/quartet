@@ -72,6 +72,67 @@ async function parallelLimit<T>(tasks: (() => Promise<T>)[], limit: number): Pro
   return results;
 }
 
+// idlePrefetchSessions lazily warms a list of session histories in the
+// background at low priority. Used after the active session is loaded so the
+// remaining loop sessions are eventually in memory (smooth tab switches)
+// without competing with the first paint for network/CPU.
+//
+// Each session is loaded one at a time, scheduled via requestIdleCallback so
+// it only runs when the browser is otherwise idle; environments without it
+// (older Safari, jsdom in tests) fall back to a short setTimeout. Before every
+// load we re-check isCancelled() so an unmounted hook / switched job stops the
+// chain promptly. A manual tab switch races ahead via the per-session
+// load-on-switch effect — that path marks the session loaded and loadOne here
+// can no-op it (the caller's loadOne already merges idempotently).
+//
+// Returns a cancel() handle the caller wires into its effect cleanup so a
+// pending idle callback is dropped immediately on job switch / unmount.
+function idlePrefetchSessions(
+  sessionIds: string[],
+  loadOne: (sid: string) => Promise<void>,
+  isCancelled: () => boolean,
+): () => void {
+  const ric: typeof requestIdleCallback | undefined =
+    typeof requestIdleCallback === 'function' ? requestIdleCallback : undefined;
+  const cic: typeof cancelIdleCallback | undefined =
+    typeof cancelIdleCallback === 'function' ? cancelIdleCallback : undefined;
+
+  let idleHandle: number | null = null;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  let stopped = false;
+
+  const schedule = (fn: () => void) => {
+    if (ric) {
+      idleHandle = ric(fn, { timeout: 2000 });
+    } else {
+      timeoutHandle = setTimeout(fn, 50);
+    }
+  };
+
+  let index = 0;
+  const step = () => {
+    if (stopped || isCancelled()) return;
+    if (index >= sessionIds.length) return;
+    const sid = sessionIds[index++];
+    void loadOne(sid)
+      .catch(() => {
+        // loadOne is expected to record its own failure (failedSessionIdsRef);
+        // swallow here so one bad session doesn't halt the prefetch chain.
+      })
+      .finally(() => {
+        if (stopped || isCancelled()) return;
+        schedule(step);
+      });
+  };
+  schedule(step);
+
+  return () => {
+    stopped = true;
+    if (idleHandle !== null && cic) cic(idleHandle);
+    if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+  };
+}
+
 function getLastLoopSessionId(sessions: LoopSessionEntry[]): string | null {
   return sessions.length > 0 ? sessions[sessions.length - 1].sessionId : null;
 }
@@ -199,6 +260,16 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
   const [endedSessionIds, setEndedSessionIds] = useState<Set<string>>(new Set());
   const [loadedSessionIds, setLoadedSessionIds] = useState<Set<string>>(new Set());
+  // Ref mirror of loadedSessionIds so the background idle-prefetch callback
+  // (which runs asynchronously, well after its enclosing render) can skip
+  // sessions a load-on-switch already pulled in, without re-running on every
+  // change or capturing a stale closure value. Synced in an effect; the
+  // prefetch tolerates a one-frame lag (it also dedups via the merge and the
+  // generation / cancelled guards).
+  const loadedSessionIdsRef = useRef<Set<string>>(loadedSessionIds);
+  useEffect(() => {
+    loadedSessionIdsRef.current = loadedSessionIds;
+  }, [loadedSessionIds]);
   // Sessions whose background hydration failed; will be retried on switch.
   const failedSessionIdsRef = useRef<Set<string>>(new Set());
 
@@ -1437,10 +1508,61 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       const sessionIds: string[] = job.sessionIds || [];
       if (sessionIds.length > 0) {
         const isLoopMode = job.mode === 'loop';
+        if (isLoopMode) {
+          // Loop recovery: load the active session synchronously, then warm
+          // the rest at idle priority (matches initial hydration /
+          // reload-from-disk). Non-loop falls through to the full parallel
+          // load below — those jobs have few sessions and the token total
+          // depends on all of them being loaded.
+          const activeSid =
+            (activeSessionIdRef.current && sessionIds.includes(activeSessionIdRef.current))
+              ? activeSessionIdRef.current
+              : sessionIds[sessionIds.length - 1];
+          let activeMsgs: Message[] = [];
+          try {
+            activeMsgs = await loadHistory(activeSid, activeSid);
+          } catch (err) {
+            console.warn(`[JobEvents] syncJobState: failed to load active session ${activeSid}:`, err);
+          }
+          // Generation check: discard if a newer syncJobState started while we
+          // were loading (mirrors the parallel path's post-load guard).
+          if (gen !== syncGenerationRef.current) {
+            console.debug(`[JobEvents] syncJobState stale after active load: gen=${gen} current=${syncGenerationRef.current}`);
+            return;
+          }
+          if (activeMsgs.length > 0) {
+            setMessages((prev) => mergeMessages(prev, activeMsgs, { deduplicateToolCallIds: true }));
+          }
+          setLoadedSessionIds((prev) => new Set([...prev, activeSid]));
+
+          const remainingIds = sessionIds.filter((sid) => sid !== activeSid);
+          if (remainingIds.length > 0) {
+            idlePrefetchSessions(
+              remainingIds,
+              async (sid) => {
+                if (gen !== syncGenerationRef.current || loadedSessionIdsRef.current.has(sid)) return;
+                let msgs: Message[];
+                try {
+                  msgs = await loadHistory(sid, sid);
+                } catch (err) {
+                  console.warn(`[JobEvents] syncJobState: failed to prefetch session ${sid}:`, err);
+                  failedSessionIdsRef.current = new Set([...failedSessionIdsRef.current, sid]);
+                  return;
+                }
+                if (gen !== syncGenerationRef.current) return;
+                if (msgs.length > 0) {
+                  setMessages((prev) => mergeMessages(prev, msgs, { deduplicateToolCallIds: true }));
+                }
+                setLoadedSessionIds((prev) => new Set([...prev, sid]));
+              },
+              () => gen !== syncGenerationRef.current,
+            );
+          }
+        } else {
         const results = await parallelLimit(
           sessionIds.map((sid) => async () => {
             try {
-              return await loadHistory(sid, isLoopMode ? sid : undefined);
+              return await loadHistory(sid, undefined);
             } catch (err) {
               console.warn(`[JobEvents] syncJobState: failed to load session ${sid}:`, err);
               return [];
@@ -1466,6 +1588,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           for (const sid of sessionIds) next.add(sid);
           return next;
         });
+        }
       }
       } // end !skipMessages
 
@@ -1496,6 +1619,10 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     let cancelled = false;
     const currentJobId = jobId;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    // Cancel handle for background idle-prefetch started by a disk reload /
+    // sync. A reconnect may trigger another reload, so we cancel the prior
+    // prefetch before starting a new one and on effect cleanup.
+    let cancelIdlePrefetch: (() => void) | null = null;
 
     // Backoffs after attempt 0 / 1 / 2 fail. Total budget = 1 initial + 3
     // retries. After all retries are exhausted we surface the server's
@@ -1581,15 +1708,47 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
       const isLoopJob = Array.isArray(job?.loopConfig?.flow) && job.loopConfig.flow.length > 0;
       if (isLoopJob) {
-        const allMsgs: Message[] = [];
-        for (const sid of sessionIds) {
-          if (cancelled) return;
-          const msgs = await loadHistory(sid, sid);
-          allMsgs.push(...msgs);
-        }
+        // Mirror initial hydration: load the active session synchronously so
+        // it paints immediately, then warm the rest at idle priority. The
+        // active session is the one the user is currently viewing (or the
+        // shared initialSessionId, else the last). The load-on-switch effect
+        // still covers any session the user clicks before prefetch reaches it.
+        const activeSid =
+          (activeSessionIdRef.current && sessionIds.includes(activeSessionIdRef.current))
+            ? activeSessionIdRef.current
+            : (initialSessionId && sessionIds.includes(initialSessionId))
+              ? initialSessionId
+              : sessionIds[sessionIds.length - 1];
+
+        const activeMsgs = await loadHistory(activeSid, activeSid);
         if (cancelled) return;
-        setMessages((prev) => mergeMessages(prev, allMsgs, { deduplicateToolCallIds: true }));
-        setLoadedSessionIds(new Set(sessionIds));
+        setMessages((prev) => mergeMessages(prev, activeMsgs, { deduplicateToolCallIds: true }));
+        setLoadedSessionIds((prev) => new Set([...prev, activeSid]));
+
+        const remainingIds = sessionIds.filter((sid) => sid !== activeSid);
+        if (remainingIds.length > 0 && !cancelled) {
+          if (cancelIdlePrefetch) cancelIdlePrefetch();
+          cancelIdlePrefetch = idlePrefetchSessions(
+            remainingIds,
+            async (sid) => {
+              if (cancelled || loadedSessionIdsRef.current.has(sid)) return;
+              let msgs: Message[];
+              try {
+                msgs = await loadHistory(sid, sid);
+              } catch (err) {
+                console.error(`[reload-from-disk] Failed to prefetch session ${sid}:`, err);
+                failedSessionIdsRef.current = new Set([...failedSessionIdsRef.current, sid]);
+                return;
+              }
+              if (cancelled) return;
+              if (msgs.length > 0) {
+                setMessages((prev) => mergeMessages(prev, msgs, { deduplicateToolCallIds: true }));
+              }
+              setLoadedSessionIds((prev) => new Set([...prev, sid]));
+            },
+            () => cancelled,
+          );
+        }
       } else {
         // Non-loop job may have multiple sessions (e.g. agent type switch).
         // Load all sessions so no messages are lost.
@@ -1740,6 +1899,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       setEventsReady(false);
       window.clearInterval(watchdog);
       if (retryTimer) clearTimeout(retryTimer);
+      if (cancelIdlePrefetch) cancelIdlePrefetch();
       // Close whichever client is currently in use (initial OR any one
       // installed by a 410 retry). Closure-capturing the first client
       // would leak retry-installed ones across unmount.
@@ -2076,6 +2236,10 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   useEffect(() => {
     if (!existingJobId || historyLoadedRef.current) return;
     let cancelled = false;
+    // Cancel handle for the background idle-prefetch of non-active loop
+    // sessions; wired into this effect's cleanup so a job switch / unmount
+    // drops any pending idle callback immediately.
+    let cancelIdlePrefetch: (() => void) | null = null;
     setJobId(existingJobId);
     setIsLoadingHistory(true);
     setJobNotFound(false);
@@ -2267,19 +2431,23 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                 }
               }
 
-              // Step 2: Load remaining sessions in parallel (background)
+              // Step 2: Warm remaining sessions in the background at idle
+              // priority. They load lazily on tab switch (load-on-switch
+              // effect); this prefetch just gets them into memory eventually
+              // for smooth switching without competing with the first paint.
               const remainingIds = uniqueSessionIds.filter(id => id !== activeSid);
               if (remainingIds.length > 0 && !cancelled) {
-                await parallelLimit(
-                  remainingIds.map((sid) => async () => {
-                    if (cancelled) return;
+                cancelIdlePrefetch = idlePrefetchSessions(
+                  remainingIds,
+                  async (sid) => {
+                    if (cancelled || loadedSessionIdsRef.current.has(sid)) return;
                     let msgs: Message[];
                     try {
-                      msgs = await loadHistory(sid as string, sid as string);
+                      msgs = await loadHistory(sid, sid);
                     } catch (err) {
-                      console.error(`[hydration] Failed to load session ${sid}:`, err);
+                      console.error(`[hydration] Failed to prefetch session ${sid}:`, err);
                       // Record failure for retry-on-switch instead of marking loaded with empty content.
-                      failedSessionIdsRef.current = new Set([...failedSessionIdsRef.current, sid as string]);
+                      failedSessionIdsRef.current = new Set([...failedSessionIdsRef.current, sid]);
                       return;
                     }
                     if (cancelled) return;
@@ -2288,9 +2456,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                     }
                     // Mark loaded even when empty so switching to this tab
                     // shows an empty chat instead of an infinite spinner.
-                    setLoadedSessionIds((prev) => new Set([...prev, sid as string]));
-                  }),
-                  5
+                    setLoadedSessionIds((prev) => new Set([...prev, sid]));
+                  },
+                  () => cancelled,
                 );
               }
             }
@@ -2339,17 +2507,19 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                   }
                 }
 
-                // Step 2: Load remaining sessions in parallel (background)
+                // Step 2: Warm remaining sessions in the background at idle
+                // priority (lazy on tab switch; this just pre-warms memory).
                 const remainingIds = job.sessionIds.filter((sid: string) => sid !== activeSid);
                 if (remainingIds.length > 0 && !cancelled) {
-                  await parallelLimit(
-                    remainingIds.map((sid: string) => async () => {
-                      if (cancelled) return;
+                  cancelIdlePrefetch = idlePrefetchSessions(
+                    remainingIds,
+                    async (sid) => {
+                      if (cancelled || loadedSessionIdsRef.current.has(sid)) return;
                       let msgs: Message[];
                       try {
                         msgs = await loadHistory(sid, sid);
                       } catch (err) {
-                        console.error(`[hydration] Failed to load session ${sid}:`, err);
+                        console.error(`[hydration] Failed to prefetch session ${sid}:`, err);
                         failedSessionIdsRef.current = new Set([...failedSessionIdsRef.current, sid]);
                         return;
                       }
@@ -2360,8 +2530,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                       // Mark loaded even when empty so switching to this tab
                       // shows an empty chat instead of an infinite spinner.
                       setLoadedSessionIds((prev) => new Set([...prev, sid]));
-                    }),
-                    5
+                    },
+                    () => cancelled,
                   );
                 }
               }
@@ -2460,7 +2630,10 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setSnapshotReady(true);
         }
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (cancelIdlePrefetch) cancelIdlePrefetch();
+    };
   }, [existingJobId, initialSessionId, apiUrl, loadHistory, applyActiveSessionSelection, setLoopSessions]);
 
   // When the active session changes in loop mode, update session-level metadata
