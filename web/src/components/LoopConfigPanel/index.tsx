@@ -202,6 +202,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
 
   const [templates, setTemplates] = useState<LoopTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
   const [templateSearch, setTemplateSearch] = useState('');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -234,13 +235,14 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const [mobileTab, setMobileTab] = useState<'flow' | 'config' | 'variables'>('flow');
   const [confirmDeleteNodeId, setConfirmDeleteNodeId] = useState('');
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const templateDropdownRef = useRef<HTMLDivElement>(null);
 
   const loadTemplates = useCallback(async () => {
     const list = await fetchTemplates();
     const sorted = [...list].sort((a, b) => {
       const aSched = (a.scheduleCount ?? 0) > 0 ? 1 : 0;
       const bSched = (b.scheduleCount ?? 0) > 0 ? 1 : 0;
-      if (aSched !== bSched) return bSched - aSched;
+      if (aSched !== bSched) return aSched - bSched;
       return a.name.localeCompare(b.name, undefined, { numeric: true });
     });
     setTemplates(sorted);
@@ -271,6 +273,18 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     return () => document.removeEventListener('mousedown', handler);
   }, [moreMenuOpen]);
 
+  // Close quick template dropdown on outside click
+  useEffect(() => {
+    if (!templateDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (templateDropdownRef.current && !templateDropdownRef.current.contains(e.target as Node)) {
+        setTemplateDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [templateDropdownOpen]);
+
   // Close workspace dropdown on outside click
   useEffect(() => {
     if (!wsDropdownOpen) return;
@@ -295,6 +309,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
       if (showUpdateDialog) { setShowUpdateDialog(false); return; }
       if (showSaveDialog) { setShowSaveDialog(false); return; }
       if (showTemplateLibrary) { setShowTemplateLibrary(false); return; }
+      if (templateDropdownOpen) { setTemplateDropdownOpen(false); return; }
       if (variablesPanelOpen) { setVariablesPanelOpen(false); return; }
       if (moreMenuOpen) { setMoreMenuOpen(false); return; }
       handleTryCancel();
@@ -302,7 +317,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showLeaveConfirm, showImportDialog, confirmDeleteNodeId, confirmDeleteId, showUpdateDialog, showSaveDialog, showTemplateLibrary, variablesPanelOpen, moreMenuOpen, dirty]);
+  }, [showLeaveConfirm, showImportDialog, confirmDeleteNodeId, confirmDeleteId, showUpdateDialog, showSaveDialog, showTemplateLibrary, templateDropdownOpen, variablesPanelOpen, moreMenuOpen, dirty]);
 
   // Viewport sync for iPad/mobile
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -434,6 +449,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     setVariables(vars);
     setSelectedTemplateId(tmpl.id);
     setShowTemplateLibrary(false);
+    setTemplateDropdownOpen(false);
     setTemplateSearch('');
     setDirty(false);
   };
@@ -453,6 +469,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     setFlow(nextFlow);
     setSelectedNodeId(findFirstStepId(nextFlow) || nextFlow[0]?.id || null);
     setVariables([]);
+    setTemplateDropdownOpen(false);
     setDirty(false);
   };
 
@@ -791,11 +808,62 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                 )}
               </div>
             )}
-            <div className="loop-template-current">
-              <span className="loop-template-current-label">{t('loop.template.currentLabel')}</span>
-              <span className={selectedTemplate ? 'loop-template-current-name' : 'loop-template-current-placeholder'}>
-                {selectedTemplate ? selectedTemplate.name : t('loop.footer.blank')}
-              </span>
+            <div className="loop-template-quick-select" ref={templateDropdownRef}>
+              <button
+                className={`loop-template-current${templateDropdownOpen ? ' open' : ''}`}
+                type="button"
+                onClick={() => setTemplateDropdownOpen((v) => !v)}
+                aria-expanded={templateDropdownOpen}
+              >
+                <span className="loop-template-current-copy">
+                  <span className="loop-template-current-label">{t('loop.template.currentLabel')}</span>
+                  <span className={selectedTemplate ? 'loop-template-current-name' : 'loop-template-current-placeholder'}>
+                    {selectedTemplate ? selectedTemplate.name : t('loop.footer.blank')}
+                  </span>
+                </span>
+                <svg className="loop-template-current-caret" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 4.5L6 7.5L9 4.5" />
+                </svg>
+              </button>
+              {templateDropdownOpen && (
+                <div className="loop-template-quick-dropdown">
+                  <button
+                    type="button"
+                    className={`loop-template-quick-item${!selectedTemplateId ? ' active' : ''}`}
+                    onClick={handleReset}
+                  >
+                    <span className="loop-template-quick-name">{t('loop.footer.blank')}</span>
+                    <span className="loop-template-quick-meta">{t('loop.actions.reset')}</span>
+                  </button>
+                  {templates.length === 0 ? (
+                    <div className="loop-template-quick-empty">
+                      {t('loop.template.emptyLibraryTitle')}
+                    </div>
+                  ) : (
+                    templates.map((tmpl) => {
+                      const stats = getTemplateStats(tmpl);
+                      const isSelected = tmpl.id === selectedTemplateId;
+                      const isScheduled = (tmpl.scheduleCount ?? 0) > 0;
+                      return (
+                        <button
+                          key={tmpl.id}
+                          type="button"
+                          className={`loop-template-quick-item${isSelected ? ' active' : ''}`}
+                          onClick={() => handleSelectTemplate(tmpl)}
+                        >
+                          <span className="loop-template-quick-name">{tmpl.name}</span>
+                          <span className="loop-template-quick-meta">
+                            {t('loop.flow.steps', { count: stats.steps })}
+                            {' · '}
+                            {t('loop.footer.variables', { count: stats.variables })}
+                            {isScheduled ? ` · ${t('loop.template.scheduleBadge', { count: tmpl.scheduleCount ?? 0 })}` : ''}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
             <button
               className="loop-template-library-btn"
