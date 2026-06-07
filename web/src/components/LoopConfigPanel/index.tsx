@@ -226,8 +226,6 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | undefined>(currentWorkspaceId);
   const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
   const wsDropdownRef = useRef<HTMLDivElement>(null);
-  const wsTriggerRef = useRef<HTMLButtonElement>(null);
-  const [wsDropdownTop, setWsDropdownTop] = useState<number | undefined>(undefined);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(() => findFirstStepId(initialFlow) || initialFlow[0]?.id || null);
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => new Set());
@@ -751,15 +749,8 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                 <button
                   className="loop-ws-trigger"
                   type="button"
-                  ref={wsTriggerRef}
                   data-testid="loop-config-workspace-trigger"
-                  onClick={() => {
-                    if (!wsDropdownOpen && wsTriggerRef.current) {
-                      const rect = wsTriggerRef.current.getBoundingClientRect();
-                      setWsDropdownTop(rect.bottom + 6);
-                    }
-                    setWsDropdownOpen((v) => !v);
-                  }}
+                  onClick={() => setWsDropdownOpen((v) => !v)}
                 >
                   <span
                     className="loop-ws-dot"
@@ -773,7 +764,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                   </svg>
                 </button>
                 {wsDropdownOpen && (
-                  <div className="loop-ws-dropdown" style={wsDropdownTop !== undefined ? { top: wsDropdownTop } : undefined}>
+                  <div className="loop-ws-dropdown">
                     <div
                       className={`loop-ws-item${!selectedWorkspaceId ? ' active' : ''}`}
                       data-testid="loop-config-workspace-item"

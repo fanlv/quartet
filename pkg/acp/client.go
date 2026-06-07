@@ -194,11 +194,12 @@ func (c *sdkClient) handleSessionUpdate(ctx context.Context, params acp.SessionN
 	if usage, ok := u.AsUsageUpdate(); ok {
 		if usage.Used > 0 {
 			h.OnTokenUsage(int(usage.Used))
-			// Temporarily logged at Info to confirm whether the subprocess
-			// (e.g. coco / claude-agent-acp) actually emits usage_update
-			// during long turns — the symptom under investigation is a
-			// frozen token counter on a single multi-minute round.
-			logger.Infof(ctx, "[ACP] usage_update: %d", int(usage.Used))
+			// Debug-level: usage_update fires on nearly every streaming step of
+			// a long turn, so Info-level here floods the backend log with bare
+			// counts that have no diagnostic value on their own. Keep the sid
+			// for correlation when token-counter issues are actually being
+			// chased.
+			logger.Debugf(ctx, "[ACP] usage_update: sid=%s used=%d", sid, int(usage.Used))
 		}
 		return
 	}

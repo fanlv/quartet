@@ -1080,6 +1080,22 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 		if strings.Contains(errStr, "refresh token") || strings.Contains(errStr, "access token") || strings.Contains(errStr, "sign in again") {
 			logger.Errorf(runCtx, "[acp] auth token expired or revoked — please re-login to the ACP provider (e.g. run the provider's auth flow again): %v", err)
 		}
+		// Known upstream defect: the ACP backend (coco / claude-agent-acp)
+		// occasionally builds an invalid tool_use sequence — typically right
+		// after an image Read tool_result — and the Claude API rejects the
+		// follow-up request with "tool use concurrency issues" /
+		// tool_use_mismatch (errorKind=invalid_request). See
+		// docs/debug-acp-tool-use-mismatch.md: the bad sequence lives inside
+		// the subprocess's own transcript, so Quartet can neither prevent it
+		// nor retry past it (resending the same history reproduces the same
+		// 400, and rebuilding the session would discard conversation context).
+		// Return an actionable message instead of the bare RPC error so the
+		// user knows it is an upstream issue and how to get unstuck.
+		if strings.Contains(errStr, "tool use concurrency issues") || strings.Contains(errStr, "tool_use_mismatch") {
+			logger.Errorf(runCtx, "[acp] upstream tool-use sequence rejected by Claude API (known coco / claude-agent-acp defect, often after an image Read): type=%s acpSession=%s err=%v",
+				a.agentType, acpSession, err)
+			return fmt.Errorf("ACP backend (coco) produced an invalid tool-use sequence that the Claude API rejected — this is a known upstream issue, often triggered after reading an image. Retrying the same message will fail the same way; start a new conversation to continue. Raw error: %w", err)
+		}
 		// A "connection closed" / EOF here means the subprocess died mid-prompt
 		// — the RPC error alone ("EOF") hides WHY. The real reason (Node crash,
 		// OOM, model-side fatal) lands in the subprocess stderr, which the Conn

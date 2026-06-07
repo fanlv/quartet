@@ -950,17 +950,23 @@ function FileChip({ filePath, fileName, line, endLine }: { filePath: string; fil
   const workdir = useContext(WorkdirContext);
   const shareInfo = useContext(ShareInfoContext);
   const resolvedPath = resolveFilePath(filePath, workdir);
+  const isAbsolute = resolvedPath.startsWith('/');
   const [exists, setExists] = useState<boolean | null>(null);
 
   useEffect(() => {
     // In share mode, file-exists API is not available — render as plain text.
     if (shareInfo) return;
+    // A relative path means workdir was empty so resolveFilePath could not
+    // produce an absolute path. The backend file APIs reject relative paths
+    // (400 "path must be absolute"), so don't probe — render as plain text
+    // instead of firing a request that can only fail.
+    if (!isAbsolute) return;
     let cancelled = false;
     checkFileExists(resolvedPath).then(ok => {
       if (!cancelled) setExists(ok);
     });
     return () => { cancelled = true; };
-  }, [resolvedPath, shareInfo]);
+  }, [resolvedPath, isAbsolute, shareInfo]);
 
   // While loading, render as plain text to avoid flash; if not a file, stay as text
   if (exists !== true) return <>{fileName}</>;

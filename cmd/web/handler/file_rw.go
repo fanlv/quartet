@@ -19,6 +19,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
 	"github.com/fanlv/quartet/pkg/httputil"
+	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/sandbox"
 	typepath "github.com/fanlv/quartet/types/path"
 )
@@ -45,6 +46,13 @@ func (h *Handler) ReadFile(ctx context.Context, c *app.RequestContext) {
 	}
 
 	if !filepath.IsAbs(req.Path) {
+		// Structured log so a recurring 400 is traceable to the exact path /
+		// job that produced it — the HTTP access log only records the status,
+		// not which caller sent a relative path. A relative path here is a
+		// frontend bug (every read-file caller is expected to resolve to an
+		// absolute path first), so surface enough to localise the caller.
+		logger.Warnf(ctx, "[read-file] rejected non-absolute path: path=%q jobID=%s referer=%q",
+			req.Path, req.JobID, string(c.GetHeader("Referer")))
 		httputil.BadRequest(c, "path must be absolute")
 		return
 	}
@@ -61,6 +69,8 @@ func (h *Handler) ReadFile(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	if !stat.Exists {
+		logger.Warnf(ctx, "[read-file] file not found: path=%q jobID=%s referer=%q",
+			filePath, req.JobID, string(c.GetHeader("Referer")))
 		httputil.NotFound(c, "file not found")
 		return
 	}

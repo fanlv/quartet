@@ -2,7 +2,10 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: linear-gradient(135deg, #f8fafc 0%, #f0f4f8 50%, #e8edf3 100%);
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(99, 102, 241, 0.06), transparent 60%),
+    radial-gradient(1000px 500px at 100% 0%, rgba(59, 130, 246, 0.05), transparent 55%),
+    linear-gradient(160deg, #fbfcfe 0%, #f3f6fa 45%, #eef2f7 100%);
   overflow: hidden;
   max-width: 100%;
 }
@@ -128,11 +131,13 @@
 .home-input-wrapper {
   width: 100%;
   background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 16px;
   overflow: visible;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.03);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px rgba(15, 23, 42, 0.06);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
   flex-shrink: 0;
   margin-top: auto;
 }
@@ -151,8 +156,11 @@
 }
 
 .home-input-wrapper:focus-within {
-  border-color: rgba(59, 130, 246, 0.25);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 0 0 3px rgba(59, 130, 246, 0.06);
+  border-color: rgba(249, 115, 22, 0.4);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 10px 30px rgba(234, 88, 12, 0.1),
+    0 0 0 3px rgba(249, 115, 22, 0.1);
 }
 
 .home-input {
@@ -549,8 +557,10 @@
   gap: 12px;
   margin-bottom: 0;
   padding: 8px 4px;
-  background: linear-gradient(135deg, #f8fafc, #f0f4f8);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(248, 250, 252, 0.7);
+  -webkit-backdrop-filter: saturate(160%) blur(8px);
+  backdrop-filter: saturate(160%) blur(8px);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
   min-width: 0;
   overflow: hidden;
 }
@@ -560,9 +570,11 @@
   align-items: center;
   gap: 6px;
   user-select: none;
-  font-size: 13px;
-  font-weight: 600;
-  color: #888;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .home-schedule-chevron {
@@ -584,9 +596,11 @@
 }
 
 .home-schedule-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #888;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .home-schedule-count {
@@ -632,8 +646,19 @@
 .home-schedule-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px 16px;
+  gap: 2px 24px;
   padding-bottom: 6px;
+}
+
+/* Faint dashed center rule sitting in the column gutter (desktop only).
+   Drawn as a left border on the right-hand column so it lands exactly in the
+   middle of the gap, follows the rows, and breaks naturally between rows. */
+.home-schedule-list > .home-schedule-row:nth-child(2n) {
+  border-left: 1px dashed rgba(15, 23, 42, 0.1);
+  /* Pull the border into the gutter midpoint (gap/2 = 12px) and restore the
+     row's own left padding so content alignment is unchanged. */
+  margin-left: -12px;
+  padding-left: 20px;
 }
 
 .home-schedule-row {
@@ -649,8 +674,8 @@
 }
 
 .home-schedule-row:hover {
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 
 .home-schedule-row.running {
@@ -883,8 +908,10 @@
   position: sticky;
   top: 0;
   z-index: 2;
-  background: linear-gradient(135deg, #f8fafc, #f0f4f8);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(248, 250, 252, 0.7);
+  -webkit-backdrop-filter: saturate(160%) blur(8px);
+  backdrop-filter: saturate(160%) blur(8px);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
   min-width: 0;
   overflow: hidden;
 }
@@ -893,9 +920,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #888;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .home-job-list-chevron {
@@ -1115,7 +1144,9 @@
   position: sticky;
   top: 39px;
   z-index: 1;
-  background: linear-gradient(135deg, #f8fafc, #f0f4f8);
+  background: rgba(248, 250, 252, 0.85);
+  -webkit-backdrop-filter: saturate(160%) blur(8px);
+  backdrop-filter: saturate(160%) blur(8px);
 }
 
 .home-job-day-divider-text {
@@ -1144,7 +1175,15 @@
 .home-job-history-rows {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px 16px;
+  gap: 2px 24px;
+}
+
+/* Faint dashed center rule sitting in the column gutter (desktop only).
+   See .home-schedule-list above for the rationale. */
+.home-job-history-rows > .home-job-history-row:nth-child(2n) {
+  border-left: 1px dashed rgba(15, 23, 42, 0.1);
+  margin-left: -12px;
+  padding-left: 20px;
 }
 
 .home-job-history-row {
@@ -1169,12 +1208,12 @@
 }
 
 .home-job-history-row:hover {
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 
 .home-job-history-row.running {
-  background: rgba(239, 246, 255, 0.7);
+  background: rgba(236, 253, 245, 0.6);
 }
 
 .home-job-history-row-icon {
@@ -1227,14 +1266,15 @@
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  font-size: 10.5px;
+  height: 20px;
+  font-size: 11px;
   font-weight: 500;
-  color: #6366f1;
-  background: rgba(99, 102, 241, 0.06);
-  border: 1px solid rgba(99, 102, 241, 0.18);
-  padding: 2px 7px;
-  border-radius: 6px;
-  margin-left: 4px;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid transparent;
+  padding: 0 8px;
+  border-radius: 999px;
+  margin-left: 6px;
   white-space: nowrap;
   max-width: 140px;
   overflow: hidden;
@@ -1534,6 +1574,13 @@
     gap: 0;
   }
 
+  /* Single column on mobile — drop the desktop center rule entirely. */
+  .home-schedule-list > .home-schedule-row:nth-child(2n) {
+    border-left: none;
+    margin-left: 0;
+    padding-left: 6px;
+  }
+
   .home-schedule-row {
     padding: 6px 6px;
     gap: 8px;
@@ -1661,6 +1708,13 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 2px 0;
   }
+
+  /* Single column on mobile — drop the desktop center rule entirely. */
+  .home-job-history-rows > .home-job-history-row:nth-child(2n) {
+    border-left: none;
+    margin-left: 0;
+    padding-left: 10px;
+  }
 }
 
 /* Delete confirmation dialog */
@@ -1761,14 +1815,14 @@
 .home-job-history-row-ws {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  height: 20px;
   font-size: 11px;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1;
   color: var(--ws-color, #64748b);
-  background: color-mix(in srgb, var(--ws-color, #94a3b8) 9%, transparent);
+  background: color-mix(in srgb, var(--ws-color, #94a3b8) 10%, #fff);
   border: 1px solid color-mix(in srgb, var(--ws-color, #94a3b8) 22%, transparent);
-  padding: 2px 9px;
+  padding: 0 9px;
   border-radius: 999px;
   max-width: 120px;
   overflow: hidden;
@@ -1777,6 +1831,7 @@
   margin-right: 2px;
   flex-shrink: 0;
 }
+
 /* Fallback for browsers without color-mix support */
 @supports not (background: color-mix(in srgb, red, blue)) {
   .home-job-history-row-ws {
