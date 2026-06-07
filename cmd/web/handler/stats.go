@@ -24,9 +24,25 @@ type statsResponse struct {
 	ByModel     []statsModelRow            `json:"byModel"`
 	ByTool      []usagestats.ToolAggregate `json:"byTool"`
 	Daily       []statsDailyRow            `json:"daily"`
-	Note        string                     `json:"note"`
-	Failed      bool                       `json:"failed,omitempty"`
-	Error       string                     `json:"error,omitempty"`
+	// Previous holds the equal-length preceding period's KPI totals so the
+	// frontend can render period-over-period deltas on the overview cards.
+	// Only populated when the caller passes compare=1 and the range is not
+	// All Time (which has no meaningful "previous period").
+	Previous *statsKPITotals `json:"previous,omitempty"`
+	Note     string          `json:"note"`
+	Failed   bool            `json:"failed,omitempty"`
+	Error    string          `json:"error,omitempty"`
+}
+
+// statsKPITotals is the compact previous-period payload backing the overview
+// cards' deltas. It carries only the five headline metrics, never the full
+// breakdown sections, to keep the response small.
+type statsKPITotals struct {
+	TotalMs        int64 `json:"totalMs"`
+	TurnCount      int   `json:"turnCount"`
+	ToolCallCount  int   `json:"toolCallCount"`
+	TokensTotal    int   `json:"tokensTotal"`
+	WorkspaceCount int   `json:"workspaceCount"`
 }
 
 // statsRange echoes the inclusive date range that was actually used to
@@ -136,7 +152,37 @@ func (h *Handler) StatsUsage(ctx context.Context, c *app.RequestContext) {
 		resp.Error = err.Error()
 	}
 
+	// Period-over-period comparison. Only meaningful for a bounded range:
+	// "All Time" has no preceding window, so compare is skipped there.
+	compare := strings.EqualFold(string(c.Query("compare")), "1") || strings.EqualFold(string(c.Query("compare")), "true")
+	if compare && !resp.Failed && !allTime && !from.IsZero() && !to.IsZero() {
+		// Length in days of the current inclusive window, then shift back by
+		// that many days to land on the immediately-preceding equal window.
+		days := int(to.Sub(from).Hours()/24) + 1
+		prevTo := from.AddDate(0, 0, -1)
+		prevFrom := prevTo.AddDate(0, 0, -(days - 1))
+		if prevReport, prevErr := h.getActiveWorkspaceUsage(prevFrom, prevTo); prevErr == nil {
+			resp.Previous = kpiTotals(prevReport)
+		} else {
+			logger.Warnf(ctx, "[stats] compute previous period failed: %v", prevErr)
+		}
+	}
+
 	c.JSON(http.StatusOK, resp)
+}
+
+// kpiTotals folds a usage report down to the five headline metrics shown on
+// the overview cards. WorkspaceCount is the number of workspaces that had any
+// activity in the window (a row exists per active workspace).
+func kpiTotals(report usagestats.UsageReport) *statsKPITotals {
+	out := &statsKPITotals{WorkspaceCount: len(report.ByWorkspace)}
+	for _, ws := range report.ByWorkspace {
+		out.TotalMs += ws.TotalMs
+		out.TurnCount += ws.TurnCount
+		out.ToolCallCount += ws.ToolCallCount
+		out.TokensTotal += ws.Tokens.Total
+	}
+	return out
 }
 
 func (h *Handler) getActiveWorkspaceUsage(from, to time.Time) (usagestats.UsageReport, error) {

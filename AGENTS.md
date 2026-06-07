@@ -127,8 +127,7 @@ Go tests: `go test ./...`
 
 ### 其他
 
-- `scripts/restart-backend.sh` — `make web` 热重启后端时使用的 detached restart 脚本。
-- `scripts/stop-process-tree.sh` — Makefile 复用的进程树停止脚本。
-- `scripts/update-weclaw.sh` — 微信相关依赖/工具更新脚本。
 - `docs/` — 架构与功能设计文档。
 - 就在 main 分支开发，不要在其他分支开发。
+- 重启的话，统一用 make web 命令。
+- agent-browser --session deepagent-bubble --headers '{"x-agent-auth":"5ecea0c4f0fe45eb43870cb9881d970a"}' open --enable react-devtools 'https://devbox.fanlv.fun/?workspaceId=ws-1' 可以查看页面。

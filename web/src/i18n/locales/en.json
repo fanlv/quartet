@@ -783,7 +783,6 @@
     "title": "Usage Statistics",
     "topbarTooltip": "Statistics",
     "tokensLocalEstimateNote": "Token counts are local tokenizer estimates, not API billing values.",
-    "tokenTotalHelp": "Total tokens come from the whole-round history estimate and are not required to equal assistant + thought + tool-call tokens.",
     "rangeLabel": "Range",
     "range7d": "7 days",
     "range30d": "30 days",
@@ -792,47 +791,43 @@
     "rangeCustom": "Custom",
     "customFrom": "From",
     "customTo": "To",
+    "kpi": {
+      "duration": "Total time",
+      "turns": "Turns",
+      "tokens": "Tokens",
+      "toolCalls": "Tool calls",
+      "workspaces": "Workspaces",
+      "vsPrevious": "vs. previous {{days}}d",
+      "noPrevious": "no prior period"
+    },
     "metric": {
-      "duration": "Duration",
-      "counts": "Counts",
+      "duration": "Time",
+      "turns": "Turns",
       "tokens": "Tokens"
     },
-    "subMetric": {
-      "turns": "Turns",
-      "assistant": "Assistant",
-      "thought": "Thought",
-      "toolCall": "Tool calls",
-      "tokenTotal": "Total"
-    },
     "view": {
-      "byWorkspace": "By Workspace",
-      "byModel": "By Model",
-      "byTool": "By Tool",
-      "trend": "Daily trend"
+      "byWorkspace": "By workspace",
+      "byModel": "By model",
+      "byTool": "By tool",
+      "trend": "Usage trend"
     },
     "table": {
-      "workspace": "Workspace",
-      "model": "Model",
-      "tool": "Tool",
-      "duration": "Duration",
+      "duration": "Time",
       "turns": "Turns",
       "assistant": "Assistant",
-      "thought": "Thought",
+      "thought": "Thinking",
       "toolCall": "Tool calls",
       "tokenTotal": "Total tokens",
       "tokenAssistant": "Assistant tokens",
-      "tokenThought": "Thought tokens",
-      "tokenToolCall": "Tool call tokens",
+      "tokenThought": "Thinking tokens",
+      "tokenToolCall": "Tool-call tokens",
       "calls": "Calls",
       "deletedSuffix": "(deleted)"
     },
-    "tools": {
-      "noToolsInRange": "No tool calls recorded in this range"
-    },
     "chart": {
-      "totalLabel": "Total",
       "shareOfTotal": "{{pct}}% of total",
-      "othersHidden": "+{{count}} more not shown"
+      "othersHidden": "+{{count}} more",
+      "totalLabel": "Total"
     },
     "trend": {
       "axisUnit": "Unit: {{unit}}",
@@ -843,9 +838,12 @@
         "tokens": "tokens"
       }
     },
-    "tokensNotApplicable": "Token breakdown by tool is not collected in this release.",
+    "tools": {
+      "noToolsInRange": "No tool calls in this range"
+    },
     "unknownModel": "Unknown model",
     "noDataInRange": "No usage recorded in the selected range.",
+    "emptyHint": "Run a task in a workspace and your usage will show up here.",
     "loading": "Loading…",
     "unknownError": "Unknown error",
     "fetchError": "Failed to load: {{message}}",

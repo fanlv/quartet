@@ -774,58 +774,53 @@
   },
   "stats": {
     "title": "使用统计",
-    "topbarTooltip": "使用统计",
-    "tokensLocalEstimateNote": "Token 数为本地估算，并非 API 计费值。",
-    "tokenTotalHelp": "总 Token 来自整轮 history 的本地估算，不要求等于助手回复、思考和工具调用 Token 之和。",
-    "rangeLabel": "时间范围",
+    "topbarTooltip": "统计",
+    "tokensLocalEstimateNote": "Token 数为本地分词器估算值，非 API 计费口径。",
+    "rangeLabel": "范围",
     "range7d": "7 天",
     "range30d": "30 天",
     "range90d": "90 天",
     "rangeAll": "全部",
     "rangeCustom": "自定义",
-    "customFrom": "起",
-    "customTo": "止",
-    "metric": {
-      "duration": "时长",
-      "counts": "次数",
-      "tokens": "Token 数"
+    "customFrom": "从",
+    "customTo": "到",
+    "kpi": {
+      "duration": "总耗时",
+      "turns": "总轮次",
+      "tokens": "Token",
+      "toolCalls": "工具调用",
+      "workspaces": "工作区",
+      "vsPrevious": "对比前 {{days}} 天",
+      "noPrevious": "无对比周期"
     },
-    "subMetric": {
+    "metric": {
+      "duration": "耗时",
       "turns": "轮次",
-      "assistant": "助手回复",
-      "thought": "思考",
-      "toolCall": "工具调用",
-      "tokenTotal": "总计"
+      "tokens": "Token"
     },
     "view": {
-      "byWorkspace": "按工作空间",
+      "byWorkspace": "按工作区",
       "byModel": "按模型",
       "byTool": "按工具",
-      "trend": "每日趋势"
+      "trend": "使用趋势"
     },
     "table": {
-      "workspace": "工作空间",
-      "model": "模型",
-      "tool": "工具",
-      "duration": "时长",
+      "duration": "耗时",
       "turns": "轮次",
-      "assistant": "助手回复",
+      "assistant": "回复",
       "thought": "思考",
       "toolCall": "工具调用",
       "tokenTotal": "总 Token",
-      "tokenAssistant": "助手回复 Token",
+      "tokenAssistant": "回复 Token",
       "tokenThought": "思考 Token",
       "tokenToolCall": "工具调用 Token",
       "calls": "调用次数",
       "deletedSuffix": "（已删除）"
     },
-    "tools": {
-      "noToolsInRange": "所选范围内未记录任何工具调用"
-    },
     "chart": {
-      "totalLabel": "总计",
-      "shareOfTotal": "占总量 {{pct}}%",
-      "othersHidden": "另有 {{count}} 项未展示"
+      "shareOfTotal": "占比 {{pct}}%",
+      "othersHidden": "另有 {{count}} 项",
+      "totalLabel": "总计"
     },
     "trend": {
       "axisUnit": "单位：{{unit}}",
@@ -836,9 +831,12 @@
         "tokens": "tokens"
       }
     },
-    "tokensNotApplicable": "本期不按工具维度细分 token。",
+    "tools": {
+      "noToolsInRange": "该范围内没有工具调用记录"
+    },
     "unknownModel": "未知模型",
-    "noDataInRange": "所选范围内尚无使用记录。",
+    "noDataInRange": "所选范围内暂无使用记录。",
+    "emptyHint": "在某个工作区里跑个任务，使用数据就会出现在这里。",
     "loading": "加载中…",
     "unknownError": "未知错误",
     "fetchError": "加载失败：{{message}}",

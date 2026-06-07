@@ -2,14 +2,29 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import './AgentsLocalEditor.css';
 
 interface AgentsLocalEditorProps {
-  filePath: string;
+  // 工作目录绝对路径，组件内部据此拼接 AGENTS / CLAUDE 文件路径。
+  workdir: string;
   jobId?: string;
   onClose: () => void;
 }
 
 type SaveStatus = 'idle' | 'saving' | 'error';
 
-export function AgentsLocalEditor({ filePath, jobId, onClose }: AgentsLocalEditorProps) {
+// 可编辑的目标文件。AGENTS.md 为全局规则，AGENTS.local.md 为本地覆盖。
+type AgentsTarget = 'AGENTS.local.md' | 'AGENTS.md';
+
+const AGENTS_TARGETS: AgentsTarget[] = ['AGENTS.local.md', 'AGENTS.md'];
+
+// AGENTS.* 真实内容文件对应的 CLAUDE.* 指针文件，内容固定为对 AGENTS.* 的引用，
+// 让 Claude Code 通过 @./AGENTS(.local).md 读取真实规则，避免全文重复维护两份。
+const CLAUDE_POINTER: Record<AgentsTarget, { file: string; content: string }> = {
+  'AGENTS.local.md': { file: 'CLAUDE.local.md', content: '@./AGENTS.local.md' },
+  'AGENTS.md': { file: 'CLAUDE.md', content: '@./AGENTS.md' },
+};
+
+export function AgentsLocalEditor({ workdir, jobId, onClose }: AgentsLocalEditorProps) {
+  const [target, setTarget] = useState<AgentsTarget>('AGENTS.local.md');
+  const filePath = `${workdir}/${target}`;
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -24,6 +39,8 @@ export function AgentsLocalEditor({ filePath, jobId, onClose }: AgentsLocalEdito
   const overlayRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef('');
+  // 初始默认 target 探测完成前，load effect 不主动读文件，避免与探测重复请求。
+  const pickedDefaultRef = useRef(false);
 
   const readFile = useCallback(async (path: string): Promise<{ code: number; content?: string }> => {
     const res = await fetch('/api/v1/read-file', {
@@ -43,7 +60,47 @@ export function AgentsLocalEditor({ filePath, jobId, onClose }: AgentsLocalEdito
     return res.json();
   }, [jobId]);
 
+  // 打开时探测两个文件，决定默认选中哪个：
+  // AGENTS.local.md 有内容就选它（覆盖“都有内容”“只有 local”两种情况），
+  // 否则选 AGENTS.md（覆盖“都为空”“只有 md”两种情况）。
+  // 探测时已读到选中文件内容，直接填入，避免 load effect 重复请求。
   useEffect(() => {
+    let cancelled = false;
+    const pick = async () => {
+      setLoading(true);
+      const read = async (name: AgentsTarget): Promise<string> => {
+        try {
+          const data = await readFile(`${workdir}/${name}`);
+          return data.code === 0 ? (data.content || '') : '';
+        } catch {
+          return '';
+        }
+      };
+      const [localContent, mdContent] = await Promise.all([
+        read('AGENTS.local.md'),
+        read('AGENTS.md'),
+      ]);
+      if (cancelled) return;
+      const picked: AgentsTarget = localContent.trim() ? 'AGENTS.local.md' : 'AGENTS.md';
+      const next = picked === 'AGENTS.local.md' ? localContent : mdContent;
+      contentRef.current = next;
+      pickedDefaultRef.current = true;
+      setTarget(picked);
+      setContent(next);
+      setLoading(false);
+      setDirty(false);
+      setSaveStatus('idle');
+      setLastSavedAt(null);
+    };
+    pick();
+    return () => { cancelled = true; };
+    // 仅在挂载时探测一次；workdir 在编辑器生命周期内不会变化。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // 默认 target 探测会自行填充首次内容，避免与本 effect 重复读取。
+    if (!pickedDefaultRef.current) return;
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -153,22 +210,19 @@ export function AgentsLocalEditor({ filePath, jobId, onClose }: AgentsLocalEdito
     setSaving(true);
     setSaveStatus('saving');
     try {
-      // NOTE: 这里就是要用 AGENTS.local.md / CLAUDE.local.md，不是 bug。
-      // Prompt 设置写 AGENTS.md（全局），聊天页编辑器写 AGENTS.local.md（本地覆盖）。
+      // 编辑器只写 AGENTS.* 真实内容；对应的 CLAUDE.* 仅写一个引用指针，
+      // 让 Claude Code 通过 @./AGENTS(.local).md 读取，无需维护两份全文。
       const agentsResult = await writeFile(filePath, saved);
       if (agentsResult.code !== 0) {
         setSaveStatus('error');
         return;
       }
-      const claudePath = filePath.replace(/AGENTS\.local\.md$/, 'CLAUDE.local.md');
-      if (claudePath !== filePath) {
-        const claudeResult = await writeFile(claudePath, saved);
-        if (claudeResult.code !== 0) {
-          // AGENTS.local.md saved; CLAUDE.local.md failed. Leave
-          // dirty=true so the user notices and retries.
-          setSaveStatus('error');
-          return;
-        }
+      const pointer = CLAUDE_POINTER[target];
+      const claudeResult = await writeFile(`${workdir}/${pointer.file}`, pointer.content);
+      if (claudeResult.code !== 0) {
+        // AGENTS.* 已保存，CLAUDE.* 指针写入失败。保持 dirty=true 让用户重试。
+        setSaveStatus('error');
+        return;
       }
       // Record the successful save independently of the post-save draft
       // state. If the user typed during the await, the status line still
@@ -184,14 +238,35 @@ export function AgentsLocalEditor({ filePath, jobId, onClose }: AgentsLocalEdito
     } finally {
       setSaving(false);
     }
-  }, [filePath, content, writeFile]);
+  }, [filePath, content, writeFile, target, workdir]);
+
+  const handleTargetChange = useCallback((next: AgentsTarget) => {
+    if (next === target) return;
+    // 切换文件前若有未保存改动，先确认，避免静默丢失正在编辑的内容。
+    if (dirty && !window.confirm('当前文件有未保存的修改，切换将丢弃这些修改，确定继续？')) {
+      return;
+    }
+    setTarget(next);
+  }, [target, dirty]);
 
   return (
     <>
       <div className="agents-editor-overlay" ref={overlayRef} onClick={onClose} />
       <div className="agents-editor" ref={editorRef}>
       <div className="agents-editor-header">
-        <h3>AGENTS.local.md</h3>
+        <div className="agents-editor-target-tabs">
+          {AGENTS_TARGETS.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              className={`agents-editor-target-tab ${target === opt ? 'active' : ''}`}
+              onClick={() => handleTargetChange(opt)}
+              disabled={saving}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
         <div className="agents-editor-actions">
           <button
             className="agents-editor-save-btn"

@@ -1249,7 +1249,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
           <button
             className={`header-filebrowser-btn ${agentsEditorOpen ? 'active' : ''}`}
             onClick={() => setAgentsEditorOpen(!agentsEditorOpen)}
-            title="AGENTS.local.md"
+            title="AGENTS.md"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
@@ -2114,9 +2114,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
 
       {agentsEditorOpen && workdir && createPortal(
         <AgentsLocalEditor
-          // NOTE: 这里就是要用 AGENTS.local.md，不是 bug。
-          // Prompt 设置写 AGENTS.md（全局），聊天页编辑器写 AGENTS.local.md（本地覆盖）。
-          filePath={`${workdir}/AGENTS.local.md`}
+          workdir={workdir}
           onClose={() => setAgentsEditorOpen(false)}
         />,
         document.body

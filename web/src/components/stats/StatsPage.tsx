@@ -43,6 +43,17 @@ interface DailyRow extends SectionTotals {
   modelNames?: Record<string, string>;
 }
 
+// PreviousTotals carries the equal-length preceding period's headline metrics
+// so the overview cards can render period-over-period deltas. Present only
+// when compare=1 and the range is bounded (not "All").
+interface PreviousTotals {
+  totalMs: number;
+  turnCount: number;
+  toolCallCount: number;
+  tokensTotal: number;
+  workspaceCount: number;
+}
+
 interface UsageReport {
   range: {
     from: string;
@@ -52,21 +63,73 @@ interface UsageReport {
   byModel: ModelRow[];
   byTool: ToolRow[];
   daily: DailyRow[];
+  previous?: PreviousTotals;
   note: string;
   failed?: boolean;
   error?: string;
 }
 
 type RangePreset = '7d' | '30d' | '90d' | 'all' | 'custom';
-type Metric = 'duration' | 'counts' | 'tokens';
-type CountSub = 'turns' | 'assistant' | 'thought' | 'toolCall';
-type TokenSub = 'tokenTotal' | 'assistant' | 'thought' | 'toolCall';
+// TrendMetric is the metric the trend chart encodes. Scoped to the trend
+// chart only; the KPI band and rank lists each show a fixed metric.
+type TrendMetric = 'duration' | 'turns' | 'tokens';
 
 const UNKNOWN_MODEL_ID = '__unknown_model__';
 const API_UNKNOWN_MODEL_ID = '(unknown model)';
 const TOTAL_SERIES_KEY = '__total__';
-const TOTAL_SERIES_COLOR = '#0f172a';
-const TOP_N = 10;
+const TOP_N = 8;
+
+// Color lock for KPI band + rank lists: a single accent (the product blue)
+// expressed as a lightness ladder, plus one neutral fallback. Keeps the
+// overview/ranking surfaces reading as one accent.
+// Distinct color for the aggregate "Total" trend line. A dark slate reads as
+// the summary line against the multi-hue per-model lines, without a dashed
+// stroke or extra weight.
+const TOTAL_COLOR = '#22c55e';
+const SERIES_LADDER = ['#2563eb', '#3b82f6', '#60a5fa', '#7ba9f7', '#93c5fd', '#b3d3fc', '#bfdbfe'];
+const NEUTRAL_SERIES = '#94a3b8';
+
+function seriesColor(idx: number): string {
+  if (idx < SERIES_LADDER.length) return SERIES_LADDER[idx];
+  return NEUTRAL_SERIES;
+}
+
+// The trend chart overlays one line per model, so distinct hues read far
+// better than a same-hue ladder. A curated 24-hue palette (anchored on the
+// product blue) keeps every line tellable apart even when many models are
+// active. Hues are interleaved so adjacent indices stay far apart on the
+// color wheel, and the Total line's lime green (#22c55e) is intentionally
+// absent so the summary line never collides with a model line.
+const TREND_PALETTE = [
+  '#2563eb', // blue (accent)
+  '#0d9488', // teal
+  '#9333ea', // violet
+  '#dc2626', // red
+  '#ea580c', // orange
+  '#db2777', // pink
+  '#0891b2', // cyan
+  '#ca8a04', // gold
+  '#7c3aed', // purple
+  '#16a34a', // green
+  '#e11d48', // rose
+  '#0284c7', // sky
+  '#a16207', // bronze
+  '#4f46e5', // indigo
+  '#15803d', // forest
+  '#be123c', // crimson
+  '#2dd4bf', // aqua
+  '#c026d3', // fuchsia
+  '#1d4ed8', // deep blue
+  '#d97706', // amber
+  '#9f1239', // maroon
+  '#0e7490', // dark cyan
+  '#7e22ce', // grape
+  '#475569', // slate
+];
+
+function trendColor(idx: number): string {
+  return TREND_PALETTE[idx % TREND_PALETTE.length];
+}
 
 function isUnknownModelLabel(value?: string): boolean {
   return !value || value === UNKNOWN_MODEL_ID || value === API_UNKNOWN_MODEL_ID;
@@ -83,10 +146,7 @@ interface StatsPageProps {
 function shiftDate(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
+  return formatDateKey(d);
 }
 
 function todayDateKey(): string {
@@ -109,14 +169,21 @@ function presetRange(preset: RangePreset): { from: string; to: string } {
   }
 }
 
+// rangeDays returns the inclusive day span of a from/to pair, or 0 when either
+// bound is missing (e.g. "All").
+function rangeDays(from: string, to: string): number {
+  const f = parseDateKey(from);
+  const t = parseDateKey(to);
+  if (!f || !t) return 0;
+  return Math.round((t.getTime() - f.getTime()) / 86_400_000) + 1;
+}
+
 export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: StatsPageProps) {
   const { t, i18n } = useTranslation();
-  const [preset, setPreset] = useState<RangePreset>('7d');
-  const [customFrom, setCustomFrom] = useState<string>(shiftDate(6));
+  const [preset, setPreset] = useState<RangePreset>('30d');
+  const [customFrom, setCustomFrom] = useState<string>(shiftDate(29));
   const [customTo, setCustomTo] = useState<string>(todayDateKey());
-  const [metric, setMetric] = useState<Metric>('duration');
-  const [countSub, setCountSub] = useState<CountSub>('turns');
-  const [tokenSub, setTokenSub] = useState<TokenSub>('tokenTotal');
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>('duration');
   const [report, setReport] = useState<UsageReport | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -140,6 +207,8 @@ export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: St
       if (preset === 'all') params.set('all', '1');
       if (from) params.set('from', from);
       if (to) params.set('to', to);
+      // Period-over-period deltas only make sense for a bounded window.
+      if (preset !== 'all') params.set('compare', '1');
       const url = '/api/v1/stats/usage' + (params.toString() ? `?${params.toString()}` : '');
       const res = await fetch(url, {
         signal,
@@ -192,19 +261,17 @@ export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: St
     report.daily.length === 0
   ));
 
+  // KPI totals are summed from the workspace rows (one row per active
+  // workspace), which already roll up every model + tool for that workspace.
+  const kpis = useMemo(() => computeKpis(report), [report]);
+  const periodDays = rangeDays(from, to);
+
   return (
     <main className="stats-page">
       <div className="stats-shell">
         <header className="stats-header">
           <h2 className="stats-title">{t('stats.title')}</h2>
-          <button className="stats-close" onClick={onClose} aria-label={t('common.close')}>×</button>
-        </header>
-
-        <div className="stats-banner">{t(report?.note || 'stats.tokensLocalEstimateNote')}</div>
-
-        <div className="stats-controls">
-          <div className="stats-controls-group">
-            <span className="stats-controls-label">{t('stats.rangeLabel')}</span>
+          <div className="stats-range">
             <div className="stats-segmented">
               {(['7d', '30d', '90d', 'all', 'custom'] as RangePreset[]).map((p) => (
                 <button
@@ -218,67 +285,29 @@ export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: St
             </div>
             {preset === 'custom' && (
               <div className="stats-custom-range">
-                <label>
-                  {t('stats.customFrom')}{' '}
-                  <input
-                    type="date"
-                    value={customFrom}
-                    max={customTo || undefined}
-                    onChange={(e) => setCustomFrom(e.target.value)}
-                  />
-                </label>
-                <label>
-                  {t('stats.customTo')}{' '}
-                  <input
-                    type="date"
-                    value={customTo}
-                    min={customFrom || undefined}
-                    onChange={(e) => setCustomTo(e.target.value)}
-                  />
-                </label>
+                <input
+                  type="date"
+                  aria-label={t('stats.customFrom')}
+                  value={customFrom}
+                  max={customTo || undefined}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                />
+                <span className="stats-custom-sep">→</span>
+                <input
+                  type="date"
+                  aria-label={t('stats.customTo')}
+                  value={customTo}
+                  min={customFrom || undefined}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                />
               </div>
             )}
           </div>
-
-          <div className="stats-controls-group">
-            <div className="stats-segmented">
-              {(['duration', 'counts', 'tokens'] as Metric[]).map((m) => (
-                <button
-                  key={m}
-                  className={`stats-segmented-btn ${metric === m ? 'active' : ''}`}
-                  onClick={() => setMetric(m)}
-                >
-                  {t(`stats.metric.${m}`)}
-                </button>
-              ))}
-            </div>
-            {metric === 'counts' && (
-              <select
-                className="stats-submetric-select"
-                value={countSub}
-                onChange={(e) => setCountSub(e.target.value as CountSub)}
-              >
-                {(['turns', 'assistant', 'thought', 'toolCall'] as CountSub[]).map((s) => (
-                  <option key={s} value={s}>{t(`stats.subMetric.${s}`)}</option>
-                ))}
-              </select>
-            )}
-            {metric === 'tokens' && (
-              <select
-                className="stats-submetric-select"
-                value={tokenSub}
-                onChange={(e) => setTokenSub(e.target.value as TokenSub)}
-              >
-                {(['tokenTotal', 'assistant', 'thought', 'toolCall'] as TokenSub[]).map((s) => (
-                  <option key={s} value={s}>{t(`stats.subMetric.${s}`)}</option>
-                ))}
-              </select>
-            )}
-          </div>
-        </div>
+          <button className="stats-close" onClick={onClose} aria-label={t('common.close')}>×</button>
+        </header>
 
         <div className="stats-body">
-          {loading && !report && <StatsSkeletonGrid label={t('stats.loading')} />}
+          {loading && !report && <StatsSkeleton />}
           {error && (
             <div className="stats-status stats-error">
               <div>{t('stats.fetchError', { message: error })}</div>
@@ -288,27 +317,31 @@ export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: St
             </div>
           )}
           {!loading && !error && isEmpty && (
-            <div className="stats-status">{t('stats.noDataInRange')}</div>
+            <div className="stats-empty">
+              <div className="stats-empty-title">{t('stats.noDataInRange')}</div>
+              <div className="stats-empty-hint">{t('stats.emptyHint')}</div>
+            </div>
           )}
           {report && !isEmpty && (
-            <div className="stats-grid">
-              <ByWorkspaceView
-                rows={report.byWorkspace}
-                metric={metric}
-                countSub={countSub}
-                tokenSub={tokenSub}
-                currentWorkspaceId={currentWorkspaceId}
-                onJumpToWorkspace={onJumpToWorkspace}
+            <>
+              <KpiBand kpis={kpis} previous={report.previous} periodDays={periodDays} />
+              <TrendCard
+                range={report.range}
+                daily={report.daily}
+                metric={trendMetric}
+                onMetricChange={setTrendMetric}
               />
-              <ByModelView
-                rows={report.byModel}
-                metric={metric}
-                countSub={countSub}
-                tokenSub={tokenSub}
-              />
-              <ByToolView rows={report.byTool} metric={metric} />
-              <TrendView range={report.range} daily={report.daily} metric={metric} countSub={countSub} tokenSub={tokenSub} />
-            </div>
+              <div className="stats-rank-grid">
+                <ByWorkspaceRank
+                  rows={report.byWorkspace}
+                  currentWorkspaceId={currentWorkspaceId}
+                  onJumpToWorkspace={onJumpToWorkspace}
+                />
+                <ByModelRank rows={report.byModel} />
+                <ByToolRank rows={report.byTool} />
+              </div>
+              <div className="stats-note">{t(report.note || 'stats.tokensLocalEstimateNote')}</div>
+            </>
           )}
         </div>
       </div>
@@ -316,469 +349,307 @@ export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: St
   );
 }
 
-function StatsSkeletonGrid({ label }: { label: string }) {
-  return (
-    <div className="stats-grid stats-skeleton-grid" aria-busy="true" aria-label={label}>
-      {[0, 1, 2].map((section) => (
-        <section key={section} className="stats-section stats-skeleton-section">
-          <div className="stats-skeleton-title" />
-          <div className="stats-skeleton-chart short" />
-        </section>
-      ))}
-      <section className="stats-section stats-section-trend stats-skeleton-section">
-        <div className="stats-skeleton-title" />
-        <div className="stats-skeleton-chart" />
-      </section>
-    </div>
-  );
+// ---------------------------------------------------------------------------
+// KPI overview band
+// ---------------------------------------------------------------------------
+
+interface Kpis {
+  totalMs: number;
+  turnCount: number;
+  tokensTotal: number;
+  toolCallCount: number;
+  workspaceCount: number;
 }
 
-// Pull the metric value out of a SectionTotals row so all three tables can
-// share one accessor.
-function pickValue(row: SectionTotals, metric: Metric, countSub: CountSub, tokenSub: TokenSub): number {
-  if (metric === 'duration') return row.totalMs;
-  if (metric === 'counts') {
-    switch (countSub) {
-      case 'turns': return row.turnCount;
-      case 'assistant': return row.assistantCount;
-      case 'thought': return row.thoughtCount;
-      case 'toolCall': return row.toolCallCount;
-    }
+function computeKpis(report: UsageReport | null): Kpis {
+  const out: Kpis = { totalMs: 0, turnCount: 0, tokensTotal: 0, toolCallCount: 0, workspaceCount: 0 };
+  if (!report) return out;
+  out.workspaceCount = report.byWorkspace.length;
+  for (const ws of report.byWorkspace) {
+    out.totalMs += ws.totalMs;
+    out.turnCount += ws.turnCount;
+    out.tokensTotal += ws.tokens.total;
+    out.toolCallCount += ws.toolCallCount;
   }
-  // tokens
-  switch (tokenSub) {
-    case 'tokenTotal': return row.tokens.total;
-    case 'assistant': return row.tokens.assistant;
-    case 'thought': return row.tokens.thought;
-    case 'toolCall': return row.tokens.toolCall;
-  }
+  return out;
 }
 
-function formatMetricValue(value: number, metric: Metric): string {
-  if (metric === 'duration') return formatStatsDuration(value);
-  return formatStatsCount(value);
-}
-
-function trendAxisUnitKey(value: number, metric: Metric): string {
-  if (metric === 'duration') return value >= 3_600_000 ? 'hour' : 'minute';
-  if (metric === 'counts') return 'count';
-  return 'tokens';
-}
-
-interface ViewBaseProps {
-  metric: Metric;
-  countSub: CountSub;
-  tokenSub: TokenSub;
-}
-
-interface ChartTooltipRow {
+interface KpiCardSpec {
+  key: string;
   label: string;
   value: string;
-  swatch?: string;
-  muted?: boolean;
-  emphasized?: boolean;
+  current: number;
+  previous?: number;
 }
 
-interface ChartTooltipState {
-  x: number;
-  y: number;
-  title: string;
-  subtitle?: string;
-  rows: ChartTooltipRow[];
-}
-
-function ChartTooltipPanel({ state }: { state: ChartTooltipState }) {
+function KpiBand({ kpis, previous, periodDays }: { kpis: Kpis; previous?: PreviousTotals; periodDays: number }) {
+  const { t } = useTranslation();
+  const cards: KpiCardSpec[] = [
+    { key: 'duration', label: t('stats.kpi.duration'), value: formatStatsDuration(kpis.totalMs), current: kpis.totalMs, previous: previous?.totalMs },
+    { key: 'turns', label: t('stats.kpi.turns'), value: formatStatsCount(kpis.turnCount), current: kpis.turnCount, previous: previous?.turnCount },
+    { key: 'tokens', label: t('stats.kpi.tokens'), value: formatStatsCount(kpis.tokensTotal), current: kpis.tokensTotal, previous: previous?.tokensTotal },
+    { key: 'toolCalls', label: t('stats.kpi.toolCalls'), value: formatStatsCount(kpis.toolCallCount), current: kpis.toolCallCount, previous: previous?.toolCallCount },
+    { key: 'workspaces', label: t('stats.kpi.workspaces'), value: formatStatsCount(kpis.workspaceCount), current: kpis.workspaceCount, previous: previous?.workspaceCount },
+  ];
   return (
-    <div className="stats-chart-tooltip" style={{ left: state.x, top: state.y }}>
-      <div className="stats-chart-tooltip-title">{state.title}</div>
-      {state.subtitle && <div className="stats-chart-tooltip-subtitle">{state.subtitle}</div>}
-      {state.rows.map((row, i) => (
-        <div
-          key={`${row.label}-${i}`}
-          className={`stats-chart-tooltip-row ${row.muted ? 'muted' : ''} ${row.emphasized ? 'emphasized' : ''}`}
-        >
-          <span className="stats-chart-tooltip-row-label">
-            {row.swatch && <span className="stats-chart-tooltip-swatch" style={{ background: row.swatch }} />}
-            {row.label}
-          </span>
-          <strong>{row.value}</strong>
+    <div className="stats-kpi-band">
+      {cards.map((c) => (
+        <div key={c.key} className="stats-kpi-card">
+          <div className="stats-kpi-label">{c.label}</div>
+          <div className="stats-kpi-value">{c.value}</div>
+          <KpiDelta current={c.current} previous={c.previous} periodDays={periodDays} />
         </div>
       ))}
     </div>
   );
 }
 
-// breakdownRows builds the per-section breakdown shown inside the chart
-// tooltip. The "active" metric/sub-metric is highlighted; the others are
-// rendered muted so the user keeps the full breakdown for context without
-// losing focus on what the chart is currently encoding.
-function breakdownRows(
-  t: (key: string) => string,
-  totals: SectionTotals,
-  metric: Metric,
-  countSub: CountSub,
-  tokenSub: TokenSub,
-): ChartTooltipRow[] {
-  if (metric === 'duration') {
-    return [
-      { label: t('stats.table.duration'), value: formatStatsDuration(totals.totalMs), emphasized: true },
-      { label: t('stats.table.turns'), value: formatStatsCount(totals.turnCount), muted: true },
-    ];
+// KpiDelta renders the period-over-period change. We treat an increase as the
+// accent (more usage is the expected "active" direction) and a decrease as
+// neutral grey, deliberately avoiding red/green so the band stays calm.
+function KpiDelta({ current, previous, periodDays }: { current: number; previous?: number; periodDays: number }) {
+  const { t } = useTranslation();
+  if (previous === undefined) {
+    return <div className="stats-kpi-delta stats-kpi-delta-empty">&nbsp;</div>;
   }
-  if (metric === 'counts') {
-    return [
-      { label: t('stats.table.turns'), value: formatStatsCount(totals.turnCount), emphasized: countSub === 'turns', muted: countSub !== 'turns' },
-      { label: t('stats.table.assistant'), value: formatStatsCount(totals.assistantCount), emphasized: countSub === 'assistant', muted: countSub !== 'assistant' },
-      { label: t('stats.table.thought'), value: formatStatsCount(totals.thoughtCount), emphasized: countSub === 'thought', muted: countSub !== 'thought' },
-      { label: t('stats.table.toolCall'), value: formatStatsCount(totals.toolCallCount), emphasized: countSub === 'toolCall', muted: countSub !== 'toolCall' },
-    ];
+  if (previous === 0) {
+    const label = current > 0
+      ? t('stats.kpi.vsPrevious', { days: periodDays })
+      : t('stats.kpi.noPrevious');
+    return (
+      <div className="stats-kpi-delta stats-kpi-delta-flat" title={label}>
+        {current > 0 ? '—' : t('stats.kpi.noPrevious')}
+      </div>
+    );
   }
-  return [
-    { label: t('stats.table.tokenTotal'), value: formatStatsCount(totals.tokens.total), emphasized: tokenSub === 'tokenTotal', muted: tokenSub !== 'tokenTotal' },
-    { label: t('stats.table.tokenAssistant'), value: formatStatsCount(totals.tokens.assistant), emphasized: tokenSub === 'assistant', muted: tokenSub !== 'assistant' },
-    { label: t('stats.table.tokenThought'), value: formatStatsCount(totals.tokens.thought), emphasized: tokenSub === 'thought', muted: tokenSub !== 'thought' },
-    { label: t('stats.table.tokenToolCall'), value: formatStatsCount(totals.tokens.toolCall), emphasized: tokenSub === 'toolCall', muted: tokenSub !== 'toolCall' },
-  ];
+  const pct = ((current - previous) / previous) * 100;
+  const up = pct >= 0;
+  const rounded = Math.abs(pct) >= 100 ? Math.round(Math.abs(pct)) : Math.abs(pct).toFixed(0);
+  return (
+    <div
+      className={`stats-kpi-delta ${up ? 'up' : 'down'}`}
+      title={t('stats.kpi.vsPrevious', { days: periodDays })}
+    >
+      <span className="stats-kpi-delta-arrow">{up ? '▲' : '▼'}</span>
+      {rounded}%
+    </div>
+  );
 }
 
-function polarToCartesian(cx: number, cy: number, r: number, angle: number): { x: number; y: number } {
-  return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+// ---------------------------------------------------------------------------
+// Shared loading / value helpers
+// ---------------------------------------------------------------------------
+
+function StatsSkeleton() {
+  return (
+    <div className="stats-skeleton" aria-busy="true">
+      <div className="stats-kpi-band">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="stats-kpi-card stats-skeleton-card">
+            <div className="stats-skeleton-line short" />
+            <div className="stats-skeleton-line tall" />
+          </div>
+        ))}
+      </div>
+      <div className="stats-card stats-skeleton-card">
+        <div className="stats-skeleton-line short" />
+        <div className="stats-skeleton-chart" />
+      </div>
+      <div className="stats-rank-grid">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="stats-card stats-skeleton-card">
+            <div className="stats-skeleton-line short" />
+            <div className="stats-skeleton-line" />
+            <div className="stats-skeleton-line" />
+            <div className="stats-skeleton-line" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-// donutArc builds an SVG path for an annulus slice between startAngle and
-// endAngle (radians, 0 = top, increasing clockwise). Full-circle is rendered
-// as two stacked half slices to avoid the zero-length-arc edge case.
-function donutArc(cx: number, cy: number, r: number, innerR: number, startAngle: number, endAngle: number): string {
-  if (endAngle - startAngle >= 2 * Math.PI - 1e-6) {
-    const mid = startAngle + Math.PI;
-    return donutArc(cx, cy, r, innerR, startAngle, mid) + ' ' + donutArc(cx, cy, r, innerR, mid, endAngle);
-  }
-  const a1 = startAngle - Math.PI / 2;
-  const a2 = endAngle - Math.PI / 2;
-  const oS = polarToCartesian(cx, cy, r, a1);
-  const oE = polarToCartesian(cx, cy, r, a2);
-  const iS = polarToCartesian(cx, cy, innerR, a2);
-  const iE = polarToCartesian(cx, cy, innerR, a1);
-  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
-  return [
-    `M ${oS.x} ${oS.y}`,
-    `A ${r} ${r} 0 ${largeArc} 1 ${oE.x} ${oE.y}`,
-    `L ${iS.x} ${iS.y}`,
-    `A ${innerR} ${innerR} 0 ${largeArc} 0 ${iE.x} ${iE.y}`,
-    `Z`,
-  ].join(' ');
+// ---------------------------------------------------------------------------
+// Horizontal-bar rank lists (workspace / model / tool share one component)
+// ---------------------------------------------------------------------------
+
+interface RankItem {
+  id: string;
+  label: string;
+  value: string;
+  raw: number;
+  deleted?: boolean;
+  clickable?: boolean;
+  current?: boolean;
 }
 
-function ByWorkspaceView({
+function RankList({
+  title,
+  items,
+  overflowCount,
+  onActivate,
+  emptyText,
+}: {
+  title: string;
+  items: RankItem[];
+  overflowCount: number;
+  onActivate?: (id: string) => void;
+  emptyText: string;
+}) {
+  const { t } = useTranslation();
+  const max = items.reduce((m, it) => Math.max(m, it.raw), 0);
+  return (
+    <section className="stats-card stats-rank">
+      <h3 className="stats-card-title">{title}</h3>
+      {items.length === 0 ? (
+        <div className="stats-rank-empty">{emptyText}</div>
+      ) : (
+        <ul className="stats-rank-list">
+          {items.map((it, i) => {
+            const pct = max > 0 ? (it.raw / max) * 100 : 0;
+            const clickable = Boolean(it.clickable && onActivate);
+            return (
+              <li
+                key={it.id}
+                className={`stats-rank-row ${it.current ? 'current' : ''} ${clickable ? 'clickable' : ''}`}
+                onClick={clickable ? () => onActivate?.(it.id) : undefined}
+                onKeyDown={clickable ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onActivate?.(it.id);
+                  }
+                } : undefined}
+                role={clickable ? 'button' : undefined}
+                tabIndex={clickable ? 0 : undefined}
+              >
+                <div className="stats-rank-head">
+                  <span className="stats-rank-label" title={it.label}>
+                    {it.label}
+                    {it.deleted && <span className="stats-rank-muted"> {t('stats.table.deletedSuffix')}</span>}
+                  </span>
+                  <span className="stats-rank-value">{it.value}</span>
+                </div>
+                <div className="stats-rank-track">
+                  <div
+                    className="stats-rank-fill"
+                    style={{ width: `${Math.max(pct, 2)}%`, background: seriesColor(i) }}
+                  />
+                </div>
+              </li>
+            );
+          })}
+          {overflowCount > 0 && (
+            <li className="stats-rank-overflow">{t('stats.chart.othersHidden', { count: overflowCount })}</li>
+          )}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ByWorkspaceRank({
   rows,
-  metric,
-  countSub,
-  tokenSub,
   currentWorkspaceId,
   onJumpToWorkspace,
-}: ViewBaseProps & {
+}: {
   rows: WorkspaceRow[];
   currentWorkspaceId?: string;
   onJumpToWorkspace?: (workspaceId: string) => void;
 }) {
   const { t } = useTranslation();
-  const [tooltip, setTooltip] = useState<ChartTooltipState | null>(null);
-
-  const items = useMemo(() => {
-    const out = rows.map((r) => ({
-      id: r.workspaceId,
-      label: r.workspaceName || r.workspaceId,
-      value: pickValue(r, metric, countSub, tokenSub),
-      row: r,
-    }));
-    out.sort((a, b) => {
-      if (b.value !== a.value) return b.value - a.value;
-      return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' });
-    });
-    return out;
-  }, [rows, metric, countSub, tokenSub]);
-
-  const total = items.reduce((sum, it) => sum + it.value, 0);
-  const positiveItems = items.filter((it) => it.value > 0);
-  const colorById = useMemo(() => {
-    const map = new Map<string, string>();
-    positiveItems.forEach((it, i) => map.set(it.id, stableColor(i)));
-    return map;
-  }, [positiveItems]);
-
-  const cx = 90;
-  const cy = 90;
-  const outerR = 78;
-  const innerR = 46;
-  const arcs = useMemo(() => {
-    if (total <= 0) return [] as Array<{ id: string; d: string; color: string; item: typeof items[number] }>;
-    let cumulative = 0;
-    return positiveItems.map((it) => {
-      const startAngle = (cumulative / total) * 2 * Math.PI;
-      cumulative += it.value;
-      const endAngle = (cumulative / total) * 2 * Math.PI;
-      return {
-        id: it.id,
-        d: donutArc(cx, cy, outerR, innerR, startAngle, endAngle),
-        color: colorById.get(it.id) || '#cbd5e1',
-        item: it,
-      };
-    });
-  }, [positiveItems, total, colorById]);
-
-  const showTooltip = (
-    e: ReactMouseEvent<Element>,
-    item: typeof items[number],
-  ) => {
-    const pct = total > 0 ? (item.value / total) * 100 : 0;
-    setTooltip({
-      x: e.clientX + 12,
-      y: e.clientY + 12,
-      title: item.label,
-      subtitle: t('stats.chart.shareOfTotal', { pct: pct.toFixed(1) }),
-      rows: breakdownRows(t, item.row, metric, countSub, tokenSub),
-    });
-  };
+  const { items, overflow } = useMemo(() => {
+    const sorted = rows
+      .map((r) => ({
+        id: r.workspaceId,
+        label: r.workspaceName || r.workspaceId,
+        raw: r.totalMs,
+        value: formatStatsDuration(r.totalMs),
+        deleted: r.deleted,
+        clickable: Boolean(r.workspaceId && !r.deleted),
+        current: currentWorkspaceId === r.workspaceId,
+      }))
+      .filter((it) => it.raw > 0)
+      .sort((a, b) => (b.raw !== a.raw ? b.raw - a.raw : a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })));
+    return { items: sorted.slice(0, TOP_N), overflow: Math.max(0, sorted.length - TOP_N) };
+  }, [rows, currentWorkspaceId]);
 
   return (
-    <section className="stats-section">
-      <h3 className="stats-section-title">{t('stats.view.byWorkspace')}</h3>
-      {items.length === 0 || total <= 0 ? (
-        <div className="stats-section-empty">{t('stats.noDataInRange')}</div>
-      ) : (
-        <>
-          <div className="stats-donut-wrap">
-            <svg
-              width={180}
-              height={180}
-              viewBox="0 0 180 180"
-              preserveAspectRatio="xMidYMid meet"
-              className="stats-donut"
-              aria-hidden="true"
-            >
-              {arcs.map((a) => {
-                const isCurrent = currentWorkspaceId === a.id;
-                const clickable = Boolean(onJumpToWorkspace && !a.item.row.deleted);
-                return (
-                  <path
-                    key={a.id}
-                    d={a.d}
-                    fill={a.color}
-                    className={`stats-donut-slice ${isCurrent ? 'current' : ''} ${clickable ? 'clickable' : ''}`}
-                    onMouseEnter={(e) => showTooltip(e, a.item)}
-                    onMouseMove={(e) => showTooltip(e, a.item)}
-                    onMouseLeave={() => setTooltip(null)}
-                    onClick={() => clickable && onJumpToWorkspace?.(a.id)}
-                  />
-                );
-              })}
-              <text x={cx} y={cy - 4} textAnchor="middle" className="stats-donut-center-value">
-                {formatMetricValue(total, metric)}
-              </text>
-              <text x={cx} y={cy + 12} textAnchor="middle" className="stats-donut-center-label">
-                {t('stats.chart.totalLabel')}
-              </text>
-            </svg>
-          </div>
-          <ul className="stats-chart-legend">
-            {items.map((item) => {
-              const swatch = colorById.get(item.id) || '#cbd5e1';
-              const pct = total > 0 ? (item.value / total) * 100 : 0;
-              const isCurrent = currentWorkspaceId === item.id;
-              const clickable = Boolean(onJumpToWorkspace && item.row.workspaceId && !item.row.deleted);
-              const onActivate = () => {
-                if (clickable) onJumpToWorkspace?.(item.row.workspaceId);
-              };
-              return (
-                <li
-                  key={item.id}
-                  className={`stats-chart-legend-item ${isCurrent ? 'current' : ''} ${clickable ? 'clickable' : ''} ${item.value === 0 ? 'zero' : ''}`}
-                  onMouseEnter={(e) => showTooltip(e, item)}
-                  onMouseMove={(e) => showTooltip(e, item)}
-                  onMouseLeave={() => setTooltip(null)}
-                  onClick={onActivate}
-                  onKeyDown={(e) => {
-                    if (!clickable) return;
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onActivate();
-                    }
-                  }}
-                  role={clickable ? 'button' : undefined}
-                  tabIndex={clickable ? 0 : undefined}
-                >
-                  <span className="stats-chart-legend-swatch" style={{ background: swatch }} />
-                  <span className="stats-chart-legend-label">
-                    {item.label}
-                    {item.row.deleted && (
-                      <span className="stats-chart-legend-muted"> {t('stats.table.deletedSuffix')}</span>
-                    )}
-                  </span>
-                  <span className="stats-chart-legend-value">{formatMetricValue(item.value, metric)}</span>
-                  <span className="stats-chart-legend-pct">{pct.toFixed(1)}%</span>
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      )}
-      {tooltip && <ChartTooltipPanel state={tooltip} />}
-    </section>
+    <RankList
+      title={t('stats.view.byWorkspace')}
+      items={items}
+      overflowCount={overflow}
+      onActivate={onJumpToWorkspace}
+      emptyText={t('stats.noDataInRange')}
+    />
   );
 }
 
-function ByModelView({ rows, metric, countSub, tokenSub }: ViewBaseProps & { rows: ModelRow[] }) {
+function ByModelRank({ rows }: { rows: ModelRow[] }) {
   const { t } = useTranslation();
-  const [tooltip, setTooltip] = useState<ChartTooltipState | null>(null);
-  const items = useMemo(() => {
-    const out = rows.map((r) => {
-      const rawLabel = r.modelName || r.modelId;
-      const label = isUnknownModelLabel(rawLabel) ? t('stats.unknownModel') : (rawLabel as string);
-      return {
-        id: r.modelId,
-        label,
-        value: pickValue(r, metric, countSub, tokenSub),
-        row: r,
-      };
-    });
-    out.sort((a, b) => {
-      if (b.value !== a.value) return b.value - a.value;
-      return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' });
-    });
-    return out;
-  }, [rows, metric, countSub, tokenSub, t]);
-  const positiveItems = items.filter((it) => it.value > 0);
-  const visible = positiveItems.slice(0, TOP_N);
-  const overflow = positiveItems.slice(TOP_N);
-  const max = visible.reduce((m, it) => Math.max(m, it.value), 0);
-
-  const showTooltip = (e: ReactMouseEvent<Element>, item: typeof items[number]) => {
-    setTooltip({
-      x: e.clientX + 12,
-      y: e.clientY + 12,
-      title: item.label,
-      rows: breakdownRows(t, item.row, metric, countSub, tokenSub),
-    });
-  };
+  const { items, overflow } = useMemo(() => {
+    const sorted = rows
+      .map((r) => {
+        const raw = r.modelName || r.modelId;
+        const label = isUnknownModelLabel(raw) ? t('stats.unknownModel') : (raw as string);
+        return { id: r.modelId || UNKNOWN_MODEL_ID, label, raw: r.totalMs, value: formatStatsDuration(r.totalMs) };
+      })
+      .filter((it) => it.raw > 0)
+      .sort((a, b) => (b.raw !== a.raw ? b.raw - a.raw : a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })));
+    return { items: sorted.slice(0, TOP_N), overflow: Math.max(0, sorted.length - TOP_N) };
+  }, [rows, t]);
 
   return (
-    <section className="stats-section">
-      <h3 className="stats-section-title">{t('stats.view.byModel')}</h3>
-      {visible.length === 0 ? (
-        <div className="stats-section-empty">{t('stats.noDataInRange')}</div>
-      ) : (
-        <ul className="stats-hbar-list">
-          {visible.map((it, i) => {
-            const pct = max > 0 ? (it.value / max) * 100 : 0;
-            return (
-              <li
-                key={it.id}
-                className="stats-hbar-item"
-                onMouseEnter={(e) => showTooltip(e, it)}
-                onMouseMove={(e) => showTooltip(e, it)}
-                onMouseLeave={() => setTooltip(null)}
-              >
-                <div className="stats-hbar-label" title={it.label}>{it.label}</div>
-                <div className="stats-hbar-track">
-                  <div
-                    className="stats-hbar-fill"
-                    style={{ width: `${Math.max(pct, 1.5)}%`, background: stableColor(i) }}
-                  />
-                </div>
-                <div className="stats-hbar-value">{formatMetricValue(it.value, metric)}</div>
-              </li>
-            );
-          })}
-          {overflow.length > 0 && (
-            <li className="stats-hbar-overflow">
-              {t('stats.chart.othersHidden', { count: overflow.length })}
-            </li>
-          )}
-        </ul>
-      )}
-      {tooltip && <ChartTooltipPanel state={tooltip} />}
-    </section>
+    <RankList
+      title={t('stats.view.byModel')}
+      items={items}
+      overflowCount={overflow}
+      emptyText={t('stats.noDataInRange')}
+    />
   );
 }
 
-function ByToolView({ rows, metric }: { rows: ToolRow[]; metric: Metric }) {
+// Tool rank is fixed to call count (the most meaningful tool dimension), so it
+// never depends on the trend chart's metric and never hits a "not collected"
+// half-state for tokens.
+function ByToolRank({ rows }: { rows: ToolRow[] }) {
   const { t } = useTranslation();
-  const [tooltip, setTooltip] = useState<ChartTooltipState | null>(null);
-  const items = useMemo(() => {
-    const out = rows.map((r) => ({
-      id: r.toolKey,
-      label: r.toolKey,
-      value: metric === 'duration' ? r.totalMs : r.count,
-      row: r,
-    }));
-    out.sort((a, b) => {
-      if (b.value !== a.value) return b.value - a.value;
-      return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' });
-    });
-    return out;
-  }, [rows, metric]);
-
-  if (metric === 'tokens') {
-    return (
-      <section className="stats-section stats-section-tools">
-        <h3 className="stats-section-title">{t('stats.view.byTool')}</h3>
-        <div className="stats-section-empty">{t('stats.tokensNotApplicable')}</div>
-      </section>
-    );
-  }
-
-  const positiveItems = items.filter((it) => it.value > 0);
-  const max = positiveItems.reduce((m, it) => Math.max(m, it.value), 0);
-
-  const showTooltip = (e: ReactMouseEvent<Element>, item: typeof items[number]) => {
-    setTooltip({
-      x: e.clientX + 12,
-      y: e.clientY + 12,
-      title: item.label,
-      rows: [
-        { label: t('stats.table.duration'), value: formatStatsDuration(item.row.totalMs), emphasized: metric === 'duration', muted: metric !== 'duration' },
-        { label: t('stats.table.calls'), value: formatStatsCount(item.row.count), emphasized: metric === 'counts', muted: metric === 'duration' },
-      ],
-    });
-  };
+  const { items, overflow } = useMemo(() => {
+    const sorted = rows
+      .map((r) => ({ id: r.toolKey, label: r.toolKey, raw: r.count, value: formatStatsCount(r.count) }))
+      .filter((it) => it.raw > 0)
+      .sort((a, b) => (b.raw !== a.raw ? b.raw - a.raw : a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })));
+    return { items: sorted.slice(0, TOP_N), overflow: Math.max(0, sorted.length - TOP_N) };
+  }, [rows]);
 
   return (
-    <section className="stats-section stats-section-tools">
-      <h3 className="stats-section-title">{t('stats.view.byTool')}</h3>
-      {positiveItems.length === 0 ? (
-        <div className="stats-section-empty">{t('stats.tools.noToolsInRange')}</div>
-      ) : (
-        <ul className="stats-hbar-list stats-hbar-list-scrollable">
-          {positiveItems.map((it, i) => {
-            const pct = max > 0 ? (it.value / max) * 100 : 0;
-            return (
-              <li
-                key={it.id}
-                className="stats-hbar-item"
-                onMouseEnter={(e) => showTooltip(e, it)}
-                onMouseMove={(e) => showTooltip(e, it)}
-                onMouseLeave={() => setTooltip(null)}
-              >
-                <div className="stats-hbar-label" title={it.label}>{it.label}</div>
-                <div className="stats-hbar-track">
-                  <div
-                    className="stats-hbar-fill"
-                    style={{ width: `${Math.max(pct, 1.5)}%`, background: stableColor(i) }}
-                  />
-                </div>
-                <div className="stats-hbar-value">
-                  {metric === 'duration'
-                    ? formatStatsDuration(it.value)
-                    : formatStatsCount(it.value)}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {tooltip && <ChartTooltipPanel state={tooltip} />}
-    </section>
+    <RankList
+      title={t('stats.view.byTool')}
+      items={items}
+      overflowCount={overflow}
+      emptyText={t('stats.tools.noToolsInRange')}
+    />
   );
+}
+
+// ---------------------------------------------------------------------------
+// Trend chart (the only chart with an in-chart metric switch)
+// ---------------------------------------------------------------------------
+
+function pickTrendValue(row: SectionTotals, metric: TrendMetric): number {
+  if (metric === 'duration') return row.totalMs;
+  if (metric === 'turns') return row.turnCount;
+  return row.tokens.total;
+}
+
+function formatTrendValue(value: number, metric: TrendMetric): string {
+  if (metric === 'duration') return formatStatsDuration(value);
+  return formatStatsCount(value);
+}
+
+function trendAxisUnitKey(value: number, metric: TrendMetric): string {
+  if (metric === 'duration') return value >= 3_600_000 ? 'hour' : 'minute';
+  if (metric === 'turns') return 'count';
+  return 'tokens';
 }
 
 function emptySectionTotals(): SectionTotals {
@@ -788,12 +659,7 @@ function emptySectionTotals(): SectionTotals {
     assistantCount: 0,
     thoughtCount: 0,
     toolCallCount: 0,
-    tokens: {
-      total: 0,
-      assistant: 0,
-      thought: 0,
-      toolCall: 0,
-    },
+    tokens: { total: 0, assistant: 0, thought: 0, toolCall: 0 },
   };
 }
 
@@ -842,13 +708,13 @@ interface TrendTooltipState {
   segments: TrendSegment[];
 }
 
-function trendSegments(day: DailyRow, metric: Metric, countSub: CountSub, tokenSub: TokenSub): TrendSegment[] {
-  const total = pickValue(day, metric, countSub, tokenSub);
+function trendSegments(day: DailyRow, metric: TrendMetric): TrendSegment[] {
+  const total = pickTrendValue(day, metric);
   const segments: TrendSegment[] = [];
   let modelTotal = 0;
   if (day.models) {
     for (const [mid, st] of Object.entries(day.models)) {
-      const value = pickValue(st, metric, countSub, tokenSub);
+      const value = pickTrendValue(st, metric);
       modelTotal += value;
       if (value > 0) segments.push({ modelId: isUnknownModelLabel(mid) ? UNKNOWN_MODEL_ID : mid, value });
     }
@@ -860,13 +726,24 @@ function trendSegments(day: DailyRow, metric: Metric, countSub: CountSub, tokenS
   return segments;
 }
 
-function TrendView({ range, daily, metric, countSub, tokenSub }: ViewBaseProps & { range?: { from: string; to: string }; daily: DailyRow[] }) {
+function TrendCard({
+  range,
+  daily,
+  metric,
+  onMetricChange,
+}: {
+  range?: { from: string; to: string };
+  daily: DailyRow[];
+  metric: TrendMetric;
+  onMetricChange: (m: TrendMetric) => void;
+}) {
   const { t } = useTranslation();
   const [hiddenModels, setHiddenModels] = useState<Set<string>>(() => new Set());
   const [tooltip, setTooltip] = useState<TrendTooltipState | null>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [wrapWidth, setWrapWidth] = useState<number>(0);
+
   useEffect(() => {
     const el = wrapRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -880,22 +757,21 @@ function TrendView({ range, daily, metric, countSub, tokenSub }: ViewBaseProps &
     setWrapWidth(el.getBoundingClientRect().width);
     return () => ro.disconnect();
   }, []);
+
   const filledDaily = useMemo(() => fillDailyRange(daily, range), [daily, range]);
   const dailySegments = useMemo(
-    () => filledDaily.map((day) => trendSegments(day, metric, countSub, tokenSub)),
-    [filledDaily, metric, countSub, tokenSub],
+    () => filledDaily.map((day) => trendSegments(day, metric)),
+    [filledDaily, metric],
   );
   const totalSeries = useMemo(
-    () => filledDaily.map((day) => pickValue(day, metric, countSub, tokenSub)),
-    [filledDaily, metric, countSub, tokenSub],
+    () => filledDaily.map((day) => pickTrendValue(day, metric)),
+    [filledDaily, metric],
   );
   const { models, palette } = useMemo(() => {
     const modelSet = new Set<string>();
-    for (const segs of dailySegments) {
-      segs.forEach((seg) => modelSet.add(seg.modelId));
-    }
+    for (const segs of dailySegments) segs.forEach((seg) => modelSet.add(seg.modelId));
     const models = Array.from(modelSet).sort();
-    const palette = models.map((_, i) => stableColor(i));
+    const palette = models.map((_, i) => trendColor(i));
     return { models, palette };
   }, [dailySegments]);
   const modelNames = useMemo(() => {
@@ -933,24 +809,39 @@ function TrendView({ range, daily, metric, countSub, tokenSub }: ViewBaseProps &
       }
     }
     if (!effectiveHiddenModels.has(TOTAL_SERIES_KEY)) {
-      for (const v of totalSeries) {
-        if (v > m) m = v;
-      }
+      for (const v of totalSeries) if (v > m) m = v;
     }
     return m;
   }, [dailySegments, totalSeries, effectiveHiddenModels]);
 
+  const metricSwitch = (
+    <div className="stats-segmented stats-segmented-sm">
+      {(['duration', 'turns', 'tokens'] as TrendMetric[]).map((m) => (
+        <button
+          key={m}
+          className={`stats-segmented-btn ${metric === m ? 'active' : ''}`}
+          onClick={() => onMetricChange(m)}
+        >
+          {t(`stats.metric.${m}`)}
+        </button>
+      ))}
+    </div>
+  );
+
   if (filledDaily.length === 0 || max === 0) {
     return (
-      <section className="stats-section stats-section-trend">
-        <h3 className="stats-section-title">{t('stats.view.trend')}</h3>
-        <div className="stats-section-empty">{t('stats.noDataInRange')}</div>
+      <section className="stats-card stats-trend">
+        <div className="stats-card-head">
+          <h3 className="stats-card-title">{t('stats.view.trend')}</h3>
+          {metricSwitch}
+        </div>
+        <div className="stats-rank-empty stats-trend-empty">{t('stats.noDataInRange')}</div>
       </section>
     );
   }
 
-  const height = 220;
-  const padding = { top: 16, right: 24, bottom: 28, left: 40 };
+  const height = 240;
+  const padding = { top: 18, right: 24, bottom: 30, left: 44 };
   const innerHeight = height - padding.top - padding.bottom;
   const minColWidth = 24;
   const naturalWidth = Math.max(720, filledDaily.length * 96);
@@ -962,26 +853,21 @@ function TrendView({ range, daily, metric, countSub, tokenSub }: ViewBaseProps &
   const xAt = (idx: number) => padding.left + idx * colWidth + colWidth / 2;
   const yAt = (value: number) => padding.top + innerHeight - (value / max) * innerHeight;
   const gridLevels = [0.25, 0.5, 0.75];
+  // Render per-point value labels on the Total line whenever columns aren't
+  // razor-thin. Labels always sit flat above each point.
+  const showPointLabels = colWidth >= 22;
   const visibleCount = allSeriesKeys.filter((k) => !effectiveHiddenModels.has(k)).length;
   const toggleModel = (model: string) => {
     setHiddenModels((prev) => {
       const next = new Set(prev);
-      if (next.has(model)) {
-        next.delete(model);
-      } else if (visibleCount > 1) {
-        next.add(model);
-      }
+      if (next.has(model)) next.delete(model);
+      else if (visibleCount > 1) next.add(model);
       return next;
     });
   };
   const moveTooltip = (e: ReactMouseEvent<SVGRectElement>, day: DailyRow, segments: TrendSegment[]) => {
     setTooltip({ x: e.clientX + 12, y: e.clientY + 12, day, segments });
   };
-  const tooltipMetricLabel = metric === 'duration'
-    ? t('stats.table.duration')
-    : metric === 'counts'
-      ? t(`stats.subMetric.${countSub}`)
-      : t(`stats.subMetric.${tokenSub}`);
   const formatModelLabel = (modelId: string) => {
     if (isUnknownModelLabel(modelId)) return t('stats.unknownModel');
     const label = modelNames.get(modelId) || modelId;
@@ -990,8 +876,11 @@ function TrendView({ range, daily, metric, countSub, tokenSub }: ViewBaseProps &
   const axisUnit = t(`stats.trend.unit.${trendAxisUnitKey(max, metric)}`);
 
   return (
-    <section className="stats-section stats-section-trend">
-      <h3 className="stats-section-title">{t('stats.view.trend')}</h3>
+    <section className="stats-card stats-trend">
+      <div className="stats-card-head">
+        <h3 className="stats-card-title">{t('stats.view.trend')}</h3>
+        {metricSwitch}
+      </div>
       <div className="stats-trend-chart-wrap" ref={wrapRef}>
         <svg
           width={virtualWidth}
@@ -999,9 +888,7 @@ function TrendView({ range, daily, metric, countSub, tokenSub }: ViewBaseProps &
           viewBox={`0 0 ${virtualWidth} ${height}`}
           className="stats-trend-chart"
         >
-          <text x={4} y={padding.top + 4} className="stats-trend-axis">
-            {formatMetricValue(max, metric)}
-          </text>
+          <text x={4} y={padding.top + 4} className="stats-trend-axis">{formatTrendValue(max, metric)}</text>
           <text x={virtualWidth - padding.right} y={padding.top + 4} textAnchor="end" className="stats-trend-axis stats-trend-axis-unit">
             {t('stats.trend.axisUnit', { unit: axisUnit })}
           </text>
@@ -1038,22 +925,33 @@ function TrendView({ range, daily, metric, countSub, tokenSub }: ViewBaseProps &
                 <polyline
                   points={totalSeries.map((v, i) => `${xAt(i)},${yAt(v)}`).join(' ')}
                   fill="none"
-                  stroke={TOTAL_SERIES_COLOR}
-                  strokeWidth={2.5}
-                  strokeDasharray="6 4"
+                  stroke={TOTAL_COLOR}
+                  strokeWidth={2}
                   className="stats-trend-line stats-trend-line-total"
                 />
               )}
               {totalSeries.map((v, i) => (
-                <circle
-                  key={i}
-                  cx={xAt(i)}
-                  cy={yAt(v)}
-                  r={hoverIdx === i ? 4 : 3}
-                  fill={TOTAL_SERIES_COLOR}
-                  className="stats-trend-point stats-trend-point-total"
-                />
+                <circle key={i} cx={xAt(i)} cy={yAt(v)} r={hoverIdx === i ? 4 : 3} fill={TOTAL_COLOR} className="stats-trend-point stats-trend-point-total" />
               ))}
+              {/* Value labels on the Total line. Tilt to -45° on narrow columns
+                  so adjacent labels don't collide; flat when columns are wide.
+                  The hover tooltip still carries the full breakdown. */}
+              {showPointLabels && totalSeries.map((v, i) => {
+                if (v <= 0) return null;
+                const px = xAt(i);
+                const py = yAt(v) - (hoverIdx === i ? 11 : 9);
+                return (
+                  <text
+                    key={i}
+                    x={px}
+                    y={py}
+                    textAnchor="middle"
+                    className="stats-trend-point-label"
+                  >
+                    {formatTrendValue(v, metric)}
+                  </text>
+                );
+              })}
             </g>
           )}
           {models.map((modelId, mi) => {
@@ -1064,23 +962,10 @@ function TrendView({ range, daily, metric, countSub, tokenSub }: ViewBaseProps &
             return (
               <g key={modelId}>
                 {values.length > 1 && (
-                  <polyline
-                    points={points}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth={2}
-                    className="stats-trend-line"
-                  />
+                  <polyline points={points} fill="none" stroke={color} strokeWidth={2} className="stats-trend-line" />
                 )}
                 {values.map((v, i) => (
-                  <circle
-                    key={i}
-                    cx={xAt(i)}
-                    cy={yAt(v)}
-                    r={hoverIdx === i ? 4 : 3}
-                    fill={color}
-                    className="stats-trend-point"
-                  />
+                  <circle key={i} cx={xAt(i)} cy={yAt(v)} r={hoverIdx === i ? 4 : 3} fill={color} className="stats-trend-point" />
                 ))}
               </g>
             );
@@ -1098,22 +983,13 @@ function TrendView({ range, daily, metric, countSub, tokenSub }: ViewBaseProps &
                 onMouseMove={(e) => { setHoverIdx(idx); moveTooltip(e, day, dailySegments[idx]); }}
                 onMouseLeave={() => { setHoverIdx(null); setTooltip(null); }}
               />
-              <text
-                x={xAt(idx)}
-                y={height - 8}
-                textAnchor="middle"
-                className="stats-trend-tick"
-              >
-                {day.date.slice(5)}
-              </text>
+              <text x={xAt(idx)} y={height - 8} textAnchor="middle" className="stats-trend-tick">{day.date.slice(5)}</text>
             </g>
           ))}
         </svg>
       </div>
-      {/* Legend */}
       <div className="stats-trend-legend">
         <button
-          key={TOTAL_SERIES_KEY}
           type="button"
           className={`stats-trend-legend-item stats-trend-legend-total ${effectiveHiddenModels.has(TOTAL_SERIES_KEY) ? 'muted' : ''}`}
           onClick={() => toggleModel(TOTAL_SERIES_KEY)}
@@ -1139,8 +1015,8 @@ function TrendView({ range, daily, metric, countSub, tokenSub }: ViewBaseProps &
         <div className="stats-trend-tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
           <div className="stats-trend-tooltip-title">{tooltip.day.date}</div>
           <div className="stats-trend-tooltip-row">
-            <span>{tooltipMetricLabel}</span>
-            <strong>{formatMetricValue(pickValue(tooltip.day, metric, countSub, tokenSub), metric)}</strong>
+            <span>{t(`stats.metric.${metric}`)}</span>
+            <strong>{formatTrendValue(pickTrendValue(tooltip.day, metric), metric)}</strong>
           </div>
           <div className="stats-trend-tooltip-row">
             <span>{t('stats.table.turns')}</span>
@@ -1152,19 +1028,11 @@ function TrendView({ range, daily, metric, countSub, tokenSub }: ViewBaseProps &
           ) : tooltip.segments.map((seg) => (
             <div key={seg.modelId} className="stats-trend-tooltip-row">
               <span>{formatModelLabel(seg.modelId)}</span>
-              <strong>{formatMetricValue(seg.value, metric)}</strong>
+              <strong>{formatTrendValue(seg.value, metric)}</strong>
             </div>
           ))}
         </div>
       )}
     </section>
   );
-}
-
-// stableColor maps an index to a deterministic color from a small palette.
-// Using HSL so the palette grows gracefully when more models appear.
-function stableColor(idx: number): string {
-  const hues = [210, 145, 30, 270, 0, 50, 175, 320, 100, 250];
-  const hue = hues[idx % hues.length];
-  return `hsl(${hue}, 60%, 55%)`;
 }
