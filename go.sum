@@ -157,8 +157,6 @@ github.com/clbanning/mxj v1.8.4/go.mod h1:BVjHeAH+rl9rs6f+QIpeRl0tfu10SXn1pUSa5P
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=
 github.com/cloudwego/base64x v0.1.6 h1:t11wG9AECkCDk5fMSoxmufanudBtJ+/HemLstXDLI2M=
 github.com/cloudwego/base64x v0.1.6/go.mod h1:OFcloc187FXDaYHvrNIjxSe8ncn0OOM8gEHfghB2IPU=
-github.com/cloudwego/eino v0.8.1-0.20260310140014-18f051d8f9ae h1:0B1kmTyb0xh8mV2TDscg8xDDidOusrc5zphTNMpHF/Q=
-github.com/cloudwego/eino v0.8.1-0.20260310140014-18f051d8f9ae/go.mod h1:+2N4nsMPxA6kGBHpH+75JuTfEcGprAMTdsZESrShKpU=
 github.com/cloudwego/eino v0.9.0-alpha.5.0.20260429112230-58d7b8d255d8 h1:KNGDiImUYYNv4zB6ekvalYWtEYjgJf1mzlx+FLE8uls=
 github.com/cloudwego/eino v0.9.0-alpha.5.0.20260429112230-58d7b8d255d8/go.mod h1:OBD1mrkfkt/pJa4rkg1P0VnaMeOVl7l8IAdEqY//3IQ=
 github.com/cloudwego/eino-ext/components/model/ark v0.1.63 h1:rVjngP5tu7f35SFG8jHJztYEx2Iq8zBLbIeYs84C6k0=
@@ -212,12 +210,6 @@ github.com/eapache/go-resiliency v1.2.0/go.mod h1:kFI+JgMyC7bLPUVY133qvEBtVayf5m
 github.com/eapache/go-xerial-snappy v0.0.0-20180814174437-776d5712da21/go.mod h1:+020luEh2TKB4/GOp8oxxtq0Daoen/Cii55CzbTV6DU=
 github.com/eapache/queue v1.1.0/go.mod h1:6eCeP0CKFpHLu8blIFXhExK/dRa7WDZfr6jVFPTqq+I=
 github.com/edsrzf/mmap-go v1.0.0/go.mod h1:YO35OhQPt3KJa3ryjFM5Bs14WD66h8eGKpfaBNrHW5M=
-github.com/eino-contrib/acp v0.0.2-0.20260427061845-d87e5ed78af6 h1:xFmX75D3JB9lWyWr0G0EdQJQTczegft50DuvUpZwMu8=
-github.com/eino-contrib/acp v0.0.2-0.20260427061845-d87e5ed78af6/go.mod h1:tXIZVWtmxOg28DmazjYxXT3DdtnBVQvUzqMBXppHoyo=
-github.com/eino-contrib/acp v0.0.3-0.20260506050929-b2e24ef801a7 h1:HMc/MgtKUNvySlV2CDyh9RT7d+47ShW4dJbOqdO/UYk=
-github.com/eino-contrib/acp v0.0.3-0.20260506050929-b2e24ef801a7/go.mod h1:tXIZVWtmxOg28DmazjYxXT3DdtnBVQvUzqMBXppHoyo=
-github.com/eino-contrib/acp v0.0.3-0.20260603081825-601e1e816557 h1:XsDMm3uMR/KoW6qKQbU4gxG1ZjcGKaZO9jKPohBt8ZU=
-github.com/eino-contrib/acp v0.0.3-0.20260603081825-601e1e816557/go.mod h1:tXIZVWtmxOg28DmazjYxXT3DdtnBVQvUzqMBXppHoyo=
 github.com/eino-contrib/acp v0.0.3-0.20260603093805-d91302f55821 h1:kIqGKa+YWObfqIFC4wvq5aq6y8TlkJKT8F37KS1GBR8=
 github.com/eino-contrib/acp v0.0.3-0.20260603093805-d91302f55821/go.mod h1:tXIZVWtmxOg28DmazjYxXT3DdtnBVQvUzqMBXppHoyo=
 github.com/eino-contrib/jsonschema v1.0.3 h1:2Kfsm1xlMV0ssY2nuxshS4AwbLFuqmPmzIjLVJ1Fsp0=

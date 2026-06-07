@@ -362,7 +362,15 @@ func NewConn(ctx context.Context, agentType, workdir string) (*Conn, error) {
 	// stdio.NewTransport takes (reader, writer): reader = subprocess stdout,
 	// writer = subprocess stdin. Wrap with fixLineTypeTransport to repair
 	// known type mismatches (e.g. ToolCallLocation.line sent as string).
-	rawTransport := stdio.NewTransport(stdout, stdin)
+	//
+	// The stdio transport reads newline-delimited JSON via bufio.Scanner with
+	// a per-message size cap (SDK default 10MB). When an agent returns a very
+	// large single message (e.g. a tool result carrying big file contents or
+	// base64 payloads), the scanner exceeds that cap and fails with
+	// "bufio.Scanner: token too long", tearing down the connection. Raise the
+	// cap to 64MB to tolerate large tool results — quartet runs single-user on
+	// a personal machine / sandbox, so the memory tradeoff is acceptable.
+	rawTransport := stdio.NewTransport(stdout, stdin, stdio.WithMaxMessageSize(64*1024*1024))
 	transport := newFixLineTypeTransport(rawTransport, agentType)
 	sdkConn := acpconn.NewClientConnection(client, transport,
 		acpconn.WithNotificationErrorHandler(func(method string, err error) {
