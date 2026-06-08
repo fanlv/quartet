@@ -97,15 +97,31 @@ export function FlowOutline({
                 />
                 <span className="loop-outline-type group">G</span>
                 <span className="loop-outline-main">
-                  <span className="loop-outline-title">{title}</span>
+                  <span className="loop-outline-title">
+                    {title}
+                    {node.completionCondition?.trim() && (
+                      <span className="loop-outline-conditional-badge" title={node.completionCondition}>
+                        {t('loop.group.conditionalBadge')}
+                      </span>
+                    )}
+                  </span>
                   <span className="loop-outline-subtitle">
-                    {t('loop.outline.groupMeta', {
-                      iterations: node.iterationCount || 1,
-                      steps: calcTotalSteps([node]),
-                    })}
+                    {node.completionCondition?.trim()
+                      ? t('loop.outline.groupMetaConditional', {
+                          max: node.iterationCount || 1,
+                          steps: calcTotalSteps([node]),
+                        })
+                      : t('loop.outline.groupMeta', {
+                          iterations: node.iterationCount || 1,
+                          steps: calcTotalSteps([node]),
+                        })}
                   </span>
                 </span>
-                <span className="loop-outline-iteration" onClick={(e) => e.stopPropagation()}>
+                <span
+                  className="loop-outline-iteration"
+                  onClick={(e) => e.stopPropagation()}
+                  title={node.completionCondition?.trim() ? t('loop.group.maxIteration') : t('loop.group.iteration')}
+                >
                   <NumberStepper
                     value={node.iterationCount || 1}
                     onChange={(n) => onUpdateIterationCount(node.id, n)}

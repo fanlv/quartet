@@ -187,6 +187,14 @@ export interface IterationResult {
   content?: string;
 }
 
+export interface JudgeDecision {
+  path?: number[];
+  stop: boolean;
+  reason?: string;
+  iteration: number;
+  maxIterations: number;
+}
+
 export interface JobProgress {
   totalSteps: number;
   currentPath?: number[];
@@ -194,6 +202,7 @@ export interface JobProgress {
   failedCount: number;
   results?: IterationResult[];
   lastError?: string;
+  lastJudgeDecision?: JudgeDecision;
 }
 
 export interface JobStartedEvent extends BaseEvent {

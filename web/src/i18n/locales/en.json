@@ -104,7 +104,13 @@
     "progress": {
       "lastError": "Last error",
       "session": "Session {{current}} / {{total}}",
-      "step": "Step {{current}} / {{total}}"
+      "step": "Step {{current}} / {{total}}",
+      "judge": {
+        "label": "Judge",
+        "round": "Round {{current}} / {{total}}",
+        "stop": "STOP",
+        "continue": "CONTINUE"
+      }
     },
     "template": {
       "label": "Template",
@@ -159,7 +165,8 @@
       "emptyShell": "No Shell selected",
       "groupMeta": "{{iterations}} iteration(s) · {{steps}} step(s)",
       "stepMeta": "{{mode}}",
-      "stepMetaRepeat": "Repeat x {{repeat}}"
+      "stepMetaRepeat": "Repeat x {{repeat}}",
+      "groupMetaConditional": "max {{max}} × {{steps}} step(s) · conditional"
     },
     "inspector": {
       "stepTitle": "Step config",
@@ -254,7 +261,15 @@
       "defaultLabel": "Group {{index}}",
       "iteration": "Iterations",
       "stepsMeta_one": "{{count}} step",
-      "stepsMeta_other": "{{count}} steps"
+      "stepsMeta_other": "{{count}} steps",
+      "maxIteration": "Max iterations",
+      "completionCondition": {
+        "label": "Completion condition (optional)",
+        "placeholder": "Leave empty for a fixed count. Fill in when to stop, e.g. \"tests all pass\"; the loop runs until the model judges it met.",
+        "hint": "Empty = run a fixed number of iterations.",
+        "hintActive": "Conditional loop: runs until met; max {{max}} iteration(s)."
+      },
+      "conditionalBadge": "conditional"
     },
     "step": {
       "agentPlaceholder": "Select Agent",
@@ -321,6 +336,9 @@
         "note": "In Shell, set variables via <0>{{setCmd}}</0>. Later steps can reference them with <1>{{varTag}}</1>. Break current loop: <2>{{breakCmd}}</2>. Exit workflow: <3>{{returnCmd}}</3>.",
         "detectedVars": "Detected variables"
       }
+    },
+    "judge": {
+      "badge": "Condition check"
     }
   },
   "settings": {

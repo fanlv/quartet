@@ -10,6 +10,8 @@ export interface BaseMessage {
   clientMessageId?: string;
   pending?: boolean;
   failed?: boolean;
+  /** True for conditional-loop judge turns (rendered with a "条件判定" marker). */
+  isJudge?: boolean;
 }
 
 export interface UserMessage extends BaseMessage {
@@ -110,6 +112,10 @@ export interface FlowNode {
   // Group fields
   iterationCount?: number;
   children?: FlowNode[];
+  // When non-empty, turns a fixed-count group into a conditional loop:
+  // run until the model judges this condition met. iterationCount then
+  // becomes the max-iteration cap. Empty = fixed iteration (legacy behavior).
+  completionCondition?: string;
 }
 
 // Legacy round definition (kept for backward compatibility)

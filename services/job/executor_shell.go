@@ -222,7 +222,7 @@ func (s *serviceImpl) runShellProcess(ctx context.Context, job *model.Job, cmd *
 	}
 }
 
-func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, runner JobRunner, node model.FlowNode, path []int, sessionID string, nextResume *model.JobResume) stepResult {
+func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, runner JobRunner, node model.FlowNode, path []int, sessionID string, nextResume *model.JobResume, inConditional bool) stepResult {
 	s.mu.RLock()
 	workdir := job.Workdir
 	s.mu.RUnlock()
@@ -394,6 +394,22 @@ func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, ru
 			logger.Warnf(ctx,
 				"[shell] env vars were filtered when this job ran: jobId=%s keys=%v total=%d — if the script needs these, set %s",
 				job.ID, shellFilteredEnvKeysForLog(filteredEnvKeys), len(filteredEnvKeys), envShellPassthrough)
+		}
+
+		if inConditional {
+			// Conditional group: a shell business failure never fails the job
+			// (§2.4). Record + advance resume and keep the round going so the
+			// judge turn sees the failure (e.g. failing tests) in history.
+			// Step-level ContinueOnError is ignored here. Note: STOP_LOOP /
+			// STOP_WORKFLOW are NOT honoured on a failed shell run (the control
+			// file is only parsed on the success path below), matching existing
+			// behavior — a failed shell can't request a loop break.
+			logger.Warnf(ctx,
+				"[shell] run failed (conditional group, recording and continuing round): jobId=%s path=%v scriptFile=%s workdir=%s err=%v outputTail=%q",
+				job.ID, path, scriptFile, workdir, cmdErr, tail)
+			result := buildShellIterationResult(path, sessionID, accumulatedOutput, cmdErr, durationMs)
+			s.recordIterationAndAdvanceResume(job, result, nextResume)
+			return stepCompleted
 		}
 
 		if node.ContinueOnError {

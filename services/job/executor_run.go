@@ -339,7 +339,7 @@ func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner
 	}
 
 	s.injectPerRoundVars(ctx, job, path)
-	s.executeRepeat(ctx, job, runner, node, path, sessionID, opts, false /* isLoopRun */, nil /* nextResume — interactive runs don't drive loop resume */)
+	s.executeRepeat(ctx, job, runner, node, path, sessionID, opts, false /* isLoopRun */, nil /* nextResume — interactive runs don't drive loop resume */, false /* inConditional */)
 }
 
 // buildProgress creates a fresh JobProgress from a LoopConfig.

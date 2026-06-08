@@ -104,7 +104,13 @@
     "progress": {
       "lastError": "最近失败原因",
       "session": "会话 {{current}} / {{total}}",
-      "step": "步骤 {{current}} / {{total}}"
+      "step": "步骤 {{current}} / {{total}}",
+      "judge": {
+        "label": "条件判定",
+        "round": "第 {{current}} / {{total}} 轮",
+        "stop": "停止",
+        "continue": "继续"
+      }
     },
     "template": {
       "label": "模板",
@@ -157,7 +163,8 @@
       "emptyShell": "未选择 Shell",
       "groupMeta": "迭代 × {{iterations}} · {{steps}} 步",
       "stepMeta": "{{mode}}",
-      "stepMetaRepeat": "重复 × {{repeat}}"
+      "stepMetaRepeat": "重复 × {{repeat}}",
+      "groupMetaConditional": "最多 {{max}} 轮 · {{steps}} 步 · 条件"
     },
     "inspector": {
       "stepTitle": "Step 配置",
@@ -249,7 +256,15 @@
       "mainLabel": "主循环",
       "defaultLabel": "循环组 {{index}}",
       "iteration": "迭代",
-      "stepsMeta": "{{count}} 步"
+      "stepsMeta": "{{count}} 步",
+      "maxIteration": "最大循环次数",
+      "completionCondition": {
+        "label": "完成条件（可选）",
+        "placeholder": "留空则按固定次数循环。填写「满足什么条件后停止」，例如「测试全部通过」，循环会跑到模型判定满足为止。",
+        "hint": "留空 = 按固定次数循环。",
+        "hintActive": "条件循环：跑到满足为止；最多 {{max}} 轮。"
+      },
+      "conditionalBadge": "条件"
     },
     "step": {
       "agentPlaceholder": "请选择 Agent",
@@ -316,6 +331,9 @@
         "note": "Shell 中可通过内置函数设置变量：<0>{{setCmd}}</0>，后续 Step 可通过 <1>{{varTag}}</1> 引用。跳出当前循环：<2>{{breakCmd}}</2>，退出整个工作流：<3>{{returnCmd}}</3>。",
         "detectedVars": "检测到变量"
       }
+    },
+    "judge": {
+      "badge": "条件判定"
     }
   },
   "settings": {

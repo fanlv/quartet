@@ -72,17 +72,22 @@ func (s *serviceImpl) runLoop(ctx context.Context, job *model.Job, runner JobRun
 
 	s.injectBuiltinVars(ctx, job)
 
-	s.runFlowNodes(ctx, job, runner, cfg.Flow, nil, 0, &currentSessionID)
+	s.runFlowNodes(ctx, job, runner, cfg.Flow, nil, 0, &currentSessionID, false)
 }
 
 // runFlowNodes recursively executes the flow node tree (loop mode only).
 // Returns stepCompleted if all nodes ran, stepAborted if job was cancelled/failed,
 // stepStopLoop if STOP_LOOP was triggered (breaks the parent group's iteration),
 // stepStopWorkflow if STOP_WORKFLOW was triggered (exits the entire workflow).
+//
+// inConditional is true when this subtree executes inside a conditional group
+// (one with a non-empty CompletionCondition). In that context business-step
+// failures are recorded and the round keeps running (so the judge turn can see
+// the failure in history) instead of failing the job — see §2.4.
 func (s *serviceImpl) runFlowNodes(
 	ctx context.Context, job *model.Job, runner JobRunner,
 	nodes []model.FlowNode, basePath []int, depth int,
-	currentSessionID *string,
+	currentSessionID *string, inConditional bool,
 ) stepResult {
 	// Defense-in-depth: ValidateFlow enforces MaxFlowDepth at config time,
 	// but guard here too in case validation is bypassed or the tree is mutated.
@@ -100,19 +105,66 @@ func (s *serviceImpl) runFlowNodes(
 			if ic < 1 {
 				ic = 1
 			}
+			conditional := node.CompletionCondition != ""
+			// Inside a conditional group the children run with inConditional=true
+			// so business failures don't fail the job. A nested fixed group keeps
+			// its own children non-conditional unless it too is conditional —
+			// inConditional is inherited (a child subtree of a conditional group
+			// stays conditional) OR set by this group being conditional.
+			childInConditional := inConditional || conditional
+			actualIters := 0
 			for iter := 0; iter < ic; iter++ {
 				groupPath := appendPath(basePath, i, iter)
 				if resumePath != nil && s.isSubtreeBeforeResume(node.Children, groupPath, resumePath) {
 					continue
 				}
-				result := s.runFlowNodes(ctx, job, runner, node.Children, groupPath, depth+1, currentSessionID)
+				actualIters = iter + 1
+				result := s.runFlowNodes(ctx, job, runner, node.Children, groupPath, depth+1, currentSessionID, childInConditional)
 				if result == stepAborted || result == stepStopWorkflow {
 					return result
 				}
 				if result == stepStopLoop {
-					// STOP_LOOP breaks only this group's iteration — don't propagate further
+					// STOP_LOOP (Shell control) breaks only this group's
+					// iteration and takes priority over the judge — don't
+					// propagate further and don't run the judge this round.
 					break
 				}
+
+				// Conditional groups run a judge turn after each round's
+				// children complete (and only when the round wasn't cut short
+				// by a Shell STOP, handled above). STOP_WORKFLOW > STOP_LOOP >
+				// judge (§4).
+				if conditional {
+					judgePath := lastChildStepPath(node.Children, groupPath)
+					stop, hardErr := s.runJudgeTurn(ctx, job, runner, node, groupPath, judgePath, iter+1, ic, *currentSessionID)
+					if hardErr != nil {
+						if isInterruptedRun(hardErr) {
+							return stepAborted
+						}
+						s.failJob(ctx, job, hardErr.Error(), true, true)
+						return stepAborted
+					}
+					if stop {
+						break
+					}
+				}
+			}
+			// On exit (STOP, judge-STOP, or cap reached) backfill the progress
+			// denominator for a conditional group from "cap × children" to
+			// "actual rounds × children" so the bar finishes full instead of
+			// stalling at e.g. 3/10. In-memory only (§5.4) — not persisted.
+			if conditional && actualIters < ic {
+				s.backfillConditionalTotal(job, node, ic, actualIters)
+				// §5.2: a conditional group that STOPs early left job.Resume
+				// pointing into the NEXT round (the last business step
+				// precomputed its nextResume via the static NextStepPath, which
+				// assumes the cap). If the job is then stopped after this group,
+				// Continue would re-enter the already-finished group and re-judge.
+				// Advance resume to the first node AFTER this whole group (or
+				// clear it when the group is the last node) so Continue resumes
+				// past it. Use the cap-th iteration's last step as the anchor so
+				// NextStepPath skips the entire group.
+				s.advanceResumePastConditionalGroup(ctx, job, node, basePath, i, ic)
 			}
 
 		case model.FlowNodeTypeStep:
@@ -193,9 +245,9 @@ func (s *serviceImpl) runFlowNodes(
 				s.injectPerRoundVars(ctx, job, stepPath)
 				switch node.RoundType {
 				case model.RoundTypeShell:
-					sr = s.executeShellRepeat(ctx, job, runner, node, stepPath, sessionID, nextResume)
+					sr = s.executeShellRepeat(ctx, job, runner, node, stepPath, sessionID, nextResume, inConditional)
 				case "", model.RoundTypePrompt:
-					sr = s.executeRepeat(ctx, job, runner, node, stepPath, sessionID, nil, true, nextResume)
+					sr = s.executeRepeat(ctx, job, runner, node, stepPath, sessionID, nil, true, nextResume, inConditional)
 				default:
 					logger.Errorf(ctx, "[loop] unknown RoundType %q, failing job: jobId=%s path=%v", node.RoundType, job.ID, stepPath)
 					s.failJob(ctx, job, fmt.Sprintf("unsupported step type: %s", node.RoundType), true, false)
@@ -334,6 +386,67 @@ func enumLastPath(nodes []model.FlowNode, basePath []int, last *[]int) {
 				return
 			}
 		}
+	}
+}
+
+// lastChildStepPath returns the path of the last leaf step under children
+// (rooted at basePath). Used to give a conditional group's judge turn a valid
+// SSE base path; the judge events carry isJudge=true so this path never
+// advances step progress. Falls back to basePath when there is no leaf step.
+func lastChildStepPath(children []model.FlowNode, basePath []int) []int {
+	var last []int
+	enumLastPath(children, basePath, &last)
+	if last == nil {
+		return model.CopyPath(basePath)
+	}
+	return last
+}
+
+// backfillConditionalTotal rewrites the in-memory TotalSteps contribution of a
+// conditional group from "cap × childrenSteps" down to "actualIters ×
+// childrenSteps" so the progress bar finishes full when the loop stopped early
+// (§5.4). In-memory only — not persisted, since §5.2 already accepts a restart
+// re-running from round 0 (where the static estimate re-expands anyway).
+func (s *serviceImpl) backfillConditionalTotal(job *model.Job, node model.FlowNode, cap, actualIters int) {
+	childSteps := model.CalcTotalSteps(node.Children)
+	if childSteps == 0 {
+		return
+	}
+	delta := (cap - actualIters) * childSteps
+	if delta <= 0 {
+		return
+	}
+	s.mu.Lock()
+	if job.Progress != nil {
+		job.Progress.TotalSteps -= delta
+		if job.Progress.TotalSteps < 0 {
+			job.Progress.TotalSteps = 0
+		}
+	}
+	s.mu.Unlock()
+}
+
+// advanceResumePastConditionalGroup moves job.Resume to the first leaf step
+// AFTER a conditional group that stopped early (§5.2). Anchoring NextStepPath
+// on the group's cap-th iteration last step makes it skip every round of the
+// group, so Continue resumes at the following sibling (or clears resume when
+// the group is the last node). Without this, the last round's precomputed
+// nextResume would point back into the group and re-judge an already-finished
+// loop on Continue.
+func (s *serviceImpl) advanceResumePastConditionalGroup(ctx context.Context, job *model.Job, node model.FlowNode, basePath []int, nodeIdx, cap int) {
+	capGroupPath := appendPath(basePath, nodeIdx, cap-1)
+	anchor := lastChildStepPath(node.Children, capGroupPath)
+	nextPath := model.NextStepPath(job.LoopConfig.Flow, anchor)
+
+	s.mu.Lock()
+	if nextPath == nil {
+		job.Resume = nil
+	} else {
+		job.Resume = &model.JobResume{NextPath: model.CopyPath(nextPath)}
+	}
+	s.mu.Unlock()
+	if err := s.saveJobWithRetry(ctx, job, "conditional_group_exit"); err != nil {
+		s.recordPersistWarning(ctx, job, "conditional_group_exit", err)
 	}
 }
 

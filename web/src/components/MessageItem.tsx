@@ -191,6 +191,7 @@ function extractFileName(target: string): string {
 }
 
 function UserMessageContent({ message }: { message: UserMessage }) {
+  const { t } = useTranslation();
   const userMsg = message as UserMessage;
   const imageUrls = userMsg.imageUrls;
   const timeStr = formatMessageTime(message.createdAt);
@@ -200,6 +201,9 @@ function UserMessageContent({ message }: { message: UserMessage }) {
         <div className="user-bubble-row">
           {timeStr && <div className="message-timestamp user-timestamp">{timeStr}</div>}
           <div className="message-bubble user-bubble">
+            {message.isJudge && (
+              <span className="message-judge-badge" data-testid="message-judge-badge">{t('loop.judge.badge')}</span>
+            )}
             {imageUrls && imageUrls.length > 0 && (
               <div className="user-message-images">
                 {imageUrls.map((url, i) => (
@@ -453,6 +457,9 @@ function AssistantMessageContent({ message, agentIconUrl, agentDisplayName }: { 
                 <span className="assistant-bubble-icon">✨</span>
               )}
               <span className="assistant-bubble-name">{message.isShellOutput ? 'Shell' : (agentDisplayName || 'ASSISTANT')}</span>
+              {message.isJudge && (
+                <span className="message-judge-badge" data-testid="message-judge-badge">{t('loop.judge.badge')}</span>
+              )}
               {isStreaming && (
                 <span className="thinking-indicator" />
               )}

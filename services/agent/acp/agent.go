@@ -1094,7 +1094,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 		if strings.Contains(errStr, "tool use concurrency issues") || strings.Contains(errStr, "tool_use_mismatch") {
 			logger.Errorf(runCtx, "[acp] upstream tool-use sequence rejected by Claude API (known coco / claude-agent-acp defect, often after an image Read): type=%s acpSession=%s err=%v",
 				a.agentType, acpSession, err)
-			return fmt.Errorf("ACP backend (coco) produced an invalid tool-use sequence that the Claude API rejected — this is a known upstream issue, often triggered after reading an image. Retrying the same message will fail the same way; start a new conversation to continue. Raw error: %w", err)
+			return fmt.Errorf("ACP backend (%s) produced an invalid tool-use sequence that the Claude API rejected — this is a known upstream issue, often triggered after reading an image. Retrying the same message will fail the same way; start a new conversation to continue. Raw error: %w", a.agentType, err)
 		}
 		// A "connection closed" / EOF here means the subprocess died mid-prompt
 		// — the RPC error alone ("EOF") hides WHY. The real reason (Node crash,

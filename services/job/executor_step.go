@@ -173,7 +173,7 @@ const (
 	stepStopWorkflow                   // STOP_WORKFLOW detected — exit the entire workflow
 )
 
-func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner JobRunner, node model.FlowNode, path []int, sessionID string, opts *SendMessageOptions, isLoopRun bool, nextResume *model.JobResume) stepResult {
+func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner JobRunner, node model.FlowNode, path []int, sessionID string, opts *SendMessageOptions, isLoopRun bool, nextResume *model.JobResume, inConditional bool) stepResult {
 	msg := node.Message
 	if job.LoopConfig != nil {
 		if s.hasStopLoopVar(node.Message, job) {
@@ -428,6 +428,17 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 	}
 
 	if err != nil {
+		// Inside a conditional group a business-step failure never fails the
+		// job (§2.4): record it and advance resume, then keep the round going
+		// so the judge turn can see the failure in history. Step-level
+		// ContinueOnError is ignored here (this supersedes it). Hard interrupts
+		// (ctx cancel / deadline) were already handled by the isInterruptedRun
+		// branch above and never reach here.
+		if isLoopRun && inConditional {
+			logger.Warnf(ctx, "[step] iter failed (conditional group, recording and continuing round): jobId=%s path=%v duration=%s err=%v", job.ID, path, duration.Round(time.Millisecond), err)
+			s.recordIterationAndAdvanceResume(job, result, nextResume)
+			return stepCompleted
+		}
 		if isLoopRun && node.ContinueOnError {
 			// ContinueOnError: record failure AND advance resume so that a
 			// subsequent Stop+Continue does not re-execute this skipped step.

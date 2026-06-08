@@ -1758,3 +1758,21 @@
 .system-message-bubble-link:hover {
   color: #1d4ed8;
 }
+
+.message-judge-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 7px;
+  border-radius: 10px;
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  white-space: nowrap;
+}
+
+.user-bubble .message-judge-badge {
+  margin-bottom: 6px;
+}

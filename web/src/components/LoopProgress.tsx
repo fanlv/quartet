@@ -19,13 +19,14 @@ function pathToLabel(path: number[]): string {
 
 export function LoopProgress({ progress, status, flow, onStop, onContinue }: LoopProgressProps) {
   const { t } = useTranslation();
-  const { totalSteps, completedCount, failedCount, currentPath, results, lastError } = progress;
+  const { totalSteps, completedCount, failedCount, currentPath, results, lastError, lastJudgeDecision } = progress;
   const done = completedCount + failedCount;
   const percent = totalSteps > 0 ? Math.round((done / totalSteps) * 100) : 0;
   const hasResults = results && results.length > 0;
   const [collapsed, setCollapsed] = useState(true);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [lastErrorExpanded, setLastErrorExpanded] = useState(false);
+  const [judgeExpanded, setJudgeExpanded] = useState(false);
 
   // Derive per-session / per-step position from the flow tree. When the flow
   // is unavailable (legacy job, hydration not yet done) we fall back to the
@@ -116,6 +117,34 @@ export function LoopProgress({ progress, status, flow, onStop, onContinue }: Loo
           </div>
           {lastErrorExpanded && (
             <pre className="loop-progress-last-error-full">{lastError}</pre>
+          )}
+        </div>
+      )}
+
+      {lastJudgeDecision && (
+        <div className="loop-progress-judge" data-testid="loop-progress-judge" data-judge-stop={lastJudgeDecision.stop ? 'true' : 'false'}>
+          <div
+            className="loop-progress-judge-header"
+            onClick={(e) => { e.stopPropagation(); setJudgeExpanded((v) => !v); }}
+          >
+            <span className="loop-progress-judge-label">
+              {t('loop.progress.judge.label')}
+            </span>
+            <span className="loop-progress-judge-round">
+              {t('loop.progress.judge.round', {
+                current: lastJudgeDecision.iteration,
+                total: lastJudgeDecision.maxIterations,
+              })}
+            </span>
+            <span className={`loop-progress-judge-decision${lastJudgeDecision.stop ? ' stop' : ' continue'}`}>
+              {lastJudgeDecision.stop ? t('loop.progress.judge.stop') : t('loop.progress.judge.continue')}
+            </span>
+            {lastJudgeDecision.reason && (
+              <span className={`loop-progress-judge-toggle${judgeExpanded ? ' expanded' : ''}`}>▾</span>
+            )}
+          </div>
+          {judgeExpanded && lastJudgeDecision.reason && (
+            <pre className="loop-progress-judge-reason">{lastJudgeDecision.reason}</pre>
           )}
         </div>
       )}

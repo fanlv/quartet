@@ -2837,6 +2837,35 @@
   display: none;
 }
 
+.loop-inspector-textarea {
+  resize: vertical;
+  min-height: 48px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+
+.loop-group-completion-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.loop-outline-conditional-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #b45309;
+  background: #fef3c7;
+  border-radius: 8px;
+  vertical-align: middle;
+}
+
 .flow-node-step {
   border-left: 2px solid var(--flow-depth-color, #cbd5e1);
   border-radius: 6px;

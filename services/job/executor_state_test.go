@@ -152,8 +152,11 @@ func TestPublishRunOutcomeUsesProvidedTerminalTimestamp(t *testing.T) {
 		t.Fatalf("RUN_FINISHED.timestamp = %d, want %d", finish.Timestamp, terminalAt)
 	}
 
+	// A genuine error (not user-initiated stop) must surface as RUN_ERROR so
+	// the frontend can report it. context.Canceled is deliberately excluded
+	// here — see the canceled case below.
 	errorEvent := captureSinglePublish(t, svc, "job-error", func() {
-		svc.publishRunOutcome("job-error", "session-1", []int{0}, "run-2", context.Canceled, terminalAt)
+		svc.publishRunOutcome("job-error", "session-1", []int{0}, "run-2", errors.New("boom"), terminalAt)
 	})
 	errEvent, ok := errorEvent.(*model.RunErrorEvent)
 	if !ok {
@@ -161,6 +164,19 @@ func TestPublishRunOutcomeUsesProvidedTerminalTimestamp(t *testing.T) {
 	}
 	if errEvent.Timestamp != terminalAt {
 		t.Fatalf("RUN_ERROR.timestamp = %d, want %d", errEvent.Timestamp, terminalAt)
+	}
+
+	// User-initiated stop (context.Canceled) is NOT an error: publishRunOutcome
+	// emits RUN_FINISHED so the frontend doesn't show a spurious error toast.
+	canceledEvent := captureSinglePublish(t, svc, "job-canceled", func() {
+		svc.publishRunOutcome("job-canceled", "session-1", []int{0}, "run-3", context.Canceled, terminalAt)
+	})
+	canceledFinish, ok := canceledEvent.(*model.RunFinishedEvent)
+	if !ok {
+		t.Fatalf("canceled event type = %T, want *model.RunFinishedEvent", canceledEvent)
+	}
+	if canceledFinish.Timestamp != terminalAt {
+		t.Fatalf("RUN_FINISHED.timestamp = %d, want %d", canceledFinish.Timestamp, terminalAt)
 	}
 }
 

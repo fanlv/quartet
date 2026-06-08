@@ -142,11 +142,21 @@ type FlowNode struct {
 
 	// ContinueOnError allows the workflow to continue even if this step fails.
 	// When true, a failed step is recorded but does not fail the entire job.
+	// Ignored inside a conditional group (CompletionCondition != ""): there a
+	// business-step failure never fails the job — it is recorded and the round
+	// keeps running so the judge turn can see the failure in the history.
 	ContinueOnError bool `json:"continueOnError,omitempty"`
 
 	// Group fields (Type == "group")
 	IterationCount int        `json:"iterationCount,omitempty"`
 	Children       []FlowNode `json:"children,omitempty"`
+
+	// CompletionCondition turns a fixed-count group into a conditional loop.
+	// Empty = fixed iteration (IterationCount times, existing behavior, zero
+	// change). Non-empty = run until the model judges the condition met; here
+	// IterationCount becomes the MAX iteration cap (runaway guard). The field
+	// itself is the on/off switch — no separate "loop mode" enum.
+	CompletionCondition string `json:"completionCondition,omitempty"`
 }
 
 // SessionOverrides carries optional per-step agent/model overrides for session creation.
@@ -190,6 +200,29 @@ type JobProgress struct {
 	// failure (captured alongside IterationResult.Error) or a job-level
 	// failure (panic / failJob). Persisted so refreshes still surface it.
 	LastError string `json:"lastError,omitempty"`
+
+	// LastJudgeDecision records the most recent conditional-loop judge turn
+	// outcome (conclusion + reason + which round / cap) so the progress UI can
+	// show it. Lightweight: hung off the live progress only, NOT separately
+	// persisted per-round and NOT GC'd — conditional rounds are not precisely
+	// resumed (a restart re-runs from round 0), so there is no history to keep.
+	LastJudgeDecision *JudgeDecision `json:"lastJudgeDecision,omitempty"`
+}
+
+// JudgeDecision is the outcome of one conditional-loop judge turn.
+type JudgeDecision struct {
+	// Path is the conditional group's path (so the UI can attribute the
+	// decision to the right group when multiple conditional groups exist).
+	Path []int `json:"path,omitempty"`
+	// Stop is true when the judge turn's last line matched LOOP_DECISION: STOP.
+	Stop bool `json:"stop"`
+	// Reason is the judge turn's assistant text (the rationale shown before the
+	// final decision line), surfaced in the progress area for inspection.
+	Reason string `json:"reason,omitempty"`
+	// Iteration is the 1-based round that just completed when this decision was
+	// made; MaxIterations is the group's IterationCount cap.
+	Iteration     int `json:"iteration"`
+	MaxIterations int `json:"maxIterations"`
 }
 
 type JobResume struct {

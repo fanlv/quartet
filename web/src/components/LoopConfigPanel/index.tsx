@@ -974,6 +974,24 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                     <span>{t('loop.footer.nodes', { count: countNodes(selectedNode.children || []) })}</span>
                     <span>{t('loop.flow.steps', { count: calcTotalSteps(selectedNode.children || []) })}</span>
                   </div>
+                  <label className="loop-inspector-label">{t('loop.group.completionCondition.label')}</label>
+                  <textarea
+                    className="loop-inspector-input loop-inspector-textarea"
+                    data-testid="loop-group-completion-condition"
+                    value={selectedNode.completionCondition || ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      onUpdateTree((nodes) => updateNodeInFlow(nodes, selectedNode.id, (node) => ({ ...node, completionCondition: v })));
+                      markDirty();
+                    }}
+                    placeholder={t('loop.group.completionCondition.placeholder')}
+                    rows={2}
+                  />
+                  <span className="loop-group-completion-hint">
+                    {selectedNode.completionCondition?.trim()
+                      ? t('loop.group.completionCondition.hintActive', { max: selectedNode.iterationCount || 1 })
+                      : t('loop.group.completionCondition.hint')}
+                  </span>
                   {selectedLocation?.depth === 0 && (
                     <div className="loop-group-variables-section">
                       <label className="loop-inspector-label">{t('loop.variables.label')}</label>

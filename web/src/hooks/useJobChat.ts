@@ -10,6 +10,7 @@ import {
   ToolCallStatusEnum,
   JobProgress,
   FlowNode,
+  JudgeDecision,
 } from '../types';
 import { SSEClient } from '../utils/sse-client';
 import { mergeMessages } from '../utils/mergeMessages';
@@ -695,11 +696,16 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         const label = path.map((p: number) => p + 1).join('.');
         const clientMessageId = event.clientMessageId;
         const isInteractiveSend = !!clientMessageId;
+        // Judge turns (conditional loop) render in the chat stream but must not
+        // count toward step progress: skip currentPath / loop-session-entry
+        // updates for them. The judge prompt/reply still render via the
+        // synthetic-user-message + streaming paths below.
+        const isJudge = !!event.external?.isJudge;
         const shouldFollowLatestSession = !isInteractiveSend
           && (followLatestSessionRef.current || !activeSessionIdRef.current);
 
         // Only update loop progress for loop execution, not for interactive message sends.
-        if (!isInteractiveSend) {
+        if (!isInteractiveSend && !isJudge) {
           setLoopProgress((prev) =>
             prev ? {
               ...prev,
@@ -708,8 +714,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           );
         }
 
-        // Only add session entry for loop execution, not for interactive message sends.
-        if (!isInteractiveSend) {
+        // Only add session entry for loop execution, not for interactive message sends
+        // and not for judge turns (judge does not advance step progress).
+        if (!isInteractiveSend && !isJudge) {
           setLoopSessions((prev) => {
             const idx = prev.findIndex((s) => s.sessionId === iterSessionId && s.path.length === path.length && s.path.every((v: number, i: number) => v === path[i]));
             if (idx >= 0) {
@@ -778,6 +785,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             createdAt: event.timestamp,
             status: MessageStatusEnum.Finished,
             sessionId: iterSessionId,
+            isJudge: isJudge || undefined,
           };
           setMessages((prev) => {
             if (prev.some((m) => m.id === userMsgId)) return prev;
@@ -928,6 +936,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       case EventTypeEnum.TEXT_MESSAGE_START: {
         const isThinking = event.external?.isThinking ?? false;
         const isShellOutput = event.external?.isShellOutput === true;
+        const isJudge = event.external?.isJudge === true;
         const newMessage: AssistantMessage = {
           id: event.messageId,
           role: MessageRoleEnum.ASSISTANT,
@@ -938,6 +947,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           thinkingContent: '',
           isThinking,
           isShellOutput,
+          isJudge: isJudge || undefined,
           sessionId: event.sessionId,
         };
         setMessages((prev) => {
@@ -1131,6 +1141,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           const payload = event.value as { title?: string } | string | null;
           const nextTitle = typeof payload === 'string' ? payload : payload?.title;
           if (nextTitle) setJobTitle(nextTitle);
+        }
+        if (event.name === 'judge_decision') {
+          const decision = event.value as JudgeDecision | null;
+          if (decision) {
+            setLoopProgress((prev) => (prev ? { ...prev, lastJudgeDecision: decision } : prev));
+          }
         }
         break;
 

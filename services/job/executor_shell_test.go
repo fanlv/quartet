@@ -121,8 +121,15 @@ func TestBuildShellEnv_DefaultPassthroughWithSensitiveDenylist(t *testing.T) {
 	if got["PATH"] != "/usr/bin" || got["HOME"] != "/home/quartet" || got["TERM"] != "xterm-256color" || got["LC_ALL"] != "C.UTF-8" || got["GOPATH"] != "/home/quartet/go" || got["NVM_DIR"] != "/home/quartet/.nvm" || got["HTTP_PROXY"] != "http://proxy" || got["LOCAL_MEMORY"] != "/home/quartet/memory" || got["KEYBOARD_LAYOUT"] != "us" || got["CUSTOM"] != "1" {
 		t.Fatalf("expected non-sensitive envs to pass through: %#v", got)
 	}
+	// OPENAI_API_KEY is on the default passthrough allowlist
+	// (shellEnvDefaultPassthrough): Quartet runs single-user and may use an
+	// OpenAI-compatible backend itself, so shell tasks calling the same service
+	// must see the key. It passes through despite matching the OPENAI_ /
+	// _API_KEY sensitive rules.
+	if got["OPENAI_API_KEY"] != "secret" {
+		t.Fatalf("OPENAI_API_KEY should pass through (default allowlist): %#v", got)
+	}
 	for _, key := range []string{
-		"OPENAI_API_KEY",
 		"DEEPSEEK_KEY",
 		"MISTRAL_KEY",
 		"GEMINI_KEY",
@@ -380,7 +387,7 @@ func TestExecuteShellRepeat_PersistsInterruptedShellOutput(t *testing.T) {
 
 	resultCh := make(chan stepResult, 1)
 	go func() {
-		resultCh <- svc.executeShellRepeat(ctx, job, stubRunner{}, node, []int{0}, "sess-shell", nil)
+		resultCh <- svc.executeShellRepeat(ctx, job, stubRunner{}, node, []int{0}, "sess-shell", nil, false)
 	}()
 
 	readCtx, readCancel := context.WithTimeout(context.Background(), 5*time.Second)
