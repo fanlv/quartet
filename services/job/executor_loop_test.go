@@ -145,6 +145,24 @@ func TestRunFlowNodesEachRepeatResumeReusesPersistedSession(t *testing.T) {
 	}
 }
 
+func TestRunFlowNodesBeforeRoundResumeReusesPersistedSession(t *testing.T) {
+	flow := []model.FlowNode{
+		promptStep("round", 1, model.RoundModeBeforeRound),
+	}
+	job := newLoopTestJob("job-before-round-resume", flow)
+	job.Resume = &model.JobResume{NextPath: []int{0, 0}, SessionID: "existing-session"}
+
+	runner := runLoopNodesForTest(t, job, "existing-session")
+
+	if len(runner.initSessions) != 0 {
+		t.Fatalf("created sessions=%v, want none for true resume", runner.initSessions)
+	}
+	wantRuns := []string{"existing-session"}
+	if !reflect.DeepEqual(runner.runSessions, wantRuns) {
+		t.Fatalf("run sessions=%v, want %v", runner.runSessions, wantRuns)
+	}
+}
+
 func TestRunFlowNodesEachRepeatThenNoneDoesNotLeakSession(t *testing.T) {
 	flow := []model.FlowNode{
 		group(2,

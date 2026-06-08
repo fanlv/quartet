@@ -108,8 +108,7 @@
       "judge": {
         "label": "Judge",
         "round": "Round {{current}} / {{total}}",
-        "stop": "STOP",
-        "continue": "CONTINUE"
+        "stop": "STOP"
       }
     },
     "template": {

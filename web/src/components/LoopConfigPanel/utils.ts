@@ -74,8 +74,16 @@ export interface LoopSessionLocation {
 /**
  * Walk the flow in execution order and assign each leaf step to a session.
  * Pure function — no side effects, safe to call on every render.
+ *
+ * `actualIterations` optionally overrides a group's iterationCount with the
+ * number of rounds it actually ran (keyed by the group's dot-joined node path,
+ * e.g. "0.0"). Used for conditional groups that stopped early so the session /
+ * step denominator reflects the real run instead of the static cap.
  */
-export function computeLoopSessionPlan(flow: FlowNode[]): LoopSessionPlan {
+export function computeLoopSessionPlan(
+  flow: FlowNode[],
+  actualIterations?: Record<string, number>
+): LoopSessionPlan {
   const leaves: LoopSessionLeaf[] = [];
   // -1 means "no session opened yet". Bumped to a fresh index whenever a
   // boundary rule fires.
@@ -97,7 +105,12 @@ export function computeLoopSessionPlan(flow: FlowNode[]): LoopSessionPlan {
           leaves.push({ path: [...basePath, i, r], sessionIndex: currentSession });
         }
       } else if (node.type === 'group') {
-        const ic = Math.max(1, node.iterationCount || 1);
+        const nodePath = [...basePath, i].join('.');
+        const override = actualIterations?.[nodePath];
+        const ic =
+          override != null && override > 0
+            ? override
+            : Math.max(1, node.iterationCount || 1);
         for (let iter = 0; iter < ic; iter++) {
           walk(node.children || [], [...basePath, i, iter]);
         }

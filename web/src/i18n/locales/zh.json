@@ -108,8 +108,7 @@
       "judge": {
         "label": "条件判定",
         "round": "第 {{current}} / {{total}} 轮",
-        "stop": "停止",
-        "continue": "继续"
+        "stop": "停止"
       }
     },
     "template": {

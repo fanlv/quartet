@@ -207,6 +207,15 @@ type JobProgress struct {
 	// persisted per-round and NOT GC'd — conditional rounds are not precisely
 	// resumed (a restart re-runs from round 0), so there is no history to keep.
 	LastJudgeDecision *JudgeDecision `json:"lastJudgeDecision,omitempty"`
+
+	// ConditionalActualIterations maps a conditional group's dot-joined path
+	// (e.g. "0.0") to the number of rounds it actually ran when it stopped
+	// early (judge STOP or cap reached before cap). The frontend uses this to
+	// recompute the session/step plan denominator so the progress text and bar
+	// reflect the real run instead of the static cap. Mirrors the in-memory
+	// TotalSteps backfill (executor_loop.go) — like that backfill it is only a
+	// display aid, not used for resume.
+	ConditionalActualIterations map[string]int `json:"conditionalActualIterations,omitempty"`
 }
 
 // JudgeDecision is the outcome of one conditional-loop judge turn.

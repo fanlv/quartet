@@ -203,6 +203,11 @@ export interface JobProgress {
   results?: IterationResult[];
   lastError?: string;
   lastJudgeDecision?: JudgeDecision;
+  // conditionalActualIterations maps a conditional group's dot-joined node
+  // path (e.g. "0.0") to the number of rounds it actually ran when it stopped
+  // early. Used to recompute the session/step plan denominator so the progress
+  // text and bar reflect the real run instead of the static iteration cap.
+  conditionalActualIterations?: Record<string, number>;
 }
 
 export interface JobStartedEvent extends BaseEvent {

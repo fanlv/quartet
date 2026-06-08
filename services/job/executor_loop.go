@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	"strings"
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
@@ -154,7 +155,7 @@ func (s *serviceImpl) runFlowNodes(
 			// "actual rounds × children" so the bar finishes full instead of
 			// stalling at e.g. 3/10. In-memory only (§5.4) — not persisted.
 			if conditional && actualIters < ic {
-				s.backfillConditionalTotal(job, node, ic, actualIters)
+				s.backfillConditionalTotal(job, node, appendNodePath(basePath, i), ic, actualIters)
 				// §5.2: a conditional group that STOPs early left job.Resume
 				// pointing into the NEXT round (the last business step
 				// precomputed its nextResume via the static NextStepPath, which
@@ -314,8 +315,11 @@ func (s *serviceImpl) tryCreateSession(
 // only (interactive runs go through runInteractive, not runFlowNodes).
 //
 // Decision order:
-//  1. RoundModeBeforeRound — always spawn a fresh session at the top of every
-//     step.
+//  1. RoundModeBeforeRound — spawn a fresh session at the top of every step,
+//     UNLESS this exact step is being resumed mid-run (Stop → Continue): in
+//     that case reuse the session captured in job.Resume so the resumed step
+//     continues against its original context instead of restarting in a brand
+//     new session. Shares the same resume guard as RoundModeEachRepeat below.
 //  2. RoundModeEachRepeat — spawn a fresh session unless this exact step is
 //     being resumed mid-run. The resume guard keys off the snapshot
 //     resumeSessionID (captured from job.Resume.SessionID at the top of the
@@ -325,11 +329,14 @@ func (s *serviceImpl) tryCreateSession(
 //     reusing the prior session instead of spawning a new one.
 //  3. Fallback — anything else: spawn a session only when none exists.
 func stepSessionReason(roundMode model.RoundMode, resumingStep bool, resumeSessionID, currentSessionID string) string {
+	resumingThisStep := resumingStep && resumeSessionID != ""
 	switch roundMode {
 	case model.RoundModeBeforeRound:
-		return "beforeRound"
+		if !resumingThisStep {
+			return "beforeRound"
+		}
 	case model.RoundModeEachRepeat:
-		if !(resumingStep && resumeSessionID != "") {
+		if !resumingThisStep {
 			return "eachRepeat"
 		}
 	}
@@ -407,7 +414,7 @@ func lastChildStepPath(children []model.FlowNode, basePath []int) []int {
 // childrenSteps" so the progress bar finishes full when the loop stopped early
 // (§5.4). In-memory only — not persisted, since §5.2 already accepts a restart
 // re-running from round 0 (where the static estimate re-expands anyway).
-func (s *serviceImpl) backfillConditionalTotal(job *model.Job, node model.FlowNode, cap, actualIters int) {
+func (s *serviceImpl) backfillConditionalTotal(job *model.Job, node model.FlowNode, groupPath []int, cap, actualIters int) {
 	childSteps := model.CalcTotalSteps(node.Children)
 	if childSteps == 0 {
 		return
@@ -416,14 +423,67 @@ func (s *serviceImpl) backfillConditionalTotal(job *model.Job, node model.FlowNo
 	if delta <= 0 {
 		return
 	}
+	pathKey := pathKeyString(groupPath)
 	s.mu.Lock()
+	var newTotal int
+	var actualMap map[string]int
 	if job.Progress != nil {
 		job.Progress.TotalSteps -= delta
 		if job.Progress.TotalSteps < 0 {
 			job.Progress.TotalSteps = 0
 		}
+		if job.Progress.ConditionalActualIterations == nil {
+			job.Progress.ConditionalActualIterations = make(map[string]int)
+		}
+		job.Progress.ConditionalActualIterations[pathKey] = actualIters
+		newTotal = job.Progress.TotalSteps
+		actualMap = copyIntMap(job.Progress.ConditionalActualIterations)
 	}
 	s.mu.Unlock()
+
+	// Push the recomputed denominator so connected clients update the
+	// progress text / bar live (mirrors the in-memory backfill). The
+	// frontend recomputes its session plan with the actual iteration counts.
+	s.Publish(job.ID, &model.CustomEvent{
+		BaseEvent: model.BaseEvent{
+			Type: model.EventTypeCustom, JobID: job.ID,
+			Timestamp: nowMillis(),
+		},
+		Name: "progress_total_updated",
+		Value: map[string]any{
+			"totalSteps":                  newTotal,
+			"conditionalActualIterations": actualMap,
+		},
+	})
+}
+
+// pathKeyString renders a node path as a dot-joined string (e.g. "0.1") used
+// as the key in JobProgress.ConditionalActualIterations and matched by the
+// frontend session-plan walk.
+func pathKeyString(path []int) string {
+	parts := make([]string, len(path))
+	for i, p := range path {
+		parts[i] = fmt.Sprintf("%d", p)
+	}
+	return strings.Join(parts, ".")
+}
+
+// appendNodePath returns a new path with a single node index appended (no
+// iteration component) — identifies a group node position regardless of which
+// iteration it is on.
+func appendNodePath(base []int, nodeIdx int) []int {
+	p := make([]int, len(base)+1)
+	copy(p, base)
+	p[len(base)] = nodeIdx
+	return p
+}
+
+func copyIntMap(m map[string]int) map[string]int {
+	out := make(map[string]int, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 // advanceResumePastConditionalGroup moves job.Resume to the first leaf step
@@ -450,9 +510,16 @@ func (s *serviceImpl) advanceResumePastConditionalGroup(ctx context.Context, job
 	}
 }
 
+// nextStepStartsFreshSession reports whether the step at path will spawn its
+// own session at the top of its run (RoundModeEachRepeat or
+// RoundModeBeforeRound). The caller uses this to drop the carried SessionID
+// from a successful step's precomputed nextResume: if the next step makes its
+// own session, the advance pointer must not look like a mid-run resume of an
+// existing session (which would wrongly make the resume guard in
+// stepSessionReason reuse it on an outer group's later iteration).
 func nextStepStartsFreshSession(nodes []model.FlowNode, path []int) bool {
 	roundMode, ok := roundModeForStepPath(nodes, path)
-	return ok && roundMode == model.RoundModeEachRepeat
+	return ok && (roundMode == model.RoundModeEachRepeat || roundMode == model.RoundModeBeforeRound)
 }
 
 func roundModeForStepPath(nodes []model.FlowNode, path []int) (model.RoundMode, bool) {

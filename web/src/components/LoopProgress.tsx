@@ -19,7 +19,7 @@ function pathToLabel(path: number[]): string {
 
 export function LoopProgress({ progress, status, flow, onStop, onContinue }: LoopProgressProps) {
   const { t } = useTranslation();
-  const { totalSteps, completedCount, failedCount, currentPath, results, lastError, lastJudgeDecision } = progress;
+  const { totalSteps, completedCount, failedCount, currentPath, results, lastError, lastJudgeDecision, conditionalActualIterations } = progress;
   const done = completedCount + failedCount;
   const percent = totalSteps > 0 ? Math.round((done / totalSteps) * 100) : 0;
   const hasResults = results && results.length > 0;
@@ -31,7 +31,7 @@ export function LoopProgress({ progress, status, flow, onStop, onContinue }: Loo
   // Derive per-session / per-step position from the flow tree. When the flow
   // is unavailable (legacy job, hydration not yet done) we fall back to the
   // global "done / totalSteps" text.
-  const sessionPlan = flow && flow.length > 0 ? computeLoopSessionPlan(flow) : null;
+  const sessionPlan = flow && flow.length > 0 ? computeLoopSessionPlan(flow, conditionalActualIterations) : null;
   const loc = sessionPlan ? locateInSessionPlan(sessionPlan, currentPath) : null;
   const showSessionStats = !!(sessionPlan && sessionPlan.totalSessions > 0);
 
@@ -136,9 +136,11 @@ export function LoopProgress({ progress, status, flow, onStop, onContinue }: Loo
                 total: lastJudgeDecision.maxIterations,
               })}
             </span>
-            <span className={`loop-progress-judge-decision${lastJudgeDecision.stop ? ' stop' : ' continue'}`}>
-              {lastJudgeDecision.stop ? t('loop.progress.judge.stop') : t('loop.progress.judge.continue')}
-            </span>
+            {lastJudgeDecision.stop && (
+              <span className="loop-progress-judge-decision stop">
+                {t('loop.progress.judge.stop')}
+              </span>
+            )}
             {lastJudgeDecision.reason && (
               <span className={`loop-progress-judge-toggle${judgeExpanded ? ' expanded' : ''}`}>▾</span>
             )}

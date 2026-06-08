@@ -1148,6 +1148,29 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             setLoopProgress((prev) => (prev ? { ...prev, lastJudgeDecision: decision } : prev));
           }
         }
+        if (event.name === 'progress_total_updated') {
+          // A conditional group stopped early; the backend recomputed the
+          // total-steps denominator and the per-group actual iteration counts.
+          // Merge both so the progress bar fills and the session/step plan
+          // reflects the real run instead of the static cap.
+          const payload = event.value as {
+            totalSteps?: number;
+            conditionalActualIterations?: Record<string, number>;
+          } | null;
+          if (payload) {
+            setLoopProgress((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    totalSteps:
+                      typeof payload.totalSteps === 'number' ? payload.totalSteps : prev.totalSteps,
+                    conditionalActualIterations:
+                      payload.conditionalActualIterations ?? prev.conditionalActualIterations,
+                  }
+                : prev
+            );
+          }
+        }
         break;
 
       case EventTypeEnum.COMMAND_SYSTEM_MESSAGE:

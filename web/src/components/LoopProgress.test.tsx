@@ -12,7 +12,7 @@ const baseProgress: JobProgress = {
 }
 
 describe('LoopProgress conditional judge display', () => {
-  it('renders the latest judge decision with round and CONTINUE label', () => {
+  it('renders the latest judge decision round but no decision label when continuing', () => {
     const progress: JobProgress = {
       ...baseProgress,
       lastJudgeDecision: {
@@ -28,7 +28,8 @@ describe('LoopProgress conditional judge display', () => {
     const judge = screen.getByTestId('loop-progress-judge')
     expect(judge).toHaveAttribute('data-judge-stop', 'false')
     expect(judge).toHaveTextContent('Round 2 / 10')
-    expect(judge).toHaveTextContent('CONTINUE')
+    // A "continue" decision shows no label — only STOP is surfaced.
+    expect(judge.querySelector('.loop-progress-judge-decision')).not.toBeInTheDocument()
   })
 
   it('renders STOP and expands the reason on click', async () => {
