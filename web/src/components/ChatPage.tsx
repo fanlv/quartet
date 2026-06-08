@@ -24,10 +24,12 @@ import { cronToHuman } from './CronInput';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
 import { copyToClipboard } from '../utils/clipboard';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { usePendingImages } from '../hooks/usePendingImages';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { workspaceColor, loadWorkspacePrefs, registerWorkspaceColors } from '../utils/workspace';
 import { fetchModelOptions, type ModelOption } from '../utils/models';
 import { formatStatsDuration } from '../utils/statsFormat';
+import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl } from '../utils/url';
 
 export interface ModelInfoACP {
@@ -138,14 +140,6 @@ function appendLocalSentMessage(storageKey: string, item: Omit<LocalSentMessage,
   const next = [nextItem, ...prev].slice(0, LOCAL_SENT_MESSAGE_LIMIT);
   writeLocalSentMessages(storageKey, next);
   return next;
-}
-
-interface PendingImage {
-  file: File;
-  previewUrl: string;
-  uploading: boolean;
-  uploadedPath?: string;
-  error?: string;
 }
 
 async function uploadImage(file: File): Promise<string> {
@@ -466,7 +460,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const { pendingImages, addImages, removeImage, clearImages } = usePendingImages(uploadImage);
   const isMobile = useIsMobile();
   // User avatar state
   const [userAvatarUrl, setUserAvatarUrl] = useState('');
@@ -642,55 +636,12 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
 
   const handleImageSelect = useCallback(async (files: FileList | null) => {
-    if (!files) return;
-    const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
-    if (imageFiles.length === 0) return;
-
-    const newImages: PendingImage[] = imageFiles.map((f) => ({
-      file: f,
-      previewUrl: URL.createObjectURL(f),
-      uploading: true,
-    }));
-
-    setPendingImages((prev) => [...prev, ...newImages]);
-
-    for (const img of newImages) {
-      try {
-        const path = await uploadImage(img.file);
-        setPendingImages((prev) =>
-          prev.map((p) =>
-            p.previewUrl === img.previewUrl ? { ...p, uploading: false, uploadedPath: path } : p
-          )
-        );
-      } catch (err) {
-        setPendingImages((prev) =>
-          prev.map((p) =>
-            p.previewUrl === img.previewUrl
-              ? { ...p, uploading: false, error: err instanceof Error ? err.message : 'Upload failed' }
-              : p
-          )
-        );
-      }
-    }
-  }, []);
+    await addImages(files);
+  }, [addImages]);
 
   const handleRemoveImage = useCallback((previewUrl: string) => {
-    setPendingImages((prev) => {
-      const img = prev.find((p) => p.previewUrl === previewUrl);
-      if (img) URL.revokeObjectURL(img.previewUrl);
-      return prev.filter((p) => p.previewUrl !== previewUrl);
-    });
-  }, []);
-
-  // Revoke blob URLs on unmount to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      setPendingImages((prev) => {
-        prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-        return prev;
-      });
-    };
-  }, []);
+    removeImage(previewUrl);
+  }, [removeImage]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
@@ -1008,10 +959,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     );
     setInput('');
     setPickedImageUrls([]);
-    setPendingImages((prev) => {
-      prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-      return [];
-    });
+    clearImages();
     historyCursorRef.current = null;
     historyDraftRef.current = null;
   };
@@ -1076,7 +1024,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Ignore Enter during IME composition (CJK input methods)
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (isImeComposing(e)) return;
     if (mentionState) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionActiveIndex(i => i + 1); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionActiveIndex(i => Math.max(0, i - 1)); return; }
@@ -1109,10 +1057,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
             const nextInput = it.content === '[image]' && it.imageUrls && it.imageUrls.length > 0 ? '' : it.content;
             setInput(nextInput);
             setPickedImageUrls(it.imageUrls || []);
-            setPendingImages((prev) => {
-              prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-              return [];
-            });
+            clearImages();
             requestAnimationFrame(() => {
               textareaRef.current?.focus();
               if (textareaRef.current) {
@@ -1127,10 +1072,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
             const nextInput = it.content === '[image]' && it.imageUrls && it.imageUrls.length > 0 ? '' : it.content;
             setInput(nextInput);
             setPickedImageUrls(it.imageUrls || []);
-            setPendingImages((prev) => {
-              prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-              return [];
-            });
+            clearImages();
             requestAnimationFrame(() => {
               textareaRef.current?.focus();
               if (textareaRef.current) {
@@ -1162,10 +1104,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
           const nextInput = it.content === '[image]' && it.imageUrls && it.imageUrls.length > 0 ? '' : it.content;
           setInput(nextInput);
           setPickedImageUrls(it.imageUrls || []);
-          setPendingImages((prev) => {
-            prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-            return [];
-          });
+          clearImages();
           requestAnimationFrame(() => {
             textareaRef.current?.focus();
             if (textareaRef.current) {
@@ -1934,10 +1873,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                             const nextInput = it.content === '[image]' && imgCount > 0 ? '' : it.content;
                             setInput(nextInput);
                             setPickedImageUrls(it.imageUrls || []);
-                            setPendingImages((prev) => {
-                              prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-                              return [];
-                            });
+                            clearImages();
                             setHistoryOpen(false);
                             historyCursorRef.current = null;
                             historyDraftRef.current = null;

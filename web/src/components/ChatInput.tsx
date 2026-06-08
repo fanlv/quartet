@@ -6,8 +6,10 @@ import { AgentInfo } from './ChatPage';
 import { FileMention, FileResult } from './FileMention';
 import { copyToClipboard } from '../utils/clipboard';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { usePendingImages } from '../hooks/usePendingImages';
 import { workspaceColor } from '../utils/workspace';
 import { ALL_COMMAND_NAMES } from '../utils/commands';
+import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl } from '../utils/url';
 import { DurationBadge } from './DurationBadge';
 import './ChatInput.css';
@@ -115,15 +117,6 @@ function showToast(message: string) {
     setTimeout(() => toast.remove(), 300);
   }, 2000);
 }
-
-interface PendingImage {
-  file: File;
-  previewUrl: string;
-  uploading: boolean;
-  uploadedPath?: string;
-  error?: string;
-}
-
 
 async function uploadImage(file: File): Promise<string> {
   const formData = new FormData();
@@ -252,7 +245,7 @@ export function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [tabletBottomGap, setTabletBottomGap] = useState(0);
 
-  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const { pendingImages, addImages, removeImage, clearImages } = usePendingImages(uploadImage);
 
   // Local cache of "sent" messages (recorded on click send, regardless of server success/failure)
   const localHistoryStorageKey = `quartet:sent_history:${localHistoryKey || 'global'}`;
@@ -406,10 +399,7 @@ export function ChatInput({
     onSend(contentToSend, imageUrls.length > 0 ? imageUrls : undefined);
     setInput('');
     setPickedImageUrls([]);
-    setPendingImages((prev) => {
-      prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-      return [];
-    });
+    clearImages();
     setMentionState(null);
     historyCursorRef.current = null;
     historyDraftRef.current = null;
@@ -417,61 +407,18 @@ export function ChatInput({
 
   const handleImageSelect = useCallback(async (files: FileList | null) => {
     if (interactionDisabled) return;
-    if (!files) return;
-    const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
-    if (imageFiles.length === 0) return;
-
-    const newImages: PendingImage[] = imageFiles.map((f) => ({
-      file: f,
-      previewUrl: URL.createObjectURL(f),
-      uploading: true,
-    }));
-
-    setPendingImages((prev) => [...prev, ...newImages]);
-
-    for (const img of newImages) {
-      try {
-        const path = await uploadImage(img.file);
-        setPendingImages((prev) =>
-          prev.map((p) =>
-            p.previewUrl === img.previewUrl ? { ...p, uploading: false, uploadedPath: path } : p
-          )
-        );
-      } catch (err) {
-        setPendingImages((prev) =>
-          prev.map((p) =>
-            p.previewUrl === img.previewUrl
-              ? { ...p, uploading: false, error: err instanceof Error ? err.message : 'Upload failed' }
-              : p
-          )
-        );
-      }
-    }
-  }, [interactionDisabled]);
+    await addImages(files);
+  }, [addImages, interactionDisabled]);
 
   const handleRemoveImage = useCallback((previewUrl: string) => {
     if (interactionDisabled) return;
-    setPendingImages((prev) => {
-      const img = prev.find((p) => p.previewUrl === previewUrl);
-      if (img) URL.revokeObjectURL(img.previewUrl);
-      return prev.filter((p) => p.previewUrl !== previewUrl);
-    });
-  }, [interactionDisabled]);
+    removeImage(previewUrl);
+  }, [interactionDisabled, removeImage]);
 
   const handleRemovePickedImage = useCallback((url: string) => {
     if (interactionDisabled) return;
     setPickedImageUrls((prev) => prev.filter((u) => u !== url));
   }, [interactionDisabled]);
-
-  // Revoke blob URLs on unmount to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      setPendingImages((prev) => {
-        prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-        return prev;
-      });
-    };
-  }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     if (interactionDisabled) return;
@@ -540,7 +487,7 @@ export function ChatInput({
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (interactionDisabled) return;
     // Ignore Enter during IME composition (CJK input methods)
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (isImeComposing(e)) return;
     // Command completion navigation takes priority over plain Enter.
     if (slashMatches.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -619,10 +566,7 @@ export function ChatInput({
             setInput(nextInput);
             setPickedImageUrls(it.imageUrls || []);
             // clear pending uploads when recalling history
-            setPendingImages((prev) => {
-              prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-              return [];
-            });
+            clearImages();
             requestAnimationFrame(() => {
               textareaRef.current?.focus();
               if (textareaRef.current) {
@@ -637,10 +581,7 @@ export function ChatInput({
             const nextInput = it.content === '[image]' && it.imageUrls && it.imageUrls.length > 0 ? '' : it.content;
             setInput(nextInput);
             setPickedImageUrls(it.imageUrls || []);
-            setPendingImages((prev) => {
-              prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-              return [];
-            });
+            clearImages();
             requestAnimationFrame(() => {
               textareaRef.current?.focus();
               if (textareaRef.current) {
@@ -671,10 +612,7 @@ export function ChatInput({
           const nextInput = it.content === '[image]' && it.imageUrls && it.imageUrls.length > 0 ? '' : it.content;
           setInput(nextInput);
           setPickedImageUrls(it.imageUrls || []);
-          setPendingImages((prev) => {
-            prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-            return [];
-          });
+          clearImages();
           requestAnimationFrame(() => {
             textareaRef.current?.focus();
             if (textareaRef.current) {
@@ -1131,10 +1069,7 @@ export function ChatInput({
                           const nextInput = it.content === '[image]' && imgCount > 0 ? '' : it.content;
                           setInput(nextInput);
                           setPickedImageUrls(it.imageUrls || []);
-                          setPendingImages((prev) => {
-                            prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-                            return [];
-                          });
+                          clearImages();
                           setHistoryOpen(false);
                           historyCursorRef.current = null;
                           historyDraftRef.current = null;
