@@ -165,7 +165,9 @@
       "groupMeta": "{{iterations}} iteration(s) · {{steps}} step(s)",
       "stepMeta": "{{mode}}",
       "stepMetaRepeat": "Repeat x {{repeat}}",
-      "groupMetaConditional": "max {{max}} × {{steps}} step(s) · conditional"
+      "groupMetaConditional": "max {{max}} × {{steps}} step(s) · conditional",
+      "collapseGroup": "Collapse group",
+      "expandGroup": "Expand group"
     },
     "inspector": {
       "stepTitle": "Step config",

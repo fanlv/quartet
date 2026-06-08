@@ -79,22 +79,28 @@ export function FlowOutline({
             ? t('loop.group.mainLabel')
             : t('loop.group.defaultLabel', { index: index + 1 }));
           const canAddGroup = depth + 1 < MAX_DEPTH;
+          const childrenCount = node.children?.length || 0;
+          const toggleTitle = isCollapsed ? t('loop.outline.expandGroup') : t('loop.outline.collapseGroup');
 
           return (
             <div className="loop-outline-node" key={node.id}>
               <button
-                className={`loop-outline-row loop-outline-row-group${isSelected ? ' selected' : ''}${issue ? ' has-error' : ''}`}
+                className={`loop-outline-row loop-outline-row-group${isSelected ? ' selected' : ''}${issue ? ' has-error' : ''}${isCollapsed ? ' collapsed' : ''}`}
                 style={rowStyle}
                 onClick={() => onSelect(node.id)}
                 type="button"
+                aria-expanded={!isCollapsed}
               >
                 <span
-                  className={`loop-outline-caret${isCollapsed ? ' collapsed' : ''}`}
+                  className={`loop-outline-caret${isCollapsed ? ' collapsed' : ''}${childrenCount === 0 ? ' disabled' : ''}`}
+                  title={toggleTitle}
                   onClick={(event) => {
                     event.stopPropagation();
                     onToggleGroup(node.id);
                   }}
-                />
+                >
+                  ▾
+                </span>
                 <span className="loop-outline-type group">G</span>
                 <span className="loop-outline-main">
                   <span className="loop-outline-title">

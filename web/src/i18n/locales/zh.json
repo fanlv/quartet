@@ -163,7 +163,9 @@
       "groupMeta": "迭代 × {{iterations}} · {{steps}} 步",
       "stepMeta": "{{mode}}",
       "stepMetaRepeat": "重复 × {{repeat}}",
-      "groupMetaConditional": "最多 {{max}} 轮 · {{steps}} 步 · 条件"
+      "groupMetaConditional": "最多 {{max}} 轮 · {{steps}} 步 · 条件",
+      "collapseGroup": "折叠循环组",
+      "expandGroup": "展开循环组"
     },
     "inspector": {
       "stepTitle": "Step 配置",

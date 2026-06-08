@@ -102,6 +102,35 @@ function deepCloneFlowNode(node: FlowNode): FlowNode {
   };
 }
 
+function getDefaultCollapsedGroupIds(nodes: FlowNode[]): Set<string> {
+  const ids = new Set<string>();
+
+  const walk = (items: FlowNode[], depth: number) => {
+    const groupsAtLevel = items.filter((node) => node.type === 'group');
+    if (depth === 1 && groupsAtLevel.length >= 2) {
+      groupsAtLevel.forEach((node) => ids.add(node.id));
+    }
+
+    items.forEach((node) => {
+      if (node.type === 'group' && node.children?.length) {
+        walk(node.children, depth + 1);
+      }
+    });
+  };
+
+  walk(nodes, 0);
+  return ids;
+}
+
+function mergeDefaultCollapsedGroupIds(prev: Set<string>, nodes: FlowNode[]): Set<string> {
+  const defaults = getDefaultCollapsedGroupIds(nodes);
+  if (defaults.size === 0) return prev;
+
+  const next = new Set(prev);
+  defaults.forEach((id) => next.add(id));
+  return next;
+}
+
 function findNodeLocation(nodes: FlowNode[], nodeId: string | null, parentId: string | null = null, depth = 0): NodeLocation | null {
   if (!nodeId) return null;
   for (let i = 0; i < nodes.length; i++) {
@@ -229,7 +258,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const wsDropdownRef = useRef<HTMLDivElement>(null);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(() => findFirstStepId(initialFlow) || initialFlow[0]?.id || null);
-  const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => new Set());
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => getDefaultCollapsedGroupIds(initialFlow));
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [variablesPanelOpen, setVariablesPanelOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<'flow' | 'config' | 'variables'>('flow');
@@ -407,7 +436,8 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
         return;
       }
       setFlow(migrated.flow);
-      setSelectedNodeId(findFirstStepId(migrated.flow) || migrated.flow[0]?.id || null);
+      setCollapsedGroupIds(getDefaultCollapsedGroupIds(migrated.flow));
+      setSelectedNodeId(migrated.flow[0]?.id || findFirstStepId(migrated.flow) || null);
       const vars = migrated.variables
         ? Object.entries(migrated.variables).map(([key, value]) => ({ key, value }))
         : [];
@@ -442,6 +472,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     const migrated = migrateOldConfig(tmpl.config);
     const nextFlow = migrated.flow || makeDefaultFlow();
     setFlow(nextFlow);
+    setCollapsedGroupIds(getDefaultCollapsedGroupIds(nextFlow));
     setSelectedNodeId(nextFlow[0]?.id || null);
     const vars = migrated.variables
       ? Object.entries(migrated.variables).map(([key, value]) => ({ key, value }))
@@ -467,6 +498,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     const nextFlow = makeDefaultFlow();
     setSelectedTemplateId('');
     setFlow(nextFlow);
+    setCollapsedGroupIds(getDefaultCollapsedGroupIds(nextFlow));
     setSelectedNodeId(findFirstStepId(nextFlow) || nextFlow[0]?.id || null);
     setVariables([]);
     setTemplateDropdownOpen(false);
@@ -569,14 +601,19 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     const newGroup = createGroup();
     const firstStepId = findFirstStepId([newGroup]);
     setFlow((prev) => {
+      let next: FlowNode[];
       if (targetGroupId) {
-        return updateNodeInFlow(prev, targetGroupId, (node) => ({
+        next = updateNodeInFlow(prev, targetGroupId, (node) => ({
           ...node,
           children: [...(node.children || []), newGroup],
         }));
+      } else if (selectedNodeId) {
+        next = insertNodeAfter(prev, selectedNodeId, newGroup);
+      } else {
+        next = [...prev, newGroup];
       }
-      if (selectedNodeId) return insertNodeAfter(prev, selectedNodeId, newGroup);
-      return [...prev, newGroup];
+      setCollapsedGroupIds((collapsed) => mergeDefaultCollapsedGroupIds(collapsed, next));
+      return next;
     });
     setSelectedNodeId(firstStepId || newGroup.id);
     setMobileTab('config');
@@ -587,7 +624,11 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     const node = findNodeById(flow, nodeId);
     if (!node) return;
     const clone = deepCloneFlowNode(node);
-    setFlow((prev) => insertNodeAfter(prev, nodeId, clone));
+    setFlow((prev) => {
+      const next = insertNodeAfter(prev, nodeId, clone);
+      setCollapsedGroupIds((collapsed) => mergeDefaultCollapsedGroupIds(collapsed, next));
+      return next;
+    });
     setSelectedNodeId(clone.type === 'group' ? (findFirstStepId([clone]) || clone.id) : clone.id);
     setMobileTab('config');
     markDirty();

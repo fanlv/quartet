@@ -35,7 +35,7 @@
 
 .loop-config-panel {
   width: 100%;
-  max-width: 980px;
+  max-width: 1060px;
   max-height: min(92vh, calc(100% - 32px));
   margin: min(6vh, 48px) 0 16px;
   display: flex;
@@ -3151,7 +3151,7 @@
 /* ── 2026-05 outline + inspector redesign ─────────────────────── */
 
 .loop-config-panel {
-  max-width: 1180px;
+  max-width: 1260px;
   height: min(88vh, 860px);
 }
 
@@ -3571,7 +3571,7 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(310px, 370px) minmax(0, 1fr);
+  grid-template-columns: minmax(390px, 450px) minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid rgba(226, 232, 240, 0.92);
   border-radius: 16px;
@@ -3725,24 +3725,48 @@
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 3px rgba(37, 99, 235, 0.1), 0 8px 22px rgba(37, 99, 235, 0.08);
 }
 
+.loop-outline-row-group.collapsed {
+  background: rgba(241, 245, 249, 0.72);
+}
+
 .loop-outline-row.has-error {
   border-color: #fecaca;
 }
 
 .loop-outline-caret,
 .loop-outline-branch {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
+}
+
+.loop-outline-branch {
   display: none;
 }
 
 .loop-outline-caret {
-  transition: transform 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.loop-outline-caret:hover {
+  background: #e2e8f0;
+  color: #0f172a;
 }
 
 .loop-outline-caret.collapsed {
   transform: rotate(-90deg);
+}
+
+.loop-outline-caret.disabled {
+  opacity: 0.38;
 }
 
 .loop-outline-type {
@@ -4056,7 +4080,7 @@
   }
 
   .loop-workbench {
-    grid-template-columns: minmax(270px, 330px) minmax(0, 1fr);
+    grid-template-columns: minmax(350px, 410px) minmax(0, 1fr);
   }
 
   .loop-template-select-wrapper-header {
