@@ -165,7 +165,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		return roots
 	})
 
-	ps, err := prompt.NewService(wss)
+	ps, err := prompt.NewService()
 	if err != nil {
 		return nil, err
 	}

@@ -70,9 +70,7 @@ type GetPromptResponse struct {
 	Code   int    `json:"code"`
 	Prompt string `json:"prompt"`
 	// Path is the on-disk source file for file-backed prompt keys (SOUL /
-	// USER / MEMORY). Empty when the key is stored in the prompt DB / is
-	// derived from the workspace workdir (home_agents_md has its own
-	// derivation path in the UI).
+	// USER / MEMORY). Empty when the key is stored in the prompt DB.
 	Path string `json:"path,omitempty"`
 }
 

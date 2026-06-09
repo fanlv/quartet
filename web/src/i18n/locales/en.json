@@ -438,13 +438,11 @@
     "prompt": {
       "groups": {
         "conversation": "Conversation Prompts",
-        "workspace": "Workspace Documents",
         "memory": "Memory System"
       },
       "tabs": {
         "systemPrompt": "System Prompt",
         "groupChatPrompt": "Group Chat Prompt",
-        "homeAgentsMd": "Default Workspace",
         "soul": "SOUL.md",
         "user": "USER.md",
         "memory": "MEMORY.md"
@@ -452,7 +450,6 @@
       "placeholders": {
         "systemPrompt": "Enter system prompt...",
         "groupChatPrompt": "Enter group chat prompt, supports {{ChatID}} {{SenderID}} {{Content}}...",
-        "homeAgentsMd": "Enter default workspace AGENTS.md content...",
         "soul": "Enter SOUL.md content (Sophia's soul settings)...",
         "user": "Enter USER.md content (owner information)...",
         "memory": "Enter MEMORY.md content (long-term memory)..."
@@ -460,7 +457,6 @@
       "titles": {
         "systemPrompt": "System Prompt",
         "groupChatPrompt": "Group Chat Prompt",
-        "homeAgentsMd": "AGENTS.md · Default Workspace",
         "soul": "SOUL.md",
         "user": "USER.md",
         "memory": "MEMORY.md"
@@ -468,7 +464,6 @@
       "descriptions": {
         "systemPrompt": "Default system prompt applied to all new conversations. Supports referencing {{SOUL.MD}} / {{USER.MD}} / {{MEMORY.MD}}.",
         "groupChatPrompt": "Configure the prompt for IM group chat scenarios. Supports message variables and referencing {{SOUL.MD}} / {{USER.MD}} / {{MEMORY.MD}}.",
-        "homeAgentsMd": "Project-level instructions for the default workspace. Written to both AGENTS.md and CLAUDE.md. Supports referencing {{SOUL.MD}} / {{USER.MD}} / {{MEMORY.MD}}.",
         "soul": "Soul settings, defining personality, behavior style, and mission.",
         "user": "Personal information and preferences.",
         "memory": "Long-term memory, recording important facts, agreements, and context."

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DEFAULT_WORKSPACE_ID } from '../../utils/workspace';
 import './PromptSettings.css';
 
 const API_BASE = '/api/v1/prompt';
@@ -8,7 +7,6 @@ const API_BASE = '/api/v1/prompt';
 type TabKey =
   | 'system_prompt'
   | 'group_chat_prompt'
-  | 'home_agents_md'
   | 'SOUL'
   | 'USER'
   | 'MEMORY';
@@ -70,18 +68,6 @@ const TAB_GROUPS: TabGroup[] = [
     ],
   },
   {
-    titleKey: 'settings.prompt.groups.workspace',
-    tabs: [
-      {
-        key: 'home_agents_md',
-        labelKey: 'settings.prompt.tabs.homeAgentsMd',
-        icon: '🏠',
-        titleKey: 'settings.prompt.titles.homeAgentsMd',
-        placeholderKey: 'settings.prompt.placeholders.homeAgentsMd',
-      },
-    ],
-  },
-  {
     titleKey: 'settings.prompt.groups.memory',
     tabs: [
       {
@@ -118,7 +104,6 @@ export function PromptSettings() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedTip, setSavedTip] = useState(false);
-  const [defaultWorkdir, setDefaultWorkdir] = useState<string>('');
   const [promptPath, setPromptPath] = useState<string>('');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fetchSeqRef = useRef(0);
@@ -170,26 +155,6 @@ export function PromptSettings() {
   useEffect(() => {
     fetchPrompt(activeTab);
   }, [activeTab, fetchPrompt]);
-
-  // Fetch the default workspace's workdir so the AGENTS.md (默认工作空间) tab
-  // can show the real on-disk paths the content is saved to.
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/v1/workspace/list')
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancelled) return;
-        const list: Array<{ id: string; workdir: string }> = d?.workspaces || [];
-        const def = list.find((ws) => ws.id === DEFAULT_WORKSPACE_ID);
-        setDefaultWorkdir(def?.workdir || '');
-      })
-      .catch(() => {
-        if (!cancelled) setDefaultWorkdir('');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleInsertText = useCallback((insertText: string) => {
     const textarea = textareaRef.current;
@@ -254,13 +219,6 @@ export function PromptSettings() {
         return {
           desc: t('settings.prompt.descriptions.groupChatPrompt'),
           path: null,
-        };
-      case 'home_agents_md':
-        return {
-          desc: t('settings.prompt.descriptions.homeAgentsMd'),
-          path: defaultWorkdir
-            ? `${defaultWorkdir}/AGENTS.md`
-            : null,
         };
       case 'SOUL':
         return {
