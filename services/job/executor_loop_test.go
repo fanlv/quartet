@@ -69,7 +69,8 @@ func runLoopNodesForTest(t *testing.T, job *model.Job, currentSessionID string) 
 	t.Helper()
 	svc := newStateTestService()
 	runner := &loopRecordingRunner{}
-	result := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, nil, 0, &currentSessionID, false)
+	lastSessionID := ""
+	result := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, nil, 0, &currentSessionID, &lastSessionID, false)
 	if result != stepCompleted {
 		t.Fatalf("runFlowNodes result=%v, want %v", result, stepCompleted)
 	}

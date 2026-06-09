@@ -70,10 +70,11 @@ func (s *serviceImpl) runLoop(ctx context.Context, job *model.Job, runner JobRun
 	if job.Resume != nil {
 		currentSessionID = job.Resume.SessionID
 	}
+	lastSessionID := ""
 
 	s.injectBuiltinVars(ctx, job)
 
-	s.runFlowNodes(ctx, job, runner, cfg.Flow, nil, 0, &currentSessionID, false)
+	s.runFlowNodes(ctx, job, runner, cfg.Flow, nil, 0, &currentSessionID, &lastSessionID, false)
 }
 
 // runFlowNodes recursively executes the flow node tree (loop mode only).
@@ -88,7 +89,7 @@ func (s *serviceImpl) runLoop(ctx context.Context, job *model.Job, runner JobRun
 func (s *serviceImpl) runFlowNodes(
 	ctx context.Context, job *model.Job, runner JobRunner,
 	nodes []model.FlowNode, basePath []int, depth int,
-	currentSessionID *string, inConditional bool,
+	currentSessionID *string, lastSessionID *string, inConditional bool,
 ) stepResult {
 	// Defense-in-depth: ValidateFlow enforces MaxFlowDepth at config time,
 	// but guard here too in case validation is bypassed or the tree is mutated.
@@ -120,7 +121,11 @@ func (s *serviceImpl) runFlowNodes(
 					continue
 				}
 				actualIters = iter + 1
-				result := s.runFlowNodes(ctx, job, runner, node.Children, groupPath, depth+1, currentSessionID, childInConditional)
+				groupLastSessionID := ""
+				result := s.runFlowNodes(ctx, job, runner, node.Children, groupPath, depth+1, currentSessionID, &groupLastSessionID, childInConditional)
+				if groupLastSessionID != "" && lastSessionID != nil {
+					*lastSessionID = groupLastSessionID
+				}
 				if result == stepAborted || result == stepStopWorkflow {
 					return result
 				}
@@ -137,7 +142,16 @@ func (s *serviceImpl) runFlowNodes(
 				// judge (§4).
 				if conditional {
 					judgePath := lastChildStepPath(node.Children, groupPath)
-					stop, hardErr := s.runJudgeTurn(ctx, job, runner, node, groupPath, judgePath, iter+1, ic, *currentSessionID)
+					judgeSessionID := *currentSessionID
+					if judgeSessionID == "" {
+						// The last business step may intentionally clear currentSessionID
+						// after success when the statically-next step starts a fresh
+						// session (for example the next conditional-loop iteration starts
+						// with BeforeRound). Judge still belongs to the round that just
+						// completed, so run it in that round's last concrete session.
+						judgeSessionID = groupLastSessionID
+					}
+					stop, hardErr := s.runJudgeTurn(ctx, job, runner, node, groupPath, judgePath, iter+1, ic, judgeSessionID)
 					if hardErr != nil {
 						if isInterruptedRun(hardErr) {
 							return stepAborted
@@ -256,6 +270,9 @@ func (s *serviceImpl) runFlowNodes(
 				}
 				if sr != stepCompleted {
 					return sr
+				}
+				if lastSessionID != nil && sessionID != "" {
+					*lastSessionID = sessionID
 				}
 
 				if resetSessionAfterStep {

@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -85,7 +86,8 @@ func runConditionalForTest(t *testing.T, job *model.Job, runner JobRunner) {
 	svc := newStateTestService()
 	svc.jobs[job.ID] = job
 	currentSessionID := ""
-	svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, nil, 0, &currentSessionID, false)
+	lastSessionID := ""
+	svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, nil, 0, &currentSessionID, &lastSessionID, false)
 }
 
 func conditionalGroup(condition string, maxIter int, children ...model.FlowNode) model.FlowNode {
@@ -144,6 +146,20 @@ func TestConditionalStopBreaksGroupAndRunsSibling(t *testing.T) {
 	// Only the 2 business steps count; the judge turn does not.
 	if job.Progress.CompletedCount != 2 {
 		t.Fatalf("completedCount = %d, want 2 (judge not counted)", job.Progress.CompletedCount)
+	}
+}
+
+func TestConditionalJudgeUsesLastRoundSessionWhenNextIterationStartsFresh(t *testing.T) {
+	flow := []model.FlowNode{
+		conditionalGroup("done?", 2, promptStep("work", 1, model.RoundModeBeforeRound)),
+	}
+	job := newLoopTestJob("job-cond-judge-last-session", flow)
+
+	runner := runLoopNodesForTest(t, job, "")
+
+	wantRuns := []string{"session-1", "session-1", "session-2", "session-2"}
+	if !reflect.DeepEqual(runner.runSessions, wantRuns) {
+		t.Fatalf("run sessions=%v, want %v", runner.runSessions, wantRuns)
 	}
 }
 
@@ -415,7 +431,8 @@ func TestConditionalEarlyStopAdvancesResumePastGroup(t *testing.T) {
 	svc := newStateTestService()
 	svc.jobs[job.ID] = job
 	currentSessionID := ""
-	svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, nil, 0, &currentSessionID, false)
+	lastSessionID := ""
+	svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, nil, 0, &currentSessionID, &lastSessionID, false)
 
 	// After the whole flow completes, resume is cleared by the last step. The
 	// important property: resume never pointed back INTO the conditional group
