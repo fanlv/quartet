@@ -483,6 +483,14 @@
   margin-bottom: 12px;
 }
 
+/* When the thinking block is the only content (a thinking-only message with no
+ * assistant bubble), its 12px bottom margin is dangling and stacks with the
+ * .message-item 16px margin, producing an oversized gap between consecutive
+ * thinking messages. Drop the margin when there is no following bubble. */
+.assistant-content-wrapper > .thinking-block:last-child {
+  margin-bottom: 0;
+}
+
 .thinking-header {
   display: flex;
   align-items: center;

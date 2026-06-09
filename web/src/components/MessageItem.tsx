@@ -414,6 +414,15 @@ function AssistantMessageContent({ message, agentIconUrl, agentDisplayName }: { 
 
   const timeStr = formatMessageTime(message.createdAt);
 
+  // An assistant message with neither thinking content nor body content has
+  // nothing to show. Rendering it anyway produces an empty .message-item that
+  // is invisible (height 0) yet still contributes its 16px bottom margin. Many
+  // such empty rows accumulate between thinking blocks and inflate the spacing
+  // between them, so render nothing in that case.
+  if (!message.thinkingContent && !message.content?.trim()) {
+    return null;
+  }
+
   return (
     <div
       className="message-item assistant-message"
