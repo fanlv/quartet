@@ -471,15 +471,25 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 	// always advanced the plain nextResume here and let the caller's
 	// advanceResumePastGroup re-correct it on a STOP, a crash in that window
 	// would leave a persisted resume pointing back into the group (re-running
-	// a step the STOP meant to skip). Evaluator step (§2.1/§4): an exact
-	// LOOP_DECISION:STOP on the final assistant text's last line breaks the
-	// enclosing group (same semantics as a Shell STOP_LOOP); any other output
-	// continues. The evaluator is a real, counted step either way.
+	// a step the STOP meant to skip). Evaluator step (§2.1/§4): once the final
+	// assistant text, after case-folding and whitespace removal, ends with
+	// LOOP_DECISION:STOP, we break the enclosing group (same semantics as a
+	// Shell STOP_LOOP); any other output continues. The evaluator is a real,
+	// counted step either way.
 	evaluatorStop := isLoopRun && isEvaluator && parseEvaluatorDecision(result.Content)
 	if evaluatorStop {
 		// STOP: record the result but DON'T advance the plain resume — the
 		// caller's group-early-exit logic owns the only resume write (past the
-		// whole group). This keeps persistence single-writer and crash-safe.
+		// whole group), keeping persistence single-writer.
+		//
+		// This is two saves (record here, advance in advanceResumePastGroup),
+		// not one atomic write, so a crash in the gap leaves resume still
+		// pointing at this evaluator step. That is self-healing rather than
+		// unsafe: on Continue, resumeForContinue returns that resume, Continue
+		// strips the stale result at the resume path, and the evaluator re-runs
+		// and re-emits STOP — converging on the same "advance past the group"
+		// outcome without double-counting. The cost is at most one replayed
+		// evaluator step, never a corrupted cursor.
 		s.recordIterationResult(job, result)
 		logger.Infof(ctx, "[step] evaluator STOP: jobId=%s path=%v", job.ID, path)
 		return stepStopLoop

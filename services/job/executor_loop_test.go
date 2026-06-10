@@ -16,7 +16,6 @@ type loopRecordingRunner struct {
 	runSessions  []string
 	runPaths     [][]int
 }
-
 func (r *loopRecordingRunner) InitSession(ctx context.Context, jobID string, overrides *model.SessionOverrides) (string, error) {
 	sessionID := fmt.Sprintf("session-%d", len(r.initSessions)+1)
 	r.initSessions = append(r.initSessions, sessionID)
@@ -69,7 +68,7 @@ func runLoopNodesForTest(t *testing.T, job *model.Job, currentSessionID string) 
 	t.Helper()
 	svc := newStateTestService()
 	runner := &loopRecordingRunner{}
-	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, nil, 0, &currentSessionID)
+	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, job.LoopConfig.Flow, nil, 0, &currentSessionID)
 	if result != stepCompleted {
 		t.Fatalf("runFlowNodes result=%v, want %v", result, stepCompleted)
 	}
@@ -197,5 +196,60 @@ func TestRunFlowNodesBeforeRoundStillCreatesSessionEachRun(t *testing.T) {
 	}
 	if !reflect.DeepEqual(runner.runSessions, wantSessions) {
 		t.Fatalf("run sessions=%v, want %v", runner.runSessions, wantSessions)
+	}
+}
+
+// TestRunFlowNodesSnapshotRaceWithLiveEdit is a concurrency smoke test for the
+// P0 fix: runLoop must traverse the deep-copied snapshot (flowRoot), not the
+// live job.LoopConfig.Flow, because UpdateRunningStepFields rewrites the live
+// tree's string fields under s.mu while the loop's unlocked
+// `for _, node := range nodes` struct-copy reads them.
+//
+// This asserts the fixed path: traversing the snapshot completes cleanly and
+// uncorrupted while a concurrent editor hammers the live tree. It is NOT a
+// guaranteed race detector — the unlocked read window is narrow, so -race won't
+// deterministically trip on the buggy (live-tree traversal) variant — but it
+// does exercise the snapshot/live-edit interleaving and guards against the
+// traversal silently picking up half-written edits.
+func TestRunFlowNodesSnapshotRaceWithLiveEdit(t *testing.T) {
+	children := make([]model.FlowNode, 0, 8)
+	children = append(children, promptStep("head", 1, model.RoundModeEachRepeat))
+	for i := 0; i < 7; i++ {
+		children = append(children, promptStep(fmt.Sprintf("c%d", i), 1, model.RoundModeNone))
+	}
+	flow := []model.FlowNode{group(30, children...)}
+	job := newLoopTestJob("job-snapshot-race", flow)
+	// Match the runLoop precondition: a registered, running job the editor can find.
+	svc := newStateTestService()
+	svc.jobs[job.ID] = job
+
+	// Snapshot exactly as runLoop does, then traverse the snapshot (not the live
+	// tree).
+	flowRoot := model.DeepCopyFlowNodes(job.LoopConfig.Flow)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			edited := cloneFlow(job.LoopConfig.Flow)
+			for c := range edited[0].Children {
+				edited[0].Children[c].Message = fmt.Sprintf("edit-%d-%d", i, c)
+			}
+			// May legitimately fail once the loop finishes (ErrJobNotRunning);
+			// the point is the writer races the reader without a data race.
+			_ = svc.UpdateRunningStepFields(context.Background(), job.ID, &model.LoopConfig{Flow: edited})
+		}
+	}()
+
+	runner := &loopRecordingRunner{}
+	sid := ""
+	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, flowRoot, flowRoot, nil, 0, &sid)
+	<-done
+
+	if result != stepCompleted {
+		t.Fatalf("runFlowNodes result=%v, want %v", result, stepCompleted)
+	}
+	if want := 30 * len(children); job.Progress.CompletedCount != want {
+		t.Fatalf("completed count=%d, want %d", job.Progress.CompletedCount, want)
 	}
 }

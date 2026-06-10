@@ -112,8 +112,9 @@ const (
 	RoundTypeShell  RoundType = "shell"
 	// RoundTypeEvaluator is a prompt step whose output is interpreted as a loop
 	// stop signal: the user's evaluation prompt gets a fixed output protocol
-	// appended before sending, and the turn's final assistant text last line is
-	// parsed — an exact LOOP_DECISION:STOP match breaks the enclosing group
+	// appended before sending, and the turn's final assistant text is parsed — a
+	// case-insensitive, whitespace-agnostic suffix match on LOOP_DECISION:STOP
+	// breaks the enclosing group
 	// (equivalent to a Shell STOP_LOOP). It reuses the entire prompt-step
 	// execution / progress / resume / usage path; only those two points differ.
 	RoundTypeEvaluator RoundType = "evaluator"
@@ -202,6 +203,21 @@ type JobProgress struct {
 	// cap. Mirrors the in-memory TotalSteps backfill (executor_loop.go) — like
 	// that backfill it is only a display aid, not used for resume.
 	GroupActualIterations map[string]int `json:"groupActualIterations,omitempty"`
+	// GroupActualLeafCounts maps the same group path to the exact number of leaf
+	// steps that actually executed inside the group when it stopped early. This is
+	// more precise than GroupActualIterations: it also captures sibling leaves that
+	// were skipped after STOP within the final actual iteration, allowing the UI
+	// session/step plan to trim the group to the same denominator as the backend.
+	GroupActualLeafCounts map[string]int `json:"groupActualLeafCounts,omitempty"`
+
+	// GracefulStopPending reports that a "stop after step" was requested and
+	// not yet consumed at a step boundary. It is a runtime-only view field:
+	// the authoritative state lives in the service's in-memory gracefulStops
+	// map (it cannot survive a process restart, where the request itself is
+	// also lost), so it is synthesized onto the snapshot returned by Get and
+	// broadcast via a transient SSE event — never written to disk. This lets a
+	// page refresh / second tab still show the pending "keep running" affordance.
+	GracefulStopPending bool `json:"gracefulStopPending,omitempty"`
 }
 
 type JobResume struct {
@@ -277,6 +293,12 @@ func (j *Job) DeepCopy() *Job {
 			pCopy.GroupActualIterations = make(map[string]int, len(j.Progress.GroupActualIterations))
 			for k, v := range j.Progress.GroupActualIterations {
 				pCopy.GroupActualIterations[k] = v
+			}
+		}
+		if len(j.Progress.GroupActualLeafCounts) > 0 {
+			pCopy.GroupActualLeafCounts = make(map[string]int, len(j.Progress.GroupActualLeafCounts))
+			for k, v := range j.Progress.GroupActualLeafCounts {
+				pCopy.GroupActualLeafCounts[k] = v
 			}
 		}
 		cp.Progress = &pCopy

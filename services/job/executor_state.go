@@ -56,7 +56,7 @@ func (s *serviceImpl) recordIterationAndAdvanceResume(job *model.Job, result *mo
 func (s *serviceImpl) finishJob(ctx context.Context, job *model.Job, isLoopRun bool) {
 	s.mu.Lock()
 	resolution := s.applyTerminalStatusLocked(job, isLoopRun, model.JobStatusCompleted, true)
-	snap := captureTerminalSnapshotLocked(job)
+	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeCompleted)
 	s.mu.Unlock()
 	// Publish the terminal event that matches the final status; runOutcome
 	// records that *this* run (loop or interactive send) actually
@@ -101,7 +101,7 @@ func (s *serviceImpl) progressCounts(job *model.Job) (completedCount int, failed
 func (s *serviceImpl) stopJob(ctx context.Context, job *model.Job, isLoopRun bool) {
 	s.mu.Lock()
 	resolution := s.applyTerminalStatusLocked(job, isLoopRun, model.JobStatusStopped, false)
-	snap := captureTerminalSnapshotLocked(job)
+	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeStopped)
 	s.mu.Unlock()
 	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, "stop", "", model.RunOutcomeStopped)
 	logLifecycleTerminal(ctx, job.ID, "stop", jobRunSource(isLoopRun), finalStatus, model.RunOutcomeStopped, resolution, "")
@@ -136,7 +136,7 @@ func (s *serviceImpl) failJob(ctx context.Context, job *model.Job, message strin
 	if message != "" {
 		job.Progress.LastError = message
 	}
-	snap := captureTerminalSnapshotLocked(job)
+	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeFailed)
 	s.mu.Unlock()
 	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, "fail", message, model.RunOutcomeFailed)
 	logLifecycleTerminal(ctx, job.ID, "fail", jobRunSource(isLoopRun), finalStatus, model.RunOutcomeFailed, resolution, message)
@@ -276,8 +276,12 @@ type terminalSnapshot struct {
 }
 
 // captureTerminalSnapshotLocked snapshots the terminal-event-relevant fields
-// from job and ensures FinishedAt is populated. Caller MUST hold s.mu.
-func captureTerminalSnapshotLocked(job *model.Job) terminalSnapshot {
+// from job and ensures FinishedAt is populated. It also records runOutcome onto
+// job.LastRunOutcome here, under the lock, so the write is ordered with the
+// concurrent locked readers (Get / DeepCopy / saveJobWithRetry) that share the
+// same Job pointer — persistAndPublishTerminal runs after s.mu is released and
+// must not touch the field itself. Caller MUST hold s.mu.
+func captureTerminalSnapshotLocked(job *model.Job, runOutcome model.RunOutcome) terminalSnapshot {
 	// Defensive: a malformed Job (e.g. loaded from disk with a corrupted
 	// payload) could reach a terminal transition with nil Progress. Avoid a
 	// nil-pointer panic here so finishJob / stopJob / failJob can still
@@ -285,6 +289,10 @@ func captureTerminalSnapshotLocked(job *model.Job) terminalSnapshot {
 	if job.Progress == nil {
 		job.Progress = &model.JobProgress{}
 	}
+	// Persist the actual run outcome so snapshot-based recovery (syncJobState)
+	// can finalize in-flight UI correctly even when job.Status is a restored
+	// prior status (interactive sends on already-terminal jobs).
+	job.LastRunOutcome = runOutcome
 	progressSnap := *job.Progress
 	terminalAt := job.FinishedAt
 	if terminalAt <= 0 {
@@ -302,11 +310,9 @@ func captureTerminalSnapshotLocked(job *model.Job) terminalSnapshot {
 // persist the job, stamp a breadcrumb on persistence failure, and publish the
 // matching SSE event. Caller MUST have released s.mu before calling.
 func (s *serviceImpl) persistAndPublishTerminal(ctx context.Context, job *model.Job, snap terminalSnapshot, action string, failMessage string, runOutcome model.RunOutcome) model.JobStatus {
-	// Persist the actual run outcome so snapshot-based recovery (syncJobState)
-	// can finalize in-flight UI correctly even when job.Status is a restored
-	// prior status (interactive sends on already-terminal jobs).
-	job.LastRunOutcome = runOutcome
-
+	// job.LastRunOutcome was already stamped under s.mu by
+	// captureTerminalSnapshotLocked — don't write it here (this runs after the
+	// lock is released and would race the locked readers).
 	progressCopy := snap.progress
 	if err := s.saveJobWithRetry(ctx, job, action); err != nil {
 		// Record the persistence failure on progress so a subsequent refresh

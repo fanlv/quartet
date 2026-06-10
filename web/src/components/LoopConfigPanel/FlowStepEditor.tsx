@@ -89,6 +89,18 @@ export function FlowStepEditor({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [modeDropdownOpen, scriptPickerOpen, agentDropdownOpen, modelDropdownOpen, modeListOpen, insertVarOpen]);
 
+  // When the job starts running mid-edit, structureLocked flips true. Disabling
+  // the trigger buttons does not close a popover that was already open, and its
+  // items stay clickable — so force the structural popovers shut here. The
+  // structural handlers also guard internally (defense in depth), but closing
+  // them removes the misleading affordance immediately.
+  useEffect(() => {
+    if (!structureLocked) return;
+    setModeDropdownOpen(false);
+    setScriptPickerOpen(false);
+    setScriptSearch('');
+  }, [structureLocked]);
+
   const roundType = node.roundType || 'prompt';
   const isShellRound = roundType === 'shell';
   const isEvaluatorRound = roundType === 'evaluator';
@@ -143,7 +155,16 @@ export function FlowStepEditor({
     onUpdate({ ...node, [field]: value });
   };
 
+  // roundMode is a structural field (backend flowStructureEqual rejects a
+  // running-job save that changes it). Guard here too so an already-open
+  // session-mode dropdown can't mutate the local draft after the lock engages.
+  const handleRoundModeChange = (value: string) => {
+    if (structureLocked) return;
+    handleFieldChange('roundMode', value);
+  };
+
   const handleRoundTypeChange = (type: RoundType) => {
+    if (structureLocked) return;
     if (type === 'shell') {
       onUpdate({ ...node, roundType: 'shell', message: '', scriptId: undefined, scriptName: undefined });
     } else {
@@ -152,6 +173,9 @@ export function FlowStepEditor({
   };
 
   const handleSelectScript = (script: Script) => {
+    // scriptId/scriptName are structural fields — guard so an already-open
+    // script picker can't mutate the local draft once the job is running.
+    if (structureLocked) return;
     onUpdate({ ...node, message: '', scriptId: script.id, scriptName: script.name });
     setScriptPickerOpen(false);
     setScriptSearch('');
@@ -324,7 +348,7 @@ export function FlowStepEditor({
                         key={opt.value}
                         className={`loop-round-mode-item${roundMode === opt.value ? ' active' : ''}`}
                         onClick={() => {
-                          handleFieldChange('roundMode', opt.value);
+                          handleRoundModeChange(opt.value);
                           setModeDropdownOpen(false);
                         }}
                         type="button"
@@ -592,6 +616,7 @@ export function FlowStepEditor({
                     setScriptPickerOpen(!scriptPickerOpen);
                     setScriptSearch('');
                   }}
+                  disabled={structureLocked}
                   type="button"
                 >
                   {node.scriptName ? (

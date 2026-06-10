@@ -25,4 +25,10 @@ var (
 	// jobs may only edit per-step fields (prompt/model/agent/mode), not the
 	// tree structure — the caller must stop the job first to restructure it.
 	ErrLoopStructureChanged = errors.New("loop structure cannot be changed while running; stop the job first to edit structure")
+	// ErrLoopVariablesChanged is returned by UpdateRunningStepFields when the
+	// submitted variables differ from the running job's variables. Variables are
+	// substituted live during execution; changing them mid-run is not supported,
+	// so rather than silently dropping the edit the caller must stop the job
+	// first to change variables.
+	ErrLoopVariablesChanged = errors.New("loop variables cannot be changed while running; stop the job first to edit variables")
 )

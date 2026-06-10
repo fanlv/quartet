@@ -41,4 +41,31 @@ describe('LoopProgress', () => {
     // 2 rounds × beforeRound business step = 2 sessions total.
     expect(screen.getByTestId('loop-progress-session')).toHaveTextContent('Session 2 / 2')
   })
+
+  it('trims siblings skipped after STOP inside the final actual group iteration', () => {
+    const flow: FlowNode[] = [
+      {
+        id: 'g',
+        type: 'group',
+        iterationCount: 5,
+        children: [
+          { id: 'stop', type: 'step', message: 'stop', repeatCount: 1, roundMode: 'beforeRound', roundType: 'prompt' },
+          { id: 'skipped', type: 'step', message: 'skip', repeatCount: 1, roundMode: 'none', roundType: 'prompt' },
+        ],
+      },
+    ]
+    const progress: JobProgress = {
+      totalSteps: 1,
+      completedCount: 1,
+      failedCount: 0,
+      currentPath: [0, 0, 0, 0],
+      groupActualIterations: { '0': 1 },
+      groupActualLeafCounts: { '0': 1 },
+    }
+
+    render(<LoopProgress progress={progress} status="completed" flow={flow} />)
+
+    expect(screen.getByTestId('loop-progress-session')).toHaveTextContent('Session 1 / 1')
+    expect(screen.getByTestId('loop-progress-step')).toHaveTextContent('Step 1 / 1')
+  })
 })

@@ -63,8 +63,7 @@ func newStateTestService() *serviceImpl {
 		interactivePriorStatus: make(map[string]model.JobStatus),
 		wsListVersion:          make(map[string]int64),
 		notifiedJobs:           make(map[string]struct{}),
-		gracefulStops:          make(map[string]struct{}),
-		loopRuns:               make(map[string]struct{}),
+		runStates:              make(map[string]*loopRunState),
 	}
 }
 

@@ -129,15 +129,38 @@ function groupHasEvaluator(node: FlowNode): boolean {
   return (node.children || []).some((c) => c.type === 'step' && c.roundType === 'evaluator');
 }
 
+// flattenExecutionOrder returns every step node (leaf) in the flow in the
+// order the backend executes them — a depth-first pre-order walk, since
+// runFlowNodes recurses into each group's children in turn. Groups are pure
+// containers and are not themselves emitted. Used to resolve "the business step
+// that runs immediately before this evaluator" across group boundaries, which
+// a direct-sibling scan misses (e.g. an eachRepeat step in an ancestor group
+// preceding an evaluator that is the first child of a nested group).
+function flattenExecutionOrder(nodes: FlowNode[]): FlowNode[] {
+  const out: FlowNode[] = [];
+  const walk = (items: FlowNode[]) => {
+    for (const n of items) {
+      if (n.type === 'group') {
+        walk(n.children || []);
+      } else {
+        out.push(n);
+      }
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
 // computeEvaluatorWarnings returns non-blocking config guidance (§5.3 / §2.4)
-// for an evaluator node, based on its preceding sibling business steps inside
-// the same group. Returns [] for non-evaluator nodes or when no warning applies.
+// for an evaluator node, based on the business steps that execute before it.
+// Returns [] for non-evaluator nodes or when no warning applies.
 function computeEvaluatorWarnings(
   flow: FlowNode[],
   nodeId: string,
   t: (key: string, opts?: Record<string, unknown>) => string
 ): string[] {
-  // Find the parent group's children and the node's index within them.
+  // Find the parent group's children and the node's index within them — used
+  // only for the group-scoped "siblings after" warning below.
   let siblings: FlowNode[] | null = null;
   let index = -1;
   const walk = (items: FlowNode[]) => {
@@ -158,18 +181,40 @@ function computeEvaluatorWarnings(
   if (node.type !== 'step' || node.roundType !== 'evaluator') return [];
 
   const warnings: string[] = [];
-  const priorBusiness = (siblings as FlowNode[])
-    .slice(0, index)
-    .filter((n) => n.type === 'step' && n.roundType !== 'evaluator');
 
-  // §5.3: a none-evaluator after an eachRepeat/beforeRound business step lands
-  // in a fresh empty session and can't see this round's business output.
+  // §5.3: a none-evaluator right after an eachRepeat business step lands in a
+  // fresh empty session and can't see this round's business output. Only
+  // eachRepeat triggers this: the backend drops the session after an eachRepeat
+  // step (resetSessionAfterStep), so the following none step opens a new one.
+  // beforeRound keeps its session open across the following steps, so a none
+  // evaluator after it REUSES that session and DOES see the output — no warning.
+  //
+  // The preceding business step is resolved in full EXECUTION order (not just
+  // direct siblings) because the backend threads currentSessionID through the
+  // whole recursive walk: an eachRepeat step in an ancestor group resets the
+  // session seen by an evaluator nested in a later group, even though they are
+  // not siblings.
   if ((node.roundMode || 'none') === 'none') {
-    const lastBusiness = priorBusiness[priorBusiness.length - 1];
-    const freshMode = lastBusiness && (lastBusiness.roundMode === 'eachRepeat' || lastBusiness.roundMode === 'beforeRound');
-    if (freshMode) {
+    const order = flattenExecutionOrder(flow);
+    const pos = order.findIndex((n) => n.id === nodeId);
+    // Walk back to the first preceding non-evaluator step in execution order.
+    let prevBusiness: FlowNode | undefined;
+    for (let i = pos - 1; i >= 0; i--) {
+      if (order[i].roundType !== 'evaluator') {
+        prevBusiness = order[i];
+        break;
+      }
+    }
+    if (prevBusiness && prevBusiness.roundMode === 'eachRepeat') {
       warnings.push(t('loop.step.evaluator.warnEmptySession'));
     }
+  }
+
+  // An evaluator STOP breaks the enclosing group immediately, so any sibling
+  // after it in the same group is skipped for that iteration. Warn so the user
+  // knows those steps won't run on a STOP and can move the evaluator to the end.
+  if ((siblings as FlowNode[]).slice(index + 1).length > 0) {
+    warnings.push(t('loop.step.evaluator.warnHasSiblingsAfter'));
   }
 
   return warnings;
@@ -558,18 +603,35 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     }
   }, [importText, markDirty, t]);
 
-  const handleConfirm = () => {
-    if (!isFlowValid(flow)) return;
+  const handleConfirm = async () => {
+    // Mirror the `valid` gate on the Start/Save button: block submit unless the
+    // flow is structurally valid AND issue-free (e.g. no top-level evaluator that
+    // the backend would reject). Guards against keyboard submit / stale state.
+    if (!isFlowValid(flow) || collectFlowIssues(flow, t).length > 0) return;
     const vars: Record<string, string> = {};
     variables.forEach((v) => {
       if (v.key.trim()) vars[v.key.trim()] = v.value;
     });
-    const config: LoopConfig = { flow, ...(Object.keys(vars).length > 0 ? { variables: vars } : {}) };
+    // Always send `variables` (even when empty) so the editor's full-config
+    // semantics reach the backend: ReplaceLoopConfig treats a present map as a
+    // wholesale replacement, so an empty {} clears every previously-saved
+    // variable. Omitting the key would make the backend keep the stale set, so
+    // deleting the last variable would silently fail to persist. (For a running
+    // job UpdateRunningStepFields compares the map; sending the unchanged set
+    // when only step fields were edited still matches and is accepted.)
+    const config: LoopConfig = { flow, variables: vars };
     if (isEditMode && onSave) {
       setSavingConfig(true);
-      onSave(config)
-        .then(() => { setDirty(false); })
-        .finally(() => setSavingConfig(false));
+      try {
+        await onSave(config);
+        setDirty(false);
+      } catch {
+        // onSave (JobChat) surfaces the failure via saveError and rethrows so we
+        // keep the panel open; consume the rejection here so it doesn't bubble
+        // up as an unhandled promise rejection.
+      } finally {
+        setSavingConfig(false);
+      }
       return;
     }
     const selectedWs = workspaces?.find((w) => w.id === selectedWorkspaceId);
@@ -693,6 +755,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   };
 
   const handleAddStep = (targetGroupId: string | null = null) => {
+    if (structureLocked) return;
     const newStep = createStep();
     setFlow((prev) => {
       if (targetGroupId) {
@@ -710,6 +773,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   };
 
   const handleAddEvaluator = (targetGroupId: string | null = null) => {
+    if (structureLocked) return;
     const newEval = createEvaluator();
     setFlow((prev) => {
       if (targetGroupId) {
@@ -727,6 +791,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   };
 
   const handleAddGroup = (targetGroupId: string | null = null) => {
+    if (structureLocked) return;
     const newGroup = createGroup();
     const firstStepId = findFirstStepId([newGroup]);
     setFlow((prev) => {
@@ -750,6 +815,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   };
 
   const handleDuplicateNode = (nodeId: string) => {
+    if (structureLocked) return;
     const node = findNodeById(flow, nodeId);
     if (!node) return;
     const clone = deepCloneFlowNode(node);
@@ -764,16 +830,19 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   };
 
   const handleMoveNode = (nodeId: string, direction: -1 | 1) => {
+    if (structureLocked) return;
     setFlow((prev) => moveNodeInFlow(prev, nodeId, direction));
     setSelectedNodeId(nodeId);
     markDirty();
   };
 
   const handleRequestDeleteNode = (nodeId: string) => {
+    if (structureLocked) return;
     setConfirmDeleteNodeId(nodeId);
   };
 
   const handleConfirmDeleteNode = () => {
+    if (structureLocked) return;
     if (!confirmDeleteNodeId) return;
     const updated = removeNodeFromFlow(flow, confirmDeleteNodeId);
     setFlow(updated);
@@ -782,7 +851,14 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     markDirty();
   };
 
-  const valid = isFlowValid(flow);
+  const issues = useMemo(() => collectFlowIssues(flow, t), [flow, t]);
+  const issuesByNode = useMemo(() => new Map(issues.map((issue) => [issue.nodeId, issue])), [issues]);
+  // A flow is submittable only when it passes the structural shape checks
+  // (isFlowValid) AND has no outstanding issues. collectFlowIssues catches cases
+  // isFlowValid does not — e.g. a top-level evaluator, which the backend rejects
+  // (ValidateFlow: "evaluator must be inside a group"). Without folding issues in
+  // here, Start/Save would stay enabled for an imported config the server refuses.
+  const valid = isFlowValid(flow) && issues.length === 0;
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
   const normalizedTemplateSearch = templateSearch.trim().toLowerCase();
   const filteredTemplates = useMemo(() => {
@@ -801,8 +877,6 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const totalSteps = useMemo(() => calcTotalSteps(flow), [flow]);
   const nodeCount = useMemo(() => countNodes(flow), [flow]);
   const allShellVars = useMemo(() => collectShellVars(flow, scripts), [flow, scripts]);
-  const issues = useMemo(() => collectFlowIssues(flow, t), [flow, t]);
-  const issuesByNode = useMemo(() => new Map(issues.map((issue) => [issue.nodeId, issue])), [issues]);
   const selectedNode = useMemo(() => findNodeById(flow, selectedNodeId), [flow, selectedNodeId]);
   const selectedLocation = useMemo(() => findNodeLocation(flow, selectedNodeId), [flow, selectedNodeId]);
   // An evaluator must live inside a group. Resolve the target group from the
@@ -1125,10 +1199,12 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                 onMove={handleMoveNode}
                 onDelete={handleRequestDeleteNode}
                 onUpdateIterationCount={(nodeId, count) => {
+                  if (structureLocked) return;
                   onUpdateTree((nodes) => updateNodeInFlow(nodes, nodeId, (node) => ({ ...node, iterationCount: count })));
                   markDirty();
                 }}
                 onUpdateRepeatCount={(nodeId, count) => {
+                  if (structureLocked) return;
                   onUpdateTree((nodes) => updateNodeInFlow(nodes, nodeId, (node) => ({ ...node, repeatCount: count })));
                   markDirty();
                 }}
@@ -1199,13 +1275,17 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                       <div className="loop-variable-list">
                         {variables.map((v, idx) => (
                           <div key={idx} className="loop-variable-row">
-                            <input className="loop-variable-key" type="text" value={v.key} onChange={(e) => handleVariableChange(idx, 'key', e.target.value)} placeholder={t('loop.variables.keyPlaceholder')} />
-                            <input className="loop-variable-value" type="text" value={v.value} onChange={(e) => handleVariableChange(idx, 'value', e.target.value)} placeholder={t('loop.variables.valuePlaceholder')} />
-                            <button className="loop-variable-remove" onClick={() => handleRemoveVariable(idx)} type="button">×</button>
+                            <input className="loop-variable-key" type="text" value={v.key} onChange={(e) => handleVariableChange(idx, 'key', e.target.value)} placeholder={t('loop.variables.keyPlaceholder')} disabled={structureLocked} />
+                            <input className="loop-variable-value" type="text" value={v.value} onChange={(e) => handleVariableChange(idx, 'value', e.target.value)} placeholder={t('loop.variables.valuePlaceholder')} disabled={structureLocked} />
+                            {!structureLocked && (
+                              <button className="loop-variable-remove" onClick={() => handleRemoveVariable(idx)} type="button">×</button>
+                            )}
                           </div>
                         ))}
                       </div>
-                      <button className="loop-variable-add-wide" onClick={handleAddVariable} type="button">{t('loop.actions.addVariable')}</button>
+                      {!structureLocked && (
+                        <button className="loop-variable-add-wide" onClick={handleAddVariable} type="button">{t('loop.actions.addVariable')}</button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1262,13 +1342,17 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
               <div className="loop-variable-list">
                 {variables.map((v, idx) => (
                   <div key={idx} className="loop-variable-row">
-                    <input className="loop-variable-key" type="text" value={v.key} onChange={(e) => handleVariableChange(idx, 'key', e.target.value)} placeholder={t('loop.variables.keyPlaceholder')} />
-                    <input className="loop-variable-value" type="text" value={v.value} onChange={(e) => handleVariableChange(idx, 'value', e.target.value)} placeholder={t('loop.variables.valuePlaceholder')} />
-                    <button className="loop-variable-remove" onClick={() => handleRemoveVariable(idx)} type="button">×</button>
+                    <input className="loop-variable-key" type="text" value={v.key} onChange={(e) => handleVariableChange(idx, 'key', e.target.value)} placeholder={t('loop.variables.keyPlaceholder')} disabled={structureLocked} />
+                    <input className="loop-variable-value" type="text" value={v.value} onChange={(e) => handleVariableChange(idx, 'value', e.target.value)} placeholder={t('loop.variables.valuePlaceholder')} disabled={structureLocked} />
+                    {!structureLocked && (
+                      <button className="loop-variable-remove" onClick={() => handleRemoveVariable(idx)} type="button">×</button>
+                    )}
                   </div>
                 ))}
               </div>
-              <button className="loop-variable-add-wide" onClick={handleAddVariable} type="button">{t('loop.actions.addVariable')}</button>
+              {!structureLocked && (
+                <button className="loop-variable-add-wide" onClick={handleAddVariable} type="button">{t('loop.actions.addVariable')}</button>
+              )}
             </section>
           </div>
         </div>
@@ -1314,20 +1398,22 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                 <span className="loop-btn-label">{t('loop.actions.importConfig')}</span>
               </button>
             )}
-            <button
-              type="button"
-              className="loop-secondary-btn"
-              onClick={() => setShowSaveDialog(true)}
-              disabled={!valid}
-              title={t('loop.actions.saveAsTemplate')}
-            >
-              <svg className="loop-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-                <polyline points="17 21 17 13 7 13 7 21"/>
-                <polyline points="7 3 7 8 15 8"/>
-              </svg>
-              <span className="loop-btn-label">{t('loop.actions.saveAsTemplate')}</span>
-            </button>
+            {!isEditMode && (
+              <button
+                type="button"
+                className="loop-secondary-btn"
+                onClick={() => setShowSaveDialog(true)}
+                disabled={!valid}
+                title={t('loop.actions.saveAsTemplate')}
+              >
+                <svg className="loop-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                  <polyline points="17 21 17 13 7 13 7 21"/>
+                  <polyline points="7 3 7 8 15 8"/>
+                </svg>
+                <span className="loop-btn-label">{t('loop.actions.saveAsTemplate')}</span>
+              </button>
+            )}
             {selectedTemplateId && (
               <button
                 type="button"
@@ -1343,16 +1429,18 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                 <span className="loop-btn-label">{t('loop.actions.updateTemplate')}</span>
               </button>
             )}
-            <button className="loop-secondary-btn" onClick={handleReset} type="button" title={t('loop.actions.reset')}>
-              <svg className="loop-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 6h18"/>
-                <path d="M8 6V4h8v2"/>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-                <line x1="10" y1="11" x2="10" y2="17"/>
-                <line x1="14" y1="11" x2="14" y2="17"/>
-              </svg>
-              <span className="loop-btn-label">{t('loop.actions.reset')}</span>
-            </button>
+            {!structureLocked && (
+              <button className="loop-secondary-btn" onClick={handleReset} type="button" title={t('loop.actions.reset')}>
+                <svg className="loop-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18"/>
+                  <path d="M8 6V4h8v2"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                  <line x1="10" y1="11" x2="10" y2="17"/>
+                  <line x1="14" y1="11" x2="14" y2="17"/>
+                </svg>
+                <span className="loop-btn-label">{t('loop.actions.reset')}</span>
+              </button>
+            )}
             <button
               type="button"
               className="loop-start-btn"
@@ -1537,7 +1625,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
       )}
 
       {/* Node delete confirm */}
-      {confirmDeleteNodeId && (
+      {confirmDeleteNodeId && !structureLocked && (
         <div className="loop-save-dialog-overlay" onClick={() => setConfirmDeleteNodeId('')}>
           <div className="loop-save-dialog" onClick={(e) => e.stopPropagation()}>
             <h4>{t('loop.dialog.deleteNode.title')}</h4>
@@ -1565,7 +1653,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
       )}
 
       {/* Import config dialog */}
-      {showImportDialog && createPortal(
+      {showImportDialog && !structureLocked && createPortal(
         <div className="loop-save-dialog-overlay" onClick={() => setShowImportDialog(false)}>
           <div className="loop-import-dialog" onClick={(e) => e.stopPropagation()}>
             <h4>{t('loop.dialog.import.title')}</h4>

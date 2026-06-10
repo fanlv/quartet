@@ -105,7 +105,18 @@
     "progress": {
       "lastError": "Last error",
       "session": "Session {{current}} / {{total}}",
-      "step": "Step {{current}} / {{total}}"
+      "step": "Step {{current}} / {{total}}",
+      "currentPath": "Current: {{path}}",
+      "failedCount_one": "{{count}} failed",
+      "failedCount_other": "{{count}} failed",
+      "actionsLabel": "Loop actions",
+      "status": {
+        "idle": "Waiting",
+        "running": "Running",
+        "completed": "Completed",
+        "stopped": "Stopped",
+        "failed": "Failed"
+      }
     },
     "stop": {
       "gracefulRequested": "Will stop after the current step finishes",
@@ -217,7 +228,19 @@
       "jumpToIssue": "Go to issue",
       "start": "Start Loop",
       "save": "Save",
-      "saving": "Saving…"
+      "saving": "Saving…",
+      "editConfigTitle": "Edit Config",
+      "editConfigAria": "Edit loop config",
+      "keepRunning": "Keep running",
+      "keepRunningTitle": "Cancel the pending stop and keep the loop running",
+      "stopAfterStep": "Stop after step",
+      "stopAfterStepTitle": "Finish the current step, then stop",
+      "stopAfterStepAria": "Stop after current step",
+      "stopNow": "Stop now",
+      "stopNowTitle": "Stop immediately",
+      "continue": "Continue",
+      "continueTitle": "Continue from the next step",
+      "continueAria": "Continue loop"
     },
     "toast": {
       "copiedConfig": "Copied LoopConfig",
@@ -341,11 +364,12 @@
         "promptLabel": "Evaluation prompt",
         "promptHint": "Describe \"what counts as done\"; the output protocol is appended automatically.",
         "promptPlaceholder": "e.g. all tests pass, code review found no issues, no new problems found…",
-        "warnEmptySession": "A preceding business step starts a new session (beforeRound / eachRepeat), so this \"none\" evaluator gets an empty session and can't see this round's output. Keep this round's business steps and the evaluator in the same session."
+        "warnEmptySession": "The preceding business step uses eachRepeat, which starts a new session every repeat and drops it afterward, so this \"none\" evaluator gets an empty session and can't see this round's output. Use beforeRound on the business step (its session stays open for the evaluator), or give the evaluator the same session as the business steps.",
+        "warnHasSiblingsAfter": "When this evaluator emits STOP it breaks the group immediately, so the steps after it in this group are skipped for that iteration. Place the evaluator at the end of the group if those steps should still run."
       }
     },
     "edit": {
-      "runningLockHint": "Running — only prompt / agent / model / mode can be edited; structure changes require stopping the loop first"
+      "runningLockHint": "Running — only prompt / name / agent / model / mode can be edited; structure changes require stopping the loop first"
     }
   },
   "settings": {

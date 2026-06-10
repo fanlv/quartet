@@ -3,6 +3,7 @@
 This file documents the current architecture and development conventions for this repository.
 
 ## 代码规范
+
 1. 目前项目还在开发中，然后重构的时候不用考虑兼容性问题.
 2. 重构文档里面的话，不要有代码细节，只写功能描述。
 3. 错误信息就要全量给用户显示，不要隐藏任何错误信息.

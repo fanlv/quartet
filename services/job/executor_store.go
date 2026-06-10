@@ -128,18 +128,21 @@ type serviceImpl struct {
 	notifiedJobs   map[string]struct{}
 	notifiedJobsMu sync.Mutex
 
-	// gracefulStops holds jobIDs for which a graceful stop was requested: the
-	// running loop should finish the in-flight step (record its result, advance
-	// resume) and then stop at the next step boundary, instead of cancelling the
-	// context mid-step (the hard Stop). Set by RequestGracefulStop, cleared at
-	// run launch (prepareRunResources) and when consumed by runFlowNodes.
-	gracefulStops   map[string]struct{}
-	gracefulStopsMu sync.Mutex
-	// loopRuns records currently-active loop executions. A job can also be
-	// Running because of an interactive SendMessage run; those runs do not walk
-	// runFlowNodes and therefore cannot consume graceful-stop requests.
-	loopRuns   map[string]struct{}
-	loopRunsMu sync.Mutex
+	// runStates tracks per-job loop-run state behind a single mutex so the
+	// "is there an active loop run?" check and the "mark a graceful stop
+	// pending" write are one atomic step. Splitting these across two mutexes
+	// (the previous loopRunsMu + gracefulStopsMu) left a window where
+	// RequestGracefulStop could observe an active run, the run could then exit
+	// and clear its (still-empty) pending flag, and the request would write a
+	// pending flag onto a job with no active run left to consume it — a stale
+	// flag that Get would keep synthesizing onto the terminal snapshot.
+	//
+	// An entry exists only while a loop run is active (markLoopRun on launch,
+	// clearLoopRun on exit). The gracefulPending flag is meaningful only on an
+	// existing entry; clearing the entry necessarily clears any pending flag,
+	// so a non-active job can never carry one.
+	runStates  map[string]*loopRunState
+	runStateMu sync.Mutex
 
 	// Monotonic per-workspace list version; incremented on every job mutation
 	// that would affect the listing (create/delete/save/status change). Used to

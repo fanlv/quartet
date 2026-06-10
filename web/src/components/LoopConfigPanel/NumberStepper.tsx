@@ -11,6 +11,11 @@ export function NumberStepper({ value, onChange, min = 1, max = 1000, disabled =
   const [focused, setFocused] = useState(false);
 
   const commit = (raw: string) => {
+    // Guard against a blur/Enter commit firing after the stepper was disabled
+    // mid-edit (job started running): repeatCount/iterationCount are structural
+    // fields, so a stray commit would dirty the draft and make the next
+    // running-job save fail with ErrLoopStructureChanged.
+    if (disabled) return;
     const n = Math.min(max, Math.max(min, parseInt(raw) || min));
     onChange(n);
     setText(String(n));

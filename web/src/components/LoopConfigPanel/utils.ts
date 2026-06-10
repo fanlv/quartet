@@ -45,9 +45,21 @@ export function countNodes(nodes: FlowNode[]): number {
 //   - first executed step           -> always a new session
 //   - roundMode 'beforeRound'        -> new session each time the step NODE is
 //                                       entered; its repeatCount repeats reuse it
-//   - roundMode 'eachRepeat'         -> new session for EVERY repeat
-//   - roundMode 'none' (or empty)    -> reuse the previous session (the very
-//                                       first executed step still gets one)
+//   - roundMode 'eachRepeat'         -> new session for EVERY repeat AND the
+//                                       session is dropped after the step runs,
+//                                       so a following 'none' step lands in a
+//                                       fresh session (backend resetSessionAfterStep)
+//   - roundMode 'none' (or empty)    -> reuse the live session if one is still
+//                                       open; the first executed step (and a
+//                                       step right after an eachRepeat) gets a
+//                                       new one because none is open
+//
+// The backend tracks a single currentSessionID across steps. eachRepeat clears
+// it after the step runs (resetSessionAfterStep); the next step then sees an
+// empty session and spawns a fresh one. We mirror that with `sessionLive`
+// below so the UI session/step grouping matches the real run. (The other
+// resetSessionAfterStep trigger, "next step starts a fresh session", has no
+// net effect here: that next step would open its own session anyway.)
 //
 // Execution order mirrors the backend enumStepPaths walk in
 // types/model/flow_node.go.
@@ -64,6 +76,10 @@ export interface LoopSessionPlan {
   sessionStepCounts: number[]; // sessionStepCounts[i] = number of steps in session i
 }
 
+interface LoopLeafPath {
+  path: number[];
+}
+
 export interface LoopSessionLocation {
   sessionNumber: number; // 1-based; 0 when not located yet
   totalSessions: number;
@@ -77,32 +93,23 @@ export interface LoopSessionLocation {
  *
  * `actualIterations` optionally overrides a group's iterationCount with the
  * number of rounds it actually ran (keyed by the group's dot-joined node path,
- * e.g. "0.0"). Used for conditional groups that stopped early so the session /
- * step denominator reflects the real run instead of the static cap.
+ * e.g. "0.0"). `actualLeafCounts` additionally trims siblings skipped after
+ * STOP within the final actual iteration. Together they make the session / step
+ * denominator reflect the backend's real executed plan instead of the static cap.
  */
 export function computeLoopSessionPlan(
   flow: FlowNode[],
-  actualIterations?: Record<string, number>
+  actualIterations?: Record<string, number>,
+  actualLeafCounts?: Record<string, number>
 ): LoopSessionPlan {
-  const leaves: LoopSessionLeaf[] = [];
-  // -1 means "no session opened yet". Bumped to a fresh index whenever a
-  // boundary rule fires.
-  let currentSession = -1;
+  const paths: LoopLeafPath[] = [];
 
   const walk = (nodes: FlowNode[], basePath: number[]) => {
     nodes.forEach((node, i) => {
       if (node.type === 'step') {
         const rc = Math.max(1, node.repeatCount || 1);
-        const mode: RoundMode = node.roundMode || 'none';
         for (let r = 0; r < rc; r++) {
-          const isFirstEver = currentSession < 0;
-          const isNodeEntry = r === 0;
-          const openNew =
-            isFirstEver ||
-            mode === 'eachRepeat' ||
-            (mode === 'beforeRound' && isNodeEntry);
-          if (openNew) currentSession += 1;
-          leaves.push({ path: [...basePath, i, r], sessionIndex: currentSession });
+          paths.push({ path: [...basePath, i, r] });
         }
       } else if (node.type === 'group') {
         const nodePath = [...basePath, i].join('.');
@@ -111,14 +118,43 @@ export function computeLoopSessionPlan(
           override != null && override > 0
             ? override
             : Math.max(1, node.iterationCount || 1);
+        const start = paths.length;
         for (let iter = 0; iter < ic; iter++) {
           walk(node.children || [], [...basePath, i, iter]);
+        }
+        // Actual iteration counts trim future iterations. Leaf counts additionally
+        // trim sibling steps skipped after STOP within the final actual iteration,
+        // matching the backend progress denominator backfill.
+        const actualLeaves = actualLeafCounts?.[nodePath];
+        if (actualLeaves != null && actualLeaves >= 0) {
+          paths.splice(start + actualLeaves);
         }
       }
     });
   };
 
   walk(flow, []);
+
+  // Assign sessions after any STOP-based trimming. This avoids skipped steps
+  // affecting the reusable-session state of later siblings.
+  const leaves: LoopSessionLeaf[] = [];
+  let currentSession = -1;
+  let sessionLive = false;
+  const entrySeen = new Set<string>();
+  for (const leaf of paths) {
+    const node = findStepNode(flow, leaf.path);
+    const mode: RoundMode = node?.roundMode || 'none';
+    const stepEntryKey = leaf.path.slice(0, -1).join('.');
+    const isNodeEntry = !entrySeen.has(stepEntryKey);
+    entrySeen.add(stepEntryKey);
+    const openNew =
+      !sessionLive ||
+      mode === 'eachRepeat' ||
+      (mode === 'beforeRound' && isNodeEntry);
+    if (openNew) currentSession += 1;
+    leaves.push({ path: leaf.path, sessionIndex: currentSession });
+    sessionLive = mode !== 'eachRepeat';
+  }
 
   const totalSessions = currentSession < 0 ? 0 : currentSession + 1;
   const sessionStepCounts = new Array(totalSessions).fill(0);
@@ -127,6 +163,21 @@ export function computeLoopSessionPlan(
   }
 
   return { leaves, totalSessions, sessionStepCounts };
+}
+
+function findStepNode(flow: FlowNode[], path: number[]): FlowNode | undefined {
+  let nodes = flow;
+  let node: FlowNode | undefined;
+  for (let idx = 0; idx < path.length;) {
+    node = nodes[path[idx]];
+    if (!node) return undefined;
+    if (node.type === 'step') return node;
+    // Group paths are encoded as [groupIndex, iteration, ...children]. The
+    // iteration component is not needed for locating the static child node.
+    nodes = node.children || [];
+    idx += 2;
+  }
+  return node?.type === 'step' ? node : undefined;
 }
 
 function pathsEqual(a: number[], b: number[]): boolean {

@@ -147,6 +147,7 @@ export function JobChat(props: JobChatProps) {
     loopStatus,
     stopPending,
     loopFlow,
+    loopVariables,
     loopSessions,
     activeSessionId,
     setActiveSessionId,
@@ -1008,7 +1009,8 @@ export function JobChat(props: JobChatProps) {
         </nav>
       </header>
 
-      {/* Loop 模式下错误统一在 LoopProgress 的 lastError 中展示，顶部不再重复显示 */}
+      {/* Non-loop: top error banner. Loop mode surfaces hook-level errors via
+          LoopProgress's `error` prop instead, so the banner stays hidden here. */}
       {error && !isLoop && (
         <div className="error-banner" data-testid="job-error-banner">
           <span>{error}</span>
@@ -1027,6 +1029,7 @@ export function JobChat(props: JobChatProps) {
           onCancelStop={isReadonly ? undefined : cancelStop}
           onContinue={!isReadonly && canContinueLoop ? continueLoop : undefined}
           onEdit={isReadonly ? undefined : () => { setLoopEditError(''); setLoopEditorOpen(true); }}
+          error={error ?? undefined}
         />
       )}
 
@@ -1035,7 +1038,16 @@ export function JobChat(props: JobChatProps) {
           agents={agents}
           initialConfig={{
             flow: loopFlow ?? initialLoopConfig?.flow ?? [],
-            ...(initialLoopConfig?.variables ? { variables: initialLoopConfig.variables } : {}),
+            // Prefer variables hydrated from the fetched job (loopVariables) so a
+            // job opened from the list / after refresh shows its saved variables.
+            // `undefined` means "not hydrated yet" and may fall back to the
+            // brand-new-loop initial config; `{}` means "saved empty" and must
+            // not resurrect stale initial variables after deleting the last one.
+            ...(loopVariables !== undefined
+              ? { variables: loopVariables }
+              : initialLoopConfig?.variables
+                ? { variables: initialLoopConfig.variables }
+                : {}),
           }}
           runningLock={loopStatus === 'running'}
           saveError={loopEditError}

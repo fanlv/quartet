@@ -18,6 +18,11 @@ interface LoopProgressProps {
   onCancelStop?: () => void;
   onContinue?: () => void;
   onEdit?: () => void;
+  // Hook-level error surfaced by useJobChat for loop actions (stop / continue /
+  // cancel-stop / SSE connection). Distinct from progress.lastError, which is
+  // the backend-persisted job execution failure. JobChat hides its top error
+  // banner in loop mode, so without this these errors would be invisible.
+  error?: string;
 }
 
 function pathToLabel(path: number[]): string {
@@ -25,9 +30,54 @@ function pathToLabel(path: number[]): string {
   return path.map((p) => p + 1).join('.');
 }
 
-export function LoopProgress({ progress, status, flow, onStop, stopPending, onCancelStop, onContinue, onEdit }: LoopProgressProps) {
+type LoopActionIconType = 'edit' | 'stop-after-step' | 'stop-now' | 'continue' | 'keep-running';
+
+function LoopActionIcon({ type }: { type: LoopActionIconType }) {
+  if (type === 'edit') {
+    return (
+      <svg className="loop-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M4 20h4.7L19.1 9.6a2.2 2.2 0 0 0 0-3.1l-1.6-1.6a2.2 2.2 0 0 0-3.1 0L4 15.3V20Z" />
+        <path d="M13.2 6.1l4.7 4.7" />
+      </svg>
+    );
+  }
+  if (type === 'stop-after-step') {
+    return (
+      <svg className="loop-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6 5v14" />
+        <path d="M10 7h4a4 4 0 0 1 0 8h-4" />
+        <path d="M17 17l2 2 3-4" />
+      </svg>
+    );
+  }
+  if (type === 'stop-now') {
+    return (
+      <svg className="loop-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <rect x="7" y="7" width="10" height="10" rx="2" />
+      </svg>
+    );
+  }
+  if (type === 'keep-running') {
+    return (
+      <svg className="loop-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M8 5v14l11-7-11-7Z" />
+        <path d="M4 6v12" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="loop-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M5 12a7 7 0 0 1 12.1-4.8L19 9" />
+      <path d="M19 5v4h-4" />
+      <path d="M19 12a7 7 0 0 1-12.1 4.8L5 15" />
+      <path d="M5 19v-4h4" />
+    </svg>
+  );
+}
+
+export function LoopProgress({ progress, status, flow, onStop, stopPending, onCancelStop, onContinue, onEdit, error }: LoopProgressProps) {
   const { t } = useTranslation();
-  const { totalSteps, completedCount, failedCount, currentPath, results, lastError, groupActualIterations } = progress;
+  const { totalSteps, completedCount, failedCount, currentPath, results, lastError, groupActualIterations, groupActualLeafCounts } = progress;
   const done = completedCount + failedCount;
   const percent = totalSteps > 0 ? Math.round((done / totalSteps) * 100) : 0;
   const hasResults = results && results.length > 0;
@@ -38,16 +88,16 @@ export function LoopProgress({ progress, status, flow, onStop, stopPending, onCa
   // Derive per-session / per-step position from the flow tree. When the flow
   // is unavailable (legacy job, hydration not yet done) we fall back to the
   // global "done / totalSteps" text.
-  const sessionPlan = flow && flow.length > 0 ? computeLoopSessionPlan(flow, groupActualIterations) : null;
+  const sessionPlan = flow && flow.length > 0 ? computeLoopSessionPlan(flow, groupActualIterations, groupActualLeafCounts) : null;
   const loc = sessionPlan ? locateInSessionPlan(sessionPlan, currentPath) : null;
   const showSessionStats = !!(sessionPlan && sessionPlan.totalSessions > 0);
 
   const statusLabel = {
-    idle: 'Waiting',
-    running: 'Running',
-    completed: 'Completed',
-    stopped: 'Stopped',
-    failed: 'Failed',
+    idle: t('loop.progress.status.idle'),
+    running: t('loop.progress.status.running'),
+    completed: t('loop.progress.status.completed'),
+    stopped: t('loop.progress.status.stopped'),
+    failed: t('loop.progress.status.failed'),
   }[status];
 
   const statusClass = `loop-status-${status}`;
@@ -60,6 +110,7 @@ export function LoopProgress({ progress, status, flow, onStop, stopPending, onCa
   const isRunning = status === 'running';
   const gracefulActive = isRunning && !!stopPending;
   const canContinue = status === 'stopped' || status === 'failed';
+  const hasControls = !!(onEdit || onStop || onContinue);
 
   return (
     <div className={`loop-progress${collapsed ? ' collapsed' : ''}`} data-testid="loop-progress" data-loop-status={status} data-current-path={currentPath?.join('.') || ''}>
@@ -78,64 +129,81 @@ export function LoopProgress({ progress, status, flow, onStop, stopPending, onCa
               </>
             ) : (
               currentPath && currentPath.length > 0 && (
-                <span className="loop-progress-current-path">当前: {pathToLabel(currentPath)}</span>
+                <span className="loop-progress-current-path">{t('loop.progress.currentPath', { path: pathToLabel(currentPath) })}</span>
               )
             )}
           </span>
         </div>
         <div className="loop-progress-stats">
-          {!showSessionStats && (
-            <span className="loop-progress-done">{done} / {totalSteps}</span>
-          )}
-          {hasResults && (
-            <span className={`loop-progress-toggle ${collapsed ? 'collapsed' : ''}`}>▾</span>
-          )}
-          {onEdit && (
-            <button className="loop-edit-btn" onClick={(e) => { e.stopPropagation(); onEdit(); }} data-testid="loop-edit-config-button" title="Edit Config">Edit</button>
-          )}
-          {onStop && (
-            gracefulActive ? (
-              <button
-                className="loop-stop-btn loop-stop-btn-keep-running"
-                onClick={(e) => { e.stopPropagation(); onCancelStop?.(); }}
-                data-testid="loop-keep-running-button"
-                title="Cancel the pending stop and keep the loop running"
-              >
-                Keep running
-              </button>
-            ) : (
-              <button
-                className="loop-stop-btn loop-stop-btn-graceful"
-                onClick={(e) => { e.stopPropagation(); onStop(true); }}
-                disabled={!isRunning}
-                data-testid="loop-stop-graceful-button"
-                title="Finish the current step, then stop"
-              >
-                Stop after step
-              </button>
-            )
-          )}
-          {onStop && (
-            <button
-              className="loop-stop-btn"
-              onClick={(e) => { e.stopPropagation(); onStop(false); }}
-              disabled={!isRunning}
-              data-testid="loop-stop-button"
-              title="Stop immediately"
-            >
-              Stop now
-            </button>
-          )}
-          {onContinue && (
-            <button
-              className="loop-stop-btn loop-continue-btn"
-              onClick={(e) => { e.stopPropagation(); onContinue(); }}
-              disabled={!canContinue}
-              data-testid="loop-continue-button"
-              title="Continue from the next step"
-            >
-              Continue
-            </button>
+          <div className="loop-progress-meta">
+            {!showSessionStats && (
+              <span className="loop-progress-done">{done} / {totalSteps}</span>
+            )}
+            {hasResults && (
+              <span className={`loop-progress-toggle ${collapsed ? 'collapsed' : ''}`}>▾</span>
+            )}
+          </div>
+          {hasControls && (
+            <div className="loop-progress-actions" aria-label={t('loop.progress.actionsLabel')}>
+              {onEdit && (
+                <button className="loop-edit-btn loop-action-btn" onClick={(e) => { e.stopPropagation(); onEdit(); }} data-testid="loop-edit-config-button" title={t('loop.actions.editConfigTitle')} aria-label={t('loop.actions.editConfigAria')}>
+                  <LoopActionIcon type="edit" />
+                  <span className="loop-action-label">{t('common.edit')}</span>
+                </button>
+              )}
+              {onStop && (
+                gracefulActive ? (
+                  <button
+                    className="loop-stop-btn loop-action-btn loop-stop-btn-keep-running"
+                    onClick={(e) => { e.stopPropagation(); onCancelStop?.(); }}
+                    data-testid="loop-keep-running-button"
+                    title={t('loop.actions.keepRunningTitle')}
+                    aria-label={t('loop.actions.keepRunning')}
+                  >
+                    <LoopActionIcon type="keep-running" />
+                    <span className="loop-action-label">{t('loop.actions.keepRunning')}</span>
+                  </button>
+                ) : (
+                  <button
+                    className="loop-stop-btn loop-action-btn loop-stop-btn-graceful"
+                    onClick={(e) => { e.stopPropagation(); onStop(true); }}
+                    disabled={!isRunning}
+                    data-testid="loop-stop-graceful-button"
+                    title={t('loop.actions.stopAfterStepTitle')}
+                    aria-label={t('loop.actions.stopAfterStepAria')}
+                  >
+                    <LoopActionIcon type="stop-after-step" />
+                    <span className="loop-action-label">{t('loop.actions.stopAfterStep')}</span>
+                  </button>
+                )
+              )}
+              {onStop && (
+                <button
+                  className="loop-stop-btn loop-action-btn"
+                  onClick={(e) => { e.stopPropagation(); onStop(false); }}
+                  disabled={!isRunning}
+                  data-testid="loop-stop-button"
+                  title={t('loop.actions.stopNowTitle')}
+                  aria-label={t('loop.actions.stopNow')}
+                >
+                  <LoopActionIcon type="stop-now" />
+                  <span className="loop-action-label">{t('loop.actions.stopNow')}</span>
+                </button>
+              )}
+              {onContinue && (
+                <button
+                  className="loop-stop-btn loop-action-btn loop-continue-btn"
+                  onClick={(e) => { e.stopPropagation(); onContinue(); }}
+                  disabled={!canContinue}
+                  data-testid="loop-continue-button"
+                  title={t('loop.actions.continueTitle')}
+                  aria-label={t('loop.actions.continueAria')}
+                >
+                  <LoopActionIcon type="continue" />
+                  <span className="loop-action-label">{t('loop.actions.continue')}</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -150,7 +218,13 @@ export function LoopProgress({ progress, status, flow, onStop, stopPending, onCa
 
       {failedCount > 0 && (
         <div className="loop-progress-fail-count">
-          {failedCount} failed
+          {t('loop.progress.failedCount', { count: failedCount })}
+        </div>
+      )}
+
+      {error && (
+        <div className="loop-progress-action-error" data-testid="loop-progress-action-error" role="alert">
+          {error}
         </div>
       )}
 

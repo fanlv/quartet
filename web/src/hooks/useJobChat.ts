@@ -37,6 +37,38 @@ function showCommandToast(text: string) {
   }, 2800);
 }
 
+// Strip runtime builtin variables from a loop variable map, leaving only the
+// user-defined entries. The server injects builtins like _job_id / _current_time
+// into the persisted map during execution; surfacing them as editable rows would
+// be confusing and round-tripping them back risks clobbering server state.
+//
+// Always returns a concrete map: a null/undefined input (the backend omits an
+// empty `variables` map via `omitempty`) maps to `{}` — "hydrated, no user
+// variables" — NOT undefined. Callers invoke this only once the job's loopConfig
+// is confirmed hydrated, so the result always carries hydrated semantics. The
+// `loopVariables` state stays `undefined` only at its initial pre-hydration
+// value; JobChat treats that lone `undefined` as "not hydrated yet" and only
+// then falls back to initialLoopConfig variables. Returning `undefined` here
+// would let an omitted (saved-empty) map resurrect stale initial variables.
+const builtinLoopVars = new Set([
+  '_job_id',
+  '_job_title',
+  '_job_workdir',
+  '_workspace_id',
+  '_current_time',
+  '_current_path',
+  '_last_assistant_msg',
+]);
+
+function userLoopVariables(vars: Record<string, string> | undefined | null): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (vars == null) return out;
+  for (const [k, v] of Object.entries(vars)) {
+    if (!builtinLoopVars.has(k)) out[k] = v;
+  }
+  return out;
+}
+
 async function readHTTPError(response: Response, prefix?: string): Promise<string> {
   const body = await response.text().catch(() => '');
   const trimmed = body.trim();
@@ -249,6 +281,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // a fresh loop is started from initialLoopConfig.
   const [loopFlow, setLoopFlow] = useState<FlowNode[] | null>(null);
 
+  // User-defined loop variables of the current job, hydrated alongside loopFlow
+  // so the editor can show and round-trip them. `undefined` means the job has
+  // not hydrated yet; `{}` means it has no user variables and must override any
+  // stale initialLoopConfig fallback.
+  const [loopVariables, setLoopVariables] = useState<Record<string, string> | undefined>(undefined);
+
   // Job-level timing for total duration display
   const [jobStartedAt, setJobStartedAt] = useState<number | undefined>(undefined);
   const [jobFinishedAt, setJobFinishedAt] = useState<number | undefined>(undefined);
@@ -378,6 +416,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setMessages([]);
     setIsLoop(false);
     isLoopRef.current = false;
+    setLoopFlow(null);
+    setLoopVariables(undefined);
     setLoopProgress(null);
     setLoopStatus('idle');
     setStopPending(false);
@@ -569,6 +609,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setLoopStatus('completed');
         }
         loopRunningRef.current = false;
+        setStopPending(false);
         setJobFinishedAt(event.timestamp || Date.now());
         setLoopProgress(event.progress);
         setIsLoading(false);
@@ -621,6 +662,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setLoopStatus('stopped');
         }
         loopRunningRef.current = false;
+        setStopPending(false);
         setJobFinishedAt(event.timestamp || Date.now());
         setLoopProgress(event.progress);
         setIsLoading(false);
@@ -664,6 +706,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setLoopStatus('failed');
         }
         loopRunningRef.current = false;
+        setStopPending(false);
         setJobFinishedAt(event.timestamp || Date.now());
         if (event.progress) setLoopProgress(event.progress);
         setError(event.message);
@@ -1150,6 +1193,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           const payload = event.value as {
             totalSteps?: number;
             groupActualIterations?: Record<string, number>;
+            groupActualLeafCounts?: Record<string, number>;
           } | null;
           if (payload) {
             setLoopProgress((prev) =>
@@ -1160,10 +1204,19 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                       typeof payload.totalSteps === 'number' ? payload.totalSteps : prev.totalSteps,
                     groupActualIterations:
                       payload.groupActualIterations ?? prev.groupActualIterations,
+                    groupActualLeafCounts:
+                      payload.groupActualLeafCounts ?? prev.groupActualLeafCounts,
                   }
                 : prev
             );
           }
+        }
+        if (event.name === 'graceful_stop_pending') {
+          // Another tab requested or cancelled a "stop after step", or the loop
+          // consumed the request at a step boundary. Sync the local pending
+          // state so this tab's stop buttons match. Runtime-only — not persisted.
+          const payload = event.value as { pending?: boolean } | null;
+          setStopPending(!!payload?.pending);
         }
         break;
 
@@ -1334,6 +1387,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
       if (Array.isArray(job?.loopConfig?.flow)) {
         setLoopFlow(job.loopConfig.flow);
+        setLoopVariables(userLoopVariables(job.loopConfig.variables));
       }
 
       // Hydrate round timing so the badge persists across reconnects.
@@ -1521,6 +1575,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           }
           if (job.progress) {
             setLoopProgress(job.progress);
+            // Restore the runtime-only graceful-stop pending state from the
+            // snapshot. syncJobState is the authoritative recovery path for SSE
+            // reconnect / watchdog / pre-connect snapshot, and graceful_stop_pending
+            // is a transient (unbuffered) event that may not replay after a
+            // reconnect — so the snapshot is the only reliable source. Without
+            // this, a missed pending=true left the "Keep running" affordance
+            // hidden, and a missed pending=false left a stale "stop after step".
+            setStopPending(status === 'running' && !!job.progress.gracefulStopPending);
         }
       }
 
@@ -2174,8 +2236,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         body: JSON.stringify({}),
       });
       if (!response.ok) {
-        const errData = await response.json().catch(() => null);
-        throw new Error(errData?.error || `HTTP ${response.status}`);
+        throw new Error(await readHTTPError(response));
       }
     } catch (err) {
       console.error('[startLoop] error:', err);
@@ -2214,8 +2275,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         body: JSON.stringify({}),
       });
       if (!response.ok) {
-        const errData = await response.json().catch(() => null);
-        throw new Error(errData?.error || `HTTP ${response.status}`);
+        throw new Error(await readHTTPError(response));
       }
       const data = await response.json().catch(() => null);
       // The backend accepted the continue and a new run is launching. Flip to
@@ -2247,8 +2307,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         body: JSON.stringify({ graceful }),
       });
       if (!response.ok) {
-        const errData = await response.json().catch(() => null);
-        throw new Error(errData?.error || `HTTP ${response.status}`);
+        throw new Error(await readHTTPError(response));
       }
       if (graceful) {
         const data = await response.json().catch(() => null);
@@ -2256,6 +2315,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setStopPending(true);
           showCommandToast(i18n.t('loop.stop.gracefulRequested'));
         }
+      } else {
+        // A hard stop never reaches a graceful step boundary, so the backend
+        // won't emit graceful_stop_pending=false. Clear the local flag here so
+        // an escalation from "stop after step" to "stop now" drops the
+        // "keep running" affordance immediately.
+        setStopPending(false);
       }
     } catch (err) {
       console.error('[stopLoop] error:', err);
@@ -2275,8 +2340,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         body: JSON.stringify({ graceful: true, cancel: true }),
       });
       if (!response.ok) {
-        const errData = await response.json().catch(() => null);
-        throw new Error(errData?.error || `HTTP ${response.status}`);
+        throw new Error(await readHTTPError(response));
       }
       setStopPending(false);
       showCommandToast(i18n.t('loop.stop.gracefulCancelled'));
@@ -2298,15 +2362,16 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       body: JSON.stringify({ loopConfig: config }),
     });
     if (!response.ok) {
-      const errData = await response.json().catch(() => null);
-      throw new Error(errData?.error || `HTTP ${response.status}`);
+      throw new Error(await readHTTPError(response, `PUT /job/${jobId}/loop-config`));
     }
     const data = await response.json().catch(() => null);
     // Reflect the edit locally: the flow drives both the progress session/step
-    // plan and (for a stopped job) a subsequent Continue.
+    // plan and (for a stopped job) a subsequent Continue. Variables hydrate the
+    // editor on its next open so the saved set is shown rather than an empty list.
     if (config.flow) {
       setLoopFlow(config.flow);
     }
+    setLoopVariables(userLoopVariables(config.variables));
     if (data?.progress) {
       setLoopProgress(data.progress);
     }
@@ -2383,6 +2448,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         if (job.shareToken) setJobShareTokenState(job.shareToken);
         if (Array.isArray(job?.loopConfig?.flow)) {
           setLoopFlow(job.loopConfig.flow);
+          setLoopVariables(userLoopVariables(job.loopConfig.variables));
         }
         // Hydrate base job metadata on refresh, especially for loop mode where
         // history is loaded with tagged session ids and won't set these fields.
@@ -2405,6 +2471,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           isLoopRef.current = true;
           if (job.progress) {
             setLoopProgress(job.progress);
+            // Restore the runtime-only graceful-stop pending state from the
+            // snapshot so a refresh / second tab shows the "keep running"
+            // affordance. Only meaningful while running; a terminal job never
+            // has a pending stop.
+            setStopPending(job.status === 'running' && !!job.progress.gracefulStopPending);
             const deriveExtraSessionStatus = (status: string): LoopSessionEntry['status'] => {
               if (status === 'running') return 'running';
               if (status === 'failed') return 'failed';
@@ -2854,6 +2925,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     loopStatus,
     stopPending,
     loopFlow,
+    loopVariables,
     loopSessions,
     activeSessionId,
     setActiveSessionId,

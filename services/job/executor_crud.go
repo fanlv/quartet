@@ -48,12 +48,21 @@ func (s *serviceImpl) Create(job *model.Job) error {
 
 func (s *serviceImpl) Get(jobID string) (*model.Job, bool) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	j, ok := s.jobs[jobID]
 	if !ok {
+		s.mu.RUnlock()
 		return nil, false
 	}
-	return j.DeepCopy(), true
+	cp := j.DeepCopy()
+	s.mu.RUnlock()
+	// Synthesize the runtime-only graceful-stop pending flag onto the snapshot
+	// so a refresh / second tab can restore the "stop after step" affordance.
+	// It is never persisted (see JobProgress.GracefulStopPending) — read it
+	// from the live map at snapshot time instead.
+	if cp.Progress != nil {
+		cp.Progress.GracefulStopPending = s.isGracefulStopPending(jobID)
+	}
+	return cp, true
 }
 
 func (s *serviceImpl) GetWithSnapshotSeq(jobID string) (*model.Job, uint64, bool) {

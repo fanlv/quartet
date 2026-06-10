@@ -47,7 +47,7 @@ func TestUpdateRunningStepFields_FieldsOnly(t *testing.T) {
 	newFlow[0].Children[0].StepModelID = "gpt-5"
 	newFlow[0].Children[1].Message = "new-2"
 
-	if err := svc.UpdateRunningStepFields(context.Background(), job.ID, newFlow); err != nil {
+	if err := svc.UpdateRunningStepFields(context.Background(), job.ID, &model.LoopConfig{Flow: newFlow}); err != nil {
 		t.Fatalf("UpdateRunningStepFields: %v", err)
 	}
 
@@ -62,6 +62,39 @@ func TestUpdateRunningStepFields_FieldsOnly(t *testing.T) {
 	msg, _, mid, _, ok := svc.liveStepFields(job, []int{0, 0, 0, 0})
 	if !ok || msg != "new-1" || mid != "gpt-5" {
 		t.Errorf("liveStepFields = (%q,%q,%v), want (new-1,gpt-5,true)", msg, mid, ok)
+	}
+}
+
+// TestUpdateRunningStepFields_Variables checks the variable-change contract:
+// a nil Variables map (client only edited step fields) is accepted, a map that
+// differs only in injected builtins is accepted, but a real user-defined change
+// is rejected with ErrLoopVariablesChanged instead of being silently dropped.
+func TestUpdateRunningStepFields_Variables(t *testing.T) {
+	svc := newStateTestService()
+	job := loopEditTestJob(svc, model.JobStatusRunning)
+	svc.jobs[job.ID].LoopConfig.Variables = map[string]string{"env": "prod", "_job_id": job.ID, "_custom": "keep"}
+
+	flow := cloneFlow(job.LoopConfig.Flow)
+
+	// nil variables: caller didn't touch them — accepted.
+	if err := svc.UpdateRunningStepFields(context.Background(), job.ID, &model.LoopConfig{Flow: flow}); err != nil {
+		t.Fatalf("nil variables should be accepted, got %v", err)
+	}
+	// Same user vars (builtins absent from client payload) — accepted.
+	if err := svc.UpdateRunningStepFields(context.Background(), job.ID, &model.LoopConfig{Flow: flow, Variables: map[string]string{"env": "prod", "_custom": "keep"}}); err != nil {
+		t.Fatalf("unchanged user variables should be accepted, got %v", err)
+	}
+	// Unknown underscore-prefixed keys are still user variables, not builtins.
+	if err := svc.UpdateRunningStepFields(context.Background(), job.ID, &model.LoopConfig{Flow: flow, Variables: map[string]string{"env": "prod", "_custom": "changed"}}); err != ErrLoopVariablesChanged {
+		t.Fatalf("changed underscore-prefixed user variable: got %v, want ErrLoopVariablesChanged", err)
+	}
+	// Changed value — rejected.
+	if err := svc.UpdateRunningStepFields(context.Background(), job.ID, &model.LoopConfig{Flow: flow, Variables: map[string]string{"env": "staging"}}); err != ErrLoopVariablesChanged {
+		t.Fatalf("changed variable value: got %v, want ErrLoopVariablesChanged", err)
+	}
+	// Added key — rejected.
+	if err := svc.UpdateRunningStepFields(context.Background(), job.ID, &model.LoopConfig{Flow: flow, Variables: map[string]string{"env": "prod", "extra": "1"}}); err != ErrLoopVariablesChanged {
+		t.Fatalf("added variable: got %v, want ErrLoopVariablesChanged", err)
 	}
 }
 
@@ -89,7 +122,7 @@ func TestUpdateRunningStepFields_RejectsStructureChange(t *testing.T) {
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
-			if err := svc.UpdateRunningStepFields(context.Background(), job.ID, mutate(cloneFlow(job.LoopConfig.Flow))); err != ErrLoopStructureChanged {
+			if err := svc.UpdateRunningStepFields(context.Background(), job.ID, &model.LoopConfig{Flow: mutate(cloneFlow(job.LoopConfig.Flow))}); err != ErrLoopStructureChanged {
 				t.Fatalf("got %v, want ErrLoopStructureChanged", err)
 			}
 		})
@@ -183,8 +216,11 @@ func TestReplaceLoopConfig_ReconcilesByNodeID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReplaceLoopConfig: %v", err)
 	}
-	if svc.jobs[job.ID].Resume != nil {
-		t.Fatalf("resume for replaced node should be cleared, got %+v", svc.jobs[job.ID].Resume)
+	// Resume pointed at the replaced node (0.0.0.0), so the old cursor is
+	// dropped and re-anchored to the first step lacking a surviving result —
+	// which is the replaced node itself, since its result was discarded.
+	if r := svc.jobs[job.ID].Resume; r == nil || !model.EqualPaths(r.NextPath, []int{0, 0, 0, 0}) {
+		t.Fatalf("resume should be re-anchored to the replaced node 0.0.0.0, got %+v", r)
 	}
 	if progress.CurrentPath != nil {
 		t.Fatalf("currentPath for replaced node should be cleared, got %v", progress.CurrentPath)
@@ -194,6 +230,92 @@ func TestReplaceLoopConfig_ReconcilesByNodeID(t *testing.T) {
 	}
 	if progress.CompletedCount != 1 || progress.FailedCount != 0 {
 		t.Fatalf("counts completed=%d failed=%d, want 1/0", progress.CompletedCount, progress.FailedCount)
+	}
+}
+
+// TestReplaceLoopConfig_ReanchorsResumeAfterMiddleDelete is the Issue 1
+// regression: deleting a middle step invalidates the saved CurrentPath, and a
+// nil Resume + non-zero completed count used to make Continue restart from the
+// very first step (re-running already-completed work). The cleared Resume must
+// instead be re-anchored to the first step that still lacks a surviving result.
+func TestReplaceLoopConfig_ReanchorsResumeAfterMiddleDelete(t *testing.T) {
+	svc := newStateTestService()
+	job := loopEditTestJob(svc, model.JobStatusStopped)
+	// Flatten into four sequential top-level steps a,b,c,d, all completed,
+	// cursor parked on the last one (d).
+	job.LoopConfig.Flow = []model.FlowNode{
+		{ID: "a", Type: model.FlowNodeTypeStep, RoundMode: model.RoundModeBeforeRound, Message: "a", AgentType: "claude"},
+		{ID: "b", Type: model.FlowNodeTypeStep, RoundMode: model.RoundModeNone, Message: "b"},
+		{ID: "c", Type: model.FlowNodeTypeStep, RoundMode: model.RoundModeNone, Message: "c"},
+		{ID: "d", Type: model.FlowNodeTypeStep, RoundMode: model.RoundModeNone, Message: "d"},
+	}
+	job.Progress = buildProgress(job.LoopConfig)
+	job.Progress.Results = []model.IterationResult{
+		{Path: []int{0, 0}, Success: true},
+		{Path: []int{1, 0}, Success: true},
+		{Path: []int{2, 0}, Success: true},
+		{Path: []int{3, 0}, Success: true},
+	}
+	job.Progress.CompletedCount = 4
+	job.Progress.CurrentPath = []int{3, 0} // parked on d
+	job.Resume = nil
+
+	// Delete the middle step c. Indices shift: a,b,d → d now lives at [2,0],
+	// so the saved CurrentPath [3,0] no longer resolves.
+	newFlow := []model.FlowNode{
+		{ID: "a", Type: model.FlowNodeTypeStep, RoundMode: model.RoundModeBeforeRound, Message: "a", AgentType: "claude"},
+		{ID: "b", Type: model.FlowNodeTypeStep, RoundMode: model.RoundModeNone, Message: "b"},
+		{ID: "d", Type: model.FlowNodeTypeStep, RoundMode: model.RoundModeNone, Message: "d"},
+	}
+	if _, err := svc.ReplaceLoopConfig(context.Background(), job.ID, &model.LoopConfig{Flow: cloneFlow(newFlow)}); err != nil {
+		t.Fatalf("ReplaceLoopConfig: %v", err)
+	}
+
+	// a([0,0]) and b([1,0]) keep their successful results by node identity; d
+	// moved to [2,0] so its old [3,0] result was dropped → d is the first
+	// incomplete step. Continue must resume at d, NOT restart from a.
+	got := svc.jobs[job.ID]
+	resume := svc.resumeForContinue(got)
+	if resume == nil || !model.EqualPaths(resume.NextPath, []int{2, 0}) {
+		t.Fatalf("Continue should resume at d ([2,0]), got %+v", resume)
+	}
+}
+
+// TestReplaceLoopConfig_PreservesEarlyStopDenominator is the Issue 2
+// regression: a completed early-stop loop backfilled TotalSteps below the
+// static cap. A pure field edit (identical structure) must keep that
+// denominator and the GroupActual* display maps so the progress bar stays at
+// 100% instead of snapping back to the static total.
+func TestReplaceLoopConfig_PreservesEarlyStopDenominator(t *testing.T) {
+	svc := newStateTestService()
+	job := loopEditTestJob(svc, model.JobStatusCompleted)
+	// Static cap is 2 iters × 2 steps = 4; pretend the group broke early after
+	// one iteration, so the backfilled denominator is 2.
+	job.Progress.TotalSteps = 2
+	job.Progress.CompletedCount = 2
+	job.Progress.Results = []model.IterationResult{
+		{Path: []int{0, 0, 0, 0}, Success: true},
+		{Path: []int{0, 0, 1, 0}, Success: true},
+	}
+	job.Progress.GroupActualIterations = map[string]int{"0": 1}
+	job.Progress.GroupActualLeafCounts = map[string]int{"0": 2}
+
+	// Edit only a step message — structure is identical.
+	newFlow := cloneFlow(job.LoopConfig.Flow)
+	newFlow[0].Children[0].Message = "tweaked"
+
+	progress, err := svc.ReplaceLoopConfig(context.Background(), job.ID, &model.LoopConfig{Flow: newFlow})
+	if err != nil {
+		t.Fatalf("ReplaceLoopConfig: %v", err)
+	}
+	if progress.TotalSteps != 2 {
+		t.Errorf("TotalSteps = %d, want 2 (backfilled denominator preserved)", progress.TotalSteps)
+	}
+	if progress.GroupActualIterations["0"] != 1 || progress.GroupActualLeafCounts["0"] != 2 {
+		t.Errorf("early-stop display maps dropped: iters=%v leaves=%v", progress.GroupActualIterations, progress.GroupActualLeafCounts)
+	}
+	if svc.jobs[job.ID].LoopConfig.Flow[0].Children[0].Message != "tweaked" {
+		t.Errorf("field edit not applied")
 	}
 }
 
@@ -231,7 +353,7 @@ func TestLoopConfigValidationErrorsAreMappedSentinel(t *testing.T) {
 	}
 
 	running := loopEditTestJob(svc, model.JobStatusRunning)
-	err = svc.UpdateRunningStepFields(context.Background(), running.ID, nil)
+	err = svc.UpdateRunningStepFields(context.Background(), running.ID, &model.LoopConfig{Flow: nil})
 	if !errors.Is(err, ErrLoopConfigInvalid) {
 		t.Fatalf("UpdateRunningStepFields err=%v, want ErrLoopConfigInvalid", err)
 	}
@@ -274,10 +396,14 @@ func TestGracefulStop_StopsAtNextBoundary(t *testing.T) {
 	}
 	job := newLoopTestJob("job-graceful", flow)
 	svc.jobs[job.ID] = job
+	// Real runs reach runFlowNodes via launchLoop, which marks the loop run so
+	// RequestGracefulStop is honored. Mirror that here since the test drives
+	// runFlowNodes directly.
+	svc.markLoopRun(job.ID)
 
 	runner := &gracefulStopRunner{svc: svc, jobID: job.ID, stopAfterRun: 1}
 	sid := ""
-	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, nil, 0, &sid)
+	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, job.LoopConfig.Flow, nil, 0, &sid)
 
 	if result != stepStopGraceful {
 		t.Fatalf("result = %v, want stepStopGraceful", result)
@@ -302,10 +428,45 @@ func TestGracefulStop_StopsAtNextBoundary(t *testing.T) {
 	}
 }
 
+// TestGracefulStop_LastStepCompletes verifies a graceful stop requested while
+// the FINAL step runs does not turn the finished job into Stopped. There is no
+// step to resume into, so the run must complete naturally (stepCompleted) rather
+// than bubble stepStopGraceful and leave an unresumable Stopped job.
+func TestGracefulStop_LastStepCompletes(t *testing.T) {
+	svc := newStateTestService()
+	flow := []model.FlowNode{
+		group(1,
+			model.FlowNode{ID: "a", Type: model.FlowNodeTypeStep, Message: "1", RepeatCount: 1, RoundMode: model.RoundModeBeforeRound, RoundType: model.RoundTypePrompt, AgentType: "x"},
+			model.FlowNode{ID: "b", Type: model.FlowNodeTypeStep, Message: "2", RepeatCount: 1, RoundMode: model.RoundModeNone, RoundType: model.RoundTypePrompt, AgentType: "x"},
+		),
+	}
+	job := newLoopTestJob("job-graceful-last", flow)
+	svc.jobs[job.ID] = job
+	svc.markLoopRun(job.ID)
+
+	// Request the graceful stop while the 2nd (last) step runs.
+	runner := &gracefulStopRunner{svc: svc, jobID: job.ID, stopAfterRun: 2}
+	sid := ""
+	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, job.LoopConfig.Flow, nil, 0, &sid)
+
+	if result != stepCompleted {
+		t.Fatalf("result = %v, want stepCompleted (last step finished, nothing to resume)", result)
+	}
+	if len(runner.runPaths) != 2 {
+		t.Fatalf("ran %d steps, want 2: %v", len(runner.runPaths), runner.runPaths)
+	}
+	if job.Progress.CompletedCount != 2 {
+		t.Fatalf("completed=%d, want 2", job.Progress.CompletedCount)
+	}
+	if svc.consumeGracefulStop(job.ID) {
+		t.Fatalf("graceful-stop flag should be consumed even when the tail step completes naturally")
+	}
+}
+
 func TestGracefulStop_ClearedAtLaunch(t *testing.T) {
 	svc := newStateTestService()
-	svc.RequestGracefulStop("job-x")
 	svc.markLoopRun("job-x")
+	svc.RequestGracefulStop("job-x")
 	if !svc.IsGracefulStopSupported("job-x") {
 		t.Fatalf("loop run should support graceful stop")
 	}
@@ -316,6 +477,17 @@ func TestGracefulStop_ClearedAtLaunch(t *testing.T) {
 	}
 	if svc.IsGracefulStopSupported("job-x") {
 		t.Errorf("clearLoopRun should make graceful stop unsupported")
+	}
+}
+
+// TestRequestGracefulStop_NoOpWhenNotRunning verifies the contract: a job with
+// no active loop run can't accumulate a pending graceful-stop flag, so a later
+// run never has to clear a stale request at launch.
+func TestRequestGracefulStop_NoOpWhenNotRunning(t *testing.T) {
+	svc := newStateTestService()
+	svc.RequestGracefulStop("job-idle") // no loop run marked → ignored
+	if svc.consumeGracefulStop("job-idle") {
+		t.Errorf("RequestGracefulStop must be a no-op without an active loop run")
 	}
 }
 

@@ -200,6 +200,17 @@ export interface JobProgress {
   // plan denominator so the progress text and bar reflect the real run instead
   // of the static iteration cap.
   groupActualIterations?: Record<string, number>;
+  // groupActualLeafCounts maps the same group path to the exact number of leaf
+  // steps that actually executed inside the group before STOP. Unlike iteration
+  // counts, this also trims sibling steps skipped after STOP within the final
+  // iteration.
+  groupActualLeafCounts?: Record<string, number>;
+  // gracefulStopPending reports a "stop after step" was requested and not yet
+  // consumed at a step boundary. Runtime-only (never persisted): the backend
+  // synthesizes it onto the GET /job/:id snapshot and broadcasts changes via a
+  // transient graceful_stop_pending custom event, so a refresh / second tab can
+  // restore the "keep running" affordance.
+  gracefulStopPending?: boolean;
 }
 
 export interface JobStartedEvent extends BaseEvent {

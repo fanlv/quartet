@@ -105,7 +105,17 @@
     "progress": {
       "lastError": "最近失败原因",
       "session": "会话 {{current}} / {{total}}",
-      "step": "步骤 {{current}} / {{total}}"
+      "step": "步骤 {{current}} / {{total}}",
+      "currentPath": "当前：{{path}}",
+      "failedCount": "失败 {{count}} 个",
+      "actionsLabel": "Loop 操作",
+      "status": {
+        "idle": "等待中",
+        "running": "运行中",
+        "completed": "已完成",
+        "stopped": "已停止",
+        "failed": "已失败"
+      }
     },
     "stop": {
       "gracefulRequested": "将在当前步骤完成后停止",
@@ -213,7 +223,19 @@
       "jumpToIssue": "跳到问题",
       "start": "开始 Loop",
       "save": "保存",
-      "saving": "保存中…"
+      "saving": "保存中…",
+      "editConfigTitle": "编辑配置",
+      "editConfigAria": "编辑 Loop 配置",
+      "keepRunning": "继续运行",
+      "keepRunningTitle": "取消待停止请求并继续运行 Loop",
+      "stopAfterStep": "步骤后停止",
+      "stopAfterStepTitle": "当前步骤完成后停止",
+      "stopAfterStepAria": "当前步骤完成后停止",
+      "stopNow": "立即停止",
+      "stopNowTitle": "立即停止",
+      "continue": "继续",
+      "continueTitle": "从下一步继续",
+      "continueAria": "继续 Loop"
     },
     "toast": {
       "copiedConfig": "已复制 LoopConfig",
@@ -336,11 +358,12 @@
         "promptLabel": "评估 Prompt",
         "promptHint": "描述「满足什么条件算完成」，系统会自动追加输出协议。",
         "promptPlaceholder": "例如：所有测试通过、代码 review 没有问题、没有发现新的问题……",
-        "warnEmptySession": "前序业务步骤会新开会话（beforeRound / eachRepeat），当前「不开新会话」的评估器会拿到空会话、看不到本轮业务产出。建议让本轮业务步骤与评估器落在同一会话。"
+        "warnEmptySession": "前序业务步骤使用 eachRepeat，每次 repeat 都新开会话且步骤结束后丢弃，当前「不开新会话」的评估器会拿到空会话、看不到本轮业务产出。建议业务步骤改用 beforeRound（其会话会保留给评估器），或让评估器与业务步骤落在同一会话。",
+        "warnHasSiblingsAfter": "评估器命中 STOP 会立即结束当前分组，因此本轮中排在它后面的步骤会被跳过。如果这些步骤仍需执行，请把评估器放到分组末尾。"
       }
     },
     "edit": {
-      "runningLockHint": "运行中 — 仅可修改提示词 / Agent / 模型 / 模式；改结构需先停止循环"
+      "runningLockHint": "运行中 — 仅可修改提示词 / 名称 / Agent / 模型 / 模式；改结构需先停止循环"
     }
   },
   "settings": {

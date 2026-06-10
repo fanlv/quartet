@@ -92,6 +92,48 @@
   gap: 10px;
 }
 
+.loop-progress-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.loop-progress-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.loop-action-btn {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.loop-action-icon {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+
+.loop-action-icon rect {
+  fill: currentColor;
+  stroke: none;
+}
+
+.loop-action-label {
+  display: inline;
+}
+
 .loop-progress-done {
   font-size: 13px;
   font-weight: 500;
@@ -119,10 +161,15 @@
   font-size: 12px;
   cursor: pointer;
   font-weight: 500;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 
 .loop-stop-btn:hover {
   background: #fef2f2;
+}
+
+.loop-stop-btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 /* Disabled buttons stay visible (never hidden) but read as inert: muted,
@@ -158,11 +205,16 @@
   font-size: 12px;
   cursor: pointer;
   font-weight: 500;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 
 .loop-edit-btn:hover {
   background: #f1f5f9;
   border-color: #94a3b8;
+}
+
+.loop-edit-btn:active {
+  transform: translateY(1px);
 }
 
 .loop-stop-btn-graceful {
@@ -235,6 +287,17 @@
   border: 1px solid #fecaca;
   border-radius: 6px;
   padding: 6px 8px;
+}
+
+.loop-progress-action-error {
+  margin-top: 6px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #b91c1c;
+  word-break: break-word;
 }
 
 .loop-progress-last-error-header {
@@ -372,12 +435,13 @@
 
 @media (max-width: 768px) {
   .loop-progress {
-    padding: 10px 12px;
-    margin: 6px 8px;
+    padding: 12px;
+    margin: 8px;
   }
 
   .loop-progress-header {
-    gap: 8px;
+    align-items: flex-start;
+    gap: 10px;
   }
 
   .loop-progress-title {
@@ -391,11 +455,52 @@
     font-size: 11px;
     line-height: 1.4;
     word-break: break-word;
+    flex-wrap: wrap;
+    row-gap: 4px;
   }
 
   .loop-progress-stats {
     flex-shrink: 0;
     justify-content: flex-end;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .loop-progress-meta {
+    min-height: 30px;
+    padding-top: 3px;
+  }
+
+  .loop-progress-actions {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .loop-edit-btn,
+  .loop-stop-btn {
+    min-height: 30px;
+    border-radius: 7px;
+    font-size: 11px;
+    line-height: 1.15;
+    white-space: nowrap;
+  }
+
+  .loop-action-btn {
+    width: 34px;
+    min-width: 34px;
+    height: 30px;
+    padding: 0;
+    gap: 0;
+  }
+
+  .loop-action-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .loop-action-label {
+    display: none;
   }
 
   .loop-results-list {
@@ -405,5 +510,43 @@
   .loop-result-item {
     font-size: 10px;
     padding: 2px 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .loop-progress-header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+  }
+
+  .loop-progress-stats {
+    display: contents;
+  }
+
+  .loop-progress-meta {
+    grid-column: 2;
+    grid-row: 1;
+    justify-content: flex-end;
+  }
+
+  .loop-progress-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    margin-top: 2px;
+    padding-top: 8px;
+    border-top: 1px solid #e2e8f0;
+    justify-content: stretch;
+  }
+
+  .loop-edit-btn,
+  .loop-stop-btn {
+    width: 100%;
+  }
+
+  .loop-action-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 34px;
   }
 }

@@ -59,12 +59,18 @@ func (s *serviceImpl) Start(ctx context.Context, jobID string, runner JobRunner)
 		scheduleID:     job.ScheduleID,
 		timeoutMinutes: loopTimeoutMinutes(job),
 	}
-	s.mu.Unlock()
-	// Register cancel/done BEFORE saveJobWithRetry so a concurrent Stop /
-	// Delete arriving during the persist window cannot miss the cancel
-	// registration (which would orphan the runLoop goroutine and let it
-	// resurrect the job dir on disk after Delete cleaned it up).
+	// Register cancel/done/loopRun BEFORE releasing s.mu so the run resources
+	// are in place the instant Status=running becomes observable. Observers
+	// read status under s.mu (Get) and only then act on it: a Stop that sees
+	// running is guaranteed to find the cancel entry, and a graceful-stop
+	// request is guaranteed to see the active loop run. Registering after the
+	// unlock left a window where the job looked running but had no resources,
+	// so Stop could no-op while the run went on to launch. prepareRunResources
+	// takes only the cancel/done/runState mutexes (never s.mu), so calling it
+	// here cannot deadlock. It must still precede saveJobWithRetryLocked so the
+	// persist-window race fix below stays intact.
 	res := s.prepareRunResources(jobID, startCtx.timeoutMinutes, true)
+	s.mu.Unlock()
 	if err := s.saveJobWithRetryLocked(ctx, job, "start"); err != nil {
 		s.abortRunResources(jobID, res)
 		s.restoreRunStateAfterPersistFailure(ctx, job, prevRunState, "start", err)
@@ -154,8 +160,10 @@ func (s *serviceImpl) Continue(ctx context.Context, jobID string, runner JobRunn
 		scheduleID:     job.ScheduleID,
 		timeoutMinutes: loopTimeoutMinutes(job),
 	}
-	s.mu.Unlock()
+	// Register run resources before releasing s.mu so they exist the instant
+	// Status=running is observable — see the rationale in Start.
 	res := s.prepareRunResources(jobID, startCtx.timeoutMinutes, true)
+	s.mu.Unlock()
 	if err := s.saveJobWithRetryLocked(ctx, job, "continue"); err != nil {
 		s.abortRunResources(jobID, res)
 		s.restoreRunStateAfterPersistFailure(ctx, job, prevRunState, "continue", err)
@@ -237,11 +245,12 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 		priorStatus: priorStatus,
 		scheduleID:  job.ScheduleID,
 	}
-	s.mu.Unlock()
-	// Register cancel/done BEFORE saveJobWithRetry so a concurrent Stop /
-	// Delete arriving during the persist window cannot miss the cancel
-	// registration. Mirrors the same fix in Start / Continue.
+	// Register cancel/done before releasing s.mu so they exist the instant
+	// Status=running is observable — see the rationale in Start. (loopRun=false:
+	// an interactive send doesn't walk runFlowNodes and can't consume a graceful
+	// stop, so no runState entry is created.)
 	res := s.prepareRunResources(job.ID, 0, false)
+	s.mu.Unlock()
 	if err := s.saveJobWithRetryLocked(ctx, job, "send_message_start"); err != nil {
 		s.abortRunResources(job.ID, res)
 		s.restoreRunStateAfterPersistFailure(ctx, job, prevRunState, "send_message_start", err)
@@ -462,6 +471,15 @@ const stopAllPerJobTimeout = 10 * time.Second
 
 // Stop cancels a running job.
 func (s *serviceImpl) Stop(jobID string) {
+	// A hard Stop never reaches a graceful step boundary (it cancels the
+	// context mid-step), so consumeGracefulStop won't run. Clear any pending
+	// graceful-stop request here so an escalation from "stop after step" to
+	// "stop now" doesn't leave a stale pending flag that Get would keep
+	// synthesizing onto the stopped snapshot. (The launchLoop defer is the
+	// catch-all for timeout/fail/panic paths; this closes the gap immediately
+	// for the explicit-stop path.)
+	s.clearGracefulStop(jobID)
+
 	s.cancelMu.Lock()
 	entry, ok := s.cancels[jobID]
 	if ok {
@@ -469,6 +487,14 @@ func (s *serviceImpl) Stop(jobID string) {
 		delete(s.cancels, jobID)
 	}
 	s.cancelMu.Unlock()
+}
+
+// loopRunState is the per-job loop-run state guarded by runStateMu. An entry
+// exists in runStates only while a loop run is active; gracefulPending is
+// meaningful only on an existing entry, so clearing the entry (run exit) is
+// what guarantees a non-active job can never carry a pending flag.
+type loopRunState struct {
+	gracefulPending bool
 }
 
 // RequestGracefulStop marks a running loop job to stop at the next step
@@ -480,25 +506,69 @@ func (s *serviceImpl) Stop(jobID string) {
 //
 // Best-effort: if the current step never finishes (e.g. a hung LLM call), this
 // will not interrupt it — the user can escalate to a hard Stop. Idempotent.
+//
+// No-op unless the job currently has an active loop run that can consume the
+// request. The active-run check and the pending write happen under the SAME
+// runStateMu, so a run cannot exit (and drop its entry) between them: either
+// the entry is present and we set its flag, or it's gone and we no-op. This is
+// what keeps a non-running or interactive job from accumulating a stale pending
+// flag that a later run would have to clear at launch.
 func (s *serviceImpl) RequestGracefulStop(jobID string) {
-	s.gracefulStopsMu.Lock()
-	if s.gracefulStops == nil {
-		s.gracefulStops = make(map[string]struct{})
+	s.runStateMu.Lock()
+	st, ok := s.runStates[jobID]
+	if !ok {
+		s.runStateMu.Unlock()
+		return
 	}
-	s.gracefulStops[jobID] = struct{}{}
-	s.gracefulStopsMu.Unlock()
+	alreadyPending := st.gracefulPending
+	st.gracefulPending = true
+	s.runStateMu.Unlock()
+	if !alreadyPending {
+		s.publishGracefulStopPending(jobID, true)
+	}
+}
+
+// isGracefulStopPending reports whether a graceful stop is currently pending
+// for jobID. Used to synthesize the runtime-only JobProgress.GracefulStopPending
+// view field onto a Get snapshot.
+func (s *serviceImpl) isGracefulStopPending(jobID string) bool {
+	s.runStateMu.Lock()
+	defer s.runStateMu.Unlock()
+	st, ok := s.runStates[jobID]
+	return ok && st.gracefulPending
+}
+
+// publishGracefulStopPending broadcasts the runtime-only graceful-stop pending
+// state as a transient SSE event so other connected tabs update their "stop
+// after step" / "keep running" affordance live. Transient (not buffered): the
+// flag is never persisted, and a refresh re-reads it from the Get snapshot.
+func (s *serviceImpl) publishGracefulStopPending(jobID string, pending bool) {
+	s.PublishTransient(jobID, &model.CustomEvent{
+		BaseEvent: model.BaseEvent{
+			Type: model.EventTypeCustom, JobID: jobID,
+			Timestamp: nowMillis(),
+		},
+		Name:  "graceful_stop_pending",
+		Value: map[string]any{"pending": pending},
+	})
 }
 
 // consumeGracefulStop reports whether a graceful stop was requested for jobID
 // and clears the flag. Called by runFlowNodes at each step boundary.
 func (s *serviceImpl) consumeGracefulStop(jobID string) bool {
-	s.gracefulStopsMu.Lock()
-	defer s.gracefulStopsMu.Unlock()
-	if _, ok := s.gracefulStops[jobID]; ok {
-		delete(s.gracefulStops, jobID)
-		return true
+	s.runStateMu.Lock()
+	st, ok := s.runStates[jobID]
+	consumed := ok && st.gracefulPending
+	if consumed {
+		st.gracefulPending = false
 	}
-	return false
+	s.runStateMu.Unlock()
+	if consumed {
+		// The pending request is now consumed (the loop is stopping); tell
+		// connected tabs so they drop the "keep running" affordance.
+		s.publishGracefulStopPending(jobID, false)
+	}
+	return consumed
 }
 
 // CancelGracefulStop drops a pending graceful-stop request so the loop keeps
@@ -508,13 +578,22 @@ func (s *serviceImpl) CancelGracefulStop(jobID string) {
 	s.clearGracefulStop(jobID)
 }
 
-// clearGracefulStop drops any pending graceful-stop request for jobID. Called
-// at run launch so a stale request from a previous run can't immediately stop a
-// freshly started/continued run.
+// clearGracefulStop drops any pending graceful-stop request for jobID without
+// removing the run entry itself. Called by Stop (hard-stop escalation) and
+// CancelGracefulStop. Broadcasts the cleared state only when a request was
+// actually pending so connected tabs drop the "keep running" affordance
+// without spamming no-op events.
 func (s *serviceImpl) clearGracefulStop(jobID string) {
-	s.gracefulStopsMu.Lock()
-	delete(s.gracefulStops, jobID)
-	s.gracefulStopsMu.Unlock()
+	s.runStateMu.Lock()
+	st, ok := s.runStates[jobID]
+	wasPending := ok && st.gracefulPending
+	if wasPending {
+		st.gracefulPending = false
+	}
+	s.runStateMu.Unlock()
+	if wasPending {
+		s.publishGracefulStopPending(jobID, false)
+	}
 }
 
 // StopAndWait cancels a running job and blocks until its runLoop goroutine exits
@@ -650,31 +729,51 @@ func (s *serviceImpl) abortRunResources(jobID string, res *runResources) {
 // were already registered (before the persist barrier) by prepareRunResources.
 func (s *serviceImpl) launchLoop(job *model.Job, runner JobRunner, cfg *model.LoopConfig, res *runResources) {
 	safe.Go(res.ctx, func() {
+		// clearLoopRun removes the run entry on exit for ANY reason (completion,
+		// failure, timeout, panic, hard cancel) and broadcasts a cleared
+		// graceful-stop state if one was still pending — so an abnormal exit
+		// can't leave a stale flag that Get keeps synthesizing onto the terminal
+		// snapshot. consumeGracefulStop handles the clean step-boundary case.
 		defer s.clearLoopRun(job.ID)
 		defer s.cleanupDone(job.ID, res.done)
 		s.runLoop(res.ctx, job, runner, cfg, res.entry)
 	})
 }
 
+// markLoopRun records that a loop run is active for jobID, creating the
+// runStates entry that RequestGracefulStop / consumeGracefulStop key off of.
 func (s *serviceImpl) markLoopRun(jobID string) {
-	s.loopRunsMu.Lock()
-	if s.loopRuns == nil {
-		s.loopRuns = make(map[string]struct{})
+	s.runStateMu.Lock()
+	if s.runStates == nil {
+		s.runStates = make(map[string]*loopRunState)
 	}
-	s.loopRuns[jobID] = struct{}{}
-	s.loopRunsMu.Unlock()
+	if _, ok := s.runStates[jobID]; !ok {
+		s.runStates[jobID] = &loopRunState{}
+	}
+	s.runStateMu.Unlock()
 }
 
+// clearLoopRun removes the run entry for jobID when the loop run exits. Removing
+// the entry necessarily drops any pending graceful-stop flag it held; if a flag
+// was pending, broadcast the cleared state so connected tabs drop the "keep
+// running" affordance. Because the active-run check and the pending write in
+// RequestGracefulStop share runStateMu, no request can slip a pending flag onto
+// this jobID after the entry is gone.
 func (s *serviceImpl) clearLoopRun(jobID string) {
-	s.loopRunsMu.Lock()
-	delete(s.loopRuns, jobID)
-	s.loopRunsMu.Unlock()
+	s.runStateMu.Lock()
+	st, ok := s.runStates[jobID]
+	wasPending := ok && st.gracefulPending
+	delete(s.runStates, jobID)
+	s.runStateMu.Unlock()
+	if wasPending {
+		s.publishGracefulStopPending(jobID, false)
+	}
 }
 
 func (s *serviceImpl) IsGracefulStopSupported(jobID string) bool {
-	s.loopRunsMu.Lock()
-	defer s.loopRunsMu.Unlock()
-	_, ok := s.loopRuns[jobID]
+	s.runStateMu.Lock()
+	defer s.runStateMu.Unlock()
+	_, ok := s.runStates[jobID]
 	return ok
 }
 

@@ -74,6 +74,7 @@ var jobErrMappings = []httputil.ErrorMapping{
 	{Err: job.ErrLoopConfigInvalid, Status: http.StatusBadRequest},
 	{Err: job.ErrGracefulStopUnsupported, Status: http.StatusConflict},
 	{Err: job.ErrLoopStructureChanged, Status: http.StatusConflict},
+	{Err: job.ErrLoopVariablesChanged, Status: http.StatusConflict},
 }
 
 func (h *Handler) JobStart(ctx context.Context, c *app.RequestContext) {
@@ -197,7 +198,7 @@ func (h *Handler) JobUpdateLoopConfig(ctx context.Context, c *app.RequestContext
 	var req model.UpdateLoopConfigRequest
 	if err := c.BindJSON(&req); err != nil {
 		logger.Warnf(ctx, "[job] update loop config: parse request failed: jobId=%s err=%v", jobID, err)
-		httputil.BadRequest(c, "Invalid request body")
+		httputil.BadRequest(c, fmt.Sprintf("invalid request body: %v", err))
 		return
 	}
 	if req.LoopConfig == nil {
@@ -216,8 +217,7 @@ func (h *Handler) JobUpdateLoopConfig(ctx context.Context, c *app.RequestContext
 	}
 
 	if j.Status == model.JobStatusRunning {
-		model.MigrateLoopConfig(req.LoopConfig)
-		err := h.jobService.UpdateRunningStepFields(ctx, j.ID, req.LoopConfig.Flow)
+		err := h.jobService.UpdateRunningStepFields(ctx, j.ID, req.LoopConfig)
 		// The status snapshot can go stale: the loop may have finished between
 		// Get and the service call. UpdateRunningStepFields re-checks under the
 		// lock and reports ErrJobNotRunning in that case — fall through to the
@@ -280,7 +280,7 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 	if len(c.Request.Body()) > 0 {
 		if err := c.BindJSON(&req); err != nil {
 			logger.Warnf(ctx, "[job] stop: parse request failed: jobId=%s err=%v", jobID, err)
-			httputil.BadRequest(c, "Invalid request body")
+			httputil.BadRequest(c, fmt.Sprintf("invalid request body: %v", err))
 			return
 		}
 	}
