@@ -71,6 +71,8 @@ var jobErrMappings = []httputil.ErrorMapping{
 	{Err: job.ErrNoLoopConfig, Status: http.StatusBadRequest},
 	{Err: job.ErrNoResumable, Status: http.StatusBadRequest},
 	{Err: job.ErrEmptyMessage, Status: http.StatusBadRequest},
+	{Err: job.ErrLoopConfigInvalid, Status: http.StatusBadRequest},
+	{Err: job.ErrGracefulStopUnsupported, Status: http.StatusConflict},
 	{Err: job.ErrLoopStructureChanged, Status: http.StatusConflict},
 }
 
@@ -251,13 +253,13 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	job, ok := h.jobService.Get(jobID)
+	j, ok := h.jobService.Get(jobID)
 	if !ok {
 		httputil.NotFound(c, "job not found")
 		return
 	}
 
-	if job.Status != model.JobStatusRunning {
+	if j.Status != model.JobStatusRunning {
 		c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopped"})
 		return
 	}
@@ -267,19 +269,38 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 	// graceful stop (let the current step finish, then stop at the next step
 	// boundary with resume preserved). The graceful request returns immediately
 	// — the loop stops at its own pace at the next boundary, so there is no
-	// goroutine to wait on. BindJSON tolerates an empty body (defaults false).
+	// goroutine to wait on. { "graceful": true, "cancel": true } instead drops a
+	// pending graceful-stop request so the loop keeps running. Empty body
+	// defaults to hard stop; malformed non-empty JSON is rejected so a broken
+	// graceful request cannot silently become hard stop.
 	var req struct {
 		Graceful bool `json:"graceful"`
+		Cancel   bool `json:"cancel"`
 	}
-	_ = c.BindJSON(&req)
+	if len(c.Request.Body()) > 0 {
+		if err := c.BindJSON(&req); err != nil {
+			logger.Warnf(ctx, "[job] stop: parse request failed: jobId=%s err=%v", jobID, err)
+			httputil.BadRequest(c, "Invalid request body")
+			return
+		}
+	}
 
 	if req.Graceful {
-		h.jobService.RequestGracefulStop(job.ID)
+		if !h.jobService.IsGracefulStopSupported(j.ID) {
+			httputil.MapError(c, job.ErrGracefulStopUnsupported, jobErrMappings)
+			return
+		}
+		if req.Cancel {
+			h.jobService.CancelGracefulStop(j.ID)
+			c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "running"})
+			return
+		}
+		h.jobService.RequestGracefulStop(j.ID)
 		c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopping"})
 		return
 	}
 
-	if err := h.stopAndWait(ctx, job); err != nil {
+	if err := h.stopAndWait(ctx, j); err != nil {
 		logger.Errorf(ctx, "[job] stop failed: jobId=%s err=%v", jobID, err)
 	}
 	c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopped"})

@@ -107,6 +107,10 @@
       "session": "Session {{current}} / {{total}}",
       "step": "Step {{current}} / {{total}}"
     },
+    "stop": {
+      "gracefulRequested": "Will stop after the current step finishes",
+      "gracefulCancelled": "Stop cancelled, the loop keeps running"
+    },
     "template": {
       "label": "Template",
       "placeholder": "Select template...",
@@ -337,8 +341,7 @@
         "promptLabel": "Evaluation prompt",
         "promptHint": "Describe \"what counts as done\"; the output protocol is appended automatically.",
         "promptPlaceholder": "e.g. all tests pass, code review found no issues, no new problems found…",
-        "warnEmptySession": "A preceding business step starts a new session (beforeRound / eachRepeat), so this \"none\" evaluator gets an empty session and can't see this round's output. Keep this round's business steps and the evaluator in the same session.",
-        "warnContinueOnError": "Some business steps don't have ContinueOnError: a business-step failure fails the job and the evaluator never runs. For \"fix until tests pass\" loops, enable ContinueOnError on the steps that may fail."
+        "warnEmptySession": "A preceding business step starts a new session (beforeRound / eachRepeat), so this \"none\" evaluator gets an empty session and can't see this round's output. Keep this round's business steps and the evaluator in the same session."
       }
     },
     "edit": {

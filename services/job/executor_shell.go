@@ -436,17 +436,6 @@ func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, ru
 				job.ID, shellFilteredEnvKeysForLog(filteredEnvKeys), len(filteredEnvKeys), envShellPassthrough)
 		}
 
-		if node.ContinueOnError {
-			// ContinueOnError: record the failure AND advance resume so that
-			// a subsequent Stop+Continue does not re-execute this step.
-			logger.Warnf(ctx,
-				"[shell] run failed (continueOnError=true, skipping): jobId=%s path=%v scriptFile=%s workdir=%s err=%v outputTail=%q",
-				job.ID, path, scriptFile, workdir, cmdErr, tail)
-			result := buildShellIterationResult(path, sessionID, accumulatedOutput, cmdErr, durationMs)
-			s.recordIterationAndAdvanceResume(job, result, nextResume)
-			return stepCompleted
-		}
-
 		// Hard failure: record the failed iteration; failJob below issues the
 		// terminal persist so combining record + resume saves nothing here.
 		s.recordShellIterationResult(job, path, sessionID, accumulatedOutput, cmdErr, durationMs)

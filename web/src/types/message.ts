@@ -105,8 +105,6 @@ export interface FlowNode {
   agentType?: string;
   modelId?: string;
   acpMode?: string;
-  // When true, a failed step is recorded but does not fail the entire job.
-  continueOnError?: boolean;
   // Group fields
   iterationCount?: number;
   children?: FlowNode[];

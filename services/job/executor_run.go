@@ -64,7 +64,7 @@ func (s *serviceImpl) Start(ctx context.Context, jobID string, runner JobRunner)
 	// Delete arriving during the persist window cannot miss the cancel
 	// registration (which would orphan the runLoop goroutine and let it
 	// resurrect the job dir on disk after Delete cleaned it up).
-	res := s.prepareRunResources(jobID, startCtx.timeoutMinutes)
+	res := s.prepareRunResources(jobID, startCtx.timeoutMinutes, true)
 	if err := s.saveJobWithRetryLocked(ctx, job, "start"); err != nil {
 		s.abortRunResources(jobID, res)
 		s.restoreRunStateAfterPersistFailure(ctx, job, prevRunState, "start", err)
@@ -155,7 +155,7 @@ func (s *serviceImpl) Continue(ctx context.Context, jobID string, runner JobRunn
 		timeoutMinutes: loopTimeoutMinutes(job),
 	}
 	s.mu.Unlock()
-	res := s.prepareRunResources(jobID, startCtx.timeoutMinutes)
+	res := s.prepareRunResources(jobID, startCtx.timeoutMinutes, true)
 	if err := s.saveJobWithRetryLocked(ctx, job, "continue"); err != nil {
 		s.abortRunResources(jobID, res)
 		s.restoreRunStateAfterPersistFailure(ctx, job, prevRunState, "continue", err)
@@ -241,7 +241,7 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	// Register cancel/done BEFORE saveJobWithRetry so a concurrent Stop /
 	// Delete arriving during the persist window cannot miss the cancel
 	// registration. Mirrors the same fix in Start / Continue.
-	res := s.prepareRunResources(job.ID, 0)
+	res := s.prepareRunResources(job.ID, 0, false)
 	if err := s.saveJobWithRetryLocked(ctx, job, "send_message_start"); err != nil {
 		s.abortRunResources(job.ID, res)
 		s.restoreRunStateAfterPersistFailure(ctx, job, prevRunState, "send_message_start", err)
@@ -501,6 +501,13 @@ func (s *serviceImpl) consumeGracefulStop(jobID string) bool {
 	return false
 }
 
+// CancelGracefulStop drops a pending graceful-stop request so the loop keeps
+// running. Thin exported wrapper over clearGracefulStop for the HTTP handler;
+// no-op if nothing is pending.
+func (s *serviceImpl) CancelGracefulStop(jobID string) {
+	s.clearGracefulStop(jobID)
+}
+
 // clearGracefulStop drops any pending graceful-stop request for jobID. Called
 // at run launch so a stale request from a previous run can't immediately stop a
 // freshly started/continued run.
@@ -600,7 +607,7 @@ type runResources struct {
 // prepareRunResources allocates and registers the cancel/done tracking for a
 // new run. Pass timeoutMinutes > 0 to wrap the context with a deadline (used
 // for scheduled loops); pass 0 for interactive sends and unbounded loops.
-func (s *serviceImpl) prepareRunResources(jobID string, timeoutMinutes int) *runResources {
+func (s *serviceImpl) prepareRunResources(jobID string, timeoutMinutes int, loopRun bool) *runResources {
 	// Reset the per-job notifyJobDone dedup flag so a re-launched jobID
 	// (Continue after Stopped, Start after a previous terminal) can emit a
 	// fresh done event. Interactive sends don't call notifyJobDone but we
@@ -609,6 +616,11 @@ func (s *serviceImpl) prepareRunResources(jobID string, timeoutMinutes int) *run
 	// Drop any stale graceful-stop request so it can't immediately stop a
 	// freshly started / continued run before its first step boundary.
 	s.clearGracefulStop(jobID)
+	if loopRun {
+		s.markLoopRun(jobID)
+	} else {
+		s.clearLoopRun(jobID)
+	}
 
 	var ctx context.Context
 	var cancel context.CancelFunc
@@ -631,15 +643,39 @@ func (s *serviceImpl) prepareRunResources(jobID string, timeoutMinutes int) *run
 func (s *serviceImpl) abortRunResources(jobID string, res *runResources) {
 	s.clearCancel(jobID, res.entry)
 	s.cleanupDone(jobID, res.done)
+	s.clearLoopRun(jobID)
 }
 
 // launchLoop spawns the runLoop goroutine using cancel/done resources that
 // were already registered (before the persist barrier) by prepareRunResources.
 func (s *serviceImpl) launchLoop(job *model.Job, runner JobRunner, cfg *model.LoopConfig, res *runResources) {
 	safe.Go(res.ctx, func() {
+		defer s.clearLoopRun(job.ID)
 		defer s.cleanupDone(job.ID, res.done)
 		s.runLoop(res.ctx, job, runner, cfg, res.entry)
 	})
+}
+
+func (s *serviceImpl) markLoopRun(jobID string) {
+	s.loopRunsMu.Lock()
+	if s.loopRuns == nil {
+		s.loopRuns = make(map[string]struct{})
+	}
+	s.loopRuns[jobID] = struct{}{}
+	s.loopRunsMu.Unlock()
+}
+
+func (s *serviceImpl) clearLoopRun(jobID string) {
+	s.loopRunsMu.Lock()
+	delete(s.loopRuns, jobID)
+	s.loopRunsMu.Unlock()
+}
+
+func (s *serviceImpl) IsGracefulStopSupported(jobID string) bool {
+	s.loopRunsMu.Lock()
+	defer s.loopRunsMu.Unlock()
+	_, ok := s.loopRuns[jobID]
+	return ok
 }
 
 type cancelEntry struct {

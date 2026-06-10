@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/cloudwego/eino/schema"
@@ -34,18 +35,7 @@ func loopEditTestJob(svc *serviceImpl, status model.JobStatus) *model.Job {
 }
 
 func cloneFlow(f []model.FlowNode) []model.FlowNode {
-	return deepCopyFlowNodesForTest(f)
-}
-
-func deepCopyFlowNodesForTest(nodes []model.FlowNode) []model.FlowNode {
-	out := make([]model.FlowNode, len(nodes))
-	for i, n := range nodes {
-		out[i] = n
-		if len(n.Children) > 0 {
-			out[i].Children = deepCopyFlowNodesForTest(n.Children)
-		}
-	}
-	return out
+	return model.DeepCopyFlowNodes(f)
 }
 
 func TestUpdateRunningStepFields_FieldsOnly(t *testing.T) {
@@ -174,6 +164,79 @@ func TestReplaceLoopConfig_KeepsValidResume(t *testing.T) {
 	}
 }
 
+func TestReplaceLoopConfig_ReconcilesByNodeID(t *testing.T) {
+	svc := newStateTestService()
+	job := loopEditTestJob(svc, model.JobStatusStopped)
+	job.Progress.Results = []model.IterationResult{
+		{Path: []int{0, 0, 0, 0}, Success: true, SessionID: "old-s1"},
+		{Path: []int{0, 0, 1, 0}, Success: true, SessionID: "old-s2"},
+	}
+	job.Progress.CompletedCount = 2
+	job.Progress.CurrentPath = []int{0, 0, 0, 0}
+	job.Resume = &model.JobResume{NextPath: []int{0, 0, 0, 0}, SessionID: "old-s1"}
+
+	newFlow := cloneFlow(job.LoopConfig.Flow)
+	newFlow[0].Children[0].ID = "s1-replaced"
+	newFlow[0].Children[0].Message = "new step at old path"
+
+	progress, err := svc.ReplaceLoopConfig(context.Background(), job.ID, &model.LoopConfig{Flow: newFlow})
+	if err != nil {
+		t.Fatalf("ReplaceLoopConfig: %v", err)
+	}
+	if svc.jobs[job.ID].Resume != nil {
+		t.Fatalf("resume for replaced node should be cleared, got %+v", svc.jobs[job.ID].Resume)
+	}
+	if progress.CurrentPath != nil {
+		t.Fatalf("currentPath for replaced node should be cleared, got %v", progress.CurrentPath)
+	}
+	if len(progress.Results) != 1 || !model.EqualPaths(progress.Results[0].Path, []int{0, 0, 1, 0}) {
+		t.Fatalf("results = %+v, want only unchanged s2 result", progress.Results)
+	}
+	if progress.CompletedCount != 1 || progress.FailedCount != 0 {
+		t.Fatalf("counts completed=%d failed=%d, want 1/0", progress.CompletedCount, progress.FailedCount)
+	}
+}
+
+func TestReplaceLoopConfig_CopiesInputOwnership(t *testing.T) {
+	svc := newStateTestService()
+	job := loopEditTestJob(svc, model.JobStatusStopped)
+
+	cfg := &model.LoopConfig{
+		Flow:      cloneFlow(job.LoopConfig.Flow),
+		Variables: map[string]string{"user": "before"},
+	}
+	if _, err := svc.ReplaceLoopConfig(context.Background(), job.ID, cfg); err != nil {
+		t.Fatalf("ReplaceLoopConfig: %v", err)
+	}
+
+	cfg.Flow[0].Children[0].Message = "mutated-after-return"
+	cfg.Variables["user"] = "after"
+
+	got := svc.jobs[job.ID].LoopConfig
+	if got.Flow[0].Children[0].Message == "mutated-after-return" {
+		t.Fatalf("live flow aliases caller-owned cfg.Flow")
+	}
+	if got.Variables["user"] != "before" {
+		t.Fatalf("live variables alias caller-owned cfg.Variables: %+v", got.Variables)
+	}
+}
+
+func TestLoopConfigValidationErrorsAreMappedSentinel(t *testing.T) {
+	svc := newStateTestService()
+	job := loopEditTestJob(svc, model.JobStatusStopped)
+
+	_, err := svc.ReplaceLoopConfig(context.Background(), job.ID, &model.LoopConfig{Flow: nil})
+	if !errors.Is(err, ErrLoopConfigInvalid) {
+		t.Fatalf("ReplaceLoopConfig err=%v, want ErrLoopConfigInvalid", err)
+	}
+
+	running := loopEditTestJob(svc, model.JobStatusRunning)
+	err = svc.UpdateRunningStepFields(context.Background(), running.ID, nil)
+	if !errors.Is(err, ErrLoopConfigInvalid) {
+		t.Fatalf("UpdateRunningStepFields err=%v, want ErrLoopConfigInvalid", err)
+	}
+}
+
 // gracefulStopRunner requests a graceful stop on the Nth RunIteration call, so
 // the test can assert the loop stops at the boundary after that step.
 type gracefulStopRunner struct {
@@ -242,8 +305,25 @@ func TestGracefulStop_StopsAtNextBoundary(t *testing.T) {
 func TestGracefulStop_ClearedAtLaunch(t *testing.T) {
 	svc := newStateTestService()
 	svc.RequestGracefulStop("job-x")
+	svc.markLoopRun("job-x")
+	if !svc.IsGracefulStopSupported("job-x") {
+		t.Fatalf("loop run should support graceful stop")
+	}
 	svc.clearGracefulStop("job-x")
+	svc.clearLoopRun("job-x")
 	if svc.consumeGracefulStop("job-x") {
 		t.Errorf("clearGracefulStop should drop the pending request")
+	}
+	if svc.IsGracefulStopSupported("job-x") {
+		t.Errorf("clearLoopRun should make graceful stop unsupported")
+	}
+}
+
+func TestGracefulStop_UnsupportedForInteractiveRun(t *testing.T) {
+	svc := newStateTestService()
+	res := svc.prepareRunResources("job-interactive", 0, false)
+	defer svc.abortRunResources("job-interactive", res)
+	if svc.IsGracefulStopSupported("job-interactive") {
+		t.Fatalf("interactive run should not support graceful stop")
 	}
 }

@@ -172,6 +172,55 @@ func BuildStepPathSet(nodes []FlowNode) StepPathSet {
 	return StepPathSet{keys: keys}
 }
 
+// BuildStepPathNodeIDMap enumerates all executable leaf step paths and records
+// the FlowNode ID that owns each path. Repeat paths for the same step all map
+// to the same node ID. This is used by LoopConfig reconciliation to distinguish
+// "same execution slot, same step" from "same path now points at a different
+// step" after an edit.
+func BuildStepPathNodeIDMap(nodes []FlowNode) map[string]string {
+	out := make(map[string]string)
+	buildStepPathNodeIDMap(nodes, nil, out)
+	return out
+}
+
+func buildStepPathNodeIDMap(nodes []FlowNode, basePath []int, out map[string]string) {
+	for i, n := range nodes {
+		switch n.Type {
+		case FlowNodeTypeStep:
+			rc := n.RepeatCount
+			if rc < 1 {
+				rc = 1
+			}
+			for r := 0; r < rc; r++ {
+				p := make([]int, len(basePath)+2)
+				copy(p, basePath)
+				p[len(basePath)] = i
+				p[len(basePath)+1] = r
+				out[stepPathKey(p)] = n.ID
+			}
+		case FlowNodeTypeGroup:
+			ic := n.IterationCount
+			if ic < 1 {
+				ic = 1
+			}
+			for iter := 0; iter < ic; iter++ {
+				groupPath := make([]int, len(basePath)+2)
+				copy(groupPath, basePath)
+				groupPath[len(basePath)] = i
+				groupPath[len(basePath)+1] = iter
+				buildStepPathNodeIDMap(n.Children, groupPath, out)
+			}
+		}
+	}
+}
+
+// StepPathKey renders a path as a stable string key for callers that need to
+// join data returned by BuildStepPathNodeIDMap. Empty path means "before the
+// first step".
+func StepPathKey(path []int) string {
+	return stepPathKey(path)
+}
+
 // Contains reports whether path resolves to a real leaf step in the flow the
 // set was built from. Mirrors IsValidStepPath's empty-path semantics.
 func (s StepPathSet) Contains(path []int) bool {

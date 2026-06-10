@@ -51,13 +51,13 @@ evaluator 是一等 FlowNode，类型上与 `prompt` / `shell` 并列（`RoundTy
 
 evaluator 结点本质是普通 prompt step，因此**失败语义完全回归现有标准**，不再有「conditional group 内失败不 failJob」的特化：
 
-- 任何业务 step（含 evaluator）失败默认 failJob；要「失败也继续循环修复」，在会失败的 step 上勾选现有的 `ContinueOnError` 开关。
-- **删除 `inConditional` 整条链路**：`runFlowNodes` / `executeRepeat` / `executeShellRepeat` 不再携带 `inConditional` 参数，删除「conditional 子树内业务失败记录后继续」的分支。失败处理只剩两条既有路径：默认 failJob、或 `ContinueOnError` 记录后继续。
-- 代价：「修复到测试通过」场景需要用户自己在修复 step 上勾 `ContinueOnError`。收益：更通用、更可预期，彻底去掉一条与「不特化」相悖的隐式语义。
+- 任何业务 step（含 evaluator）失败一律 failJob，整个任务中断（resume 保留，用户可手动 Continue 重试）。
+- **删除 `inConditional` 整条链路**：`runFlowNodes` / `executeRepeat` / `executeShellRepeat` 不再携带 `inConditional` 参数，删除「conditional 子树内业务失败记录后继续」的分支。失败处理只剩一条既有路径：failJob。
+- 收益：更通用、更可预期，彻底去掉一条与「不特化」相悖的隐式语义。
 
 ## 3. 数据模型
 
-- **新增 `RoundType: "evaluator"`**：与 `prompt` / `shell` 并列。evaluator 结点的 `Message` 字段存用户填写的评估 prompt（语义同普通 prompt step 的 message）。其余字段（`roundMode` / `agentType` / `modelId` / `acpMode` / `repeatCount` / `continueOnError`）含义与普通 prompt step 一致。
+- **新增 `RoundType: "evaluator"`**：与 `prompt` / `shell` 并列。evaluator 结点的 `Message` 字段存用户填写的评估 prompt（语义同普通 prompt step 的 message）。其余字段（`roundMode` / `agentType` / `modelId` / `acpMode` / `repeatCount`）含义与普通 prompt step 一致。
 - **删除 group 上的 `CompletionCondition` 字段**：其语义整体迁移到 evaluator 结点。group 回归纯固定次数模型，`iterationCount` 始终是循环次数（含 evaluator 时天然为上限）。不再有「conditional group」这个存储概念。
 - **不新增独立判定模型字段、无重试上限配置**（判停保守、不重试，§2.2 / §2.3）。
 - **不新增阶段化恢复模型、不持久化轮次光标**：evaluator 走普通 step 的进度 / 恢复链路，恢复模型无需新增结构。
@@ -126,7 +126,6 @@ evaluator 的 session 选择与普通 prompt step **完全一致**，纯由它�
 
 **配置引导（非阻断的软提示，§2.4 / §5.3 的直接后果）**：
 
-- **修复类循环**：删除 `inConditional` 后，业务步失败会直接 failJob、evaluator 根本不会执行。要实现「修复到测试通过」这类循环，必须在会失败的业务步上勾 `ContinueOnError`。前端在「group 内含 evaluator、但存在未勾 `ContinueOnError` 的业务步」时给出引导提示。
 - **评估上下文**：在「group 内含 `none` 的 evaluator、但前序业务步是 `eachRepeat` / `beforeRound`」时警告——evaluator 会在新建的空 session 里判定，看不到本轮业务产出（§5.3）。
 
 ## 7. 配置项默认值与范围
@@ -150,17 +149,17 @@ evaluator 的 session 选择与普通 prompt step **完全一致**，纯由它�
 | 执行层：`executeRepeat` 内 evaluator 分支 | 已完成 | 发送前追加协议后缀；跑完解析最后一行，命中 STOP 返回 stepStopLoop，否则 stepCompleted（§4） |
 | 执行层：复用 prompt builder / parser | 已完成 | `buildEvaluatorPrompt` 协议后缀 builder + `parseEvaluatorDecision` 最后一行 parser（保守判停，§2.2） |
 | 执行层：删除 `runJudgeTurn` 及判定回合特化 | 已完成 | 不再有独立判定回合 / isJudge SSE 标记（§2.1） |
-| 执行层：删除 `inConditional` 整条链路（方案 A） | 已完成 | `runFlowNodes` / `executeRepeat` / `executeShellRepeat` 去参；失败语义回归标准 failJob / ContinueOnError（§2.4） |
+| 执行层：删除 `inConditional` 整条链路（方案 A） | 已完成 | `runFlowNodes` / `executeRepeat` / `executeShellRepeat` 去参；失败语义回归标准 failJob（§2.4） |
 | 执行层：分母回填 + Continue 泛化到任意 stepStopLoop | 已完成 | `backfillGroupTotal` / `advanceResumePastGroup` 覆盖 evaluator 与 Shell `STOP_LOOP`（§5.2 / §5.4） |
 | 前端：新增 evaluator 结点类型 + 添加入口 + 编辑器 | 已完成 | 与 add step / add group 并列；评估 prompt textarea + 通用 roundMode/agent/model/repeatCount（§6） |
 | 前端：删除 group 完成条件输入框 + judge 进度区 + isJudge badge | 已完成 | group 回归纯固定次数；evaluator 计步、进度同普通 step（§5.4 / §6） |
 | 前端：校验（evaluator 必在 group 内、prompt 非空、上限 ≥ 1） | 已完成 | 前端预校验 + 后端兜底（§6） |
-| 前端：配置软提示（修复循环需 ContinueOnError、none evaluator 接 eachRepeat 业务步会拿空 session） | 已完成 | `computeEvaluatorWarnings` 非阻断引导，§2.4 / §5.3 的直接后果（§6） |
+| 前端：配置软提示（none evaluator 接 eachRepeat 业务步会拿空 session） | 已完成 | `computeEvaluatorWarnings` 非阻断引导，§5.3 的直接后果（§6） |
 | 验证 | 已完成 | 自动化已全绿并于 2026-06-10 复核（全部 uncached）：`go build ./...`、`go test -count=1 ./services/job/... ./types/model/...`、前端组件测试（vitest 43/43）、`tsc -b` + `vite build` 均通过；`executor_evaluator_test.go`、`flow_node_test.go` evaluator 用例均在内。**仅剩真实链路（`make web` + 真实模型）smoke 待用户重启后跑**。见下 |
 
 **验证策略**：
 
-- **Go 单测（主力）**：复用现有 loop executor 的 fake runner（可注入 STOP / 未完成 / 格式非法输出），覆盖：evaluator 命中 STOP 跳出 group 落到后续兄弟节点、未命中进下一轮、格式非法 / 漏标记一律当继续、跑满上限正常结束、evaluator 正常计步且写 IterationResult、提前 break 时分母回填为实际轮次、evaluator 失败走标准 failJob / ContinueOnError、Shell STOP 与 evaluator 优先级、不含 evaluator 的 group 走老逻辑零变化。
+- **Go 单测（主力）**：复用现有 loop executor 的 fake runner（可注入 STOP / 未完成 / 格式非法输出），覆盖：evaluator 命中 STOP 跳出 group 落到后续兄弟节点、未命中进下一轮、格式非法 / 漏标记一律当继续、跑满上限正常结束、evaluator 正常计步且写 IterationResult、提前 break 时分母回填为实际轮次、evaluator 失败走标准 failJob、Shell STOP 与 evaluator 优先级、不含 evaluator 的 group 走老逻辑零变化。
 - **前端组件（vitest / RTL）**：evaluator 结点添加 / 编辑、Outline 渲染、校验、进度区不再有 judge 专属展示。
 - **真实链路（`make web` + 真实模型，少量 smoke）**：happy path（修复到测试通过 / review 到无问题）。
 

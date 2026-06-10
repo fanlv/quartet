@@ -428,20 +428,6 @@ func (s *serviceImpl) closePanicRoundIfOpen(job *model.Job, panicErr error) {
 	})
 }
 
-// recordFailedIterationAndAdvanceResume records a failed iteration AND advances
-// the resume pointer in a single persist. Used by the tryCreateSession failure
-// path so the "skip + advance" sequence is one save instead of two.
-func (s *serviceImpl) recordFailedIterationAndAdvanceResume(job *model.Job, path []int, sessionID string, err error, nextResume *model.JobResume) {
-	result := model.IterationResult{
-		Path:      model.CopyPath(path),
-		SessionID: sessionID,
-		Success:   false,
-		Error:     err.Error(),
-	}
-	s.appendAndSaveResult(job, result, nextResume, true)
-	s.publishIterationEvent(job.ID, &result)
-}
-
 // persistIterationStart records the iteration path on job.Progress.CurrentPath
 // and persists job.json BEFORE the caller publishes IterationStarted.
 // Required by the §1.4 write-order contract: B-class state must reach disk

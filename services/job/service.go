@@ -94,6 +94,14 @@ type Service interface {
 	// cancel the context or interrupt the current step. No-op if the job is not
 	// running; the request is cleared when the run relaunches.
 	RequestGracefulStop(jobID string)
+	// CancelGracefulStop drops a pending graceful-stop request so the loop keeps
+	// running. No-op if no request is pending. Only meaningful before the request
+	// is consumed at the next step boundary; once consumed the loop has already
+	// stopped and the user must Continue instead.
+	CancelGracefulStop(jobID string)
+	// IsGracefulStopSupported reports whether the current active run can consume
+	// a graceful-stop request. Loop runs can; interactive SendMessage runs cannot.
+	IsGracefulStopSupported(jobID string) bool
 	// StopAndWait cancels a running job and blocks until its runLoop goroutine exits.
 	StopAndWait(jobID string)
 	// StopAll cancels all running jobs and waits for their goroutines to exit.
@@ -167,6 +175,7 @@ func NewService(wsSvc workspace.Service, scriptSvc script.Service) (Service, err
 		wsListVersion:          make(map[string]int64),
 		notifiedJobs:           make(map[string]struct{}),
 		gracefulStops:          make(map[string]struct{}),
+		loopRuns:               make(map[string]struct{}),
 	}
 
 	s.load()

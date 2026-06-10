@@ -34,10 +34,10 @@ func (s *serviceImpl) ReplaceLoopConfig(ctx context.Context, jobID string, cfg *
 	// Normalize + validate outside the locks (pure, no shared state).
 	model.MigrateLoopConfig(cfg)
 	if len(cfg.Flow) == 0 {
-		return nil, fmt.Errorf("loopConfig.flow must not be empty")
+		return nil, fmt.Errorf("%w: loopConfig.flow must not be empty", ErrLoopConfigInvalid)
 	}
 	if err := model.ValidateFlow(cfg.Flow, 0); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrLoopConfigInvalid, err)
 	}
 
 	lock := s.persistLock(jobID)
@@ -60,11 +60,17 @@ func (s *serviceImpl) ReplaceLoopConfig(ctx context.Context, jobID string, cfg *
 	}
 	cp := existing.DeepCopy()
 	s.mu.Unlock()
+	var oldFlow []model.FlowNode
+	if cp.LoopConfig != nil {
+		oldFlow = cp.LoopConfig.Flow
+	}
+	oldStepNodeIDs := model.BuildStepPathNodeIDMap(oldFlow)
+	newFlow := model.DeepCopyFlowNodes(cfg.Flow)
 
 	if cp.LoopConfig == nil {
 		cp.LoopConfig = &model.LoopConfig{}
 	}
-	cp.LoopConfig.Flow = cfg.Flow
+	cp.LoopConfig.Flow = newFlow
 	// Flow is now the canonical form — drop any legacy flat fields so a later
 	// MigrateLoopConfig can't resurrect a stale Rounds list over the new tree.
 	cp.LoopConfig.Rounds = nil
@@ -74,9 +80,9 @@ func (s *serviceImpl) ReplaceLoopConfig(ctx context.Context, jobID string, cfg *
 	// the existing map intact preserves user-defined template vars, and Start /
 	// Continue re-inject the builtins at runLoop entry regardless.
 	if cfg.Variables != nil {
-		cp.LoopConfig.Variables = cfg.Variables
+		cp.LoopConfig.Variables = copyStringMap(cfg.Variables)
 	}
-	reconcileProgressToFlow(cp, cfg.Flow)
+	reconcileProgressToFlow(cp, newFlow, oldStepNodeIDs)
 	cp.UpdatedAt = time.Now()
 
 	repo, err := s.getOrCreateRepo(cp.WorkspaceID)
@@ -99,7 +105,7 @@ func (s *serviceImpl) ReplaceLoopConfig(ctx context.Context, jobID string, cfg *
 	s.mu.Unlock()
 
 	s.bumpListVersion(cp.WorkspaceID)
-	logger.Debugf(ctx, "[loopcfg] replaced: jobId=%s nodes=%d totalSteps=%d", jobID, model.CountFlowNodes(cfg.Flow), cp.Progress.TotalSteps)
+	logger.Debugf(ctx, "[loopcfg] replaced: jobId=%s nodes=%d totalSteps=%d", jobID, model.CountFlowNodes(newFlow), cp.Progress.TotalSteps)
 	return cp.Progress, nil
 }
 
@@ -110,7 +116,7 @@ func (s *serviceImpl) ReplaceLoopConfig(ctx context.Context, jobID string, cfg *
 // mislocate the progress UI; stale Results would inflate the completed/failed
 // counters. Clearing Resume lets resumeForContinue recompute a fresh cursor
 // from CurrentPath on the next Continue.
-func reconcileProgressToFlow(job *model.Job, flow []model.FlowNode) {
+func reconcileProgressToFlow(job *model.Job, flow []model.FlowNode, oldStepNodeIDs map[string]string) {
 	if job.Progress == nil {
 		job.Progress = &model.JobProgress{}
 	}
@@ -121,18 +127,19 @@ func reconcileProgressToFlow(job *model.Job, flow []model.FlowNode) {
 	// re-enumerating the whole tree per path — a long Results list against a
 	// deeply-nested flow would otherwise be O(R·N).
 	valid := model.BuildStepPathSet(flow)
+	newStepNodeIDs := model.BuildStepPathNodeIDMap(flow)
 
-	if job.Resume != nil && !valid.Contains(job.Resume.NextPath) {
+	if job.Resume != nil && !sameStepIdentity(valid, oldStepNodeIDs, newStepNodeIDs, job.Resume.NextPath) {
 		job.Resume = nil
 	}
-	if !valid.Contains(job.Progress.CurrentPath) {
+	if !sameStepIdentity(valid, oldStepNodeIDs, newStepNodeIDs, job.Progress.CurrentPath) {
 		job.Progress.CurrentPath = nil
 	}
 
 	if len(job.Progress.Results) > 0 {
 		kept := job.Progress.Results[:0]
 		for _, r := range job.Progress.Results {
-			if valid.Contains(r.Path) {
+			if sameStepIdentity(valid, oldStepNodeIDs, newStepNodeIDs, r.Path) {
 				kept = append(kept, r)
 			}
 		}
@@ -146,11 +153,35 @@ func reconcileProgressToFlow(job *model.Job, flow []model.FlowNode) {
 	job.Progress.GroupActualIterations = nil
 }
 
+func sameStepIdentity(valid model.StepPathSet, oldStepNodeIDs, newStepNodeIDs map[string]string, path []int) bool {
+	if len(path) == 0 {
+		return true
+	}
+	if !valid.Contains(path) {
+		return false
+	}
+	key := model.StepPathKey(path)
+	oldID, oldOK := oldStepNodeIDs[key]
+	newID, newOK := newStepNodeIDs[key]
+	return oldOK && newOK && oldID == newID
+}
+
+func copyStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]string, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
 // UpdateRunningStepFields applies per-step editable fields onto a running job's
 // live flow. See the Service interface for the contract.
 func (s *serviceImpl) UpdateRunningStepFields(ctx context.Context, jobID string, newFlow []model.FlowNode) error {
 	if len(newFlow) == 0 {
-		return fmt.Errorf("loopConfig.flow must not be empty")
+		return fmt.Errorf("%w: loopConfig.flow must not be empty", ErrLoopConfigInvalid)
 	}
 	// Validate the editable fields up front (pure, no shared state). The
 	// structure is checked separately against the live flow below; here we only
@@ -158,7 +189,7 @@ func (s *serviceImpl) UpdateRunningStepFields(ctx context.Context, jobID string,
 	// a session-creating step with no agentType, etc. Without this a running
 	// edit could write a config that only fails when the step later executes.
 	if err := model.ValidateFlow(newFlow, 0); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrLoopConfigInvalid, err)
 	}
 
 	// Hold the persist shard across the whole check→save→commit so the sequence
@@ -227,10 +258,10 @@ func (s *serviceImpl) UpdateRunningStepFields(ctx context.Context, jobID string,
 
 // flowStructureEqual reports whether two flow trees have identical structure —
 // same node count and order, and matching id / type / round settings / script
-// binding / continueOnError / nesting. The per-step editable fields (message,
-// agentType, modelId, acpMode) and the cosmetic label are intentionally ignored
-// so a running edit that only touches those is accepted; anything else counts
-// as a structure change and is rejected (ErrLoopStructureChanged).
+// binding / nesting. The per-step editable fields (message, agentType, modelId,
+// acpMode) and the cosmetic label are intentionally ignored so a running edit
+// that only touches those is accepted; anything else counts as a structure
+// change and is rejected (ErrLoopStructureChanged).
 func flowStructureEqual(a, b []model.FlowNode) bool {
 	if len(a) != len(b) {
 		return false
@@ -244,8 +275,7 @@ func flowStructureEqual(a, b []model.FlowNode) bool {
 			na.RepeatCount != nb.RepeatCount ||
 			na.IterationCount != nb.IterationCount ||
 			na.ScriptID != nb.ScriptID ||
-			na.ScriptName != nb.ScriptName ||
-			na.ContinueOnError != nb.ContinueOnError {
+			na.ScriptName != nb.ScriptName {
 			return false
 		}
 		if !flowStructureEqual(na.Children, nb.Children) {

@@ -172,13 +172,6 @@ function computeEvaluatorWarnings(
     }
   }
 
-  // §2.4: a failing business step (no ContinueOnError) fails the job before the
-  // evaluator runs; "fix until tests pass" loops need ContinueOnError.
-  const hasUnguardedBusiness = priorBusiness.some((n) => !n.continueOnError);
-  if (hasUnguardedBusiness) {
-    warnings.push(t('loop.step.evaluator.warnContinueOnError'));
-  }
-
   return warnings;
 }
 

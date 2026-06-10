@@ -107,6 +107,10 @@
       "session": "会话 {{current}} / {{total}}",
       "step": "步骤 {{current}} / {{total}}"
     },
+    "stop": {
+      "gracefulRequested": "将在当前步骤完成后停止",
+      "gracefulCancelled": "已取消停止，循环继续运行"
+    },
     "template": {
       "label": "模板",
       "placeholder": "选择模板...",
@@ -332,8 +336,7 @@
         "promptLabel": "评估 Prompt",
         "promptHint": "描述「满足什么条件算完成」，系统会自动追加输出协议。",
         "promptPlaceholder": "例如：所有测试通过、代码 review 没有问题、没有发现新的问题……",
-        "warnEmptySession": "前序业务步骤会新开会话（beforeRound / eachRepeat），当前「不开新会话」的评估器会拿到空会话、看不到本轮业务产出。建议让本轮业务步骤与评估器落在同一会话。",
-        "warnContinueOnError": "存在未开启 ContinueOnError 的业务步骤：业务步骤失败会直接让任务失败、评估器不会执行。若要「修复到测试通过」这类循环，请在会失败的业务步骤上开启 ContinueOnError。"
+        "warnEmptySession": "前序业务步骤会新开会话（beforeRound / eachRepeat），当前「不开新会话」的评估器会拿到空会话、看不到本轮业务产出。建议让本轮业务步骤与评估器落在同一会话。"
       }
     },
     "edit": {

@@ -147,10 +147,6 @@ type FlowNode struct {
 	StepModelID string `json:"modelId,omitempty"`
 	ACPMode     string `json:"acpMode,omitempty"`
 
-	// ContinueOnError allows the workflow to continue even if this step fails.
-	// When true, a failed step is recorded but does not fail the entire job.
-	ContinueOnError bool `json:"continueOnError,omitempty"`
-
 	// Group fields (Type == "group")
 	IterationCount int        `json:"iterationCount,omitempty"`
 	Children       []FlowNode `json:"children,omitempty"`
@@ -251,7 +247,7 @@ func (j *Job) DeepCopy() *Job {
 	if j.LoopConfig != nil {
 		lcCopy := *j.LoopConfig
 		if len(j.LoopConfig.Flow) > 0 {
-			lcCopy.Flow = deepCopyFlowNodes(j.LoopConfig.Flow)
+			lcCopy.Flow = DeepCopyFlowNodes(j.LoopConfig.Flow)
 		}
 		if len(j.LoopConfig.Rounds) > 0 {
 			lcCopy.Rounds = make([]LoopRound, len(j.LoopConfig.Rounds))
@@ -296,8 +292,8 @@ func (j *Job) DeepCopy() *Job {
 	return &cp
 }
 
-// deepCopyFlowNodes recursively deep-copies a FlowNode slice.
-func deepCopyFlowNodes(nodes []FlowNode) []FlowNode {
+// DeepCopyFlowNodes recursively deep-copies a FlowNode slice.
+func DeepCopyFlowNodes(nodes []FlowNode) []FlowNode {
 	if nodes == nil {
 		return nil
 	}
@@ -305,7 +301,7 @@ func deepCopyFlowNodes(nodes []FlowNode) []FlowNode {
 	for i, n := range nodes {
 		cp[i] = n
 		if len(n.Children) > 0 {
-			cp[i].Children = deepCopyFlowNodes(n.Children)
+			cp[i].Children = DeepCopyFlowNodes(n.Children)
 		}
 	}
 	return cp

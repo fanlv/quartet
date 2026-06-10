@@ -145,6 +145,7 @@ export function JobChat(props: JobChatProps) {
     isLoop,
     loopProgress,
     loopStatus,
+    stopPending,
     loopFlow,
     loopSessions,
     activeSessionId,
@@ -158,6 +159,7 @@ export function JobChat(props: JobChatProps) {
     startLoop,
     continueLoop,
     stopLoop,
+    cancelStop,
     updateLoopConfig,
     stopGeneration,
     clearMessages,
@@ -1021,6 +1023,8 @@ export function JobChat(props: JobChatProps) {
           status={loopStatus}
           flow={loopFlow ?? initialLoopConfig?.flow ?? undefined}
           onStop={isReadonly ? undefined : stopLoop}
+          stopPending={stopPending}
+          onCancelStop={isReadonly ? undefined : cancelStop}
           onContinue={!isReadonly && canContinueLoop ? continueLoop : undefined}
           onEdit={isReadonly ? undefined : () => { setLoopEditError(''); setLoopEditorOpen(true); }}
         />

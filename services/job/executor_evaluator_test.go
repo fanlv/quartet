@@ -363,33 +363,6 @@ func TestBusinessFailureFailsJobByDefault(t *testing.T) {
 	}
 }
 
-// §2.4: with ContinueOnError on the failing business step, the round keeps going
-// so the evaluator can see the failure and decide.
-func TestBusinessFailureContinueOnErrorReachesEvaluator(t *testing.T) {
-	work := promptStep("work", 1, model.RoundModeBeforeRound)
-	work.ContinueOnError = true
-	flow := []model.FlowNode{
-		group(2, work, evaluatorStep("done?", model.RoundModeNone)),
-	}
-	job := newLoopTestJob("job-eval-continueonerror", flow)
-	runner := &evaluatorRunner{
-		failBusiness: fmt.Errorf("tests failing"),
-		evalOutputs:  []string{"still failing\n未完成"},
-	}
-
-	runEvaluatorForTest(t, job, runner)
-
-	if job.Status == model.JobStatusFailed {
-		t.Fatalf("job status = %s, want not Failed (ContinueOnError)", job.Status)
-	}
-	if runner.businessRuns != 2 {
-		t.Fatalf("businessRuns = %d, want 2 (ran to cap)", runner.businessRuns)
-	}
-	if runner.evalRuns != 2 {
-		t.Fatalf("evalRuns = %d, want 2 (evaluator ran each round)", runner.evalRuns)
-	}
-}
-
 // An evaluator turn that fails outright with no assistant text fails the job
 // (it is a normal prompt step, §2.3).
 func TestEvaluatorHardFailureFailsJob(t *testing.T) {
@@ -635,33 +608,6 @@ func TestSessionInitFailureFailsJob(t *testing.T) {
 	}
 	if job.Progress.FailedCount != 1 {
 		t.Fatalf("failedCount = %d, want 1", job.Progress.FailedCount)
-	}
-}
-
-// With ContinueOnError, a failing session init must skip the step and keep
-// running (not fail the job).
-func TestSessionInitFailureContinueOnError(t *testing.T) {
-	work := promptStep("work", 1, model.RoundModeBeforeRound)
-	work.ContinueOnError = true
-	after := promptStep("after", 1, model.RoundModeNone)
-	after.ContinueOnError = true
-	flow := []model.FlowNode{work, after}
-	job := newLoopTestJob("job-session-init-continue", flow)
-	runner := &sessionFailRunner{}
-
-	svc := newStateTestService()
-	svc.jobs[job.ID] = job
-	currentSessionID := ""
-	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, nil, 0, &currentSessionID)
-
-	if result != stepCompleted {
-		t.Fatalf("runFlowNodes result = %v, want stepCompleted", result)
-	}
-	if job.Status == model.JobStatusFailed {
-		t.Fatalf("job.Status = Failed, want non-failed (continueOnError)")
-	}
-	if job.Progress.FailedCount == 0 {
-		t.Fatalf("failedCount = 0, want > 0 (failure still recorded)")
 	}
 }
 

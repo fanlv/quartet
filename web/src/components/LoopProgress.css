@@ -125,6 +125,30 @@
   background: #fef2f2;
 }
 
+/* Disabled buttons stay visible (never hidden) but read as inert: muted,
+   not clickable, and no hover feedback. */
+.loop-stop-btn:disabled {
+  border-color: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.loop-stop-btn:disabled:hover {
+  background: #fff;
+}
+
+/* Continue is a neutral/positive action, not a stop — give it its own accent
+   so it doesn't read as another red stop button. */
+.loop-continue-btn {
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.loop-continue-btn:hover {
+  background: #eff6ff;
+}
+
 .loop-edit-btn {
   padding: 4px 12px;
   border: 1px solid #cbd5e1;
@@ -153,6 +177,17 @@
 .loop-stop-btn-graceful:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* "Keep running" cancels a pending graceful stop; green to read as
+   "resume / safe", distinct from the red stop buttons it replaces. */
+.loop-stop-btn-keep-running {
+  border-color: #86efac;
+  color: #15803d;
+}
+
+.loop-stop-btn-keep-running:hover {
+  background: #f0fdf4;
 }
 
 .loop-progress-bar-wrapper {

@@ -271,11 +271,8 @@ func (s *serviceImpl) runFlowNodes(
 					created, failSR := s.tryCreateSession(ctx, job, runner, node, stepPath, currentSessionID, reason, stepOverrides)
 					if !created {
 						// Session init failed. tryCreateSession already recorded
-						// the failed iteration; on hard failure it also called
-						// failJob (stepAborted) — propagate to stop the run. On
-						// continueOnError it advanced resume and returns
-						// stepCompleted, so we skip this leaf but still count its
-						// static slot toward the denominator.
+						// the failed iteration and called failJob (stepAborted) —
+						// propagate to stop the run.
 						if failSR == stepAborted {
 							return failSR, executedLeaves, backfilledLeaves
 						}
@@ -384,15 +381,13 @@ func (s *serviceImpl) runFlowNodes(
 // ITERATION_STARTED + ITERATION_FAILED so the SSE round opens and closes
 // cleanly (per §1.1 "all entry points open a round with ITERATION_STARTED")
 // and records the iteration as failed. The failure then mirrors a regular
-// step's execution-failure handling (executeRepeat):
-//   - node.ContinueOnError: advance resume past this step and return
-//     (false, stepCompleted) so the caller skips it and keeps running.
-//   - otherwise: call failJob (preserving resume so the user can Continue) and
-//     return (false, stepAborted) so the caller stops the run.
+// step's execution-failure handling (executeRepeat): call failJob (preserving
+// resume so the user can Continue) and return (false, stepAborted) so the
+// caller stops the run.
 //
 // Previously this unconditionally advanced resume and returned false, which the
 // caller treated as a plain "continue" — silently swallowing the failure and
-// letting the job finish as Completed regardless of ContinueOnError.
+// letting the job finish as Completed despite the error.
 func (s *serviceImpl) tryCreateSession(
 	ctx context.Context, job *model.Job, runner JobRunner,
 	node model.FlowNode, stepPath []int, currentSessionID *string, source string,
@@ -404,8 +399,8 @@ func (s *serviceImpl) tryCreateSession(
 		return true, stepCompleted
 	}
 
-	logger.Errorf(ctx, "[loop] init session failed: source=%s jobId=%s path=%v continueOnError=%t err=%v",
-		source, job.ID, stepPath, node.ContinueOnError, err)
+	logger.Errorf(ctx, "[loop] init session failed: source=%s jobId=%s path=%v err=%v",
+		source, job.ID, stepPath, err)
 
 	// Open the round before closing it. Without this pair the SSE stream
 	// would carry an orphan ITERATION_FAILED with no matching
@@ -423,18 +418,6 @@ func (s *serviceImpl) tryCreateSession(
 		AgentType: node.AgentType,
 		ACPMode:   node.ACPMode,
 	})
-
-	if node.ContinueOnError {
-		// Skip this step and continue: record the failure AND advance resume in
-		// a single save so a subsequent Stop+Continue does not re-run it.
-		nextPath := model.NextStepPath(job.LoopConfig.Flow, stepPath)
-		var nextResume *model.JobResume
-		if nextPath != nil {
-			nextResume = &model.JobResume{NextPath: nextPath}
-		}
-		s.recordFailedIterationAndAdvanceResume(job, stepPath, "", err, nextResume)
-		return false, stepCompleted
-	}
 
 	// Hard failure: record the failed iteration, then failJob. failJob issues
 	// the terminal persist (preserving resume so the user can Continue from this

@@ -438,13 +438,6 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 	}
 
 	if err != nil {
-		if isLoopRun && node.ContinueOnError {
-			// ContinueOnError: record failure AND advance resume so that a
-			// subsequent Stop+Continue does not re-execute this skipped step.
-			logger.Warnf(ctx, "[step] iter failed (continueOnError=true, skipping): jobId=%s path=%v duration=%s err=%v", job.ID, path, duration.Round(time.Millisecond), err)
-			s.recordIterationAndAdvanceResume(job, result, nextResume)
-			return stepCompleted
-		}
 		// Failure path: plain record. The failJob call below issues the
 		// next persist (terminal status), so combining record + resume
 		// here would produce no savings.

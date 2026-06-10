@@ -42,7 +42,7 @@ Loop 是一棵 `FlowNode` 树（`group` 带 `iterationCount`，`step` 带 `repea
   - ⚠️ **已知取舍**：删除 / 重排被记录过结果的 step 会丢弃其历史结果条目（早期工具可接受）。
 
 - `UpdateRunningStepFields(ctx, jobID, newFlow) error`
-  - `flowStructureEqual(a, b)`：递归比对 `id` / `type` / `roundMode` / `roundType` / `repeatCount` / `iterationCount` / `scriptId` / `scriptName` / `continueOnError` / children 顺序；忽略 message / agent / model / mode / label。不一致返回 `ErrLoopStructureChanged`。
+  - `flowStructureEqual(a, b)`：递归比对 `id` / `type` / `roundMode` / `roundType` / `repeatCount` / `iterationCount` / `scriptId` / `scriptName` / children 顺序；忽略 message / agent / model / mode / label。不一致返回 `ErrLoopStructureChanged`。
   - 一致则在 `s.mu.Lock` 下用 `applyEditableFields` 原地写入 4 个字段 + label；`saveJobWithRetry` 落盘（best-effort，失败 `recordPersistWarning`，live 内存已更新）。
 
 ### 4.2 执行链路（`services/job/executor_loop.go`）

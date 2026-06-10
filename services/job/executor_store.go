@@ -135,6 +135,11 @@ type serviceImpl struct {
 	// run launch (prepareRunResources) and when consumed by runFlowNodes.
 	gracefulStops   map[string]struct{}
 	gracefulStopsMu sync.Mutex
+	// loopRuns records currently-active loop executions. A job can also be
+	// Running because of an interactive SendMessage run; those runs do not walk
+	// runFlowNodes and therefore cannot consume graceful-stop requests.
+	loopRuns   map[string]struct{}
+	loopRunsMu sync.Mutex
 
 	// Monotonic per-workspace list version; incremented on every job mutation
 	// that would affect the listing (create/delete/save/status change). Used to

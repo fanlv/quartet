@@ -11,6 +11,11 @@ interface LoopProgressProps {
   // onStop receives graceful=true to finish the current step before stopping,
   // or graceful=false (default) for an immediate hard stop.
   onStop?: (graceful?: boolean) => void;
+  // True when a graceful "stop after step" has been requested but the loop has
+  // not yet reached the boundary where it stops. Swaps the stop buttons for a
+  // single "keep running" button wired to onCancelStop.
+  stopPending?: boolean;
+  onCancelStop?: () => void;
   onContinue?: () => void;
   onEdit?: () => void;
 }
@@ -20,7 +25,7 @@ function pathToLabel(path: number[]): string {
   return path.map((p) => p + 1).join('.');
 }
 
-export function LoopProgress({ progress, status, flow, onStop, onContinue, onEdit }: LoopProgressProps) {
+export function LoopProgress({ progress, status, flow, onStop, stopPending, onCancelStop, onContinue, onEdit }: LoopProgressProps) {
   const { t } = useTranslation();
   const { totalSteps, completedCount, failedCount, currentPath, results, lastError, groupActualIterations } = progress;
   const done = completedCount + failedCount;
@@ -47,6 +52,14 @@ export function LoopProgress({ progress, status, flow, onStop, onContinue, onEdi
 
   const statusClass = `loop-status-${status}`;
   const showLastError = !!lastError && (failedCount > 0 || status === 'failed');
+
+  // Button enablement is derived purely from status + stopPending so the button
+  // states always track the loop state. Buttons are never hidden — inapplicable
+  // ones are disabled. The first stop slot toggles between "Stop after step" and
+  // "Keep running" (the two faces of the graceful-stop request).
+  const isRunning = status === 'running';
+  const gracefulActive = isRunning && !!stopPending;
+  const canContinue = status === 'stopped' || status === 'failed';
 
   return (
     <div className={`loop-progress${collapsed ? ' collapsed' : ''}`} data-testid="loop-progress" data-loop-status={status} data-current-path={currentPath?.join('.') || ''}>
@@ -80,28 +93,49 @@ export function LoopProgress({ progress, status, flow, onStop, onContinue, onEdi
           {onEdit && (
             <button className="loop-edit-btn" onClick={(e) => { e.stopPropagation(); onEdit(); }} data-testid="loop-edit-config-button" title="Edit Config">Edit</button>
           )}
-          {status === 'running' && onStop && (
-            <>
+          {onStop && (
+            gracefulActive ? (
+              <button
+                className="loop-stop-btn loop-stop-btn-keep-running"
+                onClick={(e) => { e.stopPropagation(); onCancelStop?.(); }}
+                data-testid="loop-keep-running-button"
+                title="Cancel the pending stop and keep the loop running"
+              >
+                Keep running
+              </button>
+            ) : (
               <button
                 className="loop-stop-btn loop-stop-btn-graceful"
                 onClick={(e) => { e.stopPropagation(); onStop(true); }}
+                disabled={!isRunning}
                 data-testid="loop-stop-graceful-button"
                 title="Finish the current step, then stop"
               >
                 Stop after step
               </button>
-              <button
-                className="loop-stop-btn"
-                onClick={(e) => { e.stopPropagation(); onStop(false); }}
-                data-testid="loop-stop-button"
-                title="Stop immediately"
-              >
-                Stop now
-              </button>
-            </>
+            )
           )}
-          {(status === 'stopped' || status === 'failed') && onContinue && (
-            <button className="loop-stop-btn" onClick={(e) => { e.stopPropagation(); onContinue(); }} data-testid="loop-continue-button">Continue</button>
+          {onStop && (
+            <button
+              className="loop-stop-btn"
+              onClick={(e) => { e.stopPropagation(); onStop(false); }}
+              disabled={!isRunning}
+              data-testid="loop-stop-button"
+              title="Stop immediately"
+            >
+              Stop now
+            </button>
+          )}
+          {onContinue && (
+            <button
+              className="loop-stop-btn loop-continue-btn"
+              onClick={(e) => { e.stopPropagation(); onContinue(); }}
+              disabled={!canContinue}
+              data-testid="loop-continue-button"
+              title="Continue from the next step"
+            >
+              Continue
+            </button>
           )}
         </div>
       </div>

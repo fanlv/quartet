@@ -16,6 +16,7 @@ import { SSEClient } from '../utils/sse-client';
 import { mergeMessages } from '../utils/mergeMessages';
 import { useConnectionStatus } from '../contexts/ConnectionStatus';
 import { isKnownCommand } from '../utils/commands';
+import i18n from '../i18n';
 
 // showCommandToast displays a transient toast for slash-command feedback.
 // Kept local here so the command branch in the SSE handler has somewhere to
@@ -237,6 +238,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const isLoopRef = useRef(false);
   const [loopProgress, setLoopProgress] = useState<JobProgress | null>(null);
   const [loopStatus, setLoopStatus] = useState<'idle' | 'running' | 'completed' | 'stopped' | 'failed'>('idle');
+  // True once a graceful "stop after step" has been requested but the loop has
+  // not yet reached the step boundary where it stops. Drives the "keep running"
+  // affordance. The button only renders while status === 'running', so a stale
+  // value is naturally masked once the loop stops; it is reset on job switch and
+  // on Continue (a fresh run) to be safe.
+  const [stopPending, setStopPending] = useState(false);
   // Flow tree of the current loop job, used by the progress UI to derive the
   // per-session / per-step position. Hydrated when the job is fetched or when
   // a fresh loop is started from initialLoopConfig.
@@ -373,6 +380,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     isLoopRef.current = false;
     setLoopProgress(null);
     setLoopStatus('idle');
+    setStopPending(false);
     setLoopSessions([]);
     applyActiveSessionSelection(null, true);
     setEndedSessionIds(new Set());
@@ -2180,6 +2188,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     if (!jobId || isPublic) return;
     setIsLoading(true);
     setError(null);
+    // A fresh run: drop any stale graceful-stop request from the prior run so
+    // the new run doesn't start showing "keep running".
+    setStopPending(false);
     // Accumulate previous turn's duration before resetting.
     if (jobStartedAtRef.current != null && jobFinishedAtRef.current != null) {
       setInteractiveAccumulatedMs((prev) => prev + (jobFinishedAtRef.current! - jobStartedAtRef.current!));
@@ -2207,9 +2218,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         throw new Error(errData?.error || `HTTP ${response.status}`);
       }
       const data = await response.json().catch(() => null);
-      if (loopRunningRef.current) {
-        setLoopStatus('running');
-      }
+      // The backend accepted the continue and a new run is launching. Flip to
+      // running immediately so the stop buttons enable without waiting for the
+      // SSE JOB_STARTED round-trip (which previously left the UI stuck showing
+      // the prior "stopped" state with only Continue available).
+      loopRunningRef.current = true;
+      setLoopStatus('running');
       if (data?.progress) {
         setLoopProgress(data.progress);
       }
@@ -2222,18 +2236,53 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
   // Stop loop execution. graceful=true lets the current step finish and stops
   // at the next step boundary (resume preserved); the default hard stop cancels
-  // the in-flight step immediately.
+  // the in-flight step immediately. A successful graceful request flips
+  // stopPending so the UI can offer "keep running" until the loop actually stops.
   const stopLoop = useCallback(async (graceful = false) => {
     if (!jobId) return;
     try {
-      await fetch(`/api/v1/job/${jobId}/stop`, {
+      const response = await fetch(`/api/v1/job/${jobId}/stop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ graceful }),
       });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.error || `HTTP ${response.status}`);
+      }
+      if (graceful) {
+        const data = await response.json().catch(() => null);
+        if (data?.status === 'stopping') {
+          setStopPending(true);
+          showCommandToast(i18n.t('loop.stop.gracefulRequested'));
+        }
+      }
     } catch (err) {
       console.error('[stopLoop] error:', err);
       setError(err instanceof Error ? err.message : 'Failed to stop loop');
+    }
+  }, [jobId]);
+
+  // Cancel a pending graceful stop so the loop keeps running. Only meaningful
+  // while stopPending is true (the request has not yet been consumed at a step
+  // boundary). Clears stopPending optimistically on success.
+  const cancelStop = useCallback(async () => {
+    if (!jobId) return;
+    try {
+      const response = await fetch(`/api/v1/job/${jobId}/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ graceful: true, cancel: true }),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.error || `HTTP ${response.status}`);
+      }
+      setStopPending(false);
+      showCommandToast(i18n.t('loop.stop.gracefulCancelled'));
+    } catch (err) {
+      console.error('[cancelStop] error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to cancel stop');
     }
   }, [jobId]);
 
@@ -2803,6 +2852,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     isLoop,
     loopProgress,
     loopStatus,
+    stopPending,
     loopFlow,
     loopSessions,
     activeSessionId,
@@ -2820,6 +2870,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     startLoop,
     continueLoop,
     stopLoop,
+    cancelStop,
     updateLoopConfig,
     stopGeneration,
     clearMessages,
