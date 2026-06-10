@@ -223,6 +223,21 @@ func TestValidateFlow(t *testing.T) {
 		{"prompt step no message", []FlowNode{{Type: FlowNodeTypeStep, RoundMode: RoundModeBeforeRound, AgentType: "claude"}}, true},
 		{"shell step no content", []FlowNode{{Type: FlowNodeTypeStep, RoundType: RoundTypeShell, RoundMode: RoundModeBeforeRound}}, true},
 		{"unknown roundType", []FlowNode{{Type: FlowNodeTypeStep, RoundType: "http", Message: "GET /", RoundMode: RoundModeBeforeRound, AgentType: "claude"}}, true},
+		{"valid evaluator in group", []FlowNode{{
+			Type: FlowNodeTypeGroup, IterationCount: 2,
+			Children: []FlowNode{
+				{Type: FlowNodeTypeStep, Message: "work", RoundMode: RoundModeBeforeRound, AgentType: "claude"},
+				{Type: FlowNodeTypeStep, RoundType: RoundTypeEvaluator, Message: "done?", RoundMode: RoundModeNone},
+			},
+		}}, false},
+		{"evaluator at top level", []FlowNode{{Type: FlowNodeTypeStep, RoundType: RoundTypeEvaluator, Message: "done?", RoundMode: RoundModeBeforeRound, AgentType: "claude"}}, true},
+		{"evaluator no message", []FlowNode{{
+			Type: FlowNodeTypeGroup, IterationCount: 2,
+			Children: []FlowNode{
+				{Type: FlowNodeTypeStep, Message: "work", RoundMode: RoundModeBeforeRound, AgentType: "claude"},
+				{Type: FlowNodeTypeStep, RoundType: RoundTypeEvaluator, RoundMode: RoundModeNone},
+			},
+		}}, true},
 		{"group no children", []FlowNode{{Type: FlowNodeTypeGroup, IterationCount: 1}}, true},
 		{"group iteration < 1", []FlowNode{{
 			Type: FlowNodeTypeGroup, IterationCount: 0,
@@ -270,5 +285,62 @@ func TestFindFirstStepMessage(t *testing.T) {
 
 	if FindFirstStepMessage(nil) != "" {
 		t.Error("nil flow should return empty")
+	}
+}
+
+func TestValidateFlowRejectsBlankMessage(t *testing.T) {
+	// A whitespace-only prompt message must be rejected (it trims to empty).
+	prompt := []FlowNode{{Type: FlowNodeTypeStep, RoundType: RoundTypePrompt, Message: "   "}}
+	if err := ValidateFlow(prompt, 0); err == nil {
+		t.Fatalf("blank prompt message: got nil error, want validation failure")
+	}
+
+	// A whitespace-only evaluator message inside a group must be rejected too.
+	eval := []FlowNode{{
+		Type: FlowNodeTypeGroup, IterationCount: 1,
+		Children: []FlowNode{{Type: FlowNodeTypeStep, RoundType: RoundTypeEvaluator, Message: "\n \t"}},
+	}}
+	if err := ValidateFlow(eval, 0); err == nil {
+		t.Fatalf("blank evaluator message: got nil error, want validation failure")
+	}
+
+	// A real message still passes.
+	ok := []FlowNode{{Type: FlowNodeTypeStep, RoundType: RoundTypePrompt, Message: "do the thing", RoundMode: RoundModeBeforeRound, AgentType: "claude"}}
+	if err := ValidateFlow(ok, 0); err != nil {
+		t.Fatalf("valid prompt message: got error %v, want nil", err)
+	}
+}
+
+// A flow whose session-creating step omits AgentType is valid only AFTER the
+// request-level default is backfilled. ValidateFlow alone rejects it;
+// NormalizeAndValidateLoopConfig must backfill first so the same config passes.
+// Regression for createJob validating before backfilling.
+func TestNormalizeAndValidateBackfillsBeforeValidate(t *testing.T) {
+	makeCfg := func() *LoopConfig {
+		return &LoopConfig{Flow: []FlowNode{{
+			Type: FlowNodeTypeStep, RoundType: RoundTypePrompt,
+			Message: "do it", RoundMode: RoundModeBeforeRound,
+			// AgentType intentionally empty — relies on request-level default.
+		}}}
+	}
+
+	// Validate-only (the old order) rejects it.
+	if err := ValidateFlow(makeCfg().Flow, 0); err == nil {
+		t.Fatalf("ValidateFlow without backfill: got nil, want failure on missing agentType")
+	}
+
+	// Normalize entry backfills the default first, so it passes and the step
+	// inherits the agent.
+	cfg := makeCfg()
+	if err := NormalizeAndValidateLoopConfig(cfg, FlowDefaults{AgentType: "claude"}); err != nil {
+		t.Fatalf("NormalizeAndValidateLoopConfig: got error %v, want nil", err)
+	}
+	if cfg.Flow[0].AgentType != "claude" {
+		t.Fatalf("step AgentType = %q, want backfilled %q", cfg.Flow[0].AgentType, "claude")
+	}
+
+	// With no default available either, it still (correctly) fails.
+	if err := NormalizeAndValidateLoopConfig(makeCfg(), FlowDefaults{}); err == nil {
+		t.Fatalf("NormalizeAndValidateLoopConfig without any default: got nil, want failure")
 	}
 }

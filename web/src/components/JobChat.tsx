@@ -6,6 +6,7 @@ import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { LoopProgress } from './LoopProgress';
+import { LoopConfigPanel } from './LoopConfigPanel';
 import { LoopSessionSidebar } from './LoopSessionSidebar';
 import { FileBrowser } from './FileBrowser';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
@@ -157,6 +158,7 @@ export function JobChat(props: JobChatProps) {
     startLoop,
     continueLoop,
     stopLoop,
+    updateLoopConfig,
     stopGeneration,
     clearMessages,
     eventsReady,
@@ -171,6 +173,9 @@ export function JobChat(props: JobChatProps) {
   const [allowEinoSelection, setAllowEinoSelection] = useState<boolean | null>(null);
   const [jobEnable, setJobEnable] = useState(false);
   const [loopSidebarOpen, setLoopSidebarOpen] = useState(false);
+  // Loop config editor (edit an existing job's LoopConfig in place).
+  const [loopEditorOpen, setLoopEditorOpen] = useState(false);
+  const [loopEditError, setLoopEditError] = useState('');
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const [agentsEditorOpen, setAgentsEditorOpen] = useState(false);
   const [jobListOpen, setJobListOpen] = useState(false);
@@ -1017,6 +1022,31 @@ export function JobChat(props: JobChatProps) {
           flow={loopFlow ?? initialLoopConfig?.flow ?? undefined}
           onStop={isReadonly ? undefined : stopLoop}
           onContinue={!isReadonly && canContinueLoop ? continueLoop : undefined}
+          onEdit={isReadonly ? undefined : () => { setLoopEditError(''); setLoopEditorOpen(true); }}
+        />
+      )}
+
+      {isLoop && loopEditorOpen && (
+        <LoopConfigPanel
+          agents={agents}
+          initialConfig={{
+            flow: loopFlow ?? initialLoopConfig?.flow ?? [],
+            ...(initialLoopConfig?.variables ? { variables: initialLoopConfig.variables } : {}),
+          }}
+          runningLock={loopStatus === 'running'}
+          saveError={loopEditError}
+          onSave={async (config) => {
+            try {
+              await updateLoopConfig(config);
+              setLoopEditorOpen(false);
+              setLoopEditError('');
+            } catch (err) {
+              setLoopEditError(err instanceof Error ? err.message : String(err));
+              throw err;
+            }
+          }}
+          onConfirm={() => { /* unused in edit mode */ }}
+          onCancel={() => { setLoopEditorOpen(false); setLoopEditError(''); }}
         />
       )}
 

@@ -18,15 +18,22 @@ interface FlowStepEditorProps {
   agents: AgentInfo[];
   onUpdate: (updated: FlowNode) => void;
   onRemove: () => void;
+  // Non-blocking soft warnings (e.g. evaluator config guidance, §6). Rendered as
+  // a hint banner; does not block save.
+  warnings?: string[];
   // Accordion mode: when provided, the parent controls expansion and at most one step is open at a time.
   isExpanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
+  // structureLocked (running job edit): disables the round-type toggle and the
+  // session-mode dropdown — both change session creation, which is structural.
+  // The prompt / agent / model / mode fields stay editable.
+  structureLocked?: boolean;
 }
 
 export function FlowStepEditor({
   node, stepIndex, isFirstStep, canRemove, depth: _depth, scripts,
-  definedVars, allShellVars, agents, onUpdate, onRemove,
-  isExpanded, onExpandedChange,
+  definedVars, allShellVars, agents, onUpdate, onRemove, warnings,
+  isExpanded, onExpandedChange, structureLocked,
 }: FlowStepEditorProps) {
   const { t, i18n } = useTranslation();
   const [internalCollapsed, setInternalCollapsed] = useState(false);
@@ -84,6 +91,7 @@ export function FlowStepEditor({
 
   const roundType = node.roundType || 'prompt';
   const isShellRound = roundType === 'shell';
+  const isEvaluatorRound = roundType === 'evaluator';
   const roundMode = node.roundMode || 'none';
 
   const isZh = (i18n.resolvedLanguage || i18n.language || 'en').startsWith('zh');
@@ -168,7 +176,8 @@ export function FlowStepEditor({
     }
   };
 
-  // Agent/model override — only needed when creating a new session with a prompt step
+  // Agent/model override — only needed when creating a new session with a
+  // prompt or evaluator step (both run against an LLM).
   const showAgentOverride = roundMode !== 'none' && !isShellRound && agents.length > 0;
   const selectedAgent = node.agentType
     ? agents.find((a) => a.type === node.agentType && (a.model_id === node.modelId || a.models?.availableModels.some((m) => m.modelId === node.modelId)))
@@ -201,10 +210,10 @@ export function FlowStepEditor({
             <span className="loop-round-name-label" title={node.label}>{node.label.trim()}</span>
           )}
           <span
-            className={`loop-round-type-icon${isShellRound ? ' shell' : ' prompt'}`}
-            title={isShellRound ? 'Shell' : 'Prompt'}
+            className={`loop-round-type-icon${isShellRound ? ' shell' : isEvaluatorRound ? ' evaluator' : ' prompt'}`}
+            title={isShellRound ? 'Shell' : isEvaluatorRound ? t('loop.step.evaluator.typeLabel') : 'Prompt'}
           >
-            {isShellRound ? 'S' : 'P'}
+            {isShellRound ? 'S' : isEvaluatorRound ? 'E' : 'P'}
           </span>
           <span
             className={`loop-round-health-dot${roundReady ? ' ready' : ''}`}
@@ -254,22 +263,39 @@ export function FlowStepEditor({
             />
           </div>
 
-          <div className="loop-round-type-toggle">
-            <button
-              className={`loop-round-type-btn${roundType === 'prompt' ? ' active' : ''}`}
-              onClick={() => handleRoundTypeChange('prompt')}
-              type="button"
-            >
-              Prompt
-            </button>
-            <button
-              className={`loop-round-type-btn${roundType === 'shell' ? ' active' : ''}`}
-              onClick={() => handleRoundTypeChange('shell')}
-              type="button"
-            >
-              Shell
-            </button>
-          </div>
+          {isEvaluatorRound ? (
+            <div className="loop-round-evaluator-banner" data-testid="loop-evaluator-banner">
+              <span className="loop-round-type-icon evaluator">E</span>
+              <span className="loop-round-evaluator-banner-text">{t('loop.step.evaluator.banner')}</span>
+            </div>
+          ) : (
+            <div className="loop-round-type-toggle">
+              <button
+                className={`loop-round-type-btn${roundType === 'prompt' ? ' active' : ''}`}
+                onClick={() => handleRoundTypeChange('prompt')}
+                disabled={structureLocked}
+                type="button"
+              >
+                Prompt
+              </button>
+              <button
+                className={`loop-round-type-btn${roundType === 'shell' ? ' active' : ''}`}
+                onClick={() => handleRoundTypeChange('shell')}
+                disabled={structureLocked}
+                type="button"
+              >
+                Shell
+              </button>
+            </div>
+          )}
+
+          {warnings && warnings.length > 0 && (
+            <div className="loop-round-warnings" data-testid="loop-step-warnings">
+              {warnings.map((w, wi) => (
+                <div key={wi} className="loop-round-warning">{w}</div>
+              ))}
+            </div>
+          )}
 
           {/* Session mode + Agent/Model override */}
           <div className="loop-round-agent-override">
@@ -283,6 +309,7 @@ export function FlowStepEditor({
                 <button
                   className="loop-round-agent-override-btn"
                   onClick={() => setModeDropdownOpen(!modeDropdownOpen)}
+                  disabled={structureLocked}
                   type="button"
                 >
                   <span>{getRoundModeLabel(roundMode)}</span>
@@ -445,12 +472,12 @@ export function FlowStepEditor({
             </div>
           </div>
 
-          {roundType === 'prompt' ? (
+          {!isShellRound ? (
             <div className="loop-round-field">
               <div className="loop-round-field-top">
-                <label>{t('loop.step.message.label')}</label>
+                <label>{isEvaluatorRound ? t('loop.step.evaluator.promptLabel') : t('loop.step.message.label')}</label>
                 <div className="loop-round-field-top-right">
-                  <span className="loop-round-field-hint">{t('loop.step.message.hint')}</span>
+                  <span className="loop-round-field-hint">{isEvaluatorRound ? t('loop.step.evaluator.promptHint') : t('loop.step.message.hint')}</span>
                   <div className="loop-insert-var-wrap" ref={insertVarRef}>
                     <button
                       className="loop-insert-var-btn"
@@ -547,7 +574,7 @@ export function FlowStepEditor({
                   onFocus={(e) => {
                     autoResize(e.target);
                   }}
-                  placeholder={t('loop.step.message.placeholder')}
+                  placeholder={isEvaluatorRound ? t('loop.step.evaluator.promptPlaceholder') : t('loop.step.message.placeholder')}
                   rows={3}
                 />
               </div>

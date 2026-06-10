@@ -179,6 +179,7 @@ export function isStepValid(node: FlowNode): boolean {
   if (rt === 'shell') {
     return Boolean(node.scriptId);
   }
+  // prompt and evaluator both require a non-empty message.
   return Boolean(node.message?.trim());
 }
 

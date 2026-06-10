@@ -28,6 +28,14 @@ type CreateJobRequest struct {
 	LoopConfig  *LoopConfig `json:"loopConfig,omitempty"`
 }
 
+// UpdateLoopConfigRequest carries a loop job's full LoopConfig for editing.
+// The client always sends the complete config; the server applies it as a full
+// replacement when the job is not running, or as a per-step field update when
+// it is running (rejecting structure changes). See JobUpdateLoopConfig.
+type UpdateLoopConfigRequest struct {
+	LoopConfig *LoopConfig `json:"loopConfig"`
+}
+
 type JobMessageRequest struct {
 	Messages        []RequestMessage `json:"messages,omitempty"`
 	ModelID         string           `json:"modelId,omitempty"`

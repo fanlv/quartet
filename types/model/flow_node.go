@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -147,6 +148,56 @@ func NextStepPath(nodes []FlowNode, currentPath []int) []int {
 	return nil
 }
 
+// StepPathSet is a precomputed lookup of every valid leaf step path in a flow.
+// Used when reconciling a job's bookkeeping (Resume.NextPath /
+// Progress.CurrentPath / recorded Results) after the LoopConfig is edited: a
+// path that no longer resolves to a real step (its step was removed or the tree
+// was restructured) must be discarded so resume falls back to a recomputed
+// position. Building it enumerates the flow once; each Contains check is then
+// O(depth) rather than re-enumerating the whole tree per path, which matters
+// for a long Results list. An empty path is always valid ("before the first
+// step", i.e. start from the beginning).
+type StepPathSet struct {
+	keys map[string]struct{}
+}
+
+// BuildStepPathSet enumerates all leaf step paths in nodes once into a set.
+func BuildStepPathSet(nodes []FlowNode) StepPathSet {
+	var allPaths [][]int
+	enumStepPaths(nodes, nil, &allPaths)
+	keys := make(map[string]struct{}, len(allPaths))
+	for _, p := range allPaths {
+		keys[stepPathKey(p)] = struct{}{}
+	}
+	return StepPathSet{keys: keys}
+}
+
+// Contains reports whether path resolves to a real leaf step in the flow the
+// set was built from. Mirrors IsValidStepPath's empty-path semantics.
+func (s StepPathSet) Contains(path []int) bool {
+	if len(path) == 0 {
+		return true
+	}
+	_, ok := s.keys[stepPathKey(path)]
+	return ok
+}
+
+// stepPathKey renders a path as a stable string key (e.g. "0.1.0.2"). Kept
+// local to the model package so StepPathSet stays self-contained.
+func stepPathKey(path []int) string {
+	if len(path) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, p := range path {
+		if i > 0 {
+			b.WriteByte('.')
+		}
+		b.WriteString(strconv.Itoa(p))
+	}
+	return b.String()
+}
+
 // enumStepPaths enumerates all leaf step paths in execution order.
 func enumStepPaths(nodes []FlowNode, basePath []int, out *[][]int) {
 	for i, n := range nodes {
@@ -179,6 +230,39 @@ func enumStepPaths(nodes []FlowNode, basePath []int, out *[][]int) {
 	}
 }
 
+// FlowDefaults carries request-level defaults that are backfilled onto flow
+// steps which don't specify their own agent/model/ACP mode.
+type FlowDefaults struct {
+	AgentType string
+	ModelID   string
+	ACPMode   string
+}
+
+// NormalizeAndValidateLoopConfig brings a LoopConfig into its canonical
+// executable form and validates it in one call. The order is load-bearing:
+//
+//  1. MigrateLoopConfig — fold legacy IterationCount+Rounds into the Flow tree.
+//  2. BackfillFlowDefaults — inherit request-level agent/model onto steps that
+//     omit their own.
+//  3. ValidateFlow — enforce structure.
+//
+// Backfill must run BEFORE validate: ValidateFlow requires a non-empty
+// AgentType on session-creating steps (beforeRound/eachRepeat), which may only
+// be present after the request-level default is filled in. Callers must use
+// this entry point instead of composing the three steps by hand, so the order
+// can't drift.
+func NormalizeAndValidateLoopConfig(cfg *LoopConfig, defaults FlowDefaults) error {
+	if cfg == nil {
+		return fmt.Errorf("loopConfig is required")
+	}
+	MigrateLoopConfig(cfg)
+	if len(cfg.Flow) == 0 {
+		return fmt.Errorf("loopConfig.flow must not be empty")
+	}
+	BackfillFlowDefaults(cfg.Flow, defaults.AgentType, defaults.ModelID, defaults.ACPMode)
+	return ValidateFlow(cfg.Flow, 0)
+}
+
 // ValidateFlow recursively validates the flow tree structure.
 func ValidateFlow(nodes []FlowNode, depth int) error {
 	if depth >= MaxFlowDepth {
@@ -198,8 +282,22 @@ func ValidateFlow(nodes []FlowNode, depth int) error {
 				if needsAgent && n.AgentType == "" {
 					return fmt.Errorf("step node [%d] at depth %d: agentType is required when creating a new session", i, depth)
 				}
-				if n.Message == "" {
+				if strings.TrimSpace(n.Message) == "" {
 					return fmt.Errorf("step node [%d] at depth %d: prompt step requires message", i, depth)
+				}
+			case RoundTypeEvaluator:
+				// An evaluator must live inside a group (a top-level STOP_LOOP
+				// has nothing to break) and needs a non-empty evaluation prompt;
+				// the agent requirement matches a prompt step.
+				if depth == 0 {
+					return fmt.Errorf("step node [%d] at depth %d: evaluator must be inside a group", i, depth)
+				}
+				needsAgent := n.RoundMode != RoundModeNone && n.RoundMode != ""
+				if needsAgent && n.AgentType == "" {
+					return fmt.Errorf("step node [%d] at depth %d: agentType is required when creating a new session", i, depth)
+				}
+				if strings.TrimSpace(n.Message) == "" {
+					return fmt.Errorf("step node [%d] at depth %d: evaluator step requires message", i, depth)
 				}
 			case RoundTypeShell:
 				if n.ScriptID == "" && n.Message == "" {

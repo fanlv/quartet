@@ -1,10 +1,11 @@
 import { useState } from 'react';
 
-export function NumberStepper({ value, onChange, min = 1, max = 1000 }: {
+export function NumberStepper({ value, onChange, min = 1, max = 1000, disabled = false }: {
   value: number;
   onChange: (n: number) => void;
   min?: number;
   max?: number;
+  disabled?: boolean;
 }) {
   const [text, setText] = useState(String(value));
   const [focused, setFocused] = useState(false);
@@ -20,7 +21,7 @@ export function NumberStepper({ value, onChange, min = 1, max = 1000 }: {
       <button
         className="loop-number-stepper-btn"
         onClick={() => { const n = Math.max(min, value - 1); onChange(n); setText(String(n)); }}
-        disabled={value <= min}
+        disabled={disabled || value <= min}
         type="button"
       >−</button>
       <input
@@ -28,6 +29,7 @@ export function NumberStepper({ value, onChange, min = 1, max = 1000 }: {
         type="text"
         inputMode="numeric"
         value={focused ? text : String(value)}
+        disabled={disabled}
         onChange={(e) => {
           const v = e.target.value;
           if (v === '' || /^\d+$/.test(v)) setText(v);
@@ -39,7 +41,7 @@ export function NumberStepper({ value, onChange, min = 1, max = 1000 }: {
       <button
         className="loop-number-stepper-btn"
         onClick={() => { const n = Math.min(max, value + 1); onChange(n); setText(String(n)); }}
-        disabled={value >= max}
+        disabled={disabled || value >= max}
         type="button"
       >+</button>
     </div>

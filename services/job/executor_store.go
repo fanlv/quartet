@@ -128,6 +128,14 @@ type serviceImpl struct {
 	notifiedJobs   map[string]struct{}
 	notifiedJobsMu sync.Mutex
 
+	// gracefulStops holds jobIDs for which a graceful stop was requested: the
+	// running loop should finish the in-flight step (record its result, advance
+	// resume) and then stop at the next step boundary, instead of cancelling the
+	// context mid-step (the hard Stop). Set by RequestGracefulStop, cleared at
+	// run launch (prepareRunResources) and when consumed by runFlowNodes.
+	gracefulStops   map[string]struct{}
+	gracefulStopsMu sync.Mutex
+
 	// Monotonic per-workspace list version; incremented on every job mutation
 	// that would affect the listing (create/delete/save/status change). Used to
 	// build ETags for conditional GETs on the list endpoint. A workspace with no

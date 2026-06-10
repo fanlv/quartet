@@ -10,7 +10,7 @@ import {
   ToolCallStatusEnum,
   JobProgress,
   FlowNode,
-  JudgeDecision,
+  LoopConfig,
 } from '../types';
 import { SSEClient } from '../utils/sse-client';
 import { mergeMessages } from '../utils/mergeMessages';
@@ -696,16 +696,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         const label = path.map((p: number) => p + 1).join('.');
         const clientMessageId = event.clientMessageId;
         const isInteractiveSend = !!clientMessageId;
-        // Judge turns (conditional loop) render in the chat stream but must not
-        // count toward step progress: skip currentPath / loop-session-entry
-        // updates for them. The judge prompt/reply still render via the
-        // synthetic-user-message + streaming paths below.
-        const isJudge = !!event.external?.isJudge;
         const shouldFollowLatestSession = !isInteractiveSend
           && (followLatestSessionRef.current || !activeSessionIdRef.current);
 
         // Only update loop progress for loop execution, not for interactive message sends.
-        if (!isInteractiveSend && !isJudge) {
+        if (!isInteractiveSend) {
           setLoopProgress((prev) =>
             prev ? {
               ...prev,
@@ -714,9 +709,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           );
         }
 
-        // Only add session entry for loop execution, not for interactive message sends
-        // and not for judge turns (judge does not advance step progress).
-        if (!isInteractiveSend && !isJudge) {
+        // Only add session entry for loop execution, not for interactive message sends.
+        if (!isInteractiveSend) {
           setLoopSessions((prev) => {
             const idx = prev.findIndex((s) => s.sessionId === iterSessionId && s.path.length === path.length && s.path.every((v: number, i: number) => v === path[i]));
             if (idx >= 0) {
@@ -785,7 +779,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             createdAt: event.timestamp,
             status: MessageStatusEnum.Finished,
             sessionId: iterSessionId,
-            isJudge: isJudge || undefined,
           };
           setMessages((prev) => {
             if (prev.some((m) => m.id === userMsgId)) return prev;
@@ -936,7 +929,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       case EventTypeEnum.TEXT_MESSAGE_START: {
         const isThinking = event.external?.isThinking ?? false;
         const isShellOutput = event.external?.isShellOutput === true;
-        const isJudge = event.external?.isJudge === true;
         const newMessage: AssistantMessage = {
           id: event.messageId,
           role: MessageRoleEnum.ASSISTANT,
@@ -947,7 +939,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           thinkingContent: '',
           isThinking,
           isShellOutput,
-          isJudge: isJudge || undefined,
           sessionId: event.sessionId,
         };
         setMessages((prev) => {
@@ -1142,20 +1133,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           const nextTitle = typeof payload === 'string' ? payload : payload?.title;
           if (nextTitle) setJobTitle(nextTitle);
         }
-        if (event.name === 'judge_decision') {
-          const decision = event.value as JudgeDecision | null;
-          if (decision) {
-            setLoopProgress((prev) => (prev ? { ...prev, lastJudgeDecision: decision } : prev));
-          }
-        }
         if (event.name === 'progress_total_updated') {
-          // A conditional group stopped early; the backend recomputed the
-          // total-steps denominator and the per-group actual iteration counts.
-          // Merge both so the progress bar fills and the session/step plan
-          // reflects the real run instead of the static cap.
+          // A group broke early via stepStopLoop (evaluator STOP or Shell
+          // STOP_LOOP); the backend recomputed the total-steps denominator and
+          // the per-group actual iteration counts. Merge both so the progress
+          // bar fills and the session/step plan reflects the real run instead
+          // of the static cap.
           const payload = event.value as {
             totalSteps?: number;
-            conditionalActualIterations?: Record<string, number>;
+            groupActualIterations?: Record<string, number>;
           } | null;
           if (payload) {
             setLoopProgress((prev) =>
@@ -1164,8 +1150,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                     ...prev,
                     totalSteps:
                       typeof payload.totalSteps === 'number' ? payload.totalSteps : prev.totalSteps,
-                    conditionalActualIterations:
-                      payload.conditionalActualIterations ?? prev.conditionalActualIterations,
+                    groupActualIterations:
+                      payload.groupActualIterations ?? prev.groupActualIterations,
                   }
                 : prev
             );
@@ -2234,19 +2220,48 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     }
   }, [jobId, isPublic]);
 
-  // Stop loop execution
-  const stopLoop = useCallback(async () => {
+  // Stop loop execution. graceful=true lets the current step finish and stops
+  // at the next step boundary (resume preserved); the default hard stop cancels
+  // the in-flight step immediately.
+  const stopLoop = useCallback(async (graceful = false) => {
     if (!jobId) return;
     try {
       await fetch(`/api/v1/job/${jobId}/stop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ graceful }),
       });
     } catch (err) {
       console.error('[stopLoop] error:', err);
       setError(err instanceof Error ? err.message : 'Failed to stop loop');
     }
   }, [jobId]);
+
+  // Edit a loop job's LoopConfig. The backend applies it as a full replacement
+  // when the job is not running, or as a per-step field update when running
+  // (rejecting structure changes with 409). Rethrows on failure so the editor
+  // can keep its panel open and surface the message.
+  const updateLoopConfig = useCallback(async (config: LoopConfig) => {
+    if (!jobId || isPublic) return;
+    const response = await fetch(`/api/v1/job/${jobId}/loop-config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loopConfig: config }),
+    });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => null);
+      throw new Error(errData?.error || `HTTP ${response.status}`);
+    }
+    const data = await response.json().catch(() => null);
+    // Reflect the edit locally: the flow drives both the progress session/step
+    // plan and (for a stopped job) a subsequent Continue.
+    if (config.flow) {
+      setLoopFlow(config.flow);
+    }
+    if (data?.progress) {
+      setLoopProgress(data.progress);
+    }
+  }, [jobId, isPublic]);
 
   const stopGeneration = useCallback(async () => {
     if (isLoop) {
@@ -2805,6 +2820,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     startLoop,
     continueLoop,
     stopLoop,
+    updateLoopConfig,
     stopGeneration,
     clearMessages,
     eventsReady,

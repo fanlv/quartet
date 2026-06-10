@@ -8,8 +8,11 @@ interface LoopProgressProps {
   progress: JobProgress;
   status: 'idle' | 'running' | 'completed' | 'stopped' | 'failed';
   flow?: FlowNode[];
-  onStop?: () => void;
+  // onStop receives graceful=true to finish the current step before stopping,
+  // or graceful=false (default) for an immediate hard stop.
+  onStop?: (graceful?: boolean) => void;
   onContinue?: () => void;
+  onEdit?: () => void;
 }
 
 function pathToLabel(path: number[]): string {
@@ -17,21 +20,20 @@ function pathToLabel(path: number[]): string {
   return path.map((p) => p + 1).join('.');
 }
 
-export function LoopProgress({ progress, status, flow, onStop, onContinue }: LoopProgressProps) {
+export function LoopProgress({ progress, status, flow, onStop, onContinue, onEdit }: LoopProgressProps) {
   const { t } = useTranslation();
-  const { totalSteps, completedCount, failedCount, currentPath, results, lastError, lastJudgeDecision, conditionalActualIterations } = progress;
+  const { totalSteps, completedCount, failedCount, currentPath, results, lastError, groupActualIterations } = progress;
   const done = completedCount + failedCount;
   const percent = totalSteps > 0 ? Math.round((done / totalSteps) * 100) : 0;
   const hasResults = results && results.length > 0;
   const [collapsed, setCollapsed] = useState(true);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [lastErrorExpanded, setLastErrorExpanded] = useState(false);
-  const [judgeExpanded, setJudgeExpanded] = useState(false);
 
   // Derive per-session / per-step position from the flow tree. When the flow
   // is unavailable (legacy job, hydration not yet done) we fall back to the
   // global "done / totalSteps" text.
-  const sessionPlan = flow && flow.length > 0 ? computeLoopSessionPlan(flow, conditionalActualIterations) : null;
+  const sessionPlan = flow && flow.length > 0 ? computeLoopSessionPlan(flow, groupActualIterations) : null;
   const loc = sessionPlan ? locateInSessionPlan(sessionPlan, currentPath) : null;
   const showSessionStats = !!(sessionPlan && sessionPlan.totalSessions > 0);
 
@@ -75,8 +77,28 @@ export function LoopProgress({ progress, status, flow, onStop, onContinue }: Loo
           {hasResults && (
             <span className={`loop-progress-toggle ${collapsed ? 'collapsed' : ''}`}>▾</span>
           )}
+          {onEdit && (
+            <button className="loop-edit-btn" onClick={(e) => { e.stopPropagation(); onEdit(); }} data-testid="loop-edit-config-button" title="Edit Config">Edit</button>
+          )}
           {status === 'running' && onStop && (
-            <button className="loop-stop-btn" onClick={(e) => { e.stopPropagation(); onStop(); }} data-testid="loop-stop-button">Stop</button>
+            <>
+              <button
+                className="loop-stop-btn loop-stop-btn-graceful"
+                onClick={(e) => { e.stopPropagation(); onStop(true); }}
+                data-testid="loop-stop-graceful-button"
+                title="Finish the current step, then stop"
+              >
+                Stop after step
+              </button>
+              <button
+                className="loop-stop-btn"
+                onClick={(e) => { e.stopPropagation(); onStop(false); }}
+                data-testid="loop-stop-button"
+                title="Stop immediately"
+              >
+                Stop now
+              </button>
+            </>
           )}
           {(status === 'stopped' || status === 'failed') && onContinue && (
             <button className="loop-stop-btn" onClick={(e) => { e.stopPropagation(); onContinue(); }} data-testid="loop-continue-button">Continue</button>
@@ -117,36 +139,6 @@ export function LoopProgress({ progress, status, flow, onStop, onContinue }: Loo
           </div>
           {lastErrorExpanded && (
             <pre className="loop-progress-last-error-full">{lastError}</pre>
-          )}
-        </div>
-      )}
-
-      {lastJudgeDecision && (
-        <div className="loop-progress-judge" data-testid="loop-progress-judge" data-judge-stop={lastJudgeDecision.stop ? 'true' : 'false'}>
-          <div
-            className="loop-progress-judge-header"
-            onClick={(e) => { e.stopPropagation(); setJudgeExpanded((v) => !v); }}
-          >
-            <span className="loop-progress-judge-label">
-              {t('loop.progress.judge.label')}
-            </span>
-            <span className="loop-progress-judge-round">
-              {t('loop.progress.judge.round', {
-                current: lastJudgeDecision.iteration,
-                total: lastJudgeDecision.maxIterations,
-              })}
-            </span>
-            {lastJudgeDecision.stop && (
-              <span className="loop-progress-judge-decision stop">
-                {t('loop.progress.judge.stop')}
-              </span>
-            )}
-            {lastJudgeDecision.reason && (
-              <span className={`loop-progress-judge-toggle${judgeExpanded ? ' expanded' : ''}`}>▾</span>
-            )}
-          </div>
-          {judgeExpanded && lastJudgeDecision.reason && (
-            <pre className="loop-progress-judge-reason">{lastJudgeDecision.reason}</pre>
           )}
         </div>
       )}

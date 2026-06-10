@@ -19,15 +19,27 @@ interface FlowOutlineProps {
   onToggleGroup: (nodeId: string) => void;
   onAddStep: (targetGroupId: string | null) => void;
   onAddGroup: (targetGroupId: string | null) => void;
+  onAddEvaluator: (targetGroupId: string | null) => void;
   onDuplicate: (nodeId: string) => void;
   onMove: (nodeId: string, direction: -1 | 1) => void;
   onDelete: (nodeId: string) => void;
   onUpdateIterationCount: (nodeId: string, count: number) => void;
   onUpdateRepeatCount: (nodeId: string, count: number) => void;
+  // structureLocked (running job edit): disables every structure-mutating
+  // control — add / duplicate / move / delete nodes and the repeat / iteration
+  // steppers. Field edits in the inspector stay enabled.
+  structureLocked?: boolean;
 }
 
 function fallbackStepTitle(node: FlowNode, index: number, t: TFunction): string {
   return node.label?.trim() || t('loop.outline.emptyStep', { index: index + 1 });
+}
+
+// hasEvaluatorChild reports whether a group directly contains an evaluator step
+// — used to label its iterationCount stepper as a "max iteration cap" rather
+// than a plain iteration count.
+function hasEvaluatorChild(node: FlowNode): boolean {
+  return (node.children || []).some((c) => c.type === 'step' && c.roundType === 'evaluator');
 }
 
 function renderNodeStatus(issue: FlowIssue | undefined, t: TFunction) {
@@ -54,11 +66,13 @@ export function FlowOutline({
   onToggleGroup,
   onAddStep,
   onAddGroup,
+  onAddEvaluator,
   onDuplicate,
   onMove,
   onDelete,
   onUpdateIterationCount,
   onUpdateRepeatCount,
+  structureLocked,
 }: FlowOutlineProps) {
   const { t } = useTranslation();
 
@@ -103,41 +117,31 @@ export function FlowOutline({
                 </span>
                 <span className="loop-outline-type group">G</span>
                 <span className="loop-outline-main">
-                  <span className="loop-outline-title">
-                    {title}
-                    {node.completionCondition?.trim() && (
-                      <span className="loop-outline-conditional-badge" title={node.completionCondition}>
-                        {t('loop.group.conditionalBadge')}
-                      </span>
-                    )}
-                  </span>
+                  <span className="loop-outline-title">{title}</span>
                   <span className="loop-outline-subtitle">
-                    {node.completionCondition?.trim()
-                      ? t('loop.outline.groupMetaConditional', {
-                          max: node.iterationCount || 1,
-                          steps: calcTotalSteps([node]),
-                        })
-                      : t('loop.outline.groupMeta', {
-                          iterations: node.iterationCount || 1,
-                          steps: calcTotalSteps([node]),
-                        })}
+                    {t('loop.outline.groupMeta', {
+                      iterations: node.iterationCount || 1,
+                      steps: calcTotalSteps([node]),
+                    })}
                   </span>
                 </span>
                 <span
                   className="loop-outline-iteration"
                   onClick={(e) => e.stopPropagation()}
-                  title={node.completionCondition?.trim() ? t('loop.group.maxIteration') : t('loop.group.iteration')}
+                  title={hasEvaluatorChild(node) ? t('loop.group.maxIteration') : t('loop.group.iteration')}
                 >
                   <NumberStepper
                     value={node.iterationCount || 1}
                     onChange={(n) => onUpdateIterationCount(node.id, n)}
+                    disabled={structureLocked}
                   />
                 </span>
                 {renderNodeStatus(issue, t)}
               </button>
-              {isSelected && (
+              {isSelected && !structureLocked && (
                 <div className="loop-outline-actions" style={rowStyle}>
                   <button onClick={() => onAddStep(node.id)} type="button">{t('loop.actions.addMenuStep')}</button>
+                  <button onClick={() => onAddEvaluator(node.id)} type="button">{t('loop.actions.addMenuEvaluator')}</button>
                   {canAddGroup && <button onClick={() => onAddGroup(node.id)} type="button">{t('loop.actions.addMenuGroup')}</button>}
                   <button onClick={() => onDuplicate(node.id)} type="button">{t('loop.actions.duplicate')}</button>
                   <button disabled={!canMoveUp} onClick={() => onMove(node.id, -1)} type="button">↑</button>
@@ -150,7 +154,11 @@ export function FlowOutline({
           );
         }
 
-        const isShell = (node.roundType || 'prompt') === 'shell';
+        const roundType = node.roundType || 'prompt';
+        const isShell = roundType === 'shell';
+        const isEvaluator = roundType === 'evaluator';
+        const typeChar = isShell ? 'S' : isEvaluator ? 'E' : 'P';
+        const typeClass = isShell ? 'shell' : isEvaluator ? 'evaluator' : 'prompt';
         return (
           <div className="loop-outline-node" key={node.id}>
             <button
@@ -159,7 +167,7 @@ export function FlowOutline({
               onClick={() => onSelect(node.id)}
               type="button"
             >
-              <span className={`loop-outline-type ${isShell ? 'shell' : 'prompt'}`}>{isShell ? 'S' : 'P'}</span>
+              <span className={`loop-outline-type ${typeClass}`}>{typeChar}</span>
               <span className="loop-outline-main">
                 <span className="loop-outline-title">{fallbackStepTitle(node, index, t)}</span>
                 <span className="loop-outline-subtitle">
@@ -170,13 +178,17 @@ export function FlowOutline({
                 <NumberStepper
                   value={node.repeatCount || 1}
                   onChange={(n) => onUpdateRepeatCount(node.id, n)}
+                  disabled={structureLocked}
                 />
               </span>
               {renderNodeStatus(issue, t)}
             </button>
-            {isSelected && (
+            {isSelected && !structureLocked && (
               <div className="loop-outline-actions" style={rowStyle}>
                 <button onClick={() => onAddStep(null)} type="button">{t('loop.actions.addMenuStep')}</button>
+                {depth > 0 && (
+                  <button onClick={() => onAddEvaluator(null)} type="button">{t('loop.actions.addMenuEvaluator')}</button>
+                )}
                 <button onClick={() => onAddGroup(null)} type="button">{t('loop.actions.addMenuGroup')}</button>
                 <button onClick={() => onDuplicate(node.id)} type="button">{t('loop.actions.duplicate')}</button>
                 <button disabled={!canMoveUp} onClick={() => onMove(node.id, -1)} type="button">↑</button>

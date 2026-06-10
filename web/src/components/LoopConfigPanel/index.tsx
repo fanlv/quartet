@@ -21,6 +21,22 @@ interface LoopConfigPanelProps {
   agents: AgentInfo[];
   workspaces?: WorkspaceItem[];
   currentWorkspaceId?: string;
+  // --- Edit mode (editing an existing job's LoopConfig) ---
+  // When provided, the panel seeds its flow/variables from this config instead
+  // of a blank default, and switches the footer action from "Start" to "Save".
+  initialConfig?: LoopConfig;
+  // runningLock locks structure editing: while a loop job is running, only the
+  // per-step fields (prompt / agent / model / mode) may change — adding,
+  // removing, reordering nodes and changing repeat / iteration / round settings
+  // is disabled (the running flow snapshot must not be restructured). Ignored
+  // unless initialConfig is provided.
+  runningLock?: boolean;
+  // onSave is invoked (instead of onConfirm) when the panel is in edit mode.
+  // Returning a rejected promise keeps the panel open and surfaces saveError.
+  onSave?: (config: LoopConfig) => Promise<void>;
+  // saveError is rendered in the footer when a save attempt fails (e.g. the
+  // backend rejects a structure change on a running job).
+  saveError?: string;
 }
 
 async function fetchTemplates(): Promise<LoopTemplate[]> {
@@ -92,6 +108,78 @@ function createGroup(): FlowNode {
     iterationCount: 1,
     children: [firstStep],
   };
+}
+
+// createEvaluator builds an evaluator step: a prompt-style node whose output is
+// parsed as a loop stop signal. roundMode defaults to 'none' so it reuses the
+// round's current session and can see the business steps' history (§5.3).
+function createEvaluator(): FlowNode {
+  return {
+    id: generateId(),
+    type: 'step',
+    message: '',
+    repeatCount: 1,
+    roundMode: 'none',
+    roundType: 'evaluator',
+  };
+}
+
+// groupHasEvaluator reports whether a group directly contains an evaluator step.
+function groupHasEvaluator(node: FlowNode): boolean {
+  return (node.children || []).some((c) => c.type === 'step' && c.roundType === 'evaluator');
+}
+
+// computeEvaluatorWarnings returns non-blocking config guidance (§5.3 / §2.4)
+// for an evaluator node, based on its preceding sibling business steps inside
+// the same group. Returns [] for non-evaluator nodes or when no warning applies.
+function computeEvaluatorWarnings(
+  flow: FlowNode[],
+  nodeId: string,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string[] {
+  // Find the parent group's children and the node's index within them.
+  let siblings: FlowNode[] | null = null;
+  let index = -1;
+  const walk = (items: FlowNode[]) => {
+    for (let i = 0; i < items.length; i++) {
+      const n = items[i];
+      if (n.id === nodeId) {
+        siblings = items;
+        index = i;
+        return;
+      }
+      if (n.type === 'group' && n.children) walk(n.children);
+      if (siblings) return;
+    }
+  };
+  walk(flow);
+  if (!siblings || index < 0) return [];
+  const node = (siblings as FlowNode[])[index];
+  if (node.type !== 'step' || node.roundType !== 'evaluator') return [];
+
+  const warnings: string[] = [];
+  const priorBusiness = (siblings as FlowNode[])
+    .slice(0, index)
+    .filter((n) => n.type === 'step' && n.roundType !== 'evaluator');
+
+  // §5.3: a none-evaluator after an eachRepeat/beforeRound business step lands
+  // in a fresh empty session and can't see this round's business output.
+  if ((node.roundMode || 'none') === 'none') {
+    const lastBusiness = priorBusiness[priorBusiness.length - 1];
+    const freshMode = lastBusiness && (lastBusiness.roundMode === 'eachRepeat' || lastBusiness.roundMode === 'beforeRound');
+    if (freshMode) {
+      warnings.push(t('loop.step.evaluator.warnEmptySession'));
+    }
+  }
+
+  // §2.4: a failing business step (no ContinueOnError) fails the job before the
+  // evaluator runs; "fix until tests pass" loops need ContinueOnError.
+  const hasUnguardedBusiness = priorBusiness.some((n) => !n.continueOnError);
+  if (hasUnguardedBusiness) {
+    warnings.push(t('loop.step.evaluator.warnContinueOnError'));
+  }
+
+  return warnings;
 }
 
 function deepCloneFlowNode(node: FlowNode): FlowNode {
@@ -190,23 +278,29 @@ function moveNodeInFlow(nodes: FlowNode[], nodeId: string, direction: -1 | 1): F
 
 function collectFlowIssues(nodes: FlowNode[], t: (key: string, opts?: Record<string, unknown>) => string): FlowIssue[] {
   const issues: FlowIssue[] = [];
-  const walk = (items: FlowNode[]) => {
+  const walk = (items: FlowNode[], depth: number) => {
     for (const node of items) {
       if (node.type === 'step') {
         const roundType = node.roundType || 'prompt';
         if (roundType === 'shell' && !node.scriptId) {
           issues.push({ nodeId: node.id, message: t('loop.validation.scriptRequired') });
+        } else if (roundType === 'evaluator') {
+          if (depth === 0) {
+            issues.push({ nodeId: node.id, message: t('loop.validation.evaluatorInGroup') });
+          } else if (!node.message?.trim()) {
+            issues.push({ nodeId: node.id, message: t('loop.validation.evaluatorPromptRequired') });
+          }
         } else if (roundType !== 'shell' && !node.message?.trim()) {
           issues.push({ nodeId: node.id, message: t('loop.validation.promptRequired') });
         }
       } else if (!node.children || node.children.length === 0) {
         issues.push({ nodeId: node.id, message: t('loop.validation.groupEmpty') });
       } else {
-        walk(node.children);
+        walk(node.children, depth + 1);
       }
     }
   };
-  walk(nodes);
+  walk(nodes, 0);
   return issues;
 }
 
@@ -221,13 +315,28 @@ function getTemplateStats(tmpl: LoopTemplate) {
   };
 }
 
-export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, currentWorkspaceId }: LoopConfigPanelProps) {
+export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, currentWorkspaceId, initialConfig, runningLock, onSave, saveError }: LoopConfigPanelProps) {
   const { t, i18n } = useTranslation();
   const isZh = (i18n.resolvedLanguage || i18n.language || 'en').startsWith('zh');
   const varTagExample = isZh ? '{{变量名}}' : '{{variableName}}';
-  const [initialFlow] = useState<FlowNode[]>(makeDefaultFlow);
+  // Edit mode: seed flow/variables from the existing job config. structureLocked
+  // (running job) disables every structure-mutating control; field edits stay live.
+  const isEditMode = !!initialConfig || !!onSave;
+  const structureLocked = !!runningLock;
+  const [initialFlow] = useState<FlowNode[]>(() => {
+    if (initialConfig) {
+      const migrated = migrateOldConfig(initialConfig);
+      if (migrated.flow && migrated.flow.length > 0) return migrated.flow;
+    }
+    return makeDefaultFlow();
+  });
   const [flow, setFlow] = useState<FlowNode[]>(initialFlow);
-  const [variables, setVariables] = useState<{ key: string; value: string }[]>([]);
+  const [variables, setVariables] = useState<{ key: string; value: string }[]>(() => {
+    const migrated = initialConfig ? migrateOldConfig(initialConfig) : null;
+    return migrated?.variables
+      ? Object.entries(migrated.variables).map(([key, value]) => ({ key, value }))
+      : [];
+  });
 
   const [templates, setTemplates] = useState<LoopTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
@@ -251,6 +360,8 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
 
   const [dirty, setDirty] = useState(false);
   const markDirty = useCallback(() => { if (!dirty) setDirty(true); }, [dirty]);
+  // Edit-mode save in flight (distinct from the template `saving` flag).
+  const [savingConfig, setSavingConfig] = useState(false);
 
   // Workspace selector
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | undefined>(currentWorkspaceId);
@@ -460,9 +571,17 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     variables.forEach((v) => {
       if (v.key.trim()) vars[v.key.trim()] = v.value;
     });
+    const config: LoopConfig = { flow, ...(Object.keys(vars).length > 0 ? { variables: vars } : {}) };
+    if (isEditMode && onSave) {
+      setSavingConfig(true);
+      onSave(config)
+        .then(() => { setDirty(false); })
+        .finally(() => setSavingConfig(false));
+      return;
+    }
     const selectedWs = workspaces?.find((w) => w.id === selectedWorkspaceId);
     onConfirm(
-      { flow, ...(Object.keys(vars).length > 0 ? { variables: vars } : {}) },
+      config,
       selectedWs?.workdir,
       selectedWs?.id,
     );
@@ -597,6 +716,23 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     markDirty();
   };
 
+  const handleAddEvaluator = (targetGroupId: string | null = null) => {
+    const newEval = createEvaluator();
+    setFlow((prev) => {
+      if (targetGroupId) {
+        return updateNodeInFlow(prev, targetGroupId, (node) => ({
+          ...node,
+          children: [...(node.children || []), newEval],
+        }));
+      }
+      if (selectedNodeId) return insertNodeAfter(prev, selectedNodeId, newEval);
+      return [...prev, newEval];
+    });
+    setSelectedNodeId(newEval.id);
+    setMobileTab('config');
+    markDirty();
+  };
+
   const handleAddGroup = (targetGroupId: string | null = null) => {
     const newGroup = createGroup();
     const firstStepId = findFirstStepId([newGroup]);
@@ -676,6 +812,15 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const issuesByNode = useMemo(() => new Map(issues.map((issue) => [issue.nodeId, issue])), [issues]);
   const selectedNode = useMemo(() => findNodeById(flow, selectedNodeId), [flow, selectedNodeId]);
   const selectedLocation = useMemo(() => findNodeLocation(flow, selectedNodeId), [flow, selectedNodeId]);
+  // An evaluator must live inside a group. Resolve the target group from the
+  // selection: the group itself when a group is selected, or the parent group
+  // when a step inside a group is selected. undefined => no valid target, so the
+  // "add evaluator" entry is hidden (a top-level break is meaningless).
+  const evaluatorTargetGroupId = useMemo<string | null | undefined>(() => {
+    if (!selectedNode || !selectedLocation) return undefined;
+    if (selectedNode.type === 'group') return selectedNode.id;
+    return selectedLocation.parentId ?? undefined;
+  }, [selectedNode, selectedLocation]);
   const firstIssue = issues[0];
   const selectedIssue = selectedNodeId ? issuesByNode.get(selectedNodeId) : undefined;
   const formatTemplateDate = useCallback((tmpl: LoopTemplate) => {
@@ -790,10 +935,16 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
       <div className="loop-config-panel" onClick={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()} data-testid="loop-config-panel">
         <div className="loop-config-header" data-testid="loop-config-header">
           <div className="loop-config-header-copy">
-            <h3>{t('loop.panel.title')}</h3>
+            <h3>{isEditMode ? t('loop.panel.editTitle') : t('loop.panel.title')}</h3>
             <span className="loop-config-header-summary">
-              {dirty ? t('loop.state.unsaved') : t('loop.state.clean')}
-              {' · '}
+              {structureLocked ? (
+                <span className="loop-config-running-lock" data-testid="loop-config-running-lock">{t('loop.edit.runningLockHint')}</span>
+              ) : (
+                <>
+                  {dirty ? t('loop.state.unsaved') : t('loop.state.clean')}
+                  {' · '}
+                </>
+              )}
               {t('loop.footer.nodes', { count: nodeCount })}
               {' · '}
               {t('loop.flow.steps', { count: totalSteps })}
@@ -802,7 +953,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
             </span>
           </div>
           <div className="loop-config-header-actions">
-            {workspaces && workspaces.length > 0 && (
+            {!isEditMode && workspaces && workspaces.length > 0 && (
               <div className="loop-ws-selector" ref={wsDropdownRef}>
                 <button
                   className="loop-ws-trigger"
@@ -849,74 +1000,78 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                 )}
               </div>
             )}
-            <div className="loop-template-quick-select" ref={templateDropdownRef}>
-              <button
-                className={`loop-template-current${templateDropdownOpen ? ' open' : ''}`}
-                type="button"
-                onClick={() => setTemplateDropdownOpen((v) => !v)}
-                aria-expanded={templateDropdownOpen}
-              >
-                <span className="loop-template-current-copy">
-                  <span className="loop-template-current-label">{t('loop.template.currentLabel')}</span>
-                  <span className={selectedTemplate ? 'loop-template-current-name' : 'loop-template-current-placeholder'}>
-                    {selectedTemplate ? selectedTemplate.name : t('loop.footer.blank')}
+            {!isEditMode && (
+              <div className="loop-template-quick-select" ref={templateDropdownRef}>
+                <button
+                  className={`loop-template-current${templateDropdownOpen ? ' open' : ''}`}
+                  type="button"
+                  onClick={() => setTemplateDropdownOpen((v) => !v)}
+                  aria-expanded={templateDropdownOpen}
+                >
+                  <span className="loop-template-current-copy">
+                    <span className="loop-template-current-label">{t('loop.template.currentLabel')}</span>
+                    <span className={selectedTemplate ? 'loop-template-current-name' : 'loop-template-current-placeholder'}>
+                      {selectedTemplate ? selectedTemplate.name : t('loop.footer.blank')}
+                    </span>
                   </span>
-                </span>
-                <svg className="loop-template-current-caret" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 4.5L6 7.5L9 4.5" />
-                </svg>
+                  <svg className="loop-template-current-caret" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 4.5L6 7.5L9 4.5" />
+                  </svg>
+                </button>
+                {templateDropdownOpen && (
+                  <div className="loop-template-quick-dropdown">
+                    <button
+                      type="button"
+                      className={`loop-template-quick-item${!selectedTemplateId ? ' active' : ''}`}
+                      onClick={handleReset}
+                    >
+                      <span className="loop-template-quick-name">{t('loop.footer.blank')}</span>
+                      <span className="loop-template-quick-meta">{t('loop.actions.reset')}</span>
+                    </button>
+                    {templates.length === 0 ? (
+                      <div className="loop-template-quick-empty">
+                        {t('loop.template.emptyLibraryTitle')}
+                      </div>
+                    ) : (
+                      templates.map((tmpl) => {
+                        const stats = getTemplateStats(tmpl);
+                        const isSelected = tmpl.id === selectedTemplateId;
+                        const isScheduled = (tmpl.scheduleCount ?? 0) > 0;
+                        return (
+                          <button
+                            key={tmpl.id}
+                            type="button"
+                            className={`loop-template-quick-item${isSelected ? ' active' : ''}`}
+                            onClick={() => handleSelectTemplate(tmpl)}
+                          >
+                            <span className="loop-template-quick-name">{tmpl.name}</span>
+                            <span className="loop-template-quick-meta">
+                              {t('loop.flow.steps', { count: stats.steps })}
+                              {' · '}
+                              {t('loop.footer.variables', { count: stats.variables })}
+                              {isScheduled ? ` · ${t('loop.template.scheduleBadge', { count: tmpl.scheduleCount ?? 0 })}` : ''}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {!isEditMode && (
+              <button
+                className="loop-template-library-btn"
+                data-testid="loop-config-template-library-button"
+                onClick={() => {
+                  setShowTemplateLibrary(true);
+                  setTemplateSearch('');
+                }}
+                type="button"
+              >
+                {t('loop.template.libraryButton')}
               </button>
-              {templateDropdownOpen && (
-                <div className="loop-template-quick-dropdown">
-                  <button
-                    type="button"
-                    className={`loop-template-quick-item${!selectedTemplateId ? ' active' : ''}`}
-                    onClick={handleReset}
-                  >
-                    <span className="loop-template-quick-name">{t('loop.footer.blank')}</span>
-                    <span className="loop-template-quick-meta">{t('loop.actions.reset')}</span>
-                  </button>
-                  {templates.length === 0 ? (
-                    <div className="loop-template-quick-empty">
-                      {t('loop.template.emptyLibraryTitle')}
-                    </div>
-                  ) : (
-                    templates.map((tmpl) => {
-                      const stats = getTemplateStats(tmpl);
-                      const isSelected = tmpl.id === selectedTemplateId;
-                      const isScheduled = (tmpl.scheduleCount ?? 0) > 0;
-                      return (
-                        <button
-                          key={tmpl.id}
-                          type="button"
-                          className={`loop-template-quick-item${isSelected ? ' active' : ''}`}
-                          onClick={() => handleSelectTemplate(tmpl)}
-                        >
-                          <span className="loop-template-quick-name">{tmpl.name}</span>
-                          <span className="loop-template-quick-meta">
-                            {t('loop.flow.steps', { count: stats.steps })}
-                            {' · '}
-                            {t('loop.footer.variables', { count: stats.variables })}
-                            {isScheduled ? ` · ${t('loop.template.scheduleBadge', { count: tmpl.scheduleCount ?? 0 })}` : ''}
-                          </span>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              )}
-            </div>
-            <button
-              className="loop-template-library-btn"
-              data-testid="loop-config-template-library-button"
-              onClick={() => {
-                setShowTemplateLibrary(true);
-                setTemplateSearch('');
-              }}
-              type="button"
-            >
-              {t('loop.template.libraryButton')}
-            </button>
+            )}
             <button className="loop-config-close" onClick={handleTryCancel} type="button" data-testid="loop-config-close-button">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                 <path d="M4 4l8 8M12 4l-8 8" />
@@ -940,9 +1095,16 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                   <span>{t('loop.flow.meta', { nodes: nodeCount, steps: totalSteps })}</span>
                 </div>
                 <div className="loop-pane-actions">
-                  <button onClick={() => handleAddStep(selectedNode?.type === 'group' ? selectedNode.id : null)} type="button" data-testid="loop-config-add-step-button">{t('loop.actions.addMenuStep')}</button>
-                  {(!selectedNode || selectedNode.type !== 'group' || (selectedLocation?.depth ?? 0) + 1 < MAX_DEPTH) && (
-                    <button onClick={() => handleAddGroup(selectedNode?.type === 'group' ? selectedNode.id : null)} type="button" data-testid="loop-config-add-group-button">{t('loop.actions.addMenuGroup')}</button>
+                  {!structureLocked && (
+                    <>
+                      <button onClick={() => handleAddStep(selectedNode?.type === 'group' ? selectedNode.id : null)} type="button" data-testid="loop-config-add-step-button">{t('loop.actions.addMenuStep')}</button>
+                      {evaluatorTargetGroupId !== undefined && (
+                        <button onClick={() => handleAddEvaluator(evaluatorTargetGroupId)} type="button" data-testid="loop-config-add-evaluator-button">{t('loop.actions.addMenuEvaluator')}</button>
+                      )}
+                      {(!selectedNode || selectedNode.type !== 'group' || (selectedLocation?.depth ?? 0) + 1 < MAX_DEPTH) && (
+                        <button onClick={() => handleAddGroup(selectedNode?.type === 'group' ? selectedNode.id : null)} type="button" data-testid="loop-config-add-group-button">{t('loop.actions.addMenuGroup')}</button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -965,6 +1127,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                 }}
                 onAddStep={handleAddStep}
                 onAddGroup={handleAddGroup}
+                onAddEvaluator={handleAddEvaluator}
                 onDuplicate={handleDuplicateNode}
                 onMove={handleMoveNode}
                 onDelete={handleRequestDeleteNode}
@@ -976,6 +1139,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                   onUpdateTree((nodes) => updateNodeInFlow(nodes, nodeId, (node) => ({ ...node, repeatCount: count })));
                   markDirty();
                 }}
+                structureLocked={structureLocked}
               />
               {firstIssue && (
                 <div className="loop-outline-issue">
@@ -1015,24 +1179,11 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                     <span>{t('loop.footer.nodes', { count: countNodes(selectedNode.children || []) })}</span>
                     <span>{t('loop.flow.steps', { count: calcTotalSteps(selectedNode.children || []) })}</span>
                   </div>
-                  <label className="loop-inspector-label">{t('loop.group.completionCondition.label')}</label>
-                  <textarea
-                    className="loop-inspector-input loop-inspector-textarea"
-                    data-testid="loop-group-completion-condition"
-                    value={selectedNode.completionCondition || ''}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      onUpdateTree((nodes) => updateNodeInFlow(nodes, selectedNode.id, (node) => ({ ...node, completionCondition: v })));
-                      markDirty();
-                    }}
-                    placeholder={t('loop.group.completionCondition.placeholder')}
-                    rows={2}
-                  />
-                  <span className="loop-group-completion-hint">
-                    {selectedNode.completionCondition?.trim()
-                      ? t('loop.group.completionCondition.hintActive', { max: selectedNode.iterationCount || 1 })
-                      : t('loop.group.completionCondition.hint')}
-                  </span>
+                  {groupHasEvaluator(selectedNode) && (
+                    <span className="loop-group-completion-hint">
+                      {t('loop.group.evaluatorHint', { max: selectedNode.iterationCount || 1 })}
+                    </span>
+                  )}
                   {selectedLocation?.depth === 0 && (
                     <div className="loop-group-variables-section">
                       <label className="loop-inspector-label">{t('loop.variables.label')}</label>
@@ -1078,6 +1229,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                     definedVars={definedVars}
                     allShellVars={allShellVars}
                     agents={agents}
+                    warnings={selectedNode.roundType === 'evaluator' ? computeEvaluatorWarnings(flow, selectedNode.id, t) : undefined}
                     isExpanded
                     onExpandedChange={() => undefined}
                     onUpdate={(updated) => {
@@ -1085,6 +1237,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                       markDirty();
                     }}
                     onRemove={() => handleRequestDeleteNode(selectedNode.id)}
+                    structureLocked={structureLocked}
                   />
                 </div>
               )}
@@ -1146,6 +1299,9 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                 </>
               )}
             </span>
+            {saveError && (
+              <span className="loop-config-footer-error" data-testid="loop-config-save-error">{saveError}</span>
+            )}
           </div>
           <div className="loop-config-footer-actions">
             <button className="loop-secondary-btn" onClick={handleCopyConfig} disabled={!valid} type="button" title={t('loop.actions.copyConfig')}>
@@ -1155,14 +1311,16 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
               </svg>
               <span className="loop-btn-label">{t('loop.actions.copyConfig')}</span>
             </button>
-            <button className="loop-secondary-btn" onClick={() => { setShowImportDialog(true); setImportText(''); setImportError(''); }} type="button" title={t('loop.actions.importConfig')}>
-              <svg className="loop-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-              <span className="loop-btn-label">{t('loop.actions.importConfig')}</span>
-            </button>
+            {!isEditMode && (
+              <button className="loop-secondary-btn" onClick={() => { setShowImportDialog(true); setImportText(''); setImportError(''); }} type="button" title={t('loop.actions.importConfig')}>
+                <svg className="loop-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                <span className="loop-btn-label">{t('loop.actions.importConfig')}</span>
+              </button>
+            )}
             <button
               type="button"
               className="loop-secondary-btn"
@@ -1206,15 +1364,23 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
               type="button"
               className="loop-start-btn"
               onClick={handleConfirm}
-              disabled={!valid}
-              title={t('loop.actions.start')}
-              aria-label={t('loop.actions.start')}
-              data-testid="loop-config-start-button"
+              disabled={!valid || savingConfig}
+              title={isEditMode ? t('loop.actions.save') : t('loop.actions.start')}
+              aria-label={isEditMode ? t('loop.actions.save') : t('loop.actions.start')}
+              data-testid={isEditMode ? 'loop-config-save-button' : 'loop-config-start-button'}
             >
-              <svg className="loop-btn-icon" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5v14l11-7z"/>
-              </svg>
-              <span className="loop-btn-label">{t('loop.actions.start')}</span>
+              {isEditMode ? (
+                <svg className="loop-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                  <polyline points="17 21 17 13 7 13 7 21"/>
+                  <polyline points="7 3 7 8 15 8"/>
+                </svg>
+              ) : (
+                <svg className="loop-btn-icon" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z"/>
+                </svg>
+              )}
+              <span className="loop-btn-label">{isEditMode ? (savingConfig ? t('loop.actions.saving') : t('loop.actions.save')) : t('loop.actions.start')}</span>
             </button>
           </div>
         </div>

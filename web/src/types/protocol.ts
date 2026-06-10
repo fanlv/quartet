@@ -187,14 +187,6 @@ export interface IterationResult {
   content?: string;
 }
 
-export interface JudgeDecision {
-  path?: number[];
-  stop: boolean;
-  reason?: string;
-  iteration: number;
-  maxIterations: number;
-}
-
 export interface JobProgress {
   totalSteps: number;
   currentPath?: number[];
@@ -202,12 +194,12 @@ export interface JobProgress {
   failedCount: number;
   results?: IterationResult[];
   lastError?: string;
-  lastJudgeDecision?: JudgeDecision;
-  // conditionalActualIterations maps a conditional group's dot-joined node
-  // path (e.g. "0.0") to the number of rounds it actually ran when it stopped
-  // early. Used to recompute the session/step plan denominator so the progress
-  // text and bar reflect the real run instead of the static iteration cap.
-  conditionalActualIterations?: Record<string, number>;
+  // groupActualIterations maps a group's dot-joined node path (e.g. "0.0") to
+  // the number of rounds it actually ran when it broke early via stepStopLoop
+  // (evaluator STOP or Shell STOP_LOOP). Used to recompute the session/step
+  // plan denominator so the progress text and bar reflect the real run instead
+  // of the static iteration cap.
+  groupActualIterations?: Record<string, number>;
 }
 
 export interface JobStartedEvent extends BaseEvent {

@@ -14,6 +14,15 @@ import (
 
 // Start launches the job's LoopConfig execution. Resets progress.
 func (s *serviceImpl) Start(ctx context.Context, jobID string, runner JobRunner) error {
+	// Hold the persist shard across the entire check→flip→persist sequence so a
+	// concurrent ReplaceLoopConfig (which also holds it for its whole body)
+	// cannot interleave: without this, ReplaceLoopConfig could observe a
+	// non-Running snapshot, then mirror a stale config/progress back over the
+	// fresh Running state we set here. See executor_loopconfig.go.
+	lock := s.persistLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	s.mu.Lock()
 	job, ok := s.jobs[jobID]
 	if !ok {
@@ -56,7 +65,7 @@ func (s *serviceImpl) Start(ctx context.Context, jobID string, runner JobRunner)
 	// registration (which would orphan the runLoop goroutine and let it
 	// resurrect the job dir on disk after Delete cleaned it up).
 	res := s.prepareRunResources(jobID, startCtx.timeoutMinutes)
-	if err := s.saveJobWithRetry(ctx, job, "start"); err != nil {
+	if err := s.saveJobWithRetryLocked(ctx, job, "start"); err != nil {
 		s.abortRunResources(jobID, res)
 		s.restoreRunStateAfterPersistFailure(ctx, job, prevRunState, "start", err)
 		return err
@@ -72,6 +81,12 @@ func (s *serviceImpl) Start(ctx context.Context, jobID string, runner JobRunner)
 }
 
 func (s *serviceImpl) Continue(ctx context.Context, jobID string, runner JobRunner) error {
+	// Hold the persist shard across check→flip→persist, mutually exclusive with
+	// ReplaceLoopConfig (see Start for the rationale).
+	lock := s.persistLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	s.mu.Lock()
 	job, ok := s.jobs[jobID]
 	if !ok {
@@ -141,7 +156,7 @@ func (s *serviceImpl) Continue(ctx context.Context, jobID string, runner JobRunn
 	}
 	s.mu.Unlock()
 	res := s.prepareRunResources(jobID, startCtx.timeoutMinutes)
-	if err := s.saveJobWithRetry(ctx, job, "continue"); err != nil {
+	if err := s.saveJobWithRetryLocked(ctx, job, "continue"); err != nil {
 		s.abortRunResources(jobID, res)
 		s.restoreRunStateAfterPersistFailure(ctx, job, prevRunState, "continue", err)
 		return err
@@ -183,6 +198,12 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 		return ErrEmptyMessage
 	}
 
+	// Hold the persist shard across check→flip→persist, mutually exclusive with
+	// ReplaceLoopConfig (see Start for the rationale).
+	lock := s.persistLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	s.mu.Lock()
 	job, ok := s.jobs[jobID]
 	if !ok {
@@ -221,7 +242,7 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	// Delete arriving during the persist window cannot miss the cancel
 	// registration. Mirrors the same fix in Start / Continue.
 	res := s.prepareRunResources(job.ID, 0)
-	if err := s.saveJobWithRetry(ctx, job, "send_message_start"); err != nil {
+	if err := s.saveJobWithRetryLocked(ctx, job, "send_message_start"); err != nil {
 		s.abortRunResources(job.ID, res)
 		s.restoreRunStateAfterPersistFailure(ctx, job, prevRunState, "send_message_start", err)
 		return err
@@ -339,11 +360,16 @@ func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner
 	}
 
 	s.injectPerRoundVars(ctx, job, path)
-	s.executeRepeat(ctx, job, runner, node, path, sessionID, opts, false /* isLoopRun */, nil /* nextResume — interactive runs don't drive loop resume */, false /* inConditional */)
+	s.executeRepeat(ctx, job, runner, node, path, sessionID, opts, false /* isLoopRun */, nil /* nextResume — interactive runs don't drive loop resume */)
 }
 
-// buildProgress creates a fresh JobProgress from a LoopConfig.
+// buildProgress creates a fresh JobProgress from a LoopConfig. It migrates the
+// config first so a legacy (Rounds-only) config — whose Flow is still nil —
+// gets its tree populated before CalcTotalSteps runs; otherwise TotalSteps
+// would be computed as 0 and the progress denominator would be wrong for the
+// whole run.
 func buildProgress(cfg *model.LoopConfig) *model.JobProgress {
+	model.MigrateLoopConfig(cfg)
 	return &model.JobProgress{
 		TotalSteps: model.CalcTotalSteps(cfg.Flow),
 	}
@@ -445,6 +471,45 @@ func (s *serviceImpl) Stop(jobID string) {
 	s.cancelMu.Unlock()
 }
 
+// RequestGracefulStop marks a running loop job to stop at the next step
+// boundary: the in-flight step runs to completion (records its result, advances
+// resume) and then runFlowNodes returns instead of starting the next step. The
+// job ends Stopped with Resume preserved, so Continue resumes cleanly from the
+// next step — unlike the hard Stop, which cancels the context mid-step and
+// re-runs the interrupted step on Continue.
+//
+// Best-effort: if the current step never finishes (e.g. a hung LLM call), this
+// will not interrupt it — the user can escalate to a hard Stop. Idempotent.
+func (s *serviceImpl) RequestGracefulStop(jobID string) {
+	s.gracefulStopsMu.Lock()
+	if s.gracefulStops == nil {
+		s.gracefulStops = make(map[string]struct{})
+	}
+	s.gracefulStops[jobID] = struct{}{}
+	s.gracefulStopsMu.Unlock()
+}
+
+// consumeGracefulStop reports whether a graceful stop was requested for jobID
+// and clears the flag. Called by runFlowNodes at each step boundary.
+func (s *serviceImpl) consumeGracefulStop(jobID string) bool {
+	s.gracefulStopsMu.Lock()
+	defer s.gracefulStopsMu.Unlock()
+	if _, ok := s.gracefulStops[jobID]; ok {
+		delete(s.gracefulStops, jobID)
+		return true
+	}
+	return false
+}
+
+// clearGracefulStop drops any pending graceful-stop request for jobID. Called
+// at run launch so a stale request from a previous run can't immediately stop a
+// freshly started/continued run.
+func (s *serviceImpl) clearGracefulStop(jobID string) {
+	s.gracefulStopsMu.Lock()
+	delete(s.gracefulStops, jobID)
+	s.gracefulStopsMu.Unlock()
+}
+
 // StopAndWait cancels a running job and blocks until its runLoop goroutine exits
 // or stopAndWaitTimeout is reached.
 func (s *serviceImpl) StopAndWait(jobID string) {
@@ -541,6 +606,9 @@ func (s *serviceImpl) prepareRunResources(jobID string, timeoutMinutes int) *run
 	// fresh done event. Interactive sends don't call notifyJobDone but we
 	// clear here too to keep the invariant symmetric.
 	s.clearJobDoneNotified(jobID)
+	// Drop any stale graceful-stop request so it can't immediately stop a
+	// freshly started / continued run before its first step boundary.
+	s.clearGracefulStop(jobID)
 
 	var ctx context.Context
 	var cancel context.CancelFunc

@@ -67,13 +67,11 @@ func (h *Handler) ScheduleCreate(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
-	// Validate loop config
-	model.MigrateLoopConfig(&req.LoopConfig)
-	if len(req.LoopConfig.Flow) == 0 {
-		httputil.BadRequest(c, "loopConfig.flow must not be empty")
-		return
-	}
-	if err := model.ValidateFlow(req.LoopConfig.Flow, 0); err != nil {
+	// Validate loop config. Schedule requests carry no request-level agent
+	// default (each flow step carries its own), so backfill is a no-op here —
+	// but route through the shared entry so the migrate/backfill/validate
+	// order stays identical to the job-create path.
+	if err := model.NormalizeAndValidateLoopConfig(&req.LoopConfig, model.FlowDefaults{}); err != nil {
 		httputil.BadRequest(c, err.Error())
 		return
 	}
@@ -155,12 +153,7 @@ func (h *Handler) ScheduleUpdate(ctx context.Context, c *app.RequestContext) {
 	}
 
 	if req.LoopConfig != nil {
-		model.MigrateLoopConfig(req.LoopConfig)
-		if len(req.LoopConfig.Flow) == 0 {
-			httputil.BadRequest(c, "loopConfig.flow must not be empty")
-			return
-		}
-		if err := model.ValidateFlow(req.LoopConfig.Flow, 0); err != nil {
+		if err := model.NormalizeAndValidateLoopConfig(req.LoopConfig, model.FlowDefaults{}); err != nil {
 			httputil.BadRequest(c, err.Error())
 			return
 		}

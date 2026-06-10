@@ -96,7 +96,8 @@
     "noVariablesSuffix": "to reference it.",
     "noShellScripts": "No Shell scripts yet",
     "panel": {
-      "title": "Loop Config"
+      "title": "Loop Config",
+      "editTitle": "Edit Loop Config"
     },
     "workspace": {
       "defaultLabel": "Use current workspace"
@@ -104,12 +105,7 @@
     "progress": {
       "lastError": "Last error",
       "session": "Session {{current}} / {{total}}",
-      "step": "Step {{current}} / {{total}}",
-      "judge": {
-        "label": "Judge",
-        "round": "Round {{current}} / {{total}}",
-        "stop": "STOP"
-      }
+      "step": "Step {{current}} / {{total}}"
     },
     "template": {
       "label": "Template",
@@ -165,7 +161,6 @@
       "groupMeta": "{{iterations}} iteration(s) · {{steps}} step(s)",
       "stepMeta": "{{mode}}",
       "stepMetaRepeat": "Repeat x {{repeat}}",
-      "groupMetaConditional": "max {{max}} × {{steps}} step(s) · conditional",
       "collapseGroup": "Collapse group",
       "expandGroup": "Expand group"
     },
@@ -179,7 +174,9 @@
     "validation": {
       "promptRequired": "Step message is required",
       "scriptRequired": "Shell step needs a script",
-      "groupEmpty": "Group has no child nodes"
+      "groupEmpty": "Group has no child nodes",
+      "evaluatorInGroup": "Evaluator must be inside a group",
+      "evaluatorPromptRequired": "Evaluator needs an evaluation prompt"
     },
     "footer": {
       "blank": "Blank config",
@@ -197,6 +194,7 @@
       "add": "+ Add",
       "addMenuStep": "Add Step",
       "addMenuGroup": "Add Group",
+      "addMenuEvaluator": "Add Evaluator",
       "more": "More",
       "moreTitle": "More actions",
       "reset": "Reset",
@@ -213,7 +211,9 @@
       "moveUp": "Move up",
       "moveDown": "Move down",
       "jumpToIssue": "Go to issue",
-      "start": "Start Loop"
+      "start": "Start Loop",
+      "save": "Save",
+      "saving": "Saving…"
     },
     "toast": {
       "copiedConfig": "Copied LoopConfig",
@@ -264,13 +264,7 @@
       "stepsMeta_one": "{{count}} step",
       "stepsMeta_other": "{{count}} steps",
       "maxIteration": "Max iterations",
-      "completionCondition": {
-        "label": "Completion condition (optional)",
-        "placeholder": "Leave empty for a fixed count. Fill in when to stop, e.g. \"tests all pass\"; the loop runs until the model judges it met.",
-        "hint": "Empty = run a fixed number of iterations.",
-        "hintActive": "Conditional loop: runs until met; max {{max}} iteration(s)."
-      },
-      "conditionalBadge": "conditional"
+      "evaluatorHint": "This group has an evaluator: loops up to {{max}} time(s), stopping early when the evaluator emits the stop signal."
     },
     "step": {
       "agentPlaceholder": "Select Agent",
@@ -336,10 +330,19 @@
         "previewTitle": "Script preview",
         "note": "In Shell, set variables via <0>{{setCmd}}</0>. Later steps can reference them with <1>{{varTag}}</1>. Break current loop: <2>{{breakCmd}}</2>. Exit workflow: <3>{{returnCmd}}</3>.",
         "detectedVars": "Detected variables"
+      },
+      "evaluator": {
+        "typeLabel": "Evaluator",
+        "banner": "Evaluator: a fixed output protocol is appended to your evaluation prompt at run time; when the model judges the task done it emits the stop signal to break the enclosing group early.",
+        "promptLabel": "Evaluation prompt",
+        "promptHint": "Describe \"what counts as done\"; the output protocol is appended automatically.",
+        "promptPlaceholder": "e.g. all tests pass, code review found no issues, no new problems found…",
+        "warnEmptySession": "A preceding business step starts a new session (beforeRound / eachRepeat), so this \"none\" evaluator gets an empty session and can't see this round's output. Keep this round's business steps and the evaluator in the same session.",
+        "warnContinueOnError": "Some business steps don't have ContinueOnError: a business-step failure fails the job and the evaluator never runs. For \"fix until tests pass\" loops, enable ContinueOnError on the steps that may fail."
       }
     },
-    "judge": {
-      "badge": "Condition check"
+    "edit": {
+      "runningLockHint": "Running — only prompt / agent / model / mode can be edited; structure changes require stopping the loop first"
     }
   },
   "settings": {

@@ -97,9 +97,23 @@ type imChatDispatcher struct {
 	// shutdown). loop() observes it after every cond.Wait() and returns,
 	// so the goroutine doesn't linger for the idle timeout at shutdown.
 	stopped bool
+	// retired is set by removeIdleChatDispatcher once this dispatcher has been
+	// detached from the gateway's chatDispatches map (idle removal). enqueue
+	// checks it under d.mu and refuses to re-arm a retired dispatcher, so a
+	// concurrent enqueueChatMessage that captured this pointer before the
+	// retire cannot resurrect it (which would race two dispatchers for the
+	// same chat and skip root-ctx watcher re-registration). The caller then
+	// looks the chat up again under chatMu and gets / creates the live one.
+	retired bool
 	// stopOnce guards the context.AfterFunc registration so a loop that
 	// panics and is relaunched doesn't stack additional watchers.
 	stopOnce sync.Once
+	// stopRootWatch is the cancel func returned by the context.AfterFunc
+	// registration in startLoop. It is called when the dispatcher is retired
+	// (idle removal) so the root ctx no longer retains this dispatcher (and the
+	// gateway it captures) until process exit — otherwise idle dispatchers for
+	// many distinct chats leak for the whole process lifetime.
+	stopRootWatch func() bool
 	// inflight is the message currently being handled by loop() (set just
 	// before HandleMessage, cleared on return). The panic recover path in
 	// startLoop reads it so the sender of a poison-pill message still gets
@@ -232,15 +246,25 @@ func (g *imGateway) enqueueChatMessage(ctx context.Context, msg *messaging.Messa
 	}
 	key := string(msg.Platform) + "|" + msg.ChatID
 
-	g.chatMu.Lock()
-	d := g.chatDispatches[key]
-	if d == nil {
-		d = newIMChatDispatcher(g, key)
-		g.chatDispatches[key] = d
-	}
-	g.chatMu.Unlock()
+	// Resolve the live dispatcher and enqueue. enqueue can fail if the
+	// dispatcher was retired (idle removal) between our chatMu release and the
+	// d.mu acquire inside enqueue — in that race the dispatcher we hold is no
+	// longer the chat's owner, so loop again to pick up / create the live one.
+	// The loop terminates: a retired dispatcher is always removed from the map
+	// (or replaced), so the next lookup yields a different, non-retired one.
+	for {
+		g.chatMu.Lock()
+		d := g.chatDispatches[key]
+		if d == nil {
+			d = newIMChatDispatcher(g, key)
+			g.chatDispatches[key] = d
+		}
+		g.chatMu.Unlock()
 
-	d.enqueue(ctx, msg)
+		if d.enqueue(ctx, msg) {
+			return
+		}
+	}
 }
 
 func newIMChatDispatcher(g *imGateway, key string) *imChatDispatcher {
@@ -249,9 +273,13 @@ func newIMChatDispatcher(g *imGateway, key string) *imChatDispatcher {
 	return d
 }
 
-func (d *imChatDispatcher) enqueue(ctx context.Context, msg *messaging.Message) {
+// enqueue adds msg to the dispatcher's pending queue and arms its loop.
+// Returns false if the dispatcher has already been retired (detached from the
+// gateway map by idle removal) — the caller must re-resolve the live
+// dispatcher under chatMu and enqueue there instead of resurrecting this one.
+func (d *imChatDispatcher) enqueue(ctx context.Context, msg *messaging.Message) bool {
 	if msg == nil {
-		return
+		return true
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -259,11 +287,17 @@ func (d *imChatDispatcher) enqueue(ctx context.Context, msg *messaging.Message) 
 	ts := imMessageSortTime(msg)
 
 	d.mu.Lock()
+	if d.retired {
+		// Lost the race with removeIdleChatDispatcher: this dispatcher is no
+		// longer the chat's owner. Bounce back to the caller to retry.
+		d.mu.Unlock()
+		return false
+	}
 	if d.stopped {
 		// Process is shutting down; drop the message rather than re-arm
 		// the dispatcher and leak a goroutine past shutdown.
 		d.mu.Unlock()
-		return
+		return true
 	}
 	heap.Push(&d.pending, &imQueuedMsg{ctx: ctx, msg: msg, ts: ts})
 	if !d.running {
@@ -272,6 +306,7 @@ func (d *imChatDispatcher) enqueue(ctx context.Context, msg *messaging.Message) 
 	}
 	d.cond.Signal()
 	d.mu.Unlock()
+	return true
 }
 
 // startLoop launches the dispatcher goroutine and restarts it if loop()
@@ -286,7 +321,7 @@ func (d *imChatDispatcher) startLoop() {
 	// driven by test teardown.
 	d.stopOnce.Do(func() {
 		if d.g != nil && d.g.h != nil && d.g.h.rootCtx != nil {
-			context.AfterFunc(d.g.h.rootCtx, func() {
+			d.stopRootWatch = context.AfterFunc(d.g.h.rootCtx, func() {
 				d.mu.Lock()
 				d.stopped = true
 				d.cond.Broadcast()
@@ -395,6 +430,17 @@ func (g *imGateway) removeIdleChatDispatcher(key string, d *imChatDispatcher) bo
 		return false
 	}
 	d.running = false
+	// Mark retired so any enqueueChatMessage that captured this pointer before
+	// the chatMu acquire above bounces (enqueue returns false) and re-resolves
+	// the live dispatcher instead of resurrecting this one.
+	d.retired = true
+	// This dispatcher is being retired — drop its root-ctx watcher so the root
+	// ctx stops retaining it (and the gateway it captures). Safe even if the
+	// AfterFunc already fired: stop() is idempotent and returns false then.
+	if d.stopRootWatch != nil {
+		d.stopRootWatch()
+		d.stopRootWatch = nil
+	}
 	if current == d {
 		delete(g.chatDispatches, key)
 	}
@@ -501,9 +547,15 @@ func (g *imGateway) dispatchMessage(ctx context.Context, msg *messaging.Message)
 		}
 	}
 
-	g.runAsync(func(ctx context.Context) {
-		g.routeToJob(ctx, msg)
-	})
+	// routeToJob runs SYNCHRONOUSLY here: dispatchMessage is already called
+	// serially per chat (chat dispatcher loop → HandleMessage → dispatchMessage),
+	// so resolving the chat→job binding inline keeps that serialization intact.
+	// Running it via runAsync would let two messages from the same brand-new
+	// chat race through buildQueuedJobTask's "Get mapping → create Job → Save
+	// mapping" check-then-act, creating two Jobs and clobbering the mapping. The
+	// LLM-blocking part (processJobQueue) is dispatched async inside
+	// enqueueRouteToJob, so the chat dispatcher is not held for the model call.
+	g.routeToJob(ctx, msg)
 }
 
 // lookupMappingIDs returns (jobID, workspaceID) from the existing IM->Job
@@ -567,7 +619,14 @@ func (g *imGateway) enqueueRouteToJob(ctx context.Context, msg *messaging.Messag
 	g.jobQueues[task.jobID] = &imJobQueue{}
 	g.queueMu.Unlock()
 
-	g.processJobQueue(ctx, task)
+	// Draining the queue blocks on the LLM call, so run it async to free the
+	// per-chat dispatcher. The chat→job binding above (buildQueuedJobTask) has
+	// already run synchronously, so this async hop can no longer race another
+	// message into a duplicate Job. processJobQueue owns the queue marker for
+	// task.jobID and clears it (via dequeueNextJobTask) when the queue drains.
+	g.runAsync(func(ctx context.Context) {
+		g.processJobQueue(ctx, task)
+	})
 }
 
 func (g *imGateway) buildQueuedJobTask(ctx context.Context, msg *messaging.Message) (*imQueuedJobTask, error) {
@@ -626,6 +685,23 @@ func (g *imGateway) saveJobMapping(ctx context.Context, msg *messaging.Message, 
 }
 
 func (g *imGateway) processJobQueue(ctx context.Context, current *imQueuedJobTask) {
+	jobID := current.jobID
+	// Local recover + cleanup: if handleQueuedJobTask (or anything downstream)
+	// panics, the queue marker for this jobID would otherwise stay in
+	// g.jobQueues forever — enqueueRouteToJob would then keep appending to a
+	// queue with no consumer, so messages pile up silently until they hit
+	// imJobQueueMaxDepth. The outer safe.Go recovers the panic but does not know
+	// about the queue, so we must drop the marker here.
+	defer func() {
+		if r := recover(); r != nil {
+			g.queueMu.Lock()
+			delete(g.jobQueues, jobID)
+			g.queueMu.Unlock()
+			logger.Errorf(ctx, "[im] process queue panic, dropped queue marker: jobId=%s panic=%v", jobID, r)
+			panic(r) // let safe.Go log the stack and recover the goroutine
+		}
+	}()
+
 	for current != nil {
 		g.handleQueuedJobTask(ctx, current)
 		current = g.dequeueNextJobTask(current.jobID)

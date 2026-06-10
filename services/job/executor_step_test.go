@@ -95,7 +95,7 @@ func TestRunStartedTimestampInteractiveUsesJobStartedAt(t *testing.T) {
 
 	job := &model.Job{ID: jobID, StartedAt: 123456789, Progress: &model.JobProgress{}}
 	node := model.FlowNode{Type: model.FlowNodeTypeStep, Message: "hi", RepeatCount: 1}
-	res := s.executeRepeat(context.Background(), job, stubRunner{}, node, []int{0}, "sess", nil, false /* isLoopRun */, nil, false)
+	res := s.executeRepeat(context.Background(), job, stubRunner{}, node, []int{0}, "sess", nil, false /* isLoopRun */, nil)
 	if res != stepCompleted {
 		t.Fatalf("executeRepeat result=%v, want %v", res, stepCompleted)
 	}
@@ -150,7 +150,7 @@ func TestInteractiveRunPublishesIterationEnd(t *testing.T) {
 
 			job := &model.Job{ID: jobID, StartedAt: 1, Progress: &model.JobProgress{}}
 			node := model.FlowNode{Type: model.FlowNodeTypeStep, Message: "hi", RepeatCount: 1}
-			s.executeRepeat(context.Background(), job, tt.runner, node, []int{0}, "sess", nil, false /* isLoopRun */, nil, false)
+			s.executeRepeat(context.Background(), job, tt.runner, node, []int{0}, "sess", nil, false /* isLoopRun */, nil)
 
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
@@ -257,7 +257,7 @@ func TestInterruptedRunClosesBufferRound(t *testing.T) {
 
 	job := &model.Job{ID: jobID, StartedAt: 1, Progress: &model.JobProgress{}}
 	node := model.FlowNode{Type: model.FlowNodeTypeStep, Message: "hi", RepeatCount: 1}
-	res := s.executeRepeat(context.Background(), job, cancelStubRunner{}, node, []int{0}, "sess", nil, false /* isLoopRun */, nil, false)
+	res := s.executeRepeat(context.Background(), job, cancelStubRunner{}, node, []int{0}, "sess", nil, false /* isLoopRun */, nil)
 	if res != stepAborted {
 		t.Fatalf("executeRepeat result=%v, want stepAborted", res)
 	}
@@ -325,7 +325,7 @@ func TestInterruptedThenContinueReclaimsOrphanRound(t *testing.T) {
 
 	// Run #1: interrupted. Publishes IterationStarted, RunStarted, RunError,
 	// IterationFailed.
-	if res := s.executeRepeat(context.Background(), job, cancelStubRunner{}, node, []int{0}, "sess", nil, false, nil, false); res != stepAborted {
+	if res := s.executeRepeat(context.Background(), job, cancelStubRunner{}, node, []int{0}, "sess", nil, false, nil); res != stepAborted {
 		t.Fatalf("run #1 result=%v, want stepAborted", res)
 	}
 
@@ -339,7 +339,7 @@ func TestInterruptedThenContinueReclaimsOrphanRound(t *testing.T) {
 	buf.ResumeGC()
 
 	// Run #2: succeeds. Different path so it's a separate iteration.
-	if res := s.executeRepeat(context.Background(), job, stubRunner{}, node, []int{1}, "sess", nil, false, nil, false); res != stepCompleted {
+	if res := s.executeRepeat(context.Background(), job, stubRunner{}, node, []int{1}, "sess", nil, false, nil); res != stepCompleted {
 		t.Fatalf("run #2 result=%v, want stepCompleted", res)
 	}
 

@@ -171,21 +171,31 @@ const (
 	stepAborted                        // job was interrupted/cancelled/failed — stop everything
 	stepStopLoop                       // STOP_LOOP detected — break the innermost group iteration
 	stepStopWorkflow                   // STOP_WORKFLOW detected — exit the entire workflow
+	stepStopGraceful                   // graceful stop requested — current step finished cleanly; stop at this boundary, preserve resume
 )
 
-func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner JobRunner, node model.FlowNode, path []int, sessionID string, opts *SendMessageOptions, isLoopRun bool, nextResume *model.JobResume, inConditional bool) stepResult {
+func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner JobRunner, node model.FlowNode, path []int, sessionID string, opts *SendMessageOptions, isLoopRun bool, nextResume *model.JobResume) stepResult {
+	isEvaluator := node.RoundType == model.RoundTypeEvaluator
 	msg := node.Message
+	// Resolve {{var}} placeholders for both prompt and evaluator steps.
+	// Control signals (STOP_LOOP / STOP_WORKFLOW) are NOT derived from prompt
+	// variables: a STOP must be an explicit, recorded step outcome (a Shell
+	// control-file directive or an evaluator's LOOP_DECISION:STOP), never a
+	// short-circuit that skips the model run, the IterationStarted/RunStarted
+	// events, usage recording and the IterationResult — runFlowNodes counts the
+	// leaf as executed regardless, so a silent short-circuit would leave the
+	// progress denominator off by one.
 	if job.LoopConfig != nil {
-		if s.hasStopLoopVar(node.Message, job) {
-			logger.Debugf(ctx, "[step] skip: variable resolved to %s, stepStopLoop jobId=%s path=%v", controlStopLoop, job.ID, path)
-			return stepStopLoop
-		}
 		msg = s.substituteVars(msg, job)
 	}
 
-	if simpleVarPattern.MatchString(msg) {
-		logger.Debugf(ctx, "[step] skip: unresolved variable %q, stepStopLoop jobId=%s path=%v", msg, job.ID, path)
-		return stepStopLoop
+	// Evaluator step: append the fixed output protocol to the user's evaluation
+	// prompt before sending (§2.1/§2.2). The turn renders like any other step;
+	// only the final assistant text's last line is parsed afterwards as a stop
+	// signal. The published IterationStarted message below shows the full prompt
+	// (protocol included) so the chat stream matches what the model received.
+	if isEvaluator {
+		msg = buildEvaluatorPrompt(msg)
 	}
 
 	logger.Debugf(ctx, "[step] run: jobId=%s path=%v msg=%s", job.ID, path, strutil.TruncateRunesWithEllipsis(msg, 200))
@@ -428,17 +438,6 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 	}
 
 	if err != nil {
-		// Inside a conditional group a business-step failure never fails the
-		// job (§2.4): record it and advance resume, then keep the round going
-		// so the judge turn can see the failure in history. Step-level
-		// ContinueOnError is ignored here (this supersedes it). Hard interrupts
-		// (ctx cancel / deadline) were already handled by the isInterruptedRun
-		// branch above and never reach here.
-		if isLoopRun && inConditional {
-			logger.Warnf(ctx, "[step] iter failed (conditional group, recording and continuing round): jobId=%s path=%v duration=%s err=%v", job.ID, path, duration.Round(time.Millisecond), err)
-			s.recordIterationAndAdvanceResume(job, result, nextResume)
-			return stepCompleted
-		}
 		if isLoopRun && node.ContinueOnError {
 			// ContinueOnError: record failure AND advance resume so that a
 			// subsequent Stop+Continue does not re-execute this skipped step.
@@ -450,35 +449,58 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 		// next persist (terminal status), so combining record + resume
 		// here would produce no savings.
 		s.recordIterationResult(job, result)
-	} else {
-		// Success path: record result and advance resume in a single save.
-		s.recordIterationAndAdvanceResume(job, result, nextResume)
+
+		// If execution failed in loop mode, mark the job as Failed so the
+		// terminal status reflects the actual outcome. Resume is preserved so
+		// the user can Continue and retry from this step.
+		if isLoopRun {
+			// duration disambiguates "all models instantly returned errors"
+			// (~ms — upstream-wide outage) from "a model hung for the full
+			// timeout" (likely a single slow model + retry chain). Without
+			// it the err string alone can't tell you which: both render as
+			// "stream all models failed".
+			errKind := "non-transient"
+			if isTransientNetworkError(err) {
+				errKind = "transient (retries exhausted)"
+			} else if isRateLimitError(err) {
+				errKind = "rate-limit (retries exhausted)"
+			}
+			logger.Errorf(ctx, "[step] iter failed, failing job: jobId=%s path=%v duration=%s errKind=%s err=%v", job.ID, path, duration.Round(time.Millisecond), errKind, err)
+			s.failJob(ctx, job, err.Error(), isLoopRun, true)
+			return stepAborted
+		}
+		// Non-loop failures fall through; nothing else to do here.
+		return stepCompleted
 	}
 
-	// If execution failed in loop mode, mark the job as Failed so the
-	// terminal status reflects the actual outcome. Resume is preserved so
-	// the user can Continue and retry from this step.
-	if err != nil && isLoopRun {
-		// duration disambiguates "all models instantly returned errors"
-		// (~ms — upstream-wide outage) from "a model hung for the full
-		// timeout" (likely a single slow model + retry chain). Without
-		// it the err string alone can't tell you which: both render as
-		// "stream all models failed".
-		errKind := "non-transient"
-		if isTransientNetworkError(err) {
-			errKind = "transient (retries exhausted)"
-		} else if isRateLimitError(err) {
-			errKind = "rate-limit (retries exhausted)"
-		}
-		logger.Errorf(ctx, "[step] iter failed, failing job: jobId=%s path=%v duration=%s errKind=%s err=%v", job.ID, path, duration.Round(time.Millisecond), errKind, err)
-		s.failJob(ctx, job, err.Error(), isLoopRun, true)
-		return stepAborted
+	// Success. Decide the evaluator's STOP signal BEFORE persisting so the
+	// resume pointer is written exactly once with the correct target. If we
+	// always advanced the plain nextResume here and let the caller's
+	// advanceResumePastGroup re-correct it on a STOP, a crash in that window
+	// would leave a persisted resume pointing back into the group (re-running
+	// a step the STOP meant to skip). Evaluator step (§2.1/§4): an exact
+	// LOOP_DECISION:STOP on the final assistant text's last line breaks the
+	// enclosing group (same semantics as a Shell STOP_LOOP); any other output
+	// continues. The evaluator is a real, counted step either way.
+	evaluatorStop := isLoopRun && isEvaluator && parseEvaluatorDecision(result.Content)
+	if evaluatorStop {
+		// STOP: record the result but DON'T advance the plain resume — the
+		// caller's group-early-exit logic owns the only resume write (past the
+		// whole group). This keeps persistence single-writer and crash-safe.
+		s.recordIterationResult(job, result)
+		logger.Infof(ctx, "[step] evaluator STOP: jobId=%s path=%v", job.ID, path)
+		return stepStopLoop
+	}
+	// Continue: record result and advance resume in a single save.
+	s.recordIterationAndAdvanceResume(job, result, nextResume)
+	if isLoopRun && isEvaluator {
+		logger.Debugf(ctx, "[step] evaluator continue: jobId=%s path=%v", job.ID, path)
 	}
 
 	// NOTE: STOP_LOOP / STOP_WORKFLOW markers are only honoured in shell steps
-	// (executeShellRepeat). AI prompt responses may mention these markers in
-	// discussion or code review, so we intentionally skip detection here to
-	// avoid false-positive early termination.
+	// (executeShellRepeat) and evaluator steps (above). Ordinary AI prompt
+	// responses may mention these markers in discussion or code review, so we
+	// intentionally skip detection here to avoid false-positive termination.
 
 	return stepCompleted
 }
@@ -508,24 +530,6 @@ func (s *serviceImpl) substituteVars(text string, job *model.Job) string {
 	}
 	s.mu.RUnlock()
 	return strings.NewReplacer(oldnew...).Replace(text)
-}
-
-// hasStopLoopVar returns true if text references any {{key}} placeholder whose
-// resolved value equals controlStopLoop. Used to break out of a loop when an
-// upstream step sets a flag variable to the STOP_LOOP sentinel.
-func (s *serviceImpl) hasStopLoopVar(text string, job *model.Job) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	vars := job.LoopConfig.Variables
-	if len(vars) == 0 {
-		return false
-	}
-	for _, m := range varRefPattern.FindAllStringSubmatch(text, -1) {
-		if vars[m[1]] == controlStopLoop {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *serviceImpl) injectBuiltinVars(ctx context.Context, job *model.Job) {
@@ -617,10 +621,6 @@ func (s *serviceImpl) applyVarsToJob(ctx context.Context, job *model.Job, vars m
 
 // extractSetVars parses the agent response for <<SET_VAR:key=value>> patterns
 // and returns the extracted key-value pairs.
-var simpleVarPattern = regexp.MustCompile(`^\s*\{\{\w+\}\}\s*$`)
-
-var varRefPattern = regexp.MustCompile(`\{\{(\w+)\}\}`)
-
 var setVarPattern = regexp.MustCompile(`<<SET_VAR:(\w+)=(.+?)>>`)
 
 func extractSetVars(content string) map[string]string {

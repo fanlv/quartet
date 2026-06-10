@@ -96,7 +96,8 @@
     "noVariablesSuffix": "引用。",
     "noShellScripts": "暂无 Shell",
     "panel": {
-      "title": "Loop 任务配置"
+      "title": "Loop 任务配置",
+      "editTitle": "编辑循环配置"
     },
     "workspace": {
       "defaultLabel": "使用当前工作空间"
@@ -104,12 +105,7 @@
     "progress": {
       "lastError": "最近失败原因",
       "session": "会话 {{current}} / {{total}}",
-      "step": "步骤 {{current}} / {{total}}",
-      "judge": {
-        "label": "条件判定",
-        "round": "第 {{current}} / {{total}} 轮",
-        "stop": "停止"
-      }
+      "step": "步骤 {{current}} / {{total}}"
     },
     "template": {
       "label": "模板",
@@ -163,7 +159,6 @@
       "groupMeta": "迭代 × {{iterations}} · {{steps}} 步",
       "stepMeta": "{{mode}}",
       "stepMetaRepeat": "重复 × {{repeat}}",
-      "groupMetaConditional": "最多 {{max}} 轮 · {{steps}} 步 · 条件",
       "collapseGroup": "折叠循环组",
       "expandGroup": "展开循环组"
     },
@@ -177,7 +172,9 @@
     "validation": {
       "promptRequired": "步骤缺少消息内容",
       "scriptRequired": "Shell 步骤未选择脚本",
-      "groupEmpty": "循环组没有子节点"
+      "groupEmpty": "循环组没有子节点",
+      "evaluatorInGroup": "评估器必须放在循环组内",
+      "evaluatorPromptRequired": "评估器缺少评估 Prompt"
     },
     "footer": {
       "blank": "空白配置",
@@ -193,6 +190,7 @@
       "add": "+ 添加",
       "addMenuStep": "添加步骤",
       "addMenuGroup": "添加循环组",
+      "addMenuEvaluator": "添加评估器",
       "more": "更多",
       "moreTitle": "更多操作",
       "reset": "重置",
@@ -209,7 +207,9 @@
       "moveUp": "上移",
       "moveDown": "下移",
       "jumpToIssue": "跳到问题",
-      "start": "开始 Loop"
+      "start": "开始 Loop",
+      "save": "保存",
+      "saving": "保存中…"
     },
     "toast": {
       "copiedConfig": "已复制 LoopConfig",
@@ -259,13 +259,7 @@
       "iteration": "迭代",
       "stepsMeta": "{{count}} 步",
       "maxIteration": "最大循环次数",
-      "completionCondition": {
-        "label": "完成条件（可选）",
-        "placeholder": "留空则按固定次数循环。填写「满足什么条件后停止」，例如「测试全部通过」，循环会跑到模型判定满足为止。",
-        "hint": "留空 = 按固定次数循环。",
-        "hintActive": "条件循环：跑到满足为止；最多 {{max}} 轮。"
-      },
-      "conditionalBadge": "条件"
+      "evaluatorHint": "该循环组含评估器：最多循环 {{max}} 次，评估器输出停止信号时提前结束。"
     },
     "step": {
       "agentPlaceholder": "请选择 Agent",
@@ -331,10 +325,19 @@
         "previewTitle": "脚本预览",
         "note": "Shell 中可通过内置函数设置变量：<0>{{setCmd}}</0>，后续 Step 可通过 <1>{{varTag}}</1> 引用。跳出当前循环：<2>{{breakCmd}}</2>，退出整个工作流：<3>{{returnCmd}}</3>。",
         "detectedVars": "检测到变量"
+      },
+      "evaluator": {
+        "typeLabel": "评估器",
+        "banner": "评估器：执行时在你的评估 Prompt 后自动追加输出协议；模型判定完成时输出停止信号即可提前跳出当前循环组。",
+        "promptLabel": "评估 Prompt",
+        "promptHint": "描述「满足什么条件算完成」，系统会自动追加输出协议。",
+        "promptPlaceholder": "例如：所有测试通过、代码 review 没有问题、没有发现新的问题……",
+        "warnEmptySession": "前序业务步骤会新开会话（beforeRound / eachRepeat），当前「不开新会话」的评估器会拿到空会话、看不到本轮业务产出。建议让本轮业务步骤与评估器落在同一会话。",
+        "warnContinueOnError": "存在未开启 ContinueOnError 的业务步骤：业务步骤失败会直接让任务失败、评估器不会执行。若要「修复到测试通过」这类循环，请在会失败的业务步骤上开启 ContinueOnError。"
       }
     },
-    "judge": {
-      "badge": "条件判定"
+    "edit": {
+      "runningLockHint": "运行中 — 仅可修改提示词 / Agent / 模型 / 模式；改结构需先停止循环"
     }
   },
   "settings": {

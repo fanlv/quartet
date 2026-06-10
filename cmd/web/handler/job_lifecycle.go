@@ -66,10 +66,12 @@ var jobErrMappings = []httputil.ErrorMapping{
 	{Err: job.ErrJobNotFound, Status: http.StatusNotFound},
 	{Err: job.ErrJobDeleted, Status: http.StatusNotFound},
 	{Err: job.ErrJobRunning, Status: http.StatusConflict},
+	{Err: job.ErrJobNotRunning, Status: http.StatusConflict},
 	{Err: job.ErrJobNotRunnable, Status: http.StatusBadRequest},
 	{Err: job.ErrNoLoopConfig, Status: http.StatusBadRequest},
 	{Err: job.ErrNoResumable, Status: http.StatusBadRequest},
 	{Err: job.ErrEmptyMessage, Status: http.StatusBadRequest},
+	{Err: job.ErrLoopStructureChanged, Status: http.StatusConflict},
 }
 
 func (h *Handler) JobStart(ctx context.Context, c *app.RequestContext) {
@@ -170,6 +172,78 @@ func (h *Handler) JobContinue(ctx context.Context, c *app.RequestContext) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// JobUpdateLoopConfig edits a loop job's LoopConfig. The behaviour depends on
+// whether the job is currently running:
+//
+//   - NOT running: the whole flow is replaced (full structure edit). Progress
+//     bookkeeping (denominator, resume cursor, recorded results) is reconciled
+//     against the new flow so a subsequent Continue resumes from a valid spot.
+//   - running: only per-step fields (prompt/model/agent/mode) may change; a
+//     structure change is rejected with 409 so the running loop's flow snapshot
+//     is never restructured underneath it. The edit takes effect for steps that
+//     have not started yet.
+//
+// The client always sends the full LoopConfig; the server decides how to apply
+// it based on status.
+func (h *Handler) JobUpdateLoopConfig(ctx context.Context, c *app.RequestContext) {
+	jobID := c.Param("jobId")
+	if jobID == "" {
+		httputil.BadRequest(c, "jobId is required")
+		return
+	}
+
+	var req model.UpdateLoopConfigRequest
+	if err := c.BindJSON(&req); err != nil {
+		logger.Warnf(ctx, "[job] update loop config: parse request failed: jobId=%s err=%v", jobID, err)
+		httputil.BadRequest(c, "Invalid request body")
+		return
+	}
+	if req.LoopConfig == nil {
+		httputil.BadRequest(c, "loopConfig is required")
+		return
+	}
+
+	j, ok := h.jobService.Get(jobID)
+	if !ok {
+		httputil.NotFound(c, "job not found")
+		return
+	}
+	if j.Mode != model.JobModeLoop {
+		httputil.BadRequest(c, "job is not a loop job")
+		return
+	}
+
+	if j.Status == model.JobStatusRunning {
+		model.MigrateLoopConfig(req.LoopConfig)
+		err := h.jobService.UpdateRunningStepFields(ctx, j.ID, req.LoopConfig.Flow)
+		// The status snapshot can go stale: the loop may have finished between
+		// Get and the service call. UpdateRunningStepFields re-checks under the
+		// lock and reports ErrJobNotRunning in that case — fall through to the
+		// non-running path (a full ReplaceLoopConfig) instead of failing.
+		if err != nil && !errors.Is(err, job.ErrJobNotRunning) {
+			logger.Warnf(ctx, "[job] update running loop config failed: jobId=%s err=%v", j.ID, err)
+			httputil.MapError(c, err, jobErrMappings)
+			return
+		}
+		if err == nil {
+			resp := map[string]any{"status": "updated"}
+			if updated, ok := h.jobService.Get(j.ID); ok && updated.Progress != nil {
+				resp["progress"] = updated.Progress
+			}
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+	}
+
+	progress, err := h.jobService.ReplaceLoopConfig(ctx, j.ID, req.LoopConfig)
+	if err != nil {
+		logger.Warnf(ctx, "[job] replace loop config failed: jobId=%s err=%v", j.ID, err)
+		httputil.MapError(c, err, jobErrMappings)
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"status": "updated", "progress": progress})
+}
+
 func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 	jobID := c.Param("jobId")
 	if jobID == "" {
@@ -185,6 +259,23 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 
 	if job.Status != model.JobStatusRunning {
 		c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopped"})
+		return
+	}
+
+	// Optional { "graceful": true } body switches from a hard Stop (cancel the
+	// context, interrupt the in-flight step, re-run it on Continue) to a
+	// graceful stop (let the current step finish, then stop at the next step
+	// boundary with resume preserved). The graceful request returns immediately
+	// — the loop stops at its own pace at the next boundary, so there is no
+	// goroutine to wait on. BindJSON tolerates an empty body (defaults false).
+	var req struct {
+		Graceful bool `json:"graceful"`
+	}
+	_ = c.BindJSON(&req)
+
+	if req.Graceful {
+		h.jobService.RequestGracefulStop(job.ID)
+		c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopping"})
 		return
 	}
 

@@ -387,7 +387,7 @@ func TestExecuteShellRepeat_PersistsInterruptedShellOutput(t *testing.T) {
 
 	resultCh := make(chan stepResult, 1)
 	go func() {
-		resultCh <- svc.executeShellRepeat(ctx, job, stubRunner{}, node, []int{0}, "sess-shell", nil, false)
+		resultCh <- svc.executeShellRepeat(ctx, job, stubRunner{}, node, []int{0}, "sess-shell", nil)
 	}()
 
 	readCtx, readCancel := context.WithTimeout(context.Background(), 5*time.Second)

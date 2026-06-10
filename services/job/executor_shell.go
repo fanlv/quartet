@@ -222,24 +222,39 @@ func (s *serviceImpl) runShellProcess(ctx context.Context, job *model.Job, cmd *
 	}
 }
 
-func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, runner JobRunner, node model.FlowNode, path []int, sessionID string, nextResume *model.JobResume, inConditional bool) stepResult {
+func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, runner JobRunner, node model.FlowNode, path []int, sessionID string, nextResume *model.JobResume) stepResult {
 	s.mu.RLock()
 	workdir := job.Workdir
 	s.mu.RUnlock()
 
-	// Resolve script content: load from scriptSvc if scriptID is set, otherwise use message directly
+	// Resolve script content: load from scriptSvc if scriptID is set, otherwise
+	// use message directly. A configured ScriptID that fails to load (or
+	// resolves to nil) must NOT silently fall back to node.Message — that would
+	// run stale/empty content while the user believes the library script ran.
+	// Defer surfacing the error until the handler/runID exist so shellSetupErr
+	// can publish the failure on the iteration like any other setup error.
 	scriptContent := node.Message
-	if node.ScriptID != "" && s.scriptSvc != nil {
-		sc, err := s.scriptSvc.Get(ctx, node.ScriptID)
-		if err != nil {
-			logger.Errorf(ctx, "[shell] load script failed: scriptId=%s err=%v", node.ScriptID, err)
-		} else if sc != nil {
-			scriptContent = sc.Content
+	var scriptLoadErr error
+	if node.ScriptID != "" {
+		switch {
+		case s.scriptSvc == nil:
+			scriptLoadErr = fmt.Errorf("shell step references scriptId %q but no script service is configured", node.ScriptID)
+		default:
+			sc, err := s.scriptSvc.Get(ctx, node.ScriptID)
+			switch {
+			case err != nil:
+				logger.Errorf(ctx, "[shell] load script failed: scriptId=%s err=%v", node.ScriptID, err)
+				scriptLoadErr = fmt.Errorf("load shell script %q failed: %w", node.ScriptID, err)
+			case sc == nil:
+				scriptLoadErr = fmt.Errorf("shell script %q not found", node.ScriptID)
+			default:
+				scriptContent = sc.Content
+			}
 		}
 	}
 
 	// Variable substitution (lock required: Variables may be concurrently written by applyVarsToJob)
-	if job.LoopConfig != nil {
+	if job.LoopConfig != nil && scriptLoadErr == nil {
 		scriptContent = s.substituteVars(scriptContent, job)
 	}
 
@@ -278,6 +293,13 @@ func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, ru
 	// FlowNode may carry a backfilled default model, but shell execution itself
 	// runs under the session context; use the session as the source of truth.
 	stepModelID := resolveUsageSessionModelID(runner, sessionID)
+
+	// Surface a script-load failure now that the iteration/run events have been
+	// published, so it is reported and fails the job exactly like other setup
+	// errors instead of silently running fallback content.
+	if scriptLoadErr != nil {
+		return s.shellSetupErr(ctx, job, path, sessionID, handler.runID, scriptLoadErr, handler, stepModelID, runStartedAt)
+	}
 
 	// Materialize the script so bash-specific vars like BASH_SOURCE[0] exist.
 	scriptFile, cleanupScript, err := writeShellTempFile(workdir, scriptContent)
@@ -382,8 +404,26 @@ func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, ru
 
 	// Record iteration result and handle failure modes.
 	if cmdErr == nil {
-		// Success path: record result + advance resume in a single save.
-		s.recordShellIterationAndAdvanceResume(job, path, sessionID, accumulatedOutput, durationMs, nextResume)
+		// Success. The control file was already parsed above, so we know the
+		// control signal BEFORE persisting and can write the resume pointer
+		// exactly once with the correct target:
+		//   - STOP_LOOP: the caller's group-early-exit logic owns the resume
+		//     write (it advances past the whole group). Advancing the plain
+		//     nextResume here too would mean a crash between the two writes
+		//     leaves a persisted resume pointing back into the group, re-running
+		//     a step the STOP meant to skip.
+		//   - STOP_WORKFLOW: the workflow exits and finishes; clear resume so a
+		//     Continue doesn't re-enter at the next sibling.
+		//   - neither: advance the plain nextResume in a single save.
+		result := buildShellIterationResult(path, sessionID, accumulatedOutput, nil, durationMs)
+		switch {
+		case ctrlStopWorkflow:
+			s.recordIterationAndAdvanceResume(job, result, nil)
+		case ctrlStopLoop:
+			s.recordIterationResult(job, result)
+		default:
+			s.recordIterationAndAdvanceResume(job, result, nextResume)
+		}
 	} else {
 		// Include scriptFile / workdir and a tail of the combined stdout+stderr
 		// so the backend main log carries enough context to diagnose exit-code
@@ -394,22 +434,6 @@ func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, ru
 			logger.Warnf(ctx,
 				"[shell] env vars were filtered when this job ran: jobId=%s keys=%v total=%d — if the script needs these, set %s",
 				job.ID, shellFilteredEnvKeysForLog(filteredEnvKeys), len(filteredEnvKeys), envShellPassthrough)
-		}
-
-		if inConditional {
-			// Conditional group: a shell business failure never fails the job
-			// (§2.4). Record + advance resume and keep the round going so the
-			// judge turn sees the failure (e.g. failing tests) in history.
-			// Step-level ContinueOnError is ignored here. Note: STOP_LOOP /
-			// STOP_WORKFLOW are NOT honoured on a failed shell run (the control
-			// file is only parsed on the success path below), matching existing
-			// behavior — a failed shell can't request a loop break.
-			logger.Warnf(ctx,
-				"[shell] run failed (conditional group, recording and continuing round): jobId=%s path=%v scriptFile=%s workdir=%s err=%v outputTail=%q",
-				job.ID, path, scriptFile, workdir, cmdErr, tail)
-			result := buildShellIterationResult(path, sessionID, accumulatedOutput, cmdErr, durationMs)
-			s.recordIterationAndAdvanceResume(job, result, nextResume)
-			return stepCompleted
 		}
 
 		if node.ContinueOnError {
@@ -484,14 +508,6 @@ func (s *serviceImpl) persistShellMessages(ctx context.Context, wsID, jobID, ses
 func (s *serviceImpl) recordShellIterationResult(job *model.Job, path []int, sessionID, output string, cmdErr error, durationMs int64) {
 	result := buildShellIterationResult(path, sessionID, output, cmdErr, durationMs)
 	s.recordIterationResult(job, result)
-}
-
-// recordShellIterationAndAdvanceResume records a successful shell iteration
-// AND advances the resume pointer in a single save. Failure path keeps using
-// recordShellIterationResult because failJob's terminal save runs right after.
-func (s *serviceImpl) recordShellIterationAndAdvanceResume(job *model.Job, path []int, sessionID, output string, durationMs int64, nextResume *model.JobResume) {
-	result := buildShellIterationResult(path, sessionID, output, nil, durationMs)
-	s.recordIterationAndAdvanceResume(job, result, nextResume)
 }
 
 func buildShellIterationResult(path []int, sessionID, output string, cmdErr error, durationMs int64) *model.IterationResult {

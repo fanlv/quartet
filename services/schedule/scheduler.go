@@ -133,6 +133,22 @@ func (s *Scheduler) tryTrigger(ctx context.Context, task *model.ScheduledTask) {
 	cronExpr := task.CronExpr
 
 	safe.Go(ctx, func() {
+		// jobCreated flips true once trigger returns a job that will later call
+		// MarkDone (which releases the running slot). Until then, a panic must
+		// release the slot here — otherwise safe.Go recovers the panic but the
+		// runningCount stays incremented forever, eventually wedging this
+		// schedule at maxConcurrent.
+		jobCreated := false
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Errorf(ctx, "[scheduler] trigger panic: schedule=%s (%s) err=%v", scheduleID, scheduleName, r)
+				if !jobCreated {
+					s.decrRunning(scheduleID)
+					s.RecordTrigger(context.Background(), scheduleID, "", cronExpr, fmt.Errorf("panic: %v", r))
+				}
+			}
+		}()
+
 		logger.Debugf(ctx, "[scheduler] trigger: schedule=%s (%s) cron=%q", scheduleID, scheduleName, cronExpr)
 		jobID, err := s.trigger(ctx, task)
 		if err != nil {
@@ -141,6 +157,7 @@ func (s *Scheduler) tryTrigger(ctx context.Context, task *model.ScheduledTask) {
 			s.RecordTrigger(context.Background(), scheduleID, "", cronExpr, err)
 			return
 		}
+		jobCreated = true
 		logger.Debugf(ctx, "[scheduler] triggered: schedule=%s (%s) job=%s", scheduleID, scheduleName, jobID)
 		s.RecordTrigger(context.Background(), scheduleID, jobID, cronExpr, nil)
 	})

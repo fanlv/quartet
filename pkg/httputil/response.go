@@ -31,24 +31,23 @@ func Conflict(c *app.RequestContext, msg string) {
 	c.JSON(http.StatusConflict, ErrResponse{Code: -1, Msg: msg})
 }
 
-// InternalError sends a 500 response with code=-1.
-//
-// Callers should prefer InternalErrorLog for errors that might contain
-// filesystem paths, stack traces, or other internal detail — the argument to
-// this function is sent verbatim to the client.
+// InternalError sends a 500 response with code=-1. The msg is sent verbatim to
+// the client.
 func InternalError(c *app.RequestContext, msg string) {
 	c.JSON(http.StatusInternalServerError, ErrResponse{Code: -1, Msg: msg})
 }
 
-// InternalErrorLog logs the underlying err with op context and returns a
-// generic 500 to the client. Use this instead of InternalError(c, err.Error())
-// so we don't leak paths or system internals.
+// InternalErrorLog logs the underlying err with op context and returns the full
+// error to the client. Per the project convention (AGENTS.md: "错误信息就要全量
+// 给用户显示，不要隐藏任何错误信息") quartet is a single-user local/sandbox tool,
+// so surfacing the real error — paths included — beats forcing the user to dig
+// through backend logs.
 func InternalErrorLog(ctx context.Context, c *app.RequestContext, op string, err error) {
 	if op == "" {
 		op = "request"
 	}
 	logger.Errorf(ctx, "[%s] %v", op, err)
-	c.JSON(http.StatusInternalServerError, ErrResponse{Code: -1, Msg: "internal error"})
+	c.JSON(http.StatusInternalServerError, ErrResponse{Code: -1, Msg: err.Error()})
 }
 
 // ErrorMapping maps sentinel errors to HTTP status codes.
@@ -58,8 +57,9 @@ type ErrorMapping struct {
 }
 
 // MapError checks err against a list of mappings and sends the appropriate
-// HTTP response. If no mapping matches, it sends a generic 500 Internal Server Error
-// to avoid leaking internal details (file paths, stack traces, etc.) to clients.
+// HTTP response. Whether or not a mapping matches, the full error message is
+// returned to the client (AGENTS.md: errors must be shown in full); a matched
+// mapping only changes the HTTP status code.
 func MapError(c *app.RequestContext, err error, mappings []ErrorMapping) {
 	for _, m := range mappings {
 		if errors.Is(err, m.Err) {
@@ -67,5 +67,5 @@ func MapError(c *app.RequestContext, err error, mappings []ErrorMapping) {
 			return
 		}
 	}
-	InternalError(c, "internal error")
+	InternalError(c, err.Error())
 }

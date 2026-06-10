@@ -70,11 +70,64 @@ func (s *serviceImpl) runLoop(ctx context.Context, job *model.Job, runner JobRun
 	if job.Resume != nil {
 		currentSessionID = job.Resume.SessionID
 	}
-	lastSessionID := ""
 
 	s.injectBuiltinVars(ctx, job)
 
-	s.runFlowNodes(ctx, job, runner, cfg.Flow, nil, 0, &currentSessionID, &lastSessionID, false)
+	sr, _, _ := s.runFlowNodes(ctx, job, runner, cfg.Flow, nil, 0, &currentSessionID)
+	if sr == stepStopWorkflow {
+		// STOP_WORKFLOW exits the whole workflow mid-flight, so every static
+		// leaf slot after the stopping step never runs. Unlike a group's
+		// stepStopLoop (handled by backfillGroupTotal), nothing else collapses
+		// the workflow-level denominator — without this the job finishes
+		// Completed but the progress bar stalls below 100%. Pin TotalSteps to
+		// what actually ran/failed so the bar finishes full.
+		s.backfillWorkflowTotal(job)
+	}
+	if sr == stepStopGraceful {
+		// Graceful stop: the current step finished cleanly and resume already
+		// points at the next step. End the run Stopped (not Completed) with
+		// Resume preserved so Continue picks up from the next step. Driving the
+		// terminal state here (rather than letting the defer call finishJob)
+		// flips Status to Stopped; the defer then sees a non-Running status and
+		// returns without finishing. Unlike STOP_WORKFLOW we do NOT backfill the
+		// denominator — the remaining steps are "to be continued", not skipped,
+		// so the bar should stay partial.
+		s.stopJob(ctx, job, true)
+	}
+}
+
+// backfillWorkflowTotal rewrites TotalSteps down to the leaves that actually
+// ran (completed + failed) after a STOP_WORKFLOW, then pushes the recomputed
+// denominator to connected clients. Mirrors backfillGroupTotal's display-only
+// contract: persisted along with the job (so a reload shows the same full bar)
+// but never consulted for resume.
+func (s *serviceImpl) backfillWorkflowTotal(job *model.Job) {
+	s.mu.Lock()
+	if job.Progress == nil {
+		s.mu.Unlock()
+		return
+	}
+	ran := job.Progress.CompletedCount + job.Progress.FailedCount
+	if job.Progress.TotalSteps <= ran {
+		s.mu.Unlock()
+		return
+	}
+	job.Progress.TotalSteps = ran
+	newTotal := job.Progress.TotalSteps
+	actualMap := copyIntMap(job.Progress.GroupActualIterations)
+	s.mu.Unlock()
+
+	s.Publish(job.ID, &model.CustomEvent{
+		BaseEvent: model.BaseEvent{
+			Type: model.EventTypeCustom, JobID: job.ID,
+			Timestamp: nowMillis(),
+		},
+		Name: "progress_total_updated",
+		Value: map[string]any{
+			"totalSteps":            newTotal,
+			"groupActualIterations": actualMap,
+		},
+	})
 }
 
 // runFlowNodes recursively executes the flow node tree (loop mode only).
@@ -82,20 +135,26 @@ func (s *serviceImpl) runLoop(ctx context.Context, job *model.Job, runner JobRun
 // stepStopLoop if STOP_LOOP was triggered (breaks the parent group's iteration),
 // stepStopWorkflow if STOP_WORKFLOW was triggered (exits the entire workflow).
 //
-// inConditional is true when this subtree executes inside a conditional group
-// (one with a non-empty CompletionCondition). In that context business-step
-// failures are recorded and the round keeps running (so the judge turn can see
-// the failure in history) instead of failing the job — see §2.4.
+// An evaluator step or a Shell STOP_LOOP both return stepStopLoop, which breaks
+// the innermost group's iteration. A group that breaks early this way backfills
+// its progress denominator and advances resume past itself (§5.2 / §5.4).
+//
+// executedLeaves counts the leaf-step static slots this call consumed — leaves
+// that actually ran this run PLUS leaves skipped because they were already done
+// before the resume point (they ran in a prior run). backfilledLeaves counts the
+// TotalSteps reduction already applied by nested groups that broke early. The two
+// let an outer group that breaks early compute its own denominator reduction
+// without double-subtracting a nested group's backfill (see backfillGroupTotal).
 func (s *serviceImpl) runFlowNodes(
 	ctx context.Context, job *model.Job, runner JobRunner,
 	nodes []model.FlowNode, basePath []int, depth int,
-	currentSessionID *string, lastSessionID *string, inConditional bool,
-) stepResult {
+	currentSessionID *string,
+) (result stepResult, executedLeaves int, backfilledLeaves int) {
 	// Defense-in-depth: ValidateFlow enforces MaxFlowDepth at config time,
 	// but guard here too in case validation is bypassed or the tree is mutated.
 	if depth >= model.MaxFlowDepth {
 		logger.Errorf(ctx, "[loop] abort: depth %d exceeds max %d, jobId=%s", depth, model.MaxFlowDepth, job.ID)
-		return stepAborted
+		return stepAborted, executedLeaves, backfilledLeaves
 	}
 
 	resumePath, resumeSessionID := s.getResumeSnapshot(job)
@@ -107,80 +166,58 @@ func (s *serviceImpl) runFlowNodes(
 			if ic < 1 {
 				ic = 1
 			}
-			conditional := node.CompletionCondition != ""
-			// Inside a conditional group the children run with inConditional=true
-			// so business failures don't fail the job. A nested fixed group keeps
-			// its own children non-conditional unless it too is conditional —
-			// inConditional is inherited (a child subtree of a conditional group
-			// stays conditional) OR set by this group being conditional.
-			childInConditional := inConditional || conditional
+			childSteps := model.CalcTotalSteps(node.Children)
 			actualIters := 0
+			groupExecuted := 0
+			groupBackfilled := 0
+			stoppedEarly := false
 			for iter := 0; iter < ic; iter++ {
 				groupPath := appendPath(basePath, i, iter)
 				if resumePath != nil && s.isSubtreeBeforeResume(node.Children, groupPath, resumePath) {
+					// Iteration already finished in a prior run — its static
+					// slots count as consumed so the early-exit denominator math
+					// matches the old actualIters semantics across a Continue.
+					groupExecuted += childSteps
 					continue
 				}
 				actualIters = iter + 1
-				groupLastSessionID := ""
-				result := s.runFlowNodes(ctx, job, runner, node.Children, groupPath, depth+1, currentSessionID, &groupLastSessionID, childInConditional)
-				if groupLastSessionID != "" && lastSessionID != nil {
-					*lastSessionID = groupLastSessionID
+				res, childExec, childBackfill := s.runFlowNodes(ctx, job, runner, node.Children, groupPath, depth+1, currentSessionID)
+				groupExecuted += childExec
+				groupBackfilled += childBackfill
+				if res == stepAborted || res == stepStopWorkflow || res == stepStopGraceful {
+					return res, executedLeaves + groupExecuted, backfilledLeaves + groupBackfilled
 				}
-				if result == stepAborted || result == stepStopWorkflow {
-					return result
-				}
-				if result == stepStopLoop {
-					// STOP_LOOP (Shell control) breaks only this group's
-					// iteration and takes priority over the judge — don't
-					// propagate further and don't run the judge this round.
+				if res == stepStopLoop {
+					// stepStopLoop (evaluator STOP or Shell STOP_LOOP) breaks
+					// only this group's iteration.
+					stoppedEarly = true
 					break
 				}
-
-				// Conditional groups run a judge turn after each round's
-				// children complete (and only when the round wasn't cut short
-				// by a Shell STOP, handled above). STOP_WORKFLOW > STOP_LOOP >
-				// judge (§4).
-				if conditional {
-					judgePath := lastChildStepPath(node.Children, groupPath)
-					judgeSessionID := *currentSessionID
-					if judgeSessionID == "" {
-						// The last business step may intentionally clear currentSessionID
-						// after success when the statically-next step starts a fresh
-						// session (for example the next conditional-loop iteration starts
-						// with BeforeRound). Judge still belongs to the round that just
-						// completed, so run it in that round's last concrete session.
-						judgeSessionID = groupLastSessionID
-					}
-					stop, hardErr := s.runJudgeTurn(ctx, job, runner, node, groupPath, judgePath, iter+1, ic, judgeSessionID)
-					if hardErr != nil {
-						if isInterruptedRun(hardErr) {
-							return stepAborted
-						}
-						s.failJob(ctx, job, hardErr.Error(), true, true)
-						return stepAborted
-					}
-					if stop {
-						break
-					}
+			}
+			// On an early break (stepStopLoop) backfill the progress denominator
+			// from the static "cap × children" estimate down to the slots that
+			// actually ran — this covers BOTH the future iterations that never
+			// started AND the sibling steps skipped after the STOP within the
+			// stopping iteration — so the bar finishes full instead of stalling.
+			// Also advance resume past this whole group so a Stop+Continue during
+			// the post-break window doesn't re-enter a skipped sibling (§5.2/§5.4).
+			if stoppedEarly {
+				delta := s.backfillGroupTotal(job, appendNodePath(basePath, i), ic, childSteps, actualIters, groupExecuted, groupBackfilled)
+				groupBackfilled += delta
+				s.advanceResumePastGroup(ctx, job, node, basePath, i, ic, *currentSessionID)
+				// A step inside this group finished cleanly and then signalled
+				// STOP_LOOP (evaluator STOP / shell STOP_LOOP), so the group-level
+				// early-exit handling above has already persisted the correct resume
+				// target past the whole group. If a graceful stop was requested while
+				// that step was in flight, consume it here before starting any outer
+				// sibling / iteration so the run still honours the "stop after the
+				// current step" boundary even on the stepStopLoop path.
+				if s.consumeGracefulStop(job.ID) {
+					return stepStopGraceful, executedLeaves + groupExecuted, backfilledLeaves + groupBackfilled
 				}
 			}
-			// On exit (STOP, judge-STOP, or cap reached) backfill the progress
-			// denominator for a conditional group from "cap × children" to
-			// "actual rounds × children" so the bar finishes full instead of
-			// stalling at e.g. 3/10. In-memory only (§5.4) — not persisted.
-			if conditional && actualIters < ic {
-				s.backfillConditionalTotal(job, node, appendNodePath(basePath, i), ic, actualIters)
-				// §5.2: a conditional group that STOPs early left job.Resume
-				// pointing into the NEXT round (the last business step
-				// precomputed its nextResume via the static NextStepPath, which
-				// assumes the cap). If the job is then stopped after this group,
-				// Continue would re-enter the already-finished group and re-judge.
-				// Advance resume to the first node AFTER this whole group (or
-				// clear it when the group is the last node) so Continue resumes
-				// past it. Use the cap-th iteration's last step as the anchor so
-				// NextStepPath skips the entire group.
-				s.advanceResumePastConditionalGroup(ctx, job, node, basePath, i, ic)
-			}
+			executedLeaves += groupExecuted
+			backfilledLeaves += groupBackfilled
 
 		case model.FlowNodeTypeStep:
 			rc := node.RepeatCount
@@ -190,13 +227,30 @@ func (s *serviceImpl) runFlowNodes(
 			for r := 0; r < rc; r++ {
 				stepPath := appendPath(basePath, i, r)
 
-				// Skip steps before the resume point
+				// Skip steps before the resume point — they ran in a prior run,
+				// so their static slot is already accounted for.
 				if resumePath != nil && model.ComparePaths(stepPath, resumePath) < 0 {
+					executedLeaves++
 					continue
 				}
 
 				if ctx.Err() != nil {
-					return stepAborted
+					return stepAborted, executedLeaves, backfilledLeaves
+				}
+
+				// Re-read the editable fields from the live LoopConfig so a
+				// mid-run edit (UpdateRunningStepFields) reaches this not-yet-
+				// started step. runFlowNodes walks a by-value flow snapshot, so
+				// without this the running loop would never see the new prompt /
+				// model / agent / mode. Structure fields stay on the snapshot
+				// node (running edits can't change structure). Both
+				// tryCreateSession (overrides) and executeRepeat (node.Message)
+				// read these off node below, so updating node covers both.
+				if msg, at, mid, mode, ok := s.liveStepFields(job, stepPath); ok {
+					node.Message = msg
+					node.AgentType = at
+					node.StepModelID = mid
+					node.ACPMode = mode
 				}
 
 				roundMode := node.RoundMode
@@ -214,7 +268,18 @@ func (s *serviceImpl) runFlowNodes(
 				resumingStep := resumePath != nil && model.EqualPaths(stepPath, resumePath)
 
 				if reason := stepSessionReason(roundMode, resumingStep, resumeSessionID, *currentSessionID); reason != "" {
-					if !s.tryCreateSession(ctx, job, runner, node, stepPath, currentSessionID, reason, stepOverrides) {
+					created, failSR := s.tryCreateSession(ctx, job, runner, node, stepPath, currentSessionID, reason, stepOverrides)
+					if !created {
+						// Session init failed. tryCreateSession already recorded
+						// the failed iteration; on hard failure it also called
+						// failJob (stepAborted) — propagate to stop the run. On
+						// continueOnError it advanced resume and returns
+						// stepCompleted, so we skip this leaf but still count its
+						// static slot toward the denominator.
+						if failSR == stepAborted {
+							return failSR, executedLeaves, backfilledLeaves
+						}
+						executedLeaves++
 						continue
 					}
 				}
@@ -260,71 +325,129 @@ func (s *serviceImpl) runFlowNodes(
 				s.injectPerRoundVars(ctx, job, stepPath)
 				switch node.RoundType {
 				case model.RoundTypeShell:
-					sr = s.executeShellRepeat(ctx, job, runner, node, stepPath, sessionID, nextResume, inConditional)
+					sr = s.executeShellRepeat(ctx, job, runner, node, stepPath, sessionID, nextResume)
+				case model.RoundTypeEvaluator:
+					sr = s.executeRepeat(ctx, job, runner, node, stepPath, sessionID, nil, true, nextResume)
 				case "", model.RoundTypePrompt:
-					sr = s.executeRepeat(ctx, job, runner, node, stepPath, sessionID, nil, true, nextResume, inConditional)
+					sr = s.executeRepeat(ctx, job, runner, node, stepPath, sessionID, nil, true, nextResume)
 				default:
 					logger.Errorf(ctx, "[loop] unknown RoundType %q, failing job: jobId=%s path=%v", node.RoundType, job.ID, stepPath)
 					s.failJob(ctx, job, fmt.Sprintf("unsupported step type: %s", node.RoundType), true, false)
-					return stepAborted
+					return stepAborted, executedLeaves, backfilledLeaves
+				}
+				// The leaf ran (success, STOP_LOOP and STOP_WORKFLOW all execute
+				// the step before signalling); only stepAborted leaves the slot
+				// unconsumed (resumable re-run). Count before returning so a
+				// stop signal still credits this leaf in the denominator math.
+				if sr != stepAborted {
+					executedLeaves++
 				}
 				if sr != stepCompleted {
-					return sr
-				}
-				if lastSessionID != nil && sessionID != "" {
-					*lastSessionID = sessionID
+					// stepStopLoop / stepStopWorkflow: the step DID execute and
+					// recorded its result; we just skip the post-step session
+					// reset and return so the group-early-exit logic in the
+					// caller can run. Intentionally leaving *currentSessionID at
+					// the stopping step's session means a following roundMode=none
+					// node continues in that session — the same reuse the
+					// cap-reached path produces for roundMode=none, and the
+					// reuse-after-stop behaviour we want. (A beforeRound/eachRepeat
+					// successor spawns its own session regardless, overwriting it.)
+					return sr, executedLeaves, backfilledLeaves
 				}
 
 				if resetSessionAfterStep {
 					*currentSessionID = ""
 				}
 
+				// Graceful stop boundary: the step just completed cleanly — its
+				// result is recorded and resume already points at the next step
+				// (recordIterationAndAdvanceResume). If a graceful stop was
+				// requested, stop here instead of starting the next step. Resume
+				// is preserved, so Continue resumes from the next step with no
+				// re-run (unlike the hard Stop, which cancels mid-step). Bubble
+				// stepStopGraceful up to runLoop, which drives the Stopped
+				// terminal state.
+				if s.consumeGracefulStop(job.ID) {
+					logger.Infof(ctx, "[loop] graceful stop at step boundary: jobId=%s path=%v", job.ID, stepPath)
+					return stepStopGraceful, executedLeaves, backfilledLeaves
+				}
+
 			}
 		}
 	}
-	return stepCompleted
+	return stepCompleted, executedLeaves, backfilledLeaves
 }
 
-// tryCreateSession attempts to create and attach a new session. On failure it
-// emits a paired ITERATION_STARTED + ITERATION_FAILED so the SSE round opens
-// and closes cleanly (per §1.1 "all entry points open a round with
-// ITERATION_STARTED"), records the iteration as failed, AND advances the
-// resume pointer in a single save, then returns false so the caller can skip
-// (continue) the current step.
+// tryCreateSession attempts to create and attach a new session.
+//
+// Returns (true, stepCompleted) on success. On failure it emits a paired
+// ITERATION_STARTED + ITERATION_FAILED so the SSE round opens and closes
+// cleanly (per §1.1 "all entry points open a round with ITERATION_STARTED")
+// and records the iteration as failed. The failure then mirrors a regular
+// step's execution-failure handling (executeRepeat):
+//   - node.ContinueOnError: advance resume past this step and return
+//     (false, stepCompleted) so the caller skips it and keeps running.
+//   - otherwise: call failJob (preserving resume so the user can Continue) and
+//     return (false, stepAborted) so the caller stops the run.
+//
+// Previously this unconditionally advanced resume and returned false, which the
+// caller treated as a plain "continue" — silently swallowing the failure and
+// letting the job finish as Completed regardless of ContinueOnError.
 func (s *serviceImpl) tryCreateSession(
 	ctx context.Context, job *model.Job, runner JobRunner,
 	node model.FlowNode, stepPath []int, currentSessionID *string, source string,
 	overrides *model.SessionOverrides,
-) bool {
+) (created bool, failResult stepResult) {
 	sid, err := s.initAndAttachSession(ctx, job, runner, overrides)
-	if err != nil {
-		logger.Errorf(ctx, "[loop] init session failed: source=%s jobId=%s path=%v err=%v", source, job.ID, stepPath, err)
+	if err == nil {
+		*currentSessionID = sid
+		return true, stepCompleted
+	}
+
+	logger.Errorf(ctx, "[loop] init session failed: source=%s jobId=%s path=%v continueOnError=%t err=%v",
+		source, job.ID, stepPath, node.ContinueOnError, err)
+
+	// Open the round before closing it. Without this pair the SSE stream
+	// would carry an orphan ITERATION_FAILED with no matching
+	// ITERATION_STARTED, violating §1.1 round-boundary contract and
+	// confusing UI state machines that key on iteration open/close.
+	s.persistIterationStart(ctx, job, stepPath)
+	s.Publish(job.ID, &model.IterationStartedEvent{
+		BaseEvent: model.BaseEvent{
+			Type: model.EventTypeIterationStarted, JobID: job.ID,
+			Path:      stepPath,
+			Timestamp: nowMillis(),
+		},
+		Message:   node.Message,
+		ModelID:   node.StepModelID,
+		AgentType: node.AgentType,
+		ACPMode:   node.ACPMode,
+	})
+
+	if node.ContinueOnError {
+		// Skip this step and continue: record the failure AND advance resume in
+		// a single save so a subsequent Stop+Continue does not re-run it.
 		nextPath := model.NextStepPath(job.LoopConfig.Flow, stepPath)
 		var nextResume *model.JobResume
 		if nextPath != nil {
 			nextResume = &model.JobResume{NextPath: nextPath}
 		}
-		// Open the round before closing it. Without this pair the SSE stream
-		// would carry an orphan ITERATION_FAILED with no matching
-		// ITERATION_STARTED, violating §1.1 round-boundary contract and
-		// confusing UI state machines that key on iteration open/close.
-		s.persistIterationStart(ctx, job, stepPath)
-		s.Publish(job.ID, &model.IterationStartedEvent{
-			BaseEvent: model.BaseEvent{
-				Type: model.EventTypeIterationStarted, JobID: job.ID,
-				Path:      stepPath,
-				Timestamp: nowMillis(),
-			},
-			Message:   node.Message,
-			ModelID:   node.StepModelID,
-			AgentType: node.AgentType,
-			ACPMode:   node.ACPMode,
-		})
 		s.recordFailedIterationAndAdvanceResume(job, stepPath, "", err, nextResume)
-		return false
+		return false, stepCompleted
 	}
-	*currentSessionID = sid
-	return true
+
+	// Hard failure: record the failed iteration, then failJob. failJob issues
+	// the terminal persist (preserving resume so the user can Continue from this
+	// step), so a plain record here keeps the failure visible without a
+	// redundant resume advance.
+	s.recordIterationResult(job, &model.IterationResult{
+		Path:      model.CopyPath(stepPath),
+		SessionID: "",
+		Success:   false,
+		Error:     err.Error(),
+	})
+	s.failJob(ctx, job, err.Error(), true, true)
+	return false, stepAborted
 }
 
 // stepSessionReason decides whether (and why) the step about to run needs a
@@ -414,9 +537,8 @@ func enumLastPath(nodes []model.FlowNode, basePath []int, last *[]int) {
 }
 
 // lastChildStepPath returns the path of the last leaf step under children
-// (rooted at basePath). Used to give a conditional group's judge turn a valid
-// SSE base path; the judge events carry isJudge=true so this path never
-// advances step progress. Falls back to basePath when there is no leaf step.
+// (rooted at basePath). Used to anchor NextStepPath when advancing resume past
+// a group that broke early. Falls back to basePath when there is no leaf step.
 func lastChildStepPath(children []model.FlowNode, basePath []int) []int {
 	var last []int
 	enumLastPath(children, basePath, &last)
@@ -426,19 +548,30 @@ func lastChildStepPath(children []model.FlowNode, basePath []int) []int {
 	return last
 }
 
-// backfillConditionalTotal rewrites the in-memory TotalSteps contribution of a
-// conditional group from "cap × childrenSteps" down to "actualIters ×
-// childrenSteps" so the progress bar finishes full when the loop stopped early
-// (§5.4). In-memory only — not persisted, since §5.2 already accepts a restart
-// re-running from round 0 (where the static estimate re-expands anyway).
-func (s *serviceImpl) backfillConditionalTotal(job *model.Job, node model.FlowNode, groupPath []int, cap, actualIters int) {
-	childSteps := model.CalcTotalSteps(node.Children)
+// backfillGroupTotal rewrites the in-memory TotalSteps contribution of a group
+// that broke early (stepStopLoop) so the progress bar finishes full (§5.4).
+//
+// The group statically contributed cap×childSteps to TotalSteps. Its real
+// contribution is groupExecuted — the leaf slots that actually ran (or were
+// credited as already-done before the resume point). That difference covers
+// BOTH the iterations that never started AND the sibling steps skipped after a
+// STOP within the stopping iteration. groupBackfilled is the reduction nested
+// child groups already applied to TotalSteps; subtracting it here avoids
+// double-counting a nested group's own early-exit backfill.
+//
+// Returns the delta actually subtracted so the caller can fold it into its own
+// groupBackfilled total. This mutates job.Progress.TotalSteps and
+// GroupActualIterations in memory; both fields ARE persisted with the job (the
+// advanceResumePastGroup save right after, and the terminal finish save), so a
+// reload / reconnect shows the same full bar. They are a display aid only and
+// are never consulted for resume — resume is driven solely by job.Resume.
+func (s *serviceImpl) backfillGroupTotal(job *model.Job, groupPath []int, cap, childSteps, actualIters, groupExecuted, groupBackfilled int) int {
 	if childSteps == 0 {
-		return
+		return 0
 	}
-	delta := (cap - actualIters) * childSteps
+	delta := (cap*childSteps - groupExecuted) - groupBackfilled
 	if delta <= 0 {
-		return
+		return 0
 	}
 	pathKey := pathKeyString(groupPath)
 	s.mu.Lock()
@@ -449,12 +582,12 @@ func (s *serviceImpl) backfillConditionalTotal(job *model.Job, node model.FlowNo
 		if job.Progress.TotalSteps < 0 {
 			job.Progress.TotalSteps = 0
 		}
-		if job.Progress.ConditionalActualIterations == nil {
-			job.Progress.ConditionalActualIterations = make(map[string]int)
+		if job.Progress.GroupActualIterations == nil {
+			job.Progress.GroupActualIterations = make(map[string]int)
 		}
-		job.Progress.ConditionalActualIterations[pathKey] = actualIters
+		job.Progress.GroupActualIterations[pathKey] = actualIters
 		newTotal = job.Progress.TotalSteps
-		actualMap = copyIntMap(job.Progress.ConditionalActualIterations)
+		actualMap = copyIntMap(job.Progress.GroupActualIterations)
 	}
 	s.mu.Unlock()
 
@@ -468,14 +601,15 @@ func (s *serviceImpl) backfillConditionalTotal(job *model.Job, node model.FlowNo
 		},
 		Name: "progress_total_updated",
 		Value: map[string]any{
-			"totalSteps":                  newTotal,
-			"conditionalActualIterations": actualMap,
+			"totalSteps":            newTotal,
+			"groupActualIterations": actualMap,
 		},
 	})
+	return delta
 }
 
 // pathKeyString renders a node path as a dot-joined string (e.g. "0.1") used
-// as the key in JobProgress.ConditionalActualIterations and matched by the
+// as the key in JobProgress.GroupActualIterations and matched by the
 // frontend session-plan walk.
 func pathKeyString(path []int) string {
 	parts := make([]string, len(path))
@@ -503,14 +637,22 @@ func copyIntMap(m map[string]int) map[string]int {
 	return out
 }
 
-// advanceResumePastConditionalGroup moves job.Resume to the first leaf step
-// AFTER a conditional group that stopped early (§5.2). Anchoring NextStepPath
-// on the group's cap-th iteration last step makes it skip every round of the
-// group, so Continue resumes at the following sibling (or clears resume when
-// the group is the last node). Without this, the last round's precomputed
-// nextResume would point back into the group and re-judge an already-finished
-// loop on Continue.
-func (s *serviceImpl) advanceResumePastConditionalGroup(ctx context.Context, job *model.Job, node model.FlowNode, basePath []int, nodeIdx, cap int) {
+// advanceResumePastGroup moves job.Resume to the first leaf step AFTER a group
+// that broke early via stepStopLoop (§5.2). Anchoring NextStepPath on the
+// group's cap-th iteration last step makes it skip every round of the group, so
+// Continue resumes at the following sibling (or clears resume when the group is
+// the last node). Without this, the last round's precomputed nextResume would
+// point back into the group and re-run an already-finished loop on Continue.
+//
+// stopSessionID is the session the stopping step left in *currentSessionID.
+// runFlowNodes intentionally keeps that session live so a roundMode=none
+// sibling after the group continues in it (the reuse-after-stop behaviour). The
+// persisted Resume must carry the same session, otherwise a Stop+Continue in
+// the post-break window would resume the sibling with an empty SessionID and
+// fall back to spawning a fresh session — losing the stopping step's context.
+// A successor that spawns its own session (beforeRound/eachRepeat) overwrites it
+// anyway, so carrying the session is safe in every case.
+func (s *serviceImpl) advanceResumePastGroup(ctx context.Context, job *model.Job, node model.FlowNode, basePath []int, nodeIdx, cap int, stopSessionID string) {
 	capGroupPath := appendPath(basePath, nodeIdx, cap-1)
 	anchor := lastChildStepPath(node.Children, capGroupPath)
 	nextPath := model.NextStepPath(job.LoopConfig.Flow, anchor)
@@ -519,11 +661,17 @@ func (s *serviceImpl) advanceResumePastConditionalGroup(ctx context.Context, job
 	if nextPath == nil {
 		job.Resume = nil
 	} else {
-		job.Resume = &model.JobResume{NextPath: model.CopyPath(nextPath)}
+		sessionID := stopSessionID
+		if nextStepStartsFreshSession(job.LoopConfig.Flow, nextPath) {
+			// The next step spawns its own session; don't carry one that would
+			// make its resume guard mistake the advance for a mid-run resume.
+			sessionID = ""
+		}
+		job.Resume = &model.JobResume{NextPath: model.CopyPath(nextPath), SessionID: sessionID}
 	}
 	s.mu.Unlock()
-	if err := s.saveJobWithRetry(ctx, job, "conditional_group_exit"); err != nil {
-		s.recordPersistWarning(ctx, job, "conditional_group_exit", err)
+	if err := s.saveJobWithRetry(ctx, job, "group_early_exit"); err != nil {
+		s.recordPersistWarning(ctx, job, "group_early_exit", err)
 	}
 }
 
@@ -540,31 +688,65 @@ func nextStepStartsFreshSession(nodes []model.FlowNode, path []int) bool {
 }
 
 func roundModeForStepPath(nodes []model.FlowNode, path []int) (model.RoundMode, bool) {
-	if len(path) == 0 || len(path)%2 != 0 {
+	node, ok := stepNodeForPath(nodes, path)
+	if !ok {
 		return "", false
+	}
+	if node.RoundMode == "" {
+		return model.RoundModeNone, true
+	}
+	return node.RoundMode, true
+}
+
+// stepNodeForPath walks the flow tree along path and returns the leaf step node
+// it points at. path alternates [nodeIdx, subIdx, nodeIdx, subIdx, …]; the
+// trailing pair must land on a step node. Returns ok=false for malformed paths
+// or paths that resolve to a group. The returned FlowNode is a copy of the live
+// tree node, so callers reading it under s.mu see the latest edited fields.
+func stepNodeForPath(nodes []model.FlowNode, path []int) (model.FlowNode, bool) {
+	if len(path) == 0 || len(path)%2 != 0 {
+		return model.FlowNode{}, false
 	}
 	current := nodes
 	for i := 0; i < len(path); i += 2 {
 		nodeIdx := path[i]
 		if nodeIdx < 0 || nodeIdx >= len(current) {
-			return "", false
+			return model.FlowNode{}, false
 		}
 		node := current[nodeIdx]
 		if i == len(path)-2 {
 			if node.Type != model.FlowNodeTypeStep {
-				return "", false
+				return model.FlowNode{}, false
 			}
-			if node.RoundMode == "" {
-				return model.RoundModeNone, true
-			}
-			return node.RoundMode, true
+			return node, true
 		}
 		if node.Type != model.FlowNodeTypeGroup {
-			return "", false
+			return model.FlowNode{}, false
 		}
 		current = node.Children
 	}
-	return "", false
+	return model.FlowNode{}, false
+}
+
+// liveStepFields reads the per-step editable fields (message, agentType,
+// modelId, acpMode) for the step at stepPath from the job's live LoopConfig,
+// under s.mu. This is what makes a mid-run edit (UpdateRunningStepFields) take
+// effect: runFlowNodes captured the flow as a by-value snapshot, so without
+// re-reading here a running edit would never reach the next step. Only the
+// editable fields are returned — structure fields stay on the snapshot node
+// (running edits cannot change structure, so they always agree). Returns
+// ok=false when the path can't be resolved (then the caller keeps the snapshot).
+func (s *serviceImpl) liveStepFields(job *model.Job, stepPath []int) (message, agentType, modelID, acpMode string, ok bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if job.LoopConfig == nil {
+		return "", "", "", "", false
+	}
+	node, found := stepNodeForPath(job.LoopConfig.Flow, stepPath)
+	if !found {
+		return "", "", "", "", false
+	}
+	return node.Message, node.AgentType, node.StepModelID, node.ACPMode, true
 }
 
 // appendPath creates a new path by appending two indices to basePath.

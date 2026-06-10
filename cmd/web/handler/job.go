@@ -74,11 +74,12 @@ func (h *Handler) createJob(ctx context.Context, req *model.CreateJobRequest) (*
 		if req.LoopConfig == nil {
 			return nil, fmt.Errorf("loopConfig is required")
 		}
-		model.MigrateLoopConfig(req.LoopConfig)
-		if len(req.LoopConfig.Flow) == 0 {
-			return nil, fmt.Errorf("loopConfig.flow must not be empty")
-		}
-		if err := model.ValidateFlow(req.LoopConfig.Flow, 0); err != nil {
+		// Backfill request-level defaults BEFORE validating: ValidateFlow
+		// requires AgentType on session-creating steps, which may only be
+		// satisfied after req.AgentType is inherited onto steps that omit
+		// their own. NormalizeAndValidateLoopConfig fixes that order.
+		defaults := model.FlowDefaults{AgentType: req.AgentType, ModelID: req.ModelID, ACPMode: req.ACPMode}
+		if err := model.NormalizeAndValidateLoopConfig(req.LoopConfig, defaults); err != nil {
 			return nil, err
 		}
 	}
@@ -114,9 +115,6 @@ func (h *Handler) createJob(ctx context.Context, req *model.CreateJobRequest) (*
 	job := model.NewJob(req.Workdir, req.WorkspaceID)
 	job.Mode = req.Mode
 	job.LoopConfig = req.LoopConfig
-	if job.LoopConfig != nil && len(job.LoopConfig.Flow) > 0 {
-		model.BackfillFlowDefaults(job.LoopConfig.Flow, req.AgentType, req.ModelID, req.ACPMode)
-	}
 
 	var firstMessage string
 	if req.LoopConfig != nil {

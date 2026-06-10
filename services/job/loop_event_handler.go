@@ -44,7 +44,6 @@ type loopEventHandler struct {
 	runID     string
 	msgID     string
 	shellMode bool            // when true, TextMessage events carry isShellOutput external
-	isJudge   bool            // when true, all events carry isJudge external so the frontend renders the turn but does not count it toward step progress
 	content   strings.Builder // accumulates assistant message content
 
 	// contentTruncated is set the first time a shell-mode delta would push
@@ -114,12 +113,6 @@ func (h *loopEventHandler) baseEvent(eventType model.EventType) model.BaseEvent 
 	}
 	if h.shellMode {
 		be.External = map[string]any{"isShellOutput": true}
-	}
-	if h.isJudge {
-		if be.External == nil {
-			be.External = map[string]any{}
-		}
-		be.External["isJudge"] = true
 	}
 	return be
 }

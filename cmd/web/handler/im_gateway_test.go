@@ -521,6 +521,43 @@ func TestIMChatDispatcher_IdleExitRemovesDispatcher(t *testing.T) {
 	}
 }
 
+// A retired dispatcher must refuse enqueue so a concurrent enqueueChatMessage
+// that captured it before the retire cannot resurrect it (which would race two
+// dispatchers for the same chat), and removeIdleChatDispatcher must flag it
+// retired and drop it from the map. Regression for the retire/enqueue race.
+func TestIMChatDispatcher_RetiredEnqueueBounces(t *testing.T) {
+	g := newTestGateway(t, &fakeSettings{})
+	key := string(messaging.PlatformWeChat) + "|chat-retire-race"
+
+	old := newIMChatDispatcher(g, key)
+	g.chatDispatches[key] = old
+	if !g.removeIdleChatDispatcher(key, old) {
+		t.Fatal("removeIdleChatDispatcher should retire an empty idle dispatcher")
+	}
+	if !old.retired {
+		t.Fatal("retired dispatcher must have retired=true")
+	}
+	g.chatMu.Lock()
+	_, stillMapped := g.chatDispatches[key]
+	g.chatMu.Unlock()
+	if stillMapped {
+		t.Fatal("retired dispatcher must be removed from chatDispatches")
+	}
+
+	// A late enqueue against the retired pointer must bounce so the caller
+	// re-resolves the live dispatcher instead of resurrecting this one.
+	msg := &messaging.Message{Platform: messaging.PlatformWeChat, ChatID: "chat-retire-race", MessageID: "m1"}
+	if old.enqueue(context.Background(), msg) {
+		t.Fatal("enqueue on a retired dispatcher must return false")
+	}
+
+	// A freshly created dispatcher for the same key is live (not retired).
+	fresh := newIMChatDispatcher(g, key)
+	if fresh.retired {
+		t.Fatal("a freshly created dispatcher must not be retired")
+	}
+}
+
 func TestSweepPendingLogAtEvictsExpiredEntries(t *testing.T) {
 	g := newTestGateway(t, &fakeSettings{})
 	now := time.Now()

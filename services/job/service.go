@@ -65,6 +65,22 @@ type Service interface {
 	// the job already has the same value it is a no-op.
 	SetFirstModelID(jobID string, modelID string) error
 
+	// ReplaceLoopConfig swaps a non-running loop job's whole LoopConfig (full
+	// structure edit). It recomputes the progress denominator and reconciles
+	// Resume / CurrentPath / Results against the new flow so a subsequent
+	// Continue resumes from a valid position. Returns ErrJobRunning if the job
+	// is currently running (use UpdateRunningStepFields for that case). The
+	// returned JobProgress lets the caller refresh the client immediately.
+	ReplaceLoopConfig(ctx context.Context, jobID string, cfg *model.LoopConfig) (*model.JobProgress, error)
+	// UpdateRunningStepFields applies the per-step editable fields (message,
+	// agentType, modelId, acpMode) from newFlow onto a RUNNING job's live flow,
+	// in place. It first verifies the structure is identical (same node tree by
+	// id/type/round settings/children order) and returns ErrLoopStructureChanged
+	// when it differs — running jobs may only edit fields, not structure. The
+	// change takes effect for steps that have not started yet (and, for
+	// model/agent/mode, only steps that create a fresh session).
+	UpdateRunningStepFields(ctx context.Context, jobID string, newFlow []model.FlowNode) error
+
 	// Start launches the job's LoopConfig execution. Resets progress.
 	Start(ctx context.Context, jobID string, runner JobRunner) error
 	// Continue resumes a stopped loop job from its saved cursor.
@@ -72,6 +88,12 @@ type Service interface {
 	// SendMessage sends a message to an existing job session. Appends to progress.
 	SendMessage(ctx context.Context, jobID string, runner JobRunner, opts *SendMessageOptions) error
 	Stop(jobID string)
+	// RequestGracefulStop asks a running loop job to stop at the next step
+	// boundary: the in-flight step runs to completion and resume is preserved,
+	// so Continue resumes cleanly from the next step. Unlike Stop it does not
+	// cancel the context or interrupt the current step. No-op if the job is not
+	// running; the request is cleared when the run relaunches.
+	RequestGracefulStop(jobID string)
 	// StopAndWait cancels a running job and blocks until its runLoop goroutine exits.
 	StopAndWait(jobID string)
 	// StopAll cancels all running jobs and waits for their goroutines to exit.
@@ -144,6 +166,7 @@ func NewService(wsSvc workspace.Service, scriptSvc script.Service) (Service, err
 		interactivePriorStatus: make(map[string]model.JobStatus),
 		wsListVersion:          make(map[string]int64),
 		notifiedJobs:           make(map[string]struct{}),
+		gracefulStops:          make(map[string]struct{}),
 	}
 
 	s.load()

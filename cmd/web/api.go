@@ -101,6 +101,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	jobGroup.DELETE("/:jobId", h.JobDelete)
 	jobGroup.PUT("/:jobId/title", h.JobUpdateTitle)
 	jobGroup.PUT("/:jobId/pin", h.JobUpdatePin)
+	jobGroup.PUT("/:jobId/loop-config", h.JobUpdateLoopConfig)
 	jobGroup.POST("/:jobId/start", h.JobStart)
 	jobGroup.POST("/:jobId/continue", h.JobContinue)
 	jobGroup.POST("/:jobId/message", h.JobMessage)

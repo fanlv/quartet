@@ -6,6 +6,7 @@ import (
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/messaging"
+	"github.com/fanlv/quartet/pkg/safe"
 )
 
 // Manager owns the lifecycle of the WeChat listener goroutine. It mirrors
@@ -75,13 +76,15 @@ func (m *Manager) startLocked() {
 	listener := NewListener(m.handler, m.replier, m.credsProvider)
 	m.listener = listener
 
-	go func() {
+	// safe.Go guards against an unrecovered panic in the listener goroutine
+	// crashing the whole process — mirrors lark.Manager's recover.
+	safe.Go(listenerCtx, func() {
 		if err := listener.Start(listenerCtx); err != nil {
 			if listenerCtx.Err() == nil {
 				logger.Error("[wechat] listener error: %v", err)
 			}
 		}
-	}()
+	})
 }
 
 func (m *Manager) stopLocked() {
