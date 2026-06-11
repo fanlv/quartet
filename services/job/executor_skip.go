@@ -2,6 +2,8 @@ package job
 
 import (
 	"context"
+	"regexp"
+	"strings"
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
@@ -22,6 +24,37 @@ import (
 func isSkippablePromptStep(node model.FlowNode) bool {
 	return node.Type == model.FlowNodeTypeStep &&
 		(node.RoundType == "" || node.RoundType == model.RoundTypePrompt)
+}
+
+// soleUnresolvedPlaceholder matches a rendered prompt that consists of exactly
+// one {{variable}} placeholder and nothing else. Placeholders only survive
+// substitution when the variable is undefined, so a match means "the template
+// is a single variable that nobody has set". The name charset mirrors the
+// shell-side variable extraction (quartet_set / SET_VAR, \w+).
+var soleUnresolvedPlaceholder = regexp.MustCompile(`^\{\{\w+\}\}$`)
+
+// renderedPromptEmpty implements the §2.1 skip judgement on a rendered prompt:
+//
+//  1. blank after trimming — the variables it was built from are all empty;
+//  2. exactly one unresolved {{variable}} placeholder — the template is a
+//     single variable that is still undefined (typical first round: the shell
+//     step that defines it hasn't run yet). Sending the literal placeholder to
+//     the model would be the same wasted round as sending nothing.
+//
+// Mixed templates (fixed text + placeholder) and multi-placeholder templates
+// never match: fixed text means the user wants something sent, and a
+// multi-variable template can't distinguish "all idle" from "one of them is a
+// typo" — neither is silently swallowed. Returns the matched rule for the skip
+// log, or "" when the prompt should execute normally.
+func renderedPromptEmpty(rendered string) string {
+	trimmed := strings.TrimSpace(rendered)
+	if trimmed == "" {
+		return "empty"
+	}
+	if soleUnresolvedPlaceholder.MatchString(trimmed) {
+		return "sole_unresolved_placeholder"
+	}
+	return ""
 }
 
 // isSkippedPath reports whether stepPath is recorded in the persisted skip set.
@@ -97,7 +130,8 @@ func countSkippedLeaves(nodes []model.FlowNode, basePath []int, skipped map[stri
 //
 // Returns stepCompleted, or stepStopGraceful when a "stop after step" request
 // is consumed at this boundary — the same contract as a step that really ran.
-func (s *serviceImpl) skipEmptyPromptStep(ctx context.Context, run *flowExecution, stepPath []int) stepResult {
+// rule is the renderedPromptEmpty match, logged for traceability.
+func (s *serviceImpl) skipEmptyPromptStep(ctx context.Context, run *flowExecution, stepPath []int, rule string) stepResult {
 	job := run.job
 	nextPath := model.NextStepPath(run.flowRoot, stepPath)
 	var nextResume *model.JobResume
@@ -132,8 +166,8 @@ func (s *serviceImpl) skipEmptyPromptStep(ctx context.Context, run *flowExecutio
 	currentPath := model.CopyPath(job.Progress.CurrentPath)
 	s.mu.Unlock()
 
-	logger.Infof(ctx, "[loop] step skipped (rendered prompt empty): jobId=%s path=%v totalSteps=%d skipped=%d",
-		job.ID, stepPath, newTotal, len(skipped))
+	logger.Infof(ctx, "[loop] step skipped (rendered prompt empty, rule=%s): jobId=%s path=%v totalSteps=%d skipped=%d",
+		rule, job.ID, stepPath, newTotal, len(skipped))
 
 	if err := s.saveJobWithRetry(ctx, job, jobPersistActionSkipEmptyPrompt); err != nil {
 		// Best-effort like every other progress persist: warn, keep the

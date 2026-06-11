@@ -3,7 +3,6 @@ package job
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
@@ -323,18 +322,21 @@ func (s *serviceImpl) runStepNode(ctx context.Context, run *flowExecution, node 
 		s.injectPerRoundVars(ctx, run.job, stepPath)
 
 		// Empty-prompt skip: render the prompt BEFORE creating a session. A
-		// prompt step whose message substitutes to an empty string has nothing
-		// to do this round — skip it without spawning an agent process or
-		// opening a round. Each repeat slot renders and judges independently:
-		// per-round builtins (_current_path, _current_time, …) can change the
-		// rendering between slots even with an identical template.
-		if isSkippablePromptStep(stepCfg.node) &&
-			strings.TrimSpace(s.substituteVars(stepCfg.node.Message, run.job)) == "" {
-			skippedLeaves++
-			if sr := s.skipEmptyPromptStep(ctx, run, stepPath); sr != stepCompleted {
-				return sr, executedLeaves, skippedLeaves, 0
+		// prompt step whose message renders to nothing — blank, or a single
+		// unresolved {{variable}} placeholder (renderedPromptEmpty) — has
+		// nothing to do this round; skip it without spawning an agent process
+		// or opening a round. Each repeat slot renders and judges
+		// independently: per-round builtins (_current_path, _current_time, …)
+		// can change the rendering between slots even with an identical
+		// template.
+		if isSkippablePromptStep(stepCfg.node) {
+			if rule := renderedPromptEmpty(s.substituteVars(stepCfg.node.Message, run.job)); rule != "" {
+				skippedLeaves++
+				if sr := s.skipEmptyPromptStep(ctx, run, stepPath, rule); sr != stepCompleted {
+					return sr, executedLeaves, skippedLeaves, 0
+				}
+				continue
 			}
-			continue
 		}
 
 		created, failSR := s.ensureStepSession(ctx, run, stepCfg, stepPath, *resumePath, resumeSessionID)

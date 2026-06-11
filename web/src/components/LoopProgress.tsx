@@ -94,11 +94,26 @@ export function LoopProgress({ progress, status, flow, onStop, stopPending, onCa
   // is unavailable (legacy job, hydration not yet done) we fall back to the
   // global "done / totalSteps" text.
   const sessionPlan = flow && flow.length > 0 ? computeLoopSessionPlan(flow, groupActualIterations, groupActualLeafCounts, skippedPaths) : null;
-  const loc = sessionPlan ? locateInSessionPlan(sessionPlan, currentPath) : null;
+  let loc = sessionPlan ? locateInSessionPlan(sessionPlan, currentPath) : null;
+  // A completed run with no currentPath means the cursor was cleared past the
+  // final leaf (e.g. the tail steps were empty-prompt skips, which clear it).
+  // Everything in the plan is done — snap the location to the last leaf so the
+  // summary reads "Session Y / Y · Step N / N" instead of "Session 0 / Y".
+  if (loc && sessionPlan && status === 'completed' && (!currentPath || currentPath.length === 0) && loc.sessionNumber === 0 && sessionPlan.totalSessions > 0) {
+    const lastSession = sessionPlan.totalSessions;
+    const lastCount = sessionPlan.sessionStepCounts[lastSession - 1] || 0;
+    loc = {
+      sessionNumber: lastSession,
+      totalSessions: lastSession,
+      stepInSession: lastCount,
+      stepsInCurrentSession: lastCount,
+    };
+  }
   // Degrade to the global "done / total" counter when currentPath cannot be
   // located in the filtered plan (e.g. it points at a leaf the skip filter
   // removed): a zeroed "Session 0 / Y · Step 0 / N" reads as broken state.
-  // An empty currentPath (not started / all done) keeps the session summary.
+  // An empty currentPath on a non-terminal run (not started yet) keeps the
+  // session summary with its zeroed values hidden by Math.max below.
   const locMissed = !!(loc && currentPath && currentPath.length > 0 && loc.sessionNumber === 0);
   const showSessionStats = !!(sessionPlan && sessionPlan.totalSessions > 0) && !locMissed;
 
