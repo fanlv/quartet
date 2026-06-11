@@ -450,9 +450,7 @@ func flowStructureEqual(a, b []model.FlowNode) bool {
 			canonicalRoundMode(na.RoundMode) != canonicalRoundMode(nb.RoundMode) ||
 			canonicalRoundType(na.RoundType) != canonicalRoundType(nb.RoundType) ||
 			canonicalCount(na.RepeatCount) != canonicalCount(nb.RepeatCount) ||
-			canonicalCount(na.IterationCount) != canonicalCount(nb.IterationCount) ||
-			na.ScriptID != nb.ScriptID ||
-			na.ScriptName != nb.ScriptName {
+			canonicalCount(na.IterationCount) != canonicalCount(nb.IterationCount) {
 			return false
 		}
 		if !flowStructureEqual(na.Children, nb.Children) {

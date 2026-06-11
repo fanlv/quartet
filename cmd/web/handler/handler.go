@@ -21,7 +21,6 @@ import (
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/prompt"
 	"github.com/fanlv/quartet/services/schedule"
-	"github.com/fanlv/quartet/services/script"
 	"github.com/fanlv/quartet/services/session"
 	"github.com/fanlv/quartet/services/template"
 	"github.com/fanlv/quartet/services/usagestats"
@@ -105,7 +104,6 @@ type Handler struct {
 	settingsService  config.SettingsService
 	promptService    prompt.Service
 	templateService  template.Service
-	scriptService    script.Service
 	jobService       job.Service
 	recentDirsRepo   repository.RecentDirsRepo
 	userInputRepo    repository.UserInputRepo
@@ -170,12 +168,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		return nil, err
 	}
 
-	scrs, err := script.NewService()
-	if err != nil {
-		return nil, err
-	}
-
-	js, err := job.NewService(wss, scrs)
+	js, err := job.NewService(wss)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +207,6 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		settingsService:  ss,
 		promptService:    ps,
 		templateService:  ts,
-		scriptService:    scrs,
 		jobService:       js,
 		recentDirsRepo:   rdr,
 		userInputRepo:    repository.NewUserInputRepo(),

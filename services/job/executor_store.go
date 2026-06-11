@@ -9,7 +9,6 @@ import (
 	"github.com/fanlv/quartet/pkg/fileserver"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/repository"
-	"github.com/fanlv/quartet/services/script"
 	"github.com/fanlv/quartet/services/usagestats"
 	"github.com/fanlv/quartet/services/workspace"
 	"github.com/fanlv/quartet/types/model"
@@ -128,8 +127,6 @@ type serviceImpl struct {
 	wsSvc          workspace.Service
 	fileManager    fileserver.FileManager
 
-	// script service for loading shell scripts
-	scriptSvc           script.Service
 	shellCommandFactory shellCommandFactory
 
 	// pub/sub: per-job append-only event buffer + cursor readers. Owns its

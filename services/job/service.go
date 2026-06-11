@@ -8,7 +8,6 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/fileserver"
 	"github.com/fanlv/quartet/repository"
-	"github.com/fanlv/quartet/services/script"
 	"github.com/fanlv/quartet/services/usagestats"
 	"github.com/fanlv/quartet/services/workspace"
 	"github.com/fanlv/quartet/types/model"
@@ -169,7 +168,7 @@ func (o *SendMessageOptions) getMessages() []*schema.Message {
 	return o.Messages
 }
 
-func NewService(wsSvc workspace.Service, scriptSvc script.Service) (Service, error) {
+func NewService(wsSvc workspace.Service) (Service, error) {
 	if wsSvc == nil {
 		return nil, errors.New("workspace service is required")
 	}
@@ -181,7 +180,6 @@ func NewService(wsSvc workspace.Service, scriptSvc script.Service) (Service, err
 		newSessionRepo:          repository.NewSessionRepo,
 		wsSvc:                   wsSvc,
 		fileManager:             fileserver.GetFileManager(),
-		scriptSvc:               scriptSvc,
 		shellCommandFactory:     exec.Command,
 		bus:                     newBusOwner(),
 		cancels:                 make(map[string]*cancelEntry),

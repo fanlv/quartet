@@ -86,13 +86,6 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	tmpl.GET("/list", h.ListTemplates)
 	tmpl.DELETE("/:templateId", h.DeleteTemplate)
 
-	// Script routes
-	scr := api.Group("/script")
-	scr.POST("/save", h.SaveScript)
-	scr.GET("/list", h.ListScripts)
-	scr.GET("/:scriptId", h.GetScript)
-	scr.DELETE("/:scriptId", h.DeleteScript)
-
 	// Job routes
 	jobGroup := api.Group("/job")
 	jobGroup.POST("/create", h.JobCreate)

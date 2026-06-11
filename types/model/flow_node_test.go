@@ -213,7 +213,6 @@ func TestValidateFlow(t *testing.T) {
 	}{
 		{"valid step", []FlowNode{{Type: FlowNodeTypeStep, Message: "hi", RoundMode: RoundModeBeforeRound, AgentType: "claude"}}, false},
 		{"valid shell with message", []FlowNode{{Type: FlowNodeTypeStep, RoundType: RoundTypeShell, Message: "echo hi", RoundMode: RoundModeBeforeRound}}, false},
-		{"valid shell with scriptId", []FlowNode{{Type: FlowNodeTypeStep, RoundType: RoundTypeShell, ScriptID: "s1", RoundMode: RoundModeBeforeRound}}, false},
 		{"valid group", []FlowNode{{
 			Type: FlowNodeTypeGroup, IterationCount: 2,
 			Children: []FlowNode{{Type: FlowNodeTypeStep, Message: "hi", RoundMode: RoundModeBeforeRound, AgentType: "claude"}},
@@ -274,7 +273,7 @@ func TestFindFirstStepMessage(t *testing.T) {
 	flow := []FlowNode{{
 		Type: FlowNodeTypeGroup, IterationCount: 1,
 		Children: []FlowNode{
-			{Type: FlowNodeTypeStep, RoundType: RoundTypeShell, ScriptID: "s1"},
+			{Type: FlowNodeTypeStep, RoundType: RoundTypeShell},
 			{Type: FlowNodeTypeStep, Message: "found me"},
 		},
 	}}

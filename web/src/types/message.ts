@@ -99,8 +99,6 @@ export interface FlowNode {
   repeatCount?: number;
   roundMode?: RoundMode;
   roundType?: RoundType;
-  scriptId?: string;
-  scriptName?: string;
   // Per-step agent/model overrides (only meaningful when roundMode != 'none')
   agentType?: string;
   modelId?: string;
@@ -116,8 +114,6 @@ export interface LoopRound {
   repeatCount: number;
   roundMode: RoundMode;
   roundType?: RoundType;
-  scriptId?: string;
-  scriptName?: string;
 }
 
 export interface LoopConfig {
@@ -135,15 +131,6 @@ export interface LoopTemplate {
   createdAt: string;
   updatedAt?: string;
   scheduleCount?: number;
-}
-
-export interface Script {
-  id: string;
-  name: string;
-  content: string;
-  description: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface JobInfo {

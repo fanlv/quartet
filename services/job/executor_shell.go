@@ -20,10 +20,17 @@ const (
 	shellGracePeriod               = 3 * time.Second // time to wait after SIGTERM before SIGKILL
 	shellInterruptedPersistTimeout = 2 * time.Second // best-effort history persist after cancellation
 	maxFilteredEnvKeysLog          = 20
-	// shellOutputTailBytes caps the trailing output included in error logs and
-	// per-iteration error messages — enough to surface the actual failure reason
-	// (e.g. "command not found") without bloating the main log or job.json.
+	// shellOutputTailBytes caps the trailing output included in the
+	// user-facing per-iteration error message — enough to surface the actual
+	// failure reason (e.g. "command not found") without bloating job.json or
+	// JobProgress.LastError.
 	shellOutputTailBytes = 1024
+	// shellLogTailBytes is the (larger) tail included in the backend main log
+	// on a hard failure. The 1KB user-facing tail often clips the real root
+	// cause when a script emits a long stderr trailer (npm retries, stack
+	// traces, multi-line installer errors), forcing a dig into job.json. The
+	// log can afford more context, so give failure diagnosis an 8KB window.
+	shellLogTailBytes = 8 << 10
 )
 
 func shellFilteredEnvKeysForLog(keys []string) []string {
@@ -33,34 +40,14 @@ func shellFilteredEnvKeysForLog(keys []string) []string {
 	return keys[:maxFilteredEnvKeysLog]
 }
 
-// resolveShellScript loads the script body (inline or from scriptSvc) and
-// applies loop variable substitution. A referenced script that cannot be loaded
-// returns an error instead of falling back to stale inline content; the caller
-// publishes that setup failure after the iteration/run events are open.
-func (s *serviceImpl) resolveShellScript(ctx context.Context, job *model.Job, node model.FlowNode) (string, error) {
+// resolveShellScript returns the step's inline script body with loop variable
+// substitution applied.
+func (s *serviceImpl) resolveShellScript(job *model.Job, node model.FlowNode) string {
 	scriptContent := node.Message
-	if node.ScriptID != "" {
-		switch {
-		case s.scriptSvc == nil:
-			return scriptContent, fmt.Errorf("shell step references scriptId %q but no script service is configured", node.ScriptID)
-		default:
-			sc, err := s.scriptSvc.Get(ctx, node.ScriptID)
-			switch {
-			case err != nil:
-				logger.Errorf(ctx, "[shell] load script failed: scriptId=%s err=%v", node.ScriptID, err)
-				return scriptContent, fmt.Errorf("load shell script %q failed: %w", node.ScriptID, err)
-			case sc == nil:
-				return scriptContent, fmt.Errorf("shell script %q not found", node.ScriptID)
-			default:
-				scriptContent = sc.Content
-			}
-		}
-	}
-
 	if job.LoopConfig != nil {
 		scriptContent = s.substituteVars(scriptContent, job)
 	}
-	return scriptContent, nil
+	return scriptContent
 }
 
 // shellSetupContext groups the run metadata needed to report setup failures.
@@ -129,10 +116,7 @@ func (s *serviceImpl) prepareShellExecution(ctx context.Context, job *model.Job,
 	workdir := job.Workdir
 	s.mu.RUnlock()
 
-	// Resolve script content before opening the iteration. If script loading
-	// fails, keep the error until the handler/runID exist so shellSetupErr can
-	// publish the failure on the iteration like any other setup error.
-	scriptContent, scriptLoadErr := s.resolveShellScript(ctx, job, node)
+	scriptContent := s.resolveShellScript(job, node)
 
 	// Log only the script path / size, never the content: substituted
 	// scripts routinely contain secrets that the user injected via vars
@@ -175,13 +159,6 @@ func (s *serviceImpl) prepareShellExecution(ctx context.Context, job *model.Job,
 		handler:      handler,
 		modelID:      stepModelID,
 		runStartedAt: runStartedAt,
-	}
-
-	// Surface a script-load failure now that the iteration/run events have been
-	// published, so it is reported and fails the job exactly like other setup
-	// errors instead of silently running fallback content.
-	if scriptLoadErr != nil {
-		return nil, s.shellSetupErr(ctx, job, path, setup, scriptLoadErr)
 	}
 
 	var cleanups []func()
@@ -339,8 +316,10 @@ func (s *serviceImpl) finalizeShellResult(ctx context.Context, job *model.Job, e
 		// Include scriptFile / workdir and a tail of the combined stdout+stderr
 		// so the backend main log carries enough context to diagnose exit-code
 		// failures (e.g. "exit status 127" with the actual "command not found"
-		// line from bash) without having to open the per-job job.json.
-		tail := shellOutputTail(procResult.output, shellOutputTailBytes)
+		// line from bash) without having to open the per-job job.json. The log
+		// uses a larger tail than the user-facing error message and reports the
+		// full output size so a clipped tail signals there is more in job.json.
+		logTail := shellOutputTail(procResult.output, shellLogTailBytes)
 		if len(exec.filteredEnvKeys) > 0 {
 			logger.Warnf(ctx,
 				"[shell] env vars were filtered when this job ran: jobId=%s keys=%v total=%d — if the script needs these, set %s",
@@ -351,9 +330,9 @@ func (s *serviceImpl) finalizeShellResult(ctx context.Context, job *model.Job, e
 		// terminal persist so combining record + resume saves nothing here.
 		s.recordShellIterationResult(ctx, job, path, sessionID, procResult.output, procResult.err, procResult.durationMs)
 		logger.Errorf(ctx,
-			"[shell] run failed, failing job: jobId=%s path=%v scriptFile=%s workdir=%s err=%v outputTail=%q",
-			job.ID, path, exec.scriptFile, exec.workdir, procResult.err, tail)
-		s.failJob(ctx, job, shellFailureMessage(procResult.err, tail), true, true)
+			"[shell] run failed, failing job: jobId=%s path=%v scriptFile=%s workdir=%s durationMs=%d outputBytes=%d err=%v outputTail=%q",
+			job.ID, path, exec.scriptFile, exec.workdir, procResult.durationMs, len(procResult.output), procResult.err, logTail)
+		s.failJob(ctx, job, shellFailureMessage(procResult.err, shellOutputTail(procResult.output, shellOutputTailBytes)), true, true)
 		return stepAborted
 	}
 

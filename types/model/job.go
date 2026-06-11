@@ -140,8 +140,6 @@ type FlowNode struct {
 	RepeatCount int       `json:"repeatCount,omitempty"`
 	RoundMode   RoundMode `json:"roundMode,omitempty"`
 	RoundType   RoundType `json:"roundType,omitempty"`
-	ScriptID    string    `json:"scriptId,omitempty"`
-	ScriptName  string    `json:"scriptName,omitempty"`
 
 	// Per-step agent/model overrides (only used when RoundMode != RoundModeNone)
 	AgentType   string `json:"agentType,omitempty"`
@@ -181,8 +179,6 @@ type LoopRound struct {
 	RepeatCount int       `json:"repeatCount"`
 	RoundMode   RoundMode `json:"roundMode"`
 	RoundType   RoundType `json:"roundType,omitempty"`
-	ScriptID    string    `json:"scriptId,omitempty"`
-	ScriptName  string    `json:"scriptName,omitempty"`
 }
 
 // JobProgress tracks loop execution state persisted on a Job.

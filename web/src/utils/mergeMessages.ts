@@ -22,14 +22,21 @@ export interface MergeOptions {
  *    toolCallId.
  *
  * Returns [...merged_incoming, ...filtered_existing_only].
+ *
+ * The result is guaranteed unique-by-id (first occurrence wins). Step 3 only
+ * dedups existing-only against incoming, so a duplicate id *within* incoming
+ * (observed in practice for tool messages keyed by OpenAI `call_*` ids that the
+ * backend replays across a reconnect) would otherwise slip into state and only
+ * get masked at render time. Deduping here keeps the `messages` state itself
+ * invariant-clean so downstream SSE merges reason over a unique-id list.
  */
 export function mergeMessages(
   existing: Message[],
   incoming: Message[],
   options?: MergeOptions,
 ): Message[] {
-  if (existing.length === 0) return incoming;
-  if (incoming.length === 0) return existing;
+  if (existing.length === 0) return dedupeById(incoming, 'incoming');
+  if (incoming.length === 0) return dedupeById(existing, 'existing');
 
   const existingMap = new Map(existing.map((m) => [m.id, m]));
 
@@ -90,5 +97,38 @@ export function mergeMessages(
     return true;
   });
 
-  return [...merged, ...existingOnly];
+  return dedupeById([...merged, ...existingOnly], 'merge');
+}
+
+/**
+ * Returns `messages` with duplicate ids removed (first occurrence kept). When
+ * there are no duplicates the original array is returned unchanged, preserving
+ * reference identity for the common clean case (no needless reallocation). In
+ * DEV, logs the offending id and source so a duplicate that reaches state can
+ * be traced back to the path that produced it, rather than only surfacing as a
+ * render-time warning in MessageList.
+ */
+function dedupeById(messages: Message[], source: string): Message[] {
+  const seen = new Set<string>();
+  let firstDuplicateIndex = -1;
+  for (let i = 0; i < messages.length; i++) {
+    if (seen.has(messages[i].id)) {
+      firstDuplicateIndex = i;
+      break;
+    }
+    seen.add(messages[i].id);
+  }
+  if (firstDuplicateIndex === -1) return messages;
+
+  const out = messages.slice(0, firstDuplicateIndex);
+  const duplicate = messages[firstDuplicateIndex].id;
+  for (let i = firstDuplicateIndex; i < messages.length; i++) {
+    if (seen.has(messages[i].id)) continue;
+    seen.add(messages[i].id);
+    out.push(messages[i]);
+  }
+  if (import.meta.env.DEV) {
+    console.warn(`[mergeMessages] dropped duplicate message id from ${source}:`, duplicate);
+  }
+  return out;
 }

@@ -94,7 +94,6 @@
     "emptySavedTemplates": "No saved templates yet",
     "noVariablesPrefix": "No variables yet. You can store reusable info such as repo name or branch name. Use",
     "noVariablesSuffix": "to reference it.",
-    "noShellScripts": "No Shell scripts yet",
     "panel": {
       "title": "Loop Config",
       "editTitle": "Edit Loop Config"
@@ -192,7 +191,7 @@
     },
     "validation": {
       "promptRequired": "Step message is required",
-      "scriptRequired": "Shell step needs a script",
+      "scriptRequired": "Shell step requires script content",
       "groupEmpty": "Group has no child nodes",
       "evaluatorInGroup": "Evaluator must be inside a group",
       "evaluatorPromptRequired": "Evaluator needs an evaluation prompt"
@@ -354,13 +353,11 @@
         "jobWorkdir": "Workdir"
       },
       "shell": {
-        "label": "Shell",
-        "hint": "Script content is previewed below (read-only)",
-        "selectPlaceholder": "Select Shell...",
-        "searchPlaceholder": "Search Shell...",
-        "previewTitle": "Script preview",
+        "label": "Shell Script",
+        "hint": "Edit the script inline; {{variable}} substitution is supported",
         "note": "In Shell, set variables via <0>{{setCmd}}</0>. Later steps can reference them with <1>{{varTag}}</1>. Break current loop: <2>{{breakCmd}}</2>. Exit workflow: <3>{{returnCmd}}</3>.",
-        "detectedVars": "Detected variables"
+        "detectedVars": "Detected variables",
+        "editorPlaceholder": "Enter shell script content..."
       },
       "evaluator": {
         "typeLabel": "Evaluator",
@@ -388,7 +385,6 @@
       "acp": "ACP",
       "lark": "Lark",
       "wechat": "WeChat",
-      "script": "Shell Scripts",
       "logs": "Logs"
     },
     "general": {
@@ -778,27 +774,6 @@
     "binaryFile": "Binary file, cannot preview",
     "readFileFailed": "Failed to read file",
     "networkReadFailed": "Network error, cannot read file"
-  },
-  "script": {
-    "newShell": "+ New Shell",
-    "backToList": "Back to list",
-    "searchPlaceholder": "Search Shell...",
-    "noScripts": "No Shell scripts yet, click above to create",
-    "noMatch": "No matching Shell scripts",
-    "confirmDeleteTitle": "Confirm Delete",
-    "confirmDeleteMessage": "Are you sure you want to delete Shell \"{{name}}\"?",
-    "form": {
-      "name": "Name",
-      "namePlaceholder": "Shell name",
-      "description": "Description (optional)",
-      "descriptionPlaceholder": "Briefly describe what it does",
-      "content": "Content",
-      "contentPlaceholder": "Enter Shell content...\nSupports {{varTag}} placeholders",
-      "note": "In Shell, set variables via <0>{{setCmd}}</0>. Later steps can reference them with <1>{{varTag}}</1>. Break current loop: <2>{{breakCmd}}</2>. Exit workflow: <3>{{returnCmd}}</3>."
-    },
-    "saving": "Saving...",
-    "update": "Update",
-    "create": "Create"
   },
   "home": {
     "loading": "Loading...",

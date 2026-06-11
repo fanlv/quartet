@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useTranslation, Trans } from 'react-i18next';
-import { FlowNode, RoundType, Script } from '../../types';
+import { FlowNode, RoundType } from '../../types';
 import { AgentInfo } from '../ChatPage';
 import { ShellEditor } from '../ShellEditor';
 import { ROUND_MODE_OPTIONS, isStepValid, detectShellVarsForStep, getStepPreview } from './utils';
@@ -12,7 +12,6 @@ interface FlowStepEditorProps {
   isFirstStep: boolean; // true if this is the first step in the entire flow
   canRemove: boolean;
   depth: number;
-  scripts: Script[];
   definedVars: { key: string; value: string }[];
   allShellVars: { varName: string; nodeId: string }[];
   agents: AgentInfo[];
@@ -26,12 +25,12 @@ interface FlowStepEditorProps {
   onExpandedChange?: (expanded: boolean) => void;
   // structureLocked (running job edit): disables the round-type toggle and the
   // session-mode dropdown — both change session creation, which is structural.
-  // The prompt / agent / model / mode fields stay editable.
+  // The prompt / shell-script / agent / model / mode fields stay editable.
   structureLocked?: boolean;
 }
 
 export function FlowStepEditor({
-  node, stepIndex, isFirstStep, canRemove, depth: _depth, scripts,
+  node, stepIndex, isFirstStep, canRemove, depth: _depth,
   definedVars, allShellVars, agents, onUpdate, onRemove, warnings,
   isExpanded, onExpandedChange, structureLocked,
 }: FlowStepEditorProps) {
@@ -48,29 +47,22 @@ export function FlowStepEditor({
   };
 
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
-  const [scriptPickerOpen, setScriptPickerOpen] = useState(false);
-  const [scriptSearch, setScriptSearch] = useState('');
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modeListOpen, setModeListOpen] = useState(false);
   const [insertVarOpen, setInsertVarOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
-  const scriptPickerRef = useRef<HTMLDivElement>(null);
   const agentDropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const modeListRef = useRef<HTMLDivElement>(null);
   const insertVarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!modeDropdownOpen && !scriptPickerOpen && !agentDropdownOpen && !modelDropdownOpen && !modeListOpen && !insertVarOpen) return;
+    if (!modeDropdownOpen && !agentDropdownOpen && !modelDropdownOpen && !modeListOpen && !insertVarOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (modeDropdownOpen && modeDropdownRef.current && !modeDropdownRef.current.contains(e.target as Node)) {
         setModeDropdownOpen(false);
-      }
-      if (scriptPickerOpen && scriptPickerRef.current && !scriptPickerRef.current.contains(e.target as Node)) {
-        setScriptPickerOpen(false);
-        setScriptSearch('');
       }
       if (agentDropdownOpen && agentDropdownRef.current && !agentDropdownRef.current.contains(e.target as Node)) {
         setAgentDropdownOpen(false);
@@ -87,7 +79,7 @@ export function FlowStepEditor({
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [modeDropdownOpen, scriptPickerOpen, agentDropdownOpen, modelDropdownOpen, modeListOpen, insertVarOpen]);
+  }, [modeDropdownOpen, agentDropdownOpen, modelDropdownOpen, modeListOpen, insertVarOpen]);
 
   // When the job starts running mid-edit, structureLocked flips true. Disabling
   // the trigger buttons does not close a popover that was already open, and its
@@ -97,8 +89,6 @@ export function FlowStepEditor({
   useEffect(() => {
     if (!structureLocked) return;
     setModeDropdownOpen(false);
-    setScriptPickerOpen(false);
-    setScriptSearch('');
   }, [structureLocked]);
 
   const roundType = node.roundType || 'prompt';
@@ -124,12 +114,7 @@ export function FlowStepEditor({
   const roundReady = isStepValid(node);
   const roundPreview = getStepPreview(node);
 
-  // Resolve shell script content from the scripts array by scriptId
-  const resolvedScriptContent = isShellRound && node.scriptId
-    ? scripts.find((s) => s.id === node.scriptId)?.content || ''
-    : '';
-
-  const detectedVars = isShellRound && resolvedScriptContent ? detectShellVarsForStep(resolvedScriptContent) : [];
+  const detectedVars = isShellRound && node.message ? detectShellVarsForStep(node.message) : [];
 
   // Builtin system variables injected per-round by the backend
   const builtinVars = [
@@ -166,19 +151,10 @@ export function FlowStepEditor({
   const handleRoundTypeChange = (type: RoundType) => {
     if (structureLocked) return;
     if (type === 'shell') {
-      onUpdate({ ...node, roundType: 'shell', message: '', scriptId: undefined, scriptName: undefined });
+      onUpdate({ ...node, roundType: 'shell', message: '' });
     } else {
-      onUpdate({ ...node, roundType: 'prompt', message: '', scriptId: undefined, scriptName: undefined });
+      onUpdate({ ...node, roundType: 'prompt', message: '' });
     }
-  };
-
-  const handleSelectScript = (script: Script) => {
-    // scriptId/scriptName are structural fields — guard so an already-open
-    // script picker can't mutate the local draft once the job is running.
-    if (structureLocked) return;
-    onUpdate({ ...node, message: '', scriptId: script.id, scriptName: script.name });
-    setScriptPickerOpen(false);
-    setScriptSearch('');
   };
 
   const handleInsertVariable = (varKey: string) => {
@@ -610,76 +586,11 @@ export function FlowStepEditor({
                 <label>{t('loop.step.shell.label')}</label>
                 <span className="loop-round-field-hint">{t('loop.step.shell.hint')}</span>
               </div>
-              <div className="loop-round-script-selector" ref={scriptPickerRef}>
-                <button
-                  className={`loop-round-script-select-btn${node.scriptId ? ' has-script' : ''}`}
-                  onClick={() => {
-                    setScriptPickerOpen(!scriptPickerOpen);
-                    setScriptSearch('');
-                  }}
-                  disabled={structureLocked}
-                  type="button"
-                >
-                  {node.scriptName ? (
-                    <span className="loop-round-script-name">{node.scriptName}</span>
-                  ) : (
-                    <span className="loop-round-script-placeholder">{t('loop.step.shell.selectPlaceholder')}</span>
-                  )}
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </button>
-                {scriptPickerOpen && (
-                  <div className="loop-script-picker">
-                    <input
-                      className="loop-script-picker-search"
-                      type="text"
-                      placeholder={t('loop.step.shell.searchPlaceholder')}
-                      value={scriptSearch}
-                      onChange={(e) => setScriptSearch(e.target.value)}
-                      autoFocus
-                    />
-                    <div className="loop-script-picker-list">
-                      {scripts
-                        .filter((s) => {
-                          if (!scriptSearch) return true;
-                          const q = scriptSearch.toLowerCase();
-                          return s.name.toLowerCase().includes(q) || s.content.toLowerCase().includes(q);
-                        })
-                        .map((s) => (
-                          <div
-                            key={s.id}
-                            className={`loop-script-picker-item${node.scriptId === s.id ? ' selected' : ''}`}
-                            onClick={() => handleSelectScript(s)}
-                            title={s.content}
-                          >
-                            <div className="loop-script-picker-copy">
-                              <span className="loop-script-picker-name">{s.name}</span>
-                              {s.description && (
-                                <span className="loop-script-picker-desc">{s.description}</span>
-                              )}
-                            </div>
-                            {node.scriptId === s.id && (
-                              <svg className="loop-script-picker-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M20 6L9 17l-5-5" />
-                              </svg>
-                            )}
-                          </div>
-                        ))}
-                      {scripts.length === 0 && (
-                        <div className="loop-script-picker-empty">{t('loop.noShellScripts')}</div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {node.scriptId && resolvedScriptContent && (
-                <div className="loop-round-script-preview">
-                  <div className="loop-round-script-preview-header">{t('loop.step.shell.previewTitle')}</div>
-                  <ShellEditor value={resolvedScriptContent} readOnly />
-                </div>
-              )}
+              <ShellEditor
+                value={node.message || ''}
+                onChange={(v) => handleFieldChange('message', v)}
+                placeholder={t('loop.step.shell.editorPlaceholder')}
+              />
 
               <div className="loop-round-inline-note">
                 <Trans

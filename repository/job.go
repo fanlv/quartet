@@ -14,7 +14,7 @@ import (
 )
 
 // validateJobID rejects empty or traversal-laden IDs so they can never be
-// joined into a filesystem path. Mirrors validateTemplateID / validateScriptID.
+// joined into a filesystem path. Mirrors validateTemplateID.
 func validateJobID(id string) error {
 	return validateID(id)
 }

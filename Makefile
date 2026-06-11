@@ -1,4 +1,4 @@
-.PHONY: build build-all build-acp build-cli build-web test test-web e2e clean run run-cli run-web run-frontend run-backend dev web web-logs web-stop web-status backend-stop
+.PHONY: build build-all build-acp build-cli build-web test test-web e2e clean run run-cli run-web run-frontend run-backend dev web web-logs web-stop web-status backend-stop install-acp-deps
 
 BACKEND_PORT := 8090
 CERTS_DIR := $(CURDIR)/certs
@@ -128,13 +128,15 @@ web:
 				*node_modules/.bin/vite*) ;; \
 				*) continue ;; \
 			esac; \
+			[ "$$_vp" = "$$frontend_pid" ] && continue; \
 			_cwd=$$($$SUDO readlink "/proc/$$_vp/cwd" 2>/dev/null || echo ""); \
 			case "$$_cwd" in \
-				*"(deleted)") _vite_orphans="$$_vite_orphans $$_vp" ;; \
+				"$(CURDIR)/web"|*"(deleted)") \
+					_vite_orphans="$$_vite_orphans $$_vp" ;; \
 			esac; \
 		done; \
 		if [ -n "$$_vite_orphans" ]; then \
-			echo "🧹 Killing orphan vite processes (cwd deleted):$$_vite_orphans"; \
+			echo "🧹 Killing orphan vite processes (this repo's web dir or cwd deleted, any port):$$_vite_orphans"; \
 			for _vp in $$_vite_orphans; do \
 				$$SUDO "$(STOP_PROCESS_TREE)" "$$_vp"; \
 			done; \
@@ -312,6 +314,16 @@ web-stop:
 		fi; \
 	done; \
 	frontend_pid=$$( $$SUDO lsof -tiTCP:$$frontend_port -sTCP:LISTEN 2>/dev/null); \
+	_vite_repo=""; \
+	if [ -d /proc ]; then \
+		for _vp in $$( $$SUDO pgrep -x node 2>/dev/null); do \
+			_cmd=$$($$SUDO tr '\0' ' ' < /proc/$$_vp/cmdline 2>/dev/null || echo ""); \
+			case "$$_cmd" in *node_modules/.bin/vite*) ;; *) continue ;; esac; \
+			[ "$$_vp" = "$$frontend_pid" ] && continue; \
+			_cwd=$$($$SUDO readlink "/proc/$$_vp/cwd" 2>/dev/null || echo ""); \
+			case "$$_cwd" in "$(CURDIR)/web"|*"(deleted)") _vite_repo="$$_vite_repo $$_vp" ;; esac; \
+		done; \
+	fi; \
 	if [ -n "$$backend_pid" ]; then \
 		echo "Stopping backend (pid: $$backend_pid)..."; \
 		"$(STOP_PROCESS_TREE)" "$$backend_pid"; \
@@ -325,6 +337,12 @@ web-stop:
 	if [ -n "$$frontend_pid" ]; then \
 		echo "Stopping frontend (pid: $$frontend_pid)..."; \
 		$$SUDO "$(STOP_PROCESS_TREE)" "$$frontend_pid"; \
+	fi; \
+	if [ -n "$$_vite_repo" ]; then \
+		echo "🧹 Killing other vite processes for this repo (any port):$$_vite_repo"; \
+		for _vp in $$_vite_repo; do \
+			$$SUDO "$(STOP_PROCESS_TREE)" "$$_vp"; \
+		done; \
 	fi; \
 	echo "✅ All services stopped"
 
@@ -374,6 +392,16 @@ web-status:
 		fi; \
 	done; \
 	frontend_pid=$$( $$SUDO lsof -tiTCP:$$frontend_port -sTCP:LISTEN 2>/dev/null); \
+	_vite_repo=""; \
+	if [ -d /proc ]; then \
+		for _vp in $$( $$SUDO pgrep -x node 2>/dev/null); do \
+			_cmd=$$($$SUDO tr '\0' ' ' < /proc/$$_vp/cmdline 2>/dev/null || echo ""); \
+			case "$$_cmd" in *node_modules/.bin/vite*) ;; *) continue ;; esac; \
+			[ "$$_vp" = "$$frontend_pid" ] && continue; \
+			_cwd=$$($$SUDO readlink "/proc/$$_vp/cwd" 2>/dev/null || echo ""); \
+			case "$$_cwd" in "$(CURDIR)/web"|*"(deleted)") _vite_repo="$$_vite_repo $$_vp" ;; esac; \
+		done; \
+	fi; \
 	if [ -n "$$backend_pid" ]; then \
 		echo "  Backend:  ✅ Running (pid: $$backend_pid, port: $(BACKEND_PORT))"; \
 	else \
@@ -387,7 +415,37 @@ web-status:
 		echo "  Frontend: ✅ Running (pid: $$frontend_pid, port: $$frontend_port, $$frontend_proto)"; \
 	else \
 		echo "  Frontend: ❌ Not running"; \
+	fi; \
+	if [ -n "$$_vite_repo" ]; then \
+		echo "  ⚠️  Other vite processes for this repo on a different port:$$_vite_repo"; \
+		echo "     Run 'make web-stop' to clean them up."; \
 	fi
 
 clean:
 	rm -rf bin
+
+# install-acp-deps installs the npm packages required by npx-based ACP
+# agents, but only when the agent's own CLI binary is already present in
+# $PATH. For these agents the bin looked up in $PATH (e.g. `claude`) is a
+# different program from what the ACP serve command actually runs (e.g.
+# `npx @agentclientprotocol/claude-agent-acp`), so having the CLI alone is
+# not enough to talk ACP — the helper package must be installed too.
+# Agents whose bin and serve command are the same program need nothing
+# here and are intentionally omitted.
+install-acp-deps:
+	@echo "🔍 Checking ACP agent dependencies..."
+	@installed=0; \
+	check_and_install() { \
+		bin="$$1"; pkg="$$2"; name="$$3"; \
+		if command -v "$$bin" >/dev/null 2>&1; then \
+			echo "📦 $$name detected ($$bin), installing $$pkg ..."; \
+			npm install -g "$$pkg" || { echo "❌ Failed to install $$pkg"; exit 1; }; \
+			installed=$$((installed+1)); \
+		else \
+			echo "⏭️  $$name not found ($$bin in \$$PATH), skipping $$pkg"; \
+		fi; \
+	}; \
+	check_and_install claude   "@agentclientprotocol/claude-agent-acp" "Claude"; \
+	check_and_install codex    "@zed-industries/codex-acp"             "Codex"; \
+	check_and_install kilocode "@kilocode/cli"                         "KiloCode"; \
+	echo "✅ ACP dependency check done ($$installed package(s) installed)"

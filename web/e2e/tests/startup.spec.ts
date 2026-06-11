@@ -50,8 +50,6 @@ type E2EFlowNode = {
   repeatCount?: number
   roundMode?: 'beforeRound' | 'eachRepeat' | 'none'
   roundType?: 'prompt' | 'shell' | 'evaluator'
-  scriptId?: string
-  scriptName?: string
   iterationCount?: number
   children?: E2EFlowNode[]
 }
@@ -842,55 +840,6 @@ test('SSE RUN_ERROR carries a structured SHELL error code for shell failures', a
   const failedSnapshot = await getJobSnapshot(request, job.jobId, job.headers)
   expect(failedSnapshot.progress?.failedCount).toBe(1)
   expect(failedSnapshot.progress?.results?.[0]?.error).toContain('exit status 7')
-})
-
-test('shell setup failures publish structured RUN_ERROR and persist a failed iteration', async ({ request }) => {
-  const missingScriptID = `script-e2e-missing-${Date.now()}`
-  const flow: E2EFlowNode[] = [
-    {
-      id: 'e2e-shell-missing-script-step',
-      type: 'step',
-      message: 'echo "missing-script-fallback-must-not-run"',
-      scriptId: missingScriptID,
-      scriptName: 'E2E Missing Script',
-      repeatCount: 1,
-      roundMode: 'beforeRound',
-      roundType: 'shell',
-    },
-  ]
-  const job = await createLoopJobWithFlow(request, flow)
-  const createdSnapshot = await getJobSnapshot(request, job.jobId, job.headers)
-
-  let startPromise: Promise<void> | undefined
-  const chunks = await readSSEUntil(
-    `${e2eBackendURL}/api/v1/job/${job.jobId}/events`,
-    { 'X-AGENT-AUTH': e2eAuthToken, Accept: 'text/event-stream', 'Last-Event-ID': String(createdSnapshot.lastEventSeq || 0) },
-    (text) => text.includes('"type":"RUN_ERROR"') && text.includes('"type":"JOB_FAILED"'),
-    15_000,
-    () => {
-      startPromise = request.post(`/api/v1/job/${job.jobId}/start`, { headers: job.headers }).then(async (res) => {
-        expect(res.ok(), `job start failed: ${res.status()} ${await res.text()}`).toBeTruthy()
-      })
-    },
-  )
-  await startPromise
-
-  const events = parseSSEMessageEvents(chunks)
-  const runError = events.find((event) => event.type === 'RUN_ERROR')
-  if (!runError) {
-    throw new Error(`RUN_ERROR event not found. Parsed events: ${JSON.stringify(events)}\nRaw SSE:\n${chunks}`)
-  }
-  expect(runError.code).toBe('SHELL')
-  expect(String(runError.message)).toContain(missingScriptID)
-
-  await waitForJobStatus(request, job.jobId, job.headers, 'failed')
-  const failedSnapshot = await getJobSnapshot(request, job.jobId, job.headers)
-  expect(failedSnapshot.progress?.completedCount || 0).toBe(0)
-  expect(failedSnapshot.progress?.failedCount).toBe(1)
-  expect(failedSnapshot.progress?.lastError).toContain(missingScriptID)
-  expect(failedSnapshot.progress?.results?.[0]?.success).toBe(false)
-  expect(failedSnapshot.progress?.results?.[0]?.error).toContain(missingScriptID)
-  expect(failedSnapshot.progress?.results?.[0]?.content || '').toBe('')
 })
 
 test('SSE terminal failure event timestamp matches the persisted job FinishedAt', async ({ request }) => {

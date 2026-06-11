@@ -35,8 +35,6 @@ func MigrateLoopConfig(cfg *LoopConfig) {
 			RepeatCount: r.RepeatCount,
 			RoundMode:   r.RoundMode,
 			RoundType:   r.RoundType,
-			ScriptID:    r.ScriptID,
-			ScriptName:  r.ScriptName,
 		}
 	}
 
@@ -349,8 +347,8 @@ func ValidateFlow(nodes []FlowNode, depth int) error {
 					return fmt.Errorf("step node [%d] at depth %d: evaluator step requires message", i, depth)
 				}
 			case RoundTypeShell:
-				if n.ScriptID == "" && n.Message == "" {
-					return fmt.Errorf("step node [%d] at depth %d: shell step requires scriptId or message", i, depth)
+				if strings.TrimSpace(n.Message) == "" {
+					return fmt.Errorf("step node [%d] at depth %d: shell step requires message", i, depth)
 				}
 			default:
 				return fmt.Errorf("step node [%d] at depth %d: unknown roundType %q", i, depth, n.RoundType)
@@ -473,14 +471,11 @@ func findFirstNonTemplateMessage(nodes []FlowNode) string {
 	return ""
 }
 
-// findFirstLabel returns the first non-empty label or scriptName in the tree.
+// findFirstLabel returns the first non-empty label in the tree.
 func findFirstLabel(nodes []FlowNode) string {
 	for _, n := range nodes {
 		switch n.Type {
 		case FlowNodeTypeStep:
-			if n.ScriptName != "" {
-				return n.ScriptName
-			}
 			if n.Label != "" {
 				return n.Label
 			}

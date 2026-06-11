@@ -57,8 +57,8 @@ Go tests: `go test ./...`
 
 1. **`types/model/`** — 定义 Request/Response、Job、LoopConfig、Schedule、Script 等共享结构体
 2. **`types/path/`** — 统一维护数据目录和文件路径拼接逻辑
-3. **`repository/`** — 数据持久化层，负责 settings、jobs、sessions、templates、scripts、schedules、workspace、IM 映射等读写
-4. **`services/`** — 业务逻辑层，封装 job、schedule、script、workspace、prompt、template、config 等能力
+3. **`repository/`** — 数据持久化层，负责 settings、jobs、sessions、templates、schedules、workspace、IM 映射等读写
+4. **`services/`** — 业务逻辑层，封装 job、schedule、workspace、prompt、template、config 等能力
 5. **`cmd/web/handler/`** — HTTP 层，只做参数校验、鉴权、响应格式化和服务编排
 
 ### API & Route Conventions
@@ -90,7 +90,7 @@ Go tests: `go test ./...`
 
 ### 数据持久化（repository）
 
-- `repository/` — 基于本地文件的存储层，负责 settings、jobs、sessions、templates、scripts、schedules、prompts、workspace、IM 映射、IM 消息、用户输入、模型配置、聊天上下文、最近目录等数据的读写，以及原子写入、损坏处理、ID 生成等基础能力。
+- `repository/` — 基于本地文件的存储层，负责 settings、jobs、sessions、templates、schedules、prompts、workspace、IM 映射、IM 消息、用户输入、模型配置、聊天上下文、最近目录等数据的读写，以及原子写入、损坏处理、ID 生成等基础能力。
 
 ### 业务服务（services）
 
@@ -103,7 +103,6 @@ Go tests: `go test ./...`
 - `services/agent/internal/sessioncache` — Agent 会话缓存等内部复用能力。
 - `services/job` — Job 执行核心，覆盖普通运行、循环、步骤、Shell、状态、存储、事件分发等执行模式。
 - `services/schedule` — 定时任务的注册、调度与执行。
-- `services/script` — 用户自定义脚本的管理与运行。
 - `services/prompt` — Prompt 模板的组装与渲染。
 - `services/template` — Job/会话模板的业务封装。
 - `services/session` — 会话级业务逻辑封装。

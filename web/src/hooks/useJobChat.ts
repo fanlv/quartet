@@ -1774,6 +1774,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     // UI recovers terminal status without waiting for the user to refresh.
     // Threshold is generous so steady streaming and idle keep-alives don't
     // trigger spurious fetches.
+    //
+    // Logging: a silent SSE stream is EXPECTED during long thinking / long
+    // tool execution (the backend ACP transport can block for minutes), so the
+    // routine resync logs at debug. Only escalate to warn when the resync
+    // actually recovered a missed terminal event — i.e. the job was loading
+    // before the sync and is no longer loading after — which is the real
+    // failure this watchdog exists to catch.
     const IDLE_WATCHDOG_INTERVAL_MS = 15_000;
     const IDLE_WATCHDOG_THRESHOLD_MS = 45_000;
     const watchdog = window.setInterval(() => {
@@ -1781,10 +1788,16 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       const idleMs = Date.now() - lastEventReceivedAtRef.current;
       if (idleMs < IDLE_WATCHDOG_THRESHOLD_MS) return;
       lastEventReceivedAtRef.current = Date.now();
-      console.warn(`[JobEvents] idle-watchdog: SSE silent for ${idleMs}ms while loading, resyncing /job/${currentJobId}`);
-      void syncJobState(currentJobId, true).catch((err) => {
-        console.warn('[idle-watchdog] syncJobState failed:', err);
-      });
+      console.debug(`[JobEvents] idle-watchdog: SSE silent for ${idleMs}ms while loading, resyncing /job/${currentJobId} (expected during long thinking/tool-exec)`);
+      void syncJobState(currentJobId, true)
+        .then(() => {
+          if (!isLoadingRef.current) {
+            console.warn(`[JobEvents] idle-watchdog: recovered missed terminal state for /job/${currentJobId} after ${idleMs}ms SSE silence`);
+          }
+        })
+        .catch((err) => {
+          console.warn('[idle-watchdog] syncJobState failed:', err);
+        });
     }, IDLE_WATCHDOG_INTERVAL_MS);
 
     const scheduleNextOrSurface = (currentAttempt: number, errMsg: string) => {

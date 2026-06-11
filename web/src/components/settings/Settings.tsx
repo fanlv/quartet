@@ -9,12 +9,11 @@ import { ACPSettings } from './ACPSettings';
 import { LarkSettings } from './LarkSettings';
 import { WeChatSettings } from './WeChatSettings';
 import { WorkspacesSettings } from './WorkspacesSettings';
-import { ScriptManagePanel } from '../ScriptManagePanel';
 import { LogsSettings } from './LogsSettings';
 import './Settings.css';
 import './WeChatSettings.css';
 
-type SettingsTab = 'general' | 'workspace' | 'token' | 'model' | 'prompt' | 'skill' | 'acp' | 'lark' | 'wechat' | 'script' | 'logs';
+type SettingsTab = 'general' | 'workspace' | 'token' | 'model' | 'prompt' | 'skill' | 'acp' | 'lark' | 'wechat' | 'logs';
 
 interface SettingsProps {
   onClose: () => void;
@@ -31,7 +30,6 @@ const tabDefs: { key: SettingsTab; labelKey: string; icon: string }[] = [
   { key: 'acp', labelKey: 'settings.tabs.acp', icon: '🔌' },
   { key: 'lark', labelKey: 'settings.tabs.lark', icon: '💬' },
   { key: 'wechat', labelKey: 'settings.tabs.wechat', icon: '💚' },
-  { key: 'script', labelKey: 'settings.tabs.script', icon: '📄' },
   { key: 'logs', labelKey: 'settings.tabs.logs', icon: '📋' },
 ];
 
@@ -127,8 +125,6 @@ export function Settings({ onClose, onSettingsChanged }: SettingsProps) {
         return <LarkSettings />;
       case 'wechat':
         return <WeChatSettings />;
-      case 'script':
-        return <ScriptManagePanel embedded />;
       case 'logs':
         return <LogsSettings />;
       default:

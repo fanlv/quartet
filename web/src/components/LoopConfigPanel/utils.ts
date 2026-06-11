@@ -1,4 +1,4 @@
-import { FlowNode, LoopConfig, RoundMode, Script } from '../../types';
+import { FlowNode, LoopConfig, RoundMode } from '../../types';
 
 let idCounter = 0;
 
@@ -245,11 +245,7 @@ export function locateInSessionPlan(
 
 export function isStepValid(node: FlowNode): boolean {
   if (node.type !== 'step') return false;
-  const rt = node.roundType || 'prompt';
-  if (rt === 'shell') {
-    return Boolean(node.scriptId);
-  }
-  // prompt and evaluator both require a non-empty message.
+  // prompt, evaluator and shell all require a non-empty message.
   return Boolean(node.message?.trim());
 }
 
@@ -277,8 +273,6 @@ export function migrateOldConfig(config: LoopConfig): LoopConfig {
     repeatCount: r.repeatCount,
     roundMode: r.roundMode,
     roundType: r.roundType,
-    scriptId: r.scriptId,
-    scriptName: r.scriptName,
   }));
 
   return {
@@ -311,21 +305,14 @@ export function makeDefaultFlow(): FlowNode[] {
 }
 
 /** Walk all step nodes in the flow tree and collect shell variable names. */
-export function collectShellVars(nodes: FlowNode[], scripts?: Script[]): { varName: string; nodeId: string }[] {
+export function collectShellVars(nodes: FlowNode[]): { varName: string; nodeId: string }[] {
   const all: { varName: string; nodeId: string }[] = [];
   const seen = new Set<string>();
-  const scriptMap = new Map<string, string>();
-  if (scripts) {
-    for (const s of scripts) {
-      scriptMap.set(s.id, s.content);
-    }
-  }
 
   function walk(ns: FlowNode[]) {
     for (const n of ns) {
       if (n.type === 'step' && n.roundType === 'shell') {
-        // Resolve content: prefer scripts lookup by scriptId, fall back to message
-        const content = (n.scriptId && scriptMap.get(n.scriptId)) || n.message || '';
+        const content = n.message || '';
         if (!content) {
           if (n.children) walk(n.children);
           continue;
@@ -427,10 +414,6 @@ export function hasStepId(nodes: FlowNode[], id: string): boolean {
 /** Build a short preview string for a collapsed step row. */
 export function getStepPreview(node: FlowNode, maxChars = 56): string {
   if (node.type !== 'step') return '';
-  const isShell = (node.roundType || 'prompt') === 'shell';
-  if (isShell) {
-    return node.scriptName || '';
-  }
   const msg = (node.message || '').trim();
   if (!msg) return '';
   if (msg.length <= maxChars) return msg;

@@ -95,7 +95,7 @@ var KnownACPAgents = []ACPAgentDef{
 	{"kimi", "kimi acp", "Kimi", "https://avatars.githubusercontent.com/u/129152888"},
 	{"codex", "npx @zed-industries/codex-acp", "Codex", "https://avatars.githubusercontent.com/u/14957082"},
 	{"kiro-cli", "kiro-cli acp", "Kiro", "https://avatars.githubusercontent.com/u/207925904"},
-	{"opencode", "npx -y opencode-ai acp", "OpenCode", "https://avatars.githubusercontent.com/in/1549082"},
+	{"opencode", "opencode acp", "OpenCode", "https://avatars.githubusercontent.com/in/1549082"},
 	{"kilocode", "npx -y @kilocode/cli acp", "KiloCode", "https://avatars.githubusercontent.com/u/201822503"},
 	{"qwen", "qwen --acp", "Qwen", "https://avatars.githubusercontent.com/u/141221163"},
 }

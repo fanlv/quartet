@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation, Trans } from 'react-i18next';
-import { LoopConfig, LoopTemplate, FlowNode, Script } from '../../types';
+import { LoopConfig, LoopTemplate, FlowNode } from '../../types';
 import { AgentInfo } from '../ChatPage';
 import { FlowStepEditor } from './FlowStepEditor';
 import { FlowOutline, FlowIssue } from './FlowOutline';
@@ -85,13 +85,6 @@ async function updateTemplateApi(id: string, name: string, config: LoopConfig): 
 async function deleteTemplateApi(id: string): Promise<boolean> {
   const res = await fetch(`/api/v1/template/${id}`, { method: 'DELETE' });
   return res.ok;
-}
-
-async function fetchScriptsApi(): Promise<Script[]> {
-  const res = await fetch('/api/v1/script/list');
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.scripts || [];
 }
 
 interface NodeLocation {
@@ -334,7 +327,7 @@ function collectFlowIssues(nodes: FlowNode[], t: (key: string, opts?: Record<str
     for (const node of items) {
       if (node.type === 'step') {
         const roundType = node.roundType || 'prompt';
-        if (roundType === 'shell' && !node.scriptId) {
+        if (roundType === 'shell' && !node.message?.trim()) {
           issues.push({ nodeId: node.id, message: t('loop.validation.scriptRequired') });
         } else if (roundType === 'evaluator') {
           if (depth === 0) {
@@ -407,7 +400,6 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const [templateLoadError, setTemplateLoadError] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState('');
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
-  const [scripts, setScripts] = useState<Script[]>([]);
   const [copyToast, setCopyToast] = useState('');
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importText, setImportText] = useState('');
@@ -450,18 +442,12 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     }
   }, []);
 
-  const loadScripts = useCallback(async () => {
-    const list = await fetchScriptsApi();
-    setScripts(list);
-  }, []);
-
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadTemplates();
-      void loadScripts();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [loadTemplates, loadScripts]);
+  }, [loadTemplates]);
 
   // Close More menu on outside click
   useEffect(() => {
@@ -908,7 +894,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const definedVars = variables.filter((v) => v.key.trim());
   const totalSteps = useMemo(() => calcTotalSteps(flow), [flow]);
   const nodeCount = useMemo(() => countNodes(flow), [flow]);
-  const allShellVars = useMemo(() => collectShellVars(flow, scripts), [flow, scripts]);
+  const allShellVars = useMemo(() => collectShellVars(flow), [flow]);
   const selectedNode = useMemo(() => findNodeById(flow, selectedNodeId), [flow, selectedNodeId]);
   const selectedLocation = useMemo(() => findNodeLocation(flow, selectedNodeId), [flow, selectedNodeId]);
   // An evaluator must live inside a group. Resolve the target group from the
@@ -1330,7 +1316,6 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                     isFirstStep={findFirstStepId(flow) === selectedNode.id}
                     canRemove={false}
                     depth={selectedLocation.depth}
-                    scripts={scripts}
                     definedVars={definedVars}
                     allShellVars={allShellVars}
                     agents={agents}

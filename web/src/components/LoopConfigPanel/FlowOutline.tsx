@@ -35,6 +35,21 @@ function fallbackStepTitle(node: FlowNode, index: number, t: TFunction): string 
   return node.label?.trim() || t('loop.outline.emptyStep', { index: index + 1 });
 }
 
+// The outline rows are rendered as <div role="button"> rather than real
+// <button> elements because they embed the NumberStepper (which contains its
+// own <button>s), and a <button> cannot legally contain another <button>.
+// activateOnKey restores native button keyboard semantics: Enter / Space
+// trigger the row, and Space's default page-scroll is suppressed.
+function activateOnKey(handler: () => void) {
+  return (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handler();
+    }
+  };
+}
+
 // hasEvaluatorChild reports whether a group directly contains an evaluator step
 // — used to label its iterationCount stepper as a "max iteration cap" rather
 // than a plain iteration count.
@@ -98,16 +113,23 @@ export function FlowOutline({
 
           return (
             <div className={`loop-outline-node loop-outline-node-group${isCollapsed ? ' collapsed' : ''}`} key={node.id}>
-              <button
+              <div
                 className={`loop-outline-row loop-outline-row-group${isSelected ? ' selected' : ''}${issue ? ' has-error' : ''}${isCollapsed ? ' collapsed' : ''}`}
                 style={rowStyle}
+                role="button"
+                tabIndex={0}
                 onClick={() => {
                   onSelect(node.id);
                   if (childrenCount > 0) {
                     onToggleGroup(node.id);
                   }
                 }}
-                type="button"
+                onKeyDown={activateOnKey(() => {
+                  onSelect(node.id);
+                  if (childrenCount > 0) {
+                    onToggleGroup(node.id);
+                  }
+                })}
                 aria-expanded={!isCollapsed}
               >
                 <span
@@ -144,7 +166,7 @@ export function FlowOutline({
                   />
                 </span>
                 {renderNodeStatus(issue, t)}
-              </button>
+              </div>
               {isSelected && !structureLocked && (
                 <div className="loop-outline-actions" style={rowStyle}>
                   <button onClick={() => onAddStep(node.id)} type="button">{t('loop.actions.addMenuStep')}</button>
@@ -168,11 +190,13 @@ export function FlowOutline({
         const typeClass = isShell ? 'shell' : isEvaluator ? 'evaluator' : 'prompt';
         return (
           <div className="loop-outline-node loop-outline-node-step" key={node.id}>
-            <button
+            <div
               className={`loop-outline-row loop-outline-row-step${isSelected ? ' selected' : ''}${issue ? ' has-error' : ''}`}
               style={rowStyle}
+              role="button"
+              tabIndex={0}
               onClick={() => onSelect(node.id)}
-              type="button"
+              onKeyDown={activateOnKey(() => onSelect(node.id))}
             >
               <span className={`loop-outline-type ${typeClass}`}>{typeChar}</span>
               <span className="loop-outline-main">
@@ -189,7 +213,7 @@ export function FlowOutline({
                 />
               </span>
               {renderNodeStatus(issue, t)}
-            </button>
+            </div>
             {isSelected && !structureLocked && (
               <div className="loop-outline-actions" style={rowStyle}>
                 <button onClick={() => onAddStep(null)} type="button">{t('loop.actions.addMenuStep')}</button>

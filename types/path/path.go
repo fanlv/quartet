@@ -131,15 +131,6 @@ func TemplatesDir() (string, error) {
 	return filepath.Join(dir, "templates"), nil
 }
 
-// ScriptsDir returns the scripts directory path within AgentDir
-func ScriptsDir() (string, error) {
-	dir, err := AgentDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "scripts"), nil
-}
-
 // ShellTempDir returns the process-owned temp directory used for shell helper
 // scripts and control files when a job has no explicit workdir.
 func ShellTempDir() (string, error) {
