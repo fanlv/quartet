@@ -94,13 +94,20 @@ export interface LoopSessionLocation {
  * `actualIterations` optionally overrides a group's iterationCount with the
  * number of rounds it actually ran (keyed by the group's dot-joined node path,
  * e.g. "0.0"). `actualLeafCounts` additionally trims siblings skipped after
- * STOP within the final actual iteration. Together they make the session / step
- * denominator reflect the backend's real executed plan instead of the static cap.
+ * STOP within the final actual iteration; its value is the group's CONSUMED
+ * slot prefix (executed + empty-prompt-skipped). `skippedPaths` then filters
+ * out the leaves whose rendered prompt was empty and never ran (keyed by the
+ * dot-joined FULL leaf path, iteration/repeat indices included). Order matters
+ * and mirrors the backend (§2.4): static expansion → group prefix trim →
+ * skipped-leaf filter → session assignment. Together they make the session /
+ * step denominator reflect the backend's real executed plan instead of the
+ * static cap.
  */
 export function computeLoopSessionPlan(
   flow: FlowNode[],
   actualIterations?: Record<string, number>,
-  actualLeafCounts?: Record<string, number>
+  actualLeafCounts?: Record<string, number>,
+  skippedPaths?: Record<string, boolean>
 ): LoopSessionPlan {
   const paths: LoopLeafPath[] = [];
 
@@ -124,7 +131,10 @@ export function computeLoopSessionPlan(
         }
         // Actual iteration counts trim future iterations. Leaf counts additionally
         // trim sibling steps skipped after STOP within the final actual iteration,
-        // matching the backend progress denominator backfill.
+        // matching the backend progress denominator backfill. The kept prefix is
+        // the group's consumed slots — executed AND empty-prompt-skipped — so a
+        // skipped leaf inside it survives the trim and is removed by the
+        // skipped-path filter below instead.
         const actualLeaves = actualLeafCounts?.[nodePath];
         if (actualLeaves != null && actualLeaves >= 0) {
           paths.splice(start + actualLeaves);
@@ -135,13 +145,22 @@ export function computeLoopSessionPlan(
 
   walk(flow, []);
 
+  // Filter empty-prompt-skipped leaves AFTER group trimming and BEFORE session
+  // assignment: a skipped leaf never ran, so it must not occupy a session slot
+  // nor open a session — a session containing only skipped leaves disappears
+  // entirely, matching the backend (which neither consumes nor resets the
+  // session pointer on skip).
+  const kept = skippedPaths
+    ? paths.filter((leaf) => !skippedPaths[leaf.path.join('.')])
+    : paths;
+
   // Assign sessions after any STOP-based trimming. This avoids skipped steps
   // affecting the reusable-session state of later siblings.
   const leaves: LoopSessionLeaf[] = [];
   let currentSession = -1;
   let sessionLive = false;
   const entrySeen = new Set<string>();
-  for (const leaf of paths) {
+  for (const leaf of kept) {
     const node = findStepNode(flow, leaf.path);
     const mode: RoundMode = node?.roundMode || 'none';
     const stepEntryKey = leaf.path.slice(0, -1).join('.');

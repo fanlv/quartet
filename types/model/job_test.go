@@ -9,7 +9,7 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(Job{}), []string{"LoopConfig", "SessionIDs", "Progress", "Resume"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(LoopConfig{}), []string{"Flow", "Variables", "Rounds"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(FlowNode{}), []string{"Children"})
-	assertDeepCopyFieldsCovered(t, reflect.TypeOf(JobProgress{}), []string{"CurrentPath", "Results", "PersistWarnings", "GroupActualIterations", "GroupActualLeafCounts"})
+	assertDeepCopyFieldsCovered(t, reflect.TypeOf(JobProgress{}), []string{"CurrentPath", "Results", "PersistWarnings", "GroupActualIterations", "GroupActualLeafCounts", "SkippedPaths"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(JobResume{}), []string{"NextPath"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(IterationResult{}), []string{"Path"})
 
@@ -39,6 +39,7 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 			PersistWarnings:       []string{"warning-1"},
 			GroupActualIterations: map[string]int{"0": 2},
 			GroupActualLeafCounts: map[string]int{"0": 3},
+			SkippedPaths:          map[string]bool{"0.0.1.0": true},
 		},
 		Resume: &JobResume{NextPath: []int{1, 0}, SessionID: "session-2"},
 	}
@@ -57,6 +58,7 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	cp.Progress.GroupActualIterations["copy-only"] = 5
 	cp.Progress.GroupActualLeafCounts["0"] = 88
 	cp.Progress.GroupActualLeafCounts["copy-only"] = 6
+	cp.Progress.SkippedPaths["copy-only"] = true
 	cp.Resume.NextPath[0] = 9
 
 	if orig.SessionIDs[0] != "session-1" {
@@ -94,6 +96,9 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	}
 	if _, ok := orig.Progress.GroupActualLeafCounts["copy-only"]; ok {
 		t.Fatalf("orig GroupActualLeafCounts gained key added on copy")
+	}
+	if _, ok := orig.Progress.SkippedPaths["copy-only"]; ok {
+		t.Fatalf("orig SkippedPaths gained key added on copy")
 	}
 	if got := orig.Resume.NextPath[0]; got != 1 {
 		t.Fatalf("orig Resume.NextPath mutated via copy: got %d", got)

@@ -110,6 +110,8 @@
       "currentPath": "Current: {{path}}",
       "failedCount_one": "{{count}} failed",
       "failedCount_other": "{{count}} failed",
+      "skippedCount_one": "{{count}} step skipped",
+      "skippedCount_other": "{{count}} steps skipped",
       "actionsLabel": "Loop actions",
       "status": {
         "idle": "Waiting",

@@ -33,6 +33,15 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 	// events, usage recording and the IterationResult — runFlowNodes counts the
 	// leaf as executed regardless, so a silent short-circuit would leave the
 	// progress denominator off by one.
+	//
+	// The one sanctioned exception is the empty-prompt skip (executor_skip.go):
+	// a prompt step whose message renders to an empty string is skipped BEFORE
+	// this function is reached, with the denominator deducted, the slot recorded
+	// in Progress.SkippedPaths and no round opened at all — so neither invariant
+	// this comment protects (denominator accuracy, paired round events) is
+	// violated. By the time executeRepeat runs, the rendered prompt is known to
+	// be non-empty (or the step is an evaluator / interactive send, which never
+	// skip).
 	if job.LoopConfig != nil {
 		msg = s.substituteVars(msg, job)
 	}

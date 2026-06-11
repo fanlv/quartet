@@ -200,6 +200,13 @@ func reconcileProgressToFlow(job *model.Job, flow []model.FlowNode, oldStepNodeI
 	// when a group next breaks early, so dropping it here is safe.
 	job.Progress.GroupActualIterations = nil
 	job.Progress.GroupActualLeafCounts = nil
+	// SkippedPaths shares their fate: TotalSteps was just recomputed back to
+	// the new flow's static value, which undid every skip's deduction, and the
+	// recorded slot keys may no longer point at the same steps. Keeping the set
+	// would make the frontend filter leaves out of a plan whose denominator no
+	// longer reflects them. Cleared slots count as "not done" — Continue
+	// reaches them again and re-judges the rendered prompt (§4.5).
+	job.Progress.SkippedPaths = nil
 }
 
 func sameStepIdentity(valid model.StepPathSet, oldStepNodeIDs, newStepNodeIDs map[string]string, path []int) bool {

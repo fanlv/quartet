@@ -275,6 +275,12 @@
   background: #94a3b8;
 }
 
+.loop-progress-skip-count {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
 .loop-progress-fail-count {
   font-size: 11px;
   color: #dc2626;

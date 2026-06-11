@@ -89,6 +89,15 @@ const TOTAL_COLOR = '#22c55e';
 const SERIES_LADDER = ['#2563eb', '#3b82f6', '#60a5fa', '#7ba9f7', '#93c5fd', '#b3d3fc', '#bfdbfe'];
 const NEUTRAL_SERIES = '#94a3b8';
 
+// Usage stats currently only keep an output-side token estimate. The stats
+// page is intentionally rough, so include an equally-sized input allowance by
+// doubling the stored total instead of trying to reconstruct prompts/history.
+const TOTAL_TOKEN_DISPLAY_MULTIPLIER = 2;
+
+function approximateDisplayedTotalTokens(tokens: number): number {
+  return tokens * TOTAL_TOKEN_DISPLAY_MULTIPLIER;
+}
+
 function seriesColor(idx: number): string {
   if (idx < SERIES_LADDER.length) return SERIES_LADDER[idx];
   return NEUTRAL_SERIES;
@@ -368,7 +377,7 @@ function computeKpis(report: UsageReport | null): Kpis {
   for (const ws of report.byWorkspace) {
     out.totalMs += ws.totalMs;
     out.turnCount += ws.turnCount;
-    out.tokensTotal += ws.tokens.total;
+    out.tokensTotal += approximateDisplayedTotalTokens(ws.tokens.total);
     out.toolCallCount += ws.toolCallCount;
   }
   return out;
@@ -387,7 +396,7 @@ function KpiBand({ kpis, previous, periodDays }: { kpis: Kpis; previous?: Previo
   const cards: KpiCardSpec[] = [
     { key: 'duration', label: t('stats.kpi.duration'), value: formatStatsDuration(kpis.totalMs), current: kpis.totalMs, previous: previous?.totalMs },
     { key: 'turns', label: t('stats.kpi.turns'), value: formatStatsCount(kpis.turnCount), current: kpis.turnCount, previous: previous?.turnCount },
-    { key: 'tokens', label: t('stats.kpi.tokens'), value: formatStatsCount(kpis.tokensTotal), current: kpis.tokensTotal, previous: previous?.tokensTotal },
+    { key: 'tokens', label: t('stats.kpi.tokens'), value: formatStatsCount(kpis.tokensTotal), current: kpis.tokensTotal, previous: previous ? approximateDisplayedTotalTokens(previous.tokensTotal) : undefined },
     { key: 'toolCalls', label: t('stats.kpi.toolCalls'), value: formatStatsCount(kpis.toolCallCount), current: kpis.toolCallCount, previous: previous?.toolCallCount },
     { key: 'workspaces', label: t('stats.kpi.workspaces'), value: formatStatsCount(kpis.workspaceCount), current: kpis.workspaceCount, previous: previous?.workspaceCount },
   ];
@@ -638,7 +647,7 @@ function ByToolRank({ rows }: { rows: ToolRow[] }) {
 function pickTrendValue(row: SectionTotals, metric: TrendMetric): number {
   if (metric === 'duration') return row.totalMs;
   if (metric === 'turns') return row.turnCount;
-  return row.tokens.total;
+  return approximateDisplayedTotalTokens(row.tokens.total);
 }
 
 function formatTrendValue(value: number, metric: TrendMetric): string {

@@ -605,8 +605,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         setJobStartedAt((prev) => prev ?? event.timestamp);
         setJobFinishedAt(undefined);
         setLoopProgress((prev) => {
-          // Don't reset progress if already loaded from job API with results
-          if (prev && prev.results && prev.results.length > 0) return prev;
+          // Don't reset progress if already loaded from job API with results.
+          // Skipped-only progress (empty-prompt skips record no results) must
+          // survive too: resetting to the event's static totalSteps would drop
+          // skippedPaths and undo the deduction the backend already persisted.
+          if (prev && ((prev.results && prev.results.length > 0) || (prev.skippedPaths && Object.keys(prev.skippedPaths).length > 0))) return prev;
           return {
             totalSteps: event.totalSteps,
             completedCount: 0,
@@ -1213,15 +1216,18 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           if (nextTitle) setJobTitle(nextTitle);
         }
         if (event.name === 'progress_total_updated') {
-          // A group broke early via stepStopLoop (evaluator STOP or Shell
-          // STOP_LOOP); the backend recomputed the total-steps denominator and
-          // the per-group actual iteration counts. Merge both so the progress
-          // bar fills and the session/step plan reflects the real run instead
-          // of the static cap.
+          // The backend recomputed the total-steps denominator: a group broke
+          // early via stepStopLoop (evaluator STOP or Shell STOP_LOOP), or a
+          // prompt step was skipped because its rendered prompt was empty.
+          // Merge the per-group actual counts, the skipped-leaf set and the
+          // advanced current path so the progress bar fills and the
+          // session/step plan reflects the real run instead of the static cap.
           const payload = event.value as {
             totalSteps?: number;
             groupActualIterations?: Record<string, number>;
             groupActualLeafCounts?: Record<string, number>;
+            skippedPaths?: Record<string, boolean>;
+            currentPath?: number[] | null;
           } | null;
           if (payload) {
             setLoopProgress((prev) =>
@@ -1234,6 +1240,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                       payload.groupActualIterations ?? prev.groupActualIterations,
                     groupActualLeafCounts:
                       payload.groupActualLeafCounts ?? prev.groupActualLeafCounts,
+                    skippedPaths: payload.skippedPaths ?? prev.skippedPaths,
+                    // currentPath is authoritative when the key is present: a
+                    // skip at the tail of the flow legitimately CLEARS it
+                    // (null), which must not fall back to the stale path.
+                    currentPath:
+                      'currentPath' in payload ? payload.currentPath ?? undefined : prev.currentPath,
                   }
                 : prev
             );

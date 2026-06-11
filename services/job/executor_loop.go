@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
@@ -85,7 +86,7 @@ func (s *serviceImpl) runLoop(ctx context.Context, job *model.Job, runner JobRun
 	// same string fields under the lock — a data race. Editable fields are still
 	// picked up live via liveStepFields under the lock just before each step runs.
 	run := newFlowExecution(job, runner, flowRoot, &currentSessionID)
-	sr, _, _ := s.runFlowNodes(ctx, run, flowRoot, nil, 0)
+	sr, _, _, _ := s.runFlowNodes(ctx, run, flowRoot, nil, 0)
 	if sr == stepStopWorkflow || sr == stepStopLoop {
 		// stepStopWorkflow exits the whole workflow mid-flight; a stepStopLoop that
 		// bubbles all the way up to runLoop came from a TOP-LEVEL step (a group
@@ -118,7 +119,9 @@ func (s *serviceImpl) runLoop(ctx context.Context, job *model.Job, runner JobRun
 // ran (completed + failed) after a STOP_WORKFLOW, then pushes the recomputed
 // denominator to connected clients. Mirrors backfillGroupTotal's display-only
 // contract: persisted along with the job (so a reload shows the same full bar)
-// but never consulted for resume.
+// but never consulted for resume. Empty-prompt skips already deducted their
+// slots from TotalSteps, so pinning to ran-count stays consistent: skipped
+// slots contribute to neither side.
 func (s *serviceImpl) backfillWorkflowTotal(job *model.Job) {
 	s.mu.Lock()
 	if job.Progress == nil {
@@ -134,9 +137,11 @@ func (s *serviceImpl) backfillWorkflowTotal(job *model.Job) {
 	newTotal := job.Progress.TotalSteps
 	actualMap := copyIntMap(job.Progress.GroupActualIterations)
 	leafMap := copyIntMap(job.Progress.GroupActualLeafCounts)
+	skipped := copyBoolMap(job.Progress.SkippedPaths)
+	currentPath := model.CopyPath(job.Progress.CurrentPath)
 	s.mu.Unlock()
 
-	s.publishProgressTotalUpdated(job.ID, newTotal, actualMap, leafMap)
+	s.publishProgressTotalUpdated(job.ID, newTotal, actualMap, leafMap, skipped, currentPath)
 }
 
 // flowExecution carries the long-lived context for one loop traversal. The
@@ -168,49 +173,56 @@ func newFlowExecution(job *model.Job, runner JobRunner, flowRoot []model.FlowNod
 // the innermost group's iteration. A group that breaks early this way backfills
 // its progress denominator and advances resume past itself (§5.2 / §5.4).
 //
-// executedLeaves counts the leaf-step static slots this call consumed — leaves
-// that actually ran this run PLUS leaves skipped because they were already done
-// before the resume point (they ran in a prior run). backfilledLeaves counts the
-// TotalSteps reduction already applied by nested groups that broke early. The two
-// let an outer group that breaks early compute its own denominator reduction
-// without double-subtracting a nested group's backfill (see backfillGroupTotal).
-func (s *serviceImpl) runFlowNodes(ctx context.Context, run *flowExecution, nodes []model.FlowNode, basePath []int, depth int) (result stepResult, executedLeaves int, backfilledLeaves int) {
+// executedLeaves counts the leaf-step static slots this call consumed by
+// RUNNING them — leaves that actually ran this run PLUS leaves credited as
+// already done before the resume point (they ran in a prior run).
+// skippedLeaves counts slots consumed WITHOUT running: their rendered prompt
+// was empty (empty-prompt skip), each already deducted from TotalSteps when it
+// was skipped. backfilledLeaves counts the TotalSteps reduction already applied
+// by nested groups that broke early. The three let an outer group that breaks
+// early compute its own denominator reduction without double-subtracting either
+// a nested group's backfill or a skip's deduction (see backfillGroupTotal):
+// skipped slots sit on the "already deducted" side of the math but, unlike
+// backfill, still belong to the group's consumed slot prefix
+// (GroupActualLeafCounts = executed + skipped).
+func (s *serviceImpl) runFlowNodes(ctx context.Context, run *flowExecution, nodes []model.FlowNode, basePath []int, depth int) (result stepResult, executedLeaves, skippedLeaves, backfilledLeaves int) {
 	// Defense-in-depth: ValidateFlow enforces MaxFlowDepth at config time,
 	// but guard here too in case validation is bypassed or the tree is mutated.
 	if depth >= model.MaxFlowDepth {
 		err := fmt.Errorf("flow nesting depth %d exceeds maximum %d", depth, model.MaxFlowDepth)
 		logger.Errorf(ctx, "[loop] abort: %v, jobId=%s", err, run.job.ID)
 		s.failJob(ctx, run.job, err.Error(), true, false)
-		return stepAborted, executedLeaves, backfilledLeaves
+		return stepAborted, executedLeaves, skippedLeaves, backfilledLeaves
 	}
 
 	resumePath, resumeSessionID := s.getResumeSnapshot(run.job)
 
 	for i, node := range nodes {
 		var res stepResult
-		var nodeExecuted, nodeBackfilled int
+		var nodeExecuted, nodeSkipped, nodeBackfilled int
 		switch node.Type {
 		case model.FlowNodeTypeGroup:
-			res, nodeExecuted, nodeBackfilled = s.runGroupNode(ctx, run, node, basePath, i, depth, resumePath)
+			res, nodeExecuted, nodeSkipped, nodeBackfilled = s.runGroupNode(ctx, run, node, basePath, i, depth, resumePath)
 
 		case model.FlowNodeTypeStep:
-			res, nodeExecuted, nodeBackfilled = s.runStepNode(ctx, run, node, basePath, i, &resumePath, resumeSessionID)
+			res, nodeExecuted, nodeSkipped, nodeBackfilled = s.runStepNode(ctx, run, node, basePath, i, &resumePath, resumeSessionID)
 		default:
 			err := fmt.Errorf("unknown flow node type %q at path %v", node.Type, appendNodePath(basePath, i))
 			logger.Errorf(ctx, "[loop] abort: %v, jobId=%s", err, run.job.ID)
 			s.failJob(ctx, run.job, err.Error(), true, false)
-			return stepAborted, executedLeaves, backfilledLeaves
+			return stepAborted, executedLeaves, skippedLeaves, backfilledLeaves
 		}
 		executedLeaves += nodeExecuted
+		skippedLeaves += nodeSkipped
 		backfilledLeaves += nodeBackfilled
 		if res != stepCompleted {
-			return res, executedLeaves, backfilledLeaves
+			return res, executedLeaves, skippedLeaves, backfilledLeaves
 		}
 	}
-	return stepCompleted, executedLeaves, backfilledLeaves
+	return stepCompleted, executedLeaves, skippedLeaves, backfilledLeaves
 }
 
-func (s *serviceImpl) runGroupNode(ctx context.Context, run *flowExecution, node model.FlowNode, basePath []int, nodeIdx, depth int, resumePath []int) (stepResult, int, int) {
+func (s *serviceImpl) runGroupNode(ctx context.Context, run *flowExecution, node model.FlowNode, basePath []int, nodeIdx, depth int, resumePath []int) (stepResult, int, int, int) {
 	ic := node.IterationCount
 	if ic < 1 {
 		ic = 1
@@ -218,23 +230,37 @@ func (s *serviceImpl) runGroupNode(ctx context.Context, run *flowExecution, node
 	childSteps := model.CalcTotalSteps(node.Children)
 	actualIters := 0
 	groupExecuted := 0
+	groupSkipped := 0
 	groupBackfilled := 0
 	stoppedEarly := false
+	// Snapshot of the persisted skip set, loaded lazily: pre-resume iterations
+	// must split their consumed slots into ran vs skipped, and skip state is
+	// only ever read from the persisted set — never re-derived from current
+	// variable values (§4.2).
+	var resumeSkipped map[string]bool
 	for iter := 0; iter < ic; iter++ {
 		groupPath := appendPath(basePath, nodeIdx, iter)
 		if resumePath != nil && s.isSubtreeBeforeResume(node.Children, groupPath, resumePath) {
-			// Iteration already finished in a prior run — its static
-			// slots count as consumed so the early-exit denominator math
-			// matches the old actualIters semantics across a Continue.
-			groupExecuted += childSteps
+			// Iteration already finished in a prior run — its static slots
+			// count as consumed so the early-exit denominator math matches
+			// the old actualIters semantics across a Continue. Slots skipped
+			// in that prior run already took their TotalSteps deduction, so
+			// they credit the skipped side, not the executed side.
+			if resumeSkipped == nil {
+				resumeSkipped = s.snapshotSkippedPaths(run.job)
+			}
+			skippedInIter := countSkippedLeaves(node.Children, groupPath, resumeSkipped)
+			groupSkipped += skippedInIter
+			groupExecuted += childSteps - skippedInIter
 			continue
 		}
 		actualIters = iter + 1
-		res, childExec, childBackfill := s.runFlowNodes(ctx, run, node.Children, groupPath, depth+1)
+		res, childExec, childSkipped, childBackfill := s.runFlowNodes(ctx, run, node.Children, groupPath, depth+1)
 		groupExecuted += childExec
+		groupSkipped += childSkipped
 		groupBackfilled += childBackfill
 		if res == stepAborted || res == stepStopWorkflow || res == stepStopGraceful {
-			return res, groupExecuted, groupBackfilled
+			return res, groupExecuted, groupSkipped, groupBackfilled
 		}
 		if res == stepStopLoop {
 			// stepStopLoop (evaluator STOP or Shell STOP_LOOP) breaks
@@ -251,36 +277,65 @@ func (s *serviceImpl) runGroupNode(ctx context.Context, run *flowExecution, node
 	// Also advance resume past this whole group so a Stop+Continue during
 	// the post-break window doesn't re-enter a skipped sibling (§5.2/§5.4).
 	if stoppedEarly {
-		res, updatedBackfilled := s.handleGroupEarlyExit(ctx, run.job, run.flowRoot, node, basePath, nodeIdx, ic, actualIters, groupExecuted, groupBackfilled, *run.currentSessionID)
+		res, updatedBackfilled := s.handleGroupEarlyExit(ctx, run.job, run.flowRoot, node, basePath, nodeIdx, ic, actualIters, groupExecuted, groupSkipped, groupBackfilled, *run.currentSessionID)
 		groupBackfilled = updatedBackfilled
 		if res == stepStopGraceful {
-			return res, groupExecuted, groupBackfilled
+			return res, groupExecuted, groupSkipped, groupBackfilled
 		}
 	}
-	return stepCompleted, groupExecuted, groupBackfilled
+	return stepCompleted, groupExecuted, groupSkipped, groupBackfilled
 }
 
-func (s *serviceImpl) runStepNode(ctx context.Context, run *flowExecution, node model.FlowNode, basePath []int, nodeIdx int, resumePath *[]int, resumeSessionID string) (stepResult, int, int) {
+func (s *serviceImpl) runStepNode(ctx context.Context, run *flowExecution, node model.FlowNode, basePath []int, nodeIdx int, resumePath *[]int, resumeSessionID string) (stepResult, int, int, int) {
 	rc := node.RepeatCount
 	if rc < 1 {
 		rc = 1
 	}
 	executedLeaves := 0
+	skippedLeaves := 0
 	for r := 0; r < rc; r++ {
 		stepPath := appendPath(basePath, nodeIdx, r)
 
-		// Skip steps before the resume point — they ran in a prior run,
-		// so their static slot is already accounted for.
+		// Skip steps before the resume point — they were consumed in a prior
+		// run, so their static slot is already accounted for. Slots that were
+		// empty-prompt-skipped back then already took their TotalSteps
+		// deduction and credit the skipped side (§4.2: read from the persisted
+		// set only, never re-judged from current variable values).
 		if shouldSkipStepBeforeResume(stepPath, *resumePath) {
-			executedLeaves++
+			if s.isSkippedPath(run.job, stepPath) {
+				skippedLeaves++
+			} else {
+				executedLeaves++
+			}
 			continue
 		}
 
 		if ctx.Err() != nil {
-			return stepAborted, executedLeaves, 0
+			return stepAborted, executedLeaves, skippedLeaves, 0
 		}
 
 		stepCfg := s.prepareStepRuntimeConfig(run.job, node, stepPath)
+
+		// Per-round builtins are injected before the skip judgement (the
+		// rendered prompt depends on them) and therefore before session
+		// creation — injection only writes the variables map, nothing in
+		// session setup reads it.
+		s.injectPerRoundVars(ctx, run.job, stepPath)
+
+		// Empty-prompt skip: render the prompt BEFORE creating a session. A
+		// prompt step whose message substitutes to an empty string has nothing
+		// to do this round — skip it without spawning an agent process or
+		// opening a round. Each repeat slot renders and judges independently:
+		// per-round builtins (_current_path, _current_time, …) can change the
+		// rendering between slots even with an identical template.
+		if isSkippablePromptStep(stepCfg.node) &&
+			strings.TrimSpace(s.substituteVars(stepCfg.node.Message, run.job)) == "" {
+			skippedLeaves++
+			if sr := s.skipEmptyPromptStep(ctx, run, stepPath); sr != stepCompleted {
+				return sr, executedLeaves, skippedLeaves, 0
+			}
+			continue
+		}
 
 		created, failSR := s.ensureStepSession(ctx, run, stepCfg, stepPath, *resumePath, resumeSessionID)
 		if !created {
@@ -288,7 +343,7 @@ func (s *serviceImpl) runStepNode(ctx context.Context, run *flowExecution, node 
 			// the failed iteration and called failJob (stepAborted) —
 			// propagate to stop the run.
 			if failSR == stepAborted {
-				return failSR, executedLeaves, 0
+				return failSR, executedLeaves, skippedLeaves, 0
 			}
 			executedLeaves++
 			continue
@@ -313,8 +368,8 @@ func (s *serviceImpl) runStepNode(ctx context.Context, run *flowExecution, node 
 
 		postStep := computePostStepResume(run.flowRoot, stepPath, stepCfg.roundMode, *run.currentSessionID)
 
-		// Execute the step
-		s.injectPerRoundVars(ctx, run.job, stepPath)
+		// Execute the step (per-round vars were injected above, before the
+		// skip judgement).
 		sr := s.dispatchStep(ctx, run, stepCfg.node, stepPath, sessionID, postStep.nextResume)
 		// The leaf ran (success, STOP_LOOP and STOP_WORKFLOW all execute
 		// the step before signalling); only stepAborted leaves the slot
@@ -333,7 +388,7 @@ func (s *serviceImpl) runStepNode(ctx context.Context, run *flowExecution, node 
 			// cap-reached path produces for roundMode=none, and the
 			// reuse-after-stop behaviour we want. (A beforeRound/eachRepeat
 			// successor spawns its own session regardless, overwriting it.)
-			return sr, executedLeaves, 0
+			return sr, executedLeaves, skippedLeaves, 0
 		}
 
 		if postStep.resetSessionAfterStep {
@@ -341,11 +396,11 @@ func (s *serviceImpl) runStepNode(ctx context.Context, run *flowExecution, node 
 		}
 
 		if sr := s.handlePostStepBoundary(ctx, run.job, stepPath, postStep); sr != stepCompleted {
-			return sr, executedLeaves, 0
+			return sr, executedLeaves, skippedLeaves, 0
 		}
 
 	}
-	return stepCompleted, executedLeaves, 0
+	return stepCompleted, executedLeaves, skippedLeaves, 0
 }
 
 func (s *serviceImpl) handlePostStepBoundary(ctx context.Context, job *model.Job, stepPath []int, postStep postStepResume) stepResult {
@@ -469,8 +524,8 @@ func shouldSkipStepBeforeResume(stepPath, resumePath []int) bool {
 	return resumePath != nil && model.ComparePaths(stepPath, resumePath) < 0
 }
 
-func (s *serviceImpl) handleGroupEarlyExit(ctx context.Context, job *model.Job, flowRoot []model.FlowNode, node model.FlowNode, basePath []int, nodeIdx, iterationCap, actualIters, groupExecuted, groupBackfilled int, stopSessionID string) (stepResult, int) {
-	delta := s.backfillGroupTotal(job, appendNodePath(basePath, nodeIdx), iterationCap, model.CalcTotalSteps(node.Children), actualIters, groupExecuted, groupBackfilled)
+func (s *serviceImpl) handleGroupEarlyExit(ctx context.Context, job *model.Job, flowRoot []model.FlowNode, node model.FlowNode, basePath []int, nodeIdx, iterationCap, actualIters, groupExecuted, groupSkipped, groupBackfilled int, stopSessionID string) (stepResult, int) {
+	delta := s.backfillGroupTotal(job, appendNodePath(basePath, nodeIdx), iterationCap, model.CalcTotalSteps(node.Children), actualIters, groupExecuted, groupSkipped, groupBackfilled)
 	groupBackfilled += delta
 	hasNext := s.advanceResumePastGroup(ctx, job, flowRoot, node, basePath, nodeIdx, iterationCap, stopSessionID)
 	// A step inside this group finished cleanly and then signalled STOP_LOOP
@@ -656,9 +711,16 @@ func lastChildStepPath(children []model.FlowNode, basePath []int) []int {
 // contribution is groupExecuted — the leaf slots that actually ran (or were
 // credited as already-done before the resume point). That difference covers
 // BOTH the iterations that never started AND the sibling steps skipped after a
-// STOP within the stopping iteration. groupBackfilled is the reduction nested
-// child groups already applied to TotalSteps; subtracting it here avoids
-// double-counting a nested group's own early-exit backfill.
+// STOP within the stopping iteration. Two reductions were already applied to
+// TotalSteps before this call and must not be subtracted again: groupBackfilled
+// (nested child groups' own early-exit backfills) and groupSkipped
+// (empty-prompt skips, each of which decremented TotalSteps when it happened).
+//
+// GroupActualLeafCounts records the group's CONSUMED slot prefix — executed
+// PLUS skipped — not just the executed count. The frontend prefix-trims the
+// group's statically expanded leaves to this length and then filters the
+// skipped leaves out of the kept prefix; a shorter (executed-only) prefix would
+// cut real executed slots off the end while keeping skipped ones (§2.4).
 //
 // Returns the delta actually subtracted so the caller can fold it into its own
 // groupBackfilled total. This mutates job.Progress.TotalSteps plus the
@@ -667,11 +729,11 @@ func lastChildStepPath(children []model.FlowNode, basePath []int) []int {
 // after, and the terminal finish save), so a reload / reconnect shows the same
 // full bar. They are a display aid only and are never consulted for resume —
 // resume is driven solely by job.Resume.
-func (s *serviceImpl) backfillGroupTotal(job *model.Job, groupPath []int, cap, childSteps, actualIters, groupExecuted, groupBackfilled int) int {
+func (s *serviceImpl) backfillGroupTotal(job *model.Job, groupPath []int, cap, childSteps, actualIters, groupExecuted, groupSkipped, groupBackfilled int) int {
 	if childSteps == 0 {
 		return 0
 	}
-	delta := (cap*childSteps - groupExecuted) - groupBackfilled
+	delta := (cap*childSteps - groupExecuted - groupSkipped) - groupBackfilled
 	if delta <= 0 {
 		return 0
 	}
@@ -680,6 +742,8 @@ func (s *serviceImpl) backfillGroupTotal(job *model.Job, groupPath []int, cap, c
 	var newTotal int
 	var actualMap map[string]int
 	var leafMap map[string]int
+	var skipped map[string]bool
+	var currentPath []int
 	if job.Progress != nil {
 		job.Progress.TotalSteps -= delta
 		if job.Progress.TotalSteps < 0 {
@@ -692,21 +756,23 @@ func (s *serviceImpl) backfillGroupTotal(job *model.Job, groupPath []int, cap, c
 		if job.Progress.GroupActualLeafCounts == nil {
 			job.Progress.GroupActualLeafCounts = make(map[string]int)
 		}
-		job.Progress.GroupActualLeafCounts[pathKey] = groupExecuted
+		job.Progress.GroupActualLeafCounts[pathKey] = groupExecuted + groupSkipped
 		newTotal = job.Progress.TotalSteps
 		actualMap = copyIntMap(job.Progress.GroupActualIterations)
 		leafMap = copyIntMap(job.Progress.GroupActualLeafCounts)
+		skipped = copyBoolMap(job.Progress.SkippedPaths)
+		currentPath = model.CopyPath(job.Progress.CurrentPath)
 	}
 	s.mu.Unlock()
 
 	// Push the recomputed denominator so connected clients update the
 	// progress text / bar live (mirrors the in-memory backfill). The
 	// frontend recomputes its session plan with the actual iteration counts.
-	s.publishProgressTotalUpdated(job.ID, newTotal, actualMap, leafMap)
+	s.publishProgressTotalUpdated(job.ID, newTotal, actualMap, leafMap, skipped, currentPath)
 	return delta
 }
 
-func (s *serviceImpl) publishProgressTotalUpdated(jobID string, totalSteps int, actualMap, leafMap map[string]int) {
+func (s *serviceImpl) publishProgressTotalUpdated(jobID string, totalSteps int, actualMap, leafMap map[string]int, skippedPaths map[string]bool, currentPath []int) {
 	s.Publish(jobID, &model.CustomEvent{
 		BaseEvent: model.BaseEvent{
 			Type:      model.EventTypeCustom,
@@ -718,6 +784,8 @@ func (s *serviceImpl) publishProgressTotalUpdated(jobID string, totalSteps int, 
 			"totalSteps":            totalSteps,
 			"groupActualIterations": actualMap,
 			"groupActualLeafCounts": leafMap,
+			"skippedPaths":          skippedPaths,
+			"currentPath":           currentPath,
 		},
 	})
 }

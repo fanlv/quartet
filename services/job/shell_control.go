@@ -20,9 +20,14 @@ const (
 // shellHelpers are injected into every shell script so users can call
 // quartet_set / quartet_break / quartet_return instead of manually writing to the
 // control file. Values are base64-encoded to safely handle special chars.
+// quartet_set with an empty value stores an empty string — downstream prompt
+// steps whose rendered prompt becomes empty are then skipped (empty-prompt
+// skip). It must NOT rewrite the value to a sentinel like STOP_LOOP: that
+// literal is the whole-line stop directive below, and leaking it into a
+// variable would both split its meaning and pollute mixed prompt templates.
 const shellHelpers = `
 # quartet built-in helpers
-quartet_set() { local _v="$2"; [ -z "$_v" ] && _v="STOP_LOOP"; echo "[quartet] quartet_set key=$1 value=$_v" >&2; printf '%s\n' "B64:$1=$(printf '%s' "$_v" | base64 -w0 2>/dev/null || printf '%s' "$_v" | base64 | tr -d '\n')" >> "$QUARTET_CONTROL"; }
+quartet_set() { echo "[quartet] quartet_set key=$1 value=$2" >&2; printf '%s\n' "B64:$1=$(printf '%s' "$2" | base64 -w0 2>/dev/null || printf '%s' "$2" | base64 | tr -d '\n')" >> "$QUARTET_CONTROL"; }
 quartet_break() { echo "[quartet] quartet_break" >&2; printf '%s\n' "STOP_LOOP" >> "$QUARTET_CONTROL"; }
 quartet_return() { echo "[quartet] quartet_return" >&2; printf '%s\n' "STOP_WORKFLOW" >> "$QUARTET_CONTROL"; }
 quartet_stop() { echo "[quartet] quartet_stop" >&2; quartet_break; }

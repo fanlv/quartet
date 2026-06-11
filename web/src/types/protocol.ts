@@ -206,10 +206,18 @@ export interface JobProgress {
   // of the static iteration cap.
   groupActualIterations?: Record<string, number>;
   // groupActualLeafCounts maps the same group path to the exact number of leaf
-  // steps that actually executed inside the group before STOP. Unlike iteration
-  // counts, this also trims sibling steps skipped after STOP within the final
-  // iteration.
+  // steps the group CONSUMED before STOP — executed plus empty-prompt-skipped.
+  // Unlike iteration counts, this also trims sibling steps skipped after STOP
+  // within the final iteration. The session plan keeps this slot prefix, then
+  // filters skippedPaths leaves out of it.
   groupActualLeafCounts?: Record<string, number>;
+  // skippedPaths records leaf slots (dot-joined full step paths, iteration and
+  // repeat indices included, e.g. "0.1.2.0") whose rendered prompt was empty
+  // and were therefore skipped without running — no session, no round, no chat
+  // messages. Each entry already decremented totalSteps on the backend; the
+  // session plan filters these leaves out so session/step numbering matches
+  // the real run.
+  skippedPaths?: Record<string, boolean>;
   // gracefulStopPending reports a "stop after step" was requested and not yet
   // consumed at a step boundary. Runtime-only (never persisted): the backend
   // synthesizes it onto the GET /job/:id snapshot and broadcasts changes via a

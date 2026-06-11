@@ -70,7 +70,7 @@ func runLoopNodesForTest(t *testing.T, job *model.Job, currentSessionID string) 
 	t.Helper()
 	svc := newStateTestService()
 	runner := &loopRecordingRunner{}
-	result, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, job.LoopConfig.Flow, &currentSessionID), job.LoopConfig.Flow, nil, 0)
+	result, _, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, job.LoopConfig.Flow, &currentSessionID), job.LoopConfig.Flow, nil, 0)
 	if result != stepCompleted {
 		t.Fatalf("runFlowNodes result=%v, want %v", result, stepCompleted)
 	}
@@ -245,7 +245,7 @@ func TestRunFlowNodesSnapshotRaceWithLiveEdit(t *testing.T) {
 
 	runner := &loopRecordingRunner{}
 	sid := ""
-	result, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, flowRoot, &sid), flowRoot, nil, 0)
+	result, _, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, flowRoot, &sid), flowRoot, nil, 0)
 	<-done
 
 	if result != stepCompleted {
@@ -273,7 +273,7 @@ func TestRunFlowNodesUsesSharedStepPathKeyForLivePathAndProgressEvent(t *testing
 	defer reader.Close()
 
 	sid := ""
-	result, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, evaluatorStopRunner{}, job.LoopConfig.Flow, &sid), job.LoopConfig.Flow, nil, 0)
+	result, _, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, evaluatorStopRunner{}, job.LoopConfig.Flow, &sid), job.LoopConfig.Flow, nil, 0)
 	if result != stepCompleted {
 		t.Fatalf("runFlowNodes result=%v, want stepCompleted", result)
 	}

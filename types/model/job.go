@@ -220,7 +220,21 @@ type JobProgress struct {
 	// more precise than GroupActualIterations: it also captures sibling leaves that
 	// were skipped after STOP within the final actual iteration, allowing the UI
 	// session/step plan to trim the group to the same denominator as the backend.
+	// The count is the group's CONSUMED slot prefix: leaves that ran plus leaves
+	// skipped for an empty rendered prompt (SkippedPaths) — the UI keeps that
+	// prefix, then filters the skipped leaves out of it.
 	GroupActualLeafCounts map[string]int `json:"groupActualLeafCounts,omitempty"`
+
+	// SkippedPaths records the leaf slots (dot-joined full step paths, e.g.
+	// "0.1.2.0" — iteration and repeat indices included) whose prompt rendered
+	// to an empty string and were therefore skipped without running: no
+	// session, no round events, no IterationResult. Each skipped slot also
+	// decremented TotalSteps exactly once — the set is the idempotency guard
+	// for that deduction and the UI's input for filtering skipped leaves out
+	// of the session plan. Persisted with the job so refresh / Continue /
+	// restart all see the same shrunken plan; never recomputed from current
+	// variable values (they may have changed since the skip).
+	SkippedPaths map[string]bool `json:"skippedPaths,omitempty"`
 
 	// GracefulStopPending reports that a "stop after step" was requested and
 	// not yet consumed at a step boundary. It is a runtime-only view field:
@@ -316,6 +330,12 @@ func (j *Job) DeepCopy() *Job {
 			pCopy.GroupActualLeafCounts = make(map[string]int, len(j.Progress.GroupActualLeafCounts))
 			for k, v := range j.Progress.GroupActualLeafCounts {
 				pCopy.GroupActualLeafCounts[k] = v
+			}
+		}
+		if len(j.Progress.SkippedPaths) > 0 {
+			pCopy.SkippedPaths = make(map[string]bool, len(j.Progress.SkippedPaths))
+			for k, v := range j.Progress.SkippedPaths {
+				pCopy.SkippedPaths[k] = v
 			}
 		}
 		cp.Progress = &pCopy

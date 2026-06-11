@@ -109,6 +109,7 @@
       "step": "步骤 {{current}} / {{total}}",
       "currentPath": "当前：{{path}}",
       "failedCount": "失败 {{count}} 个",
+      "skippedCount": "已跳过 {{count}} 步",
       "actionsLabel": "Loop 操作",
       "status": {
         "idle": "等待中",

@@ -403,7 +403,7 @@ func TestGracefulStop_StopsAtNextBoundary(t *testing.T) {
 
 	runner := &gracefulStopRunner{svc: svc, jobID: job.ID, stopAfterRun: 1}
 	sid := ""
-	result, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, job.LoopConfig.Flow, &sid), job.LoopConfig.Flow, nil, 0)
+	result, _, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, job.LoopConfig.Flow, &sid), job.LoopConfig.Flow, nil, 0)
 
 	if result != stepStopGraceful {
 		t.Fatalf("result = %v, want stepStopGraceful", result)
@@ -447,7 +447,7 @@ func TestGracefulStop_LastStepCompletes(t *testing.T) {
 	// Request the graceful stop while the 2nd (last) step runs.
 	runner := &gracefulStopRunner{svc: svc, jobID: job.ID, stopAfterRun: 2}
 	sid := ""
-	result, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, job.LoopConfig.Flow, &sid), job.LoopConfig.Flow, nil, 0)
+	result, _, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, job.LoopConfig.Flow, &sid), job.LoopConfig.Flow, nil, 0)
 
 	if result != stepCompleted {
 		t.Fatalf("result = %v, want stepCompleted (last step finished, nothing to resume)", result)

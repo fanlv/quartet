@@ -31,6 +31,7 @@ const (
 	jobPersistActionRecordIterationResult  = "record_iteration_result"
 	jobPersistActionRecordAndAdvanceResume = "record_and_advance_resume"
 	jobPersistActionGroupEarlyExit         = "group_early_exit"
+	jobPersistActionSkipEmptyPrompt        = "skip_empty_prompt"
 	jobPersistActionAttachSession          = "attach_session"
 	jobPersistActionExtractSetVarsShell    = "extract_set_vars_shell"
 	jobPersistActionPersistShellMessages   = "persist_shell_messages"

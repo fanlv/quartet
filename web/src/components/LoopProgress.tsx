@@ -77,9 +77,14 @@ function LoopActionIcon({ type }: { type: LoopActionIconType }) {
 
 export function LoopProgress({ progress, status, flow, onStop, stopPending, onCancelStop, onContinue, onEdit, error }: LoopProgressProps) {
   const { t } = useTranslation();
-  const { totalSteps, completedCount, failedCount, currentPath, results, lastError, persistWarnings, groupActualIterations, groupActualLeafCounts } = progress;
+  const { totalSteps, completedCount, failedCount, currentPath, results, lastError, persistWarnings, groupActualIterations, groupActualLeafCounts, skippedPaths } = progress;
   const done = completedCount + failedCount;
-  const percent = totalSteps > 0 ? Math.round((done / totalSteps) * 100) : 0;
+  const skippedCount = skippedPaths ? Object.keys(skippedPaths).length : 0;
+  // totalSteps can legitimately reach 0 when every step was empty-prompt
+  // skipped — a Completed 0/0 run is fully done, not 0% done.
+  const percent = totalSteps > 0
+    ? Math.round((done / totalSteps) * 100)
+    : (status === 'completed' ? 100 : 0);
   const hasResults = results && results.length > 0;
   const [collapsed, setCollapsed] = useState(true);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
@@ -88,9 +93,14 @@ export function LoopProgress({ progress, status, flow, onStop, stopPending, onCa
   // Derive per-session / per-step position from the flow tree. When the flow
   // is unavailable (legacy job, hydration not yet done) we fall back to the
   // global "done / totalSteps" text.
-  const sessionPlan = flow && flow.length > 0 ? computeLoopSessionPlan(flow, groupActualIterations, groupActualLeafCounts) : null;
+  const sessionPlan = flow && flow.length > 0 ? computeLoopSessionPlan(flow, groupActualIterations, groupActualLeafCounts, skippedPaths) : null;
   const loc = sessionPlan ? locateInSessionPlan(sessionPlan, currentPath) : null;
-  const showSessionStats = !!(sessionPlan && sessionPlan.totalSessions > 0);
+  // Degrade to the global "done / total" counter when currentPath cannot be
+  // located in the filtered plan (e.g. it points at a leaf the skip filter
+  // removed): a zeroed "Session 0 / Y · Step 0 / N" reads as broken state.
+  // An empty currentPath (not started / all done) keeps the session summary.
+  const locMissed = !!(loc && currentPath && currentPath.length > 0 && loc.sessionNumber === 0);
+  const showSessionStats = !!(sessionPlan && sessionPlan.totalSessions > 0) && !locMissed;
 
   const statusLabel = {
     idle: t('loop.progress.status.idle'),
@@ -216,6 +226,12 @@ export function LoopProgress({ progress, status, flow, onStop, stopPending, onCa
           style={{ width: `${percent}%` }}
         />
       </div>
+
+      {skippedCount > 0 && (
+        <div className="loop-progress-skip-count" data-testid="loop-progress-skip-count">
+          {t('loop.progress.skippedCount', { count: skippedCount })}
+        </div>
+      )}
 
       {failedCount > 0 && (
         <div className="loop-progress-fail-count">
