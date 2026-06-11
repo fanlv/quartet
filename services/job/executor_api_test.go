@@ -260,6 +260,53 @@ func TestLifecycleAPIPreconditionErrors(t *testing.T) {
 	}
 }
 
+func TestStartLoopRetriesTransientFailureThroughServiceLifecycle(t *testing.T) {
+	ctx := context.Background()
+	svc := newAPITestService(nil)
+	withFastRetryDelays(t, svc)
+	job := testJob("service-retry", model.JobStatusPending)
+	job.LoopConfig.Flow[0].Message = "hello retry"
+	storeTestJob(svc, job)
+
+	reader, err := svc.Subscribe(job.ID, 0)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer reader.Close()
+
+	runner := &retrySequenceRunner{errs: []error{errors.New("stream error: INTERNAL_ERROR"), nil}}
+	if err := svc.Start(ctx, job.ID, runner); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	got := waitForJobStatus(t, svc, job.ID, model.JobStatusCompleted)
+	if runner.calls != 2 {
+		t.Fatalf("RunIteration calls=%d, want 2", runner.calls)
+	}
+	if got.Progress.CompletedCount != 1 || got.Progress.FailedCount != 0 {
+		t.Fatalf("progress completed=%d failed=%d, want 1/0", got.Progress.CompletedCount, got.Progress.FailedCount)
+	}
+	if got.Resume != nil {
+		t.Fatalf("resume=%+v, want nil after completed run", got.Resume)
+	}
+
+	readCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	for {
+		entries, ok := reader.Read(readCtx, 32)
+		if !ok {
+			t.Fatal("timeout waiting for JOB_COMPLETED")
+		}
+		for _, entry := range entries {
+			if _, ok := entry.Event.(*model.JobCompletedEvent); ok {
+				return
+			}
+			if entry.Seq > 0 {
+				reader.Ack(entry.Seq)
+			}
+		}
+	}
+}
+
 func TestLifecycleAPIRollsBackRunStateOnPersistFailure(t *testing.T) {
 	ctx := context.Background()
 	saveBoom := errors.New("save boom")

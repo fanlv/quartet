@@ -15,10 +15,15 @@ type ScheduledTask struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 
-	// Reference to the template this schedule was created from (optional, for UI display).
+	// Reference to the template this schedule was created from (optional).
+	// When set, the trigger re-reads the live template at run time, so editing
+	// the template changes what this schedule executes on its next run.
 	TemplateID string `json:"templateId,omitempty"`
 
-	// Execution configuration – copied from template at creation time.
+	// Execution configuration. Copied from the template at creation time and
+	// used as a fallback snapshot when TemplateID is empty or the live template
+	// can no longer be read/validated at trigger time. When TemplateID resolves
+	// to a valid template, that live config takes precedence over this snapshot.
 	// Agent/model config lives on each FlowNode step within the LoopConfig.
 	LoopConfig LoopConfig `json:"loopConfig"`
 

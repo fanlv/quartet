@@ -3714,7 +3714,7 @@
 .loop-outline-children {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .loop-outline-list {
@@ -3723,18 +3723,65 @@
 }
 
 .loop-outline-children {
-  margin-left: 12px;
-  padding-left: 10px;
-  border-left: 1px solid #dbe4ee;
+  position: relative;
+  margin: 5px 0 2px 8px;
+  padding: 7px 6px 7px 10px;
+  border-left: 0;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.loop-outline-children::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.55), rgba(37, 99, 235, 0.08));
 }
 
 .loop-outline-node {
   min-width: 0;
 }
 
+.loop-outline-node-group {
+  position: relative;
+  padding: 4px;
+  border: 1px solid rgba(147, 197, 253, 0.58);
+  border-radius: 15px;
+  background:
+    radial-gradient(circle at 18px 18px, rgba(37, 99, 235, 0.08), transparent 36%),
+    linear-gradient(180deg, rgba(239, 246, 255, 0.94) 0%, rgba(248, 250, 252, 0.86) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.86) inset,
+    0 8px 18px rgba(15, 23, 42, 0.05);
+}
+
+.loop-outline-node-group.collapsed {
+  background:
+    radial-gradient(circle at 18px 18px, rgba(37, 99, 235, 0.07), transparent 34%),
+    linear-gradient(180deg, rgba(241, 245, 249, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%);
+}
+
+.loop-outline-node-step {
+  position: relative;
+}
+
+.loop-outline-children > .loop-outline-node-step::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 22px;
+  width: 6px;
+  height: 1px;
+  background: rgba(37, 99, 235, 0.2);
+}
+
 .loop-outline-row {
   width: 100%;
-  min-height: 48px;
+  min-height: 46px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3755,10 +3802,45 @@
   transform: translateY(-1px);
 }
 
+.loop-outline-row-group {
+  min-height: 52px;
+  background: rgba(255, 255, 255, 0.62);
+  border-color: rgba(147, 197, 253, 0.42);
+}
+
+.loop-outline-row-group:hover {
+  border-color: rgba(59, 130, 246, 0.38);
+  background: #fff;
+  box-shadow: 0 9px 24px rgba(37, 99, 235, 0.11), 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.loop-outline-row-step {
+  min-height: 44px;
+  background: rgba(255, 255, 255, 0.78);
+  border-color: rgba(226, 232, 240, 0.76);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.loop-outline-children .loop-outline-row-step {
+  padding-left: 8px;
+  padding-right: 7px;
+}
+
+.loop-outline-row-step:hover {
+  border-color: #dbe4ee;
+  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
 .loop-outline-row.selected {
   background: #fff;
   border-color: #93c5fd;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 3px rgba(37, 99, 235, 0.1), 0 8px 22px rgba(37, 99, 235, 0.08);
+}
+
+.loop-outline-row-group.selected {
+  background: #eff6ff;
+  border-color: #60a5fa;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 3px rgba(37, 99, 235, 0.13), 0 10px 24px rgba(37, 99, 235, 0.12);
 }
 
 .loop-outline-row-group.collapsed {
@@ -3806,8 +3888,8 @@
 }
 
 .loop-outline-type {
-  width: 24px;
-  height: 24px;
+  width: 23px;
+  height: 23px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3819,8 +3901,12 @@
 }
 
 .loop-outline-type.group {
-  background: #e0f2fe;
-  color: #0369a1;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%);
+  color: #1d4ed8;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.74) inset;
 }
 
 .loop-outline-type.prompt {
@@ -3856,12 +3942,27 @@
 .loop-outline-title {
   color: #0f172a;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 650;
+}
+
+.loop-outline-row-group .loop-outline-title {
+  font-size: 13.5px;
+  font-weight: 760;
+  letter-spacing: -0.01em;
 }
 
 .loop-outline-subtitle {
   color: #64748b;
   font-size: 11px;
+}
+
+.loop-outline-row-group .loop-outline-subtitle {
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.loop-outline-row-step .loop-outline-subtitle {
+  color: #94a3b8;
 }
 
 .loop-outline-iteration {
@@ -3900,7 +4001,15 @@
   flex-wrap: nowrap;
   gap: 5px;
   justify-content: flex-end;
-  padding: 2px 8px 8px;
+  padding: 4px 8px 8px;
+}
+
+.loop-outline-node-group > .loop-outline-actions {
+  padding-right: 10px;
+}
+
+.loop-outline-node-step > .loop-outline-actions {
+  padding-right: 2px;
 }
 
 .loop-outline-actions button {

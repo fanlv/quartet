@@ -23,8 +23,9 @@ func NewTemplateID() string {
 // Request/Response types for template API
 
 type SaveTemplateRequest struct {
-	ID   string     `json:"id,omitempty"`
-	Name string     `json:"name"`
+	// Save always allocates a fresh ID server-side; clients cannot choose it.
+	// Use Update (PUT /template/:id) to modify an existing template.
+	Name   string     `json:"name"`
 	Config LoopConfig `json:"config"`
 }
 

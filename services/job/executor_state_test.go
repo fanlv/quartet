@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fanlv/quartet/pkg/fileserver"
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/types/model"
 )
@@ -55,15 +56,18 @@ func (r *stubJobRepo) LoadAll() ([]*model.Job, error)          { return nil, nil
 
 func newStateTestService() *serviceImpl {
 	return &serviceImpl{
-		jobs:                   make(map[string]*model.Job),
-		repos:                  map[string]repository.JobRepo{"": &stubJobRepo{}},
-		bus:                    newBusOwner(),
-		cancels:                make(map[string]*cancelEntry),
-		dones:                  make(map[string]chan struct{}),
-		interactivePriorStatus: make(map[string]model.JobStatus),
-		wsListVersion:          make(map[string]int64),
-		notifiedJobs:           make(map[string]struct{}),
-		runStates:              make(map[string]*loopRunState),
+		jobs:                    make(map[string]*model.Job),
+		repos:                   map[string]repository.JobRepo{"": &stubJobRepo{}},
+		fileManager:             fileserver.GetFileManager(),
+		bus:                     newBusOwner(),
+		cancels:                 make(map[string]*cancelEntry),
+		dones:                   make(map[string]chan struct{}),
+		interactivePriorStatus:  make(map[string]model.JobStatus),
+		listVersions:            newListVersionTracker(),
+		notifiedJobs:            make(map[string]struct{}),
+		runStates:               make(map[string]*loopRunState),
+		loopTransientRetryDelay: defaultLoopTransientRetryDelay,
+		loopRateLimitBaseDelay:  defaultLoopRateLimitBaseDelay,
 	}
 }
 
@@ -253,7 +257,7 @@ func TestClosePanicRoundIfOpen_ClosesAndAllowsReclaim(t *testing.T) {
 	svc.Publish(job.ID, &model.IterationStartedEvent{
 		BaseEvent: model.BaseEvent{
 			Type: model.EventTypeIterationStarted, JobID: job.ID,
-			Path: []int{0, 0}, Timestamp: nowMillis(),
+			Path: []int{0, 0}, Timestamp: svc.nowMillis(),
 		},
 	})
 	svc.Publish(job.ID, &model.TextMessageContentEvent{

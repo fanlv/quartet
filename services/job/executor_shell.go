@@ -1,13 +1,11 @@
 package job
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
@@ -35,14 +33,52 @@ func shellFilteredEnvKeysForLog(keys []string) []string {
 	return keys[:maxFilteredEnvKeysLog]
 }
 
+// resolveShellScript loads the script body (inline or from scriptSvc) and
+// applies loop variable substitution. A referenced script that cannot be loaded
+// returns an error instead of falling back to stale inline content; the caller
+// publishes that setup failure after the iteration/run events are open.
+func (s *serviceImpl) resolveShellScript(ctx context.Context, job *model.Job, node model.FlowNode) (string, error) {
+	scriptContent := node.Message
+	if node.ScriptID != "" {
+		switch {
+		case s.scriptSvc == nil:
+			return scriptContent, fmt.Errorf("shell step references scriptId %q but no script service is configured", node.ScriptID)
+		default:
+			sc, err := s.scriptSvc.Get(ctx, node.ScriptID)
+			switch {
+			case err != nil:
+				logger.Errorf(ctx, "[shell] load script failed: scriptId=%s err=%v", node.ScriptID, err)
+				return scriptContent, fmt.Errorf("load shell script %q failed: %w", node.ScriptID, err)
+			case sc == nil:
+				return scriptContent, fmt.Errorf("shell script %q not found", node.ScriptID)
+			default:
+				scriptContent = sc.Content
+			}
+		}
+	}
+
+	if job.LoopConfig != nil {
+		scriptContent = s.substituteVars(scriptContent, job)
+	}
+	return scriptContent, nil
+}
+
+// shellSetupContext groups the run metadata needed to report setup failures.
+type shellSetupContext struct {
+	sessionID    string
+	runID        string
+	handler      *loopEventHandler
+	modelID      string
+	runStartedAt int64
+}
+
 // shellSetupErr handles a setup-phase error in executeShellRepeat by publishing
 // the error event, recording the result, and stopping the job.
-func (s *serviceImpl) shellSetupErr(ctx context.Context, job *model.Job, path []int,
-	sessionID, runID string, err error,
-	handler *loopEventHandler, modelID string, runStartedAt int64) stepResult {
-	setupFinishedAt := nowMillis()
-	s.publishRunOutcome(job.ID, sessionID, path, runID, err, 0)
-	s.recordShellIterationResult(job, path, sessionID, "", err, 0)
+func (s *serviceImpl) shellSetupErr(ctx context.Context, job *model.Job, path []int, setup shellSetupContext, err error) stepResult {
+	setupFinishedAt := s.nowMillis()
+	s.publishRunOutcome(job.ID, setup.sessionID, path, setup.runID, withRunErrorCode(err, runErrorCodeShell), setupFinishedAt)
+	s.recordShellIterationResult(ctx, job, path, setup.sessionID, "", err, 0)
+	runStartedAt := setup.runStartedAt
 	if runStartedAt <= 0 {
 		runStartedAt = setupFinishedAt
 	}
@@ -50,213 +86,53 @@ func (s *serviceImpl) shellSetupErr(ctx context.Context, job *model.Job, path []
 	if durationMs < 0 {
 		durationMs = 0
 	}
-	s.recordUsageSnapshot(job, handler, modelID, setupFinishedAt, durationMs)
+	s.recordUsageSnapshot(job, setup.handler, setup.modelID, setupFinishedAt, durationMs)
 	logger.Errorf(ctx, "[shell] setup failed, failing job: jobId=%s path=%v err=%v", job.ID, path, err)
 	s.failJob(ctx, job, err.Error(), true, true)
 	return stepAborted
 }
 
-type shellProcessResult struct {
-	started    bool
-	startedAt  int64
-	finishedAt int64
-	durationMs int64
-	output     string
-	err        error
+type shellExecution struct {
+	workdir         string
+	scriptContent   string
+	scriptFile      string
+	ctrlFile        string
+	sessionID       string
+	stepModelID     string
+	handler         *loopEventHandler
+	runStartedAt    int64
+	cmd             *exec.Cmd
+	stdout          io.ReadCloser
+	stderr          io.ReadCloser
+	filteredEnvKeys []string
+	cleanupFn       func()
 }
 
-func (s *serviceImpl) prepareShellProcess(ctx context.Context, job *model.Job, workdir, scriptFile, ctrlFile string) (*exec.Cmd, io.ReadCloser, io.ReadCloser, []string, error) {
-	// Use a plain exec.Command (NOT CommandContext) because Go's CommandContext
-	// only kills the direct child process. Instead we manage cancellation ourselves
-	// by killing the entire process group, which also covers background subprocesses
-	// spawned by the script (e.g. "sleep 999 &").
-	cmd := exec.Command("bash", scriptFile)
-	cmd.SysProcAttr = shellSysProcAttr()
-	if workdir != "" {
-		// Validate workdir up front so a missing / inaccessible path
-		// surfaces a clear error instead of an opaque "chdir: no such
-		// file" from cmd.Start().
-		info, statErr := os.Stat(workdir)
-		if statErr != nil {
-			logger.Errorf(ctx, "[shell] workdir stat failed: jobId=%s workdir=%s err=%v", job.ID, workdir, statErr)
-			return nil, nil, nil, nil, fmt.Errorf("invalid workdir %q: %w", workdir, statErr)
-		}
-		if !info.IsDir() {
-			logger.Errorf(ctx, "[shell] workdir not directory: jobId=%s workdir=%s", job.ID, workdir)
-			return nil, nil, nil, nil, fmt.Errorf("workdir %q is not a directory", workdir)
-		}
-		cmd.Dir = workdir
-	}
-	env, filteredEnvKeys := sanitizedShellEnvWithFiltered()
-	cmd.Env = append(env, "QUARTET_CONTROL="+ctrlFile)
-	if len(filteredEnvKeys) > 0 {
-		logger.Debugf(ctx, "[shell] env filtered: jobId=%s keys=%v total=%d passthroughHint=%s", job.ID, shellFilteredEnvKeysForLog(filteredEnvKeys), len(filteredEnvKeys), envShellPassthrough)
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		logger.Errorf(ctx, "[shell] stdout pipe failed: jobId=%s err=%v", job.ID, err)
-		return nil, nil, nil, nil, err
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		logger.Errorf(ctx, "[shell] stderr pipe failed: jobId=%s err=%v", job.ID, err)
-		return nil, nil, nil, nil, err
-	}
-
-	return cmd, stdout, stderr, filteredEnvKeys, nil
-}
-
-func (s *serviceImpl) runShellProcess(ctx context.Context, job *model.Job, cmd *exec.Cmd, stdout, stderr io.Reader, handler *loopEventHandler) shellProcessResult {
-	start := time.Now()
-	if err := cmd.Start(); err != nil {
-		logger.Errorf(ctx, "[shell] start failed: jobId=%s err=%v", job.ID, err)
-		startedAt := start.UnixMilli()
-		finishedAt := nowMillis()
-		return shellProcessResult{startedAt: startedAt, finishedAt: finishedAt, err: err}
-	}
-
-	// Monitor context cancellation and kill the entire process group.
-	// This ensures background subprocesses spawned by the script are also killed.
-	processExited := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			shellKillProcessGroup(cmd, processExited, shellGracePeriod)
-		case <-processExited:
-			// cmd.Wait() returned first — process exited normally, nothing to kill.
-		}
-	}()
-
-	// Stream stdout+stderr concurrently to avoid pipe deadlock.
-	_ = handler.OnMessageStart()
-
-	// Read stderr in background to prevent pipe buffer from filling up.
-	// Limit to maxStderrSize to prevent OOM from misbehaving scripts.
-	var stderrBuf strings.Builder
-	stderrDone := make(chan struct{})
-	go func() {
-		defer close(stderrDone)
-		scanner := bufio.NewScanner(stderr)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text() + "\n"
-			if stderrBuf.Len()+len(line) > maxStderrSize {
-				if stderrBuf.Len() < maxStderrSize {
-					stderrBuf.WriteString("\n... stderr truncated (exceeded 10MB) ...\n")
-				}
-				continue // keep draining to prevent pipe deadlock
-			}
-			stderrBuf.WriteString(line)
-		}
-		// A single line longer than the 1MB scanner cap makes Scan() return
-		// false with bufio.ErrTooLong, which would leave the OS pipe unread
-		// and block the child on its next stderr write — eventually hanging
-		// cmd.Wait(). Drain the rest of the pipe to keep the child writable.
-		if err := scanner.Err(); err != nil {
-			logger.Warnf(ctx, "[shell] stderr scanner error, draining remaining: jobId=%s err=%v", job.ID, err)
-			_, _ = io.Copy(io.Discard, stderr)
-		}
-	}()
-
-	// Stream stdout to handler in the current goroutine.
-	stdoutScanner := bufio.NewScanner(stdout)
-	stdoutScanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for stdoutScanner.Scan() {
-		line := stdoutScanner.Text() + "\n"
-		_ = handler.OnMessageDelta(line)
-	}
-	if err := stdoutScanner.Err(); err != nil {
-		// A single line longer than the 1MB scanner cap (e.g. unformatted JSON
-		// from `curl`, base64 dumps, minified build output) makes Scan() return
-		// false with bufio.ErrTooLong. Don't discard the rest — fall back to
-		// chunked reads so subsequent output is still streamed to the user
-		// instead of silently disappearing mid-command.
-		logger.Warnf(ctx, "[shell] stdout scanner error, falling back to chunk read: jobId=%s err=%v", job.ID, err)
-		buf := make([]byte, 64*1024)
-		for {
-			n, readErr := stdout.Read(buf)
-			if n > 0 {
-				_ = handler.OnMessageDelta(string(buf[:n]))
-			}
-			if readErr != nil {
-				if readErr != io.EOF {
-					logger.Warnf(ctx, "[shell] stdout fallback read error: jobId=%s err=%v", job.ID, readErr)
-				}
-				break
-			}
-		}
-	}
-
-	// Wait for stderr goroutine to finish before calling Wait.
-	<-stderrDone
-	if stderrContent := stderrBuf.String(); stderrContent != "" {
-		_ = handler.OnMessageDelta(stderrContent)
-	}
-
-	// Wait must be called after draining stdout/stderr to avoid pipe deadlock.
-	cmdErr := cmd.Wait()
-	close(processExited) // signal the cancel-monitor goroutine that the process exited
-
-	// Pin a single wall-clock read for the message boundary so that:
-	//   - the live SSE TEXT_MESSAGE_END timestamp
-	//   - the persisted finishedAt
-	// share the same instant (scheme doc: "同一次时钟读数").
-	startedAt := start.UnixMilli()
-	finishedAt := nowMillis()
-	durationMs := finishedAt - startedAt
-	if durationMs < 0 {
-		durationMs = 0
-	}
-	handler.SetNextBoundaryTimestamp(finishedAt)
-	_ = handler.OnMessageEnd()
-
-	return shellProcessResult{
-		started:    true,
-		startedAt:  startedAt,
-		finishedAt: finishedAt,
-		durationMs: durationMs,
-		output:     handler.AccumulatedContent(),
-		err:        cmdErr,
+func (e *shellExecution) cleanup() {
+	if e != nil && e.cleanupFn != nil {
+		e.cleanupFn()
 	}
 }
 
-func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, runner JobRunner, node model.FlowNode, path []int, sessionID string, nextResume *model.JobResume) stepResult {
+func (e *shellExecution) setupContext() shellSetupContext {
+	return shellSetupContext{
+		sessionID:    e.sessionID,
+		runID:        e.handler.runID,
+		handler:      e.handler,
+		modelID:      e.stepModelID,
+		runStartedAt: e.runStartedAt,
+	}
+}
+
+func (s *serviceImpl) prepareShellExecution(ctx context.Context, job *model.Job, runner JobRunner, node model.FlowNode, path []int, sessionID string) (*shellExecution, stepResult) {
 	s.mu.RLock()
 	workdir := job.Workdir
 	s.mu.RUnlock()
 
-	// Resolve script content: load from scriptSvc if scriptID is set, otherwise
-	// use message directly. A configured ScriptID that fails to load (or
-	// resolves to nil) must NOT silently fall back to node.Message — that would
-	// run stale/empty content while the user believes the library script ran.
-	// Defer surfacing the error until the handler/runID exist so shellSetupErr
-	// can publish the failure on the iteration like any other setup error.
-	scriptContent := node.Message
-	var scriptLoadErr error
-	if node.ScriptID != "" {
-		switch {
-		case s.scriptSvc == nil:
-			scriptLoadErr = fmt.Errorf("shell step references scriptId %q but no script service is configured", node.ScriptID)
-		default:
-			sc, err := s.scriptSvc.Get(ctx, node.ScriptID)
-			switch {
-			case err != nil:
-				logger.Errorf(ctx, "[shell] load script failed: scriptId=%s err=%v", node.ScriptID, err)
-				scriptLoadErr = fmt.Errorf("load shell script %q failed: %w", node.ScriptID, err)
-			case sc == nil:
-				scriptLoadErr = fmt.Errorf("shell script %q not found", node.ScriptID)
-			default:
-				scriptContent = sc.Content
-			}
-		}
-	}
-
-	// Variable substitution (lock required: Variables may be concurrently written by applyVarsToJob)
-	if job.LoopConfig != nil && scriptLoadErr == nil {
-		scriptContent = s.substituteVars(scriptContent, job)
-	}
+	// Resolve script content before opening the iteration. If script loading
+	// fails, keep the error until the handler/runID exist so shellSetupErr can
+	// publish the failure on the iteration like any other setup error.
+	scriptContent, scriptLoadErr := s.resolveShellScript(ctx, job, node)
 
 	// Log only the script path / size, never the content: substituted
 	// scripts routinely contain secrets that the user injected via vars
@@ -265,12 +141,12 @@ func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, ru
 	logger.Debugf(ctx, "[shell] run: jobId=%s path=%v scriptBytes=%d", job.ID, path, len(scriptContent))
 
 	// Publish iteration started
-	s.persistIterationStart(ctx, job, path)
+	iterationStartedAt := s.persistIterationStart(ctx, job, path)
 	s.Publish(job.ID, &model.IterationStartedEvent{
 		BaseEvent: model.BaseEvent{
 			Type: model.EventTypeIterationStarted, JobID: job.ID,
 			SessionID: sessionID, Path: path,
-			Timestamp: nowMillis(),
+			Timestamp: iterationStartedAt,
 		},
 		Message:   scriptContent,
 		ModelID:   node.StepModelID,
@@ -280,7 +156,7 @@ func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, ru
 	handler := newLoopEventHandler(ctx, job.ID, sessionID, path, s)
 	handler.shellMode = true
 
-	runStartedAt := nowMillis()
+	runStartedAt := s.nowMillis()
 	s.Publish(job.ID, &model.RunStartedEvent{
 		BaseEvent: model.BaseEvent{
 			Type: model.EventTypeRunStarted, JobID: job.ID,
@@ -293,117 +169,152 @@ func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, ru
 	// FlowNode may carry a backfilled default model, but shell execution itself
 	// runs under the session context; use the session as the source of truth.
 	stepModelID := resolveUsageSessionModelID(runner, sessionID)
+	setup := shellSetupContext{
+		sessionID:    sessionID,
+		runID:        handler.runID,
+		handler:      handler,
+		modelID:      stepModelID,
+		runStartedAt: runStartedAt,
+	}
 
 	// Surface a script-load failure now that the iteration/run events have been
 	// published, so it is reported and fails the job exactly like other setup
 	// errors instead of silently running fallback content.
 	if scriptLoadErr != nil {
-		return s.shellSetupErr(ctx, job, path, sessionID, handler.runID, scriptLoadErr, handler, stepModelID, runStartedAt)
+		return nil, s.shellSetupErr(ctx, job, path, setup, scriptLoadErr)
+	}
+
+	var cleanups []func()
+	cleanupAll := func() {
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			cleanups[i]()
+		}
 	}
 
 	// Materialize the script so bash-specific vars like BASH_SOURCE[0] exist.
-	scriptFile, cleanupScript, err := writeShellTempFile(workdir, scriptContent)
+	scriptFile, cleanupScript, err := writeShellTempFile(s.fileManager, workdir, scriptContent)
 	if err != nil {
 		logger.Errorf(ctx, "[shell] create temp script failed: jobId=%s err=%v", job.ID, err)
-		return s.shellSetupErr(ctx, job, path, sessionID, handler.runID, err, handler, stepModelID, runStartedAt)
+		return nil, s.shellSetupErr(ctx, job, path, setup, err)
 	}
-	defer cleanupScript()
+	cleanups = append(cleanups, cleanupScript)
 
 	// Create a control file for the script to write directives into.
-	ctrlFile, cleanupCtrl, err := createControlFile(workdir)
+	ctrlFile, cleanupCtrl, err := createControlFile(s.fileManager, workdir)
 	if err != nil {
 		logger.Warnf(ctx, "[shell] create control file failed: jobId=%s err=%v", job.ID, err)
 		// Fallback to /dev/null so scripts don't error on >> "$QUARTET_CONTROL"
 		ctrlFile = os.DevNull
 	} else {
-		defer cleanupCtrl()
+		cleanups = append(cleanups, cleanupCtrl)
 	}
 
 	cmd, stdout, stderr, filteredEnvKeys, err := s.prepareShellProcess(ctx, job, workdir, scriptFile, ctrlFile)
 	if err != nil {
-		return s.shellSetupErr(ctx, job, path, sessionID, handler.runID, err, handler, stepModelID, runStartedAt)
+		cleanupAll()
+		return nil, s.shellSetupErr(ctx, job, path, setup, err)
 	}
-	procResult := s.runShellProcess(ctx, job, cmd, stdout, stderr, handler)
+
+	return &shellExecution{
+		workdir:         workdir,
+		scriptContent:   scriptContent,
+		scriptFile:      scriptFile,
+		ctrlFile:        ctrlFile,
+		sessionID:       sessionID,
+		stepModelID:     stepModelID,
+		handler:         handler,
+		runStartedAt:    runStartedAt,
+		cmd:             cmd,
+		stdout:          stdout,
+		stderr:          stderr,
+		filteredEnvKeys: filteredEnvKeys,
+		cleanupFn:       cleanupAll,
+	}, stepCompleted
+}
+
+func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, runner JobRunner, node model.FlowNode, path []int, sessionID string, nextResume *model.JobResume) stepResult {
+	exec, setupResult := s.prepareShellExecution(ctx, job, runner, node, path, sessionID)
+	if setupResult != stepCompleted {
+		return setupResult
+	}
+	defer exec.cleanup()
+
+	procResult := s.runShellProcess(ctx, job, exec.cmd, exec.stdout, exec.stderr, exec.handler)
 	if !procResult.started {
-		return s.shellSetupErr(ctx, job, path, sessionID, handler.runID, procResult.err, handler, stepModelID, runStartedAt)
+		return s.shellSetupErr(ctx, job, path, exec.setupContext(), procResult.err)
 	}
-	shellStartedAt := procResult.startedAt
-	shellFinishedAt := procResult.finishedAt
-	durationMs := procResult.durationMs
-	cmdErr := procResult.err
-	accumulatedOutput := procResult.output
 
 	// Shell cancellation uses manual process-group killing (not exec.CommandContext),
 	// so cmd.Wait() typically returns *exec.ExitError (signal killed/terminated)
 	// rather than context.Canceled. Treat ctx cancellation as an interrupted run.
-	if isInterruptedRun(cmdErr) || ctx.Err() != nil {
-		logger.Debugf(ctx, "[shell] interrupted: jobId=%s path=%v", job.ID, path)
-		// Stop/Cancel keeps the iteration resumable (stepAborted), but the shell
-		// output that was already streamed live must still be written to history so
-		// refresh/reload matches what the user just saw.
-		persistCtx, persistCancel := context.WithTimeout(context.Background(), shellInterruptedPersistTimeout)
-		s.persistShellMessages(persistCtx, job.WorkspaceID, job.ID, sessionID, scriptContent, accumulatedOutput, shellStartedAt, shellFinishedAt, handler.msgID)
-		persistCancel()
-		// Also account for the wall-clock and any captured tool / token data
-		// (spec 01-data-model: "Completed / Failed / Stopped 都计入").
-		s.recordUsageSnapshot(job, handler, stepModelID, shellFinishedAt, durationMs)
-		// Close the buffer round even on cancel: RUN_STARTED + ITERATION_STARTED
-		// were already published. Without the closing pair, ResumeGC on Continue
-		// cannot reclaim this round's A-class chunks — see the matching comment
-		// in executeRepeat's interrupted branch. cmdErr may be nil when the
-		// cancel beat the process exit (ctx.Err() set, no exec error captured),
-		// so fall back to ctx.Err() for the message.
-		interruptErr := cmdErr
-		if interruptErr == nil {
-			interruptErr = ctx.Err()
-		}
-		s.publishRunOutcome(job.ID, sessionID, path, handler.runID, interruptErr, shellFinishedAt)
-		s.publishIterationEvent(job.ID, &model.IterationResult{
-			Path:       model.CopyPath(path),
-			SessionID:  sessionID,
-			Success:    false,
-			DurationMs: durationMs,
-			Content:    accumulatedOutput,
-			Error:      interruptErr.Error(),
-		})
-		return stepAborted
+	if isInterruptedRun(procResult.err) || ctx.Err() != nil {
+		return s.handleShellInterruptedResult(ctx, job, exec, path, sessionID, procResult)
 	}
 
-	s.publishRunOutcome(job.ID, sessionID, path, handler.runID, cmdErr, 0)
+	return s.finalizeShellResult(ctx, job, exec, path, sessionID, nextResume, procResult)
+}
+
+func (s *serviceImpl) handleShellInterruptedResult(ctx context.Context, job *model.Job, exec *shellExecution, path []int, sessionID string, procResult shellProcessResult) stepResult {
+	logger.Debugf(ctx, "[shell] interrupted: jobId=%s path=%v", job.ID, path)
+	// Stop/Cancel keeps the iteration resumable (stepAborted), but the shell
+	// output that was already streamed live must still be written to history so
+	// refresh/reload matches what the user just saw.
+	persistCtx, persistCancel := context.WithTimeout(context.Background(), shellInterruptedPersistTimeout)
+	if err := s.persistShellMessages(persistCtx, job.WorkspaceID, job.ID, sessionID, exec.scriptContent, procResult.output, procResult.startedAt, procResult.finishedAt, exec.handler.msgID); err != nil {
+		logger.Errorf(persistCtx, "[shell] persist interrupted messages failed: jobId=%s err=%v", job.ID, err)
+	}
+	persistCancel()
+	// Also account for the wall-clock and any captured tool / token data
+	// (spec 01-data-model: "Completed / Failed / Stopped 都计入").
+	s.recordUsageSnapshot(job, exec.handler, exec.stepModelID, procResult.finishedAt, procResult.durationMs)
+	// Close the buffer round even on cancel: RUN_STARTED + ITERATION_STARTED
+	// were already published. Without the closing pair, ResumeGC on Continue
+	// cannot reclaim this round's A-class chunks — see the matching comment
+	// in executeRepeat's interrupted branch. cmdErr may be nil when the
+	// cancel beat the process exit (ctx.Err() set, no exec error captured),
+	// so fall back to ctx.Err() for the message.
+	interruptErr := procResult.err
+	if interruptErr == nil {
+		interruptErr = ctx.Err()
+	}
+	s.publishRunOutcome(job.ID, sessionID, path, exec.handler.runID, interruptErr, procResult.finishedAt)
+	s.publishIterationEvent(job.ID, &model.IterationResult{
+		Path:       model.CopyPath(path),
+		SessionID:  sessionID,
+		Success:    false,
+		DurationMs: procResult.durationMs,
+		Content:    procResult.output,
+		Error:      interruptErr.Error(),
+	})
+	return stepAborted
+}
+
+func (s *serviceImpl) finalizeShellResult(ctx context.Context, job *model.Job, exec *shellExecution, path []int, sessionID string, nextResume *model.JobResume, procResult shellProcessResult) stepResult {
+	s.publishRunOutcome(job.ID, sessionID, path, exec.handler.runID, withRunErrorCode(procResult.err, runErrorCodeShell), procResult.finishedAt)
 
 	// Record per-step usage stats for shell. Uses the shell-side timestamps
 	// (the ones aligned with the message END boundary) so the stat row
 	// matches what the iteration result records as DurationMs.
-	s.recordUsageSnapshot(job, handler, stepModelID, shellFinishedAt, durationMs)
+	s.recordUsageSnapshot(job, exec.handler, exec.stepModelID, procResult.finishedAt, procResult.durationMs)
 
 	// Parse control file for directives (SET_VAR, STOP_LOOP, STOP_WORKFLOW).
 	// parseControlFile logs the read itself (bytes/lines on success, err on
 	// failure) so we don't do a pre-read here to avoid duplicate I/O on the
 	// same file path.
-	ctrlVars, ctrlStopLoop, ctrlStopWorkflow := parseControlFile(ctx, job.ID, ctrlFile)
-
-	// Also support legacy <<SET_VAR:key=value>> from stdout for backward compatibility
-	if legacyVars := extractSetVars(accumulatedOutput); len(legacyVars) > 0 {
-		if ctrlVars == nil {
-			ctrlVars = legacyVars
-		} else {
-			for k, v := range legacyVars {
-				if _, exists := ctrlVars[k]; !exists {
-					ctrlVars[k] = v
-				}
-			}
-		}
-	}
+	ctrlVars, ctrlStopLoop, ctrlStopWorkflow := parseControlFile(ctx, s.fileManager, job.ID, exec.ctrlFile)
+	ctrlVars = mergeLegacySetVars(ctrlVars, extractSetVars(procResult.output))
 
 	// Apply extracted variables
-	s.applyVarsToJob(ctx, job, ctrlVars, "extract_set_vars_shell")
+	s.applyVarsToJob(ctx, job, ctrlVars, jobPersistActionExtractSetVarsShell)
 
 	// Persist messages with timing info so history reload can render the
 	// duration badge and dedupe against live SSE by msgID.
-	s.persistShellMessages(ctx, job.WorkspaceID, job.ID, sessionID, scriptContent, accumulatedOutput, shellStartedAt, shellFinishedAt, handler.msgID)
+	if err := s.persistShellMessages(ctx, job.WorkspaceID, job.ID, sessionID, exec.scriptContent, procResult.output, procResult.startedAt, procResult.finishedAt, exec.handler.msgID); err != nil {
+		s.recordPersistWarning(ctx, job, jobPersistActionPersistShellMessages, err)
+	}
 
 	// Record iteration result and handle failure modes.
-	if cmdErr == nil {
+	if procResult.err == nil {
 		// Success. The control file was already parsed above, so we know the
 		// control signal BEFORE persisting and can write the resume pointer
 		// exactly once with the correct target:
@@ -415,34 +326,34 @@ func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, ru
 		//   - STOP_WORKFLOW: the workflow exits and finishes; clear resume so a
 		//     Continue doesn't re-enter at the next sibling.
 		//   - neither: advance the plain nextResume in a single save.
-		result := buildShellIterationResult(path, sessionID, accumulatedOutput, nil, durationMs)
+		result := buildShellIterationResult(path, sessionID, procResult.output, nil, procResult.durationMs)
 		switch {
 		case ctrlStopWorkflow:
-			s.recordIterationAndAdvanceResume(job, result, nil)
+			s.recordIterationAndAdvanceResume(ctx, job, result, nil)
 		case ctrlStopLoop:
-			s.recordIterationResult(job, result)
+			s.recordIterationResult(ctx, job, result)
 		default:
-			s.recordIterationAndAdvanceResume(job, result, nextResume)
+			s.recordIterationAndAdvanceResume(ctx, job, result, nextResume)
 		}
 	} else {
 		// Include scriptFile / workdir and a tail of the combined stdout+stderr
 		// so the backend main log carries enough context to diagnose exit-code
 		// failures (e.g. "exit status 127" with the actual "command not found"
 		// line from bash) without having to open the per-job job.json.
-		tail := shellOutputTail(accumulatedOutput, shellOutputTailBytes)
-		if len(filteredEnvKeys) > 0 {
+		tail := shellOutputTail(procResult.output, shellOutputTailBytes)
+		if len(exec.filteredEnvKeys) > 0 {
 			logger.Warnf(ctx,
 				"[shell] env vars were filtered when this job ran: jobId=%s keys=%v total=%d — if the script needs these, set %s",
-				job.ID, shellFilteredEnvKeysForLog(filteredEnvKeys), len(filteredEnvKeys), envShellPassthrough)
+				job.ID, shellFilteredEnvKeysForLog(exec.filteredEnvKeys), len(exec.filteredEnvKeys), envShellPassthrough)
 		}
 
 		// Hard failure: record the failed iteration; failJob below issues the
 		// terminal persist so combining record + resume saves nothing here.
-		s.recordShellIterationResult(job, path, sessionID, accumulatedOutput, cmdErr, durationMs)
+		s.recordShellIterationResult(ctx, job, path, sessionID, procResult.output, procResult.err, procResult.durationMs)
 		logger.Errorf(ctx,
 			"[shell] run failed, failing job: jobId=%s path=%v scriptFile=%s workdir=%s err=%v outputTail=%q",
-			job.ID, path, scriptFile, workdir, cmdErr, tail)
-		s.failJob(ctx, job, shellFailureMessage(cmdErr, tail), true, true)
+			job.ID, path, exec.scriptFile, exec.workdir, procResult.err, tail)
+		s.failJob(ctx, job, shellFailureMessage(procResult.err, tail), true, true)
 		return stepAborted
 	}
 
@@ -466,11 +377,27 @@ func (s *serviceImpl) executeShellRepeat(ctx context.Context, job *model.Job, ru
 	return stepCompleted
 }
 
-func (s *serviceImpl) persistShellMessages(ctx context.Context, wsID, jobID, sessionID, scriptContent, output string, startedAt, finishedAt int64, msgID string) {
+// mergeLegacySetVars preserves backward compatibility for stdout markers while
+// keeping the control file as the source of truth when both specify the same key.
+func mergeLegacySetVars(ctrlVars, legacyVars map[string]string) map[string]string {
+	if len(legacyVars) == 0 {
+		return ctrlVars
+	}
+	if ctrlVars == nil {
+		return legacyVars
+	}
+	for k, v := range legacyVars {
+		if _, exists := ctrlVars[k]; !exists {
+			ctrlVars[k] = v
+		}
+	}
+	return ctrlVars
+}
+
+func (s *serviceImpl) persistShellMessages(ctx context.Context, wsID, jobID, sessionID, scriptContent, output string, startedAt, finishedAt int64, msgID string) error {
 	repo, err := repository.NewChatContextRepo(wsID, jobID, sessionID)
 	if err != nil {
-		logger.Errorf(ctx, "[shell] persist: create repo failed: jobId=%s err=%v", jobID, err)
-		return
+		return fmt.Errorf("create shell chat context repo: %w", err)
 	}
 
 	userMsg := schema.UserMessage(scriptContent)
@@ -490,13 +417,14 @@ func (s *serviceImpl) persistShellMessages(ctx context.Context, wsID, jobID, ses
 	assistantMsg.Extra = assistantExtra
 
 	if err := repo.AppendMessages(ctx, []*schema.Message{userMsg, assistantMsg}); err != nil {
-		logger.Errorf(ctx, "[shell] persist: append failed: jobId=%s err=%v", jobID, err)
+		return fmt.Errorf("append shell messages: %w", err)
 	}
+	return nil
 }
 
-func (s *serviceImpl) recordShellIterationResult(job *model.Job, path []int, sessionID, output string, cmdErr error, durationMs int64) {
+func (s *serviceImpl) recordShellIterationResult(ctx context.Context, job *model.Job, path []int, sessionID, output string, cmdErr error, durationMs int64) {
 	result := buildShellIterationResult(path, sessionID, output, cmdErr, durationMs)
-	s.recordIterationResult(job, result)
+	s.recordIterationResult(ctx, job, result)
 }
 
 func buildShellIterationResult(path []int, sessionID, output string, cmdErr error, durationMs int64) *model.IterationResult {

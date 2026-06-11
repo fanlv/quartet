@@ -81,4 +81,3 @@ Quartet DOES:
 - Detect this specific error class on the prompt failure path and return an actionable message telling the user it is a known upstream (coco / claude-agent-acp) issue, that retrying the same message will fail the same way, and that starting a new conversation is the way to continue. The raw RPC error is still included in full.
 
 The real fix must land upstream (or via a verified `claude-agent-sdk` upgrade); this only improves how the failure is surfaced.
-

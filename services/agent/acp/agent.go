@@ -1085,7 +1085,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 		// after an image Read tool_result — and the Claude API rejects the
 		// follow-up request with "tool use concurrency issues" /
 		// tool_use_mismatch (errorKind=invalid_request). See
-		// docs/debug-acp-tool-use-mismatch.md: the bad sequence lives inside
+		// docs/feature/feature-2026-06-07-debug-acp-tool-use-mismatch.md: the bad sequence lives inside
 		// the subprocess's own transcript, so Quartet can neither prevent it
 		// nor retry past it (resending the same history reproduces the same
 		// 400, and rebuilding the session would discard conversation context).

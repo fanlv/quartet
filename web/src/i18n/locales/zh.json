@@ -104,6 +104,7 @@
     },
     "progress": {
       "lastError": "最近失败原因",
+      "persistWarnings": "持久化警告",
       "session": "会话 {{current}} / {{total}}",
       "step": "步骤 {{current}} / {{total}}",
       "currentPath": "当前：{{path}}",
@@ -143,7 +144,8 @@
       "scheduleBadgeTitle": "被 {{count}} 个定时任务引用",
       "scheduleBadge": "定时 × {{count}}",
       "errors": {
-        "updateFailed": "更新失败，请检查模板是否仍存在"
+        "updateFailed": "更新失败，请检查模板是否仍存在",
+        "loadFailed": "加载模板失败：{{error}}"
       }
     },
     "variables": {

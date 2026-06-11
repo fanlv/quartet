@@ -539,9 +539,14 @@ func (h *Handler) JobUpdatePin(ctx context.Context, c *app.RequestContext) {
 		httputil.InternalError(c, fmt.Sprintf("failed to update pin: %v", err))
 		return
 	}
+	updatedAt := int64(0)
+	if j, ok := h.jobService.Get(jobID); ok {
+		updatedAt = j.UpdatedAt.UnixMilli()
+	}
 
 	c.JSON(http.StatusOK, map[string]any{
-		"pinned":   req.Pinned,
-		"pinnedAt": pinnedAt,
+		"pinned":    req.Pinned,
+		"pinnedAt":  pinnedAt,
+		"updatedAt": updatedAt,
 	})
 }

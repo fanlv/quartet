@@ -11,7 +11,7 @@ import (
 
 func (s *serviceImpl) publishRunOutcome(jobID, sessionID string, path []int, runID string, err error, terminalAt int64) {
 	if terminalAt <= 0 {
-		terminalAt = nowMillis()
+		terminalAt = s.nowMillis()
 	}
 
 	// User-initiated stop (context.Canceled) is not an error — publish
@@ -36,34 +36,34 @@ func (s *serviceImpl) publishRunOutcome(jobID, sessionID string, path []int, run
 			Timestamp: terminalAt,
 		},
 		Message: err.Error(),
-		Code:    "-1",
+		Code:    classifyRunErrorCode(err),
 	})
 }
 
-func (s *serviceImpl) recordIterationResult(job *model.Job, result *model.IterationResult) {
-	s.appendAndSaveResult(job, *result, nil, false)
+func (s *serviceImpl) recordIterationResult(ctx context.Context, job *model.Job, result *model.IterationResult) {
+	s.appendAndSaveResult(ctx, job, *result, nil, false)
 	s.publishIterationEvent(job.ID, result)
 }
 
 // recordIterationAndAdvanceResume records the iteration result AND advances
 // the resume pointer in a single persist. Used by the loop success path so
 // per-step persists drop from 2 saves (record + advance_resume) to 1.
-func (s *serviceImpl) recordIterationAndAdvanceResume(job *model.Job, result *model.IterationResult, nextResume *model.JobResume) {
-	s.appendAndSaveResult(job, *result, nextResume, true)
+func (s *serviceImpl) recordIterationAndAdvanceResume(ctx context.Context, job *model.Job, result *model.IterationResult, nextResume *model.JobResume) {
+	s.appendAndSaveResult(ctx, job, *result, nextResume, true)
 	s.publishIterationEvent(job.ID, result)
 }
 
 func (s *serviceImpl) finishJob(ctx context.Context, job *model.Job, isLoopRun bool) {
 	s.mu.Lock()
 	resolution := s.applyTerminalStatusLocked(job, isLoopRun, model.JobStatusCompleted, true)
-	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeCompleted)
+	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeCompleted, s.nowMillis)
 	s.mu.Unlock()
 	// Publish the terminal event that matches the final status; runOutcome
 	// records that *this* run (loop or interactive send) actually
 	// completed successfully, regardless of whether finalStatus is a
 	// restored prior status.
-	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, "finish", "", model.RunOutcomeCompleted)
-	logLifecycleTerminal(ctx, job.ID, "finish", jobRunSource(isLoopRun), finalStatus, model.RunOutcomeCompleted, resolution, "")
+	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, jobRunActionFinish, "", model.RunOutcomeCompleted)
+	logLifecycleTerminal(ctx, job.ID, jobRunActionFinish, jobRunSource(isLoopRun), finalStatus, model.RunOutcomeCompleted, resolution, "")
 	if isLoopRun && finalStatus == model.JobStatusCompleted {
 		s.notifyJobDone(job)
 	}
@@ -71,9 +71,9 @@ func (s *serviceImpl) finishJob(ctx context.Context, job *model.Job, isLoopRun b
 
 func jobRunSource(isLoopRun bool) string {
 	if isLoopRun {
-		return "loop"
+		return jobRunSourceLoop
 	}
-	return "interactive"
+	return jobRunSourceInteractive
 }
 
 func (s *serviceImpl) clearCancel(jobID string, entry *cancelEntry) {
@@ -101,10 +101,10 @@ func (s *serviceImpl) progressCounts(job *model.Job) (completedCount int, failed
 func (s *serviceImpl) stopJob(ctx context.Context, job *model.Job, isLoopRun bool) {
 	s.mu.Lock()
 	resolution := s.applyTerminalStatusLocked(job, isLoopRun, model.JobStatusStopped, false)
-	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeStopped)
+	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeStopped, s.nowMillis)
 	s.mu.Unlock()
-	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, "stop", "", model.RunOutcomeStopped)
-	logLifecycleTerminal(ctx, job.ID, "stop", jobRunSource(isLoopRun), finalStatus, model.RunOutcomeStopped, resolution, "")
+	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, jobRunActionStop, "", model.RunOutcomeStopped)
+	logLifecycleTerminal(ctx, job.ID, jobRunActionStop, jobRunSource(isLoopRun), finalStatus, model.RunOutcomeStopped, resolution, "")
 	if isLoopRun {
 		s.notifyJobDone(job)
 	}
@@ -136,10 +136,10 @@ func (s *serviceImpl) failJob(ctx context.Context, job *model.Job, message strin
 	if message != "" {
 		job.Progress.LastError = message
 	}
-	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeFailed)
+	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeFailed, s.nowMillis)
 	s.mu.Unlock()
-	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, "fail", message, model.RunOutcomeFailed)
-	logLifecycleTerminal(ctx, job.ID, "fail", jobRunSource(isLoopRun), finalStatus, model.RunOutcomeFailed, resolution, message)
+	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, jobRunActionFail, message, model.RunOutcomeFailed)
+	logLifecycleTerminal(ctx, job.ID, jobRunActionFail, jobRunSource(isLoopRun), finalStatus, model.RunOutcomeFailed, resolution, message)
 	if isLoopRun && finalStatus == model.JobStatusFailed {
 		s.notifyJobDone(job)
 	}
@@ -201,7 +201,7 @@ func logLifecycleTerminal(ctx context.Context, jobID, action, source string, fin
 	// completions remain at INFO so operators can always correlate the
 	// "run starting" / "run finished" pair without switching to DEBUG.
 	logFn := logger.Debugf
-	if finalStatus == model.JobStatusFailed || finalStatus == model.JobStatusStopped || message != "" || source == "interactive" {
+	if finalStatus == model.JobStatusFailed || finalStatus == model.JobStatusStopped || message != "" || source == jobRunSourceInteractive {
 		logFn = logger.Infof
 	}
 	if message != "" {
@@ -247,11 +247,11 @@ func logLifecycleStart(ctx context.Context, jobID string, sc lifecycleStartConte
 
 func lifecycleActionVerb(action string) string {
 	switch action {
-	case "finish":
+	case jobRunActionFinish:
 		return "finished"
-	case "stop":
+	case jobRunActionStop:
 		return "stopped"
-	case "fail":
+	case jobRunActionFail:
 		return "failed"
 	default:
 		return "terminal"
@@ -281,7 +281,7 @@ type terminalSnapshot struct {
 // concurrent locked readers (Get / DeepCopy / saveJobWithRetry) that share the
 // same Job pointer — persistAndPublishTerminal runs after s.mu is released and
 // must not touch the field itself. Caller MUST hold s.mu.
-func captureTerminalSnapshotLocked(job *model.Job, runOutcome model.RunOutcome) terminalSnapshot {
+func captureTerminalSnapshotLocked(job *model.Job, runOutcome model.RunOutcome, nowMillis func() int64) terminalSnapshot {
 	// Defensive: a malformed Job (e.g. loaded from disk with a corrupted
 	// payload) could reach a terminal transition with nil Progress. Avoid a
 	// nil-pointer panic here so finishJob / stopJob / failJob can still
@@ -424,7 +424,7 @@ func (s *serviceImpl) closePanicRoundIfOpen(job *model.Job, panicErr error) {
 	}
 	s.mu.RUnlock()
 
-	terminalAt := nowMillis()
+	terminalAt := s.nowMillis()
 	s.publishRunOutcome(job.ID, sessionID, path, "", panicErr, terminalAt)
 	s.publishIterationEvent(job.ID, &model.IterationResult{
 		Path:      path,
@@ -440,13 +440,16 @@ func (s *serviceImpl) closePanicRoundIfOpen(job *model.Job, panicErr error) {
 // before its event is published, so a client that refreshes job.json
 // immediately after seeing IterationStarted reads a state at least as fresh
 // as the event stream — never the previous round's path.
-func (s *serviceImpl) persistIterationStart(ctx context.Context, job *model.Job, path []int) {
+func (s *serviceImpl) persistIterationStart(ctx context.Context, job *model.Job, path []int) int64 {
+	startedAt := s.nowMillis()
 	s.mu.Lock()
 	job.Progress.CurrentPath = model.CopyPath(path)
+	job.Progress.CurrentStartedAt = startedAt
 	s.mu.Unlock()
-	if err := s.saveJobWithRetry(ctx, job, "iteration_started"); err != nil {
-		s.recordPersistWarning(ctx, job, "iteration_started", err)
+	if err := s.saveJobWithRetry(ctx, job, jobPersistActionIterationStarted); err != nil {
+		s.recordPersistWarning(ctx, job, jobPersistActionIterationStarted, err)
 	}
+	return startedAt
 }
 
 // appendAndSaveResult appends an iteration result to the job progress under lock,
@@ -457,7 +460,7 @@ func (s *serviceImpl) persistIterationStart(ctx context.Context, job *model.Job,
 // nextResume clears it — used when the just-recorded step was the final one in
 // the flow). When advanceResume is false, job.Resume is left untouched and
 // nextResume is ignored.
-func (s *serviceImpl) appendAndSaveResult(job *model.Job, result model.IterationResult, nextResume *model.JobResume, advanceResume bool) {
+func (s *serviceImpl) appendAndSaveResult(ctx context.Context, job *model.Job, result model.IterationResult, nextResume *model.JobResume, advanceResume bool) {
 	s.mu.Lock()
 	// Clear Content from previous in-memory results to free string memory.
 	for i := range job.Progress.Results {
@@ -477,11 +480,10 @@ func (s *serviceImpl) appendAndSaveResult(job *model.Job, result model.Iteration
 		job.Resume = copyResume(nextResume)
 	}
 	s.mu.Unlock()
-	action := "record_iteration_result"
+	action := jobPersistActionRecordIterationResult
 	if advanceResume {
-		action = "record_and_advance_resume"
+		action = jobPersistActionRecordAndAdvanceResume
 	}
-	ctx := context.Background()
 	if err := s.saveJobWithRetry(ctx, job, action); err != nil {
 		s.recordPersistWarning(ctx, job, action, err)
 	}
@@ -496,7 +498,7 @@ func (s *serviceImpl) publishIterationEvent(jobID string, result *model.Iteratio
 	baseEvent := model.BaseEvent{
 		Type: eventType, JobID: jobID,
 		SessionID: result.SessionID, Path: result.Path,
-		Timestamp: nowMillis(),
+		Timestamp: s.nowMillis(),
 	}
 	if result.Success {
 		s.Publish(jobID, &model.IterationCompletedEvent{BaseEvent: baseEvent, Result: result})

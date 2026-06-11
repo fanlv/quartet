@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fanlv/quartet/pkg/fileserver"
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
@@ -319,8 +318,7 @@ func (s *serviceImpl) Delete(jobID string) {
 		s.clearJobDoneNotified(jobID)
 		s.bumpListVersion(cp.WorkspaceID)
 		jobDir := typepath.LocalJobDirInWorkspace(cp.WorkspaceID, cp.ID)
-		sb := fileserver.GetFileManager()
-		if err := sb.FileDelete(&fsmodel.FileDeleteRequest{Path: jobDir}); err != nil {
+		if err := s.fileManager.FileDelete(&fsmodel.FileDeleteRequest{Path: jobDir}); err != nil {
 			logger.Errorf(context.Background(), "[job.Service] remove job dir failed: dir=%s err=%v", jobDir, err)
 		}
 	}

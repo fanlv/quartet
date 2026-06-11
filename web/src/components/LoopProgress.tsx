@@ -77,7 +77,7 @@ function LoopActionIcon({ type }: { type: LoopActionIconType }) {
 
 export function LoopProgress({ progress, status, flow, onStop, stopPending, onCancelStop, onContinue, onEdit, error }: LoopProgressProps) {
   const { t } = useTranslation();
-  const { totalSteps, completedCount, failedCount, currentPath, results, lastError, groupActualIterations, groupActualLeafCounts } = progress;
+  const { totalSteps, completedCount, failedCount, currentPath, results, lastError, persistWarnings, groupActualIterations, groupActualLeafCounts } = progress;
   const done = completedCount + failedCount;
   const percent = totalSteps > 0 ? Math.round((done / totalSteps) * 100) : 0;
   const hasResults = results && results.length > 0;
@@ -102,6 +102,7 @@ export function LoopProgress({ progress, status, flow, onStop, stopPending, onCa
 
   const statusClass = `loop-status-${status}`;
   const showLastError = !!lastError && (failedCount > 0 || status === 'failed');
+  const showPersistWarnings = !!persistWarnings && persistWarnings.length > 0;
 
   // Button enablement is derived purely from status + stopPending so the button
   // states always track the loop state. Buttons are never hidden — inapplicable
@@ -248,6 +249,19 @@ export function LoopProgress({ progress, status, flow, onStop, stopPending, onCa
           {lastErrorExpanded && (
             <pre className="loop-progress-last-error-full">{lastError}</pre>
           )}
+        </div>
+      )}
+
+      {showPersistWarnings && (
+        <div className="loop-progress-persist-warning" data-testid="loop-progress-persist-warning" role="alert">
+          <div className="loop-progress-persist-warning-label">
+            {t('loop.progress.persistWarnings', 'Persistence warnings')}
+          </div>
+          <ul className="loop-progress-persist-warning-list">
+            {persistWarnings.map((warning, idx) => (
+              <li key={`${idx}-${warning}`}>{warning}</li>
+            ))}
+          </ul>
         </div>
       )}
 

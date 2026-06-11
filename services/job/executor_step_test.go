@@ -2,6 +2,8 @@ package job
 
 import (
 	"context"
+	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -22,6 +24,76 @@ func (r stubRunner) RunIteration(ctx context.Context, sessionID string, messages
 
 func (r stubRunner) SessionModelID(sessionID string) string {
 	return ""
+}
+
+type retrySequenceRunner struct {
+	errs     []error
+	calls    int
+	messages [][]*schema.Message
+}
+
+func (r *retrySequenceRunner) InitSession(ctx context.Context, jobID string, overrides *model.SessionOverrides) (string, error) {
+	return "retry-session", nil
+}
+
+func (r *retrySequenceRunner) RunIteration(ctx context.Context, sessionID string, messages []*schema.Message, handler agui.EventHandler) error {
+	r.calls++
+	r.messages = append(r.messages, messages)
+	idx := r.calls - 1
+	if idx < len(r.errs) {
+		return r.errs[idx]
+	}
+	return nil
+}
+
+func (r *retrySequenceRunner) SessionModelID(sessionID string) string {
+	return "retry-model"
+}
+
+func withFastRetryDelays(t *testing.T, s *serviceImpl) {
+	t.Helper()
+	oldTransientDelay := s.loopTransientRetryDelay
+	oldRateLimitBaseDelay := s.loopRateLimitBaseDelay
+	s.loopTransientRetryDelay = time.Millisecond
+	s.loopRateLimitBaseDelay = time.Millisecond
+	t.Cleanup(func() {
+		s.loopTransientRetryDelay = oldTransientDelay
+		s.loopRateLimitBaseDelay = oldRateLimitBaseDelay
+	})
+}
+
+func TestTransientNetworkErrorEOFMatchingIsPrecise(t *testing.T) {
+	if !isTransientNetworkError(io.EOF) {
+		t.Fatal("io.EOF should be transient")
+	}
+	if !isTransientNetworkError(errors.New("stream read failed: unexpected EOF")) {
+		t.Fatal("unexpected EOF should be transient")
+	}
+	if isTransientNetworkError(errors.New("failed to parse EOF marker in model output")) {
+		t.Fatal("unrelated EOF text should not be transient")
+	}
+}
+
+func TestRateLimitErrorMatchesCommon429Shapes(t *testing.T) {
+	for _, msg := range []string{
+		"status 429",
+		"status_code: 429",
+		"status code 429",
+		"StatusCode: 429",
+		"HTTP 429",
+		"code 429",
+		"status=429",
+		"Too Many Requests",
+	} {
+		t.Run(msg, func(t *testing.T) {
+			if !isRateLimitError(errors.New(msg)) {
+				t.Fatalf("%q should be rate-limit", msg)
+			}
+		})
+	}
+	if isRateLimitError(errors.New("business error mentions number 4290")) {
+		t.Fatal("unrelated numbers should not be rate-limit")
+	}
 }
 
 func TestExtractSetVars(t *testing.T) {
@@ -118,6 +190,81 @@ func TestRunStartedTimestampInteractiveUsesJobStartedAt(t *testing.T) {
 				reader.Ack(entry.Seq)
 			}
 		}
+	}
+}
+
+func TestLoopRunRetriesTransientFailureEndToEnd(t *testing.T) {
+	jobID := "job-transient-retry"
+	s := newStateTestService()
+	withFastRetryDelays(t, s)
+	reader, err := s.Subscribe(jobID, 0)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer reader.Close()
+
+	runner := &retrySequenceRunner{errs: []error{io.EOF, nil}}
+	job := &model.Job{ID: jobID, StartedAt: 1, LoopConfig: &model.LoopConfig{}, Progress: &model.JobProgress{TotalSteps: 1}}
+	node := model.FlowNode{Type: model.FlowNodeTypeStep, Message: "hello {{name}}", RepeatCount: 1}
+	job.LoopConfig.Variables = map[string]string{"name": "retry"}
+	nextResume := &model.JobResume{NextPath: []int{1, 0}, SessionID: "next"}
+
+	res := s.executeRepeat(context.Background(), job, runner, node, []int{0, 0}, "sess", nil, true /* isLoopRun */, nextResume)
+	if res != stepCompleted {
+		t.Fatalf("executeRepeat result=%v, want stepCompleted", res)
+	}
+	if runner.calls != 2 {
+		t.Fatalf("RunIteration calls=%d, want 2", runner.calls)
+	}
+	if len(runner.messages) != 2 || runner.messages[0][0].Content != "hello retry" || runner.messages[1][0].Content != "hello retry" {
+		t.Fatalf("retry messages=%+v, want substituted message on every attempt", runner.messages)
+	}
+	if job.Progress.CompletedCount != 1 || job.Progress.FailedCount != 0 {
+		t.Fatalf("progress completed=%d failed=%d, want 1/0", job.Progress.CompletedCount, job.Progress.FailedCount)
+	}
+	if job.Resume == nil || !model.EqualPaths(job.Resume.NextPath, nextResume.NextPath) || job.Resume.SessionID != nextResume.SessionID {
+		t.Fatalf("resume=%+v, want %+v", job.Resume, nextResume)
+	}
+
+	var sawCompleted bool
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	for !sawCompleted {
+		entries, ok := reader.Read(ctx, 16)
+		if !ok {
+			t.Fatal("timeout waiting for iteration completed event")
+		}
+		for _, entry := range entries {
+			if completed, ok := entry.Event.(*model.IterationCompletedEvent); ok {
+				sawCompleted = true
+				if !model.EqualPaths(completed.Path, []int{0, 0}) {
+					t.Fatalf("completed path=%v, want [0 0]", completed.Path)
+				}
+			}
+			if entry.Seq > 0 {
+				reader.Ack(entry.Seq)
+			}
+		}
+	}
+}
+
+func TestLoopRunRetriesRateLimitFailureEndToEnd(t *testing.T) {
+	jobID := "job-rate-limit-retry"
+	s := newStateTestService()
+	withFastRetryDelays(t, s)
+	runner := &retrySequenceRunner{errs: []error{errors.New("StatusCode: 429 retry_after: 0"), errors.New("HTTP 429"), nil}}
+	job := &model.Job{ID: jobID, StartedAt: 1, LoopConfig: &model.LoopConfig{}, Progress: &model.JobProgress{TotalSteps: 1}}
+	node := model.FlowNode{Type: model.FlowNodeTypeStep, Message: "rate limit", RepeatCount: 1}
+
+	res := s.executeRepeat(context.Background(), job, runner, node, []int{0, 0}, "sess", nil, true /* isLoopRun */, nil)
+	if res != stepCompleted {
+		t.Fatalf("executeRepeat result=%v, want stepCompleted", res)
+	}
+	if runner.calls != 3 {
+		t.Fatalf("RunIteration calls=%d, want 3", runner.calls)
+	}
+	if job.Progress.CompletedCount != 1 || job.Progress.FailedCount != 0 {
+		t.Fatalf("progress completed=%d failed=%d, want 1/0", job.Progress.CompletedCount, job.Progress.FailedCount)
 	}
 }
 

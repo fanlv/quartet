@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fanlv/quartet/pkg/fileserver"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/script"
@@ -14,24 +15,52 @@ import (
 	"github.com/fanlv/quartet/types/model"
 )
 
+const (
+	jobRunActionStart            = "start"
+	jobRunActionContinue         = "continue"
+	jobRunActionSendMessage      = "send_message"
+	jobRunActionSendMessageStart = "send_message_start"
+	jobRunActionFinish           = "finish"
+	jobRunActionStop             = "stop"
+	jobRunActionFail             = "fail"
+
+	jobRunSourceLoop        = "loop"
+	jobRunSourceInteractive = "interactive"
+
+	jobPersistActionIterationStarted       = "iteration_started"
+	jobPersistActionRecordIterationResult  = "record_iteration_result"
+	jobPersistActionRecordAndAdvanceResume = "record_and_advance_resume"
+	jobPersistActionGroupEarlyExit         = "group_early_exit"
+	jobPersistActionAttachSession          = "attach_session"
+	jobPersistActionExtractSetVarsShell    = "extract_set_vars_shell"
+	jobPersistActionPersistShellMessages   = "persist_shell_messages"
+)
+
+type clock interface {
+	NowMillis() int64
+}
+
+type realClock struct{}
+
+func (realClock) NowMillis() int64 {
+	return time.Now().UnixMilli()
+}
+
+func (s *serviceImpl) nowMillis() int64 {
+	if s != nil && s.clock != nil {
+		return s.clock.NowMillis()
+	}
+	return realClock{}.NowMillis()
+}
+
 // serviceImpl is the core job service implementation. It manages job CRUD,
 // execution lifecycle, SSE pub/sub, and cancellation tracking.
 //
-// The implementation is split across files inside this package:
-//
-//   - executor_store.go      — struct, infrastructure helpers, load/store,
-//     run-state snapshot/restore, OnJobDone wiring
-//   - executor_crud.go       — Create, Get, List*, Delete, pagination
-//   - executor_mutators.go   — targeted single-field updaters (UpdateTitle,
-//     MarkDeleted, EnsureShareToken,
-//     ClearShareToken, SetFirstModelID)
-//   - executor_persist.go    — saveJobWithRetry + recordPersistWarning
-//   - executor_run.go        — Start / Continue / SendMessage / Stop
-//   - executor_loop.go       — loop iteration scheduling
-//   - executor_step.go       — per-step execution and var extraction
-//   - executor_state.go      — terminal status transitions
-//   - executor_pubsub.go     — SSE event bus
-//   - executor_shell.go      — shell-step plumbing
+// The implementation is split by responsibility across CRUD/mutators,
+// persistence, lifecycle/run resources, stop/recovery handling, loop traversal,
+// shell execution, variable management, usage recording, and SSE event buffering
+// files. Keep this comment at the responsibility level: concrete filenames move
+// during refactors and quickly become stale.
 //
 // # Field ownership model
 //
@@ -61,15 +90,23 @@ import (
 //
 // # Lock ordering
 //
-// The mutexes in this struct protect independent data and must NEVER be
-// nested (no lock should be held while acquiring another). Each method should
-// acquire at most one lock, release it, then optionally acquire another. The
-// only exception is persistence: methods that snapshot and save a Job take
-// the per-job persist shard first, then s.mu, so disk writes preserve the
-// same order as the in-memory snapshots they persist.
+// Most mutexes in this struct protect independent data and should not be
+// nested: acquire one lock, release it, then optionally acquire another. The
+// allowed nested orders are deliberately small and must not be reversed:
 //
-// SSE pub/sub has its own internal lock graph encapsulated in *eventBus —
-// from serviceImpl's perspective the bus is a black box with method calls.
+//   - persistence paths take the per-job persist shard first, then s.mu, so
+//     disk writes preserve the same order as the in-memory snapshots they
+//     persist.
+//   - run launch paths (Start / Continue / SendMessage) take the persist shard,
+//     then s.mu, then the short-lived run-resource locks used by
+//     prepareRunResources (notifiedJobsMu, runStateMu, cancelMu, doneMu). This
+//     keeps Status=running and the cancel/done/run-state registrations atomic
+//     from observers' perspective. Code holding any of those resource locks
+//     must never call back into s.mu.
+//
+// SSE pub/sub has its own internal lock graph encapsulated by busOwner and
+// jobEventBuffer — from serviceImpl's perspective the bus is a black box with
+// method calls.
 type serviceImpl struct {
 	jobs map[string]*model.Job
 	mu   sync.RWMutex
@@ -83,12 +120,16 @@ type serviceImpl struct {
 	persistShards [persistShardCount]sync.Mutex
 
 	// per-workspace repos: wsID -> JobRepo
-	repos  map[string]repository.JobRepo
-	repoMu sync.RWMutex
-	wsSvc  workspace.Service
+	repos          map[string]repository.JobRepo
+	newJobRepo     func(wsID string) (repository.JobRepo, error)
+	newSessionRepo func(wsID, jobID string) (repository.SessionRepo, error)
+	repoMu         sync.RWMutex
+	wsSvc          workspace.Service
+	fileManager    fileserver.FileManager
 
 	// script service for loading shell scripts
-	scriptSvc script.Service
+	scriptSvc           script.Service
+	shellCommandFactory shellCommandFactory
 
 	// pub/sub: per-job append-only event buffer + cursor readers. Owns its
 	// own mutex graph internally; serviceImpl exposes Publish / Subscribe /
@@ -144,13 +185,10 @@ type serviceImpl struct {
 	runStates  map[string]*loopRunState
 	runStateMu sync.Mutex
 
-	// Monotonic per-workspace list version; incremented on every job mutation
-	// that would affect the listing (create/delete/save/status change). Used to
-	// build ETags for conditional GETs on the list endpoint. A workspace with no
-	// mutations since startup stays at 0. The "" key holds the global counter
-	// (used by the workspace-less /job/list variant).
-	wsListVersion   map[string]int64
-	wsListVersionMu sync.Mutex
+	// listVersions owns the monotonic per-workspace list counters used for
+	// conditional GET ETags. Keep this state behind a small component so the
+	// service struct does not need to expose another map+mutex pair directly.
+	listVersions *listVersionTracker
 
 	// usageRecorder is the optional usage-stats sink. When set, every
 	// completed step (interactive round / loop iteration / shell step)
@@ -158,16 +196,38 @@ type serviceImpl struct {
 	// stats are simply not recorded — the executor never depends on it
 	// returning anything.
 	usageRecorder usagestats.Recorder
+
+	// Retry delays are instance-scoped so tests can speed up one service without
+	// mutating package globals and blocking parallel test execution.
+	loopTransientRetryDelay time.Duration
+	loopRateLimitBaseDelay  time.Duration
+
+	// clock is instance-scoped so run/event millisecond timestamps can be
+	// deterministic in focused tests without mutating package globals.
+	clock clock
+}
+
+type listVersionTracker struct {
+	mu       sync.Mutex
+	versions map[string]int64
+}
+
+func newListVersionTracker() *listVersionTracker {
+	return &listVersionTracker{versions: make(map[string]int64)}
 }
 
 // bumpListVersion increments both the workspace-scoped and global list versions
 // so clients polling either the workspace-filtered or unfiltered endpoint see a
 // changed ETag. Safe to call under any lock — takes its own mutex.
 func (s *serviceImpl) bumpListVersion(wsID string) {
-	s.wsListVersionMu.Lock()
-	s.wsListVersion[wsID]++
-	s.wsListVersion[""]++
-	s.wsListVersionMu.Unlock()
+	s.listVersions.bump(wsID)
+}
+
+func (t *listVersionTracker) bump(wsID string) {
+	t.mu.Lock()
+	t.versions[wsID]++
+	t.versions[""]++
+	t.mu.Unlock()
 }
 
 // persistShardCount sets the granularity of per-job save serialization. 64
@@ -189,9 +249,13 @@ func (s *serviceImpl) persistLock(jobID string) *sync.Mutex {
 // WorkspaceListVersion returns the current monotonic list version. Empty wsID
 // returns the global counter.
 func (s *serviceImpl) WorkspaceListVersion(wsID string) int64 {
-	s.wsListVersionMu.Lock()
-	v := s.wsListVersion[wsID]
-	s.wsListVersionMu.Unlock()
+	return s.listVersions.current(wsID)
+}
+
+func (t *listVersionTracker) current(wsID string) int64 {
+	t.mu.Lock()
+	v := t.versions[wsID]
+	t.mu.Unlock()
 	return v
 }
 
@@ -303,7 +367,11 @@ func (s *serviceImpl) getOrCreateRepo(wsID string) (repository.JobRepo, error) {
 	if repo, ok := s.repos[wsID]; ok {
 		return repo, nil
 	}
-	repo, err := repository.NewJobRepo(wsID)
+	newJobRepo := s.newJobRepo
+	if newJobRepo == nil {
+		newJobRepo = repository.NewJobRepo
+	}
+	repo, err := newJobRepo(wsID)
 	if err != nil {
 		return nil, err
 	}
@@ -331,61 +399,83 @@ func (s *serviceImpl) load() {
 			continue
 		}
 		for _, j := range jobs {
-			if j.Deleted {
-				continue
+			if s.reconcileLoadedJob(ctx, repo, j) {
+				s.store(j.ID, j)
+				loadedJobs++
 			}
-			// Establish the in-memory invariant: every Job in s.jobs has a
-			// non-nil Progress. Pre-LoopConfig legacy records persisted with
-			// Progress=nil, so we lazy-init here once at load — every other
-			// access path can then dereference Progress without a guard.
-			ensureProgress(j)
-			// Reset running jobs to failed on startup (they were interrupted)
-			if j.Status == model.JobStatusRunning {
-				j.Status = model.JobStatusFailed
-				j.Progress.LastError = "interrupted: process restarted while running"
-				if err := repo.Save(j.ID, j); err != nil {
-					logger.Errorf(ctx, "[job.Service] reset running->failed persist failed: workspace=%s jobId=%s err=%v", ws.ID, j.ID, err)
-				}
-			}
-			// Clear Content from older loaded results to save memory.
-			// Preserve the LAST result's Content so injectPerRoundVars can
-			// populate _last_assistant_msg after a process restart + Continue
-			// — otherwise the variable resolves to empty AND the next save
-			// overwrites disk with the empty value, permanently losing the
-			// data. Mirrors the in-memory invariant maintained by
-			// appendAndSaveResult (only the latest result keeps Content).
-			if n := len(j.Progress.Results); n > 1 {
-				for i := 0; i < n-1; i++ {
-					j.Progress.Results[i].Content = ""
-				}
-			}
-			// Prefill FirstModelID for legacy jobs so the list endpoint never
-			// has to open session metadata files at request time (avoids the
-			// N+1 I/O hit on first listing after an upgrade). This runs once
-			// at startup and is idempotent — if already cached we skip the
-			// repo load.
-			if j.FirstModelID == "" && len(j.SessionIDs) > 0 {
-				if srepo, err := repository.NewSessionRepo(j.WorkspaceID, j.ID); err == nil {
-					for _, sid := range j.SessionIDs {
-						meta, err := srepo.Load(sid)
-						if err != nil || meta == nil || meta.Deleted {
-							continue
-						}
-						j.FirstModelID = meta.ModelID
-						break
-					}
-					if j.FirstModelID != "" {
-						if err := repo.Save(j.ID, j); err != nil {
-							logger.Warnf(ctx, "[job.Service] prefill FirstModelID save failed: jobId=%s err=%v", j.ID, err)
-						}
-					}
-				}
-			}
-			s.store(j.ID, j)
-			loadedJobs++
 		}
 	}
 	logger.Infof(ctx, "[job.Service] startup load done: workspaces=%d jobs=%d durMs=%d", len(workspaces), loadedJobs, time.Since(start).Milliseconds())
+}
+
+// reconcileLoadedJob applies startup-only repair and denormalization to one
+// loaded job. It returns false when the job should be skipped from the in-memory
+// store (currently only soft-deleted jobs). Keeping this logic out of load()
+// makes the per-job reconciliation independently testable and keeps load()
+// focused on workspace/repo traversal.
+func (s *serviceImpl) reconcileLoadedJob(ctx context.Context, repo repository.JobRepo, j *model.Job) bool {
+	if j.Deleted {
+		return false
+	}
+	// Establish the in-memory invariant: every Job in s.jobs has a
+	// non-nil Progress. Pre-LoopConfig legacy records persisted with
+	// Progress=nil, so we lazy-init here once at load — every other
+	// access path can then dereference Progress without a guard.
+	ensureProgress(j)
+	// Reset running jobs to failed on startup (they were interrupted)
+	if j.Status == model.JobStatusRunning {
+		j.Status = model.JobStatusFailed
+		j.Progress.LastError = "interrupted: process restarted while running"
+		if err := repo.Save(j.ID, j); err != nil {
+			logger.Errorf(ctx, "[job.Service] reset running->failed persist failed: workspace=%s jobId=%s err=%v", j.WorkspaceID, j.ID, err)
+		}
+	}
+	// Clear Content from older loaded results to save memory.
+	// Preserve the LAST result's Content so injectPerRoundVars can
+	// populate _last_assistant_msg after a process restart + Continue
+	// — otherwise the variable resolves to empty AND the next save
+	// overwrites disk with the empty value, permanently losing the
+	// data. Mirrors the in-memory invariant maintained by
+	// appendAndSaveResult (only the latest result keeps Content).
+	if n := len(j.Progress.Results); n > 1 {
+		for i := 0; i < n-1; i++ {
+			j.Progress.Results[i].Content = ""
+		}
+	}
+	// Prefill FirstModelID for legacy jobs so the list endpoint never
+	// has to open session metadata files at request time (avoids the
+	// N+1 I/O hit on first listing after an upgrade). This runs once
+	// at startup and is idempotent — if already cached we skip the
+	// repo load.
+	if j.FirstModelID == "" && len(j.SessionIDs) > 0 {
+		s.prefillLoadedFirstModelID(ctx, repo, j)
+	}
+	return true
+}
+
+func (s *serviceImpl) prefillLoadedFirstModelID(ctx context.Context, repo repository.JobRepo, j *model.Job) {
+	newSessionRepo := s.newSessionRepo
+	if newSessionRepo == nil {
+		newSessionRepo = repository.NewSessionRepo
+	}
+	srepo, err := newSessionRepo(j.WorkspaceID, j.ID)
+	if err != nil {
+		logger.Debugf(ctx, "[job.Service] prefill FirstModelID: create session repo failed: jobId=%s err=%v", j.ID, err)
+		return
+	}
+	for _, sid := range j.SessionIDs {
+		meta, err := srepo.Load(sid)
+		if err != nil || meta == nil || meta.Deleted {
+			continue
+		}
+		j.FirstModelID = meta.ModelID
+		break
+	}
+	if j.FirstModelID != "" {
+		if err := repo.Save(j.ID, j); err != nil {
+			logger.Warnf(ctx, "[job.Service] prefill FirstModelID save failed: jobId=%s err=%v", j.ID, err)
+		}
+	}
 }
 
 func (s *serviceImpl) store(jobID string, job *model.Job) {

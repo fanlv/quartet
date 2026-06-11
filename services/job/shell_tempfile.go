@@ -95,17 +95,16 @@ const staleWorkdirTempAge = 6 * time.Hour
 // `make web-stop`). Files there are deleted only when older than
 // staleWorkdirTempAge so a concurrent live run on another quartet
 // instance is not disturbed.
-func cleanupResidualTempFiles(workdirs []string) {
-	cleanupResidualShellTempDirs()
+func cleanupResidualTempFiles(fm fileserver.FileManager, workdirs []string) {
+	cleanupResidualShellTempDirs(fm)
 	cleanupResidualWorkdirTempFiles(workdirs)
 }
 
-func cleanupResidualShellTempDirs() {
+func cleanupResidualShellTempDirs(fm fileserver.FileManager) {
 	baseDir, err := shellTempBaseDir()
 	if err != nil {
 		return
 	}
-	fm := fileserver.GetFileManager()
 	entries, err := fm.FileList(&fsmodel.FileListRequest{Path: baseDir})
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -225,7 +224,7 @@ func shellTempDir() (string, error) {
 	return filepath.Join(baseDir, ".quartet-shell-"+shellInstanceID), nil
 }
 
-func ensureShellTempDir() (string, error) {
+func ensureShellTempDir(fm fileserver.FileManager) (string, error) {
 	processShellTempMu.Lock()
 	defer processShellTempMu.Unlock()
 
@@ -238,19 +237,17 @@ func ensureShellTempDir() (string, error) {
 	if processShellTempDir == dir {
 		return processShellTempDir, nil
 	}
-	if err := fileserver.GetFileManager().MkDir(&fsmodel.MkDirRequest{Path: dir}); err != nil {
+	if err := fm.MkDir(&fsmodel.MkDirRequest{Path: dir}); err != nil {
 		return "", fmt.Errorf("ensure shell temp dir failed: %w", err)
 	}
 	processShellTempDir = dir
 	return dir, nil
 }
 
-func writeShellTempFile(workdir, scriptContent string) (string, func(), error) {
-	sb := fileserver.GetFileManager()
-
+func writeShellTempFile(fm fileserver.FileManager, workdir, scriptContent string) (string, func(), error) {
 	tempDir := workdir
 	if tempDir == "" {
-		dir, err := ensureShellTempDir()
+		dir, err := ensureShellTempDir(fm)
 		if err != nil {
 			return "", func() {}, fmt.Errorf("resolve temp dir failed: %w", err)
 		}
@@ -268,7 +265,7 @@ func writeShellTempFile(workdir, scriptContent string) (string, func(), error) {
 		content = "#!/usr/bin/env bash\n" + shellHelpers + scriptContent
 	}
 
-	result, err := sb.FileCreateTemp(&fsmodel.FileCreateTempRequest{
+	result, err := fm.FileCreateTemp(&fsmodel.FileCreateTempRequest{
 		Dir:     tempDir,
 		Pattern: ".quartet-shell-*.sh",
 		Content: content,
@@ -278,24 +275,23 @@ func writeShellTempFile(workdir, scriptContent string) (string, func(), error) {
 		return "", func() {}, err
 	}
 	cleanup := func() {
-		_ = sb.FileDelete(&fsmodel.FileDeleteRequest{Path: result.File})
+		_ = fm.FileDelete(&fsmodel.FileDeleteRequest{Path: result.File})
 	}
 	return result.File, cleanup, nil
 }
 
 // createControlFile creates a temporary control file in the given directory
 // and returns its path and a cleanup function.
-func createControlFile(workdir string) (string, func(), error) {
-	sb := fileserver.GetFileManager()
+func createControlFile(fm fileserver.FileManager, workdir string) (string, func(), error) {
 	dir := workdir
 	if dir == "" {
-		tmp, err := ensureShellTempDir()
+		tmp, err := ensureShellTempDir(fm)
 		if err != nil {
 			return "", func() {}, fmt.Errorf("resolve temp dir failed: %w", err)
 		}
 		dir = tmp
 	}
-	result, err := sb.FileCreateTemp(&fsmodel.FileCreateTempRequest{
+	result, err := fm.FileCreateTemp(&fsmodel.FileCreateTempRequest{
 		Dir:     dir,
 		Pattern: ".quartet-ctrl-*.txt",
 		Content: "",
@@ -304,5 +300,5 @@ func createControlFile(workdir string) (string, func(), error) {
 	if err != nil {
 		return "", func() {}, err
 	}
-	return result.File, func() { _ = sb.FileDelete(&fsmodel.FileDeleteRequest{Path: result.File}) }, nil
+	return result.File, func() { _ = fm.FileDelete(&fsmodel.FileDeleteRequest{Path: result.File}) }, nil
 }

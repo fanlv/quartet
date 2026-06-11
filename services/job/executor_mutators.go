@@ -91,12 +91,7 @@ func (s *serviceImpl) MarkDeleted(jobID string) error {
 func (s *serviceImpl) UpdateTitle(jobID string, title string) error {
 	apply := func(j *model.Job) {
 		j.Title = title
-		if j.LoopConfig != nil {
-			if j.LoopConfig.Variables == nil {
-				j.LoopConfig.Variables = make(map[string]string)
-			}
-			j.LoopConfig.Variables[consts.VarJobTitle] = title
-		}
+		upsertLoopVariables(j, map[string]string{consts.VarJobTitle: title})
 	}
 	return s.updateJobField(jobID, apply, apply)
 }
@@ -106,36 +101,8 @@ func (s *serviceImpl) UpdatePinned(jobID string, pinned bool) (int64, error) {
 	if pinned {
 		pinnedAt = time.Now().UnixMilli()
 	}
-	lock := s.persistLock(jobID)
-	lock.Lock()
-	defer lock.Unlock()
-
-	s.mu.Lock()
-	existing, ok := s.jobs[jobID]
-	if !ok {
-		s.mu.Unlock()
-		return 0, ErrJobNotFound
-	}
-	cp := existing.DeepCopy()
-	s.mu.Unlock()
-
-	cp.PinnedAt = pinnedAt
-	repo, err := s.getOrCreateRepo(cp.WorkspaceID)
-	if err != nil {
-		return 0, fmt.Errorf("get repo for workspace %s failed: %w", cp.WorkspaceID, err)
-	}
-	if err := repo.Save(cp.ID, cp); err != nil {
-		return 0, err
-	}
-
-	s.mu.Lock()
-	if cur, ok := s.jobs[jobID]; ok && cur == existing {
-		existing.PinnedAt = pinnedAt
-	}
-	s.mu.Unlock()
-
-	s.bumpListVersion(cp.WorkspaceID)
-	return pinnedAt, nil
+	apply := func(j *model.Job) { j.PinnedAt = pinnedAt }
+	return pinnedAt, s.updateJobField(jobID, apply, apply)
 }
 
 // SetFirstModelID denormalizes the first session's ModelID onto the Job. See

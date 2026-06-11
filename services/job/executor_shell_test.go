@@ -21,7 +21,7 @@ import (
 
 func TestParseControlFile_Empty(t *testing.T) {
 	f := writeTempFile(t, "")
-	vars, stopLoop, stopWorkflow := parseControlFile(context.Background(), "test-job", f)
+	vars, stopLoop, stopWorkflow := parseControlFile(context.Background(), fileserver.GetFileManager(), "test-job", f)
 	if vars != nil || stopLoop || stopWorkflow {
 		t.Errorf("empty file should return nil/false, got vars=%v stopLoop=%v stopWorkflow=%v", vars, stopLoop, stopWorkflow)
 	}
@@ -29,7 +29,7 @@ func TestParseControlFile_Empty(t *testing.T) {
 
 func TestParseControlFile_StopLoop(t *testing.T) {
 	f := writeTempFile(t, "STOP_LOOP\n")
-	_, stopLoop, stopWorkflow := parseControlFile(context.Background(), "test-job", f)
+	_, stopLoop, stopWorkflow := parseControlFile(context.Background(), fileserver.GetFileManager(), "test-job", f)
 	if !stopLoop {
 		t.Error("should detect STOP_LOOP")
 	}
@@ -40,7 +40,7 @@ func TestParseControlFile_StopLoop(t *testing.T) {
 
 func TestParseControlFile_StopWorkflow(t *testing.T) {
 	f := writeTempFile(t, "STOP_WORKFLOW\n")
-	_, stopLoop, stopWorkflow := parseControlFile(context.Background(), "test-job", f)
+	_, stopLoop, stopWorkflow := parseControlFile(context.Background(), fileserver.GetFileManager(), "test-job", f)
 	if stopLoop {
 		t.Error("should not detect STOP_LOOP")
 	}
@@ -51,7 +51,7 @@ func TestParseControlFile_StopWorkflow(t *testing.T) {
 
 func TestParseControlFile_PlainVars(t *testing.T) {
 	f := writeTempFile(t, "key1=value1\nkey2=value2\n")
-	vars, _, _ := parseControlFile(context.Background(), "test-job", f)
+	vars, _, _ := parseControlFile(context.Background(), fileserver.GetFileManager(), "test-job", f)
 	if vars["key1"] != "value1" || vars["key2"] != "value2" {
 		t.Errorf("unexpected vars: %v", vars)
 	}
@@ -60,7 +60,7 @@ func TestParseControlFile_PlainVars(t *testing.T) {
 func TestParseControlFile_Base64Vars(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString([]byte("hello=world"))
 	f := writeTempFile(t, "B64:mykey="+encoded+"\n")
-	vars, _, _ := parseControlFile(context.Background(), "test-job", f)
+	vars, _, _ := parseControlFile(context.Background(), fileserver.GetFileManager(), "test-job", f)
 	if vars["mykey"] != "hello=world" {
 		t.Errorf("expected 'hello=world', got %q", vars["mykey"])
 	}
@@ -70,7 +70,7 @@ func TestParseControlFile_Mixed(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString([]byte("encoded_val"))
 	content := "plain=abc\nB64:b64key=" + encoded + "\nSTOP_LOOP\n"
 	f := writeTempFile(t, content)
-	vars, stopLoop, stopWorkflow := parseControlFile(context.Background(), "test-job", f)
+	vars, stopLoop, stopWorkflow := parseControlFile(context.Background(), fileserver.GetFileManager(), "test-job", f)
 	if vars["plain"] != "abc" {
 		t.Errorf("plain key: got %q", vars["plain"])
 	}
@@ -86,7 +86,7 @@ func TestParseControlFile_Mixed(t *testing.T) {
 }
 
 func TestParseControlFile_NonExistent(t *testing.T) {
-	vars, stopLoop, stopWorkflow := parseControlFile(context.Background(), "test-job", "/tmp/nonexistent-quartet-test-file")
+	vars, stopLoop, stopWorkflow := parseControlFile(context.Background(), fileserver.GetFileManager(), "test-job", "/tmp/nonexistent-quartet-test-file")
 	if vars != nil || stopLoop || stopWorkflow {
 		t.Error("non-existent file should return nil/false")
 	}
@@ -200,7 +200,8 @@ func TestTempFilesUseDedicatedShellDir(t *testing.T) {
 			startNanos, pid, legacy, ok, os.Getpid())
 	}
 
-	scriptPath, cleanupScript, err := writeShellTempFile("", "echo hi")
+	fm := fileserver.GetFileManager()
+	scriptPath, cleanupScript, err := writeShellTempFile(fm, "", "echo hi")
 	if err != nil {
 		t.Fatalf("writeShellTempFile failed: %v", err)
 	}
@@ -209,7 +210,7 @@ func TestTempFilesUseDedicatedShellDir(t *testing.T) {
 		t.Fatalf("script temp dir = %q, want %q", filepath.Dir(scriptPath), wantDir)
 	}
 
-	ctrlPath, cleanupCtrl, err := createControlFile("")
+	ctrlPath, cleanupCtrl, err := createControlFile(fm, "")
 	if err != nil {
 		t.Fatalf("createControlFile failed: %v", err)
 	}
@@ -226,7 +227,8 @@ func TestCleanupResidualTempFiles_OnlyTouchesDedicatedDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("shellTempBaseDir failed: %v", err)
 	}
-	currentDir, err := ensureShellTempDir()
+	fm := fileserver.GetFileManager()
+	currentDir, err := ensureShellTempDir(fm)
 	if err != nil {
 		t.Fatalf("ensureShellTempDir failed: %v", err)
 	}
@@ -262,7 +264,7 @@ func TestCleanupResidualTempFiles_OnlyTouchesDedicatedDir(t *testing.T) {
 		}
 	}
 
-	cleanupResidualTempFiles(nil)
+	cleanupResidualTempFiles(fm, nil)
 
 	if _, err := os.Stat(staleDir); !os.IsNotExist(err) {
 		t.Fatalf("stale PID-collision dir should be deleted, stat err=%v", err)
@@ -294,7 +296,8 @@ func TestCleanupResidualTempFiles_LegacyDirIsDeleted(t *testing.T) {
 	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
 		t.Fatalf("mkdir legacy dir failed: %v", err)
 	}
-	currentDir, err := ensureShellTempDir()
+	fm := fileserver.GetFileManager()
+	currentDir, err := ensureShellTempDir(fm)
 	if err != nil {
 		t.Fatalf("ensureShellTempDir failed: %v", err)
 	}
@@ -303,7 +306,7 @@ func TestCleanupResidualTempFiles_LegacyDirIsDeleted(t *testing.T) {
 		t.Fatalf("write current temp file failed: %v", err)
 	}
 
-	cleanupResidualTempFiles(nil)
+	cleanupResidualTempFiles(fm, nil)
 
 	if _, err := os.Stat(legacyDir); !os.IsNotExist(err) {
 		t.Fatalf("legacy-format dir (Docker PID=1 restart scenario) should be deleted, stat err=%v", err)
@@ -341,7 +344,7 @@ func TestCleanupResidualTempFiles_WorkdirRemovesOrphans(t *testing.T) {
 		}
 	}
 
-	cleanupResidualTempFiles([]string{workdir})
+	cleanupResidualTempFiles(fileserver.GetFileManager(), []string{workdir})
 
 	if _, err := os.Stat(staleShell); !os.IsNotExist(err) {
 		t.Fatalf("stale .quartet-shell-*.sh should be removed, stat err=%v", err)

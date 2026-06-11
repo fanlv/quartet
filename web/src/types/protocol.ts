@@ -80,10 +80,12 @@ export interface RunFinishedEvent extends BaseEvent {
   type: EventTypeEnum.RUN_FINISHED;
 }
 
+export type RunErrorCode = 'INTERNAL' | 'TIMEOUT' | 'NETWORK' | 'RATE_LIMIT' | 'SHELL' | 'PANIC';
+
 export interface RunErrorEvent extends BaseEvent {
   type: EventTypeEnum.RUN_ERROR;
   message: string;
-  code?: string;
+  code?: RunErrorCode;
 }
 
 export interface TextMessageStartEvent extends BaseEvent {
@@ -190,10 +192,13 @@ export interface IterationResult {
 export interface JobProgress {
   totalSteps: number;
   currentPath?: number[];
+  /** Unix-ms timestamp for the currently running iteration, persisted by the backend. */
+  currentStartedAt?: number;
   completedCount: number;
   failedCount: number;
   results?: IterationResult[];
   lastError?: string;
+  persistWarnings?: string[];
   // groupActualIterations maps a group's dot-joined node path (e.g. "0.0") to
   // the number of rounds it actually ran when it broke early via stepStopLoop
   // (evaluator STOP or Shell STOP_LOOP). Used to recompute the session/step

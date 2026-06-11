@@ -2,8 +2,11 @@ package job
 
 import (
 	"context"
+	"errors"
+	"os/exec"
 
 	"github.com/cloudwego/eino/schema"
+	"github.com/fanlv/quartet/pkg/fileserver"
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/script"
 	"github.com/fanlv/quartet/services/usagestats"
@@ -119,7 +122,7 @@ type Service interface {
 	// caller that doesn't carry a Last-Event-ID). Returns ErrSeqGone when
 	// startSeq is older than the buffer's GC head — the SSE handler maps
 	// this to HTTP 410 so the client falls back to "re-fetch snapshot".
-	Subscribe(jobID string, startSeq uint64) (*bufferReader, error)
+	Subscribe(jobID string, startSeq uint64) (*Reader, error)
 	// SnapshotSeq returns the resume sequence the snapshot endpoint should
 	// hand out as the new subscriber's initial Last-Event-ID. If a round
 	// is in flight, returns round_start - 1 so the subscriber sees the
@@ -167,24 +170,39 @@ func (o *SendMessageOptions) getMessages() []*schema.Message {
 }
 
 func NewService(wsSvc workspace.Service, scriptSvc script.Service) (Service, error) {
+	if wsSvc == nil {
+		return nil, errors.New("workspace service is required")
+	}
+
 	s := &serviceImpl{
-		jobs:                   make(map[string]*model.Job),
-		repos:                  make(map[string]repository.JobRepo),
-		wsSvc:                  wsSvc,
-		scriptSvc:              scriptSvc,
-		bus:                    newBusOwner(),
-		cancels:                make(map[string]*cancelEntry),
-		dones:                  make(map[string]chan struct{}),
-		interactivePriorStatus: make(map[string]model.JobStatus),
-		wsListVersion:          make(map[string]int64),
-		notifiedJobs:           make(map[string]struct{}),
-		runStates:              make(map[string]*loopRunState),
+		jobs:                    make(map[string]*model.Job),
+		repos:                   make(map[string]repository.JobRepo),
+		newJobRepo:              repository.NewJobRepo,
+		newSessionRepo:          repository.NewSessionRepo,
+		wsSvc:                   wsSvc,
+		fileManager:             fileserver.GetFileManager(),
+		scriptSvc:               scriptSvc,
+		shellCommandFactory:     exec.Command,
+		bus:                     newBusOwner(),
+		cancels:                 make(map[string]*cancelEntry),
+		dones:                   make(map[string]chan struct{}),
+		interactivePriorStatus:  make(map[string]model.JobStatus),
+		listVersions:            newListVersionTracker(),
+		notifiedJobs:            make(map[string]struct{}),
+		runStates:               make(map[string]*loopRunState),
+		loopTransientRetryDelay: defaultLoopTransientRetryDelay,
+		loopRateLimitBaseDelay:  defaultLoopRateLimitBaseDelay,
+		clock:                   realClock{},
 	}
 
 	s.load()
 
 	// Clean up temp files from previous runs that may have been interrupted.
-	cleanupResidualTempFiles(workspaceWorkdirs(wsSvc))
+	// This can touch every workspace workdir, so keep it off the startup path:
+	// stale temp files only affect disk usage and should not delay service
+	// availability on slow filesystems.
+	workdirs := workspaceWorkdirs(wsSvc)
+	go cleanupResidualTempFiles(s.fileManager, workdirs)
 
 	return s, nil
 }

@@ -469,11 +469,39 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // events with old timestamps do not pull the estimate back into the past
   // once a newer real-time event has been seen.
   const serverClockRef = useRef<{ latestServerTs: number; clientReceivedAtMs: number } | null>(null);
+  const SERVER_CLOCK_STALE_EVENT_TOLERANCE_MS = 30_000;
   const updateServerClock = useCallback((serverTs: number | undefined) => {
     if (typeof serverTs !== 'number' || !Number.isFinite(serverTs) || serverTs <= 0) return;
     const prev = serverClockRef.current;
+    const clientNow = Date.now();
+    if (prev != null) {
+      const projectedNow = prev.latestServerTs + (clientNow - prev.clientReceivedAtMs);
+      // A freshly opened long-running job can replay the current round's
+      // ITERATION_STARTED from hours ago. Treating that old event timestamp as
+      // "server now" makes a running DurationBadge compute now≈startedAt and
+      // show 0ms until the projection catches up. Once an HTTP snapshot has
+      // seeded the real server wall clock, only let events move the estimate
+      // forward or near-forward; never rewind it to stale replay time.
+      if (serverTs < projectedNow - SERVER_CLOCK_STALE_EVENT_TOLERANCE_MS) return;
+    } else if (serverTs < clientNow - SERVER_CLOCK_STALE_EVENT_TOLERANCE_MS) {
+      // No snapshot seed yet: don't let an old ring-buffer event establish a
+      // bad zero-duration clock. Real-time events are close to Date.now(); old
+      // replay is not.
+      return;
+    }
     if (prev == null || serverTs > prev.latestServerTs) {
-      serverClockRef.current = { latestServerTs: serverTs, clientReceivedAtMs: Date.now() };
+      serverClockRef.current = { latestServerTs: serverTs, clientReceivedAtMs: clientNow };
+    }
+  }, []);
+  const seedServerClockFromResponse = useCallback((res: Response) => {
+    const dateHeader = res.headers.get('date');
+    if (!dateHeader) return;
+    const serverNow = new Date(dateHeader).getTime();
+    if (!Number.isFinite(serverNow) || serverNow <= 0) return;
+    const clientNow = Date.now();
+    const prev = serverClockRef.current;
+    if (prev == null || serverNow > prev.latestServerTs) {
+      serverClockRef.current = { latestServerTs: serverNow, clientReceivedAtMs: clientNow };
     }
   }, []);
   const getServerNowEstimate = useCallback(() => {
@@ -1367,6 +1395,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       if (!res.ok) {
         throw new Error(await readHTTPError(res, `GET /job/${id}`));
       }
+      seedServerClockFromResponse(res);
       const job = await res.json();
       // Discard stale responses — a newer syncJobState call was initiated
       // while this request was in flight.
@@ -1691,7 +1720,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       console.warn('[SSE reconnect] failed to sync job state:', err);
       throw err;
     }
-  }, [apiUrl, finalizeInFlightMessages, loadHistory, setLoopSessions, getServerNowEstimate]);
+  }, [apiUrl, finalizeInFlightMessages, loadHistory, setLoopSessions, getServerNowEstimate, seedServerClockFromResponse]);
 
   // Keep syncJobStateRef in sync so handleEvent can call it.
   syncJobStateRef.current = syncJobState;
@@ -1780,6 +1809,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       if (!res.ok) {
         throw new Error(await readHTTPError(res, `reload from disk: GET /job/${currentJobId}`));
       }
+      seedServerClockFromResponse(res);
       const job = await res.json();
       if (cancelled) return;
 
@@ -2001,7 +2031,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       eventSseRef.current?.disconnect();
       eventSseRef.current = null;
     };
-  }, [jobId, jobNotFound, snapshotReady, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect]);
+  }, [jobId, jobNotFound, snapshotReady, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse]);
 
   // Send interactive message.
   //
@@ -2427,6 +2457,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           err.status = res.status;
           throw err;
         }
+        seedServerClockFromResponse(res);
         return res.json();
       })
       .then(async (job) => {
@@ -2506,6 +2537,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                 (sum, e) => sum + (e.durationMs ?? 0),
                 0
               );
+              const currentStartedAt =
+                typeof job.progress?.currentStartedAt === 'number' && job.progress.currentStartedAt > 0
+                  ? job.progress.currentStartedAt
+                  : undefined;
+              const isCurrentPath = (path: number[]) => {
+                const currentPath = job.progress?.currentPath ?? [];
+                return path.length === currentPath.length
+                  && path.every((v: number, i: number) => v === currentPath[i]);
+              };
               const appendEntry = (sessionId: string, path: number[]) => {
                 const key = sessionEntryKey(sessionId, path);
                 if (existingEntryKeys.has(key)) return;
@@ -2515,10 +2555,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                   path,
                   label: formatSessionPathLabel(path),
                   status,
-                  startedAt:
-                    status === 'running' && typeof job.startedAt === 'number' && job.startedAt > 0
-                      ? job.startedAt + completedBaseMs
-                      : undefined,
+                  startedAt: (() => {
+                    if (status !== 'running') return undefined;
+                    if (currentStartedAt != null && isCurrentPath(path)) return currentStartedAt;
+                    if (typeof job.startedAt === 'number' && job.startedAt > 0) {
+                      return job.startedAt + completedBaseMs;
+                    }
+                    return undefined;
+                  })(),
                 });
                 existingEntryKeys.add(key);
               };
@@ -2641,9 +2685,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             if (!cancelled && !job.progress?.results?.length && job.sessionIds?.length > 0) {
               const hydratedStatus = deriveExtraSessionStatus(job.status);
               const hydratedStartedAt =
-                hydratedStatus === 'running' && typeof job.startedAt === 'number' && job.startedAt > 0
-                  ? job.startedAt
-                  : undefined;
+                hydratedStatus === 'running' && typeof job.progress?.currentStartedAt === 'number' && job.progress.currentStartedAt > 0
+                  ? job.progress.currentStartedAt
+                  : hydratedStatus === 'running' && typeof job.startedAt === 'number' && job.startedAt > 0
+                    ? job.startedAt
+                    : undefined;
               const entries: LoopSessionEntry[] = job.sessionIds.map((sid: string) => ({
                 sessionId: sid,
                 path: job.resume?.sessionId === sid && (job.resume?.nextPath?.length ?? 0) > 0
@@ -2808,7 +2854,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       cancelled = true;
       if (cancelIdlePrefetch) cancelIdlePrefetch();
     };
-  }, [existingJobId, initialSessionId, apiUrl, loadHistory, applyActiveSessionSelection, setLoopSessions]);
+  }, [existingJobId, initialSessionId, apiUrl, loadHistory, applyActiveSessionSelection, setLoopSessions, seedServerClockFromResponse]);
 
   // When the active session changes in loop mode, update session-level metadata
   // so ChatInput/MessageList reflect the session's agent/model.

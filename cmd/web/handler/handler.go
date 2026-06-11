@@ -393,12 +393,22 @@ func (h *Handler) GetSettingsService() config.SettingsService {
 func (h *Handler) ScheduleTrigger(ctx context.Context, task *model.ScheduledTask) (string, error) {
 	loopConfig := task.LoopConfig
 
+	// Schedules follow their template: when a TemplateID is set we re-read the
+	// live template at trigger time so later edits take effect on the next run.
+	// task.LoopConfig is the fallback snapshot used only when the template read
+	// fails (e.g. it was deleted). Live config is re-validated here because the
+	// template may have been persisted before validation was enforced, or
+	// mutated out of band — every LoopConfig used to build a Job must be valid.
 	if task.TemplateID != "" {
 		tmpl, err := h.templateService.Get(ctx, task.TemplateID)
 		if err != nil {
 			logger.Warnf(ctx, "[ScheduleTrigger] fetch template %s failed, falling back to snapshot: %v", task.TemplateID, err)
 		} else if tmpl != nil {
-			loopConfig = tmpl.Config
+			if err := model.NormalizeAndValidateLoopConfig(&tmpl.Config, model.FlowDefaults{}); err != nil {
+				logger.Warnf(ctx, "[ScheduleTrigger] live template %s is invalid, falling back to snapshot: %v", task.TemplateID, err)
+			} else {
+				loopConfig = tmpl.Config
+			}
 		}
 	}
 

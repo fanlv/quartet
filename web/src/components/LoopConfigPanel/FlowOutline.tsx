@@ -97,11 +97,16 @@ export function FlowOutline({
           const toggleTitle = isCollapsed ? t('loop.outline.expandGroup') : t('loop.outline.collapseGroup');
 
           return (
-            <div className="loop-outline-node" key={node.id}>
+            <div className={`loop-outline-node loop-outline-node-group${isCollapsed ? ' collapsed' : ''}`} key={node.id}>
               <button
                 className={`loop-outline-row loop-outline-row-group${isSelected ? ' selected' : ''}${issue ? ' has-error' : ''}${isCollapsed ? ' collapsed' : ''}`}
                 style={rowStyle}
-                onClick={() => onSelect(node.id)}
+                onClick={() => {
+                  onSelect(node.id);
+                  if (childrenCount > 0) {
+                    onToggleGroup(node.id);
+                  }
+                }}
                 type="button"
                 aria-expanded={!isCollapsed}
               >
@@ -110,7 +115,9 @@ export function FlowOutline({
                   title={toggleTitle}
                   onClick={(event) => {
                     event.stopPropagation();
-                    onToggleGroup(node.id);
+                    if (childrenCount > 0) {
+                      onToggleGroup(node.id);
+                    }
                   }}
                 >
                   ▾
@@ -160,7 +167,7 @@ export function FlowOutline({
         const typeChar = isShell ? 'S' : isEvaluator ? 'E' : 'P';
         const typeClass = isShell ? 'shell' : isEvaluator ? 'evaluator' : 'prompt';
         return (
-          <div className="loop-outline-node" key={node.id}>
+          <div className="loop-outline-node loop-outline-node-step" key={node.id}>
             <button
               className={`loop-outline-row loop-outline-row-step${isSelected ? ' selected' : ''}${issue ? ' has-error' : ''}`}
               style={rowStyle}

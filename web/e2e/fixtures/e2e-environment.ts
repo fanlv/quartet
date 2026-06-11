@@ -6,11 +6,24 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const e2eAuthToken = process.env.QUARTET_E2E_AUTH_TOKEN || 'quartet-e2e-token'
+export const e2eShellOpenAIAPIKey = 'quartet-e2e-openai-passthrough'
+export const e2eShellAWSSecretAccessKey = 'quartet-e2e-filtered-aws-secret'
+export const e2eShellStaleControl = 'quartet-e2e-stale-control'
+export const e2eLegacyFirstModelJobID = 'job-e2e-legacy-first-model'
+export const e2eLegacyFirstModelID = 'e2e-legacy-first-model'
+export const e2eLegacyRoundsJobID = 'job-e2e-legacy-rounds-only'
+export const e2eInterruptedRunningJobID = 'job-e2e-interrupted-running'
+export const e2ePersistWarningJobID = 'job-e2e-persist-warning-without-last-error'
+export const e2eCleanupWorkspaceID = 'ws-e2e-startup-cleanup'
+export const e2eStaleShellTempName = '.quartet-shell-e2e-stale.sh'
+export const e2eStaleControlTempName = '.quartet-ctrl-e2e-stale.txt'
+export const e2eFreshShellTempName = '.quartet-shell-e2e-fresh.sh'
 
 const backendPort = Number(process.env.QUARTET_E2E_BACKEND_PORT || 18090)
 const frontendPort = Number(process.env.VITE_E2E_PORT || 5174)
 const backendURL = process.env.VITE_E2E_BACKEND_URL || `http://127.0.0.1:${backendPort}`
 const frontendURL = `http://127.0.0.1:${frontendPort}`
+export const e2eBackendURL = backendURL
 
 // E2E drives REAL agent links (no replay model, no QUARTET_E2E mode). The
 // primary chat-link coverage runs against an installed ACP agent discovered
@@ -229,6 +242,184 @@ function seedAgentConfig(localMemory: string) {
   fs.writeFileSync(path.join(localMemory, 'agent', 'settings.json'), `${JSON.stringify(settings, null, 2)}\n`)
 }
 
+function seedLegacyFirstModelIDFixture(localMemory: string) {
+  const jobID = e2eLegacyFirstModelJobID
+  const deletedSessionID = 'session-e2e-legacy-deleted'
+  const liveSessionID = 'session-e2e-legacy-live'
+  const now = new Date().toISOString()
+  const jobDir = path.join(localMemory, 'workspaces', 'ws-1', 'jobs', jobID)
+  const jobMetaDir = path.join(jobDir, '.meta')
+  fs.mkdirSync(jobMetaDir, { recursive: true })
+  fs.writeFileSync(path.join(jobMetaDir, 'job.json'), `${JSON.stringify({
+    id: jobID,
+    title: 'E2E Legacy FirstModelID Prefill',
+    createdAt: now,
+    updatedAt: now,
+    mode: 'interactive',
+    workspaceId: 'ws-1',
+    status: 'completed',
+    sessionIds: [deletedSessionID, liveSessionID],
+    // Deliberately omit firstModelId to emulate legacy records persisted
+    // before the denormalized Job list cache existed.
+  }, null, 2)}\n`)
+
+  for (const session of [
+    { id: deletedSessionID, title: 'deleted legacy session', model_id: 'deleted-model', deleted: true },
+    { id: liveSessionID, title: 'live legacy session', model_id: e2eLegacyFirstModelID },
+  ]) {
+    const metaDir = path.join(jobDir, 'sessions', session.id, '.meta')
+    fs.mkdirSync(metaDir, { recursive: true })
+    fs.writeFileSync(path.join(metaDir, 'meta.json'), `${JSON.stringify({
+      id: session.id,
+      title: session.title,
+      created_at: now,
+      updated_at: now,
+      deleted: session.deleted || undefined,
+      model_id: session.model_id,
+      type: 'eino',
+      job_id: jobID,
+      workspace_id: 'ws-1',
+    }, null, 2)}\n`)
+  }
+}
+
+function seedInterruptedRunningJobFixture(localMemory: string) {
+  const now = new Date().toISOString()
+  const jobMetaDir = path.join(localMemory, 'workspaces', 'ws-1', 'jobs', e2eInterruptedRunningJobID, '.meta')
+  fs.mkdirSync(jobMetaDir, { recursive: true })
+  fs.writeFileSync(path.join(jobMetaDir, 'job.json'), `${JSON.stringify({
+    id: e2eInterruptedRunningJobID,
+    title: 'E2E Interrupted Running Job',
+    createdAt: now,
+    updatedAt: now,
+    mode: 'loop',
+    workspaceId: 'ws-1',
+    status: 'running',
+    sessionIds: [],
+    loopConfig: {
+      flow: [
+        {
+          id: 'e2e-interrupted-step',
+          type: 'step',
+          message: 'This job was running before backend startup',
+          repeatCount: 1,
+          roundMode: 'beforeRound',
+          roundType: 'prompt',
+        },
+      ],
+    },
+    // Deliberately omit progress to exercise startup reconciliation of legacy
+    // records and interrupted in-flight jobs.
+  }, null, 2)}\n`)
+}
+
+function seedLegacyRoundsOnlyJobFixture(localMemory: string) {
+  const now = new Date().toISOString()
+  const workdir = path.join(localMemory, 'e2e-legacy-rounds-workdir')
+  const jobMetaDir = path.join(localMemory, 'workspaces', 'ws-1', 'jobs', e2eLegacyRoundsJobID, '.meta')
+  fs.mkdirSync(workdir, { recursive: true })
+  fs.mkdirSync(jobMetaDir, { recursive: true })
+  fs.writeFileSync(path.join(jobMetaDir, 'job.json'), `${JSON.stringify({
+    id: e2eLegacyRoundsJobID,
+    title: 'E2E Legacy Rounds Only Loop',
+    createdAt: now,
+    updatedAt: now,
+    mode: 'loop',
+    workspaceId: 'ws-1',
+    workdir,
+    status: 'pending',
+    sessionIds: [],
+    loopConfig: {
+      iterationCount: 1,
+      rounds: [
+        {
+          message: 'echo "legacy-rounds-migrated-e2e"',
+          repeatCount: 1,
+          roundMode: 'beforeRound',
+          roundType: 'shell',
+        },
+      ],
+    },
+    // Deliberately omit flow and keep a non-nil zero progress so startup load
+    // preserves the legacy shape; Start must do the migration before execution.
+    progress: { totalSteps: 0, completedCount: 0, failedCount: 0 },
+  }, null, 2)}\n`)
+}
+
+function seedPersistWarningJobFixture(localMemory: string) {
+  const now = new Date().toISOString()
+  const warning = 'persist failed after iteration_started: injected e2e disk warning'
+  const jobMetaDir = path.join(localMemory, 'workspaces', 'ws-1', 'jobs', e2ePersistWarningJobID, '.meta')
+  fs.mkdirSync(jobMetaDir, { recursive: true })
+  fs.writeFileSync(path.join(jobMetaDir, 'job.json'), `${JSON.stringify({
+    id: e2ePersistWarningJobID,
+    title: 'E2E Persist Warning Without LastError',
+    createdAt: now,
+    updatedAt: now,
+    mode: 'loop',
+    workspaceId: 'ws-1',
+    status: 'completed',
+    sessionIds: [],
+    loopConfig: {
+      flow: [
+        {
+          id: 'e2e-persist-warning-step',
+          type: 'step',
+          message: 'This fixture has a persistence warning but no run failure',
+          repeatCount: 1,
+          roundMode: 'beforeRound',
+          roundType: 'prompt',
+        },
+      ],
+    },
+    progress: {
+      totalSteps: 1,
+      currentPath: [0, 0],
+      completedCount: 1,
+      failedCount: 0,
+      results: [
+        {
+          path: [0, 0],
+          success: true,
+          durationMs: 0,
+          content: 'completed before a best-effort persist warning was recorded',
+        },
+      ],
+      persistWarnings: [warning],
+      // Deliberately omit lastError: persistence warnings must stay separate
+      // from the user-visible run failure reason.
+    },
+  }, null, 2)}\n`)
+}
+
+function seedStartupCleanupFixture(localMemory: string) {
+  const now = new Date()
+  const workdir = path.join(localMemory, 'e2e-startup-cleanup-workdir')
+  const workspaceMetaDir = path.join(localMemory, 'workspaces', e2eCleanupWorkspaceID, '.meta')
+  fs.mkdirSync(workdir, { recursive: true })
+  fs.mkdirSync(workspaceMetaDir, { recursive: true })
+
+  fs.writeFileSync(path.join(workspaceMetaDir, 'workspace.json'), `${JSON.stringify({
+    id: e2eCleanupWorkspaceID,
+    title: 'E2E Startup Cleanup Workspace',
+    description: 'Workspace seeded to verify async shell temp cleanup on backend startup',
+    workdir,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  }, null, 2)}\n`)
+
+  const staleShell = path.join(workdir, e2eStaleShellTempName)
+  const staleControl = path.join(workdir, e2eStaleControlTempName)
+  const freshShell = path.join(workdir, e2eFreshShellTempName)
+  fs.writeFileSync(staleShell, 'stale shell temp should be cleaned\n')
+  fs.writeFileSync(staleControl, 'stale control temp should be cleaned\n')
+  fs.writeFileSync(freshShell, 'fresh shell temp should remain\n')
+
+  const staleTime = new Date(Date.now() - 7 * 60 * 60 * 1000)
+  fs.utimesSync(staleShell, staleTime, staleTime)
+  fs.utimesSync(staleControl, staleTime, staleTime)
+}
+
 function lastRunPassed() {
   try {
     const raw = fs.readFileSync(path.join(e2eDir, 'test-results', 'artifacts', '.last-run.json'), 'utf8')
@@ -264,6 +455,11 @@ async function globalSetup() {
   fs.mkdirSync(logDir, { recursive: true })
   prepareLocalMemory(localMemory)
   seedAgentConfig(localMemory)
+  seedLegacyFirstModelIDFixture(localMemory)
+  seedInterruptedRunningJobFixture(localMemory)
+  seedLegacyRoundsOnlyJobFixture(localMemory)
+  seedPersistWarningJobFixture(localMemory)
+  seedStartupCleanupFixture(localMemory)
 
   fs.writeFileSync(path.join(runDir, 'env.json'), `${JSON.stringify({
     backendURL,
@@ -286,6 +482,11 @@ async function globalSetup() {
       env: {
         ...process.env,
         LOCAL_MEMORY: localMemory,
+        // Shell env sanitization E2E fixtures. These are intentionally fake
+        // values so the shell-output assertions never expose developer secrets.
+        OPENAI_API_KEY: e2eShellOpenAIAPIKey,
+        AWS_SECRET_ACCESS_KEY: e2eShellAWSSecretAccessKey,
+        QUARTET_CONTROL: e2eShellStaleControl,
         X_AGENT_AUTH: e2eAuthToken,
         QUARTET_LISTEN_ADDR: `127.0.0.1:${backendPort}`,
       },

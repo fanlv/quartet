@@ -94,7 +94,7 @@ func runEvaluatorForTest(t *testing.T, job *model.Job, runner JobRunner) {
 	svc := newStateTestService()
 	svc.jobs[job.ID] = job
 	currentSessionID := ""
-	svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, job.LoopConfig.Flow, nil, 0, &currentSessionID)
+	svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, job.LoopConfig.Flow, &currentSessionID), job.LoopConfig.Flow, nil, 0)
 }
 
 // evaluatorStep builds an evaluator FlowNode (RoundType evaluator). message is
@@ -197,7 +197,7 @@ func TestGracefulStop_StopsAfterEvaluatorStopLoopBoundary(t *testing.T) {
 	}
 
 	currentSessionID := ""
-	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, job.LoopConfig.Flow, nil, 0, &currentSessionID)
+	result, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, job.LoopConfig.Flow, &currentSessionID), job.LoopConfig.Flow, nil, 0)
 
 	if result != stepStopGraceful {
 		t.Fatalf("result = %v, want %v", result, stepStopGraceful)
@@ -466,7 +466,7 @@ func TestGracefulStop_StopsAfterShellStopLoopBoundary(t *testing.T) {
 	runner := &evaluatorRunner{evalOutputs: []string{"LOOP_DECISION:STOP"}}
 
 	currentSessionID := ""
-	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, job.LoopConfig.Flow, nil, 0, &currentSessionID)
+	result, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, job.LoopConfig.Flow, &currentSessionID), job.LoopConfig.Flow, nil, 0)
 
 	if result != stepStopGraceful {
 		t.Fatalf("result = %v, want %v", result, stepStopGraceful)
@@ -612,7 +612,7 @@ func TestSessionInitFailureFailsJob(t *testing.T) {
 	svc := newStateTestService()
 	svc.jobs[job.ID] = job
 	currentSessionID := ""
-	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, job.LoopConfig.Flow, nil, 0, &currentSessionID)
+	result, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, job.LoopConfig.Flow, &currentSessionID), job.LoopConfig.Flow, nil, 0)
 
 	if result != stepAborted {
 		t.Fatalf("runFlowNodes result = %v, want stepAborted", result)

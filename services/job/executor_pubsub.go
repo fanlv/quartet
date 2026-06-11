@@ -1,10 +1,6 @@
 package job
 
-import (
-	"sync"
-
-	"github.com/fanlv/quartet/types/model"
-)
+import "sync"
 
 // busOwner is the per-job event buffer registry that serviceImpl exposes
 // to publishers and SSE subscribers. The buffer's GC and cursor model
@@ -14,20 +10,20 @@ import (
 //   - non-terminal events are never silently dropped
 //   - reconnects resume from Last-Event-ID without duplication
 //
-// See docs/feature-2026-05-13-sse-event-buffer-detail.md.
+// See docs/arch/sse-event-buffer-design.md.
 type busOwner struct {
 	mu      sync.RWMutex
-	buffers map[string]*JobEventBuffer
+	buffers map[string]*jobEventBuffer
 }
 
 func newBusOwner() *busOwner {
-	return &busOwner{buffers: make(map[string]*JobEventBuffer)}
+	return &busOwner{buffers: make(map[string]*jobEventBuffer)}
 }
 
 // getOrCreate returns the buffer for jobID, lazily creating one if absent.
 // Returns nil only if the buffer was previously closed via Remove and the
 // caller is racing a concurrent Delete — Publish in that case is a no-op.
-func (b *busOwner) getOrCreate(jobID string) *JobEventBuffer {
+func (b *busOwner) getOrCreate(jobID string) *jobEventBuffer {
 	b.mu.RLock()
 	if buf, ok := b.buffers[jobID]; ok {
 		b.mu.RUnlock()
@@ -46,7 +42,7 @@ func (b *busOwner) getOrCreate(jobID string) *JobEventBuffer {
 }
 
 // get returns the buffer for jobID, or nil if none exists.
-func (b *busOwner) get(jobID string) *JobEventBuffer {
+func (b *busOwner) get(jobID string) *jobEventBuffer {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.buffers[jobID]
@@ -78,7 +74,7 @@ func (b *busOwner) resumeGC(jobID string) {
 // stale events from the previous run would only confuse late-arriving
 // subscribers using a Last-Event-ID from the prior run. The new buffer
 // uses ErrSeqGone to reject stale cursors that belong to the prior epoch
-// (see JobEventBuffer.Subscribe).
+// (see jobEventBuffer.Subscribe).
 //
 // Fresh buffers are reused as-is. The first Start after job creation
 // races with the FE: JobChat opens SSE on the lazily-created buffer
@@ -111,7 +107,7 @@ func (b *busOwner) resetForRun(jobID string) {
 // buffer is lazily created so a brand-new job that has not yet published
 // can still attach a subscriber (it just blocks until the first event).
 // Returns ErrSeqGone when startSeq is older than the buffer's GC head.
-func (s *serviceImpl) Subscribe(jobID string, startSeq uint64) (*bufferReader, error) {
+func (s *serviceImpl) Subscribe(jobID string, startSeq uint64) (*Reader, error) {
 	buf := s.bus.getOrCreate(jobID)
 	return buf.Subscribe(startSeq)
 }
@@ -144,10 +140,7 @@ func (s *serviceImpl) BufferStats(jobID string) BufferStats {
 // the read side is already gone.
 func (s *serviceImpl) Publish(jobID string, event any) {
 	buf := s.bus.getOrCreate(jobID)
-	buf.Publish(event)
-	if isTerminalEvent(event) {
-		buf.MarkTerminal()
-	}
+	buf.publishClassified(event)
 }
 
 // PublishTransient delivers an event to currently connected readers
@@ -163,10 +156,5 @@ func (s *serviceImpl) PublishTransient(jobID string, event any) {
 // transition. Buffer GC is disabled after a terminal event so refreshing
 // a finished job's page still shows the last round of chunks.
 func isTerminalEvent(event any) bool {
-	switch event.(type) {
-	case *model.JobCompletedEvent, *model.JobStoppedEvent, *model.JobFailedEvent:
-		return true
-	default:
-		return false
-	}
+	return classifyEvent(event).isTerminal
 }

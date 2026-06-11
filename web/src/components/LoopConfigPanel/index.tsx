@@ -39,33 +39,47 @@ interface LoopConfigPanelProps {
   saveError?: string;
 }
 
+// extractErrorMsg pulls the backend's full error message ("msg" field, per the
+// project convention that errors are shown in full) out of a failed response,
+// falling back to the HTTP status when the body isn't the expected shape.
+async function extractErrorMsg(res: Response): Promise<string> {
+  try {
+    const data = await res.json();
+    if (typeof data?.msg === 'string' && data.msg) return data.msg;
+    if (typeof data?.message === 'string' && data.message) return data.message;
+  } catch {
+    // fall through to status text
+  }
+  return `HTTP ${res.status}`;
+}
+
 async function fetchTemplates(): Promise<LoopTemplate[]> {
   const res = await fetch('/api/v1/template/list');
-  if (!res.ok) return [];
+  if (!res.ok) throw new Error(await extractErrorMsg(res));
   const data = await res.json();
   return data.templates || [];
 }
 
-async function saveTemplateApi(name: string, config: LoopConfig): Promise<LoopTemplate | null> {
+async function saveTemplateApi(name: string, config: LoopConfig): Promise<LoopTemplate> {
   const res = await fetch('/api/v1/template/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, config }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) throw new Error(await extractErrorMsg(res));
   const data = await res.json();
-  return data.template || null;
+  return data.template;
 }
 
-async function updateTemplateApi(id: string, name: string, config: LoopConfig): Promise<LoopTemplate | null> {
+async function updateTemplateApi(id: string, name: string, config: LoopConfig): Promise<LoopTemplate> {
   const res = await fetch(`/api/v1/template/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, config }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) throw new Error(await extractErrorMsg(res));
   const data = await res.json();
-  return data.template || null;
+  return data.template;
 }
 
 async function deleteTemplateApi(id: string): Promise<boolean> {
@@ -384,10 +398,13 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [templateSaveError, setTemplateSaveError] = useState('');
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [updateName, setUpdateName] = useState('');
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState('');
+  // Error surfaced when the template list fails to load (vs. an empty list).
+  const [templateLoadError, setTemplateLoadError] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState('');
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [scripts, setScripts] = useState<Script[]>([]);
@@ -416,14 +433,21 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const templateDropdownRef = useRef<HTMLDivElement>(null);
 
   const loadTemplates = useCallback(async () => {
-    const list = await fetchTemplates();
-    const sorted = [...list].sort((a, b) => {
-      const aSched = (a.scheduleCount ?? 0) > 0 ? 1 : 0;
-      const bSched = (b.scheduleCount ?? 0) > 0 ? 1 : 0;
-      if (aSched !== bSched) return aSched - bSched;
-      return a.name.localeCompare(b.name, undefined, { numeric: true });
-    });
-    setTemplates(sorted);
+    try {
+      const list = await fetchTemplates();
+      const sorted = [...list].sort((a, b) => {
+        const aSched = (a.scheduleCount ?? 0) > 0 ? 1 : 0;
+        const bSched = (b.scheduleCount ?? 0) > 0 ? 1 : 0;
+        if (aSched !== bSched) return aSched - bSched;
+        return a.name.localeCompare(b.name, undefined, { numeric: true });
+      });
+      setTemplates(sorted);
+      setTemplateLoadError('');
+    } catch (e) {
+      // Surface the failure instead of rendering an empty list, which reads as
+      // "no templates" and hides backend/storage errors from the user.
+      setTemplateLoadError(e instanceof Error ? e.message : String(e));
+    }
   }, []);
 
   const loadScripts = useCallback(async () => {
@@ -485,7 +509,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
       if (confirmDeleteNodeId) { setConfirmDeleteNodeId(''); return; }
       if (confirmDeleteId) { setConfirmDeleteId(''); return; }
       if (showUpdateDialog) { setShowUpdateDialog(false); return; }
-      if (showSaveDialog) { setShowSaveDialog(false); return; }
+      if (showSaveDialog) { setShowSaveDialog(false); setTemplateSaveError(''); return; }
       if (showTemplateLibrary) { setShowTemplateLibrary(false); return; }
       if (templateDropdownOpen) { setTemplateDropdownOpen(false); return; }
       if (variablesPanelOpen) { setVariablesPanelOpen(false); return; }
@@ -682,6 +706,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const handleSaveTemplate = async () => {
     if (!templateName.trim()) return;
     setSaving(true);
+    setTemplateSaveError('');
     const vars: Record<string, string> = {};
     variables.forEach((v) => {
       if (v.key.trim()) vars[v.key.trim()] = v.value;
@@ -690,15 +715,20 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
       flow,
       ...(Object.keys(vars).length > 0 ? { variables: vars } : {}),
     };
-    const tmpl = await saveTemplateApi(templateName.trim(), config);
-    if (tmpl) {
+    try {
+      const tmpl = await saveTemplateApi(templateName.trim(), config);
       setTemplates((prev) => [tmpl, ...prev]);
       setSelectedTemplateId(tmpl.id);
+      // Only on success do we close the dialog and clear the dirty flag —
+      // otherwise the user would think a failed save succeeded.
+      setShowSaveDialog(false);
+      setTemplateName('');
+      setDirty(false);
+    } catch (e) {
+      setTemplateSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    setShowSaveDialog(false);
-    setTemplateName('');
-    setDirty(false);
   };
 
   const handleOpenUpdateDialog = () => {
@@ -721,16 +751,18 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
       flow,
       ...(Object.keys(vars).length > 0 ? { variables: vars } : {}),
     };
-    const tmpl = await updateTemplateApi(selectedTemplateId, updateName.trim(), config);
-    setUpdating(false);
-    if (!tmpl) {
-      setUpdateError(t('loop.template.errors.updateFailed'));
-      return;
+    try {
+      const tmpl = await updateTemplateApi(selectedTemplateId, updateName.trim(), config);
+      setTemplates((prev) => prev.map((t) => (t.id === tmpl.id ? tmpl : t)));
+      setShowUpdateDialog(false);
+      setUpdateName('');
+      setDirty(false);
+    } catch (e) {
+      // Show the backend's full error rather than a generic fallback string.
+      setUpdateError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUpdating(false);
     }
-    setTemplates((prev) => prev.map((t) => (t.id === tmpl.id ? tmpl : t)));
-    setShowUpdateDialog(false);
-    setUpdateName('');
-    setDirty(false);
   };
 
   function handleTryCancel() {
@@ -1402,7 +1434,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
               <button
                 type="button"
                 className="loop-secondary-btn"
-                onClick={() => setShowSaveDialog(true)}
+                onClick={() => { setTemplateSaveError(''); setShowSaveDialog(true); }}
                 disabled={!valid}
                 title={t('loop.actions.saveAsTemplate')}
               >
@@ -1505,6 +1537,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
               <button
                 onClick={() => {
                   setShowTemplateLibrary(false);
+                  setTemplateSaveError('');
                   setShowSaveDialog(true);
                 }}
                 disabled={!valid}
@@ -1513,6 +1546,13 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                 {t('loop.actions.saveAsTemplate')}
               </button>
             </div>
+
+            {templateLoadError && (
+              <div className="loop-template-library-notice loop-import-error" data-testid="loop-template-load-error">
+                {t('loop.template.errors.loadFailed', { error: templateLoadError })}
+                <button type="button" onClick={() => void loadTemplates()}>{t('common.retry')}</button>
+              </div>
+            )}
 
             {dirty && (
               <div className="loop-template-library-notice">
@@ -1528,6 +1568,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                   <button
                     onClick={() => {
                       setShowTemplateLibrary(false);
+                      setTemplateSaveError('');
                       setShowSaveDialog(true);
                     }}
                     disabled={!valid}
@@ -1580,13 +1621,14 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
 
       {/* Save dialog */}
       {showSaveDialog && createPortal(
-        <div className="loop-save-dialog-overlay" ref={saveOverlayRef} onClick={() => setShowSaveDialog(false)}>
+        <div className="loop-save-dialog-overlay" ref={saveOverlayRef} onClick={() => { setShowSaveDialog(false); setTemplateSaveError(''); }}>
           <div className="loop-save-dialog" onClick={(e) => e.stopPropagation()}>
             <h4>{t('loop.dialog.save.title')}</h4>
-            <input type="text" className="loop-save-dialog-input" placeholder={t('loop.dialog.save.placeholder')} value={templateName} onChange={(e) => setTemplateName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSaveTemplate()} autoFocus />
+            <input type="text" data-testid="loop-template-save-name-input" className="loop-save-dialog-input" placeholder={t('loop.dialog.save.placeholder')} value={templateName} onChange={(e) => { setTemplateName(e.target.value); setTemplateSaveError(''); }} onKeyDown={(e) => e.key === 'Enter' && handleSaveTemplate()} autoFocus />
+            {templateSaveError && <p className="loop-import-error" data-testid="loop-template-save-error">{templateSaveError}</p>}
             <div className="loop-save-dialog-actions">
-              <button onClick={() => setShowSaveDialog(false)} type="button">{t('common.cancel')}</button>
-              <button className="loop-save-dialog-confirm" onClick={handleSaveTemplate} disabled={!templateName.trim() || saving} type="button">{saving ? t('common.saving') : t('common.save')}</button>
+              <button onClick={() => { setShowSaveDialog(false); setTemplateSaveError(''); }} type="button">{t('common.cancel')}</button>
+              <button className="loop-save-dialog-confirm" data-testid="loop-template-save-confirm" onClick={handleSaveTemplate} disabled={!templateName.trim() || saving} type="button">{saving ? t('common.saving') : t('common.save')}</button>
             </div>
           </div>
         </div>,

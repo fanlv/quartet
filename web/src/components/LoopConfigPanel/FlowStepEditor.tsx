@@ -590,6 +590,7 @@ export function FlowStepEditor({
               <div className="loop-round-message-wrap">
                 <textarea
                   ref={textareaRef}
+                  data-testid="loop-step-message-input"
                   value={node.message || ''}
                   onChange={(e) => {
                     handleFieldChange('message', e.target.value);

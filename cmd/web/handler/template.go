@@ -24,7 +24,7 @@ func (h *Handler) SaveTemplate(ctx context.Context, c *app.RequestContext) {
 
 	tmpl, err := h.templateService.Save(ctx, &req)
 	if err != nil {
-		httputil.InternalError(c, err.Error())
+		httputil.MapError(c, err, []httputil.ErrorMapping{{Err: templatesvc.ErrInvalidTemplateConfig, Status: http.StatusBadRequest}})
 		return
 	}
 
@@ -54,7 +54,10 @@ func (h *Handler) UpdateTemplate(ctx context.Context, c *app.RequestContext) {
 
 	tmpl, err := h.templateService.Update(ctx, id, &req)
 	if err != nil {
-		httputil.MapError(c, err, []httputil.ErrorMapping{{Err: templatesvc.ErrTemplateNotFound, Status: http.StatusNotFound}})
+		httputil.MapError(c, err, []httputil.ErrorMapping{
+			{Err: templatesvc.ErrTemplateNotFound, Status: http.StatusNotFound},
+			{Err: templatesvc.ErrInvalidTemplateConfig, Status: http.StatusBadRequest},
+		})
 		return
 	}
 

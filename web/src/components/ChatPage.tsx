@@ -883,8 +883,12 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
         body: JSON.stringify({ pinned: nextPinned }),
       });
       if (!res.ok) return;
-      const data = await res.json() as { pinnedAt?: number };
-      patchJob(job.id, { pinnedAt: data.pinnedAt ?? 0 });
+      const data = await res.json() as { pinnedAt?: number; updatedAt?: number };
+      const patch: Partial<JobInfo> = { pinnedAt: data.pinnedAt ?? 0 };
+      if (typeof data.updatedAt === 'number' && data.updatedAt > 0) {
+        patch.updatedAt = data.updatedAt;
+      }
+      patchJob(job.id, patch);
     } catch (err) {
       console.error('Failed to update job pin:', err);
     }

@@ -14,7 +14,25 @@ import (
 var (
 	ErrTemplateReferenced = errors.New("template is referenced by scheduled task")
 	ErrTemplateNotFound   = errors.New("template not found")
+	// ErrInvalidTemplateConfig wraps LoopConfig validation failures so the HTTP
+	// layer can map them to 400. Template save/update is a LoopConfig
+	// persistence entry point and must run the same migrate/backfill/validate
+	// pipeline as job-create and schedule-create — the frontend pre-check is
+	// bypassable via the raw API, JSON import, scripts and legacy data.
+	ErrInvalidTemplateConfig = errors.New("invalid template loop config")
 )
+
+// validateAndNormalize brings req.Config into canonical form and validates its
+// flow. Templates carry no request-level agent default (each flow step holds
+// its own), so backfill is a no-op here, but we route through the shared entry
+// point so the migrate/backfill/validate order stays identical to every other
+// LoopConfig write path.
+func validateAndNormalize(cfg *model.LoopConfig) error {
+	if err := model.NormalizeAndValidateLoopConfig(cfg, model.FlowDefaults{}); err != nil {
+		return fmt.Errorf("%w: %s", ErrInvalidTemplateConfig, err.Error())
+	}
+	return nil
+}
 
 type Service interface {
 	Save(ctx context.Context, req *model.SaveTemplateRequest) (*model.LoopTemplate, error)
@@ -42,14 +60,18 @@ func NewService() (Service, error) {
 }
 
 func (s *serviceImpl) Save(ctx context.Context, req *model.SaveTemplateRequest) (*model.LoopTemplate, error) {
+	if err := validateAndNormalize(&req.Config); err != nil {
+		return nil, err
+	}
+	// Save always creates a fresh template. We deliberately ignore any
+	// client-supplied ID: honoring it would let POST /template/save overwrite
+	// an arbitrary existing template. Edits go through Update with an explicit
+	// path ID instead.
 	tmpl := &model.LoopTemplate{
-		ID:        req.ID,
+		ID:        model.NewTemplateID(),
 		Name:      req.Name,
 		Config:    req.Config,
 		CreatedAt: time.Now(),
-	}
-	if tmpl.ID == "" {
-		tmpl.ID = model.NewTemplateID()
 	}
 	if err := s.repo.Save(ctx, tmpl); err != nil {
 		return nil, err
@@ -69,6 +91,9 @@ func (s *serviceImpl) Get(ctx context.Context, id string) (*model.LoopTemplate, 
 }
 
 func (s *serviceImpl) Update(ctx context.Context, id string, req *model.UpdateTemplateRequest) (*model.LoopTemplate, error) {
+	if err := validateAndNormalize(&req.Config); err != nil {
+		return nil, err
+	}
 	existing, err := s.repo.Get(ctx, id)
 	if err != nil {
 		if os.IsNotExist(err) {

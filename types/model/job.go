@@ -165,6 +165,7 @@ type SessionOverrides struct {
 // The canonical field is Flow (recursive tree). The legacy fields IterationCount
 // and Rounds are kept for backward-compatible deserialization of old jobs/templates;
 // call MigrateLoopConfig to normalize them into Flow before execution.
+// When adding new slice/map/pointer fields, update Job.DeepCopy accordingly.
 type LoopConfig struct {
 	Flow      []FlowNode        `json:"flow,omitempty"`
 	Variables map[string]string `json:"variables,omitempty"`
@@ -184,16 +185,27 @@ type LoopRound struct {
 	ScriptName  string    `json:"scriptName,omitempty"`
 }
 
+// JobProgress tracks loop execution state persisted on a Job.
+// When adding new slice/map/pointer fields, update Job.DeepCopy accordingly.
 type JobProgress struct {
-	TotalSteps     int               `json:"totalSteps"`
-	CurrentPath    []int             `json:"currentPath,omitempty"`
-	CompletedCount int               `json:"completedCount"`
-	FailedCount    int               `json:"failedCount"`
-	Results        []IterationResult `json:"results,omitempty"`
+	TotalSteps  int   `json:"totalSteps"`
+	CurrentPath []int `json:"currentPath,omitempty"`
+	// CurrentStartedAt is the unix-ms timestamp of the currently running
+	// iteration. It is persisted with CurrentPath before ITERATION_STARTED is
+	// published so a page opened long after the start can render live duration
+	// from the real step boundary instead of guessing from accumulated results.
+	CurrentStartedAt int64             `json:"currentStartedAt,omitempty"`
+	CompletedCount   int               `json:"completedCount"`
+	FailedCount      int               `json:"failedCount"`
+	Results          []IterationResult `json:"results,omitempty"`
 	// LastError is the most recent failure reason — either from an iteration
 	// failure (captured alongside IterationResult.Error) or a job-level
 	// failure (panic / failJob). Persisted so refreshes still surface it.
 	LastError string `json:"lastError,omitempty"`
+	// PersistWarnings records best-effort persistence failures without clobbering
+	// LastError. Persistence warnings describe disk/state divergence, while
+	// LastError remains reserved for the user-visible run failure reason.
+	PersistWarnings []string `json:"persistWarnings,omitempty"`
 
 	// GroupActualIterations maps a group's dot-joined path (e.g. "0.0") to the
 	// number of rounds it actually ran when it stopped early via stepStopLoop
@@ -288,7 +300,12 @@ func (j *Job) DeepCopy() *Job {
 				pCopy.Results[i].Path = CopyPath(j.Progress.Results[i].Path)
 			}
 		}
+		if len(j.Progress.PersistWarnings) > 0 {
+			pCopy.PersistWarnings = make([]string, len(j.Progress.PersistWarnings))
+			copy(pCopy.PersistWarnings, j.Progress.PersistWarnings)
+		}
 		pCopy.CurrentPath = CopyPath(j.Progress.CurrentPath)
+		pCopy.CurrentStartedAt = j.Progress.CurrentStartedAt
 		if len(j.Progress.GroupActualIterations) > 0 {
 			pCopy.GroupActualIterations = make(map[string]int, len(j.Progress.GroupActualIterations))
 			for k, v := range j.Progress.GroupActualIterations {

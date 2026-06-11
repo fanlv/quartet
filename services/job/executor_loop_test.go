@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/types/agui"
@@ -16,6 +17,7 @@ type loopRecordingRunner struct {
 	runSessions  []string
 	runPaths     [][]int
 }
+
 func (r *loopRecordingRunner) InitSession(ctx context.Context, jobID string, overrides *model.SessionOverrides) (string, error) {
 	sessionID := fmt.Sprintf("session-%d", len(r.initSessions)+1)
 	r.initSessions = append(r.initSessions, sessionID)
@@ -68,7 +70,7 @@ func runLoopNodesForTest(t *testing.T, job *model.Job, currentSessionID string) 
 	t.Helper()
 	svc := newStateTestService()
 	runner := &loopRecordingRunner{}
-	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, job.LoopConfig.Flow, job.LoopConfig.Flow, nil, 0, &currentSessionID)
+	result, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, job.LoopConfig.Flow, &currentSessionID), job.LoopConfig.Flow, nil, 0)
 	if result != stepCompleted {
 		t.Fatalf("runFlowNodes result=%v, want %v", result, stepCompleted)
 	}
@@ -243,7 +245,7 @@ func TestRunFlowNodesSnapshotRaceWithLiveEdit(t *testing.T) {
 
 	runner := &loopRecordingRunner{}
 	sid := ""
-	result, _, _ := svc.runFlowNodes(context.Background(), job, runner, flowRoot, flowRoot, nil, 0, &sid)
+	result, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, runner, flowRoot, &sid), flowRoot, nil, 0)
 	<-done
 
 	if result != stepCompleted {
@@ -253,3 +255,83 @@ func TestRunFlowNodesSnapshotRaceWithLiveEdit(t *testing.T) {
 		t.Fatalf("completed count=%d, want %d", job.Progress.CompletedCount, want)
 	}
 }
+
+func TestRunFlowNodesUsesSharedStepPathKeyForLivePathAndProgressEvent(t *testing.T) {
+	flow := []model.FlowNode{
+		group(3,
+			promptStep("first", 1, model.RoundModeEachRepeat),
+			model.FlowNode{Type: model.FlowNodeTypeStep, Message: "stop", RepeatCount: 1, RoundMode: model.RoundModeNone, RoundType: model.RoundTypeEvaluator, AgentType: "test-agent"},
+			promptStep("skipped", 1, model.RoundModeNone),
+		),
+	}
+	job := newLoopTestJob("job-step-path-key", flow)
+	svc := newStateTestService()
+	reader, err := svc.Subscribe(job.ID, 0)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer reader.Close()
+
+	sid := ""
+	result, _, _ := svc.runFlowNodes(context.Background(), newFlowExecution(job, evaluatorStopRunner{}, job.LoopConfig.Flow, &sid), job.LoopConfig.Flow, nil, 0)
+	if result != stepCompleted {
+		t.Fatalf("runFlowNodes result=%v, want stepCompleted", result)
+	}
+
+	groupKey := model.StepPathKey([]int{0})
+	if got := job.Progress.GroupActualIterations[groupKey]; got != 1 {
+		t.Fatalf("GroupActualIterations[%q]=%d, want 1", groupKey, got)
+	}
+	if got := job.Progress.GroupActualLeafCounts[groupKey]; got != 2 {
+		t.Fatalf("GroupActualLeafCounts[%q]=%d, want 2", groupKey, got)
+	}
+	if _, ok := job.Progress.GroupActualIterations["[0]"]; ok {
+		t.Fatalf("unexpected legacy/formatted group key present: %+v", job.Progress.GroupActualIterations)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	for {
+		entries, ok := reader.Read(ctx, 16)
+		if !ok {
+			t.Fatal("timeout waiting for progress_total_updated event")
+		}
+		for _, entry := range entries {
+			if ev, ok := entry.Event.(*model.CustomEvent); ok && ev.Name == "progress_total_updated" {
+				value, ok := ev.Value.(map[string]any)
+				if !ok {
+					t.Fatalf("progress event value type=%T, want map[string]any", ev.Value)
+				}
+				if value["totalSteps"] != 2 {
+					t.Fatalf("totalSteps=%v, want 2", value["totalSteps"])
+				}
+				actual := value["groupActualIterations"].(map[string]int)
+				leaf := value["groupActualLeafCounts"].(map[string]int)
+				if actual[groupKey] != 1 || leaf[groupKey] != 2 {
+					t.Fatalf("event group maps actual=%v leaf=%v, want key %q => 1/2", actual, leaf, groupKey)
+				}
+				return
+			}
+			if entry.Seq > 0 {
+				reader.Ack(entry.Seq)
+			}
+		}
+	}
+}
+
+type evaluatorStopRunner struct{}
+
+func (r evaluatorStopRunner) InitSession(ctx context.Context, jobID string, overrides *model.SessionOverrides) (string, error) {
+	return "evaluator-stop-session", nil
+}
+
+func (r evaluatorStopRunner) RunIteration(ctx context.Context, sessionID string, messages []*schema.Message, handler agui.EventHandler) error {
+	if h, ok := handler.(*loopEventHandler); ok && reflect.DeepEqual(h.path, []int{0, 0, 1, 0}) {
+		_ = handler.OnMessageStart()
+		_ = handler.OnMessageDelta("LOOP_DECISION:STOP")
+		_ = handler.OnMessageEnd()
+	}
+	return nil
+}
+
+func (r evaluatorStopRunner) SessionModelID(sessionID string) string { return "" }

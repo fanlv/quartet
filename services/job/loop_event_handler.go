@@ -73,6 +73,7 @@ type loopEventHandler struct {
 
 type eventPublisher interface {
 	Publish(jobID string, event any)
+	nowMillis() int64
 }
 
 var _ agui.EventHandler = (*loopEventHandler)(nil)
@@ -100,7 +101,7 @@ func (h *loopEventHandler) SetNextBoundaryTimestamp(ts int64) {
 func (h *loopEventHandler) baseEvent(eventType model.EventType) model.BaseEvent {
 	ts := h.nextBoundaryTs
 	if ts == 0 {
-		ts = nowMillis()
+		ts = h.publisher.nowMillis()
 	}
 	h.nextBoundaryTs = 0
 	be := model.BaseEvent{
@@ -244,7 +245,7 @@ func (h *loopEventHandler) markThinking(event *model.BaseEvent, isThinking bool)
 func (h *loopEventHandler) OnToolCallStart(id, name string) error {
 	logger.Debugf(h.ctx, "[loopEventHandler.OnToolCallStart] jobId=%s id=%s name=%s", h.jobID, id, name)
 	if h.usage != nil {
-		h.usage.OnToolCallStart(id, name, nowMillis())
+		h.usage.OnToolCallStart(id, name, h.publisher.nowMillis())
 	}
 	h.publisher.Publish(h.jobID, &model.ToolCallStartEvent{
 		BaseEvent:      h.baseEvent(model.EventTypeToolCallStart),
@@ -284,7 +285,7 @@ func (h *loopEventHandler) OnToolCallResult(id, content string, success bool) er
 
 func (h *loopEventHandler) OnToolCallEnd(id string, success bool) error {
 	if h.usage != nil {
-		h.usage.OnToolCallEnd(h.ctx, id, nowMillis())
+		h.usage.OnToolCallEnd(h.ctx, id, h.publisher.nowMillis())
 	}
 	status := model.ToolCallStatusSuccess
 	if !success {
@@ -331,7 +332,7 @@ func (h *loopEventHandler) OnToolCallStitched(id string, content string, success
 		// stitch path replaces a Placeholder bubble that never made it
 		// through OnToolCallEnd, so account it here so dashboards
 		// don't undercount tool calls that hit the late-stitch branch.
-		h.usage.OnToolCallEnd(h.ctx, id, nowMillis())
+		h.usage.OnToolCallEnd(h.ctx, id, h.publisher.nowMillis())
 	}
 	status := model.ToolCallStatusSuccess
 	if !success {
@@ -372,7 +373,7 @@ func (h *loopEventHandler) OnError(err error) {
 	h.publisher.Publish(h.jobID, &model.RunErrorEvent{
 		BaseEvent: h.baseEvent(model.EventTypeRunError),
 		Message:   err.Error(),
-		Code:      "-1",
+		Code:      classifyRunErrorCode(err),
 	})
 }
 

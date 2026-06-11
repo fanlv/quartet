@@ -45,12 +45,11 @@ export -f quartet_set quartet_break quartet_return quartet_stop
 // their own log entries. Read failures stay at WARN. Pass path == os.DevNull
 // when no control file was created — it is treated as an empty no-op and
 // not logged.
-func parseControlFile(ctx context.Context, jobID, path string) (vars map[string]string, stopLoop bool, stopWorkflow bool) {
+func parseControlFile(ctx context.Context, fm fileserver.FileManager, jobID, path string) (vars map[string]string, stopLoop bool, stopWorkflow bool) {
 	if path == "" || path == os.DevNull {
 		return nil, false, false
 	}
-	sb := fileserver.GetFileManager()
-	result, err := sb.FileRead(&fsmodel.FileReadRequest{File: path})
+	result, err := fm.FileRead(&fsmodel.FileReadRequest{File: path})
 	if err != nil {
 		logger.Warnf(ctx, "[shell] control file read failed: jobId=%s file=%s err=%v", jobID, path, err)
 		return nil, false, false
