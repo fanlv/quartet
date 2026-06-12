@@ -78,9 +78,6 @@ func (h *Handler) ListDir(ctx context.Context, c *app.RequestContext) {
 
 	for _, f := range listResult.Files {
 		name := f.Name
-		if strings.HasPrefix(name, ".") {
-			continue
-		}
 		if f.IsDir {
 			dirs = append(dirs, name)
 		} else if showFiles {

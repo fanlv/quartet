@@ -43,14 +43,14 @@ type SessionResponse struct {
 	Modes         *acp.SessionModeState
 }
 
-// SessionConfigModelSelect is a stable view of a model selector in
-// ConfigOptions, avoiding SDK types leaking into higher service layers.
-type SessionConfigModelSelect struct {
+// SessionConfigSelect is a stable view of a select option in ConfigOptions,
+// avoiding SDK types leaking into higher service layers.
+type SessionConfigSelect struct {
 	CurrentValue string
-	Options      []SessionConfigModelOption
+	Options      []SessionConfigSelectItem
 }
 
-type SessionConfigModelOption struct {
+type SessionConfigSelectItem struct {
 	Description string
 	Name        string
 	Value       string
@@ -58,63 +58,93 @@ type SessionConfigModelOption struct {
 
 // ModelConfigSelect returns the model selector carried in ConfigOptions.
 // Some ACP agents expose model choices there instead of filling Models.
-func (r *SessionResponse) ModelConfigSelect() *SessionConfigModelSelect {
+func (r *SessionResponse) ModelConfigSelect() *SessionConfigSelect {
+	if sel := r.configSelect(acp.SessionConfigOptionCategoryModel); sel != nil {
+		return sel
+	}
+	// Positional fallback: claude-agent-acp puts model at index 1 without
+	// setting category.
+	return r.configSelectAt(1)
+}
+
+// ModeConfigSelect returns the mode selector carried in ConfigOptions.
+// Some ACP agents expose mode choices there instead of filling Modes.
+func (r *SessionResponse) ModeConfigSelect() *SessionConfigSelect {
+	return r.configSelect(acp.SessionConfigOptionCategoryMode)
+}
+
+// configSelect extracts a select option from ConfigOptions matched by category.
+func (r *SessionResponse) configSelect(category acp.SessionConfigOptionCategory) *SessionConfigSelect {
 	if r == nil {
 		return nil
 	}
 	for i := range r.ConfigOptions {
 		selectOpt, ok := r.ConfigOptions[i].AsSelect()
-		if !ok || !isModelConfigOption(i, selectOpt) {
+		if !ok || !matchConfigOption(selectOpt, category) {
 			continue
 		}
-		out := &SessionConfigModelSelect{
-			CurrentValue: string(selectOpt.CurrentValue),
-		}
-		appendConfigModelOptions(out, selectOpt.Options)
-		if len(out.Options) > 0 {
+		if out := buildConfigSelect(selectOpt); out != nil {
 			return out
 		}
 	}
 	return nil
 }
 
-func isModelConfigOption(idx int, opt acp.SessionConfigOptionSelect) bool {
-	data, err := json.Marshal(opt)
-	if err == nil {
-		var meta struct {
-			ID       string `json:"id"`
-			Category string `json:"category"`
-		}
-		if json.Unmarshal(data, &meta) == nil {
-			if meta.ID == "model" || meta.Category == string(acp.SessionConfigOptionCategoryModel) {
-				return true
-			}
-			if meta.ID != "" || meta.Category != "" {
-				return false
-			}
-		}
+// configSelectAt extracts the select option at the given index, ignoring
+// category. Used as a positional fallback for agents that omit it.
+func (r *SessionResponse) configSelectAt(idx int) *SessionConfigSelect {
+	if r == nil || idx < 0 || idx >= len(r.ConfigOptions) {
+		return nil
 	}
-	// Positional fallback: claude-agent-acp puts model at index 1.
-	return idx == 1
+	selectOpt, ok := r.ConfigOptions[idx].AsSelect()
+	if !ok {
+		return nil
+	}
+	return buildConfigSelect(selectOpt)
 }
 
-func appendConfigModelOptions(out *SessionConfigModelSelect, opts acp.SessionConfigSelectOptions) {
+func buildConfigSelect(selectOpt acp.SessionConfigOptionSelect) *SessionConfigSelect {
+	out := &SessionConfigSelect{
+		CurrentValue: string(selectOpt.CurrentValue),
+	}
+	appendConfigSelectOptions(out, selectOpt.Options)
+	if len(out.Options) == 0 {
+		return nil
+	}
+	return out
+}
+
+func matchConfigOption(opt acp.SessionConfigOptionSelect, category acp.SessionConfigOptionCategory) bool {
+	data, err := json.Marshal(opt)
+	if err != nil {
+		return false
+	}
+	var meta struct {
+		Category string `json:"category"`
+	}
+	if json.Unmarshal(data, &meta) != nil {
+		return false
+	}
+	return meta.Category == string(category)
+}
+
+func appendConfigSelectOptions(out *SessionConfigSelect, opts acp.SessionConfigSelectOptions) {
 	if opts.SessionConfigSelectOptionList != nil {
 		for _, o := range *opts.SessionConfigSelectOptionList {
-			appendConfigModelOption(out, o)
+			appendConfigSelectOption(out, o)
 		}
 	}
 	if opts.SessionConfigSelectGroupList != nil {
 		for _, g := range *opts.SessionConfigSelectGroupList {
 			for _, o := range g.Options {
-				appendConfigModelOption(out, o)
+				appendConfigSelectOption(out, o)
 			}
 		}
 	}
 }
 
-func appendConfigModelOption(out *SessionConfigModelSelect, o acp.SessionConfigSelectOption) {
-	out.Options = append(out.Options, SessionConfigModelOption{
+func appendConfigSelectOption(out *SessionConfigSelect, o acp.SessionConfigSelectOption) {
+	out.Options = append(out.Options, SessionConfigSelectItem{
 		Description: o.Description,
 		Name:        o.Name,
 		Value:       string(o.Value),

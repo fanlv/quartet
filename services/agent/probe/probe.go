@@ -359,6 +359,53 @@ func modelsFromSessionResponse(resp *pkgacp.SessionResponse) *model.SessionModel
 	return ms
 }
 
+// modesFromSessionResponse extracts the mode list from the ACP session
+// response. It prefers the standard Modes field; when that is nil/empty it
+// falls back to the "mode" ConfigOptions select (agents like opencode expose
+// modes there instead of populating Modes).
+func modesFromSessionResponse(resp *pkgacp.SessionResponse) *model.SessionModeState {
+	if resp == nil {
+		return nil
+	}
+	// Prefer the standard Modes field.
+	if resp.Modes != nil {
+		ms := &model.SessionModeState{
+			CurrentModeId: string(resp.Modes.CurrentModeID),
+		}
+		for _, m := range resp.Modes.AvailableModes {
+			var desc *string
+			if m.Description != "" {
+				d := m.Description
+				desc = &d
+			}
+			ms.AvailableModes = append(ms.AvailableModes, model.ACPSessionMode{
+				Description: desc,
+				Id:          string(m.ID),
+				Name:        m.Name,
+			})
+		}
+		return ms
+	}
+	selectOpt := resp.ModeConfigSelect()
+	if selectOpt == nil {
+		return nil
+	}
+	ms := &model.SessionModeState{CurrentModeId: selectOpt.CurrentValue}
+	for _, o := range selectOpt.Options {
+		var desc *string
+		if o.Description != "" {
+			d := o.Description
+			desc = &d
+		}
+		ms.AvailableModes = append(ms.AvailableModes, model.ACPSessionMode{
+			Description: desc,
+			Id:          o.Value,
+			Name:        o.Name,
+		})
+	}
+	return ms
+}
+
 func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.SessionModelState, *model.SessionModeState) {
 	// Bound every probe so one slow / hung agent can't wedge the refresh
 	// goroutine. Callers that want no timeout should not exist — the cache
@@ -396,29 +443,10 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.Se
 		logger.Infof(ctx, "[probe] ACP agent recovered: cmd=%s consecutiveFailures=%d", command, recovered)
 	}
 
-	logger.Debugf(ctx, "[probe] %s ACP session info: %v", command, json.String(sessResp))
+	logger.Infof(ctx, "[fetchACPSessionInfoForAgent] %s ACP session info: %v", command, json.String(sessResp))
 
 	models := modelsFromSessionResponse(sessResp)
-
-	var modes *model.SessionModeState
-	if sessResp.Modes != nil {
-		ms := &model.SessionModeState{
-			CurrentModeId: string(sessResp.Modes.CurrentModeID),
-		}
-		for _, m := range sessResp.Modes.AvailableModes {
-			var desc *string
-			if m.Description != "" {
-				d := m.Description
-				desc = &d
-			}
-			ms.AvailableModes = append(ms.AvailableModes, model.ACPSessionMode{
-				Description: desc,
-				Id:          string(m.ID),
-				Name:        m.Name,
-			})
-		}
-		modes = ms
-	}
+	modes := modesFromSessionResponse(sessResp)
 
 	return models, modes
 }
