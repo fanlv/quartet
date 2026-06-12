@@ -2804,13 +2804,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             if (!cancelled && allMsgs.length > 0) {
               setMessages((prev) => {
                 if (prev.length === 0) return allMsgs;
-                const existingIds = new Set(allMsgs.map((m) => m.id));
-                // Filter out messages already present in history by ID.
-                // Also drop optimistic user messages (those with clientMessageId)
-                // because the history already contains the confirmed version
-                // under a different (positional) ID.
-                const sseOnly = prev.filter((m) => !existingIds.has(m.id) && !(m.role === MessageRoleEnum.USER && m.clientMessageId));
-                return [...allMsgs, ...sseOnly];
+                // Reuse mergeMessages so this path gets the same id-based and
+                // semantic dedup (optimistic user messages, loop-user
+                // messages, and pure thought bubbles whose live id diverged
+                // from the persisted thought_msg_id) as every other history
+                // merge. A hand-rolled id-only filter here would miss thought
+                // bubbles and reintroduce duplicate thinking bubbles.
+                return mergeMessages(prev, allMsgs, { deduplicateToolCallIds: true });
               });
             }
           }

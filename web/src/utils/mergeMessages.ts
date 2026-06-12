@@ -1,5 +1,28 @@
 import { MessageRoleEnum } from '../types/protocol';
-import type { Message, ToolMessage } from '../types/message';
+import type { AssistantMessage, Message, ToolMessage } from '../types/message';
+
+/**
+ * A "pure thought bubble" is an assistant message that carries only
+ * reasoning text (thinkingContent) and no body content. The history API
+ * splits an assistant turn's reasoning into its own entry (keyed by the
+ * stored thought_msg_id) and the live SSE stream creates a separate bubble
+ * on OnThoughtStart, so the same thought exists as two messages with
+ * potentially different ids. When the live id and the persisted
+ * thought_msg_id momentarily diverge (e.g. a history refetch races a still
+ * in-flight round before the id is durably stored), id-based dedup misses
+ * them and the thought renders twice. Semantic dedup by sessionId +
+ * thinkingContent is the same fallback already used for synthetic loop-user
+ * messages.
+ */
+function isPureThoughtBubble(m: Message): m is AssistantMessage {
+  if (m.role !== MessageRoleEnum.ASSISTANT) return false;
+  const am = m as AssistantMessage;
+  return !!am.thinkingContent && !am.content;
+}
+
+function thoughtKey(sessionId: string, thinkingContent: string): string {
+  return `${sessionId}\x00${thinkingContent}`;
+}
 
 export interface MergeOptions {
   /**
@@ -69,6 +92,16 @@ export function mergeMessages(
     }
   }
 
+  // Build a set of (sessionId, thinkingContent) for pure thought bubbles
+  // present in history, so a live thought bubble whose id no longer matches
+  // its persisted thought_msg_id is dropped in favour of the history version.
+  const historyThoughtKeys = new Set<string>();
+  for (const hm of incoming) {
+    if (hm.sessionId && isPureThoughtBubble(hm)) {
+      historyThoughtKeys.add(thoughtKey(hm.sessionId, hm.thinkingContent ?? ''));
+    }
+  }
+
   let historyToolCallIds: Set<string> | undefined;
   if (options?.deduplicateToolCallIds) {
     historyToolCallIds = new Set<string>();
@@ -89,6 +122,11 @@ export function mergeMessages(
     // Drop synthetic loop user messages whose confirmed version now exists in history
     if (m.role === MessageRoleEnum.USER && m.id.startsWith('loop-user-') && m.sessionId) {
       if (historyUserKeys.has(`${m.sessionId}\x00${m.content}`)) return false;
+    }
+    // Drop a live thought bubble whose equivalent (same sessionId +
+    // thinkingContent) already exists in history under a different id.
+    if (m.sessionId && isPureThoughtBubble(m)) {
+      if (historyThoughtKeys.has(thoughtKey(m.sessionId, m.thinkingContent ?? ''))) return false;
     }
     // Optionally drop tool messages whose toolCallId is covered by history
     if (historyToolCallIds && m.role === MessageRoleEnum.TOOL) {

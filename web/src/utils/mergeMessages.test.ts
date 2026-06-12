@@ -72,4 +72,49 @@ describe('mergeMessages', () => {
     expect(mergeMessages([existingTool], [incomingTool])).toEqual([incomingTool, existingTool]);
     expect(mergeMessages([existingTool], [incomingTool], { deduplicateToolCallIds: true })).toEqual([incomingTool]);
   });
+
+  it('drops a live thought bubble when history has the same session/thinkingContent under a different id', () => {
+    // Live SSE thought bubble (id from OnThoughtStart) and history thought
+    // bubble (id from persisted thought_msg_id) momentarily diverge; without
+    // semantic dedup both render and the thought shows twice.
+    const liveThought = baseMessage('live-uuid', MessageRoleEnum.ASSISTANT, '', {
+      sessionId: 'session-1',
+      thinkingContent: 'reasoning about the layout',
+    });
+    const historyThought = baseMessage('thought-msg-id', MessageRoleEnum.ASSISTANT, '', {
+      sessionId: 'session-1',
+      thinkingContent: 'reasoning about the layout',
+    });
+
+    expect(mergeMessages([liveThought], [historyThought])).toEqual([historyThought]);
+  });
+
+  it('keeps thought bubbles with different thinkingContent', () => {
+    const thoughtA = baseMessage('uuid-a', MessageRoleEnum.ASSISTANT, '', {
+      sessionId: 'session-1',
+      thinkingContent: 'first reasoning',
+    });
+    const thoughtB = baseMessage('uuid-b', MessageRoleEnum.ASSISTANT, '', {
+      sessionId: 'session-1',
+      thinkingContent: 'second reasoning',
+    });
+
+    expect(mergeMessages([thoughtA], [thoughtB])).toEqual([thoughtB, thoughtA]);
+  });
+
+  it('does not treat an assistant message with body content as a thought bubble', () => {
+    // Same sessionId + thinkingContent, but the existing message also has
+    // body content, so it is a real assistant turn, not a pure thought
+    // bubble — it must be preserved.
+    const liveAnswer = baseMessage('live-uuid', MessageRoleEnum.ASSISTANT, 'the answer', {
+      sessionId: 'session-1',
+      thinkingContent: 'shared reasoning',
+    });
+    const historyThought = baseMessage('thought-msg-id', MessageRoleEnum.ASSISTANT, '', {
+      sessionId: 'session-1',
+      thinkingContent: 'shared reasoning',
+    });
+
+    expect(mergeMessages([liveAnswer], [historyThought])).toEqual([historyThought, liveAnswer]);
+  });
 });
