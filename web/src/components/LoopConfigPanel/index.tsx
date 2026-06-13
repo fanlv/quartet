@@ -602,8 +602,9 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
       setFlow(migrated.flow);
       setCollapsedGroupIds(getDefaultCollapsedGroupIds(migrated.flow));
       setSelectedNodeId(migrated.flow[0]?.id || findFirstStepId(migrated.flow) || null);
+      const importDisabled = new Set(migrated.disabledVars || []);
       const vars = migrated.variables
-        ? Object.entries(migrated.variables).map(([key, value]) => ({ key, value }))
+        ? Object.entries(migrated.variables).map(([key, value]) => ({ key, value, enabled: !importDisabled.has(key) }))
         : [];
       setVariables(vars);
       setShowImportDialog(false);
@@ -624,8 +625,12 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     // the backend would reject). Guards against keyboard submit / stale state.
     if (!isFlowValid(flow) || collectFlowIssues(flow, t).length > 0) return;
     const vars: Record<string, string> = {};
+    const disabled: string[] = [];
     variables.forEach((v) => {
-      if (v.key.trim()) vars[v.key.trim()] = v.value;
+      const key = v.key.trim();
+      if (!key) return;
+      vars[key] = v.value;
+      if (!v.enabled) disabled.push(key);
     });
     // Always send `variables` (even when empty) so the editor's full-config
     // semantics reach the backend: ReplaceLoopConfig treats a present map as a
@@ -634,7 +639,9 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     // deleting the last variable would silently fail to persist. (For a running
     // job UpdateRunningStepFields compares the map; sending the unchanged set
     // when only step fields were edited still matches and is accepted.)
-    const config: LoopConfig = { flow, variables: vars };
+    // disabledVars travels with variables for the same wholesale-replace reason:
+    // it must always be sent so re-enabling the last disabled var persists.
+    const config: LoopConfig = { flow, variables: vars, disabledVars: disabled };
     if (isEditMode && onSave) {
       setSavingConfig(true);
       try {
@@ -663,8 +670,9 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     setFlow(nextFlow);
     setCollapsedGroupIds(getDefaultCollapsedGroupIds(nextFlow));
     setSelectedNodeId(nextFlow[0]?.id || null);
+    const tmplDisabled = new Set(migrated.disabledVars || []);
     const vars = migrated.variables
-      ? Object.entries(migrated.variables).map(([key, value]) => ({ key, value }))
+      ? Object.entries(migrated.variables).map(([key, value]) => ({ key, value, enabled: !tmplDisabled.has(key) }))
       : [];
     setVariables(vars);
     setSelectedTemplateId(tmpl.id);
@@ -698,14 +706,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     if (!templateName.trim()) return;
     setSaving(true);
     setTemplateSaveError('');
-    const vars: Record<string, string> = {};
-    variables.forEach((v) => {
-      if (v.key.trim()) vars[v.key.trim()] = v.value;
-    });
-    const config: LoopConfig = {
-      flow,
-      ...(Object.keys(vars).length > 0 ? { variables: vars } : {}),
-    };
+    const config = buildLoopConfigJson();
     try {
       const tmpl = await saveTemplateApi(templateName.trim(), config);
       setTemplates((prev) => [tmpl, ...prev]);
@@ -734,14 +735,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     if (!selectedTemplateId || !updateName.trim()) return;
     setUpdating(true);
     setUpdateError('');
-    const vars: Record<string, string> = {};
-    variables.forEach((v) => {
-      if (v.key.trim()) vars[v.key.trim()] = v.value;
-    });
-    const config: LoopConfig = {
-      flow,
-      ...(Object.keys(vars).length > 0 ? { variables: vars } : {}),
-    };
+    const config = buildLoopConfigJson();
     try {
       const tmpl = await updateTemplateApi(selectedTemplateId, updateName.trim(), config);
       setTemplates((prev) => prev.map((t) => (t.id === tmpl.id ? tmpl : t)));

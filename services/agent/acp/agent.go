@@ -240,9 +240,26 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 	createdFreshSession := false
 	if existingACPSession != "" {
 		acpSessionID = pkgacp.SessionID(existingACPSession)
-		if _, err := conn.LoadSession(ctx, existingACPSession, workdir); err != nil {
-			logger.Errorf(ctx, "[acp] LoadSession failed, creating new: acpSession=%s err=%v", existingACPSession, err)
-			existingACPSession = ""
+		// Prefer session/resume (no history replay) over session/load
+		// when the agent supports it, mirroring reconnectIfNeeded. On
+		// cold start the per-Run stream handler is not installed yet, so
+		// load-time replay events are usually dropped — but resume avoids
+		// emitting them at all, which is cleaner and removes any reliance
+		// on that timing. Fall back to LoadSession if resume is
+		// unavailable or fails.
+		restored := false
+		if conn.SupportsResume() {
+			if _, err := conn.ResumeSession(ctx, existingACPSession, workdir); err != nil {
+				logger.Warnf(ctx, "[acp] ResumeSession failed on cold start, falling back to LoadSession: acpSession=%s err=%v", existingACPSession, err)
+			} else {
+				restored = true
+			}
+		}
+		if !restored {
+			if _, err := conn.LoadSession(ctx, existingACPSession, workdir); err != nil {
+				logger.Errorf(ctx, "[acp] LoadSession failed, creating new: acpSession=%s err=%v", existingACPSession, err)
+				existingACPSession = ""
+			}
 		}
 	}
 
@@ -484,19 +501,44 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context) error {
 		freshFingerprint repository.MessagesFingerprint
 	)
 	if oldSession != "" {
-		sessResp, loadErr := conn.LoadSession(ctx, string(oldSession), a.workdir)
-		if loadErr == nil {
-			newSessionID = pkgacp.SessionID(sessResp.SessionID)
-			logger.Infof(ctx, "[acp] reconnected via LoadSession: acpSession=%s newPid=%d", sessResp.SessionID, conn.Pid())
-		} else {
-			// Old subprocess session is no longer loadable (idle reap
-			// wiped it, server schema changed, etc.). Fall through to
-			// NewSession + replay so the user's conversation continues
-			// rather than failing every subsequent Run with the same
-			// error. logged at WARN because the reload was expected to
-			// work; INFO would hide it from operators investigating
-			// "why did this conversation reset".
-			logger.Warnf(ctx, "[acp] reconnect LoadSession failed, falling back to fresh session + replay: oldAcpSession=%s err=%v", oldSession, loadErr)
+		// Prefer session/resume when the agent supports it: unlike
+		// session/load, resume restores the subprocess-side context
+		// WITHOUT replaying conversation history via session/update.
+		// Load-time replay events are structurally identical to freshly
+		// generated output (the protocol carries no isReplay flag), so a
+		// LoadSession reconnect re-streams every prior turn into this
+		// Run's stream handler, which re-persists and re-pushes them —
+		// the duplicate-message bug. Resume sidesteps that entirely.
+		if conn.SupportsResume() {
+			sessResp, resumeErr := conn.ResumeSession(ctx, string(oldSession), a.workdir)
+			if resumeErr == nil {
+				newSessionID = pkgacp.SessionID(sessResp.SessionID)
+				logger.Infof(ctx, "[acp] reconnected via ResumeSession (no replay): acpSession=%s newPid=%d", sessResp.SessionID, conn.Pid())
+			} else {
+				// Resume was advertised but failed (subprocess lost the
+				// session, transient error, etc.). Fall through to
+				// LoadSession below rather than straight to fresh+replay:
+				// LoadSession can still restore subprocess-side context
+				// from a persisted session, preserving continuity.
+				logger.Warnf(ctx, "[acp] ResumeSession failed, falling back to LoadSession: oldAcpSession=%s err=%v", oldSession, resumeErr)
+			}
+		}
+
+		if newSessionID == "" {
+			sessResp, loadErr := conn.LoadSession(ctx, string(oldSession), a.workdir)
+			if loadErr == nil {
+				newSessionID = pkgacp.SessionID(sessResp.SessionID)
+				logger.Infof(ctx, "[acp] reconnected via LoadSession: acpSession=%s newPid=%d", sessResp.SessionID, conn.Pid())
+			} else {
+				// Old subprocess session is no longer loadable (idle reap
+				// wiped it, server schema changed, etc.). Fall through to
+				// NewSession + replay so the user's conversation continues
+				// rather than failing every subsequent Run with the same
+				// error. logged at WARN because the reload was expected to
+				// work; INFO would hide it from operators investigating
+				// "why did this conversation reset".
+				logger.Warnf(ctx, "[acp] reconnect LoadSession failed, falling back to fresh session + replay: oldAcpSession=%s err=%v", oldSession, loadErr)
+			}
 		}
 	}
 

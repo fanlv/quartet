@@ -84,6 +84,16 @@ type Conn struct {
 	// reads this to pick the right log level — a reaper-triggered
 	// reconnect is not an error and must not pollute WARN aggregates.
 	closedByIdleReapFlag atomic.Bool
+
+	// supportsResume records whether the agent advertised the
+	// sessionCapabilities.resume capability during initialize. Set once
+	// right after the handshake (before the Conn is handed to callers, so
+	// no synchronization is needed) and read by the reconnect path to
+	// choose session/resume over session/load. session/resume restores a
+	// session WITHOUT replaying history via session/update, which avoids
+	// the duplicate-message bug where load-time replay events are treated
+	// as freshly generated output and re-persisted / re-pushed.
+	supportsResume bool
 }
 
 // Pid returns the subprocess PID, or 0 if the process is not running.
@@ -412,6 +422,17 @@ func NewConn(ctx context.Context, agentType, workdir string) (*Conn, error) {
 		return nil, fmt.Errorf("acp initialize failed: %w, stderr: %s", err, stderrBuf.String())
 	}
 	logger.Debugf(ctx, "[ACP] connected to agentType=%s initResp=%s", agentType, json.String(initResp))
+
+	// Record resume support so the reconnect path can prefer session/resume
+	// (no history replay) over session/load (replays history via
+	// session/update, which our stream handler would mis-attribute as new
+	// output). The capability uses {}-as-presence semantics: a non-nil
+	// Resume pointer means the agent supports session/resume.
+	if caps := initResp.AgentCapabilities; caps != nil && caps.SessionCapabilities != nil {
+		c.supportsResume = caps.SessionCapabilities.Resume != nil
+	}
+	logger.Infof(ctx, "[ACP] capabilities: agentType=%s loadSession=%v resume=%v",
+		agentType, initResp.AgentCapabilities != nil && initResp.AgentCapabilities.LoadSession, c.supportsResume)
 
 	return c, nil
 }

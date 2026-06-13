@@ -196,6 +196,46 @@ func (c *Conn) LoadSession(ctx context.Context, sessionID, workdir string) (*Ses
 	}, nil
 }
 
+// SupportsResume reports whether the agent advertised the
+// sessionCapabilities.resume capability during initialize. When true, the
+// reconnect path can use ResumeSession instead of LoadSession to restore the
+// session without replaying conversation history.
+func (c *Conn) SupportsResume() bool {
+	return c.supportsResume
+}
+
+// ResumeSession restores an existing ACP session on this connection WITHOUT
+// replaying conversation history. Unlike LoadSession (which the protocol
+// requires to re-stream every prior turn via session/update notifications
+// before responding), session/resume restores the subprocess-side context
+// and returns once the session is ready — no replay events are emitted, so
+// the caller's stream handler never sees stale historical output.
+//
+// Only valid when SupportsResume reports true. The SDK method is marked
+// UNSTABLE; callers MUST gate on the advertised capability and fall back to
+// LoadSession when resume is unavailable.
+func (c *Conn) ResumeSession(ctx context.Context, sessionID, workdir string) (*SessionResponse, error) {
+	cwd, err := resolveCwd(workdir)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.conn.UnstableResumeSession(ctx, acp.ResumeSessionRequest{
+		SessionID:  acp.SessionID(sessionID),
+		Cwd:        cwd,
+		MCPServers: []acp.MCPServer{},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("acp resume_session failed: %w, stderr: %s", err, c.stderrBuf.String())
+	}
+	logger.Debugf(ctx, "[ACP] session resumed: %s cwd=%s", sessionID, cwd)
+	return &SessionResponse{
+		SessionID:     sessionID,
+		ConfigOptions: resp.ConfigOptions,
+		Models:        resp.Models,
+		Modes:         resp.Modes,
+	}, nil
+}
+
 // PromptSlot is a held prompt slot on a Conn. While holding it, the caller
 // has exclusive right to call SendPrompt on the underlying connection and is
 // safely recorded as the connection's active prompt session. Callers install
