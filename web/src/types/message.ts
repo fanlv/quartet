@@ -119,6 +119,9 @@ export interface LoopRound {
 export interface LoopConfig {
   flow?: FlowNode[];
   variables?: Record<string, string>;
+  // disabledVars lists user-variable keys toggled off. A disabled variable
+  // keeps its value in `variables` but is substituted as an empty string.
+  disabledVars?: string[];
   // Deprecated legacy fields
   iterationCount?: number;
   rounds?: LoopRound[];

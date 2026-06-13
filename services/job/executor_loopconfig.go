@@ -88,6 +88,9 @@ func (s *serviceImpl) ReplaceLoopConfig(ctx context.Context, jobID string, cfg *
 	// Continue re-inject the builtins at runLoop entry regardless.
 	if cfg.Variables != nil {
 		cp.LoopConfig.Variables = copyStringMap(cfg.Variables)
+		// DisabledVars travels with Variables: the editor always sends both, so
+		// a nil/empty list here means "nothing disabled" rather than "untouched".
+		cp.LoopConfig.DisabledVars = copyStringSlice(cfg.DisabledVars)
 	}
 	reconcileProgressToFlow(cp, newFlow, oldStepNodeIDs, structureChanged)
 	cp.UpdatedAt = time.Now()
@@ -254,6 +257,15 @@ func copyStringMap(src map[string]string) map[string]string {
 	return out
 }
 
+func copyStringSlice(src []string) []string {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]string, len(src))
+	copy(out, src)
+	return out
+}
+
 func isBuiltinLoopVar(k string) bool {
 	switch k {
 	case consts.VarJobID,
@@ -292,6 +304,29 @@ func stringMapsEqual(a, b map[string]string) bool {
 			continue
 		}
 		if vb, ok := b[k]; !ok || vb != va {
+			return false
+		}
+	}
+	return true
+}
+
+// stringSetsEqual reports whether two string slices contain the same set of
+// values, ignoring order and duplicates. Used to compare DisabledVars across an
+// edit (the editor may emit keys in any order).
+func stringSetsEqual(a, b []string) bool {
+	sa := make(map[string]struct{}, len(a))
+	for _, v := range a {
+		sa[v] = struct{}{}
+	}
+	sb := make(map[string]struct{}, len(b))
+	for _, v := range b {
+		sb[v] = struct{}{}
+	}
+	if len(sa) != len(sb) {
+		return false
+	}
+	for k := range sa {
+		if _, ok := sb[k]; !ok {
 			return false
 		}
 	}
@@ -362,6 +397,12 @@ func (s *serviceImpl) UpdateRunningStepFields(ctx context.Context, jobID string,
 	// from the live set is a real edit attempt and must be refused with a clear
 	// error instead of returning success and ignoring it.
 	if cfg.Variables != nil && !stringMapsEqual(existing.LoopConfig.Variables, cfg.Variables) {
+		s.mu.Unlock()
+		return ErrLoopVariablesChanged
+	}
+	// The same reasoning applies to enabling/disabling a variable: it changes the
+	// value substituted live, so refuse a disabled-set change on a running job.
+	if cfg.Variables != nil && !stringSetsEqual(existing.LoopConfig.DisabledVars, cfg.DisabledVars) {
 		s.mu.Unlock()
 		return ErrLoopVariablesChanged
 	}

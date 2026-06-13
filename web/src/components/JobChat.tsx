@@ -148,6 +148,7 @@ export function JobChat(props: JobChatProps) {
     stopPending,
     loopFlow,
     loopVariables,
+    loopDisabledVars,
     loopSessions,
     activeSessionId,
     setActiveSessionId,
@@ -455,6 +456,10 @@ export function JobChat(props: JobChatProps) {
     : -1;
 
   const handleSelectModel = useCallback((modelId: string) => {
+    // Mark manual control so the session-reported model (sessionModelId) stops
+    // pinning the selector. Without this, once a session reports its model the
+    // tag/dropdown freeze on it and both display and send ignore new picks.
+    setHasUserSelected(true);
     setAgents((prev) => prev.map((agent, idx) =>
       idx === selectedAgentIndex && agent.models
         ? { ...agent, models: { ...agent.models, currentModelId: modelId } }
@@ -1044,9 +1049,9 @@ export function JobChat(props: JobChatProps) {
             // brand-new-loop initial config; `{}` means "saved empty" and must
             // not resurrect stale initial variables after deleting the last one.
             ...(loopVariables !== undefined
-              ? { variables: loopVariables }
+              ? { variables: loopVariables, disabledVars: loopDisabledVars ?? [] }
               : initialLoopConfig?.variables
-                ? { variables: initialLoopConfig.variables }
+                ? { variables: initialLoopConfig.variables, disabledVars: initialLoopConfig.disabledVars ?? [] }
                 : {}),
           }}
           runningLock={loopStatus === 'running'}
@@ -1165,7 +1170,7 @@ export function JobChat(props: JobChatProps) {
             } : undefined}
             onSelectModel={selectedAgent?.models ? handleSelectModel : undefined}
             onSelectMode={selectedAgent?.modes ? handleSelectMode : undefined}
-            overrideModelId={sessionModelId}
+            overrideModelId={hasUserSelected ? undefined : sessionModelId}
             overrideModeId={sessionACPMode}
           />
         </div>

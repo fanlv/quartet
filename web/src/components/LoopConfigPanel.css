@@ -599,13 +599,62 @@
 
 .loop-variable-row {
   display: grid;
-  grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.3fr) auto;
+  grid-template-columns: auto minmax(90px, 0.7fr) minmax(0, 1.3fr) auto;
   gap: 8px;
   align-items: center;
   padding: 6px 8px;
   border: 1px solid rgba(15, 23, 42, 0.07);
   border-radius: 8px;
   background: #fff;
+}
+
+.loop-variable-row.disabled .loop-variable-key,
+.loop-variable-row.disabled .loop-variable-value {
+  opacity: 0.5;
+}
+
+.loop-variable-toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.loop-variable-toggle.on {
+  background: #2563eb;
+}
+
+.loop-variable-toggle.off {
+  background: #d1d5db;
+}
+
+.loop-variable-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.loop-variable-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: left 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.loop-variable-toggle.on .loop-variable-toggle-thumb {
+  left: 18px;
+}
+
+.loop-variable-toggle.off .loop-variable-toggle-thumb {
+  left: 2px;
 }
 
 .loop-variable-key,

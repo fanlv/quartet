@@ -156,7 +156,9 @@
       "countHint_one": "{{count}} variable. Reference it with <0>{{varTag}}</0>.",
       "countHint_other": "{{count}} variables. Reference them with <0>{{varTag}}</0>.",
       "keyPlaceholder": "Variable name",
-      "valuePlaceholder": "Variable value"
+      "valuePlaceholder": "Variable value",
+      "toggleOnTitle": "Enabled. Click to disable (injects an empty string).",
+      "toggleOffTitle": "Disabled. Injects an empty string. Click to enable."
     },
     "flow": {
       "title": "Flow",

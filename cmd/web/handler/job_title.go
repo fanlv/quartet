@@ -284,8 +284,16 @@ func replaceJobTitleVariables(message string, loopConfig *model.LoopConfig) stri
 		return message
 	}
 
+	disabled := make(map[string]struct{}, len(loopConfig.DisabledVars))
+	for _, k := range loopConfig.DisabledVars {
+		disabled[k] = struct{}{}
+	}
+
 	result := message
 	for k, v := range loopConfig.Variables {
+		if _, off := disabled[k]; off {
+			v = ""
+		}
 		result = strings.ReplaceAll(result, "{{"+k+"}}", v)
 	}
 

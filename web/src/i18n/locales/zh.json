@@ -153,7 +153,9 @@
       "emptyHint": "暂无变量，可放仓库名、分支名等复用信息。用 <0>{{varTag}}</0> 引用。",
       "countHint": "{{count}} 个变量，用 <0>{{varTag}}</0> 引用",
       "keyPlaceholder": "变量名",
-      "valuePlaceholder": "变量值"
+      "valuePlaceholder": "变量值",
+      "toggleOnTitle": "已启用，点击关闭后注入空字符串",
+      "toggleOffTitle": "已关闭，注入空字符串，点击启用"
     },
     "flow": {
       "title": "执行流程",

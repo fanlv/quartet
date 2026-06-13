@@ -376,11 +376,11 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     return makeDefaultFlow();
   });
   const [flow, setFlow] = useState<FlowNode[]>(initialFlow);
-  const [variables, setVariables] = useState<{ key: string; value: string }[]>(() => {
+  const [variables, setVariables] = useState<{ key: string; value: string; enabled: boolean }[]>(() => {
     const migrated = initialConfig ? migrateOldConfig(initialConfig) : null;
-    return migrated?.variables
-      ? Object.entries(migrated.variables).map(([key, value]) => ({ key, value }))
-      : [];
+    if (!migrated?.variables) return [];
+    const disabled = new Set(migrated.disabledVars || []);
+    return Object.entries(migrated.variables).map(([key, value]) => ({ key, value, enabled: !disabled.has(key) }));
   });
 
   const [templates, setTemplates] = useState<LoopTemplate[]>([]);
@@ -550,12 +550,17 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
 
   const buildLoopConfigJson = useCallback(() => {
     const vars: Record<string, string> = {};
+    const disabled: string[] = [];
     variables.forEach((v) => {
-      if (v.key.trim()) vars[v.key.trim()] = v.value;
+      const key = v.key.trim();
+      if (!key) return;
+      vars[key] = v.value;
+      if (!v.enabled) disabled.push(key);
     });
     const config: LoopConfig = {
       flow,
       ...(Object.keys(vars).length > 0 ? { variables: vars } : {}),
+      ...(disabled.length > 0 ? { disabledVars: disabled } : {}),
     };
     return config;
   }, [flow, variables]);
@@ -760,7 +765,7 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   }
 
   const handleAddVariable = () => {
-    setVariables([...variables, { key: '', value: '' }]);
+    setVariables([...variables, { key: '', value: '', enabled: true }]);
     markDirty();
   };
   const handleRemoveVariable = (index: number) => {
@@ -769,6 +774,10 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   };
   const handleVariableChange = (index: number, field: 'key' | 'value', val: string) => {
     setVariables(variables.map((v, i) => (i === index ? { ...v, [field]: val } : v)));
+    markDirty();
+  };
+  const handleToggleVariable = (index: number) => {
+    setVariables(variables.map((v, i) => (i === index ? { ...v, enabled: !v.enabled } : v)));
     markDirty();
   };
 
@@ -1292,9 +1301,20 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                       </span>
                       <div className="loop-variable-list">
                         {variables.map((v, idx) => (
-                          <div key={idx} className="loop-variable-row">
+                          <div key={idx} className={`loop-variable-row${v.enabled ? '' : ' disabled'}`}>
+                            <button
+                              type="button"
+                              className={`loop-variable-toggle ${v.enabled ? 'on' : 'off'}`}
+                              onClick={() => handleToggleVariable(idx)}
+                              disabled={structureLocked}
+                              role="switch"
+                              aria-checked={v.enabled}
+                              title={v.enabled ? t('loop.variables.toggleOnTitle') : t('loop.variables.toggleOffTitle')}
+                            >
+                              <span className="loop-variable-toggle-thumb" />
+                            </button>
                             <input className="loop-variable-key" type="text" value={v.key} onChange={(e) => handleVariableChange(idx, 'key', e.target.value)} placeholder={t('loop.variables.keyPlaceholder')} disabled={structureLocked} />
-                            <input className="loop-variable-value" type="text" value={v.value} onChange={(e) => handleVariableChange(idx, 'value', e.target.value)} placeholder={t('loop.variables.valuePlaceholder')} disabled={structureLocked} />
+                            <input className="loop-variable-value" type="text" value={v.value} onChange={(e) => handleVariableChange(idx, 'value', e.target.value)} placeholder={t('loop.variables.valuePlaceholder')} disabled={structureLocked || !v.enabled} />
                             {!structureLocked && (
                               <button className="loop-variable-remove" onClick={() => handleRemoveVariable(idx)} type="button">×</button>
                             )}
@@ -1358,9 +1378,20 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
               </div>
               <div className="loop-variable-list">
                 {variables.map((v, idx) => (
-                  <div key={idx} className="loop-variable-row">
+                  <div key={idx} className={`loop-variable-row${v.enabled ? '' : ' disabled'}`}>
+                    <button
+                      type="button"
+                      className={`loop-variable-toggle ${v.enabled ? 'on' : 'off'}`}
+                      onClick={() => handleToggleVariable(idx)}
+                      disabled={structureLocked}
+                      role="switch"
+                      aria-checked={v.enabled}
+                      title={v.enabled ? t('loop.variables.toggleOnTitle') : t('loop.variables.toggleOffTitle')}
+                    >
+                      <span className="loop-variable-toggle-thumb" />
+                    </button>
                     <input className="loop-variable-key" type="text" value={v.key} onChange={(e) => handleVariableChange(idx, 'key', e.target.value)} placeholder={t('loop.variables.keyPlaceholder')} disabled={structureLocked} />
-                    <input className="loop-variable-value" type="text" value={v.value} onChange={(e) => handleVariableChange(idx, 'value', e.target.value)} placeholder={t('loop.variables.valuePlaceholder')} disabled={structureLocked} />
+                    <input className="loop-variable-value" type="text" value={v.value} onChange={(e) => handleVariableChange(idx, 'value', e.target.value)} placeholder={t('loop.variables.valuePlaceholder')} disabled={structureLocked || !v.enabled} />
                     {!structureLocked && (
                       <button className="loop-variable-remove" onClick={() => handleRemoveVariable(idx)} type="button">×</button>
                     )}

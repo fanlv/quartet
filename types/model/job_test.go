@@ -7,7 +7,7 @@ import (
 
 func TestJobDeepCopyIsIndependent(t *testing.T) {
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(Job{}), []string{"LoopConfig", "SessionIDs", "Progress", "Resume"})
-	assertDeepCopyFieldsCovered(t, reflect.TypeOf(LoopConfig{}), []string{"Flow", "Variables", "Rounds"})
+	assertDeepCopyFieldsCovered(t, reflect.TypeOf(LoopConfig{}), []string{"Flow", "Variables", "DisabledVars", "Rounds"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(FlowNode{}), []string{"Children"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(JobProgress{}), []string{"CurrentPath", "Results", "PersistWarnings", "GroupActualIterations", "GroupActualLeafCounts", "SkippedPaths"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(JobResume{}), []string{"NextPath"})
@@ -27,7 +27,8 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 					},
 				},
 			},
-			Variables: map[string]string{"name": "original"},
+			Variables:    map[string]string{"name": "original"},
+			DisabledVars: []string{"name"},
 			Rounds: []LoopRound{
 				{Message: "legacy original", RepeatCount: 1, RoundMode: RoundModeNone},
 			},
@@ -50,6 +51,7 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	cp.LoopConfig.Flow[0].Children[0].Message = "copy message"
 	cp.LoopConfig.Variables["name"] = "copy"
 	cp.LoopConfig.Variables["copy-only"] = "present"
+	cp.LoopConfig.DisabledVars[0] = "copy-disabled"
 	cp.LoopConfig.Rounds[0].Message = "legacy copy"
 	cp.Progress.CurrentPath[0] = 9
 	cp.Progress.Results[0].Path[0] = 9
@@ -72,6 +74,9 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	}
 	if _, ok := orig.LoopConfig.Variables["copy-only"]; ok {
 		t.Fatalf("orig Variables gained key added on copy")
+	}
+	if got := orig.LoopConfig.DisabledVars[0]; got != "name" {
+		t.Fatalf("orig DisabledVars mutated via copy: got %q", got)
 	}
 	if got := orig.LoopConfig.Rounds[0].Message; got != "legacy original" {
 		t.Fatalf("orig Rounds mutated via copy: got %q", got)

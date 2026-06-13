@@ -20,13 +20,31 @@ import (
 func (s *serviceImpl) substituteVars(text string, job *model.Job) string {
 	s.mu.RLock()
 	vars := job.LoopConfig.Variables
-	if len(vars) == 0 {
+	disabled := job.LoopConfig.DisabledVars
+	if len(vars) == 0 && len(disabled) == 0 {
 		s.mu.RUnlock()
 		return text
 	}
-	oldnew := make([]string, 0, len(vars)*2)
+	disabledSet := make(map[string]struct{}, len(disabled))
+	for _, k := range disabled {
+		disabledSet[k] = struct{}{}
+	}
+	oldnew := make([]string, 0, (len(vars)+len(disabled))*2)
 	for k, v := range vars {
+		if _, off := disabledSet[k]; off {
+			// Disabled user variable: render to empty string but keep its
+			// stored value untouched so re-enabling restores it.
+			oldnew = append(oldnew, "{{"+k+"}}", "")
+			continue
+		}
 		oldnew = append(oldnew, "{{"+k+"}}", v)
+	}
+	// A disabled key without an entry in Variables (e.g. an empty-value var
+	// toggled off) still blanks its placeholder.
+	for _, k := range disabled {
+		if _, ok := vars[k]; !ok {
+			oldnew = append(oldnew, "{{"+k+"}}", "")
+		}
 	}
 	s.mu.RUnlock()
 	return strings.NewReplacer(oldnew...).Replace(text)

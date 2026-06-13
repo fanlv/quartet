@@ -284,6 +284,7 @@ export function migrateOldConfig(config: LoopConfig): LoopConfig {
       children,
     }],
     variables: config.variables,
+    disabledVars: config.disabledVars,
   };
 }
 

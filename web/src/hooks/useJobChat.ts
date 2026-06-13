@@ -286,6 +286,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // not hydrated yet; `{}` means it has no user variables and must override any
   // stale initialLoopConfig fallback.
   const [loopVariables, setLoopVariables] = useState<Record<string, string> | undefined>(undefined);
+  // Disabled (toggled-off) user-variable keys, hydrated alongside loopVariables
+  // so reopening the editor on a saved job shows the saved enable/disable state.
+  const [loopDisabledVars, setLoopDisabledVars] = useState<string[] | undefined>(undefined);
 
   // Job-level timing for total duration display
   const [jobStartedAt, setJobStartedAt] = useState<number | undefined>(undefined);
@@ -418,6 +421,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     isLoopRef.current = false;
     setLoopFlow(null);
     setLoopVariables(undefined);
+    setLoopDisabledVars(undefined);
     setLoopProgress(null);
     setLoopStatus('idle');
     setStopPending(false);
@@ -1429,6 +1433,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       if (Array.isArray(job?.loopConfig?.flow)) {
         setLoopFlow(job.loopConfig.flow);
         setLoopVariables(userLoopVariables(job.loopConfig.variables));
+        setLoopDisabledVars(job.loopConfig.disabledVars || []);
       }
 
       // Hydrate round timing so the badge persists across reconnects.
@@ -2427,6 +2432,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       setLoopFlow(config.flow);
     }
     setLoopVariables(userLoopVariables(config.variables));
+    setLoopDisabledVars(config.disabledVars || []);
     if (data?.progress) {
       setLoopProgress(data.progress);
     }
@@ -2505,6 +2511,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         if (Array.isArray(job?.loopConfig?.flow)) {
           setLoopFlow(job.loopConfig.flow);
           setLoopVariables(userLoopVariables(job.loopConfig.variables));
+          setLoopDisabledVars(job.loopConfig.disabledVars || []);
         }
         // Hydrate base job metadata on refresh, especially for loop mode where
         // history is loaded with tagged session ids and won't set these fields.
@@ -2997,6 +3004,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     stopPending,
     loopFlow,
     loopVariables,
+    loopDisabledVars,
     loopSessions,
     activeSessionId,
     setActiveSessionId,

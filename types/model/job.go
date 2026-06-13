@@ -168,6 +168,12 @@ type LoopConfig struct {
 	Flow      []FlowNode        `json:"flow,omitempty"`
 	Variables map[string]string `json:"variables,omitempty"`
 
+	// DisabledVars lists user-defined variable keys that are toggled off. A
+	// disabled variable keeps its entry in Variables (so the value is preserved
+	// across toggles) but renders to an empty string during {{key}} substitution.
+	// Runtime builtins (_job_id, _current_time, …) are never listed here.
+	DisabledVars []string `json:"disabledVars,omitempty"`
+
 	// Deprecated: legacy flat format, kept for migration only.
 	IterationCount int         `json:"iterationCount,omitempty"`
 	Rounds         []LoopRound `json:"rounds,omitempty"`
@@ -296,6 +302,10 @@ func (j *Job) DeepCopy() *Job {
 			for k, v := range j.LoopConfig.Variables {
 				lcCopy.Variables[k] = v
 			}
+		}
+		if len(j.LoopConfig.DisabledVars) > 0 {
+			lcCopy.DisabledVars = make([]string, len(j.LoopConfig.DisabledVars))
+			copy(lcCopy.DisabledVars, j.LoopConfig.DisabledVars)
 		}
 		cp.LoopConfig = &lcCopy
 	}

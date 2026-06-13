@@ -644,7 +644,7 @@ export function ChatInput({
 
   const selectedAgent = agents && selectedAgentIndex != null ? agents[selectedAgentIndex] ?? null : null;
   const canSelect = !!agents && agents.length > 0 && !!onSelectAgent && !interactionDisabled;
-  const canSelectModel = !!selectedAgent?.models && (selectedAgent.models.availableModels?.length ?? 0) > 1 && !!onSelectModel && !controlsDisabled;
+  const canSelectModel = !!selectedAgent?.models && (selectedAgent.models.availableModels?.length ?? 0) > 0 && !!onSelectModel && !controlsDisabled;
   const canSelectMode = !!selectedAgent?.modes && (selectedAgent.modes.availableModes?.length ?? 0) > 1 && !!onSelectMode && !controlsDisabled;
   // Effective model/mode ID: prefer per-session override over agent-level value
   const effectiveModelId = overrideModelId ?? selectedAgent?.models?.currentModelId;
@@ -857,7 +857,7 @@ export function ChatInput({
                 )}
               </div>
             )}
-            {selectedAgent?.models && (selectedAgent.models.availableModels?.length ?? 0) > 1 && onSelectModel && (
+            {selectedAgent?.models && (selectedAgent.models.availableModels?.length ?? 0) > 0 && onSelectModel && (
               <div className="chat-model-selector" ref={modelDropdownRef}>
                 <div
                   className={`model-tag ${canSelectModel ? '' : 'disabled'}`}
