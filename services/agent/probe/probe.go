@@ -86,6 +86,7 @@ type ACPAgentDef struct {
 // KnownACPAgents lists all known ACP agents.
 var KnownACPAgents = []ACPAgentDef{
 	{"coco", "coco acp serve", "COCO", "🥥"},
+	{Bin: "traex", Command: "traex acp serve", DisplayName: "TraeCLI", IconURL: "https://avatars.githubusercontent.com/u/192691831"},
 	{"openclaw", "openclaw acp", "OpenClaw", "🦞"},
 	{"claude", "npx @agentclientprotocol/claude-agent-acp", "Claude", "https://avatars.githubusercontent.com/u/81847"},
 	{"gemini", "gemini --acp", "Gemini", "https://avatars.githubusercontent.com/u/161781182"},
