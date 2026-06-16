@@ -147,8 +147,7 @@ var definitionsList = func() []Definition {
 // ResolveName normalizes a raw command name (including aliases) to a canonical
 // definition name. Returns empty string if no match — callers can then treat
 // the text as a regular message. Matching is case-insensitive.
-func ResolveName(raw string) string {
-	raw = strings.ToLower(strings.TrimSpace(raw))
+func ResolveName(raw string) string {	raw = strings.ToLower(strings.TrimSpace(raw))
 	if raw == "" {
 		return ""
 	}
@@ -178,6 +177,15 @@ func Parse(text string) (cmd, args string) {
 		args = strings.TrimSpace(parts[1])
 	}
 	return
+}
+
+// IsKnown reports whether text is a recognized slash command (matching a
+// canonical name or alias). Unknown slash text (e.g. a typo like /hlep, or a
+// path like /etc/hosts) returns false so callers treat it as a regular
+// message. Mirrors the frontend's isKnownCommand in utils/commands.ts.
+func IsKnown(text string) bool {
+	cmd, _ := Parse(text)
+	return ResolveName(cmd) != ""
 }
 
 // Execute dispatches a command by its canonical name. Returns (nil, false)

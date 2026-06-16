@@ -51,18 +51,16 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Chat-page command branch (方向一-2): when the first message starts
-	// with a slash, execute it through the shared command module and push
+	// Chat-page command branch (方向一-2): when the first message is a known
+	// slash command, execute it through the shared command module and push
 	// the result as a transient SSE event. The command text is NOT saved to
 	// the Job's message history — it's a UI reflex, not part of the
 	// conversation.
 	//
-	// Unknown commands (e.g. a typo like /hlep) are also intercepted here
-	// and get an "未知命令" system-message reply, mirroring IM's
-	// dispatchAdminCommand. Letting unknown slash text fall through would
-	// diverge from IM (IM never forwards /xxx to the Agent) and would leave
-	// the Job driven by a message that never lands in user_input (the
-	// 落盘 loop below skips every "/…" entry).
+	// Only KNOWN commands (matching command.IsKnown) are intercepted. Unknown
+	// slash text — a typo like /hlep, or a path like /etc/hosts — falls through
+	// to the normal message flow and reaches the Agent, matching the frontend's
+	// isKnownCommand check and IM's dispatchAdminCommand.
 	//
 	// Exception: when the caller explicitly opts out via BypassCommand, the
 	// text is always treated as a regular message. The Web home page uses
@@ -76,9 +74,18 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 	// (would-be orphan uploads on the server, lost follow-up messages from
 	// non-web clients).
 	if !req.BypassCommand && len(req.Messages) == 1 && len(req.Messages[0].ImageUrls) == 0 {
-		if cmdName, args := command.Parse(req.Messages[0].Content); cmdName != "" {
-			h.dispatchJobCommand(ctx, j, cmdName, args)
-			c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "command_dispatched"})
+		if command.IsKnown(req.Messages[0].Content) {
+			cmdName, args := command.Parse(req.Messages[0].Content)
+			event := h.dispatchJobCommand(ctx, j, cmdName, args)
+			// Return the rendered command result inline in the POST response in
+			// addition to the transient SSE broadcast. The SSE path only reaches
+			// readers connected at publish time, but an interactive job that has
+			// finished a round tears its SSE connection down (terminal-state
+			// cleanup), so the publish would otherwise land on no reader and the
+			// user would see nothing. The inline copy makes delivery to the
+			// caller deterministic; the transient publish still updates any OTHER
+			// tabs watching the same job.
+			c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "command_dispatched", "event": event})
 			return
 		}
 	}
@@ -87,9 +94,9 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 	// 顺序遍历落盘，每条非空消息一条 JSONL 条目（文档 §3.6 "命令一律不落"：即便
 	// 走到这里，也对每条消息再做一次命令判定，命中即跳过；这样覆盖
 	// BypassCommand、多消息、带图命令等快速路径未拦截的场景）。
-	// 判定口径与 IM 侧 dispatchAdminCommand 保持一致：只要文本以 "/" 开头就视为
-	// 命令（不区分已知/未知），避免未知 slash 文本（例如拼错的 /hlep）在 Web 侧
-	// 被写入而 IM 侧不写入，造成两端 user_input 对不齐。
+	// 判定口径与 IM 侧 dispatchAdminCommand 保持一致：只有已知命令（command.IsKnown）
+	// 才跳过落盘，未知 slash 文本（例如拼错的 /hlep 或 /etc/hosts 这类路径）按真实
+	// 用户消息落盘并转发给 Agent。
 	// 落盘发生在 prepareJobSend 成功之后，避免参数错误时留脏数据（文档 §3.5）。
 	runner, opts, err := h.prepareJobSend(ctx, j, &req)
 	if err != nil {
@@ -102,7 +109,7 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 			if m.Content == "" && len(m.ImageUrls) == 0 {
 				continue
 			}
-			if cmdName, _ := command.Parse(m.Content); cmdName != "" {
+			if command.IsKnown(m.Content) {
 				continue
 			}
 			msgID := m.ID
@@ -129,17 +136,18 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 	c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "started"})
 }
 
-// dispatchJobCommand runs a slash command in the context of an existing Job
-// and pushes the result as a COMMAND_SYSTEM_MESSAGE SSE event. Command
-// feedback is transient: it is NOT added to the per-job SSE event buffer,
-// so a subsequent refresh / reconnect will not re-display the bubble or
-// re-fire the embedded action (which would silently teleport the user to
-// another workspace / Job on every revisit).
+// dispatchJobCommand runs a slash command in the context of an existing Job,
+// pushes the result as a transient COMMAND_SYSTEM_MESSAGE SSE event, and
+// returns the same event so the HTTP handler can also deliver it inline in the
+// POST response. Command feedback is transient: it is NOT added to the per-job
+// SSE event buffer, so a subsequent refresh / reconnect will not re-display the
+// bubble or re-fire the embedded action (which would silently teleport the user
+// to another workspace / Job on every revisit).
 //
 // Unknown commands are handled here too — the shared command module's
 // Execute returns ok=false, and we emit a "未知命令" system message so Web
 // behaves the same as IM (neither side forwards the text to the Agent).
-func (h *Handler) dispatchJobCommand(ctx context.Context, j *model.Job, cmd, args string) {
+func (h *Handler) dispatchJobCommand(ctx context.Context, j *model.Job, cmd, args string) *model.CommandSystemMessageEvent {
 	ec := &command.ExecCtx{
 		Ctx:                ctx,
 		WorkspaceService:   h.workspaceService,
@@ -160,7 +168,7 @@ func (h *Handler) dispatchJobCommand(ctx context.Context, j *model.Job, cmd, arg
 		event.Text = fmt.Sprintf("未知命令: %s\n输入 /help 查看可用命令", cmd)
 		event.Present = string(command.PresentInline)
 		h.jobService.PublishTransient(j.ID, event)
-		return
+		return event
 	}
 	event.Command = command.ResolveName(cmd)
 	event.Text = result.Message.Text
@@ -177,6 +185,7 @@ func (h *Handler) dispatchJobCommand(ctx context.Context, j *model.Job, cmd, arg
 		}
 	}
 	h.jobService.PublishTransient(j.ID, event)
+	return event
 }
 
 // prepareJobSend runs the full pre-SendMessage flow shared by the HTTP

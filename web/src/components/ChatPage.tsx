@@ -611,7 +611,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   const [scheduleDeleteConfirm, setScheduleDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [jobHistoryExpanded, setJobHistoryExpanded] = useState(true);
   const [schedulesExpanded, setSchedulesExpanded] = useState(!isMobile);
-  const [showSlashHint, setShowSlashHint] = useState(false);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const currentLang = (i18n.resolvedLanguage || i18n.language || 'en').startsWith('zh') ? 'zh' : 'en';
 
@@ -1000,30 +999,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     const match = before.match(/@([^\s@]*)$/);
     setMentionState(match ? { keyword: match[1], start: before.length - match[0].length } : null);
     if (match) setMentionActiveIndex(0);
-
-    // Home-page slash-command hint (方向一): if the user types `/` as the
-    // first character, flash a small one-time tooltip pointing out that
-    // commands only work inside a Job. `/` text is still sent as a normal
-    // message — we never intercept. Persist the dismissed flag at
-    // first display so simply deleting the `/` without clicking the × still
-    // counts as "we've shown it" and we won't pop it repeatedly. Use
-    // sessionStorage so "每会话" really means "per-browser-tab session" —
-    // closing and reopening the tab gives a fresh hint, matching the spec.
-    if (val.startsWith('/') && !val.startsWith('//')) {
-      try {
-        if (!sessionStorage.getItem('tipCommandInHomeShown')) {
-          setShowSlashHint(true);
-          sessionStorage.setItem('tipCommandInHomeShown', '1');
-        }
-      } catch { /* ignore */ }
-    } else {
-      setShowSlashHint(false);
-    }
-  };
-
-  const dismissSlashHint = () => {
-    setShowSlashHint(false);
-    try { sessionStorage.setItem('tipCommandInHomeShown', '1'); } catch { /* ignore */ }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1524,12 +1499,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
 
       <div className="home-input-container">
       <div className="home-input-wrapper" style={{ position: 'relative' }}>
-          {showSlashHint && (
-            <div className="home-slash-hint" role="tooltip" onClick={dismissSlashHint} title="点击关闭">
-              <span>命令 <code>/xxx</code> 请在 Job 内使用，首页发送 / 开头会按普通消息处理。</span>
-              <button className="home-slash-hint-close" onClick={(e) => { e.stopPropagation(); dismissSlashHint(); }}>×</button>
-            </div>
-          )}
           {mentionState && workdir && (
             <FileMention
               keyword={mentionState.keyword}

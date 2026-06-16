@@ -75,7 +75,14 @@
     "titleSave": "Save",
     "titleCancel": "Cancel",
     "titleEmpty": "Title cannot be empty",
-    "titleTooLong": "Title too long (max {{max}} characters)"
+    "titleTooLong": "Title too long (max {{max}} characters)",
+    "outline": {
+      "title": "Step outline",
+      "totalSteps_one": "{{count}} step",
+      "totalSteps_other": "{{count}} steps",
+      "assistant": "Reply",
+      "empty": "No steps yet"
+    }
   },
   "connection": {
     "restored": "Connection restored",

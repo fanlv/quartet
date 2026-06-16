@@ -8,6 +8,7 @@ import { ChatInput } from './ChatInput';
 import { LoopProgress } from './LoopProgress';
 import { LoopConfigPanel } from './LoopConfigPanel';
 import { LoopSessionSidebar } from './LoopSessionSidebar';
+import { StepOutline } from './StepOutline';
 import { FileBrowser } from './FileBrowser';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
 import { AgentInfo } from './ChatPage';
@@ -183,6 +184,9 @@ export function JobChat(props: JobChatProps) {
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const [agentsEditorOpen, setAgentsEditorOpen] = useState(false);
   const [jobListOpen, setJobListOpen] = useState(false);
+  // Step outline panel (right side): lists thinking / tool-call / assistant
+  // steps with per-step duration; clicking a row scrolls the bubble into view.
+  const [outlineOpen, setOutlineOpen] = useState(false);
   // Workspaces list for the Workspace-tag dropdown in the footer. Fetched once
   // when the chat page mounts (outside readonly share mode). Kept in state so
   // newly-created workspaces show up after a Settings-dialog refresh.
@@ -711,6 +715,17 @@ export function JobChat(props: JobChatProps) {
     onSelectJob?.(nextJobId);
   };
 
+  // Scroll a specific message bubble into view from the step-outline panel.
+  // Bubbles carry data-message-id (see MessageItem); we briefly flash the
+  // target so the user sees where they landed.
+  const handleJumpToStep = useCallback((messageId: string) => {
+    const el = document.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.add('step-jump-flash');
+    window.setTimeout(() => el.classList.remove('step-jump-flash'), 1200);
+  }, []);
+
   const getJobTitle = (job: JobInfo) => {
     const title = job.title?.trim();
     return title ? title : 'undefined title';
@@ -929,6 +944,21 @@ export function JobChat(props: JobChatProps) {
                 </svg>
               </button>
               <button
+                className={`header-filebrowser-btn ${outlineOpen ? 'active' : ''}`}
+                onClick={() => setOutlineOpen((v) => !v)}
+                title={t('chat.outline.title')}
+                data-testid="step-outline-toggle"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="8" y1="6" x2="21" y2="6" />
+                  <line x1="8" y1="12" x2="21" y2="12" />
+                  <line x1="8" y1="18" x2="21" y2="18" />
+                  <line x1="3" y1="6" x2="3.01" y2="6" />
+                  <line x1="3" y1="12" x2="3.01" y2="12" />
+                  <line x1="3" y1="18" x2="3.01" y2="18" />
+                </svg>
+              </button>
+              <button
                 className={`header-filebrowser-btn ${agentsEditorOpen ? 'active' : ''}`}
                 onClick={() => setAgentsEditorOpen(!agentsEditorOpen)}
                 title="AGENTS.md"
@@ -1010,6 +1040,23 @@ export function JobChat(props: JobChatProps) {
                 </button>
               )}
             </>
+          )}
+          {isReadonly && (
+            <button
+              className={`header-filebrowser-btn ${outlineOpen ? 'active' : ''}`}
+              onClick={() => setOutlineOpen((v) => !v)}
+              title={t('chat.outline.title')}
+              data-testid="step-outline-toggle"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="8" y1="6" x2="21" y2="6" />
+                <line x1="8" y1="12" x2="21" y2="12" />
+                <line x1="8" y1="18" x2="21" y2="18" />
+                <line x1="3" y1="6" x2="3.01" y2="6" />
+                <line x1="3" y1="12" x2="3.01" y2="12" />
+                <line x1="3" y1="18" x2="3.01" y2="18" />
+              </svg>
+            </button>
           )}
         </nav>
       </header>
@@ -1174,6 +1221,17 @@ export function JobChat(props: JobChatProps) {
             overrideModeId={sessionACPMode}
           />
         </div>
+
+        {outlineOpen && (
+          <>
+            <div className="step-outline-overlay" onClick={() => setOutlineOpen(false)} />
+            <StepOutline
+              messages={messages}
+              onJump={handleJumpToStep}
+              onClose={() => setOutlineOpen(false)}
+            />
+          </>
+        )}
 
         {!isReadonly && fileBrowserOpen && createPortal(
           <FileBrowser

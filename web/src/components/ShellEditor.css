@@ -1,8 +1,8 @@
 .shell-editor {
   border-radius: 10px;
   overflow: hidden;
-  border: 1px solid #2d2d2d;
-  background: #1e1e2e;
+  border: 1px solid #d6deea;
+  background: #ffffff;
 }
 
 .shell-editor-body {
@@ -15,19 +15,19 @@
 .shell-editor-line-numbers {
   flex-shrink: 0;
   padding: 12px 0;
-  background: #181825;
+  background: #f6f8fc;
   overflow: hidden;
   user-select: none;
   min-width: 40px;
   text-align: right;
-  border-right: 1px solid #2d2d2d;
+  border-right: 1px solid #e6ebf3;
 }
 
 .shell-editor-line-number {
   font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
   font-size: 13px;
   line-height: 1.7;
-  color: #45475a;
+  color: #a3adbd;
   padding: 0 10px 0 8px;
   height: calc(13px * 1.7);
 }
@@ -50,23 +50,28 @@
   font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
   font-size: 13px;
   line-height: 1.7;
-  color: #cdd6f4;
+  color: #1e293b;
   white-space: pre;
   overflow: hidden;
   pointer-events: none;
   tab-size: 2;
   word-wrap: normal;
   border: none;
+  background: transparent;
 }
 
-.shell-editor-textarea {
+/* High specificity (.shell-editor ancestor) so the surrounding panel's
+   generic `.loop-round-field textarea` rules cannot override the overlay
+   technique — the textarea MUST stay transparent so the highlight layer
+   behind it remains visible. */
+.shell-editor .shell-editor-textarea {
   position: relative;
   width: 100%;
   height: 100%;
   padding: 12px 14px;
   background: transparent;
   color: transparent;
-  caret-color: #cdd6f4;
+  caret-color: #1e293b;
   border: none;
   outline: none;
   resize: none;
@@ -78,15 +83,24 @@
   white-space: pre;
   min-height: 100%;
   z-index: 1;
+  box-shadow: none;
 }
 
-.shell-editor-textarea::placeholder {
-  color: #585b70;
+.shell-editor .shell-editor-textarea:focus,
+.shell-editor .shell-editor-textarea:focus-visible {
+  border: none;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+.shell-editor .shell-editor-textarea::placeholder {
+  color: #9aa6b8;
   font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
 }
 
-.shell-editor-textarea::selection {
-  background: rgba(137, 180, 250, 0.25);
+.shell-editor .shell-editor-textarea::selection {
+  background: rgba(37, 99, 235, 0.22);
   color: transparent;
 }
 
@@ -99,26 +113,26 @@
 }
 
 .shell-editor-textarea::-webkit-scrollbar-thumb {
-  background: #45475a;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 
 .shell-editor-textarea::-webkit-scrollbar-thumb:hover {
-  background: #585b70;
+  background: #94a3b8;
 }
 
-/* Syntax highlight colors (Catppuccin Mocha) */
-.sh-comment { color: #6c7086; font-style: italic; }
-.sh-keyword { color: #cba6f7; font-weight: 500; }
-.sh-builtin { color: #89b4fa; }
-.sh-command { color: #a6e3a1; }
-.sh-string { color: #a6e3a1; }
-.sh-variable { color: #f9e2af; }
-.sh-template { color: #fab387; font-weight: 500; }
-.sh-operator { color: #89dceb; }
-.sh-number { color: #fab387; }
-.sh-flag { color: #74c7ec; }
-.sh-subshell { color: #f5c2e7; }
+/* Syntax highlight colors (light theme) */
+.sh-comment { color: #8a94a6; font-style: italic; }
+.sh-keyword { color: #9333ea; font-weight: 600; }
+.sh-builtin { color: #2563eb; }
+.sh-command { color: #0f766e; }
+.sh-string { color: #1a7f37; }
+.sh-variable { color: #b45309; }
+.sh-template { color: #c2410c; font-weight: 600; }
+.sh-operator { color: #0e7490; }
+.sh-number { color: #c2410c; }
+.sh-flag { color: #0369a1; }
+.sh-subshell { color: #be185d; }
 
 /* Mobile */
 @media (max-width: 768px) {
@@ -127,7 +141,7 @@
     max-height: 50vh;
   }
 
-  .shell-editor-textarea,
+  .shell-editor .shell-editor-textarea,
   .shell-editor-highlight {
     font-size: 14px;
     line-height: 1.7;

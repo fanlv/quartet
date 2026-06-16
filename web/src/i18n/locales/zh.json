@@ -75,7 +75,13 @@
     "titleSave": "保存",
     "titleCancel": "取消",
     "titleEmpty": "标题不能为空",
-    "titleTooLong": "标题过长（最多 {{max}} 个字符）"
+    "titleTooLong": "标题过长（最多 {{max}} 个字符）",
+    "outline": {
+      "title": "步骤大纲",
+      "totalSteps": "共 {{count}} 步",
+      "assistant": "回复",
+      "empty": "暂无步骤"
+    }
   },
   "connection": {
     "restored": "连接已恢复",

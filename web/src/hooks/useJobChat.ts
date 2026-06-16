@@ -5,6 +5,7 @@ import {
   ToolMessage,
   AgentEvent,
   EventTypeEnum,
+  CommandSystemMessageEvent,
   MessageRoleEnum,
   MessageStatusEnum,
   ToolCallStatusEnum,
@@ -248,11 +249,16 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const [sessionType, setSessionType] = useState<string | null>(null);
   const [sessionACPMode, setSessionACPMode] = useState<string | null>(null);
 
-  // Slash-command fast path relies on a COMMAND_SYSTEM_MESSAGE SSE event for
-  // user-visible feedback. Track a short watchdog so users aren't left in
-  // limbo when the SSE event never arrives.
+  // Slash-command fast path relies on a COMMAND_SYSTEM_MESSAGE event for
+  // user-visible feedback. The backend delivers it two ways: inline in the
+  // POST /message response (deterministic — survives a torn-down SSE on a
+  // terminal job) AND as a transient SSE broadcast (so OTHER tabs update). A
+  // tab that is still SSE-connected therefore sees both copies; this set
+  // remembers recently-applied event signatures so the second copy is
+  // dropped instead of rendering a duplicate bubble / re-firing the action.
   const pendingCommandTimeoutRef = useRef<number | null>(null);
   const pendingCommandRef = useRef<string>('');
+  const appliedCommandEventsRef = useRef<Map<string, number>>(new Map());
 
   const clearPendingCommandWatchdog = useCallback(() => {
     if (pendingCommandTimeoutRef.current) {
@@ -261,6 +267,53 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     }
     pendingCommandRef.current = '';
   }, []);
+
+  // Render a slash-command result (inline system bubble or toast) and fire any
+  // embedded action. Shared by the POST-response inline path and the SSE
+  // transient path so both stay in lockstep. Returns false (and does nothing)
+  // when this exact event was already applied within the dedup window — the
+  // two delivery paths can both reach a tab that is SSE-connected.
+  const applyCommandEvent = useCallback((event: CommandSystemMessageEvent): boolean => {
+    const now = Date.now();
+    const sig = `${event.command} ${event.present || ''} ${event.text}`;
+    const seen = appliedCommandEventsRef.current;
+    // Drop entries older than the dedup window so the map can't grow unbounded.
+    for (const [k, ts] of seen) {
+      if (now - ts > 10_000) seen.delete(k);
+    }
+    if (seen.has(sig)) return false;
+    seen.set(sig, now);
+
+    // Any command feedback implies the command pipeline is alive; clear the
+    // watchdog so we don't show a false timeout toast.
+    clearPendingCommandWatchdog();
+    // Transient system bubble for slash-command results. We render a
+    // lightweight inline system message but don't persist it — on refresh it
+    // disappears. Toast vs inline is driven by `present`.
+    if (event.present === 'toast') {
+      showCommandToast(event.text);
+    } else {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `cmd-${now}-${Math.random().toString(36).slice(2, 8)}`,
+          role: MessageRoleEnum.SYSTEM,
+          content: event.text,
+          status: MessageStatusEnum.Finished,
+          sessionId: activeSessionIdRef.current || '',
+          createdAt: now,
+          commandSource: event.command,
+        } as Message,
+      ]);
+    }
+    // Fire a custom DOM event so the parent (App.tsx) can apply the action
+    // (switch workspace / bind job / new job) via the shared public entry
+    // functions.
+    if (event.action?.type) {
+      window.dispatchEvent(new CustomEvent('quartet:command-action', { detail: event.action }));
+    }
+    return true;
+  }, [clearPendingCommandWatchdog]);
 
   // Pending message queue (interactive mode only: messages composed while a run is in progress)
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
@@ -1265,40 +1318,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         break;
 
       case EventTypeEnum.COMMAND_SYSTEM_MESSAGE:
-        // Any command feedback implies the command pipeline is alive; clear the
-        // watchdog so we don't show a false timeout toast.
-        clearPendingCommandWatchdog();
-        // Transient system bubble for slash-command results. We render a
-        // lightweight inline system message but don't persist it — on
-        // refresh it disappears. Toast vs inline is driven by `present`.
-        if (event.present === 'toast') {
-          showCommandToast(event.text);
-        } else {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              role: MessageRoleEnum.SYSTEM,
-              content: event.text,
-              status: MessageStatusEnum.Finished,
-              sessionId: activeSessionIdRef.current || '',
-              createdAt: Date.now(),
-              commandSource: event.command,
-            } as Message,
-          ]);
-        }
-        // Fire a custom DOM event so the parent (App.tsx) can apply the
-        // action (switch workspace / bind job / new job) via the shared
-        // public entry functions.
-        if (event.action?.type) {
-          window.dispatchEvent(new CustomEvent('quartet:command-action', { detail: event.action }));
-        }
+        applyCommandEvent(event as CommandSystemMessageEvent);
         break;
 
       default:
         break;
     }
-  }, [applyActiveSessionSelection, clearPendingCommandWatchdog, finalizeInFlightMessages, setLoopSessions, updateServerClock]);
+  }, [applyActiveSessionSelection, applyCommandEvent, clearPendingCommandWatchdog, finalizeInFlightMessages, setLoopSessions, updateServerClock]);
 
   // Keep ref in sync so the SSE effect always uses the latest handler
   handleEventRef.current = handleEvent;
@@ -2114,13 +2140,27 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           return;
         }
 
-        // Start a short watchdog: if the SSE response never arrives, notify the user.
-        pendingCommandRef.current = trimmed;
-        pendingCommandTimeoutRef.current = window.setTimeout(() => {
-          if (!pendingCommandRef.current) return;
-          showCommandToast('命令已发送，但暂未收到响应（可能连接断开或服务异常）。请稍后重试。');
-          clearPendingCommandWatchdog();
-        }, 6_000);
+        // The backend returns the rendered command result inline (in addition
+        // to the transient SSE broadcast). Render it directly so delivery does
+        // not depend on this tab holding a live SSE connection — interactive
+        // jobs tear the SSE down after each finished round, so the broadcast
+        // alone would land on no reader and the page would show nothing.
+        // applyCommandEvent dedups against the SSE copy when both arrive.
+        const body = await res.json().catch(() => null);
+        const event = body?.event as CommandSystemMessageEvent | undefined;
+        if (event && event.text) {
+          applyCommandEvent(event);
+        } else {
+          // No inline event (older backend / unexpected shape): fall back to
+          // the SSE-only behaviour with a short watchdog so the user isn't
+          // left in limbo if the broadcast never arrives.
+          pendingCommandRef.current = trimmed;
+          pendingCommandTimeoutRef.current = window.setTimeout(() => {
+            if (!pendingCommandRef.current) return;
+            showCommandToast('命令已发送，但暂未收到响应（可能连接断开或服务异常）。请稍后重试。');
+            clearPendingCommandWatchdog();
+          }, 6_000);
+        }
       } catch (err) {
         console.error('[sendMessage] command dispatch error:', err);
         showCommandToast('命令发送失败：网络错误。请检查网络连接后重试。');
@@ -2197,12 +2237,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       // Safety net: if the frontend command list drifts from the backend's
       // (see utils/commands.ts — drift is explicitly allowed), the backend
       // may still intercept a command the client didn't fast-path. In that
-      // case the response carries `command_dispatched` and we clean up the
-      // optimistic user bubble here.
+      // case the response carries `command_dispatched` (plus the inline
+      // `event`); clean up the optimistic user bubble and render the result.
       const body = await response.json().catch(() => null);
       if (body?.status === 'command_dispatched') {
         setMessages((prev) => prev.filter((m) => m.id !== userMessageId));
         setIsLoading(false);
+        const event = body?.event as CommandSystemMessageEvent | undefined;
+        if (event && event.text) applyCommandEvent(event);
       }
       // Events come through the /events SSE connection
     } catch (err) {
@@ -2217,7 +2259,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
       setIsLoading(false);
     }
-  }, [jobId, isPublic, clearPendingCommandWatchdog]);
+  }, [jobId, isPublic, clearPendingCommandWatchdog, applyCommandEvent]);
 
   // Cleanup watchdog on unmount.
   useEffect(() => {

@@ -1,0 +1,162 @@
+.step-outline {
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  flex-shrink: 0;
+  border-left: 1px solid #e2e8f0;
+  background: #fafafa;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.step-outline-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.step-outline-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.step-outline-count {
+  font-size: 12px;
+  color: #64748b;
+  margin-left: auto;
+}
+
+.step-outline-close {
+  display: none;
+  border: none;
+  background: none;
+  color: #64748b;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.step-outline-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.step-outline-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.step-outline-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: #334155;
+  font-size: 12px;
+}
+
+.step-outline-item:hover {
+  background: #eef2ff;
+}
+
+.step-outline-item.running {
+  background: #f0fdf4;
+}
+
+.step-outline-index {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: right;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+.step-outline-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  color: #6366f1;
+}
+
+.step-outline-item.kind-tool .step-outline-icon {
+  color: #0891b2;
+}
+
+.step-outline-item.kind-thinking .step-outline-icon {
+  color: #a855f7;
+}
+
+.step-outline-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-outline-item.kind-tool .step-outline-label {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+}
+
+/* Overlay backing the mobile drawer; hidden on desktop where the panel is
+   an inline column. */
+.step-outline-overlay {
+  display: none;
+}
+
+/* Brief highlight on the bubble a step-outline row jumps to. */
+.step-jump-flash {
+  animation: step-jump-flash 1.2s ease-out;
+}
+
+@keyframes step-jump-flash {
+  0% { background-color: rgba(99, 102, 241, 0.18); }
+  100% { background-color: transparent; }
+}
+
+/* Mobile: render as an overlay drawer anchored to the right edge. */
+@media (max-width: 1024px) {
+  .step-outline {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 280px;
+    max-width: 85vw;
+    height: 100vh;
+    height: 100dvh;
+    z-index: 800;
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
+  }
+
+  .step-outline-close {
+    display: inline-flex;
+  }
+
+  .step-outline-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 799;
+  }
+}

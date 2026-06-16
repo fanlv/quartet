@@ -1070,10 +1070,14 @@ func (g *imGateway) RemovePendingContact(platform messaging.Platform, senderID s
 }
 
 func (g *imGateway) dispatchAdminCommand(msg *messaging.Message) bool {
-	cmd, args := parseSlashCommand(msg.Content)
-	if cmd == "" {
+	// Only KNOWN commands are dispatched. Unknown slash text — a typo like
+	// /hlep, or a path like /etc/hosts — returns false so the caller falls
+	// through to the normal message flow and forwards it to the Agent. This
+	// keeps IM aligned with the Web side (command.IsKnown / job_message.go).
+	if !command.IsKnown(msg.Content) {
 		return false
 	}
+	cmd, args := command.Parse(msg.Content)
 
 	g.runAsync(func(ctx context.Context) {
 		g.handleCommand(ctx, msg, cmd, args)
@@ -1093,19 +1097,6 @@ func (g *imGateway) runAsync(fn func(context.Context)) {
 		}
 		fn(ctx)
 	})
-}
-
-func parseSlashCommand(content string) (cmd string, args string) {
-	content = strings.TrimSpace(content)
-	if !strings.HasPrefix(content, "/") {
-		return "", ""
-	}
-	parts := strings.SplitN(content, " ", 2)
-	cmd = strings.ToLower(parts[0])
-	if len(parts) > 1 {
-		args = strings.TrimSpace(parts[1])
-	}
-	return cmd, args
 }
 
 func (g *imGateway) handleCommand(ctx context.Context, msg *messaging.Message, cmd, args string) {
