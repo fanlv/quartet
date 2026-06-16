@@ -321,9 +321,14 @@ export function JobChat(props: JobChatProps) {
       let finalList = list;
       if (initialModelId || initialAcpMode) {
         finalList = list.map((agent) => {
-          const isTarget = initialModelId
-            ? agent.model_id === initialModelId || agent.models?.availableModels.some((m) => m.modelId === initialModelId)
-            : (initialAgentType && initialAgentType !== 'eino' ? agent.type === initialAgentType : false);
+          // Identify the target agent by type when a specific non-eino ACP
+          // agent is known (model id can collide across ACP agents); otherwise
+          // fall back to model id.
+          const isTarget = (initialAgentType && initialAgentType !== 'eino')
+            ? agent.type === initialAgentType
+            : (initialModelId
+              ? agent.model_id === initialModelId || agent.models?.availableModels.some((m) => m.modelId === initialModelId)
+              : false);
           if (!isTarget) return agent;
           let updated = agent;
           if (initialModelId && updated.models && updated.models.availableModels.some((m) => m.modelId === initialModelId) && updated.models.currentModelId !== initialModelId) {
@@ -339,12 +344,14 @@ export function JobChat(props: JobChatProps) {
       setAgents(finalList);
       setJobEnable(je);
       if (finalList.length > 0) {
-        if (initialModelId) {
-          const idx = finalList.findIndex((a) => a.model_id === initialModelId || a.models?.availableModels.some((m) => m.modelId === initialModelId));
-          if (idx >= 0) { setSelectedAgentIndex(idx); return; }
-        }
+        // Type first for non-eino ACP agents (unique identifier); model id may
+        // collide across ACP agents. Fall back to model id for eino / no type.
         if (initialAgentType && initialAgentType !== 'eino') {
           const idx = finalList.findIndex((a) => a.type === initialAgentType);
+          if (idx >= 0) { setSelectedAgentIndex(idx); return; }
+        }
+        if (initialModelId) {
+          const idx = finalList.findIndex((a) => a.model_id === initialModelId || a.models?.availableModels.some((m) => m.modelId === initialModelId));
           if (idx >= 0) setSelectedAgentIndex(idx);
         }
       }
@@ -402,16 +409,21 @@ export function JobChat(props: JobChatProps) {
 
     let matched = false;
 
-    // `sessionModelId` is the only stable identifier for a concrete agent.
-    if (sessionModelId) {
-      const idx = agents.findIndex((a) => a.model_id === sessionModelId || a.models?.availableModels.some((m) => m.modelId === sessionModelId));
+    // For ACP agents, `type` (the serve command) is the unique, precise
+    // identifier — and multiple ACP agents can expose the SAME model id
+    // (e.g. both codex and traex advertise `gpt-5.5`), so a model-id match
+    // first would pick whichever happens to be listed earlier. Match by type
+    // first for non-eino agents.
+    if (sessionType && sessionType !== 'eino') {
+      const idx = agents.findIndex((a) => a.type === sessionType);
       if (idx >= 0) { setSelectedAgentIndex(idx); matched = true; }
     }
 
-    // `eino` is too generic in current backend semantics, so only use non-eino
-    // types as a fallback when model id is unavailable.
-    if (!matched && sessionType && sessionType !== 'eino') {
-      const idx = agents.findIndex((a) => a.type === sessionType);
+    // `eino` is too generic (all eino agents share type === 'eino'), so for
+    // eino — or when type is unavailable — fall back to model id, which is the
+    // stable per-agent identifier within eino.
+    if (!matched && sessionModelId) {
+      const idx = agents.findIndex((a) => a.model_id === sessionModelId || a.models?.availableModels.some((m) => m.modelId === sessionModelId));
       if (idx >= 0) setSelectedAgentIndex(idx);
     }
   }, [existingJobId, hasUserSelected, sessionModelId, sessionType, agents, isLoop]);
@@ -440,13 +452,17 @@ export function JobChat(props: JobChatProps) {
     if (!meta) {
       return { iconUrl: selectedAgent?.icon_url, displayName: selectedAgent?.display_name };
     }
-    // Try to match by modelId first, then by type
+    // Match by type first: for ACP agents `type` is the unique identifier,
+    // and multiple ACP agents may share one model id (e.g. codex + traex both
+    // expose `gpt-5.5`), so matching model id first would resolve the wrong
+    // agent's icon/name. Fall back to model id for eino (where all agents
+    // share type === 'eino') or when type is unavailable.
     let matched: AgentInfo | undefined;
-    if (meta.modelId) {
-      matched = agents.find((a) => a.model_id === meta.modelId || a.models?.availableModels.some((m) => m.modelId === meta.modelId));
-    }
-    if (!matched && meta.type) {
+    if (meta.type && meta.type !== 'eino') {
       matched = agents.find((a) => a.type === meta.type);
+    }
+    if (!matched && meta.modelId) {
+      matched = agents.find((a) => a.model_id === meta.modelId || a.models?.availableModels.some((m) => m.modelId === meta.modelId));
     }
     if (matched) {
       return { iconUrl: matched.icon_url, displayName: matched.display_name };
