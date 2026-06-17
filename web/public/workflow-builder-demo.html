@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>工作流编排 Demo</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2430;
+    --border: #2d3643;
+    --border-strong: #3d4856;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #4493f8;
+    --shell: #f0883e;
+    --prompt: #58a6ff;
+    --eval: #a371f7;
+    --branch: #e3b341;
+    --parallel: #2ea043;
+    --merge: #db61a2;
+    --start: #2ea043;
+    --end: #f85149;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    overflow: hidden;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* ---- Top bar ---- */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; background: var(--panel);
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .topbar .title { font-size: 15px; font-weight: 600; }
+  .topbar .title small { color: var(--text-dim); font-weight: 400; margin-left: 8px; font-size: 12px; }
+  .topbar .spacer { flex: 1; }
+  .btn {
+    background: var(--panel-2); border: 1px solid var(--border-strong);
+    color: var(--text); padding: 6px 12px; border-radius: 6px;
+    font-size: 13px; cursor: pointer; transition: .15s;
+  }
+  .btn:hover { background: #283242; border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: #5aa0ff; }
+
+  .main { display: flex; flex: 1; min-height: 0; }
+
+  /* ---- Left palette ---- */
+  .palette {
+    width: 188px; background: var(--panel); border-right: 1px solid var(--border);
+    padding: 14px 12px; flex-shrink: 0; overflow-y: auto;
+  }
+  .palette h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-dim); margin: 4px 0 10px; }
+  .node-chip {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 11px; margin-bottom: 8px; border-radius: 8px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    cursor: grab; user-select: none; transition: .12s;
+  }
+  .node-chip:hover { border-color: var(--border-strong); transform: translateX(2px); }
+  .node-chip:active { cursor: grabbing; }
+  .chip-ico { width: 24px; height: 24px; border-radius: 6px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 13px; }
+  .chip-label { font-size: 13px; font-weight: 500; }
+  .chip-sub { font-size: 11px; color: var(--text-dim); }
+  .palette .hint { font-size: 11px; color: var(--text-dim); line-height: 1.6; margin-top: 14px;
+    padding-top: 12px; border-top: 1px dashed var(--border); }
+
+  /* ---- Canvas ---- */
+  .canvas-wrap { flex: 1; position: relative; overflow: hidden; min-width: 0; }
+  .canvas {
+    position: absolute; inset: 0;
+    background-image:
+      radial-gradient(circle, #21283010 1px, transparent 1px),
+      radial-gradient(circle, #2a323d 1px, transparent 1px);
+    background-size: 22px 22px, 22px 22px;
+    cursor: default;
+  }
+  #edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  .edge { fill: none; stroke: #4c5663; stroke-width: 2; transition: stroke .15s; }
+  .edge.hl { stroke: var(--accent); }
+  .edge-label {
+    fill: var(--text-dim); font-size: 11px; font-weight: 600;
+    paint-order: stroke; stroke: var(--bg); stroke-width: 4px;
+  }
+  .edge-label.yes { fill: var(--parallel); }
+  .edge-label.no { fill: var(--end); }
+
+  /* ---- Nodes ---- */
+  .node {
+    position: absolute; width: 210px; background: var(--panel);
+    border: 1.5px solid var(--border-strong); border-radius: 11px;
+    box-shadow: 0 4px 16px #00000050; cursor: grab; user-select: none;
+    transition: box-shadow .15s, border-color .15s;
+  }
+  .node:hover { border-color: #55617240; }
+  .node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent)55, 0 6px 22px #00000060; }
+  .node.dragging { cursor: grabbing; box-shadow: 0 12px 30px #00000080; z-index: 20; }
+  .node-head {
+    display: flex; align-items: center; gap: 8px; padding: 9px 11px;
+    border-bottom: 1px solid var(--border); border-radius: 11px 11px 0 0;
+  }
+  .node-ico { width: 22px; height: 22px; border-radius: 6px; display: grid;
+    place-items: center; font-size: 12px; flex-shrink: 0; color: #fff; }
+  .node-title { font-size: 13px; font-weight: 600; flex: 1; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .node-kind { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
+  .node-body { padding: 9px 11px; font-size: 12px; color: var(--text-dim);
+    line-height: 1.5; max-height: 64px; overflow: hidden; }
+  .node-body .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+    color: #c9d1d9; background: #0d111780; padding: 1px 4px; border-radius: 3px; }
+  .node-vars { padding: 7px 11px; border-top: 1px dashed var(--border);
+    display: flex; flex-wrap: wrap; gap: 4px; }
+  .var-pill { font-size: 10px; padding: 2px 7px; border-radius: 10px;
+    background: #1f6feb22; color: #79c0ff; border: 1px solid #1f6feb44;
+    font-family: ui-monospace, monospace; }
+  .var-pill.out { background: #2ea04322; color: #7ee787; border-color: #2ea04344; }
+
+  /* ports */
+  .port { position: absolute; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--panel); border: 2px solid #6b7685; cursor: crosshair; z-index: 5; }
+  .port:hover { border-color: var(--accent); background: var(--accent); transform: scale(1.25); }
+  .port.in { left: -8px; top: 50%; transform: translateY(-50%); }
+  .port.out { right: -8px; top: 50%; transform: translateY(-50%); }
+  .port.out.yes { top: 35%; border-color: var(--parallel); }
+  .port.out.no  { top: 70%; border-color: var(--end); }
+  .port-tag { position: absolute; right: 14px; font-size: 9px; font-weight: 700; }
+  .port-tag.yes { top: calc(35% - 6px); color: var(--parallel); }
+  .port-tag.no  { top: calc(70% - 6px); color: var(--end); }
+
+  /* ---- Right inspector ---- */
+  .inspector {
+    width: 320px; background: var(--panel); border-left: 1px solid var(--border);
+    flex-shrink: 0; overflow-y: auto; padding: 16px;
+  }
+  .inspector h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-dim); margin: 0 0 12px; }
+  .inspector .empty { color: var(--text-dim); font-size: 13px; line-height: 1.7; margin-top: 40px; text-align: center; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 5px; }
+  .field input, .field textarea, .field select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border-strong);
+    color: var(--text); border-radius: 7px; padding: 8px 10px; font-size: 13px;
+    font-family: inherit; resize: vertical;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: var(--accent); }
+  .field textarea { min-height: 88px; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.5; }
+  .field .desc { font-size: 11px; color: var(--text-dim); margin-top: 5px; line-height: 1.5; }
+  .kind-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px;
+    border-radius: 6px; font-size: 12px; font-weight: 600; margin-bottom: 16px; }
+  .insp-del { width: 100%; margin-top: 8px; background: #f8514915; border: 1px solid #f8514955;
+    color: #f85149; padding: 8px; border-radius: 7px; cursor: pointer; font-size: 13px; }
+  .insp-del:hover { background: #f8514925; }
+
+  /* variables section */
+  .vars-section { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 16px; }
+  .var-row { display: flex; gap: 6px; margin-bottom: 7px; align-items: center; }
+  .var-row input { flex: 1; }
+  .var-row .k { flex: 0 0 96px; font-family: ui-monospace, monospace; }
+  .var-row button { background: transparent; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px; padding: 0 4px; }
+  .var-row button:hover { color: var(--end); }
+  .add-var { font-size: 12px; color: var(--accent); cursor: pointer; background: none; border: none; padding: 4px 0; }
+
+  .legend { position: absolute; bottom: 14px; left: 14px; background: #161b22dd;
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 11px;
+    color: var(--text-dim); line-height: 1.8; backdrop-filter: blur(4px); }
+  .legend b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="title">🧩 工作流编排 <small>Loop 任务配置 · 升级预览 Demo</small></div>
+    <div class="spacer"></div>
+    <button class="btn" id="btnLayout">自动布局</button>
+    <button class="btn" id="btnJson">查看 JSON</button>
+    <button class="btn primary" id="btnRun">▶ 运行</button>
+  </div>
+
+  <div class="main">
+    <!-- palette -->
+    <aside class="palette">
+      <h3>结点</h3>
+      <div class="node-chip" draggable="true" data-kind="shell">
+        <div class="chip-ico" style="background:var(--shell)">⌘</div>
+        <div><div class="chip-label">Shell 结点</div><div class="chip-sub">执行命令脚本</div></div>
+      </div>
+      <div class="node-chip" draggable="true" data-kind="prompt">
+        <div class="chip-ico" style="background:var(--prompt)">✦</div>
+        <div><div class="chip-label">Prompt 结点</div><div class="chip-sub">调用 Agent</div></div>
+      </div>
+      <div class="node-chip" draggable="true" data-kind="eval">
+        <div class="chip-ico" style="background:var(--eval)">✓</div>
+        <div><div class="chip-label">评估结点</div><div class="chip-sub">判定 / 打分</div></div>
+      </div>
+      <div class="node-chip" draggable="true" data-kind="branch">
+        <div class="chip-ico" style="background:var(--branch)">⑂</div>
+        <div><div class="chip-label">If / Else</div><div class="chip-sub">条件分支</div></div>
+      </div>
+      <div class="node-chip" draggable="true" data-kind="parallel">
+        <div class="chip-ico" style="background:var(--parallel)">≣</div>
+        <div><div class="chip-label">并行结点</div><div class="chip-sub">同时分发多路</div></div>
+      </div>
+      <div class="node-chip" draggable="true" data-kind="merge">
+        <div class="chip-ico" style="background:var(--merge)">⇲</div>
+        <div><div class="chip-label">汇总结点</div><div class="chip-sub">合并多路结果</div></div>
+      </div>
+
+      <div class="hint">
+        · 从左侧拖拽结点到画布<br/>
+        · 拖动结点右侧圆点连线<br/>
+        · 点击结点编辑配置<br/>
+        · 用 <span class="var-pill" style="font-size:10px">{{变量}}</span> 在结点间传值
+      </div>
+    </aside>
+
+    <!-- canvas -->
+    <div class="canvas-wrap">
+      <div class="canvas" id="canvas">
+        <svg id="edges"></svg>
+      </div>
+      <div class="legend">
+        <b>变量传递：</b>每个结点输出写入 <span style="color:#7ee787">{{结点.out}}</span>，下游用 <span style="color:#79c0ff">{{变量}}</span> 引用<br/>
+        <b>并行 → 汇总：</b>并行结点分发多路，汇总结点等待全部完成后合并
+      </div>
+    </div>
+
+    <!-- inspector -->
+    <aside class="inspector" id="inspector">
+      <div class="empty">选择一个结点<br/>查看 / 编辑配置</div>
+    </aside>
+  </div>
+</div>
+
+<script>
+// ---------------- model ----------------
+const KINDS = {
+  start:    { label: '开始', color: 'var(--start)',    ico: '▶', kindText: 'START' },
+  end:      { label: '结束', color: 'var(--end)',      ico: '■', kindText: 'END' },
+  shell:    { label: 'Shell 结点', color: 'var(--shell)', ico: '⌘', kindText: 'SHELL' },
+  prompt:   { label: 'Prompt 结点', color: 'var(--prompt)', ico: '✦', kindText: 'PROMPT' },
+  eval:     { label: '评估结点', color: 'var(--eval)',  ico: '✓', kindText: 'EVAL' },
+  branch:   { label: 'If / Else', color: 'var(--branch)', ico: '⑂', kindText: 'BRANCH' },
+  parallel: { label: '并行结点', color: 'var(--parallel)', ico: '≣', kindText: 'PARALLEL' },
+  merge:    { label: '汇总结点', color: 'var(--merge)', ico: '⇲', kindText: 'MERGE' },
+};
+
+let uid = 1;
+const nid = () => 'n' + (uid++);
+
+// preset demo flow showing every feature
+let nodes = [
+  { id:'n_start', kind:'start',  x:40,  y:240, title:'开始',        cfg:{} },
+  { id:'n_pull',  kind:'shell',  x:280, y:240, title:'拉取代码',    cfg:{ script:'git pull origin main', out:'diff' } },
+  { id:'n_par',   kind:'parallel', x:540, y:240, title:'并行检查',  cfg:{ branches:2 } },
+  { id:'n_lint',  kind:'prompt', x:800, y:120, title:'代码评审',    cfg:{ agent:'claude', prompt:'审查改动:\n{{diff}}', out:'review' } },
+  { id:'n_test',  kind:'shell',  x:800, y:360, title:'运行测试',    cfg:{ script:'make test', out:'testlog' } },
+  { id:'n_merge', kind:'merge',  x:1060, y:240, title:'汇总结果',   cfg:{ strategy:'concat', out:'summary' } },
+  { id:'n_eval',  kind:'eval',   x:1300, y:240, title:'质量评估',   cfg:{ prompt:'根据 {{summary}} 判断是否可发布，输出 PASS / FAIL', out:'verdict' } },
+  { id:'n_if',    kind:'branch', x:1560, y:240, title:'是否通过?',  cfg:{ cond:'{{verdict}} == "PASS"' } },
+  { id:'n_ok',    kind:'shell',  x:1820, y:140, title:'部署',       cfg:{ script:'make deploy' } },
+  { id:'n_fix',   kind:'prompt', x:1820, y:360, title:'修复问题',   cfg:{ agent:'claude', prompt:'根据评审 {{review}} 修复' } },
+  { id:'n_end',   kind:'end',    x:2080, y:240, title:'结束',       cfg:{} },
+];
+
+let edges = [
+  { from:'n_start', to:'n_pull' },
+  { from:'n_pull',  to:'n_par' },
+  { from:'n_par',   to:'n_lint' },
+  { from:'n_par',   to:'n_test' },
+  { from:'n_lint',  to:'n_merge' },
+  { from:'n_test',  to:'n_merge' },
+  { from:'n_merge', to:'n_eval' },
+  { from:'n_eval',  to:'n_if' },
+  { from:'n_if',    to:'n_ok',  port:'yes' },
+  { from:'n_if',    to:'n_fix', port:'no' },
+  { from:'n_ok',    to:'n_end' },
+  { from:'n_fix',   to:'n_pull' },  // loop back — workflows can cycle
+];
+
+let globalVars = [ { k:'repo', v:'github.com/acme/app' }, { k:'branch', v:'main' } ];
+let selectedId = null;
+
+// ---------------- rendering ----------------
+const canvas = document.getElementById('canvas');
+const svg = document.getElementById('edges');
+const inspector = document.getElementById('inspector');
+
+function nodeEl(id){ return document.getElementById('node-' + id); }
+
+function render() {
+  // remove existing node DOM (keep svg)
+  [...canvas.querySelectorAll('.node')].forEach(n => n.remove());
+  nodes.forEach(renderNode);
+  renderEdges();
+  renderInspector();
+}
+
+function renderNode(n) {
+  const k = KINDS[n.kind];
+  const el = document.createElement('div');
+  el.className = 'node' + (selectedId === n.id ? ' selected' : '');
+  el.id = 'node-' + n.id;
+  el.style.left = n.x + 'px';
+  el.style.top = n.y + 'px';
+
+  const inVars = extractVars(n);
+  const outVar = n.cfg.out;
+
+  let bodyHtml = bodyText(n);
+  let varsHtml = '';
+  if (inVars.length || outVar) {
+    varsHtml = '<div class="node-vars">' +
+      inVars.map(v => `<span class="var-pill">{{${v}}}</span>`).join('') +
+      (outVar ? `<span class="var-pill out">→ {{${outVar}}}</span>` : '') +
+      '</div>';
+  }
+
+  el.innerHTML = `
+    <div class="node-head">
+      <div class="node-ico" style="background:${k.color}">${k.ico}</div>
+      <div class="node-title">${escapeHtml(n.title || k.label)}</div>
+      <div class="node-kind">${k.kindText}</div>
+    </div>
+    ${bodyHtml ? `<div class="node-body">${bodyHtml}</div>` : ''}
+    ${varsHtml}
+  `;
+
+  // ports
+  if (n.kind !== 'start') {
+    const pin = document.createElement('div'); pin.className = 'port in'; pin.dataset.port='in'; pin.dataset.node=n.id;
+    el.appendChild(pin);
+  }
+  if (n.kind === 'branch') {
+    const py = document.createElement('div'); py.className='port out yes'; py.dataset.port='yes'; py.dataset.node=n.id;
+    const pn = document.createElement('div'); pn.className='port out no'; pn.dataset.port='no'; pn.dataset.node=n.id;
+    const ty = document.createElement('div'); ty.className='port-tag yes'; ty.textContent='YES';
+    const tn = document.createElement('div'); tn.className='port-tag no'; tn.textContent='NO';
+    el.append(py, pn, ty, tn);
+  } else if (n.kind !== 'end') {
+    const pout = document.createElement('div'); pout.className='port out'; pout.dataset.port='out'; pout.dataset.node=n.id;
+    el.appendChild(pout);
+  }
+
+  canvas.appendChild(el);
+  attachNodeEvents(el, n);
+}
+
+function bodyText(n) {
+  const c = n.cfg;
+  switch (n.kind) {
+    case 'shell':  return c.script ? `<span class="mono">$ ${escapeHtml(c.script)}</span>` : '<i>未配置命令</i>';
+    case 'prompt': return `${c.agent?`<span class="mono">${escapeHtml(c.agent)}</span> · `:''}${escapeHtml(truncate(c.prompt,70)) || '<i>未配置 prompt</i>'}`;
+    case 'eval':   return escapeHtml(truncate(c.prompt,80)) || '<i>未配置评估标准</i>';
+    case 'branch': return c.cond ? `条件: <span class="mono">${escapeHtml(c.cond)}</span>` : '<i>未配置条件</i>';
+    case 'parallel': return `分发 <b style="color:var(--text)">${c.branches||2}</b> 路并行执行`;
+    case 'merge':  return `合并策略: <span class="mono">${escapeHtml(c.strategy||'concat')}</span>`;
+    case 'start':  return '工作流入口';
+    case 'end':    return '工作流终点';
+    default: return '';
+  }
+}
+
+// vars referenced in this node's text fields
+function extractVars(n) {
+  const txt = [n.cfg.script, n.cfg.prompt, n.cfg.cond].filter(Boolean).join(' ');
+  const set = new Set();
+  const re = /\{\{\s*([\w.一-龥]+)\s*\}\}/g;
+  let m; while ((m = re.exec(txt))) set.add(m[1]);
+  return [...set];
+}
+
+// ---------------- edges ----------------
+const PORT_POS = {
+  in:   el => ({ x: el.offsetLeft, y: el.offsetTop + el.offsetHeight/2 }),
+  out:  el => ({ x: el.offsetLeft + el.offsetWidth, y: el.offsetTop + el.offsetHeight/2 }),
+  yes:  el => ({ x: el.offsetLeft + el.offsetWidth, y: el.offsetTop + el.offsetHeight*0.35 }),
+  no:   el => ({ x: el.offsetLeft + el.offsetWidth, y: el.offsetTop + el.offsetHeight*0.70 }),
+};
+
+function renderEdges() {
+  svg.innerHTML = '';
+  edges.forEach(e => {
+    const a = nodeEl(e.from), b = nodeEl(e.to);
+    if (!a || !b) return;
+    const p1 = PORT_POS[e.port || 'out'](a);
+    const p2 = PORT_POS['in'](b);
+    const dx = Math.max(40, Math.abs(p2.x - p1.x) * 0.5);
+    const d = `M ${p1.x} ${p1.y} C ${p1.x+dx} ${p1.y}, ${p2.x-dx} ${p2.y}, ${p2.x} ${p2.y}`;
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'edge' + ((selectedId===e.from||selectedId===e.to)?' hl':''));
+    path.setAttribute('marker-end', 'url(#arrow)');
+    svg.appendChild(path);
+    if (e.port) {
+      const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.setAttribute('x', p1.x + 14); t.setAttribute('y', p1.y - 4);
+      t.setAttribute('class', 'edge-label ' + (e.port==='yes'?'yes':'no'));
+      t.textContent = e.port === 'yes' ? 'YES' : 'NO';
+      svg.appendChild(t);
+    }
+  });
+  // arrow marker
+  const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+  defs.innerHTML = `<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4c5663"/></marker>`;
+  svg.appendChild(defs);
+}
+
+// ---------------- inspector ----------------
+function renderInspector() {
+  if (!selectedId) {
+    inspector.innerHTML = `<div class="empty">选择一个结点<br/>查看 / 编辑配置</div>
+      ${varsPanel()}`;
+    bindVarsPanel();
+    return;
+  }
+  const n = nodes.find(x => x.id === selectedId);
+  if (!n) { selectedId = null; return renderInspector(); }
+  const k = KINDS[n.kind];
+
+  let fields = `
+    <div class="kind-badge" style="background:${k.color}22;color:${k.color};border:1px solid ${k.color}55">
+      ${k.ico} ${k.label}
+    </div>
+    <div class="field"><label>结点名称</label>
+      <input id="f-title" value="${escapeAttr(n.title)}"/></div>
+  `;
+
+  if (n.kind === 'shell') {
+    fields += `
+      <div class="field"><label>Shell 脚本</label>
+        <textarea id="f-script" placeholder="例如: make test">${escapeHtml(n.cfg.script||'')}</textarea>
+        <div class="desc">支持 <span class="mono">{{变量}}</span> 插值。结点退出码非 0 视为失败。</div></div>
+      ${outField(n)}`;
+  } else if (n.kind === 'prompt') {
+    fields += `
+      <div class="field"><label>Agent</label>
+        <select id="f-agent">
+          ${['claude','codex','gemini','traex'].map(a=>`<option ${n.cfg.agent===a?'selected':''}>${a}</option>`).join('')}
+        </select></div>
+      <div class="field"><label>Prompt</label>
+        <textarea id="f-prompt" placeholder="给 Agent 的指令...">${escapeHtml(n.cfg.prompt||'')}</textarea>
+        <div class="desc">用 <span class="mono">{{变量}}</span> 引用上游结点的输出。</div></div>
+      ${outField(n)}`;
+  } else if (n.kind === 'eval') {
+    fields += `
+      <div class="field"><label>评估标准 (Prompt)</label>
+        <textarea id="f-prompt" placeholder="判定输出 PASS / FAIL 或打分...">${escapeHtml(n.cfg.prompt||'')}</textarea>
+        <div class="desc">评估结点的输出可被下游 If/Else 结点作为条件判断。</div></div>
+      ${outField(n)}`;
+  } else if (n.kind === 'branch') {
+    fields += `
+      <div class="field"><label>条件表达式</label>
+        <input id="f-cond" value="${escapeAttr(n.cfg.cond||'')}" placeholder='{{verdict}} == "PASS"'/>
+        <div class="desc">为真 → <b style="color:var(--parallel)">YES</b> 分支；为假 → <b style="color:var(--end)">NO</b> 分支。</div></div>`;
+  } else if (n.kind === 'parallel') {
+    fields += `
+      <div class="field"><label>并行路数</label>
+        <input id="f-branches" type="number" min="2" max="8" value="${n.cfg.branches||2}"/>
+        <div class="desc">从该结点拉出的每条连线都会并行执行，最终汇入「汇总结点」。</div></div>`;
+  } else if (n.kind === 'merge') {
+    fields += `
+      <div class="field"><label>合并策略</label>
+        <select id="f-strategy">
+          ${[['concat','拼接所有输出'],['json','合并为 JSON'],['first','取最先完成'],['vote','多数表决']].map(([v,l])=>`<option value="${v}" ${n.cfg.strategy===v?'selected':''}>${l}</option>`).join('')}
+        </select>
+        <div class="desc">等待所有上游并行分支完成后再继续。</div></div>
+      ${outField(n)}`;
+  }
+
+  if (n.kind !== 'start' && n.kind !== 'end') {
+    fields += `<button class="insp-del" id="f-del">删除结点</button>`;
+  }
+
+  inspector.innerHTML = `<h3>结点配置</h3>${fields}${varsPanel()}`;
+  bindInspector(n);
+  bindVarsPanel();
+}
+
+function outField(n) {
+  return `<div class="field"><label>输出变量名 <span style="color:var(--text-dim)">(可选)</span></label>
+    <input id="f-out" value="${escapeAttr(n.cfg.out||'')}" placeholder="例如: review"/>
+    <div class="desc">结点结果将写入 <span class="mono">{{${n.cfg.out||'变量名'}}}</span> 供下游使用。</div></div>`;
+}
+
+function varsPanel() {
+  return `<div class="vars-section"><h3>全局变量</h3>
+    <div id="var-list">
+      ${globalVars.map((v,i)=>`<div class="var-row">
+        <input class="k" data-i="${i}" data-f="k" value="${escapeAttr(v.k)}" placeholder="key"/>
+        <input data-i="${i}" data-f="v" value="${escapeAttr(v.v)}" placeholder="value"/>
+        <button data-del="${i}">×</button></div>`).join('')}
+    </div>
+    <button class="add-var" id="add-var">+ 添加变量</button>
+  </div>`;
+}
+
+function bindVarsPanel() {
+  inspector.querySelectorAll('#var-list input').forEach(inp => {
+    inp.oninput = () => { globalVars[+inp.dataset.i][inp.dataset.f] = inp.value; };
+  });
+  inspector.querySelectorAll('[data-del]').forEach(b => {
+    b.onclick = () => { globalVars.splice(+b.dataset.del,1); renderInspector(); };
+  });
+  const add = inspector.querySelector('#add-var');
+  if (add) add.onclick = () => { globalVars.push({k:'',v:''}); renderInspector(); };
+}
+
+function bindInspector(n) {
+  const bind = (id, fn) => { const el = inspector.querySelector(id); if (el) el.oninput = () => { fn(el.value); softUpdate(n); }; };
+  bind('#f-title', v => n.title = v);
+  bind('#f-script', v => n.cfg.script = v);
+  bind('#f-prompt', v => n.cfg.prompt = v);
+  bind('#f-cond', v => n.cfg.cond = v);
+  bind('#f-out', v => n.cfg.out = v);
+  bind('#f-agent', v => n.cfg.agent = v);
+  bind('#f-strategy', v => n.cfg.strategy = v);
+  bind('#f-branches', v => n.cfg.branches = +v);
+  const del = inspector.querySelector('#f-del');
+  if (del) del.onclick = () => deleteNode(n.id);
+}
+
+// re-render just the affected node + edges without rebuilding inspector (keeps focus)
+function softUpdate(n) {
+  const old = nodeEl(n.id);
+  if (old) old.remove();
+  renderNode(n);
+  renderEdges();
+}
+
+function deleteNode(id) {
+  nodes = nodes.filter(n => n.id !== id);
+  edges = edges.filter(e => e.from !== id && e.to !== id);
+  selectedId = null;
+  render();
+}
+
+// ---------------- interaction: select + drag node ----------------
+function attachNodeEvents(el, n) {
+  el.addEventListener('mousedown', (e) => {
+    if (e.target.classList.contains('port')) return; // port handled separately
+    selectedId = n.id;
+    document.querySelectorAll('.node.selected').forEach(x=>x.classList.remove('selected'));
+    el.classList.add('selected');
+    renderInspector();
+    renderEdges();
+
+    const startX = e.clientX, startY = e.clientY;
+    const ox = n.x, oy = n.y;
+    el.classList.add('dragging');
+    let moved = false;
+    const move = (ev) => {
+      moved = true;
+      n.x = ox + (ev.clientX - startX);
+      n.y = oy + (ev.clientY - startY);
+      el.style.left = n.x + 'px';
+      el.style.top = n.y + 'px';
+      renderEdges();
+    };
+    const up = () => {
+      el.classList.remove('dragging');
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+    e.preventDefault();
+  });
+
+  // ports: drag to connect
+  el.querySelectorAll('.port.out, .port.out.yes, .port.out.no').forEach(port => {
+    port.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      startConnection(n.id, port.dataset.port, e);
+    });
+  });
+}
+
+// ---------------- connection drag ----------------
+let tempPath = null;
+function startConnection(fromId, fromPort, e) {
+  const a = nodeEl(fromId);
+  const p1 = PORT_POS[fromPort](a);
+  tempPath = document.createElementNS('http://www.w3.org/2000/svg','path');
+  tempPath.setAttribute('class','edge hl');
+  svg.appendChild(tempPath);
+
+  const rect = canvas.getBoundingClientRect();
+  const move = (ev) => {
+    const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+    const dx = Math.max(40, Math.abs(mx-p1.x)*0.5);
+    tempPath.setAttribute('d', `M ${p1.x} ${p1.y} C ${p1.x+dx} ${p1.y}, ${mx-dx} ${my}, ${mx} ${my}`);
+  };
+  const up = (ev) => {
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', up);
+    tempPath.remove(); tempPath = null;
+    const tgt = document.elementFromPoint(ev.clientX, ev.clientY);
+    const portEl = tgt?.closest?.('.port.in');
+    if (portEl) {
+      const toId = portEl.dataset.node;
+      if (toId !== fromId) {
+        // branch ports keep only one edge each; replace existing same-port edge
+        edges = edges.filter(x => !(x.from===fromId && (x.port||'out')===fromPort));
+        edges.push({ from: fromId, to: toId, ...(fromPort!=='out'?{port:fromPort}:{}) });
+        render();
+      }
+    }
+  };
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', up);
+}
+
+// deselect on canvas click
+canvas.addEventListener('mousedown', (e) => {
+  if (e.target === canvas || e.target === svg) {
+    selectedId = null; render();
+  }
+});
+
+// ---------------- palette drag-drop ----------------
+let dragKind = null;
+document.querySelectorAll('.node-chip').forEach(chip => {
+  chip.addEventListener('dragstart', () => { dragKind = chip.dataset.kind; });
+});
+canvas.addEventListener('dragover', e => e.preventDefault());
+canvas.addEventListener('drop', e => {
+  e.preventDefault();
+  if (!dragKind) return;
+  const rect = canvas.getBoundingClientRect();
+  const n = { id: nid(), kind: dragKind, x: e.clientX-rect.left-105, y: e.clientY-rect.top-30,
+    title: KINDS[dragKind].label, cfg: defaultCfg(dragKind) };
+  nodes.push(n);
+  selectedId = n.id;
+  dragKind = null;
+  render();
+});
+function defaultCfg(kind){
+  switch(kind){
+    case 'parallel': return { branches:2 };
+    case 'merge': return { strategy:'concat' };
+    case 'prompt': return { agent:'claude' };
+    default: return {};
+  }
+}
+
+// ---------------- toolbar ----------------
+document.getElementById('btnJson').onclick = () => {
+  const out = {
+    nodes: nodes.map(n=>({ id:n.id, kind:n.kind, title:n.title, cfg:n.cfg })),
+    edges,
+    variables: Object.fromEntries(globalVars.filter(v=>v.k).map(v=>[v.k,v.v])),
+  };
+  alert(JSON.stringify(out, null, 2));
+};
+document.getElementById('btnRun').onclick = () => animateRun();
+document.getElementById('btnLayout').onclick = () => { autoLayout(); render(); };
+
+// simple left-to-right layered auto-layout
+function autoLayout() {
+  const depth = {}; const indeg = {};
+  nodes.forEach(n => indeg[n.id] = 0);
+  edges.forEach(e => { if (indeg[e.to]!==undefined) indeg[e.to]++; });
+  const queue = nodes.filter(n => indeg[n.id]===0).map(n=>n.id);
+  queue.forEach(id => depth[id]=0);
+  const adj = {}; edges.forEach(e => (adj[e.from]=adj[e.from]||[]).push(e.to));
+  const seen = new Set(queue);
+  let q = [...queue];
+  while (q.length) {
+    const id = q.shift();
+    (adj[id]||[]).forEach(to => {
+      depth[to] = Math.max(depth[to]||0, (depth[id]||0)+1);
+      if (!seen.has(to)) { seen.add(to); q.push(to); }
+    });
+  }
+  const cols = {};
+  nodes.forEach(n => { const d = depth[n.id]||0; (cols[d]=cols[d]||[]).push(n); });
+  Object.entries(cols).forEach(([d, list]) => {
+    list.forEach((n,i) => { n.x = 40 + d*260; n.y = 80 + i*170; });
+  });
+}
+
+// run animation: pulse nodes in topological-ish order
+function animateRun() {
+  const order = [...nodes].sort((a,b)=>a.x-b.x);
+  order.forEach((n,i) => {
+    setTimeout(() => {
+      const el = nodeEl(n.id);
+      if (!el) return;
+      el.style.transition = 'box-shadow .3s';
+      el.style.boxShadow = '0 0 0 3px '+KINDS[n.kind].color+', 0 6px 22px #00000060';
+      setTimeout(()=>{ el.style.boxShadow=''; }, 600);
+    }, i*220);
+  });
+}
+
+// ---------------- helpers ----------------
+function escapeHtml(s){ return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function escapeAttr(s){ return (s==null?'':String(s)).replace(/"/g,'&quot;'); }
+function truncate(s,n){ s=s||''; return s.length>n ? s.slice(0,n)+'…' : s; }
+
+render();
+</script>
+</body>
+</html>

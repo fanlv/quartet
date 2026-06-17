@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>工作流编排 Demo · React Flow</title>
+<link rel="stylesheet" href="https://esm.sh/@xyflow/react@12.3.5/dist/style.css" />
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel-2: #1c2430;
+    --border: #2d3643; --border-strong: #3d4856;
+    --text: #e6edf3; --text-dim: #8b949e; --accent: #4493f8;
+    --shell: #f0883e; --prompt: #58a6ff; --eval: #a371f7;
+    --branch: #e3b341; --parallel: #2ea043; --merge: #db61a2;
+    --loop: #56d4dd; --start: #2ea043; --end: #f85149;
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    overflow: hidden;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .topbar .title { font-size: 15px; font-weight: 600; }
+  .topbar .title small { color: var(--text-dim); font-weight: 400; margin-left: 8px; font-size: 12px; }
+  .topbar .spacer { flex: 1; }
+  .btn { background: var(--panel-2); border: 1px solid var(--border-strong); color: var(--text);
+    padding: 6px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; transition: .15s; }
+  .btn:hover { background: #283242; border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: #5aa0ff; }
+
+  .main { display: flex; flex: 1; min-height: 0; }
+
+  .palette { width: 190px; background: var(--panel); border-right: 1px solid var(--border);
+    padding: 14px 12px; flex-shrink: 0; overflow-y: auto; }
+  .palette h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-dim); margin: 4px 0 10px; }
+  .node-chip { display: flex; align-items: center; gap: 10px; padding: 9px 11px; margin-bottom: 8px;
+    border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border);
+    cursor: grab; user-select: none; transition: .12s; }
+  .node-chip:hover { border-color: var(--border-strong); transform: translateX(2px); }
+  .node-chip:active { cursor: grabbing; }
+  .chip-ico { width: 24px; height: 24px; border-radius: 6px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 13px; color: #fff; }
+  .chip-label { font-size: 13px; font-weight: 500; }
+  .chip-sub { font-size: 11px; color: var(--text-dim); }
+  .palette .hint { font-size: 11px; color: var(--text-dim); line-height: 1.7; margin-top: 14px;
+    padding-top: 12px; border-top: 1px dashed var(--border); }
+  .palette .hint code { background: #1f6feb22; color: #79c0ff; padding: 1px 4px; border-radius: 3px;
+    font-family: ui-monospace, monospace; }
+
+  .canvas-wrap { flex: 1; position: relative; min-width: 0; }
+
+  /* ---- custom nodes ---- */
+  .qnode { width: 200px; background: var(--panel); border: 1.5px solid var(--border-strong);
+    border-radius: 11px; box-shadow: 0 4px 16px #00000050; overflow: hidden; transition: box-shadow .15s, border-color .15s; }
+  .qnode.selected { border-color: var(--accent); box-shadow: 0 0 0 2px #4493f855, 0 6px 22px #00000060; }
+  .qnode.running { border-color: var(--parallel) !important; box-shadow: 0 0 0 3px #2ea04388, 0 6px 22px #00000060 !important; }
+  .qnode-head { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--border); }
+  .qnode-ico { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 12px; flex-shrink: 0; color: #fff; }
+  .qnode-title { font-size: 13px; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qnode-kind { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
+  .qnode-body { padding: 9px 11px; font-size: 12px; color: var(--text-dim); line-height: 1.5; max-height: 60px; overflow: hidden; }
+  .qnode-body .mono { font-family: ui-monospace, monospace; font-size: 11px; color: #c9d1d9;
+    background: #0d111780; padding: 1px 4px; border-radius: 3px; display: inline-block; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+  .qnode-vars { padding: 7px 11px; border-top: 1px dashed var(--border); display: flex; flex-wrap: wrap; gap: 4px; }
+  .var-pill { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: #1f6feb22;
+    color: #79c0ff; border: 1px solid #1f6feb44; font-family: ui-monospace, monospace; }
+  .var-pill.out { background: #2ea04322; color: #7ee787; border-color: #2ea04344; }
+  .port-tag { position: absolute; font-size: 9px; font-weight: 700; pointer-events: none; }
+
+  /* loop group container */
+  .qloop { border: 1.6px dashed var(--loop); border-radius: 14px; background: #56d4dd0c;
+    width: 100%; height: 100%; }
+  .qloop.selected { box-shadow: 0 0 0 2px #56d4dd88; }
+  .qloop-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+  .qloop-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+    color: var(--loop); background: #56d4dd1a; padding: 4px 10px; border-radius: 8px; }
+  .qloop-meta { font-size: 11px; color: var(--text-dim); margin-left: auto; }
+
+  /* React Flow handle restyle */
+  .react-flow__handle { width: 11px; height: 11px; background: var(--panel);
+    border: 2px solid #6b7685; }
+  .react-flow__handle:hover { border-color: var(--accent); background: var(--accent); }
+  .react-flow__edge-path { stroke: #4c5663; stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path,
+  .react-flow__edge:hover .react-flow__edge-path { stroke: var(--accent); }
+  .react-flow__edge-text { fill: var(--text-dim); font-size: 11px; font-weight: 600; }
+  .react-flow__controls button { background: var(--panel-2); border-bottom: 1px solid var(--border); color: var(--text); fill: var(--text); }
+  .react-flow__controls button:hover { background: #283242; }
+  .react-flow__minimap { background: var(--panel) !important; }
+  .react-flow__attribution { display: none; }
+  .react-flow__panel.bottom.center { pointer-events: none; }
+
+  /* inspector */
+  .inspector { width: 330px; background: var(--panel); border-left: 1px solid var(--border);
+    flex-shrink: 0; overflow-y: auto; padding: 16px; }
+  .inspector h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); margin: 0 0 12px; }
+  .inspector .empty { color: var(--text-dim); font-size: 13px; line-height: 1.7; margin-top: 40px; text-align: center; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 5px; }
+  .field input, .field textarea, .field select { width: 100%; background: var(--bg);
+    border: 1px solid var(--border-strong); color: var(--text); border-radius: 7px; padding: 8px 10px;
+    font-size: 13px; font-family: inherit; resize: vertical; }
+  .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: var(--accent); }
+  .field textarea { min-height: 84px; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.5; }
+  .field .desc { font-size: 11px; color: var(--text-dim); margin-top: 5px; line-height: 1.5; }
+  .field .desc .mono, .desc code { font-family: ui-monospace, monospace; background: #1f6feb22; color: #79c0ff; padding: 1px 4px; border-radius: 3px; }
+  .kind-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-bottom: 16px; }
+  .insp-del { width: 100%; margin-top: 8px; background: #f8514915; border: 1px solid #f8514955; color: #f85149; padding: 8px; border-radius: 7px; cursor: pointer; font-size: 13px; }
+  .insp-del:hover { background: #f8514925; }
+  .vars-section { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 16px; }
+  .var-row { display: flex; gap: 6px; margin-bottom: 7px; align-items: center; }
+  .var-row input { flex: 1; }
+  .var-row .k { flex: 0 0 96px; font-family: ui-monospace, monospace; }
+  .var-row button { background: transparent; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px; padding: 0 4px; }
+  .var-row button:hover { color: var(--end); }
+  .add-var { font-size: 12px; color: var(--accent); cursor: pointer; background: none; border: none; padding: 4px 0; }
+  .seg { display: flex; gap: 0; border: 1px solid var(--border-strong); border-radius: 7px; overflow: hidden; }
+  .seg button { flex: 1; background: var(--bg); border: none; color: var(--text-dim); padding: 7px; font-size: 12px; cursor: pointer; }
+  .seg button.active { background: var(--accent); color: #fff; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "@xyflow/react": "https://esm.sh/@xyflow/react@12.3.5?external=react,react-dom"
+  }
+}
+</script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-type="module" data-presets="react">
+import React, { useState, useCallback, useRef, useMemo } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, Panel,
+  Handle, Position, MarkerType, useNodesState, useEdgesState, addEdge,
+} from '@xyflow/react';
+
+// ---------------- kind metadata ----------------
+const KINDS = {
+  start:    { label: '开始', color: 'var(--start)',    ico: '▶', kindText: 'START' },
+  end:      { label: '结束', color: 'var(--end)',      ico: '■', kindText: 'END' },
+  shell:    { label: 'Shell 结点', color: 'var(--shell)',  ico: '⌘', kindText: 'SHELL' },
+  prompt:   { label: 'Prompt 结点', color: 'var(--prompt)', ico: '✦', kindText: 'PROMPT' },
+  eval:     { label: '评估结点', color: 'var(--eval)',     ico: '✓', kindText: 'EVAL' },
+  branch:   { label: 'If / Else', color: 'var(--branch)',  ico: '⑂', kindText: 'BRANCH' },
+  loop:     { label: '循环结点', color: 'var(--loop)',     ico: '🔁', kindText: 'LOOP' },
+};
+
+const PALETTE = ['shell','prompt','eval','branch','loop'];
+
+// ---------------- helpers ----------------
+const escTrunc = (s, n=70) => { s = s || ''; return s.length > n ? s.slice(0, n) + '…' : s; };
+function extractVars(cfg) {
+  const txt = [cfg.script, cfg.prompt, cfg.cond].filter(Boolean).join(' ');
+  const set = new Set(); const re = /\{\{\s*([\w.一-龥]+)\s*\}\}/g; let m;
+  while ((m = re.exec(txt))) set.add(m[1]);
+  return [...set];
+}
+function bodyContent(kind, cfg) {
+  switch (kind) {
+    case 'shell':  return cfg.script ? <span className="mono">$ {cfg.script}</span> : <i>未配置命令</i>;
+    case 'prompt': return <span>{cfg.agent ? <><span className="mono">{cfg.agent}</span> · </> : null}{escTrunc(cfg.prompt) || <i>未配置 prompt</i>}</span>;
+    case 'eval':   return escTrunc(cfg.prompt, 80) || <i>未配置评估标准</i>;
+    case 'branch': return cfg.cond ? <span>条件: <span className="mono">{cfg.cond}</span></span> : <i>未配置条件</i>;
+    case 'start':  return '工作流入口';
+    case 'end':    return '工作流终点';
+    default: return null;
+  }
+}
+
+// ---------------- custom node: generic ----------------
+function QNode({ data, selected }) {
+  const { kind, title, cfg = {} } = data;
+  const k = KINDS[kind];
+  const inVars = extractVars(cfg);
+  const outVar = cfg.out;
+  const body = bodyContent(kind, cfg);
+  return (
+    <div className={'qnode' + (selected ? ' selected' : '') + (data.running ? ' running' : '')}>
+      {kind !== 'start' && <Handle type="target" position={Position.Left} />}
+      <div className="qnode-head">
+        <div className="qnode-ico" style={{ background: k.color }}>{k.ico}</div>
+        <div className="qnode-title">{title || k.label}</div>
+        <div className="qnode-kind">{k.kindText}</div>
+      </div>
+      {body && <div className="qnode-body">{body}</div>}
+      {(inVars.length > 0 || outVar) && (
+        <div className="qnode-vars">
+          {inVars.map(v => <span className="var-pill" key={v}>{'{{'+v+'}}'}</span>)}
+          {outVar && <span className="var-pill out">{'→ {{'+outVar+'}}'}</span>}
+        </div>
+      )}
+      {kind === 'branch' ? (
+        <>
+          <Handle id="yes" type="source" position={Position.Right} style={{ top: '35%' }} />
+          <Handle id="no"  type="source" position={Position.Right} style={{ top: '70%' }} />
+          <span className="port-tag" style={{ right: 14, top: 'calc(35% - 16px)', color: 'var(--parallel)' }}>YES</span>
+          <span className="port-tag" style={{ right: 14, top: 'calc(70% - 16px)', color: 'var(--end)' }}>NO</span>
+        </>
+      ) : kind !== 'end' ? (
+        <Handle type="source" position={Position.Right} />
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------- custom node: loop group container ----------------
+function LoopNode({ data, selected }) {
+  const cfg = data.cfg || {};
+  const meta = cfg.mode === 'until'
+    ? <>直到 <span className="mono" style={{color:'#c9d1d9'}}>{cfg.cond || '条件'}</span></>
+    : <>最多 <b style={{color:'var(--text)'}}>{cfg.times || 5}</b> 次</>;
+  return (
+    <div className={'qloop' + (selected ? ' selected' : '')}>
+      <Handle type="target" position={Position.Left} />
+      <div className="qloop-head">
+        <span className="qloop-badge">🔁 {data.title || '循环'}</span>
+        <span className="qloop-meta">{meta}</span>
+      </div>
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+}
+
+const nodeTypes = { flow: QNode, loop: LoopNode };
+
+// ---------------- preset demo graph ----------------
+let _id = 100;
+const nid = () => 'n' + (_id++);
+
+const LOOP_W = 620, LOOP_H = 360;
+
+const initialNodes = [
+  { id: 'start', type: 'flow', position: { x: 20, y: 280 }, data: { kind: 'start', title: '开始', cfg: {} } },
+  { id: 'pull',  type: 'flow', position: { x: 190, y: 280 }, data: { kind: 'shell', title: '拉取代码', cfg: { script: 'git pull origin main', out: 'diff' } } },
+
+  // loop container
+  { id: 'loop', type: 'loop', position: { x: 440, y: 120 }, data: { kind: 'loop', title: '质检循环', cfg: { mode: 'until', cond: '{{verdict}} == "PASS"', times: 5 } },
+    style: { width: LOOP_W, height: LOOP_H } },
+
+  // loop children (relative to loop) —— 拉取后并行评审/测试，两路汇入评估
+  { id: 'lint', type: 'flow', position: { x: 40, y: 56 },   parentId: 'loop', extent: 'parent', data: { kind: 'prompt', title: '代码评审', cfg: { agent: 'claude', prompt: '审查改动:\n{{diff}}', out: 'review' } } },
+  { id: 'test', type: 'flow', position: { x: 40, y: 210 },  parentId: 'loop', extent: 'parent', data: { kind: 'shell', title: '运行测试', cfg: { script: 'make test', out: 'testlog' } } },
+  { id: 'ev',   type: 'flow', position: { x: 350, y: 130 }, parentId: 'loop', extent: 'parent', data: { kind: 'eval', title: '质量评估', cfg: { prompt: '依据评审 {{review}} 与测试 {{testlog}} 判定，输出 PASS / FAIL', out: 'verdict' } } },
+
+  // after loop
+  { id: 'if',     type: 'flow', position: { x: 1180, y: 280 }, data: { kind: 'branch', title: '是否通过?', cfg: { cond: '{{verdict}} == "PASS"' } } },
+  { id: 'deploy', type: 'flow', position: { x: 1430, y: 170 }, data: { kind: 'shell', title: '部署上线', cfg: { script: 'make deploy' } } },
+  { id: 'okEnd',  type: 'flow', position: { x: 1670, y: 170 }, data: { kind: 'end', title: '完成', cfg: {} } },
+  { id: 'failEnd',type: 'flow', position: { x: 1430, y: 400 }, data: { kind: 'end', title: '终止', cfg: {} } },
+];
+
+const E = (id, source, target, extra = {}) => ({
+  id, source, target,
+  markerEnd: { type: MarkerType.ArrowClosed, color: '#4c5663' },
+  ...extra,
+});
+const initialEdges = [
+  E('e1', 'start', 'pull'),
+  // 多条出边 = 并行：拉取后同时评审 + 测试
+  E('e2', 'pull', 'lint'),
+  E('e3', 'pull', 'test'),
+  // 多条入边 = 自动汇总：评估等评审与测试都完成
+  E('e4', 'lint', 'ev'),
+  E('e5', 'test', 'ev'),
+  E('e6', 'loop', 'if'),
+  E('e7', 'if', 'deploy',  { sourceHandle: 'yes', label: 'YES', labelStyle: { fill: 'var(--parallel)', fontWeight: 700 } }),
+  E('e8', 'if', 'failEnd', { sourceHandle: 'no',  label: 'NO',  labelStyle: { fill: 'var(--end)', fontWeight: 700 } }),
+  E('e9', 'deploy', 'okEnd'),
+];
+
+function defaultCfg(kind) {
+  switch (kind) {
+    case 'prompt': return { agent: 'claude' };
+    case 'loop': return { mode: 'count', times: 3 };
+    default: return {};
+  }
+}
+
+// ---------------- inspector ----------------
+function Inspector({ node, onChange, onDelete, vars, setVars }) {
+  const VarsPanel = (
+    <div className="vars-section">
+      <h3>全局变量</h3>
+      {vars.map((v, i) => (
+        <div className="var-row" key={i}>
+          <input className="k" value={v.k} placeholder="key"
+            onChange={e => { const n=[...vars]; n[i]={...n[i],k:e.target.value}; setVars(n); }} />
+          <input value={v.v} placeholder="value"
+            onChange={e => { const n=[...vars]; n[i]={...n[i],v:e.target.value}; setVars(n); }} />
+          <button onClick={() => setVars(vars.filter((_,j)=>j!==i))}>×</button>
+        </div>
+      ))}
+      <button className="add-var" onClick={() => setVars([...vars, {k:'',v:''}])}>+ 添加变量</button>
+    </div>
+  );
+
+  if (!node) {
+    return <aside className="inspector"><div className="empty">选择一个结点<br/>查看 / 编辑配置</div>{VarsPanel}</aside>;
+  }
+
+  const { kind, title, cfg = {} } = node.data;
+  const k = KINDS[kind];
+  const set = (patch) => onChange(node.id, patch);
+  const setCfg = (patch) => onChange(node.id, { cfg: { ...cfg, ...patch } });
+
+  const OutField = (
+    <div className="field">
+      <label>输出变量名 <span style={{color:'var(--text-dim)'}}>(可选)</span></label>
+      <input value={cfg.out||''} placeholder="例如: review" onChange={e => setCfg({ out: e.target.value })} />
+      <div className="desc">结果写入 <span className="mono">{'{{'+(cfg.out||'变量名')+'}}'}</span> 供下游使用。</div>
+    </div>
+  );
+
+  return (
+    <aside className="inspector">
+      <h3>结点配置</h3>
+      <div className="kind-badge" style={{ background: k.color+'22', color: k.color, border: '1px solid '+k.color+'55' }}>{k.ico} {k.label}</div>
+
+      <div className="field"><label>结点名称</label>
+        <input value={title||''} onChange={e => set({ title: e.target.value })} /></div>
+
+      {kind === 'shell' && <>
+        <div className="field"><label>Shell 脚本</label>
+          <textarea value={cfg.script||''} placeholder="例如: make test" onChange={e => setCfg({ script: e.target.value })} />
+          <div className="desc">支持 <span className="mono">{'{{变量}}'}</span> 插值；退出码非 0 视为失败。</div></div>
+        {OutField}
+      </>}
+
+      {kind === 'prompt' && <>
+        <div className="field"><label>Agent</label>
+          <select value={cfg.agent||'claude'} onChange={e => setCfg({ agent: e.target.value })}>
+            {['claude','codex','gemini','traex'].map(a => <option key={a}>{a}</option>)}
+          </select></div>
+        <div className="field"><label>Prompt</label>
+          <textarea value={cfg.prompt||''} placeholder="给 Agent 的指令..." onChange={e => setCfg({ prompt: e.target.value })} />
+          <div className="desc">用 <span className="mono">{'{{变量}}'}</span> 引用上游结点输出。</div></div>
+        {OutField}
+      </>}
+
+      {kind === 'eval' && <>
+        <div className="field"><label>评估标准 (Prompt)</label>
+          <textarea value={cfg.prompt||''} placeholder="判定输出 PASS / FAIL 或打分..." onChange={e => setCfg({ prompt: e.target.value })} />
+          <div className="desc">输出可被下游 If/Else 或循环结点作为条件。</div></div>
+        {OutField}
+      </>}
+
+      {kind === 'branch' && (
+        <div className="field"><label>条件表达式</label>
+          <input value={cfg.cond||''} placeholder='{{verdict}} == "PASS"' onChange={e => setCfg({ cond: e.target.value })} />
+          <div className="desc">为真 → <b style={{color:'var(--parallel)'}}>YES</b> 分支；为假 → <b style={{color:'var(--end)'}}>NO</b> 分支。</div></div>
+      )}
+
+      {kind === 'loop' && <>
+        <div className="field"><label>循环方式</label>
+          <div className="seg">
+            <button className={cfg.mode!=='until'?'active':''} onClick={() => setCfg({ mode: 'count' })}>固定次数</button>
+            <button className={cfg.mode==='until'?'active':''} onClick={() => setCfg({ mode: 'until' })}>直到条件</button>
+          </div>
+        </div>
+        {cfg.mode === 'until' ? (
+          <div className="field"><label>终止条件</label>
+            <input value={cfg.cond||''} placeholder='{{verdict}} == "PASS"' onChange={e => setCfg({ cond: e.target.value })} />
+            <div className="desc">每轮结束后求值，为真则跳出循环。建议同时设置最大次数兜底。</div></div>
+        ) : (
+          <div className="field"><label>循环次数</label>
+            <input type="number" min="1" max="50" value={cfg.times||3} onChange={e => setCfg({ times: +e.target.value })} />
+            <div className="desc">循环体内的子流程按顺序重复执行该次数。</div></div>
+        )}
+        <div className="field"><label>最大次数 (兜底)</label>
+          <input type="number" min="1" max="100" value={cfg.times||5} onChange={e => setCfg({ times: +e.target.value })} />
+          <div className="desc">把其他结点拖入虚线框即可加入循环体。</div></div>
+      </>}
+
+      {kind !== 'start' && kind !== 'end' && (
+        <button className="insp-del" onClick={() => onDelete(node.id)}>删除结点</button>
+      )}
+      {VarsPanel}
+    </aside>
+  );
+}
+
+// ---------------- main app ----------------
+function App() {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [selectedId, setSelectedId] = useState(null);
+  const [vars, setVars] = useState([{ k:'repo', v:'github.com/acme/app' }, { k:'branch', v:'main' }]);
+  const wrapRef = useRef(null);
+  const rfRef = useRef(null);
+
+  const selectedNode = useMemo(() => nodes.find(n => n.id === selectedId) || null, [nodes, selectedId]);
+
+  const onConnect = useCallback((params) => {
+    const isBranch = params.sourceHandle === 'yes' || params.sourceHandle === 'no';
+    const extra = isBranch ? {
+      label: params.sourceHandle === 'yes' ? 'YES' : 'NO',
+      labelStyle: { fill: params.sourceHandle === 'yes' ? 'var(--parallel)' : 'var(--end)', fontWeight: 700 },
+    } : {};
+    setEdges(eds => addEdge({ ...params, markerEnd: { type: MarkerType.ArrowClosed, color: '#4c5663' }, ...extra }, eds));
+  }, [setEdges]);
+
+  const onNodeClick = useCallback((_, node) => setSelectedId(node.id), []);
+  const onPaneClick = useCallback(() => setSelectedId(null), []);
+
+  const updateNode = useCallback((id, patch) => {
+    setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, ...patch } } : n));
+  }, [setNodes]);
+
+  const deleteNode = useCallback((id) => {
+    setNodes(ns => ns.filter(n => n.id !== id && n.parentId !== id));
+    setEdges(es => es.filter(e => e.source !== id && e.target !== id));
+    setSelectedId(null);
+  }, [setNodes, setEdges]);
+
+  // palette drag-drop
+  const onDragStart = (e, kind) => { e.dataTransfer.setData('kind', kind); e.dataTransfer.effectAllowed = 'move'; };
+  const onDragOver = useCallback(e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
+  const onDrop = useCallback(e => {
+    e.preventDefault();
+    const kind = e.dataTransfer.getData('kind');
+    if (!kind || !rfRef.current) return;
+    const pos = rfRef.current.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const id = nid();
+    const newNode = kind === 'loop'
+      ? { id, type: 'loop', position: pos, style: { width: 460, height: 260 }, data: { kind, title: '循环', cfg: defaultCfg(kind) } }
+      : { id, type: 'flow', position: pos, data: { kind, title: KINDS[kind].label, cfg: defaultCfg(kind) } };
+    setNodes(ns => ns.concat(newNode));
+    setSelectedId(id);
+  }, [setNodes]);
+
+  const exportJson = () => {
+    const out = {
+      nodes: nodes.map(n => ({ id: n.id, kind: n.data.kind, title: n.data.title, cfg: n.data.cfg, parentId: n.parentId, position: n.position })),
+      edges: edges.map(e => ({ from: e.source, to: e.target, port: e.sourceHandle || undefined })),
+      variables: Object.fromEntries(vars.filter(v => v.k).map(v => [v.k, v.v])),
+    };
+    alert(JSON.stringify(out, null, 2));
+  };
+
+  const runDemo = () => {
+    const order = [...nodes].filter(n => n.type !== 'loop').sort((a, b) => {
+      const ax = a.position.x + (a.parentId ? 420 : 0);
+      const bx = b.position.x + (b.parentId ? 420 : 0);
+      return ax - bx;
+    });
+    order.forEach((n, i) => {
+      setTimeout(() => {
+        updateNode(n.id, { running: true });
+        setTimeout(() => updateNode(n.id, { running: false }), 550);
+      }, i * 230);
+    });
+  };
+
+  return (
+    <div className="app">
+      <div className="topbar">
+        <div className="title">🧩 工作流编排 <small>Loop 任务配置 · React Flow 预览</small></div>
+        <div className="spacer"></div>
+        <button className="btn" onClick={exportJson}>查看 JSON</button>
+        <button className="btn primary" onClick={runDemo}>▶ 运行</button>
+      </div>
+      <div className="main">
+        <aside className="palette">
+          <h3>结点</h3>
+          {PALETTE.map(kind => {
+            const k = KINDS[kind];
+            return (
+              <div className="node-chip" key={kind} draggable onDragStart={e => onDragStart(e, kind)}>
+                <div className="chip-ico" style={{ background: k.color }}>{k.ico}</div>
+                <div>
+                  <div className="chip-label">{k.label}</div>
+                  <div className="chip-sub">{
+                    { shell:'执行命令脚本', prompt:'调用 Agent', eval:'判定 / 打分', branch:'条件分支',
+                      loop:'重复子流程' }[kind]
+                  }</div>
+                </div>
+              </div>
+            );
+          })}
+          <div className="hint">
+            · 拖结点到画布<br/>
+            · 拖圆点连线<br/>
+            · 点结点编辑配置<br/>
+            · 一个结点连<b style={{color:'var(--text)'}}>多条出边</b> = 并行<br/>
+            · 一个结点有<b style={{color:'var(--text)'}}>多条入边</b> = 等全部完成<br/>
+            · 拖结点进虚线框 = 加入循环体<br/>
+            · 用 <code>{'{{变量}}'}</code> 在结点间传值
+          </div>
+        </aside>
+
+        <div className="canvas-wrap" ref={wrapRef}>
+          <ReactFlow
+            nodes={nodes} edges={edges}
+            onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+            onConnect={onConnect} onNodeClick={onNodeClick} onPaneClick={onPaneClick}
+            onDrop={onDrop} onDragOver={onDragOver}
+            nodeTypes={nodeTypes} onInit={inst => (rfRef.current = inst)}
+            fitView fitViewOptions={{ padding: 0.15 }} minZoom={0.2} maxZoom={1.8}
+            proOptions={{ hideAttribution: true }} defaultEdgeOptions={{ type: 'default' }}
+          >
+            <Background color="#2a323d" gap={22} size={1.4} />
+            <Controls />
+            <MiniMap nodeColor={n => { const c = KINDS[n.data?.kind]?.color || '#888'; return getComputedStyle(document.documentElement).getPropertyValue(c.replace('var(','').replace(')','')) || '#888'; }}
+              maskColor="#0d111799" pannable zoomable />
+          </ReactFlow>
+          <div style={{ position:'absolute', bottom:14, left:'50%', transform:'translateX(-50%)', pointerEvents:'none', zIndex:5 }}>
+            <div style={{ background:'#161b22dd', border:'1px solid var(--border)', borderRadius:8, padding:'8px 12px', fontSize:11, color:'var(--text-dim)', lineHeight:1.6, backdropFilter:'blur(4px)' }}>
+              <b style={{color:'var(--text)'}}>并行 / 汇总</b>：靠连线拓扑表达 —— 多条出边即并行，多条入边即等全部上游完成 ·
+              <b style={{color:'var(--text)'}}> 循环</b>：虚线框内子流程按「固定次数 / 直到条件」重复 ·
+              <b style={{color:'var(--text)'}}> 变量</b>：<span style={{color:'#7ee787'}}>{'{{结点.out}}'}</span> 写出，<span style={{color:'#79c0ff'}}>{'{{变量}}'}</span> 读入
+            </div>
+          </div>
+        </div>
+
+        <Inspector node={selectedNode} onChange={updateNode} onDelete={deleteNode} vars={vars} setVars={setVars} />
+      </div>
+    </div>
+  );
+}
+
+createRoot(document.getElementById('root')).render(
+  <ReactFlowProvider><App /></ReactFlowProvider>
+);
+</script>
+</body>
+</html>

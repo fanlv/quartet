@@ -862,6 +862,7 @@ function splitTextForFilePaths(text: string, keyPrefix: string): React.ReactNode
         key={`${keyPrefix}-fpath-${chipIdx++}`}
         filePath={filePath}
         fileName={fileName}
+        rawText={raw}
         line={line}
         endLine={endLine}
       />,
@@ -904,7 +905,7 @@ const MD_COMPONENTS: Components = {
       const filePath = normalizeLocalFileTarget(url);
       const { line, endLine } = parseLocalFileTarget(url);
       const fileName = extractLinkText(children) || extractFileName(url);
-      return <FileChip filePath={filePath} fileName={fileName} line={line} endLine={endLine} />;
+      return <FileChip filePath={filePath} fileName={fileName} rawText={url} line={line} endLine={endLine} />;
     }
     if (!isSafeLinkUrl(url)) return <span>{children}</span>;
     return (
@@ -954,7 +955,7 @@ function renderMarkdown(content: string): React.ReactElement {
   );
 }
 
-function FileChip({ filePath, fileName, line, endLine }: { filePath: string; fileName: string; line?: number; endLine?: number }) {
+function FileChip({ filePath, fileName, rawText, line, endLine }: { filePath: string; fileName: string; rawText: string; line?: number; endLine?: number }) {
   const openFileViewer = useContext(FileViewerContext);
   const workdir = useContext(WorkdirContext);
   const shareInfo = useContext(ShareInfoContext);
@@ -977,8 +978,10 @@ function FileChip({ filePath, fileName, line, endLine }: { filePath: string; fil
     return () => { cancelled = true; };
   }, [resolvedPath, isAbsolute, shareInfo]);
 
-  // While loading, render as plain text to avoid flash; if not a file, stay as text
-  if (exists !== true) return <>{fileName}</>;
+  // While loading, render as plain text to avoid flash; if not a file, stay as
+  // text. Render the full path the user typed (rawText), not just the basename,
+  // so a non-existent file still shows its complete relative/absolute path.
+  if (exists !== true) return <>{rawText}</>;
 
   return (
     <button
