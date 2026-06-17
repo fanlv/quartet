@@ -246,12 +246,13 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 	tokens := tokenizer.MessagesTokenCounter(ctx, chatMessages)
 
 	c.JSON(http.StatusOK, model.GetMessagesResponse{
-		ModelID:    s.ModelID,
-		Type:       s.Type,
-		Messages:   messages,
-		TokenUsage: &model.TokenUsage{TotalTokens: tokens},
-		Workdir:    s.Workdir,
-		ACPMode:    s.ACPMode,
+		ModelID:         s.ModelID,
+		Type:            s.Type,
+		Messages:        messages,
+		TokenUsage:      &model.TokenUsage{TotalTokens: tokens},
+		Workdir:         s.Workdir,
+		ACPMode:         s.ACPMode,
+		ACPThoughtLevel: s.ACPThoughtLevel,
 	})
 }
 

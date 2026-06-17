@@ -78,7 +78,7 @@ func (h *Handler) createJob(ctx context.Context, req *model.CreateJobRequest) (*
 		// requires AgentType on session-creating steps, which may only be
 		// satisfied after req.AgentType is inherited onto steps that omit
 		// their own. NormalizeAndValidateLoopConfig fixes that order.
-		defaults := model.FlowDefaults{AgentType: req.AgentType, ModelID: req.ModelID, ACPMode: req.ACPMode}
+		defaults := model.FlowDefaults{AgentType: req.AgentType, ModelID: req.ModelID, ACPMode: req.ACPMode, ACPThoughtLevel: req.ACPThoughtLevel}
 		if err := model.NormalizeAndValidateLoopConfig(req.LoopConfig, defaults); err != nil {
 			return nil, err
 		}

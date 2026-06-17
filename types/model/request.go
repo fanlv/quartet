@@ -19,13 +19,14 @@ type SavePromptRequest struct {
 }
 
 type CreateJobRequest struct {
-	ModelID     string      `json:"modelId"`
-	AgentType   string      `json:"agentType"`
-	ACPMode     string      `json:"acpMode,omitempty"`
-	Mode        JobMode     `json:"mode,omitempty"`
-	Workdir     string      `json:"workdir,omitempty"`
-	WorkspaceID string      `json:"workspaceId"`
-	LoopConfig  *LoopConfig `json:"loopConfig,omitempty"`
+	ModelID         string      `json:"modelId"`
+	AgentType       string      `json:"agentType"`
+	ACPMode         string      `json:"acpMode,omitempty"`
+	ACPThoughtLevel string      `json:"acpThoughtLevel,omitempty"`
+	Mode            JobMode     `json:"mode,omitempty"`
+	Workdir         string      `json:"workdir,omitempty"`
+	WorkspaceID     string      `json:"workspaceId"`
+	LoopConfig      *LoopConfig `json:"loopConfig,omitempty"`
 }
 
 // UpdateLoopConfigRequest carries a loop job's full LoopConfig for editing.
@@ -43,6 +44,7 @@ type JobMessageRequest struct {
 	SessionID       string           `json:"sessionId,omitempty"`
 	ClientMessageID string           `json:"clientMessageId,omitempty"`
 	ACPMode         string           `json:"acpMode,omitempty"`
+	ACPThoughtLevel string           `json:"acpThoughtLevel,omitempty"`
 	// BypassCommand forces the message to go through the regular Job message
 	// flow even when the text starts with a known slash command. Set by the
 	// Web home page when it builds a new Job from the user's first input:

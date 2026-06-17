@@ -264,6 +264,7 @@ export interface IterationStartedEvent extends BaseEvent {
   modelId?: string;
   agentType?: string;
   acpMode?: string;
+  acpThoughtLevel?: string;
 }
 
 export interface IterationCompletedEvent extends BaseEvent {

@@ -142,9 +142,10 @@ type FlowNode struct {
 	RoundType   RoundType `json:"roundType,omitempty"`
 
 	// Per-step agent/model overrides (only used when RoundMode != RoundModeNone)
-	AgentType   string `json:"agentType,omitempty"`
-	StepModelID string `json:"modelId,omitempty"`
-	ACPMode     string `json:"acpMode,omitempty"`
+	AgentType       string `json:"agentType,omitempty"`
+	StepModelID     string `json:"modelId,omitempty"`
+	ACPMode         string `json:"acpMode,omitempty"`
+	ACPThoughtLevel string `json:"acpThoughtLevel,omitempty"`
 
 	// Group fields (Type == "group")
 	IterationCount int        `json:"iterationCount,omitempty"`
@@ -154,9 +155,10 @@ type FlowNode struct {
 // SessionOverrides carries optional per-step agent/model overrides for session creation.
 // Zero/empty values mean "use job-level defaults".
 type SessionOverrides struct {
-	AgentType string
-	ModelID   string
-	ACPMode   string
+	AgentType       string
+	ModelID         string
+	ACPMode         string
+	ACPThoughtLevel string
 }
 
 // LoopConfig defines the execution plan for a loop job.
@@ -382,7 +384,7 @@ func newJobID() string {
 // BackfillFlowDefaults fills empty agent/model fields on step FlowNodes with
 // the provided defaults. This is used when task-level or request-level
 // defaults should be inherited by steps that don't specify their own.
-func BackfillFlowDefaults(nodes []FlowNode, agentType string, modelID, acpMode string) {
+func BackfillFlowDefaults(nodes []FlowNode, agentType string, modelID, acpMode, acpThoughtLevel string) {
 	for i := range nodes {
 		switch nodes[i].Type {
 		case FlowNodeTypeStep:
@@ -395,8 +397,11 @@ func BackfillFlowDefaults(nodes []FlowNode, agentType string, modelID, acpMode s
 			if nodes[i].ACPMode == "" {
 				nodes[i].ACPMode = acpMode
 			}
+			if nodes[i].ACPThoughtLevel == "" {
+				nodes[i].ACPThoughtLevel = acpThoughtLevel
+			}
 		case FlowNodeTypeGroup:
-			BackfillFlowDefaults(nodes[i].Children, agentType, modelID, acpMode)
+			BackfillFlowDefaults(nodes[i].Children, agentType, modelID, acpMode, acpThoughtLevel)
 		}
 	}
 }

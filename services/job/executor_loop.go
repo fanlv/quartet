@@ -445,11 +445,12 @@ func (s *serviceImpl) prepareStepRuntimeConfig(job *model.Job, node model.FlowNo
 	// node (running edits can't change structure). Both
 	// tryCreateSession (overrides) and executeRepeat (node.Message)
 	// read these off node below, so updating node covers both.
-	if msg, at, mid, mode, ok := s.liveStepFields(job, stepPath); ok {
+	if msg, at, mid, mode, thoughtLevel, ok := s.liveStepFields(job, stepPath); ok {
 		node.Message = msg
 		node.AgentType = at
 		node.StepModelID = mid
 		node.ACPMode = mode
+		node.ACPThoughtLevel = thoughtLevel
 	}
 
 	roundMode := node.RoundMode
@@ -461,9 +462,10 @@ func (s *serviceImpl) prepareStepRuntimeConfig(job *model.Job, node model.FlowNo
 		node:      node,
 		roundMode: roundMode,
 		overrides: &model.SessionOverrides{
-			AgentType: node.AgentType,
-			ModelID:   node.StepModelID,
-			ACPMode:   node.ACPMode,
+			AgentType:       node.AgentType,
+			ModelID:         node.StepModelID,
+			ACPMode:         node.ACPMode,
+			ACPThoughtLevel: node.ACPThoughtLevel,
 		},
 	}
 }
@@ -588,10 +590,11 @@ func (s *serviceImpl) tryCreateSession(
 			Path:      stepPath,
 			Timestamp: iterationStartedAt,
 		},
-		Message:   node.Message,
-		ModelID:   node.StepModelID,
-		AgentType: node.AgentType,
-		ACPMode:   node.ACPMode,
+		Message:         node.Message,
+		ModelID:         node.StepModelID,
+		AgentType:       node.AgentType,
+		ACPMode:         node.ACPMode,
+		ACPThoughtLevel: node.ACPThoughtLevel,
 	})
 
 	// Hard failure: record the failed iteration, then failJob. failJob issues
@@ -910,17 +913,17 @@ func stepNodeForPath(nodes []model.FlowNode, path []int) (model.FlowNode, bool) 
 // editable fields are returned — structure fields stay on the snapshot node
 // (running edits cannot change structure, so they always agree). Returns
 // ok=false when the path can't be resolved (then the caller keeps the snapshot).
-func (s *serviceImpl) liveStepFields(job *model.Job, stepPath []int) (message, agentType, modelID, acpMode string, ok bool) {
+func (s *serviceImpl) liveStepFields(job *model.Job, stepPath []int) (message, agentType, modelID, acpMode, acpThoughtLevel string, ok bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if job.LoopConfig == nil {
-		return "", "", "", "", false
+		return "", "", "", "", "", false
 	}
 	node, found := stepNodeForPath(job.LoopConfig.Flow, stepPath)
 	if !found {
-		return "", "", "", "", false
+		return "", "", "", "", "", false
 	}
-	return node.Message, node.AgentType, node.StepModelID, node.ACPMode, true
+	return node.Message, node.AgentType, node.StepModelID, node.ACPMode, node.ACPThoughtLevel, true
 }
 
 // appendPath creates a new path by appending two indices to basePath.

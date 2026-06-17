@@ -644,8 +644,8 @@ func (g *imGateway) buildQueuedJobTask(ctx context.Context, msg *messaging.Messa
 	if err != nil {
 		return nil, fmt.Errorf("无法处理消息: %w", err)
 	}
-	logger.Debugf(ctx, "[im] resolve job: chat=%s jobId=%s agent=%s model=%s mode=%s",
-		msg.ChatID, j.ID, msgAgent.AgentType, msgAgent.ModelID, msgAgent.ACPMode)
+	logger.Debugf(ctx, "[im] resolve job: chat=%s jobId=%s agent=%s model=%s mode=%s thought_level=%s",
+		msg.ChatID, j.ID, msgAgent.AgentType, msgAgent.ModelID, msgAgent.ACPMode, msgAgent.ACPThoughtLevel)
 
 	if err := g.saveJobMapping(ctx, msg, mapping, wsID, j.ID); err != nil {
 		logger.Errorf(ctx, "[im] save chat->job mapping failed: chat=%s jobId=%s err=%v", msg.ChatID, j.ID, err)
@@ -658,9 +658,10 @@ func (g *imGateway) buildQueuedJobTask(ctx context.Context, msg *messaging.Messa
 				Role:    "user",
 				Content: msg.Content,
 			}},
-			AgentType: msgAgent.AgentType,
-			ModelID:   msgAgent.ModelID,
-			ACPMode:   msgAgent.ACPMode,
+			AgentType:       msgAgent.AgentType,
+			ModelID:         msgAgent.ModelID,
+			ACPMode:         msgAgent.ACPMode,
+			ACPThoughtLevel: msgAgent.ACPThoughtLevel,
 		},
 		jobID: j.ID,
 	}, nil
@@ -1330,12 +1331,13 @@ func (g *imGateway) resolveJob(ctx context.Context, msg *messaging.Message, mapp
 	}
 
 	req := &model.CreateJobRequest{
-		AgentType:   msgAgent.AgentType,
-		ModelID:     msgAgent.ModelID,
-		ACPMode:     msgAgent.ACPMode,
-		Mode:        model.JobModeInteractive,
-		Workdir:     ws.Workdir,
-		WorkspaceID: wsID,
+		AgentType:       msgAgent.AgentType,
+		ModelID:         msgAgent.ModelID,
+		ACPMode:         msgAgent.ACPMode,
+		ACPThoughtLevel: msgAgent.ACPThoughtLevel,
+		Mode:            model.JobModeInteractive,
+		Workdir:         ws.Workdir,
+		WorkspaceID:     wsID,
 	}
 
 	j, err := g.h.createJob(ctx, req)

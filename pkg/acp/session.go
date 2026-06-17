@@ -46,6 +46,10 @@ type SessionResponse struct {
 // SessionConfigSelect is a stable view of a select option in ConfigOptions,
 // avoiding SDK types leaking into higher service layers.
 type SessionConfigSelect struct {
+	// ConfigID is the ACP config option id (e.g. "reasoning_effort") used to
+	// set this value through SetSessionConfigOption. May be empty for agents
+	// that omit it.
+	ConfigID     string
 	CurrentValue string
 	Options      []SessionConfigSelectItem
 }
@@ -71,6 +75,13 @@ func (r *SessionResponse) ModelConfigSelect() *SessionConfigSelect {
 // Some ACP agents expose mode choices there instead of filling Modes.
 func (r *SessionResponse) ModeConfigSelect() *SessionConfigSelect {
 	return r.configSelect(acp.SessionConfigOptionCategoryMode)
+}
+
+// ThoughtLevelConfigSelect returns the thought_level selector carried in
+// ConfigOptions. Unlike mode, thought_level has no dedicated RPC, so callers
+// drive it through SetSessionConfigOption using the select's ConfigID.
+func (r *SessionResponse) ThoughtLevelConfigSelect() *SessionConfigSelect {
+	return r.configSelect(acp.SessionConfigOptionCategoryThoughtLevel)
 }
 
 // configSelect extracts a select option from ConfigOptions matched by category.
@@ -106,6 +117,9 @@ func (r *SessionResponse) configSelectAt(idx int) *SessionConfigSelect {
 func buildConfigSelect(selectOpt acp.SessionConfigOptionSelect) *SessionConfigSelect {
 	out := &SessionConfigSelect{
 		CurrentValue: string(selectOpt.CurrentValue),
+	}
+	if selectOpt.ID != nil {
+		out.ConfigID = string(*selectOpt.ID)
 	}
 	appendConfigSelectOptions(out, selectOpt.Options)
 	if len(out.Options) == 0 {
@@ -351,6 +365,25 @@ func (c *Conn) SetSessionModel(ctx context.Context, sessionID SessionID, modelID
 		return err
 	}
 	logger.Debugf(ctx, "[ACP] SetSessionModel modelID=%s resp=%s", modelID, json.String(optResp))
+	return nil
+}
+
+// SetSessionThoughtLevel switches the active thought_level for the session.
+// thought_level has no dedicated RPC, so it always goes through the generic
+// SetSessionConfigOption API keyed by the config option id (e.g.
+// "reasoning_effort") discovered from the session's ConfigOptions.
+func (c *Conn) SetSessionThoughtLevel(ctx context.Context, sessionID SessionID, configID, value string) error {
+	cid := acp.SessionConfigID(configID)
+	val := acp.SessionConfigValueID(value)
+	resp, err := c.conn.SetSessionConfigOption(ctx, acp.NewSetSessionConfigOptionRequestValueID(acp.SetSessionConfigOptionRequestValueID{
+		SessionID: &sessionID,
+		ConfigID:  &cid,
+		Value:     &val,
+	}))
+	if err != nil {
+		return err
+	}
+	logger.Debugf(ctx, "[ACP] SetSessionThoughtLevel configID=%s value=%s resp=%s", configID, value, json.String(resp))
 	return nil
 }
 

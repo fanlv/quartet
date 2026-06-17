@@ -54,6 +54,18 @@ export interface SessionModeState {
   currentModeId: string;
 }
 
+export interface ACPThoughtLevel {
+  description?: string;
+  id: string;
+  name: string;
+}
+
+export interface SessionThoughtLevelState {
+  availableThoughtLevels: ACPThoughtLevel[];
+  currentThoughtLevelId: string;
+  configId?: string;
+}
+
 export interface AgentInfo {
   type: string;
   model_id: string;
@@ -61,6 +73,7 @@ export interface AgentInfo {
   icon_url: string;
   models?: SessionModelState;
   modes?: SessionModeState;
+  thoughtLevels?: SessionThoughtLevelState;
 }
 
 interface LocalSentMessage {
@@ -172,8 +185,8 @@ function findFirstStepAgent(flow?: FlowNode[]): { agentType: string; modelId?: s
 }
 
 interface ChatPageProps {
-  onStartChat: (message: string, modelId: string, type: string, workdir?: string, imageUrls?: string[], acpMode?: string) => void;
-  onStartLoop: (loopConfig: LoopConfig, modelId: string, type: string, workdir?: string, acpMode?: string, workspaceId?: string) => void;
+  onStartChat: (message: string, modelId: string, type: string, workdir?: string, imageUrls?: string[], acpMode?: string, acpThoughtLevel?: string) => void;
+  onStartLoop: (loopConfig: LoopConfig, modelId: string, type: string, workdir?: string, acpMode?: string, workspaceId?: string, acpThoughtLevel?: string) => void;
   isInitializing?: boolean;
   refreshKey?: number;
   workspaceWorkdir?: string;
@@ -455,9 +468,11 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   const [showDropdown, setShowDropdown] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
+  const [showThoughtLevelDropdown, setShowThoughtLevelDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
+  const thoughtLevelDropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { pendingImages, addImages, removeImage, clearImages } = usePendingImages(uploadImage);
@@ -738,6 +753,9 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
       if (modeDropdownRef.current && !modeDropdownRef.current.contains(target)) {
         setShowModeDropdown(false);
       }
+      if (thoughtLevelDropdownRef.current && !thoughtLevelDropdownRef.current.contains(target)) {
+        setShowThoughtLevelDropdown(false);
+      }
       if (historyRef.current && !historyRef.current.contains(target)) {
         setHistoryOpen(false);
       }
@@ -923,6 +941,14 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     ));
   }, [selectedIndex]);
 
+  const handleSelectThoughtLevel = useCallback((thoughtLevelId: string) => {
+    setAgents((prev) => prev.map((agent, idx) =>
+      idx === selectedIndex && agent.thoughtLevels
+        ? { ...agent, thoughtLevels: { ...agent.thoughtLevels, currentThoughtLevelId: thoughtLevelId } }
+        : agent
+    ));
+  }, [selectedIndex]);
+
   const handleSelectDir = () => {
     setShowDirPicker(true);
   };
@@ -959,6 +985,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
       workdir || undefined,
       imageUrls.length > 0 ? imageUrls : undefined,
       selectedAgent.modes?.currentModeId,
+      selectedAgent.thoughtLevels?.currentThoughtLevelId,
     );
     setInput('');
     setPickedImageUrls([]);
@@ -1128,7 +1155,10 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     const acpMode = flowAgent
       ? flowAgent.acpMode
       : selectedAgent.modes?.currentModeId;
-    onStartLoop(config, modelId, agentType, overrideWorkdir || workdir || undefined, acpMode, selectedWorkspaceId);
+    const acpThoughtLevel = flowAgent
+      ? flowAgent.acpThoughtLevel
+      : selectedAgent.thoughtLevels?.currentThoughtLevelId;
+    onStartLoop(config, modelId, agentType, overrideWorkdir || workdir || undefined, acpMode, selectedWorkspaceId, acpThoughtLevel);
   };
 
   const handleRestartWeb = async () => {
@@ -1785,6 +1815,71 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                             {m.description && <span className="model-dropdown-provider">{m.description}</span>}
                           </div>
                           {m.id === selectedAgent.modes!.currentModeId && (
+                            <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M20 6L9 17l-5-5" />
+                            </svg>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    )
+                  )}
+                </div>
+              )}
+              {selectedAgent?.thoughtLevels && (selectedAgent.thoughtLevels.availableThoughtLevels?.length ?? 0) > 1 && (
+                <div className="chat-model-selector" ref={thoughtLevelDropdownRef}>
+                  <div
+                    className="model-tag"
+                    onClick={() => setShowThoughtLevelDropdown(!showThoughtLevelDropdown)}
+                  >
+                    <span>{selectedAgent.thoughtLevels.availableThoughtLevels.find(m => m.id === selectedAgent.thoughtLevels!.currentThoughtLevelId)?.name || selectedAgent.thoughtLevels.currentThoughtLevelId}</span>
+                    <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </div>
+                  {showThoughtLevelDropdown && (
+                    isMobile ? createPortal(
+                      <div className="mobile-dropdown-overlay" onClick={() => setShowThoughtLevelDropdown(false)}>
+                        <div className="mobile-dropdown-sheet" onClick={e => e.stopPropagation()}>
+                          {selectedAgent.thoughtLevels.availableThoughtLevels.map((m) => (
+                            <div
+                              key={m.id}
+                              className={`model-dropdown-item ${m.id === selectedAgent.thoughtLevels!.currentThoughtLevelId ? 'active' : ''}`}
+                              onClick={() => {
+                                handleSelectThoughtLevel(m.id);
+                                setShowThoughtLevelDropdown(false);
+                              }}
+                            >
+                              <div className="model-dropdown-info">
+                                <span className="model-dropdown-name">{m.name}</span>
+                                {m.description && <span className="model-dropdown-provider">{m.description}</span>}
+                              </div>
+                              {m.id === selectedAgent.thoughtLevels!.currentThoughtLevelId && (
+                                <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>,
+                      document.body
+                    ) : (
+                    <div className="model-dropdown">
+                      {selectedAgent.thoughtLevels.availableThoughtLevels.map((m) => (
+                        <div
+                          key={m.id}
+                          className={`model-dropdown-item ${m.id === selectedAgent.thoughtLevels!.currentThoughtLevelId ? 'active' : ''}`}
+                          onClick={() => {
+                            handleSelectThoughtLevel(m.id);
+                            setShowThoughtLevelDropdown(false);
+                          }}
+                        >
+                          <div className="model-dropdown-info">
+                            <span className="model-dropdown-name">{m.name}</span>
+                            {m.description && <span className="model-dropdown-provider">{m.description}</span>}
+                          </div>
+                          {m.id === selectedAgent.thoughtLevels!.currentThoughtLevelId && (
                             <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               <path d="M20 6L9 17l-5-5" />
                             </svg>

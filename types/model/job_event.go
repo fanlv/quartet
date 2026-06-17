@@ -47,6 +47,7 @@ type IterationStartedEvent struct {
 	ModelID         string `json:"modelId,omitempty"`
 	AgentType       string `json:"agentType,omitempty"`
 	ACPMode         string `json:"acpMode,omitempty"`
+	ACPThoughtLevel string `json:"acpThoughtLevel,omitempty"`
 }
 
 type IterationCompletedEvent struct {

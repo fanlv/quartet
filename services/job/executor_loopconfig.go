@@ -512,6 +512,7 @@ func applyEditableFields(dst, src []model.FlowNode) {
 			dst[i].AgentType = src[i].AgentType
 			dst[i].StepModelID = src[i].StepModelID
 			dst[i].ACPMode = src[i].ACPMode
+			dst[i].ACPThoughtLevel = src[i].ACPThoughtLevel
 		}
 		applyEditableFields(dst[i].Children, src[i].Children)
 	}

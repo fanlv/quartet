@@ -21,6 +21,10 @@ type Session struct {
 	WorkspaceID  string    `json:"workspace_id,omitempty"` // associated workspace
 	ACPSessionID string    `json:"acp_session_id,omitempty"`
 	ACPMode      string    `json:"acp_mode,omitempty"`
+	// ACPThoughtLevel is the thought_level config selection (e.g. "high")
+	// last applied to the ACP subprocess session. Like ACPMode it is
+	// persisted so a Run re-applies it after reconnect / restart.
+	ACPThoughtLevel string `json:"acp_thought_level,omitempty"`
 	// ACPLastSyncedMessageCount and ACPLastSyncedMessageHash record the
 	// state of messages.jsonl at the end of the most recent ACP Run on
 	// this session. Used by the ACP agent to detect cross-path drift —

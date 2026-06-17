@@ -98,5 +98,5 @@ func (h *Handler) runACPInternal(ctx context.Context, s *model.Session, userMess
 	// agent under us via concurrent eviction or Delete.
 	defer lease.Release()
 
-	return lease.Value.Run(ctx, userMessages, handler, s.ModelID, s.ACPMode, s.JobID)
+	return lease.Value.Run(ctx, userMessages, handler, s.ModelID, s.ACPMode, s.ACPThoughtLevel, s.JobID)
 }

@@ -20,9 +20,10 @@ type ACPEnvVarEntry struct {
 }
 
 type AgentConfig struct {
-	AgentType string `json:"agent_type"`
-	ModelID   string `json:"model_id,omitempty"`
-	ACPMode   string `json:"acp_mode,omitempty"`
+	AgentType       string `json:"agent_type"`
+	ModelID         string `json:"model_id,omitempty"`
+	ACPMode         string `json:"acp_mode,omitempty"`
+	ACPThoughtLevel string `json:"acp_thought_level,omitempty"`
 }
 
 type Settings struct {

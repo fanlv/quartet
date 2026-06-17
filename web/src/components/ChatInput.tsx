@@ -146,10 +146,13 @@ interface ChatInputProps {
   onSelectAgent?: (index: number) => void;
   onSelectModel?: (modelId: string) => void;
   onSelectMode?: (modeId: string) => void;
+  onSelectThoughtLevel?: (thoughtLevelId: string) => void;
   /** Override model ID display (per-session, takes priority over agent.models.currentModelId) */
   overrideModelId?: string | null;
   /** Override mode ID display (per-session, takes priority over agent.modes.currentModeId) */
   overrideModeId?: string | null;
+  /** Override thought-level ID display (per-session, takes priority over agent.thoughtLevels.currentThoughtLevelId) */
+  overrideThoughtLevelId?: string | null;
   totalTokens?: number;
   /** Timestamp of the first message in the current round (for total duration display). */
   roundStartedAt?: number;
@@ -212,8 +215,10 @@ export function ChatInput({
   onSelectAgent,
   onSelectModel,
   onSelectMode,
+  onSelectThoughtLevel,
   overrideModelId,
   overrideModeId,
+  overrideThoughtLevelId,
   totalTokens = 0,
   roundStartedAt,
   roundFinishedAt,
@@ -236,11 +241,13 @@ export function ChatInput({
   const [showDropdown, setShowDropdown] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
+  const [showThoughtLevelDropdown, setShowThoughtLevelDropdown] = useState(false);
   const isMobile = useIsMobile();
   const isTabletLayout = useIsMobile(1024);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
+  const thoughtLevelDropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [tabletBottomGap, setTabletBottomGap] = useState(0);
@@ -304,6 +311,9 @@ export function ChatInput({
       if (modeDropdownRef.current && !modeDropdownRef.current.contains(target)) {
         setShowModeDropdown(false);
       }
+      if (thoughtLevelDropdownRef.current && !thoughtLevelDropdownRef.current.contains(target)) {
+        setShowThoughtLevelDropdown(false);
+      }
       if (historyRef.current && !historyRef.current.contains(target)) {
         setHistoryOpen(false);
       }
@@ -317,6 +327,7 @@ export function ChatInput({
     setShowDropdown(false);
     setShowModelDropdown(false);
     setShowModeDropdown(false);
+    setShowThoughtLevelDropdown(false);
     setHistoryOpen(false);
     setMentionState(null);
   }, [interactionDisabled]);
@@ -646,9 +657,11 @@ export function ChatInput({
   const canSelect = !!agents && agents.length > 0 && !!onSelectAgent && !interactionDisabled;
   const canSelectModel = !!selectedAgent?.models && (selectedAgent.models.availableModels?.length ?? 0) > 0 && !!onSelectModel && !controlsDisabled;
   const canSelectMode = !!selectedAgent?.modes && (selectedAgent.modes.availableModes?.length ?? 0) > 1 && !!onSelectMode && !controlsDisabled;
+  const canSelectThoughtLevel = !!selectedAgent?.thoughtLevels && (selectedAgent.thoughtLevels.availableThoughtLevels?.length ?? 0) > 1 && !!onSelectThoughtLevel && !controlsDisabled;
   // Effective model/mode ID: prefer per-session override over agent-level value
   const effectiveModelId = overrideModelId ?? selectedAgent?.models?.currentModelId;
   const effectiveModeId = overrideModeId ?? selectedAgent?.modes?.currentModeId;
+  const effectiveThoughtLevelId = overrideThoughtLevelId ?? selectedAgent?.thoughtLevels?.currentThoughtLevelId;
   const containerStyle = isTabletLayout
     ? ({ '--tablet-bottom-gap': `${tabletBottomGap}px` } as CSSProperties)
     : undefined;
@@ -984,6 +997,75 @@ export function ChatInput({
                           {m.description && <span className="model-dropdown-provider">{m.description}</span>}
                         </div>
                         {m.id === effectiveModeId && (
+                          <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M20 6L9 17l-5-5" />
+                          </svg>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  )
+                )}
+              </div>
+            )}
+            {selectedAgent?.thoughtLevels && (selectedAgent.thoughtLevels.availableThoughtLevels?.length ?? 0) > 1 && onSelectThoughtLevel && (
+              <div className="chat-model-selector" ref={thoughtLevelDropdownRef}>
+                <div
+                  className={`model-tag ${canSelectThoughtLevel ? '' : 'disabled'}`}
+                  onClick={() => {
+                    if (canSelectThoughtLevel) {
+                      setShowThoughtLevelDropdown(!showThoughtLevelDropdown);
+                    }
+                  }}
+                >
+                  <span>{selectedAgent.thoughtLevels.availableThoughtLevels.find(m => m.id === effectiveThoughtLevelId)?.name || effectiveThoughtLevelId}</span>
+                  <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </div>
+                {showThoughtLevelDropdown && (
+                  isMobile ? createPortal(
+                    <div className="mobile-dropdown-overlay" onClick={() => setShowThoughtLevelDropdown(false)}>
+                      <div className="mobile-dropdown-sheet" onClick={e => e.stopPropagation()}>
+                        {selectedAgent.thoughtLevels.availableThoughtLevels.map((m) => (
+                          <div
+                            key={m.id}
+                            className={`model-dropdown-item ${m.id === effectiveThoughtLevelId ? 'active' : ''}`}
+                            onClick={() => {
+                              onSelectThoughtLevel(m.id);
+                              setShowThoughtLevelDropdown(false);
+                            }}
+                          >
+                            <div className="model-dropdown-info">
+                              <span className="model-dropdown-name">{m.name}</span>
+                              {m.description && <span className="model-dropdown-provider">{m.description}</span>}
+                            </div>
+                            {m.id === effectiveThoughtLevelId && (
+                              <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M20 6L9 17l-5-5" />
+                              </svg>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>,
+                    document.body
+                  ) : (
+                  <div className="model-dropdown">
+                    {selectedAgent.thoughtLevels.availableThoughtLevels.map((m) => (
+                      <div
+                        key={m.id}
+                        className={`model-dropdown-item ${m.id === effectiveThoughtLevelId ? 'active' : ''}`}
+                        onClick={() => {
+                          onSelectThoughtLevel(m.id);
+                          setShowThoughtLevelDropdown(false);
+                        }}
+                      >
+                        <div className="model-dropdown-info">
+                          <span className="model-dropdown-name">{m.name}</span>
+                          {m.description && <span className="model-dropdown-provider">{m.description}</span>}
+                        </div>
+                        {m.id === effectiveThoughtLevelId && (
                           <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M20 6L9 17l-5-5" />
                           </svg>

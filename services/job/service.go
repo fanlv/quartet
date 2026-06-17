@@ -158,6 +158,8 @@ type SendMessageOptions struct {
 	AgentType string
 	ModelID   string
 	ACPMode   string
+
+	ACPThoughtLevel string
 }
 
 // getMessages returns the Messages if opts is non-nil, otherwise nil.

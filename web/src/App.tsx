@@ -87,6 +87,7 @@ function App() {
   const [initialModelId, setInitialModelId] = useState<string | undefined>();
   const [initialAgentType, setInitialAgentType] = useState<string | undefined>();
   const [initialAcpMode, setInitialAcpMode] = useState<string | undefined>();
+  const [initialAcpThoughtLevel, setInitialAcpThoughtLevel] = useState<string | undefined>();
   const [showSettings, setShowSettings] = useState(false);
   const [showStats, setShowStats] = useState(() => getStatsOpenFromUrl());
   const [initialLoopConfig, setInitialLoopConfig] = useState<LoopConfig | undefined>();
@@ -214,7 +215,7 @@ function App() {
 
 
   // Normal chat: create job then navigate
-  const handleStartChat = useCallback(async (message: string, modelId: string, type: string, workdir?: string, imageUrls?: string[], acpMode?: string) => {
+  const handleStartChat = useCallback(async (message: string, modelId: string, type: string, workdir?: string, imageUrls?: string[], acpMode?: string, acpThoughtLevel?: string) => {
     setMissingJobNoticeId(null);
     setIsInitializing(true);
     try {
@@ -241,6 +242,7 @@ function App() {
       // an empty workspaceId and trips the server's strict validation.
       body.workspaceId = currentWorkspace?.id ?? DEFAULT_WORKSPACE_ID;
       if (acpMode) body.acpMode = acpMode;
+      if (acpThoughtLevel) body.acpThoughtLevel = acpThoughtLevel;
 
       const response = await fetch('/api/v1/job/create', {
         method: 'POST',
@@ -262,6 +264,7 @@ function App() {
       setInitialModelId(modelId);
       setInitialAgentType(type);
       setInitialAcpMode(acpMode);
+      setInitialAcpThoughtLevel(acpThoughtLevel);
       setInitialLoopConfig(undefined);
       setShowChat(true);
     } catch (err) {
@@ -274,7 +277,7 @@ function App() {
   }, [currentWorkspace]);
 
   // Loop chat: create job with loopConfig then navigate
-  const handleStartLoop = useCallback(async (loopConfig: LoopConfig, modelId: string, type: string, workdir?: string, acpMode?: string, workspaceId?: string) => {
+  const handleStartLoop = useCallback(async (loopConfig: LoopConfig, modelId: string, type: string, workdir?: string, acpMode?: string, workspaceId?: string, acpThoughtLevel?: string) => {
     setMissingJobNoticeId(null);
     setIsInitializing(true);
     try {
@@ -287,6 +290,7 @@ function App() {
       // containment check.
       body.workspaceId = workspaceId ?? currentWorkspace?.id ?? DEFAULT_WORKSPACE_ID;
       if (acpMode) body.acpMode = acpMode;
+      if (acpThoughtLevel) body.acpThoughtLevel = acpThoughtLevel;
 
       const response = await fetch('/api/v1/job/create', {
         method: 'POST',
@@ -316,6 +320,7 @@ function App() {
       setInitialModelId(modelId);
       setInitialAgentType(type);
       setInitialAcpMode(acpMode);
+      setInitialAcpThoughtLevel(acpThoughtLevel);
       setInitialLoopConfig(loopConfig);
       setShowChat(true);
     } catch (err) {
@@ -505,6 +510,7 @@ function App() {
     let agentType = '';
     let modelId = '';
     let acpMode = '';
+    let acpThoughtLevel = '';
     const prefs = loadWorkspacePrefs(ws.id);
     if (prefs.defaultAgent) agentType = prefs.defaultAgent;
     if (prefs.defaultModel) modelId = prefs.defaultModel;
@@ -517,6 +523,7 @@ function App() {
           if (ma?.agent_type) agentType = ma.agent_type;
           if (!modelId && ma?.model_id) modelId = ma.model_id;
           if (ma?.acp_mode) acpMode = ma.acp_mode;
+          if (ma?.acp_thought_level) acpThoughtLevel = ma.acp_thought_level;
         }
       } catch (err) {
         console.error('[reuseOrCreateJob] settings failed:', err);
@@ -538,6 +545,7 @@ function App() {
     };
     if (ws.workdir) body.workdir = ws.workdir;
     if (acpMode) body.acpMode = acpMode;
+    if (acpThoughtLevel) body.acpThoughtLevel = acpThoughtLevel;
 
     try {
       const createRes = await fetch('/api/v1/job/create', {
@@ -719,6 +727,7 @@ function App() {
             if (!inheritedModel && prefs.defaultModel) inheritedModel = prefs.defaultModel;
           }
           let inheritedAcpMode = '';
+          let inheritedAcpThoughtLevel = '';
           if (!inheritedAgent) {
             try {
               const settingsRes = await fetch('/api/v1/config/settings/get');
@@ -728,6 +737,7 @@ function App() {
                 if (ma?.agent_type) inheritedAgent = ma.agent_type;
                 if (!inheritedModel && ma?.model_id) inheritedModel = ma.model_id;
                 if (ma?.acp_mode) inheritedAcpMode = ma.acp_mode;
+                if (ma?.acp_thought_level) inheritedAcpThoughtLevel = ma.acp_thought_level;
               }
             } catch (err) {
               console.error('[command-action] new_job: read settings failed:', err);
@@ -757,6 +767,7 @@ function App() {
           };
           if (inheritedWorkdir) body.workdir = inheritedWorkdir;
           if (inheritedAcpMode) body.acpMode = inheritedAcpMode;
+          if (inheritedAcpThoughtLevel) body.acpThoughtLevel = inheritedAcpThoughtLevel;
           try {
             const createRes = await fetch('/api/v1/job/create', {
               method: 'POST',
@@ -982,6 +993,7 @@ function App() {
             initialModelId={initialModelId}
             initialAgentType={initialAgentType}
             initialAcpMode={initialAcpMode}
+            initialAcpThoughtLevel={initialAcpThoughtLevel}
             workspaceId={currentWorkspace?.id}
             shareToken={shareToken}
             isReadonly={isReadonly}

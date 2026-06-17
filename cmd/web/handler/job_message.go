@@ -246,12 +246,13 @@ func (h *Handler) prepareJobMessage(j *model.Job, req *model.JobMessageRequest) 
 
 	isEino := req.AgentType == consts.AgentTypeEino
 	if !isEino && opts.SessionID != "" {
-		h.maybeUpdateSessionACPFields(opts.SessionID, req.ACPMode)
+		h.maybeUpdateSessionACPFields(opts.SessionID, req.ACPMode, req.ACPThoughtLevel)
 	}
 
 	opts.AgentType = req.AgentType
 	opts.ModelID = req.ModelID
 	opts.ACPMode = req.ACPMode
+	opts.ACPThoughtLevel = req.ACPThoughtLevel
 	return opts, nil
 }
 
@@ -452,8 +453,8 @@ func (h *Handler) maybeUpdateSessionModel(sessionID string, modelID string) {
 	}
 }
 
-func (h *Handler) maybeUpdateSessionACPFields(sessionID, acpMode string) {
-	if acpMode == "" {
+func (h *Handler) maybeUpdateSessionACPFields(sessionID, acpMode, acpThoughtLevel string) {
+	if acpMode == "" && acpThoughtLevel == "" {
 		return
 	}
 	ss, ok := h.lookupSessionService(sessionID)
@@ -461,7 +462,14 @@ func (h *Handler) maybeUpdateSessionACPFields(sessionID, acpMode string) {
 		logger.Error("[session] update ACP fields skipped, session not found after reload: sessionId=%s", sessionID)
 		return
 	}
-	if err := ss.UpdateACPMode(sessionID, acpMode); err != nil {
-		logger.Error("[session] save ACP fields failed: sessionId=%s err=%v", sessionID, err)
+	if acpMode != "" {
+		if err := ss.UpdateACPMode(sessionID, acpMode); err != nil {
+			logger.Error("[session] save ACP mode failed: sessionId=%s err=%v", sessionID, err)
+		}
+	}
+	if acpThoughtLevel != "" {
+		if err := ss.UpdateACPThoughtLevel(sessionID, acpThoughtLevel); err != nil {
+			logger.Error("[session] save ACP thought_level failed: sessionId=%s err=%v", sessionID, err)
+		}
 	}
 }

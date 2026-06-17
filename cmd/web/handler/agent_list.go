@@ -29,9 +29,10 @@ func (h *Handler) AgentList(ctx context.Context, c *app.RequestContext) {
 			DisplayName: a.DisplayName,
 			IconURL:     a.IconURL,
 		}
-		if models, modes := probe.GetACPSessionInfo(a.Command); models != nil || modes != nil {
+		if models, modes, thoughtLevels := probe.GetACPSessionInfo(a.Command); models != nil || modes != nil || thoughtLevels != nil {
 			info.Models = models
 			info.Modes = modes
+			info.ThoughtLevels = thoughtLevels
 		}
 		if info.Modes != nil {
 			if id := probe.PickDefaultModeID(info.Modes.AvailableModes); id != "" {

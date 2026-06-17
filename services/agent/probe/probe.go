@@ -154,8 +154,9 @@ func HeadlessBin(command string) (string, bool) {
 // ---------------------------------------------------------------------------
 
 type acpSessionInfoCache struct {
-	models *model.SessionModelState
-	modes  *model.SessionModeState
+	models        *model.SessionModelState
+	modes         *model.SessionModeState
+	thoughtLevels *model.SessionThoughtLevelState
 }
 
 // acpProbeFailureState tracks consecutive failures of a single agent
@@ -245,13 +246,13 @@ func noteProbeSuccess(command string) int {
 // for example) without racing other concurrent /agent/list handlers on the
 // same cached objects. Without copying, the cached pointers would be
 // shared write targets across all goroutines and corrupt the cache too.
-func GetACPSessionInfo(command string) (*model.SessionModelState, *model.SessionModeState) {
+func GetACPSessionInfo(command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState) {
 	acpSessionCacheMu.RLock()
 	defer acpSessionCacheMu.RUnlock()
 	if cached, ok := acpSessionCache[command]; ok {
-		return cloneSessionModelState(cached.models), cloneSessionModeState(cached.modes)
+		return cloneSessionModelState(cached.models), cloneSessionModeState(cached.modes), cloneSessionThoughtLevelState(cached.thoughtLevels)
 	}
-	return nil, nil
+	return nil, nil, nil
 }
 
 func cloneSessionModelState(in *model.SessionModelState) *model.SessionModelState {
@@ -284,6 +285,27 @@ func cloneSessionModeState(in *model.SessionModeState) *model.SessionModeState {
 			if d := out.AvailableModes[i].Description; d != nil {
 				v := *d
 				out.AvailableModes[i].Description = &v
+			}
+		}
+	}
+	return out
+}
+
+func cloneSessionThoughtLevelState(in *model.SessionThoughtLevelState) *model.SessionThoughtLevelState {
+	if in == nil {
+		return nil
+	}
+	out := &model.SessionThoughtLevelState{
+		CurrentThoughtLevelId: in.CurrentThoughtLevelId,
+		ConfigId:              in.ConfigId,
+	}
+	if len(in.AvailableThoughtLevels) > 0 {
+		out.AvailableThoughtLevels = make([]model.ACPThoughtLevel, len(in.AvailableThoughtLevels))
+		copy(out.AvailableThoughtLevels, in.AvailableThoughtLevels)
+		for i := range out.AvailableThoughtLevels {
+			if d := out.AvailableThoughtLevels[i].Description; d != nil {
+				v := *d
+				out.AvailableThoughtLevels[i].Description = &v
 			}
 		}
 	}
@@ -407,7 +429,39 @@ func modesFromSessionResponse(resp *pkgacp.SessionResponse) *model.SessionModeSt
 	return ms
 }
 
-func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.SessionModelState, *model.SessionModeState) {
+// thoughtLevelsFromSessionResponse extracts the thought_level list from the
+// ACP session response. thought_level has no standard top-level field, so it
+// is sourced solely from the "thought_level" ConfigOptions select. The
+// select's ConfigID is carried through so the setter can target the right
+// config option (e.g. "reasoning_effort").
+func thoughtLevelsFromSessionResponse(resp *pkgacp.SessionResponse) *model.SessionThoughtLevelState {
+	if resp == nil {
+		return nil
+	}
+	selectOpt := resp.ThoughtLevelConfigSelect()
+	if selectOpt == nil {
+		return nil
+	}
+	ts := &model.SessionThoughtLevelState{
+		CurrentThoughtLevelId: selectOpt.CurrentValue,
+		ConfigId:              selectOpt.ConfigID,
+	}
+	for _, o := range selectOpt.Options {
+		var desc *string
+		if o.Description != "" {
+			d := o.Description
+			desc = &d
+		}
+		ts.AvailableThoughtLevels = append(ts.AvailableThoughtLevels, model.ACPThoughtLevel{
+			Description: desc,
+			Id:          o.Value,
+			Name:        o.Name,
+		})
+	}
+	return ts
+}
+
+func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState) {
 	// Bound every probe so one slow / hung agent can't wedge the refresh
 	// goroutine. Callers that want no timeout should not exist — the cache
 	// refresh is best-effort and missing entries degrade gracefully.
@@ -425,7 +479,7 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.Se
 			logger.Warnf(ctx, "[probe] connect ACP agent failed: cmd=%s err=%v suppressed=%d firstFailedAgo=%s",
 				command, err, suppressed, time.Since(firstFailedAt).Truncate(time.Second))
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 	defer acpConn.Close()
 
@@ -438,7 +492,7 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.Se
 			logger.Warnf(ctx, "[probe] create ACP session failed: cmd=%s err=%v suppressed=%d firstFailedAgo=%s",
 				command, err, suppressed, time.Since(firstFailedAt).Truncate(time.Second))
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 	if recovered := noteProbeSuccess(command); recovered > 0 {
 		logger.Infof(ctx, "[probe] ACP agent recovered: cmd=%s consecutiveFailures=%d", command, recovered)
@@ -448,8 +502,9 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.Se
 
 	models := modelsFromSessionResponse(sessResp)
 	modes := modesFromSessionResponse(sessResp)
+	thoughtLevels := thoughtLevelsFromSessionResponse(sessResp)
 
-	return models, modes
+	return models, modes, thoughtLevels
 }
 
 func refreshACPSessionCache(ctx context.Context) {
@@ -517,10 +572,11 @@ func refreshACPSessionCache(ctx context.Context) {
 				return
 			}
 			defer func() { <-probeSlots }()
-			models, modes := fetchACPSessionInfoForAgent(ctx, command)
+			models, modes, thoughtLevels := fetchACPSessionInfoForAgent(ctx, command)
 			logger.Debugf(ctx, "[probe] %s ACP session models: %v", command, json.String(models))
 			logger.Debugf(ctx, "[probe] %s ACP session modes: %v", command, json.String(modes))
-			results[idx] = result{command: command, info: &acpSessionInfoCache{models: models, modes: modes}}
+			logger.Debugf(ctx, "[probe] %s ACP session thoughtLevels: %v", command, json.String(thoughtLevels))
+			results[idx] = result{command: command, info: &acpSessionInfoCache{models: models, modes: modes, thoughtLevels: thoughtLevels}}
 		})
 	}
 	wg.Wait()

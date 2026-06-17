@@ -311,9 +311,10 @@ func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner
 	sessionID := opts.SessionID
 	if sessionID == "" {
 		sid, err := s.initAndAttachSession(ctx, job, runner, &model.SessionOverrides{
-			AgentType: opts.AgentType,
-			ModelID:   opts.ModelID,
-			ACPMode:   opts.ACPMode,
+			AgentType:       opts.AgentType,
+			ModelID:         opts.ModelID,
+			ACPMode:         opts.ACPMode,
+			ACPThoughtLevel: opts.ACPThoughtLevel,
 		})
 		if err != nil {
 			logger.Errorf(ctx, "[interactive] init session failed: jobId=%s err=%v", job.ID, err)
@@ -333,14 +334,15 @@ func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner
 	// RunStarted / RunOutcome exactly as it does for a loop step.
 	path := []int{0, 0}
 	node := model.FlowNode{
-		ID:          model.NewFlowNodeID(),
-		Type:        model.FlowNodeTypeStep,
-		Message:     opts.Messages[0].Content,
-		RepeatCount: 1,
-		RoundMode:   model.RoundModeNone,
-		AgentType:   opts.AgentType,
-		StepModelID: opts.ModelID,
-		ACPMode:     opts.ACPMode,
+		ID:              model.NewFlowNodeID(),
+		Type:            model.FlowNodeTypeStep,
+		Message:         opts.Messages[0].Content,
+		RepeatCount:     1,
+		RoundMode:       model.RoundModeNone,
+		AgentType:       opts.AgentType,
+		StepModelID:     opts.ModelID,
+		ACPMode:         opts.ACPMode,
+		ACPThoughtLevel: opts.ACPThoughtLevel,
 	}
 	if node.Message == "" && len(opts.Messages[0].UserInputMultiContent) > 0 {
 		for _, part := range opts.Messages[0].UserInputMultiContent {

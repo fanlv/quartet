@@ -34,21 +34,30 @@ func (r *jobRunnerImpl) InitSession(ctx context.Context, jobID string, overrides
 	var agentType string
 	var modelID string
 	var acpMode string
+	var acpThoughtLevel string
 	if overrides != nil {
 		agentType = overrides.AgentType
 		modelID = overrides.ModelID
 		acpMode = overrides.ACPMode
+		acpThoughtLevel = overrides.ACPThoughtLevel
 	}
 
 	s, err := r.h.createSession(ctx, modelID, agentType, r.workdir, r.wsID, jobID)
 	if err != nil {
 		return "", err
 	}
-	if acpMode != "" {
+	if acpMode != "" || acpThoughtLevel != "" {
 		ss, err := r.h.getOrCreateSessionService(r.wsID, jobID)
 		if err == nil {
-			if err := ss.UpdateACPMode(s.ID, acpMode); err != nil {
-				logger.Errorf(ctx, "[InitSession] save session ACP fields failed: %v, sessionId=%s", err, s.ID)
+			if acpMode != "" {
+				if err := ss.UpdateACPMode(s.ID, acpMode); err != nil {
+					logger.Errorf(ctx, "[InitSession] save session ACP mode failed: %v, sessionId=%s", err, s.ID)
+				}
+			}
+			if acpThoughtLevel != "" {
+				if err := ss.UpdateACPThoughtLevel(s.ID, acpThoughtLevel); err != nil {
+					logger.Errorf(ctx, "[InitSession] save session ACP thought_level failed: %v, sessionId=%s", err, s.ID)
+				}
 			}
 		}
 	}

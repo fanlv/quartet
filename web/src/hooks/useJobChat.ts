@@ -178,6 +178,7 @@ export interface QueuedMessage {
   imageUrls?: string[];
   modelId?: string | null;
   acpMode?: string;
+  acpThoughtLevel?: string;
   agentType?: string;
 }
 
@@ -248,6 +249,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const [sessionModelId, setSessionModelId] = useState<string | null>(null);
   const [sessionType, setSessionType] = useState<string | null>(null);
   const [sessionACPMode, setSessionACPMode] = useState<string | null>(null);
+  const [sessionACPThoughtLevel, setSessionACPThoughtLevel] = useState<string | null>(null);
 
   // Slash-command fast path relies on a COMMAND_SYSTEM_MESSAGE event for
   // user-visible feedback. The backend delivers it two ways: inline in the
@@ -376,7 +378,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const failedSessionIdsRef = useRef<Set<string>>(new Set());
 
   // Per-session agent metadata (populated during loadHistory for loop sessions)
-  const sessionMetaMapRef = useRef<Map<string, { modelId: string | null; type: string | null; acpMode: string | null }>>(new Map());
+  const sessionMetaMapRef = useRef<Map<string, { modelId: string | null; type: string | null; acpMode: string | null; acpThoughtLevel: string | null }>>(new Map());
 
   const [eventsReady, setEventsReady] = useState(false);
   // Gate the SSE auto-connect effect on the existing-job hydration effect
@@ -891,6 +893,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             modelId: event.modelId || null,
             type: event.agentType || null,
             acpMode: event.acpMode || null,
+            acpThoughtLevel: event.acpThoughtLevel || null,
           });
         }
 
@@ -1344,12 +1347,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         modelId: data.modelId || null,
         type: data.type || null,
         acpMode: data.acpMode || null,
+        acpThoughtLevel: data.acpThoughtLevel || null,
       });
 
       if (!tagSessionId) {
         setSessionModelId(data.modelId || null);
         if (data.type) setSessionType(data.type);
         if (data.acpMode) setSessionACPMode(data.acpMode);
+        if (data.acpThoughtLevel) setSessionACPThoughtLevel(data.acpThoughtLevel);
         if (data.tokenUsage?.totalTokens) setTotalTokens(data.tokenUsage.totalTokens);
         if (data.workdir) setSessionWorkdir(data.workdir);
       }
@@ -2095,7 +2100,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // server to skip its command-dispatch branch. Used by the home-page path
   // where the user typed `/help` as the very first message so the text becomes
   // the Job's first message, not a command.
-  const sendMessage = useCallback(async (content: string, modelId?: string | null, targetSessionId?: string | null, imageUrls?: string[], acpMode?: string, agentType?: string, options?: { bypassCommand?: boolean }) => {
+  const sendMessage = useCallback(async (content: string, modelId?: string | null, targetSessionId?: string | null, imageUrls?: string[], acpMode?: string, agentType?: string, acpThoughtLevel?: string, options?: { bypassCommand?: boolean }) => {
     if (!jobId || isPublic) return;
     // We're about to flip the buffering flag so handleEvent will route
     // incoming SSE events straight to state. Any events that were buffered
@@ -2223,6 +2228,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       if (targetSessionId) payload.sessionId = targetSessionId;
       payload.clientMessageId = clientMessageId;
       if (acpMode) payload.acpMode = acpMode;
+      if (acpThoughtLevel) payload.acpThoughtLevel = acpThoughtLevel;
       if (agentType) payload.agentType = agentType;
       if (effectiveBypassCommand) payload.bypassCommand = true;
 
@@ -2304,7 +2310,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     queueDispatchingRef.current = true;
     const head = queuedMessages[0];
     setQueuedMessages((prev) => prev.slice(1));
-    sendMessage(head.content, head.modelId ?? null, null, head.imageUrls, head.acpMode, head.agentType).catch((err) => {
+    sendMessage(head.content, head.modelId ?? null, null, head.imageUrls, head.acpMode, head.agentType, head.acpThoughtLevel).catch((err) => {
       console.error('[queuedMessage] send failed:', err);
       queueDispatchingRef.current = false;
     });
@@ -2943,6 +2949,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     if (meta.modelId != null) setSessionModelId(meta.modelId);
     if (meta.type != null) setSessionType(meta.type);
     setSessionACPMode(meta.acpMode);
+    setSessionACPThoughtLevel(meta.acpThoughtLevel);
   }, [isLoop, activeSessionId, loadedSessionIds]);
 
   // Retry loading a session that failed during background hydration when the
@@ -3039,6 +3046,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     sessionModelId,
     sessionType,
     sessionACPMode,
+    sessionACPThoughtLevel,
     // Loop state
     isLoop,
     loopProgress,

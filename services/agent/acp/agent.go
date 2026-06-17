@@ -63,6 +63,16 @@ type ACPAgent struct {
 	// redundant calls on successive Runs against the same selection.
 	currentModelID string
 	currentMode    string
+	// currentThoughtLevel is the last thought_level value pushed to the
+	// subprocess session via SetSessionThoughtLevel. Same skip-redundant
+	// semantics as currentModelID/currentMode.
+	currentThoughtLevel string
+	// thoughtLevelConfigID is the ACP config option id (e.g.
+	// "reasoning_effort") discovered from the session's ConfigOptions.
+	// thought_level has no dedicated RPC, so UpdateACPThoughtLevel drives it
+	// through SetSessionConfigOption keyed by this id. Empty when the agent
+	// does not advertise a thought_level option.
+	thoughtLevelConfigID string
 
 	// Stored for reconnection when the underlying process dies.
 	agentType string
@@ -156,6 +166,19 @@ type ACPAgent struct {
 	runSem chan struct{}
 }
 
+// thoughtLevelConfigIDFromSession returns the thought_level config option id
+// (e.g. "reasoning_effort") advertised by the session response, or "" when
+// the agent does not expose a thought_level option.
+func thoughtLevelConfigIDFromSession(resp *pkgacp.SessionResponse) string {
+	if resp == nil {
+		return ""
+	}
+	if sel := resp.ThoughtLevelConfigSelect(); sel != nil {
+		return sel.ConfigID
+	}
+	return ""
+}
+
 // NewACPAgent starts an ACP agent subprocess (via pkg/acp), creates or
 // reloads the ACP session for this quartet session, and prepares the
 // chat context manager so Run() can stream events.
@@ -231,6 +254,10 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 	}
 
 	var acpSessionID pkgacp.SessionID
+	// thoughtLevelConfigID is captured from whichever session response we
+	// end up using (resume / load / new) so UpdateACPThoughtLevel can later
+	// target the right config option. thought_level has no dedicated RPC.
+	var thoughtLevelConfigID string
 	// createdFreshSession tracks whether we ended up calling NewSession
 	// (either because no persisted id existed, drift discarded it, or
 	// LoadSession failed on the existing id). In all three paths the
@@ -249,16 +276,19 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 		// unavailable or fails.
 		restored := false
 		if conn.SupportsResume() {
-			if _, err := conn.ResumeSession(ctx, existingACPSession, workdir); err != nil {
+			if sessResp, err := conn.ResumeSession(ctx, existingACPSession, workdir); err != nil {
 				logger.Warnf(ctx, "[acp] ResumeSession failed on cold start, falling back to LoadSession: acpSession=%s err=%v", existingACPSession, err)
 			} else {
+				thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
 				restored = true
 			}
 		}
 		if !restored {
-			if _, err := conn.LoadSession(ctx, existingACPSession, workdir); err != nil {
+			if sessResp, err := conn.LoadSession(ctx, existingACPSession, workdir); err != nil {
 				logger.Errorf(ctx, "[acp] LoadSession failed, creating new: acpSession=%s err=%v", existingACPSession, err)
 				existingACPSession = ""
+			} else {
+				thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
 			}
 		}
 	}
@@ -269,6 +299,7 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 			return nil, err
 		}
 		acpSessionID = pkgacp.SessionID(sessResp.SessionID)
+		thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
 		createdFreshSession = true
 
 		// Freshly-minted subprocess session: its "synced point" is the
@@ -292,16 +323,17 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 	logger.Infof(ctx, "[acp] agent ready: sessionId=%s acpSession=%s syncedCount=%d syncedHash=%s", sessionID, acpSessionID, persistedFingerprint.Count, persistedFingerprint.Hash)
 
 	agent := &ACPAgent{
-		conn:               conn,
-		acpSession:         acpSessionID,
-		ctxManager:         ctxMgr,
-		builder:            round.New(),
-		agentType:          agentType,
-		workdir:            workdir,
-		constructorModelID: constructorModelIDFor(agentType, acpModelID),
-		sessionStore:       store,
-		sessionID:          sessionID,
-		runSem:             make(chan struct{}, 1),
+		conn:                 conn,
+		acpSession:           acpSessionID,
+		ctxManager:           ctxMgr,
+		builder:              round.New(),
+		agentType:            agentType,
+		workdir:              workdir,
+		constructorModelID:   constructorModelIDFor(agentType, acpModelID),
+		thoughtLevelConfigID: thoughtLevelConfigID,
+		sessionStore:         store,
+		sessionID:            sessionID,
+		runSem:               make(chan struct{}, 1),
 	}
 	agent.storeFingerprint(persistedFingerprint)
 	// A fresh subprocess session has no conversation memory. If disk
@@ -496,9 +528,10 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context) error {
 	}
 
 	var (
-		newSessionID     pkgacp.SessionID
-		freshSession     bool
-		freshFingerprint repository.MessagesFingerprint
+		newSessionID         pkgacp.SessionID
+		freshSession         bool
+		freshFingerprint     repository.MessagesFingerprint
+		thoughtLevelConfigID string
 	)
 	if oldSession != "" {
 		// Prefer session/resume when the agent supports it: unlike
@@ -513,6 +546,7 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context) error {
 			sessResp, resumeErr := conn.ResumeSession(ctx, string(oldSession), a.workdir)
 			if resumeErr == nil {
 				newSessionID = pkgacp.SessionID(sessResp.SessionID)
+				thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
 				logger.Infof(ctx, "[acp] reconnected via ResumeSession (no replay): acpSession=%s newPid=%d", sessResp.SessionID, conn.Pid())
 			} else {
 				// Resume was advertised but failed (subprocess lost the
@@ -528,6 +562,7 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context) error {
 			sessResp, loadErr := conn.LoadSession(ctx, string(oldSession), a.workdir)
 			if loadErr == nil {
 				newSessionID = pkgacp.SessionID(sessResp.SessionID)
+				thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
 				logger.Infof(ctx, "[acp] reconnected via LoadSession: acpSession=%s newPid=%d", sessResp.SessionID, conn.Pid())
 			} else {
 				// Old subprocess session is no longer loadable (idle reap
@@ -562,6 +597,7 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context) error {
 			return fmt.Errorf("reconnect: create fresh session failed: %w", newErr)
 		}
 		newSessionID = pkgacp.SessionID(sessResp.SessionID)
+		thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
 		freshSession = true
 
 		// Persist (id, fingerprint) atomically so a restart between here
@@ -583,6 +619,8 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context) error {
 	a.acpSession = newSessionID
 	a.currentModelID = ""
 	a.currentMode = ""
+	a.currentThoughtLevel = ""
+	a.thoughtLevelConfigID = thoughtLevelConfigID
 	a.mu.Unlock()
 
 	if freshSession {
@@ -654,6 +692,7 @@ func (a *ACPAgent) resetACPSession(ctx context.Context) error {
 		return fmt.Errorf("new subprocess session: %w", err)
 	}
 	newSession := pkgacp.SessionID(sessResp.SessionID)
+	thoughtLevelConfigID := thoughtLevelConfigIDFromSession(sessResp)
 
 	if a.sessionStore != nil && a.sessionID != "" {
 		if err := savePersistedACPState(ctx, a.sessionStore, a.sessionID, sessResp.SessionID, fp); err != nil {
@@ -681,6 +720,8 @@ func (a *ACPAgent) resetACPSession(ctx context.Context) error {
 	a.acpSession = newSession
 	a.currentModelID = ""
 	a.currentMode = ""
+	a.currentThoughtLevel = ""
+	a.thoughtLevelConfigID = thoughtLevelConfigID
 	a.mu.Unlock()
 	a.storeFingerprint(fp)
 	// Fresh subprocess holds no prior turns; the next Run must replay
@@ -696,7 +737,7 @@ func (a *ACPAgent) resetACPSession(ctx context.Context) error {
 // jobID is threaded into the round builder's log label so WARN lines
 // ([round] eager flush superseded / drop terminal ...) can be traced back
 // to the concrete loop job, not just the session pair.
-func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, acpModelID, acpMode, jobID string) (retErr error) {
+func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, acpModelID, acpMode, acpThoughtLevel, jobID string) (retErr error) {
 	a.running.Add(1)
 	defer a.running.Add(-1)
 
@@ -907,6 +948,11 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 	}
 	if acpMode != "" {
 		if err := a.UpdateACPMode(runCtx, acpMode); err != nil {
+			return err
+		}
+	}
+	if acpThoughtLevel != "" {
+		if err := a.UpdateACPThoughtLevel(runCtx, acpThoughtLevel); err != nil {
 			return err
 		}
 	}
@@ -1411,6 +1457,40 @@ func (a *ACPAgent) UpdateACPMode(ctx context.Context, mode string) error {
 	a.currentMode = mode
 	a.mu.Unlock()
 	logger.Debugf(ctx, "[acp] set mode: acpSession=%s mode=%s", acpSession, mode)
+	return nil
+}
+
+// UpdateACPThoughtLevel is the thought_level counterpart to UpdateACPMode.
+// thought_level has no dedicated RPC, so it is pushed through the generic
+// SetSessionConfigOption keyed by the config id discovered from the session
+// (e.g. "reasoning_effort"). Same fail-fast contract: a failure is returned
+// so the caller does not run under a thought_level different from what the
+// user requested. currentThoughtLevel stays unchanged on failure so a retry
+// re-attempts instead of being short-circuited by the equality check.
+func (a *ACPAgent) UpdateACPThoughtLevel(ctx context.Context, thoughtLevel string) error {
+	a.mu.RLock()
+	if thoughtLevel == a.currentThoughtLevel {
+		a.mu.RUnlock()
+		return nil
+	}
+	conn := a.conn
+	acpSession := a.acpSession
+	configID := a.thoughtLevelConfigID
+	a.mu.RUnlock()
+
+	if conn == nil {
+		return fmt.Errorf("set thought_level: no active conn")
+	}
+	if configID == "" {
+		return fmt.Errorf("set thought_level failed: acpSession=%s thoughtLevel=%s: agent does not advertise a thought_level config option", acpSession, thoughtLevel)
+	}
+	if err := conn.SetSessionThoughtLevel(ctx, acpSession, configID, thoughtLevel); err != nil {
+		return fmt.Errorf("set thought_level failed: acpSession=%s thoughtLevel=%s: %w", acpSession, thoughtLevel, err)
+	}
+	a.mu.Lock()
+	a.currentThoughtLevel = thoughtLevel
+	a.mu.Unlock()
+	logger.Debugf(ctx, "[acp] set thought_level: acpSession=%s thoughtLevel=%s configID=%s", acpSession, thoughtLevel, configID)
 	return nil
 }
 

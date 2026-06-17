@@ -7,9 +7,10 @@ interface AgentConfigState {
   agent_type: string;
   model_id: string;
   acp_mode: string;
+  acp_thought_level: string;
 }
 
-const emptyAgentConfig: AgentConfigState = { agent_type: '', model_id: '', acp_mode: '' };
+const emptyAgentConfig: AgentConfigState = { agent_type: '', model_id: '', acp_mode: '', acp_thought_level: '' };
 
 interface GeneralSettingsProps {
   onSettingsChanged?: () => void;
@@ -29,16 +30,20 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
   const [titleAgentDropdownOpen, setTitleAgentDropdownOpen] = useState(false);
   const [titleModelDropdownOpen, setTitleModelDropdownOpen] = useState(false);
   const [titleModeDropdownOpen, setTitleModeDropdownOpen] = useState(false);
+  const [titleThoughtLevelDropdownOpen, setTitleThoughtLevelDropdownOpen] = useState(false);
   const titleAgentRef = useRef<HTMLDivElement>(null);
   const titleModelRef = useRef<HTMLDivElement>(null);
   const titleModeRef = useRef<HTMLDivElement>(null);
+  const titleThoughtLevelRef = useRef<HTMLDivElement>(null);
 
   const [msgAgentDropdownOpen, setMsgAgentDropdownOpen] = useState(false);
   const [msgModelDropdownOpen, setMsgModelDropdownOpen] = useState(false);
   const [msgModeDropdownOpen, setMsgModeDropdownOpen] = useState(false);
+  const [msgThoughtLevelDropdownOpen, setMsgThoughtLevelDropdownOpen] = useState(false);
   const msgAgentRef = useRef<HTMLDivElement>(null);
   const msgModelRef = useRef<HTMLDivElement>(null);
   const msgModeRef = useRef<HTMLDivElement>(null);
+  const msgThoughtLevelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchSettings();
@@ -46,21 +51,23 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
   }, []);
 
   useEffect(() => {
-    const anyOpen = titleAgentDropdownOpen || titleModelDropdownOpen || titleModeDropdownOpen
-      || msgAgentDropdownOpen || msgModelDropdownOpen || msgModeDropdownOpen;
+    const anyOpen = titleAgentDropdownOpen || titleModelDropdownOpen || titleModeDropdownOpen || titleThoughtLevelDropdownOpen
+      || msgAgentDropdownOpen || msgModelDropdownOpen || msgModeDropdownOpen || msgThoughtLevelDropdownOpen;
     if (!anyOpen) return;
     const handleClick = (e: MouseEvent) => {
       const t = e.target as Node;
       if (titleAgentDropdownOpen && titleAgentRef.current && !titleAgentRef.current.contains(t)) setTitleAgentDropdownOpen(false);
       if (titleModelDropdownOpen && titleModelRef.current && !titleModelRef.current.contains(t)) setTitleModelDropdownOpen(false);
       if (titleModeDropdownOpen && titleModeRef.current && !titleModeRef.current.contains(t)) setTitleModeDropdownOpen(false);
+      if (titleThoughtLevelDropdownOpen && titleThoughtLevelRef.current && !titleThoughtLevelRef.current.contains(t)) setTitleThoughtLevelDropdownOpen(false);
       if (msgAgentDropdownOpen && msgAgentRef.current && !msgAgentRef.current.contains(t)) setMsgAgentDropdownOpen(false);
       if (msgModelDropdownOpen && msgModelRef.current && !msgModelRef.current.contains(t)) setMsgModelDropdownOpen(false);
       if (msgModeDropdownOpen && msgModeRef.current && !msgModeRef.current.contains(t)) setMsgModeDropdownOpen(false);
+      if (msgThoughtLevelDropdownOpen && msgThoughtLevelRef.current && !msgThoughtLevelRef.current.contains(t)) setMsgThoughtLevelDropdownOpen(false);
     };
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [titleAgentDropdownOpen, titleModelDropdownOpen, titleModeDropdownOpen, msgAgentDropdownOpen, msgModelDropdownOpen, msgModeDropdownOpen]);
+  }, [titleAgentDropdownOpen, titleModelDropdownOpen, titleModeDropdownOpen, titleThoughtLevelDropdownOpen, msgAgentDropdownOpen, msgModelDropdownOpen, msgModeDropdownOpen, msgThoughtLevelDropdownOpen]);
 
   const fetchSettings = async () => {
     try {
@@ -74,6 +81,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
             agent_type: data.settings.title_agent.agent_type || '',
             model_id: data.settings.title_agent.model_id || '',
             acp_mode: data.settings.title_agent.acp_mode || '',
+            acp_thought_level: data.settings.title_agent.acp_thought_level || '',
           });
         }
         if (data.settings.message_agent) {
@@ -81,6 +89,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
             agent_type: data.settings.message_agent.agent_type || '',
             model_id: data.settings.message_agent.model_id || '',
             acp_mode: data.settings.message_agent.acp_mode || '',
+            acp_thought_level: data.settings.message_agent.acp_thought_level || '',
           });
         }
       }
@@ -156,6 +165,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
       agent_type: agent.type,
       model_id: agent.models?.currentModelId || agent.model_id,
       acp_mode: agent.modes?.currentModeId || '',
+      acp_thought_level: agent.thoughtLevels?.currentThoughtLevelId || '',
     });
     closeDropdown();
   };
@@ -187,14 +197,20 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
     modeOpen: boolean,
     setModeOpen: (v: boolean) => void,
     modeRef: React.RefObject<HTMLDivElement | null>,
+    thoughtLevelOpen: boolean,
+    setThoughtLevelOpen: (v: boolean) => void,
+    thoughtLevelRef: React.RefObject<HTMLDivElement | null>,
   ) => {
     const selected = findAgent(cfg);
     const availableModels = selected?.models?.availableModels || [];
     const availableModes = selected?.modes?.availableModes || [];
+    const availableThoughtLevels = selected?.thoughtLevels?.availableThoughtLevels || [];
     const showModel = selected && availableModels.length > 1;
     const showMode = selected && availableModes.length > 1;
+    const showThoughtLevel = selected && availableThoughtLevels.length > 1;
     const currentModelName = availableModels.find((m) => m.modelId === cfg.model_id)?.name || cfg.model_id || t('common.default');
     const currentModeName = availableModes.find((m) => m.id === cfg.acp_mode)?.name || cfg.acp_mode || t('common.default');
+    const currentThoughtLevelName = availableThoughtLevels.find((m) => m.id === cfg.acp_thought_level)?.name || cfg.acp_thought_level || t('common.default');
 
     return (
       <div className="settings-form-group">
@@ -320,6 +336,40 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
               )}
             </div>
           )}
+
+          {showThoughtLevel && (
+            <div className="settings-model-selector" ref={thoughtLevelRef}>
+              <div className="settings-model-tag" onClick={() => setThoughtLevelOpen(!thoughtLevelOpen)}>
+                <span className="settings-model-tag-text">{currentThoughtLevelName}</span>
+                <svg className="settings-model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </div>
+              {thoughtLevelOpen && (
+                <div className="settings-model-dropdown">
+                  {availableThoughtLevels.map((m) => {
+                    const isActive = cfg.acp_thought_level === m.id;
+                    return (
+                      <div
+                        key={m.id}
+                        className={`settings-model-dropdown-item${isActive ? ' active' : ''}`}
+                        onClick={() => { setCfg({ ...cfg, acp_thought_level: m.id }); setThoughtLevelOpen(false); }}
+                      >
+                        <div className="settings-model-dropdown-info">
+                          <span className="settings-model-dropdown-name">{m.name}</span>
+                        </div>
+                        {isActive && (
+                          <svg className="settings-model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M20 6L9 17l-5-5" />
+                          </svg>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <span className="settings-switch-desc">{desc}</span>
       </div>
@@ -387,6 +437,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
           titleAgentDropdownOpen, setTitleAgentDropdownOpen, titleAgentRef,
           titleModelDropdownOpen, setTitleModelDropdownOpen, titleModelRef,
           titleModeDropdownOpen, setTitleModeDropdownOpen, titleModeRef,
+          titleThoughtLevelDropdownOpen, setTitleThoughtLevelDropdownOpen, titleThoughtLevelRef,
         )}
 
         {renderAgentSelector(
@@ -397,6 +448,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
           msgAgentDropdownOpen, setMsgAgentDropdownOpen, msgAgentRef,
           msgModelDropdownOpen, setMsgModelDropdownOpen, msgModelRef,
           msgModeDropdownOpen, setMsgModeDropdownOpen, msgModeRef,
+          msgThoughtLevelDropdownOpen, setMsgThoughtLevelDropdownOpen, msgThoughtLevelRef,
         )}
       </section>
 

@@ -25,6 +25,8 @@ type Service interface {
 	UpdateModelID(sid, modelID string) error
 	// UpdateACPMode is the ACPMode counterpart to UpdateModelID.
 	UpdateACPMode(sid, acpMode string) error
+	// UpdateACPThoughtLevel is the thought_level counterpart to UpdateACPMode.
+	UpdateACPThoughtLevel(sid, acpThoughtLevel string) error
 	// UpdateTitle atomically sets Title + UpdatedAt and persists.
 	UpdateTitle(sid, title string) error
 	// UpdateACPState atomically sets ACPSessionID + the ACP sync

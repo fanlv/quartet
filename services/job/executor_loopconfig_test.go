@@ -59,7 +59,7 @@ func TestUpdateRunningStepFields_FieldsOnly(t *testing.T) {
 		t.Errorf("step 2 not updated: %+v", got[0].Children[1])
 	}
 	// liveStepFields must surface the new values for the running loop.
-	msg, _, mid, _, ok := svc.liveStepFields(job, []int{0, 0, 0, 0})
+	msg, _, mid, _, _, ok := svc.liveStepFields(job, []int{0, 0, 0, 0})
 	if !ok || msg != "new-1" || mid != "gpt-5" {
 		t.Errorf("liveStepFields = (%q,%q,%v), want (new-1,gpt-5,true)", msg, mid, ok)
 	}

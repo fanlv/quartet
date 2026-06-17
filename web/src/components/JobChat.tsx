@@ -51,6 +51,7 @@ interface JobChatProps {
   initialModelId?: string;
   initialAgentType?: string;
   initialAcpMode?: string;
+  initialAcpThoughtLevel?: string;
   workspaceId?: string;
   shareToken?: string;
   isReadonly?: boolean;
@@ -86,7 +87,7 @@ interface JobInfo {
 const JOB_ROW_HEIGHT = 36;
 
 export function JobChat(props: JobChatProps) {
-  const { existingJobId, initialMessage, initialImageUrls, initialWorkdir, initialLoopConfig, initialSessionId, initialModelId, initialAgentType, initialAcpMode, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onSelectJob, onOpenSettings, onOpenStats, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
+  const { existingJobId, initialMessage, initialImageUrls, initialWorkdir, initialLoopConfig, initialSessionId, initialModelId, initialAgentType, initialAcpMode, initialAcpThoughtLevel, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onSelectJob, onOpenSettings, onOpenStats, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
   const { connected } = useConnectionStatus();
   const { t } = useTranslation();
 
@@ -138,6 +139,7 @@ export function JobChat(props: JobChatProps) {
     sessionModelId,
     sessionType,
     sessionACPMode,
+    sessionACPThoughtLevel,
     totalTokens,
     roundStartedAt,
     roundFinishedAt,
@@ -319,7 +321,7 @@ export function JobChat(props: JobChatProps) {
       // Apply initial modelId/acpMode to the matching agent so the initial
       // message uses the model the user selected on the ChatPage.
       let finalList = list;
-      if (initialModelId || initialAcpMode) {
+      if (initialModelId || initialAcpMode || initialAcpThoughtLevel) {
         finalList = list.map((agent) => {
           // Identify the target agent by type when a specific non-eino ACP
           // agent is known (model id can collide across ACP agents); otherwise
@@ -336,6 +338,9 @@ export function JobChat(props: JobChatProps) {
           }
           if (initialAcpMode && updated.modes && updated.modes.currentModeId !== initialAcpMode) {
             updated = { ...updated, modes: { ...updated.modes, currentModeId: initialAcpMode } };
+          }
+          if (initialAcpThoughtLevel && updated.thoughtLevels && updated.thoughtLevels.currentThoughtLevelId !== initialAcpThoughtLevel) {
+            updated = { ...updated, thoughtLevels: { ...updated.thoughtLevels, currentThoughtLevelId: initialAcpThoughtLevel } };
           }
           return updated;
         });
@@ -356,14 +361,14 @@ export function JobChat(props: JobChatProps) {
         }
       }
     });
-  }, [existingJobId, shareToken, initialAgentType, initialModelId, initialAcpMode]);
+  }, [existingJobId, shareToken, initialAgentType, initialModelId, initialAcpMode, initialAcpThoughtLevel]);
 
   useEffect(() => {
     if (sessionWorkdir) setWorkdir(sessionWorkdir);
   }, [sessionWorkdir]);
 
   useEffect(() => {
-    if (!sessionModelId && !sessionACPMode) return;
+    if (!sessionModelId && !sessionACPMode && !sessionACPThoughtLevel) return;
     if (agents.length === 0) return;
 
     setAgents((prev) => prev.map((agent, idx) => {
@@ -379,9 +384,12 @@ export function JobChat(props: JobChatProps) {
       if (sessionACPMode && updated.modes && updated.modes.currentModeId !== sessionACPMode) {
         updated = { ...updated, modes: { ...updated.modes, currentModeId: sessionACPMode } };
       }
+      if (sessionACPThoughtLevel && updated.thoughtLevels && updated.thoughtLevels.currentThoughtLevelId !== sessionACPThoughtLevel) {
+        updated = { ...updated, thoughtLevels: { ...updated.thoughtLevels, currentThoughtLevelId: sessionACPThoughtLevel } };
+      }
       return updated;
     }));
-  }, [sessionModelId, sessionACPMode, sessionType, agents.length, selectedAgentIndex]);
+  }, [sessionModelId, sessionACPMode, sessionACPThoughtLevel, sessionType, agents.length, selectedAgentIndex]);
 
   // Refresh on open + close-on-outside-click. The useJobList hook handles
   // initial load + background polling; here we only refresh eagerly when the
@@ -495,6 +503,14 @@ export function JobChat(props: JobChatProps) {
     ));
   }, [selectedAgentIndex]);
 
+  const handleSelectThoughtLevel = useCallback((thoughtLevelId: string) => {
+    setAgents((prev) => prev.map((agent, idx) =>
+      idx === selectedAgentIndex && agent.thoughtLevels
+        ? { ...agent, thoughtLevels: { ...agent.thoughtLevels, currentThoughtLevelId: thoughtLevelId } }
+        : agent
+    ));
+  }, [selectedAgentIndex]);
+
   // Lock selector behavior once when entering chat page:
   // only sessions that start with an eino agent can switch among eino agents.
   useEffect(() => {
@@ -564,10 +580,11 @@ export function JobChat(props: JobChatProps) {
           modelId: effectiveModelId,
           acpMode: selectedAgent?.modes?.currentModeId,
           agentType: selectedAgent?.type,
+          acpThoughtLevel: selectedAgent?.thoughtLevels?.currentThoughtLevelId,
         });
         return;
       }
-      sendMessage(content, effectiveModelId, targetSessionId, imageUrls, selectedAgent?.modes?.currentModeId, selectedAgent?.type);
+      sendMessage(content, effectiveModelId, targetSessionId, imageUrls, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId);
     },
     [sendMessage, queueMessage, isLoading, effectiveModelId, isLoop, activeSessionId, selectedAgent]
   );
@@ -592,7 +609,7 @@ export function JobChat(props: JobChatProps) {
     // messages the user types INSIDE an existing chat.
     if (initialMessage && messages.length === 0 && selectedAgent) {
       initialMessageSent.current = true;
-      sendMessage(initialMessage, effectiveModelId, null, initialImageUrls, selectedAgent?.modes?.currentModeId, selectedAgent?.type, { bypassCommand: true }).catch((err) => {
+      sendMessage(initialMessage, effectiveModelId, null, initialImageUrls, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId, { bypassCommand: true }).catch((err) => {
         console.error('Failed to send initial message:', err);
       });
     }
@@ -1233,8 +1250,10 @@ export function JobChat(props: JobChatProps) {
             } : undefined}
             onSelectModel={selectedAgent?.models ? handleSelectModel : undefined}
             onSelectMode={selectedAgent?.modes ? handleSelectMode : undefined}
+            onSelectThoughtLevel={selectedAgent?.thoughtLevels ? handleSelectThoughtLevel : undefined}
             overrideModelId={hasUserSelected ? undefined : sessionModelId}
             overrideModeId={sessionACPMode}
+            overrideThoughtLevelId={sessionACPThoughtLevel}
           />
         </div>
 

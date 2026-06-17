@@ -196,6 +196,29 @@ func (m *serviceImpl) UpdateACPMode(sid, acpMode string) error {
 	return nil
 }
 
+// UpdateACPThoughtLevel is the thought_level counterpart to UpdateACPMode.
+// Same persist-then-commit ordering.
+func (m *serviceImpl) UpdateACPThoughtLevel(sid, acpThoughtLevel string) error {
+	cp, ok := m.snapshot(sid)
+	if !ok {
+		return nil
+	}
+	if cp.ACPThoughtLevel == acpThoughtLevel {
+		return nil
+	}
+	now := time.Now()
+	cp.ACPThoughtLevel = acpThoughtLevel
+	cp.UpdatedAt = now
+	if err := m.repo.Save(cp.ID, &cp); err != nil {
+		return err
+	}
+	m.commit(sid, func(s *model.Session) {
+		s.ACPThoughtLevel = acpThoughtLevel
+		s.UpdatedAt = now
+	})
+	return nil
+}
+
 func (m *serviceImpl) UpdateTitle(sid, title string) error {
 	cp, ok := m.snapshot(sid)
 	if !ok {

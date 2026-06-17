@@ -103,6 +103,7 @@ export interface FlowNode {
   agentType?: string;
   modelId?: string;
   acpMode?: string;
+  acpThoughtLevel?: string;
   // Group fields
   iterationCount?: number;
   children?: FlowNode[];

@@ -50,16 +50,18 @@ export function FlowStepEditor({
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modeListOpen, setModeListOpen] = useState(false);
+  const [thoughtLevelListOpen, setThoughtLevelListOpen] = useState(false);
   const [insertVarOpen, setInsertVarOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const agentDropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const modeListRef = useRef<HTMLDivElement>(null);
+  const thoughtLevelListRef = useRef<HTMLDivElement>(null);
   const insertVarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!modeDropdownOpen && !agentDropdownOpen && !modelDropdownOpen && !modeListOpen && !insertVarOpen) return;
+    if (!modeDropdownOpen && !agentDropdownOpen && !modelDropdownOpen && !modeListOpen && !thoughtLevelListOpen && !insertVarOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (modeDropdownOpen && modeDropdownRef.current && !modeDropdownRef.current.contains(e.target as Node)) {
         setModeDropdownOpen(false);
@@ -73,13 +75,16 @@ export function FlowStepEditor({
       if (modeListOpen && modeListRef.current && !modeListRef.current.contains(e.target as Node)) {
         setModeListOpen(false);
       }
+      if (thoughtLevelListOpen && thoughtLevelListRef.current && !thoughtLevelListRef.current.contains(e.target as Node)) {
+        setThoughtLevelListOpen(false);
+      }
       if (insertVarOpen && insertVarRef.current && !insertVarRef.current.contains(e.target as Node)) {
         setInsertVarOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [modeDropdownOpen, agentDropdownOpen, modelDropdownOpen, modeListOpen, insertVarOpen]);
+  }, [modeDropdownOpen, agentDropdownOpen, modelDropdownOpen, modeListOpen, thoughtLevelListOpen, insertVarOpen]);
 
   // When the job starts running mid-edit, structureLocked flips true. Disabling
   // the trigger buttons does not close a popover that was already open, and its
@@ -185,10 +190,13 @@ export function FlowStepEditor({
   const agentLabel = selectedAgent ? selectedAgent.display_name : t('loop.step.agentPlaceholder');
   const availableModels = selectedAgent?.models?.availableModels || [];
   const availableModes = selectedAgent?.modes?.availableModes || [];
+  const availableThoughtLevels = selectedAgent?.thoughtLevels?.availableThoughtLevels || [];
   const currentModelId = node.modelId || selectedAgent?.models?.currentModelId || selectedAgent?.model_id || '';
   const currentAcpMode = node.acpMode || selectedAgent?.modes?.currentModeId || '';
+  const currentAcpThoughtLevel = node.acpThoughtLevel || selectedAgent?.thoughtLevels?.currentThoughtLevelId || '';
   const selectedModelName = availableModels.find((m) => m.modelId === currentModelId)?.name || currentModelId || t('common.default');
   const selectedModeName = availableModes.find((m) => m.id === currentAcpMode)?.name || currentAcpMode || t('common.default');
+  const selectedThoughtLevelName = availableThoughtLevels.find((m) => m.id === currentAcpThoughtLevel)?.name || currentAcpThoughtLevel || t('common.default');
 
   const handleSelectAgent = (agent: AgentInfo) => {
     onUpdate({
@@ -196,6 +204,7 @@ export function FlowStepEditor({
       agentType: agent.type,
       modelId: agent.models?.currentModelId || agent.model_id,
       acpMode: agent.modes?.currentModeId || undefined,
+      acpThoughtLevel: agent.thoughtLevels?.currentThoughtLevelId || undefined,
     });
     setAgentDropdownOpen(false);
   };
@@ -457,6 +466,44 @@ export function FlowStepEditor({
                             >
                               <span className="loop-round-agent-override-item-name">{m.name}</span>
                               {currentAcpMode === m.id && (
+                                <svg className="loop-round-mode-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {selectedAgent && availableThoughtLevels.length > 1 && (
+                    <div className="loop-round-agent-override-field" ref={thoughtLevelListRef}>
+                      <span className="loop-round-agent-override-field-label">Thought</span>
+                      <button
+                        className="loop-round-agent-override-btn"
+                        onClick={() => setThoughtLevelListOpen(!thoughtLevelListOpen)}
+                        type="button"
+                      >
+                        <span>{selectedThoughtLevelName}</span>
+                        <svg className="loop-round-mode-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M6 9l6 6 6-6" />
+                        </svg>
+                      </button>
+                      {thoughtLevelListOpen && (
+                        <div className="loop-round-agent-override-dropdown">
+                          {availableThoughtLevels.map((m) => (
+                            <button
+                              key={m.id}
+                              className={`loop-round-agent-override-item${currentAcpThoughtLevel === m.id ? ' active' : ''}`}
+                              onClick={() => {
+                                onUpdate({ ...node, acpThoughtLevel: m.id });
+                                setThoughtLevelListOpen(false);
+                              }}
+                              type="button"
+                            >
+                              <span className="loop-round-agent-override-item-name">{m.name}</span>
+                              {currentAcpThoughtLevel === m.id && (
                                 <svg className="loop-round-mode-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                   <path d="M20 6L9 17l-5-5" />
                                 </svg>

@@ -280,9 +280,10 @@ func enumStepPaths(nodes []FlowNode, basePath []int, out *[][]int) {
 // FlowDefaults carries request-level defaults that are backfilled onto flow
 // steps which don't specify their own agent/model/ACP mode.
 type FlowDefaults struct {
-	AgentType string
-	ModelID   string
-	ACPMode   string
+	AgentType       string
+	ModelID         string
+	ACPMode         string
+	ACPThoughtLevel string
 }
 
 // NormalizeAndValidateLoopConfig brings a LoopConfig into its canonical
@@ -306,7 +307,7 @@ func NormalizeAndValidateLoopConfig(cfg *LoopConfig, defaults FlowDefaults) erro
 	if len(cfg.Flow) == 0 {
 		return fmt.Errorf("loopConfig.flow must not be empty")
 	}
-	BackfillFlowDefaults(cfg.Flow, defaults.AgentType, defaults.ModelID, defaults.ACPMode)
+	BackfillFlowDefaults(cfg.Flow, defaults.AgentType, defaults.ModelID, defaults.ACPMode, defaults.ACPThoughtLevel)
 	return ValidateFlow(cfg.Flow, 0)
 }
 

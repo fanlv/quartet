@@ -61,6 +61,7 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 	iterAgentType := node.AgentType
 	iterModelID := node.StepModelID
 	iterACPMode := node.ACPMode
+	iterACPThoughtLevel := node.ACPThoughtLevel
 
 	iterationStartedAt := s.persistIterationStart(ctx, job, path)
 
@@ -75,6 +76,7 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 		ModelID:         iterModelID,
 		AgentType:       iterAgentType,
 		ACPMode:         iterACPMode,
+		ACPThoughtLevel: iterACPThoughtLevel,
 	})
 
 	handler := newLoopEventHandler(ctx, job.ID, sessionID, path, s)

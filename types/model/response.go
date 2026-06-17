@@ -58,12 +58,13 @@ type ToolCallInfo struct {
 }
 
 type GetMessagesResponse struct {
-	ModelID    string           `json:"modelId"`
-	Type       string           `json:"type,omitempty"`
-	Messages   []HistoryMessage `json:"messages"`
-	TokenUsage *TokenUsage      `json:"tokenUsage,omitempty"`
-	Workdir    string           `json:"workdir,omitempty"`
-	ACPMode    string           `json:"acpMode,omitempty"`
+	ModelID         string           `json:"modelId"`
+	Type            string           `json:"type,omitempty"`
+	Messages        []HistoryMessage `json:"messages"`
+	TokenUsage      *TokenUsage      `json:"tokenUsage,omitempty"`
+	Workdir         string           `json:"workdir,omitempty"`
+	ACPMode         string           `json:"acpMode,omitempty"`
+	ACPThoughtLevel string           `json:"acpThoughtLevel,omitempty"`
 }
 
 type GetPromptResponse struct {
@@ -79,12 +80,13 @@ type SavePromptResponse struct {
 }
 
 type AgentInfo struct {
-	Type        string             `json:"type"`
-	ModelID     string             `json:"model_id"`
-	DisplayName string             `json:"display_name"`
-	IconURL     string             `json:"icon_url"`
-	Models      *SessionModelState `json:"models,omitempty"`
-	Modes       *SessionModeState  `json:"modes,omitempty"`
+	Type          string                    `json:"type"`
+	ModelID       string                    `json:"model_id"`
+	DisplayName   string                    `json:"display_name"`
+	IconURL       string                    `json:"icon_url"`
+	Models        *SessionModelState        `json:"models,omitempty"`
+	Modes         *SessionModeState         `json:"modes,omitempty"`
+	ThoughtLevels *SessionThoughtLevelState `json:"thoughtLevels,omitempty"`
 }
 
 type SessionModelState struct {
@@ -104,6 +106,21 @@ type SessionModeState struct {
 }
 
 type ACPSessionMode struct {
+	Description *string `json:"description,omitempty"`
+	Id          string  `json:"id"`
+	Name        string  `json:"name"`
+}
+
+type SessionThoughtLevelState struct {
+	AvailableThoughtLevels []ACPThoughtLevel `json:"availableThoughtLevels"`
+	CurrentThoughtLevelId  string            `json:"currentThoughtLevelId"`
+	// ConfigId is the ACP config option id used to set this value (e.g.
+	// "reasoning_effort"). Unlike mode, thought_level has no dedicated RPC,
+	// so the setter goes through SetSessionConfigOption with this id.
+	ConfigId string `json:"configId,omitempty"`
+}
+
+type ACPThoughtLevel struct {
 	Description *string `json:"description,omitempty"`
 	Id          string  `json:"id"`
 	Name        string  `json:"name"`
