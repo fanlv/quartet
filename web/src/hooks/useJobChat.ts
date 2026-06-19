@@ -12,6 +12,11 @@ import {
   JobProgress,
   FlowNode,
   LoopConfig,
+  type GraphInstanceState,
+  type GraphInstanceStatus,
+  type GraphInstanceKey,
+  type GraphRunStatus,
+  type GraphRunStatusResponse,
 } from '../types';
 import { SSEClient } from '../utils/sse-client';
 import { mergeMessages } from '../utils/mergeMessages';
@@ -172,6 +177,79 @@ function getLastLoopSessionId(sessions: LoopSessionEntry[]): string | null {
   return sessions.length > 0 ? sessions[sessions.length - 1].sessionId : null;
 }
 
+// mapGraphInstanceStatus collapses a GraphInstanceState status onto the loop
+// session-entry status union so graph node sessions render in the same sidebar
+// as loop iterations. succeeded/skipped → completed (both terminal-OK in the
+// sidebar's eyes), failed → failed, interrupted → interrupted, anything still
+// in flight → running.
+function mapGraphInstanceStatus(status: GraphInstanceStatus): LoopSessionEntry['status'] {
+  switch (status) {
+    case 'succeeded':
+    case 'skipped':
+      return 'completed';
+    case 'failed':
+      return 'failed';
+    case 'interrupted':
+      return 'interrupted';
+    default:
+      return 'running';
+  }
+}
+
+// graphInstanceLabel builds a human-readable sidebar label for a node instance,
+// appending the loop iteration context (loopNodeId#n) so repeated nodes inside
+// a loop stay distinguishable.
+function graphInstanceLabel(inst: GraphInstanceState): string {
+  const base = inst.nodeTitle || inst.nodeId;
+  const key: GraphInstanceKey | undefined = inst.key;
+  const iters = key?.iterations;
+  if (iters && iters.length > 0) {
+    const suffix = iters.map((it) => `${it.loopNodeId}#${it.index + 1}`).join(' / ');
+    return `${base} · ${suffix}`;
+  }
+  return base;
+}
+
+// graphSessionEntries derives loop-style session entries from a graph run's
+// executed instances. Agent nodes (Prompt/Evaluator) expose their session via
+// sessionId; Shell nodes record their own transcript session in
+// displaySessionId. Nodes with neither (IfElse/start/end) have no session and
+// show on the mini canvas instead.
+function graphSessionEntries(instances: GraphInstanceState[]): LoopSessionEntry[] {
+  const entries: LoopSessionEntry[] = [];
+  // Order by execution start so the session sidebar numbers nodes in the
+  // order they actually ran (e.g. an upstream Shell before its downstream
+  // Prompt), not the backend's instance-map iteration order. Array.sort is
+  // stable, so instances that share a startedAt — or have none yet (still
+  // pending, sorted last) — keep their original relative order.
+  const ordered = [...instances].sort((a, b) => {
+    const sa = a.startedAt ?? Number.POSITIVE_INFINITY;
+    const sb = b.startedAt ?? Number.POSITIVE_INFINITY;
+    return sa - sb;
+  });
+  for (const inst of ordered) {
+    // Prefer displaySessionId (Shell nodes record their own transcript session
+    // there); fall back to the lineage sessionId for Agent nodes.
+    const displaySid = inst.displaySessionId || inst.sessionId;
+    if (!displaySid) continue;
+    entries.push({
+      sessionId: displaySid,
+      path: [],
+      label: graphInstanceLabel(inst),
+      status: mapGraphInstanceStatus(inst.status),
+      durationMs: inst.durationMs,
+      startedAt: inst.startedAt || undefined,
+      error: inst.error?.message,
+    });
+  }
+  return entries;
+}
+
+// GRAPH_LIVE_STATUSES mirrors GraphLoopProgress: the run is still producing
+// events while in any of these states, so the Chat page keeps an SSE
+// subscription open to refresh node sessions as they complete.
+const GRAPH_LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'pausing', 'stepStopping', 'recovering']);
+
 export interface QueuedMessage {
   id: string;
   content: string;
@@ -323,6 +401,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // Loop state
   const [isLoop, setIsLoop] = useState(false);
   const isLoopRef = useRef(false);
+  const [isGraph, setIsGraph] = useState(false);
+  const [graphRunId, setGraphRunId] = useState<string | null>(null);
   const [loopProgress, setLoopProgress] = useState<JobProgress | null>(null);
   const [loopStatus, setLoopStatus] = useState<'idle' | 'running' | 'completed' | 'stopped' | 'failed'>('idle');
   // True once a graceful "stop after step" has been requested but the loop has
@@ -474,6 +554,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setMessages([]);
     setIsLoop(false);
     isLoopRef.current = false;
+    setIsGraph(false);
+    setGraphRunId(null);
     setLoopFlow(null);
     setLoopVariables(undefined);
     setLoopDisabledVars(undefined);
@@ -1519,6 +1601,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
 
         if (job.mode === 'loop') {
+          setIsGraph(false);
+          setGraphRunId(null);
           type AuthoritativeResult = {
             sessionId: string;
             path: number[];
@@ -1661,6 +1745,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             // hidden, and a missed pending=false left a stale "stop after step".
             setStopPending(status === 'running' && !!job.progress.gracefulStopPending);
         }
+      } else if (job.mode === 'graph') {
+        setIsLoop(false);
+        isLoopRef.current = false;
+        setIsGraph(true);
+        setGraphRunId(typeof job.graphRunId === 'string' && job.graphRunId ? job.graphRunId : null);
+        setStopPending(false);
+      } else {
+        setIsGraph(false);
+        setGraphRunId(null);
       }
 
       // Reload messages for all sessions to recover any missed during disconnect.
@@ -1676,7 +1769,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       // terminal events were missed and SSE is no longer delivering anything.
       const skipMessages = forceSkipMessages || isInitialSync || (metadataOnly && !isTerminal);
       console.debug(`[JobEvents] syncJobState: jobId=${id} status=${status} isInitialSync=${isInitialSync} metadataOnly=${metadataOnly} isTerminal=${isTerminal} skipMessages=${skipMessages}`);
-      if (!skipMessages) {
+      if (!skipMessages && job.mode !== 'graph') {
       const sessionIds: string[] = job.sessionIds || [];
       if (sessionIds.length > 0) {
         const isLoopMode = job.mode === 'loop';
@@ -2093,6 +2186,96 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       eventSseRef.current = null;
     };
   }, [jobId, jobNotFound, snapshotReady, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse]);
+
+  // Graph mode: keep node sessions live. The job-events SSE above carries no
+  // graph traffic (graph runs emit on their own /graph/run/:runId/events
+  // stream), so subscribe separately while the run is in flight. We don't
+  // re-stream agent token deltas into messages here — GraphLoopProgress already
+  // animates the run, and the message view is the per-node conversation. On any
+  // instance lifecycle / progress event we reconcile: rebuild the session list
+  // from the run's instances and reload the messages of sessions whose node
+  // just produced output.
+  const graphSseRef = useRef<SSEClient | null>(null);
+  useEffect(() => {
+    graphSseRef.current?.disconnect();
+    graphSseRef.current = null;
+    if (!isGraph || !graphRunId) return;
+
+    let cancelled = false;
+    let lastInstanceRefreshAt = 0;
+
+    const reconcile = async () => {
+      if (cancelled) return;
+      let instances: GraphInstanceState[] = [];
+      let runStatus: GraphRunStatus | undefined;
+      try {
+        const res = await fetch(apiUrl(`/graph/run/${encodeURIComponent(graphRunId)}`));
+        if (!res.ok) return;
+        const data = (await res.json()) as GraphRunStatusResponse;
+        instances = data.instances || [];
+        runStatus = data.run?.status;
+      } catch (err) {
+        console.error(`[graph-sse] reconcile fetch failed for run ${graphRunId}:`, err);
+        return;
+      }
+      if (cancelled) return;
+      const entries = graphSessionEntries(instances);
+      if (entries.length > 0) setLoopSessions(entries);
+      const terminalSids = instances
+        .map((i) => ({ sid: i.displaySessionId || i.sessionId, status: i.status }))
+        .filter((i): i is { sid: string; status: GraphInstanceStatus } => !!i.sid && i.status !== 'running' && i.status !== 'pending')
+        .map((i) => i.sid);
+      if (terminalSids.length > 0) setEndedSessionIds((prev) => new Set([...prev, ...terminalSids]));
+
+      // Reload the currently-viewed session so a node finishing while the user
+      // watches it fills in its conversation. Other sessions reload lazily when
+      // selected (handled by the load-on-switch effect).
+      const active = activeSessionIdRef.current;
+      if (active && entries.some((e) => e.sessionId === active)) {
+        try {
+          const msgs = await loadHistory(active, active);
+          if (!cancelled && msgs.length > 0) {
+            setMessages((prev) => mergeMessages(prev, msgs, { deduplicateToolCallIds: true }));
+            setLoadedSessionIds((prev) => new Set([...prev, active]));
+          }
+        } catch (err) {
+          console.error(`[graph-sse] reload active session ${active} failed:`, err);
+        }
+      }
+
+      if (runStatus && !GRAPH_LIVE_STATUSES.has(runStatus)) {
+        setIsLoading(false);
+      }
+    };
+
+    const client = new SSEClient();
+    graphSseRef.current = client;
+    void client.connectUntilReady({
+      url: apiUrl(`/graph/run/${encodeURIComponent(graphRunId)}/events`),
+      initialLastEventId: '0',
+      onEvent: (raw) => {
+        const evt = raw as unknown as { type?: string };
+        const t = evt.type;
+        if (t === 'instanceStarted' || t === 'instanceCompleted' || t === 'instanceFailed'
+          || t === 'instanceSkipped' || t === 'progressUpdated') {
+          // Throttle reconciliation so a burst of events triggers at most one
+          // refetch per ~400ms instead of hammering the run-status endpoint.
+          const now = Date.now();
+          if (now - lastInstanceRefreshAt < 400) return;
+          lastInstanceRefreshAt = now;
+          void reconcile();
+        }
+      },
+      onError: () => { /* progress component surfaces graph errors */ },
+      onResumePointGone: () => void reconcile(),
+    }).catch(() => { /* best-effort live refresh */ });
+
+    return () => {
+      cancelled = true;
+      client.disconnect();
+      if (graphSseRef.current === client) graphSseRef.current = null;
+    };
+  }, [isGraph, graphRunId, apiUrl, loadHistory, setLoopSessions]);
 
   // Send interactive message.
   //
@@ -2580,6 +2763,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         if (job.mode === 'loop') {
           setIsLoop(true);
           isLoopRef.current = true;
+          setIsGraph(false);
+          setGraphRunId(null);
           if (job.progress) {
             setLoopProgress(job.progress);
             // Restore the runtime-only graceful-stop pending state from the
@@ -2844,9 +3029,83 @@ export function useJobChat(options: UseJobChatOptions = {}) {
               return job.status === 'running' ? 'running' : job.status === 'completed' ? 'completed' : job.status === 'stopped' ? 'stopped' : job.status === 'failed' ? 'failed' : 'idle';
             });
           }
+        } else if (job.mode === 'graph') {
+          setIsLoop(false);
+          isLoopRef.current = false;
+          setIsGraph(true);
+          const runId = typeof job.graphRunId === 'string' && job.graphRunId ? job.graphRunId : null;
+          setGraphRunId(runId);
+          setStopPending(false);
+          // Drive the session-sidebar header status off the Job status, the same
+          // way loop mode maps it (graph control lives in GraphLoopProgress).
+          setLoopStatus(job.status === 'running' ? 'running' : job.status === 'completed' ? 'completed' : job.status === 'stopped' ? 'stopped' : job.status === 'failed' ? 'failed' : 'idle');
+
+          // Graph node sessions are ordinary sessions. Surface them in the same
+          // session sidebar + MessageList loop mode uses by deriving loop-style
+          // entries from the run's executed instances, then hydrating the active
+          // session's history (others prefetched at idle). The mini canvas and
+          // GraphLoopProgress carry the live run visualization; here we only
+          // populate the per-node conversation view.
+          if (runId && !cancelled) {
+            let graphInstances: GraphInstanceState[] = [];
+            try {
+              const runRes = await fetch(apiUrl(`/graph/run/${encodeURIComponent(runId)}`));
+              if (runRes.ok) {
+                const runData = (await runRes.json()) as GraphRunStatusResponse;
+                graphInstances = runData.instances || [];
+              }
+            } catch (err) {
+              console.error(`[hydration] Failed to load graph run ${runId}:`, err);
+            }
+            if (!cancelled) {
+              const entries = graphSessionEntries(graphInstances);
+              if (entries.length > 0) {
+                setLoopSessions(entries);
+                if (job.status !== 'running') {
+                  setEndedSessionIds(new Set(entries.map((e) => e.sessionId)));
+                }
+                const runningInst = graphInstances.find((i) => i.status === 'running' && i.sessionId);
+                const activeSid = initialSessionId && entries.some((e) => e.sessionId === initialSessionId)
+                  ? initialSessionId
+                  : (runningInst?.sessionId ?? entries[entries.length - 1].sessionId);
+                applyActiveSessionSelection(activeSid, activeSid === getLastLoopSessionId(entries));
+
+                const activeMessages = await loadHistory(activeSid, activeSid);
+                if (!cancelled) {
+                  setMessages((prev) => (prev.length === 0 ? activeMessages : mergeMessages(prev, activeMessages)));
+                  setLoadedSessionIds(new Set([activeSid]));
+                  setIsLoadingHistory(false);
+                }
+
+                const remainingIds = entries.map((e) => e.sessionId).filter((sid) => sid !== activeSid);
+                if (remainingIds.length > 0 && !cancelled) {
+                  cancelIdlePrefetch = idlePrefetchSessions(
+                    remainingIds,
+                    async (sid) => {
+                      if (cancelled || loadedSessionIdsRef.current.has(sid)) return;
+                      let msgs: Message[];
+                      try {
+                        msgs = await loadHistory(sid, sid);
+                      } catch (err) {
+                        console.error(`[hydration] Failed to prefetch graph session ${sid}:`, err);
+                        failedSessionIdsRef.current = new Set([...failedSessionIdsRef.current, sid]);
+                        return;
+                      }
+                      if (cancelled) return;
+                      if (msgs.length > 0) setMessages((prev) => mergeMessages(prev, msgs));
+                      setLoadedSessionIds((prev) => new Set([...prev, sid]));
+                    },
+                    () => cancelled,
+                  );
+                }
+              }
+            }
+          }
         } else {
           setIsLoop(false);
           isLoopRef.current = false;
+          setIsGraph(false);
+          setGraphRunId(null);
           // Non-loop job: load history for all sessions (may have multiple
           // sessions when agent type was switched mid-conversation).
           if (!cancelled && job.sessionIds?.length > 0) {
@@ -2943,20 +3202,58 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // returned early. Re-running when the session finishes loading picks up the
   // newly available metadata.
   useEffect(() => {
-    if (!isLoop || !activeSessionId) return;
+    if ((!isLoop && !isGraph) || !activeSessionId) return;
     const meta = sessionMetaMapRef.current.get(activeSessionId);
     if (!meta) return;
     if (meta.modelId != null) setSessionModelId(meta.modelId);
     if (meta.type != null) setSessionType(meta.type);
     setSessionACPMode(meta.acpMode);
     setSessionACPThoughtLevel(meta.acpThoughtLevel);
-  }, [isLoop, activeSessionId, loadedSessionIds]);
+  }, [isLoop, isGraph, activeSessionId, loadedSessionIds]);
+
+  // Load-on-switch: when the user selects a loop / graph session whose history
+  // has not been loaded yet, fetch it on demand. Background idle-prefetch
+  // (initial hydration) eventually warms every session, but a live graph run
+  // only prefetches the active node session — sibling node sessions (e.g. a
+  // downstream Prompt while the user is watching the Shell) are never warmed,
+  // so without this they sit on "Loading session messages..." forever until a
+  // manual refresh re-runs hydration. A short in-flight guard prevents the
+  // effect (which also re-fires on every loadedSessionIds change) from issuing
+  // duplicate fetches for the same session. Failed loads are handed to the
+  // retry-on-switch effect below via failedSessionIdsRef.
+  const switchLoadingSessionsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if ((!isLoop && !isGraph) || !activeSessionId) return;
+    if (loadedSessionIds.has(activeSessionId)) return;
+    // The retry effect owns sessions that already failed a load.
+    if (failedSessionIdsRef.current.has(activeSessionId)) return;
+    if (switchLoadingSessionsRef.current.has(activeSessionId)) return;
+    const sid = activeSessionId;
+    switchLoadingSessionsRef.current.add(sid);
+    let cancelled = false;
+    (async () => {
+      try {
+        const msgs = await loadHistory(sid, sid);
+        if (cancelled) return;
+        if (msgs.length > 0) {
+          setMessages((prev) => mergeMessages(prev, msgs, { deduplicateToolCallIds: true }));
+        }
+        setLoadedSessionIds((prev) => new Set([...prev, sid]));
+      } catch (err) {
+        console.error(`[load-on-switch] Failed to load session ${sid}:`, err);
+        failedSessionIdsRef.current = new Set([...failedSessionIdsRef.current, sid]);
+      } finally {
+        switchLoadingSessionsRef.current.delete(sid);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isLoop, isGraph, activeSessionId, loadedSessionIds, loadHistory]);
 
   // Retry loading a session that failed during background hydration when the
   // user switches to it. Without this, the session would appear as a blank
   // chat with no error indicator and no way to recover.
   useEffect(() => {
-    if (!isLoop || !activeSessionId) return;
+    if ((!isLoop && !isGraph) || !activeSessionId) return;
     if (!failedSessionIdsRef.current.has(activeSessionId)) return;
     // Already loaded (e.g. by another path) — clean up stale failure record.
     if (loadedSessionIds.has(activeSessionId)) {
@@ -2983,7 +3280,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
     })();
     return () => { cancelled = true; };
-  }, [isLoop, activeSessionId, loadedSessionIds]);
+  }, [isLoop, isGraph, activeSessionId, loadedSessionIds]);
 
   // Defensive dedup at the aggregation point. The messages array is written
   // by several paths (SSE live events, initial history load, reconnect merge,
@@ -3026,7 +3323,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     jobTitle,
     setJobTitle,
     jobShareToken: jobShareTokenState,
-    messages: isLoop ? filteredMessages : dedupedMessages,
+    messages: (isLoop || isGraph) ? filteredMessages : dedupedMessages,
     allMessages: dedupedMessages,
     isLoading,
     isLoadingHistory,
@@ -3049,6 +3346,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     sessionACPThoughtLevel,
     // Loop state
     isLoop,
+    isGraph,
+    graphRunId,
     loopProgress,
     loopStatus,
     stopPending,

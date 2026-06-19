@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { JobChat, ChatPage, Settings } from './components';
+import { JobChat, ChatPage, GraphWorkflowPage, Settings } from './components';
 import { StatsPage } from './components/stats/StatsPage';
 import { ConnectionStatusProvider } from './contexts/ConnectionStatus';
 import { ConnectionBanner } from './components/ConnectionBanner';
@@ -41,6 +41,11 @@ function getStatsOpenFromUrl(): boolean {
   return params.get('view') === 'stats';
 }
 
+function getGraphOpenFromUrl(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('view') === 'graph';
+}
+
 function updateUrlWithJobId(jobId: string, keepSessionId = false) {
   const url = new URL(window.location.href);
   if (!keepSessionId) url.searchParams.delete('sessionId');
@@ -73,6 +78,19 @@ function updateUrlWithStats(open: boolean) {
   }
 }
 
+function updateUrlWithGraph(open: boolean) {
+  const url = new URL(window.location.href);
+  if (open) {
+    url.searchParams.delete('jobId');
+    url.searchParams.delete('sessionId');
+    url.searchParams.set('view', 'graph');
+    window.history.pushState({}, '', url.toString());
+  } else {
+    url.searchParams.delete('view');
+    window.history.replaceState({}, '', url.toString());
+  }
+}
+
 function App() {
   const { t } = useTranslation();
   const [showChat, setShowChat] = useState(() => !!getJobIdFromUrl());
@@ -90,6 +108,7 @@ function App() {
   const [initialAcpThoughtLevel, setInitialAcpThoughtLevel] = useState<string | undefined>();
   const [showSettings, setShowSettings] = useState(false);
   const [showStats, setShowStats] = useState(() => getStatsOpenFromUrl());
+  const [showGraph, setShowGraph] = useState(() => getGraphOpenFromUrl());
   const [initialLoopConfig, setInitialLoopConfig] = useState<LoopConfig | undefined>();
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
   const [missingJobNoticeId, setMissingJobNoticeId] = useState<string | null>(null);
@@ -120,9 +139,11 @@ function App() {
       const jobId = getJobIdFromUrl();
       const wsId = getWorkspaceIdFromUrl();
       const sid = getSessionIdFromUrl();
+      const graphOpen = getGraphOpenFromUrl();
+      setShowGraph(graphOpen);
       setCurrentJobId(jobId);
       setInitialSessionId(sid);
-      setShowChat(!!jobId);
+      setShowChat(!graphOpen && !!jobId);
       if (!jobId) {
         setInitialMessage(null);
         setInitialImageUrls(undefined);
@@ -875,12 +896,41 @@ function App() {
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
   const handleCloseSettings = useCallback(() => setShowSettings(false), []);
   const handleOpenStats = useCallback(() => {
+    setShowGraph(false);
     setShowStats(true);
     updateUrlWithStats(true);
   }, []);
   const handleCloseStats = useCallback(() => {
     setShowStats(false);
     updateUrlWithStats(false);
+  }, []);
+  const handleOpenGraph = useCallback(() => {
+    setMissingJobNoticeId(null);
+    setShowChat(false);
+    setCurrentJobId(undefined);
+    setInitialSessionId(undefined);
+    setShowStats(false);
+    setShowGraph(true);
+    updateUrlWithGraph(true);
+  }, []);
+  const handleCloseGraph = useCallback(() => {
+    setShowGraph(false);
+    updateUrlWithGraph(false);
+  }, []);
+  // Jump into the Chat page for a freshly-started Graph run's bound Job, exactly
+  // like handleStartLoop does for loop jobs. The job already exists (the backend
+  // creates it on /graph/run/start), so we only flip views + URL here.
+  const handleGraphRunStarted = useCallback((jobId: string) => {
+    setMissingJobNoticeId(null);
+    setShowGraph(false);
+    setShowStats(false);
+    setInitialLoopConfig(undefined);
+    setInitialMessage(null);
+    setInitialImageUrls(undefined);
+    setInitialSessionId(undefined);
+    updateUrlWithJobId(jobId);
+    setCurrentJobId(jobId);
+    setShowChat(true);
   }, []);
   // Jump from the Stats page's "By Workspace" rows back to the matching
   // workspace's home view. We resolve the workspace from the localStorage
@@ -913,7 +963,10 @@ function App() {
   // direct navigation (typing /?view=stats, refresh, bookmark) all
   // produce the right view without a stale state pile-up.
   useEffect(() => {
-    const onPop = () => setShowStats(getStatsOpenFromUrl());
+    const onPop = () => {
+      setShowStats(getStatsOpenFromUrl());
+      setShowGraph(getGraphOpenFromUrl());
+    };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
@@ -980,6 +1033,16 @@ function App() {
             onJumpToWorkspace={handleJumpToWorkspace}
           />
         </div>
+      ) : showGraph ? (
+        <div className="app-main">
+          <GraphWorkflowPage
+            workspaceId={currentWorkspace?.id}
+            workspaceTitle={currentWorkspace?.title}
+            workspaceWorkdir={currentWorkspace?.workdir}
+            onClose={handleCloseGraph}
+            onRunStarted={handleGraphRunStarted}
+          />
+        </div>
       ) : showChat && currentJobId ? (
         <div className="app-main">
           <JobChat
@@ -1021,6 +1084,7 @@ function App() {
             onSelectJob={handleSelectJob}
             onOpenSettings={handleOpenSettings}
             onOpenStats={handleOpenStats}
+            onOpenGraph={handleOpenGraph}
           />
         </div>
       )}

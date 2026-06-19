@@ -1,0 +1,246 @@
+.graph-canvas {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  --graph-panel: #161b22;
+  --graph-panel-2: #1c2430;
+  --graph-border: #2d3643;
+  --graph-border-strong: #3d4856;
+  --graph-text: #e6edf3;
+  --graph-text-dim: #8b949e;
+  --graph-accent: #4493f8;
+}
+
+.graph-palette {
+  width: 170px;
+  flex-shrink: 0;
+  background: var(--graph-panel);
+  border-right: 1px solid var(--graph-border);
+  padding: 14px 12px;
+  overflow-y: auto;
+}
+.graph-palette h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--graph-text-dim);
+  margin: 4px 0 10px;
+}
+.graph-node-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: var(--graph-panel-2);
+  border: 1px solid var(--graph-border);
+  cursor: grab;
+  user-select: none;
+  transition: 0.12s;
+  text-align: left;
+  color: var(--graph-text);
+}
+.graph-node-chip:hover {
+  border-color: var(--graph-border-strong);
+  transform: translateX(2px);
+}
+.graph-node-chip:active {
+  cursor: grabbing;
+}
+.graph-chip-ico {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: #fff;
+}
+.graph-chip-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.graph-chip-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+.graph-chip-sub {
+  font-size: 11px;
+  color: var(--graph-text-dim);
+}
+.graph-palette-hint {
+  font-size: 11px;
+  color: var(--graph-text-dim);
+  line-height: 1.7;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--graph-border);
+}
+
+.graph-canvas-wrap {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+
+.graph-canvas-wrap .react-flow {
+  background: #0d1117;
+}
+
+.graph-minimap {
+  background: var(--graph-panel) !important;
+}
+
+.graph-connect-bar {
+  position: absolute;
+  z-index: 12;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 6px;
+  border: 1px solid var(--graph-border);
+  border-radius: 8px;
+  background: rgba(22, 27, 34, 0.94);
+  color: var(--graph-text);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.graph-connect-bar.active {
+  border-color: var(--graph-accent);
+}
+
+.graph-connect-toggle,
+.graph-connect-ports button,
+.graph-connect-targets button {
+  height: 30px;
+  border: 1px solid var(--graph-border-strong);
+  border-radius: 7px;
+  background: var(--graph-panel-2);
+  color: var(--graph-text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.graph-connect-toggle {
+  padding: 0 10px;
+}
+
+.graph-connect-state {
+  min-width: 0;
+  max-width: 220px;
+  color: var(--graph-text-dim);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-connect-ports {
+  display: inline-flex;
+  gap: 4px;
+  padding-left: 2px;
+}
+
+.graph-connect-ports button {
+  min-width: 44px;
+  padding: 0 8px;
+}
+
+.graph-connect-ports button.active {
+  border-color: var(--graph-accent);
+  color: #fff;
+  background: var(--graph-accent);
+}
+
+.graph-connect-targets {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+
+.graph-connect-targets button {
+  flex: 0 0 auto;
+  max-width: 120px;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qg-connect-source .qg-node,
+.qg-connect-source .qg-loop {
+  border-color: var(--graph-accent, #4493f8) !important;
+  box-shadow: 0 0 0 3px #4493f855, 0 6px 22px #00000060 !important;
+}
+
+.qg-connect-candidate .qg-node,
+.qg-connect-candidate .qg-loop {
+  cursor: crosshair;
+}
+
+@media (max-width: 768px) {
+  .graph-palette {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px;
+    border-right: none;
+    border-bottom: 1px solid var(--graph-border);
+  }
+  .graph-palette h3,
+  .graph-palette-hint {
+    width: 100%;
+  }
+  .graph-node-chip {
+    width: auto;
+    margin-bottom: 0;
+    flex: 0 0 auto;
+    min-height: 42px;
+  }
+  .graph-canvas {
+    flex-direction: column;
+  }
+  .graph-canvas-wrap {
+    min-height: 420px;
+    touch-action: none;
+  }
+  .graph-connect-bar {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    max-width: none;
+    flex-wrap: wrap;
+  }
+  .graph-connect-toggle {
+    min-width: 86px;
+  }
+  .graph-connect-state {
+    flex: 1;
+    max-width: none;
+  }
+  .graph-connect-ports {
+    width: 100%;
+  }
+  .graph-connect-ports button {
+    flex: 1;
+  }
+  .graph-connect-targets {
+    width: 100%;
+  }
+  .graph-connect-targets button {
+    flex: 1 0 96px;
+    max-width: none;
+  }
+}

@@ -1410,6 +1410,10 @@
 }
 
 @media (max-width: 768px) {
+  .header-joblist {
+    display: none;
+  }
+
   .home-content {
     padding: 8px 12px 12px;
     max-width: 100%;

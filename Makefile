@@ -177,7 +177,7 @@ web:
 	if [ -n "$$backend_orphans" ]; then \
 		echo "🧹 Killing orphan quartet-web processes (not bound to port $(BACKEND_PORT)):$$backend_orphans"; \
 		for _p in $$backend_orphans; do \
-			"$(STOP_PROCESS_TREE)" "$$_p"; \
+			kill "$$_p" 2>/dev/null || true; \
 		done; \
 	fi; \
 	echo "📦 Building backend..."; \
@@ -326,12 +326,12 @@ web-stop:
 	fi; \
 	if [ -n "$$backend_pid" ]; then \
 		echo "Stopping backend (pid: $$backend_pid)..."; \
-		"$(STOP_PROCESS_TREE)" "$$backend_pid"; \
+		kill "$$backend_pid" 2>/dev/null || true; \
 	fi; \
 	if [ -n "$$backend_orphans" ]; then \
 		echo "🧹 Killing orphan quartet-web processes:$$backend_orphans"; \
 		for _p in $$backend_orphans; do \
-			"$(STOP_PROCESS_TREE)" "$$_p"; \
+			kill "$$_p" 2>/dev/null || true; \
 		done; \
 	fi; \
 	if [ -n "$$frontend_pid" ]; then \
@@ -357,15 +357,24 @@ backend-stop:
 	done; \
 	if [ -n "$$backend_pid" ]; then \
 		echo "Stopping backend (pid: $$backend_pid, port: $(BACKEND_PORT))..."; \
-		"$(STOP_PROCESS_TREE)" "$$backend_pid"; \
+		kill "$$backend_pid" 2>/dev/null || true; \
 	else \
 		echo "ℹ️  No backend running on port $(BACKEND_PORT)"; \
 	fi; \
 	if [ -n "$$backend_orphans" ]; then \
 		echo "🧹 Killing orphan quartet-web processes:$$backend_orphans"; \
 		for _p in $$backend_orphans; do \
-			"$(STOP_PROCESS_TREE)" "$$_p"; \
+			kill "$$_p" 2>/dev/null || true; \
 		done; \
+	fi; \
+	for _i in 1 2 3 4 5 6 7 8 9 10; do \
+		lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN >/dev/null 2>&1 || break; \
+		sleep 1; \
+	done; \
+	if lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
+		echo "⚠️  Backend still bound to port $(BACKEND_PORT) after SIGTERM; sending SIGKILL"; \
+		[ -n "$$backend_pid" ] && kill -9 "$$backend_pid" 2>/dev/null || true; \
+		sleep 1; \
 	fi; \
 	if lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
 		echo "❌ Backend port $(BACKEND_PORT) is still in use"; \

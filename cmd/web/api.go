@@ -86,6 +86,27 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	tmpl.GET("/list", h.ListTemplates)
 	tmpl.DELETE("/:templateId", h.DeleteTemplate)
 
+	// Graph workflow config routes (config management only; runtime execution
+	// is owned by a separate module). Graph deliberately does not expose
+	// /api/v1/public/* — public sharing is not covered for Graph jobs.
+	graph := api.Group("/graph")
+	graph.POST("/workflow", h.CreateGraphWorkflow)
+	graph.GET("/workflow/list", h.ListGraphWorkflows)
+	graph.POST("/workflow/validate", h.ValidateGraphWorkflow)
+	graph.GET("/workflow/:workflowId", h.GetGraphWorkflow)
+	graph.PUT("/workflow/:workflowId", h.UpdateGraphWorkflow)
+	graph.DELETE("/workflow/:workflowId", h.DeleteGraphWorkflow)
+	graph.POST("/run/start", h.StartGraphRun)
+	graph.GET("/run/list", h.ListGraphRuns)
+	graph.GET("/run/:runId", h.GetGraphRunStatus)
+	graph.GET("/run/:runId/events", h.GraphRunEvents)
+	graph.POST("/run/:runId/stop", h.StopGraphRun)
+	graph.POST("/run/:runId/pause", h.PauseGraphRun)
+	graph.POST("/run/:runId/step-stop", h.StepStopGraphRun)
+	graph.POST("/run/:runId/resume", h.ResumeGraphRun)
+	graph.PUT("/run/:runId/version", h.UpdateGraphRunVersion)
+	graph.DELETE("/run/:runId", h.DeleteGraphRun)
+
 	// Job routes
 	jobGroup := api.Group("/job")
 	jobGroup.POST("/create", h.JobCreate)

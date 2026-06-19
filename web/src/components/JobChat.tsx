@@ -6,6 +6,7 @@ import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { LoopProgress } from './LoopProgress';
+import { GraphLoopProgress } from './GraphLoopProgress';
 import { LoopConfigPanel } from './LoopConfigPanel';
 import { LoopSessionSidebar } from './LoopSessionSidebar';
 import { StepOutline } from './StepOutline';
@@ -75,7 +76,7 @@ interface JobInfo {
   id: string;
   title: string;
   status: string;
-  mode?: 'interactive' | 'loop';
+  mode?: 'interactive' | 'loop' | 'graph';
   workdir?: string;
   updatedAt: number;
   scheduleId?: string;
@@ -146,6 +147,8 @@ export function JobChat(props: JobChatProps) {
     interactiveAccumulatedMs,
     sessionWorkdir,
     isLoop,
+    isGraph,
+    graphRunId,
     loopProgress,
     loopStatus,
     stopPending,
@@ -540,9 +543,9 @@ export function JobChat(props: JobChatProps) {
     ? (selectedEinoIndex >= 0 ? selectedEinoIndex : 0)
     : selectedAgentIndex;
   const latestLoopSessionId = loopSessions.length > 0 ? loopSessions[loopSessions.length - 1].sessionId : null;
-  const shouldFollowMessageListBottom = !isLoop || !activeSessionId || activeSessionId === latestLoopSessionId;
-  const messageListScrollContextKey = isLoop
-    ? `loop:${existingJobId}:${activeSessionId ?? 'none'}`
+  const shouldFollowMessageListBottom = (!isLoop && !isGraph) || !activeSessionId || activeSessionId === latestLoopSessionId;
+  const messageListScrollContextKey = (isLoop || isGraph)
+    ? `${isGraph ? 'graph' : 'loop'}:${existingJobId}:${activeSessionId ?? 'none'}`
     : `chat:${existingJobId}`;
 
   // In Loop mode the footer duration badge should reflect the whole job, not
@@ -765,6 +768,16 @@ export function JobChat(props: JobChatProps) {
   };
 
   const getJobIcon = (job: JobInfo) => {
+    if (job.mode === 'graph') return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="6" cy="6" r="2.5" />
+        <circle cx="18" cy="6" r="2.5" />
+        <circle cx="12" cy="18" r="2.5" />
+        <path d="M8.2 7.5 11 15.7" />
+        <path d="M15.8 7.5 13 15.7" />
+        <path d="M8.5 6h7" />
+      </svg>
+    );
     if (job.mode === 'loop') return (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="23 4 23 10 17 10" />
@@ -781,7 +794,7 @@ export function JobChat(props: JobChatProps) {
 
   return (
     <ServerClockProvider getServerNow={getServerNow}>
-    <div className="chatbot-container" data-testid="job-chat" data-job-id={jobId || existingJobId || ''} data-job-mode={isLoop ? 'loop' : 'interactive'} data-loading={isLoading ? 'true' : 'false'}>
+    <div className="chatbot-container" data-testid="job-chat" data-job-id={jobId || existingJobId || ''} data-job-mode={isGraph ? 'graph' : isLoop ? 'loop' : 'interactive'} data-loading={isLoading ? 'true' : 'false'}>
       <header className="chatbot-header" data-testid="job-chat-header">
         <div className="header-left">
           {!isReadonly && (
@@ -880,7 +893,7 @@ export function JobChat(props: JobChatProps) {
         <nav className="header-nav">
           {!isReadonly && (
             <>
-              {isLoop && (
+              {(isLoop || isGraph) && (
                 <button className="loop-sidebar-toggle" onClick={() => setLoopSidebarOpen(!loopSidebarOpen)} title="Sessions" data-testid="loop-session-toggle">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -1118,6 +1131,24 @@ export function JobChat(props: JobChatProps) {
         />
       )}
 
+      {isGraph && (
+        <GraphLoopProgress
+          runId={graphRunId}
+          readOnly={isReadonly}
+          onEdit={isReadonly ? undefined : () => {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('jobId');
+            url.searchParams.delete('sessionId');
+            url.searchParams.set('view', 'graph');
+            // Carry the run id so the Graph page opens directly in run-version
+            // edit mode for this run (not just the workflow editor).
+            if (graphRunId) url.searchParams.set('graphEditRun', graphRunId);
+            window.history.pushState({}, '', url.toString());
+            window.dispatchEvent(new PopStateEvent('popstate'));
+          }}
+        />
+      )}
+
       {isLoop && loopEditorOpen && (
         <LoopConfigPanel
           agents={agents}
@@ -1165,9 +1196,9 @@ export function JobChat(props: JobChatProps) {
       )}
 
       {!isLoadingHistory && (
-      <div className={`chatbot-body ${isLoop ? 'loop-layout' : ''} ${loopSidebarOpen ? 'loop-sidebar-open' : ''}`} data-testid="job-chat-body">
-        {/* Session sidebar for loop mode */}
-        {isLoop && (
+      <div className={`chatbot-body ${(isLoop || isGraph) ? 'loop-layout' : ''} ${loopSidebarOpen ? 'loop-sidebar-open' : ''}`} data-testid="job-chat-body">
+        {/* Session sidebar for loop + graph modes (per-iteration / per-node) */}
+        {(isLoop || isGraph) && (
           <>
             <div className="loop-sidebar-overlay" onClick={() => setLoopSidebarOpen(false)} />
             <LoopSessionSidebar
@@ -1186,7 +1217,7 @@ export function JobChat(props: JobChatProps) {
           </>
         )}
         <div className="chatbot-main">
-          {isLoop && activeSessionId && !loadedSessionIds.has(activeSessionId) ? (
+          {(isLoop || isGraph) && activeSessionId && !loadedSessionIds.has(activeSessionId) ? (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#888' }}>
               Loading session messages...
             </div>
@@ -1209,9 +1240,9 @@ export function JobChat(props: JobChatProps) {
             onSend={handleSendMessage}
             onStop={isReadonly ? undefined : stopGeneration}
             isLoading={isLoading}
-            disabled={(isLoop && !(activeSessionId && endedSessionIds.has(activeSessionId))) || !connected}
+            disabled={isGraph || (isLoop && !(activeSessionId && endedSessionIds.has(activeSessionId))) || !connected}
             readOnly={!!isReadonly}
-            placeholder={isReadonly ? 'Read-only mode' : undefined}
+            placeholder={isGraph ? 'Graph workflow run' : isReadonly ? 'Read-only mode' : undefined}
             localHistoryKey={`${workspaceId || 'default'}`}
             totalTokens={totalTokens}
             roundStartedAt={interactiveAccumulatedMs > 0 ? undefined : roundStartedAt}
@@ -1237,7 +1268,7 @@ export function JobChat(props: JobChatProps) {
             jobEnable={jobEnable}
             queuedMessages={isReadonly ? undefined : queuedMessages}
             onCancelQueuedMessage={isReadonly ? undefined : cancelQueuedMessage}
-            canQueueWhileRunning={!isLoop && !isReadonly}
+            canQueueWhileRunning={!isLoop && !isGraph && !isReadonly}
             onSelectAgent={allowEinoSelection ? (idx) => {
               const agent = einoAgents[idx];
               if (!agent) return;

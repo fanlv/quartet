@@ -8,8 +8,14 @@
 #   $3 = repo_root
 #
 # This script must be invoked via double-fork + setsid so it is reparented to
-# init before kill_tree walks the old backend's process tree — otherwise it
-# would be a descendant (via the make recipe shell) and SIGTERM itself.
+# init and detached from the old backend's process tree before it runs.
+#
+# It kills ONLY the single old backend process that holds the port — never the
+# whole process tree. The backend's descendants (agent/job shells, ACP
+# subprocesses, and any in-program caller that triggered this restart) must
+# survive; tree-killing here would SIGTERM the very agent/shell that asked for
+# the restart. Orphaned descendants are reparented to init and reclaimed by the
+# new instance's startup cleanup (CleanupOrphanedConns + ACP orphan scan).
 
 set -u
 
@@ -25,41 +31,22 @@ echo "==== restart start: pid=$$ ppid=$PPID time=$(date '+%F %T') old_pid=$OLD_P
 
 _self=$$
 
-_kill_tree() {
-    local _root="$1"
-    local _all="$_root"
-    local _q="$_root"
-    local _next _ch _c
-    while [ -n "$_q" ]; do
-        _next=""
-        for _c in $_q; do
-            _ch=$(pgrep -P "$_c" 2>/dev/null || true)
-            if [ -n "$_ch" ]; then
-                _all="$_all $_ch"
-                _next="$_next $_ch"
-            fi
-        done
-        _q="$_next"
+# Kill only the port-holding backend process; preserve its process tree.
+_kill_backend() {
+    local _pid="$1"
+    echo "kill_backend: target=$_pid self=$_self (single pid, tree preserved)"
+    kill "$_pid" 2>/dev/null || true
+    for _i in 1 2 3 4 5; do
+        kill -0 "$_pid" 2>/dev/null || return 0
+        sleep 1
     done
-
-    local _filtered=""
-    for _c in $_all; do
-        [ "$_c" = "$_self" ] && continue
-        _filtered="$_filtered $_c"
-    done
-
-    echo "kill_tree: target=$_root collected=[$_all] filtered=[$_filtered] self=$_self"
-    [ -z "$_filtered" ] && return 0
-    kill $_filtered 2>/dev/null || true
-    sleep 2
-    for _c in $_filtered; do
-        if kill -0 "$_c" 2>/dev/null; then
-            kill -9 "$_c" 2>/dev/null || true
-        fi
-    done
+    if kill -0 "$_pid" 2>/dev/null; then
+        echo "kill_backend: pid $_pid still alive after SIGTERM; SIGKILL"
+        kill -9 "$_pid" 2>/dev/null || true
+    fi
 }
 
-_kill_tree "$OLD_PID"
+_kill_backend "$OLD_PID"
 
 for _i in 1 2 3 4 5 6 7 8 9 10; do
     sleep 1
@@ -67,7 +54,7 @@ for _i in 1 2 3 4 5 6 7 8 9 10; do
 done
 
 if lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "WARN: port $PORT still bound after kill_tree; SIGKILL old_pid=$OLD_PID"
+    echo "WARN: port $PORT still bound after kill_backend; SIGKILL old_pid=$OLD_PID"
     kill -9 "$OLD_PID" 2>/dev/null || true
     sleep 1
 fi

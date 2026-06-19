@@ -1,0 +1,222 @@
+package graph
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"time"
+
+	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/types/model"
+)
+
+// Run-control service methods (step 16) and resume/recovery (step 15).
+
+// StopRun hard-stops a running GraphRun.
+func (s *serviceImpl) StopRun(ctx context.Context, runID string) (*model.GraphRun, error) {
+	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlHardStop, reason: "hard stopped by user"})
+}
+
+// PauseRun gracefully pauses a running GraphRun.
+func (s *serviceImpl) PauseRun(ctx context.Context, runID string) (*model.GraphRun, error) {
+	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlPause, reason: "paused by user"})
+}
+
+// StepStopRun freezes the current ready batch and stops after it.
+func (s *serviceImpl) StepStopRun(ctx context.Context, runID string) (*model.GraphRun, error) {
+	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlStepStop, reason: "step-stopped by user"})
+}
+
+// signalAndSnapshot delivers a control signal then returns the current run
+// snapshot. The actual state transition happens asynchronously in the
+// scheduler goroutine.
+func (s *serviceImpl) signalAndSnapshot(ctx context.Context, runID string, sig controlSignal) (*model.GraphRun, error) {
+	if _, err := s.runRepo.GetRun(ctx, runID); err != nil {
+		return nil, ErrGraphRunNotFound
+	}
+	if err := s.sendControl(runID, sig); err != nil {
+		return nil, err
+	}
+	return s.runRepo.GetRun(ctx, runID)
+}
+
+// resumableStatuses are the GraphRun statuses from which ResumeRun is allowed.
+func isResumableStatus(st model.GraphRunStatus) bool {
+	switch st {
+	case model.GraphRunStatusFailed, model.GraphRunStatusPaused,
+		model.GraphRunStatusStepStopped, model.GraphRunStatusStopped,
+		model.GraphRunStatusTimedOut, model.GraphRunStatusRecovering:
+		return true
+	default:
+		return false
+	}
+}
+
+// isInFlightStatus reports whether a run is actively scheduling (and so cannot
+// be deleted).
+func isInFlightStatus(st model.GraphRunStatus) bool {
+	switch st {
+	case model.GraphRunStatusRunning, model.GraphRunStatusPausing,
+		model.GraphRunStatusStepStopping, model.GraphRunStatusRecovering:
+		return true
+	default:
+		return false
+	}
+}
+
+// ResumeRun relaunches a resumable GraphRun. It resets the resettable terminal
+// instances (failed/interrupted) and their downstream, keeps succeeded/skipped
+// instances, then re-launches the scheduler in resume mode.
+func (s *serviceImpl) ResumeRun(ctx context.Context, runID string, runner Runner, jobs JobStateSink) (*model.GraphRun, error) {
+	if runner == nil {
+		return nil, ErrGraphRunnerMissing
+	}
+	run, err := s.runRepo.GetRun(ctx, runID)
+	if err != nil {
+		return nil, ErrGraphRunNotFound
+	}
+	if !isResumableStatus(run.Status) {
+		return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotResumable, run.Status)
+	}
+
+	instances, err := s.runRepo.GetInstances(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("load instances failed: %w", err)
+	}
+	edges, err := s.runRepo.GetEdges(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("load edges failed: %w", err)
+	}
+	vars, err := s.runRepo.GetVariables(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("load variables failed: %w", err)
+	}
+
+	cfg := effectiveConfig(run)
+	rb := newResumeBuilder(cfg, instances, edges, vars)
+	rb.resetResettable()
+
+	if err := s.runRepo.SaveInstances(ctx, runID, rb.instances); err != nil {
+		return nil, err
+	}
+	if err := s.runRepo.SaveEdges(ctx, runID, rb.edges); err != nil {
+		return nil, err
+	}
+	if err := s.runRepo.SaveVariables(ctx, runID, rb.vars); err != nil {
+		return nil, err
+	}
+	// Clear the frozen batch / step flags so a fresh scheduler does not re-freeze.
+	if run.Resume != nil {
+		run.Resume.FrozenBatch = nil
+	}
+	run.Status = model.GraphRunStatusRunning
+	run.LastError = nil
+	if run.Progress != nil {
+		run.Progress.LastError = ""
+	}
+	run.UpdatedAt = time.Now()
+	if err := s.runRepo.SaveRun(ctx, run); err != nil {
+		return nil, err
+	}
+
+	go s.runGraph(context.Background(), runID, runner, jobs, true)
+	return run, nil
+}
+
+// DeleteRun deletes a non-in-flight GraphRun and clears the bound Job linkage.
+func (s *serviceImpl) DeleteRun(ctx context.Context, runID string, jobs JobStateSink) error {
+	run, err := s.runRepo.GetRun(ctx, runID)
+	if err != nil {
+		return ErrGraphRunNotFound
+	}
+	if isInFlightStatus(run.Status) {
+		return fmt.Errorf("%w: status=%s", ErrGraphRunInFlight, run.Status)
+	}
+	if err := s.runRepo.DeleteRun(ctx, runID); err != nil {
+		return err
+	}
+	if jobs != nil && run.JobID != "" {
+		if err := jobs.ClearGraphRunLinkage(ctx, run.JobID, runID); err != nil {
+			logger.Warnf(ctx, "[graph] clear job graph-run linkage failed: job=%s run=%s err=%v", run.JobID, runID, err)
+		}
+	}
+	return nil
+}
+
+// ReconcileRuns reconciles GraphRuns left in flight by a process crash. Their
+// running instances are marked interrupted and the run is moved to "recovering"
+// (a resumable state) — nothing is re-executed at startup (§4 崩溃恢复：标记不
+// 自动续跑).
+func (s *serviceImpl) ReconcileRuns(ctx context.Context, jobs JobStateSink) error {
+	runs, err := s.runRepo.ListRuns(ctx)
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if !isInFlightStatus(run.Status) {
+			continue
+		}
+		if err := s.reconcileRun(ctx, run, jobs); err != nil {
+			logger.Warnf(ctx, "[graph] reconcile run failed: run=%s err=%v", run.ID, err)
+		}
+	}
+	return nil
+}
+
+func (s *serviceImpl) reconcileRun(ctx context.Context, run *model.GraphRun, jobs JobStateSink) error {
+	instances, err := s.runRepo.GetInstances(ctx, run.ID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UnixMilli()
+	changed := false
+	for keyStr, st := range instances {
+		if st.Status == model.GraphInstanceStatusRunning {
+			st.Status = model.GraphInstanceStatusInterrupted
+			st.FinishedAt = now
+			st.BlockedReason = "process restarted while running"
+			instances[keyStr] = st
+			changed = true
+		}
+	}
+	if changed {
+		if err := s.runRepo.SaveInstances(ctx, run.ID, instances); err != nil {
+			return err
+		}
+	}
+	// stepStopping crash: members of the frozen batch are now interrupted; settle
+	// the run to stepStopped so explicit resume handles the batch.
+	target := model.GraphRunStatusRecovering
+	jobStatus := model.JobStatusFailed
+	if run.Status == model.GraphRunStatusStepStopping {
+		target = model.GraphRunStatusStepStopped
+		jobStatus = model.JobStatusStopped
+	}
+	run.Status = target
+	run.UpdatedAt = time.Now()
+	updateRunProgress(run, instances)
+	if run.Progress != nil {
+		run.Progress.LastError = "process restarted while running; resume to continue"
+	}
+	if err := s.runRepo.SaveProgress(ctx, run.ID, run.Progress); err != nil {
+		return err
+	}
+	if err := s.runRepo.SaveRun(ctx, run); err != nil {
+		return err
+	}
+	if jobs != nil && run.JobID != "" {
+		_ = jobs.SetGraphRunState(ctx, run.JobID, run.ID, jobStatus, run.StartedAt, run.FinishedAt)
+	}
+	return nil
+}
+
+// sortInstanceKeysByDepth orders instance-key strings by iteration depth so
+// parent loop scopes are rebuilt before their children on resume.
+func sortInstanceKeysByDepth(keys []model.GraphInstanceKey) {
+	sort.Slice(keys, func(i, j int) bool {
+		if len(keys[i].Iterations) != len(keys[j].Iterations) {
+			return len(keys[i].Iterations) < len(keys[j].Iterations)
+		}
+		return instanceKeyString(keys[i]) < instanceKeyString(keys[j])
+	})
+}

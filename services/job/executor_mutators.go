@@ -1,6 +1,7 @@
 package job
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -127,6 +128,104 @@ func (s *serviceImpl) SetFirstModelID(jobID string, modelID string) error {
 
 	set := func(j *model.Job) { j.FirstModelID = modelID }
 	return s.updateJobField(jobID, set, set)
+}
+
+func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID string, status model.JobStatus, startedAt, finishedAt int64) error {
+	lock := s.persistLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	s.mu.Lock()
+	existing, ok := s.jobs[jobID]
+	if !ok {
+		s.mu.Unlock()
+		return ErrJobNotFound
+	}
+	if existing.Deleted {
+		s.mu.Unlock()
+		return ErrJobDeleted
+	}
+	cp := existing.DeepCopy()
+	cp.Mode = model.JobModeGraph
+	cp.GraphRunID = graphRunID
+	cp.Status = status
+	if startedAt > 0 {
+		cp.StartedAt = startedAt
+	}
+	if finishedAt > 0 {
+		cp.FinishedAt = finishedAt
+	}
+	cp.UpdatedAt = time.Now()
+	s.mu.Unlock()
+
+	repo, err := s.getOrCreateRepo(cp.WorkspaceID)
+	if err != nil {
+		return fmt.Errorf("get repo for workspace %s failed: %w", cp.WorkspaceID, err)
+	}
+	if err := repo.Save(cp.ID, cp); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	if cur, ok := s.jobs[jobID]; ok && cur == existing {
+		existing.Mode = cp.Mode
+		existing.GraphRunID = cp.GraphRunID
+		existing.Status = cp.Status
+		existing.StartedAt = cp.StartedAt
+		existing.FinishedAt = cp.FinishedAt
+		existing.UpdatedAt = cp.UpdatedAt
+	}
+	s.mu.Unlock()
+
+	s.bumpListVersion(cp.WorkspaceID)
+	return nil
+}
+
+// ClearGraphRunLinkage detaches a Job from a deleted GraphRun, but only if the
+// Job is still bound to that exact run (it may have been re-bound to a newer run
+// since). It is a best-effort cleanup called when a GraphRun is deleted.
+func (s *serviceImpl) ClearGraphRunLinkage(_ context.Context, jobID, graphRunID string) error {
+	lock := s.persistLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	s.mu.Lock()
+	existing, ok := s.jobs[jobID]
+	if !ok {
+		s.mu.Unlock()
+		return ErrJobNotFound
+	}
+	if existing.Deleted {
+		s.mu.Unlock()
+		return ErrJobDeleted
+	}
+	if existing.GraphRunID != graphRunID {
+		// Already re-bound to a different run; nothing to clear.
+		s.mu.Unlock()
+		return nil
+	}
+	cp := existing.DeepCopy()
+	cp.GraphRunID = ""
+	cp.UpdatedAt = time.Now()
+	s.mu.Unlock()
+
+	repo, err := s.getOrCreateRepo(cp.WorkspaceID)
+	if err != nil {
+		return fmt.Errorf("get repo for workspace %s failed: %w", cp.WorkspaceID, err)
+	}
+	if err := repo.Save(cp.ID, cp); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	if cur, ok := s.jobs[jobID]; ok && cur == existing {
+		existing.GraphRunID = ""
+		existing.UpdatedAt = cp.UpdatedAt
+	}
+	s.mu.Unlock()
+
+	s.bumpListVersion(cp.WorkspaceID)
+	return nil
 }
 
 func (s *serviceImpl) EnsureShareToken(jobID string, generate func() (string, error)) (string, error) {

@@ -2,13 +2,17 @@ package handler
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/agui"
 	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
+	"github.com/fanlv/quartet/types/msgextra"
 )
 
 // jobRunnerImpl implements job.JobRunner using Handler's internal methods.
@@ -64,6 +68,43 @@ func (r *jobRunnerImpl) InitSession(ctx context.Context, jobID string, overrides
 	return s.ID, nil
 }
 
+// ForkSession mints a new session inheriting the parent session's conversation
+// history (graph §3 会话血缘). The new session is created exactly like
+// InitSession; the parent's persisted messages are then copied into the new
+// session's history file so the inheriting Agent reaches an equivalent session
+// without reusing the parent session ID — eino loads the copied history at run
+// time, and a fresh ACP subprocess detects the non-empty history and replays it.
+// A copy failure is returned so the scheduler can fail the node start with full
+// context (the empty session is harmless; it is simply never used).
+func (r *jobRunnerImpl) ForkSession(ctx context.Context, parentSessionID, jobID string, overrides *model.SessionOverrides) (string, int, error) {
+	if parentSessionID == "" {
+		return "", 0, fmt.Errorf("fork session requires a parent session id")
+	}
+	newID, err := r.InitSession(ctx, jobID, overrides)
+	if err != nil {
+		return "", 0, err
+	}
+	srcRepo, err := repository.NewChatContextRepo(r.wsID, jobID, parentSessionID)
+	if err != nil {
+		return "", 0, fmt.Errorf("open parent session %s history: %w", parentSessionID, err)
+	}
+	history, err := srcRepo.LoadAllMessages(ctx)
+	if err != nil {
+		return "", 0, fmt.Errorf("load parent session %s history: %w", parentSessionID, err)
+	}
+	if len(history) == 0 {
+		return newID, 0, nil
+	}
+	dstRepo, err := repository.NewChatContextRepo(r.wsID, jobID, newID)
+	if err != nil {
+		return "", 0, fmt.Errorf("open forked session %s history: %w", newID, err)
+	}
+	if err := dstRepo.ReplaceMessages(ctx, history); err != nil {
+		return "", 0, fmt.Errorf("copy parent session %s history into forked session %s: %w", parentSessionID, newID, err)
+	}
+	return newID, len(history), nil
+}
+
 func (r *jobRunnerImpl) RunIteration(ctx context.Context, sessionID string, messages []*schema.Message, handler agui.EventHandler) error {
 	s, _, ok := r.h.getSessionByID(sessionID)
 	if !ok {
@@ -87,6 +128,45 @@ func (r *jobRunnerImpl) RunIteration(ctx context.Context, sessionID string, mess
 	default:
 		return r.h.runACPInternal(ctx, s, messages, handler)
 	}
+}
+
+// RecordShellSession mints a fresh session for a Graph Shell node and appends
+// the executed script (user message) and the combined output (assistant
+// message) as a shell-output transcript, mirroring the legacy Loop shell
+// persistence (services/job persistShellMessages) so the Chat session sidebar
+// renders it identically. The session is for display only — it is never used as
+// a §3 会话血缘 lineage parent. Returns the new session id.
+func (r *jobRunnerImpl) RecordShellSession(ctx context.Context, jobID, script, output string, startedAt, finishedAt int64) (string, error) {
+	// Shell sessions are plain transcripts with no live agent behind them; type
+	// them as eino so history loads/renders through the standard session path.
+	s, err := r.h.createSession(ctx, "", consts.AgentTypeEino, r.workdir, r.wsID, jobID)
+	if err != nil {
+		return "", err
+	}
+	repo, err := repository.NewChatContextRepo(r.wsID, jobID, s.ID)
+	if err != nil {
+		return "", fmt.Errorf("create shell chat context repo: %w", err)
+	}
+	userMsg := schema.UserMessage(script)
+	userMsg.Extra = map[string]any{
+		msgextra.KeyShellOutput: true,
+		msgextra.KeyStartedAt:   startedAt,
+	}
+	assistantMsg := schema.AssistantMessage(output, nil)
+	assistantMsg.Extra = map[string]any{
+		msgextra.KeyShellOutput: true,
+		msgextra.KeyStartedAt:   startedAt,
+		msgextra.KeyFinishedAt:  finishedAt,
+	}
+	if err := repo.AppendMessages(ctx, []*schema.Message{userMsg, assistantMsg}); err != nil {
+		return "", fmt.Errorf("append shell messages: %w", err)
+	}
+	if ss, err := r.h.getOrCreateSessionService(r.wsID, jobID); err == nil {
+		if err := ss.Touch(s.ID); err != nil {
+			logger.Warnf(ctx, "[RecordShellSession] touch session failed: %v, sessionId=%s", err, s.ID)
+		}
+	}
+	return s.ID, nil
 }
 
 func errSessionNotFound(sessionID string) error {
@@ -113,4 +193,32 @@ type sessionNotFoundError struct {
 
 func (e *sessionNotFoundError) Error() string {
 	return "session not found: " + e.sessionID
+}
+
+// ResolveModelSnapshot resolves a string modelID to its current ModelInstance
+// content for GraphRun snapshot capture. ok=false when the id is empty/invalid
+// or no live model resolves — the graph service treats that as a degraded
+// (best-effort) snapshot rather than a hard failure.
+func (r *jobRunnerImpl) ResolveModelSnapshot(ctx context.Context, modelID string) (model.ModelInstance, bool) {
+	if modelID == "" || r.h.modelConfig == nil {
+		return model.ModelInstance{}, false
+	}
+	id, err := strconv.ParseInt(modelID, 10, 64)
+	if err != nil {
+		return model.ModelInstance{}, false
+	}
+	inst, err := r.h.modelConfig.GetModelByID(ctx, id)
+	if err != nil || inst == nil {
+		return model.ModelInstance{}, false
+	}
+	return *inst, true
+}
+
+// ResolveSystemPrompt captures the resolved (placeholder-expanded) system prompt
+// at this instant for GraphRun snapshot capture.
+func (r *jobRunnerImpl) ResolveSystemPrompt(ctx context.Context) (string, error) {
+	if r.h.promptService == nil {
+		return "", nil
+	}
+	return r.h.promptService.ResolvePrompt(ctx, consts.KeySystemPrompt)
 }

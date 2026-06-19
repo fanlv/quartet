@@ -19,6 +19,7 @@ const (
 	jobsDir       = "jobs"
 	sessionsDir   = "sessions"
 	workspacesDir = "workspaces"
+	graphRunsDir  = "graph_runs"
 
 	// metaFile is the filename for session metadata
 	metaFile = "meta.json"
@@ -43,6 +44,15 @@ const (
 
 	// workspaceMetaFile is the filename for workspace metadata
 	workspaceMetaFile = "workspace.json"
+
+	graphRunFile          = "run.json"
+	graphRunInstancesFile = "instances.json"
+	graphRunEdgesFile     = "edges.json"
+	graphRunVariablesFile = "variables.json"
+	graphRunLineageFile   = "session_lineage.json"
+	graphRunProgressFile  = "progress.json"
+	graphRunResumeFile    = "resume.json"
+	graphRunEventsFile    = "events.jsonl"
 )
 
 // SessionTasksDir returns the .tasks directory path within a session directory.
@@ -129,6 +139,109 @@ func TemplatesDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "templates"), nil
+}
+
+// GraphWorkflowsDir returns the graph_workflows directory path within AgentDir.
+// Holds one JSON file per GraphWorkflow config (the editable/saved workflow
+// definitions). GraphRun runtime artifacts (snapshots, instance/edge state)
+// live elsewhere and are owned by the execution engine, not here.
+func GraphWorkflowsDir() (string, error) {
+	dir, err := AgentDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "graph_workflows"), nil
+}
+
+// GraphRunsDir returns the graph_runs directory path within AgentDir. It holds
+// one subdirectory per GraphRun with immutable snapshots and runtime state.
+func GraphRunsDir() (string, error) {
+	dir, err := AgentDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, graphRunsDir), nil
+}
+
+// GraphRunDir returns the directory for a single GraphRun's runtime artifacts.
+func GraphRunDir(runID string) (string, error) {
+	dir, err := GraphRunsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, runID), nil
+}
+
+// GraphRunFile returns the persisted GraphRun metadata and baseline snapshot.
+func GraphRunFile(runID string) (string, error) {
+	dir, err := GraphRunDir(runID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, graphRunFile), nil
+}
+
+// GraphRunInstancesFile returns the instance-state snapshot file for a run.
+func GraphRunInstancesFile(runID string) (string, error) {
+	dir, err := GraphRunDir(runID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, graphRunInstancesFile), nil
+}
+
+// GraphRunEdgesFile returns the edge-state snapshot file for a run.
+func GraphRunEdgesFile(runID string) (string, error) {
+	dir, err := GraphRunDir(runID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, graphRunEdgesFile), nil
+}
+
+// GraphRunVariablesFile returns the visible-variable snapshot file for a run.
+func GraphRunVariablesFile(runID string) (string, error) {
+	dir, err := GraphRunDir(runID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, graphRunVariablesFile), nil
+}
+
+// GraphRunSessionLineageFile returns the session-lineage snapshot file for a run.
+func GraphRunSessionLineageFile(runID string) (string, error) {
+	dir, err := GraphRunDir(runID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, graphRunLineageFile), nil
+}
+
+// GraphRunProgressFile returns the progress snapshot file for a run.
+func GraphRunProgressFile(runID string) (string, error) {
+	dir, err := GraphRunDir(runID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, graphRunProgressFile), nil
+}
+
+// GraphRunResumeFile returns the resume snapshot file for a run.
+func GraphRunResumeFile(runID string) (string, error) {
+	dir, err := GraphRunDir(runID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, graphRunResumeFile), nil
+}
+
+// GraphRunEventsFile returns the append-only event log file for a run.
+func GraphRunEventsFile(runID string) (string, error) {
+	dir, err := GraphRunDir(runID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, graphRunEventsFile), nil
 }
 
 // ShellTempDir returns the process-owned temp directory used for shell helper
@@ -284,11 +397,12 @@ func IMMessageFilePath(chatID string, t time.Time) string {
 // safeExternalID normalizes an external identifier (e.g. chatID/platform)
 // into a filesystem-safe single path component.
 //
-// - For the common case (no separators and no ".."), it returns the input.
-// - If the input contains path traversal attempts, separators, null bytes,
-//   or resolves to "." / ".." on its own, it returns a stable sha256-based
-//   name so we stay within the intended directory without silently
-//   collapsing distinct IDs.
+//   - For the common case (no separators and no ".."), it returns the input.
+//   - If the input contains path traversal attempts, separators, null bytes,
+//     or resolves to "." / ".." on its own, it returns a stable sha256-based
+//     name so we stay within the intended directory without silently
+//     collapsing distinct IDs.
+//
 // safeExternalID is applied to externally-supplied identifiers (bot IDs,
 // platform names, chat IDs) before joining into a filesystem path.
 //

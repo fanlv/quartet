@@ -66,6 +66,13 @@ type Service interface {
 	// (the old implementation was N+1 in I/O). It is an idempotent setter: if
 	// the job already has the same value it is a no-op.
 	SetFirstModelID(jobID string, modelID string) error
+	// SetGraphRunState updates the Job fields owned by a Graph run. It is the
+	// narrow bridge that lets the independent graph engine keep the Job list /
+	// history entry in sync without sharing Loop runtime state.
+	SetGraphRunState(ctx context.Context, jobID, graphRunID string, status model.JobStatus, startedAt, finishedAt int64) error
+	// ClearGraphRunLinkage detaches a Job from a deleted GraphRun, but only if it
+	// is still bound to that exact run. Best-effort cleanup on GraphRun delete.
+	ClearGraphRunLinkage(ctx context.Context, jobID, graphRunID string) error
 
 	// ReplaceLoopConfig swaps a non-running loop job's whole LoopConfig (full
 	// structure edit). It recomputes the progress denominator and reconciles

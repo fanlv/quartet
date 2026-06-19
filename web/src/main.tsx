@@ -168,6 +168,11 @@ function installBootErrorOverlay() {
     host.appendChild(block)
   }
   window.addEventListener('error', (e) => {
+    // "ResizeObserver loop completed with undelivered notifications" is a
+    // benign, self-recovering browser notice (commonly emitted by React Flow's
+    // canvas resize observation). It is NOT a crash — never paint the fatal
+    // overlay for it, or the Graph canvas becomes unusable after a resize.
+    if (isBenignResizeObserverError(e.message)) return
     show('error', `${e.message}\n${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack || ''}`)
   })
   window.addEventListener('unhandledrejection', (e) => {
@@ -215,12 +220,20 @@ function isFatalRenderErrorLog(args: unknown[]): boolean {
   const first = args[0]
   if (first instanceof Error) return true
   if (typeof first !== 'string') return false
+  if (isBenignResizeObserverError(first)) return false
   if (first.startsWith('The above error occurred')) return true
   if (first.startsWith('Uncaught ')) return true
   // React 19 reports unhandled errors from concurrent renders with this
   // prefix when no error boundary intercepts.
   if (first.startsWith('An error occurred in the <')) return true
   return false
+}
+
+// isBenignResizeObserverError matches the well-known, self-recovering browser
+// notice that fires when a ResizeObserver callback schedules another layout
+// pass. React Flow's canvas triggers it on resize; it is noise, not a crash.
+function isBenignResizeObserverError(message: unknown): boolean {
+  return typeof message === 'string' && message.includes('ResizeObserver loop')
 }
 installBootErrorOverlay()
 

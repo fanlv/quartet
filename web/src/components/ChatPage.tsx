@@ -169,12 +169,12 @@ async function uploadImage(file: File): Promise<string> {
 // explicit agentType override. Loop mode uses this to pick the job's
 // "primary" agent — the flow is what actually runs, so the job's top-level
 // agentType/modelId should mirror it instead of the ChatPage dropdown.
-function findFirstStepAgent(flow?: FlowNode[]): { agentType: string; modelId?: string; acpMode?: string } | null {
+function findFirstStepAgent(flow?: FlowNode[]): { agentType: string; modelId?: string; acpMode?: string; acpThoughtLevel?: string } | null {
   if (!flow) return null;
   for (const node of flow) {
     if (node.type === 'step') {
       if (node.agentType) {
-        return { agentType: node.agentType, modelId: node.modelId, acpMode: node.acpMode };
+        return { agentType: node.agentType, modelId: node.modelId, acpMode: node.acpMode, acpThoughtLevel: node.acpThoughtLevel };
       }
     } else if (node.type === 'group') {
       const child = findFirstStepAgent(node.children);
@@ -199,6 +199,7 @@ interface ChatPageProps {
   onSelectJob?: (jobId: string, workspaceId?: string) => void;
   onOpenSettings?: () => void;
   onOpenStats?: () => void;
+  onOpenGraph?: () => void;
 }
 
 async function fetchUserSettings(): Promise<{ avatarUrl: string; username: string }> {
@@ -300,6 +301,17 @@ const LOOP_ICON = (
   </svg>
 );
 
+const GRAPH_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="6" cy="6" r="2.5" />
+    <circle cx="18" cy="6" r="2.5" />
+    <circle cx="12" cy="18" r="2.5" />
+    <path d="M8.2 7.5 11 15.7" />
+    <path d="M15.8 7.5 13 15.7" />
+    <path d="M8.5 6h7" />
+  </svg>
+);
+
 const CHAT_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
@@ -307,6 +319,7 @@ const CHAT_ICON = (
 );
 
 function getJobIcon(job: JobInfo) {
+  if (job.mode === 'graph') return GRAPH_ICON;
   return job.mode === 'loop' ? LOOP_ICON : CHAT_ICON;
 }
 
@@ -453,7 +466,7 @@ const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceNa
   );
 });
 
-export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey, workspaceWorkdir, workspaceId, workspaceTitle, onSelectWorkspace, onSelectJob, onOpenSettings, onOpenStats }: ChatPageProps) {
+export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey, workspaceWorkdir, workspaceId, workspaceTitle, onSelectWorkspace, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph }: ChatPageProps) {
   const { connected } = useConnectionStatus();
   const { t, i18n } = useTranslation();
   const [input, setInput] = useState('');
@@ -1990,6 +2003,25 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                   <path d="M21 13v2a4 4 0 01-4 4H3" />
                 </svg>
               </button>
+              {onOpenGraph && (
+                <button
+                  className="chat-btn graph-btn"
+                  onClick={onOpenGraph}
+                  title="Graph Workflows"
+                  aria-label="Graph Workflows"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="5" cy="12" r="2" />
+                    <circle cx="12" cy="5" r="2" />
+                    <circle cx="19" cy="12" r="2" />
+                    <circle cx="12" cy="19" r="2" />
+                    <path d="M6.5 10.5 10.5 6.5" />
+                    <path d="M13.5 6.5 17.5 10.5" />
+                    <path d="M17.5 13.5 13.5 17.5" />
+                    <path d="M10.5 17.5 6.5 13.5" />
+                  </svg>
+                </button>
+              )}
               <button
                 className="chat-btn send-btn"
                 onClick={handleSubmit}

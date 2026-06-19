@@ -18,6 +18,7 @@ import (
 	"github.com/fanlv/quartet/services/agent/eino"
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/services/config"
+	"github.com/fanlv/quartet/services/graph"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/prompt"
 	"github.com/fanlv/quartet/services/schedule"
@@ -104,6 +105,7 @@ type Handler struct {
 	settingsService  config.SettingsService
 	promptService    prompt.Service
 	templateService  template.Service
+	graphService     graph.Service
 	jobService       job.Service
 	recentDirsRepo   repository.RecentDirsRepo
 	userInputRepo    repository.UserInputRepo
@@ -183,6 +185,11 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		return nil, err
 	}
 
+	gs, err := graph.NewService()
+	if err != nil {
+		return nil, err
+	}
+
 	rdr, err := repository.NewRecentDirsRepo()
 	if err != nil {
 		return nil, err
@@ -207,6 +214,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		settingsService:  ss,
 		promptService:    ps,
 		templateService:  ts,
+		graphService:     gs,
 		jobService:       js,
 		recentDirsRepo:   rdr,
 		userInputRepo:    repository.NewUserInputRepo(),
@@ -219,6 +227,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 	// position records counts, durations and tokens. Without this, the
 	// SDK is constructed but never receives any snapshots.
 	js.SetUsageRecorder(h.usageStats)
+	gs.SetUsageRecorder(h.usageStats)
 
 	// Session services are created on demand via getOrCreateSessionService
 	// (and recreated on miss via reloadSessionByID). Preloading every job's
@@ -245,6 +254,13 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 	// Start periodic eviction of idle session service entries. The goroutine
 	// exits when the root ctx is cancelled (i.e. during shutdown).
 	go h.evictIdleSessionServices(h.rootCtx)
+
+	// Reconcile GraphRuns left in flight by a previous process crash: their
+	// running instances are marked interrupted and the run is moved to a
+	// resumable state without re-executing anything (§4 崩溃恢复：标记不自动续跑).
+	if err := gs.ReconcileRuns(ctx, js); err != nil {
+		logger.Warnf(ctx, "[handler] reconcile graph runs failed: %v", err)
+	}
 
 	return h, nil
 }

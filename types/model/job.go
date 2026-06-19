@@ -24,6 +24,7 @@ type JobMode string
 const (
 	JobModeInteractive JobMode = "interactive"
 	JobModeLoop        JobMode = "loop"
+	JobModeGraph       JobMode = "graph"
 )
 
 // Job represents a single execution unit (interactive chat or loop workflow).
@@ -44,7 +45,8 @@ const (
 //
 // RunLoop-owned (written by runLoop):
 //
-//	Status, StartedAt, FinishedAt, LoopConfig, Progress, Resume, SessionIDs
+//	Status, StartedAt, FinishedAt, LoopConfig, GraphRunID, Progress, Resume,
+//	SessionIDs
 //
 // Service-owned denormalized cache (written by targeted service mutator only):
 //
@@ -77,6 +79,7 @@ type Job struct {
 	StartedAt  int64        `json:"startedAt,omitempty"`  // unix ms; set when execution begins
 	FinishedAt int64        `json:"finishedAt,omitempty"` // unix ms; set when terminal state reached
 	LoopConfig *LoopConfig  `json:"loopConfig,omitempty"`
+	GraphRunID string       `json:"graphRunId,omitempty"`
 	SessionIDs []string     `json:"sessionIds"`
 	Progress   *JobProgress `json:"progress,omitempty"`
 	Resume     *JobResume   `json:"resume,omitempty"`

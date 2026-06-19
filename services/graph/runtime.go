@@ -1,0 +1,914 @@
+package graph
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/cloudwego/eino/schema"
+	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/services/usagestats"
+	"github.com/fanlv/quartet/types/agui"
+	"github.com/fanlv/quartet/types/model"
+	"github.com/google/uuid"
+)
+
+var (
+	ErrGraphRunNotFound = errors.New("graph run not found")
+	// ErrGraphRunUnsupported is returned when a graph uses features the current
+	// scheduler does not yet drive (loop containers / subgraph child nodes).
+	ErrGraphRunUnsupported = errors.New("graph run uses features not yet supported by the scheduler")
+	ErrGraphRunnerMissing  = errors.New("graph runner is required")
+	// ErrGraphRunNotRunning is returned when a control action (stop/pause/
+	// step-stop) targets a run with no live scheduler.
+	ErrGraphRunNotRunning = errors.New("graph run is not currently running")
+	// ErrGraphRunNotResumable is returned when ResumeRun targets a run that is
+	// not in a resumable terminal state.
+	ErrGraphRunNotResumable = errors.New("graph run is not resumable")
+	// ErrGraphRunInFlight is returned when DeleteRun targets a run that is still
+	// in flight.
+	ErrGraphRunInFlight = errors.New("graph run is in flight and cannot be deleted")
+	// ErrGraphRunNotEditable is returned when UpdateRunVersion cannot reach the
+	// live scheduler for an in-flight run, or the run state otherwise cannot
+	// accept a version edit.
+	ErrGraphRunNotEditable = errors.New("graph run cannot be edited")
+)
+
+func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequest, runner Runner, jobs JobStateSink) (*model.GraphRun, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+	if runner == nil {
+		return nil, ErrGraphRunnerMissing
+	}
+
+	wf, cfg, err := s.resolveStartConfig(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if errs := validateConfig(&cfg); len(errs) > 0 {
+		return nil, &ValidationError{Errors: errs}
+	}
+	if err := ensureSchedulable(cfg); err != nil {
+		return nil, err
+	}
+
+	jobID := strings.TrimSpace(req.JobID)
+	if jobID == "" {
+		return nil, fmt.Errorf("jobId is required")
+	}
+	now := time.Now()
+	models, agents := buildSnapshotContent(ctx, cfg, runner)
+	run := &model.GraphRun{
+		ID:          model.NewGraphRunID(),
+		WorkflowID:  "",
+		JobID:       jobID,
+		WorkspaceID: firstNonEmpty(req.WorkspaceID, cfg.WorkspaceID),
+		Status:      model.GraphRunStatusPending,
+		BaseSnapshot: model.GraphRunSnapshot{
+			Config:         cloneGraphConfig(cfg),
+			ModelSnapshots: models,
+			AgentSnapshots: agents,
+			CapturedAt:     now.UnixMilli(),
+		},
+		CurrentVersion: 1,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if wf != nil {
+		run.WorkflowID = wf.ID
+		run.WorkspaceID = firstNonEmpty(run.WorkspaceID, wf.WorkspaceID)
+		run.BaseSnapshot.WorkflowID = wf.ID
+		run.BaseSnapshot.WorkflowName = wf.Name
+	}
+	run.Versions = []model.GraphRunVersion{{
+		Version:        1,
+		Config:         cloneGraphConfig(cfg),
+		ModelSnapshots: models,
+		AgentSnapshots: agents,
+		Reason:         "baseline",
+		CreatedAt:      now.UnixMilli(),
+	}}
+	run.Progress = initialGraphProgress(cfg)
+	run.Resume = &model.GraphResumeState{
+		EdgeStates:     map[string]model.GraphEdgeState{},
+		VariablesByKey: map[string]map[string]string{},
+	}
+
+	if err := s.persistRuntimeState(ctx, run, map[string]model.GraphInstanceState{}, map[string]model.GraphEdgeState{}, map[string]map[string]string{}); err != nil {
+		return nil, err
+	}
+	if jobs != nil {
+		if err := jobs.SetGraphRunState(ctx, jobID, run.ID, model.JobStatusPending, 0, 0); err != nil {
+			return nil, err
+		}
+	}
+
+	logger.Infof(ctx, "[graph] run created: runId=%s jobId=%s workflowId=%s workspaceId=%s nodes=%d edges=%d concurrency=%d jobTimeoutSec=%d",
+		run.ID, run.JobID, run.WorkflowID, run.WorkspaceID, len(cfg.Nodes), len(cfg.Edges),
+		concurrencyLimit(cfg.RunConfig.ConcurrencyLimit), cfg.RunConfig.JobTimeoutSec)
+	go s.runGraph(context.Background(), run.ID, runner, jobs, false)
+	return run, nil
+}
+
+func (s *serviceImpl) GetRunStatus(ctx context.Context, runID string) (*model.GraphRunStatusResponse, error) {
+	run, err := s.runRepo.GetRun(ctx, runID)
+	if err != nil {
+		return nil, ErrGraphRunNotFound
+	}
+	instances, _ := s.runRepo.GetInstances(ctx, runID)
+	edges, _ := s.runRepo.GetEdges(ctx, runID)
+	progress, _ := s.runRepo.GetProgress(ctx, runID)
+	events, _ := s.runRepo.ListEvents(ctx, runID, 0, nil)
+	instanceList := make([]model.GraphInstanceState, 0, len(instances))
+	for _, st := range instances {
+		instanceList = append(instanceList, st)
+	}
+	sort.Slice(instanceList, func(i, j int) bool {
+		return instanceKeyString(instanceList[i].Key) < instanceKeyString(instanceList[j].Key)
+	})
+	edgeList := make([]model.GraphEdgeState, 0, len(edges))
+	for _, st := range edges {
+		edgeList = append(edgeList, st)
+	}
+	sort.Slice(edgeList, func(i, j int) bool { return edgeList[i].EdgeID < edgeList[j].EdgeID })
+	return &model.GraphRunStatusResponse{
+		Run:       run,
+		Progress:  progress,
+		Instances: instanceList,
+		Edges:     edgeList,
+		Events:    events,
+	}, nil
+}
+
+func (s *serviceImpl) ListRunEvents(ctx context.Context, runID string, startLine int, count *int) (*model.GraphRunEventsResponse, error) {
+	if startLine < 0 {
+		startLine = 0
+	}
+	if _, err := s.runRepo.GetRun(ctx, runID); err != nil {
+		return nil, ErrGraphRunNotFound
+	}
+	events, err := s.runRepo.ListEvents(ctx, runID, startLine, count)
+	if err != nil {
+		return nil, err
+	}
+	lastEventID := ""
+	if len(events) > 0 {
+		lastEventID = fmt.Sprintf("%d", startLine+len(events))
+	}
+	return &model.GraphRunEventsResponse{
+		Events:    events,
+		NextLine:  startLine + len(events),
+		LastEvent: lastEventID,
+	}, nil
+}
+
+func (s *serviceImpl) ListRuns(ctx context.Context) ([]*model.GraphRun, error) {
+	return s.runRepo.ListRuns(ctx)
+}
+
+func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGraphRunRequest) (*model.GraphWorkflow, model.GraphConfig, error) {
+	if req.Config != nil {
+		cfg := cloneGraphConfig(*req.Config)
+		cfg.WorkspaceID = firstNonEmpty(req.WorkspaceID, cfg.WorkspaceID)
+		cfg.Workdir = firstNonEmpty(req.Workdir, cfg.Workdir)
+		return nil, cfg, nil
+	}
+	if strings.TrimSpace(req.WorkflowID) == "" {
+		return nil, model.GraphConfig{}, fmt.Errorf("workflowId or config is required")
+	}
+	wf, err := s.repo.Get(ctx, req.WorkflowID)
+	if err != nil || wf.Deleted {
+		return nil, model.GraphConfig{}, ErrWorkflowNotFound
+	}
+	cfg := cloneGraphConfig(wf.Config)
+	cfg.WorkspaceID = firstNonEmpty(req.WorkspaceID, cfg.WorkspaceID, wf.WorkspaceID)
+	cfg.Workdir = firstNonEmpty(req.Workdir, cfg.Workdir)
+	return wf, cfg, nil
+}
+
+// nodeOutcome is a business node's successful execution result. Besides the raw
+// final output and declared named outputs, it carries the Shell control signals
+// STOP_LOOP / STOP_WORKFLOW so the scheduler can apply them with scope context
+// (STOP_LOOP is only legal inside a loop container, STOP_WORKFLOW ends the run
+// with early success). For Agent-class nodes it also carries the outflow session
+// (the session the node created or forked) and the replay message count, which
+// the scheduler records as the instance's session lineage (§3 会话血缘).
+type nodeOutcome struct {
+	output       string
+	produced     map[string]string
+	stopLoop     bool
+	stopWorkflow bool
+	sessionID    string
+	replayCount  int
+	usage        *usagestats.Accumulator
+	modelID      string
+
+	// Shell display-session fields (§ Graph Shell 默认新开 session): the
+	// substituted script and captured stderr/timing used to persist the shell
+	// execution as its own session transcript. ownSessionID is the recording
+	// session id, set after a successful run; it is surfaced to the UI via
+	// GraphInstanceState.DisplaySessionID and never feeds session lineage.
+	displayScript string
+	stderr        string
+	startedAt     int64
+	finishedAt    int64
+	ownSessionID  string
+}
+
+// executeNode runs one business node against its visible variable snapshot.
+// inflowSession is the session flowing in along the node's in-edges (§3 会话血缘):
+// an Agent node with the `inherit` strategy forks from it; a `new`/unset Agent
+// creates a fresh session; Shell nodes ignore it (the scheduler passes the
+// inflow through as the Shell's outflow).
+func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, key model.GraphInstanceKey, vars map[string]string, disabled map[string]struct{}, runner Runner, inflowSession string) (nodeOutcome, error) {
+	switch node.Type {
+	case model.GraphNodeTypeShell:
+		return s.runShellWithRetries(ctx, run, node, vars, disabled, runner)
+	case model.GraphNodeTypePrompt, model.GraphNodeTypeEvaluator:
+		prompt := node.Config.Prompt
+		if node.Type == model.GraphNodeTypeEvaluator {
+			prompt = buildEvaluatorPrompt(prompt, node.Config.OutputVariables)
+		} else {
+			prompt += buildOutputProtocolSuffix(node.Config.OutputVariables)
+		}
+		prompt = substituteVariables(prompt, vars, disabled)
+		overrides := &model.SessionOverrides{
+			AgentType:       node.Config.AgentType,
+			ModelID:         node.Config.ModelID,
+			ACPMode:         node.Config.ACPMode,
+			ACPThoughtLevel: node.Config.ACPThoughtLevel,
+		}
+		sessionID, replayCount, err := openNodeSession(ctx, runner, run.JobID, node, inflowSession, overrides)
+		if err != nil {
+			return nodeOutcome{}, err
+		}
+		modelID := firstNonEmpty(runner.SessionModelID(sessionID), node.Config.ModelID)
+		result := s.runPromptWithRetries(ctx, run.ID, run.JobID, sessionID, node.ID, key, runner, []*schema.Message{{Role: schema.User, Content: prompt}})
+		if result.err != nil {
+			return nodeOutcome{output: result.handler.AccumulatedContent(), sessionID: sessionID, replayCount: replayCount, usage: result.handler.usage, modelID: modelID}, withGraphRetryCount(result.err, result.retryCount)
+		}
+		output := result.handler.AccumulatedContent()
+		parsed, perr := ParseQuartetOutput(output, node.Config.OutputVariables)
+		if perr != nil {
+			return nodeOutcome{output: output, sessionID: sessionID, replayCount: replayCount, usage: result.handler.usage, modelID: modelID}, perr
+		}
+		return nodeOutcome{output: output, produced: parsed.Variables, sessionID: sessionID, replayCount: replayCount, usage: result.handler.usage, modelID: modelID}, nil
+	default:
+		return nodeOutcome{}, fmt.Errorf("node type %q is not supported by the graph engine", node.Type)
+	}
+}
+
+// openNodeSession opens the session an Agent-class node executes against per its
+// declared strategy (§3 会话血缘). `inherit` forks the inflow session into a new
+// independent session (copying its conversation history); `new` (or unset)
+// mints a fresh session. An `inherit` declaration with no inflow session is a
+// node failure — it means an upstream Agent was expected but none ran (the
+// validator forbids this statically for the first Agent on a start chain, so at
+// runtime it can only arise from a reset/pruned upstream).
+func openNodeSession(ctx context.Context, runner Runner, jobID string, node model.GraphNode, inflowSession string, overrides *model.SessionOverrides) (sessionID string, replayCount int, err error) {
+	if node.Config.SessionStrategy == model.GraphSessionStrategyInherit {
+		if inflowSession == "" {
+			return "", 0, fmt.Errorf("node %q declares 'inherit' session strategy but no upstream session is available to inherit", node.ID)
+		}
+		sessionID, replayCount, err = runner.ForkSession(ctx, inflowSession, jobID, overrides)
+		if err != nil {
+			logger.Errorf(ctx, "[graph] fork session failed: jobId=%s nodeId=%s parentSessionId=%s err=%v", jobID, node.ID, inflowSession, err)
+			return "", 0, err
+		}
+		logger.Infof(ctx, "[graph] forked session: jobId=%s nodeId=%s parentSessionId=%s sessionId=%s replayMessages=%d",
+			jobID, node.ID, inflowSession, sessionID, replayCount)
+		return sessionID, replayCount, nil
+	}
+	sessionID, err = runner.InitSession(ctx, jobID, overrides)
+	if err != nil {
+		logger.Errorf(ctx, "[graph] init session failed: jobId=%s nodeId=%s err=%v", jobID, node.ID, err)
+		return "", 0, err
+	}
+	logger.Infof(ctx, "[graph] initialized session: jobId=%s nodeId=%s sessionId=%s strategy=%s", jobID, node.ID, sessionID, firstNonEmpty(string(node.Config.SessionStrategy), string(model.GraphSessionStrategyNew)))
+	return sessionID, 0, err
+}
+
+// runShellWithRetries executes a Shell node through the shared transient/rate-
+// limit retry driver (§2 瞬态错误重试), matching Prompt/评估 behavior: network
+// reset / HTTP2 stream errors retry twice (fixed backoff), rate-limit errors
+// retry three times (exponential backoff). Retries happen inside the node so
+// edge state and progress are unaffected; the surfaced error carries the retry
+// count and the full stdout/stderr/exit code via executeShellNode's error text.
+// STOP_LOOP / STOP_WORKFLOW and parse/declaration failures are deterministic
+// node outcomes, not transient, so they are not retried (their errors are not
+// classified as transient/rate-limit).
+func (s *serviceImpl) runShellWithRetries(ctx context.Context, run *model.GraphRun, node model.GraphNode, vars map[string]string, disabled map[string]struct{}, runner Runner) (nodeOutcome, error) {
+	var outcome nodeOutcome
+	attempt := func(ctx context.Context) error {
+		var err error
+		outcome, err = executeShellNode(ctx, run, node, vars, disabled)
+		return err
+	}
+	retryCount, err := s.runWithRetries(ctx, run.ID, run.JobID, node.ID, attempt)
+	if err != nil {
+		return outcome, withGraphRetryCount(err, retryCount)
+	}
+	// Graph Shell 默认新开一个 session 执行消息也要保存到 session 里面: after the
+	// shell ran successfully, record its script + output as a standalone display
+	// session so it shows up in the Chat session sidebar alongside Agent nodes.
+	// Recorded once (after retries) on the node's final output. This is purely
+	// for display and never feeds session lineage, so a failure is logged and
+	// swallowed rather than failing the node.
+	if recorder, ok := runner.(ShellSessionRecorder); ok {
+		output := shellSessionOutput(outcome.output, outcome.stderr)
+		sid, recErr := recorder.RecordShellSession(ctx, run.JobID, outcome.displayScript, output, outcome.startedAt, outcome.finishedAt)
+		if recErr != nil {
+			logger.Warnf(ctx, "[graph] record shell session failed: runId=%s nodeId=%s err=%v", run.ID, node.ID, recErr)
+		} else {
+			outcome.ownSessionID = sid
+		}
+	}
+	return outcome, nil
+}
+
+// shellSessionOutput combines stdout and stderr into the assistant-side message
+// content of a shell display session, mirroring how the user perceives a shell
+// run (stdout first, stderr appended when present).
+func shellSessionOutput(stdout, stderr string) string {
+	if stderr == "" {
+		return stdout
+	}
+	if stdout == "" {
+		return stderr
+	}
+	return stdout + "\n" + stderr
+}
+
+func executeShellNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, vars map[string]string, disabled map[string]struct{}) (nodeOutcome, error) {
+	workdir := run.BaseSnapshot.Config.Workdir
+	// displayScript is the user-authored script after variable substitution but
+	// without the injected helper preamble, so the recorded shell session shows
+	// exactly what the user wrote.
+	displayScript := substituteVariables(node.Config.Script, vars, disabled)
+	script := graphShellHelpers + "\n" + displayScript
+	tmpDir := workdir
+	if tmpDir == "" {
+		tmpDir = os.TempDir()
+	}
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		return nodeOutcome{}, err
+	}
+	scriptFile, err := os.CreateTemp(tmpDir, ".quartet-graph-*.sh")
+	if err != nil {
+		return nodeOutcome{}, err
+	}
+	scriptPath := scriptFile.Name()
+	defer os.Remove(scriptPath)
+	if _, err := scriptFile.WriteString(script); err != nil {
+		_ = scriptFile.Close()
+		return nodeOutcome{}, err
+	}
+	if err := scriptFile.Close(); err != nil {
+		return nodeOutcome{}, err
+	}
+	ctrlFile, err := os.CreateTemp(tmpDir, ".quartet-graph-*.ctrl")
+	if err != nil {
+		return nodeOutcome{}, err
+	}
+	ctrlPath := ctrlFile.Name()
+	_ = ctrlFile.Close()
+	defer os.Remove(ctrlPath)
+
+	cmd := exec.CommandContext(ctx, "bash", scriptPath)
+	if workdir != "" {
+		cmd.Dir = workdir
+	}
+	cmd.Env = append(os.Environ(), "QUARTET_CONTROL="+ctrlPath)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	startedAt := time.Now().UnixMilli()
+	err = cmd.Run()
+	finishedAt := time.Now().UnixMilli()
+	control, readErr := os.ReadFile(filepath.Clean(ctrlPath))
+	if readErr != nil {
+		return nodeOutcome{output: stdout.String()}, fmt.Errorf("read shell control file failed: %w; stdout=%s stderr=%s", readErr, stdout.String(), stderr.String())
+	}
+	if err != nil {
+		return nodeOutcome{output: stdout.String()}, fmt.Errorf("shell failed: %v; stdout=%s stderr=%s control=%s", err, stdout.String(), stderr.String(), string(control))
+	}
+	parsed, perr := ParseShellControl(string(control), node.Config.OutputVariables)
+	if perr != nil {
+		return nodeOutcome{output: stdout.String()}, fmt.Errorf("%w; stdout=%s stderr=%s control=%s", perr, stdout.String(), stderr.String(), string(control))
+	}
+	// STOP_LOOP / STOP_WORKFLOW are scope-dependent control signals; the
+	// scheduler applies them (STOP_LOOP only inside a loop container). They are
+	// returned here rather than treated as errors.
+	return nodeOutcome{
+		output:        stdout.String(),
+		produced:      parsed.Variables,
+		stopLoop:      parsed.StopLoop,
+		stopWorkflow:  parsed.StopWorkflow,
+		displayScript: displayScript,
+		stderr:        stderr.String(),
+		startedAt:     startedAt,
+		finishedAt:    finishedAt,
+	}, nil
+}
+
+func initialGraphProgress(cfg model.GraphConfig) *model.GraphProgress {
+	nodesByID := make(map[string]model.GraphNode, len(cfg.Nodes))
+	for _, n := range cfg.Nodes {
+		nodesByID[n.ID] = n
+	}
+	// Static upper bound on the progress denominator: every business node (loop
+	// containers included) contributes its maximum instance count, which is the
+	// product of the static round bounds of all ancestor loop containers (1 for a
+	// main-scope node). This guarantees completed ≤ total even with nested loops.
+	// Run-time pruning / early-stop denominator精修 lives in step 15.
+	total := 0
+	for _, n := range cfg.Nodes {
+		if isBusiness(n.Type) {
+			total += nodeMaxInstances(cfg.RunConfig, nodesByID, n)
+		}
+	}
+	return &model.GraphProgress{
+		TotalCount: total,
+		Instances:  map[string]model.GraphInstanceState{},
+	}
+}
+
+// nodeMaxInstances returns the static upper bound on how many instances of a
+// node can exist: the product of the round bounds of every ancestor loop
+// container (1 for a main-scope node).
+func nodeMaxInstances(rc model.GraphRunConfig, nodesByID map[string]model.GraphNode, node model.GraphNode) int {
+	prod := 1
+	for pid := node.ParentID; pid != ""; {
+		loop, ok := nodesByID[pid]
+		if !ok {
+			break
+		}
+		prod *= loopMaxRounds(rc, loop)
+		pid = loop.ParentID
+	}
+	return prod
+}
+
+// loopMaxRounds is the static upper bound on how many times a loop container's
+// subgraph runs, used only for the initial progress denominator.
+func loopMaxRounds(rc model.GraphRunConfig, loop model.GraphNode) int {
+	if loop.Config.LoopMode == model.GraphLoopModeFixed {
+		if loop.Config.FixedCount < 0 {
+			return 0
+		}
+		return loop.Config.FixedCount
+	}
+	return effectiveLoopMaxIters(rc, loop)
+}
+
+func updateRunProgress(run *model.GraphRun, instances map[string]model.GraphInstanceState) {
+	if run.Progress == nil {
+		run.Progress = &model.GraphProgress{}
+	}
+	p := run.Progress
+	p.CompletedCount = 0
+	p.FailedCount = 0
+	p.SkippedCount = 0
+	p.InterruptedCount = 0
+	p.RunningCount = 0
+	p.CurrentKeys = nil
+	p.Instances = make(map[string]model.GraphInstanceState, len(instances))
+	for k, st := range instances {
+		p.Instances[k] = st
+		switch st.Status {
+		case model.GraphInstanceStatusSucceeded:
+			p.CompletedCount++
+		case model.GraphInstanceStatusFailed:
+			p.FailedCount++
+		case model.GraphInstanceStatusSkipped:
+			p.SkippedCount++
+		case model.GraphInstanceStatusInterrupted:
+			p.InterruptedCount++
+		case model.GraphInstanceStatusRunning:
+			p.RunningCount++
+			p.CurrentKeys = append(p.CurrentKeys, st.Key)
+		}
+	}
+}
+
+func (s *serviceImpl) persistRuntimeState(ctx context.Context, run *model.GraphRun, instances map[string]model.GraphInstanceState, edges map[string]model.GraphEdgeState, vars map[string]map[string]string) error {
+	if err := s.runRepo.SaveInstances(ctx, run.ID, instances); err != nil {
+		return err
+	}
+	if err := s.runRepo.SaveEdges(ctx, run.ID, edges); err != nil {
+		return err
+	}
+	if err := s.runRepo.SaveVariables(ctx, run.ID, vars); err != nil {
+		return err
+	}
+	if err := s.runRepo.SaveProgress(ctx, run.ID, run.Progress); err != nil {
+		return err
+	}
+	if err := s.runRepo.SaveResume(ctx, run.ID, run.Resume); err != nil {
+		return err
+	}
+	return s.runRepo.SaveRun(ctx, run)
+}
+
+func (s *serviceImpl) appendEvent(ctx context.Context, runID string, typ model.GraphEventType, key *model.GraphInstanceKey, nodeID, edgeID, message string, progress *model.GraphProgress, rerr *model.GraphRuntimeError) {
+	if s.runRepo == nil {
+		return
+	}
+	_ = s.runRepo.AppendEvent(ctx, runID, &model.GraphEvent{
+		ID:          model.NewGraphEventID(),
+		RunID:       runID,
+		Type:        typ,
+		InstanceKey: key,
+		NodeID:      nodeID,
+		EdgeID:      edgeID,
+		Message:     message,
+		Payload:     map[string]string{},
+		Progress:    progress,
+		Error:       rerr,
+		CreatedAt:   time.Now().UnixMilli(),
+	})
+}
+
+func (s *serviceImpl) recordUsageSnapshot(run *model.GraphRun, outcome nodeOutcome, finishedAtMs, durationMs int64) {
+	s.usageMu.RLock()
+	recorder := s.usageRecorder
+	s.usageMu.RUnlock()
+	if recorder == nil || outcome.usage == nil {
+		return
+	}
+	if durationMs < 0 {
+		durationMs = 0
+	}
+	workspaceID := ""
+	if run != nil {
+		workspaceID = run.WorkspaceID
+	}
+	recorder.Record(outcome.usage.Snapshot(workspaceID, outcome.modelID, finishedAtMs, durationMs))
+}
+
+func runtimeError(runID string, key model.GraphInstanceKey, node model.GraphNode, err error) *model.GraphRuntimeError {
+	return &model.GraphRuntimeError{
+		RunID:       runID,
+		InstanceKey: &key,
+		NodeID:      node.ID,
+		NodeTitle:   node.Title,
+		NodeType:    node.Type,
+		Message:     err.Error(),
+		RetryCount:  graphRetryCount(err),
+		CanResume:   true,
+	}
+}
+
+func instanceKeyString(key model.GraphInstanceKey) string {
+	if len(key.Iterations) == 0 {
+		return key.NodeID
+	}
+	parts := make([]string, 0, len(key.Iterations)+1)
+	for _, it := range key.Iterations {
+		parts = append(parts, fmt.Sprintf("%s#%d", it.LoopNodeID, it.Index))
+	}
+	parts = append(parts, key.NodeID)
+	return strings.Join(parts, "/")
+}
+
+func edgeStateKey(edgeID string, target model.GraphInstanceKey) string {
+	return edgeID + "@" + instanceKeyString(target)
+}
+
+func disabledNameSet(names []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		out[name] = struct{}{}
+	}
+	return out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneStringSet(in map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneGraphConfig(in model.GraphConfig) model.GraphConfig {
+	out := in
+	if in.Nodes != nil {
+		out.Nodes = append([]model.GraphNode(nil), in.Nodes...)
+	}
+	if in.Edges != nil {
+		out.Edges = cloneGraphEdges(in.Edges)
+	}
+	out.Variables = cloneStringMap(in.Variables)
+	if in.DisabledVars != nil {
+		out.DisabledVars = append([]string(nil), in.DisabledVars...)
+	}
+	return out
+}
+
+func cloneGraphEdges(in []model.GraphEdge) []model.GraphEdge {
+	if in == nil {
+		return nil
+	}
+	return append([]model.GraphEdge(nil), in...)
+}
+
+func cloneGraphRun(in *model.GraphRun) *model.GraphRun {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.BaseSnapshot.Config = cloneGraphConfig(in.BaseSnapshot.Config)
+	if in.BaseSnapshot.ModelSnapshots != nil {
+		out.BaseSnapshot.ModelSnapshots = make(map[string]model.ModelInstance, len(in.BaseSnapshot.ModelSnapshots))
+		for k, v := range in.BaseSnapshot.ModelSnapshots {
+			out.BaseSnapshot.ModelSnapshots[k] = v
+		}
+	}
+	if in.BaseSnapshot.AgentSnapshots != nil {
+		out.BaseSnapshot.AgentSnapshots = make(map[string]model.GraphAgentSnapshot, len(in.BaseSnapshot.AgentSnapshots))
+		for k, v := range in.BaseSnapshot.AgentSnapshots {
+			out.BaseSnapshot.AgentSnapshots[k] = v
+		}
+	}
+	if in.Versions != nil {
+		out.Versions = make([]model.GraphRunVersion, len(in.Versions))
+		for i, v := range in.Versions {
+			out.Versions[i] = v
+			out.Versions[i].Config = cloneGraphConfig(v.Config)
+		}
+	}
+	return &out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+type graphEventHandler struct {
+	ctx       context.Context
+	svc       *serviceImpl
+	runID     string
+	jobID     string
+	sessionID string
+	nodeID    string
+	key       model.GraphInstanceKey
+
+	mu                sync.Mutex
+	content           strings.Builder
+	msgID             string
+	thoughtID         string
+	currentMessageBuf strings.Builder
+	nextBoundaryTs    int64
+	usage             *usagestats.Accumulator
+}
+
+var _ agui.EventHandler = (*graphEventHandler)(nil)
+var _ agui.BoundaryTimestampSetter = (*graphEventHandler)(nil)
+
+func (s *serviceImpl) newGraphEventHandler(ctx context.Context, runID, jobID, sessionID, nodeID string, key model.GraphInstanceKey) *graphEventHandler {
+	return &graphEventHandler{
+		ctx:       ctx,
+		svc:       s,
+		runID:     runID,
+		jobID:     jobID,
+		sessionID: sessionID,
+		nodeID:    nodeID,
+		key:       key,
+		usage:     usagestats.NewAccumulator(),
+	}
+}
+
+func (h *graphEventHandler) SetNextBoundaryTimestamp(ts int64) {
+	h.mu.Lock()
+	h.nextBoundaryTs = ts
+	h.mu.Unlock()
+}
+
+func (h *graphEventHandler) timestampLocked() int64 {
+	ts := h.nextBoundaryTs
+	if ts == 0 {
+		ts = time.Now().UnixMilli()
+	}
+	h.nextBoundaryTs = 0
+	return ts
+}
+
+func (h *graphEventHandler) appendEventLocked(typ model.GraphEventType, message string, payload map[string]string, createdAt int64) {
+	if h.svc == nil || h.svc.runRepo == nil {
+		return
+	}
+	if payload == nil {
+		payload = map[string]string{}
+	}
+	payload["sessionId"] = h.sessionID
+	payload["jobId"] = h.jobID
+	_ = h.svc.runRepo.AppendEvent(h.ctx, h.runID, &model.GraphEvent{
+		ID:          model.NewGraphEventID(),
+		RunID:       h.runID,
+		Type:        typ,
+		InstanceKey: &h.key,
+		NodeID:      h.nodeID,
+		Message:     message,
+		Payload:     payload,
+		CreatedAt:   createdAt,
+	})
+}
+
+func (h *graphEventHandler) OnMessageStart() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.msgID = uuid.NewString()
+	h.currentMessageBuf.Reset()
+	h.appendEventLocked(model.GraphEventTypeAgentMessageStart, "agent message started", map[string]string{"messageId": h.msgID}, h.timestampLocked())
+	return nil
+}
+
+func (h *graphEventHandler) OnMessageDelta(content string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.content.WriteString(content)
+	h.currentMessageBuf.WriteString(content)
+	h.appendEventLocked(model.GraphEventTypeAgentMessageDelta, content, map[string]string{"messageId": h.msgID, "delta": content}, time.Now().UnixMilli())
+	return nil
+}
+
+func (h *graphEventHandler) OnMessageEnd() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.usage != nil {
+		h.usage.OnAssistantText(h.ctx, h.currentMessageBuf.String())
+	}
+	h.currentMessageBuf.Reset()
+	h.appendEventLocked(model.GraphEventTypeAgentMessageEnd, "agent message ended", map[string]string{"messageId": h.msgID}, h.timestampLocked())
+	return nil
+}
+func (h *graphEventHandler) LastMessageID() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.msgID
+}
+func (h *graphEventHandler) OnThoughtStart() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.thoughtID = uuid.NewString()
+	h.currentMessageBuf.Reset()
+	h.appendEventLocked(model.GraphEventTypeAgentThoughtStart, "agent thought started", map[string]string{"messageId": h.thoughtID}, h.timestampLocked())
+	return nil
+}
+func (h *graphEventHandler) OnThoughtDelta(content string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.currentMessageBuf.WriteString(content)
+	h.appendEventLocked(model.GraphEventTypeAgentThoughtDelta, content, map[string]string{"messageId": h.thoughtID, "delta": content}, time.Now().UnixMilli())
+	return nil
+}
+func (h *graphEventHandler) OnThoughtEnd() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.usage != nil {
+		h.usage.OnThoughtText(h.ctx, h.currentMessageBuf.String())
+	}
+	h.currentMessageBuf.Reset()
+	h.appendEventLocked(model.GraphEventTypeAgentThoughtEnd, "agent thought ended", map[string]string{"messageId": h.thoughtID}, h.timestampLocked())
+	return nil
+}
+func (h *graphEventHandler) OnToolCallStart(id, name string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := h.timestampLocked()
+	if h.usage != nil {
+		h.usage.OnToolCallStart(id, name, now)
+	}
+	h.appendEventLocked(model.GraphEventTypeAgentToolStart, "tool call started", map[string]string{
+		"toolCallId": id,
+		"toolName":   name,
+		"status":     string(model.ToolCallStatusProcessing),
+	}, now)
+	return nil
+}
+func (h *graphEventHandler) OnToolCallArgs(id, args string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.usage != nil {
+		h.usage.OnToolCallArgsDelta(id, args)
+	}
+	h.appendEventLocked(model.GraphEventTypeAgentToolArgs, args, map[string]string{
+		"toolCallId": id,
+		"delta":      args,
+		"status":     string(model.ToolCallStatusProcessing),
+	}, time.Now().UnixMilli())
+	return nil
+}
+func (h *graphEventHandler) OnToolCallResult(id, content string, success bool) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	status := model.ToolCallStatusSuccess
+	if !success {
+		status = model.ToolCallStatusError
+	}
+	h.appendEventLocked(model.GraphEventTypeAgentToolResult, content, map[string]string{
+		"toolCallId": id,
+		"delta":      content,
+		"status":     string(status),
+	}, time.Now().UnixMilli())
+	return nil
+}
+func (h *graphEventHandler) OnToolCallEnd(id string, success bool) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := h.timestampLocked()
+	if h.usage != nil {
+		h.usage.OnToolCallEnd(h.ctx, id, now)
+	}
+	status := model.ToolCallStatusSuccess
+	if !success {
+		status = model.ToolCallStatusError
+	}
+	h.appendEventLocked(model.GraphEventTypeAgentToolEnd, "tool call ended", map[string]string{
+		"toolCallId": id,
+		"status":     string(status),
+	}, now)
+	return nil
+}
+func (h *graphEventHandler) OnToolCallInterrupted(id string, reason string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.appendEventLocked(model.GraphEventTypeAgentToolEnd, "tool call interrupted", map[string]string{
+		"toolCallId":        id,
+		"status":            string(model.ToolCallStatusPlaceholder),
+		"placeholderReason": reason,
+	}, h.timestampLocked())
+	return nil
+}
+func (h *graphEventHandler) OnToolCallStitched(id string, content string, success bool, supersededAgoMs int64) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := h.timestampLocked()
+	if h.usage != nil {
+		h.usage.OnToolCallEnd(h.ctx, id, now)
+	}
+	status := model.ToolCallStatusSuccess
+	if !success {
+		status = model.ToolCallStatusError
+	}
+	h.appendEventLocked(model.GraphEventTypeAgentToolResult, content, map[string]string{
+		"toolCallId":      id,
+		"delta":           content,
+		"status":          string(status),
+		"supersededAgoMs": fmt.Sprintf("%d", supersededAgoMs),
+		"stitched":        "true",
+	}, now)
+	return nil
+}
+func (h *graphEventHandler) OnTokenUsage(totalTokens int) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.usage != nil {
+		h.usage.OnTokenUsage(totalTokens)
+	}
+	h.appendEventLocked(model.GraphEventTypeAgentTokenUsage, "token usage updated", map[string]string{"totalTokens": fmt.Sprintf("%d", totalTokens)}, time.Now().UnixMilli())
+	return nil
+}
+func (h *graphEventHandler) OnError(err error) {
+	if err == nil {
+		return
+	}
+	if ctxErr := h.ctx.Err(); ctxErr != nil {
+		logger.Debugf(h.ctx, "[graphEventHandler] context done, suppressing agent error event: runId=%s nodeId=%s ctxErr=%v err=%v",
+			h.runID, h.nodeID, ctxErr, err)
+		return
+	}
+	logger.Errorf(h.ctx, "[graphEventHandler] agent error: runId=%s nodeId=%s err=%v", h.runID, h.nodeID, err)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.appendEventLocked(model.GraphEventTypeError, err.Error(), map[string]string{"agentError": "true"}, time.Now().UnixMilli())
+}
+
+func (h *graphEventHandler) AccumulatedContent() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.content.String()
+}

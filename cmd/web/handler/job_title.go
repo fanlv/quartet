@@ -38,6 +38,33 @@ const titleCreatePrompt = `你是一个标题生成器。根据用户输入的�
 用户的内容如下（帮我把把下面内容生成一个标题，只要标题内容，不要输出其他东西，我会把你输出的内容做标题）：
 `
 
+// titleCreateFromGraphPrompt 用于 Graph Workflow 运行生成 Job 标题。输入是整个
+// workflow 的 JSON 配置，需要根据节点、提示词、脚本、变量等内容概括出工作流的核心
+// 目标作为标题。其余规则与普通标题生成保持一致。
+const titleCreateFromGraphPrompt = `你是一个标题生成器。下面会给你一份 Graph Workflow（图工作流）的 JSON 配置，请根据这份配置生成一个简洁、准确的标题（title），用于概括这个工作流的核心目标或主题。
+
+## 规则
+
+1. **长度**：标题控制在 5-20 个字符之间（中文）或 3-10 个单词之间（英文）。
+2. **语言**：标题语言与配置中提示词/脚本的主要语言保持一致。
+3. **准确性**：标题必须精准概括工作流的核心意图或主题，不得引入配置中未提及的内容。
+4. **简洁性**：去除冗余修饰词，优先使用名词短语或动宾结构。
+5. **可读性**：标题应自然流畅，像人类手动拟定的标题。
+6. **格式**：
+   - 不使用标点符号（引号、句号、感叹号等）。
+   - 不使用 "关于"、"请问"、"帮我" 等口语化前缀。
+   - 不输出任何解释，仅输出标题本身。
+   - 输出格式是纯文本，不要 markdown 格式，也不要其他任何标点符号。
+
+## 策略
+
+- 综合分析所有节点的标题、提示词（prompt）、脚本（script）、条件和变量，提炼工作流要完成的整体任务。
+- 重点关注 prompt / shell 节点的实际内容，它们通常最能体现工作流的目标。
+- 忽略 start / end 等结构性节点本身，关注它们之间承载业务逻辑的节点。
+
+下面是 workflow 的 JSON 配置（帮我根据这份配置生成一个标题，只要标题内容，不要输出其他东西，我会把你输出的内容做标题）：
+`
+
 // titleGenerationTimeout bounds a single title-generation attempt. Title
 // generation is a short-text task (< 50 tokens output) so 360s is generous
 // enough for any provider;
@@ -53,7 +80,25 @@ const titleCircuitBreakerThreshold = 3
 // breaker enters half-open state and allows a single probe request through.
 const titleCircuitBreakerCooldown = 5 * time.Minute
 
+// asyncUpdateJobTitle schedules title generation for a chat/loop Job using the
+// default title prompt and message-based fallback.
 func (h *Handler) asyncUpdateJobTitle(ctx context.Context, jobID string, userMessage string) {
+	h.asyncUpdateJobTitleWith(ctx, jobID, userMessage, titleCreatePrompt, true)
+}
+
+// asyncUpdateGraphJobTitle schedules title generation for a Graph Workflow Job.
+// The "message" passed to the LLM is the full workflow JSON config, paired with
+// the graph-specific prompt. Message-based fallback is disabled because the raw
+// JSON is not a usable title.
+func (h *Handler) asyncUpdateGraphJobTitle(ctx context.Context, jobID string, workflowJSON string) {
+	h.asyncUpdateJobTitleWith(ctx, jobID, workflowJSON, titleCreateFromGraphPrompt, false)
+}
+
+// asyncUpdateJobTitleWith runs title generation in the background using the
+// given system prompt. allowFallback controls whether a failed generation falls
+// back to deriving a title from the raw message (only meaningful for plain text
+// messages, not JSON configs).
+func (h *Handler) asyncUpdateJobTitleWith(ctx context.Context, jobID string, userMessage string, systemPrompt string, allowFallback bool) {
 	if userMessage == "" {
 		return
 	}
@@ -144,7 +189,7 @@ func (h *Handler) asyncUpdateJobTitle(ctx context.Context, jobID string, userMes
 			}
 
 			logger.Debugf(ctx, "[title] calling doUpdateJobTitle: jobId=%s attempt=%d/%d userMsgLen=%d", jobID, attempt, totalAttempts, len(userMessage))
-			lastErr = h.doUpdateJobTitle(ctx, jobID, userMessage)
+			lastErr = h.doUpdateJobTitle(ctx, jobID, userMessage, systemPrompt)
 			if lastErr == nil {
 				h.titleFailCount.Store(0) // reset circuit breaker on success
 				h.titleOpenSince.Store(0) // close circuit
@@ -166,6 +211,10 @@ func (h *Handler) asyncUpdateJobTitle(ctx context.Context, jobID string, userMes
 			logger.Infof(ctx, "[title] ctx done after retries, skipping fallback: jobId=%s", jobID)
 			return
 		}
+		if !allowFallback {
+			logger.Infof(ctx, "[title] fallback disabled, giving up: jobId=%s", jobID)
+			return
+		}
 		fallback := fallbackTitleFromMessage(userMessage)
 		if fallback == "" {
 			logger.Infof(ctx, "[title] fallback empty, giving up: jobId=%s", jobID)
@@ -179,7 +228,7 @@ func (h *Handler) asyncUpdateJobTitle(ctx context.Context, jobID string, userMes
 	})
 }
 
-func (h *Handler) doUpdateJobTitle(ctx context.Context, jobID string, userMessage string) error {
+func (h *Handler) doUpdateJobTitle(ctx context.Context, jobID string, userMessage string, systemPrompt string) error {
 	logger.Debugf(ctx, "[title] doUpdateJobTitle enter: jobId=%s", jobID)
 
 	settings, err := h.settingsService.GetSettings()
@@ -201,7 +250,7 @@ func (h *Handler) doUpdateJobTitle(ctx context.Context, jobID string, userMessag
 	logger.Debugf(ctx, "[title] calling generateText: jobId=%s agentType=%s modelID=%s", jobID, titleAgent.AgentType, titleAgent.ModelID)
 	start := time.Now()
 	title, err := h.generateText(ctx, titleAgent.AgentType, titleAgent.ModelID, []*schema.Message{
-		schema.SystemMessage(titleCreatePrompt),
+		schema.SystemMessage(systemPrompt),
 		schema.UserMessage(userMessage),
 	})
 	if err != nil {

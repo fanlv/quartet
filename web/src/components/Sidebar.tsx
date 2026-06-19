@@ -129,6 +129,7 @@ export function Sidebar({ currentJobId, workspaceId, onNewChat, onSelectJob, onO
     job.status === 'running';
 
   const getJobIcon = (job: JobInfo) => {
+    if (job.mode === 'graph') return '◇';
     if (job.mode === 'loop') return '🔄';
     return '💬';
   };

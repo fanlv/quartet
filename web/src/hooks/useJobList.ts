@@ -5,7 +5,7 @@ export interface JobSummary {
   title: string;
   modelId?: string;
   status: string;
-  mode?: 'interactive' | 'loop';
+  mode?: 'interactive' | 'loop' | 'graph';
   workspaceId?: string;
   workdir?: string;
   createdAt: number;

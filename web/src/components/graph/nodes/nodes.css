@@ -1,0 +1,259 @@
+/* Graph canvas node visuals — ported from public/workflow-builder-rf.html. */
+
+.qg-node {
+  width: 200px;
+  background: var(--graph-panel, #161b22);
+  border: 1.5px solid var(--graph-border-strong, #3d4856);
+  border-radius: 11px;
+  box-shadow: 0 4px 16px #00000050;
+  overflow: hidden;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  color: var(--graph-text, #e6edf3);
+}
+
+.qg-node.selected {
+  border-color: var(--graph-accent, #4493f8);
+  box-shadow: 0 0 0 2px #4493f855, 0 6px 22px #00000060;
+}
+
+.qg-node.has-error,
+.qg-loop.has-error {
+  border-color: #f85149 !important;
+  box-shadow: 0 0 0 2px #f8514966, 0 6px 22px #00000060;
+}
+
+/* Run-state highlighting */
+.qg-node.run-running,
+.qg-loop.run-running {
+  border-color: #2ea043 !important;
+  box-shadow: 0 0 0 3px #2ea04388, 0 6px 22px #00000060 !important;
+}
+.qg-node.run-succeeded,
+.qg-loop.run-succeeded {
+  border-color: #2ea043 !important;
+}
+.qg-node.run-failed,
+.qg-loop.run-failed {
+  border-color: #f85149 !important;
+  box-shadow: 0 0 0 2px #f8514955;
+}
+.qg-node.run-skipped,
+.qg-loop.run-skipped {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.qg-node.run-interrupted,
+.qg-loop.run-interrupted {
+  border-color: #e3b341 !important;
+}
+
+.qg-node-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--graph-border, #2d3643);
+}
+.qg-node-ico {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  flex-shrink: 0;
+  color: #fff;
+}
+.qg-node-title {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qg-node-kind {
+  font-size: 10px;
+  color: var(--graph-text-dim, #8b949e);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.qg-node-body {
+  padding: 9px 11px;
+  font-size: 12px;
+  color: var(--graph-text-dim, #8b949e);
+  line-height: 1.5;
+  max-height: 60px;
+  overflow: hidden;
+}
+.qg-node-body i {
+  color: #6e7681;
+}
+.qg-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #c9d1d9;
+  background: #0d111780;
+  padding: 1px 4px;
+  border-radius: 3px;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.qg-node-vars {
+  padding: 7px 11px;
+  border-top: 1px dashed var(--graph-border, #2d3643);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.qg-var-pill {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #1f6feb22;
+  color: #79c0ff;
+  border: 1px solid #1f6feb44;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.qg-var-pill.out {
+  background: #2ea04322;
+  color: #7ee787;
+  border-color: #2ea04344;
+}
+.qg-var-pill.alias {
+  background: #a371f722;
+  color: #d2a8ff;
+  border-color: #a371f744;
+}
+.qg-port-tag {
+  position: absolute;
+  font-size: 9px;
+  font-weight: 700;
+  pointer-events: none;
+  right: 14px;
+}
+.qg-port-tag.yes {
+  top: calc(35% - 16px);
+  color: #2ea043;
+}
+.qg-port-tag.no {
+  top: calc(70% - 16px);
+  color: #f85149;
+}
+
+/* loop group container */
+.qg-loop {
+  border: 1.6px dashed #56d4dd;
+  border-radius: 14px;
+  background: #56d4dd0c;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+.qg-loop.selected {
+  border-color: var(--graph-accent, #4493f8);
+  box-shadow: 0 0 0 2px #4493f855;
+}
+.qg-loop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+.qg-loop-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: #56d4dd;
+}
+.qg-loop-meta {
+  font-size: 11px;
+  color: var(--graph-text-dim, #8b949e);
+}
+.qg-loop-cap {
+  font-size: 10px;
+  color: var(--graph-text-dim, #8b949e);
+  border: 1px solid var(--graph-border, #2d3643);
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+
+/* ---- Connection handles ---- */
+/* React Flow's default handle is ~6px — far too small for a finger. Enlarge it
+   and add a hit-area pseudo-element so drag-to-connect is reliable on touch. */
+.graph-canvas-wrap .react-flow__handle {
+  width: 11px;
+  height: 11px;
+  background: var(--graph-accent, #4493f8);
+  border: 2px solid #0d1117;
+}
+.graph-canvas-wrap .react-flow__handle::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+}
+
+/* ---- Deletable edge midpoint controls ---- */
+.qg-edge-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: all;
+  font-size: 9px;
+  font-weight: 700;
+}
+.qg-edge-port {
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: #0d1117cc;
+}
+.qg-edge-port.yes {
+  color: #2ea043;
+}
+.qg-edge-port.no {
+  color: #f85149;
+}
+.qg-edge-delete {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--graph-border-strong, #3d4856);
+  background: var(--graph-panel, #161b22);
+  color: var(--graph-text-dim, #8b949e);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.12s, color 0.12s, border-color 0.12s, transform 0.12s;
+}
+.qg-edge-delete:hover {
+  opacity: 1;
+  color: #f85149;
+  border-color: #f85149;
+}
+
+/* Touch devices: make the handles and edge × buttons comfortably tappable and
+   always fully visible (no hover state to reveal them). */
+@media (hover: none), (pointer: coarse) {
+  .graph-canvas-wrap .react-flow__handle {
+    width: 16px;
+    height: 16px;
+  }
+  .graph-canvas-wrap .react-flow__handle::after {
+    inset: -14px;
+  }
+  .qg-edge-delete {
+    width: 30px;
+    height: 30px;
+    font-size: 19px;
+    opacity: 0.9;
+  }
+}
