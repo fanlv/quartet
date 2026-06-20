@@ -60,6 +60,43 @@ export function QuartetNode({ data, selected }: NodeProps<QuartetFlowNode>) {
   const { kind, graphNode, runStatus, hasError } = data;
   const cfg = graphNode.config;
   const k = kindOf(kind);
+
+  // A loop-scoped start/end (parentId set) is the loop's entry / exit marker,
+  // rendered as a port tab mounted flush ON the container border rather than a
+  // full node card. The entry exposes an inward (source) handle on its right
+  // edge; the exit an inward (target) handle on its left edge, so the user wires
+  // entry → body → exit. Sizing / pinning to the border is owned by the adapter
+  // (configToFlow), keeping the marker glued to the boundary as the loop resizes.
+  if ((kind === 'start' || kind === 'end') && graphNode.parentId) {
+    const isEntry = kind === 'start';
+    const markerClass = [
+      'qg-loop-port',
+      isEntry ? 'entry' : 'exit',
+      selected ? 'selected' : '',
+      runStatus ? `run-${runStatus}` : '',
+      hasError ? 'has-error' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    return (
+      <div
+        className={markerClass}
+        data-testid={`graph-loop-port-${graphNode.id}`}
+        title={isEntry ? t('graph.node.loopEntryTitle') : t('graph.node.loopExitTitle')}
+      >
+        <span className="qg-loop-port-dot">{isEntry ? '▶' : '■'}</span>
+        <span className="qg-loop-port-label">
+          {isEntry ? t('graph.node.loopEntryLabel') : t('graph.node.loopExitLabel')}
+        </span>
+        {isEntry ? (
+          <Handle type="source" position={Position.Right} />
+        ) : (
+          <Handle type="target" position={Position.Left} />
+        )}
+      </div>
+    );
+  }
+
   const inVars = extractVars(cfg);
   const outVars = cfg?.outputVariables || [];
   const alias = cfg?.lastAssistantAlias;

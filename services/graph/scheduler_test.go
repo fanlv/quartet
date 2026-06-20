@@ -142,7 +142,7 @@ func TestSchedulerConcurrencyBound(t *testing.T) {
 	nodes := []model.GraphNode{node("s", model.GraphNodeTypeStart), node("e", model.GraphNodeTypeEnd)}
 	edges := []model.GraphEdge{}
 	for _, id := range []string{"p1", "p2", "p3"} {
-		nodes = append(nodes, model.GraphNode{ID: id, Type: model.GraphNodeTypePrompt, Config: model.GraphNodeConfig{Prompt: "hi"}})
+		nodes = append(nodes, model.GraphNode{ID: id, Type: model.GraphNodeTypePrompt, Config: model.GraphNodeConfig{Prompt: "hi", AgentType: "tester"}})
 		edges = append(edges, edge("s_"+id, "s", id), edge(id+"_e", id, "e"))
 	}
 	cfg := model.GraphConfig{
@@ -331,7 +331,7 @@ func TestSchedulerJobTimeoutCancelsRunningInstances(t *testing.T) {
 		RunConfig: model.GraphRunConfig{JobTimeoutSec: 1},
 		Nodes: []model.GraphNode{
 			node("s", model.GraphNodeTypeStart),
-			{ID: "slow", Type: model.GraphNodeTypePrompt, Config: model.GraphNodeConfig{Prompt: "wait"}},
+			{ID: "slow", Type: model.GraphNodeTypePrompt, Config: model.GraphNodeConfig{Prompt: "wait", AgentType: "tester"}},
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
@@ -370,7 +370,7 @@ func TestPromptTransientRetryRecovers(t *testing.T) {
 	cfg := model.GraphConfig{
 		Nodes: []model.GraphNode{
 			node("s", model.GraphNodeTypeStart),
-			{ID: "p", Type: model.GraphNodeTypePrompt, Config: model.GraphNodeConfig{Prompt: "hello"}},
+			{ID: "p", Type: model.GraphNodeTypePrompt, Config: model.GraphNodeConfig{Prompt: "hello", AgentType: "tester"}},
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
@@ -404,7 +404,7 @@ func TestPromptRateLimitRetriesExhausted(t *testing.T) {
 	cfg := model.GraphConfig{
 		Nodes: []model.GraphNode{
 			node("s", model.GraphNodeTypeStart),
-			{ID: "p", Type: model.GraphNodeTypePrompt, Config: model.GraphNodeConfig{Prompt: "hello"}},
+			{ID: "p", Type: model.GraphNodeTypePrompt, Config: model.GraphNodeConfig{Prompt: "hello", AgentType: "tester"}},
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{

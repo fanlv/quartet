@@ -7,9 +7,10 @@
 // and a flat, builder-friendly shape — it deliberately mirrors the backend
 // grammar so a round-trip never changes meaning:
 //
-//   comparison := {{var}} OP operand option*
+//   comparison := {{var}} BINOP operand option* | {{var}} UNOP option*
 //   operand    := {{var}} | "literal"
-//   OP         := == | != | > | >= | < | <= | StartWith | EndWith
+//   BINOP      := == | != | > | >= | < | <= | StartWith | EndWith
+//   UNOP       := 是偶数
 //   option     := 忽略大小写 | 忽略空格
 //   joined by a SINGLE connector: 且 (all) or 或 (any)
 //
@@ -18,10 +19,26 @@
 // tryParseSimple return null so the caller falls back to the raw-text "advanced"
 // editor and the user's expression is never silently rewritten.
 
-export type CondOp = '==' | '!=' | '>' | '>=' | '<' | '<=' | 'StartWith' | 'EndWith';
+export type CondOp =
+  | '=='
+  | '!='
+  | '>'
+  | '>='
+  | '<'
+  | '<='
+  | 'StartWith'
+  | 'EndWith'
+  | '是偶数';
 
-// All eight operators the backend accepts, in builder display order.
-export const COND_OPS: CondOp[] = ['==', '!=', '>', '>=', '<', '<=', 'StartWith', 'EndWith'];
+// All operators the backend accepts, in builder display order.
+export const COND_OPS: CondOp[] = ['==', '!=', '>', '>=', '<', '<=', 'StartWith', 'EndWith', '是偶数'];
+
+// Postfix unary operators take only a left operand (no right value).
+export const UNARY_OPS: CondOp[] = ['是偶数'];
+
+export function isUnaryOp(op: CondOp): boolean {
+  return UNARY_OPS.includes(op);
+}
 
 export type CondJoin = '且' | '或';
 
@@ -77,6 +94,9 @@ export function serializeCondition(cond: SimpleCondition): string {
     (cond.ignoreCase ? ` ${OPT_IGNORE_CASE}` : '') + (cond.ignoreSpace ? ` ${OPT_IGNORE_SPACE}` : '');
   const parts = cond.rules.map((r) => {
     const left = `{{${r.leftVar}}}`;
+    if (isUnaryOp(r.op)) {
+      return `${left} ${r.op}${optSuffix}`;
+    }
     const right = serializeOperand(r.rightValue, r.rightIsVar);
     return `${left} ${r.op} ${right}${optSuffix}`;
   });
@@ -89,7 +109,9 @@ export function serializeCondition(cond: SimpleCondition): string {
 export function isSimpleConditionComplete(cond: SimpleCondition): boolean {
   if (cond.rules.length === 0) return false;
   return cond.rules.every(
-    (r) => isValidVarName(r.leftVar) && (!r.rightIsVar || isValidVarName(r.rightValue)),
+    (r) =>
+      isValidVarName(r.leftVar) &&
+      (isUnaryOp(r.op) || !r.rightIsVar || isValidVarName(r.rightValue)),
   );
 }
 
@@ -108,6 +130,7 @@ type Tok =
   | { k: 'optSpace' };
 
 const COMPARE_OPS = ['==', '!=', '>=', '<=', '>', '<'];
+const OP_IS_EVEN = '是偶数';
 
 function isAsciiLetter(ch: string): boolean {
   return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
@@ -192,6 +215,11 @@ function tokenize(expr: string): Tok[] | null {
       i += op.length;
       continue;
     }
+    if (rs.slice(i, i + OP_IS_EVEN.length).join('') === OP_IS_EVEN) {
+      toks.push({ k: 'op', v: OP_IS_EVEN as CondOp });
+      i += OP_IS_EVEN.length;
+      continue;
+    }
     if (r === '且') {
       toks.push({ k: 'and' });
       i++;
@@ -242,9 +270,17 @@ function parseComparison(
   if (!left || left.k !== 'var') return null;
   const opTok = toks[i + 1];
   if (!opTok || opTok.k !== 'op') return null;
-  const right = toks[i + 2];
-  if (!right || (right.k !== 'var' && right.k !== 'str')) return null;
-  let j = i + 3;
+  let j = i + 2;
+  let rightIsVar = false;
+  let rightValue = '';
+  // Binary operators consume a right operand; unary (postfix) operators do not.
+  if (!isUnaryOp(opTok.v)) {
+    const right = toks[i + 2];
+    if (!right || (right.k !== 'var' && right.k !== 'str')) return null;
+    rightIsVar = right.k === 'var';
+    rightValue = right.v;
+    j = i + 3;
+  }
   let ignoreCase = false;
   let ignoreSpace = false;
   while (toks[j] && (toks[j].k === 'optCase' || toks[j].k === 'optSpace')) {
@@ -256,8 +292,8 @@ function parseComparison(
     rule: {
       leftVar: left.v,
       op: opTok.v,
-      rightIsVar: right.k === 'var',
-      rightValue: right.v,
+      rightIsVar,
+      rightValue,
     },
     ignoreCase,
     ignoreSpace,

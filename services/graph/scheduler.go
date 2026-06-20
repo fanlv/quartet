@@ -51,6 +51,11 @@ type readyItem struct {
 	visible       map[string]string
 	scope         *scopeRun
 	inflowSession string
+	// loopVars carries the QUARTET_LOOP_* iteration context of the innermost
+	// enclosing loop (nil in the main scope). Computed at enqueue time from the
+	// live scope and threaded to executeNode so it can be injected into the shell
+	// env and the {{...}} substitution without polluting the persisted snapshot.
+	loopVars map[string]string
 }
 
 // nodeResult is a worker's completion report.
@@ -181,14 +186,12 @@ func (sc *scheduler) index() {
 		sc.outEdges[e.SourceNodeID] = append(sc.outEdges[e.SourceNodeID], e)
 		sc.inDegree[e.TargetNodeID]++
 	}
-	// Each loop container's subgraph entry is its single child node (business or
-	// nested loop, not start/end) with no intra-scope in-edge. The validator
-	// guarantees exactly one such entry per container.
+	// Each loop container's subgraph entry is its loop-scoped start node (the
+	// entry marker on the container's border). The validator guarantees exactly
+	// one start per container. Iteration seeding resolves this start's out-edges,
+	// mirroring how seedFresh seeds the main-graph start nodes.
 	for _, n := range sc.cfg.Nodes {
-		if n.ParentID == "" || n.Type == model.GraphNodeTypeStart || n.Type == model.GraphNodeTypeEnd {
-			continue
-		}
-		if sc.inDegree[n.ID] == 0 {
+		if n.ParentID != "" && n.Type == model.GraphNodeTypeStart {
 			sc.loopEntry[n.ParentID] = n.ID
 		}
 	}
@@ -316,7 +319,7 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 					inFlight, len(sc.ready), limit, effectiveNodeTimeout(item.runConfig, item.node))
 				go func(it readyItem) {
 					nodeCtx, nodeCancel := contextWithNodeTimeout(workerCtx, it.runConfig, it.node)
-					outcome, execErr := sc.svc.executeNode(nodeCtx, it.run, it.node, it.key, it.visible, it.disabled, sc.runner, it.inflowSession)
+					outcome, execErr := sc.svc.executeNode(nodeCtx, it.run, it.node, it.key, it.visible, it.disabled, sc.runner, it.inflowSession, it.loopVars)
 					if workerCtx.Err() == nil && errors.Is(nodeCtx.Err(), context.DeadlineExceeded) {
 						execErr = nodeTimeoutErr(it.node, effectiveNodeTimeout(it.runConfig, it.node), execErr)
 					}
@@ -665,11 +668,11 @@ func (sc *scheduler) resolveEdge(ctx context.Context, scope *scopeRun, e model.G
 	sc.decide(ctx, scope, sc.nodesByID[e.TargetNodeID], targetKey, MergeVisibleSnapshots(sc.contribs[targetKeyStr]), pickInflowSession(sc.contribs[targetKeyStr]))
 }
 
-// decide is invoked once a node instance's every in-edge is resolved (or it is
-// seeded directly as a loop subgraph entry). ≥1 active in-edge activates the
-// instance (execute / route / mark-end / drive-loop); all-pruned prunes it and
-// propagates the prune downstream. inflowSession is the session flowing into the
-// instance (§3 会话血缘), resolved from its activated in-edges.
+// decide is invoked once a node instance's every in-edge is resolved. ≥1 active
+// in-edge activates the instance (execute / route / mark-end / drive-loop);
+// all-pruned prunes it and propagates the prune downstream. inflowSession is the
+// session flowing into the instance (§3 会话血缘), resolved from its activated
+// in-edges.
 func (sc *scheduler) decide(ctx context.Context, scope *scopeRun, node model.GraphNode, key model.GraphInstanceKey, visible map[string]string, inflowSession string) {
 	// Defensive idempotence (also relied on by resume): an instance already in a
 	// reliable terminal state (succeeded/skipped) is never re-decided or re-run.
@@ -722,7 +725,10 @@ func (sc *scheduler) decide(ctx context.Context, scope *scopeRun, node model.Gra
 func (sc *scheduler) decideIfElse(ctx context.Context, scope *scopeRun, node model.GraphNode, key model.GraphInstanceKey, visible map[string]string, inflowSession string) {
 	keyStr := instanceKeyString(key)
 	now := time.Now().UnixMilli()
-	in := CondEvalInput{Variables: visible, Disabled: sc.disabled}
+	// Loop iteration vars are visible to a condition inside a loop body, on a
+	// throwaway overlay only — `visible` is reused below for the persisted
+	// instance snapshot and the downstream contribution, so it must stay pristine.
+	in := CondEvalInput{Variables: withLoopVars(visible, scope), Disabled: sc.disabled}
 	result, cerr := EvaluateCondition(node.Config.Condition, in)
 	if cerr != nil {
 		rerr := runtimeError(sc.run.ID, key, node, cerr)
@@ -813,6 +819,10 @@ func (sc *scheduler) enqueue(ctx context.Context, scope *scopeRun, node model.Gr
 	}
 	keyStr := instanceKeyString(key)
 	startedAt := time.Now().UnixMilli()
+	// Iteration context of the innermost enclosing loop (nil in the main scope).
+	// Computed here so both the display-script seed below and the execution path
+	// see the same QUARTET_LOOP_* values.
+	loopVars := loopIterationVars(scope)
 	state := model.GraphInstanceState{
 		Key: key, NodeID: node.ID, NodeTitle: node.Title, NodeType: node.Type,
 		Status: model.GraphInstanceStatusRunning, Version: sc.run.CurrentVersion,
@@ -827,7 +837,11 @@ func (sc *scheduler) enqueue(ctx context.Context, scope *scopeRun, node model.Gr
 	// swallowed, leaving the node without a display session.
 	if node.Type == model.GraphNodeTypeShell {
 		if recorder, ok := sc.runner.(ShellSessionRecorder); ok {
-			script := substituteVariables(node.Config.Script, visible, sc.disabled)
+			// Substitute against the loop iteration vars too so the recorded script
+			// matches what actually executes (executeShellNode injects the same
+			// vars); otherwise the sidebar would show an unsubstituted
+			// {{QUARTET_LOOP_INDEX}}. mergeLoopVars clones, leaving `visible` intact.
+			script := substituteVariables(node.Config.Script, mergeLoopVars(visible, loopVars), sc.disabled)
 			sid, err := recorder.BeginShellSession(ctx, sc.run.JobID, script, startedAt)
 			if err != nil {
 				logger.Warnf(ctx, "[graph] begin shell session failed: runId=%s nodeId=%s err=%v", sc.run.ID, node.ID, err)
@@ -857,6 +871,7 @@ func (sc *scheduler) enqueue(ctx context.Context, scope *scopeRun, node model.Gr
 		visible:       visible,
 		scope:         scope,
 		inflowSession: inflowSession,
+		loopVars:      loopVars,
 	})
 }
 
@@ -993,10 +1008,10 @@ func scopeKey(prefix []model.GraphLoopIteration, nodeID string) model.GraphInsta
 }
 
 // concurrencyLimit resolves the effective global concurrency bound: 0 means the
-// default (4); the validator already rejects values outside [0, maxConcurrency].
+// default (8); the validator already rejects values outside [0, maxConcurrency].
 func concurrencyLimit(configured int) int {
 	if configured <= 0 {
-		return 4
+		return 8
 	}
 	if configured > maxConcurrency {
 		return maxConcurrency

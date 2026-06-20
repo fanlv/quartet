@@ -877,6 +877,9 @@
       "refresh": "刷新",
       "back": "返回"
     },
+    "workspace": {
+      "label": "工作空间"
+    },
     "sidebar": {
       "workspace": "工作区",
       "library": "工作流库",
@@ -915,7 +918,6 @@
       "runEventLog": "运行事件日志",
       "selectRunHint": "选择一个运行查看已持久化的事件。运行中的任务会实时推送更新。"
     },
-    "summary": "{{nodes}} 个结点 / {{edges}} 条边",
     "defaultName": "新建 Graph 工作流",
     "nodeTitle": {
       "start": "开始",
@@ -946,7 +948,8 @@
       "importNeedsNodesEdges": "导入的文件必须包含 nodes[] 和 edges[]",
       "imported": "已导入。保存前请先校验。",
       "configNeedsNodesEdges": "配置必须包含 nodes[] 和 edges[]",
-      "jsonApplied": "JSON 已应用到画布。"
+      "jsonApplied": "JSON 已应用到画布。",
+      "nodesCopied": "已复制 {{count}} 个结点。"
     },
     "dialogs": {
       "deleteWorkflowTitle": "删除工作流",
@@ -1012,10 +1015,13 @@
       "paletteHint": "拖拽或点击添加结点；拖到循环虚线框内即可作为子结点加入循环。多出边=并行，多入边=自动汇总。",
       "exitConnect": "退出连线",
       "startConnect": "点选连线",
+      "autoLayout": "自动布局",
       "sourcePrefix": "起点: {{id}}",
       "connectHint": "先点起点，再点终点",
       "ifElsePorts": "If-Else 出端口",
-      "connectTargets": "连线终点"
+      "connectTargets": "连线终点",
+      "undo": "撤销 (Cmd/Ctrl+Z)",
+      "redo": "重做 (Cmd/Ctrl+Shift+Z)"
     },
     "inspector": {
       "nodeConfig": "结点配置",
@@ -1032,7 +1038,7 @@
       "deleteVar": "删除变量",
       "addVar": "+ 添加变量",
       "runConfig": "运行配置",
-      "concurrency": "并发度 (默认 4, 最大 16, 1 串行)",
+      "concurrency": "并发度 (默认 8, 最大 16, 1 串行)",
       "defaultNodeTimeout": "默认结点超时 (秒, 0 不限)",
       "jobTimeout": "Job 总超时 (秒, 0 不限)",
       "loopMaxItersFallback": "循环最大次数兜底 (默认 100, 最大 1000)",
@@ -1054,8 +1060,8 @@
       "thoughtLevelDesc": "该结点新建会话时应用的思考级别。",
       "sessionStrategy": "会话策略",
       "sessionNew": "新建会话",
-      "sessionInherit": "继承上游 (仅单入边)",
-      "sessionStrategyDesc": "多入边 join 结点必须新建会话。",
+      "sessionInherit": "继承上游",
+      "sessionStrategyDesc": "继承上游 Agent 的会话历史；多入边 join 时复制结点 ID 最大的上游会话，其余上游的输出变量仍照常合并。",
       "varName": "变量",
       "shellScript": "Shell 脚本",
       "shellScriptPlaceholder": "例如: make test",
@@ -1088,6 +1094,7 @@
       "condIgnoreCase": "忽略大小写",
       "condIgnoreSpace": "忽略空格",
       "condOrderedHint": "大小比较按字符串字典序，非数值大小：例如 \"10\" 小于 \"9\"。",
+      "condOpIsEven": "是偶数",
       "condPreview": "表达式预览",
       "condPreviewIncomplete": "（填写变量名后生成）",
       "loopMode": "循环方式",
@@ -1098,6 +1105,7 @@
       "maxIterations": "最大次数兜底 (默认 100, 最大 1000)",
       "maxIterationsDesc": "把其他结点拖入虚线框即可加入循环体。",
       "controlNodeDesc": "控制结点只用于工作流的入口 / 终点，不可配置业务动作或输出变量。",
+      "duplicateNode": "复制结点",
       "deleteNode": "删除结点",
       "frozenBanner": "该结点已在本次运行中开始 / 完成，执行配置不可修改（仅未开始结点可改）。"
     },
@@ -1130,7 +1138,11 @@
       "loopFixedPrefix": "固定 ",
       "loopFixedSuffix": " 次",
       "loopFallback": "兜底 {{count}}",
-      "loopDefaultTitle": "循环"
+      "loopDefaultTitle": "循环",
+      "loopEntryLabel": "入口",
+      "loopExitLabel": "出口",
+      "loopEntryTitle": "循环入口 —— 连到循环体的第一个结点",
+      "loopExitTitle": "循环出口 —— 把循环体连到这里以结束每一轮"
     }
   }
 }

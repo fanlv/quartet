@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -21,10 +22,15 @@ import (
 //	andExpr    := notExpr ( '且' notExpr )*
 //	notExpr    := '非' notExpr | primary
 //	primary    := '(' orExpr ')' | comparison
-//	comparison := operand OP operand option*
+//	comparison := operand BINOP operand option* | operand UNOP option*
 //	operand    := '{{' name '}}' | '"' string '"'
-//	OP         := == | != | > | >= | < | <= | StartWith | EndWith
+//	BINOP      := == | != | > | >= | < | <= | StartWith | EndWith
+//	UNOP       := 是偶数
 //	option     := 忽略大小写 | 忽略空格
+//
+// 是偶数 is a postfix unary operator: it takes only a left operand and is true
+// when that operand parses as an integer whose value is even. A non-numeric
+// operand makes it false (never an evaluation error).
 //
 // A bare operand is never a boolean term — `{{x}}` alone is rejected, every
 // `{{var}}` must appear inside an explicit comparison.
@@ -72,6 +78,17 @@ const (
 	optIgnoreCase  = "忽略大小写"
 	optIgnoreSpace = "忽略空格"
 )
+
+// Unary (postfix) operators take only a left operand. They are written as a
+// trailing keyword, e.g. `{{n}} 是偶数`.
+const opIsEven = "是偶数"
+
+// unaryOperators lists every postfix unary operator keyword.
+var unaryOperators = []string{opIsEven}
+
+func isUnaryOp(op string) bool {
+	return slices.Contains(unaryOperators, op)
+}
 
 type tokenKind int
 
@@ -163,6 +180,9 @@ func tokenizeCondition(expr string) ([]token, error) {
 			}
 			toks = append(toks, tok)
 			i = next
+		case strings.HasPrefix(string(rs[i:]), opIsEven):
+			toks = append(toks, token{kind: tkOp, val: opIsEven, pos: i})
+			i += len([]rune(opIsEven))
 		case r == '且':
 			toks = append(toks, token{kind: tkAnd, val: "且", pos: i})
 			i++
@@ -391,11 +411,15 @@ func (p *condParser) parseComparison() (ConditionExpr, error) {
 		return nil, fmt.Errorf("expected a comparison operator after operand at position %d (bare variables are not allowed as truth tests; use an explicit comparison)", opTok.pos)
 	}
 	p.next()
-	right, err := p.parseOperand()
-	if err != nil {
-		return nil, err
+	cmp := &CondCompare{Left: left, Op: opTok.val}
+	// Binary operators consume a right operand; unary (postfix) operators do not.
+	if !isUnaryOp(opTok.val) {
+		right, err := p.parseOperand()
+		if err != nil {
+			return nil, err
+		}
+		cmp.Right = right
 	}
-	cmp := &CondCompare{Left: left, Op: opTok.val, Right: right}
 	// Greedily consume comparison options.
 	for {
 		switch p.peek().kind {

@@ -39,7 +39,7 @@ func (s *recordingSink) cleared(runID string) bool {
 
 // promptNode builds a Prompt business node (uses the runner, unlike Shell).
 func promptNode(id string) model.GraphNode {
-	return model.GraphNode{ID: id, Type: model.GraphNodeTypePrompt, Config: model.GraphNodeConfig{Prompt: "do " + id}}
+	return model.GraphNode{ID: id, Type: model.GraphNodeTypePrompt, Config: model.GraphNodeConfig{Prompt: "do " + id, AgentType: "tester"}}
 }
 
 // waitRunningCount polls the run until at least n instances are running.

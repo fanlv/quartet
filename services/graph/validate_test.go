@@ -9,7 +9,12 @@ import (
 // --- builders ---
 
 func node(id string, t model.GraphNodeType) model.GraphNode {
-	return model.GraphNode{ID: id, Type: t}
+	n := model.GraphNode{ID: id, Type: t}
+	// Agent-class nodes default to a new session, which requires an Agent.
+	if t == model.GraphNodeTypePrompt || t == model.GraphNodeTypeEvaluator {
+		n.Config.AgentType = "tester"
+	}
+	return n
 }
 
 func edge(id, src, dst string) model.GraphEdge {
@@ -287,8 +292,71 @@ func TestValidate_LastAssistantAliasReserved(t *testing.T) {
 	}
 }
 
-func TestValidate_MultiInEdgeAgentInheritRejected(t *testing.T) {
-	// two shells fan into a prompt node configured to inherit → must fail
+// QUARTET_-prefixed names are reserved for engine-injected loop iteration vars,
+// so a user output / initial / alias variable in that namespace must be rejected
+// at save time (otherwise it would be silently clobbered at runtime).
+func TestValidate_QuartetPrefixReserved(t *testing.T) {
+	cfg := linearValid()
+	cfg.Variables = map[string]string{"QUARTET_LOOP_INDEX": "x"}
+	cfg.Nodes[1].Config.OutputVariables = []string{"QUARTET_FOO"}
+	errs := validateConfig(cfg)
+	if !hasErrForVar(errs, "QUARTET_LOOP_INDEX") {
+		t.Error("expected reserved initial variable error for QUARTET_LOOP_INDEX")
+	}
+	if !hasErrForVar(errs, "QUARTET_FOO") {
+		t.Error("expected reserved output variable error for QUARTET_FOO")
+	}
+
+	if !isReservedVar("QUARTET_LOOP_INDEX") || !isReservedVar("QUARTET_") {
+		t.Error("QUARTET_ prefix must be reserved")
+	}
+	if isReservedVar("quartet_loop") || isReservedVar("LOOP_INDEX") {
+		t.Error("only the exact QUARTET_ prefix (and '_' prefix) is reserved")
+	}
+}
+
+func TestValidate_MultiInEdgeAgentInheritAllowed(t *testing.T) {
+	// two prompt agents fan into a join prompt configured to inherit. Both
+	// upstreams are Agents (each in-edge path carries an upstream session), so
+	// the join is NOT the first Agent on any start chain → inherit is allowed.
+	// At run time it forks the greatest-node-ID upstream session (§3 会话血缘).
+	cfg := &model.GraphConfig{
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			func() model.GraphNode {
+				n := node("a", model.GraphNodeTypePrompt)
+				n.Config.SessionStrategy = model.GraphSessionStrategyNew
+				return n
+			}(),
+			func() model.GraphNode {
+				n := node("b", model.GraphNodeTypePrompt)
+				n.Config.SessionStrategy = model.GraphSessionStrategyNew
+				return n
+			}(),
+			func() model.GraphNode {
+				n := node("p", model.GraphNodeTypePrompt)
+				n.Config.SessionStrategy = model.GraphSessionStrategyInherit
+				return n
+			}(),
+			node("e", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{
+			edge("e1", "s", "a"),
+			edge("e2", "s", "b"),
+			edge("e3", "a", "p"),
+			edge("e4", "b", "p"),
+			edge("e5", "p", "e"),
+		},
+	}
+	if errs := validateConfig(cfg); len(errs) != 0 {
+		t.Fatalf("expected valid graph (multi-in-edge inherit allowed), got: %+v", errs)
+	}
+}
+
+func TestValidate_MultiInEdgeFirstAgentInheritRejected(t *testing.T) {
+	// two shells fan into a prompt node configured to inherit. Neither upstream
+	// is an Agent, so the join IS the first Agent on the start chains and has no
+	// upstream session to inherit → must fail (the first-Agent backstop).
 	cfg := &model.GraphConfig{
 		Nodes: []model.GraphNode{
 			node("s", model.GraphNodeTypeStart),
@@ -317,7 +385,7 @@ func TestValidate_MultiInEdgeAgentInheritRejected(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("expected session inheritance error on multi-in-edge prompt, got: %+v", errs)
+		t.Fatalf("expected first-Agent session error on multi-in-edge prompt with no upstream Agent, got: %+v", errs)
 	}
 }
 
@@ -508,6 +576,8 @@ func loopValid() *model.GraphConfig {
 	loop.Config.LoopMode = model.GraphLoopModeFixed
 	loop.Config.FixedCount = 3
 	loop.Config.MaxIterations = 10
+	loopStart := node("inStart", model.GraphNodeTypeStart)
+	loopStart.ParentID = "loop"
 	inner := node("in", model.GraphNodeTypeShell)
 	inner.ParentID = "loop"
 	innerEnd := node("inEnd", model.GraphNodeTypeEnd)
@@ -516,6 +586,7 @@ func loopValid() *model.GraphConfig {
 		Nodes: []model.GraphNode{
 			node("s", model.GraphNodeTypeStart),
 			loop,
+			loopStart,
 			inner,
 			innerEnd,
 			node("e", model.GraphNodeTypeEnd),
@@ -523,7 +594,8 @@ func loopValid() *model.GraphConfig {
 		Edges: []model.GraphEdge{
 			edge("e1", "s", "loop"),
 			edge("e2", "loop", "e"),
-			edge("e3", "in", "inEnd"), // intra-loop
+			edge("e0", "inStart", "in"), // loop entry → body
+			edge("e3", "in", "inEnd"),   // intra-loop body → exit
 		},
 	}
 }
@@ -569,13 +641,39 @@ func TestValidate_LoopMissingInternalEnd(t *testing.T) {
 
 func TestValidate_LoopMultipleEntries(t *testing.T) {
 	cfg := loopValid()
-	// add a second entry node inside the loop with no in-edge
-	extra := node("in2", model.GraphNodeTypeShell)
+	// add a second loop-scoped start (entry marker) inside the loop — a subgraph
+	// must have exactly one entry, so two starts is a violation.
+	extra := node("inStart2", model.GraphNodeTypeStart)
 	extra.ParentID = "loop"
 	cfg.Nodes = append(cfg.Nodes, extra)
-	cfg.Edges = append(cfg.Edges, edge("e4", "in2", "inEnd"))
+	cfg.Edges = append(cfg.Edges, edge("e5", "inStart2", "in"))
 	if !hasErrForNode(validateConfig(cfg), "loop") {
 		t.Fatalf("expected single-entry violation on loop, got: %+v", validateConfig(cfg))
+	}
+}
+
+// A loop subgraph with no entry start (only a body + exit end) is invalid: the
+// engine has nothing to seed each round from.
+func TestValidate_LoopMissingEntryStart(t *testing.T) {
+	cfg := loopValid()
+	var nodes []model.GraphNode
+	for _, n := range cfg.Nodes {
+		if n.ID == "inStart" {
+			continue
+		}
+		nodes = append(nodes, n)
+	}
+	cfg.Nodes = nodes
+	var edges []model.GraphEdge
+	for _, e := range cfg.Edges {
+		if e.ID == "e0" {
+			continue
+		}
+		edges = append(edges, e)
+	}
+	cfg.Edges = edges
+	if !hasErrForNode(validateConfig(cfg), "loop") {
+		t.Fatalf("expected missing-entry-start error on loop, got: %+v", validateConfig(cfg))
 	}
 }
 

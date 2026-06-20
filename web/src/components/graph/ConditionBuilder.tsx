@@ -4,6 +4,7 @@ import {
   COND_OPS,
   emptySimpleCondition,
   isSimpleConditionComplete,
+  isUnaryOp,
   serializeCondition,
   tryParseSimple,
   type CondJoin,
@@ -28,7 +29,8 @@ interface ConditionBuilderProps {
 // Operator labels are intentionally locale-independent: the bare comparison
 // symbol, and the literal backend keyword for the word operators. Same display
 // in every language, and the symbol matches the token emitted into the preview
-// / stored expression.
+// / stored expression. The 是偶数 unary operator is shown via a translated label
+// (see condOpIsEven) since a bare keyword is less obvious than a symbol.
 const OP_LABEL: Record<CondOp, string> = {
   '==': '==',
   '!=': '!=',
@@ -38,6 +40,7 @@ const OP_LABEL: Record<CondOp, string> = {
   '<=': '<=',
   StartWith: 'StartWith',
   EndWith: 'EndWith',
+  是偶数: '是偶数',
 };
 
 const ORDERED_OPS = new Set<CondOp>(['>', '>=', '<', '<=']);
@@ -205,31 +208,35 @@ export function ConditionBuilder({
           >
             {COND_OPS.map((op) => (
               <option key={op} value={op}>
-                {OP_LABEL[op]}
+                {op === '是偶数' ? t('graph.inspector.condOpIsEven') : OP_LABEL[op]}
               </option>
             ))}
           </select>
-          <input
-            className="gi-cond-val"
-            list={rule.rightIsVar ? listId : undefined}
-            value={rule.rightValue}
-            placeholder={
-              rule.rightIsVar
-                ? t('graph.inspector.condLeftPlaceholder')
-                : t('graph.inspector.condValuePlaceholder')
-            }
-            disabled={readOnly}
-            onChange={(e) => updateRule(i, { rightValue: e.target.value })}
-          />
-          <label className="gi-cond-rightvar">
-            <input
-              type="checkbox"
-              checked={rule.rightIsVar}
-              disabled={readOnly}
-              onChange={(e) => updateRule(i, { rightIsVar: e.target.checked })}
-            />
-            {t('graph.inspector.condRightIsVar')}
-          </label>
+          {!isUnaryOp(rule.op) && (
+            <>
+              <input
+                className="gi-cond-val"
+                list={rule.rightIsVar ? listId : undefined}
+                value={rule.rightValue}
+                placeholder={
+                  rule.rightIsVar
+                    ? t('graph.inspector.condLeftPlaceholder')
+                    : t('graph.inspector.condValuePlaceholder')
+                }
+                disabled={readOnly}
+                onChange={(e) => updateRule(i, { rightValue: e.target.value })}
+              />
+              <label className="gi-cond-rightvar">
+                <input
+                  type="checkbox"
+                  checked={rule.rightIsVar}
+                  disabled={readOnly}
+                  onChange={(e) => updateRule(i, { rightIsVar: e.target.checked })}
+                />
+                {t('graph.inspector.condRightIsVar')}
+              </label>
+            </>
+          )}
         </div>
       ))}
 

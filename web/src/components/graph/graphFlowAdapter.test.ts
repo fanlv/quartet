@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   LOOP_DEFAULT_HEIGHT,
   LOOP_DEFAULT_WIDTH,
+  clearNestConstraint,
   configToFlow,
   flowToConfig,
+  nestConstraint,
   runStatusByNode,
 } from './graphFlowAdapter';
 import type { GraphConfig, GraphInstanceState } from '../../types/graph';
@@ -58,11 +60,13 @@ const loopConfig: GraphConfig = {
       config: { script: 'echo loop' },
       layout: { x: 40, y: 60 },
     },
+    { id: 'innerStart', type: 'start', parentId: 'loop', layout: { x: 0, y: 180 } },
     { id: 'innerEnd', type: 'end', parentId: 'loop', layout: { x: 300, y: 60 } },
     { id: 'end', type: 'end', layout: { x: 1000, y: 0 } },
   ],
   edges: [
     { id: 'e1', sourceNodeId: 'start', targetNodeId: 'loop' },
+    { id: 'e0', sourceNodeId: 'innerStart', targetNodeId: 'inner' },
     { id: 'e2', sourceNodeId: 'inner', targetNodeId: 'innerEnd' },
     { id: 'e3', sourceNodeId: 'loop', targetNodeId: 'end' },
   ],
@@ -88,15 +92,24 @@ describe('configToFlow', () => {
     expect(plain.sourceHandle).toBeUndefined();
   });
 
-  it('maps loop containers with parentId/extent and size', () => {
+  it('maps loop containers with parentId and size; nested nodes are draggable out', () => {
     const { nodes } = configToFlow(loopConfig);
     const loop = nodes.find((n) => n.id === 'loop')!;
     expect(loop.type).toBe('loopGroup');
     expect(loop.style).toEqual({ width: 700, height: 400 });
 
+    // A nested business node carries parentId but NO extent, so it can be
+    // dragged back out of the loop (drag-stop then reparents it).
     const inner = nodes.find((n) => n.id === 'inner')!;
     expect(inner.parentId).toBe('loop');
-    expect(inner.extent).toBe('parent');
+    expect(inner.extent).toBeUndefined();
+
+    // The loop-scoped start (entry marker) is mapped as a child of the loop and
+    // pinned in place via draggable:false rather than an extent clamp.
+    const innerStart = nodes.find((n) => n.id === 'innerStart')!;
+    expect(innerStart.parentId).toBe('loop');
+    expect(innerStart.draggable).toBe(false);
+    expect(innerStart.data.kind).toBe('start');
   });
 
   it('falls back to default loop size when layout omits dimensions', () => {
@@ -106,6 +119,37 @@ describe('configToFlow', () => {
     };
     const { nodes } = configToFlow(cfg);
     expect(nodes[0].style).toEqual({ width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT });
+  });
+
+  it('lets a nested loop expand its parent while plain nodes stay unconstrained', () => {
+    // A loop nested inside another loop must use expandParent (so it can move
+    // and resize freely, growing the outer loop). A non-loop nested node gets
+    // NO constraint, so it can be dragged out of its parent loop.
+    const cfg: GraphConfig = {
+      nodes: [
+        { id: 'outer', type: 'loop', layout: { x: 0, y: 0, width: 700, height: 400 } },
+        { id: 'inner', type: 'loop', parentId: 'outer', layout: { x: 40, y: 60, width: 400, height: 240 } },
+        { id: 'body', type: 'shell', parentId: 'inner', layout: { x: 20, y: 40 } },
+      ],
+      edges: [],
+    };
+    const { nodes } = configToFlow(cfg);
+    const inner = nodes.find((n) => n.id === 'inner')!;
+    expect(inner.parentId).toBe('outer');
+    expect(inner.expandParent).toBe(true);
+    expect(inner.extent).toBeUndefined();
+    // A non-loop node is a plain child: no extent, no expandParent.
+    const body = nodes.find((n) => n.id === 'body')!;
+    expect(body.extent).toBeUndefined();
+    expect(body.expandParent).toBeUndefined();
+  });
+
+  it('nestConstraint/clearNestConstraint pick the right field per node kind', () => {
+    expect(nestConstraint('loop')).toEqual({ expandParent: true });
+    expect(nestConstraint('shell')).toEqual({});
+    expect(nestConstraint('ifElse')).toEqual({});
+    expect(nestConstraint('start')).toEqual({});
+    expect(clearNestConstraint).toEqual({ extent: undefined, expandParent: undefined });
   });
 });
 

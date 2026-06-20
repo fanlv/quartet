@@ -134,6 +134,26 @@
   padding: 0 10px;
 }
 
+/* Square icon buttons (undo / redo) in the connect bar. */
+.graph-connect-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--graph-border-strong);
+  border-radius: 7px;
+  background: var(--graph-panel-2);
+  color: var(--graph-text);
+  cursor: pointer;
+}
+
+.graph-connect-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .graph-connect-state {
   min-width: 0;
   max-width: 220px;

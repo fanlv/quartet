@@ -35,9 +35,12 @@ import type { AgentInfo } from './ChatPage';
 import { SSEClient } from '../utils/sse-client';
 import { useIsMobile } from '../hooks/useIsMobile';
 import {
+  clearNestConstraint,
   configToFlow,
   flowToConfig,
+  nestConstraint,
   orderNodesByHierarchy,
+  repinLoopPorts,
   runConfigSnapshot,
   runStatusByNode,
   type QuartetFlowEdge,
@@ -45,8 +48,18 @@ import {
 } from './graph/graphFlowAdapter';
 import { GraphCanvas, type GraphCanvasFocus } from './graph/GraphCanvas';
 import { GraphInspector } from './graph/GraphInspector';
-import { LOOP_DEFAULT_HEIGHT, LOOP_DEFAULT_WIDTH } from './graph/graphFlowAdapter';
+import {
+  LOOP_DEFAULT_HEIGHT,
+  LOOP_DEFAULT_WIDTH,
+  QG_LOOP_PORT_H,
+  QG_LOOP_PORT_W,
+  loopPortPosition,
+} from './graph/graphFlowAdapter';
+import { registerWorkspaceColors, workspaceColor } from '../utils/workspace';
 import './GraphWorkflowPage.css';
+
+// Workspace list item shape, mirrored from ChatPage's /workspace/list usage.
+type WorkspaceItem = { id: string; title: string; description: string; workdir: string; color?: string };
 
 interface GraphWorkflowPageProps {
   workspaceId?: string;
@@ -72,6 +85,22 @@ interface ConfigMeta {
   sandboxId?: string;
   canvas?: GraphConfig['canvas'];
 }
+
+// One undo/redo history entry: the full editable canvas state (structural
+// nodes/edges + global meta) at a point in time. nodes/edges/meta are always
+// replaced wholesale on edit (never mutated in place), so holding their
+// references here is a safe immutable snapshot. The canvas viewport inside meta
+// is intentionally NOT restored on undo (see applySnapshot) — pan/zoom is pure
+// view state and undoing an edit should not yank the camera around.
+interface CanvasSnapshot {
+  nodes: QuartetFlowNode[];
+  edges: QuartetFlowEdge[];
+  meta: ConfigMeta;
+}
+
+// Cap the undo depth so a long editing session cannot grow history without
+// bound. Snapshots mostly share references with live state, so this is cheap.
+const HISTORY_LIMIT = 100;
 
 const EMPTY_CONFIG: GraphConfig = {
   nodes: [
@@ -126,17 +155,182 @@ function markEditable(nodes: QuartetFlowNode[]): QuartetFlowNode[] {
   });
 }
 
+// Expand a set of to-be-deleted node ids to include every descendant, so
+// deleting a loop container also removes its body AND its entry/exit markers.
+// We can't lean on React Flow's native cascade: its getElementsToRemove skips
+// any node with `deletable: false` (which the loop markers carry to block solo
+// deletion), leaving them orphaned on the canvas when their loop is removed.
+function withDescendants(ids: Set<string>, nodes: QuartetFlowNode[]): Set<string> {
+  const childrenOf = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (!n.parentId) continue;
+    const list = childrenOf.get(n.parentId);
+    if (list) list.push(n.id);
+    else childrenOf.set(n.parentId, [n.id]);
+  }
+  const out = new Set<string>();
+  const stack = [...ids];
+  while (stack.length) {
+    const id = stack.pop() as string;
+    if (out.has(id)) continue;
+    out.add(id);
+    for (const child of childrenOf.get(id) || []) stack.push(child);
+  }
+  return out;
+}
+
+// Diagonal nudge applied to pasted/duplicated root nodes so the copy is offset
+// from the original instead of landing exactly on top of it.
+const PASTE_OFFSET = 36;
+
+// Absolute (flow-space) top-left of a node, walking up the parent chain since
+// React Flow stores child positions relative to their parent.
+function absoluteOf(node: QuartetFlowNode, byId: Map<string, QuartetFlowNode>): { x: number; y: number } {
+  let x = node.position.x;
+  let y = node.position.y;
+  let pid = node.parentId;
+  const seen = new Set<string>();
+  while (pid && !seen.has(pid)) {
+    seen.add(pid);
+    const parent = byId.get(pid);
+    if (!parent) break;
+    x += parent.position.x;
+    y += parent.position.y;
+    pid = parent.parentId;
+  }
+  return { x, y };
+}
+
+// Build a self-contained selection snapshot from a set of directly-selected node
+// ids, for copy / duplicate. The result is independent of the live canvas so it
+// can be pasted later (possibly multiple times):
+//   - the closure pulls in every descendant of a selected node, so selecting a
+//     loop container copies its entry/exit markers and whole body with it;
+//   - a top-level start/end is the workflow's single entry/exit and is never
+//     copied; a loop marker (parented start/end) only travels with its loop, so
+//     an orphan marker selected without its container is dropped;
+//   - any kept node whose parent is NOT in the selection becomes a "root": its
+//     position is flattened to absolute flow-space and its parentId/nesting is
+//     cleared, so it pastes onto the open canvas;
+//   - only edges whose both endpoints are kept are included (edges crossing the
+//     selection boundary are dropped — the other end would not exist).
+function collectSelection(
+  allNodes: QuartetFlowNode[],
+  allEdges: QuartetFlowEdge[],
+  rootSelected: Set<string>,
+): { nodes: QuartetFlowNode[]; edges: QuartetFlowEdge[] } {
+  const byId = new Map(allNodes.map((n) => [n.id, n]));
+  const childrenOf = new Map<string, string[]>();
+  for (const n of allNodes) {
+    if (!n.parentId) continue;
+    const list = childrenOf.get(n.parentId);
+    if (list) list.push(n.id);
+    else childrenOf.set(n.parentId, [n.id]);
+  }
+
+  // Expand the selection to every descendant.
+  const ids = new Set<string>();
+  const stack = [...rootSelected];
+  while (stack.length) {
+    const id = stack.pop() as string;
+    if (ids.has(id) || !byId.has(id)) continue;
+    ids.add(id);
+    for (const child of childrenOf.get(id) || []) stack.push(child);
+  }
+
+  const kept = allNodes.filter((n) => {
+    if (!ids.has(n.id)) return false;
+    const isControl = n.data.kind === 'start' || n.data.kind === 'end';
+    if (isControl && !n.parentId) return false; // workflow entry/exit singleton
+    if (isControl && n.parentId && !ids.has(n.parentId)) return false; // orphan loop marker
+    return true;
+  });
+  const keptIds = new Set(kept.map((n) => n.id));
+
+  const nodes = kept.map((n) => {
+    const graphNode: GraphNode = { ...n.data.graphNode };
+    const clone: QuartetFlowNode = { ...n, selected: false, data: { ...n.data, graphNode } };
+    delete (clone as { measured?: unknown }).measured;
+    delete (clone as { dragging?: unknown }).dragging;
+    // A node whose parent is outside the selection is promoted to a root: pin it
+    // at its current absolute position and drop the now-dangling parent link.
+    if (n.parentId && !keptIds.has(n.parentId)) {
+      const abs = absoluteOf(n, byId);
+      clone.position = { x: abs.x, y: abs.y };
+      delete clone.parentId;
+      Object.assign(clone, clearNestConstraint);
+      delete graphNode.parentId;
+      graphNode.layout = { ...(graphNode.layout || {}), x: Math.round(abs.x), y: Math.round(abs.y) };
+    }
+    return clone;
+  });
+
+  const edges = allEdges
+    .filter((e) => keptIds.has(e.source) && keptIds.has(e.target))
+    .map((e) => ({ ...e, data: e.data ? { ...e.data } : e.data }));
+
+  return { nodes, edges };
+}
+
+// Clone a selection snapshot with fresh, collision-free ids, ready to insert.
+// `mintId` mints a unique id for a given prefix (checking + reserving against
+// `taken`). Root nodes (no in-selection parent) get the paste offset; children
+// keep their parent-relative positions so each subtree moves as a unit.
+function cloneSelection(
+  selection: { nodes: QuartetFlowNode[]; edges: QuartetFlowEdge[] },
+  mintId: (prefix: string, taken: Set<string>) => string,
+  takenNodeIds: Set<string>,
+  takenEdgeIds: Set<string>,
+  offset: number,
+): { nodes: QuartetFlowNode[]; edges: QuartetFlowEdge[]; rootIds: string[] } {
+  const srcIds = new Set(selection.nodes.map((n) => n.id));
+  const idMap = new Map<string, string>();
+  for (const n of selection.nodes) idMap.set(n.id, mintId(n.data.kind, takenNodeIds));
+
+  const rootIds: string[] = [];
+  const nodes = selection.nodes.map((n) => {
+    const newId = idMap.get(n.id) as string;
+    const newParentId = n.parentId && srcIds.has(n.parentId) ? idMap.get(n.parentId) : undefined;
+    const position = newParentId
+      ? { x: n.position.x, y: n.position.y }
+      : { x: n.position.x + offset, y: n.position.y + offset };
+    if (!newParentId) rootIds.push(newId);
+
+    const graphNode: GraphNode = {
+      ...n.data.graphNode,
+      id: newId,
+      layout: { ...(n.data.graphNode.layout || {}), x: Math.round(position.x), y: Math.round(position.y) },
+    };
+    if (newParentId) graphNode.parentId = newParentId;
+    else delete graphNode.parentId;
+
+    const clone: QuartetFlowNode = { ...n, id: newId, position, selected: true, data: { ...n.data, graphNode } };
+    if (newParentId) {
+      clone.parentId = newParentId;
+      Object.assign(clone, nestConstraint(n.data.kind));
+    } else {
+      delete clone.parentId;
+      Object.assign(clone, clearNestConstraint);
+    }
+    return clone;
+  });
+
+  const edges = selection.edges.map((e) => {
+    const source = idMap.get(e.source) as string;
+    const target = idMap.get(e.target) as string;
+    return { ...e, id: mintId(`edge-${source}-${target}`, takenEdgeIds), source, target };
+  });
+
+  return { nodes, edges, rootIds };
+}
+
 function formatDate(value: string): string {
   if (!value) return '-';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString();
-}
-
-function summarizeWorkflow(wf: GraphWorkflow, t: TFunction): string {
-  const nodeCount = wf.config?.nodes?.length ?? 0;
-  const edgeCount = wf.config?.edges?.length ?? 0;
-  return t('graph.summary', { nodes: nodeCount, edges: edgeCount });
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${mm}-${dd}`;
 }
 
 function isGraphRunLive(status?: GraphRunStatus): boolean {
@@ -376,6 +570,45 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     fingerprint({ name: i18n.t('graph.defaultName'), description: '', config: initialConfig }),
   );
   const nodeCounterRef = useRef(0);
+  // In-memory copy buffer for canvas copy/paste (same canvas, this tab only).
+  // Holds a self-contained selection snapshot; paste clones it with fresh ids,
+  // so the same buffer can be pasted repeatedly.
+  const clipboardRef = useRef<{ nodes: QuartetFlowNode[]; edges: QuartetFlowEdge[] } | null>(null);
+  // Live mirrors of nodes/edges so the copy/paste/duplicate callbacks (and the
+  // canvas keydown handler that calls them) can read current canvas state
+  // without being re-created on every node/edge change. Synced after commit;
+  // only ever read in later user-event handlers, so never stale at read time.
+  const nodesRef = useRef<QuartetFlowNode[]>([]);
+  const edgesRef = useRef<QuartetFlowEdge[]>([]);
+  // Live mirror of meta for the undo/redo snapshotter (commitHistory reads the
+  // current state synchronously from refs, off the React render cycle).
+  const metaRef = useRef<ConfigMeta>(metaFromConfig(initialConfig));
+
+  // ---- Undo / redo history (canvas editing only) ----
+  // past/future are stacks of CanvasSnapshot. commitHistory pushes the *current*
+  // state onto `past` right before an edit mutates it, so undo restores the
+  // pre-edit state. A new edit clears the redo (`future`) stack. coalesceKeyRef
+  // collapses a rapid burst of same-target edits (e.g. typing in a text field)
+  // into a single undo step: while the key is unchanged, repeated commits are
+  // skipped. The `[undo,redo]` flags let the keydown handler reflect emptiness
+  // without re-subscribing on every snapshot push.
+  const historyPastRef = useRef<CanvasSnapshot[]>([]);
+  const historyFutureRef = useRef<CanvasSnapshot[]>([]);
+  const coalesceKeyRef = useRef<string | null>(null);
+  // Drag/resize are continuous: React Flow streams many position/dimension
+  // changes per gesture. These flags let onNodesChange checkpoint history ONCE
+  // at the start of a gesture (the false→true edge) instead of on every frame.
+  const draggingRef = useRef(false);
+  const resizingRef = useRef(false);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  // Workspace selector: the full list (for the dropdown) plus open/close state.
+  // The selected workspace lives in `meta.workspaceId` (persisted into config),
+  // so there is no separate selection state to keep in sync.
+  const [allWorkspaces, setAllWorkspaces] = useState<WorkspaceItem[]>([]);
+  const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
+  const wsDropdownRef = useRef<HTMLDivElement>(null);
 
   // Run history / replay state.
   const [runs, setRuns] = useState<GraphRun[]>([]);
@@ -399,6 +632,10 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   );
 
   const selectedWorkflow = useMemo(() => workflows.find((wf) => wf.id === selectedId) ?? null, [workflows, selectedId]);
+  const sortedWorkflows = useMemo(
+    () => [...workflows].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })),
+    [workflows],
+  );
   const selectedGraphNode: GraphNode | null = useMemo(() => {
     if (!selectedNodeId) return null;
     return nodes.find((n) => n.id === selectedNodeId)?.data.graphNode ?? null;
@@ -410,17 +647,120 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     }
   }, [editingRun, isMobile, selectedNodeId, viewingRun, viewMode]);
 
+  // Keep the live node/edge mirrors in sync for the copy/paste/duplicate
+  // handlers (which read them lazily from user-event callbacks).
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
+  useEffect(() => {
+    metaRef.current = meta;
+  }, [meta]);
+
   // ---- Config <-> canvas plumbing ----
-  const loadConfigIntoCanvas = useCallback((config: GraphConfig) => {
-    const flow = configToFlow(config);
-    setNodes(markEditable(flow.nodes));
-    setEdges(flow.edges);
-    setMeta(metaFromConfig(config));
-    setLoadedConfig(config);
-    setSelectedNodeId(null);
-    setInspectorDrawerOpen(true);
-    setViewportResetKey((key) => key + 1);
+  // Wipe the undo/redo stacks. Called whenever a brand-new config is loaded into
+  // the canvas (new/open workflow, reset, JSON apply, enter/cancel run edit,
+  // save) — the prior edit history belongs to the old document and must not
+  // bleed across loads.
+  const clearHistory = useCallback(() => {
+    historyPastRef.current = [];
+    historyFutureRef.current = [];
+    coalesceKeyRef.current = null;
+    setCanUndo(false);
+    setCanRedo(false);
   }, []);
+
+  const loadConfigIntoCanvas = useCallback(
+    (config: GraphConfig) => {
+      const flow = configToFlow(config);
+      setNodes(markEditable(flow.nodes));
+      setEdges(flow.edges);
+      setMeta(metaFromConfig(config));
+      setLoadedConfig(config);
+      setSelectedNodeId(null);
+      setInspectorDrawerOpen(true);
+      setViewportResetKey((key) => key + 1);
+      clearHistory();
+    },
+    [clearHistory],
+  );
+
+  // Push the CURRENT canvas state onto the undo stack, just before an edit
+  // mutates it. Read from refs so callers can fire this synchronously at the top
+  // of an event handler (before their own setNodes/setEdges). A new edit always
+  // discards the redo stack. When `coalesceKey` is given and matches the key of
+  // the previous commit, the commit is skipped so a burst of same-target edits
+  // (e.g. dragging a slider, typing a title) collapses into one undo step.
+  const commitHistory = useCallback((coalesceKey?: string) => {
+    if (coalesceKey && coalesceKey === coalesceKeyRef.current) return;
+    coalesceKeyRef.current = coalesceKey ?? null;
+    const snapshot: CanvasSnapshot = {
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+      meta: metaRef.current,
+    };
+    const past = historyPastRef.current;
+    // Reference dedup: a single keypress (e.g. Delete on a selected node) can
+    // fire onNodesChange AND onEdgesChange in one tick — two commits before the
+    // refs re-sync, both seeing the same pre-edit state. Skip the duplicate so
+    // the pair collapses into one undo step. Equal refs also mean "nothing
+    // changed", so skipping is always safe.
+    const top = past[past.length - 1];
+    if (top && top.nodes === snapshot.nodes && top.edges === snapshot.edges && top.meta === snapshot.meta) {
+      historyFutureRef.current = [];
+      setCanRedo(false);
+      return;
+    }
+    past.push(snapshot);
+    if (past.length > HISTORY_LIMIT) past.shift();
+    historyFutureRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }, []);
+
+  // Restore a snapshot into the live canvas. The viewport (meta.canvas) is pure
+  // view state, so the LIVE camera is kept — undoing an edit should not yank the
+  // user's pan/zoom back to where it was when the edit happened. Refs are
+  // updated synchronously so a follow-up commit in the same tick is consistent.
+  const applySnapshot = useCallback((snap: CanvasSnapshot) => {
+    const meta: ConfigMeta = { ...snap.meta, canvas: metaRef.current.canvas };
+    nodesRef.current = snap.nodes;
+    edgesRef.current = snap.edges;
+    metaRef.current = meta;
+    setNodes(snap.nodes);
+    setEdges(snap.edges);
+    setMeta(meta);
+  }, []);
+
+  const undo = useCallback(() => {
+    const snap = historyPastRef.current.pop();
+    if (!snap) return;
+    historyFutureRef.current.push({
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+      meta: metaRef.current,
+    });
+    coalesceKeyRef.current = null;
+    applySnapshot(snap);
+    setCanUndo(historyPastRef.current.length > 0);
+    setCanRedo(true);
+  }, [applySnapshot]);
+
+  const redo = useCallback(() => {
+    const snap = historyFutureRef.current.pop();
+    if (!snap) return;
+    historyPastRef.current.push({
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+      meta: metaRef.current,
+    });
+    coalesceKeyRef.current = null;
+    applySnapshot(snap);
+    setCanRedo(historyFutureRef.current.length > 0);
+    setCanUndo(true);
+  }, [applySnapshot]);
 
   const buildConfig = useCallback((): GraphConfig => {
     const base: GraphConfig = { ...loadedConfig, ...meta };
@@ -433,9 +773,14 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   );
   const dirty = (!viewingRun || editingRun) && currentFingerprint !== savedFingerprint;
 
-  // The inspector only reads variables/disabledVars/runConfig (all in `meta`),
-  // so build its config from state rather than the ref-backed buildConfig().
-  const inspectorConfig = useMemo<GraphConfig>(() => ({ nodes: [], edges: [], ...meta }), [meta]);
+  // The inspector reads global meta (variables/disabledVars/runConfig) AND the
+  // live node/edge structure — the latter drives condition variable suggestions
+  // (upstream outputs, loop iteration vars). Build from the current canvas so a
+  // node moved into/out of a loop body updates its available variables.
+  const inspectorConfig = useMemo<GraphConfig>(
+    () => flowToConfig(nodes, edges, { nodes: [], edges: [], ...meta }),
+    [nodes, edges, meta],
+  );
 
   // ---- Data loading ----
   const loadWorkflows = useCallback(async () => {
@@ -480,8 +825,33 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         /* agent list is optional for editing */
       }
     })();
+    // Load the workspace list for the workspace selector (mirrors ChatPage).
+    void (async () => {
+      try {
+        const res = await fetch('/api/v1/workspace/list');
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        const list = (data?.workspaces || []) as WorkspaceItem[];
+        registerWorkspaceColors(list);
+        setAllWorkspaces(list);
+      } catch {
+        /* workspace list is optional for editing */
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Close the workspace dropdown on outside click (mirrors LoopConfigPanel).
+  useEffect(() => {
+    if (!wsDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (wsDropdownRef.current && !wsDropdownRef.current.contains(e.target as Node)) {
+        setWsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [wsDropdownOpen]);
 
   useEffect(
     () => () => {
@@ -588,11 +958,17 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         setSelectedId(data.workflow.id);
         setName(data.workflow.name);
         setDescription(data.workflow.description || '');
-        loadConfigIntoCanvas(data.workflow.config);
+        // Legacy configs may not carry workspaceId inside config — fall back to
+        // the workflow record's top-level workspaceId so the selector shows it.
+        const loaded: GraphConfig = {
+          ...data.workflow.config,
+          workspaceId: data.workflow.config.workspaceId || data.workflow.workspaceId,
+        };
+        loadConfigIntoCanvas(loaded);
         setSavedFingerprint(fingerprint({
           name: data.workflow.name,
           description: data.workflow.description || '',
-          config: data.workflow.config,
+          config: loaded,
         }));
       } catch (err) {
         setMessage(err instanceof Error ? err.message : String(err));
@@ -669,7 +1045,9 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         const url = mode === 'create' ? '/api/v1/graph/workflow' : `/api/v1/graph/workflow/${encodeURIComponent(selectedId || '')}`;
         const method = mode === 'create' ? 'POST' : 'PUT';
         const body =
-          mode === 'create' ? { name: trimmedName, description, workspaceId, config } : { name: trimmedName, description, config };
+          mode === 'create'
+            ? { name: trimmedName, description, workspaceId: config.workspaceId || workspaceId, config }
+            : { name: trimmedName, description, config };
         const res = await fetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
@@ -734,7 +1112,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       const res = await fetch('/api/v1/graph/run/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflowId: selectedId || undefined, workspaceId, workdir: workspaceWorkdir, config }),
+        body: JSON.stringify({
+          workflowId: selectedId || undefined,
+          workspaceId: config.workspaceId || workspaceId,
+          workdir: config.workdir || workspaceWorkdir,
+          config,
+        }),
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = (await res.json()) as { run?: GraphRun };
@@ -852,36 +1235,92 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   }, [openRunInEdit, runs, t]);
 
   // ---- Canvas editing handlers ----
-  const onNodesChange = useCallback((changes: NodeChange[]) => {
-    setNodes((prev) => applyNodeChanges(changes, prev) as QuartetFlowNode[]);
-  }, []);
-  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
-    setEdges((prev) => applyEdgeChanges(changes, prev) as QuartetFlowEdge[]);
-  }, []);
-  const onConnect = useCallback((connection: Connection) => {
-    setEdges((prev) => {
-      const port = connection.sourceHandle === 'yes' || connection.sourceHandle === 'no' ? connection.sourceHandle : undefined;
-      nodeCounterRef.current += 1;
-      const edge: QuartetFlowEdge = {
-        id: `edge-${connection.source}-${connection.target}-${nodeCounterRef.current}`,
-        source: connection.source!,
-        target: connection.target!,
-        sourceHandle: connection.sourceHandle ?? undefined,
-        data: { port },
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#4c5663' },
-        ...(port
-          ? { label: port === 'yes' ? 'YES' : 'NO', labelStyle: { fill: port === 'yes' ? '#2ea043' : '#f85149', fontWeight: 700 } }
-          : {}),
-      };
-      return addEdge(edge, prev) as QuartetFlowEdge[];
-    });
-  }, []);
+  // Checkpoint history for the undoable changes React Flow streams here. Drag
+  // and resize are continuous (many changes per gesture) so we snapshot only on
+  // the gesture's leading edge (dragging/resizing flips false→true). Removals
+  // are discrete and always snapshot. Pure selection/measurement changes are not
+  // undoable and never snapshot.
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      let removed = false;
+      let dragStart = false;
+      let resizeStart = false;
+      const removedIds = new Set<string>();
+      for (const ch of changes) {
+        if (ch.type === 'remove') {
+          removed = true;
+          removedIds.add(ch.id);
+        } else if (ch.type === 'position') {
+          if (ch.dragging && !draggingRef.current) dragStart = true;
+          draggingRef.current = !!ch.dragging;
+        } else if (ch.type === 'dimensions' && 'resizing' in ch) {
+          if (ch.resizing && !resizingRef.current) resizeStart = true;
+          resizingRef.current = !!ch.resizing;
+        }
+      }
+      if (removed || dragStart || resizeStart) commitHistory();
+      // React Flow's delete cascade skips nodes flagged `deletable: false` (the
+      // loop entry/exit markers), so deleting a loop container would orphan them
+      // on the canvas. Expand any removal to the full subtree and synthesize the
+      // missing remove changes so the markers and nested children go too.
+      let effectiveChanges = changes;
+      if (removedIds.size > 0) {
+        const doomed = withDescendants(removedIds, nodesRef.current);
+        if (doomed.size > removedIds.size) {
+          const extra: NodeChange[] = [];
+          for (const id of doomed) {
+            if (!removedIds.has(id)) extra.push({ type: 'remove', id });
+          }
+          effectiveChanges = [...changes, ...extra];
+          // Drop edges touching any removed node — React Flow only cascades
+          // edges for the nodes it actually deletes, which excludes the markers.
+          setEdges((prev) => prev.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)));
+          setSelectedNodeId((cur) => (cur && doomed.has(cur) ? null : cur));
+        }
+      }
+      setNodes((prev) => repinLoopPorts(applyNodeChanges(effectiveChanges, prev) as QuartetFlowNode[]));
+    },
+    [commitHistory],
+  );
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      // A node removal cascades into edge removals in the same tick; the ref
+      // dedup in commitHistory collapses the pair into one undo step.
+      if (changes.some((ch) => ch.type === 'remove')) commitHistory();
+      setEdges((prev) => applyEdgeChanges(changes, prev) as QuartetFlowEdge[]);
+    },
+    [commitHistory],
+  );
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      commitHistory();
+      setEdges((prev) => {
+        const port = connection.sourceHandle === 'yes' || connection.sourceHandle === 'no' ? connection.sourceHandle : undefined;
+        nodeCounterRef.current += 1;
+        const edge: QuartetFlowEdge = {
+          id: `edge-${connection.source}-${connection.target}-${nodeCounterRef.current}`,
+          source: connection.source!,
+          target: connection.target!,
+          sourceHandle: connection.sourceHandle ?? undefined,
+          data: { port },
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#4c5663' },
+          ...(port
+            ? { label: port === 'yes' ? 'YES' : 'NO', labelStyle: { fill: port === 'yes' ? '#2ea043' : '#f85149', fontWeight: 700 } }
+            : {}),
+        };
+        return addEdge(edge, prev) as QuartetFlowEdge[];
+      });
+    },
+    [commitHistory],
+  );
 
   const onAddNode = useCallback((type: GraphNodeType, position: { x: number; y: number }, parentId?: string | null) => {
+    commitHistory();
     nodeCounterRef.current += 1;
     const id = `${type}-${nodeCounterRef.current}`;
-    // A loop container can hold business nodes, ifElse, nested loops and internal
-    // end nodes — but never start. Dropping onto a loop is ignored for start.
+    // A loop container can hold business nodes, ifElse, nested loops and the loop
+    // entry/exit markers — but a fresh start/end is never dropped from the
+    // palette. Dropping onto a loop is ignored for loop (loops stay top-level).
     const intoParent = parentId && type !== 'loop' ? parentId : undefined;
     const graphNode: GraphNode = {
       id,
@@ -895,18 +1334,42 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       id,
       type: type === 'loop' ? 'loopGroup' : 'quartet',
       position,
-      ...(intoParent ? { parentId: intoParent, extent: 'parent' as const } : {}),
+      ...(intoParent ? { parentId: intoParent, ...nestConstraint(type) } : {}),
       data: { kind: type, graphNode },
       deletable: type !== 'start' && type !== 'end',
       ...(type === 'loop' ? { style: { width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT } } : {}),
     };
-    // A loop container is invalid without exactly one internal end node (an end
-    // with parentId = the loop's id). Since end nodes are not in the palette,
-    // seed one automatically inside the new container so the loop is usable and
-    // passes backend validation out of the box. Its position is relative to the
-    // parent (React Flow child coordinates).
+    // A loop container is invalid without exactly one entry marker (a loop-scoped
+    // start, on the left border) and at least one exit marker (a loop-scoped end,
+    // on the right border). Since start/end are not in the palette, seed both
+    // automatically so the loop is usable and passes backend validation out of
+    // the box. The user wires entry → body → exit. The markers are port tabs
+    // pinned flush on each border (position from loopPortPosition, not draggable),
+    // so they read as connection points on the container edge.
     const extra: QuartetFlowNode[] = [];
     if (type === 'loop') {
+      const entryPos = loopPortPosition(LOOP_DEFAULT_WIDTH, LOOP_DEFAULT_HEIGHT, true);
+      const exitPos = loopPortPosition(LOOP_DEFAULT_WIDTH, LOOP_DEFAULT_HEIGHT, false);
+      nodeCounterRef.current += 1;
+      const startId = `start-${nodeCounterRef.current}`;
+      const startGraphNode: GraphNode = {
+        id: startId,
+        type: 'start',
+        title: '',
+        parentId: id,
+        layout: { x: entryPos.x, y: entryPos.y },
+      };
+      extra.push({
+        id: startId,
+        type: 'quartet',
+        position: entryPos,
+        parentId: id,
+        extent: 'parent',
+        style: { width: QG_LOOP_PORT_W, height: QG_LOOP_PORT_H },
+        draggable: false,
+        data: { kind: 'start', graphNode: startGraphNode },
+        deletable: false,
+      });
       nodeCounterRef.current += 1;
       const endId = `end-${nodeCounterRef.current}`;
       const endGraphNode: GraphNode = {
@@ -914,27 +1377,32 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         type: 'end',
         title: '',
         parentId: id,
-        layout: { x: Math.round(LOOP_DEFAULT_WIDTH * 0.62), y: Math.round(LOOP_DEFAULT_HEIGHT * 0.5) },
+        layout: { x: exitPos.x, y: exitPos.y },
       };
       extra.push({
         id: endId,
         type: 'quartet',
-        position: { x: endGraphNode.layout!.x, y: endGraphNode.layout!.y },
+        position: exitPos,
         parentId: id,
         extent: 'parent',
+        style: { width: QG_LOOP_PORT_W, height: QG_LOOP_PORT_H },
+        draggable: false,
         data: { kind: 'end', graphNode: endGraphNode },
-        deletable: true,
+        deletable: false,
       });
     }
     setNodes((prev) => orderNodesByHierarchy([...prev, node, ...extra]));
     setSelectedNodeId(id);
-  }, []);
+  }, [commitHistory]);
 
   // Reassign a node's loop membership after a drag. React Flow positions child
   // nodes relative to their parent, so when parentId changes we convert the
   // dragged node's position between absolute and parent-relative coordinates,
   // keeping it visually put. Parents must precede children in the array.
   const onReparent = useCallback((nodeId: string, newParentId: string | null) => {
+    // The drag that triggered this reparent already pushed a snapshot on its
+    // leading edge (onNodesChange), so undo rewinds both the move and the
+    // membership change together — don't snapshot again here.
     setNodes((prev) => {
       const absPos = (n: QuartetFlowNode): { x: number; y: number } => {
         let x = n.position.x;
@@ -968,7 +1436,11 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
           ...n,
           position: pos,
           parentId: newParentId ?? undefined,
-          extent: newParentId ? 'parent' : undefined,
+          // Reset both nesting constraints, then re-apply the right one for the
+          // new parent: a nested loop expands its parent, everything else is
+          // pinned inside it. Leaving a loop (newParentId=null) clears both.
+          ...clearNestConstraint,
+          ...(newParentId ? nestConstraint(n.data.kind) : {}),
           data: { ...n.data, graphNode },
         };
         return updated;
@@ -984,25 +1456,133 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   }, []);
 
   const onUpdateNode = useCallback(
-    (id: string, patch: Partial<GraphNode>) => patchGraphNode(id, (gn) => ({ ...gn, ...patch })),
-    [patchGraphNode],
+    (id: string, patch: Partial<GraphNode>) => {
+      // Coalesce by node + patched fields so typing into one field (e.g. title)
+      // is a single undo step, while editing a different field starts a new one.
+      commitHistory(`node:${id}:${Object.keys(patch).sort().join(',')}`);
+      patchGraphNode(id, (gn) => ({ ...gn, ...patch }));
+    },
+    [commitHistory, patchGraphNode],
   );
   const onUpdateNodeConfig = useCallback(
-    (id: string, patch: Partial<GraphNodeConfig>) => patchGraphNode(id, (gn) => ({ ...gn, config: { ...gn.config, ...patch } })),
-    [patchGraphNode],
+    (id: string, patch: Partial<GraphNodeConfig>) => {
+      commitHistory(`cfg:${id}:${Object.keys(patch).sort().join(',')}`);
+      patchGraphNode(id, (gn) => ({ ...gn, config: { ...gn.config, ...patch } }));
+    },
+    [commitHistory, patchGraphNode],
   );
-  const onDeleteNode = useCallback((id: string) => {
-    setNodes((prev) => prev.filter((n) => n.id !== id && n.parentId !== id));
-    setEdges((prev) => prev.filter((e) => e.source !== id && e.target !== id));
-    setSelectedNodeId((cur) => (cur === id ? null : cur));
+  const onDeleteNode = useCallback(
+    (id: string) => {
+      commitHistory();
+      // Remove the node and its entire subtree (a loop's body + entry/exit
+      // markers, including nested loops) — not just its direct children.
+      const doomed = withDescendants(new Set([id]), nodesRef.current);
+      setNodes((prev) => prev.filter((n) => !doomed.has(n.id)));
+      setEdges((prev) => prev.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)));
+      setSelectedNodeId((cur) => (cur && doomed.has(cur) ? null : cur));
+    },
+    [commitHistory],
+  );
+
+  // Mint a `${prefix}-${n}` id that collides with neither the live canvas nor
+  // ids already minted in the same paste batch. The shared nodeCounterRef keeps
+  // numbers climbing across adds/edges; `taken` guards against the counter ever
+  // overlapping an id loaded from a saved workflow (which the counter is never
+  // seeded from).
+  const mintId = useCallback((prefix: string, taken: Set<string>): string => {
+    let id = '';
+    do {
+      nodeCounterRef.current += 1;
+      id = `${prefix}-${nodeCounterRef.current}`;
+    } while (taken.has(id));
+    taken.add(id);
+    return id;
   }, []);
 
-  const onUpdateVariables = useCallback((variables: Record<string, string>, disabledVars: string[]) => {
-    setMeta((prev) => ({ ...prev, variables, disabledVars }));
-  }, []);
-  const onUpdateRunConfig = useCallback((patch: Partial<GraphRunConfig>) => {
-    setMeta((prev) => ({ ...prev, runConfig: { ...prev.runConfig, ...patch } }));
-  }, []);
+  // Clone a selection snapshot into the live canvas with fresh ids and a paste
+  // offset, then select the pasted roots. Shared by paste (from clipboardRef)
+  // and duplicate (from an ad-hoc one/many-node selection). Reads current canvas
+  // state via refs so a single setNodes/setEdges pair is enough.
+  const insertClonedSelection = useCallback(
+    (selection: { nodes: QuartetFlowNode[]; edges: QuartetFlowEdge[] }, offset: number) => {
+      if (selection.nodes.length === 0) return;
+      commitHistory();
+      const takenNodeIds = new Set(nodesRef.current.map((n) => n.id));
+      const takenEdgeIds = new Set(edgesRef.current.map((e) => e.id));
+      const cloned = cloneSelection(selection, mintId, takenNodeIds, takenEdgeIds, offset);
+      // Clear any prior selection so only the freshly pasted nodes stay active.
+      setNodes((prev) => {
+        const deselected = prev.map((n) => (n.selected ? { ...n, selected: false } : n));
+        return repinLoopPorts(orderNodesByHierarchy([...deselected, ...cloned.nodes]));
+      });
+      setEdges((prev) => [...prev, ...cloned.edges]);
+      const firstRoot = cloned.rootIds[0] ?? null;
+      if (firstRoot) setSelectedNodeId(firstRoot);
+    },
+    [commitHistory, mintId],
+  );
+
+  // Resolve the directly-selected node ids: every canvas-multi-selected node
+  // plus the inspector's single selection (they can diverge on mobile).
+  const currentSelectionIds = useCallback((): Set<string> => {
+    const ids = new Set<string>();
+    for (const n of nodesRef.current) if (n.selected) ids.add(n.id);
+    if (selectedNodeId) ids.add(selectedNodeId);
+    return ids;
+  }, [selectedNodeId]);
+
+  // Copy the current selection (inspector node + any canvas multi-selection)
+  // into the in-memory buffer.
+  const onCopy = useCallback(() => {
+    const rootSelected = currentSelectionIds();
+    if (rootSelected.size === 0) return;
+    const selection = collectSelection(nodesRef.current, edgesRef.current, rootSelected);
+    if (selection.nodes.length === 0) return;
+    clipboardRef.current = selection;
+    setMessage(t('graph.messages.nodesCopied', { count: selection.nodes.length }));
+  }, [currentSelectionIds, t]);
+
+  const onPaste = useCallback(() => {
+    if (clipboardRef.current) insertClonedSelection(clipboardRef.current, PASTE_OFFSET);
+  }, [insertClonedSelection]);
+
+  // Duplicate a specific node (and its subtree) in one step — used by the
+  // inspector button and Cmd/Ctrl+D — without disturbing the copy buffer.
+  const onDuplicateNode = useCallback(
+    (id: string) => {
+      const selection = collectSelection(nodesRef.current, edgesRef.current, new Set([id]));
+      insertClonedSelection(selection, PASTE_OFFSET);
+    },
+    [insertClonedSelection],
+  );
+
+  // Duplicate the active canvas/inspector selection (Cmd/Ctrl+D on the canvas).
+  const onDuplicate = useCallback(() => {
+    const rootSelected = currentSelectionIds();
+    if (rootSelected.size === 0) return;
+    const selection = collectSelection(nodesRef.current, edgesRef.current, rootSelected);
+    insertClonedSelection(selection, PASTE_OFFSET);
+  }, [currentSelectionIds, insertClonedSelection]);
+
+
+  const onUpdateVariables = useCallback(
+    (variables: Record<string, string>, disabledVars: string[]) => {
+      // Coalesce by the variable-table shape: editing a value keeps the same key
+      // set so typing collapses, while add/remove/toggle changes the key set and
+      // starts a fresh undo step.
+      commitHistory(`vars:${Object.keys(variables).sort().join(',')}|${[...disabledVars].sort().join(',')}`);
+      setMeta((prev) => ({ ...prev, variables, disabledVars }));
+    },
+    [commitHistory],
+  );
+  const onUpdateRunConfig = useCallback(
+    (patch: Partial<GraphRunConfig>) => {
+      commitHistory(`runcfg:${Object.keys(patch).sort().join(',')}`);
+      setMeta((prev) => ({ ...prev, runConfig: { ...prev.runConfig, ...patch } }));
+    },
+    [commitHistory],
+  );
+  // Viewport (pan/zoom) is pure view state — never an undoable edit.
   const onViewportChange = useCallback((viewport: Viewport) => {
     setMeta((prev) => ({ ...prev, canvas: { viewport } }));
   }, []);
@@ -1134,7 +1714,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
             ) : workflows.length === 0 ? (
               <div className="graph-empty">{t('graph.sidebar.noWorkflows')}</div>
             ) : (
-              workflows.map((wf) => (
+              sortedWorkflows.map((wf) => (
                 <button
                   key={wf.id}
                   type="button"
@@ -1143,7 +1723,6 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   onClick={() => void selectWorkflow(wf)}
                 >
                   <span className="graph-workflow-row-title">{wf.name}</span>
-                  <span className="graph-workflow-row-meta">{summarizeWorkflow(wf, t)}</span>
                   <span className="graph-workflow-row-date">{formatDate(wf.updatedAt)}</span>
                 </button>
               ))
@@ -1155,6 +1734,48 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         <section className="graph-editor">
           <div className="graph-editor-head">
             <div className="graph-editor-title">
+              {!viewingRun && allWorkspaces.length > 0 && (
+                <div className="graph-ws-selector" ref={wsDropdownRef}>
+                  <button
+                    className="graph-ws-trigger"
+                    type="button"
+                    data-testid="graph-workspace-trigger"
+                    title={t('graph.workspace.label')}
+                    onClick={() => setWsDropdownOpen((v) => !v)}
+                  >
+                    <span
+                      className="graph-ws-dot"
+                      style={{ background: workspaceColor(allWorkspaces.find((w) => w.id === meta.workspaceId) ?? meta.workspaceId) }}
+                    />
+                    <span className="graph-ws-label">
+                      {allWorkspaces.find((w) => w.id === meta.workspaceId)?.title || t('graph.workspace.label')}
+                    </span>
+                    <svg className="graph-ws-caret" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                      <path d="M2 3.5l3 3 3-3" />
+                    </svg>
+                  </button>
+                  {wsDropdownOpen && (
+                    <div className="graph-ws-dropdown">
+                      {allWorkspaces.map((ws) => (
+                        <div
+                          key={ws.id}
+                          className={`graph-ws-item${meta.workspaceId === ws.id ? ' active' : ''}`}
+                          data-testid="graph-workspace-item"
+                          data-workspace-id={ws.id}
+                          onClick={() => {
+                            setMeta((prev) => ({ ...prev, workspaceId: ws.id, workdir: ws.workdir }));
+                            setWsDropdownOpen(false);
+                          }}
+                        >
+                          <span className="graph-ws-item-dot" style={{ background: workspaceColor(ws) }} />
+                          <span className="graph-ws-item-title">{ws.title || ws.id}</span>
+                          <span className="graph-ws-item-path">{ws.workdir}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {dirty ? <span className="graph-dirty-badge" data-testid="graph-dirty-badge">{t('graph.editor.unsaved')}</span> : <span className="graph-clean-badge" data-testid="graph-clean-badge">{t('graph.editor.saved')}</span>}
               <input className="graph-name-input" data-testid="graph-name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('graph.editor.namePlaceholder')} />
             </div>
@@ -1282,6 +1903,14 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   onAddNode={onAddNode}
                   onReparent={editingRun ? undefined : onReparent}
                   onViewportChange={onViewportChange}
+                  onCopy={onCopy}
+                  onPaste={onPaste}
+                  onDuplicate={onDuplicate}
+                  onUndo={undo}
+                  onRedo={redo}
+                  onHistoryCommit={commitHistory}
+                  canUndo={canUndo}
+                  canRedo={canRedo}
                 />
                 {(!viewingRun || editingRun) && (
                   <GraphInspector
@@ -1294,6 +1923,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                     onUpdateNode={onUpdateNode}
                     onUpdateNodeConfig={onUpdateNodeConfig}
                     onDeleteNode={onDeleteNode}
+                    onDuplicateNode={editingRun ? undefined : onDuplicateNode}
                     onUpdateVariables={onUpdateVariables}
                     onUpdateRunConfig={onUpdateRunConfig}
                     onDrawerToggle={() => setInspectorDrawerOpen((open) => !open)}

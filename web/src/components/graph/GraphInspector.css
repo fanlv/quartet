@@ -120,6 +120,31 @@
   cursor: not-allowed;
 }
 
+.gi-node-actions {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 18px;
+}
+.gi-node-actions .gi-delete-btn,
+.gi-node-actions .gi-dup-btn {
+  flex: 1;
+  margin: 0;
+}
+
+.gi-dup-btn {
+  width: 100%;
+  background: #2d364322;
+  border: 1px solid #4c566399;
+  color: var(--graph-text, #c9d1d9);
+  padding: 8px 0;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.gi-dup-btn:hover {
+  background: #2d364344;
+}
+
 .gi-delete-btn {
   width: 100%;
   background: #f8514922;

@@ -16,6 +16,71 @@ import type {
 export const LOOP_DEFAULT_WIDTH = 560;
 export const LOOP_DEFAULT_HEIGHT = 320;
 
+// Size of a loop entry/exit marker. The marker is a port "tab" mounted flush on
+// the container border (not a free-floating node), so it has a fixed box that
+// the CSS fills and pins to the left (entry) / right (exit) edge.
+export const QG_LOOP_PORT_W = 62;
+export const QG_LOOP_PORT_H = 26;
+
+// Position of a loop entry/exit marker in the loop's child coordinate space.
+// Both are vertically centred on the border midline; the entry hugs the left
+// border (x=0) and the exit hugs the right border (x=width-portWidth) so each
+// tab's flat edge lands exactly on the boundary. Marker positions are fully
+// derived from the container size (the markers are not user-draggable), so this
+// is the single source of truth used at seed, load and resize time.
+export function loopPortPosition(
+  loopWidth: number,
+  loopHeight: number,
+  isEntry: boolean,
+): { x: number; y: number } {
+  return {
+    x: isEntry ? 0 : Math.round(loopWidth - QG_LOOP_PORT_W),
+    y: Math.round(loopHeight / 2 - QG_LOOP_PORT_H / 2),
+  };
+}
+
+// A loop-scoped start/end node (parentId set) is the loop's entry / exit border
+// marker, rendered as a pinned port tab rather than a normal draggable node.
+export function isLoopPort(node: { type: GraphNodeType; parentId?: string }): boolean {
+  return !!node.parentId && (node.type === 'start' || node.type === 'end');
+}
+
+// Live (post-resize) size of a loop container node. NodeResizer writes the new
+// size to node.width/height; before any resize it lives in node.style. Mirrors
+// the precedence flowToConfig uses when persisting the container size.
+function loopNodeSize(node: QuartetFlowNode): { width: number; height: number } {
+  const style = node.style as { width?: number | string; height?: number | string } | undefined;
+  const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
+  return {
+    width: num(node.width) ?? num(node.measured?.width) ?? num(style?.width) ?? LOOP_DEFAULT_WIDTH,
+    height: num(node.height) ?? num(node.measured?.height) ?? num(style?.height) ?? LOOP_DEFAULT_HEIGHT,
+  };
+}
+
+/**
+ * Re-pin every loop entry/exit marker flush to its parent container's current
+ * border. The markers are not user-draggable, so their position is derived from
+ * the live loop size — call this after any node change (notably a NodeResizer
+ * resize) so the exit tab tracks the right edge and both tabs stay vertically
+ * centred. Marker nodes whose position is already correct are returned as-is so
+ * referential equality is preserved where possible.
+ */
+export function repinLoopPorts(nodes: QuartetFlowNode[]): QuartetFlowNode[] {
+  const loopSizes = new Map<string, { width: number; height: number }>();
+  for (const n of nodes) {
+    if (n.data?.kind === 'loop') loopSizes.set(n.id, loopNodeSize(n));
+  }
+  if (loopSizes.size === 0) return nodes;
+  return nodes.map((n) => {
+    if (!n.parentId || (n.data?.kind !== 'start' && n.data?.kind !== 'end')) return n;
+    const size = loopSizes.get(n.parentId);
+    if (!size) return n;
+    const pos = loopPortPosition(size.width, size.height, n.data.kind === 'start');
+    if (n.position.x === pos.x && n.position.y === pos.y) return n;
+    return { ...n, position: pos };
+  });
+}
+
 // Auto-layout fallback when a node has no persisted position.
 const AUTO_X_STEP = 220;
 const AUTO_Y = 140;
@@ -34,6 +99,8 @@ export interface QuartetNodeData {
   runStatus?: GraphInstanceStatus;
   /** True when a validation error points at this node. */
   hasError?: boolean;
+  /** True when the canvas is editable (drives the loop resize handles). */
+  editable?: boolean;
   [key: string]: unknown;
 }
 
@@ -55,6 +122,33 @@ export type QuartetFlowEdge = Edge<QuartetEdgeData>;
 function rfNodeType(kind: GraphNodeType): string {
   return kind === 'loop' ? 'loopGroup' : 'quartet';
 }
+
+/**
+ * React Flow constraint applied to a node nested inside a loop container.
+ *
+ * Business/control nodes (shell/prompt/evaluator/if-else) get NO constraint:
+ * they are plain children that can be dragged freely, including OUT of the loop
+ * box. Drag-out is then detected by the canvas drag-stop handler, which
+ * reparents the node to the top level. `extent: 'parent'` was previously used
+ * to keep them visually contained, but it hard-clamped them inside the parent
+ * bounds — making it impossible to ever drag a node back out of a loop.
+ *
+ * A NESTED LOOP container uses `expandParent: true` (still no extent): a loop
+ * box is large and its own subgraph grows, so it must move/resize freely and
+ * grow the enclosing loop to fit rather than being trapped by it.
+ *
+ * (Loop entry/exit markers are pinned separately with `draggable: false`, so
+ * they never need an extent here.)
+ *
+ * Returned as a spreadable patch so callers can also clear the opposite field
+ * (e.g. on reparent) with {@link clearNestConstraint}.
+ */
+export function nestConstraint(kind: GraphNodeType): { expandParent: true } | Record<string, never> {
+  return kind === 'loop' ? { expandParent: true } : {};
+}
+
+/** Patch that removes both nesting constraints (used when a node leaves a loop). */
+export const clearNestConstraint = { extent: undefined, expandParent: undefined } as const;
 
 /**
  * Stable-sort nodes so every parent precedes its children. React Flow requires
@@ -91,6 +185,18 @@ export function configToFlow(config: GraphConfig): {
   nodes: QuartetFlowNode[];
   edges: QuartetFlowEdge[];
 } {
+  // Loop container sizes, so entry/exit markers can be pinned flush to their
+  // parent's border regardless of any stale persisted marker position.
+  const loopSize = new Map<string, { width: number; height: number }>();
+  for (const gn of config.nodes || []) {
+    if (gn.type === 'loop') {
+      loopSize.set(gn.id, {
+        width: gn.layout?.width ?? LOOP_DEFAULT_WIDTH,
+        height: gn.layout?.height ?? LOOP_DEFAULT_HEIGHT,
+      });
+    }
+  }
+
   const nodes: QuartetFlowNode[] = (config.nodes || []).map((gn, index) => {
     const layout = gn.layout;
     const position = {
@@ -105,13 +211,23 @@ export function configToFlow(config: GraphConfig): {
     };
     if (gn.parentId) {
       node.parentId = gn.parentId;
-      node.extent = 'parent';
+      Object.assign(node, nestConstraint(gn.type));
     }
     if (gn.type === 'loop') {
       node.style = {
         width: layout?.width ?? LOOP_DEFAULT_WIDTH,
         height: layout?.height ?? LOOP_DEFAULT_HEIGHT,
       };
+    }
+    // A loop-scoped start/end is the loop's entry / exit border marker: a fixed
+    // port tab pinned flush on its parent's left / right border, derived from the
+    // container size and not user-draggable (it always tracks the boundary).
+    if (isLoopPort(gn)) {
+      const isEntry = gn.type === 'start';
+      const parent = loopSize.get(gn.parentId!) ?? { width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT };
+      node.position = loopPortPosition(parent.width, parent.height, isEntry);
+      node.style = { width: QG_LOOP_PORT_W, height: QG_LOOP_PORT_H };
+      node.draggable = false;
     }
     return node;
   });
@@ -169,9 +285,14 @@ export function flowToConfig(
     };
     const layout = { ...(base.layout || {}), x: rn.position.x, y: rn.position.y };
     if (rn.data.kind === 'loop') {
+      // NodeResizer writes resized dimensions to node.width/height (via
+      // setAttributes) and node.measured; the initial size lives in style.
+      // Prefer the live measured/explicit size so a resize survives save+reload,
+      // falling back to style then the persisted layout then the default.
       const style = rn.style as { width?: number | string; height?: number | string } | undefined;
-      const w = typeof style?.width === 'number' ? style.width : base.layout?.width ?? LOOP_DEFAULT_WIDTH;
-      const h = typeof style?.height === 'number' ? style.height : base.layout?.height ?? LOOP_DEFAULT_HEIGHT;
+      const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
+      const w = num(rn.width) ?? num(rn.measured?.width) ?? num(style?.width) ?? base.layout?.width ?? LOOP_DEFAULT_WIDTH;
+      const h = num(rn.height) ?? num(rn.measured?.height) ?? num(style?.height) ?? base.layout?.height ?? LOOP_DEFAULT_HEIGHT;
       layout.width = w;
       layout.height = h;
     }

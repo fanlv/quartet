@@ -80,10 +80,10 @@ func MergeVisibleSnapshots(upstreams []UpstreamSnapshot) map[string]string {
 // (ascending sort, last wins), independent of arrival order, so the choice is
 // stable across reruns and crash recovery. Upstreams without a session (empty
 // SessionID) are skipped so an Agent join inherits from the nearest upstream
-// that actually established a session. The validator forbids `inherit` on a
-// multi-in-edge Agent, so this only matters for single-in-edge passthrough and
-// for carrying a session past non-Agent joins; a single upstream degenerates to
-// "inherit upstream session".
+// that actually established a session. A multi-in-edge Agent MAY declare
+// `inherit` (it forks this greatest-node-ID upstream session); the first-Agent
+// save-time rule still guarantees every in-edge path carries an upstream Agent
+// session. A single upstream degenerates to "inherit upstream session".
 func pickInflowSession(upstreams []UpstreamSnapshot) string {
 	chosen := ""
 	chosenNode := ""

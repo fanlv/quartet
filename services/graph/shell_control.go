@@ -22,6 +22,12 @@ const (
 // file by hand. Values are base64-encoded to safely carry empty values,
 // whitespace, and '=' characters. Kept byte-identical in behaviour to the Loop
 // helper but defined independently here.
+//
+// Inside a loop body, the engine also exports the innermost loop's iteration
+// context as environment variables (and as {{...}} placeholders):
+//   - QUARTET_LOOP_INDEX        0-based index of the current round
+//   - QUARTET_LOOP_FIXED_COUNT  the loop's fixed count (empty for until loops)
+//   - QUARTET_LOOP_MAX_ITERS    the max-iterations backstop
 const graphShellHelpers = `
 # quartet built-in helpers (graph engine)
 quartet_set() { echo "[quartet] quartet_set key=$1 value=$2" >&2; printf '%s\n' "B64:$1=$(printf '%s' "$2" | base64 -w0 2>/dev/null || printf '%s' "$2" | base64 | tr -d '\n')" >> "$QUARTET_CONTROL"; }
@@ -113,7 +119,7 @@ func ParseShellControl(controlBody string, declared []string) (*ShellControlResu
 		if isReservedVar(name) {
 			return nil, &ShellControlError{
 				Variable: name,
-				Message:  fmt.Sprintf("shell wrote reserved variable name %q (names starting with '_' are reserved)", name),
+				Message:  fmt.Sprintf("shell wrote reserved variable name %q (names starting with '_' or 'QUARTET_' are reserved)", name),
 			}
 		}
 		if !isValidVarName(name) {

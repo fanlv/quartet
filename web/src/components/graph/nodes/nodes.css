@@ -158,6 +158,87 @@
   border-color: var(--graph-accent, #4493f8);
   box-shadow: 0 0 0 2px #4493f855;
 }
+
+/* loop entry / exit markers — rendered as port tabs mounted ON the container
+   border (not floating buttons): the border-facing edge is flat and tinted to
+   read as part of the dashed boundary, the inward edge is rounded toward the
+   loop body. The node is sized to QG_LOOP_PORT_W/H (see graphFlowAdapter) and
+   pinned flush to the left (entry) / right (exit) border. */
+.qg-loop-port {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 0 9px;
+  background: var(--graph-panel, #161b22);
+  border: 1.5px solid #56d4dd;
+  color: #56d4dd;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* Entry sits on the LEFT border: flat left edge (a thick accent strip that
+   merges into the dashed boundary), rounded toward the body on the right. */
+.qg-loop-port.entry {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-top-right-radius: 13px;
+  border-bottom-right-radius: 13px;
+  border-left-width: 4px;
+  transform: translateX(-1.5px);
+}
+/* Exit sits on the RIGHT border: flat right edge, rounded toward the body. */
+.qg-loop-port.exit {
+  border-color: #f0883e;
+  color: #f0883e;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-top-left-radius: 13px;
+  border-bottom-left-radius: 13px;
+  border-right-width: 4px;
+  transform: translateX(1.5px);
+}
+.qg-loop-port.selected {
+  box-shadow: 0 0 0 2px #4493f855;
+}
+.qg-loop-port.has-error {
+  border-color: #f85149 !important;
+  color: #f85149;
+}
+.qg-loop-port.run-running {
+  border-color: #2ea043 !important;
+}
+.qg-loop-port.run-succeeded {
+  border-color: #2ea043;
+}
+.qg-loop-port.run-skipped {
+  opacity: 0.55;
+}
+.qg-loop-port-dot {
+  font-size: 9px;
+  line-height: 1;
+}
+.qg-loop-port-label {
+  text-transform: uppercase;
+}
+
+/* NodeResizer handles/lines for the loop container — tinted to the loop accent
+   so the resize affordance reads as part of the dashed box, not a stray dot. */
+.qg-loop-resize-handle.react-flow__resize-control.handle {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #56d4dd;
+  border: 1.5px solid #0d1117;
+}
+.qg-loop-resize-line.react-flow__resize-control.line {
+  border-color: #56d4dd88;
+}
 .qg-loop-head {
   display: flex;
   align-items: center;

@@ -189,6 +189,12 @@
   cursor: pointer;
 }
 
+.graph-workflow-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+}
+
 .graph-workflow-row:hover,
 .graph-run-row:hover {
   background: #f8fafc;
@@ -216,6 +222,11 @@
   color: #64748b;
   font-size: 12px;
   line-height: 1.35;
+}
+
+.graph-workflow-row-date {
+  justify-self: end;
+  white-space: nowrap;
 }
 
 .graph-run-panel {
@@ -579,6 +590,111 @@
 .graph-desc-input:focus {
   border-color: #dbe3ef;
   background: #fff;
+}
+
+/* ---- Workspace selector (mirrors LoopConfigPanel's loop-ws-* styles) ---- */
+.graph-ws-selector {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.graph-ws-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.9);
+  color: #1e293b;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: transform 0.15s ease, border-color 0.15s, background 0.15s, box-shadow 0.15s ease;
+  white-space: nowrap;
+}
+
+.graph-ws-trigger:hover {
+  border-color: #94a3b8;
+  background: #fff;
+  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
+}
+
+.graph-ws-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.graph-ws-label {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-ws-caret {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.graph-ws-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1000;
+  min-width: 260px;
+  max-width: 380px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08), 0 12px 32px rgba(15, 23, 42, 0.1);
+  padding: 4px;
+}
+
+.graph-ws-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.graph-ws-item:hover {
+  background: #f1f5f9;
+}
+
+.graph-ws-item.active {
+  background: #eef2ff;
+}
+
+.graph-ws-item-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.graph-ws-item-title {
+  flex-shrink: 0;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.graph-ws-item-path {
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .graph-view-toggle {

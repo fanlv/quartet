@@ -65,10 +65,15 @@ func (r *sessionRunner) newCount() int {
 }
 
 func agentNode(id string, strategy model.GraphSessionStrategy) model.GraphNode {
-	return model.GraphNode{ID: id, Type: model.GraphNodeTypePrompt, Config: model.GraphNodeConfig{
+	cfg := model.GraphNodeConfig{
 		Prompt:          "do " + id,
 		SessionStrategy: strategy,
-	}}
+	}
+	// A new session requires an Agent; inherited sessions reuse the upstream one.
+	if strategy != model.GraphSessionStrategyInherit {
+		cfg.AgentType = "tester"
+	}
+	return model.GraphNode{ID: id, Type: model.GraphNodeTypePrompt, Config: cfg}
 }
 
 // TestSessionInheritForksUpstream verifies start → a(new) → b(inherit) → end:
@@ -213,8 +218,8 @@ func TestSessionShellPassthrough(t *testing.T) {
 }
 
 // TestSessionMultiInEdgeCreatesNew verifies a join Agent (multiple in-edges)
-// uses a new session — the validator forbids inherit on a join, so the only
-// legal strategy is new, and at runtime it must mint a fresh session.
+// configured with the `new` strategy mints a fresh session at runtime,
+// independent of its upstreams.
 func TestSessionMultiInEdgeCreatesNew(t *testing.T) {
 	uniqueMemoryRoot(t)
 	svc, err := NewService()
@@ -256,6 +261,51 @@ func TestSessionMultiInEdgeCreatesNew(t *testing.T) {
 	b, _ := instByNode(got, "b")
 	if j.SessionID == a.SessionID || j.SessionID == b.SessionID || j.SessionID == "" {
 		t.Fatalf("join session %q must be a fresh session distinct from upstreams %q/%q", j.SessionID, a.SessionID, b.SessionID)
+	}
+}
+
+// TestSessionMultiInEdgeInheritForksGreatestNodeID verifies a join Agent
+// declaring `inherit` with two Agent upstreams (a, b) forks the upstream with
+// the greatest node ID (ascending sort, last wins — §3 会话血缘), independent of
+// completion order, so the choice is replayable across reruns / crash recovery.
+// Here "b" > "a", so the join must fork b's session, not a's.
+func TestSessionMultiInEdgeInheritForksGreatestNodeID(t *testing.T) {
+	uniqueMemoryRoot(t)
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	cfg := model.GraphConfig{
+		Workdir: t.TempDir(),
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			agentNode("a", model.GraphSessionStrategyNew),
+			agentNode("b", model.GraphSessionStrategyNew),
+			agentNode("j", model.GraphSessionStrategyInherit),
+			node("e", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{
+			edge("s_a", "s", "a"),
+			edge("s_b", "s", "b"),
+			edge("a_j", "a", "j"),
+			edge("b_j", "b", "j"),
+			edge("j_e", "j", "e"),
+		},
+	}
+	runner := newSessionRunner()
+	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1", Config: &cfg}, runner, nil)
+	if err != nil {
+		t.Fatalf("StartRun failed: %v", err)
+	}
+	got := waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusCompleted)
+
+	if runner.forkCount() != 1 {
+		t.Fatalf("ForkSession calls = %d, want 1 (only j inherits)", runner.forkCount())
+	}
+	j, _ := instByNode(got, "j")
+	b, _ := instByNode(got, "b")
+	if runner.forks[j.SessionID] != b.SessionID {
+		t.Fatalf("join forked from %q, want b's session %q (greatest node ID upstream)", runner.forks[j.SessionID], b.SessionID)
 	}
 }
 

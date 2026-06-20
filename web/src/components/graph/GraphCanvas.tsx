@@ -16,6 +16,7 @@ import '@xyflow/react/dist/style.css';
 import type { GraphInstanceStatus, GraphNodeType } from '../../types/graph';
 import type { QuartetFlowEdge, QuartetFlowNode } from './graphFlowAdapter';
 import { edgeRunDisplay } from './graphFlowAdapter';
+import { computeAutoLayout } from './autoLayout';
 import { QuartetNode } from './nodes/QuartetNode';
 import { LoopGroupNode } from './nodes/LoopGroupNode';
 import { DeletableEdge } from './edges/DeletableEdge';
@@ -80,6 +81,21 @@ interface GraphCanvasProps {
   // the loop container's id, or null when the node was dropped outside any loop.
   onReparent?: (nodeId: string, newParentId: string | null) => void;
   onViewportChange?: (viewport: Viewport) => void;
+  // Copy/paste/duplicate the current selection. Wired only in the editable
+  // workflow editor (omitted during run replay). Cmd/Ctrl+C / V / D on the
+  // canvas call these; copy/duplicate also reachable from the inspector.
+  onCopy?: () => void;
+  onPaste?: () => void;
+  onDuplicate?: () => void;
+  // Undo / redo the last canvas edit (Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z or Ctrl+Y).
+  // Wired only in the editable editor. onHistoryCommit is called right before a
+  // canvas-internal mutation (e.g. auto-layout) so it lands as one undo step.
+  // canUndo/canRedo drive the toolbar buttons' enabled state.
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onHistoryCommit?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 function CanvasInner({
@@ -103,6 +119,14 @@ function CanvasInner({
   onAddNode,
   onReparent,
   onViewportChange,
+  onCopy,
+  onPaste,
+  onDuplicate,
+  onUndo,
+  onRedo,
+  onHistoryCommit,
+  canUndo,
+  canRedo,
 }: GraphCanvasProps) {
   const { t } = useTranslation();
   const rf = useReactFlow();
@@ -143,9 +167,10 @@ function CanvasInner({
           ...n.data,
           runStatus: runStatusByNodeId?.[n.id],
           hasError: errorNodeIds?.has(n.id) ?? false,
+          editable: !readOnly,
         },
       })),
-    [connectSource, nodes, runStatusByNodeId, errorNodeIds, tapConnect],
+    [connectSource, nodes, runStatusByNodeId, errorNodeIds, tapConnect, readOnly],
   );
 
   const displayEdges = useMemo(
@@ -332,8 +357,12 @@ function CanvasInner({
     [nodes, onReparent, readOnly, rf],
   );
 
-  // Click-to-add (mobile-friendly): drop the node at the current viewport center.
-  // If a loop container covers that center, the node is added inside it.
+  // Click-to-add: always drop the node at the top level near the viewport
+  // center. It deliberately does NOT auto-nest into a loop container that
+  // happens to overlap the center — that made click-add land inside a loop
+  // unexpectedly, and (with the old extent clamp) the node could not be dragged
+  // back out. To put a node inside a loop, drag it from the palette into the
+  // loop box instead.
   const handlePaletteClick = useCallback(
     (type: GraphNodeType) => {
       if (readOnly) return;
@@ -341,15 +370,9 @@ function CanvasInner({
       const center = rect
         ? rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
         : { x: 200, y: 160 };
-      const container = type === 'loop' ? null : loopContainerAt(center);
-      if (container) {
-        const origin = absoluteOrigin(container);
-        onAddNode(type, { x: center.x - origin.x, y: center.y - origin.y }, container.id);
-        return;
-      }
       onAddNode(type, center, null);
     },
-    [absoluteOrigin, loopContainerAt, onAddNode, rf, readOnly],
+    [onAddNode, rf, readOnly],
   );
 
   const toggleTapConnect = useCallback(() => {
@@ -414,6 +437,76 @@ function CanvasInner({
     onPaneClick();
   }, [connectSource, onPaneClick, tapConnect]);
 
+  // Auto-arrange: recompute every node position into a tidy left-to-right layered
+  // layout and push the moves through the normal position-change flow so the page
+  // state (and persisted layout) stays in sync. Then fit the view to the result.
+  const handleAutoLayout = useCallback(() => {
+    if (readOnly) return;
+    const positions = computeAutoLayout(nodes, edges);
+    const changes: NodeChange[] = [];
+    for (const n of nodes) {
+      const pos = positions.get(n.id);
+      if (!pos) continue;
+      if (pos.x === n.position.x && pos.y === n.position.y) continue;
+      changes.push({ id: n.id, type: 'position', position: pos, dragging: false });
+    }
+    if (changes.length === 0) return;
+    // Auto-layout sends a batch of dragging:false moves, which onNodesChange
+    // does not snapshot (no drag gesture). Commit explicitly so the whole
+    // re-layout is a single undo step.
+    onHistoryCommit?.();
+    onNodesChange(changes);
+    window.requestAnimationFrame(() => {
+      void rf.fitView({ ...DEFAULT_FIT_VIEW_OPTIONS, duration: 300 });
+    });
+  }, [edges, nodes, onHistoryCommit, onNodesChange, readOnly, rf]);
+
+  // Keyboard shortcuts for copy / paste / duplicate of the selection. Attached
+  // at document level so the canvas need not hold DOM focus, but ignored while a
+  // text field is focused (so Cmd/Ctrl+C/V/D there keep their normal meaning)
+  // and in read-only replay. preventDefault stops the browser default (notably
+  // Cmd/Ctrl+D = add bookmark).
+  useEffect(() => {
+    if (readOnly) return;
+    const isEditableTarget = (el: EventTarget | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+    };
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      if (isEditableTarget(e.target) || isEditableTarget(document.activeElement)) return;
+      const key = e.key.toLowerCase();
+      if (key === 'c' && onCopy) {
+        e.preventDefault();
+        onCopy();
+      } else if (key === 'v' && onPaste) {
+        e.preventDefault();
+        onPaste();
+      } else if (key === 'd' && onDuplicate) {
+        e.preventDefault();
+        onDuplicate();
+      } else if (key === 'z') {
+        // Cmd/Ctrl+Z = undo, Cmd/Ctrl+Shift+Z = redo (mac convention).
+        if (e.shiftKey) {
+          if (!onRedo) return;
+          e.preventDefault();
+          onRedo();
+        } else {
+          if (!onUndo) return;
+          e.preventDefault();
+          onUndo();
+        }
+      } else if (key === 'y' && onRedo) {
+        // Ctrl+Y = redo (Windows convention).
+        e.preventDefault();
+        onRedo();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onCopy, onDuplicate, onPaste, onRedo, onUndo, readOnly]);
+
   return (
     <div className="graph-canvas">
       {!readOnly && (
@@ -422,9 +515,15 @@ function CanvasInner({
           {PALETTE_ORDER.map((type) => {
             const k = KINDS[type];
             return (
-              <button
+              // A plain <div role="button"> rather than a <button>: native HTML5
+              // drag does not reliably initiate from a <button> in Chromium (the
+              // button swallows the mousedown so dragstart never fires), which
+              // left only click-to-add working. A draggable div drags correctly
+              // and still adds on click via onClick / keyboard.
+              <div
                 key={type}
-                type="button"
+                role="button"
+                tabIndex={0}
                 className="graph-node-chip"
                 draggable
                 onDragStart={(e) => {
@@ -432,6 +531,12 @@ function CanvasInner({
                   e.dataTransfer.effectAllowed = 'move';
                 }}
                 onClick={() => handlePaletteClick(type)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handlePaletteClick(type);
+                  }
+                }}
               >
                 <span className="graph-chip-ico" style={{ background: k.color }}>
                   {k.icon}
@@ -440,7 +545,7 @@ function CanvasInner({
                   <span className="graph-chip-label">{labelOf(t, type)}</span>
                   <span className="graph-chip-sub">{subOf(t, type)}</span>
                 </span>
-              </button>
+              </div>
             );
           })}
           <div className="graph-palette-hint">{t('graph.canvas.paletteHint')}</div>
@@ -453,6 +558,46 @@ function CanvasInner({
             <button type="button" className="graph-connect-toggle" onClick={toggleTapConnect}>
               {tapConnect ? t('graph.canvas.exitConnect') : t('graph.canvas.startConnect')}
             </button>
+            <button
+              type="button"
+              className="graph-connect-toggle"
+              onClick={handleAutoLayout}
+              title={t('graph.canvas.autoLayout')}
+            >
+              {t('graph.canvas.autoLayout')}
+            </button>
+            {onUndo && (
+              <button
+                type="button"
+                className="graph-connect-icon-btn"
+                onClick={onUndo}
+                disabled={!canUndo}
+                title={t('graph.canvas.undo')}
+                aria-label={t('graph.canvas.undo')}
+                data-testid="graph-undo"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M9 14 4 9l5-5" />
+                  <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
+                </svg>
+              </button>
+            )}
+            {onRedo && (
+              <button
+                type="button"
+                className="graph-connect-icon-btn"
+                onClick={onRedo}
+                disabled={!canRedo}
+                title={t('graph.canvas.redo')}
+                aria-label={t('graph.canvas.redo')}
+                data-testid="graph-redo"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m15 14 5-5-5-5" />
+                  <path d="M20 9H9a5 5 0 0 0 0 10h1" />
+                </svg>
+              </button>
+            )}
             {tapConnect && (
               <>
                 <span className="graph-connect-state">

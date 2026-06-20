@@ -1,10 +1,15 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import type { QuartetFlowNode } from '../graphFlowAdapter';
 
+// Floor for the loop container so it always fits its head plus at least one
+// child row; keeps the resize handle from collapsing the box to nothing.
+const LOOP_MIN_WIDTH = 280;
+const LOOP_MIN_HEIGHT = 180;
+
 export function LoopGroupNode({ data, selected }: NodeProps<QuartetFlowNode>) {
   const { t } = useTranslation();
-  const { graphNode, runStatus, hasError } = data;
+  const { graphNode, runStatus, hasError, editable } = data;
   const cfg = graphNode.config;
   const meta =
     cfg?.loopMode === 'until' ? (
@@ -28,6 +33,15 @@ export function LoopGroupNode({ data, selected }: NodeProps<QuartetFlowNode>) {
 
   return (
     <div className={className} data-testid={`graph-loop-${graphNode.id}`}>
+      {editable && (
+        <NodeResizer
+          minWidth={LOOP_MIN_WIDTH}
+          minHeight={LOOP_MIN_HEIGHT}
+          isVisible={selected}
+          lineClassName="qg-loop-resize-line"
+          handleClassName="qg-loop-resize-handle"
+        />
+      )}
       <Handle type="target" position={Position.Left} />
       <div className="qg-loop-head">
         <span className="qg-loop-badge">🔁 {graphNode.title || t('graph.node.loopDefaultTitle')}</span>

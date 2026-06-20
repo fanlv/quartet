@@ -112,13 +112,25 @@ func (sc *scheduler) startIteration(ctx context.Context, loop *scopeRun, index i
 		sc.failRunSched(ctx, fmt.Errorf("loop container %s has no subgraph entry node", loop.container))
 		return
 	}
-	entry := sc.nodesByID[entryID]
+	// The entry is the loop-scoped start node (the container's entry marker). Seed
+	// the round by resolving its out-edges with the accumulated snapshot, exactly
+	// as seedFresh seeds the main graph's start nodes — this supports a round that
+	// fans out into parallel branches, not just a single entry node. The loop's
+	// inflow session flows into the round (§3 会话血缘).
 	entryKey := scopeKey(loop.prefix, entryID)
-	// Seed the entry as activated with the accumulated snapshot as its single
-	// upstream contribution (the entry has no in-edges within the subgraph). The
-	// loop's inflow session flows into the entry (§3 会话血缘).
 	sc.anyActive[instanceKeyString(entryKey)] = true
-	sc.decide(ctx, loop, entry, entryKey, cloneStringMap(loop.accumSnapshot), loop.inflowSession)
+	contrib := UpstreamSnapshot{
+		NodeID:           entryID,
+		Variables:        cloneStringMap(loop.accumSnapshot),
+		LastAssistantMsg: loop.accumSnapshot[lastAssistantKey],
+		SessionID:        loop.inflowSession,
+	}
+	for _, e := range sc.outEdges[entryID] {
+		sc.resolveEdge(ctx, loop, e, true, contrib)
+		if sc.failed {
+			return
+		}
+	}
 	// If the round contained only synchronous work (e.g. an If-Else entry routing
 	// straight to an internal end), no async unit was registered and live is
 	// already zero — finish the round now. Workers, if any were enqueued, drive
@@ -179,7 +191,11 @@ func (sc *scheduler) finishIteration(ctx context.Context, loop *scopeRun) {
 		}
 		sc.startIteration(ctx, loop, loop.iterIndex+1)
 	case model.GraphLoopModeUntil:
-		result, cerr := EvaluateCondition(node.Config.UntilCondition, CondEvalInput{Variables: roundEnd, Disabled: sc.disabled})
+		// The until condition sees the round-end snapshot plus the loop iteration
+		// vars (QUARTET_LOOP_INDEX is the round that just finished). withLoopVars
+		// clones, so roundEnd — which becomes accumSnapshot / the loop's external
+		// snapshot — is not polluted with the engine vars.
+		result, cerr := EvaluateCondition(node.Config.UntilCondition, CondEvalInput{Variables: withLoopVars(roundEnd, loop), Disabled: sc.disabled})
 		if cerr != nil {
 			logger.Errorf(ctx, "[graph] loop until condition failed: runId=%s loopId=%s loopKey=%s iteration=%d err=%v",
 				sc.run.ID, loop.container, instanceKeyString(loop.loopKey), loop.iterIndex, cerr)

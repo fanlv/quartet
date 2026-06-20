@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/fanlv/quartet/types/model"
 )
@@ -76,7 +77,6 @@ func (v *validator) run() {
 	v.validateStructure()
 	v.validateCycles()
 	v.validateLoopSubgraphs()
-	v.validateSessionInheritance()
 	v.validateFirstAgentNewSession()
 	v.validateOutputConflicts()
 }
@@ -141,8 +141,14 @@ func isBusiness(t model.GraphNodeType) bool {
 	}
 }
 
+// isReservedVar reports whether a variable name lies in a namespace the engine
+// owns and users may not declare: names starting with '_' (e.g.
+// _last_assistant_msg) and the 'QUARTET_' prefix (engine-injected loop
+// iteration vars QUARTET_LOOP_*, and the QUARTET_CONTROL shell env). Reserving
+// the whole prefix prevents a user output/alias/initial variable from colliding
+// with — and being clobbered by — an injected value across all channels.
 func isReservedVar(name string) bool {
-	return len(name) > 0 && name[0] == '_'
+	return len(name) > 0 && (name[0] == '_' || strings.HasPrefix(name, reservedQuartetPrefix))
 }
 
 // --- run config ---
@@ -174,7 +180,7 @@ func (v *validator) validateRunConfig() {
 func (v *validator) validateInitialVariables() {
 	for name := range v.cfg.Variables {
 		if isReservedVar(name) {
-			v.varErr("", name, fmt.Sprintf("initial variable %q uses the reserved namespace (names starting with '_' including %q are reserved)", name, reservedLastAssistant))
+			v.varErr("", name, fmt.Sprintf("initial variable %q uses the reserved namespace (names starting with '_' (including %q) or 'QUARTET_' are reserved)", name, reservedLastAssistant))
 			continue
 		}
 		if !isValidVarName(name) {
@@ -198,8 +204,10 @@ func (v *validator) validateNodeConfigs() {
 			v.validateOutputDecls(n, false)
 		case model.GraphNodeTypePrompt:
 			v.validateOutputDecls(n, false)
+			v.validateAgentNewSession(n)
 		case model.GraphNodeTypeEvaluator:
 			v.validateOutputDecls(n, true)
+			v.validateAgentNewSession(n)
 		case model.GraphNodeTypeIfElse:
 			v.validateIfElseConfig(n)
 		case model.GraphNodeTypeLoop:
@@ -231,7 +239,7 @@ func (v *validator) validateOutputDecls(n *model.GraphNode, requireOutput bool) 
 	seen := make(map[string]bool)
 	for _, name := range n.Config.OutputVariables {
 		if isReservedVar(name) {
-			v.varErr(n.ID, name, fmt.Sprintf("output variable %q uses the reserved namespace (names starting with '_' including %q are reserved)", name, reservedLastAssistant))
+			v.varErr(n.ID, name, fmt.Sprintf("output variable %q uses the reserved namespace (names starting with '_' (including %q) or 'QUARTET_' are reserved)", name, reservedLastAssistant))
 			continue
 		}
 		if !isValidVarName(name) {
@@ -255,6 +263,19 @@ func (v *validator) validateOutputDecls(n *model.GraphNode, requireOutput bool) 
 		} else if seen[alias] {
 			v.varErr(n.ID, alias, fmt.Sprintf("_last_assistant_msg alias %q collides with an explicit output variable on the same node", alias))
 		}
+	}
+}
+
+// validateAgentNewSession enforces that an Agent-class node (prompt/evaluator)
+// which creates a NEW session must specify an Agent. The `inherit` strategy is
+// exempt: it forks the upstream Agent's session and reuses its Agent/model when
+// no override is given, so a missing agentType is legal there.
+func (v *validator) validateAgentNewSession(n *model.GraphNode) {
+	if n.Config.SessionStrategy == model.GraphSessionStrategyInherit {
+		return
+	}
+	if n.Config.AgentType == "" {
+		v.nodeErr(n.ID, fmt.Sprintf("agent node %q creates a new session and must specify an Agent", n.ID))
 	}
 }
 
@@ -423,11 +444,11 @@ func (v *validator) validateStructure() {
 				v.nodeErr(n.ID, fmt.Sprintf("end node %q must have at least one in-edge", n.ID))
 			}
 		default:
-			// business nodes; loop subgraph entry may legitimately have no
-			// in-edge (the loop drives it). That exception is checked in
-			// validateLoopSubgraphs; here we only require in-edges for nodes in
-			// the main scope.
-			if n.ParentID == "" && in == 0 {
+			// Business nodes always need an in-edge: in the main scope from a
+			// start/upstream, inside a loop from the loop's entry start or an
+			// upstream body node. (The loop entry marker is a start node, handled
+			// by the start case above, so it is exempt from this requirement.)
+			if in == 0 {
 				v.nodeErr(n.ID, fmt.Sprintf("node %q must have at least one in-edge", n.ID))
 			}
 			if out == 0 {
@@ -517,8 +538,8 @@ func (v *validator) checkCanReachEnd(scope string, ends map[string]bool) {
 }
 
 // entriesOfScope returns the entry node IDs of a scope. For the main scope,
-// entries are the start nodes. For a loop scope, entries are business/loop
-// nodes with no intra-scope in-edge.
+// entries are the start nodes. For a loop scope, the entry is the loop-scoped
+// start node (the container's entry marker).
 func (v *validator) entriesOfScope(scope string, isMain bool) []string {
 	var entries []string
 	for _, n := range v.scopes[scope] {
@@ -528,10 +549,7 @@ func (v *validator) entriesOfScope(scope string, isMain bool) []string {
 			}
 			continue
 		}
-		if n.Type == model.GraphNodeTypeEnd {
-			continue
-		}
-		if v.inDeg[n.ID] == 0 {
+		if n.Type == model.GraphNodeTypeStart {
 			entries = append(entries, n.ID)
 		}
 	}
@@ -627,26 +645,26 @@ func (v *validator) validateLoopSubgraphs() {
 			v.nodeErr(n.ID, fmt.Sprintf("loop container %q has an empty subgraph", n.ID))
 			continue
 		}
-		// No start nodes inside a loop.
-		var entries []string
+		// A loop subgraph has exactly one entry marker (a loop-scoped start node,
+		// rendered on the container's left border) and at least one exit marker (a
+		// loop-scoped end node on the right border). The user wires the entry start
+		// to the body and the body to the exit end. This mirrors the main graph's
+		// start→…→end structure, scoped to the container.
+		var starts []string
 		var internalEnds int
 		for _, c := range children {
-			if c.Type == model.GraphNodeTypeStart {
-				v.nodeErr(c.ID, fmt.Sprintf("loop subgraph of %q must not contain a start node", n.ID))
-			}
-			if c.Type == model.GraphNodeTypeEnd {
+			switch c.Type {
+			case model.GraphNodeTypeStart:
+				starts = append(starts, c.ID)
+			case model.GraphNodeTypeEnd:
 				internalEnds++
-				continue
-			}
-			if v.inDeg[c.ID] == 0 {
-				entries = append(entries, c.ID)
 			}
 		}
-		if len(entries) != 1 {
-			v.nodeErr(n.ID, fmt.Sprintf("loop subgraph of %q must have exactly one entry node (a single business/nested-loop node with no in-edge), got %d", n.ID, len(entries)))
+		if len(starts) != 1 {
+			v.nodeErr(n.ID, fmt.Sprintf("loop subgraph of %q must have exactly one entry node (a loop-scoped start with parentId=%q), got %d", n.ID, n.ID, len(starts)))
 		}
 		if internalEnds == 0 {
-			v.nodeErr(n.ID, fmt.Sprintf("loop subgraph of %q must contain at least one internal end node (an end node with parentId=%q)", n.ID, n.ID))
+			v.nodeErr(n.ID, fmt.Sprintf("loop subgraph of %q must contain at least one exit node (an end node with parentId=%q)", n.ID, n.ID))
 		}
 		// All internal paths must reach an internal end.
 		ends := make(map[string]bool)
@@ -656,15 +674,15 @@ func (v *validator) validateLoopSubgraphs() {
 			}
 		}
 		v.checkCanReachEnd(scope, ends)
-		// Unreachable internal nodes.
-		if len(entries) == 1 {
-			reach := v.reachableFrom(entries, scope, "")
+		// Unreachable internal nodes (from the entry start).
+		if len(starts) == 1 {
+			reach := v.reachableFrom(starts, scope, "")
 			for _, c := range children {
-				if c.ID == entries[0] {
+				if c.ID == starts[0] || c.Type == model.GraphNodeTypeStart {
 					continue
 				}
 				if !reach[c.ID] {
-					v.nodeErr(c.ID, fmt.Sprintf("node %q is not reachable from the loop subgraph entry of %q", c.ID, n.ID))
+					v.nodeErr(c.ID, fmt.Sprintf("node %q is not reachable from the loop entry of %q", c.ID, n.ID))
 				}
 			}
 		}
@@ -672,20 +690,6 @@ func (v *validator) validateLoopSubgraphs() {
 }
 
 // --- session inheritance ---
-
-func (v *validator) validateSessionInheritance() {
-	for i := range v.cfg.Nodes {
-		n := &v.cfg.Nodes[i]
-		if !isAgent(n.Type) {
-			continue
-		}
-		if n.Config.SessionStrategy == model.GraphSessionStrategyInherit {
-			if v.inDeg[n.ID] != 1 {
-				v.sessionErr(n.ID, fmt.Sprintf("agent node %q declares 'inherit' session strategy but has %d in-edges; inherit requires exactly one in-edge (multi-in-edge joins must create a new session)", n.ID, v.inDeg[n.ID]))
-			}
-		}
-	}
-}
 
 // validateFirstAgentNewSession enforces "每条 start 链路首个可执行 Agent 必须新建
 // 会话" (§3 会话血缘): the first Agent-class node reachable from any main-graph
@@ -696,6 +700,12 @@ func (v *validator) validateSessionInheritance() {
 // container/end) are traversed through. Loop subgraph entries are not start
 // chains: a loop's first round inherits the session flowing into the container,
 // so an `inherit` Agent at a subgraph entry is legal and not checked here.
+//
+// Multi-in-edge Agents MAY inherit (they fork the greatest-node-ID upstream
+// session via pickInflowSession); this rule is the safety backstop that keeps
+// such inheritance well-defined: if a join Agent is the first Agent on ANY
+// start chain (some in-edge path reaches it through non-Agent nodes only), that
+// path carries no upstream session and inherit is rejected at save time.
 func (v *validator) validateFirstAgentNewSession() {
 	starts := v.entriesOfScope("", true)
 	reported := map[string]bool{}

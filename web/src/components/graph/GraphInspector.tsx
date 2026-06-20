@@ -17,6 +17,11 @@ import './GraphInspector.css';
 // final assistant message. Mirrors services/graph reservedLastAssistant.
 const RESERVED_LAST_ASSISTANT = '_last_assistant_msg';
 
+// Engine-injected loop iteration variables, available to any node inside a loop
+// body (and to the loop's own "until" condition). Mirrors services/graph
+// loopvars.go QUARTET_LOOP_* names.
+const LOOP_ITERATION_VARS = ['QUARTET_LOOP_INDEX', 'QUARTET_LOOP_FIXED_COUNT', 'QUARTET_LOOP_MAX_ITERS'];
+
 // Variable names a condition at `nodeId` may reference: global variable keys,
 // the reserved _last_assistant_msg, and every upstream node's declared outputs
 // + last-assistant alias (found by walking edges backwards). For a loop node
@@ -54,8 +59,15 @@ function collectAvailableVars(config: GraphConfig, nodeId: string): string[] {
     for (const src of incoming.get(cur) || []) queue.push(src);
   }
 
-  if (byId.get(nodeId)?.type === 'loop') {
+  const self = byId.get(nodeId);
+  if (self?.type === 'loop') {
     for (const n of nodes) if (n.parentId === nodeId) addNodeOutputs(n);
+  }
+
+  // Loop iteration vars are visible to any node inside a loop body, and to the
+  // loop container's own "until" condition (evaluated after each round).
+  if (self?.parentId || self?.type === 'loop') {
+    for (const v of LOOP_ITERATION_VARS) out.add(v);
   }
 
   return [...out].sort((a, b) => a.localeCompare(b));
@@ -80,6 +92,9 @@ interface GraphInspectorProps {
   onUpdateNode: (id: string, patch: Partial<GraphNode>) => void;
   onUpdateNodeConfig: (id: string, patch: Partial<GraphNodeConfig>) => void;
   onDeleteNode: (id: string) => void;
+  // Duplicate this node (and, for a loop, its whole body) onto the canvas.
+  // Omitted while the graph structure is locked (run-version editing).
+  onDuplicateNode?: (id: string) => void;
   onUpdateVariables: (variables: Record<string, string>, disabledVars: string[]) => void;
   onUpdateRunConfig: (patch: Partial<GraphRunConfig>) => void;
   onDrawerToggle?: () => void;
@@ -113,6 +128,7 @@ export function GraphInspector({
   onUpdateNode,
   onUpdateNodeConfig,
   onDeleteNode,
+  onDuplicateNode,
   onUpdateVariables,
   onUpdateRunConfig,
   onDrawerToggle,
@@ -209,7 +225,7 @@ export function GraphInspector({
       <div className="gi-desc">{t('graph.inspector.globalVariablesDesc')}</div>
       {variableRows.length === 0 && <div className="gi-empty">{t('graph.inspector.noVariables')}</div>}
       {variableRows.map(([k, v], i) => (
-        <div className="gi-var-row" key={`${i}-${k}`}>
+        <div className="gi-var-row" key={i}>
           <input
             className="gi-var-key"
             value={k}
@@ -251,7 +267,7 @@ export function GraphInspector({
           min={1}
           max={16}
           value={runConfig.concurrencyLimit ?? ''}
-          placeholder="4"
+          placeholder="8"
           disabled={globalsReadOnly}
           onChange={(e) => onUpdateRunConfig({ concurrencyLimit: numberOrUndefined(e.target.value) })}
         />
@@ -592,9 +608,16 @@ export function GraphInspector({
       )}
 
       {!readOnly && !lockStructure && !frozen && node.type !== 'start' && node.type !== 'end' && (
-        <button className="gi-delete-btn" onClick={() => onDeleteNode(node.id)}>
-          {t('graph.inspector.deleteNode')}
-        </button>
+        <div className="gi-node-actions">
+          {onDuplicateNode && (
+            <button className="gi-dup-btn" onClick={() => onDuplicateNode(node.id)}>
+              {t('graph.inspector.duplicateNode')}
+            </button>
+          )}
+          <button className="gi-delete-btn" onClick={() => onDeleteNode(node.id)}>
+            {t('graph.inspector.deleteNode')}
+          </button>
+        </div>
       )}
         </fieldset>
 

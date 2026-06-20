@@ -2,6 +2,9 @@ package graph
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/fanlv/quartet/types/model"
@@ -35,6 +38,12 @@ func childEnd(id, parent string) model.GraphNode {
 	return model.GraphNode{ID: id, Type: model.GraphNodeTypeEnd, ParentID: parent}
 }
 
+// childStart builds the loop-scoped start node (the container's entry marker).
+// Every loop subgraph requires exactly one; wire it to the body entry node.
+func childStart(id, parent string) model.GraphNode {
+	return model.GraphNode{ID: id, Type: model.GraphNodeTypeStart, ParentID: parent}
+}
+
 func mustStart(t *testing.T, svc Service, cfg model.GraphConfig, jobID string) string {
 	t.Helper()
 	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: jobID, Config: &cfg}, stubGraphRunner{}, nil)
@@ -62,12 +71,14 @@ func TestLoopFixedCountRepeats(t *testing.T) {
 			node("s", model.GraphNodeTypeStart),
 			loopFixed("lp", 3, 0),
 			childShell("body", "lp", "echo x >> "+counter+"; quartet_set count \"$(wc -l < "+counter+" | tr -d ' ')\"", "count"),
+			childStart("ls", "lp"),
 			childEnd("le", "lp"),
 			shellNode("after", "echo done"),
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
 			edge("s_lp", "s", "lp"),
+			edge("ls_body", "ls", "body"),
 			edge("body_le", "body", "le"),
 			edge("lp_after", "lp", "after"),
 			edge("after_e", "after", "e"),
@@ -111,12 +122,14 @@ func TestLoopZeroCountSkips(t *testing.T) {
 			node("s", model.GraphNodeTypeStart),
 			loopFixed("lp", 0, 0),
 			childShell("body", "lp", "echo ran"),
+			childStart("ls", "lp"),
 			childEnd("le", "lp"),
 			shellNode("after", "echo {{seed}}"),
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
 			edge("s_lp", "s", "lp"),
+			edge("ls_body", "ls", "body"),
 			edge("body_le", "body", "le"),
 			edge("lp_after", "lp", "after"),
 			edge("after_e", "after", "e"),
@@ -154,11 +167,13 @@ func TestLoopUntilDoWhile(t *testing.T) {
 			node("s", model.GraphNodeTypeStart),
 			loopUntil("lp", `{{n}} == "3"`, 100),
 			childShell("body", "lp", "echo x >> "+counter+"; quartet_set n \"$(wc -l < "+counter+" | tr -d ' ')\"", "n"),
+			childStart("ls", "lp"),
 			childEnd("le", "lp"),
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
 			edge("s_lp", "s", "lp"),
+			edge("ls_body", "ls", "body"),
 			edge("body_le", "body", "le"),
 			edge("lp_e", "lp", "e"),
 		},
@@ -186,11 +201,13 @@ func TestLoopUntilMaxItersFails(t *testing.T) {
 			node("s", model.GraphNodeTypeStart),
 			loopUntil("lp", `{{n}} == "never"`, 3),
 			childShell("body", "lp", "quartet_set n hello", "n"),
+			childStart("ls", "lp"),
 			childEnd("le", "lp"),
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
 			edge("s_lp", "s", "lp"),
+			edge("ls_body", "ls", "body"),
 			edge("body_le", "body", "le"),
 			edge("lp_e", "lp", "e"),
 		},
@@ -220,11 +237,13 @@ func TestLoopAccumulatesAcrossRounds(t *testing.T) {
 			node("s", model.GraphNodeTypeStart),
 			loopFixed("lp", 3, 0),
 			childShell("body", "lp", `quartet_set acc "{{acc}}*"`, "acc"),
+			childStart("ls", "lp"),
 			childEnd("le", "lp"),
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
 			edge("s_lp", "s", "lp"),
+			edge("ls_body", "ls", "body"),
 			edge("body_le", "body", "le"),
 			edge("lp_e", "lp", "e"),
 		},
@@ -234,6 +253,105 @@ func TestLoopAccumulatesAcrossRounds(t *testing.T) {
 	lp, _ := instByNode(got, "lp")
 	if lp.VisibleVariables["acc"] != "***" {
 		t.Fatalf("accumulated acc = %q, want ***", lp.VisibleVariables["acc"])
+	}
+}
+
+// TestLoopIterationVarsInjected: the engine injects QUARTET_LOOP_* into the loop
+// body across all channels — the shell environment ($QUARTET_LOOP_INDEX) and the
+// {{...}} text substitution ({{QUARTET_LOOP_INDEX}}). A fixed 3-round loop logs
+// the index/fixed-count/max-iters of each round; the recorded lines prove the
+// index advances 0,1,2 and the static fields are populated.
+func TestLoopIterationVarsInjected(t *testing.T) {
+	uniqueMemoryRoot(t)
+	workdir := t.TempDir()
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	log := workdir + "/iters.txt"
+	// Body writes one line per round: env index | substituted index | fixed | max.
+	script := `echo "env=$QUARTET_LOOP_INDEX tmpl={{QUARTET_LOOP_INDEX}} fixed=$QUARTET_LOOP_FIXED_COUNT max=$QUARTET_LOOP_MAX_ITERS" >> ` + log
+	cfg := model.GraphConfig{
+		Workdir: workdir,
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			loopFixed("lp", 3, 7),
+			childShell("body", "lp", script),
+			childStart("ls", "lp"),
+			childEnd("le", "lp"),
+			node("e", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{
+			edge("s_lp", "s", "lp"),
+			edge("ls_body", "ls", "body"),
+			edge("body_le", "body", "le"),
+			edge("lp_e", "lp", "e"),
+		},
+	}
+	runID := mustStart(t, svc, cfg, "job-loop-itervars")
+	waitGraphRunStatus(t, svc, runID, model.GraphRunStatusCompleted)
+
+	data, rerr := os.ReadFile(log)
+	if rerr != nil {
+		t.Fatalf("read iter log: %v", rerr)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("got %d round lines, want 3:\n%s", len(lines), string(data))
+	}
+	for i, line := range lines {
+		want := fmt.Sprintf("env=%d tmpl=%d fixed=3 max=7", i, i)
+		if line != want {
+			t.Fatalf("round %d line = %q, want %q", i, line, want)
+		}
+	}
+}
+
+// TestLoopUntilConditionSeesIndex: an until-mode loop can reference
+// {{QUARTET_LOOP_INDEX}} in its condition, and QUARTET_LOOP_FIXED_COUNT is empty
+// (not "0") for until loops. The condition stops the loop once the just-finished
+// round index reaches 2, so the loop runs exactly rounds 0,1,2 (3 rounds).
+func TestLoopUntilConditionSeesIndex(t *testing.T) {
+	uniqueMemoryRoot(t)
+	workdir := t.TempDir()
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	counter := workdir + "/n.txt"
+	cfg := model.GraphConfig{
+		Workdir: workdir,
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			loopUntil("lp", `{{QUARTET_LOOP_INDEX}} >= "2"`, 50),
+			childShell("body", "lp", "echo x >> "+counter+`; quartet_set fixed "$QUARTET_LOOP_FIXED_COUNT"`, "fixed"),
+			childStart("ls", "lp"),
+			childEnd("le", "lp"),
+			node("e", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{
+			edge("s_lp", "s", "lp"),
+			edge("ls_body", "ls", "body"),
+			edge("body_le", "body", "le"),
+			edge("lp_e", "lp", "e"),
+		},
+	}
+	runID := mustStart(t, svc, cfg, "job-loop-until-index")
+	got := waitGraphRunStatus(t, svc, runID, model.GraphRunStatusCompleted)
+	lp, _ := instByNode(got, "lp")
+	if lp.Status != model.GraphInstanceStatusSucceeded {
+		t.Fatalf("loop status = %s, want succeeded", lp.Status)
+	}
+	if lp.VisibleVariables["fixed"] != "" {
+		t.Fatalf("QUARTET_LOOP_FIXED_COUNT for until loop = %q, want empty", lp.VisibleVariables["fixed"])
+	}
+	data, rerr := os.ReadFile(counter)
+	if rerr != nil {
+		t.Fatalf("read counter: %v", rerr)
+	}
+	rounds := len(strings.Split(strings.TrimSpace(string(data)), "\n"))
+	if rounds != 3 {
+		t.Fatalf("until loop ran %d rounds, want 3", rounds)
 	}
 }
 
@@ -251,11 +369,13 @@ func TestLoopInternalFailurePropagates(t *testing.T) {
 			node("s", model.GraphNodeTypeStart),
 			loopFixed("lp", 5, 0),
 			childShell("body", "lp", "exit 7"),
+			childStart("ls", "lp"),
 			childEnd("le", "lp"),
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
 			edge("s_lp", "s", "lp"),
+			edge("ls_body", "ls", "body"),
 			edge("body_le", "body", "le"),
 			edge("lp_e", "lp", "e"),
 		},
@@ -286,19 +406,23 @@ func TestNestedLoops(t *testing.T) {
 		Nodes: []model.GraphNode{
 			node("s", model.GraphNodeTypeStart),
 			loopFixed("outer", 2, 0),
-			// inner loop is the outer subgraph entry (no in-edge inside outer).
+			// outer subgraph: entry start → inner loop → outer end.
+			childStart("outer_start", "outer"),
 			{ID: "inner", Type: model.GraphNodeTypeLoop, ParentID: "outer", Config: model.GraphNodeConfig{
 				LoopMode: model.GraphLoopModeFixed, FixedCount: 3,
 			}},
 			childEnd("outer_end", "outer"),
-			// inner subgraph body + end (parent = inner).
+			// inner subgraph: entry start → body → inner end.
+			childStart("inner_start", "inner"),
 			childShell("ibody", "inner", "echo x >> "+counter+"; quartet_set total \"$(wc -l < "+counter+" | tr -d ' ')\"", "total"),
 			childEnd("inner_end", "inner"),
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
 			edge("s_outer", "s", "outer"),
+			edge("outerstart_inner", "outer_start", "inner"),
 			edge("inner_outerend", "inner", "outer_end"),
+			edge("innerstart_ibody", "inner_start", "ibody"),
 			edge("ibody_innerend", "ibody", "inner_end"),
 			edge("outer_e", "outer", "e"),
 		},
@@ -341,11 +465,13 @@ func TestLoopStopLoopEndsContainer(t *testing.T) {
 			node("s", model.GraphNodeTypeStart),
 			loopFixed("lp", 10, 0),
 			childShell("body", "lp", "echo x >> "+counter+"; quartet_break"),
+			childStart("ls", "lp"),
 			childEnd("le", "lp"),
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
 			edge("s_lp", "s", "lp"),
+			edge("ls_body", "ls", "body"),
 			edge("body_le", "body", "le"),
 			edge("lp_e", "lp", "e"),
 		},
@@ -447,17 +573,21 @@ func TestLoopSerialConcurrencyNoDeadlock(t *testing.T) {
 		Nodes: []model.GraphNode{
 			node("s", model.GraphNodeTypeStart),
 			loopFixed("outer", 2, 0),
+			childStart("outer_start", "outer"),
 			{ID: "inner", Type: model.GraphNodeTypeLoop, ParentID: "outer", Config: model.GraphNodeConfig{
 				LoopMode: model.GraphLoopModeFixed, FixedCount: 2,
 			}},
 			childEnd("outer_end", "outer"),
+			childStart("inner_start", "inner"),
 			childShell("ibody", "inner", "echo work"),
 			childEnd("inner_end", "inner"),
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
 			edge("s_outer", "s", "outer"),
+			edge("outerstart_inner", "outer_start", "inner"),
 			edge("inner_outerend", "inner", "outer_end"),
+			edge("innerstart_ibody", "inner_start", "ibody"),
 			edge("ibody_innerend", "ibody", "inner_end"),
 			edge("outer_e", "outer", "e"),
 		},

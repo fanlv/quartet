@@ -228,10 +228,15 @@ type nodeOutcome struct {
 // an Agent node with the `inherit` strategy forks from it; a `new`/unset Agent
 // creates a fresh session; Shell nodes ignore it (the scheduler passes the
 // inflow through as the Shell's outflow).
-func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, key model.GraphInstanceKey, vars map[string]string, disabled map[string]struct{}, runner Runner, inflowSession string) (nodeOutcome, error) {
+//
+// loopVars carries the QUARTET_LOOP_* iteration context of the innermost
+// enclosing loop (nil in the main scope). It is overlaid onto the {{...}}
+// substitution for Prompt/Evaluator and onto both the substitution and the
+// environment for Shell, without being persisted into the node's snapshot.
+func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, key model.GraphInstanceKey, vars map[string]string, disabled map[string]struct{}, runner Runner, inflowSession string, loopVars map[string]string) (nodeOutcome, error) {
 	switch node.Type {
 	case model.GraphNodeTypeShell:
-		return s.runShellWithRetries(ctx, run, node, vars, disabled)
+		return s.runShellWithRetries(ctx, run, node, vars, disabled, loopVars)
 	case model.GraphNodeTypePrompt, model.GraphNodeTypeEvaluator:
 		prompt := node.Config.Prompt
 		if node.Type == model.GraphNodeTypeEvaluator {
@@ -239,7 +244,7 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 		} else {
 			prompt += buildOutputProtocolSuffix(node.Config.OutputVariables)
 		}
-		prompt = substituteVariables(prompt, vars, disabled)
+		prompt = substituteVariables(prompt, mergeLoopVars(vars, loopVars), disabled)
 		overrides := &model.SessionOverrides{
 			AgentType:       node.Config.AgentType,
 			ModelID:         node.Config.ModelID,
@@ -305,11 +310,11 @@ func openNodeSession(ctx context.Context, runner Runner, jobID string, node mode
 // STOP_LOOP / STOP_WORKFLOW and parse/declaration failures are deterministic
 // node outcomes, not transient, so they are not retried (their errors are not
 // classified as transient/rate-limit).
-func (s *serviceImpl) runShellWithRetries(ctx context.Context, run *model.GraphRun, node model.GraphNode, vars map[string]string, disabled map[string]struct{}) (nodeOutcome, error) {
+func (s *serviceImpl) runShellWithRetries(ctx context.Context, run *model.GraphRun, node model.GraphNode, vars map[string]string, disabled map[string]struct{}, loopVars map[string]string) (nodeOutcome, error) {
 	var outcome nodeOutcome
 	attempt := func(ctx context.Context) error {
 		var err error
-		outcome, err = executeShellNode(ctx, run, node, vars, disabled)
+		outcome, err = executeShellNode(ctx, run, node, vars, disabled, loopVars)
 		return err
 	}
 	retryCount, err := s.runWithRetries(ctx, run.ID, run.JobID, node.ID, attempt)
@@ -332,13 +337,14 @@ func shellSessionOutput(stdout, stderr string) string {
 	return stdout + "\n" + stderr
 }
 
-func executeShellNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, vars map[string]string, disabled map[string]struct{}) (nodeOutcome, error) {
+func executeShellNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, vars map[string]string, disabled map[string]struct{}, loopVars map[string]string) (nodeOutcome, error) {
 	workdir := run.BaseSnapshot.Config.Workdir
 	// displayScript is the user-authored script after variable substitution but
 	// without the injected helper preamble. The scheduler computes the same
 	// substitution at enqueue time to seed the shell display session's user
-	// message, so it is not carried back on the outcome.
-	displayScript := substituteVariables(node.Config.Script, vars, disabled)
+	// message, so it is not carried back on the outcome. Loop iteration vars are
+	// overlaid so {{QUARTET_LOOP_INDEX}} & co. resolve inside a loop body.
+	displayScript := substituteVariables(node.Config.Script, mergeLoopVars(vars, loopVars), disabled)
 	script := graphShellHelpers + "\n" + displayScript
 	tmpDir := workdir
 	if tmpDir == "" {
@@ -372,7 +378,40 @@ func executeShellNode(ctx context.Context, run *model.GraphRun, node model.Graph
 	if workdir != "" {
 		cmd.Dir = workdir
 	}
-	cmd.Env = append(os.Environ(), "QUARTET_CONTROL="+ctrlPath)
+	// Inject the visible variable snapshot as environment variables so scripts
+	// can read them as $name in addition to the {{name}} text substitution
+	// above. Variable names are save-validated to [A-Za-z_][A-Za-z0-9_]*, which
+	// is exactly a legal shell identifier, so no name escaping is needed.
+	// Semantics mirror substituteVariables: a disabled variable renders to the
+	// empty string regardless of its stored value. QUARTET_CONTROL is appended
+	// last so a user variable of that name can never clobber the control file
+	// path (later entries win in cmd.Env).
+	env := os.Environ()
+	for k, v := range vars {
+		if k == "QUARTET_CONTROL" {
+			continue
+		}
+		if _, off := disabled[k]; off {
+			v = ""
+		}
+		env = append(env, k+"="+v)
+	}
+	for k := range disabled {
+		if k == "QUARTET_CONTROL" {
+			continue
+		}
+		if _, ok := vars[k]; !ok {
+			env = append(env, k+"=")
+		}
+	}
+	// Inject the loop iteration context (QUARTET_LOOP_*) after the user vars so
+	// scripts in a loop body can read $QUARTET_LOOP_INDEX etc. These are an
+	// engine-owned, reserved namespace (isReservedVar), so no user variable can
+	// shadow them. Appended before QUARTET_CONTROL so control still wins last.
+	for k, v := range loopVars {
+		env = append(env, k+"="+v)
+	}
+	cmd.Env = append(env, "QUARTET_CONTROL="+ctrlPath)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

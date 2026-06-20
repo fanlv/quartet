@@ -887,6 +887,9 @@
       "refresh": "Refresh",
       "back": "Back"
     },
+    "workspace": {
+      "label": "Workspace"
+    },
     "sidebar": {
       "workspace": "Workspace",
       "library": "Workflow Library",
@@ -925,7 +928,6 @@
       "runEventLog": "Run Event Log",
       "selectRunHint": "Select a run to inspect persisted events. Running runs stream updates live."
     },
-    "summary": "{{nodes}} nodes / {{edges}} edges",
     "defaultName": "New graph workflow",
     "nodeTitle": {
       "start": "Start",
@@ -956,7 +958,8 @@
       "importNeedsNodesEdges": "imported file must include nodes[] and edges[]",
       "imported": "Imported. Validate before saving.",
       "configNeedsNodesEdges": "config must include nodes[] and edges[]",
-      "jsonApplied": "JSON applied to canvas."
+      "jsonApplied": "JSON applied to canvas.",
+      "nodesCopied": "Copied {{count}} node(s)."
     },
     "dialogs": {
       "deleteWorkflowTitle": "Delete workflow",
@@ -1022,10 +1025,13 @@
       "paletteHint": "Drag or click to add nodes; drop onto a loop box to add it inside. Multiple out-edges = parallel, multiple in-edges = auto-join.",
       "exitConnect": "Exit connect",
       "startConnect": "Connect by click",
+      "autoLayout": "Auto arrange",
       "sourcePrefix": "Source: {{id}}",
       "connectHint": "Click a source node, then a target node",
       "ifElsePorts": "If-Else output ports",
-      "connectTargets": "Connection targets"
+      "connectTargets": "Connection targets",
+      "undo": "Undo (Cmd/Ctrl+Z)",
+      "redo": "Redo (Cmd/Ctrl+Shift+Z)"
     },
     "inspector": {
       "nodeConfig": "Node config",
@@ -1042,7 +1048,7 @@
       "deleteVar": "Delete variable",
       "addVar": "+ Add variable",
       "runConfig": "Run config",
-      "concurrency": "Concurrency (default 4, max 16, 1 = serial)",
+      "concurrency": "Concurrency (default 8, max 16, 1 = serial)",
       "defaultNodeTimeout": "Default node timeout (sec, 0 = unlimited)",
       "jobTimeout": "Job total timeout (sec, 0 = unlimited)",
       "loopMaxItersFallback": "Loop max-iterations fallback (default 100, max 1000)",
@@ -1064,8 +1070,8 @@
       "thoughtLevelDesc": "Thinking level applied when this node creates a new session.",
       "sessionStrategy": "Session strategy",
       "sessionNew": "New session",
-      "sessionInherit": "Inherit upstream (single in-edge only)",
-      "sessionStrategyDesc": "A multi-in-edge join node must create a new session.",
+      "sessionInherit": "Inherit upstream",
+      "sessionStrategyDesc": "Inherits the upstream Agent's conversation history; a multi-in-edge join copies the session of the upstream with the greatest node ID, while the other upstreams' output variables are still merged.",
       "varName": "var",
       "shellScript": "Shell script",
       "shellScriptPlaceholder": "e.g. make test",
@@ -1098,6 +1104,7 @@
       "condIgnoreCase": "Ignore case",
       "condIgnoreSpace": "Ignore spaces",
       "condOrderedHint": "Ordered comparisons use string lexicographic order, not numeric value: e.g. \"10\" is less than \"9\".",
+      "condOpIsEven": "is even",
       "condPreview": "Expression preview",
       "condPreviewIncomplete": "(generated after variable names are filled in)",
       "loopMode": "Loop mode",
@@ -1108,6 +1115,7 @@
       "maxIterations": "Max iterations fallback (default 100, max 1000)",
       "maxIterationsDesc": "Drag other nodes into the dashed box to add them to the loop body.",
       "controlNodeDesc": "Control nodes are only used for the workflow entry / exit and cannot configure business actions or output variables.",
+      "duplicateNode": "Duplicate node",
       "deleteNode": "Delete node",
       "frozenBanner": "This node has already started / finished in this run; its execution config cannot be changed (only not-yet-started nodes can change)."
     },
@@ -1140,7 +1148,11 @@
       "loopFixedPrefix": "Fixed ",
       "loopFixedSuffix": " times",
       "loopFallback": "fallback {{count}}",
-      "loopDefaultTitle": "Loop"
+      "loopDefaultTitle": "Loop",
+      "loopEntryLabel": "Entry",
+      "loopExitLabel": "Exit",
+      "loopEntryTitle": "Loop entry — connect to the first node of the loop body",
+      "loopExitTitle": "Loop exit — connect the loop body here to end each round"
     }
   }
 }

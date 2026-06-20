@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -107,6 +108,11 @@ func evalCompare(c *CondCompare, in *CondEvalInput) (bool, *CondEvalError) {
 		err.Op, err.IgnoreCase, err.IgnoreSpace = c.Op, c.IgnoreCase, c.IgnoreSpace
 		return false, err
 	}
+	// Unary (postfix) operators have no right operand.
+	if c.Op == opIsEven {
+		left = applyCompareOptions(left, c.IgnoreSpace, c.IgnoreCase)
+		return isEvenInteger(left), nil
+	}
 	right, err := in.resolve(c.Right)
 	if err != nil {
 		err.Op, err.IgnoreCase, err.IgnoreSpace = c.Op, c.IgnoreCase, c.IgnoreSpace
@@ -163,6 +169,18 @@ func (in *CondEvalInput) resolve(op CondOperand) (string, *CondEvalError) {
 		State:   state,
 		Message: fmt.Sprintf("variable {{%s}} is %s at evaluation time and cannot be used in a condition", name, state),
 	}
+}
+
+// isEvenInteger reports whether s parses as an integer with an even value.
+// A value that cannot be parsed as an integer (empty, non-numeric, float, or
+// out of int64 range) is treated as false rather than an evaluation error, per
+// the 是偶数 operator semantics. Surrounding whitespace is tolerated.
+func isEvenInteger(s string) bool {
+	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return false
+	}
+	return n%2 == 0
 }
 
 // applyCompareOptions implements the two per-comparison options in the fixed

@@ -129,6 +129,7 @@ func TestStartRunAcceptsLoopNode(t *testing.T) {
 		Nodes: []model.GraphNode{
 			node("s", model.GraphNodeTypeStart),
 			{ID: "lp", Type: model.GraphNodeTypeLoop, Config: model.GraphNodeConfig{LoopMode: model.GraphLoopModeFixed, FixedCount: 1}},
+			{ID: "ls", Type: model.GraphNodeTypeStart, ParentID: "lp"},
 			node("body", model.GraphNodeTypeShell),
 			{ID: "ie", Type: model.GraphNodeTypeEnd, ParentID: "lp"},
 			node("e", model.GraphNodeTypeEnd),
@@ -136,10 +137,11 @@ func TestStartRunAcceptsLoopNode(t *testing.T) {
 		Edges: []model.GraphEdge{
 			edge("e1", "s", "lp"),
 			edge("e2", "lp", "e"),
+			edge("e0", "ls", "body"),
 			edge("e3", "body", "ie"),
 		},
 	}
-	cfg.Nodes[2].ParentID = "lp"
+	cfg.Nodes[3].ParentID = "lp"
 	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1", Config: &cfg}, stubGraphRunner{}, nil)
 	if err != nil {
 		t.Fatalf("expected loop graph to be accepted, got %v", err)
@@ -198,7 +200,7 @@ func TestPromptNodeStreamsAgentEventsAndRecordsUsage(t *testing.T) {
 		Workdir:     t.TempDir(),
 		Nodes: []model.GraphNode{
 			node("s", model.GraphNodeTypeStart),
-			{ID: "p", Type: model.GraphNodeTypePrompt, Title: "Prompt", Config: model.GraphNodeConfig{Prompt: "say hi"}},
+			{ID: "p", Type: model.GraphNodeTypePrompt, Title: "Prompt", Config: model.GraphNodeConfig{Prompt: "say hi", AgentType: "tester"}},
 			node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{

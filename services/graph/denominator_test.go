@@ -27,13 +27,14 @@ func TestDenominatorUntilEarlyStop(t *testing.T) {
 		OutputVariables: []string{"done"},
 	}}
 	internalEnd := model.GraphNode{ID: "ie", Type: model.GraphNodeTypeEnd, ParentID: "lp"}
+	loopStart := model.GraphNode{ID: "ls", Type: model.GraphNodeTypeStart, ParentID: "lp"}
 	cfg := model.GraphConfig{
 		Workdir: t.TempDir(),
 		Nodes: []model.GraphNode{
-			node("s", model.GraphNodeTypeStart), loop, body, internalEnd, node("e", model.GraphNodeTypeEnd),
+			node("s", model.GraphNodeTypeStart), loop, loopStart, body, internalEnd, node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
-			edge("s_lp", "s", "lp"), edge("lp_e", "lp", "e"), edge("body_ie", "body", "ie"),
+			edge("s_lp", "s", "lp"), edge("lp_e", "lp", "e"), edge("ls_body", "ls", "body"), edge("body_ie", "body", "ie"),
 		},
 	}
 	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1", Config: &cfg}, stubGraphRunner{}, nil)
@@ -109,13 +110,14 @@ func TestDenominatorZeroCountLoop(t *testing.T) {
 	}}
 	body := model.GraphNode{ID: "body", Type: model.GraphNodeTypeShell, ParentID: "lp", Config: model.GraphNodeConfig{Script: "echo body"}}
 	internalEnd := model.GraphNode{ID: "ie", Type: model.GraphNodeTypeEnd, ParentID: "lp"}
+	loopStart := model.GraphNode{ID: "ls", Type: model.GraphNodeTypeStart, ParentID: "lp"}
 	cfg := model.GraphConfig{
 		Workdir: t.TempDir(),
 		Nodes: []model.GraphNode{
-			node("s", model.GraphNodeTypeStart), loop, body, internalEnd, node("e", model.GraphNodeTypeEnd),
+			node("s", model.GraphNodeTypeStart), loop, loopStart, body, internalEnd, node("e", model.GraphNodeTypeEnd),
 		},
 		Edges: []model.GraphEdge{
-			edge("s_lp", "s", "lp"), edge("lp_e", "lp", "e"), edge("body_ie", "body", "ie"),
+			edge("s_lp", "s", "lp"), edge("lp_e", "lp", "e"), edge("ls_body", "ls", "body"), edge("body_ie", "body", "ie"),
 		},
 	}
 	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1", Config: &cfg}, stubGraphRunner{}, nil)
