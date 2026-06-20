@@ -208,7 +208,9 @@ function UserMessageContent({ message }: { message: UserMessage }) {
               </div>
             )}
             <div className="markdown-content">
-              {renderMarkdown(message.content)}
+              {userMsg.isShellOutput
+                ? <pre className="shell-content">{message.content}</pre>
+                : renderMarkdown(message.content)}
             </div>
           </div>
         </div>
@@ -493,7 +495,9 @@ function AssistantMessageContent({ message, agentIconUrl, agentDisplayName }: { 
               )}
             </div>
             <div className="markdown-content">
-              {renderMarkdown(message.content)}
+              {message.isShellOutput
+                ? <pre className="shell-content">{message.content}</pre>
+                : renderMarkdown(message.content)}
               {isStreaming && (
                 <span className="typing-indicator" />
               )}

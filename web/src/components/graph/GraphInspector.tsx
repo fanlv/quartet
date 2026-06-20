@@ -10,7 +10,56 @@ import type {
   GraphSessionStrategy,
 } from '../../types/graph';
 import { kindOf, labelOf } from './nodes/kinds';
+import { ConditionBuilder } from './ConditionBuilder';
 import './GraphInspector.css';
+
+// Reserved variable always available to a condition: the upstream node's raw
+// final assistant message. Mirrors services/graph reservedLastAssistant.
+const RESERVED_LAST_ASSISTANT = '_last_assistant_msg';
+
+// Variable names a condition at `nodeId` may reference: global variable keys,
+// the reserved _last_assistant_msg, and every upstream node's declared outputs
+// + last-assistant alias (found by walking edges backwards). For a loop node
+// the body's own nodes (parentId === nodeId) are included too, since the
+// "until" condition is evaluated after each round with body outputs visible.
+// Collection is best-effort — the builder's inputs are comboboxes, so a name
+// that isn't listed can still be typed by hand.
+function collectAvailableVars(config: GraphConfig, nodeId: string): string[] {
+  const nodes = config.nodes || [];
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const incoming = new Map<string, string[]>();
+  for (const e of config.edges || []) {
+    const list = incoming.get(e.targetNodeId);
+    if (list) list.push(e.sourceNodeId);
+    else incoming.set(e.targetNodeId, [e.sourceNodeId]);
+  }
+
+  const out = new Set<string>();
+  for (const k of Object.keys(config.variables || {})) out.add(k);
+  out.add(RESERVED_LAST_ASSISTANT);
+
+  const addNodeOutputs = (n?: GraphNode) => {
+    if (!n) return;
+    for (const v of n.config?.outputVariables || []) if (v) out.add(v);
+    if (n.config?.lastAssistantAlias) out.add(n.config.lastAssistantAlias);
+  };
+
+  const seen = new Set<string>();
+  const queue = [...(incoming.get(nodeId) || [])];
+  while (queue.length) {
+    const cur = queue.shift() as string;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    addNodeOutputs(byId.get(cur));
+    for (const src of incoming.get(cur) || []) queue.push(src);
+  }
+
+  if (byId.get(nodeId)?.type === 'loop') {
+    for (const n of nodes) if (n.parentId === nodeId) addNodeOutputs(n);
+  }
+
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
 
 interface GraphInspectorProps {
   node: GraphNode | null;
@@ -23,6 +72,11 @@ interface GraphInspectorProps {
   // node is frozen, its config fields are disabled and a banner is shown. The
   // backend still enforces this — the UI block is a convenience.
   frozenNodeIds?: Set<string>;
+  // When true the graph structure is locked: only per-node config can change.
+  // The delete-node button is hidden and the global variable / run-config panel
+  // becomes read-only. Used by run-version editing (in-place and full-page),
+  // where adding/removing nodes & edges is disallowed.
+  lockStructure?: boolean;
   onUpdateNode: (id: string, patch: Partial<GraphNode>) => void;
   onUpdateNodeConfig: (id: string, patch: Partial<GraphNodeConfig>) => void;
   onDeleteNode: (id: string) => void;
@@ -55,6 +109,7 @@ export function GraphInspector({
   readOnly,
   drawerOpen = true,
   frozenNodeIds,
+  lockStructure,
   onUpdateNode,
   onUpdateNodeConfig,
   onDeleteNode,
@@ -68,12 +123,23 @@ export function GraphInspector({
     [config.variables],
   );
   const disabled = new Set(config.disabledVars || []);
+  // Structure-lock (run-version editing) makes the global variable table and
+  // run-config read-only — only per-node config may change there.
+  const globalsReadOnly = readOnly || lockStructure;
 
   const selectedAgent = node?.config?.agentType
     ? agents.find((a) => a.type === node.config?.agentType)
     : undefined;
   const availableModels = selectedAgent?.models?.availableModels || [];
   const availableThoughtLevels = selectedAgent?.thoughtLevels?.availableThoughtLevels || [];
+
+  // Variable names selectable in the If-Else / loop-until condition builder.
+  // Computed for any selected node (empty when nothing is selected); kept above
+  // the early return so hook order stays stable.
+  const conditionVars = useMemo(
+    () => (node ? collectAvailableVars(config, node.id) : []),
+    [config, node],
+  );
 
   // ---- Global variable table (shown when nothing is selected) ----
   const setVar = (index: number, key: string, value: string) => {
@@ -148,30 +214,30 @@ export function GraphInspector({
             className="gi-var-key"
             value={k}
             placeholder={t('graph.inspector.varNamePlaceholder')}
-            disabled={readOnly}
+            disabled={globalsReadOnly}
             onChange={(e) => setVar(i, e.target.value, v)}
           />
           <input
             className="gi-var-val"
             value={v}
             placeholder={t('graph.inspector.varValuePlaceholder')}
-            disabled={readOnly}
+            disabled={globalsReadOnly}
             onChange={(e) => setVar(i, k, e.target.value)}
           />
           <label className="gi-var-disabled" title={t('graph.inspector.disableVar')}>
             <input
               type="checkbox"
               checked={disabled.has(k)}
-              disabled={readOnly}
+              disabled={globalsReadOnly}
               onChange={() => toggleDisabled(k)}
             />
           </label>
-          <button className="gi-var-del" disabled={readOnly} onClick={() => removeVar(i)} aria-label={t('graph.inspector.deleteVar')}>
+          <button className="gi-var-del" disabled={globalsReadOnly} onClick={() => removeVar(i)} aria-label={t('graph.inspector.deleteVar')}>
             ×
           </button>
         </div>
       ))}
-      {!readOnly && (
+      {!globalsReadOnly && (
         <button className="gi-add-btn" onClick={addVar}>
           {t('graph.inspector.addVar')}
         </button>
@@ -186,7 +252,7 @@ export function GraphInspector({
           max={16}
           value={runConfig.concurrencyLimit ?? ''}
           placeholder="4"
-          disabled={readOnly}
+          disabled={globalsReadOnly}
           onChange={(e) => onUpdateRunConfig({ concurrencyLimit: numberOrUndefined(e.target.value) })}
         />
       </div>
@@ -197,7 +263,7 @@ export function GraphInspector({
           min={0}
           value={runConfig.defaultNodeTimeoutSec ?? ''}
           placeholder="0"
-          disabled={readOnly}
+          disabled={globalsReadOnly}
           onChange={(e) => onUpdateRunConfig({ defaultNodeTimeoutSec: numberOrUndefined(e.target.value) })}
         />
       </div>
@@ -208,7 +274,7 @@ export function GraphInspector({
           min={0}
           value={runConfig.jobTimeoutSec ?? ''}
           placeholder="0"
-          disabled={readOnly}
+          disabled={globalsReadOnly}
           onChange={(e) => onUpdateRunConfig({ jobTimeoutSec: numberOrUndefined(e.target.value) })}
         />
       </div>
@@ -220,7 +286,7 @@ export function GraphInspector({
           max={1000}
           value={runConfig.defaultLoopMaxIters ?? ''}
           placeholder="100"
-          disabled={readOnly}
+          disabled={globalsReadOnly}
           onChange={(e) => onUpdateRunConfig({ defaultLoopMaxIters: numberOrUndefined(e.target.value) })}
         />
       </div>
@@ -442,11 +508,14 @@ export function GraphInspector({
       {node.type === 'ifElse' && (
         <div className="gi-field">
           <label>{t('graph.inspector.condition')}</label>
-          <input
+          <ConditionBuilder
+            key={`cond-${node.id}`}
+            fieldId={node.id}
             value={cfg.condition || ''}
-            placeholder='{{verdict}} == "PASS"'
-            disabled={readOnly}
-            onChange={(e) => setCfg({ condition: e.target.value })}
+            availableVars={conditionVars}
+            readOnly={readOnly}
+            onChange={(next) => setCfg({ condition: next })}
+            t={t}
           />
           <div className="gi-desc">
             {t('graph.inspector.conditionDescPrefix')}<b style={{ color: '#2ea043' }}>{t('graph.inspector.conditionDescYes')}</b>{t('graph.inspector.conditionDescMid')}<b style={{ color: '#f85149' }}>{t('graph.inspector.conditionDescNo')}</b>{t('graph.inspector.conditionDescSuffix')}
@@ -480,11 +549,14 @@ export function GraphInspector({
           {cfg.loopMode === 'until' ? (
             <div className="gi-field">
               <label>{t('graph.inspector.untilCondition')}</label>
-              <input
+              <ConditionBuilder
+                key={`until-${node.id}`}
+                fieldId={`until-${node.id}`}
                 value={cfg.untilCondition || ''}
-                placeholder='{{verdict}} == "PASS"'
-                disabled={readOnly}
-                onChange={(e) => setCfg({ untilCondition: e.target.value })}
+                availableVars={conditionVars}
+                readOnly={readOnly}
+                onChange={(next) => setCfg({ untilCondition: next })}
+                t={t}
               />
             </div>
           ) : (
@@ -519,7 +591,7 @@ export function GraphInspector({
         <div className="gi-desc">{t('graph.inspector.controlNodeDesc')}</div>
       )}
 
-      {!readOnly && !frozen && node.type !== 'start' && node.type !== 'end' && (
+      {!readOnly && !lockStructure && !frozen && node.type !== 'start' && node.type !== 'end' && (
         <button className="gi-delete-btn" onClick={() => onDeleteNode(node.id)}>
           {t('graph.inspector.deleteNode')}
         </button>

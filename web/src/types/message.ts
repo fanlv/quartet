@@ -15,6 +15,9 @@ export interface BaseMessage {
 export interface UserMessage extends BaseMessage {
   role: MessageRoleEnum.USER;
   imageUrls?: string[];
+  // True for the script of a Graph Shell node's display session. Rendered as
+  // preformatted text (not markdown) so newlines and shell syntax survive.
+  isShellOutput?: boolean;
 }
 
 export interface AssistantMessage extends BaseMessage {

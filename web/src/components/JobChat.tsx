@@ -1135,17 +1135,8 @@ export function JobChat(props: JobChatProps) {
         <GraphLoopProgress
           runId={graphRunId}
           readOnly={isReadonly}
-          onEdit={isReadonly ? undefined : () => {
-            const url = new URL(window.location.href);
-            url.searchParams.delete('jobId');
-            url.searchParams.delete('sessionId');
-            url.searchParams.set('view', 'graph');
-            // Carry the run id so the Graph page opens directly in run-version
-            // edit mode for this run (not just the workflow editor).
-            if (graphRunId) url.searchParams.set('graphEditRun', graphRunId);
-            window.history.pushState({}, '', url.toString());
-            window.dispatchEvent(new PopStateEvent('popstate'));
-          }}
+          agents={agents}
+          canEdit={!isReadonly}
         />
       )}
 

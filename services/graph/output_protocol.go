@@ -8,7 +8,8 @@ import (
 
 // Prompt/evaluator output variable protocol (§1 输出变量契约). Unlike Shell,
 // Agent nodes have no control file, so declared output variables are carried
-// in the model's raw output via line-anchored QUARTET_OUTPUT markers.
+// in the model's raw output via QUARTET_OUTPUT markers matched as a substring
+// anywhere within a line.
 
 const quartetOutputMarker = "QUARTET_OUTPUT:"
 
@@ -31,10 +32,13 @@ func (e *OutputProtocolError) Error() string { return e.Message }
 // and validates them against the declared set.
 //
 // Rules (§1):
-//   - line-anchored: after trimming leading whitespace, a line must start with
-//     exactly "QUARTET_OUTPUT:"; any non-whitespace prefix disqualifies it;
-//   - split on the FIRST '=' after the marker; the name is trimmed, the value
-//     is kept verbatim (may be empty, may contain '=', not trimmed);
+//   - substring match: the marker "QUARTET_OUTPUT:" is located anywhere within a
+//     line (it need not start the line); everything before the marker on that
+//     line is ignored, so a marker glued onto preceding text (e.g.
+//     "2QUARTET_OUTPUT:answer=2") is still recognized;
+//   - the value runs from after the marker to the end of the line; split on the
+//     FIRST '=' after the marker; the name is trimmed, the value is kept verbatim
+//     (may be empty, may contain '=', not trimmed);
 //   - variable name must match [A-Za-z_][A-Za-z0-9_]* and must not be reserved
 //     (leading '_'); single-line scalar only;
 //   - same name on multiple lines → last line wins;
@@ -53,17 +57,17 @@ func ParseQuartetOutput(rawOutput string, declared []string) (*OutputParseResult
 
 	parsed := make(map[string]string)
 	for _, line := range strings.Split(rawOutput, "\n") {
-		trimmed := strings.TrimLeft(line, " \t\r\f\v")
-		if !strings.HasPrefix(trimmed, quartetOutputMarker) {
+		idx := strings.Index(line, quartetOutputMarker)
+		if idx < 0 {
 			continue
 		}
-		body := trimmed[len(quartetOutputMarker):]
+		body := line[idx+len(quartetOutputMarker):]
 		// Strip a trailing CR so CRLF inputs don't leak '\r' into the value.
 		body = strings.TrimRight(body, "\r")
 		name, value, ok := strings.Cut(body, "=")
 		if !ok {
 			return nil, &OutputProtocolError{
-				Message: fmt.Sprintf("malformed %s line (missing '='): %q", quartetOutputMarker, trimmed),
+				Message: fmt.Sprintf("malformed %s entry (missing '='): %q", quartetOutputMarker, line),
 			}
 		}
 		name = strings.TrimSpace(name)
@@ -116,11 +120,11 @@ func buildOutputProtocolSuffix(declared []string) string {
 	}
 	var b strings.Builder
 	b.WriteString("\n\n---\n")
-	b.WriteString("请在回答的最后，对下面每个变量各输出独占一行，且每行必须以 ")
+	b.WriteString("请在回答的最后，对下面每个变量各输出独占一行，每行包含 ")
 	b.WriteString(quartetOutputMarker)
-	b.WriteString(" 开头（行首不要有其它字符），格式为 ")
+	b.WriteString(" 标记，格式为 ")
 	b.WriteString(quartetOutputMarker)
-	b.WriteString("变量名=值（值为单行字符串，可以为空、可以包含等号）：\n")
+	b.WriteString("变量名=值（值为单行字符串，取标记到行尾的内容，可以为空、可以包含等号）：\n")
 	for _, name := range declared {
 		b.WriteString(quartetOutputMarker)
 		b.WriteString(name)

@@ -56,6 +56,10 @@ interface GraphCanvasProps {
   nodes: QuartetFlowNode[];
   edges: QuartetFlowEdge[];
   readOnly?: boolean;
+  // When read-only, still allow nodes to be dragged around (view-only reposition,
+  // no structural edits). onNodesChange receives the position changes so the
+  // caller can keep its node state in sync.
+  allowNodeDrag?: boolean;
   showMiniMap?: boolean;
   runStatusByNodeId?: Record<string, GraphInstanceStatus>;
   edgeStatusById?: Record<string, 'pending' | 'active' | 'pruned'>;
@@ -69,7 +73,12 @@ interface GraphCanvasProps {
   onConnect: (connection: Connection) => void;
   onNodeClick: (id: string) => void;
   onPaneClick: () => void;
-  onAddNode: (type: GraphNodeType, position: { x: number; y: number }) => void;
+  // position is in flow coordinates. parentId is the loop container the node was
+  // dropped into (so it becomes a loop child), or null when dropped on open canvas.
+  onAddNode: (type: GraphNodeType, position: { x: number; y: number }, parentId?: string | null) => void;
+  // Called when a node is dragged into / out of a loop container. newParentId is
+  // the loop container's id, or null when the node was dropped outside any loop.
+  onReparent?: (nodeId: string, newParentId: string | null) => void;
   onViewportChange?: (viewport: Viewport) => void;
 }
 
@@ -77,6 +86,7 @@ function CanvasInner({
   nodes,
   edges,
   readOnly,
+  allowNodeDrag,
   showMiniMap = true,
   runStatusByNodeId,
   edgeStatusById,
@@ -91,6 +101,7 @@ function CanvasInner({
   onNodeClick,
   onPaneClick,
   onAddNode,
+  onReparent,
   onViewportChange,
 }: GraphCanvasProps) {
   const { t } = useTranslation();
@@ -196,6 +207,54 @@ function CanvasInner({
     }
   }, [focus, nodes, rf]);
 
+  // Absolute (flow-space) top-left of a node, walking up the parent chain since
+  // React Flow stores child positions relative to their parent.
+  const absoluteOrigin = useCallback(
+    (node: QuartetFlowNode): { x: number; y: number } => {
+      let x = node.position.x;
+      let y = node.position.y;
+      let pid = node.parentId;
+      const seen = new Set<string>();
+      while (pid && !seen.has(pid)) {
+        seen.add(pid);
+        const parent = nodes.find((n) => n.id === pid);
+        if (!parent) break;
+        x += parent.position.x;
+        y += parent.position.y;
+        pid = parent.parentId;
+      }
+      return { x, y };
+    },
+    [nodes],
+  );
+
+  // Find the loop container whose box contains a flow-space point. When loops
+  // overlap (nested), the smallest (most deeply nested) one wins so dropping into
+  // a nested loop works. Returns null when the point is on the open canvas.
+  const loopContainerAt = useCallback(
+    (point: { x: number; y: number }): QuartetFlowNode | null => {
+      let target: QuartetFlowNode | null = null;
+      let targetArea = Infinity;
+      for (const n of nodes) {
+        if (n.data?.kind !== 'loop') continue;
+        const origin = absoluteOrigin(n);
+        const w = typeof n.width === 'number' ? n.width : Number(n.style?.width) || 0;
+        const h = typeof n.height === 'number' ? n.height : Number(n.style?.height) || 0;
+        if (!w || !h) continue;
+        if (point.x < origin.x || point.x > origin.x + w || point.y < origin.y || point.y > origin.y + h) {
+          continue;
+        }
+        const area = w * h;
+        if (area < targetArea) {
+          target = n;
+          targetArea = area;
+        }
+      }
+      return target;
+    },
+    [absoluteOrigin, nodes],
+  );
+
   const handleDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
@@ -203,9 +262,18 @@ function CanvasInner({
       const type = event.dataTransfer.getData('application/quartet-node') as GraphNodeType;
       if (!type) return;
       const position = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-      onAddNode(type, position);
+      // Dropping a non-loop node inside a loop container makes it a child of that
+      // loop. Loops are never nested by drop here (kept top-level); they can be
+      // reparented later by dragging if needed.
+      const container = type === 'loop' ? null : loopContainerAt(position);
+      if (container) {
+        const origin = absoluteOrigin(container);
+        onAddNode(type, { x: position.x - origin.x, y: position.y - origin.y }, container.id);
+        return;
+      }
+      onAddNode(type, position, null);
     },
-    [onAddNode, rf, readOnly],
+    [absoluteOrigin, loopContainerAt, onAddNode, rf, readOnly],
   );
 
   const handleDragOver = useCallback((event: React.DragEvent) => {
@@ -213,7 +281,59 @@ function CanvasInner({
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
+  // After a node is dragged, decide whether it landed inside a loop container
+  // and notify the page so it can (re)assign parentId. start/end/loop nodes are
+  // never reparented by dragging — only business nodes flow into loops. A loop
+  // cannot become its own ancestor, so candidate containers exclude the dragged
+  // node itself and any node already inside it.
+  const handleNodeDragStop = useCallback(
+    (_event: unknown, node: QuartetFlowNode) => {
+      if (readOnly || !onReparent) return;
+      const dragged = nodes.find((n) => n.id === node.id);
+      if (!dragged || dragged.data.kind === 'start' || dragged.data.kind === 'end') return;
+
+      // Collect the dragged node's descendant ids so a loop can't be dropped
+      // into its own subtree (would create a parent cycle).
+      const descendants = new Set<string>([node.id]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const n of nodes) {
+          if (n.parentId && descendants.has(n.parentId) && !descendants.has(n.id)) {
+            descendants.add(n.id);
+            grew = true;
+          }
+        }
+      }
+
+      // Find loop containers overlapping the dragged node; pick the smallest
+      // (most deeply nested) valid one so dropping into a nested loop works.
+      const overlaps = rf.getIntersectingNodes(node).filter(
+        (n) => (n as QuartetFlowNode).data?.kind === 'loop' && !descendants.has(n.id),
+      ) as QuartetFlowNode[];
+      let target: QuartetFlowNode | null = null;
+      let targetArea = Infinity;
+      for (const cand of overlaps) {
+        const w = typeof cand.width === 'number' ? cand.width : Number(cand.style?.width) || 0;
+        const h = typeof cand.height === 'number' ? cand.height : Number(cand.style?.height) || 0;
+        const area = w * h || Infinity;
+        if (area < targetArea) {
+          target = cand;
+          targetArea = area;
+        }
+      }
+
+      const newParentId = target ? target.id : null;
+      const currentParentId = dragged.parentId ?? null;
+      if (newParentId !== currentParentId) {
+        onReparent(node.id, newParentId);
+      }
+    },
+    [nodes, onReparent, readOnly, rf],
+  );
+
   // Click-to-add (mobile-friendly): drop the node at the current viewport center.
+  // If a loop container covers that center, the node is added inside it.
   const handlePaletteClick = useCallback(
     (type: GraphNodeType) => {
       if (readOnly) return;
@@ -221,9 +341,15 @@ function CanvasInner({
       const center = rect
         ? rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
         : { x: 200, y: 160 };
-      onAddNode(type, center);
+      const container = type === 'loop' ? null : loopContainerAt(center);
+      if (container) {
+        const origin = absoluteOrigin(container);
+        onAddNode(type, { x: center.x - origin.x, y: center.y - origin.y }, container.id);
+        return;
+      }
+      onAddNode(type, center, null);
     },
-    [onAddNode, rf, readOnly],
+    [absoluteOrigin, loopContainerAt, onAddNode, rf, readOnly],
   );
 
   const toggleTapConnect = useCallback(() => {
@@ -368,13 +494,14 @@ function CanvasInner({
           edges={displayEdges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          onNodesChange={readOnly ? undefined : onNodesChange}
+          onNodesChange={readOnly && !allowNodeDrag ? undefined : onNodesChange}
           onEdgesChange={readOnly ? undefined : onEdgesChange}
           onConnect={readOnly ? undefined : onConnect}
           onNodeClick={(_, node) => handleNodeClick(node.id)}
+          onNodeDragStop={readOnly ? undefined : handleNodeDragStop}
           onPaneClick={handlePaneClick}
           onMoveEnd={(_, viewport) => onViewportChange?.(viewport)}
-          nodesDraggable={!readOnly}
+          nodesDraggable={!readOnly || !!allowNodeDrag}
           nodesConnectable={!readOnly}
           connectionRadius={36}
           panOnScroll

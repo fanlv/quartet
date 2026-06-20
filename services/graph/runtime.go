@@ -212,16 +212,15 @@ type nodeOutcome struct {
 	usage        *usagestats.Accumulator
 	modelID      string
 
-	// Shell display-session fields (§ Graph Shell 默认新开 session): the
-	// substituted script and captured stderr/timing used to persist the shell
-	// execution as its own session transcript. ownSessionID is the recording
-	// session id, set after a successful run; it is surfaced to the UI via
-	// GraphInstanceState.DisplaySessionID and never feeds session lineage.
-	displayScript string
-	stderr        string
-	startedAt     int64
-	finishedAt    int64
-	ownSessionID  string
+	// Shell display-session fields (§ Graph Shell 默认新开 session): the captured
+	// stderr and start/finish timing used to complete the shell display session's
+	// transcript via FinishShellSession when the node ends. The session itself
+	// (and the script as its user message) is created at enqueue time by
+	// BeginShellSession; these feed the assistant-side output message and never
+	// participate in session lineage.
+	stderr     string
+	startedAt  int64
+	finishedAt int64
 }
 
 // executeNode runs one business node against its visible variable snapshot.
@@ -232,7 +231,7 @@ type nodeOutcome struct {
 func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, key model.GraphInstanceKey, vars map[string]string, disabled map[string]struct{}, runner Runner, inflowSession string) (nodeOutcome, error) {
 	switch node.Type {
 	case model.GraphNodeTypeShell:
-		return s.runShellWithRetries(ctx, run, node, vars, disabled, runner)
+		return s.runShellWithRetries(ctx, run, node, vars, disabled)
 	case model.GraphNodeTypePrompt, model.GraphNodeTypeEvaluator:
 		prompt := node.Config.Prompt
 		if node.Type == model.GraphNodeTypeEvaluator {
@@ -306,7 +305,7 @@ func openNodeSession(ctx context.Context, runner Runner, jobID string, node mode
 // STOP_LOOP / STOP_WORKFLOW and parse/declaration failures are deterministic
 // node outcomes, not transient, so they are not retried (their errors are not
 // classified as transient/rate-limit).
-func (s *serviceImpl) runShellWithRetries(ctx context.Context, run *model.GraphRun, node model.GraphNode, vars map[string]string, disabled map[string]struct{}, runner Runner) (nodeOutcome, error) {
+func (s *serviceImpl) runShellWithRetries(ctx context.Context, run *model.GraphRun, node model.GraphNode, vars map[string]string, disabled map[string]struct{}) (nodeOutcome, error) {
 	var outcome nodeOutcome
 	attempt := func(ctx context.Context) error {
 		var err error
@@ -316,21 +315,6 @@ func (s *serviceImpl) runShellWithRetries(ctx context.Context, run *model.GraphR
 	retryCount, err := s.runWithRetries(ctx, run.ID, run.JobID, node.ID, attempt)
 	if err != nil {
 		return outcome, withGraphRetryCount(err, retryCount)
-	}
-	// Graph Shell 默认新开一个 session 执行消息也要保存到 session 里面: after the
-	// shell ran successfully, record its script + output as a standalone display
-	// session so it shows up in the Chat session sidebar alongside Agent nodes.
-	// Recorded once (after retries) on the node's final output. This is purely
-	// for display and never feeds session lineage, so a failure is logged and
-	// swallowed rather than failing the node.
-	if recorder, ok := runner.(ShellSessionRecorder); ok {
-		output := shellSessionOutput(outcome.output, outcome.stderr)
-		sid, recErr := recorder.RecordShellSession(ctx, run.JobID, outcome.displayScript, output, outcome.startedAt, outcome.finishedAt)
-		if recErr != nil {
-			logger.Warnf(ctx, "[graph] record shell session failed: runId=%s nodeId=%s err=%v", run.ID, node.ID, recErr)
-		} else {
-			outcome.ownSessionID = sid
-		}
 	}
 	return outcome, nil
 }
@@ -351,8 +335,9 @@ func shellSessionOutput(stdout, stderr string) string {
 func executeShellNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, vars map[string]string, disabled map[string]struct{}) (nodeOutcome, error) {
 	workdir := run.BaseSnapshot.Config.Workdir
 	// displayScript is the user-authored script after variable substitution but
-	// without the injected helper preamble, so the recorded shell session shows
-	// exactly what the user wrote.
+	// without the injected helper preamble. The scheduler computes the same
+	// substitution at enqueue time to seed the shell display session's user
+	// message, so it is not carried back on the outcome.
 	displayScript := substituteVariables(node.Config.Script, vars, disabled)
 	script := graphShellHelpers + "\n" + displayScript
 	tmpDir := workdir
@@ -409,14 +394,13 @@ func executeShellNode(ctx context.Context, run *model.GraphRun, node model.Graph
 	// scheduler applies them (STOP_LOOP only inside a loop container). They are
 	// returned here rather than treated as errors.
 	return nodeOutcome{
-		output:        stdout.String(),
-		produced:      parsed.Variables,
-		stopLoop:      parsed.StopLoop,
-		stopWorkflow:  parsed.StopWorkflow,
-		displayScript: displayScript,
-		stderr:        stderr.String(),
-		startedAt:     startedAt,
-		finishedAt:    finishedAt,
+		output:       stdout.String(),
+		produced:     parsed.Variables,
+		stopLoop:     parsed.StopLoop,
+		stopWorkflow: parsed.StopWorkflow,
+		stderr:       stderr.String(),
+		startedAt:    startedAt,
+		finishedAt:   finishedAt,
 	}, nil
 }
 

@@ -1,30 +1,64 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { applyNodeChanges, type NodeChange } from '@xyflow/react';
 import type { TFunction } from 'i18next';
 import type {
+  GraphConfig,
   GraphEdgeState,
   GraphEvent,
   GraphInstanceState,
+  GraphNode,
+  GraphNodeConfig,
   GraphProgress,
   GraphRun,
   GraphRunStatus,
   GraphRunStatusResponse,
 } from '../types';
+import type { AgentInfo } from './ChatPage';
 import { SSEClient } from '../utils/sse-client';
 import { GraphCanvas } from './graph/GraphCanvas';
-import { configToFlow, edgeStatusByEdge, runConfigSnapshot, runStatusByNode } from './graph/graphFlowAdapter';
+import { GraphInspector } from './graph/GraphInspector';
+import {
+  configToFlow,
+  edgeStatusByEdge,
+  flowToConfig,
+  runConfigSnapshot,
+  runStatusByNode,
+  type QuartetFlowEdge,
+  type QuartetFlowNode,
+} from './graph/graphFlowAdapter';
 import './GraphLoopProgress.css';
 
-// The embedded mini canvas only visualizes run state; every edit affordance is
-// inert (readOnly already disables interaction), so all handlers are no-ops.
+// The embedded mini canvas only visualizes run state; structural edits (add /
+// connect / delete) are inert. Node dragging is allowed for layout convenience,
+// so onNodesChange is wired to local state while the rest stay no-ops.
 const NOOP = () => {};
 
 interface GraphLoopProgressProps {
   runId: string | null;
   readOnly?: boolean;
-  onEdit?: () => void;
+  // Agent list for the inline inspector's Agent/model selectors.
+  agents?: AgentInfo[];
+  // When true the "Edit" button enters in-place run-version editing on this same
+  // canvas (config-only; no navigation to the full Graph Workflows page).
+  canEdit?: boolean;
 }
+
+// Statuses in which a run accepts a mid-run version edit (in-flight or
+// resumable, never pending/completed). Mirrors GraphWorkflowPage's
+// isGraphRunEditable and the backend's editable set.
+const EDITABLE_STATUSES = new Set<GraphRunStatus>([
+  'running',
+  'pausing',
+  'stepStopping',
+  'recovering',
+  'paused',
+  'stepStopped',
+  'stopped',
+  'failed',
+  'timedOut',
+]);
 
 const LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'pausing', 'stepStopping', 'recovering']);
 const RESUMABLE_STATUSES = new Set<GraphRunStatus>(['failed', 'paused', 'stepStopped', 'stopped', 'timedOut']);
@@ -69,7 +103,7 @@ function statusLabel(t: TFunction, status?: GraphRunStatus): string {
   }
 }
 
-export function GraphLoopProgress({ runId, readOnly, onEdit }: GraphLoopProgressProps) {
+export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: GraphLoopProgressProps) {
   const { t } = useTranslation();
   const [run, setRun] = useState<GraphRun | null>(null);
   const [progress, setProgress] = useState<GraphProgress | null>(null);
@@ -81,6 +115,16 @@ export function GraphLoopProgress({ runId, readOnly, onEdit }: GraphLoopProgress
   // Detail body (progress bar, stats, canvas) is collapsed by default;
   // only the header row stays visible until the user expands it.
   const [expanded, setExpanded] = useState(false);
+  // ---- In-place run-version editing (config-only) ----
+  // When editing, the canvas is seeded from the run's effective version snapshot
+  // and becomes structurally read-only (no add / connect / delete); only node
+  // config + the inspector are editable. Saved back via PUT /run/:id/version.
+  const [editing, setEditing] = useState(false);
+  const [editNodes, setEditNodes] = useState<QuartetFlowNode[]>([]);
+  const [editEdges, setEditEdges] = useState<QuartetFlowEdge[]>([]);
+  const [editSnapshot, setEditSnapshot] = useState<GraphConfig | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const sseRef = useRef<SSEClient | null>(null);
   const eventLineRef = useRef(0);
 
@@ -89,6 +133,7 @@ export function GraphLoopProgress({ runId, readOnly, onEdit }: GraphLoopProgress
   const canStepStop = !readOnly && run?.status === 'running';
   const canStop = !readOnly && !!run?.status && LIVE_STATUSES.has(run.status);
   const canResume = !readOnly && !!run?.status && RESUMABLE_STATUSES.has(run.status);
+  const canEditRun = !!canEdit && !readOnly && !!run?.status && EDITABLE_STATUSES.has(run.status);
 
   const toggleExpanded = useCallback(() => {
     setExpanded((v) => !v);
@@ -96,7 +141,7 @@ export function GraphLoopProgress({ runId, readOnly, onEdit }: GraphLoopProgress
 
   const handleProgressClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
     const target = event.target;
-    if (target instanceof Element && target.closest('button, a, input, textarea, select, [role="button"]')) {
+    if (target instanceof Element && target.closest('button, a, input, textarea, select, [role="button"], .graph-loop-canvas, .graph-loop-editor, .graph-loop-edit-hint, .graph-loop-stats, .graph-loop-error')) {
       return;
     }
     toggleExpanded();
@@ -203,11 +248,113 @@ export function GraphLoopProgress({ runId, readOnly, onEdit }: GraphLoopProgress
   // executed config (versioned snapshot), per-node run status, edge resolution
   // state and failed nodes for the error outline.
   const miniFlow = useMemo(() => (run ? configToFlow(runConfigSnapshot(run)) : { nodes: [], edges: [] }), [run]);
+  // The canvas is read-only for structural edits but nodes can be dragged for
+  // layout. Keep a local node copy so drag positions persist; reseed it whenever
+  // the underlying run config changes (new run / new version snapshot).
+  const [canvasNodes, setCanvasNodes] = useState<QuartetFlowNode[]>(miniFlow.nodes);
+  useEffect(() => {
+    setCanvasNodes(miniFlow.nodes);
+  }, [miniFlow.nodes]);
+  const onCanvasNodesChange = useCallback((changes: NodeChange[]) => {
+    setCanvasNodes((prev) => applyNodeChanges(changes, prev) as QuartetFlowNode[]);
+  }, []);
   const miniRunStatus = useMemo(() => runStatusByNode(instances), [instances]);
   const miniEdgeStatus = useMemo(() => edgeStatusByEdge(edges), [edges]);
   const miniErrorNodeIds = useMemo(
     () => new Set(instances.filter((inst) => inst.status === 'failed').map((inst) => inst.nodeId)),
     [instances],
+  );
+
+  // Nodes whose execution config is frozen for a version edit: those that
+  // already have a succeeded / skipped / running instance (mirrors backend
+  // validateVersionEdit). The inspector disables their config fields.
+  const frozenNodeIds = useMemo(() => {
+    const frozen = new Set<string>();
+    for (const inst of instances) {
+      if (inst.status === 'succeeded' || inst.status === 'skipped' || inst.status === 'running') {
+        frozen.add(inst.nodeId);
+      }
+    }
+    return frozen;
+  }, [instances]);
+
+  const selectedGraphNode: GraphNode | null = useMemo(() => {
+    if (!selectedNodeId) return null;
+    return editNodes.find((n) => n.id === selectedNodeId)?.data.graphNode ?? null;
+  }, [editNodes, selectedNodeId]);
+
+  // Enter in-place editing: seed editable nodes/edges from the run's effective
+  // version snapshot. The canvas stays structurally read-only; only node config
+  // changes are accepted (add/connect/delete are disabled, not just hidden).
+  const enterEdit = useCallback(() => {
+    if (!run || !canEditRun) return;
+    const snapshot = runConfigSnapshot(run);
+    const flow = configToFlow(snapshot);
+    setEditSnapshot(snapshot);
+    setEditNodes(flow.nodes);
+    setEditEdges(flow.edges);
+    setSelectedNodeId(null);
+    setEditing(true);
+    setExpanded(true);
+    setError('');
+  }, [canEditRun, run]);
+
+  const cancelEdit = useCallback(() => {
+    setEditing(false);
+    setEditNodes([]);
+    setEditEdges([]);
+    setEditSnapshot(null);
+    setSelectedNodeId(null);
+    setError('');
+  }, []);
+
+  const onEditNodesChange = useCallback((changes: NodeChange[]) => {
+    setEditNodes((prev) => applyNodeChanges(changes, prev) as QuartetFlowNode[]);
+  }, []);
+
+  // Patch the GraphNode carried by an editable canvas node (config-only edits).
+  const patchGraphNode = useCallback((id: string, mutate: (gn: GraphNode) => GraphNode) => {
+    setEditNodes((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, data: { ...n.data, graphNode: mutate(n.data.graphNode) } } : n)),
+    );
+  }, []);
+  const onUpdateNode = useCallback(
+    (id: string, patch: Partial<GraphNode>) => patchGraphNode(id, (gn) => ({ ...gn, ...patch })),
+    [patchGraphNode],
+  );
+  const onUpdateNodeConfig = useCallback(
+    (id: string, patch: Partial<GraphNodeConfig>) => patchGraphNode(id, (gn) => ({ ...gn, config: { ...gn.config, ...patch } })),
+    [patchGraphNode],
+  );
+
+  const saveRunVersion = useCallback(async () => {
+    if (!runId || !editSnapshot) return;
+    const config = flowToConfig(editNodes, editEdges, editSnapshot);
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/v1/graph/run/${encodeURIComponent(runId)}/version`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config }),
+      });
+      if (!res.ok) throw new Error(await readGraphError(res, `PUT /graph/run/${runId}/version`));
+      setEditing(false);
+      setSelectedNodeId(null);
+      setEditSnapshot(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }, [editEdges, editNodes, editSnapshot, refresh, runId]);
+
+  // The inspector's global panel reads variables/runConfig from `config`; build
+  // it from the edit snapshot so it shows (read-only) run-level values.
+  const inspectorConfig = useMemo<GraphConfig>(
+    () => ({ nodes: [], edges: [], ...(editSnapshot || {}) }),
+    [editSnapshot],
   );
 
   const lastError = run?.lastError?.message || progress?.lastError || error;
@@ -241,38 +388,65 @@ export function GraphLoopProgress({ runId, readOnly, onEdit }: GraphLoopProgress
           </span>
         </div>
         <div className="graph-loop-actions" aria-label={t('graph.loop.controls')}>
-          <button
-            type="button"
-            className="graph-loop-action"
-            onClick={toggleExpanded}
-            aria-expanded={expanded}
-            title={expanded ? t('graph.loop.collapse') : t('graph.loop.expand')}
-          >
-            <GraphActionIcon type={expanded ? 'collapse' : 'expand'} />
-            <span>{expanded ? t('graph.loop.collapse') : t('graph.loop.expand')}</span>
-          </button>
-          {onEdit && (
-            <button type="button" className="graph-loop-action" onClick={onEdit} disabled={!!actionPending} title={t('graph.loop.editTitle')}>
-              <GraphActionIcon type="edit" />
-              <span>{t('graph.loop.edit')}</span>
-            </button>
+          {editing ? (
+            <>
+              <button
+                type="button"
+                className="graph-loop-action primary"
+                onClick={() => void saveRunVersion()}
+                disabled={saving}
+                title={t('graph.editor.saveRunVersion')}
+              >
+                <GraphActionIcon type="save" />
+                <span>{saving ? t('graph.editor.saving') : t('graph.editor.saveRunVersion')}</span>
+              </button>
+              <button
+                type="button"
+                className="graph-loop-action"
+                onClick={cancelEdit}
+                disabled={saving}
+                title={t('graph.editor.cancelEdit')}
+              >
+                <GraphActionIcon type="cancel" />
+                <span>{t('graph.editor.cancelEdit')}</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="graph-loop-action"
+                onClick={toggleExpanded}
+                aria-expanded={expanded}
+                title={expanded ? t('graph.loop.collapse') : t('graph.loop.expand')}
+              >
+                <GraphActionIcon type={expanded ? 'collapse' : 'expand'} />
+                <span>{expanded ? t('graph.loop.collapse') : t('graph.loop.expand')}</span>
+              </button>
+              {canEditRun && (
+                <button type="button" className="graph-loop-action" onClick={enterEdit} disabled={!!actionPending} title={t('graph.loop.editTitle')}>
+                  <GraphActionIcon type="edit" />
+                  <span>{t('graph.loop.edit')}</span>
+                </button>
+              )}
+              <button type="button" className="graph-loop-action warn" onClick={() => void doAction('pause')} disabled={!canPause || !!actionPending} title={t('graph.loop.pauseTitle')}>
+                <GraphActionIcon type="pause" />
+                <span>{t('graph.loop.pause')}</span>
+              </button>
+              <button type="button" className="graph-loop-action warn" onClick={() => void doAction('step-stop')} disabled={!canStepStop || !!actionPending} title={t('graph.loop.stepStopTitle')}>
+                <GraphActionIcon type="step" />
+                <span>{t('graph.loop.stepStop')}</span>
+              </button>
+              <button type="button" className="graph-loop-action danger" onClick={() => void doAction('stop')} disabled={!canStop || !!actionPending} title={t('graph.loop.stopTitle')}>
+                <GraphActionIcon type="stop" />
+                <span>{t('graph.loop.stop')}</span>
+              </button>
+              <button type="button" className="graph-loop-action primary" onClick={() => void doAction('resume')} disabled={!canResume || !!actionPending} title={t('graph.loop.resumeTitle')}>
+                <GraphActionIcon type="resume" />
+                <span>{t('graph.loop.resume')}</span>
+              </button>
+            </>
           )}
-          <button type="button" className="graph-loop-action warn" onClick={() => void doAction('pause')} disabled={!canPause || !!actionPending} title={t('graph.loop.pauseTitle')}>
-            <GraphActionIcon type="pause" />
-            <span>{t('graph.loop.pause')}</span>
-          </button>
-          <button type="button" className="graph-loop-action warn" onClick={() => void doAction('step-stop')} disabled={!canStepStop || !!actionPending} title={t('graph.loop.stepStopTitle')}>
-            <GraphActionIcon type="step" />
-            <span>{t('graph.loop.stepStop')}</span>
-          </button>
-          <button type="button" className="graph-loop-action danger" onClick={() => void doAction('stop')} disabled={!canStop || !!actionPending} title={t('graph.loop.stopTitle')}>
-            <GraphActionIcon type="stop" />
-            <span>{t('graph.loop.stop')}</span>
-          </button>
-          <button type="button" className="graph-loop-action primary" onClick={() => void doAction('resume')} disabled={!canResume || !!actionPending} title={t('graph.loop.resumeTitle')}>
-            <GraphActionIcon type="resume" />
-            <span>{t('graph.loop.resume')}</span>
-          </button>
         </div>
       </div>
 
@@ -280,7 +454,49 @@ export function GraphLoopProgress({ runId, readOnly, onEdit }: GraphLoopProgress
         <div className={`graph-loop-bar status-${run?.status || 'loading'}`} style={{ width: `${percent}%` }} />
       </div>
 
-      {expanded && (
+      {editing ? (
+        <>
+          <div className="graph-loop-edit-hint" data-testid="graph-loop-edit-hint">
+            {t('graph.loop.editConfigHint')}
+          </div>
+          <div className="graph-loop-editor" data-testid="graph-loop-editor">
+            <div className="graph-loop-edit-canvas">
+              <GraphCanvas
+                key="graph-loop-edit"
+                nodes={editNodes}
+                edges={editEdges}
+                readOnly
+                showMiniMap={false}
+                runStatusByNodeId={miniRunStatus}
+                errorNodeIds={miniErrorNodeIds}
+                onNodesChange={onEditNodesChange}
+                onEdgesChange={NOOP}
+                onConnect={NOOP}
+                onNodeClick={(id) => setSelectedNodeId(id)}
+                onPaneClick={() => setSelectedNodeId(null)}
+                onAddNode={NOOP}
+              />
+            </div>
+            <div className="graph-loop-inspector graph-dark">
+              <GraphInspector
+                node={selectedGraphNode}
+                config={inspectorConfig}
+                agents={agents}
+                lockStructure
+                frozenNodeIds={frozenNodeIds}
+                onUpdateNode={onUpdateNode}
+                onUpdateNodeConfig={onUpdateNodeConfig}
+                onDeleteNode={NOOP}
+                onUpdateVariables={NOOP}
+                onUpdateRunConfig={NOOP}
+              />
+            </div>
+          </div>
+          {lastError && (
+            <pre className="graph-loop-error" data-testid="graph-loop-error">{lastError}</pre>
+          )}
+        </>
+      ) : expanded ? (
         <>
           <div className="graph-loop-stats">
             <span>{t('graph.loop.done', { count: progress?.completedCount ?? 0, total: progress?.totalCount ?? 0 })}</span>
@@ -292,14 +508,15 @@ export function GraphLoopProgress({ runId, readOnly, onEdit }: GraphLoopProgress
 
           <div className="graph-loop-canvas" data-testid="graph-loop-canvas">
             <GraphCanvas
-              nodes={miniFlow.nodes}
+              nodes={canvasNodes}
               edges={miniFlow.edges}
               readOnly
+              allowNodeDrag
               showMiniMap={false}
               runStatusByNodeId={miniRunStatus}
               edgeStatusById={miniEdgeStatus}
               errorNodeIds={miniErrorNodeIds}
-              onNodesChange={NOOP}
+              onNodesChange={onCanvasNodesChange}
               onEdgesChange={NOOP}
               onConnect={NOOP}
               onNodeClick={NOOP}
@@ -331,17 +548,23 @@ export function GraphLoopProgress({ runId, readOnly, onEdit }: GraphLoopProgress
             <pre className="graph-loop-error" data-testid="graph-loop-error">{lastError}</pre>
           )}
         </>
-      )}
+      ) : null}
     </div>
   );
 }
 
-function GraphActionIcon({ type }: { type: 'edit' | 'pause' | 'step' | 'stop' | 'resume' | 'expand' | 'collapse' }) {
+function GraphActionIcon({ type }: { type: 'edit' | 'pause' | 'step' | 'stop' | 'resume' | 'expand' | 'collapse' | 'save' | 'cancel' }) {
   if (type === 'expand') {
     return <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>;
   }
   if (type === 'collapse') {
     return <svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6" /></svg>;
+  }
+  if (type === 'save') {
+    return <svg viewBox="0 0 24 24"><path d="M5 4h12l2 2v14H5Z" /><path d="M8 4v6h8V4" /><path d="M8 20v-6h8v6" /></svg>;
+  }
+  if (type === 'cancel') {
+    return <svg viewBox="0 0 24 24"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>;
   }
   if (type === 'edit') {
     return <svg viewBox="0 0 24 24"><path d="M4 20h4.5L19 9.5a2.1 2.1 0 0 0 0-3L17.5 5a2.1 2.1 0 0 0-3 0L4 15.5V20Z" /><path d="M13.5 6 18 10.5" /></svg>;

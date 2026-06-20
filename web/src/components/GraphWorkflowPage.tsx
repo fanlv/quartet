@@ -37,6 +37,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import {
   configToFlow,
   flowToConfig,
+  orderNodesByHierarchy,
   runConfigSnapshot,
   runStatusByNode,
   type QuartetFlowEdge,
@@ -876,13 +877,17 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     });
   }, []);
 
-  const onAddNode = useCallback((type: GraphNodeType, position: { x: number; y: number }) => {
+  const onAddNode = useCallback((type: GraphNodeType, position: { x: number; y: number }, parentId?: string | null) => {
     nodeCounterRef.current += 1;
     const id = `${type}-${nodeCounterRef.current}`;
+    // A loop container can hold business nodes, ifElse, nested loops and internal
+    // end nodes — but never start. Dropping onto a loop is ignored for start.
+    const intoParent = parentId && type !== 'loop' ? parentId : undefined;
     const graphNode: GraphNode = {
       id,
       type,
       title: '',
+      ...(intoParent ? { parentId: intoParent } : {}),
       config: type === 'loop' ? { loopMode: 'fixed', fixedCount: 1, maxIterations: 100 } : type === 'evaluator' ? { sessionStrategy: 'new' } : type === 'prompt' ? { sessionStrategy: 'new' } : {},
       layout: { x: Math.round(position.x), y: Math.round(position.y), ...(type === 'loop' ? { width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT } : {}) },
     };
@@ -890,12 +895,86 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       id,
       type: type === 'loop' ? 'loopGroup' : 'quartet',
       position,
+      ...(intoParent ? { parentId: intoParent, extent: 'parent' as const } : {}),
       data: { kind: type, graphNode },
       deletable: type !== 'start' && type !== 'end',
       ...(type === 'loop' ? { style: { width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT } } : {}),
     };
-    setNodes((prev) => [...prev, node]);
+    // A loop container is invalid without exactly one internal end node (an end
+    // with parentId = the loop's id). Since end nodes are not in the palette,
+    // seed one automatically inside the new container so the loop is usable and
+    // passes backend validation out of the box. Its position is relative to the
+    // parent (React Flow child coordinates).
+    const extra: QuartetFlowNode[] = [];
+    if (type === 'loop') {
+      nodeCounterRef.current += 1;
+      const endId = `end-${nodeCounterRef.current}`;
+      const endGraphNode: GraphNode = {
+        id: endId,
+        type: 'end',
+        title: '',
+        parentId: id,
+        layout: { x: Math.round(LOOP_DEFAULT_WIDTH * 0.62), y: Math.round(LOOP_DEFAULT_HEIGHT * 0.5) },
+      };
+      extra.push({
+        id: endId,
+        type: 'quartet',
+        position: { x: endGraphNode.layout!.x, y: endGraphNode.layout!.y },
+        parentId: id,
+        extent: 'parent',
+        data: { kind: 'end', graphNode: endGraphNode },
+        deletable: true,
+      });
+    }
+    setNodes((prev) => orderNodesByHierarchy([...prev, node, ...extra]));
     setSelectedNodeId(id);
+  }, []);
+
+  // Reassign a node's loop membership after a drag. React Flow positions child
+  // nodes relative to their parent, so when parentId changes we convert the
+  // dragged node's position between absolute and parent-relative coordinates,
+  // keeping it visually put. Parents must precede children in the array.
+  const onReparent = useCallback((nodeId: string, newParentId: string | null) => {
+    setNodes((prev) => {
+      const absPos = (n: QuartetFlowNode): { x: number; y: number } => {
+        let x = n.position.x;
+        let y = n.position.y;
+        let pid = n.parentId;
+        const seen = new Set<string>();
+        while (pid && !seen.has(pid)) {
+          seen.add(pid);
+          const parent = prev.find((p) => p.id === pid);
+          if (!parent) break;
+          x += parent.position.x;
+          y += parent.position.y;
+          pid = parent.parentId;
+        }
+        return { x, y };
+      };
+      const next = prev.map((n) => {
+        if (n.id !== nodeId) return n;
+        const abs = absPos(n);
+        let pos = abs;
+        if (newParentId) {
+          const parentAbs = absPos(prev.find((p) => p.id === newParentId)!);
+          pos = { x: abs.x - parentAbs.x, y: abs.y - parentAbs.y };
+        }
+        const graphNode: GraphNode = {
+          ...n.data.graphNode,
+          parentId: newParentId ?? undefined,
+          layout: { ...(n.data.graphNode.layout || {}), x: Math.round(pos.x), y: Math.round(pos.y) },
+        };
+        const updated: QuartetFlowNode = {
+          ...n,
+          position: pos,
+          parentId: newParentId ?? undefined,
+          extent: newParentId ? 'parent' : undefined,
+          data: { ...n.data, graphNode },
+        };
+        return updated;
+      });
+      return orderNodesByHierarchy(next);
+    });
   }, []);
 
   const patchGraphNode = useCallback((id: string, mutate: (gn: GraphNode) => GraphNode) => {
@@ -944,7 +1023,22 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     return configToFlow(runConfigSnapshot(selectedRun));
   }, [editingRun, selectedRun, viewingRun]);
   const replayRunStatus = useMemo(() => runStatusByNode(runInstances), [runInstances]);
-  const canvasInitialViewport = viewingRun && !editingRun && selectedRun ? runConfigSnapshot(selectedRun).canvas?.viewport : meta.canvas?.viewport;
+  // Pure replay restores the run's own saved viewport so it matches what ran.
+  // Entering run-version edit opens the inspector, which narrows the canvas, so
+  // the run's saved viewport (captured on a wider canvas) would push most nodes
+  // off-screen — fit the graph instead. The normal workflow editor keeps its own
+  // saved viewport.
+  const canvasInitialViewport = editingRun
+    ? undefined
+    : viewingRun && selectedRun
+      ? runConfigSnapshot(selectedRun).canvas?.viewport
+      : meta.canvas?.viewport;
+  // Switching between replay (read-only), run-version edit and the workflow
+  // editor reuses the same mounted ReactFlow instance. React Flow caches node
+  // measurements per instance, and a read-only → editable swap can leave them
+  // stale so edges have no endpoints to draw (canvas looks empty until a node is
+  // dragged). Remounting on mode change forces a fresh measure so edges render.
+  const canvasMode = viewingRun ? (editingRun ? 'run-edit' : 'run-view') : 'editor';
 
   // Nodes whose execution config is frozen during run-time editing: those with a
   // succeeded / skipped / running instance (mirrors backend validateVersionEdit).
@@ -1163,9 +1257,11 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
             ) : (
               <>
                 <GraphCanvas
+                  key={canvasMode}
                   nodes={canvasNodes}
                   edges={canvasEdges}
-                  readOnly={viewingRun && !editingRun}
+                  readOnly={viewingRun}
+                  allowNodeDrag={editingRun}
                   showMiniMap={!isMobile}
                   runStatusByNodeId={viewingRun ? replayRunStatus : undefined}
                   errorNodeIds={viewingRun && !editingRun ? undefined : errorNodeIds}
@@ -1184,6 +1280,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                     setSelectedNodeId(null);
                   }}
                   onAddNode={onAddNode}
+                  onReparent={editingRun ? undefined : onReparent}
                   onViewportChange={onViewportChange}
                 />
                 {(!viewingRun || editingRun) && (
@@ -1191,6 +1288,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                     node={selectedGraphNode}
                     config={inspectorConfig}
                     agents={agents}
+                    lockStructure={editingRun}
                     drawerOpen={!isMobile || inspectorDrawerOpen}
                     frozenNodeIds={frozenRunNodeIds}
                     onUpdateNode={onUpdateNode}

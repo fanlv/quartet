@@ -480,11 +480,19 @@ func (sc *scheduler) handleResult(ctx context.Context, res nodeResult) {
 	state.OutputVariables = cloneStringMap(produced)
 	state.SessionID = outflowSession
 	// DisplaySessionID is the session the UI lists/opens for this instance. A
-	// Shell node records its own display session (ownSessionID); Agent and other
-	// nodes show their outflow session. Kept distinct from SessionID so a Shell
-	// display session never becomes a §3 lineage parent.
-	if res.outcome.ownSessionID != "" {
-		state.DisplaySessionID = res.outcome.ownSessionID
+	// Shell node keeps the display session minted at enqueue time (already on
+	// state.DisplaySessionID); its output is now appended via FinishShellSession.
+	// Agent and other nodes show their outflow session. Kept distinct from
+	// SessionID so a Shell display session never becomes a §3 lineage parent.
+	if node.Type == model.GraphNodeTypeShell {
+		if state.DisplaySessionID != "" {
+			if recorder, ok := sc.runner.(ShellSessionRecorder); ok {
+				output := shellSessionOutput(res.outcome.output, res.outcome.stderr)
+				if err := recorder.FinishShellSession(ctx, sc.run.JobID, state.DisplaySessionID, output, res.outcome.startedAt, res.outcome.finishedAt); err != nil {
+					logger.Warnf(ctx, "[graph] finish shell session failed: runId=%s nodeId=%s sessionId=%s err=%v", sc.run.ID, node.ID, state.DisplaySessionID, err)
+				}
+			}
+		}
 	} else {
 		state.DisplaySessionID = outflowSession
 	}
@@ -555,15 +563,25 @@ func (sc *scheduler) failInstance(ctx context.Context, state *model.GraphInstanc
 	state.Error = rerr
 	// Record the session this instance ran against (§3 会话血缘): an Agent node
 	// carries its own created/forked session in outcome.sessionID; otherwise the
-	// inflow session passes through. Shell nodes record their own transcript
-	// session in ownSessionID, which is the display session.
+	// inflow session passes through.
 	outflowSession := inflowSession
 	if outcome.sessionID != "" {
 		outflowSession = outcome.sessionID
 	}
 	state.SessionID = outflowSession
-	if outcome.ownSessionID != "" {
-		state.DisplaySessionID = outcome.ownSessionID
+	// A Shell node keeps the display session minted at enqueue time
+	// (state.DisplaySessionID); append whatever output it produced before failing
+	// so the user can open the session and inspect it. Best-effort. Other nodes
+	// surface their outflow session.
+	if node.Type == model.GraphNodeTypeShell {
+		if state.DisplaySessionID != "" {
+			if recorder, ok := sc.runner.(ShellSessionRecorder); ok {
+				output := shellSessionOutput(outcome.output, outcome.stderr)
+				if ferr := recorder.FinishShellSession(ctx, sc.run.JobID, state.DisplaySessionID, output, outcome.startedAt, finishedAt); ferr != nil {
+					logger.Warnf(ctx, "[graph] finish failed shell session failed: runId=%s nodeId=%s sessionId=%s err=%v", sc.run.ID, node.ID, state.DisplaySessionID, ferr)
+				}
+			}
+		}
 	} else {
 		state.DisplaySessionID = outflowSession
 	}
@@ -794,11 +812,31 @@ func (sc *scheduler) enqueue(ctx context.Context, scope *scopeRun, node model.Gr
 		return
 	}
 	keyStr := instanceKeyString(key)
-	sc.instances[keyStr] = model.GraphInstanceState{
+	startedAt := time.Now().UnixMilli()
+	state := model.GraphInstanceState{
 		Key: key, NodeID: node.ID, NodeTitle: node.Title, NodeType: node.Type,
 		Status: model.GraphInstanceStatusRunning, Version: sc.run.CurrentVersion,
-		VisibleVariables: cloneStringMap(visible), StartedAt: time.Now().UnixMilli(),
+		VisibleVariables: cloneStringMap(visible), StartedAt: startedAt,
 	}
+	// Graph Shell 默认新开一个 session: mint the Shell node's display session and
+	// record the script as its user message *now*, at enqueue time, so the Chat
+	// sidebar lists the session — and shows the script — the instant the node
+	// starts rather than only after a slow shell (e.g. `sleep 10`) exits. The
+	// assistant-side output is appended when the node completes (handleResult /
+	// failInstance). Display-only and best-effort: a failure is logged and
+	// swallowed, leaving the node without a display session.
+	if node.Type == model.GraphNodeTypeShell {
+		if recorder, ok := sc.runner.(ShellSessionRecorder); ok {
+			script := substituteVariables(node.Config.Script, visible, sc.disabled)
+			sid, err := recorder.BeginShellSession(ctx, sc.run.JobID, script, startedAt)
+			if err != nil {
+				logger.Warnf(ctx, "[graph] begin shell session failed: runId=%s nodeId=%s err=%v", sc.run.ID, node.ID, err)
+			} else {
+				state.DisplaySessionID = sid
+			}
+		}
+	}
+	sc.instances[keyStr] = state
 	sc.varsByKey[keyStr] = cloneStringMap(visible)
 	updateRunProgress(sc.run, sc.instances)
 	if sc.checkRunLimits(ctx) {

@@ -9,7 +9,7 @@ func TestParseQuartetOutput_Success(t *testing.T) {
 	raw := strings.Join([]string{
 		"some reasoning here",
 		"QUARTET_OUTPUT:foo=bar",
-		"  \tQUARTET_OUTPUT:baz=hello world", // leading whitespace trimmed → still anchored
+		"  \tQUARTET_OUTPUT:baz=hello world", // leading whitespace ignored
 		"QUARTET_OUTPUT:empty=",              // empty value allowed
 		"QUARTET_OUTPUT:eq=a=b=c",            // first '=' split, value keeps '='
 	}, "\n")
@@ -25,15 +25,17 @@ func TestParseQuartetOutput_Success(t *testing.T) {
 	}
 }
 
-func TestParseQuartetOutput_LineAnchoring(t *testing.T) {
-	// A non-whitespace prefix disqualifies the line.
-	raw := "prefix QUARTET_OUTPUT:foo=bar\nQUARTET_OUTPUT:foo=good"
-	res, err := ParseQuartetOutput(raw, []string{"foo"})
+func TestParseQuartetOutput_SubstringMatch(t *testing.T) {
+	// The marker is matched anywhere within a line: a non-whitespace prefix no
+	// longer disqualifies it, so a marker glued onto preceding text is still
+	// recognized (e.g. two assistant messages concatenated without a newline).
+	raw := "2QUARTET_OUTPUT:answer=2"
+	res, err := ParseQuartetOutput(raw, []string{"answer"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Variables["foo"] != "good" {
-		t.Fatalf("foo = %q, want good (prefixed line must be ignored)", res.Variables["foo"])
+	if res.Variables["answer"] != "2" {
+		t.Fatalf("answer = %q, want 2", res.Variables["answer"])
 	}
 }
 

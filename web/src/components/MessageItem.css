@@ -258,6 +258,19 @@
   word-break: break-word;
 }
 
+/* Shell node script/output: preformatted so newlines and shell-special chars
+   (#, *, backticks) survive verbatim instead of being collapsed/mangled by the
+   markdown renderer. Scoped to shell messages only. */
+.shell-content {
+  margin: 0;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Menlo', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .markdown-content > *:first-child {
   margin-top: 0;
 }

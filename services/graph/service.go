@@ -157,16 +157,25 @@ type Runner interface {
 }
 
 // ShellSessionRecorder is an optional capability a Runner may implement to give
-// Shell nodes their own session (Graph Shell 默认新开 session). The scheduler
-// type-asserts the runner for it after a Shell node succeeds: when present, it
-// mints a fresh session for the job and appends the script (user message) and
-// the combined output (assistant message) as a shell-output transcript, then
-// returns the new session id for GraphInstanceState.DisplaySessionID. This
-// session is purely for display — it never participates in §3 会话血缘 lineage.
-// A nil/zero return (or a runner that does not implement it) leaves the Shell
-// node without a display session and is treated as best-effort, not a failure.
+// Shell nodes their own session (Graph Shell 默认新开 session). Recording is
+// split in two so the session — and the script as its user message — surfaces
+// the instant the node starts rather than only after the shell exits:
+//
+//   - BeginShellSession is called by the scheduler when a Shell node is enqueued
+//     (before the shell runs). It mints a fresh session for the job, appends the
+//     script as the user message, and returns the new session id for
+//     GraphInstanceState.DisplaySessionID so the Chat sidebar lists it
+//     immediately (a slow shell no longer hides the session for its whole run).
+//   - FinishShellSession is called when the node completes (success or failure)
+//     to append the combined stdout/stderr as the assistant message.
+//
+// This session is purely for display — it never participates in §3 会话血缘
+// lineage. A runner that does not implement it, or a Begin failure, leaves the
+// Shell node without a display session and is treated as best-effort, not a
+// node failure.
 type ShellSessionRecorder interface {
-	RecordShellSession(ctx context.Context, jobID, script, output string, startedAt, finishedAt int64) (sessionID string, err error)
+	BeginShellSession(ctx context.Context, jobID, script string, startedAt int64) (sessionID string, err error)
+	FinishShellSession(ctx context.Context, jobID, sessionID, output string, startedAt, finishedAt int64) error
 }
 
 type JobStateSink interface {

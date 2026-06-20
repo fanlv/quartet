@@ -1447,7 +1447,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
       for (const msg of historyMessages) {
         if (msg.role === 'user') {
-          converted.push({ id: msg.id, role: MessageRoleEnum.USER, content: msg.content, createdAt: msg.startedAt || now, status: MessageStatusEnum.Finished, sessionId: tagSessionId, pending: false, failed: false, imageUrls: msg.imageUrls || undefined });
+          converted.push({ id: msg.id, role: MessageRoleEnum.USER, content: msg.content, createdAt: msg.startedAt || now, status: MessageStatusEnum.Finished, sessionId: tagSessionId, pending: false, failed: false, imageUrls: msg.imageUrls || undefined, isShellOutput: msg.isShellOutput || false });
         } else if (msg.role === 'assistant') {
           if (msg.isThinking) {
             // Separate thought entry emitted by the history API when thought_msg_id is present.

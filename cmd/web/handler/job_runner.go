@@ -130,13 +130,15 @@ func (r *jobRunnerImpl) RunIteration(ctx context.Context, sessionID string, mess
 	}
 }
 
-// RecordShellSession mints a fresh session for a Graph Shell node and appends
-// the executed script (user message) and the combined output (assistant
-// message) as a shell-output transcript, mirroring the legacy Loop shell
-// persistence (services/job persistShellMessages) so the Chat session sidebar
-// renders it identically. The session is for display only — it is never used as
-// a §3 会话血缘 lineage parent. Returns the new session id.
-func (r *jobRunnerImpl) RecordShellSession(ctx context.Context, jobID, script, output string, startedAt, finishedAt int64) (string, error) {
+// BeginShellSession mints a fresh session for a Graph Shell node and appends the
+// executed script as the user message of a shell-output transcript, mirroring
+// the legacy Loop shell persistence (services/job persistShellMessages) so the
+// Chat session sidebar renders it identically. It is called when the node is
+// enqueued (before the shell runs) so the session — and the script — surface
+// immediately rather than only after a slow shell exits. The combined output is
+// appended later by FinishShellSession. The session is for display only — it is
+// never used as a §3 会话血缘 lineage parent. Returns the new session id.
+func (r *jobRunnerImpl) BeginShellSession(ctx context.Context, jobID, script string, startedAt int64) (string, error) {
 	// Shell sessions are plain transcripts with no live agent behind them; type
 	// them as eino so history loads/renders through the standard session path.
 	s, err := r.h.createSession(ctx, "", consts.AgentTypeEino, r.workdir, r.wsID, jobID)
@@ -152,21 +154,40 @@ func (r *jobRunnerImpl) RecordShellSession(ctx context.Context, jobID, script, o
 		msgextra.KeyShellOutput: true,
 		msgextra.KeyStartedAt:   startedAt,
 	}
+	if err := repo.AppendMessages(ctx, []*schema.Message{userMsg}); err != nil {
+		return "", fmt.Errorf("append shell script message: %w", err)
+	}
+	if ss, err := r.h.getOrCreateSessionService(r.wsID, jobID); err == nil {
+		if err := ss.Touch(s.ID); err != nil {
+			logger.Warnf(ctx, "[BeginShellSession] touch session failed: %v, sessionId=%s", err, s.ID)
+		}
+	}
+	return s.ID, nil
+}
+
+// FinishShellSession appends the combined stdout/stderr as the assistant message
+// of a shell display session previously created by BeginShellSession, completing
+// the transcript once the shell has exited.
+func (r *jobRunnerImpl) FinishShellSession(ctx context.Context, jobID, sessionID, output string, startedAt, finishedAt int64) error {
+	repo, err := repository.NewChatContextRepo(r.wsID, jobID, sessionID)
+	if err != nil {
+		return fmt.Errorf("open shell chat context repo: %w", err)
+	}
 	assistantMsg := schema.AssistantMessage(output, nil)
 	assistantMsg.Extra = map[string]any{
 		msgextra.KeyShellOutput: true,
 		msgextra.KeyStartedAt:   startedAt,
 		msgextra.KeyFinishedAt:  finishedAt,
 	}
-	if err := repo.AppendMessages(ctx, []*schema.Message{userMsg, assistantMsg}); err != nil {
-		return "", fmt.Errorf("append shell messages: %w", err)
+	if err := repo.AppendMessages(ctx, []*schema.Message{assistantMsg}); err != nil {
+		return fmt.Errorf("append shell output message: %w", err)
 	}
 	if ss, err := r.h.getOrCreateSessionService(r.wsID, jobID); err == nil {
-		if err := ss.Touch(s.ID); err != nil {
-			logger.Warnf(ctx, "[RecordShellSession] touch session failed: %v, sessionId=%s", err, s.ID)
+		if err := ss.Touch(sessionID); err != nil {
+			logger.Warnf(ctx, "[FinishShellSession] touch session failed: %v, sessionId=%s", err, sessionID)
 		}
 	}
-	return s.ID, nil
+	return nil
 }
 
 func errSessionNotFound(sessionID string) error {

@@ -56,6 +56,36 @@ function rfNodeType(kind: GraphNodeType): string {
   return kind === 'loop' ? 'loopGroup' : 'quartet';
 }
 
+/**
+ * Stable-sort nodes so every parent precedes its children. React Flow requires
+ * this ordering (a child node referencing a `parentId` that appears later in
+ * the array is dropped at render time), and the backend walks the scope tree
+ * the same way. Generic over anything carrying `id` + optional `parentId`, so
+ * it works for both QuartetFlowNode and persisted GraphNode. Order among nodes
+ * at the same depth is preserved, keeping diffs stable across save/reopen.
+ */
+export function orderNodesByHierarchy<T extends { id: string; parentId?: string }>(nodes: T[]): T[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const depthCache = new Map<string, number>();
+  const depthOf = (n: T): number => {
+    let depth = 0;
+    const seen = new Set<string>();
+    let cur: T | undefined = n;
+    while (cur?.parentId && !seen.has(cur.id)) {
+      const cached = depthCache.get(cur.id);
+      if (cached !== undefined) return depth + cached;
+      seen.add(cur.id);
+      cur = byId.get(cur.parentId);
+      depth += 1;
+    }
+    return depth;
+  };
+  return nodes
+    .map((n, index) => ({ n, index, depth: depthOf(n) }))
+    .sort((a, b) => a.depth - b.depth || a.index - b.index)
+    .map((e) => e.n);
+}
+
 /** Convert a persisted GraphConfig into React Flow nodes + edges. */
 export function configToFlow(config: GraphConfig): {
   nodes: QuartetFlowNode[];
@@ -103,7 +133,7 @@ export function configToFlow(config: GraphConfig): {
     return edge;
   });
 
-  return { nodes, edges };
+  return { nodes: orderNodesByHierarchy(nodes), edges };
 }
 
 function portFromHandle(handle: string | null | undefined): GraphEdgePort | undefined {
@@ -178,7 +208,9 @@ export function flowToConfig(
 
   return {
     ...prevConfig,
-    nodes: [...nodes].sort(nodeSort),
+    // Stable diff order first (prevConfig order), then re-order so parents
+    // precede children — required for a clean reload and matches the backend.
+    nodes: orderNodesByHierarchy([...nodes].sort(nodeSort)),
     edges: [...edges].sort(edgeSort),
   };
 }
