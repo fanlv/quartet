@@ -2221,6 +2221,23 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       if (cancelled) return;
       const entries = graphSessionEntries(instances);
       if (entries.length > 0) setLoopSessions(entries);
+      // Follow the latest-started node's session while the user hasn't pinned an
+      // earlier one, so a freshly-started node's session — and the user message
+      // it just sent — becomes the visible conversation the instant the node
+      // starts, instead of only when the run ends. Mirrors loop-mode
+      // follow-latest and the hydration path's running-instance preference.
+      // entries are sorted by startedAt, so the last is the most recently
+      // started node that has a session. Backend now sets displaySessionId at
+      // dispatch (eager session visibility), so this fires mid-run, not just at
+      // completion.
+      const latestSid = getLastLoopSessionId(entries);
+      if (
+        latestSid &&
+        latestSid !== activeSessionIdRef.current &&
+        (followLatestSessionRef.current || !activeSessionIdRef.current)
+      ) {
+        applyActiveSessionSelection(latestSid, true);
+      }
       const terminalSids = instances
         .map((i) => ({ sid: i.displaySessionId || i.sessionId, status: i.status }))
         .filter((i): i is { sid: string; status: GraphInstanceStatus } => !!i.sid && i.status !== 'running' && i.status !== 'pending')
@@ -2275,7 +2292,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       client.disconnect();
       if (graphSseRef.current === client) graphSseRef.current = null;
     };
-  }, [isGraph, graphRunId, apiUrl, loadHistory, setLoopSessions]);
+  }, [isGraph, graphRunId, apiUrl, loadHistory, setLoopSessions, applyActiveSessionSelection]);
 
   // Send interactive message.
   //

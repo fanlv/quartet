@@ -233,7 +233,13 @@ type nodeOutcome struct {
 // enclosing loop (nil in the main scope). It is overlaid onto the {{...}}
 // substitution for Prompt/Evaluator and onto both the substitution and the
 // environment for Shell, without being persisted into the node's snapshot.
-func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, key model.GraphInstanceKey, vars map[string]string, disabled map[string]struct{}, runner Runner, inflowSession string, loopVars map[string]string) (nodeOutcome, error) {
+//
+// notify is called once with the opened session id as soon as an Agent node has
+// created/forked its session and BEFORE the agent runs. The scheduler uses it
+// to surface the node's session in the UI the instant work starts (eager
+// session visibility) instead of only after the agent replies. It is nil-safe
+// and unused by Shell nodes (their display session is minted at enqueue time).
+func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, key model.GraphInstanceKey, vars map[string]string, disabled map[string]struct{}, runner Runner, inflowSession string, loopVars map[string]string, notify func(sessionID string)) (nodeOutcome, error) {
 	switch node.Type {
 	case model.GraphNodeTypeShell:
 		return s.runShellWithRetries(ctx, run, node, vars, disabled, loopVars)
@@ -254,6 +260,13 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 		sessionID, replayCount, err := openNodeSession(ctx, runner, run.JobID, node, inflowSession, overrides)
 		if err != nil {
 			return nodeOutcome{}, err
+		}
+		// Announce the session the instant it exists so the UI lists it (and its
+		// just-persisted user message) while the agent is still replying, rather
+		// than only after the node completes. Non-blocking on the scheduler side;
+		// see scheduler.handleSessionOpened.
+		if notify != nil {
+			notify(sessionID)
 		}
 		modelID := firstNonEmpty(runner.SessionModelID(sessionID), node.Config.ModelID)
 		result := s.runPromptWithRetries(ctx, run.ID, run.JobID, sessionID, node.ID, key, runner, []*schema.Message{{Role: schema.User, Content: prompt}})

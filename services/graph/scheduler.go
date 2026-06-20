@@ -70,6 +70,17 @@ type nodeResult struct {
 	err           error
 }
 
+// sessionOpened is a worker's early "I opened my session" signal, sent before
+// the agent runs so the scheduler can surface the node's display session (and
+// its just-persisted user message) the instant work starts rather than only at
+// completion. Keyed by the full instance key so it matches per-iteration loop
+// instances. Sent non-blocking by the worker; applied by handleSessionOpened on
+// the scheduler goroutine (sole writer of sc.instances).
+type sessionOpened struct {
+	key       model.GraphInstanceKey
+	sessionID string
+}
+
 // scheduler holds the in-memory run state for one GraphRun execution. Only the
 // scheduler goroutine touches these fields.
 type scheduler struct {
@@ -294,6 +305,10 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 	limit := concurrencyLimit(sc.cfg.RunConfig.ConcurrencyLimit)
 	sem := make(chan struct{}, limit)
 	resultCh := make(chan nodeResult, limit)
+	// sessionCh carries workers' early "session opened" signals (eager session
+	// visibility). Buffered like resultCh; workers send non-blocking so a signal
+	// arriving after cancelWorkers/drain is harmlessly dropped.
+	sessionCh := make(chan sessionOpened, limit)
 	inFlight := 0
 	workerCtx, cancelWorkers := context.WithCancel(ctx)
 	defer cancelWorkers()
@@ -319,7 +334,17 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 					inFlight, len(sc.ready), limit, effectiveNodeTimeout(item.runConfig, item.node))
 				go func(it readyItem) {
 					nodeCtx, nodeCancel := contextWithNodeTimeout(workerCtx, it.runConfig, it.node)
-					outcome, execErr := sc.svc.executeNode(nodeCtx, it.run, it.node, it.key, it.visible, it.disabled, sc.runner, it.inflowSession, it.loopVars)
+					// notify announces the node's session as soon as it is opened,
+					// before the agent replies. Non-blocking: a drop (channel full /
+					// scheduler already draining) only forfeits early visibility, and
+					// the session still surfaces at completion via handleResult.
+					notify := func(sid string) {
+						select {
+						case sessionCh <- sessionOpened{key: it.key, sessionID: sid}:
+						default:
+						}
+					}
+					outcome, execErr := sc.svc.executeNode(nodeCtx, it.run, it.node, it.key, it.visible, it.disabled, sc.runner, it.inflowSession, it.loopVars, notify)
 					if workerCtx.Err() == nil && errors.Is(nodeCtx.Err(), context.DeadlineExceeded) {
 						execErr = nodeTimeoutErr(it.node, effectiveNodeTimeout(it.runConfig, it.node), execErr)
 					}
@@ -355,6 +380,11 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 				sc.persist(ctx)
 				return
 			}
+		case so := <-sessionCh:
+			// A worker opened its Agent session; surface it now (eager session
+			// visibility). Does not touch the semaphore / inFlight — the worker is
+			// still running and will report completion over resultCh.
+			sc.handleSessionOpened(ctx, so)
 		case sig := <-sc.control:
 			if sig.kind == ctrlHardStop {
 				logger.Warnf(ctx, "[graph] hard stop requested: runId=%s reason=%s inFlight=%d ready=%d", sc.run.ID, sig.reason, inFlight, len(sc.ready))
@@ -425,6 +455,33 @@ func (sc *scheduler) interruptRunning(ctx context.Context, reason string) {
 		sc.appendInstanceEvent(ctx, model.GraphEventTypeInstanceFailed, state.Key, state.NodeID, reason, nil)
 	}
 	updateRunProgress(sc.run, sc.instances)
+}
+
+// handleSessionOpened applies a worker's early session-open signal on the
+// scheduler goroutine (sole writer of sc.instances): it sets the instance's
+// DisplaySessionID so the UI lists the node's session — and its just-persisted
+// user message — the moment the agent starts, instead of only after it replies
+// (mirroring how Shell nodes surface their session at enqueue). It then persists
+// and re-publishes InstanceStarted, which the frontend already treats as a
+// reconcile trigger.
+//
+// Guarded to be idempotent and race-safe: it no-ops unless the instance is still
+// Running with an empty DisplaySessionID, so a signal that arrives after the
+// node already completed/failed (DisplaySessionID set by handleResult/
+// failInstance), was interrupted, or was rolled back (instance gone) is dropped.
+func (sc *scheduler) handleSessionOpened(ctx context.Context, so sessionOpened) {
+	keyStr := instanceKeyString(so.key)
+	state, ok := sc.instances[keyStr]
+	if !ok || state.Status != model.GraphInstanceStatusRunning || state.DisplaySessionID != "" {
+		return
+	}
+	state.DisplaySessionID = so.sessionID
+	sc.instances[keyStr] = state
+	updateRunProgress(sc.run, sc.instances)
+	sc.persist(ctx)
+	sc.appendInstanceEvent(ctx, model.GraphEventTypeInstanceStarted, so.key, state.NodeID, "session opened", nil)
+	logger.Infof(ctx, "[graph] node session opened: runId=%s nodeId=%s key=%s sessionId=%s",
+		sc.run.ID, state.NodeID, keyStr, so.sessionID)
 }
 
 // handleResult processes one worker completion. On success it records the

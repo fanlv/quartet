@@ -80,7 +80,15 @@ func (r *jobRunnerImpl) ForkSession(ctx context.Context, parentSessionID, jobID 
 	if parentSessionID == "" {
 		return "", 0, fmt.Errorf("fork session requires a parent session id")
 	}
-	newID, err := r.InitSession(ctx, jobID, overrides)
+	// §3 会话血缘: an `inherit` node forks the upstream session and is meant to
+	// reuse the parent's Agent/model when it declares no override of its own (see
+	// services/graph/validate.go validateAgentNewSession). The node's own config
+	// wins; any field it leaves empty falls back to the parent session so a
+	// downstream Evaluator with no agentType still runs against the upstream
+	// Agent instead of failing with an empty agentType. Best-effort: if the
+	// parent can't be resolved we keep the passed overrides unchanged.
+	effective := inheritOverridesFromParent(overrides, r.h, parentSessionID)
+	newID, err := r.InitSession(ctx, jobID, effective)
 	if err != nil {
 		return "", 0, err
 	}
@@ -103,6 +111,35 @@ func (r *jobRunnerImpl) ForkSession(ctx context.Context, parentSessionID, jobID 
 		return "", 0, fmt.Errorf("copy parent session %s history into forked session %s: %w", parentSessionID, newID, err)
 	}
 	return newID, len(history), nil
+}
+
+// inheritOverridesFromParent returns a SessionOverrides where each empty field
+// of the node's own overrides is backfilled from the parent session
+// (agentType ← parent.Type, modelId, ACP mode / thought_level). The node's
+// explicit values always win. Returns the passed overrides unchanged when the
+// parent session can't be resolved (best-effort §3 会话血缘 inheritance). The
+// caller's overrides is never mutated.
+func inheritOverridesFromParent(overrides *model.SessionOverrides, h *Handler, parentSessionID string) *model.SessionOverrides {
+	parent, ok := h.lookupSession(parentSessionID)
+	if !ok || parent == nil {
+		return overrides
+	}
+	eff := model.SessionOverrides{}
+	if overrides != nil {
+		eff = *overrides
+	}
+	eff.AgentType = firstNonEmptyStr(eff.AgentType, parent.Type)
+	eff.ModelID = firstNonEmptyStr(eff.ModelID, parent.ModelID)
+	eff.ACPMode = firstNonEmptyStr(eff.ACPMode, parent.ACPMode)
+	eff.ACPThoughtLevel = firstNonEmptyStr(eff.ACPThoughtLevel, parent.ACPThoughtLevel)
+	return &eff
+}
+
+func firstNonEmptyStr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 func (r *jobRunnerImpl) RunIteration(ctx context.Context, sessionID string, messages []*schema.Message, handler agui.EventHandler) error {
