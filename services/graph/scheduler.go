@@ -558,7 +558,7 @@ func (sc *scheduler) handleResult(ctx context.Context, res nodeResult) {
 	}
 	sc.instances[keyStr] = state
 	sc.varsByKey[keyStr] = cloneStringMap(visibleAfter)
-	sc.recordSessionLineage(key, node, res.inflowSession, res.outcome.sessionID, res.outcome.replayCount)
+	sc.recordSessionLineage(key, node, res.inflowSession, res.outcome.sessionID)
 	updateRunProgress(sc.run, sc.instances)
 	if sc.checkRunLimits(ctx) {
 		return
@@ -657,9 +657,11 @@ func (sc *scheduler) failInstance(ctx context.Context, state *model.GraphInstanc
 // run's resume state (§3 会话血缘 / §4 resume), keyed by instance-key string.
 // Only Agent-class nodes establish a session of their own (outflow != ""); for
 // passthrough nodes (Shell/If-Else) nothing is recorded — their outflow is just
-// the inherited inflow. The lineage drives crash-recovery / 续跑 so a forked
-// session's parent linkage and replay count survive a restart.
-func (sc *scheduler) recordSessionLineage(key model.GraphInstanceKey, node model.GraphNode, inflowSession, outflowSession string, replayCount int) {
+// the inherited inflow. An `inherit` Agent reuses its inflow session, so its
+// recorded outflow == inflow (ParentSessionID == SessionID), which self-documents
+// the reuse. The lineage is a forensic record; resume re-derives inflow from
+// surviving upstream instances rather than reading it back.
+func (sc *scheduler) recordSessionLineage(key model.GraphInstanceKey, node model.GraphNode, inflowSession, outflowSession string) {
 	if outflowSession == "" {
 		return
 	}
@@ -670,10 +672,9 @@ func (sc *scheduler) recordSessionLineage(key model.GraphInstanceKey, node model
 		sc.run.Resume.SessionLineageByKey = map[string]model.GraphSessionLineage{}
 	}
 	lineage := model.GraphSessionLineage{
-		Strategy:           node.Config.SessionStrategy,
-		SessionID:          outflowSession,
-		ParentSessionID:    inflowSession,
-		ReplayMessageCount: replayCount,
+		Strategy:        node.Config.SessionStrategy,
+		SessionID:       outflowSession,
+		ParentSessionID: inflowSession,
 	}
 	if lineage.Strategy == "" {
 		lineage.Strategy = model.GraphSessionStrategyNew

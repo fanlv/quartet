@@ -885,7 +885,8 @@
     "header": {
       "title": "Graph Workflows",
       "refresh": "Refresh",
-      "back": "Back"
+      "back": "Back",
+      "openLibrary": "Open library"
     },
     "workspace": {
       "label": "Workspace"
@@ -894,6 +895,7 @@
       "workspace": "Workspace",
       "library": "Workflow Library",
       "newWorkflow": "New workflow",
+      "closeLibrary": "Close",
       "loadingWorkflows": "Loading workflows...",
       "noWorkflows": "No graph workflows yet.",
       "refresh": "Refresh",
@@ -1071,7 +1073,7 @@
       "sessionStrategy": "Session strategy",
       "sessionNew": "New session",
       "sessionInherit": "Inherit upstream",
-      "sessionStrategyDesc": "Inherits the upstream Agent's conversation history; a multi-in-edge join copies the session of the upstream with the greatest node ID, while the other upstreams' output variables are still merged.",
+      "sessionStrategyDesc": "Reuses the upstream Agent's exact session — this node appends its turn to the same conversation (no copy). A multi-in-edge join reuses the session of the upstream with the greatest node ID, while the other upstreams' output variables are still merged. Two agents that can run in parallel cannot reuse the same session.",
       "varName": "var",
       "shellScript": "Shell script",
       "shellScriptPlaceholder": "e.g. make test",
@@ -1113,7 +1115,7 @@
       "untilCondition": "Stop condition (do-while, evaluated at end of round)",
       "fixedCount": "Fixed count (≥ 0, 0 = skip sub-graph)",
       "maxIterations": "Max iterations fallback (default 100, max 1000)",
-      "maxIterationsDesc": "Drag other nodes into the dashed box to add them to the loop body.",
+      "loopBodyHint": "Drag other nodes into the dashed box to add them to the loop body.",
       "controlNodeDesc": "Control nodes are only used for the workflow entry / exit and cannot configure business actions or output variables.",
       "duplicateNode": "Duplicate node",
       "deleteNode": "Delete node",

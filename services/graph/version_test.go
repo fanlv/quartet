@@ -31,10 +31,6 @@ func (r *recordingPromptRunner) InitSession(context.Context, string, *model.Sess
 	return "session-1", nil
 }
 
-func (r *recordingPromptRunner) ForkSession(context.Context, string, string, *model.SessionOverrides) (string, int, error) {
-	return "session-1", 0, nil
-}
-
 func (r *recordingPromptRunner) RunIteration(ctx context.Context, _ string, messages []*schema.Message, handler agui.EventHandler) error {
 	content := ""
 	if len(messages) > 0 {

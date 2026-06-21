@@ -875,7 +875,8 @@
     "header": {
       "title": "Graph Workflows",
       "refresh": "刷新",
-      "back": "返回"
+      "back": "返回",
+      "openLibrary": "打开工作流库"
     },
     "workspace": {
       "label": "工作空间"
@@ -884,6 +885,7 @@
       "workspace": "工作区",
       "library": "工作流库",
       "newWorkflow": "新建工作流",
+      "closeLibrary": "关闭",
       "loadingWorkflows": "正在加载工作流...",
       "noWorkflows": "暂无 Graph 工作流。",
       "refresh": "刷新",
@@ -1061,7 +1063,7 @@
       "sessionStrategy": "会话策略",
       "sessionNew": "新建会话",
       "sessionInherit": "继承上游",
-      "sessionStrategyDesc": "继承上游 Agent 的会话历史；多入边 join 时复制结点 ID 最大的上游会话，其余上游的输出变量仍照常合并。",
+      "sessionStrategyDesc": "复用上游 Agent 的同一个会话——本结点把这一轮追加到同一段对话中（不再复制）。多入边 join 时复用结点 ID 最大的上游会话，其余上游的输出变量仍照常合并。可能并行的两个 Agent 不能复用同一个会话。",
       "varName": "变量",
       "shellScript": "Shell 脚本",
       "shellScriptPlaceholder": "例如: make test",
@@ -1103,7 +1105,7 @@
       "untilCondition": "终止条件 (do-while, 轮末求值)",
       "fixedCount": "固定次数 (≥ 0, 0 跳过子图)",
       "maxIterations": "最大次数兜底 (默认 100, 最大 1000)",
-      "maxIterationsDesc": "把其他结点拖入虚线框即可加入循环体。",
+      "loopBodyHint": "把其他结点拖入虚线框即可加入循环体。",
       "controlNodeDesc": "控制结点只用于工作流的入口 / 终点，不可配置业务动作或输出变量。",
       "duplicateNode": "复制结点",
       "deleteNode": "删除结点",

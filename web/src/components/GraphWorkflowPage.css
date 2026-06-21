@@ -72,6 +72,34 @@
   font-weight: 700;
 }
 
+.graph-sidebar-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Mobile-only close affordance for the off-canvas library drawer. */
+.graph-sidebar-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.graph-sidebar-close:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
 .graph-kicker {
   color: #64748b;
   font-size: 11px;
@@ -474,45 +502,93 @@
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 900px) {
-  .graph-page {
-    overflow: auto;
-  }
-
+@media (max-width: 768px) {
+  /* Page fills the viewport (no vertical page-scroll); the editor owns the
+     scroll/canvas area and the library moves to an off-canvas drawer. The
+     sidebar leaves grid flow (position:fixed), so a flex column guarantees the
+     editor stretches to the full available height instead of sizing to content. */
   .graph-page-main {
-    grid-template-columns: 1fr;
-    padding: 12px;
-    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
   }
 
+  /* ---- Workflow library: off-canvas left slide-over (mirrors loop-sidebar) ----
+     The sidebar leaves document flow so the editor fills the column; it slides
+     in from the left when `graph-sidebar-open` is set, with a backdrop. */
   .graph-sidebar {
-    position: relative;
-    z-index: 1;
-    max-height: 240px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(86vw, 340px);
+    height: 100vh;
+    height: 100dvh;
+    z-index: 800;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: 4px 0 24px rgba(15, 23, 42, 0.18);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    will-change: transform;
+  }
+
+  .graph-sidebar.graph-sidebar-open {
+    transform: translateX(0);
+  }
+
+  .graph-sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 799;
+    background: rgba(15, 23, 42, 0.42);
+    animation: graph-overlay-fade 0.16s ease;
   }
 
   .graph-editor {
     z-index: 2;
-    min-height: min(760px, calc(100dvh - 24px));
+    flex: 1;
+    min-height: 0;
   }
 
-  .graph-editor-head,
+  /* `.graph-editor-head` is a flex container — `grid-template-columns` is a
+     no-op on it. Stack its rows with real flex properties instead. */
+  .graph-editor-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
   .graph-form-grid {
     grid-template-columns: 1fr;
-  }
-
-  .graph-editor-actions {
-    justify-content: flex-start;
   }
 
   .graph-editor-title {
     min-width: 0;
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .graph-name-input {
-    flex: 1;
+    flex: 1 1 100%;
+    min-width: 0;
     max-width: none;
+    font-size: 16px; /* >=16px so iOS does not zoom on focus */
+  }
+
+  .graph-editor-actions {
+    width: 100%;
+    gap: 6px;
+    justify-content: stretch;
+  }
+
+  .graph-editor-actions > * {
+    flex: 1 1 auto;
+  }
+
+  .graph-view-toggle {
+    flex: 1 1 100%;
   }
 
   .graph-run-panel {
@@ -530,6 +606,15 @@
 
   .graph-run-progress {
     text-align: left;
+  }
+}
+
+@keyframes graph-overlay-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 

@@ -21,10 +21,6 @@ func (snapshotRunner) InitSession(context.Context, string, *model.SessionOverrid
 	return "session-1", nil
 }
 
-func (snapshotRunner) ForkSession(context.Context, string, string, *model.SessionOverrides) (string, int, error) {
-	return "session-1", 0, nil
-}
-
 func (snapshotRunner) RunIteration(context.Context, string, []*schema.Message, agui.EventHandler) error {
 	return nil
 }

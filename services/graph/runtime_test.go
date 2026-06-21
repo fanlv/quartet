@@ -20,10 +20,6 @@ func (stubGraphRunner) InitSession(context.Context, string, *model.SessionOverri
 	return "session-1", nil
 }
 
-func (stubGraphRunner) ForkSession(context.Context, string, string, *model.SessionOverrides) (string, int, error) {
-	return "session-1", 0, nil
-}
-
 func (stubGraphRunner) RunIteration(context.Context, string, []*schema.Message, agui.EventHandler) error {
 	return nil
 }
@@ -156,10 +152,6 @@ type streamingGraphRunner struct{ stubSnapshotSource }
 
 func (streamingGraphRunner) InitSession(context.Context, string, *model.SessionOverrides) (string, error) {
 	return "session-stream", nil
-}
-
-func (streamingGraphRunner) ForkSession(context.Context, string, string, *model.SessionOverrides) (string, int, error) {
-	return "session-stream", 0, nil
 }
 
 func (streamingGraphRunner) RunIteration(_ context.Context, _ string, _ []*schema.Message, handler agui.EventHandler) error {

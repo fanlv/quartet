@@ -209,9 +209,10 @@ func (sc *scheduler) finishIteration(ctx context.Context, loop *scopeRun) {
 			return
 		}
 		if loop.iterIndex+1 >= loop.maxIters {
-			logger.Errorf(ctx, "[graph] loop max iterations reached: runId=%s loopId=%s loopKey=%s maxIters=%d",
+			// 达到最大循环次数但 until 条件仍未满足：不视为失败，按正常完成处理。
+			logger.Infof(ctx, "[graph] loop reached max iterations without until satisfied, finishing as success: runId=%s loopId=%s loopKey=%s maxIters=%d",
 				sc.run.ID, node.ID, instanceKeyString(loop.loopKey), loop.maxIters)
-			sc.failRunSched(ctx, fmt.Errorf("loop %s reached max iterations (%d) but the until condition was never satisfied: 循环达最大次数但条件未满足", node.ID, loop.maxIters))
+			sc.finishLoop(ctx, loop)
 			return
 		}
 		sc.startIteration(ctx, loop, loop.iterIndex+1)
@@ -297,7 +298,8 @@ func (sc *scheduler) failLoopNode(ctx context.Context, loop *scopeRun, err error
 
 // effectiveLoopMaxIters resolves the loop's max-iteration backstop: the node's
 // own MaxIterations, else the run config default, else 100. The validator caps
-// these at maxLoopMaxIters (1000) and rejects a fixed count above the backstop.
+// these at maxLoopMaxIters (1000). Only the until mode consults this backstop;
+// a fixed loop runs exactly FixedCount rounds.
 func effectiveLoopMaxIters(rc model.GraphRunConfig, node model.GraphNode) int {
 	if node.Config.MaxIterations > 0 {
 		return node.Config.MaxIterations

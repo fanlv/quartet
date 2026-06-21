@@ -79,6 +79,7 @@ func (v *validator) run() {
 	v.validateLoopSubgraphs()
 	v.validateFirstAgentNewSession()
 	v.validateOutputConflicts()
+	v.validateParallelSessionReuse()
 }
 
 // --- indexing ---
@@ -300,9 +301,6 @@ func (v *validator) validateLoopConfig(n *model.GraphNode) {
 	case model.GraphLoopModeFixed:
 		if c.FixedCount < 0 {
 			v.nodeErr(n.ID, fmt.Sprintf("loop node %q fixed count must be >= 0, got %d", n.ID, c.FixedCount))
-		}
-		if c.MaxIterations > 0 && c.FixedCount > c.MaxIterations {
-			v.nodeErr(n.ID, fmt.Sprintf("loop node %q fixed count %d exceeds max iterations %d", n.ID, c.FixedCount, c.MaxIterations))
 		}
 	case model.GraphLoopModeUntil:
 		if c.UntilCondition == "" {
@@ -807,6 +805,155 @@ func (v *validator) checkScopeOutputConflicts(scope string) {
 			}
 		}
 	}
+}
+
+// validateParallelSessionReuse rejects graphs where two Agent nodes that can run
+// in parallel both write to the SAME session (§3 会话复用). Under the reuse
+// semantics an `inherit` node appends its turn to its inflow session rather than
+// forking a private copy; two concurrent turns on one session collide (the ACP
+// agent cancels the in-flight Run when a second Run starts on the same cached
+// session, services/agent/acp/agent.go). Per-scope, mirroring
+// validateOutputConflicts: a loop body is its own scope and is checked
+// independently. Iterations run strictly sequentially, so cross-iteration reuse
+// (§ 跨轮连续) is safe and not flagged here — only within-scope parallelism is.
+func (v *validator) validateParallelSessionReuse() {
+	for scope := range v.scopes {
+		v.checkScopeSessionCollisions(scope)
+	}
+}
+
+// sessionSourceSets statically computes, for each node in the scope, the set of
+// "session sources" whose session could flow into it. A session source is the
+// node that ORIGINATES a session: a `new` Agent is its own source; a non-Agent
+// node passes its inflow sources through unchanged; an `inherit` Agent reuses its
+// inflow sources. Because pickInflowSession's "greatest node ID" choice is only
+// determined at runtime over the activated in-edges, an `inherit` node's source
+// set is the UNION over all its in-edge upstreams — a sound over-approximation
+// (it can only over-reject, never miss a real collision). The scope's start node
+// seeds the set: the main scope's start carries no session (empty set), while a
+// loop subgraph's start carries the loop's inflow session as a single synthetic
+// token so two body agents that both trace back to it count as same-source.
+func (v *validator) sessionSourceSets(scope string) map[string]map[string]bool {
+	srcSet := make(map[string]map[string]bool)
+	entryToken := "loop-inflow:" + scope // synthetic source for a loop body's inflow
+
+	// Kahn topological order over intra-scope edges (the scope is a DAG —
+	// validateCycles guarantees it). Use a local in-degree copy so we don't
+	// mutate v.inDeg.
+	remaining := make(map[string]int)
+	var queue []string
+	for _, n := range v.scopes[scope] {
+		d := v.inDeg[n.ID]
+		remaining[n.ID] = d
+		if d == 0 {
+			queue = append(queue, n.ID)
+		}
+	}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		n := v.nodesByID[id]
+
+		// Union of in-edge upstreams' source sets.
+		in := make(map[string]bool)
+		for _, up := range v.intraScopeInEdgeSources(scope, id) {
+			for s := range srcSet[up] {
+				in[s] = true
+			}
+		}
+		switch {
+		case n != nil && n.Type == model.GraphNodeTypeStart:
+			if scope == "" {
+				srcSet[id] = map[string]bool{} // main start: no session yet
+			} else {
+				srcSet[id] = map[string]bool{entryToken: true} // loop inflow session
+			}
+		case n != nil && isAgent(n.Type) && n.Config.SessionStrategy != model.GraphSessionStrategyInherit:
+			srcSet[id] = map[string]bool{id: true} // `new` (or unset): fresh source = itself
+		default:
+			// `inherit` Agent OR passthrough (Shell/IfElse/Loop container): reuse/forward inflow sources.
+			srcSet[id] = in
+		}
+
+		for _, e := range v.outEdges[id] {
+			if dst, ok := v.nodesByID[e.TargetNodeID]; ok && dst.ParentID == scope {
+				remaining[e.TargetNodeID]--
+				if remaining[e.TargetNodeID] == 0 {
+					queue = append(queue, e.TargetNodeID)
+				}
+			}
+		}
+	}
+	return srcSet
+}
+
+// intraScopeInEdgeSources returns the source node IDs of every intra-scope edge
+// terminating at nodeID. Built from v.outEdges (already intra-scope filtered).
+func (v *validator) intraScopeInEdgeSources(scope, nodeID string) []string {
+	var srcs []string
+	for _, n := range v.scopes[scope] {
+		for _, e := range v.outEdges[n.ID] {
+			if e.TargetNodeID == nodeID {
+				srcs = append(srcs, n.ID)
+			}
+		}
+	}
+	return srcs
+}
+
+func (v *validator) checkScopeSessionCollisions(scope string) {
+	var agents []*model.GraphNode
+	for _, n := range v.scopes[scope] {
+		if isAgent(n.Type) {
+			agents = append(agents, n)
+		}
+	}
+	if len(agents) < 2 {
+		return
+	}
+
+	isMain := scope == ""
+	entries := v.entriesOfScope(scope, isMain)
+	reach := make(map[string]map[string]bool)
+	for _, a := range agents {
+		reach[a.ID] = v.reachableFrom([]string{a.ID}, scope, "")
+	}
+	domYes, domNo := v.branchDominators(scope, entries)
+	srcSet := v.sessionSourceSets(scope)
+
+	for i := 0; i < len(agents); i++ {
+		for j := i + 1; j < len(agents); j++ {
+			a, b := agents[i], agents[j]
+			// Sequential (ancestor/descendant) → one finishes before the other → safe.
+			if reach[a.ID][b.ID] || reach[b.ID][a.ID] {
+				continue
+			}
+			// Mutually exclusive via some if-else yes/no → never run together → safe.
+			if v.mutuallyExclusive(a.ID, b.ID, domYes, domNo) {
+				continue
+			}
+			// Potentially parallel: a shared session source means they could both
+			// write to one session concurrently → reject.
+			if !setsIntersect(srcSet[a.ID], srcSet[b.ID]) {
+				continue
+			}
+			v.sessionErr(a.ID, fmt.Sprintf("agent nodes %q and %q can run in parallel and both reuse the same session; a shared session cannot serve two concurrent agent turns — set one of them to a new session, or serialize them", a.ID, b.ID))
+			v.sessionErr(b.ID, fmt.Sprintf("agent nodes %q and %q can run in parallel and both reuse the same session; a shared session cannot serve two concurrent agent turns — set one of them to a new session, or serialize them", b.ID, a.ID))
+		}
+	}
+}
+
+func setsIntersect(a, b map[string]bool) bool {
+	// Iterate the smaller set for speed.
+	if len(b) < len(a) {
+		a, b = b, a
+	}
+	for k := range a {
+		if b[k] {
+			return true
+		}
+	}
+	return false
 }
 
 // branchDominators returns, for every node in the scope, which if-else yes/no

@@ -30,10 +30,6 @@ func (r *countingRunner) InitSession(context.Context, string, *model.SessionOver
 	return "session-1", nil
 }
 
-func (r *countingRunner) ForkSession(context.Context, string, string, *model.SessionOverrides) (string, int, error) {
-	return "session-1", 0, nil
-}
-
 func (r *countingRunner) RunIteration(_ context.Context, _ string, messages []*schema.Message, handler agui.EventHandler) error {
 	node := ""
 	if len(messages) > 0 {

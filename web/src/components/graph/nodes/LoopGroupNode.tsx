@@ -46,7 +46,7 @@ export function LoopGroupNode({ data, selected }: NodeProps<QuartetFlowNode>) {
       <div className="qg-loop-head">
         <span className="qg-loop-badge">🔁 {graphNode.title || t('graph.node.loopDefaultTitle')}</span>
         <span className="qg-loop-meta">{meta}</span>
-        {cfg?.maxIterations ? <span className="qg-loop-cap">{t('graph.node.loopFallback', { count: cfg.maxIterations })}</span> : null}
+        {cfg?.loopMode === 'until' && cfg?.maxIterations ? <span className="qg-loop-cap">{t('graph.node.loopFallback', { count: cfg.maxIterations })}</span> : null}
       </div>
       <Handle type="source" position={Position.Right} />
     </div>

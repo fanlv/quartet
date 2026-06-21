@@ -132,16 +132,6 @@ type serviceImpl struct {
 
 type Runner interface {
 	InitSession(ctx context.Context, jobID string, overrides *model.SessionOverrides) (sessionID string, err error)
-	// ForkSession creates a NEW independent session that inherits the upstream
-	// session's context (§3 会话血缘: "复制上游上下文新建独立 session"). It mints a
-	// fresh session via the same path as InitSession and copies the parent
-	// session's persisted conversation history into it, so both engines reach an
-	// equivalent session without reusing the parent session ID: eino loads the
-	// copied history at run time, and a fresh ACP subprocess replays it. The
-	// returned replayCount is the number of history messages copied (recorded in
-	// the run's session lineage). A copy/replay failure returns an error so the
-	// scheduler can fail the node start with full context.
-	ForkSession(ctx context.Context, parentSessionID, jobID string, overrides *model.SessionOverrides) (sessionID string, replayCount int, err error)
 	RunIteration(ctx context.Context, sessionID string, messages []*schema.Message, handler agui.EventHandler) error
 	SessionModelID(sessionID string) string
 	// ResolveModelSnapshot returns the current content of the model config bound

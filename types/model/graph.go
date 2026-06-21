@@ -283,11 +283,10 @@ type GraphLoopState struct {
 }
 
 type GraphSessionLineage struct {
-	Strategy           GraphSessionStrategy `json:"strategy"`
-	SessionID          string               `json:"sessionId,omitempty"`
-	ParentSessionID    string               `json:"parentSessionId,omitempty"`
-	ParentInstanceKey  *GraphInstanceKey    `json:"parentInstanceKey,omitempty"`
-	ReplayMessageCount int                  `json:"replayMessageCount,omitempty"`
+	Strategy          GraphSessionStrategy `json:"strategy"`
+	SessionID         string               `json:"sessionId,omitempty"`
+	ParentSessionID   string               `json:"parentSessionId,omitempty"`
+	ParentInstanceKey *GraphInstanceKey    `json:"parentInstanceKey,omitempty"`
 }
 
 type GraphReadyBatch struct {

@@ -1,11 +1,14 @@
-.PHONY: build build-all build-acp build-cli build-web test test-web e2e clean run run-cli run-web run-frontend run-backend dev web web-logs web-stop web-status backend-stop install-acp-deps
+.PHONY: build build-all build-acp build-cli build-web test test-web e2e clean run run-cli run-web run-frontend run-backend dev web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps
 
 BACKEND_PORT := 8090
 CERTS_DIR := $(CURDIR)/certs
 WEB_BINARY := $(CURDIR)/bin/quartet-web
 BACKEND_LOG := /tmp/quartet-backend.log
 FRONTEND_LOG := /tmp/quartet-vite.log
+WATCHDOG_LOG := /tmp/quartet-watchdog.log
+WATCHDOG_PID := /tmp/quartet-watchdog.pid
 STOP_PROCESS_TREE := $(CURDIR)/scripts/stop-process-tree.sh
+WATCHDOG := $(CURDIR)/scripts/watchdog.sh
 BUILD_TIME ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 GIT_DIRTY ?= $(shell if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then echo true; else echo false; fi)
@@ -81,9 +84,10 @@ run-frontend:
 
 dev:
 	@echo "Starting backend and frontend..."
-	@trap 'kill 0' EXIT; \
-	$(MAKE) run-backend & \
-	$(MAKE) run-frontend & \
+	@$(MAKE) run-backend & bpid=$$!; \
+	$(MAKE) run-frontend & fpid=$$!; \
+	trap '"$(STOP_PROCESS_TREE)" $$bpid; "$(STOP_PROCESS_TREE)" $$fpid' EXIT; \
+	trap 'exit 130' INT TERM HUP; \
 	wait
 
 run: web
@@ -297,6 +301,63 @@ web:
 web-logs:
 	@tail -f $(BACKEND_LOG)
 
+web-watch:
+	@if [ -z "$$LOCAL_MEMORY" ]; then \
+		echo "❌ LOCAL_MEMORY environment variable is not set. Please set it first."; \
+		exit 1; \
+	fi; \
+	if [ -f "$(WATCHDOG_PID)" ] && kill -0 "$$(cat $(WATCHDOG_PID) 2>/dev/null)" 2>/dev/null; then \
+		echo "ℹ️  Watchdog already running (pid: $$(cat $(WATCHDOG_PID)))"; \
+		exit 0; \
+	fi; \
+	chmod +x "$(WATCHDOG)" 2>/dev/null || true; \
+	: > $(WATCHDOG_LOG); \
+	echo "🐶 Starting backend/frontend watchdog (detached)..."; \
+	if command -v setsid >/dev/null 2>&1; then \
+		( setsid "$(WATCHDOG)" "$(CURDIR)" "$(BACKEND_PORT)" </dev/null >>$(WATCHDOG_LOG) 2>&1 & ); \
+	elif command -v perl >/dev/null 2>&1; then \
+		( perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV or die "exec: $$!"' "$(WATCHDOG)" "$(CURDIR)" "$(BACKEND_PORT)" </dev/null >>$(WATCHDOG_LOG) 2>&1 & ); \
+	else \
+		( "$(WATCHDOG)" "$(CURDIR)" "$(BACKEND_PORT)" </dev/null >>$(WATCHDOG_LOG) 2>&1 & ); \
+	fi; \
+	sleep 1; \
+	if [ -f "$(WATCHDOG_PID)" ] && kill -0 "$$(cat $(WATCHDOG_PID) 2>/dev/null)" 2>/dev/null; then \
+		echo "✅ Watchdog running (pid: $$(cat $(WATCHDOG_PID)), log: $(WATCHDOG_LOG))"; \
+	else \
+		echo "⚠️  Watchdog did not report a pid yet; check $(WATCHDOG_LOG)"; \
+	fi
+
+web-watch-stop:
+	@if [ -f "$(WATCHDOG_PID)" ]; then \
+		_wpid=$$(cat $(WATCHDOG_PID) 2>/dev/null); \
+		if [ -n "$$_wpid" ] && kill -0 "$$_wpid" 2>/dev/null; then \
+			echo "🛑 Stopping watchdog (pid: $$_wpid)... services left running"; \
+			kill "$$_wpid" 2>/dev/null || true; \
+			for _i in 1 2 3 4 5; do \
+				kill -0 "$$_wpid" 2>/dev/null || break; \
+				sleep 1; \
+			done; \
+			if kill -0 "$$_wpid" 2>/dev/null; then \
+				echo "⚠️  Watchdog still alive after SIGTERM; sending SIGKILL"; \
+				kill -9 "$$_wpid" 2>/dev/null || true; \
+				sleep 1; \
+			fi; \
+			if kill -0 "$$_wpid" 2>/dev/null; then \
+				echo "❌ Failed to stop watchdog (pid: $$_wpid)"; \
+			else \
+				echo "✅ Watchdog stopped"; \
+			fi; \
+		else \
+			echo "ℹ️  Watchdog not running (stale pidfile)"; \
+		fi; \
+		rm -f "$(WATCHDOG_PID)"; \
+	else \
+		echo "ℹ️  No watchdog pidfile; nothing to stop"; \
+	fi
+
+web-watch-logs:
+	@tail -f $(WATCHDOG_LOG)
+
 web-stop:
 	@echo "🛑 Stopping web services..."
 	@if [ -f "$(CERTS_DIR)/cert.pem" ] && [ -f "$(CERTS_DIR)/key.pem" ]; then \
@@ -428,6 +489,11 @@ web-status:
 	if [ -n "$$_vite_repo" ]; then \
 		echo "  ⚠️  Other vite processes for this repo on a different port:$$_vite_repo"; \
 		echo "     Run 'make web-stop' to clean them up."; \
+	fi; \
+	if [ -f "$(WATCHDOG_PID)" ] && kill -0 "$$(cat $(WATCHDOG_PID) 2>/dev/null)" 2>/dev/null; then \
+		echo "  Watchdog: ✅ Running (pid: $$(cat $(WATCHDOG_PID)), log: $(WATCHDOG_LOG))"; \
+	else \
+		echo "  Watchdog: ❌ Not running (start with 'make web-watch')"; \
 	fi
 
 clean:

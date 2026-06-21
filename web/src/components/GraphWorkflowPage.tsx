@@ -563,6 +563,9 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const [meta, setMeta] = useState<ConfigMeta>(() => metaFromConfig(initialConfig));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(true);
+  // Mobile-only: the workflow library is an off-canvas left drawer (it would
+  // otherwise collapse to a sliver in the stacked layout). Desktop ignores this.
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [focus, setFocus] = useState<GraphCanvasFocus>({ token: 0 });
   const [loadedConfig, setLoadedConfig] = useState<GraphConfig>(initialConfig);
   const [viewportResetKey, setViewportResetKey] = useState(0);
@@ -970,6 +973,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
           description: data.workflow.description || '',
           config: loaded,
         }));
+        setLibraryOpen(false);
       } catch (err) {
         setMessage(err instanceof Error ? err.message : String(err));
       }
@@ -985,6 +989,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     setDescription('');
     setErrors([]);
     setMessage('');
+    setLibraryOpen(false);
     loadConfigIntoCanvas(config);
     setSavedFingerprint(fingerprint({ name: t('graph.defaultName'), description: '', config }));
   }, [exitRunView, loadConfigIntoCanvas, t, workspaceId, workspaceWorkdir]);
@@ -1327,7 +1332,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       type,
       title: '',
       ...(intoParent ? { parentId: intoParent } : {}),
-      config: type === 'loop' ? { loopMode: 'fixed', fixedCount: 1, maxIterations: 100 } : type === 'evaluator' ? { sessionStrategy: 'new' } : type === 'prompt' ? { sessionStrategy: 'new' } : {},
+      config: type === 'loop' ? { loopMode: 'fixed', fixedCount: 1 } : type === 'evaluator' ? { sessionStrategy: 'new' } : type === 'prompt' ? { sessionStrategy: 'new' } : {},
       layout: { x: Math.round(position.x), y: Math.round(position.y), ...(type === 'loop' ? { width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT } : {}) },
     };
     const node: QuartetFlowNode = {
@@ -1676,6 +1681,21 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
           </span>
         </div>
         <nav className="header-nav">
+          {isMobile && (
+            <button
+              className="header-settings-btn"
+              onClick={() => setLibraryOpen(true)}
+              title={t('graph.header.openLibrary')}
+              aria-label={t('graph.header.openLibrary')}
+              data-testid="graph-library-toggle"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+          )}
           <button
             className="header-settings-btn"
             onClick={() => {
@@ -1694,18 +1714,34 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       </header>
 
       <main className="graph-page-main">
-        <aside className="graph-sidebar">
+        <aside className={`graph-sidebar${isMobile && libraryOpen ? ' graph-sidebar-open' : ''}`}>
           <div className="graph-sidebar-top">
             <div>
               <div className="graph-kicker">{workspaceTitle || workspaceId || t('graph.sidebar.workspace')}</div>
               <h2>{t('graph.sidebar.library')}</h2>
             </div>
-            <button className="graph-primary-icon-btn" onClick={startNew} title={t('graph.sidebar.newWorkflow')} aria-label={t('graph.sidebar.newWorkflow')}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 5v14" />
-                <path d="M5 12h14" />
-              </svg>
-            </button>
+            <div className="graph-sidebar-top-actions">
+              <button className="graph-primary-icon-btn" onClick={startNew} title={t('graph.sidebar.newWorkflow')} aria-label={t('graph.sidebar.newWorkflow')}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 5v14" />
+                  <path d="M5 12h14" />
+                </svg>
+              </button>
+              {isMobile && (
+                <button
+                  className="graph-sidebar-close"
+                  onClick={() => setLibraryOpen(false)}
+                  title={t('graph.sidebar.closeLibrary')}
+                  aria-label={t('graph.sidebar.closeLibrary')}
+                  data-testid="graph-library-close"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 6 6 18" />
+                    <path d="m6 6 12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="graph-workflow-list">
@@ -1730,6 +1766,10 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
           </div>
 
         </aside>
+
+        {isMobile && libraryOpen && (
+          <div className="graph-sidebar-overlay" onClick={() => setLibraryOpen(false)} aria-hidden="true" />
+        )}
 
         <section className="graph-editor">
           <div className="graph-editor-head">

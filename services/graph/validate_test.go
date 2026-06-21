@@ -35,6 +35,16 @@ func hasErrForNode(errs []model.GraphValidationError, nodeID string) bool {
 	return false
 }
 
+// hasSessionErrForNode reports whether any session-type error targets nodeID.
+func hasSessionErrForNode(errs []model.GraphValidationError, nodeID string) bool {
+	for _, e := range errs {
+		if e.Type == model.GraphValidationErrorTypeSession && e.NodeID == nodeID {
+			return true
+		}
+	}
+	return false
+}
+
 func hasErrForEdge(errs []model.GraphValidationError, edgeID string) bool {
 	for _, e := range errs {
 		if e.EdgeID == edgeID {
@@ -350,6 +360,99 @@ func TestValidate_MultiInEdgeAgentInheritAllowed(t *testing.T) {
 	}
 	if errs := validateConfig(cfg); len(errs) != 0 {
 		t.Fatalf("expected valid graph (multi-in-edge inherit allowed), got: %+v", errs)
+	}
+}
+
+// TestValidate_ParallelInheritSameSourceRejected: one `new` Agent fans out to two
+// `inherit` Agents on parallel branches. Both reuse the same session (source = a),
+// so they could issue two concurrent turns on one session → must be rejected.
+func TestValidate_ParallelInheritSameSourceRejected(t *testing.T) {
+	inherit := func(id string) model.GraphNode {
+		n := node(id, model.GraphNodeTypePrompt)
+		n.Config.SessionStrategy = model.GraphSessionStrategyInherit
+		return n
+	}
+	cfg := &model.GraphConfig{
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			func() model.GraphNode {
+				n := node("a", model.GraphNodeTypePrompt)
+				n.Config.SessionStrategy = model.GraphSessionStrategyNew
+				return n
+			}(),
+			inherit("b"),
+			inherit("c"),
+			node("e1", model.GraphNodeTypeEnd),
+			node("e2", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{
+			edge("s_a", "s", "a"),
+			edge("a_b", "a", "b"),
+			edge("a_c", "a", "c"),
+			edge("b_e1", "b", "e1"),
+			edge("c_e2", "c", "e2"),
+		},
+	}
+	errs := validateConfig(cfg)
+	if !hasSessionErrForNode(errs, "b") || !hasSessionErrForNode(errs, "c") {
+		t.Fatalf("expected parallel-reuse session errors on b and c, got: %+v", errs)
+	}
+}
+
+// TestValidate_ParallelNewDistinctSessionsAllowed: two parallel `new` Agents have
+// distinct session sources (each its own), so reuse never collides → allowed.
+func TestValidate_ParallelNewDistinctSessionsAllowed(t *testing.T) {
+	cfg := &model.GraphConfig{
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			node("a", model.GraphNodeTypePrompt), // defaults to new + AgentType
+			node("b", model.GraphNodeTypePrompt),
+			node("e1", model.GraphNodeTypeEnd),
+			node("e2", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{
+			edge("s_a", "s", "a"),
+			edge("s_b", "s", "b"),
+			edge("a_e1", "a", "e1"),
+			edge("b_e2", "b", "e2"),
+		},
+	}
+	if errs := validateConfig(cfg); len(errs) != 0 {
+		t.Fatalf("expected valid graph (parallel new agents use distinct sessions), got: %+v", errs)
+	}
+}
+
+// TestValidate_ParallelOneInheritOneNewAllowed: a `new` Agent fans out to one
+// `inherit` (source = a) and one `new` (source = c) Agent. Their session sources
+// differ, so the parallel pair does not collide → allowed.
+func TestValidate_ParallelOneInheritOneNewAllowed(t *testing.T) {
+	cfg := &model.GraphConfig{
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			func() model.GraphNode {
+				n := node("a", model.GraphNodeTypePrompt)
+				n.Config.SessionStrategy = model.GraphSessionStrategyNew
+				return n
+			}(),
+			func() model.GraphNode {
+				n := node("b", model.GraphNodeTypePrompt)
+				n.Config.SessionStrategy = model.GraphSessionStrategyInherit
+				return n
+			}(),
+			node("c", model.GraphNodeTypePrompt), // new + AgentType by default
+			node("e1", model.GraphNodeTypeEnd),
+			node("e2", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{
+			edge("s_a", "s", "a"),
+			edge("a_b", "a", "b"),
+			edge("a_c", "a", "c"),
+			edge("b_e1", "b", "e1"),
+			edge("c_e2", "c", "e2"),
+		},
+	}
+	if errs := validateConfig(cfg); len(errs) != 0 {
+		t.Fatalf("expected valid graph (one inherit + one new in parallel use distinct sessions), got: %+v", errs)
 	}
 }
 
@@ -691,16 +794,15 @@ func TestValidate_LoopUntilValid(t *testing.T) {
 	}
 }
 
-func TestValidate_LoopFixedCountExceedsMax(t *testing.T) {
+func TestValidate_LoopFixedZeroCountValid(t *testing.T) {
 	cfg := loopValid()
 	for i := range cfg.Nodes {
 		if cfg.Nodes[i].ID == "loop" {
-			cfg.Nodes[i].Config.FixedCount = 100
-			cfg.Nodes[i].Config.MaxIterations = 10
+			cfg.Nodes[i].Config.FixedCount = 0
 		}
 	}
-	if !hasErrForNode(validateConfig(cfg), "loop") {
-		t.Fatal("expected fixed-count-exceeds-max error")
+	if errs := validateConfig(cfg); len(errs) != 0 {
+		t.Fatalf("expected fixed count 0 to be valid (skips sub-graph), got: %+v", errs)
 	}
 }
 

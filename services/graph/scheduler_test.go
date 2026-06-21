@@ -446,10 +446,6 @@ func (g *gatedRunner) InitSession(context.Context, string, *model.SessionOverrid
 	return "session-1", nil
 }
 
-func (g *gatedRunner) ForkSession(context.Context, string, string, *model.SessionOverrides) (string, int, error) {
-	return "session-1", 0, nil
-}
-
 func (g *gatedRunner) RunIteration(_ context.Context, _ string, _ []*schema.Message, _ agui.EventHandler) error {
 	n := atomic.AddInt32(&g.cur, 1)
 	g.mu.Lock()
@@ -483,10 +479,6 @@ func (blockingGraphRunner) InitSession(context.Context, string, *model.SessionOv
 	return "session-1", nil
 }
 
-func (blockingGraphRunner) ForkSession(context.Context, string, string, *model.SessionOverrides) (string, int, error) {
-	return "session-1", 0, nil
-}
-
 func (blockingGraphRunner) RunIteration(ctx context.Context, _ string, _ []*schema.Message, _ agui.EventHandler) error {
 	<-ctx.Done()
 	return ctx.Err()
@@ -504,10 +496,6 @@ type sequenceGraphRunner struct {
 
 func (r *sequenceGraphRunner) InitSession(context.Context, string, *model.SessionOverrides) (string, error) {
 	return "session-1", nil
-}
-
-func (r *sequenceGraphRunner) ForkSession(context.Context, string, string, *model.SessionOverrides) (string, int, error) {
-	return "session-1", 0, nil
 }
 
 func (r *sequenceGraphRunner) RunIteration(_ context.Context, _ string, _ []*schema.Message, handler agui.EventHandler) error {

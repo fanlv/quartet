@@ -548,7 +548,7 @@ export function GraphInspector({
                 type="button"
                 className={cfg.loopMode !== 'until' ? 'active' : ''}
                 disabled={readOnly}
-                onClick={() => setCfg({ loopMode: 'fixed' as GraphLoopMode })}
+                onClick={() => setCfg({ loopMode: 'fixed' as GraphLoopMode, maxIterations: undefined })}
               >
                 {t('graph.inspector.loopFixed')}
               </button>
@@ -563,18 +563,32 @@ export function GraphInspector({
             </div>
           </div>
           {cfg.loopMode === 'until' ? (
-            <div className="gi-field">
-              <label>{t('graph.inspector.untilCondition')}</label>
-              <ConditionBuilder
-                key={`until-${node.id}`}
-                fieldId={`until-${node.id}`}
-                value={cfg.untilCondition || ''}
-                availableVars={conditionVars}
-                readOnly={readOnly}
-                onChange={(next) => setCfg({ untilCondition: next })}
-                t={t}
-              />
-            </div>
+            <>
+              <div className="gi-field">
+                <label>{t('graph.inspector.untilCondition')}</label>
+                <ConditionBuilder
+                  key={`until-${node.id}`}
+                  fieldId={`until-${node.id}`}
+                  value={cfg.untilCondition || ''}
+                  availableVars={conditionVars}
+                  readOnly={readOnly}
+                  onChange={(next) => setCfg({ untilCondition: next })}
+                  t={t}
+                />
+              </div>
+              <div className="gi-field">
+                <label>{t('graph.inspector.maxIterations')}</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={cfg.maxIterations ?? ''}
+                  placeholder="100"
+                  disabled={readOnly}
+                  onChange={(e) => setCfg({ maxIterations: numberOrUndefined(e.target.value) })}
+                />
+              </div>
+            </>
           ) : (
             <div className="gi-field">
               <label>{t('graph.inspector.fixedCount')}</label>
@@ -587,19 +601,7 @@ export function GraphInspector({
               />
             </div>
           )}
-          <div className="gi-field">
-            <label>{t('graph.inspector.maxIterations')}</label>
-            <input
-              type="number"
-              min={1}
-              max={1000}
-              value={cfg.maxIterations ?? ''}
-              placeholder="100"
-              disabled={readOnly}
-              onChange={(e) => setCfg({ maxIterations: numberOrUndefined(e.target.value) })}
-            />
-            <div className="gi-desc">{t('graph.inspector.maxIterationsDesc')}</div>
-          </div>
+          <div className="gi-desc">{t('graph.inspector.loopBodyHint')}</div>
         </>
       )}
 

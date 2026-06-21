@@ -200,15 +200,15 @@ func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGr
 // STOP_LOOP / STOP_WORKFLOW so the scheduler can apply them with scope context
 // (STOP_LOOP is only legal inside a loop container, STOP_WORKFLOW ends the run
 // with early success). For Agent-class nodes it also carries the outflow session
-// (the session the node created or forked) and the replay message count, which
-// the scheduler records as the instance's session lineage (§3 会话血缘).
+// (the session the node created with `new`, or the inflow session it reused with
+// `inherit`), which the scheduler records as the instance's session lineage
+// (§3 会话血缘).
 type nodeOutcome struct {
 	output       string
 	produced     map[string]string
 	stopLoop     bool
 	stopWorkflow bool
 	sessionID    string
-	replayCount  int
 	usage        *usagestats.Accumulator
 	modelID      string
 
@@ -225,9 +225,10 @@ type nodeOutcome struct {
 
 // executeNode runs one business node against its visible variable snapshot.
 // inflowSession is the session flowing in along the node's in-edges (§3 会话血缘):
-// an Agent node with the `inherit` strategy forks from it; a `new`/unset Agent
-// creates a fresh session; Shell nodes ignore it (the scheduler passes the
-// inflow through as the Shell's outflow).
+// an Agent node with the `inherit` strategy reuses it verbatim (appending its
+// turn to the same session's message list); a `new`/unset Agent creates a fresh
+// session; Shell nodes ignore it (the scheduler passes the inflow through as the
+// Shell's outflow).
 //
 // loopVars carries the QUARTET_LOOP_* iteration context of the innermost
 // enclosing loop (nil in the main scope). It is overlaid onto the {{...}}
@@ -257,7 +258,7 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 			ACPMode:         node.Config.ACPMode,
 			ACPThoughtLevel: node.Config.ACPThoughtLevel,
 		}
-		sessionID, replayCount, err := openNodeSession(ctx, runner, run.JobID, node, inflowSession, overrides)
+		sessionID, err := openNodeSession(ctx, runner, run.JobID, node, inflowSession, overrides)
 		if err != nil {
 			return nodeOutcome{}, err
 		}
@@ -271,47 +272,49 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 		modelID := firstNonEmpty(runner.SessionModelID(sessionID), node.Config.ModelID)
 		result := s.runPromptWithRetries(ctx, run.ID, run.JobID, sessionID, node.ID, key, runner, []*schema.Message{{Role: schema.User, Content: prompt}})
 		if result.err != nil {
-			return nodeOutcome{output: result.handler.AccumulatedContent(), sessionID: sessionID, replayCount: replayCount, usage: result.handler.usage, modelID: modelID}, withGraphRetryCount(result.err, result.retryCount)
+			return nodeOutcome{output: result.handler.AccumulatedContent(), sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, withGraphRetryCount(result.err, result.retryCount)
 		}
 		output := result.handler.AccumulatedContent()
 		parsed, perr := ParseQuartetOutput(output, node.Config.OutputVariables)
 		if perr != nil {
-			return nodeOutcome{output: output, sessionID: sessionID, replayCount: replayCount, usage: result.handler.usage, modelID: modelID}, perr
+			return nodeOutcome{output: output, sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, perr
 		}
-		return nodeOutcome{output: output, produced: parsed.Variables, sessionID: sessionID, replayCount: replayCount, usage: result.handler.usage, modelID: modelID}, nil
+		return nodeOutcome{output: output, produced: parsed.Variables, sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, nil
 	default:
 		return nodeOutcome{}, fmt.Errorf("node type %q is not supported by the graph engine", node.Type)
 	}
 }
 
 // openNodeSession opens the session an Agent-class node executes against per its
-// declared strategy (§3 会话血缘). `inherit` forks the inflow session into a new
-// independent session (copying its conversation history); `new` (or unset)
-// mints a fresh session. An `inherit` declaration with no inflow session is a
-// node failure — it means an upstream Agent was expected but none ran (the
-// validator forbids this statically for the first Agent on a start chain, so at
-// runtime it can only arise from a reset/pruned upstream).
-func openNodeSession(ctx context.Context, runner Runner, jobID string, node model.GraphNode, inflowSession string, overrides *model.SessionOverrides) (sessionID string, replayCount int, err error) {
+// declared strategy (§3 会话血缘). `inherit` REUSES the inflow session verbatim:
+// the node appends its turn to the SAME session's message list, continuing one
+// continuous conversation (no fork, no history copy). `new` (or unset) mints a
+// fresh session. An `inherit` declaration with no inflow session is a node
+// failure — it means an upstream Agent was expected but none ran (the validator
+// forbids this statically for the first Agent on a start chain, so at runtime it
+// can only arise from a reset/pruned upstream).
+//
+// 循环跨轮语义（§3 不轮间隔离 / B 跨轮连续）: a loop body whose first Agent is
+// `inherit` reuses the session flowing into the container; because finishIteration
+// carries the round-end session forward as the next round's inflow, every
+// iteration appends to the SAME session — one continuous conversation spanning all
+// rounds. This is safe: iterations run strictly sequentially on the scheduler
+// goroutine, so reuse never yields concurrent turns on one session.
+func openNodeSession(ctx context.Context, runner Runner, jobID string, node model.GraphNode, inflowSession string, overrides *model.SessionOverrides) (sessionID string, err error) {
 	if node.Config.SessionStrategy == model.GraphSessionStrategyInherit {
 		if inflowSession == "" {
-			return "", 0, fmt.Errorf("node %q declares 'inherit' session strategy but no upstream session is available to inherit", node.ID)
+			return "", fmt.Errorf("node %q declares 'inherit' session strategy but no upstream session is available to inherit", node.ID)
 		}
-		sessionID, replayCount, err = runner.ForkSession(ctx, inflowSession, jobID, overrides)
-		if err != nil {
-			logger.Errorf(ctx, "[graph] fork session failed: jobId=%s nodeId=%s parentSessionId=%s err=%v", jobID, node.ID, inflowSession, err)
-			return "", 0, err
-		}
-		logger.Infof(ctx, "[graph] forked session: jobId=%s nodeId=%s parentSessionId=%s sessionId=%s replayMessages=%d",
-			jobID, node.ID, inflowSession, sessionID, replayCount)
-		return sessionID, replayCount, nil
+		logger.Infof(ctx, "[graph] reusing upstream session: jobId=%s nodeId=%s sessionId=%s", jobID, node.ID, inflowSession)
+		return inflowSession, nil
 	}
 	sessionID, err = runner.InitSession(ctx, jobID, overrides)
 	if err != nil {
 		logger.Errorf(ctx, "[graph] init session failed: jobId=%s nodeId=%s err=%v", jobID, node.ID, err)
-		return "", 0, err
+		return "", err
 	}
 	logger.Infof(ctx, "[graph] initialized session: jobId=%s nodeId=%s sessionId=%s strategy=%s", jobID, node.ID, sessionID, firstNonEmpty(string(node.Config.SessionStrategy), string(model.GraphSessionStrategyNew)))
-	return sessionID, 0, err
+	return sessionID, nil
 }
 
 // runShellWithRetries executes a Shell node through the shared transient/rate-

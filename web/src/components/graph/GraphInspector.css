@@ -435,8 +435,8 @@
     border-left: none;
     border-top: 1px solid var(--graph-border, #2d3643);
     border-radius: 14px 14px 0 0;
-    max-height: min(72vh, 620px);
-    max-height: min(72dvh, 620px);
+    max-height: min(50vh, 480px);
+    max-height: min(50dvh, 480px);
     box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.42);
     transform: translateY(0);
     transition: transform 180ms ease, box-shadow 180ms ease;
@@ -505,8 +505,8 @@
   }
 
   .gi-scroll {
-    max-height: calc(min(72vh, 620px) - var(--gi-drawer-peek));
-    max-height: calc(min(72dvh, 620px) - var(--gi-drawer-peek));
+    max-height: calc(min(50vh, 480px) - var(--gi-drawer-peek));
+    max-height: calc(min(50dvh, 480px) - var(--gi-drawer-peek));
     padding: 12px 14px calc(18px + env(safe-area-inset-bottom, 0px));
     transition: opacity 140ms ease;
   }

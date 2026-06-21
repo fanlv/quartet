@@ -210,30 +210,40 @@
 }
 
 @media (max-width: 768px) {
+  /* Compact palette: a single horizontally-scrollable strip of small chips so
+     it costs ~50px of height instead of ~315px, leaving the canvas real room. */
   .graph-palette {
     width: 100%;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 6px;
-    padding: 8px;
+    padding: 6px 8px;
+    overflow-x: auto;
     border-right: none;
     border-bottom: 1px solid var(--graph-border);
   }
   .graph-palette h3,
   .graph-palette-hint {
-    width: 100%;
+    display: none;
   }
   .graph-node-chip {
+    flex: 0 0 auto;
     width: auto;
     margin-bottom: 0;
-    flex: 0 0 auto;
-    min-height: 42px;
+    min-height: 38px;
+    padding: 6px 9px;
+  }
+  .graph-chip-sub {
+    display: none;
+  }
+  .graph-chip-label {
+    font-size: 12px;
   }
   .graph-canvas {
     flex-direction: column;
   }
   .graph-canvas-wrap {
-    min-height: 420px;
+    min-height: 320px;
     touch-action: none;
   }
   .graph-connect-bar {
