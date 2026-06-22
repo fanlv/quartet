@@ -1065,6 +1065,7 @@ function App() {
             onSelectJob={handleSelectJob}
             onOpenSettings={handleOpenSettings}
             onOpenStats={handleOpenStats}
+            onOpenGraph={handleOpenGraph}
             onStartNewChat={handleStartNewChat}
             onSwitchWorkspaceChat={handleSwitchWorkspaceChat}
             onJobNotFound={handleJobNotFound}

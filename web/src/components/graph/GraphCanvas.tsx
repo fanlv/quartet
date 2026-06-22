@@ -473,11 +473,18 @@ function CanvasInner({
       const tag = el.tagName;
       return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
     };
+    // A non-collapsed text selection means the user is copying visible text
+    // (e.g. a node label) — let the browser's native copy win in that case.
+    const hasTextSelection = (): boolean => {
+      const sel = window.getSelection();
+      return !!sel && !sel.isCollapsed && sel.toString().trim().length > 0;
+    };
     const handler = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
       if (isEditableTarget(e.target) || isEditableTarget(document.activeElement)) return;
       const key = e.key.toLowerCase();
       if (key === 'c' && onCopy) {
+        if (hasTextSelection()) return;
         e.preventDefault();
         onCopy();
       } else if (key === 'v' && onPaste) {

@@ -130,8 +130,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
 
   const isLive = !!run?.status && LIVE_STATUSES.has(run.status);
   const canPause = !readOnly && run?.status === 'running';
-  const canStepStop = !readOnly && run?.status === 'running';
-  // A pending pause / step-stop (not yet settled) can be cancelled, releasing
+  // A pending pause / legacy step-stop (not yet settled) can be cancelled, releasing
   // the held dispatch frontier back to running — mirrors Loop's "keep running".
   const canCancelStop = !readOnly && (run?.status === 'pausing' || run?.status === 'stepStopping');
   const canStop = !readOnly && !!run?.status && LIVE_STATUSES.has(run.status);
@@ -217,7 +216,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
     };
   }, [isLive, refresh, runId]);
 
-  const doAction = useCallback(async (action: 'pause' | 'step-stop' | 'cancel-stop' | 'stop' | 'resume') => {
+  const doAction = useCallback(async (action: 'pause' | 'cancel-stop' | 'stop' | 'resume') => {
     if (!runId) return;
     setActionPending(action);
     setError('');
@@ -432,7 +431,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
                   <span>{t('graph.loop.edit')}</span>
                 </button>
               )}
-              {run?.status === 'pausing' ? (
+              {run?.status === 'pausing' || run?.status === 'stepStopping' ? (
                 <button type="button" className="graph-loop-action primary" onClick={() => void doAction('cancel-stop')} disabled={!canCancelStop || !!actionPending} title={t('graph.loop.cancelStopTitle')}>
                   <GraphActionIcon type="keepRunning" />
                   <span>{t('graph.loop.cancelStop')}</span>
@@ -441,17 +440,6 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
                 <button type="button" className="graph-loop-action warn" onClick={() => void doAction('pause')} disabled={!canPause || !!actionPending} title={t('graph.loop.pauseTitle')}>
                   <GraphActionIcon type="pause" />
                   <span>{t('graph.loop.pause')}</span>
-                </button>
-              )}
-              {run?.status === 'stepStopping' ? (
-                <button type="button" className="graph-loop-action primary" onClick={() => void doAction('cancel-stop')} disabled={!canCancelStop || !!actionPending} title={t('graph.loop.cancelStopTitle')}>
-                  <GraphActionIcon type="keepRunning" />
-                  <span>{t('graph.loop.cancelStop')}</span>
-                </button>
-              ) : (
-                <button type="button" className="graph-loop-action warn" onClick={() => void doAction('step-stop')} disabled={!canStepStop || !!actionPending} title={t('graph.loop.stepStopTitle')}>
-                  <GraphActionIcon type="step" />
-                  <span>{t('graph.loop.stepStop')}</span>
                 </button>
               )}
               <button type="button" className="graph-loop-action danger" onClick={() => void doAction('stop')} disabled={!canStop || !!actionPending} title={t('graph.loop.stopTitle')}>
@@ -570,7 +558,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
   );
 }
 
-function GraphActionIcon({ type }: { type: 'edit' | 'pause' | 'step' | 'stop' | 'resume' | 'keepRunning' | 'expand' | 'collapse' | 'save' | 'cancel' }) {
+function GraphActionIcon({ type }: { type: 'edit' | 'pause' | 'stop' | 'resume' | 'keepRunning' | 'expand' | 'collapse' | 'save' | 'cancel' }) {
   if (type === 'expand') {
     return <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>;
   }
@@ -591,9 +579,6 @@ function GraphActionIcon({ type }: { type: 'edit' | 'pause' | 'step' | 'stop' | 
   }
   if (type === 'pause') {
     return <svg viewBox="0 0 24 24"><path d="M8 5v14" /><path d="M16 5v14" /></svg>;
-  }
-  if (type === 'step') {
-    return <svg viewBox="0 0 24 24"><path d="M6 5v14" /><path d="M10 7h3a4 4 0 0 1 0 8h-3" /><path d="m17 17 2 2 3-4" /></svg>;
   }
   if (type === 'stop') {
     return <svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" /></svg>;

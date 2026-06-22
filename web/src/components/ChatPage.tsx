@@ -1207,6 +1207,55 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
           </span>
         </div>
         <nav className="header-nav">
+          {/* Page-specific button (left): restarting web services only makes
+              sense from the home page. */}
+          <button
+            className={`header-settings-btn header-restart-btn ${webRestarting ? 'restarting' : ''}`}
+            onClick={() => setRestartConfirmOpen(true)}
+            disabled={webRestarting}
+            title={webRestarting ? t('system.restartWebRunning') : t('system.restartWeb')}
+            aria-label={webRestarting ? t('system.restartWebRunning') : t('system.restartWeb')}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <polyline points="21 3 21 9 15 9" />
+            </svg>
+          </button>
+          {/* Shared buttons (right): kept in the same order as the chat page's
+              header so the two toolbars stay consistent. */}
+          {onOpenStats && (
+            <button
+              className="header-settings-btn"
+              onClick={onOpenStats}
+              title={t('stats.topbarTooltip')}
+              aria-label={t('stats.topbarTooltip')}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="20" x2="18" y2="10" />
+                <line x1="12" y1="20" x2="12" y2="4" />
+                <line x1="6" y1="20" x2="6" y2="14" />
+              </svg>
+            </button>
+          )}
+          {onOpenGraph && (
+            <button
+              className="header-filebrowser-btn"
+              onClick={onOpenGraph}
+              title="Graph Workflows"
+              aria-label="Graph Workflows"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="5" cy="12" r="2" />
+                <circle cx="12" cy="5" r="2" />
+                <circle cx="19" cy="12" r="2" />
+                <circle cx="12" cy="19" r="2" />
+                <path d="M6.5 10.5 10.5 6.5" />
+                <path d="M13.5 6.5 17.5 10.5" />
+                <path d="M17.5 13.5 13.5 17.5" />
+                <path d="M10.5 17.5 6.5 13.5" />
+              </svg>
+            </button>
+          )}
           <button
             className={`header-filebrowser-btn ${agentsEditorOpen ? 'active' : ''}`}
             onClick={() => setAgentsEditorOpen(!agentsEditorOpen)}
@@ -1227,32 +1276,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-            </svg>
-          </button>
-          {onOpenStats && (
-            <button
-              className="header-settings-btn"
-              onClick={onOpenStats}
-              title={t('stats.topbarTooltip')}
-              aria-label={t('stats.topbarTooltip')}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="20" x2="18" y2="10" />
-                <line x1="12" y1="20" x2="12" y2="4" />
-                <line x1="6" y1="20" x2="6" y2="14" />
-              </svg>
-            </button>
-          )}
-          <button
-            className={`header-settings-btn header-restart-btn ${webRestarting ? 'restarting' : ''}`}
-            onClick={() => setRestartConfirmOpen(true)}
-            disabled={webRestarting}
-            title={webRestarting ? t('system.restartWebRunning') : t('system.restartWeb')}
-            aria-label={webRestarting ? t('system.restartWebRunning') : t('system.restartWeb')}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-              <polyline points="21 3 21 9 15 9" />
             </svg>
           </button>
           {onOpenSettings && (
@@ -2003,25 +2026,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                   <path d="M21 13v2a4 4 0 01-4 4H3" />
                 </svg>
               </button>
-              {onOpenGraph && (
-                <button
-                  className="chat-btn graph-btn"
-                  onClick={onOpenGraph}
-                  title="Graph Workflows"
-                  aria-label="Graph Workflows"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="5" cy="12" r="2" />
-                    <circle cx="12" cy="5" r="2" />
-                    <circle cx="19" cy="12" r="2" />
-                    <circle cx="12" cy="19" r="2" />
-                    <path d="M6.5 10.5 10.5 6.5" />
-                    <path d="M13.5 6.5 17.5 10.5" />
-                    <path d="M17.5 13.5 13.5 17.5" />
-                    <path d="M10.5 17.5 6.5 13.5" />
-                  </svg>
-                </button>
-              )}
               <button
                 className="chat-btn send-btn"
                 onClick={handleSubmit}
