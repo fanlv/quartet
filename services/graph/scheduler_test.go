@@ -124,9 +124,10 @@ func TestSchedulerIfElsePrunesAndJoinResolves(t *testing.T) {
 	if no.Status != model.GraphInstanceStatusSkipped {
 		t.Fatalf("no branch status = %s, want skipped", no.Status)
 	}
-	// ifElse + yes succeeded, no skipped → total 3 (ifElse, yes, no), completed 2, skipped 1.
-	if got.Progress.TotalCount != 3 || got.Progress.CompletedCount != 2 || got.Progress.SkippedCount != 1 {
-		t.Fatalf("progress = %+v, want total=3 completed=2 skipped=1", got.Progress)
+	// ifElse + yes succeeded (completed 2); 'no' is skipped and reclaimed out of
+	// the denominator → total 2 (ifElse, yes), completed 2, skipped 1.
+	if got.Progress.TotalCount != 2 || got.Progress.CompletedCount != 2 || got.Progress.SkippedCount != 1 {
+		t.Fatalf("progress = %+v, want total=2 completed=2 skipped=1", got.Progress)
 	}
 }
 

@@ -521,10 +521,13 @@ func (sc *scheduler) handleResult(ctx context.Context, res nodeResult) {
 		sc.failInstance(ctx, &state, key, node, res.err, finishedAt, res.inflowSession, res.outcome)
 		return
 	}
-	// STOP_LOOP outside a loop container is illegal → node failure (§1).
+	// STOP_LOOP outside a loop container is a no-op: there is no loop to break,
+	// so the signal is dropped and the node proceeds normally. (Inside a loop it
+	// is applied below at the round boundary.) This lets a Loop-authored script
+	// that calls quartet_break run unchanged as a main-graph Shell node.
 	if res.outcome.stopLoop && scope.container == "" {
-		sc.failInstance(ctx, &state, key, node, fmt.Errorf("STOP_LOOP is only supported inside loop containers"), finishedAt, res.inflowSession, res.outcome)
-		return
+		logger.Infof(ctx, "[graph] STOP_LOOP outside loop ignored: runId=%s nodeId=%s key=%s", sc.run.ID, node.ID, keyStr)
+		res.outcome.stopLoop = false
 	}
 
 	produced := res.outcome.produced
@@ -857,6 +860,16 @@ func (sc *scheduler) pruneNode(ctx context.Context, scope *scopeRun, node model.
 			Status: model.GraphInstanceStatusSkipped, Version: sc.run.CurrentVersion,
 			StartedAt: now, FinishedAt: now, BlockedReason: "all in-edges pruned",
 		}
+		// Denominator 回算 (§4): this instance was counted in the static bound but
+		// materialized as skipped — it will never complete, so reclaim it from the
+		// denominator (rather than leaving it in the numerator). A pruned loop
+		// container additionally reclaims the subgraph instances of rounds that
+		// never ran. Both happen before updateRunProgress/persist/appendEvent so the
+		// corrected TotalCount rides out on the instanceSkipped SSE event.
+		sc.denomAdjust(-1)
+		if node.Type == model.GraphNodeTypeLoop {
+			sc.denomAdjust(-loopMaxRounds(sc.cfg.RunConfig, node) * sc.loopSubgraphBusinessCount(node.ID))
+		}
 		updateRunProgress(sc.run, sc.instances)
 		if sc.checkRunLimits(ctx) {
 			return
@@ -865,11 +878,6 @@ func (sc *scheduler) pruneNode(ctx context.Context, scope *scopeRun, node model.
 		sc.appendInstanceEvent(ctx, model.GraphEventTypeInstanceSkipped, key, node.ID, "instance pruned", nil)
 		logger.Infof(ctx, "[graph] node skipped: runId=%s nodeId=%s key=%s reason=%s",
 			sc.run.ID, node.ID, keyStr, "all in-edges pruned")
-		// Denominator 回算 (§4): a pruned loop container's subgraph instances were
-		// counted in the static bound but will never materialize — reclaim them.
-		if node.Type == model.GraphNodeTypeLoop {
-			sc.denomAdjust(-loopMaxRounds(sc.cfg.RunConfig, node) * sc.loopSubgraphBusinessCount(node.ID))
-		}
 	}
 	for _, e := range sc.outEdges[node.ID] {
 		sc.resolveEdge(ctx, scope, e, false, UpstreamSnapshot{})
@@ -889,10 +897,10 @@ func (sc *scheduler) enqueue(ctx context.Context, scope *scopeRun, node model.Gr
 	}
 	keyStr := instanceKeyString(key)
 	startedAt := time.Now().UnixMilli()
-	// Iteration context of the innermost enclosing loop (nil in the main scope).
-	// Computed here so both the display-script seed below and the execution path
-	// see the same QUARTET_LOOP_* values.
-	loopVars := loopIterationVars(scope)
+	// Engine-injected runtime vars (innermost loop's QUARTET_LOOP_* context, nil
+	// in the main scope, plus _current_time). Computed once here so both the
+	// display-script seed below and the execution path see the identical values.
+	loopVars := runtimeVars(scope)
 	state := model.GraphInstanceState{
 		Key: key, NodeID: node.ID, NodeTitle: node.Title, NodeType: node.Type,
 		Status: model.GraphInstanceStatusRunning, Version: sc.run.CurrentVersion,

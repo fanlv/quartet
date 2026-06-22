@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/fanlv/quartet/pkg/logger"
 )
 
 // Runtime evaluation of a condition expression (§1 条件表达式 + §3 变量引用语义).
@@ -26,19 +28,13 @@ type CondEvalInput struct {
 	// participates in comparisons as the empty string (§3), regardless of any
 	// value it might still carry in Variables.
 	Disabled map[string]struct{}
-	// Pruned optionally records variables known to belong to a pruned upstream
-	// (never produced). It is used only to label the failure ("pruned" vs
-	// "unknown"); either way an absent variable fails evaluation.
-	Pruned map[string]struct{}
 }
 
 // CondEvalError is a runtime condition failure carrying the full context the
-// error-display spec (§4) requires: the expression text, the offending
-// variable, its state, and the comparison operator/options in play.
+// error-display spec (§4) requires: the expression text and the comparison
+// operator/options in play.
 type CondEvalError struct {
 	Expr        string
-	Var         string
-	State       string // "unknown" | "pruned"
 	Op          string
 	IgnoreCase  bool
 	IgnoreSpace bool
@@ -148,7 +144,14 @@ func evalCompare(c *CondCompare, in *CondEvalInput) (bool, *CondEvalError) {
 // resolve turns an operand into its runtime string value. A literal is returned
 // verbatim. A variable is resolved against the snapshot: disabled → empty
 // string (takes precedence over any stored value); present → its value; absent
-// → evaluation failure (unknown or pruned).
+// → the empty string as well.
+//
+// An absent variable (never produced by any upstream, or referencing a name
+// that does not exist) resolves to "" rather than failing the condition: a
+// pruned/not-yet-run upstream simply has no value, so `{{x}} != ""` naturally
+// routes to the no branch. The trade-off is that a misspelled variable name is
+// no longer caught at evaluation time — it silently compares as empty — so we
+// emit a warning to keep typos diagnosable from the logs.
 func (in *CondEvalInput) resolve(op CondOperand) (string, *CondEvalError) {
 	if !op.IsVar {
 		return op.Lit, nil
@@ -160,15 +163,8 @@ func (in *CondEvalInput) resolve(op CondOperand) (string, *CondEvalError) {
 	if val, ok := in.Variables[name]; ok {
 		return val, nil
 	}
-	state := "unknown"
-	if _, pruned := in.Pruned[name]; pruned {
-		state = "pruned"
-	}
-	return "", &CondEvalError{
-		Var:     name,
-		State:   state,
-		Message: fmt.Sprintf("variable {{%s}} is %s at evaluation time and cannot be used in a condition", name, state),
-	}
+	logger.Warn("[graph] condition references variable {{%s}} that has no value at evaluation time; treating it as empty string", name)
+	return "", nil
 }
 
 // isEvenInteger reports whether s parses as an integer with an even value.

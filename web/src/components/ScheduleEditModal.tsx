@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LoopConfig, LoopTemplate, ScheduleInfo } from '../types';
+import { GraphWorkflow } from '../types/graph';
 import { AgentInfo } from './ChatPage';
 import { CronInput } from './CronInput';
 import { workspaceColor, DEFAULT_WORKSPACE_ID } from '../utils/workspace';
@@ -16,29 +17,41 @@ interface ScheduleEditModalProps {
   workspaces?: Array<{ id: string; title: string; workdir?: string }>;
   agents: AgentInfo[];
   defaultAgentIndex: number;
+  onSelectJob?: (jobId: string, workspaceId?: string) => void;
   onSave: () => void;
   onClose: () => void;
 }
 
 async function fetchTemplates(): Promise<LoopTemplate[]> {
   const res = await fetch('/api/v1/template/list');
-  if (!res.ok) return [];
+  if (!res.ok) throw new Error(await res.text());
   const data = await res.json();
   return data.templates || [];
 }
 
-export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _agents, defaultAgentIndex: _defaultAgentIndex, onSave, onClose }: ScheduleEditModalProps) {
+async function fetchGraphWorkflows(): Promise<GraphWorkflow[]> {
+  const res = await fetch('/api/v1/graph/workflow/list');
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  return data.workflows || [];
+}
+
+export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _agents, defaultAgentIndex: _defaultAgentIndex, onSelectJob, onSave, onClose }: ScheduleEditModalProps) {
   const { t } = useTranslation();
   const isEdit = !!schedule;
   const overlayRef = useRef<HTMLDivElement>(null);
+  const initialTargetType = schedule?.targetType || 'loop';
 
   const [name, setName] = useState(schedule?.name || '');
   const [cronExpr, setCronExpr] = useState(schedule?.cronExpr || '0 9 * * *');
   const [enabled, setEnabled] = useState(schedule?.enabled ?? true);
+  const [targetType, setTargetType] = useState<'loop' | 'graphWorkflow'>(initialTargetType);
   const [templateId, setTemplateId] = useState(schedule?.templateId || '');
   const [loopConfig, setLoopConfig] = useState<LoopConfig | null>(schedule?.loopConfig || null);
+  const [graphWorkflowId, setGraphWorkflowId] = useState(schedule?.graphWorkflowId || '');
   const [maxConcurrent, setMaxConcurrent] = useState(schedule?.maxConcurrent || 1);
   const [timeoutMins, setTimeoutMins] = useState(schedule?.timeout || 0);
+  const [scheduleWorkspaceId, setScheduleWorkspaceId] = useState(schedule?.workspaceId || '');
   // Create-flow only: let the user opt in to binding to the current
   // workspace. Defaults to bind OFF — new tasks are unbound and run under the
   // default workspace (ws-1) at trigger time. Toggle on to send the current
@@ -46,13 +59,55 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
   const [bindToCurrentWs, setBindToCurrentWs] = useState(false);
 
   const [templates, setTemplates] = useState<LoopTemplate[]>([]);
+  const [graphWorkflows, setGraphWorkflows] = useState<GraphWorkflow[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [graphWorkflowsLoading, setGraphWorkflowsLoading] = useState(true);
+  const [templatesError, setTemplatesError] = useState('');
+  const [graphWorkflowsError, setGraphWorkflowsError] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [viewportHeight, setViewportHeight] = useState(0);
   const [viewportOffsetTop, setViewportOffsetTop] = useState(0);
 
   useEffect(() => {
-    fetchTemplates().then(setTemplates);
+    let cancelled = false;
+    setTemplatesLoading(true);
+    fetchTemplates()
+      .then(items => {
+        if (!cancelled) {
+          setTemplates(items);
+          setTemplatesError('');
+        }
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setTemplates([]);
+          setTemplatesError(err instanceof Error ? err.message : String(err));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTemplatesLoading(false);
+      });
+
+    setGraphWorkflowsLoading(true);
+    fetchGraphWorkflows()
+      .then(items => {
+        if (!cancelled) {
+          setGraphWorkflows(items);
+          setGraphWorkflowsError('');
+        }
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setGraphWorkflows([]);
+          setGraphWorkflowsError(err instanceof Error ? err.message : String(err));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setGraphWorkflowsLoading(false);
+      });
+
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -105,61 +160,85 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
     }
   }, [templates]);
 
+  const handleGraphWorkflowSelect = useCallback((wid: string) => {
+    setGraphWorkflowId(wid);
+    const wf = graphWorkflows.find(w => w.id === wid);
+    if (wf) {
+      setName(prev => prev || wf.name);
+    }
+  }, [graphWorkflows]);
+
+  const selectedGraphWorkflow = useMemo(
+    () => graphWorkflows.find(wf => wf.id === graphWorkflowId) || null,
+    [graphWorkflowId, graphWorkflows]
+  );
+
+  const selectedGraphWorkflowMissing = targetType === 'graphWorkflow' &&
+    !!graphWorkflowId &&
+    !graphWorkflowsLoading &&
+    !selectedGraphWorkflow;
+
   // Edit-view only: resolve the schedule's bound workspaceId into a readable
   // name (+ workdir). An empty workspaceId means the task is unbound and runs
   // in the default workspace at trigger time.
   const boundWorkspace = useMemo(() => {
     if (!isEdit) return null;
-    const wsId = schedule?.workspaceId;
+    const wsId = scheduleWorkspaceId;
     if (!wsId) return { name: t('schedule.boundWorkspaceDefault'), workdir: '' };
     const match = workspaces?.find(w => w.id === wsId);
     return {
       name: match?.title || wsId,
-      workdir: match?.workdir || schedule?.workdir || '',
+      workdir: match?.workdir || (wsId === schedule?.workspaceId ? schedule?.workdir : '') || '',
     };
-  }, [isEdit, schedule?.workspaceId, schedule?.workdir, workspaces, t]);
+  }, [isEdit, scheduleWorkspaceId, schedule?.workspaceId, schedule?.workdir, workspaces, t]);
 
   const handleSave = async () => {
     if (!name.trim()) {
       setError(t('schedule.taskNameRequired'));
       return;
     }
-    if (!loopConfig) {
+    if (targetType === 'loop' && !loopConfig) {
       setError(t('schedule.selectTemplateRequired'));
+      return;
+    }
+    if (targetType === 'graphWorkflow' && !graphWorkflowId) {
+      setError(t('schedule.selectGraphWorkflowRequired'));
+      return;
+    }
+    if (targetType === 'graphWorkflow' && selectedGraphWorkflowMissing) {
+      setError(t('schedule.graphWorkflowDeleted'));
       return;
     }
     setSaving(true);
     setError('');
 
     try {
+      const baseBody: Record<string, unknown> = {
+        name,
+        cronExpr,
+        enabled,
+        targetType,
+        maxConcurrent,
+        timeout: timeoutMins,
+      };
+      const body: Record<string, unknown> = targetType === 'loop'
+        ? { ...baseBody, templateId, loopConfig }
+        : { ...baseBody, graphWorkflowId };
       if (isEdit && schedule) {
+        body.workspaceId = scheduleWorkspaceId;
+        if (scheduleWorkspaceId !== (schedule.workspaceId || '')) {
+          body.workdir = '';
+        }
         const res = await fetch(`/api/v1/schedule/${schedule.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name,
-            cronExpr,
-            enabled,
-            templateId,
-            loopConfig,
-            maxConcurrent,
-            timeout: timeoutMins,
-          }),
+          body: JSON.stringify(body),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.msg || 'Failed to update');
         }
       } else {
-        const body: Record<string, unknown> = {
-          name,
-          cronExpr,
-          enabled,
-          templateId,
-          loopConfig,
-          maxConcurrent,
-          timeout: timeoutMins,
-        };
         // Only send workspaceId when the user opted to bind to the current
         // workspace. Leaving it empty tells the backend to fall back to the
         // default workspace when the cron trigger fires.
@@ -180,6 +259,12 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
     } finally {
       setSaving(false);
     }
+  };
+
+  const openLastRunJob = () => {
+    if (!schedule?.lastRunJobID) return;
+    onClose();
+    onSelectJob?.(schedule.lastRunJobID, schedule.workspaceId || undefined);
   };
 
   const handleTriggerNow = async () => {
@@ -204,12 +289,35 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
         </div>
 
         <div className="schedule-modal-body">
-          {/* Template selection */}
           <div className="schedule-field schedule-field-full">
-            <label>{t('schedule.selectTemplate')}</label>
-            {templates.length === 0 ? (
+            <label>{t('schedule.targetType')}</label>
+            <div className="schedule-target-tabs" role="tablist" aria-label={t('schedule.targetType')}>
+              <button
+                type="button"
+                className={`schedule-target-tab ${targetType === 'loop' ? 'active' : ''}`}
+                onClick={() => setTargetType('loop')}
+              >
+                {t('schedule.targetLoop')}
+              </button>
+              <button
+                type="button"
+                className={`schedule-target-tab ${targetType === 'graphWorkflow' ? 'active' : ''}`}
+                onClick={() => setTargetType('graphWorkflow')}
+              >
+                {t('schedule.targetGraphWorkflow')}
+              </button>
+            </div>
+          </div>
+
+          <div className="schedule-field schedule-field-full">
+            <label>{targetType === 'loop' ? t('schedule.selectTemplate') : t('schedule.selectGraphWorkflow')}</label>
+            {targetType === 'loop' && templatesLoading ? (
+              <div className="schedule-no-templates">{t('schedule.loadingTemplates')}</div>
+            ) : targetType === 'loop' && templatesError ? (
+              <div className="schedule-load-error">{t('schedule.templateLoadFailed')}: {templatesError}</div>
+            ) : targetType === 'loop' && templates.length === 0 ? (
               <div className="schedule-no-templates">{t('schedule.noTemplates')}</div>
-            ) : (
+            ) : targetType === 'loop' ? (
               <select
                 value={templateId}
                 onChange={e => handleTemplateSelect(e.target.value)}
@@ -241,14 +349,45 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
                   );
                 })()}
               </select>
+            ) : graphWorkflowsLoading ? (
+              <div className="schedule-no-templates">{t('schedule.loadingGraphWorkflows')}</div>
+            ) : graphWorkflowsError ? (
+              <div className="schedule-load-error">{t('schedule.graphWorkflowLoadFailed')}: {graphWorkflowsError}</div>
+            ) : graphWorkflows.length === 0 ? (
+              <div className="schedule-no-templates">{t('schedule.noGraphWorkflows')}</div>
+            ) : (
+              <select
+                value={graphWorkflowId}
+                onChange={e => handleGraphWorkflowSelect(e.target.value)}
+                className="schedule-select"
+              >
+                <option value="">{t('schedule.selectGraphWorkflowPlaceholder')}</option>
+                {selectedGraphWorkflowMissing && (
+                  <option value={graphWorkflowId}>{t('schedule.missingGraphWorkflowOption', { id: graphWorkflowId })}</option>
+                )}
+                {graphWorkflows.map(wf => (
+                  <option key={wf.id} value={wf.id}>{wf.name}</option>
+                ))}
+              </select>
             )}
-            {loopConfig && (
+            {targetType === 'loop' && loopConfig && (
               <div className="schedule-config-preview">
                 {t('schedule.configPreview', { nodes: loopConfig.flow?.length || 0 })}
                 {loopConfig.variables && Object.keys(loopConfig.variables).length > 0 && (
                   <span>{t('schedule.configPreviewVars', { vars: Object.keys(loopConfig.variables).length })}</span>
                 )}
               </div>
+            )}
+            {targetType === 'graphWorkflow' && selectedGraphWorkflow && (
+              <div className="schedule-config-preview">
+                {t('schedule.graphWorkflowPreview', {
+                  nodes: selectedGraphWorkflow.config?.nodes?.length || 0,
+                  edges: selectedGraphWorkflow.config?.edges?.length || 0,
+                })}
+              </div>
+            )}
+            {selectedGraphWorkflowMissing && (
+              <div className="schedule-load-error">{t('schedule.graphWorkflowDeleted')}</div>
             )}
           </div>
 
@@ -292,10 +431,25 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
           {isEdit && boundWorkspace && (
             <div className="schedule-field">
               <label>{t('schedule.boundWorkspace')}</label>
+              <select
+                className="schedule-select"
+                value={scheduleWorkspaceId}
+                onChange={e => setScheduleWorkspaceId(e.target.value)}
+              >
+                <option value="">{t('schedule.boundWorkspaceDefault')}</option>
+                {scheduleWorkspaceId && !workspaces?.some(w => w.id === scheduleWorkspaceId) && (
+                  <option value={scheduleWorkspaceId}>{t('schedule.missingWorkspaceOption', { id: scheduleWorkspaceId })}</option>
+                )}
+                {(workspaces || []).map(ws => (
+                  <option key={ws.id} value={ws.id}>
+                    {ws.title || ws.id}
+                  </option>
+                ))}
+              </select>
               <div className="schedule-ws-bound">
                 <span
                   className="schedule-ws-bound-dot"
-                  style={{ backgroundColor: workspaceColor(schedule?.workspaceId || DEFAULT_WORKSPACE_ID) }}
+                  style={{ backgroundColor: workspaceColor(scheduleWorkspaceId || DEFAULT_WORKSPACE_ID) }}
                 />
                 <span className="schedule-ws-bound-name">{boundWorkspace.name}</span>
                 {boundWorkspace.workdir && (
@@ -321,6 +475,17 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
                 )}
                 {schedule.lastStatus && (
                   <div>{t('schedule.lastStatus')} {schedule.lastStatus}</div>
+                )}
+                {schedule.lastStatus === 'failed' && schedule.lastTriggerError && (
+                  <div className="schedule-run-error">
+                    <span>{t('schedule.lastTriggerError')}</span>
+                    <pre>{schedule.lastTriggerError}</pre>
+                  </div>
+                )}
+                {schedule.lastStatus === 'failed' && !schedule.lastTriggerError && schedule.lastRunJobID && (
+                  <button className="schedule-run-link" type="button" onClick={openLastRunJob}>
+                    {t('schedule.openLastRunJob')}
+                  </button>
                 )}
               </div>
             </div>
@@ -388,7 +553,7 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
             <button
               className="schedule-btn schedule-btn-save"
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || (targetType === 'loop' && (!!templatesError || templatesLoading)) || (targetType === 'graphWorkflow' && (!!graphWorkflowsError || graphWorkflowsLoading || graphWorkflows.length === 0))}
               type="button"
             >
               {saving ? t('common.saving') : t('common.save')}

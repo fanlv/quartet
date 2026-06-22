@@ -809,6 +809,17 @@
   color: #cbd5e1;
 }
 
+.home-schedule-row-error {
+  display: block;
+  max-width: 100%;
+  color: #b91c1c;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .home-schedule-row.disabled .home-schedule-row-last,
 .home-schedule-row.disabled .home-schedule-row-last-icon {
   opacity: 0.8;

@@ -498,13 +498,59 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.Se
 		logger.Infof(ctx, "[probe] ACP agent recovered: cmd=%s consecutiveFailures=%d", command, recovered)
 	}
 
-	logger.Infof(ctx, "[fetchACPSessionInfoForAgent] %s ACP session info: %v", command, json.String(sessResp))
-
 	models := modelsFromSessionResponse(sessResp)
 	modes := modesFromSessionResponse(sessResp)
 	thoughtLevels := thoughtLevelsFromSessionResponse(sessResp)
+	logger.Infof(ctx, "[probe] ACP session info loaded: cmd=%s model=%q models=%d mode=%q modes=%d thoughtLevel=%q thoughtLevels=%d",
+		command,
+		currentModelID(models), countModels(models),
+		currentModeID(modes), countModes(modes),
+		currentThoughtLevelID(thoughtLevels), countThoughtLevels(thoughtLevels))
+	logger.Debugf(ctx, "[probe] %s ACP session info: %v", command, json.String(sessResp))
 
 	return models, modes, thoughtLevels
+}
+
+func currentModelID(models *model.SessionModelState) string {
+	if models == nil {
+		return ""
+	}
+	return models.CurrentModelId
+}
+
+func countModels(models *model.SessionModelState) int {
+	if models == nil {
+		return 0
+	}
+	return len(models.AvailableModels)
+}
+
+func currentModeID(modes *model.SessionModeState) string {
+	if modes == nil {
+		return ""
+	}
+	return modes.CurrentModeId
+}
+
+func countModes(modes *model.SessionModeState) int {
+	if modes == nil {
+		return 0
+	}
+	return len(modes.AvailableModes)
+}
+
+func currentThoughtLevelID(thoughtLevels *model.SessionThoughtLevelState) string {
+	if thoughtLevels == nil {
+		return ""
+	}
+	return thoughtLevels.CurrentThoughtLevelId
+}
+
+func countThoughtLevels(thoughtLevels *model.SessionThoughtLevelState) int {
+	if thoughtLevels == nil {
+		return 0
+	}
+	return len(thoughtLevels.AvailableThoughtLevels)
 }
 
 func refreshACPSessionCache(ctx context.Context) {

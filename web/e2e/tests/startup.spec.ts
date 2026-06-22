@@ -54,6 +54,16 @@ type E2EFlowNode = {
   children?: E2EFlowNode[]
 }
 
+type E2EGraphConfig = {
+  nodes: Array<Record<string, unknown>>
+  edges: Array<Record<string, unknown>>
+  variables?: Record<string, string>
+  disabledVars?: string[]
+  runConfig?: Record<string, unknown>
+  workspaceId?: string
+  workdir?: string
+}
+
 async function openAppWithAuth(page: Page, path = '/') {
   await page.addInitScript((token) => {
     localStorage.setItem('quartet.x_auth_token', token)
@@ -1569,6 +1579,34 @@ async function saveTemplate(request: APIRequestContext, name: string, flow: E2EF
   })
 }
 
+function validShellGraphConfig(marker: string, workspaceId: string, workdir: string): E2EGraphConfig {
+  return {
+    nodes: [
+      { id: 'start', type: 'start', title: 'Start', layout: { x: 80, y: 160 } },
+      { id: 'shell', type: 'shell', title: 'Echo', config: { script: `echo ${marker}` }, layout: { x: 320, y: 160 } },
+      { id: 'end', type: 'end', title: 'End', layout: { x: 560, y: 160 } },
+    ],
+    edges: [
+      { id: 'edge-start-shell', sourceNodeId: 'start', targetNodeId: 'shell' },
+      { id: 'edge-shell-end', sourceNodeId: 'shell', targetNodeId: 'end' },
+    ],
+    variables: {},
+    disabledVars: [],
+    runConfig: { concurrencyLimit: 1 },
+    workspaceId,
+    workdir,
+  }
+}
+
+async function waitForScheduleStatus(request: APIRequestContext, scheduleId: string, expected: string) {
+  return await expect.poll(async () => {
+    const res = await request.get(`/api/v1/schedule/${scheduleId}`, { headers: templateHeaders })
+    expect(res.ok(), `schedule get failed: ${res.status()} ${await res.text()}`).toBeTruthy()
+    const schedule = await res.json()
+    return schedule.lastStatus as string
+  }, { timeout: 30_000 }).toBe(expected)
+}
+
 test('template save rejects an invalid loop config with 400 and full error', async ({ request }) => {
   // Empty flow is structurally invalid; the backend must reject it rather than
   // silently persisting a broken template that only fails later at run time.
@@ -1712,6 +1750,146 @@ test('scheduled task falls back to its snapshot when the referenced template can
   const snapshot = await getJobSnapshot(request, jobId, templateHeaders)
   const flow = snapshot.loopConfig?.flow as Array<{ message?: string }> | undefined
   expect(flow?.[0]?.message).toBe('echo snapshot')
+})
+
+test('scheduled graph workflow triggers, releases concurrency, and records missing workflow failures', async ({ request }) => {
+  const { localMemory } = await getE2ERunInfo()
+  const workdir = path.join(localMemory, `e2e-graph-schedule-${Date.now()}`)
+  await fs.mkdir(workdir, { recursive: true })
+  const workspace = await createWorkspace(request, 'E2E Graph Schedule Workspace', workdir)
+  const marker = `graph-schedule-${Date.now()}`
+  const workflowNamePrefix = `E2E Graph Schedule Workflow ${Date.now()}`
+
+  const createWorkflowRes = await request.post('/api/v1/graph/workflow', {
+    headers: templateHeaders,
+    data: {
+      name: `${workflowNamePrefix} A`,
+      workspaceId: workspace.workspaceId,
+      config: validShellGraphConfig(marker, workspace.workspaceId, workdir),
+    },
+  })
+  expect(createWorkflowRes.ok(), `graph workflow create failed: ${createWorkflowRes.status()} ${await createWorkflowRes.text()}`).toBeTruthy()
+  const workflow = (await createWorkflowRes.json()).workflow as { id: string }
+
+  const createScheduleRes = await request.post('/api/v1/schedule/create', {
+    headers: templateHeaders,
+    data: {
+      name: `E2E Graph Schedule ${Date.now()}`,
+      cronExpr: '0 0 1 1 *',
+      targetType: 'graphWorkflow',
+      graphWorkflowId: workflow.id,
+      workspaceId: workspace.workspaceId,
+      enabled: false,
+      maxConcurrent: 1,
+    },
+  })
+  expect(createScheduleRes.ok(), `schedule create failed: ${createScheduleRes.status()} ${await createScheduleRes.text()}`).toBeTruthy()
+  const createdSchedule = (await createScheduleRes.json()).schedule as { id: string; targetType: string; graphWorkflowId: string }
+  expect(createdSchedule.targetType).toBe('graphWorkflow')
+  expect(createdSchedule.graphWorkflowId).toBe(workflow.id)
+  const scheduleId = createdSchedule.id
+
+  const firstRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: templateHeaders })
+  expect(firstRunRes.ok(), `first schedule run failed: ${firstRunRes.status()} ${await firstRunRes.text()}`).toBeTruthy()
+  const firstJobID = (await firstRunRes.json()).jobId as string
+  expect(firstJobID).toMatch(/^job-/)
+
+  await waitForJobStatus(request, firstJobID, templateHeaders, 'completed')
+  await waitForScheduleStatus(request, scheduleId, 'completed')
+
+  const firstJob = await getJobSnapshot(request, firstJobID, templateHeaders)
+  expect(firstJob.mode).toBe('graph')
+  expect(firstJob.scheduleId).toBe(scheduleId)
+  expect(firstJob.graphRunId).toMatch(/^grun-/)
+
+  const afterFirstRes = await request.get(`/api/v1/schedule/${scheduleId}`, { headers: templateHeaders })
+  const afterFirst = await afterFirstRes.json()
+  expect(afterFirst.lastRunJobID).toBe(firstJobID)
+  expect(afterFirst.lastTriggerError || '').toBe('')
+  expect(afterFirst.runCount).toBeGreaterThanOrEqual(1)
+
+  const secondRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: templateHeaders })
+  expect(secondRunRes.ok(), `second schedule run should prove concurrency was released: ${secondRunRes.status()} ${await secondRunRes.text()}`).toBeTruthy()
+  const secondJobID = (await secondRunRes.json()).jobId as string
+  await waitForJobStatus(request, secondJobID, templateHeaders, 'completed')
+  await waitForScheduleStatus(request, scheduleId, 'completed')
+  const afterSecondRes = await request.get(`/api/v1/schedule/${scheduleId}`, { headers: templateHeaders })
+  expect(afterSecondRes.ok(), `schedule get failed: ${afterSecondRes.status()} ${await afterSecondRes.text()}`).toBeTruthy()
+  const afterSecond = await afterSecondRes.json()
+
+  const graphRunsBeforeFailureRes = await request.get('/api/v1/graph/run/list', { headers: templateHeaders })
+  expect(graphRunsBeforeFailureRes.ok(), `graph run list failed: ${graphRunsBeforeFailureRes.status()} ${await graphRunsBeforeFailureRes.text()}`).toBeTruthy()
+  const graphRunsBeforeFailure = await graphRunsBeforeFailureRes.json()
+  const beforeFailureRunIDs = new Set(
+    ((graphRunsBeforeFailure.runs ?? []) as Array<{ id: string; workflowId?: string }>)
+      .filter((run) => run.workflowId === workflow.id)
+      .map((run) => run.id),
+  )
+  expect(beforeFailureRunIDs.has(firstJob.graphRunId)).toBeTruthy()
+
+  const deleteWorkflowRes = await request.delete(`/api/v1/graph/workflow/${workflow.id}`, { headers: templateHeaders })
+  expect(deleteWorkflowRes.ok(), `workflow delete failed: ${deleteWorkflowRes.status()} ${await deleteWorkflowRes.text()}`).toBeTruthy()
+
+  const failedRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: templateHeaders })
+  expect(failedRunRes.status(), `expected missing workflow trigger to fail, got ${failedRunRes.status()}: ${await failedRunRes.text()}`).toBe(409)
+  const failureText = await failedRunRes.text()
+  expect(failureText).toContain(workflow.id)
+
+  const failedScheduleRes = await request.get(`/api/v1/schedule/${scheduleId}`, { headers: templateHeaders })
+  expect(failedScheduleRes.ok(), `schedule get failed: ${failedScheduleRes.status()} ${await failedScheduleRes.text()}`).toBeTruthy()
+  const failedSchedule = await failedScheduleRes.json()
+  expect(failedSchedule.lastStatus).toBe('failed')
+  expect(failedSchedule.lastRunJobID).toBe(secondJobID)
+  expect(failedSchedule.lastTriggerError).toContain(workflow.id)
+  expect(failedSchedule.lastTriggerError).toContain('workflow')
+  expect(failedSchedule.runCount).toBe(afterSecond.runCount + 1)
+
+  const graphRunsAfterFailureRes = await request.get('/api/v1/graph/run/list', { headers: templateHeaders })
+  expect(graphRunsAfterFailureRes.ok(), `graph run list failed: ${graphRunsAfterFailureRes.status()} ${await graphRunsAfterFailureRes.text()}`).toBeTruthy()
+  const graphRunsAfterFailure = await graphRunsAfterFailureRes.json()
+  const afterFailureRunIDs = new Set(
+    ((graphRunsAfterFailure.runs ?? []) as Array<{ id: string; workflowId?: string }>)
+      .filter((run) => run.workflowId === workflow.id)
+      .map((run) => run.id),
+  )
+  expect(afterFailureRunIDs).toEqual(beforeFailureRunIDs)
+
+  const retryFailureRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: templateHeaders })
+  expect(retryFailureRes.status(), `expected repeated missing workflow trigger to fail without a leaked concurrency slot, got ${retryFailureRes.status()}: ${await retryFailureRes.text()}`).toBe(409)
+  expect(await retryFailureRes.text()).toContain(workflow.id)
+
+  const replacementWorkflowRes = await request.post('/api/v1/graph/workflow', {
+    headers: templateHeaders,
+    data: {
+      name: `${workflowNamePrefix} B`,
+      workspaceId: workspace.workspaceId,
+      config: validShellGraphConfig(`${marker}-replacement`, workspace.workspaceId, workdir),
+    },
+  })
+  expect(replacementWorkflowRes.ok(), `replacement graph workflow create failed: ${replacementWorkflowRes.status()} ${await replacementWorkflowRes.text()}`).toBeTruthy()
+  const replacementWorkflow = (await replacementWorkflowRes.json()).workflow as { id: string }
+
+  const updateScheduleRes = await request.put(`/api/v1/schedule/${scheduleId}`, {
+    headers: templateHeaders,
+    data: {
+      targetType: 'graphWorkflow',
+      graphWorkflowId: replacementWorkflow.id,
+    },
+  })
+  expect(updateScheduleRes.ok(), `schedule update failed: ${updateScheduleRes.status()} ${await updateScheduleRes.text()}`).toBeTruthy()
+
+  const recoveryRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: templateHeaders })
+  expect(recoveryRunRes.ok(), `schedule run after replacing workflow failed: ${recoveryRunRes.status()} ${await recoveryRunRes.text()}`).toBeTruthy()
+  const recoveryJobID = (await recoveryRunRes.json()).jobId as string
+  await waitForJobStatus(request, recoveryJobID, templateHeaders, 'completed')
+  await waitForScheduleStatus(request, scheduleId, 'completed')
+
+  const recoveredScheduleRes = await request.get(`/api/v1/schedule/${scheduleId}`, { headers: templateHeaders })
+  expect(recoveredScheduleRes.ok(), `schedule get failed: ${recoveredScheduleRes.status()} ${await recoveredScheduleRes.text()}`).toBeTruthy()
+  const recoveredSchedule = await recoveredScheduleRes.json()
+  expect(recoveredSchedule.lastRunJobID).toBe(recoveryJobID)
+  expect(recoveredSchedule.lastTriggerError || '').toBe('')
+  expect(recoveredSchedule.graphWorkflowId).toBe(replacementWorkflow.id)
 })
 
 test('template save dialog keeps the panel open and shows the backend error on failure', async ({ page }) => {

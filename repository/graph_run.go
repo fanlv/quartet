@@ -111,6 +111,17 @@ func (r *fileGraphRunRepo) ListRuns(ctx context.Context) ([]*model.GraphRun, err
 		}
 		run, err := r.GetRun(ctx, runID)
 		if err != nil {
+			missing, statErr := r.graphRunMetadataMissing(runID)
+			if statErr != nil {
+				logger.Warnf(ctx, "[graphRunRepo] skip unreadable run %s: %v (stat run metadata failed: %v)", runID, err, statErr)
+				continue
+			}
+			if missing {
+				if cleanupErr := r.cleanupIncompleteRun(ctx, runID); cleanupErr != nil {
+					logger.Warnf(ctx, "[graphRunRepo] cleanup incomplete run %s failed: %v", runID, cleanupErr)
+				}
+				continue
+			}
 			logger.Warnf(ctx, "[graphRunRepo] skip unreadable run %s: %v", runID, err)
 			continue
 		}
@@ -273,6 +284,42 @@ func (r *fileGraphRunRepo) DeleteRun(_ context.Context, runID string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	return r.storage.FileDelete(&fsmodel.FileDeleteRequest{Path: runDir})
+}
+
+func (r *fileGraphRunRepo) cleanupIncompleteRun(_ context.Context, runID string) error {
+	if err := validateGraphRunID(runID); err != nil {
+		return err
+	}
+	runDir, err := path.GraphRunDir(runID)
+	if err != nil {
+		return err
+	}
+	mu := r.locks.lockFor(runID)
+	mu.Lock()
+	defer mu.Unlock()
+	missing, err := r.graphRunMetadataMissing(runID)
+	if err != nil {
+		return err
+	}
+	if !missing {
+		return nil
+	}
+	return r.storage.FileDelete(&fsmodel.FileDeleteRequest{Path: runDir})
+}
+
+func (r *fileGraphRunRepo) graphRunMetadataMissing(runID string) (bool, error) {
+	if err := validateGraphRunID(runID); err != nil {
+		return false, err
+	}
+	fp, err := graphRunFilePath(runID)
+	if err != nil {
+		return false, err
+	}
+	stat, err := r.storage.FileStat(&fsmodel.FileStatRequest{Path: fp})
+	if err != nil {
+		return false, err
+	}
+	return !stat.Exists, nil
 }
 
 func (r *fileGraphRunRepo) writeJSON(runID string, pathFn func(string) (string, error), v any) error {

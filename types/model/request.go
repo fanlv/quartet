@@ -90,6 +90,8 @@ type UpdateScheduleRequest struct {
 	TemplateID      *string             `json:"templateId,omitempty"`
 	GraphWorkflowID *string             `json:"graphWorkflowId,omitempty"`
 	LoopConfig      *LoopConfig         `json:"loopConfig,omitempty"`
+	WorkspaceID     *string             `json:"workspaceId,omitempty"`
+	Workdir         *string             `json:"workdir,omitempty"`
 	MaxConcurrent   *int                `json:"maxConcurrent,omitempty"`
 	Timeout         *int                `json:"timeout,omitempty"`
 }

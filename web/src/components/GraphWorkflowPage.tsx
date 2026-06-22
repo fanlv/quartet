@@ -1644,16 +1644,31 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   // Nodes whose execution config is frozen during run-time editing: those with a
   // succeeded / skipped / running instance (mirrors backend validateVersionEdit).
   // The inspector disables their config fields; the backend still enforces.
+  // Exception: a node inside a loop container re-runs each round against the
+  // latest version, so its config stays editable mid-run (the loop container node
+  // itself stays frozen). Mirrors nodeInsideLoop in services/graph/version.go.
   const frozenRunNodeIds = useMemo(() => {
     if (!editingRun) return undefined;
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const insideLoop = (nodeId: string): boolean => {
+      let pid = byId.get(nodeId)?.parentId;
+      while (pid) {
+        const parent = byId.get(pid);
+        if (!parent) return false;
+        if (parent.data?.kind === 'loop') return true;
+        pid = parent.parentId;
+      }
+      return false;
+    };
     const frozen = new Set<string>();
     for (const inst of runInstances) {
       if (inst.status === 'succeeded' || inst.status === 'skipped' || inst.status === 'running') {
+        if (insideLoop(inst.nodeId)) continue;
         frozen.add(inst.nodeId);
       }
     }
     return frozen;
-  }, [editingRun, runInstances]);
+  }, [editingRun, runInstances, nodes]);
 
   const canEditSelectedRun = !!selectedRun && isGraphRunEditable(selectedRun.status);
 

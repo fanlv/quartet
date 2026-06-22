@@ -62,20 +62,26 @@ func (e *ShellControlError) Error() string { return e.Message }
 //   - "B64:key=base64val"  → base64-decoded value (written by quartet_set)
 //   - "key=value"          → plain text value (legacy compatibility)
 //
-// Validation (§1): produced variable names must be valid and non-reserved; the
-// produced set must EXACTLY match declared (no undeclared, no missing); a
-// base64 decode failure fails the node. STOP_LOOP / STOP_WORKFLOW are control
-// signals and are not subject to the declared-set check.
+// Validation (§1, relaxed): produced variable names must still be valid and
+// non-reserved, and a base64 decode failure still fails the node. For a Shell
+// node, declaration is OPTIONAL and does NOT gate output: EVERY quartet_set
+// variable flows downstream whether or not it was declared, so a script can
+// publish variables ad hoc and have them visible to later nodes without
+// pre-declaring them on the node. The declared set is used only for the
+// completeness check below — every DECLARED variable must still be produced
+// (a missing declared output fails the node). STOP_LOOP / STOP_WORKFLOW are
+// control signals, not subject to either check.
 //
-// Note: the caller is responsible for the contextual rule that STOP_LOOP is
-// only legal inside a loop container (a non-loop STOP_LOOP fails the node);
-// that requires scheduler/scope context not available to this pure parser.
+// Trade-off: because undeclared outputs are no longer dropped, the save-time
+// parallel-writer conflict check (validateOutputConflicts) — which only looks
+// at DECLARED names — cannot catch two parallel Shell nodes that quartet_set
+// the same undeclared variable. That collision is the author's responsibility;
+// it mirrors the intentionally permissive "set whatever you want" Shell model.
+//
+// Note: STOP_LOOP is a scope-dependent signal; the scheduler applies it inside
+// a loop container and drops it (no-op) outside one. That contextual rule needs
+// scheduler/scope context not available to this pure parser.
 func ParseShellControl(controlBody string, declared []string) (*ShellControlResult, *ShellControlError) {
-	declaredSet := make(map[string]struct{}, len(declared))
-	for _, name := range declared {
-		declaredSet[name] = struct{}{}
-	}
-
 	res := &ShellControlResult{Variables: make(map[string]string)}
 	for _, line := range strings.Split(controlBody, "\n") {
 		line = strings.TrimSpace(line)
@@ -128,13 +134,10 @@ func ParseShellControl(controlBody string, declared []string) (*ShellControlResu
 				Message:  fmt.Sprintf("shell wrote invalid variable name %q (must match [A-Za-z_][A-Za-z0-9_]*)", name),
 			}
 		}
-		if _, ok := declaredSet[name]; !ok {
-			return nil, &ShellControlError{
-				Variable: name,
-				Message:  fmt.Sprintf("shell produced undeclared variable %q", name),
-			}
-		}
-		// Same name on multiple lines: last wins.
+		// Permissive contract: every produced variable flows downstream,
+		// declared or not. Declaration on a Shell node is optional and only
+		// drives the completeness check below. Same name on multiple lines:
+		// last wins.
 		res.Variables[name] = value
 	}
 

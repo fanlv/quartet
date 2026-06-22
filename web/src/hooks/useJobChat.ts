@@ -260,6 +260,15 @@ function graphSessionEntries(
     return sa - sb;
   });
   for (const inst of ordered) {
+    // Only nodes that own a real conversation/transcript belong in the session
+    // sidebar: Agent nodes (Prompt/Evaluator) and Shell nodes. Control nodes
+    // (loop/ifElse/start/end) inherit a sessionId via session lineage but never
+    // represent a chat round — and a loop instance that is still iterating stays
+    // `running`, which would pin its whole session group to ⏳ forever even after
+    // every actual round has finished. Skip them.
+    if (inst.nodeType !== 'prompt' && inst.nodeType !== 'evaluator' && inst.nodeType !== 'shell') {
+      continue;
+    }
     // Prefer displaySessionId (Shell nodes record their own transcript session
     // there); fall back to the lineage sessionId for Agent nodes.
     const displaySid = inst.displaySessionId || inst.sessionId;

@@ -139,6 +139,12 @@ func (s *serviceImpl) Update(ctx context.Context, id string, req *model.UpdateSc
 	if req.LoopConfig != nil {
 		task.LoopConfig = *req.LoopConfig
 	}
+	if req.WorkspaceID != nil {
+		task.WorkspaceID = *req.WorkspaceID
+	}
+	if req.Workdir != nil {
+		task.Workdir = *req.Workdir
+	}
 	if req.MaxConcurrent != nil {
 		task.MaxConcurrent = *req.MaxConcurrent
 	}

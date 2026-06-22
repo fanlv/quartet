@@ -11,18 +11,23 @@ import "github.com/fanlv/quartet/types/model"
 // pruned outright), denomAdjust reclaims the difference so that on natural
 // completion completed == total.
 //
-// Created-then-pruned instances are NOT a denominator concern: they materialize
-// as skipped and count in the numerator (pruneNode). Only NEVER-materialized
-// future instances are reclaimed here.
+// Created-then-pruned instances are ALSO reclaimed here: a node that
+// materializes as skipped (an untaken If-Else branch, an all-in-edges-pruned
+// node) will never "complete", so pruneNode drops it from the denominator with
+// denomAdjust(-1) rather than leaving it in the numerator. This keeps the
+// progress bar at 100% on natural completion (completed == total) and counts
+// the skipped instances only in their own SkippedCount.
 
 // denomAdjust adds delta (negative to reclaim) to the progress denominator,
-// clamping so it never drops below the count of already-resolved instances.
+// clamping so it never drops below the count of instances that will still be
+// reflected in the denominator once resolved. Skipped instances are excluded
+// from the floor because they are themselves reclaimed out of the denominator.
 func (sc *scheduler) denomAdjust(delta int) {
 	if delta == 0 || sc.run.Progress == nil {
 		return
 	}
 	resolved := sc.run.Progress.CompletedCount + sc.run.Progress.FailedCount +
-		sc.run.Progress.SkippedCount + sc.run.Progress.InterruptedCount
+		sc.run.Progress.InterruptedCount
 	total := sc.run.Progress.TotalCount + delta
 	if total < resolved {
 		total = resolved

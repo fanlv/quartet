@@ -118,30 +118,30 @@ func TestEvaluateCondition_DisabledIsEmptyString(t *testing.T) {
 	}
 }
 
-func TestEvaluateCondition_UnknownVariableFails(t *testing.T) {
-	_, err := EvaluateCondition(`{{missing}} == "x"`, CondEvalInput{Variables: map[string]string{"a": "1"}})
-	if err == nil {
-		t.Fatal("expected evaluation error for unknown variable")
+func TestEvaluateCondition_AbsentVariableIsEmptyString(t *testing.T) {
+	// An absent variable (never produced by any upstream, or a name that does
+	// not exist) resolves to the empty string rather than failing the
+	// condition, so `{{x}} != ""` routes to the no branch and `{{x}} == ""`
+	// to the yes branch.
+	tests := []struct {
+		name string
+		expr string
+		want bool
+	}{
+		{"absent eq empty is true", `{{missing}} == ""`, true},
+		{"absent neq empty is false", `{{missing}} != ""`, false},
+		{"absent neq value is true", `{{missing}} != "x"`, true},
 	}
-	if err.Var != "missing" || err.State != "unknown" {
-		t.Fatalf("error = %+v, want Var=missing State=unknown", err)
-	}
-}
-
-func TestEvaluateCondition_PrunedVariableFails(t *testing.T) {
-	in := CondEvalInput{
-		Variables: map[string]string{},
-		Pruned:    disabledSet("p"),
-	}
-	_, err := EvaluateCondition(`{{p}} == "x"`, in)
-	if err == nil {
-		t.Fatal("expected evaluation error for pruned variable")
-	}
-	if err.State != "pruned" {
-		t.Fatalf("error state = %q, want pruned", err.State)
-	}
-	if err.Expr == "" {
-		t.Fatal("error should carry the expression text")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := EvaluateCondition(tt.expr, CondEvalInput{Variables: map[string]string{"a": "1"}})
+			if err != nil {
+				t.Fatalf("unexpected error for absent variable: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("EvaluateCondition(%q) = %v, want %v", tt.expr, got, tt.want)
+			}
+		})
 	}
 }
 

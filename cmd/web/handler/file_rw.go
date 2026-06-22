@@ -69,7 +69,7 @@ func (h *Handler) ReadFile(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	if !stat.Exists {
-		logger.Warnf(ctx, "[read-file] file not found: path=%q jobID=%s referer=%q",
+		logger.Debugf(ctx, "[read-file] file not found: path=%q jobID=%s referer=%q",
 			filePath, req.JobID, string(c.GetHeader("Referer")))
 		httputil.NotFound(c, "file not found")
 		return

@@ -26,6 +26,11 @@ const BUILTIN_VAR_SET = new Set<string>(BUILTIN_VARS);
 // final assistant message. Mirrors services/graph reservedLastAssistant.
 const RESERVED_LAST_ASSISTANT = '_last_assistant_msg';
 
+// Engine-injected runtime variable always available to any node / condition:
+// the current timestamp (RFC3339), stamped at dispatch / eval time. Mirrors
+// services/graph consts.VarCurrentTime (loopvars.go runtimeVars).
+const RESERVED_CURRENT_TIME = '_current_time';
+
 // Engine-injected loop iteration variables, available to any node inside a loop
 // body (and to the loop's own "until" condition). Mirrors services/graph
 // loopvars.go QUARTET_LOOP_* names.
@@ -51,6 +56,7 @@ function collectAvailableVars(config: GraphConfig, nodeId: string): string[] {
   const out = new Set<string>();
   for (const k of Object.keys(config.variables || {})) out.add(k);
   out.add(RESERVED_LAST_ASSISTANT);
+  out.add(RESERVED_CURRENT_TIME);
 
   const addNodeOutputs = (n?: GraphNode) => {
     if (!n) return;
@@ -550,6 +556,9 @@ export function GraphInspector({
             setCfg({
               agentType: e.target.value,
               modelId: agent?.models?.currentModelId || agent?.model_id || '',
+              // 切换 Agent type 后清空 thought_level：有的 Agent type 不支持该字段，
+              // 残留旧值会导致 "agent does not advertise a thought_level config option" 报错。
+              acpThoughtLevel: undefined,
             });
           }}
         >

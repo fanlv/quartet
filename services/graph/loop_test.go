@@ -502,8 +502,11 @@ func TestLoopStopLoopEndsContainer(t *testing.T) {
 	}
 }
 
-// TestStopLoopOutsideLoopFails: STOP_LOOP in a main-graph Shell node fails it.
-func TestStopLoopOutsideLoopFails(t *testing.T) {
+// TestStopLoopOutsideLoopIgnored: STOP_LOOP in a main-graph Shell node (no
+// enclosing loop) is a no-op — the signal is dropped, the node succeeds, and
+// the run completes normally. This lets Loop-authored scripts that call
+// quartet_break run unchanged as a main-graph Shell node.
+func TestStopLoopOutsideLoopIgnored(t *testing.T) {
 	uniqueMemoryRoot(t)
 	workdir := t.TempDir()
 	svc, err := NewService()
@@ -523,13 +526,10 @@ func TestStopLoopOutsideLoopFails(t *testing.T) {
 		},
 	}
 	runID := mustStart(t, svc, cfg, "job-break-outside")
-	got := waitGraphRunStatus(t, svc, runID, model.GraphRunStatusFailed)
+	got := waitGraphRunStatus(t, svc, runID, model.GraphRunStatusCompleted)
 	bad, _ := instByNode(got, "bad")
-	if bad.Status != model.GraphInstanceStatusFailed {
-		t.Fatalf("bad status = %s, want failed", bad.Status)
-	}
-	if bad.Error == nil || !contains(bad.Error.Message, "STOP_LOOP is only supported inside loop") {
-		t.Fatalf("error missing STOP_LOOP detail: %+v", bad.Error)
+	if bad.Status != model.GraphInstanceStatusSucceeded {
+		t.Fatalf("bad status = %s, want succeeded (STOP_LOOP outside loop ignored)", bad.Status)
 	}
 }
 
@@ -617,7 +617,7 @@ func TestLoopSerialConcurrencyNoDeadlock(t *testing.T) {
 // round 0 derives from the start-sourced in-edge. The start node has no
 // persisted instance/variable snapshot, so before the fix its contribution
 // resolved to an empty map and the initial variable vanished, making the body's
-// condition fail with "variable {{seed}} is unknown at evaluation time".
+// condition resolve {{seed}} to the empty string and route to the wrong branch.
 // (Mirrors the reported "MultiWorker is unknown after 恢复" bug.)
 func TestResumeLoopFedByStartKeepsInitialVars(t *testing.T) {
 	uniqueMemoryRoot(t)
@@ -668,8 +668,9 @@ echo ok`
 	}
 	// The If-Else must have routed to the yes branch (seed=="1") on the resumed
 	// round: the body executed and the no branch was pruned. A pruned business
-	// node is still recorded as a "skipped" instance, so assert on status — the
-	// pre-fix bug would have lost {{seed}} and failed the condition outright.
+	// node is still recorded as a "skipped" instance, so assert on status — a
+	// regression that loses {{seed}} would resolve it to the empty string and
+	// route to the no branch instead, executing skip and pruning body.
 	bodyInst, ok := instByNode(got, "body")
 	if !ok || bodyInst.Status != model.GraphInstanceStatusSucceeded {
 		t.Fatalf("body status = %v (ok=%v), want succeeded", bodyInst.Status, ok)
@@ -699,8 +700,8 @@ func ifElseInLoop(id, parent, condition string) model.GraphNode {
 // in-edge — so the initial-variable injection still applies and the variable
 // propagates DOWN through both rebuilt loop scopes (outer accumSnapshot → inner
 // accumSnapshot → If-Else visible set) so the deeply-nested condition resolves
-// after 恢复. Without the fix the condition fails with
-// "{{seed}} is unknown at evaluation time".
+// after 恢复. Without the fix {{seed}} resolves to the empty string and the
+// condition routes to the wrong branch.
 func TestResumeNestedLoopFedByStartKeepsInitialVars(t *testing.T) {
 	uniqueMemoryRoot(t)
 	workdir := t.TempDir()

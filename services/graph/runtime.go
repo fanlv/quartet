@@ -198,8 +198,8 @@ func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGr
 // nodeOutcome is a business node's successful execution result. Besides the raw
 // final output and declared named outputs, it carries the Shell control signals
 // STOP_LOOP / STOP_WORKFLOW so the scheduler can apply them with scope context
-// (STOP_LOOP is only legal inside a loop container, STOP_WORKFLOW ends the run
-// with early success). For Agent-class nodes it also carries the outflow session
+// (STOP_LOOP ends the enclosing loop container, or is ignored as a no-op when
+// the node is not inside a loop; STOP_WORKFLOW ends the run with early success).
 // (the session the node created with `new`, or the inflow session it reused with
 // `inherit`), which the scheduler records as the instance's session lineage
 // (§3 会话血缘).

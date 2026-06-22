@@ -283,8 +283,9 @@ func (sc *scheduler) resumeSourceContrib(srcKey model.GraphInstanceKey) (map[str
 		if srcNode.ParentID == "" {
 			// Main-graph start: never persisted as an instance; its contribution is
 			// the run's initial variable snapshot (mirrors seedFresh). Without this a
-			// loop fed directly by the start node loses every initial variable and
-			// conditions referencing them fail with "unknown at evaluation time".
+			// loop fed directly by the start node loses every initial variable, so a
+			// condition referencing one would silently see an empty string and route
+			// to the wrong branch.
 			return cloneStringMap(sc.cfg.Variables), ""
 		}
 		if vars, sess, ok := sc.loopEntrySnapshot(srcKey, srcNode); ok {

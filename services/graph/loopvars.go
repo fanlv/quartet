@@ -1,6 +1,11 @@
 package graph
 
-import "github.com/fanlv/quartet/types/model"
+import (
+	"time"
+
+	"github.com/fanlv/quartet/types/consts"
+	"github.com/fanlv/quartet/types/model"
+)
 
 // Loop iteration variables (§3 循环变量语义 — iteration context injection).
 //
@@ -50,20 +55,39 @@ func loopIterationVars(scope *scopeRun) map[string]string {
 	}
 }
 
-// withLoopVars returns a fresh clone of base overlaid with the loop iteration
-// vars for scope. Used only for ephemeral substitution / condition-eval maps so
-// the caller's persisted snapshot stays pristine. When scope has no loop
-// context, the base is cloned unchanged.
-func withLoopVars(base map[string]string, scope *scopeRun) map[string]string {
-	lv := loopIterationVars(scope)
-	if lv == nil {
-		return cloneStringMap(base)
+// runtimeVars returns the full set of engine-injected runtime variables overlaid
+// onto a node's visible snapshot at dispatch / condition-eval time: the
+// QUARTET_LOOP_* loop iteration context (only inside a loop body) plus the
+// _current_time builtin (always). Like the loop vars, _current_time is computed
+// on the fly and NEVER written into a persisted snapshot — so it stays out of
+// round-end accumulated snapshots and join merges, and a resume recomputes it
+// from scratch. It mirrors the Loop engine's per-round _current_time injection
+// (services/job/executor_vars.go injectPerRoundVars).
+//
+// The timestamp is stamped once here. On the execution path the result is
+// captured on the ready item at enqueue time and reused for both the display
+// substitution and the actual run, so the script shown in the sidebar and the
+// script that executes carry the identical timestamp.
+func runtimeVars(scope *scopeRun) map[string]string {
+	out := loopIterationVars(scope)
+	if out == nil {
+		out = make(map[string]string, 1)
 	}
-	out := make(map[string]string, len(base)+len(lv))
+	out[consts.VarCurrentTime] = time.Now().Format(time.RFC3339)
+	return out
+}
+
+// withLoopVars returns a fresh clone of base overlaid with the engine runtime
+// vars for scope (QUARTET_LOOP_* iteration context + _current_time). Used only
+// for ephemeral substitution / condition-eval maps so the caller's persisted
+// snapshot stays pristine. The timestamp is stamped at call time.
+func withLoopVars(base map[string]string, scope *scopeRun) map[string]string {
+	rv := runtimeVars(scope)
+	out := make(map[string]string, len(base)+len(rv))
 	for k, v := range base {
 		out[k] = v
 	}
-	for k, v := range lv {
+	for k, v := range rv {
 		out[k] = v
 	}
 	return out

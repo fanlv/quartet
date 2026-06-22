@@ -2218,6 +2218,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
           workspaces={allWorkspaces}
           agents={agents}
           defaultAgentIndex={selectedIndex}
+          onSelectJob={handleJobSelect}
           onSave={handleScheduleSave}
           onClose={() => setScheduleModal({ mode: 'closed' })}
         />

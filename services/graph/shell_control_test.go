@@ -48,7 +48,6 @@ func TestParseShellControl_Errors(t *testing.T) {
 		declared []string
 		wantVar  string
 	}{
-		{"undeclared", "x=1", nil, "x"},
 		{"missing", "", []string{"need"}, "need"},
 		{"invalid name", "1bad=1", []string{"foo"}, "1bad"},
 		{"reserved", "_x=1", []string{"foo"}, "_x"},
@@ -75,5 +74,34 @@ func TestParseShellControl_NonKeyValueLineIgnored(t *testing.T) {
 	}
 	if res.Variables["x"] != "1" {
 		t.Fatalf("x = %q, want 1", res.Variables["x"])
+	}
+}
+
+func TestParseShellControl_UndeclaredFlowsThrough(t *testing.T) {
+	// Permissive contract: a produced variable flows downstream whether or not
+	// it was declared. Declared ones still must be produced (completeness).
+	body := "extra=surplus\nB64:keep=" + base64.StdEncoding.EncodeToString([]byte("v"))
+	res, err := ParseShellControl(body, []string{"keep"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Variables["keep"] != "v" {
+		t.Fatalf("keep = %q, want v", res.Variables["keep"])
+	}
+	if res.Variables["extra"] != "surplus" {
+		t.Fatalf("undeclared variable %q should flow through, got %q", "extra", res.Variables["extra"])
+	}
+}
+
+func TestParseShellControl_NoDeclarationFlowsAll(t *testing.T) {
+	// A Shell node with zero declared outputs still surfaces every quartet_set
+	// variable to downstream nodes.
+	body := "a=1\nB64:b=" + base64.StdEncoding.EncodeToString([]byte("two"))
+	res, err := ParseShellControl(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Variables["a"] != "1" || res.Variables["b"] != "two" {
+		t.Fatalf("got %+v, want a=1 b=two", res.Variables)
 	}
 }

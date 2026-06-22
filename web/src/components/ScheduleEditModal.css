@@ -228,6 +228,51 @@
   border-radius: 9px;
 }
 
+.schedule-load-error {
+  color: #b91c1c;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+}
+
+.schedule-target-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.schedule-target-tab {
+  min-height: 34px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.schedule-target-tab:hover {
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.schedule-target-tab.active {
+  color: #1d4ed8;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.1);
+}
+
 /* Agent / Model / Mode selector row */
 .schedule-selectors-row {
   display: flex;
@@ -374,6 +419,49 @@
   display: flex;
   gap: 6px;
   min-width: 0;
+}
+
+.schedule-run-error {
+  display: flex;
+  flex-direction: column !important;
+  gap: 6px !important;
+  margin-top: 4px;
+  color: #991b1b;
+}
+
+.schedule-run-error span {
+  font-weight: 600;
+}
+
+.schedule-run-error pre {
+  margin: 0;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px 10px;
+  background: #fff7f7;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+}
+
+.schedule-run-link {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.schedule-run-link:hover {
+  text-decoration: underline;
 }
 
 /* Error */

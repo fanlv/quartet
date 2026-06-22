@@ -53,9 +53,11 @@ func TestDenominatorUntilEarlyStop(t *testing.T) {
 }
 
 // TestDenominatorIfElseSkipCountsInNumerator verifies a pruned If-Else branch's
-// business node materializes as skipped and counts in the numerator (not a
-// denominator reclaim), and the run completes with completed==total.
-func TestDenominatorIfElseSkipCountsInNumerator(t *testing.T) {
+// TestDenominatorIfElseSkipReclaimed verifies a pruned If-Else branch's business
+// node materializes as skipped and is reclaimed OUT of the denominator (so the
+// progress bar reaches 100% on completion: completed == total), with the skipped
+// instance counted only in SkippedCount.
+func TestDenominatorIfElseSkipReclaimed(t *testing.T) {
 	uniqueMemoryRoot(t)
 	svc, err := NewService()
 	if err != nil {
@@ -87,13 +89,17 @@ func TestDenominatorIfElseSkipCountsInNumerator(t *testing.T) {
 	if no.Status != model.GraphInstanceStatusSkipped {
 		t.Fatalf("pruned branch node 'no' = %s, want skipped", no.Status)
 	}
-	// ie + yes + no all materialize (3 business nodes); completed(ie,yes) +
-	// skipped(no) == total.
-	if got.Progress.TotalCount != 3 {
-		t.Fatalf("expected total=3, got %d", got.Progress.TotalCount)
+	// ie + yes + no all materialize, but the skipped 'no' is reclaimed out of the
+	// denominator: total = ie + yes = 2, and completed == total (100%). The
+	// skipped branch shows up only in SkippedCount.
+	if got.Progress.TotalCount != 2 {
+		t.Fatalf("expected total=2 (skip reclaimed), got %d", got.Progress.TotalCount)
 	}
-	if got.Progress.CompletedCount+got.Progress.SkippedCount != got.Progress.TotalCount {
-		t.Fatalf("completed+skipped != total: %+v", got.Progress)
+	if got.Progress.CompletedCount != got.Progress.TotalCount {
+		t.Fatalf("expected completed==total (100%%), got %+v", got.Progress)
+	}
+	if got.Progress.SkippedCount != 1 {
+		t.Fatalf("expected skipped=1, got %+v", got.Progress)
 	}
 }
 

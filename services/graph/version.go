@@ -160,6 +160,24 @@ func intPtrEqual(a, b *int) bool {
 	return *a == *b
 }
 
+// nodeInsideLoop reports whether node n lives inside a loop container — its
+// ParentID chain reaches a node of type loop. Such nodes re-run each round, so
+// editing their execution config mid-run is allowed (the edit takes effect on
+// the next round). nodes maps node ID to node for the edited config.
+func nodeInsideLoop(nodes map[string]model.GraphNode, n model.GraphNode) bool {
+	for pid := n.ParentID; pid != ""; {
+		parent, ok := nodes[pid]
+		if !ok {
+			return false
+		}
+		if parent.Type == model.GraphNodeTypeLoop {
+			return true
+		}
+		pid = parent.ParentID
+	}
+	return false
+}
+
 func stringSliceEqual(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -215,6 +233,13 @@ func validateVersionEdit(oldCfg model.GraphConfig, newCfg model.GraphConfig, ins
 	var errs []model.GraphValidationError
 
 	// Frozen nodes may not be deleted or have their execution config changed.
+	// Exception (§4 循环内结点可改): a node inside a loop container re-runs each
+	// round against the latest version, so editing its execution config is safe —
+	// the in-flight round keeps its decided snapshot, the next round picks up the
+	// edit. Such nodes are exempt from the config-immutability check (but still may
+	// not be deleted, to keep the loop subgraph topology intact). The loop
+	// container node itself stays frozen: changing its FixedCount / until rule
+	// mid-run has no well-defined round boundary.
 	for nodeID, status := range frozenNodes {
 		nn, ok := newNodes[nodeID]
 		if !ok {
@@ -223,6 +248,9 @@ func validateVersionEdit(oldCfg model.GraphConfig, newCfg model.GraphConfig, ins
 				NodeID:  nodeID,
 				Message: fmt.Sprintf("cannot delete node %q: it has a %s instance in this run", nodeID, status),
 			})
+			continue
+		}
+		if nodeInsideLoop(newNodes, nn) {
 			continue
 		}
 		if on, ok := oldNodes[nodeID]; ok && !executionConfigEqual(on, nn) {
