@@ -180,6 +180,61 @@ func TestResumeRejectsRunning(t *testing.T) {
 	waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusStopped)
 }
 
+// TestResetArchivesSessionedInstances verifies that a wholesale loop reset
+// preserves the sessions of removed instances (including already-succeeded
+// siblings) into the archive, while session-less instances are dropped silently.
+// This backs the Chat sidebar's prior-attempt conversation list across a resume.
+func TestResetArchivesSessionedInstances(t *testing.T) {
+	// A loop (loop-1) with: a succeeded Agent (prompt-ok, has session), a failed
+	// Agent (prompt-bad, has session), and a succeeded If-Else (no session). With
+	// no persisted loop scope (nil loopState), the failed instance forces a
+	// wholesale reset of the whole loop subtree (the fallback path).
+	loopKey := func(node string) model.GraphInstanceKey {
+		return model.GraphInstanceKey{NodeID: node, Iterations: []model.GraphLoopIteration{{LoopNodeID: "loop-1", Index: 0}}}
+	}
+	instances := map[string]model.GraphInstanceState{
+		"loop-1": {Key: model.GraphInstanceKey{NodeID: "loop-1"}, NodeID: "loop-1", NodeType: model.GraphNodeTypeLoop, Status: model.GraphInstanceStatusRunning},
+		instanceKeyString(loopKey("prompt-ok")): {
+			Key: loopKey("prompt-ok"), NodeID: "prompt-ok", NodeType: model.GraphNodeTypePrompt,
+			Status: model.GraphInstanceStatusSucceeded, SessionID: "session-ok", DisplaySessionID: "session-ok",
+		},
+		instanceKeyString(loopKey("prompt-bad")): {
+			Key: loopKey("prompt-bad"), NodeID: "prompt-bad", NodeType: model.GraphNodeTypePrompt,
+			Status: model.GraphInstanceStatusFailed, SessionID: "session-bad", DisplaySessionID: "session-bad",
+		},
+		instanceKeyString(loopKey("ifElse")): {
+			Key: loopKey("ifElse"), NodeID: "ifElse", NodeType: model.GraphNodeTypeIfElse,
+			Status: model.GraphInstanceStatusSucceeded,
+		},
+	}
+
+	rb := newResumeBuilder(model.GraphConfig{}, instances, map[string]model.GraphEdgeState{}, map[string]map[string]string{}, nil)
+	rb.resetResettable()
+
+	// Whole loop subtree reset → no instances survive.
+	if len(rb.instances) != 0 {
+		t.Fatalf("expected all loop-subtree instances reset, got %d remaining: %v", len(rb.instances), rb.instances)
+	}
+	// Both sessioned instances archived (succeeded sibling + failed node); the
+	// session-less If-Else and loop container are not.
+	if len(rb.archived) != 2 {
+		t.Fatalf("expected 2 archived sessioned instances, got %d: %v", len(rb.archived), rb.archived)
+	}
+	okArchived, ok := rb.archived[instanceKeyString(loopKey("prompt-ok"))]
+	if !ok || okArchived.DisplaySessionID != "session-ok" {
+		t.Fatalf("succeeded sessioned sibling not archived correctly: %+v (ok=%v)", okArchived, ok)
+	}
+	if _, ok := rb.archived[instanceKeyString(loopKey("prompt-bad"))]; !ok {
+		t.Fatal("failed sessioned instance should be archived")
+	}
+	if _, ok := rb.archived[instanceKeyString(loopKey("ifElse"))]; ok {
+		t.Fatal("session-less If-Else must NOT be archived")
+	}
+	if _, ok := rb.archived["loop-1"]; ok {
+		t.Fatal("session-less loop container must NOT be archived")
+	}
+}
+
 // releaseAfter closes the gate's release channel once (guarded for re-use).
 func releaseAfter(g *gatedRunner) {
 	defer func() { _ = recover() }()

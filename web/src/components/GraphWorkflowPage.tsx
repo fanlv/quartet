@@ -47,7 +47,7 @@ import {
   type QuartetFlowNode,
 } from './graph/graphFlowAdapter';
 import { GraphCanvas, type GraphCanvasFocus } from './graph/GraphCanvas';
-import { GraphInspector } from './graph/GraphInspector';
+import { GraphInspector, BUILTIN_VARS } from './graph/GraphInspector';
 import {
   LOOP_DEFAULT_HEIGHT,
   LOOP_DEFAULT_WIDTH,
@@ -135,9 +135,21 @@ function cloneDefaultConfig(t: TFunction, workspaceId?: string, workdir?: string
   };
 }
 
+// Pin the always-present built-in variables (Code/Doc) into a variable map
+// without dropping or reordering existing entries. Built-ins go first so they
+// head the table; a built-in already present keeps its value. Returns a new map
+// (never mutates the input).
+function withBuiltinVars(variables: Record<string, string> | undefined): Record<string, string> {
+  const src = variables || {};
+  const next: Record<string, string> = {};
+  for (const name of BUILTIN_VARS) next[name] = src[name] ?? '';
+  for (const [k, v] of Object.entries(src)) next[k] = v;
+  return next;
+}
+
 function metaFromConfig(config: GraphConfig): ConfigMeta {
   return {
-    variables: { ...(config.variables || {}) },
+    variables: withBuiltinVars(config.variables),
     disabledVars: [...(config.disabledVars || [])],
     runConfig: { ...(config.runConfig || {}) },
     workspaceId: config.workspaceId,
@@ -537,7 +549,11 @@ function isEmptyForFingerprint(value: unknown): boolean {
 // forever. Pan/zoom is persisted on save but does not count as an edit.
 function fingerprint(input: { name: string; description: string; config: GraphConfig }): string {
   const { canvas: _canvas, ...configWithoutCanvas } = input.config;
-  return stableStringify({ name: input.name, description: input.description, config: configWithoutCanvas });
+  // Normalize built-in variables so a legacy config (no Code/Doc) and the
+  // editor's auto-filled state hash identically — opening such a workflow must
+  // not register as an unsaved change.
+  const normalized = { ...configWithoutCanvas, variables: withBuiltinVars(configWithoutCanvas.variables) };
+  return stableStringify({ name: input.name, description: input.description, config: normalized });
 }
 
 export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdir, onClose, onRunStarted }: GraphWorkflowPageProps) {

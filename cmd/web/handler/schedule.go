@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -14,25 +15,31 @@ import (
 
 func scheduleToInfo(t *model.ScheduledTask) model.ScheduleInfo {
 	info := model.ScheduleInfo{
-		ID:            t.ID,
-		Name:          t.Name,
-		Enabled:       t.Enabled,
-		CronExpr:      t.CronExpr,
-		TemplateID:    t.TemplateID,
-		LoopConfig:    &t.LoopConfig,
-		WorkspaceID:   t.WorkspaceID,
-		Workdir:       t.Workdir,
-		MaxConcurrent: t.MaxConcurrent,
-		Timeout:       t.Timeout,
-		LastRunJobID:  t.LastRunJobID,
-		LastStatus:    t.LastStatus,
-		RunCount:      t.RunCount,
-		CreatedAt:     t.CreatedAt.UnixMilli(),
-		UpdatedAt:     t.UpdatedAt.UnixMilli(),
+		ID:               t.ID,
+		Name:             t.Name,
+		Enabled:          t.Enabled,
+		CronExpr:         t.CronExpr,
+		TargetType:       model.NormalizeScheduleTargetType(t.TargetType),
+		WorkspaceID:      t.WorkspaceID,
+		Workdir:          t.Workdir,
+		MaxConcurrent:    t.MaxConcurrent,
+		Timeout:          t.Timeout,
+		LastRunJobID:     t.LastRunJobID,
+		LastStatus:       t.LastStatus,
+		LastTriggerError: t.LastTriggerError,
+		RunCount:         t.RunCount,
+		CreatedAt:        t.CreatedAt.UnixMilli(),
+		UpdatedAt:        t.UpdatedAt.UnixMilli(),
 	}
 	if t.LastRunAt != nil {
 		ms := t.LastRunAt.UnixMilli()
 		info.LastRunAt = &ms
+	}
+	if info.TargetType == model.ScheduleTargetTypeLoop {
+		info.TemplateID = t.TemplateID
+		info.LoopConfig = &t.LoopConfig
+	} else if info.TargetType == model.ScheduleTargetTypeGraphWorkflow {
+		info.GraphWorkflowID = t.GraphWorkflowID
 	}
 	if t.NextRunAt != nil {
 		ms := t.NextRunAt.UnixMilli()
@@ -67,19 +74,10 @@ func (h *Handler) ScheduleCreate(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
-	// Validate loop config. Schedule requests carry no request-level agent
-	// default (each flow step carries its own), so backfill is a no-op here —
-	// but route through the shared entry so the migrate/backfill/validate
-	// order stays identical to the job-create path.
-	if err := model.NormalizeAndValidateLoopConfig(&req.LoopConfig, model.FlowDefaults{}); err != nil {
-		httputil.BadRequest(c, err.Error())
-		return
-	}
-
 	task, err := h.scheduleService.Create(ctx, &req)
 	if err != nil {
 		logger.Errorf(ctx, "[ScheduleCreate] failed: %v", err)
-		httputil.InternalError(c, err.Error())
+		writeScheduleServiceError(c, err)
 		return
 	}
 
@@ -152,17 +150,10 @@ func (h *Handler) ScheduleUpdate(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
-	if req.LoopConfig != nil {
-		if err := model.NormalizeAndValidateLoopConfig(req.LoopConfig, model.FlowDefaults{}); err != nil {
-			httputil.BadRequest(c, err.Error())
-			return
-		}
-	}
-
 	task, err := h.scheduleService.Update(ctx, id, &req)
 	if err != nil {
 		logger.Errorf(ctx, "[ScheduleUpdate] failed: %v", err)
-		httputil.InternalError(c, err.Error())
+		writeScheduleServiceError(c, err)
 		return
 	}
 
@@ -171,6 +162,18 @@ func (h *Handler) ScheduleUpdate(ctx context.Context, c *app.RequestContext) {
 	}
 
 	c.JSON(http.StatusOK, scheduleToInfo(task))
+}
+
+func writeScheduleServiceError(c *app.RequestContext, err error) {
+	switch {
+	case errors.Is(err, schedule.ErrInvalidTargetType),
+		errors.Is(err, schedule.ErrInvalidLoopConfig),
+		errors.Is(err, schedule.ErrGraphWorkflowRequired),
+		errors.Is(err, schedule.ErrGraphWorkflowNotFound):
+		httputil.BadRequest(c, err.Error())
+	default:
+		httputil.InternalError(c, err.Error())
+	}
 }
 
 func (h *Handler) ScheduleDelete(ctx context.Context, c *app.RequestContext) {
@@ -253,15 +256,19 @@ func (h *Handler) ScheduleRun(ctx context.Context, c *app.RequestContext) {
 	}
 
 	// Use RunNow to respect maxConcurrent limits and track running count.
+	// RunNow records the trigger outcome itself (status / LastRunJobID /
+	// LastTriggerError), unifying the manual path with cron per the design's
+	// "手动立即运行与 cron 触发统一失败记录" — so we don't RecordTrigger here.
 	jobID, err := h.scheduler.RunNow(ctx, task)
 	if err != nil {
+		// Two cases, both surfaced to the caller as 409 so the error text shows
+		// up immediately: ErrScheduleMaxConcurrent (over the limit — no slot
+		// taken, nothing recorded) and a real trigger failure (already recorded
+		// by RunNow; we additionally return it here for immediate display).
 		logger.Errorf(ctx, "[ScheduleRun] trigger failed: %v", err)
 		httputil.Conflict(c, err.Error())
 		return
 	}
-
-	// Record trigger status (unified with scheduler's tryTrigger path).
-	h.scheduler.RecordTrigger(ctx, id, jobID, task.CronExpr, nil)
 
 	c.JSON(http.StatusOK, map[string]any{
 		"status": "triggered",

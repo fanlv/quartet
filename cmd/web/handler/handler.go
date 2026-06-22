@@ -397,8 +397,23 @@ func (h *Handler) GetSettingsService() config.SettingsService {
 	return h.settingsService
 }
 
-// ScheduleTrigger creates and starts a job for the given scheduled task.
+// ScheduleTrigger creates and starts a job for the given scheduled task. It
+// dispatches on the task's target type: loop schedules build a loop Job from
+// their (live or snapshot) LoopConfig; graph-workflow schedules launch a
+// GraphRun from the referenced workflow template. Empty target type is treated
+// as loop for tasks persisted before target types existed.
 func (h *Handler) ScheduleTrigger(ctx context.Context, task *model.ScheduledTask) (string, error) {
+	switch model.NormalizeScheduleTargetType(task.TargetType) {
+	case model.ScheduleTargetTypeGraphWorkflow:
+		return h.triggerGraphSchedule(ctx, task)
+	default:
+		return h.triggerLoopSchedule(ctx, task)
+	}
+}
+
+// triggerLoopSchedule builds and starts a loop Job for a loop-type schedule.
+// Behaviour is unchanged from the pre-dispatch ScheduleTrigger.
+func (h *Handler) triggerLoopSchedule(ctx context.Context, task *model.ScheduledTask) (string, error) {
 	loopConfig := task.LoopConfig
 
 	// Schedules follow their template: when a TemplateID is set we re-read the
@@ -420,47 +435,9 @@ func (h *Handler) ScheduleTrigger(ctx context.Context, task *model.ScheduledTask
 		}
 	}
 
-	// Scheduled tasks with no explicit workspace — or whose referenced
-	// workspace was deleted out of band — run under the default workspace
-	// (ws-1). Scheduled tasks live in a global store independent of the
-	// workspace directory, so deleting a workspace does NOT delete its
-	// scheduled tasks: the task will keep firing but needs a valid target.
-	wsID := task.WorkspaceID
-	workdir := task.Workdir
-	if wsID == "" {
-		wsID = consts.DefaultWorkspaceID
-	}
-	ws, ok := h.workspaceService.Get(wsID)
-	if !ok {
-		// Original workspace is gone — fall back to the default so the Job
-		// can still run. Emit a warn so operators notice stale schedules.
-		// The saved task.Workdir points at the deleted workspace's directory
-		// and will almost certainly be missing on disk too, so clear it and
-		// let the fallback workspace provide a fresh workdir below.
-		logger.Warnf(ctx, "[ScheduleTrigger] workspace %s not found for task %s, falling back to %s", wsID, task.ID, consts.DefaultWorkspaceID)
-		wsID = consts.DefaultWorkspaceID
-		workdir = ""
-		ws, ok = h.workspaceService.Get(wsID)
-		if !ok {
-			// The default workspace is missing too. EnsureDefault runs at
-			// boot and WorkspaceDelete refuses ws-1, so this only happens
-			// if EnsureDefault itself failed (e.g. disk full at startup).
-			// Refuse to build a Job with an unresolvable workspace — the
-			// alternative is a Job with empty Workdir that fails deep in
-			// the runner with a confusing error.
-			return "", fmt.Errorf("schedule %s: default workspace %s is missing; ensure-default may have failed at startup", task.ID, consts.DefaultWorkspaceID)
-		}
-	}
-	if workdir == "" && ws != nil {
-		workdir = ws.Workdir
-	}
-	if err := validateWorkdir(workdir); err != nil {
-		return "", fmt.Errorf("schedule %s: invalid workdir: %w", task.ID, err)
-	}
-	if ws != nil {
-		if err := ensureWorkdirWithinWorkspace(workdir, ws.Workdir); err != nil {
-			return "", fmt.Errorf("schedule %s: %w", task.ID, err)
-		}
+	wsID, workdir, _, err := h.resolveScheduleWorkspaceWorkdir(ctx, task)
+	if err != nil {
+		return "", err
 	}
 
 	j := model.NewJob(workdir, wsID)
@@ -484,6 +461,123 @@ func (h *Handler) ScheduleTrigger(ctx context.Context, task *model.ScheduledTask
 	}
 
 	return j.ID, nil
+}
+
+// triggerGraphSchedule launches a GraphRun for a graph-workflow-type schedule.
+// It follows the design's three-stage failure model:
+//
+//   - Stage one (before the run Job is created): the live workflow template is
+//     re-read and validated, and the workspace/workdir is resolved. Any failure
+//     here returns an error WITHOUT creating a Job, so a missing/invalid
+//     template leaves no orphan run record. The scheduler records the failure
+//     on the schedule (LastStatus=Failed + LastTriggerError) and releases the
+//     slot.
+//   - Stage two (Job created, StartRun failed synchronously): StartRun fails
+//     before runGraph launches, so the GraphRun terminal bridge never fires.
+//     We do NOT roll back the Job; instead FailGraphJob lands the full error on
+//     it and returns (jobID, err) so the scheduler points LastRunJobID at this
+//     real run record and releases the slot. The slot is released exactly once
+//     (the scheduler's failure path), since FailGraphJob deliberately skips the
+//     done callback.
+//   - Stage three (StartRun succeeded): the run is live; the GraphRun terminal
+//     bridge handles status write-back and slot release on completion.
+//
+// The graph run follows the LIVE workflow template (StartRun re-reads it by ID
+// and freezes its own snapshot), so no snapshot is kept on the schedule. The
+// run timeout comes from the workflow's RunConfig, not task.Timeout (graph runs
+// have their own run-config semantics; see the design's scope note).
+func (h *Handler) triggerGraphSchedule(ctx context.Context, task *model.ScheduledTask) (string, error) {
+	// Stage one: re-read and validate the live workflow template.
+	wf, err := h.graphService.GetWorkflow(ctx, task.GraphWorkflowID)
+	if err != nil {
+		return "", fmt.Errorf("schedule %s: graph workflow %s: %w", task.ID, task.GraphWorkflowID, err)
+	}
+	if verrs := h.graphService.ValidateConfig(ctx, &wf.Config); len(verrs) > 0 {
+		return "", fmt.Errorf("schedule %s: graph workflow %s is invalid: %s", task.ID, task.GraphWorkflowID, formatGraphValidationErrors(verrs))
+	}
+
+	// Stage one: resolve workspace/workdir (same rules as loop schedules).
+	wsID, workdir, _, err := h.resolveScheduleWorkspaceWorkdir(ctx, task)
+	if err != nil {
+		return "", err
+	}
+
+	// Create the run Job. Not via createGraphJob: that rejects a missing
+	// workspace outright, whereas scheduled tasks fall back to the default
+	// workspace (already handled by resolveScheduleWorkspaceWorkdir above).
+	j := model.NewJob(workdir, wsID)
+	j.Mode = model.JobModeGraph
+	j.ScheduleID = task.ID
+	j.Title = consts.ScheduleJobTitlePrefix + task.Name + " (" + time.Now().Format("15:04") + ")"
+	if err := h.jobService.Create(j); err != nil {
+		return "", err
+	}
+
+	// Stage two: launch the GraphRun on the freshly created Job.
+	req := &model.StartGraphRunRequest{
+		WorkflowID:  task.GraphWorkflowID,
+		JobID:       j.ID,
+		WorkspaceID: wsID,
+		Workdir:     workdir,
+	}
+	runner := newJobRunner(h, j)
+	if _, err := h.graphService.StartRun(ctx, req, runner, h.jobService); err != nil {
+		// Land the full error on the run record and report it. The scheduler
+		// releases the slot on this failed trigger; FailGraphJob must not emit
+		// the done callback or the slot would be released twice.
+		if failErr := h.jobService.FailGraphJob(ctx, j.ID, err.Error()); failErr != nil {
+			logger.Errorf(ctx, "[ScheduleTrigger] mark graph job failed: schedule=%s job=%s err=%v", task.ID, j.ID, failErr)
+		}
+		return j.ID, fmt.Errorf("schedule %s: start graph run failed: %w", task.ID, err)
+	}
+
+	// Stage three: run is live; the GraphRun terminal bridge takes over.
+	return j.ID, nil
+}
+
+// resolveScheduleWorkspaceWorkdir resolves the workspace and working directory a
+// scheduled task's run should use, applying the design's fallback rules:
+//
+//   - Workspace unset → default workspace (ws-1); not a failure.
+//   - Workspace deleted out of band → fall back to ws-1 AND clear the saved
+//     workdir (it pointed into the deleted workspace and is almost certainly
+//     gone too); warn only, not a failure.
+//   - Workdir unset → backfill the workspace's default workdir; not a failure.
+//   - Workdir invalid (missing / not a dir / outside the workspace) → failure.
+//   - Fallback default workspace still missing (ensure-default failed at boot)
+//     → failure.
+//
+// Scheduled tasks live in a global store independent of the workspace directory,
+// so deleting a workspace does NOT delete its schedules — they keep firing and
+// need a valid target resolved here.
+func (h *Handler) resolveScheduleWorkspaceWorkdir(ctx context.Context, task *model.ScheduledTask) (wsID, workdir string, ws *model.Workspace, err error) {
+	wsID = task.WorkspaceID
+	workdir = task.Workdir
+	if wsID == "" {
+		wsID = consts.DefaultWorkspaceID
+	}
+	ws, ok := h.workspaceService.Get(wsID)
+	if !ok {
+		logger.Warnf(ctx, "[ScheduleTrigger] workspace %s not found for task %s, falling back to %s", wsID, task.ID, consts.DefaultWorkspaceID)
+		wsID = consts.DefaultWorkspaceID
+		workdir = ""
+		ws, ok = h.workspaceService.Get(wsID)
+		if !ok {
+			return "", "", nil, fmt.Errorf("schedule %s: default workspace %s is missing; ensure-default may have failed at startup", task.ID, consts.DefaultWorkspaceID)
+		}
+	}
+	if workdir == "" && ws != nil {
+		workdir = ws.Workdir
+	}
+	if err := validateWorkdir(workdir); err != nil {
+		return "", "", nil, fmt.Errorf("schedule %s: invalid workdir: %w", task.ID, err)
+	}
+	if ws != nil {
+		if err := ensureWorkdirWithinWorkspace(workdir, ws.Workdir); err != nil {
+			return "", "", nil, fmt.Errorf("schedule %s: %w", task.ID, err)
+		}
+	}
+	return wsID, workdir, ws, nil
 }
 
 // getOrCreateSessionService returns (or creates) the session.Service for the given jobID.

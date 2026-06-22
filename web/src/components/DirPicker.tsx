@@ -1,16 +1,43 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './DirPicker.css';
 
+// Parent directory of an absolute POSIX path ('' when already at root or not
+// absolute). Used to recover when a file path is fed to a directory listing.
+function parentOf(path: string): string {
+  if (!path || !path.startsWith('/')) return '';
+  const trimmed = path.replace(/\/+$/, '');
+  const idx = trimmed.lastIndexOf('/');
+  if (idx <= 0) return idx === 0 ? '/' : '';
+  return trimmed.slice(0, idx);
+}
+
+interface DirFileEntry {
+  name: string;
+  size: number;
+  modTime: string;
+}
+
 interface DirPickerProps {
   initialPath: string;
   basePath?: string;
+  // When true the picker also lists files: clicking a directory navigates into
+  // it, clicking a file selects it, and Confirm returns the selected file (or
+  // the current directory when no file is chosen). Default false keeps the
+  // dir-only behavior used by workspace settings etc.
+  selectFile?: boolean;
+  // Optional dialog heading; defaults to "Select Working Directory".
+  title?: string;
   onConfirm: (path: string) => void;
   onCancel: () => void;
 }
 
-export function DirPicker({ initialPath, basePath, onConfirm, onCancel }: DirPickerProps) {
+export function DirPicker({ initialPath, basePath, selectFile, title, onConfirm, onCancel }: DirPickerProps) {
   const [currentPath, setCurrentPath] = useState(initialPath || '');
   const [dirs, setDirs] = useState<string[]>([]);
+  const [files, setFiles] = useState<DirFileEntry[]>([]);
+  // Absolute path of the file the user picked (file mode only). Cleared on any
+  // directory navigation so it never points outside the directory on screen.
+  const [selectedFile, setSelectedFile] = useState('');
   const [parentPath, setParentPath] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -32,31 +59,51 @@ export function DirPicker({ initialPath, basePath, onConfirm, onCancel }: DirPic
     return path === basePath || path.startsWith(normalizedBase);
   }, [basePath]);
 
-  const fetchDir = useCallback(async (path: string) => {
+  const fetchDir = useCallback(async (path: string, preselectFile?: string) => {
     // If basePath is set and the requested path is above it, clamp to basePath
     if (basePath && !isWithinBase(path)) {
       path = basePath;
     }
     setLoading(true);
     setError('');
+    setSelectedFile('');
+    // In file mode the requested path may point at a FILE (list-dir errors on a
+    // non-directory). Retry once against its parent and preselect the file, so
+    // re-opening the picker on a file-valued variable lands on the right folder.
+    let target = path;
+    let preselect = preselectFile || '';
     try {
-      const params = path ? `?path=${encodeURIComponent(path)}` : '';
-      const res = await fetch(`/api/v1/list-dir${params}`);
-      const data = await res.json();
-      if (data.code === 0) {
-        setCurrentPath(data.current);
-        setParentPath(data.parent || '');
-        setDirs(data.dirs || []);
-        setInputValue(data.current);
-      } else {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const query = new URLSearchParams();
+        if (target) query.set('path', target);
+        if (selectFile) query.set('showFiles', 'true');
+        const params = query.toString() ? `?${query.toString()}` : '';
+        const res = await fetch(`/api/v1/list-dir${params}`);
+        const data = await res.json();
+        if (data.code === 0) {
+          setCurrentPath(data.current);
+          setParentPath(data.parent || '');
+          setDirs(data.dirs || []);
+          setFiles(selectFile && Array.isArray(data.files) ? data.files : []);
+          setInputValue(data.current);
+          if (preselect) setSelectedFile(preselect);
+          return;
+        }
+        const parent = attempt === 0 && !preselect && selectFile ? parentOf(target) : '';
+        if (parent && parent !== target) {
+          preselect = target;
+          target = parent;
+          continue;
+        }
         setError(data.msg || 'Failed to list directory');
+        return;
       }
     } catch {
       setError('Network error');
     } finally {
       setLoading(false);
     }
-  }, [basePath, isWithinBase]);
+  }, [basePath, isWithinBase, selectFile]);
 
   const fetchRecentDirs = useCallback(async () => {
     try {
@@ -82,9 +129,14 @@ export function DirPicker({ initialPath, basePath, onConfirm, onCancel }: DirPic
     }
   };
 
-  const handleConfirm = (path: string) => {
-    saveRecentDir(path);
-    onConfirm(path);
+  // In file mode the user may pick a file; otherwise the current directory is
+  // the selection. saveRecentDir always records a directory, so derive the
+  // containing dir for a picked file.
+  const joinPath = (base: string, name: string) => (base === '/' ? '/' + name : base + '/' + name);
+  const effectiveSelected = selectFile && selectedFile ? selectedFile : currentPath;
+  const handleConfirmSelected = () => {
+    saveRecentDir(currentPath);
+    onConfirm(effectiveSelected);
   };
 
   const handleCreateFolder = async () => {
@@ -202,7 +254,7 @@ export function DirPicker({ initialPath, basePath, onConfirm, onCancel }: DirPic
     <div className="dirpicker-overlay" onClick={handleOverlayClick}>
       <div className="dirpicker-modal" ref={modalRef}>
         <div className="dirpicker-header">
-          <h3>Select Working Directory</h3>
+          <h3>{title || 'Select Working Directory'}</h3>
           {basePath && <div className="dirpicker-base-hint">Restricted to: {basePath}</div>}
           <button className="dirpicker-close" onClick={onCancel}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -336,8 +388,8 @@ export function DirPicker({ initialPath, basePath, onConfirm, onCancel }: DirPic
                 </div>
               )}
               {newFolderError && <div className="dirpicker-newfolder-error">{newFolderError}</div>}
-              {dirs.length === 0 && !parentPath && !newFolderMode && (
-                <div className="dirpicker-status">No subdirectories</div>
+              {dirs.length === 0 && files.length === 0 && !parentPath && !newFolderMode && (
+                <div className="dirpicker-status">{selectFile ? 'Empty directory' : 'No subdirectories'}</div>
               )}
               {dirs
                 .filter((d) => showHidden || !d.startsWith('.'))
@@ -345,7 +397,7 @@ export function DirPicker({ initialPath, basePath, onConfirm, onCancel }: DirPic
                   <div
                     key={dir}
                     className="dirpicker-item"
-                    onClick={() => fetchDir(currentPath === '/' ? '/' + dir : currentPath + '/' + dir)}
+                    onClick={() => fetchDir(joinPath(currentPath, dir))}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2">
                       <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
@@ -353,6 +405,25 @@ export function DirPicker({ initialPath, basePath, onConfirm, onCancel }: DirPic
                     <span>{dir}</span>
                   </div>
                 ))}
+              {selectFile &&
+                files
+                  .filter((f) => showHidden || !f.name.startsWith('.'))
+                  .map((file) => {
+                    const fullPath = joinPath(currentPath, file.name);
+                    return (
+                      <div
+                        key={file.name}
+                        className={`dirpicker-item dirpicker-file ${selectedFile === fullPath ? 'selected' : ''}`}
+                        onClick={() => setSelectedFile(fullPath)}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2">
+                          <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
+                          <path d="M13 2v7h7" />
+                        </svg>
+                        <span>{file.name}</span>
+                      </div>
+                    );
+                  })}
             </>
           )}
         </div>
@@ -360,11 +431,11 @@ export function DirPicker({ initialPath, basePath, onConfirm, onCancel }: DirPic
         <div className="dirpicker-footer">
           <div className="dirpicker-selected">
             <span className="dirpicker-selected-label">Selected:</span>
-            <code>{currentPath}</code>
+            <code>{effectiveSelected}</code>
           </div>
           <div className="dirpicker-actions">
             <button className="dirpicker-btn dirpicker-btn-cancel" onClick={onCancel}>Cancel</button>
-            <button className="dirpicker-btn dirpicker-btn-confirm" onClick={() => handleConfirm(currentPath)} disabled={!currentPath}>
+            <button className="dirpicker-btn dirpicker-btn-confirm" onClick={handleConfirmSelected} disabled={!effectiveSelected}>
               Confirm
             </button>
           </div>

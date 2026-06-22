@@ -103,6 +103,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	graph.POST("/run/:runId/stop", h.StopGraphRun)
 	graph.POST("/run/:runId/pause", h.PauseGraphRun)
 	graph.POST("/run/:runId/step-stop", h.StepStopGraphRun)
+	graph.POST("/run/:runId/cancel-stop", h.CancelStopGraphRun)
 	graph.POST("/run/:runId/resume", h.ResumeGraphRun)
 	graph.PUT("/run/:runId/version", h.UpdateGraphRunVersion)
 	graph.DELETE("/run/:runId", h.DeleteGraphRun)

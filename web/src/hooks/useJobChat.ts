@@ -17,9 +17,11 @@ import {
   type GraphInstanceKey,
   type GraphRunStatus,
   type GraphRunStatusResponse,
+  type GraphEvent,
 } from '../types';
 import { SSEClient } from '../utils/sse-client';
 import { mergeMessages } from '../utils/mergeMessages';
+import { translateGraphEvent } from '../utils/translateGraphEvent';
 import { useConnectionStatus } from '../contexts/ConnectionStatus';
 import { isKnownCommand } from '../utils/commands';
 import i18n from '../i18n';
@@ -210,19 +212,49 @@ function graphInstanceLabel(inst: GraphInstanceState): string {
   return base;
 }
 
+// instanceKeyString mirrors the backend (services/graph/runtime.go): a
+// main-scope key is just the node id; a loop-scoped key prefixes each iteration
+// as "loopNodeId#index/" ahead of the node id. Used to dedup archived instances
+// (keyed by this string on the run) against the live instance set.
+function instanceKeyString(key: GraphInstanceKey | undefined): string {
+  if (!key) return '';
+  if (!key.iterations || key.iterations.length === 0) return key.nodeId;
+  const parts = key.iterations.map((it) => `${it.loopNodeId}#${it.index}`);
+  parts.push(key.nodeId);
+  return parts.join('/');
+}
+
 // graphSessionEntries derives loop-style session entries from a graph run's
 // executed instances. Agent nodes (Prompt/Evaluator) expose their session via
 // sessionId; Shell nodes record their own transcript session in
 // displaySessionId. Nodes with neither (IfElse/start/end) have no session and
 // show on the mini canvas instead.
-function graphSessionEntries(instances: GraphInstanceState[]): LoopSessionEntry[] {
+//
+// `archived` (run.archivedInstances) carries instances a resume reset removed
+// from the live set but that still own a session — including succeeded loop
+// siblings wiped by a wholesale loop reset. They are merged back so the sidebar
+// keeps listing prior-attempt conversations across a resume. Live wins per
+// instance key: a re-run that reproduced a key supersedes its archived attempt,
+// so only keys absent from the live set are revived.
+function graphSessionEntries(
+  instances: GraphInstanceState[],
+  archived?: Record<string, GraphInstanceState>,
+): LoopSessionEntry[] {
+  let merged = instances;
+  if (archived) {
+    const liveKeys = new Set(instances.map((i) => instanceKeyString(i.key)));
+    const revived = Object.entries(archived)
+      .filter(([keyStr]) => !liveKeys.has(keyStr))
+      .map(([, inst]) => inst);
+    if (revived.length > 0) merged = [...instances, ...revived];
+  }
   const entries: LoopSessionEntry[] = [];
   // Order by execution start so the session sidebar numbers nodes in the
   // order they actually ran (e.g. an upstream Shell before its downstream
   // Prompt), not the backend's instance-map iteration order. Array.sort is
   // stable, so instances that share a startedAt — or have none yet (still
   // pending, sorted last) — keep their original relative order.
-  const ordered = [...instances].sort((a, b) => {
+  const ordered = [...merged].sort((a, b) => {
     const sa = a.startedAt ?? Number.POSITIVE_INFINITY;
     const sb = b.startedAt ?? Number.POSITIVE_INFINITY;
     return sa - sb;
@@ -2207,19 +2239,21 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     const reconcile = async () => {
       if (cancelled) return;
       let instances: GraphInstanceState[] = [];
+      let archivedInstances: Record<string, GraphInstanceState> | undefined;
       let runStatus: GraphRunStatus | undefined;
       try {
         const res = await fetch(apiUrl(`/graph/run/${encodeURIComponent(graphRunId)}`));
         if (!res.ok) return;
         const data = (await res.json()) as GraphRunStatusResponse;
         instances = data.instances || [];
+        archivedInstances = data.run?.archivedInstances;
         runStatus = data.run?.status;
       } catch (err) {
         console.error(`[graph-sse] reconcile fetch failed for run ${graphRunId}:`, err);
         return;
       }
       if (cancelled) return;
-      const entries = graphSessionEntries(instances);
+      const entries = graphSessionEntries(instances, archivedInstances);
       if (entries.length > 0) setLoopSessions(entries);
       // Follow the latest-started node's session while the user hasn't pinned an
       // earlier one, so a freshly-started node's session — and the user message
@@ -2267,21 +2301,41 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
     const client = new SSEClient();
     graphSseRef.current = client;
+    // Throttle reconciliation so a burst of events triggers at most one refetch
+    // per ~400ms instead of hammering the run-status endpoint.
+    const throttledReconcile = () => {
+      const now = Date.now();
+      if (now - lastInstanceRefreshAt < 400) return;
+      lastInstanceRefreshAt = now;
+      void reconcile();
+    };
     void client.connectUntilReady({
       url: apiUrl(`/graph/run/${encodeURIComponent(graphRunId)}/events`),
       initialLastEventId: '0',
       onEvent: (raw) => {
-        const evt = raw as unknown as { type?: string };
+        const evt = raw as unknown as GraphEvent;
         const t = evt.type;
         if (t === 'instanceStarted' || t === 'instanceCompleted' || t === 'instanceFailed'
           || t === 'instanceSkipped' || t === 'progressUpdated') {
-          // Throttle reconciliation so a burst of events triggers at most one
-          // refetch per ~400ms instead of hammering the run-status endpoint.
-          const now = Date.now();
-          if (now - lastInstanceRefreshAt < 400) return;
-          lastInstanceRefreshAt = now;
-          void reconcile();
+          throttledReconcile();
+          return;
         }
+        // Agent token stream: translate the graph event into the loop-mode
+        // AgentEvent shape and feed it through handleEvent so graph nodes stream
+        // token-by-token (thought / content / tool calls) exactly like loop
+        // iterations, instead of only surfacing at node completion.
+        const translated = translateGraphEvent(evt);
+        if (!translated) return;
+        // A node's first agent delta can arrive before reconcile has added its
+        // session to the list / made it the active (followed) conversation. The
+        // bubble is created tagged with its sessionId so nothing is lost, but it
+        // stays filtered out of view until the session is active — nudge a
+        // reconcile so the new session surfaces and follow-latest selects it.
+        const sid = evt.payload?.sessionId;
+        if (sid && !loopSessionsRef.current.some((s) => s.sessionId === sid)) {
+          throttledReconcile();
+        }
+        handleEventRef.current(translated);
       },
       onError: () => { /* progress component surfaces graph errors */ },
       onResumePointGone: () => void reconcile(),
@@ -3065,17 +3119,19 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           // populate the per-node conversation view.
           if (runId && !cancelled) {
             let graphInstances: GraphInstanceState[] = [];
+            let graphArchived: Record<string, GraphInstanceState> | undefined;
             try {
               const runRes = await fetch(apiUrl(`/graph/run/${encodeURIComponent(runId)}`));
               if (runRes.ok) {
                 const runData = (await runRes.json()) as GraphRunStatusResponse;
                 graphInstances = runData.instances || [];
+                graphArchived = runData.run?.archivedInstances;
               }
             } catch (err) {
               console.error(`[hydration] Failed to load graph run ${runId}:`, err);
             }
             if (!cancelled) {
-              const entries = graphSessionEntries(graphInstances);
+              const entries = graphSessionEntries(graphInstances, graphArchived);
               if (entries.length > 0) {
                 setLoopSessions(entries);
                 if (job.status !== 'running') {

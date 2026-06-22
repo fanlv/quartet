@@ -264,6 +264,18 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	// Graph jobs are driven by the graph scheduler, whose control handle lives
+	// in graphService keyed by GraphRunID — not in jobService's cancel table.
+	// A plain jobService.Stop would no-op (the job ID was never registered as a
+	// cancelable loop), so route hard-stop to the graph service instead.
+	if j.Mode == model.JobModeGraph && j.GraphRunID != "" {
+		if _, err := h.graphService.StopRun(ctx, j.GraphRunID); err != nil {
+			logger.Errorf(ctx, "[job] stop graph run failed: jobId=%s graphRunId=%s err=%v", jobID, j.GraphRunID, err)
+		}
+		c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopped"})
+		return
+	}
+
 	// Optional { "graceful": true } body switches from a hard Stop (cancel the
 	// context, interrupt the in-flight step, re-run it on Continue) to a
 	// graceful stop (let the current step finish, then stop at the next step

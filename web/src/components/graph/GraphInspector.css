@@ -173,6 +173,40 @@
   margin-bottom: 6px;
   align-items: center;
 }
+/* Built-in row swaps the editable name input for a read-only label and adds a
+   browse button: [name] [value] [browse] [disable]. */
+.gi-builtin-row {
+  grid-template-columns: minmax(54px, auto) 1fr auto auto;
+}
+.gi-builtin-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--graph-text, #e6edf3);
+  padding: 5px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gi-var-browse {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  background: var(--graph-panel-2, #1c2430);
+  border: 1px solid var(--graph-border-strong, #3d4856);
+  border-radius: 6px;
+  color: var(--graph-text-dim, #8b949e);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.gi-var-browse:hover:not(:disabled) {
+  border-color: var(--graph-accent, #4493f8);
+  color: var(--graph-text, #e6edf3);
+}
+.gi-var-browse:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .gi-var-row input {
   background: var(--graph-panel-2, #1c2430);
   border: 1px solid var(--graph-border-strong, #3d4856);
@@ -426,17 +460,23 @@
 @media (max-width: 768px) {
   .graph-inspector {
     --gi-drawer-peek: 54px;
+    /* --gi-kb-inset (keyboard height) and --gi-vv-height (visible viewport
+       height) are set by GraphInspector's visualViewport effect while the
+       on-screen keyboard is open. Until JS sets them they default to a
+       closed-keyboard state: 0 inset, full height. */
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--gi-kb-inset, 0px);
     z-index: 1200;
     width: 100%;
     border-left: none;
     border-top: 1px solid var(--graph-border, #2d3643);
     border-radius: 14px 14px 0 0;
     max-height: min(50vh, 480px);
-    max-height: min(50dvh, 480px);
+    /* Clamp to the area left above the keyboard so a tall drawer can't run off
+       the top of the screen once it has been lifted by --gi-kb-inset. */
+    max-height: min(50dvh, 480px, calc(var(--gi-vv-height, 100dvh) - 24px));
     box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.42);
     transform: translateY(0);
     transition: transform 180ms ease, box-shadow 180ms ease;
@@ -505,8 +545,10 @@
   }
 
   .gi-scroll {
-    max-height: calc(min(50vh, 480px) - var(--gi-drawer-peek));
-    max-height: calc(min(50dvh, 480px) - var(--gi-drawer-peek));
+    /* Height is driven by the parent's (keyboard-aware) max-height via flex:
+       `flex: 1; min-height: 0` from the base rule lets this area shrink and
+       scroll within whatever space the clamped drawer leaves above the
+       keyboard. A hardcoded max-height here would ignore the keyboard clamp. */
     padding: 12px 14px calc(18px + env(safe-area-inset-bottom, 0px));
     transition: opacity 140ms ease;
   }

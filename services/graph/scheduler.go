@@ -294,6 +294,10 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 		sc.seedFresh(ctx)
 	}
 	if sc.failed {
+		// Seed failed (e.g. resume rebuild error). Snapshot the live loop scopes
+		// before persisting so a subsequent resume can continue in-flight loops
+		// from their current round rather than wholesale re-running them.
+		sc.snapshotLoopState()
 		sc.interruptRunning(ctx, "cancelled after graph run failure")
 		sc.persist(ctx)
 		return
@@ -375,6 +379,10 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 			sc.handleResult(ctx, res)
 			if sc.failed {
 				cancelWorkers()
+				// Snapshot in-flight loop scopes before interrupting/persisting so a
+				// resume continues each loop from its current round (step-level
+				// resume) instead of re-running the whole loop from round 0.
+				sc.snapshotLoopState()
 				sc.interruptRunning(ctx, "cancelled after graph run failure")
 				sc.drain(resultCh, &inFlight)
 				sc.persist(ctx)
@@ -397,6 +405,10 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 			}
 			if sig.kind == ctrlUpdateVersion {
 				sc.applyVersionUpdate(ctx, sig)
+				continue
+			}
+			if sig.kind == ctrlCancelStop {
+				sc.cancelGracefulSignal(ctx, sig)
 				continue
 			}
 			sc.applyGracefulSignal(ctx, sig)
@@ -963,6 +975,9 @@ func (sc *scheduler) finishForContextError(ctx context.Context, err error) {
 		if sc.run.Progress != nil {
 			sc.run.Progress.LastError = rerr.Message
 		}
+		// Snapshot in-flight loop scopes so a resume after timeout continues each
+		// loop from its current round instead of re-running it from round 0.
+		sc.snapshotLoopState()
 		sc.persist(ctx)
 		sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeError, nil, "", "", rerr.Message, sc.run.Progress, rerr)
 		logger.Errorf(ctx, "[graph] job timeout: runId=%s jobId=%s timeout=%s err=%v", sc.run.ID, sc.run.JobID, timeout, err)

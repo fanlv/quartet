@@ -165,6 +165,10 @@ export interface GraphRun {
   createdAt: string;
   updatedAt: string;
   lastError?: GraphRuntimeError;
+  // Instances a resume reset removed from the live set but that carried a
+  // session; preserved so the Chat sidebar keeps listing prior-attempt
+  // conversations. Keyed by instance-key string. Live instances win on overlap.
+  archivedInstances?: Record<string, GraphInstanceState>;
 }
 
 export interface GraphRunSnapshot {

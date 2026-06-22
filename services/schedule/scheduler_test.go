@@ -295,6 +295,9 @@ func TestRecordTrigger_TriggerError(t *testing.T) {
 	if got.RunCount != 1 {
 		t.Errorf("RunCount = %d, want 1", got.RunCount)
 	}
+	if got.LastTriggerError != context.DeadlineExceeded.Error() {
+		t.Errorf("LastTriggerError = %q, want %q", got.LastTriggerError, context.DeadlineExceeded.Error())
+	}
 }
 
 // TestRecordTrigger_FirstRun covers the empty-state path where a schedule
@@ -315,5 +318,23 @@ func TestRecordTrigger_FirstRun(t *testing.T) {
 	}
 	if got.LastRunAt == nil || time.Since(*got.LastRunAt) > time.Minute {
 		t.Errorf("LastRunAt not updated to recent time: %v", got.LastRunAt)
+	}
+}
+
+func TestRecordTrigger_SuccessClearsLastTriggerError(t *testing.T) {
+	task := &model.ScheduledTask{
+		ID:               "sch-test",
+		CronExpr:         "* * * * *",
+		LastStatus:       model.JobStatusFailed,
+		LastTriggerError: "previous trigger failed",
+	}
+	svc := newFakeService(task)
+	s := NewScheduler(svc, nil)
+
+	s.RecordTrigger(context.Background(), task.ID, "job-new", "* * * * *", nil)
+
+	got, _ := svc.Get(context.Background(), task.ID)
+	if got.LastTriggerError != "" {
+		t.Errorf("LastTriggerError = %q, want cleared", got.LastTriggerError)
 	}
 }

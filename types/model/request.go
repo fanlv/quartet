@@ -67,25 +67,29 @@ type UpdateWorkspaceRequest struct {
 // ---- Scheduled Task requests ----
 
 type CreateScheduleRequest struct {
-	Name          string     `json:"name"`
-	CronExpr      string     `json:"cronExpr"`
-	TemplateID    string     `json:"templateId,omitempty"`
-	LoopConfig    LoopConfig `json:"loopConfig"`
-	WorkspaceID   string     `json:"workspaceId,omitempty"`
-	Workdir       string     `json:"workdir,omitempty"`
-	MaxConcurrent int        `json:"maxConcurrent,omitempty"`
-	Timeout       int        `json:"timeout,omitempty"`
+	Name            string             `json:"name"`
+	CronExpr        string             `json:"cronExpr"`
+	TargetType      ScheduleTargetType `json:"targetType,omitempty"`
+	TemplateID      string             `json:"templateId,omitempty"`
+	GraphWorkflowID string             `json:"graphWorkflowId,omitempty"`
+	LoopConfig      LoopConfig         `json:"loopConfig"`
+	WorkspaceID     string             `json:"workspaceId,omitempty"`
+	Workdir         string             `json:"workdir,omitempty"`
+	MaxConcurrent   int                `json:"maxConcurrent,omitempty"`
+	Timeout         int                `json:"timeout,omitempty"`
 	// Enabled lets the caller opt out of activating the schedule on create.
 	// nil keeps the historical "enabled by default" behavior.
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
 type UpdateScheduleRequest struct {
-	Name          *string     `json:"name,omitempty"`
-	CronExpr      *string     `json:"cronExpr,omitempty"`
-	Enabled       *bool       `json:"enabled,omitempty"`
-	TemplateID    *string     `json:"templateId,omitempty"`
-	LoopConfig    *LoopConfig `json:"loopConfig,omitempty"`
-	MaxConcurrent *int        `json:"maxConcurrent,omitempty"`
-	Timeout       *int        `json:"timeout,omitempty"`
+	Name            *string             `json:"name,omitempty"`
+	CronExpr        *string             `json:"cronExpr,omitempty"`
+	Enabled         *bool               `json:"enabled,omitempty"`
+	TargetType      *ScheduleTargetType `json:"targetType,omitempty"`
+	TemplateID      *string             `json:"templateId,omitempty"`
+	GraphWorkflowID *string             `json:"graphWorkflowId,omitempty"`
+	LoopConfig      *LoopConfig         `json:"loopConfig,omitempty"`
+	MaxConcurrent   *int                `json:"maxConcurrent,omitempty"`
+	Timeout         *int                `json:"timeout,omitempty"`
 }

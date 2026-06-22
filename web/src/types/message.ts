@@ -163,7 +163,9 @@ export interface ScheduleInfo {
   name: string;
   enabled: boolean;
   cronExpr: string;
+  targetType: 'loop' | 'graphWorkflow';
   templateId?: string;
+  graphWorkflowId?: string;
   loopConfig?: LoopConfig;
   workspaceId: string;
   workdir?: string;
@@ -172,6 +174,7 @@ export interface ScheduleInfo {
   lastRunAt?: number;
   lastRunJobID?: string;
   lastStatus?: string;
+  lastTriggerError?: string;
   nextRunAt?: number;
   runCount: number;
   createdAt: number;

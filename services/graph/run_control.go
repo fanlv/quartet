@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -25,6 +26,12 @@ func (s *serviceImpl) PauseRun(ctx context.Context, runID string) (*model.GraphR
 // StepStopRun freezes the current ready batch and stops after it.
 func (s *serviceImpl) StepStopRun(ctx context.Context, runID string) (*model.GraphRun, error) {
 	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlStepStop, reason: "step-stopped by user"})
+}
+
+// CancelStopRun cancels a pending pause / step-stop that has not yet settled,
+// releasing the held dispatch frontier and returning the run to running.
+func (s *serviceImpl) CancelStopRun(ctx context.Context, runID string) (*model.GraphRun, error) {
+	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlCancelStop, reason: "stop cancelled by user"})
 }
 
 // signalAndSnapshot delivers a control signal then returns the current run
@@ -93,8 +100,23 @@ func (s *serviceImpl) ResumeRun(ctx context.Context, runID string, runner Runner
 	}
 
 	cfg := effectiveConfig(run)
-	rb := newResumeBuilder(cfg, instances, edges, vars)
+	var loopState map[string]model.GraphLoopState
+	if run.Resume != nil {
+		loopState = run.Resume.LoopState
+	}
+	rb := newResumeBuilder(cfg, instances, edges, vars, loopState)
 	rb.resetResettable()
+
+	// Preserve the sessions of instances the reset removed so the Chat sidebar
+	// keeps listing prior-attempt conversations across the resume. A re-run that
+	// reaches the same instance key overwrites the live instance; the archive is
+	// only consulted for keys no longer present live (frontend merges live-first).
+	if len(rb.archived) > 0 {
+		if run.ArchivedInstances == nil {
+			run.ArchivedInstances = map[string]model.GraphInstanceState{}
+		}
+		maps.Copy(run.ArchivedInstances, rb.archived)
+	}
 
 	if err := s.runRepo.SaveInstances(ctx, runID, rb.instances); err != nil {
 		return nil, err

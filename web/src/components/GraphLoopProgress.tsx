@@ -131,6 +131,9 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
   const isLive = !!run?.status && LIVE_STATUSES.has(run.status);
   const canPause = !readOnly && run?.status === 'running';
   const canStepStop = !readOnly && run?.status === 'running';
+  // A pending pause / step-stop (not yet settled) can be cancelled, releasing
+  // the held dispatch frontier back to running — mirrors Loop's "keep running".
+  const canCancelStop = !readOnly && (run?.status === 'pausing' || run?.status === 'stepStopping');
   const canStop = !readOnly && !!run?.status && LIVE_STATUSES.has(run.status);
   const canResume = !readOnly && !!run?.status && RESUMABLE_STATUSES.has(run.status);
   const canEditRun = !!canEdit && !readOnly && !!run?.status && EDITABLE_STATUSES.has(run.status);
@@ -214,7 +217,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
     };
   }, [isLive, refresh, runId]);
 
-  const doAction = useCallback(async (action: 'pause' | 'step-stop' | 'stop' | 'resume') => {
+  const doAction = useCallback(async (action: 'pause' | 'step-stop' | 'cancel-stop' | 'stop' | 'resume') => {
     if (!runId) return;
     setActionPending(action);
     setError('');
@@ -429,14 +432,28 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
                   <span>{t('graph.loop.edit')}</span>
                 </button>
               )}
-              <button type="button" className="graph-loop-action warn" onClick={() => void doAction('pause')} disabled={!canPause || !!actionPending} title={t('graph.loop.pauseTitle')}>
-                <GraphActionIcon type="pause" />
-                <span>{t('graph.loop.pause')}</span>
-              </button>
-              <button type="button" className="graph-loop-action warn" onClick={() => void doAction('step-stop')} disabled={!canStepStop || !!actionPending} title={t('graph.loop.stepStopTitle')}>
-                <GraphActionIcon type="step" />
-                <span>{t('graph.loop.stepStop')}</span>
-              </button>
+              {run?.status === 'pausing' ? (
+                <button type="button" className="graph-loop-action primary" onClick={() => void doAction('cancel-stop')} disabled={!canCancelStop || !!actionPending} title={t('graph.loop.cancelStopTitle')}>
+                  <GraphActionIcon type="keepRunning" />
+                  <span>{t('graph.loop.cancelStop')}</span>
+                </button>
+              ) : (
+                <button type="button" className="graph-loop-action warn" onClick={() => void doAction('pause')} disabled={!canPause || !!actionPending} title={t('graph.loop.pauseTitle')}>
+                  <GraphActionIcon type="pause" />
+                  <span>{t('graph.loop.pause')}</span>
+                </button>
+              )}
+              {run?.status === 'stepStopping' ? (
+                <button type="button" className="graph-loop-action primary" onClick={() => void doAction('cancel-stop')} disabled={!canCancelStop || !!actionPending} title={t('graph.loop.cancelStopTitle')}>
+                  <GraphActionIcon type="keepRunning" />
+                  <span>{t('graph.loop.cancelStop')}</span>
+                </button>
+              ) : (
+                <button type="button" className="graph-loop-action warn" onClick={() => void doAction('step-stop')} disabled={!canStepStop || !!actionPending} title={t('graph.loop.stepStopTitle')}>
+                  <GraphActionIcon type="step" />
+                  <span>{t('graph.loop.stepStop')}</span>
+                </button>
+              )}
               <button type="button" className="graph-loop-action danger" onClick={() => void doAction('stop')} disabled={!canStop || !!actionPending} title={t('graph.loop.stopTitle')}>
                 <GraphActionIcon type="stop" />
                 <span>{t('graph.loop.stop')}</span>
@@ -553,12 +570,15 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
   );
 }
 
-function GraphActionIcon({ type }: { type: 'edit' | 'pause' | 'step' | 'stop' | 'resume' | 'expand' | 'collapse' | 'save' | 'cancel' }) {
+function GraphActionIcon({ type }: { type: 'edit' | 'pause' | 'step' | 'stop' | 'resume' | 'keepRunning' | 'expand' | 'collapse' | 'save' | 'cancel' }) {
   if (type === 'expand') {
     return <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>;
   }
   if (type === 'collapse') {
     return <svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6" /></svg>;
+  }
+  if (type === 'keepRunning') {
+    return <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7-11-7Z" /><path d="M4 6v12" /></svg>;
   }
   if (type === 'save') {
     return <svg viewBox="0 0 24 24"><path d="M5 4h12l2 2v14H5Z" /><path d="M8 4v6h8V4" /><path d="M8 20v-6h8v6" /></svg>;

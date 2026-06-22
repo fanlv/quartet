@@ -199,23 +199,26 @@ type ListWorkspacesResponse struct {
 // ---- Scheduled Task responses ----
 
 type ScheduleInfo struct {
-	ID            string      `json:"id"`
-	Name          string      `json:"name"`
-	Enabled       bool        `json:"enabled"`
-	CronExpr      string      `json:"cronExpr"`
-	TemplateID    string      `json:"templateId,omitempty"`
-	LoopConfig    *LoopConfig `json:"loopConfig,omitempty"`
-	WorkspaceID   string      `json:"workspaceId,omitempty"`
-	Workdir       string      `json:"workdir,omitempty"`
-	MaxConcurrent int         `json:"maxConcurrent,omitempty"`
-	Timeout       int         `json:"timeout,omitempty"`
-	LastRunAt     *int64      `json:"lastRunAt,omitempty"`
-	LastRunJobID  string      `json:"lastRunJobID,omitempty"`
-	LastStatus    JobStatus   `json:"lastStatus,omitempty"`
-	NextRunAt     *int64      `json:"nextRunAt,omitempty"`
-	RunCount      int         `json:"runCount"`
-	CreatedAt     int64       `json:"createdAt"`
-	UpdatedAt     int64       `json:"updatedAt"`
+	ID               string             `json:"id"`
+	Name             string             `json:"name"`
+	Enabled          bool               `json:"enabled"`
+	CronExpr         string             `json:"cronExpr"`
+	TargetType       ScheduleTargetType `json:"targetType"`
+	TemplateID       string             `json:"templateId,omitempty"`
+	GraphWorkflowID  string             `json:"graphWorkflowId,omitempty"`
+	LoopConfig       *LoopConfig        `json:"loopConfig,omitempty"`
+	WorkspaceID      string             `json:"workspaceId,omitempty"`
+	Workdir          string             `json:"workdir,omitempty"`
+	MaxConcurrent    int                `json:"maxConcurrent,omitempty"`
+	Timeout          int                `json:"timeout,omitempty"`
+	LastRunAt        *int64             `json:"lastRunAt,omitempty"`
+	LastRunJobID     string             `json:"lastRunJobID,omitempty"`
+	LastStatus       JobStatus          `json:"lastStatus,omitempty"`
+	LastTriggerError string             `json:"lastTriggerError,omitempty"`
+	NextRunAt        *int64             `json:"nextRunAt,omitempty"`
+	RunCount         int                `json:"runCount"`
+	CreatedAt        int64              `json:"createdAt"`
+	UpdatedAt        int64              `json:"updatedAt"`
 }
 
 type CreateScheduleResponse struct {

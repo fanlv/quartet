@@ -7,6 +7,20 @@ import (
 	"time"
 )
 
+type ScheduleTargetType string
+
+const (
+	ScheduleTargetTypeLoop          ScheduleTargetType = "loop"
+	ScheduleTargetTypeGraphWorkflow ScheduleTargetType = "graphWorkflow"
+)
+
+func NormalizeScheduleTargetType(t ScheduleTargetType) ScheduleTargetType {
+	if t == "" {
+		return ScheduleTargetTypeLoop
+	}
+	return t
+}
+
 type ScheduledTask struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
@@ -15,10 +29,18 @@ type ScheduledTask struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 
+	// TargetType controls which execution fields are meaningful. Empty is
+	// treated as loop for tasks persisted before target types existed.
+	TargetType ScheduleTargetType `json:"targetType,omitempty"`
+
 	// Reference to the template this schedule was created from (optional).
 	// When set, the trigger re-reads the live template at run time, so editing
 	// the template changes what this schedule executes on its next run.
 	TemplateID string `json:"templateId,omitempty"`
+
+	// GraphWorkflowID references a saved Graph workflow when TargetType is
+	// graphWorkflow. Workflow schedules do not keep a config snapshot.
+	GraphWorkflowID string `json:"graphWorkflowId,omitempty"`
 
 	// Execution configuration. Copied from the template at creation time and
 	// used as a fallback snapshot when TemplateID is empty or the live template
@@ -42,8 +64,12 @@ type ScheduledTask struct {
 	LastRunAt    *time.Time `json:"lastRunAt,omitempty"`
 	LastRunJobID string     `json:"lastRunJobID,omitempty"`
 	LastStatus   JobStatus  `json:"lastStatus,omitempty"`
-	NextRunAt    *time.Time `json:"nextRunAt,omitempty"`
-	RunCount     int        `json:"runCount"`
+	// LastTriggerError stores the full error text for failures that happen while
+	// trying to create/start the scheduled run, before the run can report its own
+	// terminal error.
+	LastTriggerError string     `json:"lastTriggerError,omitempty"`
+	NextRunAt        *time.Time `json:"nextRunAt,omitempty"`
+	RunCount         int        `json:"runCount"`
 }
 
 func NewScheduleID() string {

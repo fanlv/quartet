@@ -60,6 +60,10 @@ type Service interface {
 	// StepStopRun freezes the current ready batch and stops after its members
 	// reach a terminal state; the run becomes "stepStopped" and stays resumable.
 	StepStopRun(ctx context.Context, runID string) (*model.GraphRun, error)
+	// CancelStopRun cancels a pending pause / step-stop that has not yet settled
+	// (run still in pausing / stepStopping): the held dispatch frontier is
+	// released and the run returns to "running".
+	CancelStopRun(ctx context.Context, runID string) (*model.GraphRun, error)
 	// ResumeRun re-launches a resumable GraphRun (failed/paused/stepStopped/
 	// stopped/timedOut/recovering): succeeded/skipped instances are kept,
 	// failed/interrupted ones are reset and rescheduled.
@@ -93,6 +97,7 @@ const (
 	ctrlHardStop      controlSignalKind = iota // 硬停止
 	ctrlPause                                  // 暂停 / 优雅停止
 	ctrlStepStop                               // 步骤后停止
+	ctrlCancelStop                             // 取消待生效的暂停 / 步骤后停止
 	ctrlUpdateVersion                          // 运行中追加图版本
 )
 

@@ -97,7 +97,32 @@ func (sc *scheduler) applyGracefulSignal(ctx context.Context, sig controlSignal)
 	sc.persist(ctx)
 }
 
-// freezeCurrentBatch snapshots the set of business instances currently in
+// cancelGracefulSignal reverses a not-yet-settled pause / step-stop request,
+// returning the run to running. Because a graceful stop never cancels in-flight
+// work (it only gates dispatch), clearing the flags simply releases the held
+// dispatch frontier: the next loop pass dispatches the previously-blocked ready
+// items again. The frozen batch is discarded so a later step-stop re-freezes
+// cleanly. No-op if no graceful stop is pending.
+func (sc *scheduler) cancelGracefulSignal(ctx context.Context, sig controlSignal) {
+	if !sc.pauseRequested && !sc.stepStop {
+		return
+	}
+	wasStepStop := sc.stepStop
+	sc.pauseRequested = false
+	sc.stepStop = false
+	sc.stopReason = ""
+	sc.curBatch = nil
+	if sc.run.Resume != nil {
+		sc.run.Resume.FrozenBatch = nil
+	}
+	sc.run.Status = model.GraphRunStatusRunning
+	sc.run.UpdatedAt = time.Now()
+	sc.persist(ctx)
+	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeProgressUpdated, nil, "", "",
+		orDefault(sig.reason, "stop cancelled"), sc.run.Progress, nil)
+	logger.Infof(ctx, "[graph] graceful stop cancelled: runId=%s wasStepStop=%v ready=%d",
+		sc.run.ID, wasStepStop, len(sc.ready))
+}
 // flight or queued (the "current ready batch", §2) into Resume.FrozenBatch.
 // Only these members may keep dispatching; downstream instances decided later
 // are held until resume.
@@ -195,8 +220,14 @@ func (sc *scheduler) rollbackUndispatched(_ context.Context) {
 
 // snapshotLoopState walks the live scope tree and records one GraphLoopState per
 // active loop container so a fresh scheduler can rebuild the scope tree on
-// resume (§4 Resume/续跑). Completed loops are derivable from their succeeded
-// container instance, so only in-flight loops are persisted.
+// resume (§4 Resume/续跑). It is called on every resumable terminal transition —
+// graceful pause/step-stop AND failure/timeout — so a resume continues each
+// in-flight loop from its current round (step-level resume) rather than
+// re-running it from round 0. Completed loops are derivable from their succeeded
+// container instance, so only in-flight loops (still in sc.activeLoops) are
+// persisted; a loop removed from activeLoops before failure (e.g. failLoopNode
+// on an until-condition error) is intentionally absent and degrades to a
+// wholesale re-run on resume (its condition is suspect).
 func (sc *scheduler) snapshotLoopState() {
 	if sc.run.Resume == nil {
 		sc.run.Resume = &model.GraphResumeState{}
@@ -209,6 +240,7 @@ func (sc *scheduler) snapshotLoopState() {
 			CurrentIteration: scope.iterIndex,
 			Completed:        false,
 			Variables:        cloneStringMap(scope.roundEntry),
+			EntrySession:     scope.roundEntrySession,
 		}
 	}
 	sc.run.Resume.LoopState = states

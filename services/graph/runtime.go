@@ -719,6 +719,19 @@ type graphEventHandler struct {
 	content           strings.Builder
 	msgID             string
 	thoughtID         string
+	// lastStartedID is the id assigned by the most recent OnMessageStart /
+	// OnThoughtStart and is what LastMessageID returns. The round.Builder
+	// calls LastMessageID immediately after each Start to capture either the
+	// message id (KeyMsgID) or the thought id (KeyThoughtMsgID) for the round
+	// it is about to flush. Returning only msgID here would leave
+	// currentThoughtMsgID empty, so the reasoning segment is persisted WITHOUT
+	// a thought_msg_id — which makes the history API fold the thought into the
+	// content bubble instead of emitting it as its own ordered entry, and the
+	// frontend's mergeMessages then appends every live thought bubble to the
+	// END of the conversation on reload. Tracking the last-started id (matching
+	// services/job loopEventHandler's single-id semantics) keeps thought and
+	// content correlatable across live SSE and history reload.
+	lastStartedID     string
 	currentMessageBuf strings.Builder
 	nextBoundaryTs    int64
 	usage             *usagestats.Accumulator
@@ -780,6 +793,7 @@ func (h *graphEventHandler) OnMessageStart() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.msgID = uuid.NewString()
+	h.lastStartedID = h.msgID
 	h.currentMessageBuf.Reset()
 	h.appendEventLocked(model.GraphEventTypeAgentMessageStart, "agent message started", map[string]string{"messageId": h.msgID}, h.timestampLocked())
 	return nil
@@ -807,12 +821,13 @@ func (h *graphEventHandler) OnMessageEnd() error {
 func (h *graphEventHandler) LastMessageID() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.msgID
+	return h.lastStartedID
 }
 func (h *graphEventHandler) OnThoughtStart() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.thoughtID = uuid.NewString()
+	h.lastStartedID = h.thoughtID
 	h.currentMessageBuf.Reset()
 	h.appendEventLocked(model.GraphEventTypeAgentThoughtStart, "agent thought started", map[string]string{"messageId": h.thoughtID}, h.timestampLocked())
 	return nil

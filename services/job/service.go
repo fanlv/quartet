@@ -68,11 +68,22 @@ type Service interface {
 	SetFirstModelID(jobID string, modelID string) error
 	// SetGraphRunState updates the Job fields owned by a Graph run. It is the
 	// narrow bridge that lets the independent graph engine keep the Job list /
-	// history entry in sync without sharing Loop runtime state.
+	// history entry in sync without sharing Loop runtime state. Terminal graph
+	// statuses also emit the normal OnJobDone callback so scheduled graph runs
+	// release their scheduler concurrency slot and update their owning schedule.
 	SetGraphRunState(ctx context.Context, jobID, graphRunID string, status model.JobStatus, startedAt, finishedAt int64) error
 	// ClearGraphRunLinkage detaches a Job from a deleted GraphRun, but only if it
 	// is still bound to that exact run. Best-effort cleanup on GraphRun delete.
 	ClearGraphRunLinkage(ctx context.Context, jobID, graphRunID string) error
+	// FailGraphJob forces a Graph-type Job to the Failed terminal status and
+	// records message on Progress.LastError. It is used by the schedule trigger's
+	// stage-two path (the Job was created but graphService.StartRun failed
+	// synchronously, before runGraph launched, so no GraphRun terminal callback
+	// will ever fire). Unlike SetGraphRunState it does NOT emit OnJobDone: the
+	// scheduler already releases the concurrency slot on the failed trigger, so
+	// firing the done callback here would double-release the slot. Idempotent:
+	// a no-op if the Job is already terminal.
+	FailGraphJob(ctx context.Context, jobID, message string) error
 
 	// ReplaceLoopConfig swaps a non-running loop job's whole LoopConfig (full
 	// structure edit). It recomputes the progress denominator and reconciles

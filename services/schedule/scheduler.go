@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,6 +13,12 @@ import (
 	"github.com/fanlv/quartet/pkg/safe"
 	"github.com/fanlv/quartet/types/model"
 )
+
+// ErrScheduleMaxConcurrent is returned by RunNow when a manual trigger is
+// refused because the schedule already has maxConcurrent runs in flight. The
+// HTTP layer maps it to 409 Conflict and, unlike a real trigger failure, it is
+// NOT recorded on the task (no slot was taken, no run was attempted).
+var ErrScheduleMaxConcurrent = errors.New("schedule max concurrent reached")
 
 // TriggerFunc is called by the scheduler to create and start a job for the given task.
 type TriggerFunc func(ctx context.Context, task *model.ScheduledTask) (jobID string, err error)
@@ -154,7 +161,11 @@ func (s *Scheduler) tryTrigger(ctx context.Context, task *model.ScheduledTask) {
 		if err != nil {
 			logger.Errorf(ctx, "[scheduler] trigger failed: schedule=%s (%s) err=%v", scheduleID, scheduleName, err)
 			s.decrRunning(scheduleID)
-			s.RecordTrigger(context.Background(), scheduleID, "", cronExpr, err)
+			// Pass the real jobID (empty for stage-one failures, set once a run
+			// job was created — e.g. a graph trigger that failed to start). When
+			// non-empty, RecordTrigger points LastRunJobID at that real, openable
+			// run record so the failure isn't a dangling reference.
+			s.RecordTrigger(context.Background(), scheduleID, jobID, cronExpr, err)
 			return
 		}
 		jobCreated = true
@@ -165,6 +176,13 @@ func (s *Scheduler) tryTrigger(ctx context.Context, task *model.ScheduledTask) {
 
 // RunNow manually triggers a task, respecting maxConcurrent.
 // Returns the job ID or an error.
+//
+// RunNow records the trigger outcome itself (success or failure) via
+// RecordTrigger, so cron (tryTrigger) and manual paths share one failure-record
+// rule per the design's "手动立即运行与 cron 触发统一失败记录". An over-limit
+// refusal returns ErrScheduleMaxConcurrent and is intentionally NOT recorded: no
+// slot was taken and no run was attempted. RecordTrigger runs on a background
+// context so a disconnected HTTP request can't cancel the status write-back.
 func (s *Scheduler) RunNow(ctx context.Context, task *model.ScheduledTask) (string, error) {
 	s.mu.Lock()
 	maxConcurrent := task.MaxConcurrent
@@ -174,7 +192,7 @@ func (s *Scheduler) RunNow(ctx context.Context, task *model.ScheduledTask) (stri
 	if s.runningCount[task.ID] >= maxConcurrent {
 		current := s.runningCount[task.ID]
 		s.mu.Unlock()
-		return "", fmt.Errorf("max concurrent reached (%d/%d), please wait for current run to finish", current, maxConcurrent)
+		return "", fmt.Errorf("%w (%d/%d), please wait for current run to finish", ErrScheduleMaxConcurrent, current, maxConcurrent)
 	}
 	s.runningCount[task.ID]++
 	s.mu.Unlock()
@@ -183,9 +201,11 @@ func (s *Scheduler) RunNow(ctx context.Context, task *model.ScheduledTask) (stri
 	if err != nil {
 		// Trigger failed — no job will call MarkDone, so decrement now.
 		s.decrRunning(task.ID)
-		return "", err
+		s.RecordTrigger(context.Background(), task.ID, jobID, task.CronExpr, err)
+		return jobID, err
 	}
 	// runningCount will be decremented in MarkDone when the job finishes.
+	s.RecordTrigger(context.Background(), task.ID, jobID, task.CronExpr, nil)
 	return jobID, nil
 }
 
@@ -273,6 +293,14 @@ func (s *Scheduler) RecordTrigger(ctx context.Context, scheduleID, jobID, cronEx
 	task.RunCount++
 	if triggerErr != nil {
 		task.LastStatus = model.JobStatusFailed
+		task.LastTriggerError = triggerErr.Error()
+		// Point LastRunJobID at the run record only when one was actually
+		// created (stage-two graph failure: job exists but StartRun failed).
+		// Stage-one failures pass an empty jobID — keep the previous reference
+		// untouched so the schedule doesn't claim a run that never existed.
+		if jobID != "" {
+			task.LastRunJobID = jobID
+		}
 	} else {
 		// Preserve a terminal LastStatus only when it belongs to the *same*
 		// jobID we're about to record — that's the race we care about (a
@@ -287,6 +315,7 @@ func (s *Scheduler) RecordTrigger(ctx context.Context, scheduleID, jobID, cronEx
 		} else {
 			task.LastStatus = model.JobStatusRunning
 		}
+		task.LastTriggerError = ""
 	}
 	task.NextRunAt = NextCronTime(cronExpr, now)
 	task.UpdatedAt = time.Now()

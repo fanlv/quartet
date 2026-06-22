@@ -133,16 +133,18 @@ func (s *serviceImpl) SetFirstModelID(jobID string, modelID string) error {
 func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID string, status model.JobStatus, startedAt, finishedAt int64) error {
 	lock := s.persistLock(jobID)
 	lock.Lock()
-	defer lock.Unlock()
 
+	var doneJob *model.Job
 	s.mu.Lock()
 	existing, ok := s.jobs[jobID]
 	if !ok {
 		s.mu.Unlock()
+		lock.Unlock()
 		return ErrJobNotFound
 	}
 	if existing.Deleted {
 		s.mu.Unlock()
+		lock.Unlock()
 		return ErrJobDeleted
 	}
 	cp := existing.DeepCopy()
@@ -160,10 +162,15 @@ func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID stri
 
 	repo, err := s.getOrCreateRepo(cp.WorkspaceID)
 	if err != nil {
+		lock.Unlock()
 		return fmt.Errorf("get repo for workspace %s failed: %w", cp.WorkspaceID, err)
 	}
 	if err := repo.Save(cp.ID, cp); err != nil {
+		lock.Unlock()
 		return err
+	}
+	if isTerminalJobStatus(cp.Status) {
+		doneJob = cp
 	}
 
 	s.mu.Lock()
@@ -178,6 +185,13 @@ func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID stri
 	s.mu.Unlock()
 
 	s.bumpListVersion(cp.WorkspaceID)
+	lock.Unlock()
+	if status == model.JobStatusPending || status == model.JobStatusRunning {
+		s.clearJobDoneNotified(jobID)
+	}
+	if doneJob != nil {
+		s.notifyJobDone(doneJob)
+	}
 	return nil
 }
 
@@ -225,6 +239,43 @@ func (s *serviceImpl) ClearGraphRunLinkage(_ context.Context, jobID, graphRunID 
 	s.mu.Unlock()
 
 	s.bumpListVersion(cp.WorkspaceID)
+	return nil
+}
+
+// FailGraphJob forces a Graph-type Job to the Failed terminal status with
+// message on Progress.LastError. See the Service interface for why it must NOT
+// emit OnJobDone (the scheduler releases the slot on the failed trigger; firing
+// the done callback would double-release).
+//
+// It reuses failJob — the same terminal path runLoop uses — so status flip,
+// persistence and the terminal SSE event all stay consistent. isLoopRun=false
+// guarantees failJob skips notifyJobDone; a Graph Job carries no Resume and no
+// interactive prior status, so applyTerminalStatusLocked writes Failed directly.
+func (s *serviceImpl) FailGraphJob(ctx context.Context, jobID, message string) error {
+	s.mu.Lock()
+	existing, ok := s.jobs[jobID]
+	if !ok {
+		s.mu.Unlock()
+		return ErrJobNotFound
+	}
+	if existing.Deleted {
+		s.mu.Unlock()
+		return ErrJobDeleted
+	}
+	// Idempotent: if a terminal status is already set (e.g. a racing GraphRun
+	// terminal callback won), don't re-fail it — that would publish a second
+	// terminal event and could clobber a more specific status/error.
+	if isTerminalJobStatus(existing.Status) {
+		s.mu.Unlock()
+		return nil
+	}
+	existing.Mode = model.JobModeGraph
+	job := existing
+	s.mu.Unlock()
+
+	// failJob re-acquires s.mu and persists via saveJobWithRetry (which takes
+	// the per-job persist shard), so it must be called without holding s.mu.
+	s.failJob(ctx, job, message, false, false)
 	return nil
 }
 

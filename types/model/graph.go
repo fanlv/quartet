@@ -159,6 +159,15 @@ type GraphRun struct {
 	CreatedAt      time.Time          `json:"createdAt"`
 	UpdatedAt      time.Time          `json:"updatedAt"`
 	LastError      *GraphRuntimeError `json:"lastError,omitempty"`
+	// ArchivedInstances preserves instances that a resume reset removed from the
+	// live instance set but that carried a session (their conversation still
+	// exists on disk). Resume drops failed/interrupted instances — and wholesale
+	// resets every instance inside a touched loop, including already-succeeded
+	// siblings — so without this the Chat session sidebar (which derives its list
+	// from live instances) would lose those prior-attempt conversations the
+	// instant a run is resumed. Keyed by instance-key string; accumulates across
+	// resumes. Live instances always take precedence when a key reappears.
+	ArchivedInstances map[string]GraphInstanceState `json:"archivedInstances,omitempty"`
 }
 
 type GraphRunSnapshot struct {
@@ -280,6 +289,11 @@ type GraphLoopState struct {
 	CurrentIteration int               `json:"currentIteration"`
 	Completed        bool              `json:"completed"`
 	Variables        map[string]string `json:"variables,omitempty"`
+	// EntrySession is the session flowing into the current round (the loop
+	// scope's roundEntrySession). Persisted so resume can rebuild the in-flight
+	// round's inflow session and a session-inheriting first body Agent forks the
+	// correct upstream session rather than minting a new one.
+	EntrySession string `json:"entrySession,omitempty"`
 }
 
 type GraphSessionLineage struct {

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentInfo } from '../ChatPage';
 import type {
@@ -11,7 +11,16 @@ import type {
 } from '../../types/graph';
 import { kindOf, labelOf } from './nodes/kinds';
 import { ConditionBuilder } from './ConditionBuilder';
+import { DirPicker } from '../DirPicker';
 import './GraphInspector.css';
+
+// Always-present global variables. They are ordinary string variables at
+// runtime (env injection + {{token}} substitution); "built-in" only means the
+// editor pins them (fixed names, cannot be renamed or deleted) and offers a
+// path picker so a value can be a directory or file. Conventionally Code holds
+// the code location and Doc the docs location.
+export const BUILTIN_VARS = ['Code', 'Doc'] as const;
+const BUILTIN_VAR_SET = new Set<string>(BUILTIN_VARS);
 
 // Reserved variable always available to a condition: the upstream node's raw
 // final assistant message. Mirrors services/graph reservedLastAssistant.
@@ -134,14 +143,21 @@ export function GraphInspector({
   onDrawerToggle,
 }: GraphInspectorProps) {
   const { t } = useTranslation();
+  // Custom (user-defined) variable rows exclude the built-ins, which render in
+  // their own pinned section above the table.
   const variableRows = useMemo(
-    () => Object.entries(config.variables || {}),
+    () => Object.entries(config.variables || {}).filter(([k]) => !BUILTIN_VAR_SET.has(k)),
     [config.variables],
   );
   const disabled = new Set(config.disabledVars || []);
   // Structure-lock (run-version editing) makes the global variable table and
   // run-config read-only — only per-node config may change there.
   const globalsReadOnly = readOnly || lockStructure;
+
+  // Which built-in variable's path picker is open (null = closed). The picker
+  // can select either a directory or a file and writes the absolute path back
+  // into that variable's value.
+  const [pickerVar, setPickerVar] = useState<string | null>(null);
 
   const selectedAgent = node?.config?.agentType
     ? agents.find((a) => a.type === node.config?.agentType)
@@ -157,39 +173,127 @@ export function GraphInspector({
     [config, node],
   );
 
+  // ---- Mobile keyboard handling ----
+  // On narrow screens the inspector is a `position: fixed; bottom: 0` drawer
+  // anchored to the LAYOUT viewport. On iOS the virtual keyboard does not shrink
+  // the layout viewport — it only shrinks the VISUAL viewport — so `bottom: 0`
+  // ends up behind the keyboard and hides the fields being edited. We track
+  // window.visualViewport and expose the keyboard height (--gi-kb-inset) and
+  // visible height (--gi-vv-height) as CSS custom properties the stylesheet uses
+  // to lift the drawer above the keyboard and clamp its height, and we scroll
+  // the focused field into view. Mirrors the pattern in ScheduleEditModal /
+  // LoopConfigPanel / AgentsLocalEditor. No-op on desktop (inset stays 0).
+  const asideRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const el = asideRef.current;
+    if (!el) return;
+
+    // Keyboard height = how much the on-screen keyboard occludes the bottom of
+    // the LAYOUT viewport (which `position: fixed; bottom` anchors to): the gap
+    // between the layout-viewport bottom and the visual-viewport bottom. Small
+    // values come from browser chrome (e.g. a bottom URL bar), not a keyboard,
+    // so we ignore anything under the same 100px threshold main.tsx uses to
+    // detect the keyboard. 0 on desktop, where there is no virtual keyboard.
+    const keyboardInset = () => {
+      const raw = window.innerHeight - vv.height - vv.offsetTop;
+      return raw > 100 ? Math.round(raw) : 0;
+    };
+
+    const sync = () => {
+      el.style.setProperty('--gi-kb-inset', `${keyboardInset()}px`);
+      el.style.setProperty('--gi-vv-height', `${Math.round(vv.height)}px`);
+    };
+
+    // Center the focused field in the drawer's scroll area, but only while the
+    // keyboard is open — so this never causes scroll jumps on desktop (where the
+    // drawer is a static side panel and the inset is always 0).
+    const scrollActiveIntoView = () => {
+      if (keyboardInset() <= 0) return;
+      const active = document.activeElement;
+      if (
+        (active instanceof HTMLInputElement ||
+          active instanceof HTMLTextAreaElement ||
+          active instanceof HTMLSelectElement) &&
+        el.contains(active)
+      ) {
+        active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    };
+
+    // Keyboard open/resize: reposition the drawer, then re-center the field.
+    const onResize = () => {
+      sync();
+      setTimeout(scrollActiveIntoView, 150);
+    };
+    // Focusing another field while the keyboard is already up fires no resize,
+    // so re-center here too (delayed to let any keyboard height change settle).
+    const onFocusIn = () => {
+      setTimeout(scrollActiveIntoView, 300);
+    };
+
+    vv.addEventListener('resize', onResize);
+    vv.addEventListener('scroll', sync);
+    el.addEventListener('focusin', onFocusIn);
+    sync();
+
+    return () => {
+      vv.removeEventListener('resize', onResize);
+      vv.removeEventListener('scroll', sync);
+      el.removeEventListener('focusin', onFocusIn);
+      el.style.removeProperty('--gi-kb-inset');
+      el.style.removeProperty('--gi-vv-height');
+    };
+  }, []);
+
   // ---- Global variable table (shown when nothing is selected) ----
-  const setVar = (index: number, key: string, value: string) => {
-    const entries = [...variableRows];
-    entries[index] = [key, value];
+  // Rebuild the full variable map from the edited custom rows, always pinning
+  // the built-ins (Code/Doc) back in with their current values so editing a
+  // custom row never drops them. Built-in names are also rejected here as a
+  // safety net against custom rows colliding with them.
+  const commitCustomVars = (customEntries: [string, string][]) => {
+    const vars = config.variables || {};
     const next: Record<string, string> = {};
-    for (const [k, v] of entries) {
-      if (k) next[k] = v;
+    for (const name of BUILTIN_VARS) next[name] = vars[name] ?? '';
+    for (const [k, v] of customEntries) {
+      if (k && !BUILTIN_VAR_SET.has(k)) next[k] = v;
     }
     onUpdateVariables(next, [...disabled].filter((d) => next[d] !== undefined));
+  };
+  const setVar = (index: number, key: string, value: string) => {
+    // Block renaming a custom row into a reserved built-in name (snap back to
+    // the prior key) so Code/Doc stay exclusively owned by the built-in section.
+    const prevKey = variableRows[index]?.[0];
+    const safeKey = BUILTIN_VAR_SET.has(key) ? (prevKey ?? key) : key;
+    const entries = [...variableRows];
+    entries[index] = [safeKey, value];
+    commitCustomVars(entries);
   };
   const removeVar = (index: number) => {
-    const entries = variableRows.filter((_, i) => i !== index);
-    const next: Record<string, string> = {};
-    for (const [k, v] of entries) {
-      if (k) next[k] = v;
-    }
-    onUpdateVariables(next, [...disabled].filter((d) => next[d] !== undefined));
+    commitCustomVars(variableRows.filter((_, i) => i !== index));
   };
   const addVar = () => {
-    const next = { ...(config.variables || {}) };
+    const existing = config.variables || {};
     let i = 1;
     let key = 'var';
-    while (next[key] !== undefined) {
+    while (existing[key] !== undefined || BUILTIN_VAR_SET.has(key)) {
       key = `var${i++}`;
     }
-    next[key] = '';
-    onUpdateVariables(next, [...disabled]);
+    commitCustomVars([...variableRows, [key, '']]);
   };
   const toggleDisabled = (key: string) => {
     const nextDisabled = new Set(disabled);
     if (nextDisabled.has(key)) nextDisabled.delete(key);
     else nextDisabled.add(key);
     onUpdateVariables({ ...(config.variables || {}) }, [...nextDisabled]);
+  };
+  // Built-in variable value edit (preserves map order — built-ins keep their
+  // slot, only the value changes).
+  const setBuiltinVar = (name: string, value: string) => {
+    const next = { ...(config.variables || {}) };
+    next[name] = value;
+    onUpdateVariables(next, [...disabled].filter((d) => next[d] !== undefined));
   };
 
   const runConfig = config.runConfig || {};
@@ -221,7 +325,46 @@ export function GraphInspector({
       <div className="gi-workdir-note" data-testid="gi-workdir-note">
         {t('graph.inspector.workdirNote')}
       </div>
-      <h3>{t('graph.inspector.globalVariables')}</h3>
+
+      <h3>{t('graph.inspector.builtinVariables')}</h3>
+      <div className="gi-desc">{t('graph.inspector.builtinVariablesDesc')}</div>
+      {BUILTIN_VARS.map((name) => {
+        const value = config.variables?.[name] ?? '';
+        return (
+          <div className="gi-var-row gi-builtin-row" key={name} data-testid={`gi-builtin-${name}`}>
+            <span className="gi-var-key gi-builtin-name" title={name}>{name}</span>
+            <input
+              className="gi-var-val"
+              value={value}
+              placeholder={t('graph.inspector.builtinValuePlaceholder')}
+              disabled={globalsReadOnly}
+              onChange={(e) => setBuiltinVar(name, e.target.value)}
+            />
+            <button
+              type="button"
+              className="gi-var-browse"
+              disabled={globalsReadOnly}
+              title={t('graph.inspector.browsePath')}
+              aria-label={t('graph.inspector.browsePath')}
+              onClick={() => setPickerVar(name)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+              </svg>
+            </button>
+            <label className="gi-var-disabled" title={t('graph.inspector.disableVar')}>
+              <input
+                type="checkbox"
+                checked={disabled.has(name)}
+                disabled={globalsReadOnly}
+                onChange={() => toggleDisabled(name)}
+              />
+            </label>
+          </div>
+        );
+      })}
+
+      <h3 style={{ marginTop: 18 }}>{t('graph.inspector.globalVariables')}</h3>
       <div className="gi-desc">{t('graph.inspector.globalVariablesDesc')}</div>
       {variableRows.length === 0 && <div className="gi-empty">{t('graph.inspector.noVariables')}</div>}
       {variableRows.map(([k, v], i) => (
@@ -306,12 +449,25 @@ export function GraphInspector({
           onChange={(e) => onUpdateRunConfig({ defaultLoopMaxIters: numberOrUndefined(e.target.value) })}
         />
       </div>
+
+      {pickerVar && (
+        <DirPicker
+          selectFile
+          title={t('graph.inspector.pickPathTitle', { name: pickerVar })}
+          initialPath={config.variables?.[pickerVar] || config.workdir || ''}
+          onConfirm={(path) => {
+            setBuiltinVar(pickerVar, path);
+            setPickerVar(null);
+          }}
+          onCancel={() => setPickerVar(null)}
+        />
+      )}
     </div>
   );
 
   if (!node) {
     return (
-      <aside className={asideClassName} data-testid="graph-inspector">
+      <aside ref={asideRef} className={asideClassName} data-testid="graph-inspector">
         {DrawerHeader}
         <div className="gi-scroll">
           <div className="gi-empty-hint">{t('graph.inspector.selectNodeHint')}</div>
@@ -451,7 +607,7 @@ export function GraphInspector({
   );
 
   return (
-    <aside className={asideClassName} data-testid="graph-inspector">
+    <aside ref={asideRef} className={asideClassName} data-testid="graph-inspector">
       {DrawerHeader}
       <div className="gi-scroll">
         <h3>{t('graph.inspector.nodeConfig')}</h3>

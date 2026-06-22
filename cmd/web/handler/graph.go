@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -19,6 +20,38 @@ import (
 	"github.com/fanlv/quartet/types/model"
 	"github.com/google/uuid"
 )
+
+// formatGraphValidationErrors renders graph validation errors into a single
+// human-readable line, preserving each error's locating context (node / edge /
+// variable / config key) so the full reason reaches the user verbatim — per the
+// repo convention of never hiding error detail. Used when a scheduled graph
+// trigger refuses an invalid workflow template.
+func formatGraphValidationErrors(errs []model.GraphValidationError) string {
+	parts := make([]string, 0, len(errs))
+	for _, e := range errs {
+		var loc string
+		switch {
+		case e.NodeID != "":
+			loc = "node " + e.NodeID
+		case e.EdgeID != "":
+			loc = "edge " + e.EdgeID
+		case e.ConfigKey != "":
+			loc = "config " + e.ConfigKey
+		}
+		if e.Variable != "" {
+			if loc != "" {
+				loc += " "
+			}
+			loc += "var " + e.Variable
+		}
+		if loc != "" {
+			parts = append(parts, loc+": "+e.Message)
+		} else {
+			parts = append(parts, e.Message)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
 
 // CreateGraphWorkflow persists a new GraphWorkflow after full static
 // validation. On validation failure it returns 400 with the complete list of
@@ -363,6 +396,14 @@ func (h *Handler) PauseGraphRun(ctx context.Context, c *app.RequestContext) {
 func (h *Handler) StepStopGraphRun(ctx context.Context, c *app.RequestContext) {
 	h.graphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
 		return h.graphService.StepStopRun(ctx, runID)
+	})
+}
+
+// CancelStopGraphRun cancels a pending pause / step-stop, returning the run to
+// running.
+func (h *Handler) CancelStopGraphRun(ctx context.Context, c *app.RequestContext) {
+	h.graphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
+		return h.graphService.CancelStopRun(ctx, runID)
 	})
 }
 
