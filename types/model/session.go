@@ -1,6 +1,8 @@
 package model
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -55,5 +57,7 @@ func NewSession() *Session {
 
 func newSessionID() string {
 	t := time.Now()
-	return fmt.Sprintf("session-%s-%06d", t.Format("20060102-150405"), t.Nanosecond()/1000)
+	var buf [4]byte
+	_, _ = rand.Read(buf[:])
+	return fmt.Sprintf("session-%s-%06d-%s", t.Format("20060102-150405"), t.Nanosecond()/1000, hex.EncodeToString(buf[:]))
 }

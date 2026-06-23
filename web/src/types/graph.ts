@@ -287,7 +287,6 @@ export interface GraphEvent {
   edgeId?: string;
   message?: string;
   payload?: Record<string, string>;
-  progress?: GraphProgress;
   error?: GraphRuntimeError;
   createdAt: number;
 }

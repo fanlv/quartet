@@ -76,7 +76,6 @@ export function CronInput({ value, onChange }: CronInputProps) {
     // the input and stealing focus).
     if (PRESET_KEYS.some(p => p.value === value)) {
       if (!(mode === 'custom' && value === customValue)) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setMode('preset');
       }
     }

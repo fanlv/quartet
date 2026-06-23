@@ -286,10 +286,12 @@ function graphSessionEntries(
   return entries;
 }
 
-// GRAPH_LIVE_STATUSES mirrors GraphLoopProgress: the run is still producing
-// events while in any of these states, so the Chat page keeps an SSE
-// subscription open to refresh node sessions as they complete.
-const GRAPH_LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'pausing', 'stepStopping', 'recovering']);
+// GRAPH_LIVE_STATUSES mirrors GraphLoopProgress's LIVE_STATUSES: the run is
+// still actively scheduling and producing events in these states. 'recovering'
+// is intentionally excluded — a crash-recovered run is a static, resumable
+// terminal that emits no new events, so the Chat page treats it as non-live
+// (stops the loading spinner) and relies on the snapshot reconcile.
+const GRAPH_LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'pausing', 'stepStopping']);
 
 export interface QueuedMessage {
   id: string;
@@ -396,7 +398,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // two delivery paths can both reach a tab that is SSE-connected.
   const applyCommandEvent = useCallback((event: CommandSystemMessageEvent): boolean => {
     const now = Date.now();
-    const sig = `${event.command} ${event.present || ''} ${event.text}`;
+    const sig = `${event.command}\u0000${event.present || ''}\u0000${event.text}`;
     const seen = appliedCommandEventsRef.current;
     // Drop entries older than the dedup window so the map can't grow unbounded.
     for (const [k, ts] of seen) {
@@ -1450,7 +1452,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       default:
         break;
     }
-  }, [applyActiveSessionSelection, applyCommandEvent, clearPendingCommandWatchdog, finalizeInFlightMessages, setLoopSessions, updateServerClock]);
+  }, [applyActiveSessionSelection, applyCommandEvent, finalizeInFlightMessages, setLoopSessions, updateServerClock]);
 
   // Keep ref in sync so the SSE effect always uses the latest handler
   handleEventRef.current = handleEvent;
@@ -2226,7 +2228,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       eventSseRef.current?.disconnect();
       eventSseRef.current = null;
     };
-  }, [jobId, jobNotFound, snapshotReady, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse]);
+  }, [jobId, jobNotFound, snapshotReady, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistory]);
 
   // Graph mode: keep node sessions live. The job-events SSE above carries no
   // graph traffic (graph runs emit on their own /graph/run/:runId/events
@@ -3325,7 +3327,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     if (meta.type != null) setSessionType(meta.type);
     setSessionACPMode(meta.acpMode);
     setSessionACPThoughtLevel(meta.acpThoughtLevel);
-  }, [isLoop, isGraph, activeSessionId, loadedSessionIds]);
+  }, [isLoop, isGraph, activeSessionId, loadedSessionIds, loadHistory]);
 
   // Load-on-switch: when the user selects a loop / graph session whose history
   // has not been loaded yet, fetch it on demand. Background idle-prefetch
@@ -3396,7 +3398,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
     })();
     return () => { cancelled = true; };
-  }, [isLoop, isGraph, activeSessionId, loadedSessionIds]);
+  }, [isLoop, isGraph, activeSessionId, loadedSessionIds, loadHistory]);
 
   // Defensive dedup at the aggregation point. The messages array is written
   // by several paths (SSE live events, initial history load, reconnect merge,

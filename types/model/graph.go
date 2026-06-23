@@ -386,7 +386,6 @@ type GraphEvent struct {
 	EdgeID      string             `json:"edgeId,omitempty"`
 	Message     string             `json:"message,omitempty"`
 	Payload     map[string]string  `json:"payload,omitempty"`
-	Progress    *GraphProgress     `json:"progress,omitempty"`
 	Error       *GraphRuntimeError `json:"error,omitempty"`
 	CreatedAt   int64              `json:"createdAt"`
 }

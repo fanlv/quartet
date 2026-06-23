@@ -60,8 +60,15 @@ const EDITABLE_STATUSES = new Set<GraphRunStatus>([
   'timedOut',
 ]);
 
-const LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'pausing', 'stepStopping', 'recovering']);
-const RESUMABLE_STATUSES = new Set<GraphRunStatus>(['failed', 'paused', 'stepStopped', 'stopped', 'timedOut']);
+// LIVE = run is actively scheduling and still producing events → keep an SSE
+// tail open. RESUMABLE mirrors the backend's isResumableStatus (run_control.go),
+// which INCLUDES 'recovering': a crash-recovered run is a static, resumable
+// terminal — it does not auto-continue and emits no new events, so it is NOT
+// live (no SSE tail, no replay) and instead shows a Resume action. Keeping these
+// two in sync with the backend is load-bearing: if 'recovering' were in neither
+// set the run would show neither Stop nor Resume and get stuck.
+const LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'pausing', 'stepStopping']);
+const RESUMABLE_STATUSES = new Set<GraphRunStatus>(['failed', 'paused', 'stepStopped', 'stopped', 'timedOut', 'recovering']);
 
 async function readGraphError(response: Response, prefix?: string): Promise<string> {
   const body = await response.text().catch(() => '');
@@ -206,17 +213,12 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
       initialLastEventId: '0',
       onEvent: (raw) => {
         const event = raw as unknown as GraphEvent;
-        // Instance lifecycle events no longer embed a full progress snapshot
-        // (it grew the event log quadratically on long loops). Node status
-        // colours now come from a throttled re-fetch of the run snapshot — the
-        // full GET is cheap again now that it no longer serialises the event
-        // log. progressUpdated still carries a snapshot (≈1/run) and additionally
-        // triggers a refresh to pick up the run.status terminal transition +
-        // edge states (and let this effect clean up when isLive flips off).
-        if (event.progress) {
-          setProgress(event.progress);
-          if (event.progress.instances) setInstances(Object.values(event.progress.instances));
-        }
+        // Events never carry a progress snapshot: progress + node status come
+        // exclusively from a (throttled) re-fetch of the run snapshot, so a
+        // replayed historical event can never rewind the live progress. The
+        // event's job here is only to decide *when* to re-fetch.
+        // progressUpdated/error re-fetch immediately (terminal transition +
+        // edges); instance/edge/loop lifecycle events re-fetch throttled.
         if (event.type === 'progressUpdated' || event.type === 'error') {
           void refresh();
           return;

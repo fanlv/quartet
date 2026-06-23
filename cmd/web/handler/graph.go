@@ -433,7 +433,10 @@ func (h *Handler) GraphRunEvents(ctx context.Context, c *app.RequestContext) {
 // so this is replay-then-idle, not a live tail.
 func (h *Handler) graphRunEventsReplayFromDisk(ctx context.Context, c *app.RequestContext, w *sse.Writer, connID, runID string, startSeq uint64) {
 	startLine := int(startSeq)
-	resp, err := h.graphService.ListRunEvents(ctx, runID, startLine, nil)
+	// limit=0 → service applies its default replay bound. The replay is a
+	// best-effort structural backfill; the canvas is rebuilt from the run
+	// snapshot (GET /graph/run/:id), so a bounded/truncated replay is safe.
+	resp, err := h.graphService.ListReplayEvents(ctx, runID, startLine, 0)
 	if err != nil {
 		logger.Errorf(ctx, "[graph-sse] replay list events failed: connId=%s runId=%s startLine=%d err=%v", connID, runID, startLine, err)
 		return

@@ -1414,9 +1414,8 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
           </div>
         )}
 
-        {(jobs.length > 0 || filterWorkspaceId) && (
-          <div className={`home-job-list ${jobHistoryExpanded ? 'expanded' : 'collapsed'}`} data-testid="home-job-history" data-expanded={jobHistoryExpanded ? 'true' : 'false'}>
-            <div className="home-job-list-header" onClick={() => setJobHistoryExpanded(!jobHistoryExpanded)} style={{ cursor: 'pointer' }} data-testid="home-job-history-header">
+        <div className={`home-job-list ${jobHistoryExpanded ? 'expanded' : 'collapsed'}`} data-testid="home-job-history" data-expanded={jobHistoryExpanded ? 'true' : 'false'}>
+          <div className="home-job-list-header" onClick={() => setJobHistoryExpanded(!jobHistoryExpanded)} style={{ cursor: 'pointer' }} data-testid="home-job-history-header">
               <div className="home-job-list-title">
                 <svg className={`home-job-list-chevron ${jobHistoryExpanded ? 'open' : ''}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M9 18l6-6-6-6" />
@@ -1498,8 +1497,8 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                   />
                 </label>
               </div>
-            </div>
-            {jobHistoryExpanded && (
+          </div>
+          {jobHistoryExpanded && (
               <div className="home-job-history-body" data-testid="home-job-history-body">
                 {jobsByDay.length === 0 && (
                   <div className="home-job-history-empty">
@@ -1558,9 +1557,8 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="home-input-container">

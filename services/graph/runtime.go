@@ -177,6 +177,41 @@ func (s *serviceImpl) ListRunEvents(ctx context.Context, runID string, startLine
 	}, nil
 }
 
+// graphReplayMaxEvents bounds how many persisted events a single SSE disk-replay
+// streams. It is a safety net, not a UI driver: the canvas is rebuilt from the
+// run snapshot (GET /graph/run/:id), so a truncated replay never loses correctness.
+// It exists so a pathologically large legacy event log can't be streamed in full
+// on every (re)connect.
+const graphReplayMaxEvents = 2000
+
+func (s *serviceImpl) ListReplayEvents(ctx context.Context, runID string, startLine, limit int) (*model.GraphRunEventsResponse, error) {
+	if startLine < 0 {
+		startLine = 0
+	}
+	if limit <= 0 {
+		limit = graphReplayMaxEvents
+	}
+	count := limit
+	resp, err := s.ListRunEvents(ctx, runID, startLine, &count)
+	if err != nil {
+		return nil, err
+	}
+	// Defence in depth: even though agent streaming deltas are never written to
+	// events.jsonl (isPersistableGraphEvent gates the write), a legacy log may
+	// still contain them. Drop them so replay carries only structural events.
+	filtered := resp.Events[:0]
+	for _, ev := range resp.Events {
+		if isPersistableGraphEvent(ev.Type) {
+			filtered = append(filtered, ev)
+		}
+	}
+	resp.Events = filtered
+	if resp.NextLine-startLine >= limit {
+		logger.Warnf(ctx, "[graph] replay truncated at limit: runId=%s startLine=%d limit=%d (canvas is rebuilt from the run snapshot)", runID, startLine, limit)
+	}
+	return resp, nil
+}
+
 func (s *serviceImpl) ListRuns(ctx context.Context) ([]*model.GraphRun, error) {
 	return s.runRepo.ListRuns(ctx)
 }
@@ -588,13 +623,19 @@ func (s *serviceImpl) persistRuntimeState(ctx context.Context, run *model.GraphR
 
 // appendEvent records a structural run event (instance lifecycle, edge
 // resolution, loop iteration, variable write, progress update, log, error).
-// It is double-path: the event is persisted to events.jsonl (so resume, audit,
-// and post-restart SSE replay can rebuild the run) AND published to the live
-// in-memory buffer (so connected SSE readers get it in real time). The same
-// event object — identical ID and CreatedAt — flows to both, so a client that
-// sees the live copy and a client that replays it from disk observe the same
-// event.
-func (s *serviceImpl) appendEvent(ctx context.Context, runID string, typ model.GraphEventType, key *model.GraphInstanceKey, nodeID, edgeID, message string, progress *model.GraphProgress, rerr *model.GraphRuntimeError) {
+// It is double-path: structural events are persisted to events.jsonl (so
+// resume, audit, and post-restart SSE replay can rebuild the run) AND published
+// to the live in-memory buffer (so connected SSE readers get it in real time).
+// Agent streaming deltas are published only (never persisted — the authoritative
+// conversation lives in each node's session messages.jsonl); isPersistableGraphEvent
+// gates the disk write. The same event object — identical ID and CreatedAt —
+// flows to both paths, so a client that sees the live copy and a client that
+// replays it from disk observe the same event.
+//
+// Events never embed a progress snapshot: progress is sourced exclusively from
+// the run snapshot (progress.json via GET /graph/run/:id). progressUpdated is a
+// pure "refetch the snapshot now" signal, not a progress carrier.
+func (s *serviceImpl) appendEvent(ctx context.Context, runID string, typ model.GraphEventType, key *model.GraphInstanceKey, nodeID, edgeID, message string, rerr *model.GraphRuntimeError) {
 	if s.runRepo == nil {
 		return
 	}
@@ -607,38 +648,37 @@ func (s *serviceImpl) appendEvent(ctx context.Context, runID string, typ model.G
 		EdgeID:      edgeID,
 		Message:     message,
 		Payload:     map[string]string{},
-		Progress:    stripProgressVariables(progress),
 		Error:       rerr,
 		CreatedAt:   time.Now().UnixMilli(),
 	}
-	_ = s.runRepo.AppendEvent(ctx, runID, evt)
+	if isPersistableGraphEvent(typ) {
+		_ = s.runRepo.AppendEvent(ctx, runID, evt)
+	}
 	if buf := s.getBuffer(runID); buf != nil {
 		buf.Publish(evt)
 	}
 }
 
-// stripProgressVariables returns a copy of progress whose per-instance variable
-// maps (VisibleVariables / OutputVariables) are dropped, for embedding in the
-// append-only event log only. Those maps carry the full visible-variable set of
-// every instance and accumulate down the DAG, so each event would otherwise
-// re-serialise a near-full variable snapshot (measured at ~95% of a 30MB event
-// log). The authoritative copies live in run.Progress / progress.json /
-// variables.json — only the event-log embedding is trimmed. The frontend
-// derives node status/colour from the event progress and never reads variables
-// from it, so this is invisible to the UI. Returns nil/the input unchanged when
-// there is nothing to strip; never mutates the caller's progress or instances.
-func stripProgressVariables(progress *model.GraphProgress) *model.GraphProgress {
-	if progress == nil || len(progress.Instances) == 0 {
-		return progress
+// isPersistableGraphEvent reports whether an event should be written to
+// events.jsonl. Agent streaming deltas are never persisted — the authoritative
+// conversation already lives in each node's session messages.jsonl, and
+// persisting per-token deltas would let events.jsonl grow without bound on long
+// loops. Everything else (structural lifecycle / edge / loop / progress / log /
+// error events) is persisted so resume, audit, and post-restart replay can
+// rebuild the run. Blacklisting deltas (rather than whitelisting structural
+// types) means a newly added structural event type defaults to persisted.
+func isPersistableGraphEvent(typ model.GraphEventType) bool {
+	switch typ {
+	case model.GraphEventTypeAgentMessageStart, model.GraphEventTypeAgentMessageDelta,
+		model.GraphEventTypeAgentMessageEnd, model.GraphEventTypeAgentThoughtStart,
+		model.GraphEventTypeAgentThoughtDelta, model.GraphEventTypeAgentThoughtEnd,
+		model.GraphEventTypeAgentToolStart, model.GraphEventTypeAgentToolArgs,
+		model.GraphEventTypeAgentToolResult, model.GraphEventTypeAgentToolEnd,
+		model.GraphEventTypeAgentTokenUsage:
+		return false
+	default:
+		return true
 	}
-	trimmed := *progress
-	trimmed.Instances = make(map[string]model.GraphInstanceState, len(progress.Instances))
-	for k, st := range progress.Instances {
-		st.VisibleVariables = nil
-		st.OutputVariables = nil
-		trimmed.Instances[k] = st
-	}
-	return &trimmed
 }
 
 func (s *serviceImpl) recordUsageSnapshot(run *model.GraphRun, outcome nodeOutcome, finishedAtMs, durationMs int64) {

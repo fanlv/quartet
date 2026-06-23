@@ -50,6 +50,13 @@ type Service interface {
 	StartRun(ctx context.Context, req *model.StartGraphRunRequest, runner Runner, jobs JobStateSink) (*model.GraphRun, error)
 	GetRunStatus(ctx context.Context, runID string) (*model.GraphRunStatusResponse, error)
 	ListRunEvents(ctx context.Context, runID string, startLine int, count *int) (*model.GraphRunEventsResponse, error)
+	// ListReplayEvents reads at most limit persistable structural events from
+	// startLine for SSE disk-replay (a run with no live buffer in this process).
+	// It bounds the read so a pathologically large event log can't be streamed in
+	// full, and filters out any agent streaming deltas that may linger in legacy
+	// logs. The canvas is rebuilt from the run snapshot, so this stream is only a
+	// best-effort structural backfill.
+	ListReplayEvents(ctx context.Context, runID string, startLine, limit int) (*model.GraphRunEventsResponse, error)
 	// SubscribeRunEvents attaches an SSE reader to a live run's in-memory event
 	// buffer, resuming after startSeq. live=false means no buffer exists in this
 	// process (run not active here, e.g. after a restart) — the caller degrades

@@ -119,7 +119,7 @@ func (sc *scheduler) cancelGracefulSignal(ctx context.Context, sig controlSignal
 	sc.run.UpdatedAt = time.Now()
 	sc.persist(ctx)
 	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeProgressUpdated, nil, "", "",
-		orDefault(sig.reason, "stop cancelled"), sc.run.Progress, nil)
+		orDefault(sig.reason, "stop cancelled"), nil)
 	logger.Infof(ctx, "[graph] graceful stop cancelled: runId=%s wasStepStop=%v ready=%d",
 		sc.run.ID, wasStepStop, len(sc.ready))
 }
@@ -165,7 +165,7 @@ func (sc *scheduler) finishStopped(ctx context.Context) {
 		sc.run.Progress.LastError = ""
 	}
 	sc.persist(ctx)
-	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeProgressUpdated, nil, "", "", "run stopped: "+sc.stopReason, sc.run.Progress, nil)
+	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeProgressUpdated, nil, "", "", "run stopped: "+sc.stopReason, nil)
 	logger.Infof(ctx, "[graph] run stopped: runId=%s reason=%s completed=%d skipped=%d failed=%d total=%d",
 		sc.run.ID, sc.stopReason, sc.run.Progress.CompletedCount, sc.run.Progress.SkippedCount,
 		sc.run.Progress.FailedCount, sc.run.Progress.TotalCount)
@@ -193,7 +193,7 @@ func (sc *scheduler) finishGraceful(ctx context.Context) {
 	sc.snapshotLoopState()
 	updateRunProgress(sc.run, sc.instances)
 	sc.persist(ctx)
-	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeProgressUpdated, nil, "", "", label, sc.run.Progress, nil)
+	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeProgressUpdated, nil, "", "", label, nil)
 	logger.Infof(ctx, "[graph] %s: runId=%s reason=%s completed=%d skipped=%d failed=%d total=%d",
 		label, sc.run.ID, sc.stopReason, sc.run.Progress.CompletedCount, sc.run.Progress.SkippedCount,
 		sc.run.Progress.FailedCount, sc.run.Progress.TotalCount)

@@ -241,7 +241,7 @@ func (sc *scheduler) applyVersionUpdate(ctx context.Context, sig controlSignal) 
 	sc.remapReadyToLatestVersion(ctx)
 	sc.persist(ctx)
 	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeLog, nil, "", "",
-		fmt.Sprintf("graph run version updated: version=%d", sc.run.CurrentVersion), sc.run.Progress, nil)
+		fmt.Sprintf("graph run version updated: version=%d", sc.run.CurrentVersion), nil)
 	logger.Infof(ctx, "[graph] run version updated: runId=%s version=%d ready=%d", sc.run.ID, sc.run.CurrentVersion, len(sc.ready))
 	result.run = cloneGraphRun(sc.run)
 	sc.sendVersionUpdateResult(sig, result)
@@ -441,7 +441,7 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 	sc.run.UpdatedAt = time.Now()
 	updateRunProgress(sc.run, sc.instances)
 	sc.persist(ctx)
-	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeProgressUpdated, nil, "", "", "run completed", sc.run.Progress, nil)
+	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeProgressUpdated, nil, "", "", "run completed", nil)
 	logger.Infof(ctx, "[graph] run completed: runId=%s jobId=%s completed=%d skipped=%d failed=%d total=%d durationMs=%d",
 		sc.run.ID, sc.run.JobID, sc.run.Progress.CompletedCount, sc.run.Progress.SkippedCount,
 		sc.run.Progress.FailedCount, sc.run.Progress.TotalCount, finishedAt-sc.run.StartedAt)
@@ -759,7 +759,7 @@ func (sc *scheduler) resolveEdge(ctx context.Context, scope *scopeRun, e model.G
 		ResolvedAt:        time.Now().UnixMilli(),
 		Reason:            reason,
 	}
-	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeEdgeResolved, &targetKey, e.TargetNodeID, e.ID, "edge "+string(status), nil, nil)
+	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeEdgeResolved, &targetKey, e.TargetNodeID, e.ID, "edge "+string(status), nil)
 	logger.Infof(ctx, "[graph] edge resolved: runId=%s edgeId=%s source=%s target=%s targetKey=%s status=%s remainingBefore=%d activeInputs=%d",
 		sc.run.ID, e.ID, e.SourceNodeID, e.TargetNodeID, targetKeyStr, status, sc.inRemaining[targetKeyStr], len(sc.contribs[targetKeyStr]))
 
@@ -1023,7 +1023,7 @@ func (sc *scheduler) finishForContextError(ctx context.Context, err error) {
 		// loop from its current round instead of re-running it from round 0.
 		sc.snapshotLoopState()
 		sc.persist(ctx)
-		sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeError, nil, "", "", rerr.Message, sc.run.Progress, rerr)
+		sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeError, nil, "", "", rerr.Message, rerr)
 		logger.Errorf(ctx, "[graph] job timeout: runId=%s jobId=%s timeout=%s err=%v", sc.run.ID, sc.run.JobID, timeout, err)
 		if sc.jobs != nil {
 			_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusFailed, sc.run.StartedAt, finishedAt)
@@ -1044,7 +1044,7 @@ func (sc *scheduler) failRunSched(ctx context.Context, err error) {
 	if sc.run.Progress != nil {
 		sc.run.Progress.LastError = err.Error()
 	}
-	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeError, nil, "", "", err.Error(), sc.run.Progress, rerr)
+	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeError, nil, "", "", err.Error(), rerr)
 	logger.Errorf(ctx, "[graph] scheduler failure: runId=%s jobId=%s err=%v", sc.run.ID, sc.run.JobID, err)
 	sc.markFailed(ctx, finishedAt)
 	sc.persist(ctx)
@@ -1100,15 +1100,12 @@ func (sc *scheduler) persist(ctx context.Context) {
 }
 
 func (sc *scheduler) appendInstanceEvent(ctx context.Context, typ model.GraphEventType, key model.GraphInstanceKey, nodeID, msg string, rerr *model.GraphRuntimeError) {
-	// Instance lifecycle events no longer embed the full progress snapshot.
-	// Previously every instanceStarted/Completed/Failed/Skipped carried the
-	// whole progress.Instances map (hundreds of entries on a long loop), so the
-	// persisted event log grew quadratically with iteration count. The frontend
-	// reconciles node status by re-fetching the run snapshot on these events
-	// (and progress.json holds the authoritative copy), so the embedded snapshot
-	// was pure redundancy. The low-frequency progressUpdated event (≈once per
-	// run) still carries a snapshot for the run-completion summary.
-	sc.svc.appendEvent(ctx, sc.run.ID, typ, &key, nodeID, "", msg, nil, rerr)
+	// Instance lifecycle events carry no progress snapshot — progress is sourced
+	// exclusively from the run snapshot (progress.json via GET /graph/run/:id).
+	// The frontend reconciles node status by re-fetching that snapshot on these
+	// events. Embedding the snapshot here used to grow the persisted event log
+	// quadratically with iteration count on long loops.
+	sc.svc.appendEvent(ctx, sc.run.ID, typ, &key, nodeID, "", msg, rerr)
 }
 
 func boolPort(yes bool) model.GraphEdgePort {

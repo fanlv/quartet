@@ -827,7 +827,6 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadWorkflows();
     void loadRuns();
     // Load agents for the inspector's Agent/model selectors.
@@ -942,17 +941,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         initialLastEventId: '0',
         onEvent: (event) => {
           const graphEvent = event as unknown as GraphEvent;
-          // Instance lifecycle events no longer embed a full progress snapshot
-          // (it grew the persisted event log quadratically on long loops). Node
-          // status colours + progress now come from a throttled re-fetch of the
-          // run snapshot — the full GET is cheap again now that it no longer
-          // serialises the event log. progressUpdated still carries a snapshot
-          // (≈1/run) and triggers loadRuns + a full refresh for the run.status
-          // terminal transition + edges (and lets the SSE effect clean up).
-          if (graphEvent.progress) {
-            setRunProgress(graphEvent.progress);
-            if (graphEvent.progress.instances) setRunInstances(Object.values(graphEvent.progress.instances));
-          }
+          // Events never carry a progress snapshot: progress + node status come
+          // exclusively from a (throttled) re-fetch of the run snapshot, so a
+          // replayed historical event can never rewind the live progress. The
+          // event only decides *when* to re-fetch. progressUpdated/error refetch
+          // immediately (terminal transition + edges, also refresh the run list);
+          // instance/edge/loop lifecycle events refetch throttled.
           if (graphEvent.type === 'progressUpdated' || graphEvent.type === 'error') {
             void loadRuns();
             void refreshRunStatus(selectedRun.id);
@@ -1010,7 +1004,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         setMessage(err instanceof Error ? err.message : String(err));
       }
     },
-    [exitRunView, loadConfigIntoCanvas],
+    [exitRunView, loadConfigIntoCanvas, t],
   );
 
   const startNew = useCallback(() => {

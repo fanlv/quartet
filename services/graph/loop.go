@@ -103,7 +103,7 @@ func (sc *scheduler) startIteration(ctx context.Context, loop *scopeRun, index i
 	loop.live = 0
 
 	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeLoopIteration, &loop.loopKey, loop.container, "",
-		fmt.Sprintf("loop %s iteration %d", loop.container, index), sc.run.Progress, nil)
+		fmt.Sprintf("loop %s iteration %d", loop.container, index), nil)
 	logger.Infof(ctx, "[graph] loop iteration started: runId=%s loopId=%s loopKey=%s iteration=%d visibleVars=%d sessionId=%s",
 		sc.run.ID, loop.container, instanceKeyString(loop.loopKey), index, len(loop.accumSnapshot), loop.inflowSession)
 

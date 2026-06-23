@@ -303,17 +303,6 @@ func TestPromptNodeStreamsAgentEventsAndRecordsUsage(t *testing.T) {
 			t.Fatalf("streaming event %s must not be persisted, but found it in the event log", ev.Type)
 		}
 	}
-	// Persisted structural events must still embed no full progress snapshot
-	// (instance lifecycle events carry progress=nil after the size fix).
-	for _, ev := range persisted.Events {
-		switch ev.Type {
-		case model.GraphEventTypeInstanceStarted, model.GraphEventTypeInstanceCompleted,
-			model.GraphEventTypeInstanceFailed, model.GraphEventTypeInstanceSkipped:
-			if ev.Progress != nil {
-				t.Fatalf("instance lifecycle event %s must not embed a progress snapshot", ev.Type)
-			}
-		}
-	}
 	// The status response exposes a count, not the bodies.
 	if got.EventCount <= 0 {
 		t.Fatalf("GetRunStatus EventCount = %d, want > 0", got.EventCount)
@@ -398,4 +387,36 @@ func uniqueMemoryRoot(t *testing.T) string {
 	}
 	t.Setenv("LOCAL_MEMORY", dir)
 	return dir
+}
+
+// TestIsPersistableGraphEvent locks the persistence policy: agent streaming
+// deltas must never reach events.jsonl (their authoritative copy lives in node
+// session messages), while every structural event type must persist so resume /
+// audit / post-restart replay can rebuild the run.
+func TestIsPersistableGraphEvent(t *testing.T) {
+	streaming := []model.GraphEventType{
+		model.GraphEventTypeAgentMessageStart, model.GraphEventTypeAgentMessageDelta,
+		model.GraphEventTypeAgentMessageEnd, model.GraphEventTypeAgentThoughtStart,
+		model.GraphEventTypeAgentThoughtDelta, model.GraphEventTypeAgentThoughtEnd,
+		model.GraphEventTypeAgentToolStart, model.GraphEventTypeAgentToolArgs,
+		model.GraphEventTypeAgentToolResult, model.GraphEventTypeAgentToolEnd,
+		model.GraphEventTypeAgentTokenUsage,
+	}
+	for _, typ := range streaming {
+		if isPersistableGraphEvent(typ) {
+			t.Errorf("streaming event %s must not be persistable", typ)
+		}
+	}
+	structural := []model.GraphEventType{
+		model.GraphEventTypeInstanceStarted, model.GraphEventTypeInstanceCompleted,
+		model.GraphEventTypeInstanceFailed, model.GraphEventTypeInstanceSkipped,
+		model.GraphEventTypeEdgeResolved, model.GraphEventTypeVariableWritten,
+		model.GraphEventTypeLoopIteration, model.GraphEventTypeProgressUpdated,
+		model.GraphEventTypeLog, model.GraphEventTypeError,
+	}
+	for _, typ := range structural {
+		if !isPersistableGraphEvent(typ) {
+			t.Errorf("structural event %s must be persistable", typ)
+		}
+	}
 }
