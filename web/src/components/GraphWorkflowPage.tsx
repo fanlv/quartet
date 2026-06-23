@@ -635,7 +635,6 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const [viewingRun, setViewingRun] = useState(false);
   const [runProgress, setRunProgress] = useState<GraphProgress | undefined>();
   const [runInstances, setRunInstances] = useState<GraphInstanceState[]>([]);
-  const [runEvents, setRunEvents] = useState<GraphEvent[]>([]);
   const [runMessage, setRunMessage] = useState('');
   // editingRun overlays an editable canvas on top of the run-view: the run's
   // current effective version snapshot is loaded into the editor and saved back
@@ -643,7 +642,6 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   // selected run is editable (in-flight or resumable, never naturally completed).
   const [editingRun, setEditingRun] = useState(false);
   const graphEventClientRef = useRef<SSEClient | null>(null);
-  const runEventsCountRef = useRef(0);
   // One-shot consumption of the ?graphEditRun=<id> deep-link (from Chat page's
   // GraphLoop "Edit"): open that run directly in run-version edit mode.
   const editRunIntentRef = useRef<string | null>(
@@ -880,10 +878,6 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     [],
   );
 
-  useEffect(() => {
-    runEventsCountRef.current = runEvents.length;
-  }, [runEvents.length]);
-
   // ---- Run status / SSE ----
   const refreshRunStatus = useCallback(async (runId: string): Promise<GraphRunStatusResponse | null> => {
     try {
@@ -894,7 +888,6 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setRunProgress(data.progress || data.run?.progress);
       const instances = data.instances || (data.progress?.instances ? Object.values(data.progress.instances) : []);
       setRunInstances(instances);
-      setRunEvents(data.events || []);
       setRunMessage('');
       return data;
     } catch (err) {
@@ -912,7 +905,6 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setEditingRun(false);
       setSelectedNodeId(null);
       setRunProgress(run.progress);
-      setRunEvents([]);
       setRunInstances([]);
       await refreshRunStatus(run.id);
     },
@@ -934,20 +926,44 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
 
     const client = new SSEClient();
     graphEventClientRef.current = client;
+    let lastInstanceRefreshAt = 0;
+    const throttledRefresh = () => {
+      const now = Date.now();
+      if (now - lastInstanceRefreshAt < 400) return;
+      lastInstanceRefreshAt = now;
+      void refreshRunStatus(selectedRun.id);
+    };
     void client
       .connectUntilReady({
         url: `/api/v1/graph/run/${encodeURIComponent(selectedRun.id)}/events`,
-        initialLastEventId: String(runEventsCountRef.current),
+        // Resume from the buffer tail; the server's Last-Event-ID is now an
+        // in-memory buffer seq, not a file line count. The SSE client overwrites
+        // this with the server-sent `id:` (seq) on any subsequent reconnect.
+        initialLastEventId: '0',
         onEvent: (event) => {
           const graphEvent = event as unknown as GraphEvent;
-          setRunEvents((prev) => {
-            if (prev.some((item) => item.id === graphEvent.id)) return prev;
-            return [...prev, graphEvent];
-          });
-          if (graphEvent.progress) setRunProgress(graphEvent.progress);
-          if (graphEvent.type === 'progressUpdated' || graphEvent.type === 'error' || graphEvent.type === 'instanceCompleted') {
+          // Instance lifecycle events no longer embed a full progress snapshot
+          // (it grew the persisted event log quadratically on long loops). Node
+          // status colours + progress now come from a throttled re-fetch of the
+          // run snapshot — the full GET is cheap again now that it no longer
+          // serialises the event log. progressUpdated still carries a snapshot
+          // (≈1/run) and triggers loadRuns + a full refresh for the run.status
+          // terminal transition + edges (and lets the SSE effect clean up).
+          if (graphEvent.progress) {
+            setRunProgress(graphEvent.progress);
+            if (graphEvent.progress.instances) setRunInstances(Object.values(graphEvent.progress.instances));
+          }
+          if (graphEvent.type === 'progressUpdated' || graphEvent.type === 'error') {
             void loadRuns();
             void refreshRunStatus(selectedRun.id);
+            return;
+          }
+          if (
+            graphEvent.type === 'instanceStarted' || graphEvent.type === 'instanceCompleted' ||
+            graphEvent.type === 'instanceFailed' || graphEvent.type === 'instanceSkipped' ||
+            graphEvent.type === 'edgeResolved' || graphEvent.type === 'loopIteration'
+          ) {
+            throttledRefresh();
           }
         },
         onError: (err) => setRunMessage(err.message),

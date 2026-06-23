@@ -75,6 +75,11 @@ type Service interface {
 	// ClearGraphRunLinkage detaches a Job from a deleted GraphRun, but only if it
 	// is still bound to that exact run. Best-effort cleanup on GraphRun delete.
 	ClearGraphRunLinkage(ctx context.Context, jobID, graphRunID string) error
+	// AttachGraphSession records an Agent node's session on the job's
+	// GraphSessionIDs whitelist (de-duplicated, kept off SessionIDs) so an
+	// interactive message may later target it — letting a user keep chatting in
+	// a finished graph node's session after the run stops. Idempotent.
+	AttachGraphSession(ctx context.Context, jobID, sessionID string) error
 	// FailGraphJob forces a Graph-type Job to the Failed terminal status and
 	// records message on Progress.LastError. It is used by the schedule trigger's
 	// stage-two path (the Job was created but graphService.StartRun failed

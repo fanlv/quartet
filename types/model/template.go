@@ -11,8 +11,6 @@ type LoopTemplate struct {
 	Config    LoopConfig `json:"config"`
 	CreatedAt time.Time  `json:"createdAt"`
 	UpdatedAt time.Time  `json:"updatedAt,omitempty"`
-
-	ScheduleCount int `json:"scheduleCount,omitempty"`
 }
 
 func NewTemplateID() string {

@@ -6,7 +6,7 @@ import (
 )
 
 func TestJobDeepCopyIsIndependent(t *testing.T) {
-	assertDeepCopyFieldsCovered(t, reflect.TypeOf(Job{}), []string{"LoopConfig", "SessionIDs", "Progress", "Resume"})
+	assertDeepCopyFieldsCovered(t, reflect.TypeOf(Job{}), []string{"LoopConfig", "SessionIDs", "GraphSessionIDs", "Progress", "Resume"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(LoopConfig{}), []string{"Flow", "Variables", "DisabledVars", "Rounds"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(FlowNode{}), []string{"Children"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(JobProgress{}), []string{"CurrentPath", "Results", "PersistWarnings", "GroupActualIterations", "GroupActualLeafCounts", "SkippedPaths"})
@@ -14,8 +14,9 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(IterationResult{}), []string{"Path"})
 
 	orig := &Job{
-		ID:         "job-1",
-		SessionIDs: []string{"session-1", "session-2"},
+		ID:              "job-1",
+		SessionIDs:      []string{"session-1", "session-2"},
+		GraphSessionIDs: []string{"graph-session-1", "graph-session-2"},
 		LoopConfig: &LoopConfig{
 			Flow: []FlowNode{
 				{
@@ -48,6 +49,7 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	cp := orig.DeepCopy()
 
 	cp.SessionIDs[0] = "copy-session"
+	cp.GraphSessionIDs[0] = "copy-graph-session"
 	cp.LoopConfig.Flow[0].Children[0].Message = "copy message"
 	cp.LoopConfig.Variables["name"] = "copy"
 	cp.LoopConfig.Variables["copy-only"] = "present"
@@ -65,6 +67,9 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 
 	if orig.SessionIDs[0] != "session-1" {
 		t.Fatalf("orig SessionIDs mutated via copy: got %q", orig.SessionIDs[0])
+	}
+	if orig.GraphSessionIDs[0] != "graph-session-1" {
+		t.Fatalf("orig GraphSessionIDs mutated via copy: got %q", orig.GraphSessionIDs[0])
 	}
 	if got := orig.LoopConfig.Flow[0].Children[0].Message; got != "original message" {
 		t.Fatalf("orig Flow child mutated via copy: got %q", got)
@@ -110,6 +115,7 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	}
 
 	orig.SessionIDs[1] = "orig-session"
+	orig.GraphSessionIDs[1] = "orig-graph-session"
 	orig.LoopConfig.Flow[0].Children[0].ID = "orig-step"
 	orig.LoopConfig.Variables["name"] = "orig-again"
 	orig.LoopConfig.Rounds[0].RepeatCount = 7
@@ -118,6 +124,9 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 
 	if cp.SessionIDs[1] != "session-2" {
 		t.Fatalf("copy SessionIDs mutated via orig: got %q", cp.SessionIDs[1])
+	}
+	if cp.GraphSessionIDs[1] != "graph-session-2" {
+		t.Fatalf("copy GraphSessionIDs mutated via orig: got %q", cp.GraphSessionIDs[1])
 	}
 	if got := cp.LoopConfig.Flow[0].Children[0].ID; got != "step-1" {
 		t.Fatalf("copy Flow child mutated via orig: got %q", got)

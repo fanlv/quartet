@@ -398,69 +398,9 @@ func (h *Handler) GetSettingsService() config.SettingsService {
 }
 
 // ScheduleTrigger creates and starts a job for the given scheduled task. It
-// dispatches on the task's target type: loop schedules build a loop Job from
-// their (live or snapshot) LoopConfig; graph-workflow schedules launch a
-// GraphRun from the referenced workflow template. Empty target type is treated
-// as loop for tasks persisted before target types existed.
+// launches a GraphRun from the referenced workflow template.
 func (h *Handler) ScheduleTrigger(ctx context.Context, task *model.ScheduledTask) (string, error) {
-	switch model.NormalizeScheduleTargetType(task.TargetType) {
-	case model.ScheduleTargetTypeGraphWorkflow:
-		return h.triggerGraphSchedule(ctx, task)
-	default:
-		return h.triggerLoopSchedule(ctx, task)
-	}
-}
-
-// triggerLoopSchedule builds and starts a loop Job for a loop-type schedule.
-// Behaviour is unchanged from the pre-dispatch ScheduleTrigger.
-func (h *Handler) triggerLoopSchedule(ctx context.Context, task *model.ScheduledTask) (string, error) {
-	loopConfig := task.LoopConfig
-
-	// Schedules follow their template: when a TemplateID is set we re-read the
-	// live template at trigger time so later edits take effect on the next run.
-	// task.LoopConfig is the fallback snapshot used only when the template read
-	// fails (e.g. it was deleted). Live config is re-validated here because the
-	// template may have been persisted before validation was enforced, or
-	// mutated out of band — every LoopConfig used to build a Job must be valid.
-	if task.TemplateID != "" {
-		tmpl, err := h.templateService.Get(ctx, task.TemplateID)
-		if err != nil {
-			logger.Warnf(ctx, "[ScheduleTrigger] fetch template %s failed, falling back to snapshot: %v", task.TemplateID, err)
-		} else if tmpl != nil {
-			if err := model.NormalizeAndValidateLoopConfig(&tmpl.Config, model.FlowDefaults{}); err != nil {
-				logger.Warnf(ctx, "[ScheduleTrigger] live template %s is invalid, falling back to snapshot: %v", task.TemplateID, err)
-			} else {
-				loopConfig = tmpl.Config
-			}
-		}
-	}
-
-	wsID, workdir, _, err := h.resolveScheduleWorkspaceWorkdir(ctx, task)
-	if err != nil {
-		return "", err
-	}
-
-	j := model.NewJob(workdir, wsID)
-	j.Mode = model.JobModeLoop
-	j.LoopConfig = &loopConfig
-	j.ScheduleID = task.ID
-	j.TimeoutMinutes = task.Timeout
-
-	model.MigrateLoopConfig(j.LoopConfig)
-
-	j.Title = consts.ScheduleJobTitlePrefix + task.Name + " (" + time.Now().Format("15:04") + ")"
-
-	if err := h.jobService.Create(j); err != nil {
-		return "", err
-	}
-
-	runner := newJobRunner(h, j)
-
-	if err := h.jobService.Start(ctx, j.ID, runner); err != nil {
-		return j.ID, err
-	}
-
-	return j.ID, nil
+	return h.triggerGraphSchedule(ctx, task)
 }
 
 // triggerGraphSchedule launches a GraphRun for a graph-workflow-type schedule.
@@ -642,6 +582,32 @@ func (h *Handler) cleanupSessions(wsID, jobID string, sessionIDs []string) {
 	}
 }
 
+// jobAllSessionIDs returns every session owned by a job — its loop/interactive
+// SessionIDs plus its graph node GraphSessionIDs — de-duplicated. Used by the
+// delete paths so a graph job's node sessions are torn down too and never leak.
+func jobAllSessionIDs(j *model.Job) []string {
+	if len(j.GraphSessionIDs) == 0 {
+		return j.SessionIDs
+	}
+	seen := make(map[string]struct{}, len(j.SessionIDs)+len(j.GraphSessionIDs))
+	all := make([]string, 0, len(j.SessionIDs)+len(j.GraphSessionIDs))
+	for _, sid := range j.SessionIDs {
+		if _, ok := seen[sid]; ok {
+			continue
+		}
+		seen[sid] = struct{}{}
+		all = append(all, sid)
+	}
+	for _, sid := range j.GraphSessionIDs {
+		if _, ok := seen[sid]; ok {
+			continue
+		}
+		seen[sid] = struct{}{}
+		all = append(all, sid)
+	}
+	return all
+}
+
 // releaseJobAgents releases agent resources (eino/ACP in-memory objects) for a
 // completed loop job. Unlike cleanupSessions, this does NOT delete session
 // metadata — it only frees the in-memory agent instances that hold model
@@ -710,24 +676,42 @@ func (h *Handler) lookupSession(sessionID string) (*model.Session, bool) {
 // This handles the case where the session service was evicted from memory
 // (e.g., idle timeout or loop-job completion).
 func (h *Handler) reloadSessionByID(sessionID string) (*model.Session, bool) {
-	// Find the job that owns this session.
+	// Find the job that owns this session. Scan both SessionIDs (loop/
+	// interactive) and GraphSessionIDs (graph node sessions) so an interactive
+	// message targeting a finished graph node's session can reload it from disk
+	// after the session service was evicted.
 	for _, j := range h.jobService.List() {
-		for _, sid := range j.SessionIDs {
-			if sid == sessionID {
-				ss, err := h.getOrCreateSessionService(j.WorkspaceID, j.ID)
-				if err != nil {
-					logger.Error("[reloadSessionByID] getOrCreateSessionService failed: %v, sessionId=%s, jobId=%s, wsId=%s", err, sessionID, j.ID, j.WorkspaceID)
-					return nil, false
-				}
-				if s, ok := ss.Get(sessionID); ok {
-					return s, true
-				}
-				logger.Error("[reloadSessionByID] session not found after reload from disk, sessionId=%s, jobId=%s", sessionID, j.ID)
-				return nil, false
-			}
+		if !sessionBelongsToJob(j, sessionID) {
+			continue
 		}
+		ss, err := h.getOrCreateSessionService(j.WorkspaceID, j.ID)
+		if err != nil {
+			logger.Error("[reloadSessionByID] getOrCreateSessionService failed: %v, sessionId=%s, jobId=%s, wsId=%s", err, sessionID, j.ID, j.WorkspaceID)
+			return nil, false
+		}
+		if s, ok := ss.Get(sessionID); ok {
+			return s, true
+		}
+		logger.Error("[reloadSessionByID] session not found after reload from disk, sessionId=%s, jobId=%s", sessionID, j.ID)
+		return nil, false
 	}
 	return nil, false
+}
+
+// sessionBelongsToJob reports whether sessionID is owned by job j, checking
+// both its loop/interactive SessionIDs and its graph node GraphSessionIDs.
+func sessionBelongsToJob(j *model.Job, sessionID string) bool {
+	for _, sid := range j.SessionIDs {
+		if sid == sessionID {
+			return true
+		}
+	}
+	for _, sid := range j.GraphSessionIDs {
+		if sid == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 // sessionIdleTimeout is how long a session service entry can sit idle

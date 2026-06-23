@@ -12,8 +12,6 @@ import (
 )
 
 var (
-	ErrInvalidTargetType     = errors.New("invalid schedule target type")
-	ErrInvalidLoopConfig     = errors.New("invalid schedule loop config")
 	ErrGraphWorkflowRequired = errors.New("graph workflow id is required")
 	ErrGraphWorkflowNotFound = errors.New("graph workflow not found")
 )
@@ -57,10 +55,7 @@ func (s *serviceImpl) Create(ctx context.Context, req *model.CreateScheduleReque
 		Name:            req.Name,
 		Enabled:         enabled,
 		CronExpr:        req.CronExpr,
-		TargetType:      model.NormalizeScheduleTargetType(req.TargetType),
-		TemplateID:      req.TemplateID,
 		GraphWorkflowID: req.GraphWorkflowID,
-		LoopConfig:      req.LoopConfig,
 		WorkspaceID:     req.WorkspaceID,
 		Workdir:         req.Workdir,
 		MaxConcurrent:   req.MaxConcurrent,
@@ -68,7 +63,7 @@ func (s *serviceImpl) Create(ctx context.Context, req *model.CreateScheduleReque
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	if err := s.normalizeTaskForTarget(ctx, task); err != nil {
+	if err := s.validateGraphWorkflow(ctx, task); err != nil {
 		return nil, err
 	}
 	// Mirror Update / Toggle: NextRunAt is meaningful only while Enabled.
@@ -127,17 +122,8 @@ func (s *serviceImpl) Update(ctx context.Context, id string, req *model.UpdateSc
 	if req.Enabled != nil {
 		task.Enabled = *req.Enabled
 	}
-	if req.TargetType != nil {
-		task.TargetType = model.NormalizeScheduleTargetType(*req.TargetType)
-	}
-	if req.TemplateID != nil {
-		task.TemplateID = *req.TemplateID
-	}
 	if req.GraphWorkflowID != nil {
 		task.GraphWorkflowID = *req.GraphWorkflowID
-	}
-	if req.LoopConfig != nil {
-		task.LoopConfig = *req.LoopConfig
 	}
 	if req.WorkspaceID != nil {
 		task.WorkspaceID = *req.WorkspaceID
@@ -151,7 +137,7 @@ func (s *serviceImpl) Update(ctx context.Context, id string, req *model.UpdateSc
 	if req.Timeout != nil {
 		task.Timeout = *req.Timeout
 	}
-	if err := s.normalizeTaskForTarget(ctx, task); err != nil {
+	if err := s.validateGraphWorkflow(ctx, task); err != nil {
 		return nil, err
 	}
 	task.UpdatedAt = time.Now()
@@ -174,36 +160,17 @@ func (s *serviceImpl) Delete(ctx context.Context, id string) error {
 }
 
 func (s *serviceImpl) Save(ctx context.Context, task *model.ScheduledTask) error {
-	if task != nil {
-		task.TargetType = model.NormalizeScheduleTargetType(task.TargetType)
-	}
 	return s.repo.Save(ctx, task)
 }
 
-func (s *serviceImpl) normalizeTaskForTarget(ctx context.Context, task *model.ScheduledTask) error {
+func (s *serviceImpl) validateGraphWorkflow(ctx context.Context, task *model.ScheduledTask) error {
 	if task == nil {
 		return fmt.Errorf("schedule task is required")
 	}
-	task.TargetType = model.NormalizeScheduleTargetType(task.TargetType)
-	switch task.TargetType {
-	case model.ScheduleTargetTypeLoop:
-		if err := model.NormalizeAndValidateLoopConfig(&task.LoopConfig, model.FlowDefaults{}); err != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidLoopConfig, err.Error())
-		}
-		task.GraphWorkflowID = ""
-	case model.ScheduleTargetTypeGraphWorkflow:
-		if task.GraphWorkflowID == "" {
-			return fmt.Errorf("%w for schedule target type %q", ErrGraphWorkflowRequired, task.TargetType)
-		}
-		if err := s.ensureGraphWorkflowExists(ctx, task.GraphWorkflowID); err != nil {
-			return err
-		}
-		task.TemplateID = ""
-		task.LoopConfig = model.LoopConfig{}
-	default:
-		return fmt.Errorf("%w: %q", ErrInvalidTargetType, task.TargetType)
+	if task.GraphWorkflowID == "" {
+		return ErrGraphWorkflowRequired
 	}
-	return nil
+	return s.ensureGraphWorkflowExists(ctx, task.GraphWorkflowID)
 }
 
 func (s *serviceImpl) ensureGraphWorkflowExists(ctx context.Context, workflowID string) error {

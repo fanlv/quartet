@@ -148,10 +148,6 @@
       "emptySearchTitle": "No matching templates",
       "emptySearchDesc": "Try another keyword, or import a LoopConfig JSON.",
       "deleteTitle": "Delete this template",
-      "categoryScheduled": "Scheduled Tasks",
-      "categoryOther": "Other Templates",
-      "scheduleBadgeTitle": "Used by {{count}} scheduled task(s)",
-      "scheduleBadge": "Scheduled x {{count}}",
       "errors": {
         "updateFailed": "Update failed. Please check if the template still exists",
         "loadFailed": "Failed to load templates: {{error}}"
@@ -740,16 +736,6 @@
   "schedule": {
     "createTitle": "New Scheduled Task",
     "editTitle": "Edit Scheduled Task",
-    "targetType": "Target Type",
-    "targetLoop": "Loop Template",
-    "targetGraphWorkflow": "Workflow Template",
-    "selectTemplate": "Select Template",
-    "noTemplates": "No templates yet. Please save a template in Loop config first",
-    "selectTemplatePlaceholder": "Select template...",
-    "loadingTemplates": "Loading templates...",
-    "templateLoadFailed": "Failed to load templates",
-    "configPreview": "Selected config: {{nodes}} node(s)",
-    "configPreviewVars": ", {{vars}} variable(s)",
     "selectGraphWorkflow": "Select Workflow Template",
     "noGraphWorkflows": "No workflow templates yet. Please save one from the workflow page first",
     "loadingGraphWorkflows": "Loading workflow templates...",
@@ -762,7 +748,6 @@
     "taskName": "Task Name",
     "taskNamePlaceholder": "e.g.: Daily Code Review",
     "taskNameRequired": "Please enter task name",
-    "selectTemplateRequired": "Please select a template",
     "workspaceBinding": "Workspace Binding",
     "bindCurrent": "Bind to current workspace",
     "unboundHint": "Independent of workspace (uses default workspace at trigger time)",
@@ -970,7 +955,7 @@
       "runStarted": "Run started.",
       "runStartedNoJob": "Run started but no jobId was returned.",
       "runNotEditable": "This run is no longer editable.",
-      "editingRunHint": "Editing run version. Only not-yet-started nodes can change.",
+      "editingRunHint": "Editing run version. Not-yet-started nodes can change; nodes inside loop bodies can change for the next round.",
       "runVersionSaved": "Run version saved. Not-yet-started instances use the new version.",
       "runNotEditableDetail": "This run is no longer editable: {{detail}}",
       "runNotFound": "Run {{id}} not found.",
@@ -1143,7 +1128,7 @@
       "controlNodeDesc": "Control nodes are only used for the workflow entry / exit and cannot configure business actions or output variables.",
       "duplicateNode": "Duplicate node",
       "deleteNode": "Delete node",
-      "frozenBanner": "This node has already started / finished in this run; its execution config cannot be changed (only not-yet-started nodes can change)."
+      "frozenBanner": "This node has already started / finished in this run, so its execution config cannot be changed. Nodes inside loop bodies are exempt and apply changes on the next round."
     },
     "kinds": {
       "startLabel": "Start",

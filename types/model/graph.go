@@ -449,7 +449,12 @@ type GraphRunStatusResponse struct {
 	Progress  *GraphProgress       `json:"progress,omitempty"`
 	Instances []GraphInstanceState `json:"instances,omitempty"`
 	Edges     []GraphEdgeState     `json:"edges,omitempty"`
-	Events    []GraphEvent         `json:"events,omitempty"`
+	// EventCount is the number of persisted event lines for this run. The
+	// client uses it only as the initial SSE resume cursor seed; it never
+	// needs the event bodies in the status response (the SSE stream and
+	// per-session message history carry those). Lets GetRunStatus stop
+	// serialising the whole event log into the status payload.
+	EventCount int `json:"eventCount,omitempty"`
 }
 
 type GraphRunEventsResponse struct {

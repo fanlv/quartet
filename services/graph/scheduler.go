@@ -142,6 +142,17 @@ func (s *serviceImpl) runGraph(ctx context.Context, runID string, runner Runner,
 	handle, ctx := s.registerControl(runID, ctx)
 	defer s.clearControl(runID, handle)
 
+	// In-memory SSE event buffer for this run. Streaming agent events publish
+	// here only; structural events publish here and persist. On resume the run
+	// may reuse a buffer left terminal by a prior run in this process — flip GC
+	// back on so it doesn't stay frozen. MarkTerminal on exit keeps the tail
+	// available for late refreshes (the buffer is freed only on DeleteRun).
+	buf := s.eventBuffer(runID)
+	if resume {
+		buf.ResumeGC()
+	}
+	defer buf.MarkTerminal()
+
 	cfg := effectiveConfig(run)
 	if timeout := jobTimeout(cfg.RunConfig); timeout > 0 {
 		var cancel context.CancelFunc
@@ -489,11 +500,30 @@ func (sc *scheduler) handleSessionOpened(ctx context.Context, so sessionOpened) 
 	}
 	state.DisplaySessionID = so.sessionID
 	sc.instances[keyStr] = state
+	sc.whitelistAgentSession(ctx, so.sessionID)
 	updateRunProgress(sc.run, sc.instances)
 	sc.persist(ctx)
 	sc.appendInstanceEvent(ctx, model.GraphEventTypeInstanceStarted, so.key, state.NodeID, "session opened", nil)
 	logger.Infof(ctx, "[graph] node session opened: runId=%s nodeId=%s key=%s sessionId=%s",
 		sc.run.ID, state.NodeID, keyStr, so.sessionID)
+}
+
+// whitelistAgentSession records an Agent node's session on the job's
+// GraphSessionIDs whitelist so a user can keep chatting in it after the run
+// stops (services/job AttachGraphSession is idempotent & de-duplicated). Called
+// at the three points an Agent session surfaces — eager open, success and
+// failure — because the eager `notify` can be dropped when the channel is full.
+// Best-effort: a failure only forfeits the post-stop chat affordance for that
+// session and must never abort the run. Shell display sessions are excluded —
+// they are display-only, not a real agent conversation.
+func (sc *scheduler) whitelistAgentSession(ctx context.Context, sessionID string) {
+	if sessionID == "" || sc.jobs == nil {
+		return
+	}
+	if err := sc.jobs.AttachGraphSession(ctx, sc.run.JobID, sessionID); err != nil {
+		logger.Warnf(ctx, "[graph] attach graph session failed: runId=%s jobId=%s sessionId=%s err=%v",
+			sc.run.ID, sc.run.JobID, sessionID, err)
+	}
 }
 
 // handleResult processes one worker completion. On success it records the
@@ -573,6 +603,9 @@ func (sc *scheduler) handleResult(ctx context.Context, res nodeResult) {
 	}
 	sc.instances[keyStr] = state
 	sc.varsByKey[keyStr] = cloneStringMap(visibleAfter)
+	if node.Type != model.GraphNodeTypeShell {
+		sc.whitelistAgentSession(ctx, outflowSession)
+	}
 	sc.recordSessionLineage(key, node, res.inflowSession, res.outcome.sessionID)
 	updateRunProgress(sc.run, sc.instances)
 	if sc.checkRunLimits(ctx) {
@@ -661,6 +694,9 @@ func (sc *scheduler) failInstance(ctx context.Context, state *model.GraphInstanc
 		state.DisplaySessionID = outflowSession
 	}
 	sc.instances[instanceKeyString(key)] = *state
+	if node.Type != model.GraphNodeTypeShell {
+		sc.whitelistAgentSession(ctx, outflowSession)
+	}
 	sc.run.LastError = rerr
 	updateRunProgress(sc.run, sc.instances)
 	sc.run.Progress.LastError = rerr.Message
@@ -1064,12 +1100,15 @@ func (sc *scheduler) persist(ctx context.Context) {
 }
 
 func (sc *scheduler) appendInstanceEvent(ctx context.Context, typ model.GraphEventType, key model.GraphInstanceKey, nodeID, msg string, rerr *model.GraphRuntimeError) {
-	var progress *model.GraphProgress
-	if typ == model.GraphEventTypeInstanceStarted || typ == model.GraphEventTypeInstanceCompleted ||
-		typ == model.GraphEventTypeInstanceFailed || typ == model.GraphEventTypeInstanceSkipped {
-		progress = sc.run.Progress
-	}
-	sc.svc.appendEvent(ctx, sc.run.ID, typ, &key, nodeID, "", msg, progress, rerr)
+	// Instance lifecycle events no longer embed the full progress snapshot.
+	// Previously every instanceStarted/Completed/Failed/Skipped carried the
+	// whole progress.Instances map (hundreds of entries on a long loop), so the
+	// persisted event log grew quadratically with iteration count. The frontend
+	// reconciles node status by re-fetching the run snapshot on these events
+	// (and progress.json holds the authoritative copy), so the embedded snapshot
+	// was pure redundancy. The low-frequency progressUpdated event (≈once per
+	// run) still carries a snapshot for the run-completion summary.
+	sc.svc.appendEvent(ctx, sc.run.ID, typ, &key, nodeID, "", msg, nil, rerr)
 }
 
 func boolPort(yes bool) model.GraphEdgePort {

@@ -448,17 +448,6 @@
   flex: 1;
 }
 
-.loop-template-badge {
-  flex-shrink: 0;
-  padding: 1px 8px;
-  border-radius: 10px;
-  background: #eff4ff;
-  color: #2563eb;
-  font-size: 11px;
-  line-height: 1.6;
-  font-weight: 500;
-}
-
 .loop-template-group-label {
   padding: 8px 12px 4px;
   font-size: 11px;
@@ -4931,15 +4920,9 @@
   font-weight: 760;
 }
 
-.loop-template-badge,
 .loop-template-selected-badge {
   border-radius: var(--loop-radius-xs);
   font-weight: 780;
-}
-
-.loop-template-badge {
-  background: #ecfdf5;
-  color: #047857;
 }
 
 .loop-template-library-footer .loop-save-dialog-confirm {

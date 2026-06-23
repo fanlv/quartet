@@ -427,12 +427,9 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const loadTemplates = useCallback(async () => {
     try {
       const list = await fetchTemplates();
-      const sorted = [...list].sort((a, b) => {
-        const aSched = (a.scheduleCount ?? 0) > 0 ? 1 : 0;
-        const bSched = (b.scheduleCount ?? 0) > 0 ? 1 : 0;
-        if (aSched !== bSched) return aSched - bSched;
-        return a.name.localeCompare(b.name, undefined, { numeric: true });
-      });
+      const sorted = [...list].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { numeric: true })
+      );
       setTemplates(sorted);
       setTemplateLoadError('');
     } catch (e) {
@@ -886,14 +883,6 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
     if (!normalizedTemplateSearch) return templates;
     return templates.filter((tmpl) => tmpl.name.toLowerCase().includes(normalizedTemplateSearch));
   }, [normalizedTemplateSearch, templates]);
-  const scheduledTemplates = useMemo(
-    () => filteredTemplates.filter((tmpl) => (tmpl.scheduleCount ?? 0) > 0),
-    [filteredTemplates]
-  );
-  const otherTemplates = useMemo(
-    () => filteredTemplates.filter((tmpl) => (tmpl.scheduleCount ?? 0) === 0),
-    [filteredTemplates]
-  );
   const definedVars = variables.filter((v) => v.key.trim());
   const totalSteps = useMemo(() => calcTotalSteps(flow), [flow]);
   const nodeCount = useMemo(() => countNodes(flow), [flow]);
@@ -975,7 +964,6 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
   const renderTemplateCard = (tmpl: LoopTemplate) => {
     const stats = getTemplateStats(tmpl);
     const isSelected = tmpl.id === selectedTemplateId;
-    const isScheduled = (tmpl.scheduleCount ?? 0) > 0;
     const updatedAt = formatTemplateDate(tmpl);
     return (
       <div key={tmpl.id} className={`loop-template-card${isSelected ? ' selected' : ''}`} onClick={() => handleSelectTemplate(tmpl)} style={{ cursor: 'pointer' }}>
@@ -983,14 +971,6 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
           <div className="loop-template-card-title-row">
             <h5>{tmpl.name}</h5>
             {isSelected && <span className="loop-template-selected-badge">{t('loop.template.selectedTag')}</span>}
-            {isScheduled && (
-              <span
-                className="loop-template-badge"
-                title={t('loop.template.scheduleBadgeTitle', { count: tmpl.scheduleCount ?? 0 })}
-              >
-                {t('loop.template.scheduleBadge', { count: tmpl.scheduleCount ?? 0 })}
-              </span>
-            )}
           </div>
           <div className="loop-template-card-stats">
             <span>{t('loop.footer.nodes', { count: stats.nodes })}</span>
@@ -1124,7 +1104,6 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                       templates.map((tmpl) => {
                         const stats = getTemplateStats(tmpl);
                         const isSelected = tmpl.id === selectedTemplateId;
-                        const isScheduled = (tmpl.scheduleCount ?? 0) > 0;
                         return (
                           <button
                             key={tmpl.id}
@@ -1137,7 +1116,6 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                               {t('loop.flow.steps', { count: stats.steps })}
                               {' · '}
                               {t('loop.footer.variables', { count: stats.variables })}
-                              {isScheduled ? ` · ${t('loop.template.scheduleBadge', { count: tmpl.scheduleCount ?? 0 })}` : ''}
                             </span>
                           </button>
                         );
@@ -1593,20 +1571,9 @@ export function LoopConfigPanel({ onConfirm, onCancel, agents, workspaces, curre
                   <p>{t('loop.template.emptySearchDesc')}</p>
                 </div>
               ) : (
-                <>
-                  {otherTemplates.length > 0 && (
-                    <section className="loop-template-library-section">
-                      <div className="loop-template-library-section-title">{t('loop.template.categoryOther')}</div>
-                      <div className="loop-template-card-list">{otherTemplates.map(renderTemplateCard)}</div>
-                    </section>
-                  )}
-                  {scheduledTemplates.length > 0 && (
-                    <section className="loop-template-library-section">
-                      <div className="loop-template-library-section-title">{t('loop.template.categoryScheduled')}</div>
-                      <div className="loop-template-card-list">{scheduledTemplates.map(renderTemplateCard)}</div>
-                    </section>
-                  )}
-                </>
+                <section className="loop-template-library-section">
+                  <div className="loop-template-card-list">{filteredTemplates.map(renderTemplateCard)}</div>
+                </section>
               )}
             </div>
 

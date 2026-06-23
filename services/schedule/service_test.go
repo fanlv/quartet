@@ -56,26 +56,21 @@ func (s *stubGraphWorkflowRepo) Delete(context.Context, string) error { return n
 
 func TestUpdateCanChangeAndClearScheduleWorkspace(t *testing.T) {
 	task := &model.ScheduledTask{
-		ID:          "sch-test",
-		Name:        "nightly",
-		CronExpr:    "0 9 * * *",
-		Enabled:     true,
-		TargetType:  model.ScheduleTargetTypeLoop,
-		WorkspaceID: "ws-old",
-		Workdir:     "/tmp/old",
-		LoopConfig: model.LoopConfig{Flow: []model.FlowNode{{
-			ID:        "step-1",
-			Type:      model.FlowNodeTypeStep,
-			RoundType: model.RoundTypeShell,
-			RoundMode: model.RoundModeBeforeRound,
-			Message:   "echo ok",
-		}}},
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:              "sch-test",
+		Name:            "nightly",
+		CronExpr:        "0 9 * * *",
+		Enabled:         true,
+		GraphWorkflowID: "wf-1",
+		WorkspaceID:     "ws-old",
+		Workdir:         "/tmp/old",
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 	svc := &serviceImpl{
-		repo:      &stubScheduleRepo{tasks: map[string]*model.ScheduledTask{task.ID: task}},
-		graphRepo: &stubGraphWorkflowRepo{},
+		repo: &stubScheduleRepo{tasks: map[string]*model.ScheduledTask{task.ID: task}},
+		graphRepo: &stubGraphWorkflowRepo{workflows: map[string]*model.GraphWorkflow{
+			"wf-1": {ID: "wf-1", Name: "wf"},
+		}},
 	}
 
 	nextWorkspace := "ws-new"

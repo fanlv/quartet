@@ -12,8 +12,7 @@ import (
 )
 
 var (
-	ErrTemplateReferenced = errors.New("template is referenced by scheduled task")
-	ErrTemplateNotFound   = errors.New("template not found")
+	ErrTemplateNotFound = errors.New("template not found")
 	// ErrInvalidTemplateConfig wraps LoopConfig validation failures so the HTTP
 	// layer can map them to 400. Template save/update is a LoopConfig
 	// persistence entry point and must run the same migrate/backfill/validate
@@ -43,8 +42,7 @@ type Service interface {
 }
 
 type serviceImpl struct {
-	repo         repository.TemplateRepo
-	scheduleRepo repository.ScheduleRepo
+	repo repository.TemplateRepo
 }
 
 func NewService() (Service, error) {
@@ -52,11 +50,7 @@ func NewService() (Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init template repo failed: %w", err)
 	}
-	scheduleRepo, err := repository.NewScheduleRepo()
-	if err != nil {
-		return nil, fmt.Errorf("init schedule repo failed: %w", err)
-	}
-	return &serviceImpl{repo: repo, scheduleRepo: scheduleRepo}, nil
+	return &serviceImpl{repo: repo}, nil
 }
 
 func (s *serviceImpl) Save(ctx context.Context, req *model.SaveTemplateRequest) (*model.LoopTemplate, error) {
@@ -111,39 +105,9 @@ func (s *serviceImpl) Update(ctx context.Context, id string, req *model.UpdateTe
 }
 
 func (s *serviceImpl) List(ctx context.Context) ([]*model.LoopTemplate, error) {
-	templates, err := s.repo.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	tasks, err := s.scheduleRepo.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list scheduled tasks failed: %w", err)
-	}
-	counts := make(map[string]int, len(tasks))
-	for _, task := range tasks {
-		if task.TemplateID == "" {
-			continue
-		}
-		counts[task.TemplateID]++
-	}
-	for _, tmpl := range templates {
-		tmpl.ScheduleCount = counts[tmpl.ID]
-	}
-	return templates, nil
+	return s.repo.List(ctx)
 }
 
 func (s *serviceImpl) Delete(ctx context.Context, id string) error {
-	tasks, err := s.scheduleRepo.List(ctx)
-	if err != nil {
-		return fmt.Errorf("list scheduled tasks failed: %w", err)
-	}
-	for _, task := range tasks {
-		if task.TemplateID == id {
-			if task.Name != "" {
-				return fmt.Errorf("%w: %s (%s)", ErrTemplateReferenced, task.Name, task.ID)
-			}
-			return fmt.Errorf("%w: %s", ErrTemplateReferenced, task.ID)
-		}
-	}
 	return s.repo.Delete(ctx, id)
 }

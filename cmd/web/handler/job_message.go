@@ -423,12 +423,17 @@ func (h *Handler) buildMultiContentMessage(content string, imageUrls []string) (
 // resolveSessionID returns the session ID from the request (after validating it
 // belongs to this job), or falls back to the job's last session.  An error is
 // returned when the caller supplies a session ID that is not associated with the job.
+//
+// A requested session is accepted if it appears in either SessionIDs
+// (loop/interactive) or GraphSessionIDs (graph node sessions) — the latter lets
+// a user keep chatting in a finished graph node's session after the run stops.
+// The empty-request fallback deliberately reads only SessionIDs[last] so graph's
+// non-linear, concurrent node sessions never hijack the default target; a graph
+// client always sends an explicit sessionId.
 func (h *Handler) resolveSessionID(j *model.Job, reqSessionID string) (string, error) {
 	if reqSessionID != "" {
-		for _, sid := range j.SessionIDs {
-			if sid == reqSessionID {
-				return reqSessionID, nil
-			}
+		if sessionBelongsToJob(j, reqSessionID) {
+			return reqSessionID, nil
 		}
 		return "", fmt.Errorf("session %s does not belong to job %s", reqSessionID, j.ID)
 	}

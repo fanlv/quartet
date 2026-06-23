@@ -75,14 +75,24 @@ type Job struct {
 	TimeoutMinutes int    `json:"timeoutMinutes,omitempty"`
 
 	// --- RunLoop-owned ---
-	Status     JobStatus    `json:"status"`
-	StartedAt  int64        `json:"startedAt,omitempty"`  // unix ms; set when execution begins
-	FinishedAt int64        `json:"finishedAt,omitempty"` // unix ms; set when terminal state reached
-	LoopConfig *LoopConfig  `json:"loopConfig,omitempty"`
-	GraphRunID string       `json:"graphRunId,omitempty"`
-	SessionIDs []string     `json:"sessionIds"`
-	Progress   *JobProgress `json:"progress,omitempty"`
-	Resume     *JobResume   `json:"resume,omitempty"`
+	Status     JobStatus   `json:"status"`
+	StartedAt  int64       `json:"startedAt,omitempty"`  // unix ms; set when execution begins
+	FinishedAt int64       `json:"finishedAt,omitempty"` // unix ms; set when terminal state reached
+	LoopConfig *LoopConfig `json:"loopConfig,omitempty"`
+	GraphRunID string      `json:"graphRunId,omitempty"`
+	SessionIDs []string    `json:"sessionIds"`
+	// GraphSessionIDs lists the sessions opened by Agent nodes of this job's
+	// graph run, kept separate from SessionIDs so they never pollute the loop/
+	// interactive "linear iteration" semantics of SessionIDs (e.g. the
+	// "last entry is the active session" assumption in resolveSessionID, or
+	// SessionCount = len(SessionIDs)). It exists purely as an authorization
+	// whitelist: an interactive message may target any session in here so a
+	// user can keep chatting in a finished graph node's session after the run
+	// stops. Graph nodes run concurrently, so order here is non-linear and must
+	// not be read as an iteration sequence.
+	GraphSessionIDs []string     `json:"graphSessionIds,omitempty"`
+	Progress        *JobProgress `json:"progress,omitempty"`
+	Resume          *JobResume   `json:"resume,omitempty"`
 
 	// LastRunOutcome records the actual outcome of the most recent run
 	// (loop iteration or interactive send). For interactive sends on an
@@ -290,6 +300,12 @@ func (j *Job) DeepCopy() *Job {
 	if len(j.SessionIDs) > 0 {
 		cp.SessionIDs = make([]string, len(j.SessionIDs))
 		copy(cp.SessionIDs, j.SessionIDs)
+	}
+
+	// GraphSessionIDs
+	if len(j.GraphSessionIDs) > 0 {
+		cp.GraphSessionIDs = make([]string, len(j.GraphSessionIDs))
+		copy(cp.GraphSessionIDs, j.GraphSessionIDs)
 	}
 
 	// LoopConfig

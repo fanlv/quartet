@@ -137,7 +137,6 @@ export interface LoopTemplate {
   config: LoopConfig;
   createdAt: string;
   updatedAt?: string;
-  scheduleCount?: number;
 }
 
 export interface JobInfo {
@@ -163,10 +162,7 @@ export interface ScheduleInfo {
   name: string;
   enabled: boolean;
   cronExpr: string;
-  targetType: 'loop' | 'graphWorkflow';
-  templateId?: string;
   graphWorkflowId?: string;
-  loopConfig?: LoopConfig;
   workspaceId: string;
   workdir?: string;
   maxConcurrent?: number;

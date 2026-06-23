@@ -294,10 +294,54 @@ func (h *Handler) GraphRunEvents(ctx context.Context, c *app.RequestContext) {
 	}
 
 	connID := uuid.NewString()[:8]
-	startLine := parseGraphEventLine(string(c.GetHeader("Last-Event-ID")))
-	logger.Infof(ctx, "[graph-sse] subscribe: connId=%s runId=%s startLine=%d", connID, runID, startLine)
+	startSeq := graphParseLastEventSeq(string(c.GetHeader("Last-Event-ID")))
+
+	// A fresh subscriber (no Last-Event-ID → startSeq=0) means "start at the
+	// buffer tail". The buffer's GC advances headSeq freely while no reader is
+	// connected (minCursor=MaxUint64), so by the time the first client connects
+	// headSeq has almost always moved past 0 — a literal Subscribe(0) would then
+	// be rejected as ErrSeqGone and the client would stop reconnecting, killing
+	// the live stream until a manual refresh. Resolve 0 to the live buffer's
+	// current SnapshotSeq so the new reader cursors at the tail. Only for live
+	// runs: the disk-replay path below uses startSeq as a line offset where 0
+	// correctly means "replay from the first event".
+	if startSeq == 0 {
+		if freshSeq, ok := h.graphService.RunEventSnapshotSeq(runID); ok {
+			startSeq = freshSeq
+		}
+	}
+
+	// Subscribe to the live in-memory buffer. live=false means this run is not
+	// active in this process (e.g. opened after a restart, or already terminal
+	// with its buffer freed) — fall back to a one-time disk replay of the
+	// persisted structural events. ErrSeqGone (resume point GC'd) maps to 410
+	// so the client reconciles from the run snapshot.
+	reader, live, err := h.graphService.SubscribeRunEvents(runID, startSeq)
+	if errors.Is(err, graphsvc.ErrSeqGone) && startSeq > 0 {
+		// Snapshot/subscribe race: GC advanced headSeq between the client's
+		// status fetch and this subscribe. Retry once from the buffer's
+		// current tail.
+		if freshSeq, ok := h.graphService.RunEventSnapshotSeq(runID); ok {
+			logger.Infof(ctx, "[graph-sse] subscribe race hit, retrying: connId=%s runId=%s originalSeq=%d freshSeq=%d", connID, runID, startSeq, freshSeq)
+			reader, live, err = h.graphService.SubscribeRunEvents(runID, freshSeq)
+		}
+	}
+	if errors.Is(err, graphsvc.ErrSeqGone) {
+		logger.Infof(ctx, "[graph-sse] subscribe gone: connId=%s runId=%s startSeq=%d (client should reconcile snapshot)", connID, runID, startSeq)
+		c.AbortWithStatusJSON(http.StatusGone, map[string]string{
+			"error": fmt.Sprintf("event buffer no longer contains seq=%d for run %s; reconcile snapshot", startSeq, runID),
+		})
+		return
+	}
+	if err != nil {
+		logger.Errorf(ctx, "[graph-sse] subscribe failed: connId=%s runId=%s startSeq=%d err=%v", connID, runID, startSeq, err)
+		httputil.InternalError(c, fmt.Sprintf("subscribe failed: %v", err))
+		return
+	}
+
+	logger.Infof(ctx, "[graph-sse] subscribe: connId=%s runId=%s startSeq=%d live=%t", connID, runID, startSeq, live)
 	defer func(started time.Time) {
-		logger.Debugf(ctx, "[graph-sse] unsubscribe: connId=%s runId=%s lifetime=%s", connID, runID, time.Since(started).Round(time.Millisecond))
+		logger.Debugf(ctx, "[graph-sse] unsubscribe: connId=%s runId=%s live=%t lifetime=%s", connID, runID, live, time.Since(started).Round(time.Millisecond))
 	}(time.Now())
 
 	c.SetStatusCode(hertzConsts.StatusOK)
@@ -311,8 +355,109 @@ func (h *Handler) GraphRunEvents(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	if !live {
+		h.graphRunEventsReplayFromDisk(ctx, c, w, connID, runID, startSeq)
+		return
+	}
+
+	defer reader.Close()
+	// Single-writer loop: events and keep-alives are written from the same
+	// goroutine. ReadWithTimeout returns GraphReadTimeout when no event arrives
+	// within sseKeepAliveInterval; we then write a keep-alive and re-read. The
+	// loop does NOT exit on terminal events — a resume reuses the same buffer,
+	// so its events land on this reader without a reconnect. It exits on:
+	//   - GraphReadClosed: buffer closed (run deleted)
+	//   - write failure: client disconnected or TCP wedged
+	//   - terminal idle timeout: no new events for sseTerminalIdleTimeout after
+	//     the run reached a terminal state.
+	var terminalIdleSince time.Time
+	for {
+		entries, status := reader.ReadWithTimeout(ctx, sseKeepAliveInterval, graphSSEReadBatchSize)
+		switch status {
+		case graphsvc.GraphReadClosed:
+			return
+		case graphsvc.GraphReadTimeout:
+			if runStatus, err := h.graphService.GetRunStatus(ctx, runID); err == nil &&
+				runStatus.Run != nil && graphRunSSETerminal(runStatus.Run.Status) {
+				if terminalIdleSince.IsZero() {
+					terminalIdleSince = time.Now()
+				} else if time.Since(terminalIdleSince) >= sseTerminalIdleTimeout {
+					logger.Debugf(ctx, "[graph-sse] closing idle terminal connection: connId=%s runId=%s status=%s", connID, runID, runStatus.Run.Status)
+					return
+				}
+			} else {
+				terminalIdleSince = time.Time{}
+			}
+			if err := writeWithTimeout(ctx, c, connID, runID, 0, func() error { return w.WriteKeepAlive() }, sseWriteTimeout); err != nil {
+				logGraphSSEWriteError(ctx, "keep-alive", connID, runID, 0, err)
+				return
+			}
+			continue
+		}
+
+		terminalIdleSince = time.Time{}
+		for _, entry := range entries {
+			data, err := sonic.Marshal(entry.Event)
+			if err != nil {
+				logger.Errorf(ctx, "[graph-sse] marshal event failed: connId=%s runId=%s seq=%d err=%v", connID, runID, entry.Seq, err)
+				if entry.Seq > 0 {
+					reader.Ack(entry.Seq)
+				}
+				continue
+			}
+			id := ""
+			if entry.Seq > 0 {
+				id = strconv.FormatUint(entry.Seq, 10)
+			}
+			if err := writeWithTimeout(ctx, c, connID, runID, entry.Seq, func() error {
+				return w.WriteEvent(id, "message", data)
+			}, sseWriteTimeout); err != nil {
+				logGraphSSEWriteError(ctx, "event", connID, runID, entry.Seq, err)
+				return
+			}
+			if entry.Seq > 0 {
+				reader.Ack(entry.Seq)
+			}
+		}
+	}
+}
+
+// graphRunEventsReplayFromDisk serves the SSE stream for a run that has no live
+// in-memory buffer in this process (opened after a restart, or already terminal
+// with its buffer freed). It replays the persisted structural events once from
+// startSeq — streaming agent deltas were never persisted, so the conversation
+// is recovered separately from each node's session messages, and the canvas
+// from the replayed instance lifecycle events + the run-status snapshot — then
+// holds the connection with keep-alives until the client leaves or the terminal
+// idle timeout elapses. No new events can arrive (the run is not active here),
+// so this is replay-then-idle, not a live tail.
+func (h *Handler) graphRunEventsReplayFromDisk(ctx context.Context, c *app.RequestContext, w *sse.Writer, connID, runID string, startSeq uint64) {
+	startLine := int(startSeq)
+	resp, err := h.graphService.ListRunEvents(ctx, runID, startLine, nil)
+	if err != nil {
+		logger.Errorf(ctx, "[graph-sse] replay list events failed: connId=%s runId=%s startLine=%d err=%v", connID, runID, startLine, err)
+		return
+	}
+	for i, event := range resp.Events {
+		lineID := startLine + i + 1
+		data, err := sonic.Marshal(event)
+		if err != nil {
+			logger.Errorf(ctx, "[graph-sse] replay marshal event failed: connId=%s runId=%s line=%d err=%v", connID, runID, lineID, err)
+			continue
+		}
+		if err := writeWithTimeout(ctx, c, connID, runID, uint64(lineID), func() error {
+			return w.WriteEvent(strconv.Itoa(lineID), "message", data)
+		}, sseWriteTimeout); err != nil {
+			logGraphSSEWriteError(ctx, "replay-event", connID, runID, uint64(lineID), err)
+			return
+		}
+	}
+
+	// Replay done; no live producer in this process. Hold with keep-alives so
+	// the client's EventSource stays open, closing after the terminal idle
+	// timeout (the run is terminal whenever its buffer is absent here).
 	idleSince := time.Now()
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(sseKeepAliveInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -320,48 +465,14 @@ func (h *Handler) GraphRunEvents(ctx context.Context, c *app.RequestContext) {
 			return
 		case <-ticker.C:
 		}
-
-		resp, err := h.graphService.ListRunEvents(ctx, runID, startLine, nil)
-		if err != nil {
-			logger.Errorf(ctx, "[graph-sse] list events failed: connId=%s runId=%s startLine=%d err=%v", connID, runID, startLine, err)
+		if time.Since(idleSince) >= sseTerminalIdleTimeout {
+			logger.Debugf(ctx, "[graph-sse] closing idle replay connection: connId=%s runId=%s", connID, runID)
 			return
 		}
-		if len(resp.Events) == 0 {
-			runStatus, err := h.graphService.GetRunStatus(ctx, runID)
-			if err != nil {
-				logger.Errorf(ctx, "[graph-sse] refresh status failed: connId=%s runId=%s err=%v", connID, runID, err)
-				return
-			}
-			if runStatus.Run != nil && graphRunSSETerminal(runStatus.Run.Status) && time.Since(idleSince) >= sseTerminalIdleTimeout {
-				logger.Debugf(ctx, "[graph-sse] closing idle terminal connection: connId=%s runId=%s status=%s", connID, runID, runStatus.Run.Status)
-				return
-			}
-			if time.Since(idleSince) >= sseKeepAliveInterval {
-				if err := writeWithTimeout(ctx, c, connID, runID, 0, func() error { return w.WriteKeepAlive() }, sseWriteTimeout); err != nil {
-					logGraphSSEWriteError(ctx, "keep-alive", connID, runID, 0, err)
-					return
-				}
-				idleSince = time.Now()
-			}
-			continue
+		if err := writeWithTimeout(ctx, c, connID, runID, 0, func() error { return w.WriteKeepAlive() }, sseWriteTimeout); err != nil {
+			logGraphSSEWriteError(ctx, "replay-keep-alive", connID, runID, 0, err)
+			return
 		}
-
-		idleSince = time.Now()
-		for i, event := range resp.Events {
-			lineID := startLine + i + 1
-			data, err := sonic.Marshal(event)
-			if err != nil {
-				logger.Errorf(ctx, "[graph-sse] marshal event failed: connId=%s runId=%s line=%d err=%v", connID, runID, lineID, err)
-				continue
-			}
-			if err := writeWithTimeout(ctx, c, connID, runID, uint64(lineID), func() error {
-				return w.WriteEvent(strconv.Itoa(lineID), "message", data)
-			}, sseWriteTimeout); err != nil {
-				logGraphSSEWriteError(ctx, "event", connID, runID, uint64(lineID), err)
-				return
-			}
-		}
-		startLine = resp.NextLine
 	}
 }
 
@@ -536,16 +647,23 @@ func validationErrors(err error) ([]model.GraphValidationError, bool) {
 	return nil, false
 }
 
-func parseGraphEventLine(value string) int {
+// graphParseLastEventSeq parses the SSE Last-Event-ID header into a resume seq.
+// Empty / non-numeric / negative all collapse to 0 ("start at the buffer tail").
+func graphParseLastEventSeq(value string) uint64 {
 	if value == "" {
 		return 0
 	}
-	line, err := strconv.Atoi(value)
-	if err != nil || line < 0 {
+	seq, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
 		return 0
 	}
-	return line
+	return seq
 }
+
+// graphSSEReadBatchSize bounds how many buffered events one ReadWithTimeout
+// returns, so a burst of streaming deltas is written in chunks interleaved with
+// keep-alive opportunities rather than one giant batch.
+const graphSSEReadBatchSize = 32
 
 func graphRunSSETerminal(status model.GraphRunStatus) bool {
 	switch status {

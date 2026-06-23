@@ -157,6 +157,10 @@ func (s *serviceImpl) DeleteRun(ctx context.Context, runID string, jobs JobState
 	if err := s.runRepo.DeleteRun(ctx, runID); err != nil {
 		return err
 	}
+	// Free the in-memory event buffer (if any reader is still attached, Close
+	// wakes it so its SSE handler exits). The run's status is already terminal
+	// (in-flight runs are rejected above), so no producer is publishing.
+	s.removeBuffer(runID)
 	if jobs != nil && run.JobID != "" {
 		if err := jobs.ClearGraphRunLinkage(ctx, run.JobID, runID); err != nil {
 			logger.Warnf(ctx, "[graph] clear job graph-run linkage failed: job=%s run=%s err=%v", run.JobID, runID, err)

@@ -157,7 +157,11 @@ func (m *ChatContextManager) ReplacePlaceholderToolResult(ctx context.Context, t
 //     result (real or placeholder). Truncation is atomic via
 //     repo.ReplaceMessages (write-to-temp + rename). No-op when the tail
 //     is clean.
-//  2. Appends the user messages.
+//  2. Appends the user messages — UNLESS every supplied user message
+//     carries Extra[msgextra.KeyPrePersisted], meaning an upstream caller
+//     (graph Prompt/评估 nodes) already wrote it to disk at enqueue time.
+//     In that case the append is skipped (the row exists) but step 1's
+//     truncate still runs, so the message is persisted exactly once.
 //  3. Touches session meta's UpdatedAt so the UI's "last active" field
 //     reflects the new turn. No-op when no SessionRepo was wired.
 //
@@ -194,6 +198,14 @@ func (m *ChatContextManager) ReplacePlaceholderToolResult(ctx context.Context, t
 // the same sessionDir shares it, regardless of which package built
 // the repo instance.
 func (m *ChatContextManager) BeginRun(ctx context.Context, userMessages ...*schema.Message) (bool, error) {
+	// Skip the append when every user message was already persisted upstream
+	// (graph Prompt/评估 nodes write the rendered prompt at enqueue time so the
+	// Chat sidebar shows it before the agent replies — see
+	// services/graph/runtime.go executeNode). The orphan-tail truncate below
+	// still runs: a prior failed attempt may have left an unpaired tail that
+	// must be scrubbed before this Run reads history, and the retry path relies
+	// on it. Empty input falls through to the normal (no-op append) path.
+	skipAppend := len(userMessages) > 0 && allPrePersisted(userMessages)
 	var truncated bool
 	err := m.repo.WithLock(ctx, func(tx repository.LockedRepo) error {
 		t, err := m.truncateOrphanedTailLocked(ctx, tx)
@@ -201,6 +213,9 @@ func (m *ChatContextManager) BeginRun(ctx context.Context, userMessages ...*sche
 			return fmt.Errorf("truncate orphaned tail failed: %w", err)
 		}
 		truncated = t
+		if skipAppend {
+			return nil
+		}
 		if err := tx.AppendMessages(ctx, userMessages); err != nil {
 			logger.Errorf(ctx, "[ChatContextManager] persist messages failed (count=%d): %v", len(userMessages), err)
 			return err
@@ -216,6 +231,23 @@ func (m *ChatContextManager) BeginRun(ctx context.Context, userMessages ...*sche
 	// session-meta writer can't block the next AppendMessages.
 	m.touchSessionMeta(ctx)
 	return truncated, nil
+}
+
+// allPrePersisted reports whether every message carries the
+// msgextra.KeyPrePersisted marker, i.e. it was already appended to disk by an
+// upstream caller and BeginRun must not append it again. A single unmarked
+// message makes this false so a mixed batch is appended normally rather than
+// silently dropped.
+func allPrePersisted(msgs []*schema.Message) bool {
+	for _, m := range msgs {
+		if m == nil || m.Extra == nil {
+			return false
+		}
+		if v, ok := m.Extra[msgextra.KeyPrePersisted].(bool); !ok || !v {
+			return false
+		}
+	}
+	return true
 }
 
 // touchSessionMeta bumps meta.UpdatedAt. No-op when the manager was

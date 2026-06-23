@@ -19,7 +19,7 @@ func scheduleToInfo(t *model.ScheduledTask) model.ScheduleInfo {
 		Name:             t.Name,
 		Enabled:          t.Enabled,
 		CronExpr:         t.CronExpr,
-		TargetType:       model.NormalizeScheduleTargetType(t.TargetType),
+		GraphWorkflowID:  t.GraphWorkflowID,
 		WorkspaceID:      t.WorkspaceID,
 		Workdir:          t.Workdir,
 		MaxConcurrent:    t.MaxConcurrent,
@@ -34,12 +34,6 @@ func scheduleToInfo(t *model.ScheduledTask) model.ScheduleInfo {
 	if t.LastRunAt != nil {
 		ms := t.LastRunAt.UnixMilli()
 		info.LastRunAt = &ms
-	}
-	if info.TargetType == model.ScheduleTargetTypeLoop {
-		info.TemplateID = t.TemplateID
-		info.LoopConfig = &t.LoopConfig
-	} else if info.TargetType == model.ScheduleTargetTypeGraphWorkflow {
-		info.GraphWorkflowID = t.GraphWorkflowID
 	}
 	if t.NextRunAt != nil {
 		ms := t.NextRunAt.UnixMilli()
@@ -166,9 +160,7 @@ func (h *Handler) ScheduleUpdate(ctx context.Context, c *app.RequestContext) {
 
 func writeScheduleServiceError(c *app.RequestContext, err error) {
 	switch {
-	case errors.Is(err, schedule.ErrInvalidTargetType),
-		errors.Is(err, schedule.ErrInvalidLoopConfig),
-		errors.Is(err, schedule.ErrGraphWorkflowRequired),
+	case errors.Is(err, schedule.ErrGraphWorkflowRequired),
 		errors.Is(err, schedule.ErrGraphWorkflowNotFound):
 		httputil.BadRequest(c, err.Error())
 	default:

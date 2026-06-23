@@ -145,10 +145,6 @@
       "emptySearchTitle": "没有匹配的模板",
       "emptySearchDesc": "换一个关键词，或导入一份 LoopConfig JSON。",
       "deleteTitle": "删除该模板",
-      "categoryScheduled": "定时任务",
-      "categoryOther": "其他模板",
-      "scheduleBadgeTitle": "被 {{count}} 个定时任务引用",
-      "scheduleBadge": "定时 × {{count}}",
       "errors": {
         "updateFailed": "更新失败，请检查模板是否仍存在",
         "loadFailed": "加载模板失败：{{error}}"
@@ -732,16 +728,6 @@
   "schedule": {
     "createTitle": "新建定时任务",
     "editTitle": "编辑定时任务",
-    "targetType": "执行类型",
-    "targetLoop": "Loop 模板",
-    "targetGraphWorkflow": "工作流模板",
-    "selectTemplate": "选择模板",
-    "noTemplates": "暂无模板，请先在 Loop 配置中保存模板",
-    "selectTemplatePlaceholder": "请选择模板...",
-    "loadingTemplates": "正在加载模板...",
-    "templateLoadFailed": "模板列表加载失败",
-    "configPreview": "已选配置: {{nodes}} 个节点",
-    "configPreviewVars": ", {{vars}} 个变量",
     "selectGraphWorkflow": "选择工作流模板",
     "noGraphWorkflows": "暂无工作流模板，请先在工作流页面保存模板",
     "loadingGraphWorkflows": "正在加载工作流模板...",
@@ -754,7 +740,6 @@
     "taskName": "任务名称",
     "taskNamePlaceholder": "例如: 每日代码审查",
     "taskNameRequired": "请输入任务名称",
-    "selectTemplateRequired": "请选择一个模板",
     "workspaceBinding": "工作空间绑定",
     "bindCurrent": "绑定当前工作空间",
     "unboundHint": "独立于工作空间（触发时使用默认工作空间）",
@@ -960,7 +945,7 @@
       "runStarted": "运行已启动。",
       "runStartedNoJob": "运行已启动，但未返回 jobId。",
       "runNotEditable": "该运行已不可编辑。",
-      "editingRunHint": "正在编辑运行版本。仅未开始的结点可修改。",
+      "editingRunHint": "正在编辑运行版本。未开始结点可修改；循环体内结点可修改并在下一轮生效。",
       "runVersionSaved": "运行版本已保存。未开始的实例将使用新版本。",
       "runNotEditableDetail": "该运行已不可编辑：{{detail}}",
       "runNotFound": "未找到运行 {{id}}。",
@@ -1133,7 +1118,7 @@
       "controlNodeDesc": "控制结点只用于工作流的入口 / 终点，不可配置业务动作或输出变量。",
       "duplicateNode": "复制结点",
       "deleteNode": "删除结点",
-      "frozenBanner": "该结点已在本次运行中开始 / 完成，执行配置不可修改（仅未开始结点可改）。"
+      "frozenBanner": "该结点已在本次运行中开始 / 完成，执行配置不可修改；循环体内结点除外，修改会在下一轮生效。"
     },
     "kinds": {
       "startLabel": "开始",

@@ -44,6 +44,11 @@ type GraphRunRepo interface {
 
 	AppendEvent(ctx context.Context, runID string, event *model.GraphEvent) error
 	ListEvents(ctx context.Context, runID string, startLine int, count *int) ([]model.GraphEvent, error)
+	// CountEvents returns the number of persisted event lines without reading
+	// their content. Used by GetRunStatus to expose an event count (the SSE
+	// resume cursor seed) without serialising the whole event log into the
+	// status response. A missing events file yields (0, nil).
+	CountEvents(ctx context.Context, runID string) (int, error)
 
 	DeleteRun(ctx context.Context, runID string) error
 }
@@ -270,6 +275,24 @@ func (r *fileGraphRunRepo) ListEvents(_ context.Context, runID string, startLine
 		events = append(events, event)
 	}
 	return events, nil
+}
+
+func (r *fileGraphRunRepo) CountEvents(_ context.Context, runID string) (int, error) {
+	if err := validateGraphRunID(runID); err != nil {
+		return 0, err
+	}
+	fp, err := graphRunEventsFilePath(runID)
+	if err != nil {
+		return 0, err
+	}
+	result, err := r.storage.JSONLCountLines(&fsmodel.JSONLCountRequest{File: fp})
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return result.Lines, nil
 }
 
 func (r *fileGraphRunRepo) DeleteRun(_ context.Context, runID string) error {

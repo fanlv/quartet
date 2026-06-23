@@ -1673,85 +1673,6 @@ test('template save always allocates a fresh id and never overwrites an existing
   expect(byId.get(secondTmpl.id)?.config.flow[0]?.message).toBe('echo second')
 })
 
-test('scheduled task follows live template edits at trigger time', async ({ request }) => {
-  const { localMemory } = await getE2ERunInfo()
-  const workdir = path.join(localMemory, `e2e-tmpl-follow-${Date.now()}`)
-  await fs.mkdir(workdir, { recursive: true })
-  const workspace = await createWorkspace(request, 'E2E Template Follow Workspace', workdir)
-
-  // Create a template, then a schedule that references it.
-  const tmplRes = await saveTemplate(request, `E2E Follow Template ${Date.now()}`, validShellFlow('original'))
-  expect(tmplRes.ok(), `template save failed: ${tmplRes.status()} ${await tmplRes.text()}`).toBeTruthy()
-  const tmpl = (await tmplRes.json()).template as { id: string }
-
-  const schedRes = await request.post('/api/v1/schedule/create', {
-    headers: templateHeaders,
-    data: {
-      name: `E2E Follow Schedule ${Date.now()}`,
-      cronExpr: '0 0 1 1 *', // far-future; we trigger manually via /run
-      templateId: tmpl.id,
-      workspaceId: workspace.workspaceId,
-      loopConfig: { flow: validShellFlow('original') },
-      enabled: false,
-    },
-  })
-  expect(schedRes.ok(), `schedule create failed: ${schedRes.status()} ${await schedRes.text()}`).toBeTruthy()
-  const sched = await schedRes.json()
-  const scheduleId = sched.schedule.id as string
-
-  // Edit the live template AFTER the schedule was created.
-  const updateRes = await request.put(`/api/v1/template/${tmpl.id}`, {
-    headers: templateHeaders,
-    data: { name: `E2E Follow Template ${Date.now()}`, config: { flow: validShellFlow('edited') } },
-  })
-  expect(updateRes.ok(), `template update failed: ${updateRes.status()} ${await updateRes.text()}`).toBeTruthy()
-
-  // Trigger the schedule manually. The created job must carry the EDITED
-  // template config, not the create-time snapshot.
-  const runRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: templateHeaders })
-  expect(runRes.ok(), `schedule run failed: ${runRes.status()} ${await runRes.text()}`).toBeTruthy()
-  const run = await runRes.json()
-  const jobId = run.jobId as string
-  expect(jobId).toMatch(/^job-/)
-
-  const snapshot = await getJobSnapshot(request, jobId, templateHeaders)
-  const flow = snapshot.loopConfig?.flow as Array<{ message?: string }> | undefined
-  expect(flow?.[0]?.message).toBe('echo edited')
-})
-
-test('scheduled task falls back to its snapshot when the referenced template cannot be read', async ({ request }) => {
-  const { localMemory } = await getE2ERunInfo()
-  const workdir = path.join(localMemory, `e2e-tmpl-fallback-${Date.now()}`)
-  await fs.mkdir(workdir, { recursive: true })
-  const workspace = await createWorkspace(request, 'E2E Template Fallback Workspace', workdir)
-
-  // Reference a templateId that does not exist: the trigger's live-template
-  // read fails, so it must fall back to the create-time snapshot rather than
-  // erroring out. (A referenced, existing template can't be deleted — the
-  // reference check blocks that — so a missing id is the realistic fallback.)
-  const schedRes = await request.post('/api/v1/schedule/create', {
-    headers: templateHeaders,
-    data: {
-      name: `E2E Fallback Schedule ${Date.now()}`,
-      cronExpr: '0 0 1 1 *',
-      templateId: 'tmpl-does-not-exist',
-      workspaceId: workspace.workspaceId,
-      loopConfig: { flow: validShellFlow('snapshot') },
-      enabled: false,
-    },
-  })
-  expect(schedRes.ok(), `schedule create failed: ${schedRes.status()} ${await schedRes.text()}`).toBeTruthy()
-  const scheduleId = (await schedRes.json()).schedule.id as string
-
-  const runRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: templateHeaders })
-  expect(runRes.ok(), `schedule run failed: ${runRes.status()} ${await runRes.text()}`).toBeTruthy()
-  const jobId = (await runRes.json()).jobId as string
-
-  const snapshot = await getJobSnapshot(request, jobId, templateHeaders)
-  const flow = snapshot.loopConfig?.flow as Array<{ message?: string }> | undefined
-  expect(flow?.[0]?.message).toBe('echo snapshot')
-})
-
 test('scheduled graph workflow triggers, releases concurrency, and records missing workflow failures', async ({ request }) => {
   const { localMemory } = await getE2ERunInfo()
   const workdir = path.join(localMemory, `e2e-graph-schedule-${Date.now()}`)
@@ -1776,7 +1697,6 @@ test('scheduled graph workflow triggers, releases concurrency, and records missi
     data: {
       name: `E2E Graph Schedule ${Date.now()}`,
       cronExpr: '0 0 1 1 *',
-      targetType: 'graphWorkflow',
       graphWorkflowId: workflow.id,
       workspaceId: workspace.workspaceId,
       enabled: false,
@@ -1784,8 +1704,7 @@ test('scheduled graph workflow triggers, releases concurrency, and records missi
     },
   })
   expect(createScheduleRes.ok(), `schedule create failed: ${createScheduleRes.status()} ${await createScheduleRes.text()}`).toBeTruthy()
-  const createdSchedule = (await createScheduleRes.json()).schedule as { id: string; targetType: string; graphWorkflowId: string }
-  expect(createdSchedule.targetType).toBe('graphWorkflow')
+  const createdSchedule = (await createScheduleRes.json()).schedule as { id: string; graphWorkflowId: string }
   expect(createdSchedule.graphWorkflowId).toBe(workflow.id)
   const scheduleId = createdSchedule.id
 
@@ -1872,7 +1791,6 @@ test('scheduled graph workflow triggers, releases concurrency, and records missi
   const updateScheduleRes = await request.put(`/api/v1/schedule/${scheduleId}`, {
     headers: templateHeaders,
     data: {
-      targetType: 'graphWorkflow',
       graphWorkflowId: replacementWorkflow.id,
     },
   })

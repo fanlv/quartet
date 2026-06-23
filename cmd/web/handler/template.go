@@ -92,7 +92,7 @@ func (h *Handler) DeleteTemplate(ctx context.Context, c *app.RequestContext) {
 	}
 
 	if err := h.templateService.Delete(ctx, id); err != nil {
-		httputil.MapError(c, err, []httputil.ErrorMapping{{Err: templatesvc.ErrTemplateReferenced, Status: http.StatusConflict}})
+		httputil.InternalError(c, err.Error())
 		return
 	}
 

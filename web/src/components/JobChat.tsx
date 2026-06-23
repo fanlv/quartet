@@ -576,7 +576,7 @@ export function JobChat(props: JobChatProps) {
 
   const handleSendMessage = useCallback(
     (content: string, imageUrls?: string[]) => {
-      const targetSessionId = isLoop ? activeSessionId : null;
+      const targetSessionId = (isLoop || isGraph) ? activeSessionId : null;
       // Interactive mode with a run already in flight → queue instead of sending.
       // Loop mode never queues (input is disabled during loop runs anyway).
       if (!isLoop && isLoading) {
@@ -592,7 +592,7 @@ export function JobChat(props: JobChatProps) {
       }
       sendMessage(content, effectiveModelId, targetSessionId, imageUrls, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId);
     },
-    [sendMessage, queueMessage, isLoading, effectiveModelId, isLoop, activeSessionId, selectedAgent]
+    [sendMessage, queueMessage, isLoading, effectiveModelId, isLoop, isGraph, activeSessionId, selectedAgent]
   );
 
   // Send initial message or start loop — only after SSE connection is ready
@@ -1255,9 +1255,9 @@ export function JobChat(props: JobChatProps) {
             onSend={handleSendMessage}
             onStop={isReadonly ? undefined : stopGeneration}
             isLoading={isLoading}
-            disabled={isGraph || (isLoop && !(activeSessionId && endedSessionIds.has(activeSessionId))) || !connected}
+            disabled={((isLoop || isGraph) && !(activeSessionId && endedSessionIds.has(activeSessionId))) || !connected}
             readOnly={!!isReadonly}
-            placeholder={isGraph ? 'Graph workflow run' : isReadonly ? 'Read-only mode' : undefined}
+            placeholder={isGraph && !(activeSessionId && endedSessionIds.has(activeSessionId)) ? 'Graph workflow run' : isReadonly ? 'Read-only mode' : undefined}
             localHistoryKey={`${workspaceId || 'default'}`}
             totalTokens={totalTokens}
             roundStartedAt={interactiveAccumulatedMs > 0 ? undefined : roundStartedAt}

@@ -7,20 +7,6 @@ import (
 	"time"
 )
 
-type ScheduleTargetType string
-
-const (
-	ScheduleTargetTypeLoop          ScheduleTargetType = "loop"
-	ScheduleTargetTypeGraphWorkflow ScheduleTargetType = "graphWorkflow"
-)
-
-func NormalizeScheduleTargetType(t ScheduleTargetType) ScheduleTargetType {
-	if t == "" {
-		return ScheduleTargetTypeLoop
-	}
-	return t
-}
-
 type ScheduledTask struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
@@ -29,25 +15,10 @@ type ScheduledTask struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 
-	// TargetType controls which execution fields are meaningful. Empty is
-	// treated as loop for tasks persisted before target types existed.
-	TargetType ScheduleTargetType `json:"targetType,omitempty"`
-
-	// Reference to the template this schedule was created from (optional).
-	// When set, the trigger re-reads the live template at run time, so editing
-	// the template changes what this schedule executes on its next run.
-	TemplateID string `json:"templateId,omitempty"`
-
-	// GraphWorkflowID references a saved Graph workflow when TargetType is
-	// graphWorkflow. Workflow schedules do not keep a config snapshot.
+	// GraphWorkflowID references the saved Graph workflow this schedule runs.
+	// The trigger re-reads the live workflow at run time, so workflow schedules
+	// keep no config snapshot.
 	GraphWorkflowID string `json:"graphWorkflowId,omitempty"`
-
-	// Execution configuration. Copied from the template at creation time and
-	// used as a fallback snapshot when TemplateID is empty or the live template
-	// can no longer be read/validated at trigger time. When TemplateID resolves
-	// to a valid template, that live config takes precedence over this snapshot.
-	// Agent/model config lives on each FlowNode step within the LoopConfig.
-	LoopConfig LoopConfig `json:"loopConfig"`
 
 	// Workspace & working directory. WorkspaceID is optional: scheduled tasks
 	// are conceptually independent automation rules and do not have to belong

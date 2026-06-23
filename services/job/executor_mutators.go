@@ -130,6 +130,62 @@ func (s *serviceImpl) SetFirstModelID(jobID string, modelID string) error {
 	return s.updateJobField(jobID, set, set)
 }
 
+// AttachGraphSession appends sessionID to the job's GraphSessionIDs whitelist
+// (de-duplicated), so an interactive SendMessage may later target a graph
+// node's session — letting a user keep chatting in a finished node after the
+// run stops. Idempotent: a no-op (no disk write) if the session is already
+// recorded, which is the common case since graph re-writes the same
+// DisplaySessionID at open, success and failure. Kept off SessionIDs so the
+// linear-iteration semantics of that field are unaffected. Follows the same
+// snapshot → save → mirror locking contract as SetGraphRunState.
+func (s *serviceImpl) AttachGraphSession(_ context.Context, jobID, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	lock := s.persistLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	s.mu.Lock()
+	existing, ok := s.jobs[jobID]
+	if !ok {
+		s.mu.Unlock()
+		return ErrJobNotFound
+	}
+	if existing.Deleted {
+		s.mu.Unlock()
+		return ErrJobDeleted
+	}
+	for _, sid := range existing.GraphSessionIDs {
+		if sid == sessionID {
+			s.mu.Unlock()
+			return nil // already whitelisted — skip the redundant save
+		}
+	}
+	cp := existing.DeepCopy()
+	cp.GraphSessionIDs = append(cp.GraphSessionIDs, sessionID)
+	cp.UpdatedAt = time.Now()
+	s.mu.Unlock()
+
+	repo, err := s.getOrCreateRepo(cp.WorkspaceID)
+	if err != nil {
+		return fmt.Errorf("get repo for workspace %s failed: %w", cp.WorkspaceID, err)
+	}
+	if err := repo.Save(cp.ID, cp); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	if cur, ok := s.jobs[jobID]; ok && cur == existing {
+		existing.GraphSessionIDs = append(existing.GraphSessionIDs, sessionID)
+		existing.UpdatedAt = cp.UpdatedAt
+	}
+	s.mu.Unlock()
+
+	s.bumpListVersion(cp.WorkspaceID)
+	return nil
+}
+
 func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID string, status model.JobStatus, startedAt, finishedAt int64) error {
 	lock := s.persistLock(jobID)
 	lock.Lock()

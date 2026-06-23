@@ -50,6 +50,16 @@ type Service interface {
 	StartRun(ctx context.Context, req *model.StartGraphRunRequest, runner Runner, jobs JobStateSink) (*model.GraphRun, error)
 	GetRunStatus(ctx context.Context, runID string) (*model.GraphRunStatusResponse, error)
 	ListRunEvents(ctx context.Context, runID string, startLine int, count *int) (*model.GraphRunEventsResponse, error)
+	// SubscribeRunEvents attaches an SSE reader to a live run's in-memory event
+	// buffer, resuming after startSeq. live=false means no buffer exists in this
+	// process (run not active here, e.g. after a restart) — the caller degrades
+	// to replaying persisted structural events from disk. A non-nil error means
+	// the resume point has been GC'd (caller maps to HTTP 410). The returned
+	// reader must be Closed by the caller.
+	SubscribeRunEvents(runID string, startSeq uint64) (reader GraphEventReader, live bool, err error)
+	// RunEventSnapshotSeq returns the seq a fresh subscriber should resume from
+	// for a live run, and ok=false when no live buffer exists.
+	RunEventSnapshotSeq(runID string) (seq uint64, ok bool)
 	ListRuns(ctx context.Context) ([]*model.GraphRun, error)
 	// StopRun hard-stops a running GraphRun: in-flight instances are cancelled
 	// and marked interrupted, the run becomes "stopped" and stays resumable.
@@ -131,6 +141,14 @@ type serviceImpl struct {
 	controlMu   sync.Mutex
 	runControls map[string]*runControl
 
+	// bufMu guards eventBufs, the per-run in-memory SSE event buffers. A live
+	// run publishes its streaming agent events (and a copy of structural
+	// events) here for real-time delivery; the buffer is absent for runs not
+	// active in this process (e.g. after restart), and the SSE handler degrades
+	// to replaying persisted structural events from disk.
+	bufMu     sync.Mutex
+	eventBufs map[string]*graphEventBuffer
+
 	usageMu       sync.RWMutex
 	usageRecorder usagestats.Recorder
 }
@@ -173,12 +191,39 @@ type ShellSessionRecorder interface {
 	FinishShellSession(ctx context.Context, jobID, sessionID, output string, startedAt, finishedAt int64) error
 }
 
+// PromptUserMessageRecorder is an optional capability a Runner may implement so
+// an Agent-class node (Prompt/评估) can persist its rendered prompt as the
+// session's user message at enqueue time — before the agent subprocess spawns
+// and starts replying. Without it, the user message is only written inside the
+// agent's Run (ctxManager.BeginRun), which for a freshly-minted ACP session
+// sits behind subprocess warmup, so the Chat sidebar lists the session but
+// shows nothing for the whole startup. Recording it up front makes the
+// auto-sent prompt visible the instant the node starts (the Chat reconcile
+// path reloads history on "session opened").
+//
+// The recorded message is tagged in-memory with msgextra.KeyPrePersisted when
+// handed to RunIteration so BeginRun knows it is already on disk and must not
+// append it again (see chatctx.BeginRun). Only used for `new`/unset session
+// strategy — never `inherit`, whose continuation session would otherwise drift
+// the ACP fingerprint and force a needless subprocess reset every turn. Like
+// ShellSessionRecorder this is best-effort: a missing implementation or a
+// record failure leaves the node to persist normally inside its Run.
+type PromptUserMessageRecorder interface {
+	RecordPromptUserMessage(ctx context.Context, jobID, sessionID, content string, startedAt int64) error
+}
+
 type JobStateSink interface {
 	SetGraphRunState(ctx context.Context, jobID, graphRunID string, status model.JobStatus, startedAt, finishedAt int64) error
 	// ClearGraphRunLinkage detaches a Job from a deleted GraphRun, but only if
 	// the Job is still bound to that exact run (it may have been re-bound to a
 	// newer run since).
 	ClearGraphRunLinkage(ctx context.Context, jobID, graphRunID string) error
+	// AttachGraphSession records an Agent node's session on the job's
+	// GraphSessionIDs whitelist (de-duplicated) so an interactive message may
+	// later target it — letting a user keep chatting in a finished node's
+	// session after the run stops. Best-effort and idempotent; kept off
+	// SessionIDs to preserve that field's linear-iteration semantics.
+	AttachGraphSession(ctx context.Context, jobID, sessionID string) error
 }
 
 func NewService() (Service, error) {
@@ -196,6 +241,7 @@ func NewService() (Service, error) {
 		transientRetryDelay:     defaultGraphTransientRetryDelay,
 		rateLimitRetryBaseDelay: defaultGraphRateLimitRetryBaseDelay,
 		runControls:             map[string]*runControl{},
+		eventBufs:               map[string]*graphEventBuffer{},
 	}, nil
 }
 
@@ -218,6 +264,67 @@ func (s *serviceImpl) clearControl(runID string, handle *runControl) {
 		delete(s.runControls, runID)
 	}
 	s.controlMu.Unlock()
+}
+
+// eventBuffer returns the run's in-memory event buffer, creating it on first
+// use. Called from the scheduler goroutine (runGraph entry, event publish) so a
+// live run always has a buffer to broadcast through.
+func (s *serviceImpl) eventBuffer(runID string) *graphEventBuffer {
+	s.bufMu.Lock()
+	defer s.bufMu.Unlock()
+	buf := s.eventBufs[runID]
+	if buf == nil {
+		buf = newGraphEventBuffer(runID)
+		s.eventBufs[runID] = buf
+	}
+	return buf
+}
+
+// getBuffer returns the run's live buffer, or nil when none exists in this
+// process (run not active here — e.g. after a restart, or already deleted). The
+// SSE handler uses nil to switch to its disk-replay degraded path.
+func (s *serviceImpl) getBuffer(runID string) *graphEventBuffer {
+	s.bufMu.Lock()
+	defer s.bufMu.Unlock()
+	return s.eventBufs[runID]
+}
+
+// removeBuffer closes and forgets a run's buffer. Called when the run is
+// deleted. Idempotent.
+func (s *serviceImpl) removeBuffer(runID string) {
+	s.bufMu.Lock()
+	buf := s.eventBufs[runID]
+	delete(s.eventBufs, runID)
+	s.bufMu.Unlock()
+	if buf != nil {
+		buf.Close()
+	}
+}
+
+// SubscribeRunEvents attaches a new SSE reader to a live run's event buffer at
+// startSeq. live=false means no live buffer exists in this process (caller
+// degrades to disk replay); a non-nil error means the resume point is gone
+// (caller maps to HTTP 410).
+func (s *serviceImpl) SubscribeRunEvents(runID string, startSeq uint64) (GraphEventReader, bool, error) {
+	buf := s.getBuffer(runID)
+	if buf == nil {
+		return nil, false, nil
+	}
+	r, err := buf.Subscribe(startSeq)
+	if err != nil {
+		return nil, true, err
+	}
+	return r, true, nil
+}
+
+// RunEventSnapshotSeq returns the resume seq a fresh subscriber should use for a
+// live run, and ok=false when no live buffer exists in this process.
+func (s *serviceImpl) RunEventSnapshotSeq(runID string) (uint64, bool) {
+	buf := s.getBuffer(runID)
+	if buf == nil {
+		return 0, false
+	}
+	return buf.SnapshotSeq(), true
 }
 
 // sendControl delivers a control signal to a running run's scheduler goroutine

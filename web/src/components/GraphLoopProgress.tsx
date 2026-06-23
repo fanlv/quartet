@@ -126,7 +126,6 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const sseRef = useRef<SSEClient | null>(null);
-  const eventLineRef = useRef(0);
 
   const isLive = !!run?.status && LIVE_STATUSES.has(run.status);
   const canPause = !readOnly && run?.status === 'running';
@@ -166,7 +165,6 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
       setProgress(data.progress || data.run?.progress || null);
       setInstances(data.instances || []);
       setEdges(data.edges || []);
-      eventLineRef.current = data.events?.length || 0;
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -192,15 +190,43 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
     const client = new SSEClient();
     sseRef.current = client;
     let closed = false;
+    let lastInstanceRefreshAt = 0;
+    const throttledRefresh = () => {
+      const now = Date.now();
+      if (now - lastInstanceRefreshAt < 400) return;
+      lastInstanceRefreshAt = now;
+      void refresh();
+    };
     void client.connectUntilReady({
       url: `/api/v1/graph/run/${encodeURIComponent(runId)}/events`,
-      initialLastEventId: String(eventLineRef.current),
+      // Resume from the buffer tail. The server's Last-Event-ID is now an
+      // in-memory buffer seq (not a file line count), so seeding it from a
+      // client-side counter is meaningless; the SSE client overwrites this with
+      // the server-sent `id:` (seq) for any subsequent reconnect.
+      initialLastEventId: '0',
       onEvent: (raw) => {
         const event = raw as unknown as GraphEvent;
-        eventLineRef.current += 1;
-        if (event.progress) setProgress(event.progress);
-        if (event.type === 'progressUpdated' || event.type === 'error' || event.type === 'instanceCompleted' || event.type === 'instanceFailed') {
+        // Instance lifecycle events no longer embed a full progress snapshot
+        // (it grew the event log quadratically on long loops). Node status
+        // colours now come from a throttled re-fetch of the run snapshot — the
+        // full GET is cheap again now that it no longer serialises the event
+        // log. progressUpdated still carries a snapshot (≈1/run) and additionally
+        // triggers a refresh to pick up the run.status terminal transition +
+        // edge states (and let this effect clean up when isLive flips off).
+        if (event.progress) {
+          setProgress(event.progress);
+          if (event.progress.instances) setInstances(Object.values(event.progress.instances));
+        }
+        if (event.type === 'progressUpdated' || event.type === 'error') {
           void refresh();
+          return;
+        }
+        if (
+          event.type === 'instanceStarted' || event.type === 'instanceCompleted' ||
+          event.type === 'instanceFailed' || event.type === 'instanceSkipped' ||
+          event.type === 'edgeResolved' || event.type === 'loopIteration'
+        ) {
+          throttledRefresh();
         }
       },
       onError: (err) => setError(err.message),
@@ -267,18 +293,30 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
     [instances],
   );
 
-  // Nodes whose execution config is frozen for a version edit: those that
-  // already have a succeeded / skipped / running instance (mirrors backend
-  // validateVersionEdit). The inspector disables their config fields.
+  // Nodes whose execution config is frozen for a version edit. A node inside a
+  // loop body re-runs each round, so it stays editable and the next round uses
+  // the new config. The loop container itself remains frozen once started.
   const frozenNodeIds = useMemo(() => {
+    const byId = new Map(editNodes.map((n) => [n.id, n]));
+    const insideLoop = (nodeId: string): boolean => {
+      let pid = byId.get(nodeId)?.parentId;
+      while (pid) {
+        const parent = byId.get(pid);
+        if (!parent) return false;
+        if (parent.data?.kind === 'loop') return true;
+        pid = parent.parentId;
+      }
+      return false;
+    };
     const frozen = new Set<string>();
     for (const inst of instances) {
       if (inst.status === 'succeeded' || inst.status === 'skipped' || inst.status === 'running') {
+        if (insideLoop(inst.nodeId)) continue;
         frozen.add(inst.nodeId);
       }
     }
     return frozen;
-  }, [instances]);
+  }, [editNodes, instances]);
 
   const selectedGraphNode: GraphNode | null = useMemo(() => {
     if (!selectedNodeId) return null;

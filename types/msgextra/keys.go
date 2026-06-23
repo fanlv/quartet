@@ -26,6 +26,17 @@ const (
 	// handler renders flagged messages with a shell-output bubble.
 	KeyShellOutput = "shellOutput"
 
+	// KeyPrePersisted is an in-memory-only marker set on a user message that
+	// has ALREADY been appended to messages.jsonl by an upstream caller
+	// (graph Prompt/评估 nodes persist the rendered prompt at enqueue time so
+	// the Chat sidebar shows it before the agent replies — see
+	// services/graph/runtime.go executeNode). When ChatContextManager.BeginRun
+	// sees every user message carrying this marker it SKIPS the append (the
+	// row is already on disk) while still running the orphan-tail truncate, so
+	// the message is written exactly once and never double-rendered. The
+	// marked copy is never appended, so this key never reaches disk.
+	KeyPrePersisted = "pre_persisted"
+
 	// KeyLocalPath is the local filesystem path for an image attached in a
 	// UserInputMultiContent.Image.Extra (not schema.Message.Extra itself —
 	// see session handler usage). Kept here as a single source of truth

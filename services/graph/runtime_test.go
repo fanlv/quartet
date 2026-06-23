@@ -57,6 +57,10 @@ func (s *stubGraphJobSink) ClearGraphRunLinkage(context.Context, string, string)
 	return nil
 }
 
+func (s *stubGraphJobSink) AttachGraphSession(context.Context, string, string) error {
+	return nil
+}
+
 func TestStartRunLinearShellCompletes(t *testing.T) {
 	root := uniqueMemoryRoot(t)
 	workdir := t.TempDir()
@@ -148,13 +152,22 @@ func TestStartRunAcceptsLoopNode(t *testing.T) {
 	}
 }
 
-type streamingGraphRunner struct{ stubSnapshotSource }
+type streamingGraphRunner struct {
+	stubSnapshotSource
+	// gate, when non-nil, blocks RunIteration until closed — lets a test attach
+	// an SSE subscriber before the streaming (never-persisted) events are
+	// produced, so they aren't GC'd before the subscriber sees them.
+	gate <-chan struct{}
+}
 
 func (streamingGraphRunner) InitSession(context.Context, string, *model.SessionOverrides) (string, error) {
 	return "session-stream", nil
 }
 
-func (streamingGraphRunner) RunIteration(_ context.Context, _ string, _ []*schema.Message, handler agui.EventHandler) error {
+func (r streamingGraphRunner) RunIteration(_ context.Context, _ string, _ []*schema.Message, handler agui.EventHandler) error {
+	if r.gate != nil {
+		<-r.gate
+	}
 	_ = handler.OnMessageStart()
 	_ = handler.OnMessageDelta("hello")
 	_ = handler.OnMessageEnd()
@@ -200,14 +213,110 @@ func TestPromptNodeStreamsAgentEventsAndRecordsUsage(t *testing.T) {
 			edge("p_e", "p", "e"),
 		},
 	}
-	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-stream", Config: &cfg}, streamingGraphRunner{}, nil)
+	gate := make(chan struct{})
+	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-stream", Config: &cfg}, streamingGraphRunner{gate: gate}, nil)
 	if err != nil {
 		t.Fatalf("StartRun failed: %v", err)
 	}
+
+	// Streaming agent events (message/thought/tool deltas) are no longer
+	// persisted to events.jsonl — they flow only through the in-memory event
+	// buffer for real-time SSE delivery (the authoritative conversation lives in
+	// the node's session messages). Attach a subscriber at the buffer's current
+	// tail BEFORE releasing the runner gate, then collect concurrently, so the
+	// never-persisted streaming events are observed as they are produced.
+	// (Subscribing from seq 0 would race the start-node seeding's structural
+	// events, which GC reclaims before any reader attaches.)
+	var reader GraphEventReader
+	for i := 0; i < 200; i++ {
+		tail, ok := svc.RunEventSnapshotSeq(run.ID)
+		if !ok {
+			time.Sleep(5 * time.Millisecond)
+			continue
+		}
+		r, live, err := svc.SubscribeRunEvents(run.ID, tail)
+		if err != nil {
+			// Snapshot/subscribe race: GC advanced past tail between the two
+			// calls (no reader attached yet). Retry with a fresher tail.
+			time.Sleep(5 * time.Millisecond)
+			continue
+		}
+		if live {
+			reader = r
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if reader == nil {
+		t.Fatal("run buffer never became live")
+	}
+	collectDone := make(chan map[model.GraphEventType]model.GraphEvent, 1)
+	go func() {
+		seen := map[model.GraphEventType]model.GraphEvent{}
+		for {
+			entries, status := reader.ReadWithTimeout(context.Background(), 200*time.Millisecond, 64)
+			for _, e := range entries {
+				if e.Seq > 0 {
+					reader.Ack(e.Seq)
+				}
+				if e.Event != nil {
+					seen[e.Event.Type] = *e.Event
+				}
+			}
+			if status == GraphReadClosed {
+				break
+			}
+			if status == GraphReadTimeout {
+				if st, err := svc.GetRunStatus(context.Background(), run.ID); err == nil &&
+					st.Run != nil && graphRunTerminalForTest(st.Run.Status) {
+					break
+				}
+			}
+		}
+		collectDone <- seen
+	}()
+	close(gate) // release the runner now that a subscriber is attached
+
 	got := waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusCompleted)
-	seen := map[model.GraphEventType]model.GraphEvent{}
-	for _, ev := range got.Events {
-		seen[ev.Type] = ev
+	var seen map[model.GraphEventType]model.GraphEvent
+	select {
+	case seen = <-collectDone:
+	case <-time.After(3 * time.Second):
+		reader.Close()
+		t.Fatal("buffer collection did not finish")
+	}
+	reader.Close()
+	// The PERSISTED event log must NOT carry the streaming events — they flow
+	// only through the in-memory buffer. Read the persisted log directly.
+	persisted, err := svc.ListRunEvents(context.Background(), run.ID, 0, nil)
+	if err != nil {
+		t.Fatalf("ListRunEvents failed: %v", err)
+	}
+	for _, ev := range persisted.Events {
+		switch ev.Type {
+		case model.GraphEventTypeAgentMessageStart, model.GraphEventTypeAgentMessageDelta,
+			model.GraphEventTypeAgentMessageEnd, model.GraphEventTypeAgentThoughtStart,
+			model.GraphEventTypeAgentThoughtDelta, model.GraphEventTypeAgentThoughtEnd,
+			model.GraphEventTypeAgentToolStart, model.GraphEventTypeAgentToolArgs,
+			model.GraphEventTypeAgentToolResult, model.GraphEventTypeAgentToolEnd,
+			model.GraphEventTypeAgentTokenUsage:
+			t.Fatalf("streaming event %s must not be persisted, but found it in the event log", ev.Type)
+		}
+	}
+	// Persisted structural events must still embed no full progress snapshot
+	// (instance lifecycle events carry progress=nil after the size fix).
+	for _, ev := range persisted.Events {
+		switch ev.Type {
+		case model.GraphEventTypeInstanceStarted, model.GraphEventTypeInstanceCompleted,
+			model.GraphEventTypeInstanceFailed, model.GraphEventTypeInstanceSkipped:
+			if ev.Progress != nil {
+				t.Fatalf("instance lifecycle event %s must not embed a progress snapshot", ev.Type)
+			}
+		}
+	}
+	// The status response exposes a count, not the bodies.
+	if got.EventCount <= 0 {
+		t.Fatalf("GetRunStatus EventCount = %d, want > 0", got.EventCount)
 	}
 	for _, typ := range []model.GraphEventType{
 		model.GraphEventTypeAgentMessageStart,
@@ -223,7 +332,7 @@ func TestPromptNodeStreamsAgentEventsAndRecordsUsage(t *testing.T) {
 		model.GraphEventTypeAgentTokenUsage,
 	} {
 		if _, ok := seen[typ]; !ok {
-			t.Fatalf("missing graph event type %s in %#v", typ, got.Events)
+			t.Fatalf("missing graph event type %s in buffered events %#v", typ, seen)
 		}
 	}
 	if got := seen[model.GraphEventTypeAgentMessageDelta].Payload["delta"]; got != "hello" {

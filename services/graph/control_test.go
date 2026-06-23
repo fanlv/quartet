@@ -13,11 +13,27 @@ import (
 // recordingSink records ClearGraphRunLinkage calls so a test can assert a run's
 // Job linkage was cleared on delete.
 type recordingSink struct {
-	mu          sync.Mutex
-	clearedRuns map[string]bool
+	mu            sync.Mutex
+	clearedRuns   map[string]bool
+	attachedByJob map[string][]string
 }
 
 func (s *recordingSink) SetGraphRunState(context.Context, string, string, model.JobStatus, int64, int64) error {
+	return nil
+}
+
+func (s *recordingSink) AttachGraphSession(_ context.Context, jobID, sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.attachedByJob == nil {
+		s.attachedByJob = map[string][]string{}
+	}
+	for _, sid := range s.attachedByJob[jobID] {
+		if sid == sessionID {
+			return nil
+		}
+	}
+	s.attachedByJob[jobID] = append(s.attachedByJob[jobID], sessionID)
 	return nil
 }
 

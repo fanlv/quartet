@@ -153,6 +153,35 @@ func (r *jobRunnerImpl) FinishShellSession(ctx context.Context, jobID, sessionID
 	return nil
 }
 
+// RecordPromptUserMessage appends the rendered prompt of a Graph Prompt/评估
+// node as the user message of its (already created) session, before the agent
+// runs. Mirrors BeginShellSession's persistence path so the Chat sidebar shows
+// the auto-sent prompt the instant the node starts rather than only after the
+// agent subprocess warms up and starts replying. The message is tagged with
+// KeyPrePersisted by the caller when forwarded to RunIteration so the agent's
+// BeginRun skips re-appending it (chatctx.BeginRun). Best-effort like the shell
+// recorder: a failure is surfaced to the caller, which logs and falls back to
+// the agent's own in-Run persistence.
+func (r *jobRunnerImpl) RecordPromptUserMessage(ctx context.Context, jobID, sessionID, content string, startedAt int64) error {
+	repo, err := repository.NewChatContextRepo(r.wsID, jobID, sessionID)
+	if err != nil {
+		return fmt.Errorf("open prompt chat context repo: %w", err)
+	}
+	userMsg := schema.UserMessage(content)
+	userMsg.Extra = map[string]any{
+		msgextra.KeyStartedAt: startedAt,
+	}
+	if err := repo.AppendMessages(ctx, []*schema.Message{userMsg}); err != nil {
+		return fmt.Errorf("append prompt user message: %w", err)
+	}
+	if ss, err := r.h.getOrCreateSessionService(r.wsID, jobID); err == nil {
+		if err := ss.Touch(sessionID); err != nil {
+			logger.Warnf(ctx, "[RecordPromptUserMessage] touch session failed: %v, sessionId=%s", err, sessionID)
+		}
+	}
+	return nil
+}
+
 func errSessionNotFound(sessionID string) error {
 	return &sessionNotFoundError{sessionID: sessionID}
 }

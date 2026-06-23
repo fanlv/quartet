@@ -323,7 +323,7 @@ func (h *Handler) JobDelete(ctx context.Context, c *app.RequestContext) {
 	}
 
 	// Clean up associated sessions and agents
-	h.cleanupSessions(job.WorkspaceID, job.ID, job.SessionIDs)
+	h.cleanupSessions(job.WorkspaceID, job.ID, jobAllSessionIDs(job))
 
 	h.jobService.Delete(jobID)
 

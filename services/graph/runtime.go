@@ -18,6 +18,7 @@ import (
 	"github.com/fanlv/quartet/services/usagestats"
 	"github.com/fanlv/quartet/types/agui"
 	"github.com/fanlv/quartet/types/model"
+	"github.com/fanlv/quartet/types/msgextra"
 	"github.com/google/uuid"
 )
 
@@ -127,7 +128,12 @@ func (s *serviceImpl) GetRunStatus(ctx context.Context, runID string) (*model.Gr
 	instances, _ := s.runRepo.GetInstances(ctx, runID)
 	edges, _ := s.runRepo.GetEdges(ctx, runID)
 	progress, _ := s.runRepo.GetProgress(ctx, runID)
-	events, _ := s.runRepo.ListEvents(ctx, runID, 0, nil)
+	// Return only the event COUNT, not the events themselves. The full log used
+	// to be serialised here (hundreds of MB on a long loop) just for the client
+	// to read its length as an SSE resume cursor — the bodies were discarded.
+	// Live events arrive over the SSE stream; historical agent conversation
+	// loads per-node from session messages.
+	eventCount, _ := s.runRepo.CountEvents(ctx, runID)
 	instanceList := make([]model.GraphInstanceState, 0, len(instances))
 	for _, st := range instances {
 		instanceList = append(instanceList, st)
@@ -141,11 +147,11 @@ func (s *serviceImpl) GetRunStatus(ctx context.Context, runID string) (*model.Gr
 	}
 	sort.Slice(edgeList, func(i, j int) bool { return edgeList[i].EdgeID < edgeList[j].EdgeID })
 	return &model.GraphRunStatusResponse{
-		Run:       run,
-		Progress:  progress,
-		Instances: instanceList,
-		Edges:     edgeList,
-		Events:    events,
+		Run:        run,
+		Progress:   progress,
+		Instances:  instanceList,
+		Edges:      edgeList,
+		EventCount: eventCount,
 	}, nil
 }
 
@@ -262,6 +268,28 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 		if err != nil {
 			return nodeOutcome{}, err
 		}
+		userMsg := &schema.Message{Role: schema.User, Content: prompt}
+		// Persist the rendered prompt as the session's user message NOW — before
+		// the agent subprocess spawns and starts replying — so the Chat sidebar
+		// shows the auto-sent prompt the instant the node starts instead of
+		// sitting blank through agent warmup. Only for `new`/unset strategy: an
+		// `inherit` session is a continuation whose extra up-front write would
+		// drift the ACP fingerprint and force a needless subprocess reset every
+		// turn. Skip an empty prompt (a degenerate node) so we never leave an
+		// orphan blank user bubble on disk. On success, tag the in-memory copy
+		// handed to the agent with KeyPrePersisted so its BeginRun skips the
+		// re-append (chatctx.BeginRun); the tag rides only the in-memory copy and
+		// never reaches disk. Best-effort: a record failure logs and falls back
+		// to the agent's own in-Run persistence (message just shows a bit later).
+		if node.Config.SessionStrategy != model.GraphSessionStrategyInherit && strings.TrimSpace(prompt) != "" {
+			if recorder, ok := runner.(PromptUserMessageRecorder); ok {
+				if err := recorder.RecordPromptUserMessage(ctx, run.JobID, sessionID, prompt, time.Now().UnixMilli()); err != nil {
+					logger.Warnf(ctx, "[graph] record prompt user message failed: runId=%s nodeId=%s sessionId=%s err=%v", run.ID, node.ID, sessionID, err)
+				} else {
+					userMsg.Extra = map[string]any{msgextra.KeyPrePersisted: true}
+				}
+			}
+		}
 		// Announce the session the instant it exists so the UI lists it (and its
 		// just-persisted user message) while the agent is still replying, rather
 		// than only after the node completes. Non-blocking on the scheduler side;
@@ -270,7 +298,7 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 			notify(sessionID)
 		}
 		modelID := firstNonEmpty(runner.SessionModelID(sessionID), node.Config.ModelID)
-		result := s.runPromptWithRetries(ctx, run.ID, run.JobID, sessionID, node.ID, key, runner, []*schema.Message{{Role: schema.User, Content: prompt}})
+		result := s.runPromptWithRetries(ctx, run.ID, run.JobID, sessionID, node.ID, key, runner, []*schema.Message{userMsg})
 		if result.err != nil {
 			return nodeOutcome{output: result.handler.AccumulatedContent(), sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, withGraphRetryCount(result.err, result.retryCount)
 		}
@@ -558,11 +586,19 @@ func (s *serviceImpl) persistRuntimeState(ctx context.Context, run *model.GraphR
 	return s.runRepo.SaveRun(ctx, run)
 }
 
+// appendEvent records a structural run event (instance lifecycle, edge
+// resolution, loop iteration, variable write, progress update, log, error).
+// It is double-path: the event is persisted to events.jsonl (so resume, audit,
+// and post-restart SSE replay can rebuild the run) AND published to the live
+// in-memory buffer (so connected SSE readers get it in real time). The same
+// event object — identical ID and CreatedAt — flows to both, so a client that
+// sees the live copy and a client that replays it from disk observe the same
+// event.
 func (s *serviceImpl) appendEvent(ctx context.Context, runID string, typ model.GraphEventType, key *model.GraphInstanceKey, nodeID, edgeID, message string, progress *model.GraphProgress, rerr *model.GraphRuntimeError) {
 	if s.runRepo == nil {
 		return
 	}
-	_ = s.runRepo.AppendEvent(ctx, runID, &model.GraphEvent{
+	evt := &model.GraphEvent{
 		ID:          model.NewGraphEventID(),
 		RunID:       runID,
 		Type:        typ,
@@ -571,10 +607,38 @@ func (s *serviceImpl) appendEvent(ctx context.Context, runID string, typ model.G
 		EdgeID:      edgeID,
 		Message:     message,
 		Payload:     map[string]string{},
-		Progress:    progress,
+		Progress:    stripProgressVariables(progress),
 		Error:       rerr,
 		CreatedAt:   time.Now().UnixMilli(),
-	})
+	}
+	_ = s.runRepo.AppendEvent(ctx, runID, evt)
+	if buf := s.getBuffer(runID); buf != nil {
+		buf.Publish(evt)
+	}
+}
+
+// stripProgressVariables returns a copy of progress whose per-instance variable
+// maps (VisibleVariables / OutputVariables) are dropped, for embedding in the
+// append-only event log only. Those maps carry the full visible-variable set of
+// every instance and accumulate down the DAG, so each event would otherwise
+// re-serialise a near-full variable snapshot (measured at ~95% of a 30MB event
+// log). The authoritative copies live in run.Progress / progress.json /
+// variables.json — only the event-log embedding is trimmed. The frontend
+// derives node status/colour from the event progress and never reads variables
+// from it, so this is invisible to the UI. Returns nil/the input unchanged when
+// there is nothing to strip; never mutates the caller's progress or instances.
+func stripProgressVariables(progress *model.GraphProgress) *model.GraphProgress {
+	if progress == nil || len(progress.Instances) == 0 {
+		return progress
+	}
+	trimmed := *progress
+	trimmed.Instances = make(map[string]model.GraphInstanceState, len(progress.Instances))
+	for k, st := range progress.Instances {
+		st.VisibleVariables = nil
+		st.OutputVariables = nil
+		trimmed.Instances[k] = st
+	}
+	return &trimmed
 }
 
 func (s *serviceImpl) recordUsageSnapshot(run *model.GraphRun, outcome nodeOutcome, finishedAtMs, durationMs int64) {
@@ -709,6 +773,7 @@ func firstNonEmpty(values ...string) string {
 type graphEventHandler struct {
 	ctx       context.Context
 	svc       *serviceImpl
+	buf       *graphEventBuffer
 	runID     string
 	jobID     string
 	sessionID string
@@ -744,6 +809,7 @@ func (s *serviceImpl) newGraphEventHandler(ctx context.Context, runID, jobID, se
 	return &graphEventHandler{
 		ctx:       ctx,
 		svc:       s,
+		buf:       s.eventBuffer(runID),
 		runID:     runID,
 		jobID:     jobID,
 		sessionID: sessionID,
@@ -768,8 +834,15 @@ func (h *graphEventHandler) timestampLocked() int64 {
 	return ts
 }
 
+// appendEventLocked publishes a streaming agent event (message/thought/tool
+// deltas) to the run's in-memory event buffer for real-time SSE delivery. These
+// events are NEVER persisted: the authoritative agent conversation already
+// lives in each node's session messages.jsonl, so persisting the per-token
+// deltas here would duplicate it and let events.jsonl grow without bound on
+// long loops. A missing buffer (run not active in this process) drops the
+// event — there is no live SSE reader to deliver to anyway.
 func (h *graphEventHandler) appendEventLocked(typ model.GraphEventType, message string, payload map[string]string, createdAt int64) {
-	if h.svc == nil || h.svc.runRepo == nil {
+	if h.buf == nil {
 		return
 	}
 	if payload == nil {
@@ -777,7 +850,7 @@ func (h *graphEventHandler) appendEventLocked(typ model.GraphEventType, message 
 	}
 	payload["sessionId"] = h.sessionID
 	payload["jobId"] = h.jobID
-	_ = h.svc.runRepo.AppendEvent(h.ctx, h.runID, &model.GraphEvent{
+	h.buf.Publish(&model.GraphEvent{
 		ID:          model.NewGraphEventID(),
 		RunID:       h.runID,
 		Type:        typ,
