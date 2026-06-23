@@ -249,7 +249,7 @@ function wrapRequestContext(request: APIRequestContext, diagnostics: E2EDiagnost
 }
 
 export const test = base.extend<{ diagnostics: E2EDiagnostics }>({
-  diagnostics: async ({}, use, testInfo) => {
+  diagnostics: async (_fixtures, fixtureUse, testInfo) => {
     const diagnostics: E2EDiagnostics = {
       console: [],
       pageErrors: [],
@@ -257,15 +257,15 @@ export const test = base.extend<{ diagnostics: E2EDiagnostics }>({
       failedResponses: [],
       pendingWrites: [],
     }
-    await use(diagnostics)
+    await fixtureUse(diagnostics)
     await persistDiagnostics(testInfo, diagnostics)
   },
-  page: async ({ page, diagnostics }, use, testInfo) => {
+  page: async ({ page, diagnostics }, fixtureUse, testInfo) => {
     attachPageDiagnostics(page, diagnostics, testInfo)
-    await use(page)
+    await fixtureUse(page)
   },
-  request: async ({ request, diagnostics }, use, testInfo) => {
-    await use(wrapRequestContext(request, diagnostics, testInfo))
+  request: async ({ request, diagnostics }, fixtureUse, testInfo) => {
+    await fixtureUse(wrapRequestContext(request, diagnostics, testInfo))
   },
 })
 

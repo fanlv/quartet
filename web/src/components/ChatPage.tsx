@@ -1423,7 +1423,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                 </svg>
                 Job History
               </div>
-              <div className="home-job-list-count" data-testid="home-job-history-count">{jobs.length} jobs</div>
+              <div className="home-job-list-count" data-testid="home-job-history-count">{jobs.length} JOBS</div>
               <div className="home-job-list-filter" onClick={(e) => e.stopPropagation()}>
                 {allWorkspaces.length > 0 && (
                   <div className="home-job-ws-filter" ref={wsFilterRef}>

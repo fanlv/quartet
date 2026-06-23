@@ -2244,9 +2244,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
     let cancelled = false;
     let lastInstanceRefreshAt = 0;
+    let trailingRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconcileSeq = 0;
 
     const reconcile = async () => {
       if (cancelled) return;
+      const seq = ++reconcileSeq;
       let instances: GraphInstanceState[] = [];
       let archivedInstances: Record<string, GraphInstanceState> | undefined;
       let runStatus: GraphRunStatus | undefined;
@@ -2261,7 +2264,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         console.error(`[graph-sse] reconcile fetch failed for run ${graphRunId}:`, err);
         return;
       }
-      if (cancelled) return;
+      if (cancelled || seq !== reconcileSeq) return;
       const entries = graphSessionEntries(instances, archivedInstances);
       if (entries.length > 0) setLoopSessions(entries);
       // Follow the latest-started node's session while the user hasn't pinned an
@@ -2310,13 +2313,36 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
     const client = new SSEClient();
     graphSseRef.current = client;
-    // Throttle reconciliation so a burst of events triggers at most one refetch
-    // per ~400ms instead of hammering the run-status endpoint.
-    const throttledReconcile = () => {
+    // Throttle reconciliation so bursts of graph events don't hammer the
+    // run-status endpoint. Keep a trailing refresh: an Agent node emits
+    // `instanceStarted` before its session is opened, then another
+    // `instanceStarted` with message="session opened" milliseconds later.
+    // Dropping that trailing refresh leaves the new session out of the chat
+    // sidebar until the node completes or the user refreshes.
+    const scheduleReconcile = (force = false) => {
       const now = Date.now();
-      if (now - lastInstanceRefreshAt < 400) return;
-      lastInstanceRefreshAt = now;
-      void reconcile();
+      const waitMs = Math.max(0, 400 - (now - lastInstanceRefreshAt));
+      if (force || waitMs === 0) {
+        if (trailingRefreshTimer) {
+          clearTimeout(trailingRefreshTimer);
+          trailingRefreshTimer = null;
+        }
+        lastInstanceRefreshAt = now;
+        void reconcile();
+        return;
+      }
+      if (trailingRefreshTimer) return;
+      trailingRefreshTimer = setTimeout(() => {
+        trailingRefreshTimer = null;
+        lastInstanceRefreshAt = Date.now();
+        void reconcile();
+      }, waitMs);
+    };
+    const throttledReconcile = () => {
+      scheduleReconcile(false);
+    };
+    const immediateReconcile = () => {
+      scheduleReconcile(true);
     };
     void client.connectUntilReady({
       url: apiUrl(`/graph/run/${encodeURIComponent(graphRunId)}/events`),
@@ -2326,7 +2352,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         const t = evt.type;
         if (t === 'instanceStarted' || t === 'instanceCompleted' || t === 'instanceFailed'
           || t === 'instanceSkipped' || t === 'progressUpdated') {
-          throttledReconcile();
+          if (t === 'instanceStarted' && evt.message === 'session opened') {
+            immediateReconcile();
+          } else {
+            throttledReconcile();
+          }
           return;
         }
         // Agent token stream: translate the graph event into the loop-mode
@@ -2352,6 +2382,10 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
     return () => {
       cancelled = true;
+      if (trailingRefreshTimer) {
+        clearTimeout(trailingRefreshTimer);
+        trailingRefreshTimer = null;
+      }
       client.disconnect();
       if (graphSseRef.current === client) graphSseRef.current = null;
     };

@@ -535,9 +535,6 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
               />
             </div>
           </div>
-          {lastError && (
-            <pre className="graph-loop-error" data-testid="graph-loop-error">{lastError}</pre>
-          )}
         </>
       ) : expanded ? (
         <>
@@ -587,11 +584,12 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
             </div>
           </div>
 
-          {lastError && (
-            <pre className="graph-loop-error" data-testid="graph-loop-error">{lastError}</pre>
-          )}
         </>
       ) : null}
+
+      {lastError && (
+        <pre className="graph-loop-error" data-testid="graph-loop-error">{lastError}</pre>
+      )}
     </div>
   );
 }
