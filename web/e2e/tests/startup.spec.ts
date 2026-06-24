@@ -1690,7 +1690,7 @@ test('scheduled graph workflow triggers, releases concurrency, and records missi
     },
   })
   expect(createWorkflowRes.ok(), `graph workflow create failed: ${createWorkflowRes.status()} ${await createWorkflowRes.text()}`).toBeTruthy()
-  const workflow = (await createWorkflowRes.json()).workflow as { id: string }
+  const workflow = (await createWorkflowRes.json()).workflow as { id: string; updatedAt: string }
 
   const createScheduleRes = await request.post('/api/v1/schedule/create', {
     headers: templateHeaders,
@@ -1741,7 +1741,10 @@ test('scheduled graph workflow triggers, releases concurrency, and records missi
   expect(secondJob.graphRunId).toMatch(/^grun-/)
   expect(secondJob.graphRunId).not.toBe(firstJob.graphRunId)
 
-  const deleteWorkflowRes = await request.delete(`/api/v1/graph/workflow/${workflow.id}`, { headers: templateHeaders })
+  const deleteWorkflowRes = await request.delete(`/api/v1/graph/workflow/${workflow.id}`, {
+    headers: templateHeaders,
+    data: { updatedAt: workflow.updatedAt },
+  })
   expect(deleteWorkflowRes.ok(), `workflow delete failed: ${deleteWorkflowRes.status()} ${await deleteWorkflowRes.text()}`).toBeTruthy()
 
   const failedRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: templateHeaders })

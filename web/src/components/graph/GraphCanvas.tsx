@@ -50,6 +50,7 @@ function withMarkerColor(marker: QuartetFlowEdge['markerEnd'], color: string): Q
 
 export interface GraphCanvasFocus {
   nodeId?: string;
+  edgeId?: string;
   token: number;
 }
 
@@ -229,8 +230,14 @@ function CanvasInner({
       if (node) {
         void rf.fitView({ nodes: [{ id: node.id }], duration: 300, maxZoom: 1.2, padding: 0.4 });
       }
+    } else if (focus.edgeId) {
+      const edge = edges.find((e) => e.id === focus.edgeId);
+      const fitNodes = [edge?.source, edge?.target].filter(Boolean).map((id) => ({ id: id as string }));
+      if (fitNodes.length > 0) {
+        void rf.fitView({ nodes: fitNodes, duration: 300, maxZoom: 1.2, padding: 0.4 });
+      }
     }
-  }, [focus, nodes, rf]);
+  }, [edges, focus, nodes, rf]);
 
   // Absolute (flow-space) top-left of a node, walking up the parent chain since
   // React Flow stores child positions relative to their parent.

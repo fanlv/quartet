@@ -271,12 +271,14 @@
   height: 11px;
   background: var(--graph-accent, #4493f8);
   border: 2px solid #0d1117;
+  z-index: 1;
 }
 .graph-canvas-wrap .react-flow__handle::after {
   content: '';
   position: absolute;
   inset: -10px;
   border-radius: 50%;
+  pointer-events: none;
 }
 
 /* ---- Deletable edge midpoint controls ---- */
@@ -288,6 +290,7 @@
   pointer-events: all;
   font-size: 9px;
   font-weight: 700;
+  z-index: 5;
 }
 .qg-edge-port {
   padding: 1px 5px;
@@ -314,6 +317,8 @@
   cursor: pointer;
   opacity: 0.45;
   transition: opacity 0.12s, color 0.12s, border-color 0.12s, transform 0.12s;
+  position: relative;
+  z-index: 6;
 }
 .qg-edge-delete:hover {
   opacity: 1;

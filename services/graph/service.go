@@ -4,13 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
+	"github.com/fanlv/quartet/pkg/fileserver"
+	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
+	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/repository"
+	jobsvc "github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/usagestats"
+	workspacesvc "github.com/fanlv/quartet/services/workspace"
 	"github.com/fanlv/quartet/types/agui"
+	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -22,6 +31,11 @@ var (
 	// layer can return them with the full GraphValidationError list. The
 	// per-error detail is carried separately via ValidationErrors.
 	ErrInvalidGraphConfig = errors.New("invalid graph workflow config")
+	// ErrWorkflowConflict is returned when an update is based on a stale
+	// workflow snapshot, usually from another open tab.
+	ErrWorkflowConflict = errors.New("graph workflow has been modified")
+	// ErrWorkflowBadRequest is returned when request parameters are invalid.
+	ErrWorkflowBadRequest = errors.New("invalid graph workflow request")
 )
 
 // ValidationError wraps the full list of GraphValidationError so the handler
@@ -37,6 +51,15 @@ func (e *ValidationError) Error() string {
 
 func (e *ValidationError) Is(target error) bool { return target == ErrInvalidGraphConfig }
 
+func normalizeWorkflowWorkspace(wf *model.GraphWorkflow, fallback string) {
+	if wf == nil {
+		return
+	}
+	wsID := firstNonEmpty(wf.Config.WorkspaceID, wf.WorkspaceID, fallback)
+	wf.WorkspaceID = wsID
+	wf.Config.WorkspaceID = wsID
+}
+
 // Service exposes Graph workflow config management. Runtime concerns (GraphRun
 // execution, scheduling, sessions) live in other modules.
 type Service interface {
@@ -44,7 +67,9 @@ type Service interface {
 	GetWorkflow(ctx context.Context, id string) (*model.GraphWorkflow, error)
 	ListWorkflows(ctx context.Context) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error)
 	UpdateWorkflow(ctx context.Context, id string, req *model.UpdateGraphWorkflowRequest) (*model.GraphWorkflow, error)
-	DeleteWorkflow(ctx context.Context, id string) error
+	DeleteWorkflow(ctx context.Context, id string, expectedUpdatedAt *time.Time) error
+	CreateRunJob(ctx context.Context, req *model.StartGraphRunRequest, jobs jobsvc.Service, workspaces workspacesvc.Service) (*model.Job, error)
+	CreateScheduledRunJob(ctx context.Context, task *model.ScheduledTask, jobs jobsvc.Service, workspaces workspacesvc.Service) (*model.Job, error)
 	// ValidateConfig runs the full static legality check without persisting.
 	ValidateConfig(ctx context.Context, cfg *model.GraphConfig) []model.GraphValidationError
 	StartRun(ctx context.Context, req *model.StartGraphRunRequest, runner Runner, jobs JobStateSink) (*model.GraphRun, error)
@@ -331,7 +356,8 @@ func (s *serviceImpl) RunEventSnapshotSeq(runID string) (uint64, bool) {
 }
 
 // sendControl delivers a control signal to a running run's scheduler goroutine
-// without blocking. Returns ErrGraphRunNotRunning if no scheduler is live.
+// without blocking. Returns ErrGraphRunNotRunning if no scheduler is live and
+// ErrGraphRunControlBusy if the signal was not accepted.
 func (s *serviceImpl) sendControl(runID string, sig controlSignal) error {
 	s.controlMu.Lock()
 	handle := s.runControls[runID]
@@ -343,9 +369,7 @@ func (s *serviceImpl) sendControl(runID string, sig controlSignal) error {
 	case handle.controlCh <- sig:
 		return nil
 	default:
-		// A signal is already queued; the scheduler will observe the run-state
-		// transition. Treat as accepted.
-		return nil
+		return ErrGraphRunControlBusy
 	}
 }
 
@@ -369,6 +393,10 @@ func (s *serviceImpl) CreateWorkflow(ctx context.Context, req *model.CreateGraph
 	if req == nil {
 		return nil, fmt.Errorf("request is required")
 	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrWorkflowBadRequest)
+	}
 	if errs := validateConfig(&req.Config); len(errs) > 0 {
 		return nil, &ValidationError{Errors: errs}
 	}
@@ -376,12 +404,13 @@ func (s *serviceImpl) CreateWorkflow(ctx context.Context, req *model.CreateGraph
 	wf := &model.GraphWorkflow{
 		ID:          model.NewGraphWorkflowID(),
 		WorkspaceID: req.WorkspaceID,
-		Name:        req.Name,
+		Name:        name,
 		Description: req.Description,
 		Config:      req.Config,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
+	normalizeWorkflowWorkspace(wf, "")
 	if err := s.repo.Save(ctx, wf); err != nil {
 		return nil, err
 	}
@@ -390,8 +419,14 @@ func (s *serviceImpl) CreateWorkflow(ctx context.Context, req *model.CreateGraph
 
 func (s *serviceImpl) GetWorkflow(ctx context.Context, id string) (*model.GraphWorkflow, error) {
 	wf, err := s.repo.Get(ctx, id)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrWorkflowNotFound
+	}
+	if isInvalidIDError(err) {
+		return nil, fmt.Errorf("%w: workflowId %q: %v", ErrWorkflowBadRequest, id, err)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load graph workflow %s failed: %w", id, err)
 	}
 	if wf.Deleted {
 		return nil, ErrWorkflowNotFound
@@ -407,9 +442,24 @@ func (s *serviceImpl) UpdateWorkflow(ctx context.Context, id string, req *model.
 	if req == nil {
 		return nil, fmt.Errorf("request is required")
 	}
+	if req.UpdatedAt == nil {
+		return nil, fmt.Errorf("%w: updatedAt is required", ErrWorkflowBadRequest)
+	}
 	wf, err := s.repo.Get(ctx, id)
-	if err != nil || wf.Deleted {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrWorkflowNotFound
+	}
+	if isInvalidIDError(err) {
+		return nil, fmt.Errorf("%w: workflowId %q: %v", ErrWorkflowBadRequest, id, err)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load graph workflow %s failed: %w", id, err)
+	}
+	if wf.Deleted {
+		return nil, ErrWorkflowNotFound
+	}
+	if req.UpdatedAt != nil && !wf.UpdatedAt.Equal(*req.UpdatedAt) {
+		return nil, fmt.Errorf("%w: current updatedAt=%s, request updatedAt=%s", ErrWorkflowConflict, wf.UpdatedAt.Format(time.RFC3339Nano), req.UpdatedAt.Format(time.RFC3339Nano))
 	}
 	if req.Config != nil {
 		if errs := validateConfig(req.Config); len(errs) > 0 {
@@ -417,23 +467,208 @@ func (s *serviceImpl) UpdateWorkflow(ctx context.Context, id string, req *model.
 		}
 		wf.Config = *req.Config
 	}
+	normalizeWorkflowWorkspace(wf, "")
 	if req.Name != nil {
-		wf.Name = *req.Name
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			return nil, fmt.Errorf("%w: name is required", ErrWorkflowBadRequest)
+		}
+		wf.Name = name
 	}
 	if req.Description != nil {
 		wf.Description = *req.Description
 	}
 	wf.UpdatedAt = time.Now()
-	if err := s.repo.Update(ctx, id, wf); err != nil {
+	if err := s.repo.UpdateIfUnchanged(ctx, id, wf, req.UpdatedAt); err != nil {
+		if errors.Is(err, repository.ErrGraphWorkflowVersionConflict) {
+			return nil, fmt.Errorf("%w: workflow was changed before this update could be saved", ErrWorkflowConflict)
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrWorkflowNotFound
+		}
+		if isInvalidIDError(err) {
+			return nil, fmt.Errorf("%w: workflowId %q: %v", ErrWorkflowBadRequest, id, err)
+		}
 		return nil, err
 	}
 	return wf, nil
 }
 
-func (s *serviceImpl) DeleteWorkflow(ctx context.Context, id string) error {
+func (s *serviceImpl) DeleteWorkflow(ctx context.Context, id string, expectedUpdatedAt *time.Time) error {
+	if expectedUpdatedAt == nil {
+		return fmt.Errorf("%w: updatedAt is required", ErrWorkflowBadRequest)
+	}
 	wf, err := s.repo.Get(ctx, id)
-	if err != nil || wf.Deleted {
+	if errors.Is(err, os.ErrNotExist) {
 		return ErrWorkflowNotFound
 	}
-	return s.repo.Delete(ctx, id)
+	if isInvalidIDError(err) {
+		return fmt.Errorf("%w: workflowId %q: %v", ErrWorkflowBadRequest, id, err)
+	}
+	if err != nil {
+		return fmt.Errorf("load graph workflow %s failed: %w", id, err)
+	}
+	if wf.Deleted {
+		return ErrWorkflowNotFound
+	}
+	if err := s.repo.Delete(ctx, id, expectedUpdatedAt); err != nil {
+		if errors.Is(err, repository.ErrGraphWorkflowVersionConflict) {
+			return fmt.Errorf("%w: workflow was changed before this delete could be saved", ErrWorkflowConflict)
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrWorkflowNotFound
+		}
+		if isInvalidIDError(err) {
+			return fmt.Errorf("%w: workflowId %q: %v", ErrWorkflowBadRequest, id, err)
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *serviceImpl) CreateRunJob(ctx context.Context, req *model.StartGraphRunRequest, jobs jobsvc.Service, workspaces workspacesvc.Service) (*model.Job, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+	if jobs == nil {
+		return nil, fmt.Errorf("job service is required")
+	}
+	_, cfg, err := s.resolveStartConfig(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	wsID, workdir, _, err := resolveGraphRunWorkspace(ctx, firstNonEmpty(req.WorkspaceID, cfg.WorkspaceID), firstNonEmpty(req.Workdir, cfg.Workdir), workspaces, false, "")
+	if err != nil {
+		return nil, err
+	}
+	j := model.NewJob(workdir, wsID)
+	j.Mode = model.JobModeGraph
+	j.Title = "Graph Run"
+	if err := jobs.Create(j); err != nil {
+		return nil, fmt.Errorf("create graph job failed: %w", err)
+	}
+	req.WorkspaceID = wsID
+	req.Workdir = workdir
+	logger.Infof(ctx, "[graph] created graph job: jobId=%s workspaceId=%s workdir=%s", j.ID, wsID, workdir)
+	return j, nil
+}
+
+func (s *serviceImpl) CreateScheduledRunJob(ctx context.Context, task *model.ScheduledTask, jobs jobsvc.Service, workspaces workspacesvc.Service) (*model.Job, error) {
+	if task == nil {
+		return nil, fmt.Errorf("scheduled task is required")
+	}
+	if jobs == nil {
+		return nil, fmt.Errorf("job service is required")
+	}
+	wsID, workdir, _, err := resolveGraphRunWorkspace(ctx, task.WorkspaceID, task.Workdir, workspaces, true, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	j := model.NewJob(workdir, wsID)
+	j.Mode = model.JobModeGraph
+	j.ScheduleID = task.ID
+	j.Title = consts.ScheduleJobTitlePrefix + task.Name + " (" + time.Now().Format("15:04") + ")"
+	if err := jobs.Create(j); err != nil {
+		return nil, err
+	}
+	return j, nil
+}
+
+func isInvalidIDError(err error) bool {
+	return errors.Is(err, os.ErrInvalid) || errors.Is(err, os.ErrPermission)
+}
+
+func resolveGraphRunWorkspace(ctx context.Context, requestedWorkspaceID, requestedWorkdir string, workspaces workspacesvc.Service, allowScheduleFallback bool, scheduleID string) (wsID, workdir string, ws *model.Workspace, err error) {
+	if workspaces == nil {
+		return "", "", nil, fmt.Errorf("workspace service is required")
+	}
+	wsID = requestedWorkspaceID
+	workdir = requestedWorkdir
+	if wsID == "" {
+		wsID = consts.DefaultWorkspaceID
+	}
+	var ok bool
+	ws, ok = workspaces.Get(wsID)
+	if !ok {
+		if !allowScheduleFallback {
+			return "", "", nil, fmt.Errorf("workspace %s not found", wsID)
+		}
+		logger.Warnf(ctx, "[ScheduleTrigger] workspace %s not found for task %s, falling back to %s", wsID, scheduleID, consts.DefaultWorkspaceID)
+		wsID = consts.DefaultWorkspaceID
+		workdir = ""
+		ws, ok = workspaces.Get(wsID)
+		if !ok {
+			return "", "", nil, fmt.Errorf("schedule %s: default workspace %s is missing; ensure-default may have failed at startup", scheduleID, consts.DefaultWorkspaceID)
+		}
+	}
+	if workdir == "" && ws != nil {
+		workdir = ws.Workdir
+	}
+	if err := validateGraphWorkdir(workdir); err != nil {
+		if allowScheduleFallback {
+			return "", "", nil, fmt.Errorf("schedule %s: invalid workdir: %w", scheduleID, err)
+		}
+		return "", "", nil, err
+	}
+	if ws != nil {
+		if err := ensureGraphWorkdirWithinWorkspace(workdir, ws.Workdir); err != nil {
+			if allowScheduleFallback {
+				return "", "", nil, fmt.Errorf("schedule %s: %w", scheduleID, err)
+			}
+			return "", "", nil, err
+		}
+	}
+	return wsID, workdir, ws, nil
+}
+
+func validateGraphWorkdir(workdir string) error {
+	if workdir == "" {
+		return nil
+	}
+	sb := fileserver.GetFileManager()
+	stat, err := sb.FileStat(&fsmodel.FileStatRequest{Path: workdir})
+	if err != nil {
+		return fmt.Errorf("failed to check workdir: %w", err)
+	}
+	if !stat.Exists {
+		return fmt.Errorf("workdir does not exist: %s", workdir)
+	}
+	if !stat.IsDir {
+		return fmt.Errorf("workdir is not a directory: %s", workdir)
+	}
+	return nil
+}
+
+func ensureGraphWorkdirWithinWorkspace(workdir, wsWorkdir string) error {
+	if workdir == "" || wsWorkdir == "" {
+		return nil
+	}
+	realWs, err := resolveGraphPathForContainment(wsWorkdir)
+	if err != nil {
+		return fmt.Errorf("resolve workspace dir %s: %w", wsWorkdir, err)
+	}
+	realWd, err := resolveGraphPathForContainment(workdir)
+	if err != nil {
+		return fmt.Errorf("resolve workdir %s: %w", workdir, err)
+	}
+	if realWd == realWs {
+		return nil
+	}
+	rel, err := filepath.Rel(realWs, realWd)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("workdir %s is outside workspace directory %s", workdir, wsWorkdir)
+	}
+	return nil
+}
+
+func resolveGraphPathForContainment(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(real), nil
 }

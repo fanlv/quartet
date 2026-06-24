@@ -401,6 +401,11 @@ type UpdateGraphWorkflowRequest struct {
 	Name        *string      `json:"name,omitempty"`
 	Description *string      `json:"description,omitempty"`
 	Config      *GraphConfig `json:"config,omitempty"`
+	UpdatedAt   *time.Time   `json:"updatedAt,omitempty"`
+}
+
+type DeleteGraphWorkflowRequest struct {
+	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
 }
 
 type ValidateGraphWorkflowRequest struct {

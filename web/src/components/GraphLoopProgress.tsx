@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyNodeChanges, type NodeChange } from '@xyflow/react';
+import {
+  addEdge,
+  applyEdgeChanges,
+  applyNodeChanges,
+  MarkerType,
+  type Connection,
+  type EdgeChange,
+  type NodeChange,
+} from '@xyflow/react';
 import type { TFunction } from 'i18next';
 import type {
   GraphConfig,
@@ -23,6 +31,14 @@ import {
   configToFlow,
   edgeStatusByEdge,
   flowToConfig,
+  LOOP_DEFAULT_HEIGHT,
+  LOOP_DEFAULT_WIDTH,
+  loopPortPosition,
+  nestConstraint,
+  orderNodesByHierarchy,
+  QG_LOOP_PORT_H,
+  QG_LOOP_PORT_W,
+  repinLoopPorts,
   runConfigSnapshot,
   runStatusByNode,
   type QuartetFlowEdge,
@@ -30,10 +46,38 @@ import {
 } from './graph/graphFlowAdapter';
 import './GraphLoopProgress.css';
 
-// The embedded mini canvas only visualizes run state; structural edits (add /
-// connect / delete) are inert. Node dragging is allowed for layout convenience,
-// so onNodesChange is wired to local state while the rest stay no-ops.
+// The embedded mini canvas visualizes run state. Outside edit mode structural
+// edits are inert; in run-version edit mode, unfrozen structure can be repaired
+// and the backend re-validates the exact frozen rules.
 const NOOP = () => {};
+
+function withDescendants(ids: Set<string>, nodes: QuartetFlowNode[]): Set<string> {
+  const childrenOf = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (!n.parentId) continue;
+    const list = childrenOf.get(n.parentId);
+    if (list) list.push(n.id);
+    else childrenOf.set(n.parentId, [n.id]);
+  }
+  const out = new Set<string>();
+  const stack = [...ids];
+  while (stack.length) {
+    const id = stack.pop() as string;
+    if (out.has(id)) continue;
+    out.add(id);
+    for (const child of childrenOf.get(id) || []) stack.push(child);
+  }
+  return out;
+}
+
+function mintId(prefix: string, taken: Set<string>): string {
+  let id = '';
+  do {
+    id = `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  } while (taken.has(id));
+  taken.add(id);
+  return id;
+}
 
 interface GraphLoopProgressProps {
   jobId: string | null;
@@ -123,10 +167,11 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
   // Detail body (progress bar, stats, canvas) is collapsed by default;
   // only the header row stays visible until the user expands it.
   const [expanded, setExpanded] = useState(false);
-  // ---- In-place run-version editing (config-only) ----
+  // ---- In-place run-version editing ----
   // When editing, the canvas is seeded from the run's effective version snapshot
-  // and becomes structurally read-only (no add / connect / delete); only node
-  // config + the inspector are editable. Saved back via PUT /run/:id/version.
+  // and unfrozen nodes/edges can be repaired. Frozen node config is disabled by
+  // the inspector and the backend remains authoritative. Saved back through the
+  // bound Job's graph-run version endpoint.
   const [editing, setEditing] = useState(false);
   const [editNodes, setEditNodes] = useState<QuartetFlowNode[]>([]);
   const [editEdges, setEditEdges] = useState<QuartetFlowEdge[]>([]);
@@ -137,6 +182,7 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
 
   const isLive = !!run?.status && LIVE_STATUSES.has(run.status);
   const canPause = !readOnly && run?.status === 'running';
+  const canStepStop = !readOnly && run?.status === 'running';
   // A pending pause / legacy step-stop (not yet settled) can be cancelled, releasing
   // the held dispatch frontier back to running — mirrors Loop's "keep running".
   const canCancelStop = !readOnly && (run?.status === 'pausing' || run?.status === 'stepStopping');
@@ -245,7 +291,7 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
     };
   }, [isLive, refresh, jobId]);
 
-  const doAction = useCallback(async (action: 'pause' | 'cancel-stop' | 'stop' | 'resume') => {
+  const doAction = useCallback(async (action: 'pause' | 'step-stop' | 'cancel-stop' | 'stop' | 'resume') => {
     if (!jobId) return;
     setActionPending(action);
     setError('');
@@ -327,8 +373,8 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
   }, [editNodes, selectedNodeId]);
 
   // Enter in-place editing: seed editable nodes/edges from the run's effective
-  // version snapshot. The canvas stays structurally read-only; only node config
-  // changes are accepted (add/connect/delete are disabled, not just hidden).
+  // version snapshot. Unfrozen structure can be repaired; the backend still
+  // enforces the exact run-version edit rules when saving.
   const enterEdit = useCallback(() => {
     if (!run || !canEditRun) return;
     const snapshot = runConfigSnapshot(run);
@@ -352,7 +398,129 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
   }, []);
 
   const onEditNodesChange = useCallback((changes: NodeChange[]) => {
-    setEditNodes((prev) => applyNodeChanges(changes, prev) as QuartetFlowNode[]);
+    const removedIds = new Set(changes.filter((ch) => ch.type === 'remove').map((ch) => ch.id));
+    setEditNodes((prev) => {
+      let effectiveChanges = changes;
+      if (removedIds.size > 0) {
+        const doomed = withDescendants(removedIds, prev);
+        if (doomed.size > removedIds.size) {
+          const extra: NodeChange[] = [];
+          for (const id of doomed) {
+            if (!removedIds.has(id)) extra.push({ type: 'remove', id });
+          }
+          effectiveChanges = [...changes, ...extra];
+          setEditEdges((edges) => edges.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)));
+          setSelectedNodeId((cur) => (cur && doomed.has(cur) ? null : cur));
+        }
+      }
+      return repinLoopPorts(applyNodeChanges(effectiveChanges, prev) as QuartetFlowNode[]);
+    });
+  }, []);
+  const onEditEdgesChange = useCallback((changes: EdgeChange[]) => {
+    setEditEdges((prev) => applyEdgeChanges(changes, prev) as QuartetFlowEdge[]);
+  }, []);
+  const onEditConnect = useCallback((connection: Connection) => {
+    setEditEdges((prev) => {
+      const port = connection.sourceHandle === 'yes' || connection.sourceHandle === 'no' ? connection.sourceHandle : undefined;
+      const id = mintId(`edge-${connection.source}-${connection.target}`, new Set(prev.map((e) => e.id)));
+      const edge: QuartetFlowEdge = {
+        id,
+        source: connection.source!,
+        target: connection.target!,
+        sourceHandle: connection.sourceHandle ?? undefined,
+        data: { port },
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#4c5663' },
+        ...(port
+          ? { label: port === 'yes' ? 'YES' : 'NO', labelStyle: { fill: port === 'yes' ? '#2ea043' : '#f85149', fontWeight: 700 } }
+          : {}),
+      };
+      return addEdge(edge, prev) as QuartetFlowEdge[];
+    });
+  }, []);
+  const onAddEditNode = useCallback((type: GraphNode['type'], position: { x: number; y: number }, parentId?: string | null) => {
+    const takenIds = new Set(editNodes.map((n) => n.id));
+    const id = mintId(type, takenIds);
+    const intoParent = parentId && type !== 'loop' ? parentId : undefined;
+    const layout =
+      type === 'loop'
+        ? { x: Math.round(position.x), y: Math.round(position.y), width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT }
+        : { x: Math.round(position.x), y: Math.round(position.y) };
+    const graphNode: GraphNode = {
+      id,
+      type,
+      title: '',
+      ...(intoParent ? { parentId: intoParent } : {}),
+      config: type === 'loop' ? { loopMode: 'fixed', fixedCount: 1 } : type === 'prompt' || type === 'evaluator' ? { sessionStrategy: 'new' } : {},
+      layout,
+    };
+    const node: QuartetFlowNode = {
+      id,
+      type: type === 'loop' ? 'loopGroup' : 'quartet',
+      position,
+      ...(intoParent ? { parentId: intoParent, ...nestConstraint(type) } : {}),
+      data: { kind: type, graphNode },
+      deletable: type !== 'start' && type !== 'end',
+      ...(type === 'loop' ? { style: { width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT } } : {}),
+    } as QuartetFlowNode;
+    const extra: QuartetFlowNode[] = [];
+    if (type === 'loop') {
+      const entryPos = loopPortPosition(LOOP_DEFAULT_WIDTH, LOOP_DEFAULT_HEIGHT, true);
+      const exitPos = loopPortPosition(LOOP_DEFAULT_WIDTH, LOOP_DEFAULT_HEIGHT, false);
+      const startId = mintId('start', takenIds);
+      const endId = mintId('end', takenIds);
+      extra.push({
+        id: startId,
+        type: 'quartet',
+        position: entryPos,
+        parentId: id,
+        extent: 'parent',
+        style: { width: QG_LOOP_PORT_W, height: QG_LOOP_PORT_H },
+        draggable: false,
+        data: {
+          kind: 'start',
+          graphNode: { id: startId, type: 'start', title: '', parentId: id, layout: { x: entryPos.x, y: entryPos.y } },
+        },
+        deletable: false,
+      } as QuartetFlowNode);
+      extra.push({
+        id: endId,
+        type: 'quartet',
+        position: exitPos,
+        parentId: id,
+        extent: 'parent',
+        style: { width: QG_LOOP_PORT_W, height: QG_LOOP_PORT_H },
+        draggable: false,
+        data: {
+          kind: 'end',
+          graphNode: { id: endId, type: 'end', title: '', parentId: id, layout: { x: exitPos.x, y: exitPos.y } },
+        },
+        deletable: false,
+      } as QuartetFlowNode);
+    }
+    setEditNodes((prev) => orderNodesByHierarchy([...prev, node, ...extra]));
+    setSelectedNodeId(id);
+  }, [editNodes]);
+  const onDeleteEditNode = useCallback((id: string) => {
+    setEditNodes((prev) => {
+      const childrenOf = new Map<string, string[]>();
+      for (const n of prev) {
+        if (!n.parentId) continue;
+        const list = childrenOf.get(n.parentId);
+        if (list) list.push(n.id);
+        else childrenOf.set(n.parentId, [n.id]);
+      }
+      const doomed = new Set<string>();
+      const stack = [id];
+      while (stack.length) {
+        const cur = stack.pop() as string;
+        if (doomed.has(cur)) continue;
+        doomed.add(cur);
+        for (const child of childrenOf.get(cur) || []) stack.push(child);
+      }
+      setEditEdges((edges) => edges.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)));
+      setSelectedNodeId((cur) => (cur && doomed.has(cur) ? null : cur));
+      return prev.filter((n) => !doomed.has(n.id));
+    });
   }, []);
 
   // Patch the GraphNode carried by an editable canvas node (config-only edits).
@@ -393,11 +561,12 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
     }
   }, [editEdges, editNodes, editSnapshot, refresh, jobId]);
 
-  // The inspector's global panel reads variables/runConfig from `config`; build
-  // it from the edit snapshot so it shows (read-only) run-level values.
+  // The inspector needs both run-level values and the live edited topology for
+  // condition variable suggestions (upstream outputs, loop body outputs, loop
+  // iteration vars).
   const inspectorConfig = useMemo<GraphConfig>(
-    () => ({ nodes: [], edges: [], ...(editSnapshot || {}) }),
-    [editSnapshot],
+    () => (editSnapshot ? flowToConfig(editNodes, editEdges, editSnapshot) : { nodes: [], edges: [] }),
+    [editEdges, editNodes, editSnapshot],
   );
 
   const lastError = run?.lastError?.message || progress?.lastError || error;
@@ -483,6 +652,10 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
                   <span>{t('graph.loop.pause')}</span>
                 </button>
               )}
+              <button type="button" className="graph-loop-action warn" onClick={() => void doAction('step-stop')} disabled={!canStepStop || !!actionPending} title={t('graph.loop.stepStopTitle')}>
+                <GraphActionIcon type="pause" />
+                <span>{t('graph.loop.stepStop')}</span>
+              </button>
               <button type="button" className="graph-loop-action danger" onClick={() => void doAction('stop')} disabled={!canStop || !!actionPending} title={t('graph.loop.stopTitle')}>
                 <GraphActionIcon type="stop" />
                 <span>{t('graph.loop.stop')}</span>
@@ -511,16 +684,16 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
                 key="graph-loop-edit"
                 nodes={editNodes}
                 edges={editEdges}
-                readOnly
+                readOnly={false}
                 showMiniMap={false}
                 runStatusByNodeId={miniRunStatus}
                 errorNodeIds={miniErrorNodeIds}
                 onNodesChange={onEditNodesChange}
-                onEdgesChange={NOOP}
-                onConnect={NOOP}
+                onEdgesChange={onEditEdgesChange}
+                onConnect={onEditConnect}
                 onNodeClick={(id) => setSelectedNodeId(id)}
                 onPaneClick={() => setSelectedNodeId(null)}
-                onAddNode={NOOP}
+                onAddNode={onAddEditNode}
               />
             </div>
             <div className="graph-loop-inspector graph-dark">
@@ -528,11 +701,10 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
                 node={selectedGraphNode}
                 config={inspectorConfig}
                 agents={agents}
-                lockStructure
                 frozenNodeIds={frozenNodeIds}
                 onUpdateNode={onUpdateNode}
                 onUpdateNodeConfig={onUpdateNodeConfig}
-                onDeleteNode={NOOP}
+                onDeleteNode={onDeleteEditNode}
                 onUpdateVariables={NOOP}
                 onUpdateRunConfig={NOOP}
               />

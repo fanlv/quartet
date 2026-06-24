@@ -145,7 +145,7 @@ E2E 不依赖开发者机器上的模型配置、ACP 安装状态或历史数据
 
 > 状态：已完成。已完成临时 `LOCAL_MEMORY`、前后端 stdout / stderr、Playwright trace / 截图 / 录屏、失败保留与成功清理、console / network 摘要、控制 API 调用记录与失败响应体落盘；最近一次 `npm run test:e2e` 28 个用例通过，`npm run build` 通过。
 
-成功自动清理临时进程与数据目录；失败默认保留排障产物并在命令输出打印路径，含临时 `LOCAL_MEMORY` 数据目录、前后端 / Playwright 的 stdout / stderr、Playwright trace / 截图 / 录屏 / 失败页 HTML / console / network 摘要、控制 API 调用记录与失败响应体。产物放固定 run 目录、按时间 + 随机后缀区分，可经清理参数删历史。成功清理与失败保留都须先停前后端进程。
+成功自动清理临时进程与数据目录；失败默认保留排障产物并在命令输出打印路径，含临时 `LOCAL_MEMORY` 数据目录、前后端 / Playwright 的 stdout / stderr、Playwright trace / 截图 / 录屏 / 失败页 HTML / console / network 摘要、控制 API 调用记录与失败响应体。产物放固定 run 目录、按时间 + 随机后缀区分，可经清理参数删历史。成功清理与失败保留都须先停前后端进程。Go 构建临时目录不得落在仓库内的 E2E 产物目录，失败保留的排障产物也不能影响后续 Go 包发现与项目验证命令。
 
 ## 3. 测试范围
 

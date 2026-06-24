@@ -304,7 +304,9 @@ func (r *fileGraphRunRepo) DeleteRun(_ context.Context, runID string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if err := r.storage.FileDelete(&fsmodel.FileDeleteRequest{Path: runDir}); err != nil {
-		return err
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	r.locations.Delete(runID)
 	return nil

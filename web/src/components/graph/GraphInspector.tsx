@@ -126,10 +126,10 @@ function textToList(text: string): string[] {
     .filter(Boolean);
 }
 
-function numberOrUndefined(value: string): number | undefined {
+function integerOrUndefined(value: string): number | undefined {
   if (value.trim() === '') return undefined;
   const n = Number(value);
-  return Number.isFinite(n) ? n : undefined;
+  return Number.isInteger(n) ? n : undefined;
 }
 
 export function GraphInspector({
@@ -303,6 +303,7 @@ export function GraphInspector({
   };
 
   const runConfig = config.runConfig || {};
+  const fieldAria = (label: string) => label.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
   const inspectorTitle = node ? t('graph.inspector.nodeConfig') : t('graph.inspector.globalConfig');
   const inspectorSubtitle = node ? (node.title || node.id) : t('graph.inspector.varsAndRunConfig');
   const asideClassName = `graph-inspector ${drawerOpen ? 'drawer-open' : 'drawer-collapsed'}`;
@@ -341,6 +342,7 @@ export function GraphInspector({
             <span className="gi-var-key gi-builtin-name" title={name}>{name}</span>
             <input
               className="gi-var-val"
+              aria-label={t('graph.inspector.builtinValueAria', { name })}
               value={value}
               placeholder={t('graph.inspector.builtinValuePlaceholder')}
               disabled={globalsReadOnly}
@@ -377,6 +379,7 @@ export function GraphInspector({
         <div className="gi-var-row" key={i}>
           <input
             className="gi-var-key"
+            aria-label={t('graph.inspector.variableNameAria', { index: i + 1 })}
             value={k}
             placeholder={t('graph.inspector.varNamePlaceholder')}
             disabled={globalsReadOnly}
@@ -384,6 +387,7 @@ export function GraphInspector({
           />
           <input
             className="gi-var-val"
+            aria-label={t('graph.inspector.variableValueAria', { name: k || String(i + 1) })}
             value={v}
             placeholder={t('graph.inspector.varValuePlaceholder')}
             disabled={globalsReadOnly}
@@ -413,46 +417,80 @@ export function GraphInspector({
         <label>{t('graph.inspector.concurrency')}</label>
         <input
           type="number"
+          aria-label={fieldAria(t('graph.inspector.concurrency'))}
           min={1}
           max={16}
+          step={1}
           value={runConfig.concurrencyLimit ?? ''}
           placeholder="8"
           disabled={globalsReadOnly}
-          onChange={(e) => onUpdateRunConfig({ concurrencyLimit: numberOrUndefined(e.target.value) })}
+          onChange={(e) => onUpdateRunConfig({ concurrencyLimit: integerOrUndefined(e.target.value) })}
         />
       </div>
       <div className="gi-field">
         <label>{t('graph.inspector.defaultNodeTimeout')}</label>
         <input
           type="number"
+          aria-label={fieldAria(t('graph.inspector.defaultNodeTimeout'))}
           min={0}
+          step={1}
           value={runConfig.defaultNodeTimeoutSec ?? ''}
           placeholder="0"
           disabled={globalsReadOnly}
-          onChange={(e) => onUpdateRunConfig({ defaultNodeTimeoutSec: numberOrUndefined(e.target.value) })}
+          onChange={(e) => onUpdateRunConfig({ defaultNodeTimeoutSec: integerOrUndefined(e.target.value) })}
         />
       </div>
       <div className="gi-field">
         <label>{t('graph.inspector.jobTimeout')}</label>
         <input
           type="number"
+          aria-label={fieldAria(t('graph.inspector.jobTimeout'))}
           min={0}
+          step={1}
           value={runConfig.jobTimeoutSec ?? ''}
           placeholder="0"
           disabled={globalsReadOnly}
-          onChange={(e) => onUpdateRunConfig({ jobTimeoutSec: numberOrUndefined(e.target.value) })}
+          onChange={(e) => onUpdateRunConfig({ jobTimeoutSec: integerOrUndefined(e.target.value) })}
         />
       </div>
       <div className="gi-field">
         <label>{t('graph.inspector.loopMaxItersFallback')}</label>
         <input
           type="number"
+          aria-label={fieldAria(t('graph.inspector.loopMaxItersFallback'))}
           min={1}
           max={1000}
+          step={1}
           value={runConfig.defaultLoopMaxIters ?? ''}
           placeholder="100"
           disabled={globalsReadOnly}
-          onChange={(e) => onUpdateRunConfig({ defaultLoopMaxIters: numberOrUndefined(e.target.value) })}
+          onChange={(e) => onUpdateRunConfig({ defaultLoopMaxIters: integerOrUndefined(e.target.value) })}
+        />
+      </div>
+      <div className="gi-field">
+        <label>{t('graph.inspector.instanceLimit')}</label>
+        <input
+          type="number"
+          aria-label={fieldAria(t('graph.inspector.instanceLimit'))}
+          min={1}
+          step={1}
+          value={runConfig.instanceLimit ?? ''}
+          placeholder="100000"
+          disabled={globalsReadOnly}
+          onChange={(e) => onUpdateRunConfig({ instanceLimit: integerOrUndefined(e.target.value) })}
+        />
+      </div>
+      <div className="gi-field">
+        <label>{t('graph.inspector.snapshotByteLimit')}</label>
+        <input
+          type="number"
+          aria-label={fieldAria(t('graph.inspector.snapshotByteLimit'))}
+          min={1}
+          step={1}
+          value={runConfig.snapshotByteLimit ?? ''}
+          placeholder="1073741824"
+          disabled={globalsReadOnly}
+          onChange={(e) => onUpdateRunConfig({ snapshotByteLimit: integerOrUndefined(e.target.value) })}
         />
       </div>
 
@@ -496,7 +534,7 @@ export function GraphInspector({
   const TitleField = (
     <div className="gi-field">
       <label>{t('graph.inspector.nodeName')}</label>
-      <input value={node.title || ''} disabled={readOnly} onChange={(e) => onUpdateNode(node.id, { title: e.target.value })} />
+      <input aria-label={t('graph.inspector.nodeName')} value={node.title || ''} disabled={readOnly} onChange={(e) => onUpdateNode(node.id, { title: e.target.value })} />
     </div>
   );
 
@@ -507,6 +545,7 @@ export function GraphInspector({
           {node.type === 'evaluator' ? t('graph.inspector.outputVarsEvaluator') : t('graph.inspector.outputVarsOptional')}
         </label>
         <input
+          aria-label={node.type === 'evaluator' ? t('graph.inspector.outputVarsEvaluator') : t('graph.inspector.outputVarsOptional')}
           value={listToText(cfg.outputVariables)}
           placeholder={t('graph.inspector.outputVarsPlaceholder')}
           disabled={readOnly}
@@ -521,6 +560,7 @@ export function GraphInspector({
       <div className="gi-field">
         <label>{t('graph.inspector.lastAssistantAlias')}</label>
         <input
+          aria-label={t('graph.inspector.lastAssistantAlias')}
           value={cfg.lastAssistantAlias || ''}
           placeholder={t('graph.inspector.lastAssistantAliasPlaceholder')}
           disabled={readOnly}
@@ -536,10 +576,12 @@ export function GraphInspector({
       <label>{t('graph.inspector.nodeTimeout')}</label>
       <input
         type="number"
+        aria-label={fieldAria(t('graph.inspector.nodeTimeout'))}
         min={0}
+        step={1}
         value={cfg.timeoutSeconds ?? ''}
         disabled={readOnly}
-        onChange={(e) => setCfg({ timeoutSeconds: numberOrUndefined(e.target.value) })}
+        onChange={(e) => setCfg({ timeoutSeconds: integerOrUndefined(e.target.value) })}
       />
     </div>
   );
@@ -549,6 +591,7 @@ export function GraphInspector({
       <div className="gi-field">
         <label>{t('graph.inspector.agent')}</label>
         <select
+          aria-label={t('graph.inspector.agent')}
           value={cfg.agentType || ''}
           disabled={readOnly}
           onChange={(e) => {
@@ -573,7 +616,7 @@ export function GraphInspector({
       {availableModels.length > 0 && (
         <div className="gi-field">
           <label>{t('graph.inspector.model')}</label>
-          <select value={cfg.modelId || ''} disabled={readOnly} onChange={(e) => setCfg({ modelId: e.target.value })}>
+          <select aria-label={t('graph.inspector.model')} value={cfg.modelId || ''} disabled={readOnly} onChange={(e) => setCfg({ modelId: e.target.value })}>
             {availableModels.map((m) => (
               <option key={m.modelId} value={m.modelId}>
                 {m.name || m.modelId}
@@ -586,6 +629,7 @@ export function GraphInspector({
         <div className="gi-field">
           <label>{t('graph.inspector.thoughtLevel')}</label>
           <select
+            aria-label={t('graph.inspector.thoughtLevel')}
             value={cfg.acpThoughtLevel || ''}
             disabled={readOnly}
             onChange={(e) => setCfg({ acpThoughtLevel: e.target.value || undefined })}
@@ -603,6 +647,7 @@ export function GraphInspector({
       <div className="gi-field">
         <label>{t('graph.inspector.sessionStrategy')}</label>
         <select
+          aria-label={t('graph.inspector.sessionStrategy')}
           value={cfg.sessionStrategy || 'new'}
           disabled={readOnly}
           onChange={(e) => setCfg({ sessionStrategy: e.target.value as GraphSessionStrategy })}
@@ -638,6 +683,7 @@ export function GraphInspector({
           <div className="gi-field">
             <label>{t('graph.inspector.shellScript')}</label>
             <textarea
+              aria-label={t('graph.inspector.shellScript')}
               value={cfg.script || ''}
               placeholder={t('graph.inspector.shellScriptPlaceholder')}
               disabled={readOnly}
@@ -656,6 +702,7 @@ export function GraphInspector({
           <div className="gi-field">
             <label>{t('graph.inspector.prompt')}</label>
             <textarea
+              aria-label={t('graph.inspector.prompt')}
               value={cfg.prompt || ''}
               placeholder={t('graph.inspector.promptPlaceholder')}
               disabled={readOnly}
@@ -674,6 +721,7 @@ export function GraphInspector({
           <div className="gi-field">
             <label>{t('graph.inspector.evaluatorPrompt')}</label>
             <textarea
+              aria-label={t('graph.inspector.evaluatorPrompt')}
               value={cfg.prompt || ''}
               placeholder={t('graph.inspector.evaluatorPromptPlaceholder')}
               disabled={readOnly}
@@ -745,12 +793,14 @@ export function GraphInspector({
                 <label>{t('graph.inspector.maxIterations')}</label>
                 <input
                   type="number"
+                  aria-label={fieldAria(t('graph.inspector.maxIterations'))}
                   min={1}
                   max={1000}
+                  step={1}
                   value={cfg.maxIterations ?? ''}
                   placeholder="100"
                   disabled={readOnly}
-                  onChange={(e) => setCfg({ maxIterations: numberOrUndefined(e.target.value) })}
+                  onChange={(e) => setCfg({ maxIterations: integerOrUndefined(e.target.value) })}
                 />
               </div>
             </>
@@ -759,10 +809,12 @@ export function GraphInspector({
               <label>{t('graph.inspector.fixedCount')}</label>
               <input
                 type="number"
+                aria-label={fieldAria(t('graph.inspector.fixedCount'))}
                 min={0}
+                step={1}
                 value={cfg.fixedCount ?? ''}
                 disabled={readOnly}
-                onChange={(e) => setCfg({ fixedCount: numberOrUndefined(e.target.value) })}
+                onChange={(e) => setCfg({ fixedCount: integerOrUndefined(e.target.value) })}
               />
             </div>
           )}
@@ -774,7 +826,7 @@ export function GraphInspector({
         <div className="gi-desc">{t('graph.inspector.controlNodeDesc')}</div>
       )}
 
-      {!readOnly && !lockStructure && !frozen && node.type !== 'start' && node.type !== 'end' && (
+      {!readOnly && !lockStructure && node.type !== 'start' && node.type !== 'end' && (
         <div className="gi-node-actions">
           {onDuplicateNode && (
             <button className="gi-dup-btn" onClick={() => onDuplicateNode(node.id)}>

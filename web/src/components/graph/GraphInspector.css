@@ -80,8 +80,13 @@
 .gi-field input:focus,
 .gi-field textarea:focus,
 .gi-field select:focus {
-  outline: none;
   border-color: var(--graph-accent, #4493f8);
+}
+.gi-field input:focus-visible,
+.gi-field textarea:focus-visible,
+.gi-field select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--graph-accent, #4493f8) 72%, transparent);
+  outline-offset: 2px;
 }
 .gi-field input:disabled,
 .gi-field textarea:disabled,
@@ -197,7 +202,7 @@
   border-radius: 6px;
   color: var(--graph-text-dim, #8b949e);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
 }
 .gi-var-browse:hover:not(:disabled) {
   border-color: var(--graph-accent, #4493f8);
@@ -320,8 +325,12 @@
 }
 .gi-cond-rule input:focus,
 .gi-cond-rule select:focus {
-  outline: none;
   border-color: var(--graph-accent, #4493f8);
+}
+.gi-cond-rule input:focus-visible,
+.gi-cond-rule select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--graph-accent, #4493f8) 72%, transparent);
+  outline-offset: 2px;
 }
 .gi-cond-op,
 .gi-cond-val {
@@ -420,8 +429,11 @@
   box-sizing: border-box;
 }
 .gi-cond-advanced:focus {
-  outline: none;
   border-color: var(--graph-accent, #4493f8);
+}
+.gi-cond-advanced:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--graph-accent, #4493f8) 72%, transparent);
+  outline-offset: 2px;
 }
 .gi-cond-advanced:disabled {
   opacity: 0.6;

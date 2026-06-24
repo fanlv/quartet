@@ -32,6 +32,9 @@ var (
 	// ErrGraphRunNotRunning is returned when a control action (stop/pause/
 	// step-stop) targets a run with no live scheduler.
 	ErrGraphRunNotRunning = errors.New("graph run is not currently running")
+	// ErrGraphRunControlBusy is returned when a live scheduler's control queue
+	// is full and the requested control signal was not accepted.
+	ErrGraphRunControlBusy = errors.New("graph run control queue is busy")
 	// ErrGraphRunNotResumable is returned when ResumeRun targets a run that is
 	// not in a resumable terminal state.
 	ErrGraphRunNotResumable = errors.New("graph run is not resumable")
@@ -109,10 +112,12 @@ func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequ
 		return nil, err
 	}
 	if err := s.persistRuntimeState(ctx, run, map[string]model.GraphInstanceState{}, map[string]model.GraphEdgeState{}, map[string]map[string]string{}); err != nil {
+		s.cleanupUnboundRun(ctx, run.ID, err)
 		return nil, err
 	}
 	if jobs != nil {
 		if err := jobs.SetGraphRunState(ctx, jobID, run.ID, model.JobStatusPending, 0, 0); err != nil {
+			s.cleanupUnboundRun(ctx, run.ID, err)
 			return nil, err
 		}
 	}
@@ -124,6 +129,16 @@ func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequ
 	return run, nil
 }
 
+func (s *serviceImpl) cleanupUnboundRun(ctx context.Context, runID string, cause error) {
+	if strings.TrimSpace(runID) == "" {
+		return
+	}
+	if err := s.runRepo.DeleteRun(ctx, runID); err != nil {
+		logger.Warnf(ctx, "[graph] cleanup unbound graph run failed: runId=%s cause=%v cleanupErr=%v", runID, cause, err)
+	}
+	s.removeBuffer(runID)
+}
+
 func (s *serviceImpl) RegisterRunLocation(ctx context.Context, runID, workspaceID, jobID string) error {
 	return s.runRepo.RegisterRunLocation(ctx, runID, workspaceID, jobID)
 }
@@ -131,7 +146,10 @@ func (s *serviceImpl) RegisterRunLocation(ctx context.Context, runID, workspaceI
 func (s *serviceImpl) GetRunStatus(ctx context.Context, runID string) (*model.GraphRunStatusResponse, error) {
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
-		return nil, ErrGraphRunNotFound
+		if errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "graph run location is not registered") {
+			return nil, ErrGraphRunNotFound
+		}
+		return nil, fmt.Errorf("load graph run %s failed: %w", runID, err)
 	}
 	instances, err := s.runRepo.GetInstances(ctx, runID)
 	if err != nil {
@@ -243,16 +261,22 @@ func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGr
 		// The frontend launches a saved workflow by sending BOTH its workflowId
 		// and the live (possibly edited) canvas config. The config is the
 		// execution snapshot, but we still resolve the workflow so the run binds
-		// its source metadata (WorkflowID / WorkflowName) — otherwise the run is
-		// untraceable to the workflow it came from. A missing/deleted workflow is
-		// not fatal here: the ad-hoc config still runs, just without a source link.
+		// its source metadata (WorkflowID / WorkflowName). If a workflowId is
+		// supplied it is part of the contract; a deleted/corrupt workflow must be
+		// surfaced instead of silently creating an untraceable ad-hoc run.
 		if id := strings.TrimSpace(req.WorkflowID); id != "" {
-			if wf, err := s.repo.Get(ctx, id); err == nil && !wf.Deleted {
-				cfg.WorkspaceID = firstNonEmpty(cfg.WorkspaceID, wf.WorkspaceID)
-				return wf, cfg, nil
-			} else if err != nil {
-				logger.Warnf(ctx, "[graph] start run: workflow %q not resolvable for metadata binding, running ad-hoc config: %v", id, err)
+			wf, err := s.repo.Get(ctx, id)
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, model.GraphConfig{}, ErrWorkflowNotFound
 			}
+			if err != nil {
+				return nil, model.GraphConfig{}, fmt.Errorf("load graph workflow %s failed: %w", id, err)
+			}
+			if wf.Deleted {
+				return nil, model.GraphConfig{}, ErrWorkflowNotFound
+			}
+			cfg.WorkspaceID = firstNonEmpty(cfg.WorkspaceID, wf.WorkspaceID)
+			return wf, cfg, nil
 		}
 		return nil, cfg, nil
 	}
@@ -260,7 +284,13 @@ func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGr
 		return nil, model.GraphConfig{}, fmt.Errorf("workflowId or config is required")
 	}
 	wf, err := s.repo.Get(ctx, req.WorkflowID)
-	if err != nil || wf.Deleted {
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, model.GraphConfig{}, ErrWorkflowNotFound
+	}
+	if err != nil {
+		return nil, model.GraphConfig{}, fmt.Errorf("load graph workflow %s failed: %w", req.WorkflowID, err)
+	}
+	if wf.Deleted {
 		return nil, model.GraphConfig{}, ErrWorkflowNotFound
 	}
 	cfg := cloneGraphConfig(wf.Config)

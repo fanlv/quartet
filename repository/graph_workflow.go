@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/fanlv/quartet/pkg/fileserver"
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
@@ -15,6 +16,8 @@ import (
 	"github.com/fanlv/quartet/types/path"
 )
 
+var ErrGraphWorkflowVersionConflict = errors.New("graph workflow version conflict")
+
 // GraphWorkflowRepo persists editable/saved Graph workflow configs, one JSON
 // file per workflow keyed by ID. Mirrors TemplateRepo's file-per-entity layout.
 type GraphWorkflowRepo interface {
@@ -22,7 +25,8 @@ type GraphWorkflowRepo interface {
 	Get(ctx context.Context, id string) (*model.GraphWorkflow, error)
 	List(ctx context.Context) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error)
 	Update(ctx context.Context, id string, wf *model.GraphWorkflow) error
-	Delete(ctx context.Context, id string) error
+	UpdateIfUnchanged(ctx context.Context, id string, wf *model.GraphWorkflow, expectedUpdatedAt *time.Time) error
+	Delete(ctx context.Context, id string, expectedUpdatedAt *time.Time) error
 }
 
 type fileGraphWorkflowRepo struct {
@@ -144,10 +148,10 @@ func (r *fileGraphWorkflowRepo) Update(_ context.Context, id string, wf *model.G
 	return AtomicWriteFile(filepath.Join(r.dir, id+".json"), data, 0644)
 }
 
-// Delete soft-deletes the workflow: the file stays on disk with Deleted=true so
-// that historical GraphRuns referencing it keep resolving, while List filters
-// it out. Returns os.ErrNotExist when the workflow does not exist.
-func (r *fileGraphWorkflowRepo) Delete(ctx context.Context, id string) error {
+func (r *fileGraphWorkflowRepo) UpdateIfUnchanged(_ context.Context, id string, wf *model.GraphWorkflow, expectedUpdatedAt *time.Time) error {
+	if wf == nil {
+		return os.ErrInvalid
+	}
 	if err := validateGraphWorkflowID(id); err != nil {
 		return err
 	}
@@ -156,21 +160,61 @@ func (r *fileGraphWorkflowRepo) Delete(ctx context.Context, id string) error {
 	defer mu.Unlock()
 
 	fp := filepath.Join(r.dir, id+".json")
-	readResult, err := r.sandbox.FileRead(&fsmodel.FileReadRequest{File: fp})
+	current, err := r.readWorkflowFile(fp)
 	if err != nil {
 		return err
 	}
-	var wf model.GraphWorkflow
-	if err := json.Unmarshal([]byte(readResult.Content), &wf); err != nil {
+	if current.Deleted {
+		return os.ErrNotExist
+	}
+	if expectedUpdatedAt != nil && !current.UpdatedAt.Equal(*expectedUpdatedAt) {
+		return ErrGraphWorkflowVersionConflict
+	}
+	data, err := json.MarshalIndent(wf, "", "  ")
+	if err != nil {
+		return err
+	}
+	return AtomicWriteFile(fp, data, 0644)
+}
+
+// Delete soft-deletes the workflow: the file stays on disk with Deleted=true so
+// that historical GraphRuns referencing it keep resolving, while List filters
+// it out. Returns os.ErrNotExist when the workflow does not exist.
+func (r *fileGraphWorkflowRepo) Delete(ctx context.Context, id string, expectedUpdatedAt *time.Time) error {
+	if err := validateGraphWorkflowID(id); err != nil {
+		return err
+	}
+	mu := r.locks.lockFor(id)
+	mu.Lock()
+	defer mu.Unlock()
+
+	fp := filepath.Join(r.dir, id+".json")
+	wf, err := r.readWorkflowFile(fp)
+	if err != nil {
 		return err
 	}
 	if wf.Deleted {
 		return nil
 	}
+	if expectedUpdatedAt != nil && !wf.UpdatedAt.Equal(*expectedUpdatedAt) {
+		return ErrGraphWorkflowVersionConflict
+	}
 	wf.Deleted = true
-	data, err := json.MarshalIndent(&wf, "", "  ")
+	data, err := json.MarshalIndent(wf, "", "  ")
 	if err != nil {
 		return err
 	}
 	return AtomicWriteFile(fp, data, 0644)
+}
+
+func (r *fileGraphWorkflowRepo) readWorkflowFile(fp string) (*model.GraphWorkflow, error) {
+	readResult, err := r.sandbox.FileRead(&fsmodel.FileReadRequest{File: fp})
+	if err != nil {
+		return nil, err
+	}
+	var wf model.GraphWorkflow
+	if err := json.Unmarshal([]byte(readResult.Content), &wf); err != nil {
+		return nil, err
+	}
+	return &wf, nil
 }

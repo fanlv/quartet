@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,9 +10,13 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/schema"
+	jobsvc "github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/usagestats"
+	"github.com/fanlv/quartet/services/workspace"
 	"github.com/fanlv/quartet/types/agui"
+	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
+	typepath "github.com/fanlv/quartet/types/path"
 )
 
 type stubGraphRunner struct{ stubSnapshotSource }
@@ -59,6 +64,115 @@ func (s *stubGraphJobSink) ClearGraphRunLinkage(context.Context, string, string)
 
 func (s *stubGraphJobSink) AttachGraphSession(context.Context, string, string) error {
 	return nil
+}
+
+type failingGraphJobSink struct {
+	err error
+}
+
+func (s failingGraphJobSink) SetGraphRunState(context.Context, string, string, model.JobStatus, int64, int64) error {
+	return s.err
+}
+
+func (s failingGraphJobSink) ClearGraphRunLinkage(context.Context, string, string) error {
+	return nil
+}
+
+func (s failingGraphJobSink) AttachGraphSession(context.Context, string, string) error {
+	return nil
+}
+
+func TestCreateRunJobResolvesWorkflowWorkspaceBeforeDefaulting(t *testing.T) {
+	uniqueMemoryRoot(t)
+	defaultWorkdir := filepath.Join(typepath.LocalWorkspaceDir(consts.DefaultWorkspaceID), "files")
+	if err := os.MkdirAll(defaultWorkdir, 0755); err != nil {
+		t.Fatalf("mkdir default workdir failed: %v", err)
+	}
+	workflowWorkdir := filepath.Join(t.TempDir(), "workflow-workdir")
+	if err := os.MkdirAll(workflowWorkdir, 0755); err != nil {
+		t.Fatalf("mkdir workflow workdir failed: %v", err)
+	}
+	wsSvc, err := workspace.NewService()
+	if err != nil {
+		t.Fatalf("workspace service failed: %v", err)
+	}
+	workflowWS := model.NewWorkspace("Workflow", "", workflowWorkdir)
+	workflowWS.ID = "ws-workflow"
+	workflowWS.Workdir = workflowWorkdir
+	if err := wsSvc.Create(workflowWS); err != nil {
+		t.Fatalf("create workflow workspace failed: %v", err)
+	}
+	jobs, err := jobsvc.NewService(wsSvc)
+	if err != nil {
+		t.Fatalf("job service failed: %v", err)
+	}
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("graph service failed: %v", err)
+	}
+	created, err := svc.CreateWorkflow(context.Background(), &model.CreateGraphWorkflowRequest{
+		Name:        "workflow workspace",
+		WorkspaceID: workflowWS.ID,
+		Config: model.GraphConfig{
+			WorkspaceID: workflowWS.ID,
+			Workdir:     workflowWorkdir,
+			Nodes: []model.GraphNode{
+				node("s", model.GraphNodeTypeStart),
+				{ID: "sh", Type: model.GraphNodeTypeShell, Config: model.GraphNodeConfig{Script: "echo ok"}},
+				node("e", model.GraphNodeTypeEnd),
+			},
+			Edges: []model.GraphEdge{
+				edge("e1", "s", "sh"),
+				edge("e2", "sh", "e"),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create workflow failed: %v", err)
+	}
+	req := &model.StartGraphRunRequest{WorkflowID: created.ID}
+	j, err := svc.CreateRunJob(context.Background(), req, jobs, wsSvc)
+	if err != nil {
+		t.Fatalf("CreateRunJob failed: %v", err)
+	}
+	if j.WorkspaceID != workflowWS.ID || req.WorkspaceID != workflowWS.ID {
+		t.Fatalf("workspace = job %q req %q, want %q", j.WorkspaceID, req.WorkspaceID, workflowWS.ID)
+	}
+	if j.Workdir != workflowWorkdir || req.Workdir != workflowWorkdir {
+		t.Fatalf("workdir = job %q req %q, want %q", j.Workdir, req.Workdir, workflowWorkdir)
+	}
+}
+
+func TestStartRunCleansArtifactsWhenExplicitJobBindFails(t *testing.T) {
+	root := uniqueMemoryRoot(t)
+	workdir := t.TempDir()
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	cfg := model.GraphConfig{
+		Workdir: workdir,
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			{ID: "sh", Type: model.GraphNodeTypeShell, Config: model.GraphNodeConfig{Script: "echo ok"}},
+			node("e", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{
+			edge("e1", "s", "sh"),
+			edge("e2", "sh", "e"),
+		},
+	}
+	bindErr := errors.New("bind failed")
+	_, err = svc.StartRun(context.Background(), &model.StartGraphRunRequest{
+		JobID:  "job-explicit",
+		Config: &cfg,
+	}, stubGraphRunner{}, failingGraphJobSink{err: bindErr})
+	if !errors.Is(err, bindErr) {
+		t.Fatalf("StartRun err = %v, want bind error", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "workspaces", consts.DefaultWorkspaceID, "jobs", "job-explicit", "graph_run")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("graph_run dir stat err = %v, want not exist", statErr)
+	}
 }
 
 func TestStartRunLinearShellCompletes(t *testing.T) {

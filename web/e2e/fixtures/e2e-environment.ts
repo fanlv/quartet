@@ -429,11 +429,12 @@ function lastRunPassed() {
   }
 }
 
-function cleanupPassedRunOnExit(runDir: string) {
+function cleanupPassedRunOnExit(runDir: string, extraDirs: string[] = []) {
   let cleaned = false
   const cleanup = () => {
     if (cleaned) return
     cleaned = true
+    for (const dir of extraDirs) fs.rmSync(dir, { recursive: true, force: true })
     if (lastRunPassed()) {
       fs.rmSync(runDir, { recursive: true, force: true })
     } else {
@@ -442,6 +443,10 @@ function cleanupPassedRunOnExit(runDir: string) {
   }
   process.once('beforeExit', cleanup)
   process.once('exit', cleanup)
+}
+
+function createExternalTempDir(prefix: string) {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
 }
 
 async function globalSetup() {
@@ -453,6 +458,7 @@ async function globalSetup() {
   const logDir = path.join(runDir, 'logs')
   const localMemory = path.join(runDir, 'local-memory')
   const goCache = path.join(runDir, 'go-build-cache')
+  const goTmp = createExternalTempDir('quartet-e2e-go-tmp-')
   fs.mkdirSync(logDir, { recursive: true })
   fs.mkdirSync(goCache, { recursive: true })
   prepareLocalMemory(localMemory)
@@ -471,6 +477,7 @@ async function globalSetup() {
     webDir,
     pid: process.pid,
     platform: os.platform(),
+    goTmp,
   }, null, 2)}\n`)
   console.log(`[e2e] run artifacts: ${runDir}`)
 
@@ -485,6 +492,7 @@ async function globalSetup() {
         ...process.env,
         LOCAL_MEMORY: localMemory,
         GOCACHE: goCache,
+        GOTMPDIR: goTmp,
         // Shell env sanitization E2E fixtures. These are intentionally fake
         // values so the shell-output assertions never expose developer secrets.
         OPENAI_API_KEY: e2eShellOpenAIAPIKey,
@@ -514,6 +522,7 @@ async function globalSetup() {
     await waitForHTTP(frontendURL, 30_000, processes)
   } catch (err) {
     await Promise.all(processes.map(stopProcess))
+    fs.rmSync(goTmp, { recursive: true, force: true })
     console.error(`[e2e] startup failed; artifacts retained at ${runDir}`)
     throw err
   }
@@ -521,6 +530,7 @@ async function globalSetup() {
   return async () => {
     await Promise.all(processes.map(stopProcess))
     const keepArtifacts = process.env.QUARTET_E2E_KEEP_ARTIFACTS === '1'
+    fs.rmSync(goTmp, { recursive: true, force: true })
     if (keepArtifacts) {
       console.log(`[e2e] artifacts retained at ${runDir}`)
     } else {
@@ -528,7 +538,7 @@ async function globalSetup() {
       // pass/fail cleanup decision until process exit so successful runs can
       // remove the isolated LOCAL_MEMORY/log directory while failed runs keep
       // it for debugging.
-      cleanupPassedRunOnExit(runDir)
+      cleanupPassedRunOnExit(runDir, [goTmp])
     }
   }
 }

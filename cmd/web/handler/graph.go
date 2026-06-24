@@ -16,7 +16,6 @@ import (
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/logger"
 	graphsvc "github.com/fanlv/quartet/services/graph"
-	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 	"github.com/google/uuid"
 )
@@ -53,6 +52,14 @@ func formatGraphValidationErrors(errs []model.GraphValidationError) string {
 	return strings.Join(parts, "; ")
 }
 
+func graphWorkflowErrorMappings() []httputil.ErrorMapping {
+	return []httputil.ErrorMapping{
+		{Err: graphsvc.ErrWorkflowBadRequest, Status: http.StatusBadRequest},
+		{Err: graphsvc.ErrWorkflowNotFound, Status: http.StatusNotFound},
+		{Err: graphsvc.ErrWorkflowConflict, Status: http.StatusConflict},
+	}
+}
+
 // CreateGraphWorkflow persists a new GraphWorkflow after full static
 // validation. On validation failure it returns 400 with the complete list of
 // located errors (not just a summary), so the frontend can pin every offending
@@ -63,18 +70,13 @@ func (h *Handler) CreateGraphWorkflow(ctx context.Context, c *app.RequestContext
 		httputil.BadRequest(c, "invalid request: "+err.Error())
 		return
 	}
-	if req.Name == "" {
-		httputil.BadRequest(c, "name is required")
-		return
-	}
-
 	wf, err := h.graphService.CreateWorkflow(ctx, &req)
 	if err != nil {
 		if verrs, ok := validationErrors(err); ok {
 			c.JSON(http.StatusBadRequest, model.GraphWorkflowResponse{Errors: verrs})
 			return
 		}
-		httputil.InternalError(c, err.Error())
+		httputil.MapError(c, err, graphWorkflowErrorMappings())
 		return
 	}
 
@@ -108,9 +110,7 @@ func (h *Handler) GetGraphWorkflow(ctx context.Context, c *app.RequestContext) {
 	}
 	wf, err := h.graphService.GetWorkflow(ctx, id)
 	if err != nil {
-		httputil.MapError(c, err, []httputil.ErrorMapping{
-			{Err: graphsvc.ErrWorkflowNotFound, Status: http.StatusNotFound},
-		})
+		httputil.MapError(c, err, graphWorkflowErrorMappings())
 		return
 	}
 	c.JSON(http.StatusOK, model.GraphWorkflowResponse{Workflow: wf})
@@ -134,9 +134,7 @@ func (h *Handler) UpdateGraphWorkflow(ctx context.Context, c *app.RequestContext
 			c.JSON(http.StatusBadRequest, model.GraphWorkflowResponse{Errors: verrs})
 			return
 		}
-		httputil.MapError(c, err, []httputil.ErrorMapping{
-			{Err: graphsvc.ErrWorkflowNotFound, Status: http.StatusNotFound},
-		})
+		httputil.MapError(c, err, graphWorkflowErrorMappings())
 		return
 	}
 
@@ -149,10 +147,17 @@ func (h *Handler) DeleteGraphWorkflow(ctx context.Context, c *app.RequestContext
 		httputil.BadRequest(c, "workflowId is required")
 		return
 	}
-	if err := h.graphService.DeleteWorkflow(ctx, id); err != nil {
-		httputil.MapError(c, err, []httputil.ErrorMapping{
-			{Err: graphsvc.ErrWorkflowNotFound, Status: http.StatusNotFound},
-		})
+	var req model.DeleteGraphWorkflowRequest
+	var expectedUpdatedAt *time.Time
+	if len(c.Request.Body()) > 0 {
+		if err := c.BindJSON(&req); err != nil {
+			httputil.BadRequest(c, "invalid request: "+err.Error())
+			return
+		}
+		expectedUpdatedAt = req.UpdatedAt
+	}
+	if err := h.graphService.DeleteWorkflow(ctx, id, expectedUpdatedAt); err != nil {
+		httputil.MapError(c, err, graphWorkflowErrorMappings())
 		return
 	}
 	c.JSON(http.StatusOK, model.GraphWorkflowResponse{})
@@ -186,9 +191,12 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 	// existing Job (e.g. resume of an interactive flow).
 	freshJob := req.JobID == ""
 	if freshJob {
-		j, err := h.createGraphJob(ctx, &req)
+		j, err := h.graphService.CreateRunJob(ctx, &req, h.jobService, h.workspaceService)
 		if err != nil {
-			httputil.BadRequest(c, err.Error())
+			httputil.MapError(c, err, []httputil.ErrorMapping{
+				{Err: graphsvc.ErrWorkflowNotFound, Status: http.StatusNotFound},
+				{Err: graphsvc.ErrWorkflowBadRequest, Status: http.StatusBadRequest},
+			})
 			return
 		}
 		req.JobID = j.ID
@@ -240,45 +248,6 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 	}
 
 	c.JSON(http.StatusOK, model.GraphRunResponse{Run: run})
-}
-
-// createGraphJob builds and persists a Graph-type Job for a freshly launched
-// GraphRun, resolving workspace/workdir the same way interactive and scheduled
-// Jobs do (see createJob / triggerSchedule). req.WorkspaceID/Workdir are
-// normalized to the resolved values so StartRun snapshots the same directory.
-func (h *Handler) createGraphJob(ctx context.Context, req *model.StartGraphRunRequest) (*model.Job, error) {
-	wsID := req.WorkspaceID
-	if wsID == "" {
-		wsID = consts.DefaultWorkspaceID
-	}
-	ws, ok := h.workspaceService.Get(wsID)
-	if !ok {
-		return nil, fmt.Errorf("workspace %s not found", wsID)
-	}
-
-	workdir := req.Workdir
-	if workdir == "" {
-		workdir = ws.Workdir
-	}
-	if err := validateWorkdir(workdir); err != nil {
-		return nil, err
-	}
-	if err := ensureWorkdirWithinWorkspace(workdir, ws.Workdir); err != nil {
-		return nil, err
-	}
-
-	j := model.NewJob(workdir, wsID)
-	j.Mode = model.JobModeGraph
-	j.Title = "Graph Run"
-
-	if err := h.jobService.Create(j); err != nil {
-		return nil, fmt.Errorf("create graph job failed: %w", err)
-	}
-
-	req.WorkspaceID = wsID
-	req.Workdir = workdir
-	logger.Infof(ctx, "[graph] created graph job: jobId=%s workspaceId=%s workdir=%s", j.ID, wsID, workdir)
-	return j, nil
 }
 
 func (h *Handler) resolveJobGraphRun(ctx context.Context, c *app.RequestContext) (*model.Job, string, bool) {
@@ -561,6 +530,7 @@ func (h *Handler) jobGraphRunControl(ctx context.Context, c *app.RequestContext,
 		httputil.MapError(c, err, []httputil.ErrorMapping{
 			{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},
 			{Err: graphsvc.ErrGraphRunNotRunning, Status: http.StatusConflict},
+			{Err: graphsvc.ErrGraphRunControlBusy, Status: http.StatusConflict},
 		})
 		return
 	}
@@ -610,6 +580,7 @@ func (h *Handler) UpdateJobGraphRunVersion(ctx context.Context, c *app.RequestCo
 		httputil.MapError(c, err, []httputil.ErrorMapping{
 			{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},
 			{Err: graphsvc.ErrGraphRunNotEditable, Status: http.StatusConflict},
+			{Err: graphsvc.ErrGraphRunControlBusy, Status: http.StatusConflict},
 		})
 		return
 	}

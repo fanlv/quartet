@@ -429,20 +429,10 @@ func (h *Handler) triggerGraphSchedule(ctx context.Context, task *model.Schedule
 		return "", fmt.Errorf("schedule %s: graph workflow %s is invalid: %s", task.ID, task.GraphWorkflowID, formatGraphValidationErrors(verrs))
 	}
 
-	// Stage one: resolve workspace/workdir (same rules as loop schedules).
-	wsID, workdir, _, err := h.resolveScheduleWorkspaceWorkdir(ctx, task)
+	// Stage one/two boundary: graph service resolves workspace/workdir with the
+	// schedule fallback rules, then creates the run Job only after validation.
+	j, err := h.graphService.CreateScheduledRunJob(ctx, task, h.jobService, h.workspaceService)
 	if err != nil {
-		return "", err
-	}
-
-	// Create the run Job. Not via createGraphJob: that rejects a missing
-	// workspace outright, whereas scheduled tasks fall back to the default
-	// workspace (already handled by resolveScheduleWorkspaceWorkdir above).
-	j := model.NewJob(workdir, wsID)
-	j.Mode = model.JobModeGraph
-	j.ScheduleID = task.ID
-	j.Title = consts.ScheduleJobTitlePrefix + task.Name + " (" + time.Now().Format("15:04") + ")"
-	if err := h.jobService.Create(j); err != nil {
 		return "", err
 	}
 
@@ -450,8 +440,8 @@ func (h *Handler) triggerGraphSchedule(ctx context.Context, task *model.Schedule
 	req := &model.StartGraphRunRequest{
 		WorkflowID:  task.GraphWorkflowID,
 		JobID:       j.ID,
-		WorkspaceID: wsID,
-		Workdir:     workdir,
+		WorkspaceID: j.WorkspaceID,
+		Workdir:     j.Workdir,
 	}
 	runner := newJobRunner(h, j)
 	if _, err := h.graphService.StartRun(ctx, req, runner, h.jobService); err != nil {

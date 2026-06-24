@@ -44,15 +44,19 @@ func (s *stubGraphWorkflowRepo) Get(_ context.Context, id string) (*model.GraphW
 	return s.workflows[id], nil
 }
 
-func (s *stubGraphWorkflowRepo) List(context.Context) ([]*model.GraphWorkflow, error) {
-	return nil, nil
+func (s *stubGraphWorkflowRepo) List(context.Context) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error) {
+	return nil, nil, nil
 }
 
 func (s *stubGraphWorkflowRepo) Update(context.Context, string, *model.GraphWorkflow) error {
 	return nil
 }
 
-func (s *stubGraphWorkflowRepo) Delete(context.Context, string) error { return nil }
+func (s *stubGraphWorkflowRepo) UpdateIfUnchanged(context.Context, string, *model.GraphWorkflow, *time.Time) error {
+	return nil
+}
+
+func (s *stubGraphWorkflowRepo) Delete(context.Context, string, *time.Time) error { return nil }
 
 func TestUpdateCanChangeAndClearScheduleWorkspace(t *testing.T) {
 	task := &model.ScheduledTask{
