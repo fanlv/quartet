@@ -49,10 +49,15 @@ export function DeletableEdge({
 
   const port = data?.port;
   const canDelete = data?.canDelete !== false;
+  // Expose the run-replay display state (done / flowing / pruned / pending) as a
+  // data attribute on the rendered path so tests (and debugging) can assert edge
+  // state without reading React Flow internals. Mirrors the node's `run-<status>`
+  // class. Absent outside a run (data.runDisplay is undefined in the editor).
+  const runDisplay = data?.runDisplay;
 
   return (
     <>
-      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} data-run-display={runDisplay} />
       <EdgeLabelRenderer>
         <div
           className="qg-edge-label nodrag nopan"

@@ -916,6 +916,8 @@
       "backToEdit": "Back to editor",
       "validate": "Validate",
       "run": "Run",
+      "starting": "Starting...",
+      "applyJsonFirst": "Apply to canvas first to use this action",
       "reset": "Reset",
       "export": "Export",
       "import": "Import",
@@ -960,7 +962,10 @@
       "nodesCopied": "Copied {{count}} node(s).",
       "agentListInvalid": "agent list response is invalid",
       "agentListFailed": "Agent list failed: {{detail}}",
-      "workspaceListFailed": "Workspace list failed: {{detail}}"
+      "workspaceListFailed": "Workspace list failed: {{detail}}",
+      "workflowFilesSkipped": "{{count}} workflow file(s) could not be read or parsed and were skipped.",
+      "discardUnsavedConfirm": "You have unsaved changes. Leave anyway? Your changes will be lost.",
+      "discardJsonDraftConfirm": "The JSON draft has not been applied to the canvas. Switching back will discard these edits. Continue?"
     },
     "dialogs": {
       "deleteWorkflowTitle": "Delete workflow",

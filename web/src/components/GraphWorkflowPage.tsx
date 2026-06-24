@@ -14,6 +14,7 @@ import {
 } from '@xyflow/react';
 import type {
   GraphConfig,
+  GraphEdgeState,
   GraphEvent,
   GraphInstanceState,
   GraphListWorkflowsResponse,
@@ -29,6 +30,7 @@ import type {
   GraphValidationResponse,
   GraphWorkflow,
   GraphWorkflowResponse,
+  GraphWorkflowWarning,
 } from '../types';
 import type { AgentInfo } from './ChatPage';
 import { SSEClient } from '../utils/sse-client';
@@ -36,6 +38,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import {
   clearNestConstraint,
   configToFlow,
+  edgeStatusByEdge,
   flowToConfig,
   nestConstraint,
   orderNodesByHierarchy,
@@ -567,6 +570,10 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [workflows, setWorkflows] = useState<GraphWorkflow[]>([]);
+  // Warnings for workflow files the backend skipped during list (unreadable /
+  // malformed JSON). Surfaced in the status area so a corrupt file does not just
+  // silently vanish from the library.
+  const [listWarnings, setListWarnings] = useState<GraphWorkflowWarning[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [name, setName] = useState(() => i18n.t('graph.defaultName'));
   const [description, setDescription] = useState('');
@@ -574,6 +581,9 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Guards the Run button so a rapid double-click cannot fire two concurrent
+  // /graph/run/start calls (each would create its own Graph Job).
+  const [startingRun, setStartingRun] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<GraphWorkflow | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agentListError, setAgentListError] = useState('');
@@ -643,6 +653,9 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const [viewingRun, setViewingRun] = useState(false);
   const [runProgress, setRunProgress] = useState<GraphProgress | undefined>();
   const [runInstances, setRunInstances] = useState<GraphInstanceState[]>([]);
+  // Edge run states for the selected run, so replay can show active/pruned/done
+  // branch edges (GraphCanvas consumes edgeStatusById, same as GraphLoopProgress).
+  const [runEdges, setRunEdges] = useState<GraphEdgeState[]>([]);
   const [runMessage, setRunMessage] = useState('');
   // editingRun overlays an editable canvas on top of the run-view: the run's
   // current effective version snapshot is loaded into the editor and saved back
@@ -803,6 +816,23 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   );
   const dirty = (!viewingRun || editingRun) && currentFingerprint !== savedFingerprint;
 
+  // Live mirror of `dirty` so the stable discard-guard callback (wired into
+  // Back / new / select-other / cancel-edit) can read the latest value without
+  // taking `dirty` as a dependency and re-creating every handler on each edit.
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+
+  // Confirm before throwing away unsaved canvas edits. Returns true when it is
+  // safe to proceed (not dirty, or the user accepted the prompt). A single
+  // guard for every "leave the current document" path: Back, new workflow,
+  // selecting another workflow, and cancelling a run-version edit.
+  const guardDiscard = useCallback((): boolean => {
+    if (!dirtyRef.current) return true;
+    return window.confirm(i18n.t('graph.messages.discardUnsavedConfirm'));
+  }, []);
+
   // The inspector reads global meta (variables/disabledVars/runConfig) AND the
   // live node/edge structure — the latter drives condition variable suggestions
   // (upstream outputs, loop iteration vars). Build from the current canvas so a
@@ -821,6 +851,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       if (!res.ok) throw new Error(await readError(res));
       const data = (await res.json()) as GraphListWorkflowsResponse;
       setWorkflows(data.workflows || []);
+      setListWarnings(data.warnings || []);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     } finally {
@@ -894,6 +925,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setRunProgress(data.progress || data.run?.progress);
       const instances = data.instances || (data.progress?.instances ? Object.values(data.progress.instances) : []);
       setRunInstances(instances);
+      setRunEdges(data.edges || []);
       setRunMessage('');
       return data;
     } catch (err) {
@@ -913,6 +945,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setSelectedNodeId(null);
       setRunProgress(run.progress);
       setRunInstances([]);
+      setRunEdges([]);
       await refreshJobRunStatus(run.jobId, seq);
     },
     [refreshJobRunStatus],
@@ -1141,13 +1174,19 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
 
   // ---- Run ----
   const startRun = useCallback(async () => {
-    const config = await validate();
-    if (!config) {
-      setMessage(t('graph.messages.fixValidationFirst'));
-      return;
-    }
-    setMessage('');
+    // Guard against a rapid double-click: validate() + the start request are
+    // async, and without this the button (only disabled while `saving`) stays
+    // live throughout, so each extra click fires another /graph/run/start —
+    // each creating its own Graph Job. Bail if a start is already in flight.
+    if (startingRun) return;
+    setStartingRun(true);
     try {
+      const config = await validate();
+      if (!config) {
+        setMessage(t('graph.messages.fixValidationFirst'));
+        return;
+      }
+      setMessage('');
       const res = await fetch('/api/v1/graph/run/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1169,8 +1208,10 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setMessage(t('graph.messages.runStartedNoJob'));
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStartingRun(false);
     }
-  }, [onRunStarted, selectedId, t, validate, workspaceId, workspaceWorkdir]);
+  }, [onRunStarted, selectedId, startingRun, t, validate, workspaceId, workspaceWorkdir]);
 
   // ---- Run-time version editing (§4 运行配置与版本化编辑) ----
   // Enter an editable canvas seeded from the selected run's current effective
@@ -1663,6 +1704,9 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     return configToFlow(runConfigSnapshot(selectedRun));
   }, [editingRun, selectedRun, viewingRun]);
   const replayRunStatus = useMemo(() => runStatusByNode(runInstances), [runInstances]);
+  // Edge active/pruned/done overlay for replay, mirroring GraphLoopProgress's
+  // mini-canvas. Only meaningful while viewing a run (runEdges is reset on exit).
+  const replayEdgeStatus = useMemo(() => edgeStatusByEdge(runEdges), [runEdges]);
   // Pure replay restores the run's own saved viewport so it matches what ran.
   // Entering run-version edit opens the inspector, which narrows the canvas, so
   // the run's saved viewport (captured on a wider canvas) would push most nodes
@@ -1712,12 +1756,27 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const canEditSelectedRun = !!selectedRun && isGraphRunEditable(selectedRun.status);
 
   // ---- JSON advanced view ----
+  // The JSON pane holds a DRAFT (jsonText). It is only the live config when the
+  // user clicks "Apply to canvas" (applyJson) — the canvas/meta state remains the
+  // source of truth for Validate/Save/Run, which is why those actions are
+  // disabled while in JSON view. Switching INTO json seeds the draft from the
+  // current canvas; switching back to canvas WITHOUT applying would silently drop
+  // edits, so guard it: if the draft diverges from the canvas, confirm first.
   const switchView = useCallback(
     (mode: ViewMode) => {
-      if (mode === 'json') setJsonText(JSON.stringify(buildConfig(), null, 2));
-      setViewMode(mode);
+      if (mode === 'json') {
+        setJsonText(JSON.stringify(buildConfig(), null, 2));
+        setViewMode('json');
+        return;
+      }
+      // mode === 'canvas': warn if there is an unapplied JSON edit.
+      const canvasJson = JSON.stringify(buildConfig(), null, 2);
+      if (jsonText && jsonText !== canvasJson && !window.confirm(i18n.t('graph.messages.discardJsonDraftConfirm'))) {
+        return;
+      }
+      setViewMode('canvas');
     },
-    [buildConfig],
+    [buildConfig, jsonText],
   );
   const applyJson = useCallback(() => {
     try {
@@ -1752,7 +1811,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     <div className="graph-page">
       <header className="chatbot-header graph-page-header">
         <div className="header-left">
-          <button className="back-button" onClick={onClose} aria-label={t('graph.header.back')}>
+          <button className="back-button" onClick={() => { if (guardDiscard()) onClose(); }} aria-label={t('graph.header.back')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M15 18l-6-6 6-6" />
             </svg>
@@ -1802,7 +1861,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   <polyline points="21 3 21 9 15 9" />
                 </svg>
               </button>
-              <button className="graph-primary-icon-btn" onClick={startNew} title={t('graph.sidebar.newWorkflow')} aria-label={t('graph.sidebar.newWorkflow')}>
+              <button className="graph-primary-icon-btn" onClick={() => { if (guardDiscard()) startNew(); }} title={t('graph.sidebar.newWorkflow')} aria-label={t('graph.sidebar.newWorkflow')}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M12 5v14" />
                   <path d="M5 12h14" />
@@ -1837,7 +1896,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   type="button"
                   className={`graph-workflow-row ${wf.id === selectedId ? 'active' : ''}`}
                   data-testid={`graph-workflow-row-${wf.id}`}
-                  onClick={() => void selectWorkflow(wf)}
+                  onClick={() => { if (guardDiscard()) void selectWorkflow(wf); }}
                 >
                   <span className="graph-workflow-row-title">{wf.name}</span>
                   <span className="graph-workflow-row-date">{formatDate(wf.updatedAt)}</span>
@@ -1940,7 +1999,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                       <GraphButtonIcon name="save" />
                       {saving ? t('graph.editor.saving') : t('graph.editor.saveRunVersion')}
                     </button>
-                    <button className="graph-secondary-btn" data-testid="graph-cancel-run-edit" onClick={cancelRunEdit} disabled={saving}>
+                    <button className="graph-secondary-btn" data-testid="graph-cancel-run-edit" onClick={() => { if (guardDiscard()) cancelRunEdit(); }} disabled={saving}>
                       <GraphButtonIcon name="cancel" />
                       {t('graph.editor.cancelEdit')}
                     </button>
@@ -1961,31 +2020,31 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                 )
               ) : (
                 <>
-                  <button className="graph-secondary-btn" data-testid="graph-validate" onClick={() => void validate()} disabled={saving}>
+                  <button className="graph-secondary-btn" data-testid="graph-validate" onClick={() => void validate()} disabled={saving || startingRun || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                     <GraphButtonIcon name="check" />
                     {t('graph.editor.validate')}
                   </button>
-                  <button className="graph-secondary-btn" data-testid="graph-reset" onClick={resetChanges} disabled={saving || !dirty}>
+                  <button className="graph-secondary-btn" data-testid="graph-reset" onClick={resetChanges} disabled={saving || startingRun || viewMode === 'json' || !dirty}>
                     <GraphButtonIcon name="reset" />
                     {t('graph.editor.reset')}
                   </button>
                   {selectedWorkflow && (
-                    <button className="graph-danger-btn" onClick={() => setDeleteTarget(selectedWorkflow)} disabled={saving}>
+                    <button className="graph-danger-btn" onClick={() => setDeleteTarget(selectedWorkflow)} disabled={saving || startingRun}>
                       <GraphButtonIcon name="trash" />
                       {t('graph.editor.delete')}
                     </button>
                   )}
-                  <button className="graph-secondary-btn" data-testid="graph-save-as-new" onClick={() => void save('create')} disabled={saving}>
+                  <button className="graph-secondary-btn" data-testid="graph-save-as-new" onClick={() => void save('create')} disabled={saving || startingRun || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                     <GraphButtonIcon name="copy" />
                     {t('graph.editor.saveAsNew')}
                   </button>
-                  <button className="graph-primary-btn" data-testid="graph-save" onClick={() => void save(selectedWorkflow ? 'update' : 'create')} disabled={saving}>
+                  <button className="graph-primary-btn" data-testid="graph-save" onClick={() => void save(selectedWorkflow ? 'update' : 'create')} disabled={saving || startingRun || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                     <GraphButtonIcon name="save" />
                     {selectedWorkflow ? t('graph.editor.save') : t('graph.editor.create')}
                   </button>
-                  <button className="graph-run-btn" data-testid="graph-run" onClick={() => void startRun()} disabled={saving}>
+                  <button className="graph-run-btn" data-testid="graph-run" onClick={() => void startRun()} disabled={saving || startingRun || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                     <GraphButtonIcon name="play" />
-                    {t('graph.editor.run')}
+                    {startingRun ? t('graph.editor.starting') : t('graph.editor.run')}
                   </button>
                 </>
               )}
@@ -2023,6 +2082,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   allowNodeDrag={editingRun}
                   showMiniMap={!isMobile}
                   runStatusByNodeId={viewingRun ? replayRunStatus : undefined}
+                  edgeStatusById={viewingRun && !editingRun ? replayEdgeStatus : undefined}
                   errorNodeIds={viewingRun && !editingRun ? undefined : errorNodeIds}
                   errorEdgeIds={viewingRun && !editingRun ? undefined : errorEdgeIds}
                   focus={focus}
@@ -2071,12 +2131,22 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
             )}
           </div>
 
-          {(message || runMessage || agentListError || workspaceListError || errors.length > 0) && (
+          {(message || runMessage || agentListError || workspaceListError || listWarnings.length > 0 || errors.length > 0) && (
             <div className={`graph-status ${errors.length > 0 ? 'error' : ''}`} data-testid="graph-status">
               {message && <div data-testid="graph-message">{message}</div>}
               {!viewingRun && runMessage && <div data-testid="graph-run-message">{runMessage}</div>}
               {agentListError && <div data-testid="graph-agent-list-error">{t('graph.messages.agentListFailed', { detail: agentListError })}</div>}
               {workspaceListError && <div data-testid="graph-workspace-list-error">{t('graph.messages.workspaceListFailed', { detail: workspaceListError })}</div>}
+              {listWarnings.length > 0 && (
+                <div data-testid="graph-workflow-warnings">
+                  <div>{t('graph.messages.workflowFilesSkipped', { count: listWarnings.length })}</div>
+                  <ul>
+                    {listWarnings.map((w) => (
+                      <li key={w.file}>{w.file}: {w.error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {errors.length > 0 && (
                 <ul data-testid="graph-error-list">
                   {errors.map((err, index) => (

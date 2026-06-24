@@ -42,19 +42,24 @@ func (e *OutputProtocolError) Error() string { return e.Message }
 //   - variable name must match [A-Za-z_][A-Za-z0-9_]* and must not be reserved
 //     (leading '_'); single-line scalar only;
 //   - same name on multiple lines → last line wins;
-//   - the produced set must EXACTLY match declared: no undeclared output, no
-//     missing declared output.
+//   - declaration is OPTIONAL and does NOT gate output (relaxed §1, mirroring
+//     ParseShellControl): EVERY QUARTET_OUTPUT variable flows downstream whether
+//     or not it was declared, so a model may publish variables ad hoc and have
+//     them visible to later nodes without pre-declaring them on the node. The
+//     declared set drives only the completeness check — every DECLARED variable
+//     must still be produced (a missing declared output fails the node).
 //
 // On any violation it returns the first located error (callers attach the raw
 // output); a single error is enough because the whole node fails. Declared
 // names are assumed already validated at save time, but reserved/invalid names
 // produced by the model are still rejected here.
+//
+// Trade-off (same as Shell): because undeclared outputs are no longer dropped,
+// the save-time parallel-writer conflict check (validateOutputConflicts) — which
+// only looks at DECLARED names — cannot catch two parallel Prompt nodes that emit
+// the same undeclared variable. That collision is the author's responsibility,
+// mirroring the intentionally permissive "set whatever you want" model.
 func ParseQuartetOutput(rawOutput string, declared []string) (*OutputParseResult, *OutputProtocolError) {
-	declaredSet := make(map[string]struct{}, len(declared))
-	for _, name := range declared {
-		declaredSet[name] = struct{}{}
-	}
-
 	parsed := make(map[string]string)
 	for _, line := range strings.Split(rawOutput, "\n") {
 		idx := strings.Index(line, quartetOutputMarker)
@@ -83,13 +88,9 @@ func ParseQuartetOutput(rawOutput string, declared []string) (*OutputParseResult
 				Message:  fmt.Sprintf("model output declared invalid variable name %q (must match [A-Za-z_][A-Za-z0-9_]*)", name),
 			}
 		}
-		if _, declared := declaredSet[name]; !declared {
-			return nil, &OutputProtocolError{
-				Variable: name,
-				Message:  fmt.Sprintf("model output produced undeclared variable %q", name),
-			}
-		}
-		// Same name on multiple lines: last wins.
+		// Permissive contract: every produced variable flows downstream, declared
+		// or not. Declaration is optional and only drives the completeness check
+		// below. Same name on multiple lines: last wins.
 		parsed[name] = value
 	}
 

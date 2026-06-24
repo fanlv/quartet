@@ -82,7 +82,7 @@ func (h *Handler) CreateGraphWorkflow(ctx context.Context, c *app.RequestContext
 }
 
 func (h *Handler) ListGraphWorkflows(ctx context.Context, c *app.RequestContext) {
-	workflows, err := h.graphService.ListWorkflows(ctx)
+	workflows, warnings, err := h.graphService.ListWorkflows(ctx)
 	if err != nil {
 		httputil.InternalError(c, err.Error())
 		return
@@ -90,7 +90,10 @@ func (h *Handler) ListGraphWorkflows(ctx context.Context, c *app.RequestContext)
 	if workflows == nil {
 		workflows = []*model.GraphWorkflow{}
 	}
-	resp := model.GraphListWorkflowsResponse{Workflows: make([]model.GraphWorkflow, 0, len(workflows))}
+	resp := model.GraphListWorkflowsResponse{
+		Workflows: make([]model.GraphWorkflow, 0, len(workflows)),
+		Warnings:  warnings,
+	}
 	for _, wf := range workflows {
 		resp.Workflows = append(resp.Workflows, *wf)
 	}
@@ -199,6 +202,20 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 	runner := newJobRunner(h, j)
 	run, err := h.graphService.StartRun(ctx, &req, runner, h.jobService)
 	if err != nil {
+		// StartRun validates the config and persists the GraphRun before binding
+		// it to the Job (SetGraphRunState). Every error path here returns before
+		// that bind and before the scheduler goroutine launches, so a Job created
+		// just above (freshJob) would otherwise linger with an empty GraphRunID —
+		// a phantom "Graph Run" row that resolveJobGraphRun later rejects with
+		// "graph run not found". Roll it back. An explicit jobId (resume) is owned
+		// by the caller and never auto-deleted.
+		if freshJob {
+			if mErr := h.jobService.MarkDeleted(req.JobID); mErr != nil {
+				logger.Warnf(ctx, "[graph] rollback mark-deleted failed: jobId=%s err=%v", req.JobID, mErr)
+			}
+			h.jobService.Delete(req.JobID)
+			logger.Infof(ctx, "[graph] rolled back empty graph job after StartRun failure: jobId=%s err=%v", req.JobID, err)
+		}
 		if verrs, ok := validationErrors(err); ok {
 			c.JSON(http.StatusBadRequest, model.GraphRunResponse{Errors: verrs})
 			return

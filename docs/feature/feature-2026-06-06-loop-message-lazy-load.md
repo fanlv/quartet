@@ -55,7 +55,7 @@
 ## 验证
 
 - `cd web && npm run build`（类型检查 + 构建）、`npm run lint` 通过。
-- `make dev` 起真实链路，打开一个含多个 session 的 Loop Job：用浏览器网络面板确认进入页面时
+- `make web` 起真实链路，打开一个含多个 session 的 Loop Job：用浏览器网络面板确认进入页面时
   历史消息接口**只发 1 次**（激活 session），其余在浏览器空闲时才陆续补发，首屏不被阻塞。
 - 在预取完成前主动点击一个尚未加载的历史 session tab：确认短暂显示加载占位后正确渲染，且该 tab 的
   模型 / Agent 元信息正确。
@@ -65,6 +65,6 @@
 
 ## 待办
 
-- [ ] 用真实多 session Loop Job 跑一次 `make dev`，按上述网络面板与切换路径人工验收。
+- [ ] 用真实多 session Loop Job 跑一次 `make web`，按上述网络面板与切换路径人工验收。
 - [ ] 可补一个 Playwright E2E：打开多 session Loop Job → 断言初始只加载激活 session →
       点击其他 tab 触发懒加载 → 断言内容出现。

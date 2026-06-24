@@ -133,15 +133,30 @@ func (s *serviceImpl) GetRunStatus(ctx context.Context, runID string) (*model.Gr
 	if err != nil {
 		return nil, ErrGraphRunNotFound
 	}
-	instances, _ := s.runRepo.GetInstances(ctx, runID)
-	edges, _ := s.runRepo.GetEdges(ctx, runID)
-	progress, _ := s.runRepo.GetProgress(ctx, runID)
+	instances, err := s.runRepo.GetInstances(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("load graph run instances failed: %w", err)
+	}
+	edges, err := s.runRepo.GetEdges(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("load graph run edges failed: %w", err)
+	}
+	progress, err := s.runRepo.GetProgress(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("load graph run progress failed: %w", err)
+	}
 	// Return only the event COUNT, not the events themselves. The full log used
 	// to be serialised here (hundreds of MB on a long loop) just for the client
 	// to read its length as an SSE resume cursor — the bodies were discarded.
 	// Live events arrive over the SSE stream; historical agent conversation
-	// loads per-node from session messages.
-	eventCount, _ := s.runRepo.CountEvents(ctx, runID)
+	// loads per-node from session messages. A run that exists always has its
+	// runtime artifacts persisted (StartRun → persistRuntimeState), so a read or
+	// parse error here means a corrupt/truncated artifact — surface it in full
+	// instead of masking data loss as an empty status. Mirrors ResumeRun.
+	eventCount, err := s.runRepo.CountEvents(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("count graph run events failed: %w", err)
+	}
 	instanceList := make([]model.GraphInstanceState, 0, len(instances))
 	for _, st := range instances {
 		instanceList = append(instanceList, st)
@@ -225,6 +240,20 @@ func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGr
 		cfg := cloneGraphConfig(*req.Config)
 		cfg.WorkspaceID = firstNonEmpty(req.WorkspaceID, cfg.WorkspaceID)
 		cfg.Workdir = firstNonEmpty(req.Workdir, cfg.Workdir)
+		// The frontend launches a saved workflow by sending BOTH its workflowId
+		// and the live (possibly edited) canvas config. The config is the
+		// execution snapshot, but we still resolve the workflow so the run binds
+		// its source metadata (WorkflowID / WorkflowName) — otherwise the run is
+		// untraceable to the workflow it came from. A missing/deleted workflow is
+		// not fatal here: the ad-hoc config still runs, just without a source link.
+		if id := strings.TrimSpace(req.WorkflowID); id != "" {
+			if wf, err := s.repo.Get(ctx, id); err == nil && !wf.Deleted {
+				cfg.WorkspaceID = firstNonEmpty(cfg.WorkspaceID, wf.WorkspaceID)
+				return wf, cfg, nil
+			} else if err != nil {
+				logger.Warnf(ctx, "[graph] start run: workflow %q not resolvable for metadata binding, running ad-hoc config: %v", id, err)
+			}
+		}
 		return nil, cfg, nil
 	}
 	if strings.TrimSpace(req.WorkflowID) == "" {

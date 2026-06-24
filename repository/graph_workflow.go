@@ -20,7 +20,7 @@ import (
 type GraphWorkflowRepo interface {
 	Save(ctx context.Context, wf *model.GraphWorkflow) error
 	Get(ctx context.Context, id string) (*model.GraphWorkflow, error)
-	List(ctx context.Context) ([]*model.GraphWorkflow, error)
+	List(ctx context.Context) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error)
 	Update(ctx context.Context, id string, wf *model.GraphWorkflow) error
 	Delete(ctx context.Context, id string) error
 }
@@ -78,16 +78,17 @@ func (r *fileGraphWorkflowRepo) Get(_ context.Context, id string) (*model.GraphW
 	return &wf, nil
 }
 
-func (r *fileGraphWorkflowRepo) List(ctx context.Context) ([]*model.GraphWorkflow, error) {
+func (r *fileGraphWorkflowRepo) List(ctx context.Context) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error) {
 	result, err := r.sandbox.FileList(&fsmodel.FileListRequest{Path: r.dir})
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 
 	var workflows []*model.GraphWorkflow
+	var warnings []model.GraphWorkflowWarning
 	for _, f := range result.Files {
 		if f.IsDir || filepath.Ext(f.Name) != ".json" {
 			continue
@@ -97,15 +98,18 @@ func (r *fileGraphWorkflowRepo) List(ctx context.Context) ([]*model.GraphWorkflo
 			File: filePath,
 		})
 		if err != nil {
-			// Corrupt / unreadable entries should not silently disappear —
-			// surface them in the log so operators can investigate instead of
-			// chasing phantom missing workflows.
+			// Corrupt / unreadable entries should not silently disappear. Log for
+			// operators AND surface them to the caller so the UI can show the
+			// offending file and the raw error instead of the workflow just
+			// vanishing from the list (per "errors are shown to the user in full").
 			logger.Warnf(ctx, "[graphWorkflowRepo] skip unreadable file %s: %v", filePath, err)
+			warnings = append(warnings, model.GraphWorkflowWarning{File: filePath, Error: err.Error()})
 			continue
 		}
 		var wf model.GraphWorkflow
 		if err := json.Unmarshal([]byte(readResult.Content), &wf); err != nil {
 			logger.Warnf(ctx, "[graphWorkflowRepo] skip malformed JSON %s: %v", filePath, err)
+			warnings = append(warnings, model.GraphWorkflowWarning{File: filePath, Error: err.Error()})
 			continue
 		}
 		// Soft-deleted workflows are kept on disk so historical runs can still
@@ -120,7 +124,7 @@ func (r *fileGraphWorkflowRepo) List(ctx context.Context) ([]*model.GraphWorkflo
 		return workflows[i].CreatedAt.After(workflows[j].CreatedAt)
 	})
 
-	return workflows, nil
+	return workflows, warnings, nil
 }
 
 func (r *fileGraphWorkflowRepo) Update(_ context.Context, id string, wf *model.GraphWorkflow) error {

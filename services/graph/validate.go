@@ -107,8 +107,25 @@ func (v *validator) index() {
 		_ = id
 	}
 
+	seenEdgeIDs := make(map[string]bool, len(v.cfg.Edges))
 	for i := range v.cfg.Edges {
 		e := &v.cfg.Edges[i]
+		// Edge IDs must be non-empty and unique: runtime edge state is keyed by
+		// edge ID (edgeStateKey), validation errors locate by edge ID, and the
+		// frontend's delete/highlight target edges by ID. An empty ID has no
+		// locating value (edgeErr would render a blank target), so it is reported
+		// as a structural error carrying the source/target for context; a
+		// duplicate is reported against the offending ID. Both skip adjacency
+		// indexing so a malformed edge cannot corrupt degree/reachability.
+		if e.ID == "" {
+			v.structErr(fmt.Sprintf("edge with empty ID is not allowed (source %q -> target %q)", e.SourceNodeID, e.TargetNodeID))
+			continue
+		}
+		if seenEdgeIDs[e.ID] {
+			v.edgeErr(e.ID, fmt.Sprintf("duplicate edge ID %q", e.ID))
+			continue
+		}
+		seenEdgeIDs[e.ID] = true
 		src, srcOK := v.nodesByID[e.SourceNodeID]
 		dst, dstOK := v.nodesByID[e.TargetNodeID]
 		if !srcOK {

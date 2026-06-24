@@ -57,7 +57,6 @@ func TestParseQuartetOutput_Errors(t *testing.T) {
 		declared []string
 		wantVar  string
 	}{
-		{"undeclared", "QUARTET_OUTPUT:foo=1\nQUARTET_OUTPUT:extra=2", []string{"foo"}, "extra"},
 		{"missing", "QUARTET_OUTPUT:foo=1", []string{"foo", "bar"}, "bar"},
 		{"invalid name", "QUARTET_OUTPUT:1bad=1", []string{"foo"}, "1bad"},
 		{"reserved name", "QUARTET_OUTPUT:_secret=1", []string{"foo"}, "_secret"},
@@ -82,6 +81,35 @@ func TestParseQuartetOutput_NoDeclaredNoOutput(t *testing.T) {
 	}
 	if len(res.Variables) != 0 {
 		t.Fatalf("expected no variables, got %v", res.Variables)
+	}
+}
+
+func TestParseQuartetOutput_UndeclaredFlowsThrough(t *testing.T) {
+	// Permissive contract: a produced variable flows downstream whether or not it
+	// was declared. Declared ones still must be produced (completeness).
+	raw := "QUARTET_OUTPUT:foo=1\nQUARTET_OUTPUT:extra=2"
+	res, err := ParseQuartetOutput(raw, []string{"foo"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Variables["foo"] != "1" {
+		t.Fatalf("foo = %q, want 1", res.Variables["foo"])
+	}
+	if res.Variables["extra"] != "2" {
+		t.Fatalf("undeclared variable %q should flow through, got %q", "extra", res.Variables["extra"])
+	}
+}
+
+func TestParseQuartetOutput_NoDeclarationFlowsAll(t *testing.T) {
+	// A Prompt node with zero declared outputs still surfaces every QUARTET_OUTPUT
+	// variable to downstream nodes, instead of failing on the first marker.
+	raw := "QUARTET_OUTPUT:a=1\nQUARTET_OUTPUT:b=two"
+	res, err := ParseQuartetOutput(raw, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Variables["a"] != "1" || res.Variables["b"] != "two" {
+		t.Fatalf("got %+v, want a=1 b=two", res.Variables)
 	}
 }
 

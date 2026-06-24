@@ -426,6 +426,19 @@ type GraphRunActionRequest struct {
 
 type GraphListWorkflowsResponse struct {
 	Workflows []GraphWorkflow `json:"workflows"`
+	// Warnings surfaces workflow files that could not be read or parsed during a
+	// list. They are skipped from Workflows (so one bad file does not break the
+	// whole page) but reported here so the UI can show the offending file and the
+	// raw error instead of letting the workflow silently vanish from the list.
+	Warnings []GraphWorkflowWarning `json:"warnings,omitempty"`
+}
+
+// GraphWorkflowWarning describes a workflow file that was skipped during a list
+// because it was unreadable or malformed. File is the on-disk path; Error is the
+// full underlying error text (per the repo convention of never hiding errors).
+type GraphWorkflowWarning struct {
+	File  string `json:"file"`
+	Error string `json:"error"`
 }
 
 type GraphWorkflowResponse struct {

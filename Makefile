@@ -1,4 +1,4 @@
-.PHONY: build build-all build-acp build-cli build-web test test-web e2e clean run run-cli run-web run-frontend run-backend dev web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps
+.PHONY: build build-all build-acp build-cli build-web test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps
 
 BACKEND_PORT := 8090
 CERTS_DIR := $(CURDIR)/certs
@@ -81,14 +81,6 @@ run-frontend:
 	else \
 		cd web && npm run dev; \
 	fi
-
-dev:
-	@echo "Starting backend and frontend..."
-	@$(MAKE) run-backend & bpid=$$!; \
-	$(MAKE) run-frontend & fpid=$$!; \
-	trap '"$(STOP_PROCESS_TREE)" $$bpid; "$(STOP_PROCESS_TREE)" $$fpid' EXIT; \
-	trap 'exit 130' INT TERM HUP; \
-	wait
 
 run: web
 

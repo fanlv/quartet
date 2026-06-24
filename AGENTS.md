@@ -20,7 +20,6 @@ make test-web      # Run frontend component tests (cd web && npm test)
 make e2e           # Run frontend Playwright E2E tests
 make run-backend   # Run web backend only (go run ./cmd/web)
 make run-frontend  # Run frontend only (npm run dev; 5173 or 443 with certs)
-make dev           # Foreground backend+frontend (go run); dies with the shell. Local manual dev only.
 make web           # Detached restart (setsid+nohup); survives caller exit. Use this to start the backend.
 make run           # Alias for make web
 make web-stop      # Stop backend, frontend, and orphan quartet-web processes
@@ -34,7 +33,6 @@ make clean         # Remove bin/
 ```
 
 > 在 agent / Codex 的 shell 调用里持久拉起后端，必须用 `make web`（detached：setsid 双 fork + nohup，reparent 到 init，调用方退出后依然存活）。
-> 不要用 `make dev`——它是前台 `wait` 模型，shell 调用一结束就会触发 trap 把刚启动的后端一并清掉，只适合本地手动开发（Ctrl-C 统一收尾）。`make dev` 的清理已改为按 job 精确停进程树，不再 `kill 0`，因此不会误伤调用它的上游后端。
 >
 > agent 不要自己执行 `make web` 重启后端：当前 agent（ACP 子进程）跑在后端进程树之下，`make web` 会 kill 旧后端，旧后端一死，agent 这条 ACP 链会被 `Pdeathsig` 连带 SIGKILL，重启过程当场失去执行者。重启后端这一步交给用户在机器上手动执行。需要“挂掉自动拉起”时用 `make web-watch`：它 detached 在后端进程树之外，只在端口已空时才拉起服务、从不 kill 活着的进程，所以既不会误伤 agent，也能在后端/前端宕掉后自动恢复。
 

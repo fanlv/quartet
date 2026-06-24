@@ -98,8 +98,18 @@ export interface GraphValidationError {
   configKey?: string;
 }
 
+export interface GraphWorkflowWarning {
+  file: string;
+  error: string;
+}
+
 export interface GraphListWorkflowsResponse {
   workflows: GraphWorkflow[];
+  // Workflow files that were skipped during the list because they were
+  // unreadable or malformed (mirrors model.GraphWorkflowWarning). Surfaced so
+  // the UI can show the offending file + raw error instead of the workflow
+  // silently vanishing from the list.
+  warnings?: GraphWorkflowWarning[];
 }
 
 export interface GraphWorkflowResponse {
@@ -171,18 +181,44 @@ export interface GraphRun {
   archivedInstances?: Record<string, GraphInstanceState>;
 }
 
+// Per-node model snapshot captured at run start / version edit (mirrors
+// model.ModelInstance). The frontend does not drive model construction from
+// these, so connection details are kept loosely typed; the identifying fields
+// are spelled out so snapshot inspection has real shape instead of `unknown`.
+export interface GraphModelSnapshot {
+  id?: number;
+  model_class?: string;
+  display_name?: string;
+  thinking_type?: string;
+  enable_base64_url?: boolean;
+  status?: number;
+  [key: string]: unknown;
+}
+
+// Per-node agent snapshot captured at run start / version edit (mirrors
+// model.GraphAgentSnapshot).
+export interface GraphAgentSnapshot {
+  agentType: string;
+  modelId?: string;
+  acpMode?: string;
+  acpThoughtLevel?: string;
+  systemPrompt?: string;
+}
+
 export interface GraphRunSnapshot {
   workflowId?: string;
   workflowName?: string;
   config: GraphConfig;
-  modelSnapshots?: Record<string, unknown>;
-  agentSnapshots?: Record<string, unknown>;
+  modelSnapshots?: Record<string, GraphModelSnapshot>;
+  agentSnapshots?: Record<string, GraphAgentSnapshot>;
   capturedAt: number;
 }
 
 export interface GraphRunVersion {
   version: number;
   config: GraphConfig;
+  modelSnapshots?: Record<string, GraphModelSnapshot>;
+  agentSnapshots?: Record<string, GraphAgentSnapshot>;
   reason?: string;
   createdAt: number;
   createdBy?: string;
@@ -258,6 +294,18 @@ export interface GraphLoopState {
   currentIteration: number;
   completed: boolean;
   variables?: Record<string, string>;
+  // Session flowing into the current round (the loop scope's roundEntrySession),
+  // persisted so resume can rebuild the in-flight round's inflow session.
+  entrySession?: string;
+}
+
+// §3 会话血缘: how an instance's session was derived (mirrors
+// model.GraphSessionLineage).
+export interface GraphSessionLineage {
+  strategy: GraphSessionStrategy;
+  sessionId?: string;
+  parentSessionId?: string;
+  parentInstanceKey?: GraphInstanceKey;
 }
 
 export interface GraphReadyBatchMember {
@@ -274,7 +322,10 @@ export interface GraphReadyBatch {
 
 export interface GraphResumeState {
   readyKeys?: GraphInstanceKey[];
+  edgeStates?: Record<string, GraphEdgeState>;
   loopState?: Record<string, GraphLoopState>;
+  variablesByKey?: Record<string, Record<string, string>>;
+  sessionLineageByKey?: Record<string, GraphSessionLineage>;
   frozenBatch?: GraphReadyBatch;
 }
 

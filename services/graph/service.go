@@ -42,7 +42,7 @@ func (e *ValidationError) Is(target error) bool { return target == ErrInvalidGra
 type Service interface {
 	CreateWorkflow(ctx context.Context, req *model.CreateGraphWorkflowRequest) (*model.GraphWorkflow, error)
 	GetWorkflow(ctx context.Context, id string) (*model.GraphWorkflow, error)
-	ListWorkflows(ctx context.Context) ([]*model.GraphWorkflow, error)
+	ListWorkflows(ctx context.Context) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error)
 	UpdateWorkflow(ctx context.Context, id string, req *model.UpdateGraphWorkflowRequest) (*model.GraphWorkflow, error)
 	DeleteWorkflow(ctx context.Context, id string) error
 	// ValidateConfig runs the full static legality check without persisting.
@@ -399,7 +399,7 @@ func (s *serviceImpl) GetWorkflow(ctx context.Context, id string) (*model.GraphW
 	return wf, nil
 }
 
-func (s *serviceImpl) ListWorkflows(ctx context.Context) ([]*model.GraphWorkflow, error) {
+func (s *serviceImpl) ListWorkflows(ctx context.Context) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error) {
 	return s.repo.List(ctx)
 }
 
