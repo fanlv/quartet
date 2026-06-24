@@ -152,6 +152,13 @@ function installBootErrorOverlay() {
         'word-break:break-all', '-webkit-user-select:text', 'user-select:text',
       ].join(';')
       document.body.appendChild(host)
+      const reloadBtn = document.createElement('button')
+      reloadBtn.textContent = 'Reload'
+      reloadBtn.style.cssText = 'margin:8px 8px 16px 0;padding:8px 12px;font-size:13px'
+      reloadBtn.onclick = () => {
+        location.reload()
+      }
+      host.appendChild(reloadBtn)
       const btn = document.createElement('button')
       btn.textContent = 'Clear localStorage & reload'
       btn.style.cssText = 'margin:8px 0 16px;padding:8px 12px;font-size:13px'

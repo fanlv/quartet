@@ -26,6 +26,9 @@ export default defineConfig({
     host: '0.0.0.0',
     port: e2ePort ?? (hasCerts ? 443 : 5173),
     strictPort: true,
+    headers: {
+      'Cache-Control': 'no-store',
+    },
     ...(!isE2EMode && hasCerts && {
       https: {
         key: fs.readFileSync(keyPath),
