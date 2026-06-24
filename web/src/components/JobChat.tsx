@@ -1157,6 +1157,7 @@ export function JobChat(props: JobChatProps) {
 
       {isGraph && (
         <GraphLoopProgress
+          jobId={existingJobId}
           runId={graphRunId}
           readOnly={isReadonly}
           agents={agents}

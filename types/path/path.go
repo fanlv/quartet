@@ -19,7 +19,7 @@ const (
 	jobsDir       = "jobs"
 	sessionsDir   = "sessions"
 	workspacesDir = "workspaces"
-	graphRunsDir  = "graph_runs"
+	graphRunDir   = "graph_run"
 
 	// metaFile is the filename for session metadata
 	metaFile = "meta.json"
@@ -153,95 +153,50 @@ func GraphWorkflowsDir() (string, error) {
 	return filepath.Join(dir, "graph_workflows"), nil
 }
 
-// GraphRunsDir returns the graph_runs directory path within AgentDir. It holds
-// one subdirectory per GraphRun with immutable snapshots and runtime state.
-func GraphRunsDir() (string, error) {
-	dir, err := AgentDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, graphRunsDir), nil
-}
-
-// GraphRunDir returns the directory for a single GraphRun's runtime artifacts.
-func GraphRunDir(runID string) (string, error) {
-	dir, err := GraphRunsDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, runID), nil
+// GraphRunDir returns the runtime artifact directory for a GraphRun bound to a
+// Job. The run data lives with the Job, not in the global agent directory.
+func GraphRunDir(wsID, jobID string) string {
+	return filepath.Join(LocalJobDirInWorkspace(wsID, jobID), graphRunDir)
 }
 
 // GraphRunFile returns the persisted GraphRun metadata and baseline snapshot.
-func GraphRunFile(runID string) (string, error) {
-	dir, err := GraphRunDir(runID)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, graphRunFile), nil
+func GraphRunFile(wsID, jobID string) string {
+	return filepath.Join(GraphRunDir(wsID, jobID), graphRunFile)
 }
 
 // GraphRunInstancesFile returns the instance-state snapshot file for a run.
-func GraphRunInstancesFile(runID string) (string, error) {
-	dir, err := GraphRunDir(runID)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, graphRunInstancesFile), nil
+func GraphRunInstancesFile(wsID, jobID string) string {
+	return filepath.Join(GraphRunDir(wsID, jobID), graphRunInstancesFile)
 }
 
 // GraphRunEdgesFile returns the edge-state snapshot file for a run.
-func GraphRunEdgesFile(runID string) (string, error) {
-	dir, err := GraphRunDir(runID)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, graphRunEdgesFile), nil
+func GraphRunEdgesFile(wsID, jobID string) string {
+	return filepath.Join(GraphRunDir(wsID, jobID), graphRunEdgesFile)
 }
 
 // GraphRunVariablesFile returns the visible-variable snapshot file for a run.
-func GraphRunVariablesFile(runID string) (string, error) {
-	dir, err := GraphRunDir(runID)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, graphRunVariablesFile), nil
+func GraphRunVariablesFile(wsID, jobID string) string {
+	return filepath.Join(GraphRunDir(wsID, jobID), graphRunVariablesFile)
 }
 
 // GraphRunSessionLineageFile returns the session-lineage snapshot file for a run.
-func GraphRunSessionLineageFile(runID string) (string, error) {
-	dir, err := GraphRunDir(runID)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, graphRunLineageFile), nil
+func GraphRunSessionLineageFile(wsID, jobID string) string {
+	return filepath.Join(GraphRunDir(wsID, jobID), graphRunLineageFile)
 }
 
 // GraphRunProgressFile returns the progress snapshot file for a run.
-func GraphRunProgressFile(runID string) (string, error) {
-	dir, err := GraphRunDir(runID)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, graphRunProgressFile), nil
+func GraphRunProgressFile(wsID, jobID string) string {
+	return filepath.Join(GraphRunDir(wsID, jobID), graphRunProgressFile)
 }
 
 // GraphRunResumeFile returns the resume snapshot file for a run.
-func GraphRunResumeFile(runID string) (string, error) {
-	dir, err := GraphRunDir(runID)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, graphRunResumeFile), nil
+func GraphRunResumeFile(wsID, jobID string) string {
+	return filepath.Join(GraphRunDir(wsID, jobID), graphRunResumeFile)
 }
 
 // GraphRunEventsFile returns the append-only event log file for a run.
-func GraphRunEventsFile(runID string) (string, error) {
-	dir, err := GraphRunDir(runID)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, graphRunEventsFile), nil
+func GraphRunEventsFile(wsID, jobID string) string {
+	return filepath.Join(GraphRunDir(wsID, jobID), graphRunEventsFile)
 }
 
 // ShellTempDir returns the process-owned temp directory used for shell helper

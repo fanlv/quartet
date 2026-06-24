@@ -249,7 +249,10 @@ function wrapRequestContext(request: APIRequestContext, diagnostics: E2EDiagnost
 }
 
 export const test = base.extend<{ diagnostics: E2EDiagnostics }>({
-  diagnostics: async (_fixtures, fixtureUse, testInfo) => {
+  // Playwright requires the fixture parameter to use object destructuring even
+  // when this fixture does not depend on any built-in fixture.
+  // eslint-disable-next-line no-empty-pattern
+  diagnostics: async ({}, fixtureUse, testInfo) => {
     const diagnostics: E2EDiagnostics = {
       console: [],
       pageErrors: [],

@@ -113,7 +113,7 @@ func TestStartRunLinearShellCompletes(t *testing.T) {
 	if !waitSinkStatus(sink.updates, run.ID, model.JobStatusCompleted) {
 		t.Fatalf("job sink did not see completed update for %s", run.ID)
 	}
-	if _, err := os.Stat(filepath.Join(root, "agent", "graph_runs", run.ID, "run.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "workspaces", run.WorkspaceID, "jobs", run.JobID, "graph_run", "run.json")); err != nil {
 		t.Fatalf("run.json not persisted: %v", err)
 	}
 }

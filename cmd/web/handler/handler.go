@@ -255,13 +255,6 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 	// exits when the root ctx is cancelled (i.e. during shutdown).
 	go h.evictIdleSessionServices(h.rootCtx)
 
-	// Reconcile GraphRuns left in flight by a previous process crash: their
-	// running instances are marked interrupted and the run is moved to a
-	// resumable state without re-executing anything (§4 崩溃恢复：标记不自动续跑).
-	if err := gs.ReconcileRuns(ctx, js); err != nil {
-		logger.Warnf(ctx, "[handler] reconcile graph runs failed: %v", err)
-	}
-
 	return h, nil
 }
 

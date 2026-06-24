@@ -36,6 +36,7 @@ import './GraphLoopProgress.css';
 const NOOP = () => {};
 
 interface GraphLoopProgressProps {
+  jobId: string | null;
   runId: string | null;
   readOnly?: boolean;
   // Agent list for the inline inspector's Agent/model selectors.
@@ -110,7 +111,7 @@ function statusLabel(t: TFunction, status?: GraphRunStatus): string {
   }
 }
 
-export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: GraphLoopProgressProps) {
+export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit }: GraphLoopProgressProps) {
   const { t } = useTranslation();
   const [run, setRun] = useState<GraphRun | null>(null);
   const [progress, setProgress] = useState<GraphProgress | null>(null);
@@ -156,7 +157,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
   }, [toggleExpanded]);
 
   const refresh = useCallback(async () => {
-    if (!runId) {
+    if (!jobId) {
       setRun(null);
       setProgress(null);
       setInstances([]);
@@ -165,8 +166,8 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/graph/run/${encodeURIComponent(runId)}`);
-      if (!res.ok) throw new Error(await readGraphError(res, `GET /graph/run/${runId}`));
+      const res = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run`);
+      if (!res.ok) throw new Error(await readGraphError(res, `GET /job/${jobId}/graph-run`));
       const data = await res.json() as GraphRunStatusResponse;
       setRun(data.run || null);
       setProgress(data.progress || data.run?.progress || null);
@@ -178,7 +179,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
     } finally {
       setLoading(false);
     }
-  }, [runId]);
+  }, [jobId]);
 
   useEffect(() => {
     void refresh();
@@ -192,7 +193,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
   useEffect(() => {
     sseRef.current?.disconnect();
     sseRef.current = null;
-    if (!runId || !isLive) return;
+    if (!jobId || !isLive) return;
 
     const client = new SSEClient();
     sseRef.current = client;
@@ -205,7 +206,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
       void refresh();
     };
     void client.connectUntilReady({
-      url: `/api/v1/graph/run/${encodeURIComponent(runId)}/events`,
+      url: `/api/v1/job/${encodeURIComponent(jobId)}/graph-run/events`,
       // Resume from the buffer tail. The server's Last-Event-ID is now an
       // in-memory buffer seq (not a file line count), so seeding it from a
       // client-side counter is meaningless; the SSE client overwrites this with
@@ -242,19 +243,19 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
       client.disconnect();
       if (sseRef.current === client) sseRef.current = null;
     };
-  }, [isLive, refresh, runId]);
+  }, [isLive, refresh, jobId]);
 
   const doAction = useCallback(async (action: 'pause' | 'cancel-stop' | 'stop' | 'resume') => {
-    if (!runId) return;
+    if (!jobId) return;
     setActionPending(action);
     setError('');
     try {
-      const res = await fetch(`/api/v1/graph/run/${encodeURIComponent(runId)}/${action}`, {
+      const res = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      if (!res.ok) throw new Error(await readGraphError(res, `POST /graph/run/${runId}/${action}`));
+      if (!res.ok) throw new Error(await readGraphError(res, `POST /job/${jobId}/graph-run/${action}`));
       const data = await res.json().catch(() => null) as { run?: GraphRun } | null;
       if (data?.run) {
         setRun(data.run);
@@ -266,7 +267,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
     } finally {
       setActionPending(null);
     }
-  }, [progress, refresh, runId]);
+  }, [progress, refresh, jobId]);
 
   const percent = useMemo(() => {
     if (!progress) return 0;
@@ -370,17 +371,17 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
   );
 
   const saveRunVersion = useCallback(async () => {
-    if (!runId || !editSnapshot) return;
+    if (!jobId || !editSnapshot) return;
     const config = flowToConfig(editNodes, editEdges, editSnapshot);
     setSaving(true);
     setError('');
     try {
-      const res = await fetch(`/api/v1/graph/run/${encodeURIComponent(runId)}/version`, {
+      const res = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run/version`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config }),
       });
-      if (!res.ok) throw new Error(await readGraphError(res, `PUT /graph/run/${runId}/version`));
+      if (!res.ok) throw new Error(await readGraphError(res, `PUT /job/${jobId}/graph-run/version`));
       setEditing(false);
       setSelectedNodeId(null);
       setEditSnapshot(null);
@@ -390,7 +391,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
     } finally {
       setSaving(false);
     }
-  }, [editEdges, editNodes, editSnapshot, refresh, runId]);
+  }, [editEdges, editNodes, editSnapshot, refresh, jobId]);
 
   // The inspector's global panel reads variables/runConfig from `config`; build
   // it from the edit snapshot so it shows (read-only) run-level values.
@@ -404,7 +405,7 @@ export function GraphLoopProgress({ runId, readOnly, agents = [], canEdit }: Gra
     ? t('graph.loop.done', { count: progress.completedCount, total: progress.totalCount })
     : t('graph.progress.none');
 
-  if (!runId) {
+  if (!jobId || !runId) {
     return (
       <div className="graph-loop-progress" data-testid="graph-loop-progress">
         <div className="graph-loop-empty">{t('graph.loop.notBound')}</div>

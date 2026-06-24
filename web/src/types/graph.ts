@@ -303,7 +303,3 @@ export interface GraphRunStatusResponse {
   edges?: GraphEdgeState[];
   eventCount?: number;
 }
-
-export interface GraphRunHistoryResponse {
-  runs: GraphRun[];
-}

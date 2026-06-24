@@ -224,8 +224,7 @@
   padding: 8px;
 }
 
-.graph-workflow-row,
-.graph-run-row {
+.graph-workflow-row {
   width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -244,19 +243,16 @@
   column-gap: 10px;
 }
 
-.graph-workflow-row:hover,
-.graph-run-row:hover {
+.graph-workflow-row:hover {
   background: #f8fafc;
 }
 
-.graph-workflow-row.active,
-.graph-run-row.active {
+.graph-workflow-row.active {
   background: #ecfeff;
   border-color: #99f6e4;
 }
 
-.graph-workflow-row-title,
-.graph-run-row-title {
+.graph-workflow-row-title {
   color: #0f172a;
   font-size: 13px;
   font-weight: 700;
@@ -276,36 +272,6 @@
 .graph-workflow-row-date {
   justify-self: end;
   white-space: nowrap;
-}
-
-.graph-run-panel {
-  border-top: 1px solid rgba(15, 23, 42, 0.07);
-  min-height: 180px;
-  max-height: 30%;
-  display: flex;
-  flex-direction: column;
-}
-
-.graph-run-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 12px 14px 8px;
-}
-
-.graph-run-panel-head h3 {
-  margin: 2px 0 0;
-  font-size: 14px;
-  line-height: 1.25;
-  color: #0f172a;
-}
-
-.graph-run-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 8px 8px;
 }
 
 .graph-run-status {
@@ -451,30 +417,6 @@
   margin-top: 4px;
 }
 
-.graph-run-events {
-  border-top: 1px solid rgba(15, 23, 42, 0.07);
-  padding: 14px;
-  min-height: 180px;
-  max-height: 34%;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.graph-run-events-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.graph-run-events-head h2 {
-  margin: 2px 0 0;
-  font-size: 16px;
-  line-height: 1.25;
-  color: #0f172a;
-}
-
 .graph-run-progress {
   color: #475569;
   font-size: 12px;
@@ -612,15 +554,6 @@
     flex: 1 1 100%;
   }
 
-  .graph-run-panel {
-    max-height: 220px;
-  }
-
-  .graph-run-events {
-    max-height: 260px;
-  }
-
-  .graph-run-events-head,
   .graph-event-row {
     grid-template-columns: 1fr;
   }
@@ -767,10 +700,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   padding: 7px 10px;
+  border: none;
   border-radius: 7px;
+  background: transparent;
   cursor: pointer;
   transition: background 0.12s;
+  text-align: left;
 }
 
 .graph-ws-item:hover {

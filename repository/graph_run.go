@@ -7,22 +7,23 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"strings"
+	"sync"
 
 	"github.com/fanlv/quartet/pkg/fileserver"
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
-	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
 	"github.com/fanlv/quartet/types/path"
 )
 
 // GraphRunRepo owns GraphRun runtime artifacts. A run is stored as a directory
-// under AgentDir so deleting one run can remove all of its snapshots, state,
-// lineage and event logs without touching workflow configs or other runs.
+// under its bound Job directory so deleting a Job can keep its graph runtime
+// artifacts colocated with sessions and metadata.
 type GraphRunRepo interface {
+	RegisterRun(ctx context.Context, run *model.GraphRun) error
+	RegisterRunLocation(ctx context.Context, runID, workspaceID, jobID string) error
 	SaveRun(ctx context.Context, run *model.GraphRun) error
 	GetRun(ctx context.Context, runID string) (*model.GraphRun, error)
-	ListRuns(ctx context.Context) ([]*model.GraphRun, error)
 
 	SaveInstances(ctx context.Context, runID string, instances map[string]model.GraphInstanceState) error
 	GetInstances(ctx context.Context, runID string) (map[string]model.GraphInstanceState, error)
@@ -54,35 +55,72 @@ type GraphRunRepo interface {
 }
 
 type fileGraphRunRepo struct {
-	dir     string
-	storage fileserver.Storage
-	locks   lockShard
+	storage   fileserver.Storage
+	locks     lockShard
+	locations sync.Map
 }
 
 func NewGraphRunRepo() (GraphRunRepo, error) {
-	dir, err := path.GraphRunsDir()
-	if err != nil {
-		return nil, err
-	}
-	st := fileserver.GetStorage()
-	if err := st.MkDir(&fsmodel.MkDirRequest{Path: dir}); err != nil {
-		return nil, fmt.Errorf("mk graph runs dir failed: %w", err)
-	}
-	return &fileGraphRunRepo{dir: dir, storage: st}, nil
+	return &fileGraphRunRepo{storage: fileserver.GetStorage()}, nil
 }
 
 func validateGraphRunID(id string) error {
 	return validateID(id)
 }
 
+type graphRunLocation struct {
+	RunID       string `json:"runId"`
+	WorkspaceID string `json:"workspaceId"`
+	JobID       string `json:"jobId"`
+}
+
+func (r *fileGraphRunRepo) RegisterRun(ctx context.Context, run *model.GraphRun) error {
+	return r.registerRun(run)
+}
+
+func (r *fileGraphRunRepo) RegisterRunLocation(_ context.Context, runID, workspaceID, jobID string) error {
+	return r.registerLocation(runID, workspaceID, jobID)
+}
+
 func (r *fileGraphRunRepo) SaveRun(_ context.Context, run *model.GraphRun) error {
+	if err := r.registerRun(run); err != nil {
+		return err
+	}
+	return r.writeJSONAt(run.ID, path.GraphRunFile(run.WorkspaceID, run.JobID), run)
+}
+
+func (r *fileGraphRunRepo) registerRun(run *model.GraphRun) error {
 	if run == nil {
 		return os.ErrInvalid
 	}
 	if err := validateGraphRunID(run.ID); err != nil {
 		return err
 	}
-	return r.writeJSON(run.ID, graphRunFilePath, run)
+	if strings.TrimSpace(run.WorkspaceID) == "" {
+		return fmt.Errorf("graph run workspaceId is required")
+	}
+	if strings.TrimSpace(run.JobID) == "" {
+		return fmt.Errorf("graph run jobId is required")
+	}
+	return r.registerLocation(run.ID, run.WorkspaceID, run.JobID)
+}
+
+func (r *fileGraphRunRepo) registerLocation(runID, workspaceID, jobID string) error {
+	if err := validateGraphRunID(runID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(workspaceID) == "" {
+		return fmt.Errorf("graph run workspaceId is required")
+	}
+	if strings.TrimSpace(jobID) == "" {
+		return fmt.Errorf("graph run jobId is required")
+	}
+	r.locations.Store(runID, graphRunLocation{
+		RunID:       runID,
+		WorkspaceID: workspaceID,
+		JobID:       jobID,
+	})
+	return nil
 }
 
 func (r *fileGraphRunRepo) GetRun(_ context.Context, runID string) (*model.GraphRun, error) {
@@ -90,64 +128,22 @@ func (r *fileGraphRunRepo) GetRun(_ context.Context, runID string) (*model.Graph
 		return nil, err
 	}
 	var run model.GraphRun
-	if err := r.readJSON(graphRunFilePath, runID, &run); err != nil {
+	if err := r.readJSON(path.GraphRunFile, runID, &run); err != nil {
 		return nil, err
 	}
 	return &run, nil
-}
-
-func (r *fileGraphRunRepo) ListRuns(ctx context.Context) ([]*model.GraphRun, error) {
-	result, err := r.storage.FileList(&fsmodel.FileListRequest{Path: r.dir})
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var runs []*model.GraphRun
-	for _, f := range result.Files {
-		if !f.IsDir {
-			continue
-		}
-		runID := f.Name
-		if err := validateGraphRunID(runID); err != nil {
-			logger.Warnf(ctx, "[graphRunRepo] skip invalid run dir %s: %v", f.Path, err)
-			continue
-		}
-		run, err := r.GetRun(ctx, runID)
-		if err != nil {
-			missing, statErr := r.graphRunMetadataMissing(runID)
-			if statErr != nil {
-				logger.Warnf(ctx, "[graphRunRepo] skip unreadable run %s: %v (stat run metadata failed: %v)", runID, err, statErr)
-				continue
-			}
-			if missing {
-				if cleanupErr := r.cleanupIncompleteRun(ctx, runID); cleanupErr != nil {
-					logger.Warnf(ctx, "[graphRunRepo] cleanup incomplete run %s failed: %v", runID, cleanupErr)
-				}
-				continue
-			}
-			logger.Warnf(ctx, "[graphRunRepo] skip unreadable run %s: %v", runID, err)
-			continue
-		}
-		runs = append(runs, run)
-	}
-	sort.Slice(runs, func(i, j int) bool {
-		return runs[i].CreatedAt.After(runs[j].CreatedAt)
-	})
-	return runs, nil
 }
 
 func (r *fileGraphRunRepo) SaveInstances(_ context.Context, runID string, instances map[string]model.GraphInstanceState) error {
 	if instances == nil {
 		instances = map[string]model.GraphInstanceState{}
 	}
-	return r.writeJSON(runID, graphRunInstancesFilePath, instances)
+	return r.writeJSON(runID, path.GraphRunInstancesFile, instances)
 }
 
 func (r *fileGraphRunRepo) GetInstances(_ context.Context, runID string) (map[string]model.GraphInstanceState, error) {
 	instances := map[string]model.GraphInstanceState{}
-	err := r.readJSON(graphRunInstancesFilePath, runID, &instances)
+	err := r.readJSON(path.GraphRunInstancesFile, runID, &instances)
 	return instances, err
 }
 
@@ -155,12 +151,12 @@ func (r *fileGraphRunRepo) SaveEdges(_ context.Context, runID string, edges map[
 	if edges == nil {
 		edges = map[string]model.GraphEdgeState{}
 	}
-	return r.writeJSON(runID, graphRunEdgesFilePath, edges)
+	return r.writeJSON(runID, path.GraphRunEdgesFile, edges)
 }
 
 func (r *fileGraphRunRepo) GetEdges(_ context.Context, runID string) (map[string]model.GraphEdgeState, error) {
 	edges := map[string]model.GraphEdgeState{}
-	err := r.readJSON(graphRunEdgesFilePath, runID, &edges)
+	err := r.readJSON(path.GraphRunEdgesFile, runID, &edges)
 	return edges, err
 }
 
@@ -168,12 +164,12 @@ func (r *fileGraphRunRepo) SaveVariables(_ context.Context, runID string, variab
 	if variables == nil {
 		variables = map[string]map[string]string{}
 	}
-	return r.writeJSON(runID, graphRunVariablesFilePath, variables)
+	return r.writeJSON(runID, path.GraphRunVariablesFile, variables)
 }
 
 func (r *fileGraphRunRepo) GetVariables(_ context.Context, runID string) (map[string]map[string]string, error) {
 	variables := map[string]map[string]string{}
-	err := r.readJSON(graphRunVariablesFilePath, runID, &variables)
+	err := r.readJSON(path.GraphRunVariablesFile, runID, &variables)
 	return variables, err
 }
 
@@ -181,12 +177,12 @@ func (r *fileGraphRunRepo) SaveSessionLineage(_ context.Context, runID string, l
 	if lineage == nil {
 		lineage = map[string]model.GraphSessionLineage{}
 	}
-	return r.writeJSON(runID, graphRunSessionLineageFilePath, lineage)
+	return r.writeJSON(runID, path.GraphRunSessionLineageFile, lineage)
 }
 
 func (r *fileGraphRunRepo) GetSessionLineage(_ context.Context, runID string) (map[string]model.GraphSessionLineage, error) {
 	lineage := map[string]model.GraphSessionLineage{}
-	err := r.readJSON(graphRunSessionLineageFilePath, runID, &lineage)
+	err := r.readJSON(path.GraphRunSessionLineageFile, runID, &lineage)
 	return lineage, err
 }
 
@@ -194,12 +190,12 @@ func (r *fileGraphRunRepo) SaveProgress(_ context.Context, runID string, progres
 	if progress == nil {
 		progress = &model.GraphProgress{}
 	}
-	return r.writeJSON(runID, graphRunProgressFilePath, progress)
+	return r.writeJSON(runID, path.GraphRunProgressFile, progress)
 }
 
 func (r *fileGraphRunRepo) GetProgress(_ context.Context, runID string) (*model.GraphProgress, error) {
 	progress := &model.GraphProgress{}
-	if err := r.readJSON(graphRunProgressFilePath, runID, progress); err != nil {
+	if err := r.readJSON(path.GraphRunProgressFile, runID, progress); err != nil {
 		return nil, err
 	}
 	return progress, nil
@@ -209,12 +205,12 @@ func (r *fileGraphRunRepo) SaveResume(_ context.Context, runID string, resume *m
 	if resume == nil {
 		resume = &model.GraphResumeState{}
 	}
-	return r.writeJSON(runID, graphRunResumeFilePath, resume)
+	return r.writeJSON(runID, path.GraphRunResumeFile, resume)
 }
 
 func (r *fileGraphRunRepo) GetResume(_ context.Context, runID string) (*model.GraphResumeState, error) {
 	resume := &model.GraphResumeState{}
-	if err := r.readJSON(graphRunResumeFilePath, runID, resume); err != nil {
+	if err := r.readJSON(path.GraphRunResumeFile, runID, resume); err != nil {
 		return nil, err
 	}
 	return resume, nil
@@ -227,7 +223,7 @@ func (r *fileGraphRunRepo) AppendEvent(_ context.Context, runID string, event *m
 	if err := validateGraphRunID(runID); err != nil {
 		return err
 	}
-	fp, err := graphRunEventsFilePath(runID)
+	fp, err := r.pathForRun(runID, path.GraphRunEventsFile)
 	if err != nil {
 		return err
 	}
@@ -251,7 +247,7 @@ func (r *fileGraphRunRepo) ListEvents(_ context.Context, runID string, startLine
 	if err := validateGraphRunID(runID); err != nil {
 		return nil, err
 	}
-	fp, err := graphRunEventsFilePath(runID)
+	fp, err := r.pathForRun(runID, path.GraphRunEventsFile)
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +277,7 @@ func (r *fileGraphRunRepo) CountEvents(_ context.Context, runID string) (int, er
 	if err := validateGraphRunID(runID); err != nil {
 		return 0, err
 	}
-	fp, err := graphRunEventsFilePath(runID)
+	fp, err := r.pathForRun(runID, path.GraphRunEventsFile)
 	if err != nil {
 		return 0, err
 	}
@@ -299,60 +295,33 @@ func (r *fileGraphRunRepo) DeleteRun(_ context.Context, runID string) error {
 	if err := validateGraphRunID(runID); err != nil {
 		return err
 	}
-	runDir, err := path.GraphRunDir(runID)
+	loc, err := r.readIndex(runID)
 	if err != nil {
 		return err
 	}
+	runDir := path.GraphRunDir(loc.WorkspaceID, loc.JobID)
 	mu := r.locks.lockFor(runID)
 	mu.Lock()
 	defer mu.Unlock()
-	return r.storage.FileDelete(&fsmodel.FileDeleteRequest{Path: runDir})
+	if err := r.storage.FileDelete(&fsmodel.FileDeleteRequest{Path: runDir}); err != nil {
+		return err
+	}
+	r.locations.Delete(runID)
+	return nil
 }
 
-func (r *fileGraphRunRepo) cleanupIncompleteRun(_ context.Context, runID string) error {
+func (r *fileGraphRunRepo) writeJSON(runID string, pathFn func(string, string) string, v any) error {
 	if err := validateGraphRunID(runID); err != nil {
 		return err
 	}
-	runDir, err := path.GraphRunDir(runID)
+	fp, err := r.pathForRun(runID, pathFn)
 	if err != nil {
 		return err
 	}
-	mu := r.locks.lockFor(runID)
-	mu.Lock()
-	defer mu.Unlock()
-	missing, err := r.graphRunMetadataMissing(runID)
-	if err != nil {
-		return err
-	}
-	if !missing {
-		return nil
-	}
-	return r.storage.FileDelete(&fsmodel.FileDeleteRequest{Path: runDir})
+	return r.writeJSONAt(runID, fp, v)
 }
 
-func (r *fileGraphRunRepo) graphRunMetadataMissing(runID string) (bool, error) {
-	if err := validateGraphRunID(runID); err != nil {
-		return false, err
-	}
-	fp, err := graphRunFilePath(runID)
-	if err != nil {
-		return false, err
-	}
-	stat, err := r.storage.FileStat(&fsmodel.FileStatRequest{Path: fp})
-	if err != nil {
-		return false, err
-	}
-	return !stat.Exists, nil
-}
-
-func (r *fileGraphRunRepo) writeJSON(runID string, pathFn func(string) (string, error), v any) error {
-	if err := validateGraphRunID(runID); err != nil {
-		return err
-	}
-	fp, err := pathFn(runID)
-	if err != nil {
-		return err
-	}
+func (r *fileGraphRunRepo) writeJSONAt(runID, fp string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
@@ -360,17 +329,17 @@ func (r *fileGraphRunRepo) writeJSON(runID string, pathFn func(string) (string, 
 	mu := r.locks.lockFor(runID)
 	mu.Lock()
 	defer mu.Unlock()
-	if err := r.ensureRunDir(runID); err != nil {
+	if err := r.ensureRunDirPath(filepath.Dir(fp)); err != nil {
 		return err
 	}
 	return AtomicWriteFile(fp, data, 0644)
 }
 
-func (r *fileGraphRunRepo) readJSON(pathFn func(string) (string, error), runID string, v any) error {
+func (r *fileGraphRunRepo) readJSON(pathFn func(string, string) string, runID string, v any) error {
 	if err := validateGraphRunID(runID); err != nil {
 		return err
 	}
-	fp, err := pathFn(runID)
+	fp, err := r.pathForRun(runID, pathFn)
 	if err != nil {
 		return err
 	}
@@ -385,10 +354,14 @@ func (r *fileGraphRunRepo) readJSON(pathFn func(string) (string, error), runID s
 }
 
 func (r *fileGraphRunRepo) ensureRunDir(runID string) error {
-	runDir, err := path.GraphRunDir(runID)
+	loc, err := r.readIndex(runID)
 	if err != nil {
 		return err
 	}
+	return r.ensureRunDirPath(path.GraphRunDir(loc.WorkspaceID, loc.JobID))
+}
+
+func (r *fileGraphRunRepo) ensureRunDirPath(runDir string) error {
 	if clean := filepath.Clean(runDir); clean != runDir {
 		return fmt.Errorf("invalid graph run dir %q", runDir)
 	}
@@ -398,34 +371,22 @@ func (r *fileGraphRunRepo) ensureRunDir(runID string) error {
 	return nil
 }
 
-func graphRunFilePath(runID string) (string, error) {
-	return path.GraphRunFile(runID)
+func (r *fileGraphRunRepo) pathForRun(runID string, pathFn func(string, string) string) (string, error) {
+	loc, err := r.readIndex(runID)
+	if err != nil {
+		return "", err
+	}
+	return pathFn(loc.WorkspaceID, loc.JobID), nil
 }
 
-func graphRunInstancesFilePath(runID string) (string, error) {
-	return path.GraphRunInstancesFile(runID)
-}
-
-func graphRunEdgesFilePath(runID string) (string, error) {
-	return path.GraphRunEdgesFile(runID)
-}
-
-func graphRunVariablesFilePath(runID string) (string, error) {
-	return path.GraphRunVariablesFile(runID)
-}
-
-func graphRunSessionLineageFilePath(runID string) (string, error) {
-	return path.GraphRunSessionLineageFile(runID)
-}
-
-func graphRunProgressFilePath(runID string) (string, error) {
-	return path.GraphRunProgressFile(runID)
-}
-
-func graphRunResumeFilePath(runID string) (string, error) {
-	return path.GraphRunResumeFile(runID)
-}
-
-func graphRunEventsFilePath(runID string) (string, error) {
-	return path.GraphRunEventsFile(runID)
+func (r *fileGraphRunRepo) readIndex(runID string) (*graphRunLocation, error) {
+	if err := validateGraphRunID(runID); err != nil {
+		return nil, err
+	}
+	if cached, ok := r.locations.Load(runID); ok {
+		if loc, ok := cached.(graphRunLocation); ok {
+			return &loc, nil
+		}
+	}
+	return nil, fmt.Errorf("graph run location is not registered: %s", runID)
 }

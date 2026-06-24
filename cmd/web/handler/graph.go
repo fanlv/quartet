@@ -264,10 +264,35 @@ func (h *Handler) createGraphJob(ctx context.Context, req *model.StartGraphRunRe
 	return j, nil
 }
 
-func (h *Handler) GetGraphRunStatus(ctx context.Context, c *app.RequestContext) {
-	runID := c.Param("runId")
-	if runID == "" {
-		httputil.BadRequest(c, "runId is required")
+func (h *Handler) resolveJobGraphRun(ctx context.Context, c *app.RequestContext) (*model.Job, string, bool) {
+	jobID := c.Param("jobId")
+	if jobID == "" {
+		httputil.BadRequest(c, "jobId is required")
+		return nil, "", false
+	}
+	j, ok := h.jobService.Get(jobID)
+	if !ok || j == nil || j.Deleted {
+		httputil.NotFound(c, "job not found")
+		return nil, "", false
+	}
+	if j.Mode != model.JobModeGraph {
+		httputil.BadRequest(c, "job is not a graph job")
+		return nil, "", false
+	}
+	if strings.TrimSpace(j.GraphRunID) == "" {
+		httputil.NotFound(c, "graph run not found")
+		return nil, "", false
+	}
+	if err := h.graphService.RegisterRunLocation(ctx, j.GraphRunID, j.WorkspaceID, j.ID); err != nil {
+		httputil.InternalError(c, err.Error())
+		return nil, "", false
+	}
+	return j, j.GraphRunID, true
+}
+
+func (h *Handler) GetJobGraphRunStatus(ctx context.Context, c *app.RequestContext) {
+	_, runID, ok := h.resolveJobGraphRun(ctx, c)
+	if !ok {
 		return
 	}
 	resp, err := h.graphService.GetRunStatus(ctx, runID)
@@ -280,10 +305,9 @@ func (h *Handler) GetGraphRunStatus(ctx context.Context, c *app.RequestContext) 
 	c.JSON(http.StatusOK, resp)
 }
 
-func (h *Handler) GraphRunEvents(ctx context.Context, c *app.RequestContext) {
-	runID := c.Param("runId")
-	if runID == "" {
-		httputil.BadRequest(c, "runId is required")
+func (h *Handler) JobGraphRunEvents(ctx context.Context, c *app.RequestContext) {
+	_, runID, ok := h.resolveJobGraphRun(ctx, c)
+	if !ok {
 		return
 	}
 	if _, err := h.graphService.GetRunStatus(ctx, runID); err != nil {
@@ -435,7 +459,7 @@ func (h *Handler) graphRunEventsReplayFromDisk(ctx context.Context, c *app.Reque
 	startLine := int(startSeq)
 	// limit=0 → service applies its default replay bound. The replay is a
 	// best-effort structural backfill; the canvas is rebuilt from the run
-	// snapshot (GET /graph/run/:id), so a bounded/truncated replay is safe.
+	// snapshot (GET /job/:jobId/graph-run), so a bounded/truncated replay is safe.
 	resp, err := h.graphService.ListReplayEvents(ctx, runID, startLine, 0)
 	if err != nil {
 		logger.Errorf(ctx, "[graph-sse] replay list events failed: connId=%s runId=%s startLine=%d err=%v", connID, runID, startLine, err)
@@ -479,54 +503,40 @@ func (h *Handler) graphRunEventsReplayFromDisk(ctx context.Context, c *app.Reque
 	}
 }
 
-func (h *Handler) ListGraphRuns(ctx context.Context, c *app.RequestContext) {
-	runs, err := h.graphService.ListRuns(ctx)
-	if err != nil {
-		httputil.InternalError(c, err.Error())
-		return
-	}
-	resp := model.GraphRunHistoryResponse{Runs: make([]model.GraphRun, 0, len(runs))}
-	for _, run := range runs {
-		resp.Runs = append(resp.Runs, *run)
-	}
-	c.JSON(http.StatusOK, resp)
-}
-
-// StopGraphRun hard-stops a running GraphRun.
-func (h *Handler) StopGraphRun(ctx context.Context, c *app.RequestContext) {
-	h.graphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
+// StopJobGraphRun hard-stops a running GraphRun bound to a Job.
+func (h *Handler) StopJobGraphRun(ctx context.Context, c *app.RequestContext) {
+	h.jobGraphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
 		return h.graphService.StopRun(ctx, runID)
 	})
 }
 
-// PauseGraphRun gracefully pauses a running GraphRun.
-func (h *Handler) PauseGraphRun(ctx context.Context, c *app.RequestContext) {
-	h.graphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
+// PauseJobGraphRun gracefully pauses a running GraphRun bound to a Job.
+func (h *Handler) PauseJobGraphRun(ctx context.Context, c *app.RequestContext) {
+	h.jobGraphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
 		return h.graphService.PauseRun(ctx, runID)
 	})
 }
 
-// StepStopGraphRun freezes the current ready batch and stops after it.
-func (h *Handler) StepStopGraphRun(ctx context.Context, c *app.RequestContext) {
-	h.graphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
+// StepStopJobGraphRun freezes the current ready batch and stops after it.
+func (h *Handler) StepStopJobGraphRun(ctx context.Context, c *app.RequestContext) {
+	h.jobGraphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
 		return h.graphService.StepStopRun(ctx, runID)
 	})
 }
 
-// CancelStopGraphRun cancels a pending pause / step-stop, returning the run to
+// CancelStopJobGraphRun cancels a pending pause / step-stop, returning the run to
 // running.
-func (h *Handler) CancelStopGraphRun(ctx context.Context, c *app.RequestContext) {
-	h.graphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
+func (h *Handler) CancelStopJobGraphRun(ctx context.Context, c *app.RequestContext) {
+	h.jobGraphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
 		return h.graphService.CancelStopRun(ctx, runID)
 	})
 }
 
-// graphRunControl runs a control action that resolves to a run snapshot and
+// jobGraphRunControl runs a control action that resolves to a run snapshot and
 // maps the common control errors.
-func (h *Handler) graphRunControl(_ context.Context, c *app.RequestContext, action func(runID string) (*model.GraphRun, error)) {
-	runID := c.Param("runId")
-	if runID == "" {
-		httputil.BadRequest(c, "runId is required")
+func (h *Handler) jobGraphRunControl(ctx context.Context, c *app.RequestContext, action func(runID string) (*model.GraphRun, error)) {
+	_, runID, ok := h.resolveJobGraphRun(ctx, c)
+	if !ok {
 		return
 	}
 	run, err := action(runID)
@@ -540,27 +550,10 @@ func (h *Handler) graphRunControl(_ context.Context, c *app.RequestContext, acti
 	c.JSON(http.StatusOK, model.GraphRunResponse{Run: run})
 }
 
-// ResumeGraphRun relaunches a resumable GraphRun on its bound Job.
-func (h *Handler) ResumeGraphRun(ctx context.Context, c *app.RequestContext) {
-	runID := c.Param("runId")
-	if runID == "" {
-		httputil.BadRequest(c, "runId is required")
-		return
-	}
-	status, err := h.graphService.GetRunStatus(ctx, runID)
-	if err != nil {
-		httputil.MapError(c, err, []httputil.ErrorMapping{
-			{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},
-		})
-		return
-	}
-	if status.Run == nil {
-		httputil.NotFound(c, "graph run not found")
-		return
-	}
-	j, ok := h.jobService.Get(status.Run.JobID)
+// ResumeJobGraphRun relaunches a resumable GraphRun on its bound Job.
+func (h *Handler) ResumeJobGraphRun(ctx context.Context, c *app.RequestContext) {
+	j, runID, ok := h.resolveJobGraphRun(ctx, c)
 	if !ok {
-		httputil.NotFound(c, "job not found")
 		return
 	}
 	runner := newJobRunner(h, j)
@@ -580,31 +573,14 @@ func (h *Handler) ResumeGraphRun(ctx context.Context, c *app.RequestContext) {
 // against persisted run state. For live runs the scheduler applies the new
 // version to not-yet-started instances while in-flight/completed instances keep
 // their execution-time version.
-func (h *Handler) UpdateGraphRunVersion(ctx context.Context, c *app.RequestContext) {
-	runID := c.Param("runId")
-	if runID == "" {
-		httputil.BadRequest(c, "runId is required")
+func (h *Handler) UpdateJobGraphRunVersion(ctx context.Context, c *app.RequestContext) {
+	j, runID, ok := h.resolveJobGraphRun(ctx, c)
+	if !ok {
 		return
 	}
 	var req model.UpdateGraphRunVersionRequest
 	if err := c.BindJSON(&req); err != nil {
 		httputil.BadRequest(c, "invalid request: "+err.Error())
-		return
-	}
-	status, err := h.graphService.GetRunStatus(ctx, runID)
-	if err != nil {
-		httputil.MapError(c, err, []httputil.ErrorMapping{
-			{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},
-		})
-		return
-	}
-	if status.Run == nil {
-		httputil.NotFound(c, "graph run not found")
-		return
-	}
-	j, ok := h.jobService.Get(status.Run.JobID)
-	if !ok {
-		httputil.NotFound(c, "job not found")
 		return
 	}
 	runner := newJobRunner(h, j)
@@ -623,11 +599,10 @@ func (h *Handler) UpdateGraphRunVersion(ctx context.Context, c *app.RequestConte
 	c.JSON(http.StatusOK, model.GraphRunResponse{Run: run})
 }
 
-// DeleteGraphRun deletes a non-in-flight GraphRun, cascading its artifacts.
-func (h *Handler) DeleteGraphRun(ctx context.Context, c *app.RequestContext) {
-	runID := c.Param("runId")
-	if runID == "" {
-		httputil.BadRequest(c, "runId is required")
+// DeleteJobGraphRun deletes a non-in-flight GraphRun, cascading its artifacts.
+func (h *Handler) DeleteJobGraphRun(ctx context.Context, c *app.RequestContext) {
+	_, runID, ok := h.resolveJobGraphRun(ctx, c)
+	if !ok {
 		return
 	}
 	if err := h.graphService.DeleteRun(ctx, runID, h.jobService); err != nil {

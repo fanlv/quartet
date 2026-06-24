@@ -23,7 +23,6 @@ import type {
   GraphProgress,
   GraphRun,
   GraphRunConfig,
-  GraphRunHistoryResponse,
   GraphRunStatus,
   GraphRunStatusResponse,
   GraphValidationError,
@@ -156,6 +155,14 @@ function metaFromConfig(config: GraphConfig): ConfigMeta {
     workdir: config.workdir,
     sandboxId: config.sandboxId,
     canvas: config.canvas,
+  };
+}
+
+function canonicalWorkflowConfig(workflow: GraphWorkflow): GraphConfig {
+  return {
+    ...workflow.config,
+    // Legacy workflow records may only carry workspaceId at the record level.
+    workspaceId: workflow.config.workspaceId || workflow.workspaceId,
   };
 }
 
@@ -569,6 +576,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<GraphWorkflow | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [agentListError, setAgentListError] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('canvas');
   const [jsonText, setJsonText] = useState('');
 
@@ -627,10 +635,10 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   // so there is no separate selection state to keep in sync.
   const [allWorkspaces, setAllWorkspaces] = useState<WorkspaceItem[]>([]);
   const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
+  const [workspaceListError, setWorkspaceListError] = useState('');
   const wsDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Run history / replay state.
-  const [runs, setRuns] = useState<GraphRun[]>([]);
+  // Run view / replay state.
   const [selectedRun, setSelectedRun] = useState<GraphRun | null>(null);
   const [viewingRun, setViewingRun] = useState(false);
   const [runProgress, setRunProgress] = useState<GraphProgress | undefined>();
@@ -642,11 +650,13 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   // selected run is editable (in-flight or resumable, never naturally completed).
   const [editingRun, setEditingRun] = useState(false);
   const graphEventClientRef = useRef<SSEClient | null>(null);
-  // One-shot consumption of the ?graphEditRun=<id> deep-link (from Chat page's
-  // GraphLoop "Edit"): open that run directly in run-version edit mode.
+  // One-shot consumption of the ?graphEditJob=<id> deep-link (from Chat page's
+  // GraphLoop "Edit"): open that job's run directly in run-version edit mode.
   const editRunIntentRef = useRef<string | null>(
-    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('graphEditRun') : null,
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('graphEditJob') : null,
   );
+  const workflowLoadSeqRef = useRef(0);
+  const runLoadSeqRef = useRef(0);
 
   const selectedWorkflow = useMemo(() => workflows.find((wf) => wf.id === selectedId) ?? null, [workflows, selectedId]);
   const sortedWorkflows = useMemo(
@@ -657,6 +667,9 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     if (!selectedNodeId) return null;
     return nodes.find((n) => n.id === selectedNodeId)?.data.graphNode ?? null;
   }, [nodes, selectedNodeId]);
+  const clearValidationState = useCallback(() => {
+    setErrors([]);
+  }, []);
 
   useEffect(() => {
     if (isMobile && selectedNodeId && viewMode === 'canvas' && (!viewingRun || editingRun)) {
@@ -815,43 +828,36 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     }
   }, []);
 
-  const loadRuns = useCallback(async () => {
-    try {
-      const res = await fetch('/api/v1/graph/run/list');
-      if (!res.ok) throw new Error(await readError(res));
-      const data = (await res.json()) as GraphRunHistoryResponse;
-      setRuns(data.runs || []);
-    } catch (err) {
-      setRunMessage(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
   useEffect(() => {
     void loadWorkflows();
-    void loadRuns();
     // Load agents for the inspector's Agent/model selectors.
     void (async () => {
       try {
         const res = await fetch('/api/v1/agent/list');
+        if (!res.ok) throw new Error(await readError(res));
         const data = await res.json().catch(() => null);
         if (data?.code === 0 && Array.isArray(data.agent_list)) {
           setAgents(data.agent_list as AgentInfo[]);
+          setAgentListError('');
+        } else {
+          throw new Error(data?.msg || data?.error || t('graph.messages.agentListInvalid'));
         }
-      } catch {
-        /* agent list is optional for editing */
+      } catch (err) {
+        setAgentListError(err instanceof Error ? err.message : String(err));
       }
     })();
     // Load the workspace list for the workspace selector (mirrors ChatPage).
     void (async () => {
       try {
         const res = await fetch('/api/v1/workspace/list');
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(await readError(res));
         const data = await res.json().catch(() => null);
         const list = (data?.workspaces || []) as WorkspaceItem[];
         registerWorkspaceColors(list);
         setAllWorkspaces(list);
-      } catch {
-        /* workspace list is optional for editing */
+        setWorkspaceListError('');
+      } catch (err) {
+        setWorkspaceListError(err instanceof Error ? err.message : String(err));
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -878,11 +884,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   );
 
   // ---- Run status / SSE ----
-  const refreshRunStatus = useCallback(async (runId: string): Promise<GraphRunStatusResponse | null> => {
+  const refreshJobRunStatus = useCallback(async (jobId: string, guardSeq?: number): Promise<GraphRunStatusResponse | null> => {
     try {
-      const res = await fetch(`/api/v1/graph/run/${encodeURIComponent(runId)}`);
+      const res = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run`);
       if (!res.ok) throw new Error(await readError(res));
       const data = (await res.json()) as GraphRunStatusResponse;
+      if (guardSeq !== undefined && guardSeq !== runLoadSeqRef.current) return null;
       if (data.run) setSelectedRun(data.run);
       setRunProgress(data.progress || data.run?.progress);
       const instances = data.instances || (data.progress?.instances ? Object.values(data.progress.instances) : []);
@@ -897,6 +904,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
 
   const selectRun = useCallback(
     async (run: GraphRun) => {
+      const seq = ++runLoadSeqRef.current;
       graphEventClientRef.current?.disconnect();
       graphEventClientRef.current = null;
       setSelectedRun(run);
@@ -905,12 +913,13 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setSelectedNodeId(null);
       setRunProgress(run.progress);
       setRunInstances([]);
-      await refreshRunStatus(run.id);
+      await refreshJobRunStatus(run.jobId, seq);
     },
-    [refreshRunStatus],
+    [refreshJobRunStatus],
   );
 
   const exitRunView = useCallback(() => {
+    runLoadSeqRef.current += 1;
     graphEventClientRef.current?.disconnect();
     graphEventClientRef.current = null;
     setViewingRun(false);
@@ -925,16 +934,17 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
 
     const client = new SSEClient();
     graphEventClientRef.current = client;
+    const runSeq = runLoadSeqRef.current;
     let lastInstanceRefreshAt = 0;
     const throttledRefresh = () => {
       const now = Date.now();
       if (now - lastInstanceRefreshAt < 400) return;
       lastInstanceRefreshAt = now;
-      void refreshRunStatus(selectedRun.id);
+      void refreshJobRunStatus(selectedRun.jobId, runSeq);
     };
     void client
       .connectUntilReady({
-        url: `/api/v1/graph/run/${encodeURIComponent(selectedRun.id)}/events`,
+        url: `/api/v1/job/${encodeURIComponent(selectedRun.jobId)}/graph-run/events`,
         // Resume from the buffer tail; the server's Last-Event-ID is now an
         // in-memory buffer seq, not a file line count. The SSE client overwrites
         // this with the server-sent `id:` (seq) on any subsequent reconnect.
@@ -945,11 +955,10 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
           // exclusively from a (throttled) re-fetch of the run snapshot, so a
           // replayed historical event can never rewind the live progress. The
           // event only decides *when* to re-fetch. progressUpdated/error refetch
-          // immediately (terminal transition + edges, also refresh the run list);
-          // instance/edge/loop lifecycle events refetch throttled.
+          // immediately for terminal transitions and edge state; instance/edge/
+          // loop lifecycle events refetch throttled.
           if (graphEvent.type === 'progressUpdated' || graphEvent.type === 'error') {
-            void loadRuns();
-            void refreshRunStatus(selectedRun.id);
+            void refreshJobRunStatus(selectedRun.jobId, runSeq);
             return;
           }
           if (
@@ -962,7 +971,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         },
         onError: (err) => setRunMessage(err.message),
         onResumePointGone: () => {
-          void refreshRunStatus(selectedRun.id);
+          void refreshJobRunStatus(selectedRun.jobId, runSeq);
         },
       })
       .catch((err) => setRunMessage(err instanceof Error ? err.message : String(err)));
@@ -971,11 +980,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       client.disconnect();
       if (graphEventClientRef.current === client) graphEventClientRef.current = null;
     };
-  }, [loadRuns, refreshRunStatus, selectedRun?.id, selectedRun?.status]);
+  }, [refreshJobRunStatus, selectedRun?.jobId, selectedRun?.id, selectedRun?.status]);
 
   // ---- Workflow CRUD ----
   const selectWorkflow = useCallback(
     async (workflow: GraphWorkflow) => {
+      const seq = ++workflowLoadSeqRef.current;
       setMessage('');
       setErrors([]);
       exitRunView();
@@ -984,15 +994,11 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         if (!res.ok) throw new Error(await readError(res));
         const data = (await res.json()) as GraphWorkflowResponse;
         if (!data.workflow) throw new Error(t('graph.messages.workflowEmpty'));
+        if (seq !== workflowLoadSeqRef.current) return;
         setSelectedId(data.workflow.id);
         setName(data.workflow.name);
         setDescription(data.workflow.description || '');
-        // Legacy configs may not carry workspaceId inside config — fall back to
-        // the workflow record's top-level workspaceId so the selector shows it.
-        const loaded: GraphConfig = {
-          ...data.workflow.config,
-          workspaceId: data.workflow.config.workspaceId || data.workflow.workspaceId,
-        };
+        const loaded = canonicalWorkflowConfig(data.workflow);
         loadConfigIntoCanvas(loaded);
         setSavedFingerprint(fingerprint({
           name: data.workflow.name,
@@ -1001,6 +1007,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         }));
         setLibraryOpen(false);
       } catch (err) {
+        if (seq !== workflowLoadSeqRef.current) return;
         setMessage(err instanceof Error ? err.message : String(err));
       }
     },
@@ -1008,6 +1015,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   );
 
   const startNew = useCallback(() => {
+    workflowLoadSeqRef.current += 1;
     const config = cloneDefaultConfig(t, workspaceId, workspaceWorkdir);
     exitRunView();
     setSelectedId(null);
@@ -1024,11 +1032,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     if (selectedWorkflow) {
       setName(selectedWorkflow.name);
       setDescription(selectedWorkflow.description || '');
-      loadConfigIntoCanvas(selectedWorkflow.config);
+      const config = canonicalWorkflowConfig(selectedWorkflow);
+      loadConfigIntoCanvas(config);
       setSavedFingerprint(fingerprint({
         name: selectedWorkflow.name,
         description: selectedWorkflow.description || '',
-        config: selectedWorkflow.config,
+        config,
       }));
       setMessage(t('graph.messages.resetToSaved'));
       return;
@@ -1106,14 +1115,13 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         }));
         setMessage(mode === 'create' ? t('graph.messages.workflowCreated') : t('graph.messages.workflowSaved'));
         await loadWorkflows();
-        await loadRuns();
       } catch (err) {
         setMessage(err instanceof Error ? err.message : String(err));
       } finally {
         setSaving(false);
       }
     },
-    [buildConfig, description, loadConfigIntoCanvas, loadRuns, loadWorkflows, name, selectedId, t, workspaceId],
+    [buildConfig, description, loadConfigIntoCanvas, loadWorkflows, name, selectedId, t, workspaceId],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -1196,7 +1204,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     setMessage('');
     setErrors([]);
     try {
-      const res = await fetch(`/api/v1/graph/run/${encodeURIComponent(selectedRun.id)}/version`, {
+      const res = await fetch(`/api/v1/job/${encodeURIComponent(selectedRun.jobId)}/graph-run/version`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config }),
@@ -1223,16 +1231,15 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       }
       setEditingRun(false);
       setMessage(t('graph.messages.runVersionSaved'));
-      await loadRuns();
-      await refreshRunStatus(selectedRun.id);
+      await refreshJobRunStatus(selectedRun.jobId);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
-  }, [buildConfig, description, loadRuns, name, refreshRunStatus, selectedRun, t]);
+  }, [buildConfig, description, name, refreshJobRunStatus, selectedRun, t]);
 
-  // Open a run directly in run-version edit mode (used by the ?graphEditRun
+  // Open a run directly in run-version edit mode (used by the ?graphEditJob
   // deep-link). Seeds the canvas from the run's current effective version.
   const openRunInEdit = useCallback(
     async (run: GraphRun) => {
@@ -1251,19 +1258,28 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     [description, loadConfigIntoCanvas, name, selectRun, t],
   );
 
-  // Consume the ?graphEditRun deep-link once runs are loaded: find the run and
-  // open it in edit mode, then strip the param so reloads don't re-trigger.
+  // Consume the ?graphEditJob deep-link once: fetch that run directly and open
+  // it in edit mode, then strip the param so reloads don't re-trigger.
   useEffect(() => {
     const intent = editRunIntentRef.current;
-    if (!intent || runs.length === 0) return;
+    if (!intent) return;
     editRunIntentRef.current = null;
-    const run = runs.find((r) => r.id === intent);
     const url = new URL(window.location.href);
-    url.searchParams.delete('graphEditRun');
+    url.searchParams.delete('graphEditJob');
     window.history.replaceState({}, '', url.toString());
-    if (run) void openRunInEdit(run);
-    else setRunMessage(t('graph.messages.runNotFound', { id: intent }));
-  }, [openRunInEdit, runs, t]);
+    void (async () => {
+      try {
+        const resp = await refreshJobRunStatus(intent);
+        if (resp?.run) {
+          await openRunInEdit(resp.run);
+        } else {
+          setRunMessage(t('graph.messages.runNotFound', { id: intent }));
+        }
+      } catch (err) {
+        setRunMessage(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  }, [openRunInEdit, refreshJobRunStatus, t]);
 
   // ---- Canvas editing handlers ----
   // Checkpoint history for the undoable changes React Flow streams here. Drag
@@ -1290,6 +1306,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         }
       }
       if (removed || dragStart || resizeStart) commitHistory();
+      if (removed || dragStart || resizeStart) clearValidationState();
       // React Flow's delete cascade skips nodes flagged `deletable: false` (the
       // loop entry/exit markers), so deleting a loop container would orphan them
       // on the canvas. Expand any removal to the full subtree and synthesize the
@@ -1311,20 +1328,24 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       }
       setNodes((prev) => repinLoopPorts(applyNodeChanges(effectiveChanges, prev) as QuartetFlowNode[]));
     },
-    [commitHistory],
+    [clearValidationState, commitHistory],
   );
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
       // A node removal cascades into edge removals in the same tick; the ref
       // dedup in commitHistory collapses the pair into one undo step.
-      if (changes.some((ch) => ch.type === 'remove')) commitHistory();
+      if (changes.some((ch) => ch.type === 'remove')) {
+        commitHistory();
+        clearValidationState();
+      }
       setEdges((prev) => applyEdgeChanges(changes, prev) as QuartetFlowEdge[]);
     },
-    [commitHistory],
+    [clearValidationState, commitHistory],
   );
   const onConnect = useCallback(
     (connection: Connection) => {
       commitHistory();
+      clearValidationState();
       setEdges((prev) => {
         const port = connection.sourceHandle === 'yes' || connection.sourceHandle === 'no' ? connection.sourceHandle : undefined;
         nodeCounterRef.current += 1;
@@ -1342,11 +1363,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         return addEdge(edge, prev) as QuartetFlowEdge[];
       });
     },
-    [commitHistory],
+    [clearValidationState, commitHistory],
   );
 
   const onAddNode = useCallback((type: GraphNodeType, position: { x: number; y: number }, parentId?: string | null) => {
     commitHistory();
+    clearValidationState();
     nodeCounterRef.current += 1;
     const id = `${type}-${nodeCounterRef.current}`;
     // A loop container can hold business nodes, ifElse, nested loops and the loop
@@ -1424,7 +1446,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     }
     setNodes((prev) => orderNodesByHierarchy([...prev, node, ...extra]));
     setSelectedNodeId(id);
-  }, [commitHistory]);
+  }, [clearValidationState, commitHistory]);
 
   // Reassign a node's loop membership after a drag. React Flow positions child
   // nodes relative to their parent, so when parentId changes we convert the
@@ -1434,6 +1456,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     // The drag that triggered this reparent already pushed a snapshot on its
     // leading edge (onNodesChange), so undo rewinds both the move and the
     // membership change together — don't snapshot again here.
+    clearValidationState();
     setNodes((prev) => {
       const absPos = (n: QuartetFlowNode): { x: number; y: number } => {
         let x = n.position.x;
@@ -1478,7 +1501,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       });
       return orderNodesByHierarchy(next);
     });
-  }, []);
+  }, [clearValidationState]);
 
   const patchGraphNode = useCallback((id: string, mutate: (gn: GraphNode) => GraphNode) => {
     setNodes((prev) =>
@@ -1491,20 +1514,23 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       // Coalesce by node + patched fields so typing into one field (e.g. title)
       // is a single undo step, while editing a different field starts a new one.
       commitHistory(`node:${id}:${Object.keys(patch).sort().join(',')}`);
+      clearValidationState();
       patchGraphNode(id, (gn) => ({ ...gn, ...patch }));
     },
-    [commitHistory, patchGraphNode],
+    [clearValidationState, commitHistory, patchGraphNode],
   );
   const onUpdateNodeConfig = useCallback(
     (id: string, patch: Partial<GraphNodeConfig>) => {
       commitHistory(`cfg:${id}:${Object.keys(patch).sort().join(',')}`);
+      clearValidationState();
       patchGraphNode(id, (gn) => ({ ...gn, config: { ...gn.config, ...patch } }));
     },
-    [commitHistory, patchGraphNode],
+    [clearValidationState, commitHistory, patchGraphNode],
   );
   const onDeleteNode = useCallback(
     (id: string) => {
       commitHistory();
+      clearValidationState();
       // Remove the node and its entire subtree (a loop's body + entry/exit
       // markers, including nested loops) — not just its direct children.
       const doomed = withDescendants(new Set([id]), nodesRef.current);
@@ -1512,7 +1538,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setEdges((prev) => prev.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)));
       setSelectedNodeId((cur) => (cur && doomed.has(cur) ? null : cur));
     },
-    [commitHistory],
+    [clearValidationState, commitHistory],
   );
 
   // Mint a `${prefix}-${n}` id that collides with neither the live canvas nor
@@ -1538,6 +1564,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     (selection: { nodes: QuartetFlowNode[]; edges: QuartetFlowEdge[] }, offset: number) => {
       if (selection.nodes.length === 0) return;
       commitHistory();
+      clearValidationState();
       const takenNodeIds = new Set(nodesRef.current.map((n) => n.id));
       const takenEdgeIds = new Set(edgesRef.current.map((e) => e.id));
       const cloned = cloneSelection(selection, mintId, takenNodeIds, takenEdgeIds, offset);
@@ -1550,7 +1577,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       const firstRoot = cloned.rootIds[0] ?? null;
       if (firstRoot) setSelectedNodeId(firstRoot);
     },
-    [commitHistory, mintId],
+    [clearValidationState, commitHistory, mintId],
   );
 
   // Resolve the directly-selected node ids: every canvas-multi-selected node
@@ -1602,16 +1629,18 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       // set so typing collapses, while add/remove/toggle changes the key set and
       // starts a fresh undo step.
       commitHistory(`vars:${Object.keys(variables).sort().join(',')}|${[...disabledVars].sort().join(',')}`);
+      clearValidationState();
       setMeta((prev) => ({ ...prev, variables, disabledVars }));
     },
-    [commitHistory],
+    [clearValidationState, commitHistory],
   );
   const onUpdateRunConfig = useCallback(
     (patch: Partial<GraphRunConfig>) => {
       commitHistory(`runcfg:${Object.keys(patch).sort().join(',')}`);
+      clearValidationState();
       setMeta((prev) => ({ ...prev, runConfig: { ...prev.runConfig, ...patch } }));
     },
-    [commitHistory],
+    [clearValidationState, commitHistory],
   );
   // Viewport (pan/zoom) is pure view state — never an undoable edit.
   const onViewportChange = useCallback((viewport: Viewport) => {
@@ -1697,12 +1726,24 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         throw new Error(t('graph.messages.configNeedsNodesEdges'));
       }
       loadConfigIntoCanvas(parsed);
+      setErrors([]);
+      void validateConfigValue(parsed);
       setMessage(t('graph.messages.jsonApplied'));
       setViewMode('canvas');
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     }
-  }, [jsonText, loadConfigIntoCanvas, t]);
+  }, [jsonText, loadConfigIntoCanvas, t, validateConfigValue]);
+
+  const selectWorkspace = useCallback(
+    (ws: WorkspaceItem) => {
+      commitHistory('workspace');
+      clearValidationState();
+      setMeta((prev) => ({ ...prev, workspaceId: ws.id, workdir: ws.workdir }));
+      setWsDropdownOpen(false);
+    },
+    [clearValidationState, commitHistory],
+  );
 
   const canvasNodes = viewingRun && replayFlow ? markEditable(replayFlow.nodes) : nodes;
   const canvasEdges = viewingRun && replayFlow ? replayFlow.edges : edges;
@@ -1752,7 +1793,6 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                 className="graph-sidebar-icon-btn"
                 onClick={() => {
                   void loadWorkflows();
-                  void loadRuns();
                 }}
                 title={t('graph.sidebar.refresh')}
                 aria-label={t('graph.sidebar.refresh')}
@@ -1838,27 +1878,44 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   {wsDropdownOpen && (
                     <div className="graph-ws-dropdown">
                       {allWorkspaces.map((ws) => (
-                        <div
+                        <button
                           key={ws.id}
+                          type="button"
                           className={`graph-ws-item${meta.workspaceId === ws.id ? ' active' : ''}`}
                           data-testid="graph-workspace-item"
                           data-workspace-id={ws.id}
-                          onClick={() => {
-                            setMeta((prev) => ({ ...prev, workspaceId: ws.id, workdir: ws.workdir }));
-                            setWsDropdownOpen(false);
-                          }}
+                          onClick={() => selectWorkspace(ws)}
                         >
                           <span className="graph-ws-item-dot" style={{ background: workspaceColor(ws) }} />
                           <span className="graph-ws-item-title">{ws.title || ws.id}</span>
                           <span className="graph-ws-item-path">{ws.workdir}</span>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )}
                 </div>
               )}
               {dirty ? <span className="graph-dirty-badge" data-testid="graph-dirty-badge">{t('graph.editor.unsaved')}</span> : <span className="graph-clean-badge" data-testid="graph-clean-badge">{t('graph.editor.saved')}</span>}
-              <input className="graph-name-input" data-testid="graph-name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('graph.editor.namePlaceholder')} />
+              <input
+                className="graph-name-input"
+                data-testid="graph-name-input"
+                value={name}
+                onChange={(e) => {
+                  clearValidationState();
+                  setName(e.target.value);
+                }}
+                placeholder={t('graph.editor.namePlaceholder')}
+              />
+              <input
+                className="graph-desc-input"
+                data-testid="graph-description-input"
+                value={description}
+                onChange={(e) => {
+                  clearValidationState();
+                  setDescription(e.target.value);
+                }}
+                placeholder={t('graph.editor.descPlaceholder')}
+              />
             </div>
             <div className="graph-editor-actions">
               <div className="graph-view-toggle">
@@ -2014,9 +2071,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
             )}
           </div>
 
-          {(message || errors.length > 0) && (
+          {(message || runMessage || agentListError || workspaceListError || errors.length > 0) && (
             <div className={`graph-status ${errors.length > 0 ? 'error' : ''}`} data-testid="graph-status">
               {message && <div data-testid="graph-message">{message}</div>}
+              {!viewingRun && runMessage && <div data-testid="graph-run-message">{runMessage}</div>}
+              {agentListError && <div data-testid="graph-agent-list-error">{t('graph.messages.agentListFailed', { detail: agentListError })}</div>}
+              {workspaceListError && <div data-testid="graph-workspace-list-error">{t('graph.messages.workspaceListFailed', { detail: workspaceListError })}</div>}
               {errors.length > 0 && (
                 <ul data-testid="graph-error-list">
                   {errors.map((err, index) => (

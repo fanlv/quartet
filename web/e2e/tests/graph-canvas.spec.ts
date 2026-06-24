@@ -1,3 +1,6 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
+
 import { expect, test, type APIRequestContext, type Page } from '../fixtures/test'
 import { e2eAuthToken } from '../fixtures/e2e-environment'
 
@@ -15,8 +18,6 @@ import { e2eAuthToken } from '../fixtures/e2e-environment'
 // node) rather than model text.
 
 const AUTH_HEADERS = { 'X-AGENT-AUTH': e2eAuthToken }
-const WORKSPACE_ID = 'ws-1'
-
 type GraphConfig = {
   name?: string
   nodes: Array<Record<string, unknown>>
@@ -34,9 +35,39 @@ type GraphWorkflowSummary = {
   name: string
 }
 
+type GraphWorkspace = {
+  workspaceId: string
+  workdir: string
+}
+
+type E2ERunInfo = {
+  localMemory: string
+}
+
+async function getE2ERunInfo(): Promise<E2ERunInfo> {
+  const runDir = process.env.QUARTET_E2E_RUN_DIR
+  if (!runDir) throw new Error('QUARTET_E2E_RUN_DIR is not set; E2E global setup did not run')
+  const raw = await fs.readFile(path.join(runDir, 'env.json'), 'utf8')
+  return JSON.parse(raw) as E2ERunInfo
+}
+
+async function createGraphWorkspace(request: APIRequestContext, name: string): Promise<GraphWorkspace> {
+  const { localMemory } = await getE2ERunInfo()
+  const workdir = path.join(localMemory, `graph-${name}-${Date.now()}`)
+  await fs.mkdir(workdir, { recursive: true })
+  const res = await request.post('/api/v1/workspace/create', {
+    headers: AUTH_HEADERS,
+    data: { title: `E2E Graph ${name}`, description: 'E2E graph workspace', workdir },
+  })
+  expect(res.ok(), `workspace create failed: ${res.status()} ${await res.text()}`).toBeTruthy()
+  const created = await res.json()
+  expect(created.id).toMatch(/^ws-/)
+  return { workspaceId: created.id as string, workdir }
+}
+
 // A minimal, valid pure-Shell graph: start -> Shell(echo) -> end. Node ids are
 // stable so the test can assert canvas selectors and persisted layout.
-function linearShellConfig(): GraphConfig {
+function linearShellConfig(workspace: GraphWorkspace): GraphConfig {
   return {
     nodes: [
       { id: 'start', type: 'start', title: 'Start', layout: { x: 80, y: 160 } },
@@ -50,20 +81,23 @@ function linearShellConfig(): GraphConfig {
     variables: {},
     disabledVars: [],
     runConfig: { concurrencyLimit: 4 },
-    workspaceId: WORKSPACE_ID,
+    workspaceId: workspace.workspaceId,
+    workdir: workspace.workdir,
   }
 }
 
-async function openGraphCanvas(page: Page) {
+async function openGraphCanvas(page: Page, request: APIRequestContext, name = 'canvas'): Promise<GraphWorkspace> {
+  const workspace = await createGraphWorkspace(request, name)
   await page.addInitScript((token) => {
     localStorage.setItem('quartet.x_auth_token', token)
     localStorage.setItem('quartet-language', 'en')
   }, e2eAuthToken)
-  await page.goto(`/?workspaceId=${WORKSPACE_ID}&view=graph`)
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
   await expect(page.getByTestId('auth-gate')).toHaveCount(0)
   // The default config (start -> Shell -> end) renders on the canvas at mount.
   await expect(page.getByTestId('graph-node-start')).toBeVisible()
   await expect(page.getByTestId('graph-validate')).toBeVisible()
+  return workspace
 }
 
 async function applyJsonConfig(page: Page, config: GraphConfig) {
@@ -84,14 +118,14 @@ async function findWorkflowByName(request: APIRequestContext, name: string): Pro
 // Poll the run status API until it reaches a terminal status (or times out).
 async function waitForRunStatus(
   request: APIRequestContext,
-  runId: string,
+  jobId: string,
   terminal: string[],
   timeoutMs = 30_000,
 ): Promise<{ status: string; progress?: { totalCount: number; completedCount: number } }> {
   const deadline = Date.now() + timeoutMs
   let last = 'unknown'
   while (Date.now() < deadline) {
-    const res = await request.get(`/api/v1/graph/run/${encodeURIComponent(runId)}`, { headers: AUTH_HEADERS })
+    const res = await request.get(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run`, { headers: AUTH_HEADERS })
     expect(res.ok(), `run status fetch failed: ${res.status()} ${await res.text()}`).toBeTruthy()
     const body = await res.json()
     last = body.run?.status ?? 'unknown'
@@ -100,15 +134,15 @@ async function waitForRunStatus(
     }
     await new Promise((r) => setTimeout(r, 400))
   }
-  throw new Error(`run ${runId} did not reach ${terminal.join('/')} within ${timeoutMs}ms (last=${last})`)
+  throw new Error(`job ${jobId} graph run did not reach ${terminal.join('/')} within ${timeoutMs}ms (last=${last})`)
 }
 
 // ---------------------------------------------------------------------------
 // Task 18 — create / save / run / error-locate
 // ---------------------------------------------------------------------------
 
-test('graph canvas: create and save a workflow, then it appears in the library', async ({ page }) => {
-  await openGraphCanvas(page)
+test('graph canvas: create and save a workflow, then it appears in the library', async ({ page, request }) => {
+  await openGraphCanvas(page, request, 'create')
 
   const unique = `e2e-create-${Date.now()}`
   await page.getByTestId('graph-name-input').fill(unique)
@@ -123,7 +157,7 @@ test('graph canvas: create and save a workflow, then it appears in the library',
 })
 
 test('graph canvas: run a pure-Shell workflow to completion', async ({ page, request }) => {
-  await openGraphCanvas(page)
+  await openGraphCanvas(page, request, 'run')
   await page.getByTestId('graph-name-input').fill(`e2e-run-${Date.now()}`)
 
   // Capture the run id from the start response so we can poll the backend.
@@ -145,10 +179,11 @@ test('graph canvas: run a pure-Shell workflow to completion', async ({ page, req
   await expect(page).toHaveURL(new RegExp(`jobId=${jobId}`), { timeout: 10_000 })
   await expect(page).toHaveURL(/^(?!.*view=graph).*$/)
   await expect(page.getByTestId('graph-loop-progress')).toBeVisible({ timeout: 10_000 })
+  await page.getByTestId('graph-loop-progress').click()
   await expect(page.getByTestId('graph-loop-canvas')).toBeVisible({ timeout: 10_000 })
 
   // The run reaches `completed`; a pure-Shell graph needs no credentials.
-  const { status, progress } = await waitForRunStatus(request, runId, ['completed', 'failed', 'timedOut'])
+  const { status, progress } = await waitForRunStatus(request, jobId, ['completed', 'failed', 'timedOut'])
   expect(status, 'pure-shell graph should complete').toBe('completed')
   expect(progress, 'completed run should report progress').toBeTruthy()
   expect(progress!.completedCount).toBe(progress!.totalCount)
@@ -161,8 +196,8 @@ test('graph canvas: run a pure-Shell workflow to completion', async ({ page, req
   await expect(miniShell).toHaveClass(/run-succeeded/, { timeout: 15_000 })
 })
 
-test('graph canvas: invalid config surfaces located errors and focuses the node', async ({ page }) => {
-  await openGraphCanvas(page)
+test('graph canvas: invalid config surfaces located errors and focuses the node', async ({ page, request }) => {
+  const workspace = await openGraphCanvas(page, request, 'invalid')
 
   // Build an invalid graph via the JSON view: the shell node has no outgoing
   // edge, so it cannot reach `end` — a structural violation that pins to a node.
@@ -176,7 +211,8 @@ test('graph canvas: invalid config surfaces located errors and focuses the node'
     variables: {},
     disabledVars: [],
     runConfig: { concurrencyLimit: 4 },
-    workspaceId: WORKSPACE_ID,
+    workspaceId: workspace.workspaceId,
+    workdir: workspace.workdir,
   }
 
   await page.getByTestId('graph-view-json').click()
@@ -191,7 +227,35 @@ test('graph canvas: invalid config surfaces located errors and focuses the node'
 
   // Clicking an error link focuses the canvas (no crash; node stays present).
   await errorLinks.first().click()
-  await expect(page.getByTestId('graph-node-shell')).toBeVisible()
+  await expect(page.getByTestId('graph-node-shell')).toBeAttached()
+})
+
+test('graph canvas: applying JSON refreshes validation and clears stale errors after edits', async ({ page, request }) => {
+  const workspace = await openGraphCanvas(page, request, 'json-validation')
+
+  const invalid: GraphConfig = {
+    nodes: [
+      { id: 'start', type: 'start', title: 'Start', layout: { x: 80, y: 160 } },
+      { id: 'shell', type: 'shell', title: 'Echo', config: { script: 'echo hi' }, layout: { x: 320, y: 160 } },
+      { id: 'end', type: 'end', title: 'End', layout: { x: 560, y: 160 } },
+    ],
+    edges: [{ id: 'edge-start-shell', sourceNodeId: 'start', targetNodeId: 'shell' }],
+    variables: {},
+    disabledVars: [],
+    runConfig: { concurrencyLimit: 4 },
+    workspaceId: workspace.workspaceId,
+    workdir: workspace.workdir,
+  }
+
+  await applyJsonConfig(page, invalid)
+  await expect(page.getByTestId('graph-error-list')).toBeVisible({ timeout: 10_000 })
+
+  await page.getByTestId('graph-name-input').fill(`e2e-stale-cleared-${Date.now()}`)
+  await expect(page.getByTestId('graph-error-list')).toHaveCount(0)
+
+  await applyJsonConfig(page, linearShellConfig(workspace))
+  await expect(page.getByTestId('graph-message')).toContainText('Validation passed', { timeout: 10_000 })
+  await expect(page.getByTestId('graph-error-list')).toHaveCount(0)
 })
 
 // ---------------------------------------------------------------------------
@@ -199,11 +263,11 @@ test('graph canvas: invalid config surfaces located errors and focuses the node'
 // ---------------------------------------------------------------------------
 
 test('graph canvas: layout persists across save and reopen', async ({ page, request }) => {
-  await openGraphCanvas(page)
+  const workspace = await openGraphCanvas(page, request, 'layout')
 
   // Apply a config with a distinctive shell position via the JSON view so the
   // assertion does not depend on flaky drag coordinates.
-  const cfg = linearShellConfig()
+  const cfg = linearShellConfig(workspace)
   cfg.nodes[1] = { ...cfg.nodes[1], layout: { x: 444, y: 222 } }
   const unique = `e2e-layout-${Date.now()}`
   cfg.name = unique
@@ -233,12 +297,12 @@ test('graph canvas: layout persists across save and reopen', async ({ page, requ
 
   // Reopen in the UI: selecting the workflow row restores the canvas cleanly.
   await page.getByTestId(`graph-workflow-row-${wf.id}`).click()
-  await expect(page.getByTestId('graph-node-shell')).toBeVisible()
+  await expect(page.getByTestId('graph-node-shell')).toBeAttached()
   await expect(page.getByTestId('graph-clean-badge')).toBeVisible()
 })
 
-test('graph canvas: historical run replays read-only via ?graphEditRun deep-link', async ({ page, request }) => {
-  await openGraphCanvas(page)
+test('graph canvas: historical run replays read-only via ?graphEditJob deep-link', async ({ page, request }) => {
+  const workspace = await openGraphCanvas(page, request, 'deeplink')
   await page.getByTestId('graph-name-input').fill(`e2e-replay-${Date.now()}`)
 
   const [startResp] = await Promise.all([
@@ -246,16 +310,19 @@ test('graph canvas: historical run replays read-only via ?graphEditRun deep-link
     page.getByTestId('graph-run').click(),
   ])
   expect(startResp.ok()).toBeTruthy()
-  const runId: string = (await startResp.json()).run?.id
+  const startBody = await startResp.json()
+  const runId: string = startBody.run?.id
+  const jobId: string = startBody.run?.jobId
   expect(runId).toBeTruthy()
+  expect(jobId).toMatch(/^job-/)
 
-  await waitForRunStatus(request, runId, ['completed', 'failed', 'timedOut'])
+  await waitForRunStatus(request, jobId, ['completed', 'failed', 'timedOut'])
 
   // Starting the run navigated to the Chat page. The canvas page no longer
   // browses runs inline; the only way back to a run on the canvas is the
-  // ?graphEditRun deep-link (the GraphLoop "Edit" button uses it). Navigating
+  // ?graphEditJob deep-link (the GraphLoop "Edit" button uses it). Navigating
   // there opens the run in read-only replay (a completed run is frozen).
-  await page.goto(`/?workspaceId=${WORKSPACE_ID}&view=graph&graphEditRun=${runId}`)
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph&graphEditJob=${jobId}`)
   // The shell node re-renders carrying its run-state class (run replay). React
   // Flow may not have run fitView yet, so assert attachment + run-state rather
   // than viewport visibility.
@@ -276,11 +343,11 @@ test('graph canvas: historical run replays read-only via ?graphEditRun deep-link
 // ---------------------------------------------------------------------------
 
 test('graph config management: save-as-new creates an independent copy', async ({ page, request }) => {
-  await openGraphCanvas(page)
+  const workspace = await openGraphCanvas(page, request, 'save-as')
 
   const originalName = `e2e-copy-source-${Date.now()}`
   const copyName = `e2e-copy-target-${Date.now()}`
-  const cfg = linearShellConfig()
+  const cfg = linearShellConfig(workspace)
   cfg.nodes[1] = { ...cfg.nodes[1], config: { script: 'echo original-copy' }, layout: { x: 380, y: 180 } }
 
   await applyJsonConfig(page, cfg)
@@ -289,7 +356,7 @@ test('graph config management: save-as-new creates an independent copy', async (
   await expect(page.getByTestId('graph-clean-badge')).toBeVisible({ timeout: 10_000 })
   const original = await findWorkflowByName(request, originalName)
 
-  const editedCopy = linearShellConfig()
+  const editedCopy = linearShellConfig(workspace)
   editedCopy.nodes[1] = { ...editedCopy.nodes[1], config: { script: 'echo copied-workflow' }, layout: { x: 620, y: 240 } }
   await applyJsonConfig(page, editedCopy)
   await expect(page.getByTestId('graph-dirty-badge')).toBeVisible()
@@ -316,10 +383,10 @@ test('graph config management: save-as-new creates an independent copy', async (
 })
 
 test('graph config management: dirty badge responds to config edits and reset restores saved state', async ({ page, request }) => {
-  await openGraphCanvas(page)
+  const workspace = await openGraphCanvas(page, request, 'reset')
 
   const name = `e2e-reset-${Date.now()}`
-  const cfg = linearShellConfig()
+  const cfg = linearShellConfig(workspace)
   cfg.nodes[1] = { ...cfg.nodes[1], config: { script: 'echo saved-state' }, layout: { x: 300, y: 160 } }
   await applyJsonConfig(page, cfg)
   await page.getByTestId('graph-name-input').fill(name)
@@ -327,7 +394,7 @@ test('graph config management: dirty badge responds to config edits and reset re
   await expect(page.getByTestId('graph-clean-badge')).toBeVisible({ timeout: 10_000 })
   const workflow = await findWorkflowByName(request, name)
 
-  const edited = linearShellConfig()
+  const edited = linearShellConfig(workspace)
   edited.nodes[1] = { ...edited.nodes[1], config: { script: 'echo dirty-state' }, layout: { x: 300, y: 160 } }
   edited.variables = { dirty_var: '1' }
   edited.runConfig = { concurrencyLimit: 2 }
@@ -357,7 +424,7 @@ test('graph config management: dirty badge responds to config edits and reset re
 
 // A graph whose shell exits non-zero, so the run reaches `failed` — a resumable
 // (editable) terminal state, unlike a naturally `completed` run.
-function failingShellConfig(): GraphConfig {
+function failingShellConfig(workspace: GraphWorkspace): GraphConfig {
   return {
     nodes: [
       { id: 'start', type: 'start', title: 'Start', layout: { x: 80, y: 160 } },
@@ -371,16 +438,17 @@ function failingShellConfig(): GraphConfig {
     variables: {},
     disabledVars: [],
     runConfig: { concurrencyLimit: 4 },
-    workspaceId: WORKSPACE_ID,
+    workspaceId: workspace.workspaceId,
+    workdir: workspace.workdir,
   }
 }
 
 test('graph run: edit a failed run in place and save a new version', async ({ page, request }) => {
-  await openGraphCanvas(page)
+  const workspace = await openGraphCanvas(page, request, 'run-edit')
 
   // Seed a failing graph via JSON and launch it.
   await page.getByTestId('graph-view-json').click()
-  await page.getByTestId('graph-json-textarea').fill(JSON.stringify(failingShellConfig()))
+  await page.getByTestId('graph-json-textarea').fill(JSON.stringify(failingShellConfig(workspace)))
   await page.getByTestId('graph-json-apply').click()
   await page.getByTestId('graph-name-input').fill(`e2e-run-edit-${Date.now()}`)
 
@@ -389,15 +457,18 @@ test('graph run: edit a failed run in place and save a new version', async ({ pa
     page.getByTestId('graph-run').click(),
   ])
   expect(startResp.ok(), `run start failed: ${startResp.status()} ${await startResp.text()}`).toBeTruthy()
-  const runId: string = (await startResp.json()).run?.id
+  const startBody = await startResp.json()
+  const runId: string = startBody.run?.id
+  const jobId: string = startBody.run?.jobId
   expect(runId, 'run start returned no run id').toBeTruthy()
+  expect(jobId, 'run start returned no jobId').toMatch(/^job-/)
 
   // Wait for the run to fail (resumable/editable), then reselect for fresh state.
-  const { status } = await waitForRunStatus(request, runId, ['failed', 'completed', 'timedOut'])
+  const { status } = await waitForRunStatus(request, jobId, ['failed', 'completed', 'timedOut'])
   expect(status, 'a shell that exits 1 should fail the run').toBe('failed')
 
   // Confirm the baseline version before editing.
-  const before = await request.get(`/api/v1/graph/run/${encodeURIComponent(runId)}`, { headers: AUTH_HEADERS })
+  const before = await request.get(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run`, { headers: AUTH_HEADERS })
   expect(before.ok()).toBeTruthy()
   const baselineVersion: number = (await before.json()).run?.currentVersion
   expect(baselineVersion).toBe(1)
@@ -405,7 +476,7 @@ test('graph run: edit a failed run in place and save a new version', async ({ pa
   // Launching navigated to the Chat page. Reopen the failed run via the
   // deep-link (the canvas no longer browses runs inline). A failed run is
   // editable, so this lands directly in edit mode.
-  await page.goto(`/?workspaceId=${WORKSPACE_ID}&view=graph&graphEditRun=${runId}`)
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph&graphEditJob=${jobId}`)
 
   // The failed run is editable: the run-version edit badge + save are present.
   await expect(page.getByTestId('graph-run-editing-badge')).toBeVisible({ timeout: 10_000 })
@@ -415,7 +486,7 @@ test('graph run: edit a failed run in place and save a new version', async ({ pa
   // the run advances to a new version that future instances would use.
   const [versionResp] = await Promise.all([
     page.waitForResponse(
-      (r) => r.url().includes(`/api/v1/graph/run/${runId}/version`) && r.request().method() === 'PUT',
+      (r) => r.url().includes(`/api/v1/job/${jobId}/graph-run/version`) && r.request().method() === 'PUT',
     ),
     page.getByTestId('graph-save-run-version').click(),
   ])
@@ -423,7 +494,7 @@ test('graph run: edit a failed run in place and save a new version', async ({ pa
 
   // The editing badge clears and the persisted run carries the new version.
   await expect(page.getByTestId('graph-run-editing-badge')).toHaveCount(0)
-  const after = await request.get(`/api/v1/graph/run/${encodeURIComponent(runId)}`, { headers: AUTH_HEADERS })
+  const after = await request.get(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run`, { headers: AUTH_HEADERS })
   expect(after.ok()).toBeTruthy()
   const afterBody = await after.json()
   expect(afterBody.run?.currentVersion).toBe(baselineVersion + 1)
@@ -431,7 +502,7 @@ test('graph run: edit a failed run in place and save a new version', async ({ pa
 })
 
 test('graph run: version edit rejects changing a succeeded node config (backend safety net)', async ({ page, request }) => {
-  await openGraphCanvas(page)
+  const workspace = await openGraphCanvas(page, request, 'frozen')
 
   // start -> shellA (succeeds) -> shellB (fails) -> end. The run fails, but
   // shellA has a succeeded (frozen) instance. The frontend disables shellA's
@@ -451,7 +522,8 @@ test('graph run: version edit rejects changing a succeeded node config (backend 
     variables: {},
     disabledVars: [],
     runConfig: { concurrencyLimit: 1 },
-    workspaceId: WORKSPACE_ID,
+    workspaceId: workspace.workspaceId,
+    workdir: workspace.workdir,
   }
 
   await page.getByTestId('graph-view-json').click()
@@ -464,14 +536,17 @@ test('graph run: version edit rejects changing a succeeded node config (backend 
     page.getByTestId('graph-run').click(),
   ])
   expect(startResp.ok()).toBeTruthy()
-  const runId: string = (await startResp.json()).run?.id
+  const startBody = await startResp.json()
+  const runId: string = startBody.run?.id
+  const jobId: string = startBody.run?.jobId
   expect(runId).toBeTruthy()
-  const { status } = await waitForRunStatus(request, runId, ['failed', 'completed', 'timedOut'])
+  expect(jobId).toMatch(/^job-/)
+  const { status } = await waitForRunStatus(request, jobId, ['failed', 'completed', 'timedOut'])
   expect(status).toBe('failed')
 
   // Read the run's effective config, mutate the succeeded node's script, and PUT
   // it back. The route must return 400 with an error located to shellA.
-  const statusRes = await request.get(`/api/v1/graph/run/${encodeURIComponent(runId)}`, { headers: AUTH_HEADERS })
+  const statusRes = await request.get(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run`, { headers: AUTH_HEADERS })
   expect(statusRes.ok()).toBeTruthy()
   const run = (await statusRes.json()).run
   const versions = run.versions ?? []
@@ -480,7 +555,7 @@ test('graph run: version edit rejects changing a succeeded node config (backend 
   const a = edited.nodes.find((n: { id: string }) => n.id === 'shellA')
   a.config = { ...(a.config ?? {}), script: 'echo changed' }
 
-  const putRes = await request.put(`/api/v1/graph/run/${encodeURIComponent(runId)}/version`, {
+  const putRes = await request.put(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run/version`, {
     headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
     data: { config: edited },
   })
@@ -495,9 +570,9 @@ test('graph run: version edit rejects changing a succeeded node config (backend 
 // explicit collapse / expand control, and selecting a node reopens it.
 // ---------------------------------------------------------------------------
 
-test('graph mobile: inspector bottom drawer can collapse and reopens on node selection', async ({ page }) => {
+test('graph mobile: inspector bottom drawer can collapse and reopens on node selection', async ({ page, request }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await openGraphCanvas(page)
+  await openGraphCanvas(page, request, 'mobile')
 
   const inspector = page.getByTestId('graph-inspector')
   const toggle = page.getByTestId('graph-inspector-drawer-toggle')

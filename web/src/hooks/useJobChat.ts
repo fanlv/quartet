@@ -77,6 +77,16 @@ function userLoopVariables(vars: Record<string, string> | undefined | null): Rec
   return out;
 }
 
+function isIgnorableNetworkError(err: unknown): boolean {
+  const message = (err instanceof Error ? err.message : String(err || '')).trim().toLowerCase();
+  if (!message) return false;
+  return (
+    message === 'network error' ||
+    message === 'failed to fetch' ||
+    message.includes('networkerror when attempting to fetch resource')
+  );
+}
+
 async function readHTTPError(response: Response, prefix?: string): Promise<string> {
   const body = await response.text().catch(() => '');
   const trimmed = body.trim();
@@ -2167,6 +2177,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         onEvent: (event) => handleEventRef.current(event),
         onError: (err) => {
           if (cancelled) return;
+          if (isIgnorableNetworkError(err)) return;
           setError(err.message || String(err));
         },
         onDisconnect: () => {
@@ -2231,7 +2242,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   }, [jobId, jobNotFound, snapshotReady, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistory]);
 
   // Graph mode: keep node sessions live. The job-events SSE above carries no
-  // graph traffic (graph runs emit on their own /graph/run/:runId/events
+  // graph traffic (graph runs emit on their own /job/:jobId/graph-run/events
   // stream), so subscribe separately while the run is in flight. We don't
   // re-stream agent token deltas into messages here — GraphLoopProgress already
   // animates the run, and the message view is the per-node conversation. On any
@@ -2242,7 +2253,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   useEffect(() => {
     graphSseRef.current?.disconnect();
     graphSseRef.current = null;
-    if (!isGraph || !graphRunId) return;
+    if (!isGraph || !graphRunId || !jobId) return;
 
     let cancelled = false;
     let lastInstanceRefreshAt = 0;
@@ -2256,14 +2267,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       let archivedInstances: Record<string, GraphInstanceState> | undefined;
       let runStatus: GraphRunStatus | undefined;
       try {
-        const res = await fetch(apiUrl(`/graph/run/${encodeURIComponent(graphRunId)}`));
+        const res = await fetch(apiUrl(`/job/${encodeURIComponent(jobId)}/graph-run`));
         if (!res.ok) return;
         const data = (await res.json()) as GraphRunStatusResponse;
         instances = data.instances || [];
         archivedInstances = data.run?.archivedInstances;
         runStatus = data.run?.status;
       } catch (err) {
-        console.error(`[graph-sse] reconcile fetch failed for run ${graphRunId}:`, err);
+        console.error(`[graph-sse] reconcile fetch failed for job ${jobId} run ${graphRunId}:`, err);
         return;
       }
       if (cancelled || seq !== reconcileSeq) return;
@@ -2347,7 +2358,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       scheduleReconcile(true);
     };
     void client.connectUntilReady({
-      url: apiUrl(`/graph/run/${encodeURIComponent(graphRunId)}/events`),
+      url: apiUrl(`/job/${encodeURIComponent(jobId)}/graph-run/events`),
       initialLastEventId: '0',
       onEvent: (raw) => {
         const evt = raw as unknown as GraphEvent;
@@ -2391,7 +2402,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       client.disconnect();
       if (graphSseRef.current === client) graphSseRef.current = null;
     };
-  }, [isGraph, graphRunId, apiUrl, loadHistory, setLoopSessions, applyActiveSessionSelection]);
+  }, [isGraph, graphRunId, jobId, apiUrl, loadHistory, setLoopSessions, applyActiveSessionSelection]);
 
   // Send interactive message.
   //
@@ -2554,6 +2565,10 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       // Events come through the /events SSE connection
     } catch (err) {
       console.error('[sendMessage] error:', err);
+      const ignoreNetworkError = isIgnorableNetworkError(err);
+      if (ignoreNetworkError) {
+        reportDisconnect();
+      }
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === userMessageId
@@ -2561,10 +2576,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             : msg
         )
       );
-      setError(err instanceof Error ? err.message : 'Failed to send message');
       setIsLoading(false);
+      if (ignoreNetworkError) {
+        return;
+      }
+      setError(err instanceof Error ? err.message : 'Failed to send message');
     }
-  }, [jobId, isPublic, clearPendingCommandWatchdog, applyCommandEvent]);
+  }, [jobId, isPublic, clearPendingCommandWatchdog, applyCommandEvent, reportDisconnect]);
 
   // Cleanup watchdog on unmount.
   useEffect(() => {
@@ -3166,14 +3184,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             let graphInstances: GraphInstanceState[] = [];
             let graphArchived: Record<string, GraphInstanceState> | undefined;
             try {
-              const runRes = await fetch(apiUrl(`/graph/run/${encodeURIComponent(runId)}`));
+              const runRes = await fetch(apiUrl(`/job/${encodeURIComponent(job.id)}/graph-run`));
               if (runRes.ok) {
                 const runData = (await runRes.json()) as GraphRunStatusResponse;
                 graphInstances = runData.instances || [];
                 graphArchived = runData.run?.archivedInstances;
               }
             } catch (err) {
-              console.error(`[hydration] Failed to load graph run ${runId}:`, err);
+              console.error(`[hydration] Failed to load graph run ${runId} for job ${job.id}:`, err);
             }
             if (!cancelled) {
               const entries = graphSessionEntries(graphInstances, graphArchived);
@@ -3271,6 +3289,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       .catch((err: Error & { status?: number }) => {
         if (cancelled) return;
         const status = err?.status;
+        if (!status && isIgnorableNetworkError(err)) {
+          console.error(`[JobChat] ignored transient network error while loading job: jobId=${existingJobId} err=${err?.message || String(err)}`);
+          reportDisconnect();
+          return;
+        }
         if (status === 404) {
           // Stale jobId from URL / localStorage — the Job has been deleted
           // (or never existed). Surface a dedicated state so the parent can

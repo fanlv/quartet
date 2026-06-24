@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -25,6 +26,7 @@ export function DeletableEdge({
   style,
   data,
 }: EdgeProps<QuartetFlowEdge>) {
+  const { t } = useTranslation();
   const { deleteElements } = useReactFlow();
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -63,8 +65,8 @@ export function DeletableEdge({
               className="qg-edge-delete"
               data-testid={`graph-edge-delete-${id}`}
               onClick={onDelete}
-              aria-label="Delete edge"
-              title="Delete edge"
+              aria-label={t('graph.canvas.deleteEdge')}
+              title={t('graph.canvas.deleteEdge')}
             >
               ×
             </button>

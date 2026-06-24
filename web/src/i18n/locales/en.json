@@ -900,10 +900,7 @@
       "closeLibrary": "Close",
       "loadingWorkflows": "Loading workflows...",
       "noWorkflows": "No graph workflows yet.",
-      "refresh": "Refresh",
-      "runs": "Runs",
-      "runHistory": "GraphRun History",
-      "noRunHistory": "No GraphRun history yet."
+      "refresh": "Refresh"
     },
     "editor": {
       "namePlaceholder": "Workflow name",
@@ -927,10 +924,7 @@
       "save": "Save",
       "create": "Create",
       "editingRunVersion": "Editing run version",
-      "applyToCanvas": "Apply to canvas",
-      "noRunSelected": "No run selected",
-      "runEventLog": "Run Event Log",
-      "selectRunHint": "Select a run to inspect persisted events. Running runs stream updates live."
+      "applyToCanvas": "Apply to canvas"
     },
     "defaultName": "New graph workflow",
     "nodeTitle": {
@@ -962,8 +956,11 @@
       "importNeedsNodesEdges": "imported file must include nodes[] and edges[]",
       "imported": "Imported. Validate before saving.",
       "configNeedsNodesEdges": "config must include nodes[] and edges[]",
-      "jsonApplied": "JSON applied to canvas.",
-      "nodesCopied": "Copied {{count}} node(s)."
+      "jsonApplied": "JSON applied to canvas. Validation refreshed.",
+      "nodesCopied": "Copied {{count}} node(s).",
+      "agentListInvalid": "agent list response is invalid",
+      "agentListFailed": "Agent list failed: {{detail}}",
+      "workspaceListFailed": "Workspace list failed: {{detail}}"
     },
     "dialogs": {
       "deleteWorkflowTitle": "Delete workflow",
@@ -1037,7 +1034,8 @@
       "ifElsePorts": "If-Else output ports",
       "connectTargets": "Connection targets",
       "undo": "Undo (Cmd/Ctrl+Z)",
-      "redo": "Redo (Cmd/Ctrl+Shift+Z)"
+      "redo": "Redo (Cmd/Ctrl+Shift+Z)",
+      "deleteEdge": "Delete edge"
     },
     "inspector": {
       "nodeConfig": "Node config",
@@ -1106,6 +1104,7 @@
       "condUseAdvanced": "Switch to advanced",
       "condUseBuilder": "Switch to builder",
       "condCannotSimplify": "The current expression uses parentheses, NOT, or mixed AND/OR and cannot be shown in the builder; edit it in advanced mode only.",
+      "condAdvancedPlaceholder": "{{verdict}} == \"PASS\" 且 {{score}} >= \"60\"",
       "condAdvancedHint": "Write the condition directly: reference variables as {{name}}, use 且 (AND) / 或 (OR) / 非 (NOT), parentheses allowed.",
       "condLeftPlaceholder": "Select or type a variable",
       "condValuePlaceholder": "Comparison value",

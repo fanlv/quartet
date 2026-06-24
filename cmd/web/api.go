@@ -97,16 +97,6 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	graph.PUT("/workflow/:workflowId", h.UpdateGraphWorkflow)
 	graph.DELETE("/workflow/:workflowId", h.DeleteGraphWorkflow)
 	graph.POST("/run/start", h.StartGraphRun)
-	graph.GET("/run/list", h.ListGraphRuns)
-	graph.GET("/run/:runId", h.GetGraphRunStatus)
-	graph.GET("/run/:runId/events", h.GraphRunEvents)
-	graph.POST("/run/:runId/stop", h.StopGraphRun)
-	graph.POST("/run/:runId/pause", h.PauseGraphRun)
-	graph.POST("/run/:runId/step-stop", h.StepStopGraphRun)
-	graph.POST("/run/:runId/cancel-stop", h.CancelStopGraphRun)
-	graph.POST("/run/:runId/resume", h.ResumeGraphRun)
-	graph.PUT("/run/:runId/version", h.UpdateGraphRunVersion)
-	graph.DELETE("/run/:runId", h.DeleteGraphRun)
 
 	// Job routes
 	jobGroup := api.Group("/job")
@@ -122,6 +112,15 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	jobGroup.POST("/:jobId/message", h.JobMessage)
 	jobGroup.POST("/:jobId/stop", h.JobStop)
 	jobGroup.GET("/:jobId/events", h.JobEvents)
+	jobGroup.GET("/:jobId/graph-run", h.GetJobGraphRunStatus)
+	jobGroup.GET("/:jobId/graph-run/events", h.JobGraphRunEvents)
+	jobGroup.POST("/:jobId/graph-run/stop", h.StopJobGraphRun)
+	jobGroup.POST("/:jobId/graph-run/pause", h.PauseJobGraphRun)
+	jobGroup.POST("/:jobId/graph-run/step-stop", h.StepStopJobGraphRun)
+	jobGroup.POST("/:jobId/graph-run/cancel-stop", h.CancelStopJobGraphRun)
+	jobGroup.POST("/:jobId/graph-run/resume", h.ResumeJobGraphRun)
+	jobGroup.PUT("/:jobId/graph-run/version", h.UpdateJobGraphRunVersion)
+	jobGroup.DELETE("/:jobId/graph-run", h.DeleteJobGraphRun)
 
 	// Workspace routes
 	wsGroup := api.Group("/workspace")

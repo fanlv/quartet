@@ -890,10 +890,7 @@
       "closeLibrary": "关闭",
       "loadingWorkflows": "正在加载工作流...",
       "noWorkflows": "暂无 Graph 工作流。",
-      "refresh": "刷新",
-      "runs": "运行",
-      "runHistory": "GraphRun 历史",
-      "noRunHistory": "暂无 GraphRun 历史。"
+      "refresh": "刷新"
     },
     "editor": {
       "namePlaceholder": "工作流名称",
@@ -917,10 +914,7 @@
       "save": "保存",
       "create": "创建",
       "editingRunVersion": "编辑运行版本中",
-      "applyToCanvas": "应用到画布",
-      "noRunSelected": "未选择运行",
-      "runEventLog": "运行事件日志",
-      "selectRunHint": "选择一个运行查看已持久化的事件。运行中的任务会实时推送更新。"
+      "applyToCanvas": "应用到画布"
     },
     "defaultName": "新建 Graph 工作流",
     "nodeTitle": {
@@ -952,8 +946,11 @@
       "importNeedsNodesEdges": "导入的文件必须包含 nodes[] 和 edges[]",
       "imported": "已导入。保存前请先校验。",
       "configNeedsNodesEdges": "配置必须包含 nodes[] 和 edges[]",
-      "jsonApplied": "JSON 已应用到画布。",
-      "nodesCopied": "已复制 {{count}} 个结点。"
+      "jsonApplied": "JSON 已应用到画布，已刷新校验结果。",
+      "nodesCopied": "已复制 {{count}} 个结点。",
+      "agentListInvalid": "Agent 列表响应无效",
+      "agentListFailed": "Agent 列表加载失败：{{detail}}",
+      "workspaceListFailed": "工作区列表加载失败：{{detail}}"
     },
     "dialogs": {
       "deleteWorkflowTitle": "删除工作流",
@@ -1027,7 +1024,8 @@
       "ifElsePorts": "If-Else 出端口",
       "connectTargets": "连线终点",
       "undo": "撤销 (Cmd/Ctrl+Z)",
-      "redo": "重做 (Cmd/Ctrl+Shift+Z)"
+      "redo": "重做 (Cmd/Ctrl+Shift+Z)",
+      "deleteEdge": "删除连线"
     },
     "inspector": {
       "nodeConfig": "结点配置",
@@ -1096,6 +1094,7 @@
       "condUseAdvanced": "切换到高级模式",
       "condUseBuilder": "切换到构建器",
       "condCannotSimplify": "当前表达式含括号、「非」或且/或混用，构建器无法表示，仅可在高级模式编辑。",
+      "condAdvancedPlaceholder": "{{verdict}} == \"PASS\" 且 {{score}} >= \"60\"",
       "condAdvancedHint": "直接编写条件表达式：变量用 {{变量名}}，逻辑词「且」「或」「非」，支持括号分组。",
       "condLeftPlaceholder": "选择或输入变量",
       "condValuePlaceholder": "比较值",

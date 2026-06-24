@@ -269,6 +269,11 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 	// A plain jobService.Stop would no-op (the job ID was never registered as a
 	// cancelable loop), so route hard-stop to the graph service instead.
 	if j.Mode == model.JobModeGraph && j.GraphRunID != "" {
+		if err := h.graphService.RegisterRunLocation(ctx, j.GraphRunID, j.WorkspaceID, j.ID); err != nil {
+			logger.Errorf(ctx, "[job] register graph run location failed: jobId=%s graphRunId=%s err=%v", jobID, j.GraphRunID, err)
+			httputil.InternalError(c, err.Error())
+			return
+		}
 		if _, err := h.graphService.StopRun(ctx, j.GraphRunID); err != nil {
 			logger.Errorf(ctx, "[job] stop graph run failed: jobId=%s graphRunId=%s err=%v", jobID, j.GraphRunID, err)
 		}

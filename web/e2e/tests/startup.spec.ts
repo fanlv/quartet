@@ -1736,15 +1736,10 @@ test('scheduled graph workflow triggers, releases concurrency, and records missi
   expect(afterSecondRes.ok(), `schedule get failed: ${afterSecondRes.status()} ${await afterSecondRes.text()}`).toBeTruthy()
   const afterSecond = await afterSecondRes.json()
 
-  const graphRunsBeforeFailureRes = await request.get('/api/v1/graph/run/list', { headers: templateHeaders })
-  expect(graphRunsBeforeFailureRes.ok(), `graph run list failed: ${graphRunsBeforeFailureRes.status()} ${await graphRunsBeforeFailureRes.text()}`).toBeTruthy()
-  const graphRunsBeforeFailure = await graphRunsBeforeFailureRes.json()
-  const beforeFailureRunIDs = new Set(
-    ((graphRunsBeforeFailure.runs ?? []) as Array<{ id: string; workflowId?: string }>)
-      .filter((run) => run.workflowId === workflow.id)
-      .map((run) => run.id),
-  )
-  expect(beforeFailureRunIDs.has(firstJob.graphRunId)).toBeTruthy()
+  const secondJob = await getJobSnapshot(request, secondJobID, templateHeaders)
+  expect(secondJob.mode).toBe('graph')
+  expect(secondJob.graphRunId).toMatch(/^grun-/)
+  expect(secondJob.graphRunId).not.toBe(firstJob.graphRunId)
 
   const deleteWorkflowRes = await request.delete(`/api/v1/graph/workflow/${workflow.id}`, { headers: templateHeaders })
   expect(deleteWorkflowRes.ok(), `workflow delete failed: ${deleteWorkflowRes.status()} ${await deleteWorkflowRes.text()}`).toBeTruthy()
@@ -1762,16 +1757,6 @@ test('scheduled graph workflow triggers, releases concurrency, and records missi
   expect(failedSchedule.lastTriggerError).toContain(workflow.id)
   expect(failedSchedule.lastTriggerError).toContain('workflow')
   expect(failedSchedule.runCount).toBe(afterSecond.runCount + 1)
-
-  const graphRunsAfterFailureRes = await request.get('/api/v1/graph/run/list', { headers: templateHeaders })
-  expect(graphRunsAfterFailureRes.ok(), `graph run list failed: ${graphRunsAfterFailureRes.status()} ${await graphRunsAfterFailureRes.text()}`).toBeTruthy()
-  const graphRunsAfterFailure = await graphRunsAfterFailureRes.json()
-  const afterFailureRunIDs = new Set(
-    ((graphRunsAfterFailure.runs ?? []) as Array<{ id: string; workflowId?: string }>)
-      .filter((run) => run.workflowId === workflow.id)
-      .map((run) => run.id),
-  )
-  expect(afterFailureRunIDs).toEqual(beforeFailureRunIDs)
 
   const retryFailureRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: templateHeaders })
   expect(retryFailureRes.status(), `expected repeated missing workflow trigger to fail without a leaked concurrency slot, got ${retryFailureRes.status()}: ${await retryFailureRes.text()}`).toBe(409)

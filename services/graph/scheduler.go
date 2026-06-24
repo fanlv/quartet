@@ -1101,7 +1101,7 @@ func (sc *scheduler) persist(ctx context.Context) {
 
 func (sc *scheduler) appendInstanceEvent(ctx context.Context, typ model.GraphEventType, key model.GraphInstanceKey, nodeID, msg string, rerr *model.GraphRuntimeError) {
 	// Instance lifecycle events carry no progress snapshot — progress is sourced
-	// exclusively from the run snapshot (progress.json via GET /graph/run/:id).
+	// exclusively from the run snapshot (progress.json via GET /job/:jobId/graph-run).
 	// The frontend reconciles node status by re-fetching that snapshot on these
 	// events. Embedding the snapshot here used to grow the persisted event log
 	// quadratically with iteration count on long loops.

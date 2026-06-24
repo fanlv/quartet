@@ -462,10 +462,6 @@ type GraphRunEventsResponse struct {
 	LastEvent string       `json:"lastEventId,omitempty"`
 }
 
-type GraphRunHistoryResponse struct {
-	Runs []GraphRun `json:"runs"`
-}
-
 func NewGraphWorkflowID() string {
 	return newGraphID("gwf")
 }

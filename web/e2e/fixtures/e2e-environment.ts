@@ -452,7 +452,9 @@ async function globalSetup() {
   process.env.QUARTET_E2E_RUN_DIR = runDir
   const logDir = path.join(runDir, 'logs')
   const localMemory = path.join(runDir, 'local-memory')
+  const goCache = path.join(runDir, 'go-build-cache')
   fs.mkdirSync(logDir, { recursive: true })
+  fs.mkdirSync(goCache, { recursive: true })
   prepareLocalMemory(localMemory)
   seedAgentConfig(localMemory)
   seedLegacyFirstModelIDFixture(localMemory)
@@ -482,6 +484,7 @@ async function globalSetup() {
       env: {
         ...process.env,
         LOCAL_MEMORY: localMemory,
+        GOCACHE: goCache,
         // Shell env sanitization E2E fixtures. These are intentionally fake
         // values so the shell-output assertions never expose developer secrets.
         OPENAI_API_KEY: e2eShellOpenAIAPIKey,

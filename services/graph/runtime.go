@@ -17,6 +17,7 @@ import (
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/services/usagestats"
 	"github.com/fanlv/quartet/types/agui"
+	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 	"github.com/fanlv/quartet/types/msgextra"
 	"github.com/google/uuid"
@@ -72,7 +73,7 @@ func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequ
 		ID:          model.NewGraphRunID(),
 		WorkflowID:  "",
 		JobID:       jobID,
-		WorkspaceID: firstNonEmpty(req.WorkspaceID, cfg.WorkspaceID),
+		WorkspaceID: firstNonEmpty(req.WorkspaceID, cfg.WorkspaceID, consts.DefaultWorkspaceID),
 		Status:      model.GraphRunStatusPending,
 		BaseSnapshot: model.GraphRunSnapshot{
 			Config:         cloneGraphConfig(cfg),
@@ -104,6 +105,9 @@ func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequ
 		VariablesByKey: map[string]map[string]string{},
 	}
 
+	if err := s.runRepo.RegisterRun(ctx, run); err != nil {
+		return nil, err
+	}
 	if err := s.persistRuntimeState(ctx, run, map[string]model.GraphInstanceState{}, map[string]model.GraphEdgeState{}, map[string]map[string]string{}); err != nil {
 		return nil, err
 	}
@@ -118,6 +122,10 @@ func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequ
 		concurrencyLimit(cfg.RunConfig.ConcurrencyLimit), cfg.RunConfig.JobTimeoutSec)
 	go s.runGraph(context.Background(), run.ID, runner, jobs, false)
 	return run, nil
+}
+
+func (s *serviceImpl) RegisterRunLocation(ctx context.Context, runID, workspaceID, jobID string) error {
+	return s.runRepo.RegisterRunLocation(ctx, runID, workspaceID, jobID)
 }
 
 func (s *serviceImpl) GetRunStatus(ctx context.Context, runID string) (*model.GraphRunStatusResponse, error) {
@@ -179,7 +187,7 @@ func (s *serviceImpl) ListRunEvents(ctx context.Context, runID string, startLine
 
 // graphReplayMaxEvents bounds how many persisted events a single SSE disk-replay
 // streams. It is a safety net, not a UI driver: the canvas is rebuilt from the
-// run snapshot (GET /graph/run/:id), so a truncated replay never loses correctness.
+// run snapshot (GET /job/:jobId/graph-run), so a truncated replay never loses correctness.
 // It exists so a pathologically large legacy event log can't be streamed in full
 // on every (re)connect.
 const graphReplayMaxEvents = 2000
@@ -210,10 +218,6 @@ func (s *serviceImpl) ListReplayEvents(ctx context.Context, runID string, startL
 		logger.Warnf(ctx, "[graph] replay truncated at limit: runId=%s startLine=%d limit=%d (canvas is rebuilt from the run snapshot)", runID, startLine, limit)
 	}
 	return resp, nil
-}
-
-func (s *serviceImpl) ListRuns(ctx context.Context) ([]*model.GraphRun, error) {
-	return s.runRepo.ListRuns(ctx)
 }
 
 func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGraphRunRequest) (*model.GraphWorkflow, model.GraphConfig, error) {
@@ -633,7 +637,7 @@ func (s *serviceImpl) persistRuntimeState(ctx context.Context, run *model.GraphR
 // replays it from disk observe the same event.
 //
 // Events never embed a progress snapshot: progress is sourced exclusively from
-// the run snapshot (progress.json via GET /graph/run/:id). progressUpdated is a
+// the run snapshot (progress.json via GET /job/:jobId/graph-run). progressUpdated is a
 // pure "refetch the snapshot now" signal, not a progress carrier.
 func (s *serviceImpl) appendEvent(ctx context.Context, runID string, typ model.GraphEventType, key *model.GraphInstanceKey, nodeID, edgeID, message string, rerr *model.GraphRuntimeError) {
 	if s.runRepo == nil {
@@ -820,10 +824,10 @@ type graphEventHandler struct {
 	nodeID    string
 	key       model.GraphInstanceKey
 
-	mu                sync.Mutex
-	content           strings.Builder
-	msgID             string
-	thoughtID         string
+	mu        sync.Mutex
+	content   strings.Builder
+	msgID     string
+	thoughtID string
 	// lastStartedID is the id assigned by the most recent OnMessageStart /
 	// OnThoughtStart and is what LastMessageID returns. The round.Builder
 	// calls LastMessageID immediately after each Start to capture either the

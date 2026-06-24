@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { TFunction } from 'i18next';
 import {
   COND_OPS,
@@ -62,6 +62,13 @@ export function ConditionBuilder({
   const [advancedText, setAdvancedText] = useState<string>(value);
 
   const listId = `cond-vars-${fieldId}`;
+
+  useEffect(() => {
+    const parsed = tryParseSimple(value);
+    setAdvanced(value.trim() !== '' && parsed === null);
+    setSimple(parsed ?? emptySimpleCondition());
+    setAdvancedText(value);
+  }, [value]);
 
   const commitSimple = (next: SimpleCondition) => {
     setSimple(next);
@@ -135,7 +142,7 @@ export function ConditionBuilder({
         <textarea
           className="gi-cond-advanced"
           value={advancedText}
-          placeholder={'{{verdict}} == "PASS" 且 {{score}} >= "60"'}
+          placeholder={t('graph.inspector.condAdvancedPlaceholder')}
           disabled={readOnly}
           onChange={(e) => commitAdvanced(e.target.value)}
         />

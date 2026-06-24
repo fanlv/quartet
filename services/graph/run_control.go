@@ -11,7 +11,7 @@ import (
 	"github.com/fanlv/quartet/types/model"
 )
 
-// Run-control service methods (step 16) and resume/recovery (step 15).
+// Run-control service methods (step 16) and resume support (step 15).
 
 // StopRun hard-stops a running GraphRun.
 func (s *serviceImpl) StopRun(ctx context.Context, runID string) (*model.GraphRun, error) {
@@ -165,73 +165,6 @@ func (s *serviceImpl) DeleteRun(ctx context.Context, runID string, jobs JobState
 		if err := jobs.ClearGraphRunLinkage(ctx, run.JobID, runID); err != nil {
 			logger.Warnf(ctx, "[graph] clear job graph-run linkage failed: job=%s run=%s err=%v", run.JobID, runID, err)
 		}
-	}
-	return nil
-}
-
-// ReconcileRuns reconciles GraphRuns left in flight by a process crash. Their
-// running instances are marked interrupted and the run is moved to "recovering"
-// (a resumable state) — nothing is re-executed at startup (§4 崩溃恢复：标记不
-// 自动续跑).
-func (s *serviceImpl) ReconcileRuns(ctx context.Context, jobs JobStateSink) error {
-	runs, err := s.runRepo.ListRuns(ctx)
-	if err != nil {
-		return err
-	}
-	for _, run := range runs {
-		if !isInFlightStatus(run.Status) {
-			continue
-		}
-		if err := s.reconcileRun(ctx, run, jobs); err != nil {
-			logger.Warnf(ctx, "[graph] reconcile run failed: run=%s err=%v", run.ID, err)
-		}
-	}
-	return nil
-}
-
-func (s *serviceImpl) reconcileRun(ctx context.Context, run *model.GraphRun, jobs JobStateSink) error {
-	instances, err := s.runRepo.GetInstances(ctx, run.ID)
-	if err != nil {
-		return err
-	}
-	now := time.Now().UnixMilli()
-	changed := false
-	for keyStr, st := range instances {
-		if st.Status == model.GraphInstanceStatusRunning {
-			st.Status = model.GraphInstanceStatusInterrupted
-			st.FinishedAt = now
-			st.BlockedReason = "process restarted while running"
-			instances[keyStr] = st
-			changed = true
-		}
-	}
-	if changed {
-		if err := s.runRepo.SaveInstances(ctx, run.ID, instances); err != nil {
-			return err
-		}
-	}
-	// stepStopping crash: members of the frozen batch are now interrupted; settle
-	// the run to stepStopped so explicit resume handles the batch.
-	target := model.GraphRunStatusRecovering
-	jobStatus := model.JobStatusFailed
-	if run.Status == model.GraphRunStatusStepStopping {
-		target = model.GraphRunStatusStepStopped
-		jobStatus = model.JobStatusStopped
-	}
-	run.Status = target
-	run.UpdatedAt = time.Now()
-	updateRunProgress(run, instances)
-	if run.Progress != nil {
-		run.Progress.LastError = "process restarted while running; resume to continue"
-	}
-	if err := s.runRepo.SaveProgress(ctx, run.ID, run.Progress); err != nil {
-		return err
-	}
-	if err := s.runRepo.SaveRun(ctx, run); err != nil {
-		return err
-	}
-	if jobs != nil && run.JobID != "" {
-		_ = jobs.SetGraphRunState(ctx, run.JobID, run.ID, jobStatus, run.StartedAt, run.FinishedAt)
 	}
 	return nil
 }

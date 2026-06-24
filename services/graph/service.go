@@ -48,6 +48,7 @@ type Service interface {
 	// ValidateConfig runs the full static legality check without persisting.
 	ValidateConfig(ctx context.Context, cfg *model.GraphConfig) []model.GraphValidationError
 	StartRun(ctx context.Context, req *model.StartGraphRunRequest, runner Runner, jobs JobStateSink) (*model.GraphRun, error)
+	RegisterRunLocation(ctx context.Context, runID, workspaceID, jobID string) error
 	GetRunStatus(ctx context.Context, runID string) (*model.GraphRunStatusResponse, error)
 	ListRunEvents(ctx context.Context, runID string, startLine int, count *int) (*model.GraphRunEventsResponse, error)
 	// ListReplayEvents reads at most limit persistable structural events from
@@ -67,7 +68,6 @@ type Service interface {
 	// RunEventSnapshotSeq returns the seq a fresh subscriber should resume from
 	// for a live run, and ok=false when no live buffer exists.
 	RunEventSnapshotSeq(runID string) (seq uint64, ok bool)
-	ListRuns(ctx context.Context) ([]*model.GraphRun, error)
 	// StopRun hard-stops a running GraphRun: in-flight instances are cancelled
 	// and marked interrupted, the run becomes "stopped" and stays resumable.
 	StopRun(ctx context.Context, runID string) (*model.GraphRun, error)
@@ -97,10 +97,6 @@ type Service interface {
 	// use the new version while in-flight and completed instances keep their
 	// execution-time version.
 	UpdateRunVersion(ctx context.Context, runID string, req *model.UpdateGraphRunVersionRequest, src Runner) (*model.GraphRun, error)
-	// ReconcileRuns reconciles GraphRuns left in-flight by a process crash on
-	// startup: their running instances are marked interrupted and the run is
-	// moved to a resumable terminal state without re-executing anything.
-	ReconcileRuns(ctx context.Context, jobs JobStateSink) error
 	// SetUsageRecorder wires the optional usage-stats sink for Agent-class graph
 	// nodes. Passing nil disables recording (used by tests).
 	SetUsageRecorder(r usagestats.Recorder)
