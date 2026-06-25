@@ -73,7 +73,6 @@ type Service interface {
 	CreateWorkflow(ctx context.Context, req *model.CreateGraphWorkflowRequest) (*model.GraphWorkflow, error)
 	GetWorkflow(ctx context.Context, id string) (*model.GraphWorkflow, error)
 	ListWorkflows(ctx context.Context) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error)
-	ListWorkflowsByWorkspace(ctx context.Context, workspaceID string) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error)
 	UpdateWorkflow(ctx context.Context, id string, req *model.UpdateGraphWorkflowRequest) (*model.GraphWorkflow, error)
 	DeleteWorkflow(ctx context.Context, id string, expectedUpdatedAt *time.Time) error
 	CreateRunJob(ctx context.Context, req *model.StartGraphRunRequest, jobs jobsvc.Service, workspaces workspacesvc.Service) (*model.Job, error)
@@ -447,26 +446,6 @@ func (s *serviceImpl) GetWorkflow(ctx context.Context, id string) (*model.GraphW
 
 func (s *serviceImpl) ListWorkflows(ctx context.Context) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error) {
 	return s.repo.List(ctx)
-}
-
-func (s *serviceImpl) ListWorkflowsByWorkspace(ctx context.Context, workspaceID string) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error) {
-	workflows, warnings, err := s.repo.List(ctx)
-	if err != nil {
-		return nil, warnings, err
-	}
-	if workspaceID == "" {
-		return workflows, warnings, nil
-	}
-	filtered := make([]*model.GraphWorkflow, 0, len(workflows))
-	for _, wf := range workflows {
-		if wf == nil {
-			continue
-		}
-		if workflowWorkspaceID(wf, "") == workspaceID {
-			filtered = append(filtered, wf)
-		}
-	}
-	return filtered, warnings, nil
 }
 
 func (s *serviceImpl) UpdateWorkflow(ctx context.Context, id string, req *model.UpdateGraphWorkflowRequest) (*model.GraphWorkflow, error) {

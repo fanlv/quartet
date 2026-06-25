@@ -84,15 +84,11 @@ func (h *Handler) CreateGraphWorkflow(ctx context.Context, c *app.RequestContext
 }
 
 func (h *Handler) ListGraphWorkflows(ctx context.Context, c *app.RequestContext) {
-	workspaceID := string(c.Query("workspaceId"))
-	var workflows []*model.GraphWorkflow
-	var warnings []model.GraphWorkflowWarning
-	var err error
-	if workspaceID != "" {
-		workflows, warnings, err = h.graphService.ListWorkflowsByWorkspace(ctx, workspaceID)
-	} else {
-		workflows, warnings, err = h.graphService.ListWorkflows(ctx)
-	}
+	// Workflows are global: any workflow can run in any workspace, so the
+	// library lists every workflow regardless of the caller's active workspace.
+	// A workflow's workspaceId is kept only as a display hint and as the default
+	// workspace pre-selected when launching a run.
+	workflows, warnings, err := h.graphService.ListWorkflows(ctx)
 	if err != nil {
 		httputil.InternalError(c, err.Error())
 		return
@@ -260,10 +256,11 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 	}
 
 	// Generate a Job title from the workflow config (the full JSON) for freshly
-	// launched runs, mirroring chat/loop Jobs. The resolved config on the run's
-	// base snapshot is the complete workflow definition that actually executed.
+	// launched runs, mirroring chat/loop Jobs. effectiveConfig is the complete
+	// workflow definition that actually executed (current version), and stays
+	// correct now that the base snapshot no longer stores the config.
 	if freshJob && run != nil {
-		if cfgJSON, mErr := sonic.MarshalString(run.BaseSnapshot.Config); mErr == nil {
+		if cfgJSON, mErr := sonic.MarshalString(graphsvc.EffectiveConfig(run)); mErr == nil {
 			h.asyncUpdateGraphJobTitle(ctx, run.JobID, cfgJSON)
 		} else {
 			logger.Warnf(ctx, "[graph] marshal config for title failed: jobId=%s err=%v", run.JobID, mErr)
@@ -311,7 +308,63 @@ func (h *Handler) GetJobGraphRunStatus(ctx context.Context, c *app.RequestContex
 		})
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, slimGraphRunStatus(resp))
+}
+
+// slimGraphRunStatus trims redundancy from the run-status payload before it is
+// serialised to the client. A long graph run shipped this response three times
+// over (the full instance set appeared as the top-level Instances list, again
+// as progress.Instances, and a third time nested under run.Progress.Instances),
+// and every instance inlined its variable snapshot — visibleVariables /
+// outputVariables hold large node outputs such as _last_assistant_msg (up to
+// ~12KB each). On a 91-instance run that was ~3.1MB of a 3.5MB response.
+//
+// On top of that, run.baseSnapshot and every run.versions[] entry each carry a
+// full model/agent content snapshot (frozen system prompts), and those are the
+// single largest remaining contributor (~200KB each, duplicated across the base
+// snapshot and the baseline version). The client never reads them — it only
+// uses versions[].config to draw the canvas — so they are stripped here too.
+//
+// The authoritative copy the client renders is the top-level Instances list;
+// it reads progress only for its count fields and run.Progress only as a
+// fallback, and never reads instance variable snapshots (they load per node
+// from session messages). Trimming lives in the handler so the service keeps
+// returning the full state for callers that need it (e.g. tests asserting
+// engine-computed variables, and audit reads of the frozen prompts). The
+// service hands back freshly-deserialised objects with no shared cache, so
+// mutating them here cannot affect on-disk state or other requests.
+func slimGraphRunStatus(resp *model.GraphRunStatusResponse) *model.GraphRunStatusResponse {
+	if resp == nil {
+		return resp
+	}
+	for i := range resp.Instances {
+		resp.Instances[i].VisibleVariables = nil
+		resp.Instances[i].OutputVariables = nil
+	}
+	if resp.Progress != nil {
+		resp.Progress.Instances = nil
+	}
+	if resp.Run != nil {
+		if resp.Run.Progress != nil {
+			resp.Run.Progress.Instances = nil
+		}
+		// The frozen prompt snapshots are audit-only and never read by the
+		// client; drop them from both the base snapshot and every version.
+		resp.Run.BaseSnapshot.ModelSnapshots = nil
+		resp.Run.BaseSnapshot.AgentSnapshots = nil
+		for i := range resp.Run.Versions {
+			resp.Run.Versions[i].ModelSnapshots = nil
+			resp.Run.Versions[i].AgentSnapshots = nil
+		}
+		// archivedInstances feeds the chat session sidebar (key + sessionId);
+		// it never needs the variable snapshots either.
+		for k, st := range resp.Run.ArchivedInstances {
+			st.VisibleVariables = nil
+			st.OutputVariables = nil
+			resp.Run.ArchivedInstances[k] = st
+		}
+	}
+	return resp
 }
 
 func (h *Handler) JobGraphRunEvents(ctx context.Context, c *app.RequestContext) {

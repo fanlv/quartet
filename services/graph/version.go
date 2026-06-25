@@ -37,6 +37,15 @@ func effectiveConfig(run *model.GraphRun) model.GraphConfig {
 	return run.BaseSnapshot.Config
 }
 
+// EffectiveConfig exposes effectiveConfig to callers outside this package (the
+// HTTP handler reads the run's resolved config for Job-title generation). It is
+// a pure function of the run object — no service state — so it lives here rather
+// than on the Service interface. The fallback to BaseSnapshot keeps it correct
+// for legacy runs whose config was only ever stored on the base snapshot.
+func EffectiveConfig(run *model.GraphRun) model.GraphConfig {
+	return effectiveConfig(run)
+}
+
 // UpdateRunVersion validates an edit against the persisted run state and, on
 // success, appends a new graph version (with frozen referenced Agent/model
 // content) and advances CurrentVersion. In-flight edits are routed through the

@@ -88,8 +88,13 @@ func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequ
 		JobID:       jobID,
 		WorkspaceID: firstNonEmpty(req.WorkspaceID, cfg.WorkspaceID, consts.DefaultWorkspaceID),
 		Status:      model.GraphRunStatusPending,
+		// BaseSnapshot keeps only the run-level metadata (model/agent content
+		// snapshots, capture time, workflow identity). Its Config is left empty:
+		// the executed config lives in Versions[0] (the "baseline" version) and
+		// is read via effectiveConfig, so storing it here too just duplicated the
+		// workflow nodes/edges/layout in run.json. Legacy runs that still carry
+		// BaseSnapshot.Config keep working through the effectiveConfig fallback.
 		BaseSnapshot: model.GraphRunSnapshot{
-			Config:         cloneGraphConfig(cfg),
 			ModelSnapshots: models,
 			AgentSnapshots: agents,
 			CapturedAt:     now.UnixMilli(),
@@ -499,7 +504,11 @@ func shellSessionOutput(stdout, stderr string) string {
 }
 
 func executeShellNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, vars map[string]string, disabled map[string]struct{}, loopVars map[string]string) (nodeOutcome, error) {
-	workdir := run.BaseSnapshot.Config.Workdir
+	// Use the effective (current-version) config rather than BaseSnapshot, which
+	// matches every other config consumer (scheduler/run-control) and stays
+	// correct after a version edit. With CurrentVersion=1 this returns the same
+	// workdir as the baseline; it also lets BaseSnapshot.Config be dropped.
+	workdir := effectiveConfig(run).Workdir
 	// displayScript is the user-authored script after variable substitution but
 	// without the injected helper preamble. The scheduler computes the same
 	// substitution at enqueue time to seed the shell display session's user
@@ -622,7 +631,6 @@ func initialGraphProgress(cfg model.GraphConfig) *model.GraphProgress {
 	}
 	return &model.GraphProgress{
 		TotalCount: total,
-		Instances:  map[string]model.GraphInstanceState{},
 	}
 }
 
@@ -665,9 +673,16 @@ func updateRunProgress(run *model.GraphRun, instances map[string]model.GraphInst
 	p.InterruptedCount = 0
 	p.RunningCount = 0
 	p.CurrentKeys = nil
-	p.Instances = make(map[string]model.GraphInstanceState, len(instances))
-	for k, st := range instances {
-		p.Instances[k] = st
+	// Progress carries only the aggregate counts and the running-instance keys.
+	// It used to also embed a full copy of every instance, which made it a
+	// third redundant copy of the instance set (alongside instances.json and
+	// the run-status response) and bloated both progress.json and run.json.
+	// Nothing reads progress.Instances — resume/recover and the scheduler
+	// rebuild from instances.json (GetInstances) — so we stop maintaining it.
+	// Cleared explicitly so a previously-populated map (loaded from a legacy
+	// run.json) does not survive across an update.
+	p.Instances = nil
+	for _, st := range instances {
 		switch st.Status {
 		case model.GraphInstanceStatusSucceeded:
 			p.CompletedCount++

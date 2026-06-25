@@ -919,13 +919,15 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   );
 
   // ---- Data loading ----
+  // Workflows are global — the library lists every workflow regardless of the
+  // active workspace. A workflow's workspaceId is just a display hint and the
+  // default workspace pre-selected when launching a run; any workflow can run
+  // in any workspace via the canvas workspace selector.
   const loadWorkflows = useCallback(async (options?: { preserveMessage?: boolean; keepSelected?: boolean }) => {
     setLoading(true);
     if (!options?.preserveMessage) setMessage('');
     try {
-      const url = new URL('/api/v1/graph/workflow/list', window.location.origin);
-      if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
-      const res = await fetch(`${url.pathname}${url.search}`);
+      const res = await fetch('/api/v1/graph/workflow/list');
       if (!res.ok) throw new Error(await readError(res));
       const data = (await res.json()) as GraphListWorkflowsResponse;
       const nextWorkflows = data.workflows || [];
@@ -937,7 +939,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, []);
 
   useEffect(() => {
     void loadWorkflows();

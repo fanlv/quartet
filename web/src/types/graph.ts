@@ -269,8 +269,9 @@ export interface GraphInstanceState {
   // reuse sessionId, Shell nodes carry their own recording session here.
   sessionId?: string;
   displaySessionId?: string;
-  visibleVariables?: Record<string, string>;
-  outputVariables?: Record<string, string>;
+  // Note: the engine also records per-instance variable snapshots
+  // (visibleVariables / outputVariables) on disk for audit, but the run-status
+  // API strips them — they are never sent to the client, so no field here.
   startedAt?: number;
   finishedAt?: number;
   durationMs?: number;

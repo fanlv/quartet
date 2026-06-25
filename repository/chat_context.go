@@ -202,6 +202,23 @@ func (r *chatContextRepo) LoadAllMessages(ctx context.Context) ([]*schema.Messag
 
 func (r *chatContextRepo) loadAllMessagesLocked() ([]*schema.Message, error) {
 	filePath := path.MessagesFilePath(r.sessionDir)
+
+	// Cache fast path: if the file's current (size, mtime) matches a cached
+	// entry, return the parsed slice without re-reading/re-parsing. FileStat is
+	// a cheap syscall; a missing file (Exists=false) skips the cache and falls
+	// through to the normal read below, which returns nil for not-found. Runs
+	// under the per-session read lock held by the caller, so no concurrent write
+	// can change the file between this stat and the read.
+	var statSize, statMTime int64
+	haveStat := false
+	if st, statErr := r.sandbox.FileStat(&model.FileStatRequest{Path: filePath}); statErr == nil && st.Exists && !st.IsDir {
+		statSize, statMTime = st.Size, st.ModTimeUnix
+		haveStat = true
+		if cached, ok := globalMessagesCache.get(filePath, statSize, statMTime); ok {
+			return cached, nil
+		}
+	}
+
 	result, err := r.sandbox.FileRead(&model.FileReadRequest{
 		File: filePath,
 	})
@@ -228,6 +245,13 @@ func (r *chatContextRepo) loadAllMessagesLocked() ([]*schema.Message, error) {
 			continue
 		}
 		messages = append(messages, &msg)
+	}
+
+	// Populate the cache only when we have a trustworthy file signature from the
+	// stat above. Without it (stat failed) we can't safely key the entry, so we
+	// skip caching rather than risk serving content under a wrong signature.
+	if haveStat {
+		globalMessagesCache.put(filePath, statSize, statMTime, messages, estimateMessagesBytes(messages))
 	}
 
 	return messages, nil
@@ -355,6 +379,7 @@ func (r *chatContextRepo) appendMessagesLocked(msgs []*schema.Message) error {
 	}); err != nil {
 		return fmt.Errorf("append messages failed: %w", err)
 	}
+	globalMessagesCache.invalidate(filePath)
 	return nil
 }
 
@@ -392,6 +417,7 @@ func (r *chatContextRepo) replaceMessagesLocked(msgs []*schema.Message) error {
 	if err := AtomicWriteFile(filePath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("replace messages failed: %w", err)
 	}
+	globalMessagesCache.invalidate(filePath)
 	return nil
 }
 
@@ -500,6 +526,7 @@ func (r *chatContextRepo) ReplacePlaceholderToolResult(ctx context.Context, tool
 	if err := AtomicWriteFile(filePath, []byte(content), 0644); err != nil {
 		return false, fmt.Errorf("rewrite messages file failed: %w", err)
 	}
+	globalMessagesCache.invalidate(filePath)
 	return true, nil
 }
 

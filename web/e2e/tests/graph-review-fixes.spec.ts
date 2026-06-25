@@ -1028,26 +1028,32 @@ test('graph review #45: undo clears stale validation errors after restoring the 
   await expect(page.locator('.react-flow__edge[data-id="edge-start-shell"]')).toBeVisible()
 })
 
-test('graph review #46: workflow list filters by workspace and shows workflow workspace', async ({ page, request }) => {
+test('graph review #46: workflow list is global and shows each workflow workspace', async ({ page, request }) => {
   const workspaceA = await createGraphWorkspace(request, 'workflow-filter-a')
   const workspaceB = await createGraphWorkspace(request, 'workflow-filter-b')
   const wfA = await createWorkflow(request, workspaceA, `e2e-workflow-filter-a-${Date.now()}`)
   const wfB = await createWorkflow(request, workspaceB, `e2e-workflow-filter-b-${Date.now()}`)
 
-  const filteredA = await request.get(`/api/v1/graph/workflow/list?workspaceId=${encodeURIComponent(workspaceA.workspaceId)}`, { headers: AUTH_HEADERS })
-  expect(filteredA.ok(), `filtered list A failed: ${filteredA.status()} ${await filteredA.text()}`).toBeTruthy()
-  const filteredABody = await filteredA.json()
-  expect((filteredABody.workflows ?? []).some((wf: { id: string }) => wf.id === wfA.id)).toBe(true)
-  expect((filteredABody.workflows ?? []).some((wf: { id: string }) => wf.id === wfB.id)).toBe(false)
+  // Workflows are global: the list returns every workflow regardless of the
+  // requesting workspace, so a workflow created under B is still visible when
+  // listing while focused on A.
+  const list = await request.get('/api/v1/graph/workflow/list', { headers: AUTH_HEADERS })
+  expect(list.ok(), `workflow list failed: ${list.status()} ${await list.text()}`).toBeTruthy()
+  const listBody = await list.json()
+  expect((listBody.workflows ?? []).some((wf: { id: string }) => wf.id === wfA.id)).toBe(true)
+  expect((listBody.workflows ?? []).some((wf: { id: string }) => wf.id === wfB.id)).toBe(true)
 
   await page.addInitScript((token) => {
     localStorage.setItem('quartet.x_auth_token', token)
     localStorage.setItem('quartet-language', 'en')
   }, e2eAuthToken)
+  // Open the library while focused on workspace A; both workflows show up, each
+  // tagged with its own workspace.
   await page.goto(`/?workspaceId=${workspaceA.workspaceId}&view=graph`)
   await expect(page.getByTestId(`graph-workflow-row-${wfA.id}`)).toBeVisible({ timeout: 10_000 })
   await expect(page.getByTestId(`graph-workflow-row-${wfA.id}`)).toContainText(`E2E GraphFix workflow-filter-a`)
-  await expect(page.getByTestId(`graph-workflow-row-${wfB.id}`)).toHaveCount(0)
+  await expect(page.getByTestId(`graph-workflow-row-${wfB.id}`)).toBeVisible()
+  await expect(page.getByTestId(`graph-workflow-row-${wfB.id}`)).toContainText(`E2E GraphFix workflow-filter-b`)
 })
 
 test('graph review #54: cross-workspace save keeps the open workflow editable', async ({ page, request }) => {
@@ -1072,10 +1078,14 @@ test('graph review #54: cross-workspace save keeps the open workflow editable', 
   await expect(page.getByTestId('graph-save')).not.toContainText('Create')
   await expect(page.getByRole('button', { name: /^Delete$/ })).toBeVisible()
 
-  const filteredA = await request.get(`/api/v1/graph/workflow/list?workspaceId=${encodeURIComponent(workspaceA.workspaceId)}`, { headers: AUTH_HEADERS })
-  expect(filteredA.ok()).toBeTruthy()
-  const filteredABody = await filteredA.json()
-  expect((filteredABody.workflows ?? []).some((wf: { name?: string }) => wf.name?.startsWith('e2e-cross-workspace-save-'))).toBe(false)
+  // The workflow was saved under workspace B even though it was opened from A.
+  // The list is global, so it is visible regardless of focus; assert it carries
+  // workspace B as its recorded workspace.
+  const list = await request.get('/api/v1/graph/workflow/list', { headers: AUTH_HEADERS })
+  expect(list.ok()).toBeTruthy()
+  const listBody = await list.json()
+  const savedSummary = (listBody.workflows ?? []).find((wf: { name?: string }) => wf.name?.startsWith('e2e-cross-workspace-save-'))
+  expect(savedSummary, 'cross-workspace-saved workflow not found in global list').toBeTruthy()
 
   await page.getByTestId('graph-name-input').fill(`e2e-cross-workspace-save-updated-${Date.now()}`)
   const [saveResp] = await Promise.all([
@@ -1969,13 +1979,13 @@ test('graph review #24: workflow create/update normalizes record and config work
   expect(after.workspaceId).toBe(workspaceB.workspaceId)
   expect(after.config.workspaceId).toBe(workspaceB.workspaceId)
 
-  const filteredA = await request.get(`/api/v1/graph/workflow/list?workspaceId=${encodeURIComponent(workspaceA.workspaceId)}`, { headers: AUTH_HEADERS })
-  expect(filteredA.ok(), `filtered list A failed: ${filteredA.status()} ${await filteredA.text()}`).toBeTruthy()
-  expect(((await filteredA.json()).workflows ?? []).some((wf: { id?: string }) => wf.id === workflow.id)).toBe(false)
-
-  const filteredB = await request.get(`/api/v1/graph/workflow/list?workspaceId=${encodeURIComponent(workspaceB.workspaceId)}`, { headers: AUTH_HEADERS })
-  expect(filteredB.ok(), `filtered list B failed: ${filteredB.status()} ${await filteredB.text()}`).toBeTruthy()
-  expect(((await filteredB.json()).workflows ?? []).some((wf: { id?: string }) => wf.id === workflow.id)).toBe(true)
+  // The list is global; locate the workflow and confirm its recorded workspace
+  // was normalized to B by the update.
+  const list = await request.get('/api/v1/graph/workflow/list', { headers: AUTH_HEADERS })
+  expect(list.ok(), `workflow list failed: ${list.status()} ${await list.text()}`).toBeTruthy()
+  const summary = ((await list.json()).workflows ?? []).find((wf: { id?: string }) => wf.id === workflow.id)
+  expect(summary, 'workflow not found in global list').toBeTruthy()
+  expect(summary.workspaceId).toBe(workspaceB.workspaceId)
 })
 
 // ---------------------------------------------------------------------------
@@ -2666,7 +2676,7 @@ test('graph review #62: workflow list returns summary fields without full graph 
   expect(created.ok(), `workflow create failed: ${created.status()} ${await created.text()}`).toBeTruthy()
   const workflow = (await created.json()).workflow as { id: string }
 
-  const listRes = await request.get(`/api/v1/graph/workflow/list?workspaceId=${encodeURIComponent(workspace.workspaceId)}`, { headers: AUTH_HEADERS })
+  const listRes = await request.get('/api/v1/graph/workflow/list', { headers: AUTH_HEADERS })
   expect(listRes.ok(), `workflow list failed: ${listRes.status()} ${await listRes.text()}`).toBeTruthy()
   const listBody = await listRes.json()
   const summary = (listBody.workflows ?? []).find((wf: { id?: string }) => wf.id === workflow.id)
