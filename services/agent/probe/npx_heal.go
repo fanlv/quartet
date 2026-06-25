@@ -7,7 +7,7 @@ import (
 
 // npxENOTEMPTYDestRe matches the `dest` path from an `npm error ENOTEMPTY:
 // directory not empty, rename ... -> <dest>` line. npm leaves these
-// dotfile temp dirs (e.g. `.codex-acp-linux-x64-rAcBvLrs`) under
+// dotfile temp dirs (e.g. `.codex-acp-rAcBvLrs`) under
 // _npx/<hash>/node_modules/<scope>/ when a previous install crashed
 // mid-rename; on the next run npm tries to rename the real package to
 // the same temp path and gets ENOTEMPTY because the path already exists.
@@ -53,7 +53,7 @@ func tryHealNpxENOTEMPTY(errText string) int {
 //     the cache root npx populates per-invocation; nothing else of value
 //     lives there for us to delete.
 //  2. The final basename must start with `.`. npm's atomic-rename temp
-//     paths (e.g. `.codex-acp-linux-x64-rAcBvLrs`) are dotfiles by
+//     paths (e.g. `.codex-acp-rAcBvLrs`) are dotfiles by
 //     convention; real package directories never are.
 //
 // Either condition alone would be too lax — together they're tight

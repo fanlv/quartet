@@ -400,6 +400,7 @@ type CreateGraphWorkflowRequest struct {
 type UpdateGraphWorkflowRequest struct {
 	Name        *string      `json:"name,omitempty"`
 	Description *string      `json:"description,omitempty"`
+	WorkspaceID *string      `json:"workspaceId,omitempty"`
 	Config      *GraphConfig `json:"config,omitempty"`
 	UpdatedAt   *time.Time   `json:"updatedAt,omitempty"`
 }
@@ -413,11 +414,12 @@ type ValidateGraphWorkflowRequest struct {
 }
 
 type StartGraphRunRequest struct {
-	WorkflowID  string       `json:"workflowId,omitempty"`
-	JobID       string       `json:"jobId,omitempty"`
-	WorkspaceID string       `json:"workspaceId,omitempty"`
-	Workdir     string       `json:"workdir,omitempty"`
-	Config      *GraphConfig `json:"config,omitempty"`
+	WorkflowID        string       `json:"workflowId,omitempty"`
+	WorkflowUpdatedAt *time.Time   `json:"workflowUpdatedAt,omitempty"`
+	JobID             string       `json:"jobId,omitempty"`
+	WorkspaceID       string       `json:"workspaceId,omitempty"`
+	Workdir           string       `json:"workdir,omitempty"`
+	Config            *GraphConfig `json:"config,omitempty"`
 }
 
 type UpdateGraphRunVersionRequest struct {
@@ -430,12 +432,23 @@ type GraphRunActionRequest struct {
 }
 
 type GraphListWorkflowsResponse struct {
-	Workflows []GraphWorkflow `json:"workflows"`
+	Workflows []GraphWorkflowSummary `json:"workflows"`
 	// Warnings surfaces workflow files that could not be read or parsed during a
 	// list. They are skipped from Workflows (so one bad file does not break the
 	// whole page) but reported here so the UI can show the offending file and the
 	// raw error instead of letting the workflow silently vanish from the list.
 	Warnings []GraphWorkflowWarning `json:"warnings,omitempty"`
+}
+
+type GraphWorkflowSummary struct {
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspaceId,omitempty"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	NodeCount   int       `json:"nodeCount"`
+	EdgeCount   int       `json:"edgeCount"`
 }
 
 // GraphWorkflowWarning describes a workflow file that was skipped during a list

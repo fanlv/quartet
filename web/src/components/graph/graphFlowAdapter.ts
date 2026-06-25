@@ -336,19 +336,8 @@ export function flowToConfig(
   };
 }
 
-/**
- * Build a lookup of nodeId -> latest instance status, used to highlight nodes
- * during run replay. When multiple instances exist for one node (loops), the
- * most "advanced" status wins so the canvas reflects real progress.
- */
-const STATUS_RANK: Record<GraphInstanceStatus, number> = {
-  pending: 0,
-  skipped: 1,
-  interrupted: 2,
-  running: 3,
-  failed: 4,
-  succeeded: 5,
-};
+const NODE_STATUS_PRIORITY: GraphInstanceStatus[] = ['failed', 'running', 'interrupted', 'pending', 'skipped', 'succeeded'];
+const NODE_STATUS_RANK = new Map<GraphInstanceStatus, number>(NODE_STATUS_PRIORITY.map((status, index) => [status, index]));
 
 export function runStatusByNode(
   instances: GraphInstanceState[] | undefined,
@@ -356,7 +345,7 @@ export function runStatusByNode(
   const out: Record<string, GraphInstanceStatus> = {};
   for (const inst of instances || []) {
     const prev = out[inst.nodeId];
-    if (!prev || STATUS_RANK[inst.status] > STATUS_RANK[prev]) {
+    if (!prev || (NODE_STATUS_RANK.get(inst.status) ?? 999) < (NODE_STATUS_RANK.get(prev) ?? 999)) {
       out[inst.nodeId] = inst.status;
     }
   }
@@ -368,7 +357,25 @@ export function edgeStatusByEdge(
   edges: GraphEdgeState[] | undefined,
 ): Record<string, 'pending' | 'active' | 'pruned'> {
   const out: Record<string, 'pending' | 'active' | 'pruned'> = {};
-  for (const edge of edges || []) out[edge.edgeId] = edge.status;
+  const sawPruned = new Set<string>();
+  for (const edge of edges || []) {
+    const prev = out[edge.edgeId];
+    if (!prev) {
+      out[edge.edgeId] = edge.status;
+      if (edge.status === 'pruned') sawPruned.add(edge.edgeId);
+      continue;
+    }
+    if (edge.status === 'active') {
+      out[edge.edgeId] = 'active';
+      continue;
+    }
+    if (edge.status === 'pruned') {
+      sawPruned.add(edge.edgeId);
+      if (prev === 'pending') out[edge.edgeId] = 'pruned';
+      continue;
+    }
+    if (prev === 'pending' && !sawPruned.has(edge.edgeId)) out[edge.edgeId] = 'pending';
+  }
   return out;
 }
 

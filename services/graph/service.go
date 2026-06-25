@@ -55,9 +55,16 @@ func normalizeWorkflowWorkspace(wf *model.GraphWorkflow, fallback string) {
 	if wf == nil {
 		return
 	}
-	wsID := firstNonEmpty(wf.Config.WorkspaceID, wf.WorkspaceID, fallback)
+	wsID := workflowWorkspaceID(wf, fallback)
 	wf.WorkspaceID = wsID
 	wf.Config.WorkspaceID = wsID
+}
+
+func workflowWorkspaceID(wf *model.GraphWorkflow, fallback string) string {
+	if wf == nil {
+		return fallback
+	}
+	return firstNonEmpty(wf.WorkspaceID, wf.Config.WorkspaceID, fallback)
 }
 
 // Service exposes Graph workflow config management. Runtime concerns (GraphRun
@@ -66,6 +73,7 @@ type Service interface {
 	CreateWorkflow(ctx context.Context, req *model.CreateGraphWorkflowRequest) (*model.GraphWorkflow, error)
 	GetWorkflow(ctx context.Context, id string) (*model.GraphWorkflow, error)
 	ListWorkflows(ctx context.Context) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error)
+	ListWorkflowsByWorkspace(ctx context.Context, workspaceID string) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error)
 	UpdateWorkflow(ctx context.Context, id string, req *model.UpdateGraphWorkflowRequest) (*model.GraphWorkflow, error)
 	DeleteWorkflow(ctx context.Context, id string, expectedUpdatedAt *time.Time) error
 	CreateRunJob(ctx context.Context, req *model.StartGraphRunRequest, jobs jobsvc.Service, workspaces workspacesvc.Service) (*model.Job, error)
@@ -95,17 +103,17 @@ type Service interface {
 	RunEventSnapshotSeq(runID string) (seq uint64, ok bool)
 	// StopRun hard-stops a running GraphRun: in-flight instances are cancelled
 	// and marked interrupted, the run becomes "stopped" and stays resumable.
-	StopRun(ctx context.Context, runID string) (*model.GraphRun, error)
+	StopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error)
 	// PauseRun gracefully pauses: no new instances dispatch, in-flight ones
 	// finish, then the run becomes "paused" and stays resumable.
-	PauseRun(ctx context.Context, runID string) (*model.GraphRun, error)
+	PauseRun(ctx context.Context, runID, reason string) (*model.GraphRun, error)
 	// StepStopRun freezes the current ready batch and stops after its members
 	// reach a terminal state; the run becomes "stepStopped" and stays resumable.
-	StepStopRun(ctx context.Context, runID string) (*model.GraphRun, error)
+	StepStopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error)
 	// CancelStopRun cancels a pending pause / step-stop that has not yet settled
 	// (run still in pausing / stepStopping): the held dispatch frontier is
 	// released and the run returns to "running".
-	CancelStopRun(ctx context.Context, runID string) (*model.GraphRun, error)
+	CancelStopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error)
 	// ResumeRun re-launches a resumable GraphRun (failed/paused/stepStopped/
 	// stopped/timedOut/recovering): succeeded/skipped instances are kept,
 	// failed/interrupted ones are reset and rescheduled.
@@ -401,12 +409,15 @@ func (s *serviceImpl) CreateWorkflow(ctx context.Context, req *model.CreateGraph
 		return nil, &ValidationError{Errors: errs}
 	}
 	now := time.Now()
+	config := req.Config
+	workspaceID := firstNonEmpty(req.WorkspaceID, config.WorkspaceID)
+	config.WorkspaceID = workspaceID
 	wf := &model.GraphWorkflow{
 		ID:          model.NewGraphWorkflowID(),
-		WorkspaceID: req.WorkspaceID,
+		WorkspaceID: workspaceID,
 		Name:        name,
 		Description: req.Description,
-		Config:      req.Config,
+		Config:      config,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -438,6 +449,26 @@ func (s *serviceImpl) ListWorkflows(ctx context.Context) ([]*model.GraphWorkflow
 	return s.repo.List(ctx)
 }
 
+func (s *serviceImpl) ListWorkflowsByWorkspace(ctx context.Context, workspaceID string) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error) {
+	workflows, warnings, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, warnings, err
+	}
+	if workspaceID == "" {
+		return workflows, warnings, nil
+	}
+	filtered := make([]*model.GraphWorkflow, 0, len(workflows))
+	for _, wf := range workflows {
+		if wf == nil {
+			continue
+		}
+		if workflowWorkspaceID(wf, "") == workspaceID {
+			filtered = append(filtered, wf)
+		}
+	}
+	return filtered, warnings, nil
+}
+
 func (s *serviceImpl) UpdateWorkflow(ctx context.Context, id string, req *model.UpdateGraphWorkflowRequest) (*model.GraphWorkflow, error) {
 	if req == nil {
 		return nil, fmt.Errorf("request is required")
@@ -461,11 +492,18 @@ func (s *serviceImpl) UpdateWorkflow(ctx context.Context, id string, req *model.
 	if req.UpdatedAt != nil && !wf.UpdatedAt.Equal(*req.UpdatedAt) {
 		return nil, fmt.Errorf("%w: current updatedAt=%s, request updatedAt=%s", ErrWorkflowConflict, wf.UpdatedAt.Format(time.RFC3339Nano), req.UpdatedAt.Format(time.RFC3339Nano))
 	}
+	workspaceID := workflowWorkspaceID(wf, "")
+	if req.WorkspaceID != nil {
+		workspaceID = strings.TrimSpace(*req.WorkspaceID)
+		wf.WorkspaceID = workspaceID
+	}
 	if req.Config != nil {
 		if errs := validateConfig(req.Config); len(errs) > 0 {
 			return nil, &ValidationError{Errors: errs}
 		}
-		wf.Config = *req.Config
+		config := *req.Config
+		config.WorkspaceID = workspaceID
+		wf.Config = config
 	}
 	normalizeWorkflowWorkspace(wf, "")
 	if req.Name != nil {
@@ -591,7 +629,7 @@ func resolveGraphRunWorkspace(ctx context.Context, requestedWorkspaceID, request
 	ws, ok = workspaces.Get(wsID)
 	if !ok {
 		if !allowScheduleFallback {
-			return "", "", nil, fmt.Errorf("workspace %s not found", wsID)
+			return "", "", nil, fmt.Errorf("%w: workspace %s not found", ErrWorkflowBadRequest, wsID)
 		}
 		logger.Warnf(ctx, "[ScheduleTrigger] workspace %s not found for task %s, falling back to %s", wsID, scheduleID, consts.DefaultWorkspaceID)
 		wsID = consts.DefaultWorkspaceID
@@ -608,14 +646,14 @@ func resolveGraphRunWorkspace(ctx context.Context, requestedWorkspaceID, request
 		if allowScheduleFallback {
 			return "", "", nil, fmt.Errorf("schedule %s: invalid workdir: %w", scheduleID, err)
 		}
-		return "", "", nil, err
+		return "", "", nil, fmt.Errorf("%w: %v", ErrWorkflowBadRequest, err)
 	}
 	if ws != nil {
 		if err := ensureGraphWorkdirWithinWorkspace(workdir, ws.Workdir); err != nil {
 			if allowScheduleFallback {
 				return "", "", nil, fmt.Errorf("schedule %s: %w", scheduleID, err)
 			}
-			return "", "", nil, err
+			return "", "", nil, fmt.Errorf("%w: %v", ErrWorkflowBadRequest, err)
 		}
 	}
 	return wsID, workdir, ws, nil

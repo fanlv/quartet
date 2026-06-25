@@ -141,6 +141,61 @@ func TestUpdateRunVersionInFlightAppliesToFutureNode(t *testing.T) {
 	}
 }
 
+func TestUpdateRunVersionNoOpDoesNotAppend(t *testing.T) {
+	uniqueMemoryRoot(t)
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	cfg := model.GraphConfig{
+		Workdir:      t.TempDir(),
+		Variables:    map[string]string{},
+		DisabledVars: []string{},
+		Canvas:       model.GraphCanvasState{Viewport: model.GraphCanvasViewport{X: 10, Y: 20, Zoom: 1.2}},
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			promptNode("a"),
+			node("e", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{edge("s_a", "s", "a"), edge("a_e", "a", "e")},
+	}
+	runner := newRecordingPromptRunner()
+	runner.failContent["do a"] = true
+	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1", Config: &cfg}, runner, nil)
+	if err != nil {
+		t.Fatalf("StartRun failed: %v", err)
+	}
+	got := waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusFailed)
+	if got.Run == nil {
+		t.Fatalf("missing run snapshot")
+	}
+
+	equivalent := cloneGraphConfig(cfg)
+	equivalent.Variables = nil
+	equivalent.DisabledVars = nil
+	equivalent.Canvas = model.GraphCanvasState{}
+	updated, err := svc.UpdateRunVersion(context.Background(), got.Run.ID, &model.UpdateGraphRunVersionRequest{Config: equivalent}, stubGraphRunner{})
+	if err != nil {
+		t.Fatalf("UpdateRunVersion no-op failed: %v", err)
+	}
+	if updated.CurrentVersion != got.Run.CurrentVersion {
+		t.Fatalf("current version = %d, want %d", updated.CurrentVersion, got.Run.CurrentVersion)
+	}
+	if len(updated.Versions) != len(got.Run.Versions) {
+		t.Fatalf("versions len = %d, want %d", len(updated.Versions), len(got.Run.Versions))
+	}
+
+	withEmptyBuiltins := cloneGraphConfig(equivalent)
+	withEmptyBuiltins.Variables = map[string]string{"Code": "", "Doc": ""}
+	updated, err = svc.UpdateRunVersion(context.Background(), got.Run.ID, &model.UpdateGraphRunVersionRequest{Config: withEmptyBuiltins}, stubGraphRunner{})
+	if err != nil {
+		t.Fatalf("UpdateRunVersion empty builtins no-op failed: %v", err)
+	}
+	if updated.CurrentVersion != got.Run.CurrentVersion || len(updated.Versions) != len(got.Run.Versions) {
+		t.Fatalf("empty builtins appended a version: current=%d versions=%d, want current=%d versions=%d", updated.CurrentVersion, len(updated.Versions), got.Run.CurrentVersion, len(got.Run.Versions))
+	}
+}
+
 // TestUpdateRunVersionAppendsAndApplies asserts a legal edit (changing the
 // prompt of a not-yet-started node) appends a new version, and on resume the
 // not-yet-started node executes against the NEW version while the already

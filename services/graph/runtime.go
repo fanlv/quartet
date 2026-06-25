@@ -47,6 +47,16 @@ var (
 	ErrGraphRunNotEditable = errors.New("graph run cannot be edited")
 )
 
+func graphRunLoadError(runID string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "graph run location is not registered") {
+		return ErrGraphRunNotFound
+	}
+	return fmt.Errorf("load graph run %s failed: %w", runID, err)
+}
+
 func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequest, runner Runner, jobs JobStateSink) (*model.GraphRun, error) {
 	if req == nil {
 		return nil, fmt.Errorf("request is required")
@@ -146,10 +156,7 @@ func (s *serviceImpl) RegisterRunLocation(ctx context.Context, runID, workspaceI
 func (s *serviceImpl) GetRunStatus(ctx context.Context, runID string) (*model.GraphRunStatusResponse, error) {
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "graph run location is not registered") {
-			return nil, ErrGraphRunNotFound
-		}
-		return nil, fmt.Errorf("load graph run %s failed: %w", runID, err)
+		return nil, graphRunLoadError(runID, err)
 	}
 	instances, err := s.runRepo.GetInstances(ctx, runID)
 	if err != nil {
@@ -201,7 +208,7 @@ func (s *serviceImpl) ListRunEvents(ctx context.Context, runID string, startLine
 		startLine = 0
 	}
 	if _, err := s.runRepo.GetRun(ctx, runID); err != nil {
-		return nil, ErrGraphRunNotFound
+		return nil, graphRunLoadError(runID, err)
 	}
 	events, err := s.runRepo.ListEvents(ctx, runID, startLine, count)
 	if err != nil {
@@ -269,11 +276,17 @@ func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGr
 			if errors.Is(err, os.ErrNotExist) {
 				return nil, model.GraphConfig{}, ErrWorkflowNotFound
 			}
+			if isInvalidIDError(err) {
+				return nil, model.GraphConfig{}, fmt.Errorf("%w: workflowId %q: %v", ErrWorkflowBadRequest, id, err)
+			}
 			if err != nil {
 				return nil, model.GraphConfig{}, fmt.Errorf("load graph workflow %s failed: %w", id, err)
 			}
 			if wf.Deleted {
 				return nil, model.GraphConfig{}, ErrWorkflowNotFound
+			}
+			if req.WorkflowUpdatedAt != nil && !wf.UpdatedAt.Equal(*req.WorkflowUpdatedAt) {
+				return nil, model.GraphConfig{}, fmt.Errorf("%w: current updatedAt=%s, request updatedAt=%s", ErrWorkflowConflict, wf.UpdatedAt.Format(time.RFC3339Nano), req.WorkflowUpdatedAt.Format(time.RFC3339Nano))
 			}
 			cfg.WorkspaceID = firstNonEmpty(cfg.WorkspaceID, wf.WorkspaceID)
 			return wf, cfg, nil
@@ -281,17 +294,23 @@ func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGr
 		return nil, cfg, nil
 	}
 	if strings.TrimSpace(req.WorkflowID) == "" {
-		return nil, model.GraphConfig{}, fmt.Errorf("workflowId or config is required")
+		return nil, model.GraphConfig{}, fmt.Errorf("%w: workflowId or config is required", ErrWorkflowBadRequest)
 	}
 	wf, err := s.repo.Get(ctx, req.WorkflowID)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, model.GraphConfig{}, ErrWorkflowNotFound
+	}
+	if isInvalidIDError(err) {
+		return nil, model.GraphConfig{}, fmt.Errorf("%w: workflowId %q: %v", ErrWorkflowBadRequest, req.WorkflowID, err)
 	}
 	if err != nil {
 		return nil, model.GraphConfig{}, fmt.Errorf("load graph workflow %s failed: %w", req.WorkflowID, err)
 	}
 	if wf.Deleted {
 		return nil, model.GraphConfig{}, ErrWorkflowNotFound
+	}
+	if req.WorkflowUpdatedAt != nil && !wf.UpdatedAt.Equal(*req.WorkflowUpdatedAt) {
+		return nil, model.GraphConfig{}, fmt.Errorf("%w: current updatedAt=%s, request updatedAt=%s", ErrWorkflowConflict, wf.UpdatedAt.Format(time.RFC3339Nano), req.WorkflowUpdatedAt.Format(time.RFC3339Nano))
 	}
 	cfg := cloneGraphConfig(wf.Config)
 	cfg.WorkspaceID = firstNonEmpty(req.WorkspaceID, cfg.WorkspaceID, wf.WorkspaceID)

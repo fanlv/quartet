@@ -14,6 +14,17 @@ export interface GraphWorkflow {
   deleted?: boolean;
 }
 
+export interface GraphWorkflowSummary {
+  id: string;
+  workspaceId?: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+  nodeCount: number;
+  edgeCount: number;
+}
+
 export interface GraphConfig {
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -104,7 +115,7 @@ export interface GraphWorkflowWarning {
 }
 
 export interface GraphListWorkflowsResponse {
-  workflows: GraphWorkflow[];
+  workflows: GraphWorkflowSummary[];
   // Workflow files that were skipped during the list because they were
   // unreadable or malformed (mirrors model.GraphWorkflowWarning). Surfaced so
   // the UI can show the offending file + raw error instead of the workflow

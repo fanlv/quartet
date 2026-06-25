@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ScheduleInfo } from '../types';
-import { GraphWorkflow } from '../types/graph';
+import { GraphListWorkflowsResponse, GraphWorkflowSummary, GraphWorkflowWarning } from '../types/graph';
 import { AgentInfo } from './ChatPage';
 import { CronInput } from './CronInput';
 import { workspaceColor, DEFAULT_WORKSPACE_ID } from '../utils/workspace';
@@ -22,11 +22,33 @@ interface ScheduleEditModalProps {
   onClose: () => void;
 }
 
-async function fetchGraphWorkflows(): Promise<GraphWorkflow[]> {
+async function readResponseError(res: Response): Promise<string> {
+  const body = await res.text().catch(() => '');
+  const trimmed = body.trim();
+  if (!trimmed) return `HTTP ${res.status}`;
+  try {
+    const data = JSON.parse(trimmed);
+    if (Array.isArray(data?.errors) && data.errors.length > 0) {
+      return data.errors.map((err: unknown) => {
+        if (typeof err === 'string') return err;
+        if (err && typeof err === 'object') {
+          const record = err as Record<string, unknown>;
+          return record.message || record.error || JSON.stringify(record);
+        }
+        return String(err);
+      }).join('\n');
+    }
+    return data?.msg || data?.error || data?.message || trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
+async function fetchGraphWorkflows(): Promise<GraphListWorkflowsResponse> {
   const res = await fetch('/api/v1/graph/workflow/list');
-  if (!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return data.workflows || [];
+  if (!res.ok) throw new Error(await readResponseError(res));
+  const data = await res.json() as GraphListWorkflowsResponse;
+  return { workflows: data.workflows || [], warnings: data.warnings || [] };
 }
 
 export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _agents, defaultAgentIndex: _defaultAgentIndex, onSelectJob, onSave, onClose }: ScheduleEditModalProps) {
@@ -47,10 +69,12 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
   // workspaceId and pin the task to this workspace.
   const [bindToCurrentWs, setBindToCurrentWs] = useState(false);
 
-  const [graphWorkflows, setGraphWorkflows] = useState<GraphWorkflow[]>([]);
+  const [graphWorkflows, setGraphWorkflows] = useState<GraphWorkflowSummary[]>([]);
+  const [graphWorkflowWarnings, setGraphWorkflowWarnings] = useState<GraphWorkflowWarning[]>([]);
   const [graphWorkflowsLoading, setGraphWorkflowsLoading] = useState(true);
   const [graphWorkflowsError, setGraphWorkflowsError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [triggering, setTriggering] = useState(false);
   const [error, setError] = useState('');
   const [viewportHeight, setViewportHeight] = useState(0);
   const [viewportOffsetTop, setViewportOffsetTop] = useState(0);
@@ -59,15 +83,17 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
     let cancelled = false;
     setGraphWorkflowsLoading(true);
     fetchGraphWorkflows()
-      .then(items => {
+      .then(data => {
         if (!cancelled) {
-          setGraphWorkflows(items);
+          setGraphWorkflows(data.workflows || []);
+          setGraphWorkflowWarnings(data.warnings || []);
           setGraphWorkflowsError('');
         }
       })
       .catch(err => {
         if (!cancelled) {
           setGraphWorkflows([]);
+          setGraphWorkflowWarnings([]);
           setGraphWorkflowsError(err instanceof Error ? err.message : String(err));
         }
       })
@@ -131,6 +157,12 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
     () => graphWorkflows.find(wf => wf.id === graphWorkflowId) || null,
     [graphWorkflowId, graphWorkflows]
   );
+  const workflowWorkspaceLabel = useCallback((wf: GraphWorkflowSummary): string => {
+    const wfWorkspaceId = wf.workspaceId || '';
+    if (!wfWorkspaceId) return t('schedule.workflowWorkspaceUnbound');
+    const match = workspaces?.find(w => w.id === wfWorkspaceId);
+    return match?.title || wfWorkspaceId;
+  }, [t, workspaces]);
   const sortedGraphWorkflows = useMemo(
     () => [...graphWorkflows].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })),
     [graphWorkflows],
@@ -190,8 +222,7 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
           body: JSON.stringify(body),
         });
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.msg || 'Failed to update');
+          throw new Error(await readResponseError(res));
         }
       } else {
         // Only send workspaceId when the user opted to bind to the current
@@ -204,8 +235,7 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
           body: JSON.stringify(body),
         });
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.msg || 'Failed to create');
+          throw new Error(await readResponseError(res));
         }
       }
       onSave();
@@ -223,16 +253,21 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
   };
 
   const handleTriggerNow = async () => {
-    if (!schedule) return;
+    if (!schedule || triggering) return;
+    setTriggering(true);
+    setError('');
     try {
       const res = await fetch(`/api/v1/schedule/${schedule.id}/run`, { method: 'POST' });
       if (res.ok) {
         onSave();
       } else {
-        const data = await res.json().catch(() => ({}));
-        setError(data.msg || 'Trigger failed');
+        setError(await readResponseError(res));
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTriggering(false);
+    }
   };
 
   return (
@@ -263,20 +298,37 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
                   <option value={graphWorkflowId}>{t('schedule.missingGraphWorkflowOption', { id: graphWorkflowId })}</option>
                 )}
                 {sortedGraphWorkflows.map(wf => (
-                  <option key={wf.id} value={wf.id}>{wf.name}</option>
+                  <option key={wf.id} value={wf.id}>
+                    {t('schedule.graphWorkflowOption', { name: wf.name, workspace: workflowWorkspaceLabel(wf) })}
+                  </option>
                 ))}
               </select>
             )}
             {selectedGraphWorkflow && (
               <div className="schedule-config-preview">
-                {t('schedule.graphWorkflowPreview', {
-                  nodes: selectedGraphWorkflow.config?.nodes?.length || 0,
-                  edges: selectedGraphWorkflow.config?.edges?.length || 0,
-                })}
+                <div>
+                  {t('schedule.graphWorkflowPreview', {
+                    nodes: selectedGraphWorkflow.nodeCount || 0,
+                    edges: selectedGraphWorkflow.edgeCount || 0,
+                  })}
+                </div>
+                <div className="schedule-config-preview-workspace">
+                  {t('schedule.graphWorkflowWorkspace', { workspace: workflowWorkspaceLabel(selectedGraphWorkflow) })}
+                </div>
               </div>
             )}
             {selectedGraphWorkflowMissing && (
               <div className="schedule-load-error">{t('schedule.graphWorkflowDeleted')}</div>
+            )}
+            {graphWorkflowWarnings.length > 0 && (
+              <div className="schedule-workflow-warnings" data-testid="schedule-graph-workflow-warnings">
+                <div className="schedule-workflow-warnings-title">{t('schedule.graphWorkflowWarnings')}</div>
+                {graphWorkflowWarnings.map((warning) => (
+                  <div key={`${warning.file}:${warning.error}`} className="schedule-workflow-warning-item">
+                    <strong>{warning.file}</strong>: {warning.error}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
@@ -431,8 +483,8 @@ export function ScheduleEditModal({ schedule, workspaceId, workspaces, agents: _
 
         <div className="schedule-modal-footer">
           {isEdit && (
-            <button className="schedule-btn schedule-btn-trigger" onClick={handleTriggerNow} type="button">
-              {t('schedule.triggerNow')}
+            <button className="schedule-btn schedule-btn-trigger" onClick={handleTriggerNow} disabled={triggering || saving} type="button">
+              {triggering ? t('schedule.triggering') : t('schedule.triggerNow')}
             </button>
           )}
           <div className="schedule-modal-footer-right">

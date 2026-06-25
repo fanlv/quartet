@@ -22,28 +22,26 @@ import type {
   GraphRun,
   GraphRunStatus,
   GraphRunStatusResponse,
+  GraphValidationError,
 } from '../types';
 import type { AgentInfo } from './ChatPage';
 import { SSEClient } from '../utils/sse-client';
-import { GraphCanvas } from './graph/GraphCanvas';
+import { GraphCanvas, type GraphCanvasFocus } from './graph/GraphCanvas';
 import { GraphInspector } from './graph/GraphInspector';
 import {
+  clearNestConstraint,
   configToFlow,
   edgeStatusByEdge,
   flowToConfig,
-  LOOP_DEFAULT_HEIGHT,
-  LOOP_DEFAULT_WIDTH,
-  loopPortPosition,
   nestConstraint,
   orderNodesByHierarchy,
-  QG_LOOP_PORT_H,
-  QG_LOOP_PORT_W,
   repinLoopPorts,
   runConfigSnapshot,
   runStatusByNode,
   type QuartetFlowEdge,
   type QuartetFlowNode,
 } from './graph/graphFlowAdapter';
+import { createEditorNode, filterNodeRemoveChanges, markEditableNodes } from './graph/editorModel';
 import './GraphLoopProgress.css';
 
 // The embedded mini canvas visualizes run state. Outside edit mode structural
@@ -51,23 +49,24 @@ import './GraphLoopProgress.css';
 // and the backend re-validates the exact frozen rules.
 const NOOP = () => {};
 
-function withDescendants(ids: Set<string>, nodes: QuartetFlowNode[]): Set<string> {
-  const childrenOf = new Map<string, string[]>();
-  for (const n of nodes) {
-    if (!n.parentId) continue;
-    const list = childrenOf.get(n.parentId);
-    if (list) list.push(n.id);
-    else childrenOf.set(n.parentId, [n.id]);
+function isEmptyForFingerprint(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (value && typeof value === 'object') return Object.keys(value as Record<string, unknown>).length === 0;
+  return false;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .filter((key) => !isEmptyForFingerprint(record[key]))
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(',')}}`;
   }
-  const out = new Set<string>();
-  const stack = [...ids];
-  while (stack.length) {
-    const id = stack.pop() as string;
-    if (out.has(id)) continue;
-    out.add(id);
-    for (const child of childrenOf.get(id) || []) stack.push(child);
-  }
-  return out;
+  return JSON.stringify(value) ?? 'undefined';
 }
 
 function mintId(prefix: string, taken: Set<string>): string {
@@ -115,18 +114,29 @@ const EDITABLE_STATUSES = new Set<GraphRunStatus>([
 const LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'pausing', 'stepStopping']);
 const RESUMABLE_STATUSES = new Set<GraphRunStatus>(['failed', 'paused', 'stepStopped', 'stopped', 'timedOut', 'recovering']);
 
-async function readGraphError(response: Response, prefix?: string): Promise<string> {
+function makeValidationLabel(err: GraphValidationError): string {
+  const loc = [
+    err.nodeId ? `node=${err.nodeId}` : '',
+    err.edgeId ? `edge=${err.edgeId}` : '',
+    err.variable ? `var=${err.variable}` : '',
+    err.configKey ? `config=${err.configKey}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  return loc ? `[${err.type}] ${err.message} (${loc})` : `[${err.type}] ${err.message}`;
+}
+
+async function readGraphErrorDetail(response: Response, prefix?: string): Promise<{ message: string; errors: GraphValidationError[] }> {
   const body = await response.text().catch(() => '');
   const trimmed = body.trim();
   let detail = trimmed;
+  let errors: GraphValidationError[] = [];
   if (trimmed) {
     try {
       const parsed = JSON.parse(trimmed);
       if (Array.isArray(parsed?.errors) && parsed.errors.length > 0) {
-        detail = parsed.errors.map((err: { message?: string; nodeId?: string; edgeId?: string; variable?: string; configKey?: string }) => {
-          const loc = [err.nodeId, err.edgeId, err.variable, err.configKey].filter(Boolean).join(', ');
-          return loc ? `${err.message || 'validation error'} (${loc})` : (err.message || 'validation error');
-        }).join('\n');
+        errors = parsed.errors as GraphValidationError[];
+        detail = errors.map(makeValidationLabel).join('\n');
       } else if (typeof parsed?.msg === 'string') detail = parsed.msg;
       else if (typeof parsed?.error === 'string') detail = parsed.error;
       else if (typeof parsed?.message === 'string') detail = parsed.message;
@@ -135,7 +145,11 @@ async function readGraphError(response: Response, prefix?: string): Promise<stri
     }
   }
   const message = detail ? `HTTP ${response.status}: ${detail}` : `HTTP ${response.status}`;
-  return prefix ? `${prefix}: ${message}` : message;
+  return { message: prefix ? `${prefix}: ${message}` : message, errors };
+}
+
+async function readGraphError(response: Response, prefix?: string): Promise<string> {
+  return (await readGraphErrorDetail(response, prefix)).message;
 }
 
 function statusLabel(t: TFunction, status?: GraphRunStatus): string {
@@ -177,8 +191,12 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
   const [editEdges, setEditEdges] = useState<QuartetFlowEdge[]>([]);
   const [editSnapshot, setEditSnapshot] = useState<GraphConfig | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<GraphValidationError[]>([]);
+  const [focus, setFocus] = useState<GraphCanvasFocus>({ token: 0 });
+  const [savedEditFingerprint, setSavedEditFingerprint] = useState('');
   const [saving, setSaving] = useState(false);
   const sseRef = useRef<SSEClient | null>(null);
+  const bindingRef = useRef(`${jobId || ''}:${runId || ''}`);
 
   const isLive = !!run?.status && LIVE_STATUSES.has(run.status);
   const canPause = !readOnly && run?.status === 'running';
@@ -267,6 +285,9 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
         // progressUpdated/error re-fetch immediately (terminal transition +
         // edges); instance/edge/loop lifecycle events re-fetch throttled.
         if (event.type === 'progressUpdated' || event.type === 'error') {
+          if (event.type === 'error' && event.message) {
+            setError(event.error?.message || event.message);
+          }
           void refresh();
           return;
         }
@@ -341,6 +362,30 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
     () => new Set(instances.filter((inst) => inst.status === 'failed').map((inst) => inst.nodeId)),
     [instances],
   );
+  const validationErrorNodeIds = useMemo(() => new Set(validationErrors.map((err) => err.nodeId).filter(Boolean) as string[]), [validationErrors]);
+  const validationErrorEdgeIds = useMemo(() => new Set(validationErrors.map((err) => err.edgeId).filter(Boolean) as string[]), [validationErrors]);
+  const currentEditFingerprint = useMemo(
+    () => (editSnapshot ? stableStringify(flowToConfig(editNodes, editEdges, editSnapshot)) : ''),
+    [editEdges, editNodes, editSnapshot],
+  );
+  const editDirty = editing && currentEditFingerprint !== savedEditFingerprint;
+
+  useEffect(() => {
+    const binding = `${jobId || ''}:${runId || ''}`;
+    if (bindingRef.current === binding) return;
+    if (editing && editDirty && !window.confirm(t('graph.messages.discardUnsavedConfirm'))) {
+      return;
+    }
+    bindingRef.current = binding;
+    setEditing(false);
+    setEditNodes([]);
+    setEditEdges([]);
+    setEditSnapshot(null);
+    setSelectedNodeId(null);
+    setValidationErrors([]);
+    setSavedEditFingerprint('');
+    setError('');
+  }, [editDirty, editing, jobId, runId, t]);
 
   // Nodes whose execution config is frozen for a version edit. A node inside a
   // loop body re-runs each round, so it stays editable and the next round uses
@@ -379,47 +424,72 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
     if (!run || !canEditRun) return;
     const snapshot = runConfigSnapshot(run);
     const flow = configToFlow(snapshot);
+    const initialConfig = flowToConfig(flow.nodes, flow.edges, snapshot);
     setEditSnapshot(snapshot);
-    setEditNodes(flow.nodes);
+    setEditNodes(markEditableNodes(flow.nodes));
     setEditEdges(flow.edges);
     setSelectedNodeId(null);
+    setValidationErrors([]);
+    setSavedEditFingerprint(stableStringify(initialConfig));
     setEditing(true);
     setExpanded(true);
     setError('');
   }, [canEditRun, run]);
 
-  const cancelEdit = useCallback(() => {
+  const discardEdit = useCallback(() => {
     setEditing(false);
     setEditNodes([]);
     setEditEdges([]);
     setEditSnapshot(null);
     setSelectedNodeId(null);
+    setValidationErrors([]);
+    setSavedEditFingerprint('');
     setError('');
   }, []);
 
+  const cancelEdit = useCallback(() => {
+    if (editDirty && !window.confirm(t('graph.messages.discardUnsavedConfirm'))) return;
+    discardEdit();
+  }, [discardEdit, editDirty, t]);
+
+  const focusValidationError = useCallback((err: GraphValidationError) => {
+    if (err.nodeId) {
+      setSelectedNodeId(err.nodeId);
+      setFocus({ nodeId: err.nodeId, token: Date.now() });
+      return;
+    }
+    if (err.edgeId) {
+      const edge = editEdges.find((e) => e.id === err.edgeId);
+      const targetNodeId = edge?.target || edge?.source;
+      if (targetNodeId) setSelectedNodeId(targetNodeId);
+      setFocus({ edgeId: err.edgeId, token: Date.now() });
+    }
+  }, [editEdges]);
+
   const onEditNodesChange = useCallback((changes: NodeChange[]) => {
+    setValidationErrors([]);
     const removedIds = new Set(changes.filter((ch) => ch.type === 'remove').map((ch) => ch.id));
     setEditNodes((prev) => {
       let effectiveChanges = changes;
+      let doomed = new Set<string>();
       if (removedIds.size > 0) {
-        const doomed = withDescendants(removedIds, prev);
-        if (doomed.size > removedIds.size) {
-          const extra: NodeChange[] = [];
-          for (const id of doomed) {
-            if (!removedIds.has(id)) extra.push({ type: 'remove', id });
-          }
-          effectiveChanges = [...changes, ...extra];
+        const filtered = filterNodeRemoveChanges(changes, prev);
+        effectiveChanges = filtered.changes;
+        doomed = filtered.removedIds;
+        if (doomed.size > 0) {
           setEditEdges((edges) => edges.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)));
           setSelectedNodeId((cur) => (cur && doomed.has(cur) ? null : cur));
         }
       }
-      return repinLoopPorts(applyNodeChanges(effectiveChanges, prev) as QuartetFlowNode[]);
+      return markEditableNodes(repinLoopPorts(applyNodeChanges(effectiveChanges, prev) as QuartetFlowNode[]));
     });
   }, []);
   const onEditEdgesChange = useCallback((changes: EdgeChange[]) => {
+    setValidationErrors([]);
     setEditEdges((prev) => applyEdgeChanges(changes, prev) as QuartetFlowEdge[]);
   }, []);
   const onEditConnect = useCallback((connection: Connection) => {
+    setValidationErrors([]);
     setEditEdges((prev) => {
       const port = connection.sourceHandle === 'yes' || connection.sourceHandle === 'no' ? connection.sourceHandle : undefined;
       const id = mintId(`edge-${connection.source}-${connection.target}`, new Set(prev.map((e) => e.id)));
@@ -438,95 +508,72 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
     });
   }, []);
   const onAddEditNode = useCallback((type: GraphNode['type'], position: { x: number; y: number }, parentId?: string | null) => {
+    setValidationErrors([]);
     const takenIds = new Set(editNodes.map((n) => n.id));
-    const id = mintId(type, takenIds);
-    const intoParent = parentId && type !== 'loop' ? parentId : undefined;
-    const layout =
-      type === 'loop'
-        ? { x: Math.round(position.x), y: Math.round(position.y), width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT }
-        : { x: Math.round(position.x), y: Math.round(position.y) };
-    const graphNode: GraphNode = {
-      id,
-      type,
-      title: '',
-      ...(intoParent ? { parentId: intoParent } : {}),
-      config: type === 'loop' ? { loopMode: 'fixed', fixedCount: 1 } : type === 'prompt' || type === 'evaluator' ? { sessionStrategy: 'new' } : {},
-      layout,
-    };
-    const node: QuartetFlowNode = {
-      id,
-      type: type === 'loop' ? 'loopGroup' : 'quartet',
-      position,
-      ...(intoParent ? { parentId: intoParent, ...nestConstraint(type) } : {}),
-      data: { kind: type, graphNode },
-      deletable: type !== 'start' && type !== 'end',
-      ...(type === 'loop' ? { style: { width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT } } : {}),
-    } as QuartetFlowNode;
-    const extra: QuartetFlowNode[] = [];
-    if (type === 'loop') {
-      const entryPos = loopPortPosition(LOOP_DEFAULT_WIDTH, LOOP_DEFAULT_HEIGHT, true);
-      const exitPos = loopPortPosition(LOOP_DEFAULT_WIDTH, LOOP_DEFAULT_HEIGHT, false);
-      const startId = mintId('start', takenIds);
-      const endId = mintId('end', takenIds);
-      extra.push({
-        id: startId,
-        type: 'quartet',
-        position: entryPos,
-        parentId: id,
-        extent: 'parent',
-        style: { width: QG_LOOP_PORT_W, height: QG_LOOP_PORT_H },
-        draggable: false,
-        data: {
-          kind: 'start',
-          graphNode: { id: startId, type: 'start', title: '', parentId: id, layout: { x: entryPos.x, y: entryPos.y } },
-        },
-        deletable: false,
-      } as QuartetFlowNode);
-      extra.push({
-        id: endId,
-        type: 'quartet',
-        position: exitPos,
-        parentId: id,
-        extent: 'parent',
-        style: { width: QG_LOOP_PORT_W, height: QG_LOOP_PORT_H },
-        draggable: false,
-        data: {
-          kind: 'end',
-          graphNode: { id: endId, type: 'end', title: '', parentId: id, layout: { x: exitPos.x, y: exitPos.y } },
-        },
-        deletable: false,
-      } as QuartetFlowNode);
-    }
-    setEditNodes((prev) => orderNodesByHierarchy([...prev, node, ...extra]));
-    setSelectedNodeId(id);
+    const created = createEditorNode(type, position, parentId, mintId, takenIds);
+    setEditNodes((prev) => markEditableNodes(orderNodesByHierarchy([...prev, ...created])));
+    setSelectedNodeId(created[0]?.id ?? null);
   }, [editNodes]);
-  const onDeleteEditNode = useCallback((id: string) => {
+  const onEditReparent = useCallback((nodeId: string, newParentId: string | null) => {
+    setValidationErrors([]);
     setEditNodes((prev) => {
-      const childrenOf = new Map<string, string[]>();
-      for (const n of prev) {
-        if (!n.parentId) continue;
-        const list = childrenOf.get(n.parentId);
-        if (list) list.push(n.id);
-        else childrenOf.set(n.parentId, [n.id]);
-      }
-      const doomed = new Set<string>();
-      const stack = [id];
-      while (stack.length) {
-        const cur = stack.pop() as string;
-        if (doomed.has(cur)) continue;
-        doomed.add(cur);
-        for (const child of childrenOf.get(cur) || []) stack.push(child);
-      }
+      const absPos = (n: QuartetFlowNode): { x: number; y: number } => {
+        let x = n.position.x;
+        let y = n.position.y;
+        let pid = n.parentId;
+        const seen = new Set<string>();
+        while (pid && !seen.has(pid)) {
+          seen.add(pid);
+          const parent = prev.find((p) => p.id === pid);
+          if (!parent) break;
+          x += parent.position.x;
+          y += parent.position.y;
+          pid = parent.parentId;
+        }
+        return { x, y };
+      };
+      const next = prev.map((n) => {
+        if (n.id !== nodeId) return n;
+        const abs = absPos(n);
+        let pos = abs;
+        if (newParentId) {
+          const parent = prev.find((p) => p.id === newParentId);
+          if (!parent) return n;
+          const parentAbs = absPos(parent);
+          pos = { x: abs.x - parentAbs.x, y: abs.y - parentAbs.y };
+        }
+        const graphNode: GraphNode = {
+          ...n.data.graphNode,
+          parentId: newParentId ?? undefined,
+          layout: { ...(n.data.graphNode.layout || {}), x: Math.round(pos.x), y: Math.round(pos.y) },
+        };
+        return {
+          ...n,
+          position: pos,
+          parentId: newParentId ?? undefined,
+          ...clearNestConstraint,
+          ...(newParentId ? nestConstraint(n.data.kind) : {}),
+          data: { ...n.data, graphNode },
+        };
+      });
+      return markEditableNodes(orderNodesByHierarchy(next));
+    });
+  }, []);
+  const onDeleteEditNode = useCallback((id: string) => {
+    setValidationErrors([]);
+    setEditNodes((prev) => {
+      const doomed = filterNodeRemoveChanges([{ type: 'remove', id }], prev).removedIds;
       setEditEdges((edges) => edges.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)));
       setSelectedNodeId((cur) => (cur && doomed.has(cur) ? null : cur));
-      return prev.filter((n) => !doomed.has(n.id));
+      return markEditableNodes(prev.filter((n) => !doomed.has(n.id)));
     });
   }, []);
 
   // Patch the GraphNode carried by an editable canvas node (config-only edits).
   const patchGraphNode = useCallback((id: string, mutate: (gn: GraphNode) => GraphNode) => {
+    setValidationErrors([]);
     setEditNodes((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, data: { ...n.data, graphNode: mutate(n.data.graphNode) } } : n)),
+      markEditableNodes(prev.map((n) => (n.id === id ? { ...n, data: { ...n.data, graphNode: mutate(n.data.graphNode) } } : n))),
     );
   }, []);
   const onUpdateNode = useCallback(
@@ -543,23 +590,30 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
     const config = flowToConfig(editNodes, editEdges, editSnapshot);
     setSaving(true);
     setError('');
+    setValidationErrors([]);
     try {
       const res = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run/version`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config }),
       });
-      if (!res.ok) throw new Error(await readGraphError(res, `PUT /job/${jobId}/graph-run/version`));
-      setEditing(false);
-      setSelectedNodeId(null);
-      setEditSnapshot(null);
+      if (!res.ok) {
+        const detail = await readGraphErrorDetail(res, `PUT /job/${jobId}/graph-run/version`);
+        if (detail.errors.length > 0) {
+          setValidationErrors(detail.errors);
+          setError(t('graph.messages.validationErrors', { count: detail.errors.length }));
+          return;
+        }
+        throw new Error(detail.message);
+      }
+      discardEdit();
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
-  }, [editEdges, editNodes, editSnapshot, refresh, jobId]);
+  }, [discardEdit, editEdges, editNodes, editSnapshot, refresh, jobId, t]);
 
   // The inspector needs both run-level values and the live edited topology for
   // condition variable suggestions (upstream outputs, loop body outputs, loop
@@ -687,13 +741,16 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
                 readOnly={false}
                 showMiniMap={false}
                 runStatusByNodeId={miniRunStatus}
-                errorNodeIds={miniErrorNodeIds}
+                errorNodeIds={validationErrorNodeIds}
+                errorEdgeIds={validationErrorEdgeIds}
+                focus={focus}
                 onNodesChange={onEditNodesChange}
                 onEdgesChange={onEditEdgesChange}
                 onConnect={onEditConnect}
                 onNodeClick={(id) => setSelectedNodeId(id)}
                 onPaneClick={() => setSelectedNodeId(null)}
                 onAddNode={onAddEditNode}
+                onReparent={onEditReparent}
               />
             </div>
             <div className="graph-loop-inspector graph-dark">
@@ -702,6 +759,7 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
                 config={inspectorConfig}
                 agents={agents}
                 frozenNodeIds={frozenNodeIds}
+                lockGlobals
                 onUpdateNode={onUpdateNode}
                 onUpdateNodeConfig={onUpdateNodeConfig}
                 onDeleteNode={onDeleteEditNode}
@@ -710,6 +768,17 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
               />
             </div>
           </div>
+          {validationErrors.length > 0 && (
+            <ul className="graph-loop-validation-list" data-testid="graph-loop-error-list">
+              {validationErrors.map((err, index) => (
+                <li key={`${err.type}-${err.nodeId || err.edgeId || err.variable || err.configKey || index}`}>
+                  <button type="button" className="graph-loop-error-link" data-testid="graph-loop-error-link" onClick={() => focusValidationError(err)}>
+                    {makeValidationLabel(err)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       ) : expanded ? (
         <>

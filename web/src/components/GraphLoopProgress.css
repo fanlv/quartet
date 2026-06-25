@@ -240,6 +240,38 @@
   flex: 1;
 }
 
+.graph-loop-validation-list {
+  margin: 10px 0 0;
+  padding: 8px 10px 8px 24px;
+  border-radius: 6px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #7f1d1d;
+  font-size: 11px;
+  max-height: 150px;
+  overflow: auto;
+}
+
+.graph-loop-validation-list li + li {
+  margin-top: 4px;
+}
+
+.graph-loop-error-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #991b1b;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.graph-loop-error-link:hover {
+  color: #7f1d1d;
+}
+
 @media (max-width: 768px) {
   .graph-loop-editor {
     flex-direction: column;

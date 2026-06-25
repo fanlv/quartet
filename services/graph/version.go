@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/fanlv/quartet/types/model"
@@ -47,13 +48,27 @@ func (s *serviceImpl) UpdateRunVersion(ctx context.Context, runID string, req *m
 	}
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
-		return nil, ErrGraphRunNotFound
+		return nil, graphRunLoadError(runID, err)
 	}
 	if isInFlightStatus(run.Status) {
 		return s.updateRunVersionInFlight(ctx, runID, req, src)
 	}
+	if !isStaticEditableStatus(run.Status) {
+		return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotEditable, run.Status)
+	}
 
 	return s.appendRunVersion(ctx, run, req, src, nil)
+}
+
+func isStaticEditableStatus(st model.GraphRunStatus) bool {
+	switch st {
+	case model.GraphRunStatusFailed, model.GraphRunStatusPaused,
+		model.GraphRunStatusStepStopped, model.GraphRunStatusStopped,
+		model.GraphRunStatusTimedOut, model.GraphRunStatusRecovering:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *serviceImpl) updateRunVersionInFlight(ctx context.Context, runID string, req *model.UpdateGraphRunVersionRequest, src Runner) (*model.GraphRun, error) {
@@ -68,7 +83,7 @@ func (s *serviceImpl) updateRunVersionInFlight(ctx context.Context, runID string
 		if errors.Is(err, ErrGraphRunNotRunning) {
 			run, getErr := s.runRepo.GetRun(ctx, runID)
 			if getErr != nil {
-				return nil, ErrGraphRunNotFound
+				return nil, graphRunLoadError(runID, getErr)
 			}
 			return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotEditable, run.Status)
 		}
@@ -87,6 +102,9 @@ func (s *serviceImpl) appendRunVersion(ctx context.Context, run *model.GraphRun,
 		return nil, fmt.Errorf("request is required")
 	}
 	newCfg := cloneGraphConfig(req.Config)
+	if graphConfigNoOpEqual(effectiveConfig(run), newCfg) {
+		return run, nil
+	}
 
 	// Full static legality of the edited graph, then the incremental check
 	// against persisted instance state.
@@ -121,6 +139,49 @@ func (s *serviceImpl) appendRunVersion(ctx context.Context, run *model.GraphRun,
 		return nil, err
 	}
 	return run, nil
+}
+
+func graphConfigNoOpEqual(a, b model.GraphConfig) bool {
+	return reflect.DeepEqual(normalizeGraphConfigForNoOp(a), normalizeGraphConfigForNoOp(b))
+}
+
+func normalizeGraphConfigForNoOp(in model.GraphConfig) model.GraphConfig {
+	out := cloneGraphConfig(in)
+	out.Canvas = model.GraphCanvasState{}
+	out.Variables = normalizeGraphVariablesForNoOp(out.Variables)
+	if len(out.Variables) == 0 {
+		out.Variables = nil
+	}
+	if len(out.DisabledVars) == 0 {
+		out.DisabledVars = nil
+	}
+	for i := range out.Nodes {
+		if len(out.Nodes[i].Config.OutputVariables) == 0 {
+			out.Nodes[i].Config.OutputVariables = nil
+		}
+		if len(out.Nodes[i].Metadata) == 0 {
+			out.Nodes[i].Metadata = nil
+		}
+	}
+	for i := range out.Edges {
+		if len(out.Edges[i].Metadata) == 0 {
+			out.Edges[i].Metadata = nil
+		}
+	}
+	return out
+}
+
+func normalizeGraphVariablesForNoOp(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := cloneStringMap(in)
+	for _, name := range []string{"Code", "Doc"} {
+		if out[name] == "" {
+			delete(out, name)
+		}
+	}
+	return out
 }
 
 // executionConfigEqual reports whether two nodes carry identical execution

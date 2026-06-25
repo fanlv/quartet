@@ -142,6 +142,7 @@ export function ConditionBuilder({
         <textarea
           className="gi-cond-advanced"
           value={advancedText}
+          aria-label={t('graph.inspector.condAdvancedAria')}
           placeholder={t('graph.inspector.condAdvancedPlaceholder')}
           disabled={readOnly}
           onChange={(e) => commitAdvanced(e.target.value)}
@@ -193,6 +194,7 @@ export function ConditionBuilder({
               className="gi-cond-var"
               list={listId}
               value={rule.leftVar}
+              aria-label={t('graph.inspector.condLeftAria')}
               placeholder={t('graph.inspector.condLeftPlaceholder')}
               disabled={readOnly}
               onChange={(e) => updateRule(i, { leftVar: e.target.value })}
@@ -210,6 +212,7 @@ export function ConditionBuilder({
           <select
             className="gi-cond-op"
             value={rule.op}
+            aria-label={t('graph.inspector.condOperatorAria')}
             disabled={readOnly}
             onChange={(e) => updateRule(i, { op: e.target.value as CondOp })}
           >
@@ -225,6 +228,7 @@ export function ConditionBuilder({
                 className="gi-cond-val"
                 list={rule.rightIsVar ? listId : undefined}
                 value={rule.rightValue}
+                aria-label={rule.rightIsVar ? t('graph.inspector.condRightVarAria') : t('graph.inspector.condRightValueAria')}
                 placeholder={
                   rule.rightIsVar
                     ? t('graph.inspector.condLeftPlaceholder')

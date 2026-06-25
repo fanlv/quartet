@@ -82,6 +82,21 @@ func (s failingGraphJobSink) AttachGraphSession(context.Context, string, string)
 	return nil
 }
 
+func TestStartRunMissingWorkflowAndConfigIsBadRequest(t *testing.T) {
+	uniqueMemoryRoot(t)
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("graph service failed: %v", err)
+	}
+	_, err = svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1"}, stubGraphRunner{}, nil)
+	if !errors.Is(err, ErrWorkflowBadRequest) {
+		t.Fatalf("StartRun err = %v, want ErrWorkflowBadRequest", err)
+	}
+	if got := err.Error(); got != "invalid graph workflow request: workflowId or config is required" {
+		t.Fatalf("StartRun err text = %q", got)
+	}
+}
+
 func TestCreateRunJobResolvesWorkflowWorkspaceBeforeDefaulting(t *testing.T) {
 	uniqueMemoryRoot(t)
 	defaultWorkdir := filepath.Join(typepath.LocalWorkspaceDir(consts.DefaultWorkspaceID), "files")

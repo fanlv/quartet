@@ -84,7 +84,15 @@ func (h *Handler) CreateGraphWorkflow(ctx context.Context, c *app.RequestContext
 }
 
 func (h *Handler) ListGraphWorkflows(ctx context.Context, c *app.RequestContext) {
-	workflows, warnings, err := h.graphService.ListWorkflows(ctx)
+	workspaceID := string(c.Query("workspaceId"))
+	var workflows []*model.GraphWorkflow
+	var warnings []model.GraphWorkflowWarning
+	var err error
+	if workspaceID != "" {
+		workflows, warnings, err = h.graphService.ListWorkflowsByWorkspace(ctx, workspaceID)
+	} else {
+		workflows, warnings, err = h.graphService.ListWorkflows(ctx)
+	}
 	if err != nil {
 		httputil.InternalError(c, err.Error())
 		return
@@ -93,11 +101,23 @@ func (h *Handler) ListGraphWorkflows(ctx context.Context, c *app.RequestContext)
 		workflows = []*model.GraphWorkflow{}
 	}
 	resp := model.GraphListWorkflowsResponse{
-		Workflows: make([]model.GraphWorkflow, 0, len(workflows)),
+		Workflows: make([]model.GraphWorkflowSummary, 0, len(workflows)),
 		Warnings:  warnings,
 	}
 	for _, wf := range workflows {
-		resp.Workflows = append(resp.Workflows, *wf)
+		if wf == nil {
+			continue
+		}
+		resp.Workflows = append(resp.Workflows, model.GraphWorkflowSummary{
+			ID:          wf.ID,
+			WorkspaceID: wf.WorkspaceID,
+			Name:        wf.Name,
+			Description: wf.Description,
+			CreatedAt:   wf.CreatedAt,
+			UpdatedAt:   wf.UpdatedAt,
+			NodeCount:   len(wf.Config.Nodes),
+			EdgeCount:   len(wf.Config.Edges),
+		})
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -195,6 +215,7 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 		if err != nil {
 			httputil.MapError(c, err, []httputil.ErrorMapping{
 				{Err: graphsvc.ErrWorkflowNotFound, Status: http.StatusNotFound},
+				{Err: graphsvc.ErrWorkflowConflict, Status: http.StatusConflict},
 				{Err: graphsvc.ErrWorkflowBadRequest, Status: http.StatusBadRequest},
 			})
 			return
@@ -230,6 +251,8 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 		}
 		httputil.MapError(c, err, []httputil.ErrorMapping{
 			{Err: graphsvc.ErrWorkflowNotFound, Status: http.StatusNotFound},
+			{Err: graphsvc.ErrWorkflowConflict, Status: http.StatusConflict},
+			{Err: graphsvc.ErrWorkflowBadRequest, Status: http.StatusBadRequest},
 			{Err: graphsvc.ErrGraphRunUnsupported, Status: http.StatusBadRequest},
 			{Err: graphsvc.ErrGraphRunnerMissing, Status: http.StatusBadRequest},
 		})
@@ -449,6 +472,7 @@ func (h *Handler) graphRunEventsReplayFromDisk(ctx context.Context, c *app.Reque
 	resp, err := h.graphService.ListReplayEvents(ctx, runID, startLine, 0)
 	if err != nil {
 		logger.Errorf(ctx, "[graph-sse] replay list events failed: connId=%s runId=%s startLine=%d err=%v", connID, runID, startLine, err)
+		h.writeGraphSSEError(ctx, c, w, connID, runID, "replay list events failed: "+err.Error())
 		return
 	}
 	for i, event := range resp.Events {
@@ -489,43 +513,74 @@ func (h *Handler) graphRunEventsReplayFromDisk(ctx context.Context, c *app.Reque
 	}
 }
 
+func (h *Handler) writeGraphSSEError(ctx context.Context, c *app.RequestContext, w *sse.Writer, connID, runID, message string) {
+	event := model.GraphEvent{
+		ID:      model.NewGraphEventID(),
+		RunID:   runID,
+		Type:    model.GraphEventTypeError,
+		Message: message,
+		Error: &model.GraphRuntimeError{
+			RunID:   runID,
+			Message: message,
+		},
+		CreatedAt: time.Now().UnixMilli(),
+	}
+	data, err := sonic.Marshal(event)
+	if err != nil {
+		logger.Errorf(ctx, "[graph-sse] replay error marshal failed: connId=%s runId=%s err=%v original=%s", connID, runID, err, message)
+		return
+	}
+	if err := writeWithTimeout(ctx, c, connID, runID, 0, func() error {
+		return w.WriteEvent("", "message", data)
+	}, sseWriteTimeout); err != nil {
+		logGraphSSEWriteError(ctx, "replay-error", connID, runID, 0, err)
+	}
+}
+
 // StopJobGraphRun hard-stops a running GraphRun bound to a Job.
 func (h *Handler) StopJobGraphRun(ctx context.Context, c *app.RequestContext) {
-	h.jobGraphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
-		return h.graphService.StopRun(ctx, runID)
+	h.jobGraphRunControl(ctx, c, func(runID, reason string) (*model.GraphRun, error) {
+		return h.graphService.StopRun(ctx, runID, reason)
 	})
 }
 
 // PauseJobGraphRun gracefully pauses a running GraphRun bound to a Job.
 func (h *Handler) PauseJobGraphRun(ctx context.Context, c *app.RequestContext) {
-	h.jobGraphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
-		return h.graphService.PauseRun(ctx, runID)
+	h.jobGraphRunControl(ctx, c, func(runID, reason string) (*model.GraphRun, error) {
+		return h.graphService.PauseRun(ctx, runID, reason)
 	})
 }
 
 // StepStopJobGraphRun freezes the current ready batch and stops after it.
 func (h *Handler) StepStopJobGraphRun(ctx context.Context, c *app.RequestContext) {
-	h.jobGraphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
-		return h.graphService.StepStopRun(ctx, runID)
+	h.jobGraphRunControl(ctx, c, func(runID, reason string) (*model.GraphRun, error) {
+		return h.graphService.StepStopRun(ctx, runID, reason)
 	})
 }
 
 // CancelStopJobGraphRun cancels a pending pause / step-stop, returning the run to
 // running.
 func (h *Handler) CancelStopJobGraphRun(ctx context.Context, c *app.RequestContext) {
-	h.jobGraphRunControl(ctx, c, func(runID string) (*model.GraphRun, error) {
-		return h.graphService.CancelStopRun(ctx, runID)
+	h.jobGraphRunControl(ctx, c, func(runID, reason string) (*model.GraphRun, error) {
+		return h.graphService.CancelStopRun(ctx, runID, reason)
 	})
 }
 
 // jobGraphRunControl runs a control action that resolves to a run snapshot and
 // maps the common control errors.
-func (h *Handler) jobGraphRunControl(ctx context.Context, c *app.RequestContext, action func(runID string) (*model.GraphRun, error)) {
+func (h *Handler) jobGraphRunControl(ctx context.Context, c *app.RequestContext, action func(runID, reason string) (*model.GraphRun, error)) {
 	_, runID, ok := h.resolveJobGraphRun(ctx, c)
 	if !ok {
 		return
 	}
-	run, err := action(runID)
+	var req model.GraphRunActionRequest
+	if len(c.Request.Body()) > 0 {
+		if err := c.BindJSON(&req); err != nil {
+			httputil.BadRequest(c, "invalid request: "+err.Error())
+			return
+		}
+	}
+	run, err := action(runID, req.Reason)
 	if err != nil {
 		httputil.MapError(c, err, []httputil.ErrorMapping{
 			{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},

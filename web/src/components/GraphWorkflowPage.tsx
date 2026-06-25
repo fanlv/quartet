@@ -9,6 +9,7 @@ import {
   MarkerType,
   type Connection,
   type EdgeChange,
+  type IsValidConnection,
   type NodeChange,
   type Viewport,
 } from '@xyflow/react';
@@ -30,6 +31,7 @@ import type {
   GraphValidationResponse,
   GraphWorkflow,
   GraphWorkflowResponse,
+  GraphWorkflowSummary,
   GraphWorkflowWarning,
 } from '../types';
 import type { AgentInfo } from './ChatPage';
@@ -48,15 +50,9 @@ import {
   type QuartetFlowEdge,
   type QuartetFlowNode,
 } from './graph/graphFlowAdapter';
+import { createEditorNode, filterNodeRemoveChanges, isNodeDeletable, markEditableNodes } from './graph/editorModel';
 import { GraphCanvas, type GraphCanvasFocus } from './graph/GraphCanvas';
 import { GraphInspector, BUILTIN_VARS } from './graph/GraphInspector';
-import {
-  LOOP_DEFAULT_HEIGHT,
-  LOOP_DEFAULT_WIDTH,
-  QG_LOOP_PORT_H,
-  QG_LOOP_PORT_W,
-  loopPortPosition,
-} from './graph/graphFlowAdapter';
 import { registerWorkspaceColors, workspaceColor } from '../utils/workspace';
 import './GraphWorkflowPage.css';
 
@@ -68,6 +64,7 @@ interface GraphWorkflowPageProps {
   workspaceTitle?: string;
   workspaceWorkdir?: string;
   onClose: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
   // Called after a run is started so the app can jump into the Chat page for the
   // bound Graph Job, mirroring the startloop flow.
   onRunStarted: (jobId: string) => void;
@@ -169,36 +166,13 @@ function canonicalWorkflowConfig(workflow: GraphWorkflow): GraphConfig {
   };
 }
 
-// start/end nodes cannot be deleted from the canvas.
-function markEditable(nodes: QuartetFlowNode[]): QuartetFlowNode[] {
-  return nodes.map((n) => {
-    const protectedNode = n.data.kind === 'start' || n.data.kind === 'end';
-    return { ...n, deletable: !protectedNode };
-  });
+function configFingerprint(config: GraphConfig): string {
+  const { canvas: _canvas, ...configWithoutCanvas } = config;
+  return stableStringify({ ...configWithoutCanvas, variables: withBuiltinVars(configWithoutCanvas.variables) });
 }
 
-// Expand a set of to-be-deleted node ids to include every descendant, so
-// deleting a loop container also removes its body AND its entry/exit markers.
-// We can't lean on React Flow's native cascade: its getElementsToRemove skips
-// any node with `deletable: false` (which the loop markers carry to block solo
-// deletion), leaving them orphaned on the canvas when their loop is removed.
-function withDescendants(ids: Set<string>, nodes: QuartetFlowNode[]): Set<string> {
-  const childrenOf = new Map<string, string[]>();
-  for (const n of nodes) {
-    if (!n.parentId) continue;
-    const list = childrenOf.get(n.parentId);
-    if (list) list.push(n.id);
-    else childrenOf.set(n.parentId, [n.id]);
-  }
-  const out = new Set<string>();
-  const stack = [...ids];
-  while (stack.length) {
-    const id = stack.pop() as string;
-    if (out.has(id)) continue;
-    out.add(id);
-    for (const child of childrenOf.get(id) || []) stack.push(child);
-  }
-  return out;
+function graphNodeLabel(node: GraphNode | undefined, fallback: string): string {
+  return node?.title || node?.id || fallback;
 }
 
 function seedCounterFromIds(ids: string[]): number {
@@ -373,10 +347,9 @@ function isGraphRunLive(status?: GraphRunStatus): boolean {
   return status === 'pending' || status === 'running' || status === 'pausing' || status === 'stepStopping';
 }
 
-// A GraphRun accepts mid-run version edits while it is still in-flight or in a
-// resumable terminal state — the backend appends a new version that later
-// not-yet-started instances pick up. A naturally completed run is frozen
-// (read-only replay). Mirrors the union of GraphLoop's live + resumable sets.
+// A GraphRun accepts version edits while it is still actively scheduling or in a
+// resumable static state. A naturally completed run is frozen (read-only
+// replay). Mirrors GraphLoopProgress and the backend editable set.
 function isGraphRunEditable(status?: GraphRunStatus): boolean {
   return (
     status === 'running' ||
@@ -589,10 +562,31 @@ function fingerprint(input: { name: string; description: string; config: GraphCo
   return stableStringify({ name: input.name, description: input.description, config: normalized });
 }
 
-export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdir, onClose, onRunStarted }: GraphWorkflowPageProps) {
+function workflowToSummary(workflow: GraphWorkflow | GraphWorkflowSummary): GraphWorkflowSummary {
+  if (!('config' in workflow)) return workflow;
+  return {
+    id: workflow.id,
+    workspaceId: workflow.workspaceId || workflow.config?.workspaceId,
+    name: workflow.name,
+    description: workflow.description,
+    createdAt: workflow.createdAt,
+    updatedAt: workflow.updatedAt,
+    nodeCount: workflow.config?.nodes?.length || 0,
+    edgeCount: workflow.config?.edges?.length || 0,
+  };
+}
+
+function upsertWorkflow(list: GraphWorkflowSummary[], workflow: GraphWorkflow | GraphWorkflowSummary): GraphWorkflowSummary[] {
+  const summary = workflowToSummary(workflow);
+  const exists = list.some((wf) => wf.id === summary.id);
+  if (exists) return list.map((wf) => (wf.id === summary.id ? summary : wf));
+  return [summary, ...list];
+}
+
+export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdir, onClose, onDirtyChange, onRunStarted }: GraphWorkflowPageProps) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
-  const [workflows, setWorkflows] = useState<GraphWorkflow[]>([]);
+  const [workflows, setWorkflows] = useState<GraphWorkflowSummary[]>([]);
   // Warnings for workflow files the backend skipped during list (unreadable /
   // malformed JSON). Surfaced in the status area so a corrupt file does not just
   // silently vanish from the library.
@@ -605,10 +599,11 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [validating, setValidating] = useState(false);
   // Guards the Run button so a rapid double-click cannot fire two concurrent
   // /graph/run/start calls (each would create its own Graph Job).
   const [startingRun, setStartingRun] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<GraphWorkflow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<GraphWorkflowSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agentListError, setAgentListError] = useState('');
@@ -617,7 +612,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
 
   // Canvas (editor) state — the structural source of truth.
   const initialConfig = useMemo(() => cloneDefaultConfig(t, workspaceId, workspaceWorkdir), [t, workspaceId, workspaceWorkdir]);
-  const [nodes, setNodes] = useState<QuartetFlowNode[]>(() => markEditable(configToFlow(initialConfig).nodes));
+  const [nodes, setNodes] = useState<QuartetFlowNode[]>(() => markEditableNodes(configToFlow(initialConfig).nodes));
   const [edges, setEdges] = useState<QuartetFlowEdge[]>(() => configToFlow(initialConfig).edges);
   const [meta, setMeta] = useState<ConfigMeta>(() => metaFromConfig(initialConfig));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -695,16 +690,43 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   );
   const workflowLoadSeqRef = useRef(0);
   const runLoadSeqRef = useRef(0);
+  const validationSeqRef = useRef(0);
+  const saveSeqRef = useRef(0);
+  const runVersionSaveSeqRef = useRef(0);
 
   const selectedWorkflow = useMemo(() => workflows.find((wf) => wf.id === selectedId) ?? null, [workflows, selectedId]);
+  const selectedWorkflowRef = useRef<GraphWorkflowSummary | null>(null);
+  const workspaceNameById = useMemo(() => {
+    const names = new Map<string, string>();
+    allWorkspaces.forEach((ws) => names.set(ws.id, ws.title || ws.id));
+    return names;
+  }, [allWorkspaces]);
+  const workflowWorkspaceLabel = useCallback(
+    (wf: GraphWorkflowSummary): string => {
+      const wfWorkspaceId = wf.workspaceId || '';
+      if (!wfWorkspaceId) return t('graph.sidebar.workspaceUnbound');
+      return workspaceNameById.get(wfWorkspaceId) || wfWorkspaceId;
+    },
+    [t, workspaceNameById],
+  );
   const sortedWorkflows = useMemo(
     () => [...workflows].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })),
     [workflows],
   );
+  useEffect(() => {
+    selectedWorkflowRef.current = selectedWorkflow;
+  }, [selectedWorkflow]);
   const selectedGraphNode: GraphNode | null = useMemo(() => {
     if (!selectedNodeId) return null;
     return nodes.find((n) => n.id === selectedNodeId)?.data.graphNode ?? null;
   }, [nodes, selectedNodeId]);
+  const canDeleteSelectedNode = useCallback(
+    (node: GraphNode): boolean => {
+      const flowNode = nodes.find((n) => n.id === node.id);
+      return !!flowNode && isNodeDeletable(flowNode, nodes);
+    },
+    [nodes],
+  );
   const clearValidationState = useCallback(() => {
     setErrors([]);
   }, []);
@@ -747,7 +769,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         nodeCounterRef.current,
         seedCounterFromIds([...flow.nodes.map((n) => n.id), ...flow.edges.map((e) => e.id)]),
       );
-      setNodes(markEditable(flow.nodes));
+      setNodes(markEditableNodes(flow.nodes));
       setEdges(flow.edges);
       setMeta(metaFromConfig(config));
       setLoadedConfig(config);
@@ -798,13 +820,15 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   // updated synchronously so a follow-up commit in the same tick is consistent.
   const applySnapshot = useCallback((snap: CanvasSnapshot) => {
     const meta: ConfigMeta = { ...snap.meta, canvas: metaRef.current.canvas };
-    nodesRef.current = snap.nodes;
+    const nodes = markEditableNodes(snap.nodes);
+    nodesRef.current = nodes;
     edgesRef.current = snap.edges;
     metaRef.current = meta;
-    setNodes(snap.nodes);
+    setNodes(nodes);
     setEdges(snap.edges);
     setMeta(meta);
-  }, []);
+    clearValidationState();
+  }, [clearValidationState]);
 
   const undo = useCallback(() => {
     const snap = historyPastRef.current.pop();
@@ -838,30 +862,43 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     const base: GraphConfig = { ...loadedConfig, ...meta };
     return flowToConfig(nodes, edges, base);
   }, [edges, loadedConfig, meta, nodes]);
+  const buildConfigRef = useRef(buildConfig);
+  useEffect(() => {
+    buildConfigRef.current = buildConfig;
+  }, [buildConfig]);
 
   const currentFingerprint = useMemo(
     () => fingerprint({ name, description, config: buildConfig() }),
     [buildConfig, description, name],
   );
   const dirty = (!viewingRun || editingRun) && currentFingerprint !== savedFingerprint;
+  const runVersionDirty = editingRun && currentFingerprint !== savedFingerprint;
+  const hasJsonDraft = viewMode === 'json' && jsonText !== JSON.stringify(buildConfig(), null, 2);
+  const discardGuardDirty = dirty || hasJsonDraft;
+  const editingLocked = saving || startingRun || validating;
 
   // Live mirror of `dirty` so the stable discard-guard callback (wired into
   // Back / new / select-other / cancel-edit) can read the latest value without
   // taking `dirty` as a dependency and re-creating every handler on each edit.
   const dirtyRef = useRef(false);
   useEffect(() => {
-    dirtyRef.current = dirty;
-  }, [dirty]);
+    dirtyRef.current = discardGuardDirty;
+    onDirtyChange?.(discardGuardDirty);
+  }, [discardGuardDirty, onDirtyChange]);
 
   useEffect(() => {
-    if (!dirty) return;
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange]);
+
+  useEffect(() => {
+    if (!discardGuardDirty) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [dirty]);
+  }, [discardGuardDirty]);
 
   // Confirm before throwing away unsaved canvas edits. Returns true when it is
   // safe to proceed (not dirty, or the user accepted the prompt). A single
@@ -882,24 +919,31 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   );
 
   // ---- Data loading ----
-  const loadWorkflows = useCallback(async () => {
+  const loadWorkflows = useCallback(async (options?: { preserveMessage?: boolean; keepSelected?: boolean }) => {
     setLoading(true);
-    setMessage('');
+    if (!options?.preserveMessage) setMessage('');
     try {
-      const res = await fetch('/api/v1/graph/workflow/list');
+      const url = new URL('/api/v1/graph/workflow/list', window.location.origin);
+      if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
+      const res = await fetch(`${url.pathname}${url.search}`);
       if (!res.ok) throw new Error(await readError(res));
       const data = (await res.json()) as GraphListWorkflowsResponse;
-      setWorkflows(data.workflows || []);
+      const nextWorkflows = data.workflows || [];
+      const pinned = options?.keepSelected ? selectedWorkflowRef.current : null;
+      setWorkflows(pinned ? upsertWorkflow(nextWorkflows, pinned) : nextWorkflows);
       setListWarnings(data.warnings || []);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => {
     void loadWorkflows();
+  }, [loadWorkflows]);
+
+  useEffect(() => {
     // Load agents for the inspector's Agent/model selectors.
     void (async () => {
       try {
@@ -930,8 +974,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         setWorkspaceListError(err instanceof Error ? err.message : String(err));
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [t]);
 
   // Close the workspace dropdown on outside click (mirrors LoopConfigPanel).
   useEffect(() => {
@@ -1030,6 +1073,9 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
           // immediately for terminal transitions and edge state; instance/edge/
           // loop lifecycle events refetch throttled.
           if (graphEvent.type === 'progressUpdated' || graphEvent.type === 'error') {
+            if (graphEvent.type === 'error' && graphEvent.message) {
+              setRunMessage(graphEvent.error?.message || graphEvent.message);
+            }
             void refreshJobRunStatus(selectedRun.jobId, runSeq);
             return;
           }
@@ -1056,7 +1102,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
 
   // ---- Workflow CRUD ----
   const selectWorkflow = useCallback(
-    async (workflow: GraphWorkflow) => {
+    async (workflow: GraphWorkflowSummary) => {
       const seq = ++workflowLoadSeqRef.current;
       setMessage('');
       setErrors([]);
@@ -1067,6 +1113,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         const data = (await res.json()) as GraphWorkflowResponse;
         if (!data.workflow) throw new Error(t('graph.messages.workflowEmpty'));
         if (seq !== workflowLoadSeqRef.current) return;
+        selectedWorkflowRef.current = workflowToSummary(data.workflow);
         setSelectedId(data.workflow.id);
         setSelectedWorkflowUpdatedAt(data.workflow.updatedAt);
         setName(data.workflow.name);
@@ -1103,15 +1150,16 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   }, [exitRunView, loadConfigIntoCanvas, t, workspaceId, workspaceWorkdir]);
 
   const resetChanges = useCallback(() => {
-    if (selectedWorkflow) {
-      setName(selectedWorkflow.name);
-      setDescription(selectedWorkflow.description || '');
-      setSelectedWorkflowUpdatedAt(selectedWorkflow.updatedAt);
-      const config = canonicalWorkflowConfig(selectedWorkflow);
+    if (selectedWorkflowRef.current && selectedWorkflowRef.current.id === selectedId) {
+      const saved = selectedWorkflowRef.current;
+      setName(saved.name);
+      setDescription(saved.description || '');
+      setSelectedWorkflowUpdatedAt(saved.updatedAt);
+      const config = loadedConfig;
       loadConfigIntoCanvas(config);
       setSavedFingerprint(fingerprint({
-        name: selectedWorkflow.name,
-        description: selectedWorkflow.description || '',
+        name: saved.name,
+        description: saved.description || '',
         config,
       }));
       setMessage(t('graph.messages.resetToSaved'));
@@ -1119,9 +1167,13 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     }
     startNew();
     setMessage(t('graph.messages.resetToDefault'));
-  }, [loadConfigIntoCanvas, selectedWorkflow, startNew, t]);
+  }, [loadConfigIntoCanvas, loadedConfig, selectedId, startNew, t]);
 
   const validateConfigValue = useCallback(async (config: GraphConfig): Promise<boolean> => {
+    const seq = validationSeqRef.current + 1;
+    validationSeqRef.current = seq;
+    const requestFingerprint = configFingerprint(config);
+    setValidating(true);
     setMessage('');
     try {
       const res = await fetch('/api/v1/graph/workflow/validate', {
@@ -1131,12 +1183,16 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = (await res.json()) as GraphValidationResponse;
+      if (seq !== validationSeqRef.current || configFingerprint(buildConfigRef.current()) !== requestFingerprint) return data.valid;
       setErrors(data.errors || []);
       setMessage(data.valid ? t('graph.messages.validationPassed') : t('graph.messages.validationErrors', { count: data.errors?.length || 0 }));
       return data.valid;
     } catch (err) {
+      if (seq !== validationSeqRef.current || configFingerprint(buildConfigRef.current()) !== requestFingerprint) return false;
       setMessage(err instanceof Error ? err.message : String(err));
       return false;
+    } finally {
+      if (seq === validationSeqRef.current) setValidating(false);
     }
   }, [t]);
 
@@ -1153,6 +1209,9 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         return;
       }
       const config = buildConfig();
+      const seq = saveSeqRef.current + 1;
+      saveSeqRef.current = seq;
+      const requestFingerprint = fingerprint({ name: trimmedName, description, config });
       setSaving(true);
       setMessage('');
       setErrors([]);
@@ -1162,7 +1221,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         const body =
           mode === 'create'
             ? { name: trimmedName, description, workspaceId: config.workspaceId || workspaceId, config }
-            : { name: trimmedName, description, config, updatedAt: selectedWorkflowUpdatedAt };
+            : { name: trimmedName, description, workspaceId: config.workspaceId || workspaceId, config, updatedAt: selectedWorkflowUpdatedAt };
         const res = await fetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
@@ -1179,6 +1238,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
             }
           }
           if (Array.isArray(data?.errors)) {
+            if (seq !== saveSeqRef.current || fingerprint({ name: trimmedName, description, config: buildConfigRef.current() }) !== requestFingerprint) return;
             setErrors(data.errors);
             setMessage(t('graph.messages.validationErrors', { count: data.errors.length }));
             return;
@@ -1196,27 +1256,29 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         }
         const data = (await res.json()) as GraphWorkflowResponse;
         if (!data.workflow) throw new Error(t('graph.messages.workflowEmpty'));
-        setWorkflows((prev) => {
-          const exists = prev.some((wf) => wf.id === data.workflow!.id);
-          if (exists) return prev.map((wf) => (wf.id === data.workflow!.id ? data.workflow! : wf));
-          return [data.workflow!, ...prev];
-        });
+        if (seq !== saveSeqRef.current) return;
+        selectedWorkflowRef.current = workflowToSummary(data.workflow);
+        setWorkflows((prev) => upsertWorkflow(prev, data.workflow!));
         setSelectedId(data.workflow.id);
         setSelectedWorkflowUpdatedAt(data.workflow.updatedAt);
-        setName(data.workflow.name);
-        setDescription(data.workflow.description || '');
-        loadConfigIntoCanvas(data.workflow.config);
         setSavedFingerprint(fingerprint({
           name: data.workflow.name,
           description: data.workflow.description || '',
           config: data.workflow.config,
         }));
+        const currentAfterSave = fingerprint({ name: trimmedName, description, config: buildConfigRef.current() });
+        if (currentAfterSave === requestFingerprint) {
+          setName(data.workflow.name);
+          setDescription(data.workflow.description || '');
+          loadConfigIntoCanvas(data.workflow.config);
+        }
+        await loadWorkflows({ preserveMessage: true, keepSelected: true });
         setMessage(mode === 'create' ? t('graph.messages.workflowCreated') : t('graph.messages.workflowSaved'));
-        await loadWorkflows();
       } catch (err) {
+        if (seq !== saveSeqRef.current || fingerprint({ name: trimmedName, description, config: buildConfigRef.current() }) !== requestFingerprint) return;
         setMessage(err instanceof Error ? err.message : String(err));
       } finally {
-        setSaving(false);
+        if (seq === saveSeqRef.current) setSaving(false);
       }
     },
     [buildConfig, description, loadConfigIntoCanvas, loadWorkflows, name, selectedId, selectedWorkflowUpdatedAt, t, workspaceId],
@@ -1227,22 +1289,23 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     setDeleting(true);
     setMessage('');
     try {
+      const expectedUpdatedAt = deleteTarget.id === selectedId ? selectedWorkflowUpdatedAt : deleteTarget.updatedAt;
       const res = await fetch(`/api/v1/graph/workflow/${encodeURIComponent(deleteTarget.id)}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updatedAt: deleteTarget.updatedAt }),
+        body: JSON.stringify({ updatedAt: expectedUpdatedAt }),
       });
       if (!res.ok) throw new Error(await readError(res));
       if (selectedId === deleteTarget.id) startNew();
       setDeleteTarget(null);
+      await loadWorkflows({ preserveMessage: true });
       setMessage(t('graph.messages.workflowDeleted'));
-      await loadWorkflows();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setDeleting(false);
     }
-  }, [deleteTarget, deleting, loadWorkflows, selectedId, startNew, t]);
+  }, [deleteTarget, deleting, loadWorkflows, selectedId, selectedWorkflowUpdatedAt, startNew, t]);
 
   // ---- Run ----
   const startRun = useCallback(async () => {
@@ -1267,6 +1330,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workflowId: selectedId || undefined,
+          workflowUpdatedAt: selectedId ? selectedWorkflowUpdatedAt : undefined,
           workspaceId: config.workspaceId || workspaceId,
           workdir: config.workdir || workspaceWorkdir,
           config,
@@ -1274,6 +1338,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = (await res.json()) as { run?: GraphRun };
+      if (configFingerprint(buildConfigRef.current()) !== configFingerprint(config)) return;
       // A run binds a Graph-type Job; jump into the Chat page for it like the
       // startloop flow does, instead of showing the run inline on the canvas.
       if (data.run?.jobId) {
@@ -1286,7 +1351,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     } finally {
       setStartingRun(false);
     }
-  }, [dirty, onRunStarted, selectedId, startingRun, t, validate, workspaceId, workspaceWorkdir]);
+  }, [dirty, onRunStarted, selectedId, selectedWorkflowUpdatedAt, startingRun, t, validate, workspaceId, workspaceWorkdir]);
 
   // ---- Run-time version editing (§4 运行配置与版本化编辑) ----
   // Enter an editable canvas seeded from the selected run's current effective
@@ -1316,6 +1381,14 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const saveRunVersion = useCallback(async () => {
     if (!selectedRun) return;
     const config = buildConfig();
+    const nextFingerprint = fingerprint({ name, description, config });
+    if (nextFingerprint === savedFingerprint) {
+      setMessage(t('graph.messages.noRunVersionChanges'));
+      return;
+    }
+    const seq = runVersionSaveSeqRef.current + 1;
+    runVersionSaveSeqRef.current = seq;
+    const requestFingerprint = configFingerprint(config);
     setSaving(true);
     setMessage('');
     setErrors([]);
@@ -1336,6 +1409,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
           }
         }
         if (Array.isArray(data?.errors) && data.errors.length > 0) {
+          if (seq !== runVersionSaveSeqRef.current || configFingerprint(buildConfigRef.current()) !== requestFingerprint) return;
           setErrors(data.errors);
           setMessage(t('graph.messages.validationErrors', { count: data.errors.length }));
           return;
@@ -1350,6 +1424,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         return;
       }
       const data = (await res.json()) as { run?: GraphRun };
+      if (seq !== runVersionSaveSeqRef.current || configFingerprint(buildConfigRef.current()) !== requestFingerprint) return;
       if (data.run) {
         setSelectedRun(data.run);
         setSavedFingerprint(fingerprint({ name, description, config }));
@@ -1358,11 +1433,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setMessage(t('graph.messages.runVersionSaved'));
       await refreshJobRunStatus(selectedRun.jobId);
     } catch (err) {
+      if (seq !== runVersionSaveSeqRef.current || configFingerprint(buildConfigRef.current()) !== requestFingerprint) return;
       setMessage(err instanceof Error ? err.message : String(err));
     } finally {
-      setSaving(false);
+      if (seq === runVersionSaveSeqRef.current) setSaving(false);
     }
-  }, [buildConfig, description, name, refreshJobRunStatus, selectedRun, t]);
+  }, [buildConfig, description, name, refreshJobRunStatus, savedFingerprint, selectedRun, t]);
 
   // Open a run directly in run-version edit mode (used by the ?graphEditJob
   // deep-link). Seeds the canvas from the run's current effective version.
@@ -1439,20 +1515,17 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       // missing remove changes so the markers and nested children go too.
       let effectiveChanges = changes;
       if (removedIds.size > 0) {
-        const doomed = withDescendants(removedIds, nodesRef.current);
-        if (doomed.size > removedIds.size) {
-          const extra: NodeChange[] = [];
-          for (const id of doomed) {
-            if (!removedIds.has(id)) extra.push({ type: 'remove', id });
-          }
-          effectiveChanges = [...changes, ...extra];
+        const filtered = filterNodeRemoveChanges(changes, nodesRef.current);
+        const doomed = filtered.removedIds;
+        effectiveChanges = filtered.changes;
+        if (doomed.size > 0) {
           // Drop edges touching any removed node — React Flow only cascades
           // edges for the nodes it actually deletes, which excludes the markers.
           setEdges((prev) => prev.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)));
           setSelectedNodeId((cur) => (cur && doomed.has(cur) ? null : cur));
         }
       }
-      setNodes((prev) => repinLoopPorts(applyNodeChanges(effectiveChanges, prev) as QuartetFlowNode[]));
+      setNodes((prev) => markEditableNodes(repinLoopPorts(applyNodeChanges(effectiveChanges, prev) as QuartetFlowNode[])));
     },
     [clearValidationState, commitHistory],
   );
@@ -1482,8 +1555,46 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     return id;
   }, []);
 
+  const getConnectionError = useCallback((connection: Connection): string | null => {
+    const sourceId = connection.source;
+    const targetId = connection.target;
+    if (!sourceId || !targetId) return t('graph.canvas.connectionInvalidEndpoint');
+    if (sourceId === targetId) return t('graph.canvas.connectionSelf');
+    const source = nodes.find((n) => n.id === sourceId)?.data.graphNode;
+    const target = nodes.find((n) => n.id === targetId)?.data.graphNode;
+    if (!source || !target) return t('graph.canvas.connectionMissingNode');
+    if (source.type === 'end') return t('graph.canvas.connectionEndOut', { node: graphNodeLabel(source, sourceId) });
+    if (target.type === 'start') return t('graph.canvas.connectionStartIn', { node: graphNodeLabel(target, targetId) });
+    if ((source.parentId || '') !== (target.parentId || '')) return t('graph.canvas.connectionCrossScope');
+    const branchPort = connection.sourceHandle === 'yes' || connection.sourceHandle === 'no' ? connection.sourceHandle : undefined;
+    if (source.type === 'ifElse') {
+      if (!branchPort) return t('graph.canvas.connectionIfElsePort');
+      if (edges.some((edge) => edge.source === sourceId && edge.sourceHandle === branchPort)) {
+        return t('graph.canvas.connectionIfElseDuplicate', { port: branchPort.toUpperCase() });
+      }
+    } else if (branchPort) {
+      return t('graph.canvas.connectionBranchPort');
+    }
+    return null;
+  }, [edges, nodes, t]);
+
+  const isValidConnection = useCallback<IsValidConnection<QuartetFlowEdge>>(
+    (connection) => !getConnectionError({
+      source: connection.source,
+      target: connection.target,
+      sourceHandle: connection.sourceHandle ?? null,
+      targetHandle: connection.targetHandle ?? null,
+    }),
+    [getConnectionError],
+  );
+
   const onConnect = useCallback(
     (connection: Connection) => {
+      const reason = getConnectionError(connection);
+      if (reason) {
+        setMessage(reason);
+        return;
+      }
       commitHistory();
       clearValidationState();
       setEdges((prev) => {
@@ -1503,87 +1614,16 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         return addEdge(edge, prev) as QuartetFlowEdge[];
       });
     },
-    [clearValidationState, commitHistory, mintId],
+    [clearValidationState, commitHistory, getConnectionError, mintId],
   );
 
   const onAddNode = useCallback((type: GraphNodeType, position: { x: number; y: number }, parentId?: string | null) => {
     commitHistory();
     clearValidationState();
     const takenIds = new Set(nodesRef.current.map((n) => n.id));
-    const id = mintId(type, takenIds);
-    // A loop container can hold business nodes, ifElse, nested loops and the loop
-    // entry/exit markers — but a fresh start/end is never dropped from the
-    // palette. Dropping onto a loop is ignored for loop (loops stay top-level).
-    const intoParent = parentId && type !== 'loop' ? parentId : undefined;
-    const graphNode: GraphNode = {
-      id,
-      type,
-      title: '',
-      ...(intoParent ? { parentId: intoParent } : {}),
-      config: type === 'loop' ? { loopMode: 'fixed', fixedCount: 1 } : type === 'evaluator' ? { sessionStrategy: 'new' } : type === 'prompt' ? { sessionStrategy: 'new' } : {},
-      layout: { x: Math.round(position.x), y: Math.round(position.y), ...(type === 'loop' ? { width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT } : {}) },
-    };
-    const node: QuartetFlowNode = {
-      id,
-      type: type === 'loop' ? 'loopGroup' : 'quartet',
-      position,
-      ...(intoParent ? { parentId: intoParent, ...nestConstraint(type) } : {}),
-      data: { kind: type, graphNode },
-      deletable: type !== 'start' && type !== 'end',
-      ...(type === 'loop' ? { style: { width: LOOP_DEFAULT_WIDTH, height: LOOP_DEFAULT_HEIGHT } } : {}),
-    };
-    // A loop container is invalid without exactly one entry marker (a loop-scoped
-    // start, on the left border) and at least one exit marker (a loop-scoped end,
-    // on the right border). Since start/end are not in the palette, seed both
-    // automatically so the loop is usable and passes backend validation out of
-    // the box. The user wires entry → body → exit. The markers are port tabs
-    // pinned flush on each border (position from loopPortPosition, not draggable),
-    // so they read as connection points on the container edge.
-    const extra: QuartetFlowNode[] = [];
-    if (type === 'loop') {
-      const entryPos = loopPortPosition(LOOP_DEFAULT_WIDTH, LOOP_DEFAULT_HEIGHT, true);
-      const exitPos = loopPortPosition(LOOP_DEFAULT_WIDTH, LOOP_DEFAULT_HEIGHT, false);
-      const startId = mintId('start', takenIds);
-      const startGraphNode: GraphNode = {
-        id: startId,
-        type: 'start',
-        title: '',
-        parentId: id,
-        layout: { x: entryPos.x, y: entryPos.y },
-      };
-      extra.push({
-        id: startId,
-        type: 'quartet',
-        position: entryPos,
-        parentId: id,
-        extent: 'parent',
-        style: { width: QG_LOOP_PORT_W, height: QG_LOOP_PORT_H },
-        draggable: false,
-        data: { kind: 'start', graphNode: startGraphNode },
-        deletable: false,
-      });
-      const endId = mintId('end', takenIds);
-      const endGraphNode: GraphNode = {
-        id: endId,
-        type: 'end',
-        title: '',
-        parentId: id,
-        layout: { x: exitPos.x, y: exitPos.y },
-      };
-      extra.push({
-        id: endId,
-        type: 'quartet',
-        position: exitPos,
-        parentId: id,
-        extent: 'parent',
-        style: { width: QG_LOOP_PORT_W, height: QG_LOOP_PORT_H },
-        draggable: false,
-        data: { kind: 'end', graphNode: endGraphNode },
-        deletable: false,
-      });
-    }
-    setNodes((prev) => orderNodesByHierarchy([...prev, node, ...extra]));
-    setSelectedNodeId(id);
+    const created = createEditorNode(type, position, parentId, mintId, takenIds);
+    setNodes((prev) => markEditableNodes(orderNodesByHierarchy([...prev, ...created])));
+    setSelectedNodeId(created[0]?.id ?? null);
   }, [clearValidationState, commitHistory, mintId]);
 
   // Reassign a node's loop membership after a drag. React Flow positions child
@@ -1637,13 +1677,13 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         };
         return updated;
       });
-      return orderNodesByHierarchy(next);
+      return markEditableNodes(orderNodesByHierarchy(next));
     });
   }, [clearValidationState]);
 
   const patchGraphNode = useCallback((id: string, mutate: (gn: GraphNode) => GraphNode) => {
     setNodes((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, data: { ...n.data, graphNode: mutate(n.data.graphNode) } } : n)),
+      markEditableNodes(prev.map((n) => (n.id === id ? { ...n, data: { ...n.data, graphNode: mutate(n.data.graphNode) } } : n))),
     );
   }, []);
 
@@ -1669,10 +1709,8 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     (id: string) => {
       commitHistory();
       clearValidationState();
-      // Remove the node and its entire subtree (a loop's body + entry/exit
-      // markers, including nested loops) — not just its direct children.
-      const doomed = withDescendants(new Set([id]), nodesRef.current);
-      setNodes((prev) => prev.filter((n) => !doomed.has(n.id)));
+      const doomed = filterNodeRemoveChanges([{ type: 'remove', id }], nodesRef.current).removedIds;
+      setNodes((prev) => markEditableNodes(prev.filter((n) => !doomed.has(n.id))));
       setEdges((prev) => prev.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)));
       setSelectedNodeId((cur) => (cur && doomed.has(cur) ? null : cur));
     },
@@ -1694,7 +1732,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       // Clear any prior selection so only the freshly pasted nodes stay active.
       setNodes((prev) => {
         const deselected = prev.map((n) => (n.selected ? { ...n, selected: false } : n));
-        return repinLoopPorts(orderNodesByHierarchy([...deselected, ...cloned.nodes]));
+        return markEditableNodes(repinLoopPorts(orderNodesByHierarchy([...deselected, ...cloned.nodes])));
       });
       setEdges((prev) => [...prev, ...cloned.edges]);
       const firstRoot = cloned.rootIds[0] ?? null;
@@ -1905,7 +1943,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     [clearValidationState, commitHistory],
   );
 
-  const canvasNodes = viewingRun && replayFlow ? markEditable(replayFlow.nodes) : nodes;
+  const canvasNodes = viewingRun && replayFlow ? markEditableNodes(replayFlow.nodes) : nodes;
   const canvasEdges = viewingRun && replayFlow ? replayFlow.edges : edges;
 
   return (
@@ -2001,6 +2039,13 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                 >
                   <span className="graph-workflow-row-title">{wf.name}</span>
                   <span className="graph-workflow-row-date">{formatDate(wf.updatedAt)}</span>
+                  <span className="graph-workflow-row-workspace">
+                    <span
+                      className="graph-workflow-row-dot"
+                      style={{ background: workspaceColor(wf.workspaceId || '') }}
+                    />
+                    {workflowWorkspaceLabel(wf)}
+                  </span>
                 </button>
               ))
             )}
@@ -2055,12 +2100,20 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   )}
                 </div>
               )}
-              {dirty ? <span className="graph-dirty-badge" data-testid="graph-dirty-badge">{t('graph.editor.unsaved')}</span> : <span className="graph-clean-badge" data-testid="graph-clean-badge">{t('graph.editor.saved')}</span>}
+              {hasJsonDraft ? (
+                <span className="graph-dirty-badge" data-testid="graph-dirty-badge">{t('graph.editor.jsonDraft')}</span>
+              ) : dirty ? (
+                <span className="graph-dirty-badge" data-testid="graph-dirty-badge">{t('graph.editor.unsaved')}</span>
+              ) : !selectedId && !viewingRun ? (
+                <span className="graph-draft-badge" data-testid="graph-draft-badge">{t('graph.editor.draft')}</span>
+              ) : (
+                <span className="graph-clean-badge" data-testid="graph-clean-badge">{t('graph.editor.saved')}</span>
+              )}
               <input
                 className="graph-name-input"
                 data-testid="graph-name-input"
                 value={name}
-                disabled={viewingRun && !editingRun}
+                disabled={(viewingRun && !editingRun) || editingLocked}
                 onChange={(e) => {
                   clearValidationState();
                   setName(e.target.value);
@@ -2072,7 +2125,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                 className="graph-desc-input"
                 data-testid="graph-description-input"
                 value={description}
-                disabled={viewingRun && !editingRun}
+                disabled={(viewingRun && !editingRun) || editingLocked}
                 onChange={(e) => {
                   clearValidationState();
                   setDescription(e.target.value);
@@ -2083,11 +2136,11 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
             </div>
             <div className="graph-editor-actions">
               <div className="graph-view-toggle">
-                <button data-testid="graph-view-canvas" className={viewMode === 'canvas' ? 'active' : ''} onClick={() => switchView('canvas')}>
+                <button data-testid="graph-view-canvas" className={viewMode === 'canvas' ? 'active' : ''} onClick={() => switchView('canvas')} disabled={editingLocked}>
                   <GraphButtonIcon name="canvas" />
                   {t('graph.editor.canvas')}
                 </button>
-                <button data-testid="graph-view-json" className={viewMode === 'json' ? 'active' : ''} onClick={() => switchView('json')}>
+                <button data-testid="graph-view-json" className={viewMode === 'json' ? 'active' : ''} onClick={() => switchView('json')} disabled={editingLocked}>
                   <GraphButtonIcon name="json" />
                   {t('graph.editor.json')}
                 </button>
@@ -2099,12 +2152,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                       className="graph-primary-btn"
                       data-testid="graph-save-run-version"
                       onClick={() => void saveRunVersion()}
-                      disabled={saving}
+                      disabled={editingLocked || !runVersionDirty}
                     >
                       <GraphButtonIcon name="save" />
                       {saving ? t('graph.editor.saving') : t('graph.editor.saveRunVersion')}
                     </button>
-                    <button className="graph-secondary-btn" data-testid="graph-cancel-run-edit" onClick={() => { if (guardDiscard()) cancelRunEdit(); }} disabled={saving}>
+                    <button className="graph-secondary-btn" data-testid="graph-cancel-run-edit" onClick={() => { if (guardDiscard()) cancelRunEdit(); }} disabled={editingLocked}>
                       <GraphButtonIcon name="cancel" />
                       {t('graph.editor.cancelEdit')}
                     </button>
@@ -2125,29 +2178,29 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                 )
               ) : (
                 <>
-                  <button className="graph-secondary-btn" data-testid="graph-validate" onClick={() => void validate()} disabled={saving || startingRun || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
+                  <button className="graph-secondary-btn" data-testid="graph-validate" onClick={() => void validate()} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                     <GraphButtonIcon name="check" />
                     {t('graph.editor.validate')}
                   </button>
-                  <button className="graph-secondary-btn" data-testid="graph-reset" onClick={resetChanges} disabled={saving || startingRun || viewMode === 'json' || !dirty}>
+                  <button className="graph-secondary-btn" data-testid="graph-reset" onClick={resetChanges} disabled={editingLocked || viewMode === 'json' || !dirty}>
                     <GraphButtonIcon name="reset" />
                     {t('graph.editor.reset')}
                   </button>
                   {selectedWorkflow && (
-                    <button className="graph-danger-btn" onClick={() => { if (guardDiscard()) setDeleteTarget(selectedWorkflow); }} disabled={saving || startingRun}>
+                    <button className="graph-danger-btn" onClick={() => { if (guardDiscard()) setDeleteTarget(selectedWorkflow); }} disabled={editingLocked}>
                       <GraphButtonIcon name="trash" />
                       {t('graph.editor.delete')}
                     </button>
                   )}
-                  <button className="graph-secondary-btn" data-testid="graph-save-as-new" onClick={() => void save('create')} disabled={saving || startingRun || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
+                  <button className="graph-secondary-btn" data-testid="graph-save-as-new" onClick={() => void save('create')} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                     <GraphButtonIcon name="copy" />
                     {t('graph.editor.saveAsNew')}
                   </button>
-                  <button className="graph-primary-btn" data-testid="graph-save" onClick={() => void save(selectedWorkflow ? 'update' : 'create')} disabled={saving || startingRun || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
+                  <button className="graph-primary-btn" data-testid="graph-save" onClick={() => void save(selectedWorkflow ? 'update' : 'create')} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                     <GraphButtonIcon name="save" />
                     {selectedWorkflow ? t('graph.editor.save') : t('graph.editor.create')}
                   </button>
-                  <button className="graph-run-btn" data-testid="graph-run" onClick={() => void startRun()} disabled={saving || startingRun || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
+                  <button className="graph-run-btn" data-testid="graph-run" onClick={() => void startRun()} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                     <GraphButtonIcon name="play" />
                     {startingRun ? t('graph.editor.starting') : t('graph.editor.run')}
                   </button>
@@ -2183,8 +2236,8 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   key={canvasMode}
                   nodes={canvasNodes}
                   edges={canvasEdges}
-                  readOnly={viewingRun && !editingRun}
-                  allowNodeDrag={editingRun}
+                  readOnly={(viewingRun && !editingRun) || editingLocked}
+                  allowNodeDrag={editingRun && !editingLocked}
                   showMiniMap={!isMobile}
                   runStatusByNodeId={viewingRun ? replayRunStatus : undefined}
                   edgeStatusById={viewingRun && !editingRun ? replayEdgeStatus : undefined}
@@ -2196,6 +2249,8 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   onNodesChange={onNodesChange}
                   onEdgesChange={onEdgesChange}
                   onConnect={onConnect}
+                  isValidConnection={isValidConnection}
+                  getConnectionError={getConnectionError}
                   onNodeClick={(id) => {
                     setSelectedNodeId(id);
                     if (isMobile) setInspectorDrawerOpen(true);
@@ -2204,7 +2259,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                     setSelectedNodeId(null);
                   }}
                   onAddNode={onAddNode}
-                  onReparent={editingRun ? undefined : onReparent}
+                  onReparent={onReparent}
                   onViewportChange={onViewportChange}
                   onCopy={onCopy}
                   onPaste={onPaste}
@@ -2220,11 +2275,14 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                     node={selectedGraphNode}
                     config={inspectorConfig}
                     agents={agents}
+                    readOnly={editingLocked}
                     drawerOpen={!isMobile || inspectorDrawerOpen}
                     frozenNodeIds={frozenRunNodeIds}
+                    lockGlobals={editingRun}
                     onUpdateNode={onUpdateNode}
                     onUpdateNodeConfig={onUpdateNodeConfig}
                     onDeleteNode={onDeleteNode}
+                    canDeleteNode={canDeleteSelectedNode}
                     onDuplicateNode={editingRun ? undefined : onDuplicateNode}
                     onUpdateVariables={onUpdateVariables}
                     onUpdateRunConfig={onUpdateRunConfig}

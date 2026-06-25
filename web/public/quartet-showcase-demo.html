@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quartet 系统功能展示 Demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --ink: #172033;
+      --muted: #667085;
+      --weak: #98a2b3;
+      --line: rgba(23, 32, 51, .10);
+      --line-strong: rgba(23, 32, 51, .18);
+      --paper: rgba(255, 255, 255, .82);
+      --paper-solid: #ffffff;
+      --mist: #f5f8fc;
+      --blue: #1f6feb;
+      --blue-2: #0b55d9;
+      --cyan: #00a7b5;
+      --green: #16a34a;
+      --amber: #d97706;
+      --red: #dc2626;
+      --violet: #7c3aed;
+      --slate: #344054;
+      --shadow: 0 28px 70px rgba(23, 32, 51, .12), 0 2px 10px rgba(23, 32, 51, .06);
+      --soft-shadow: 0 14px 34px rgba(23, 32, 51, .08), 0 1px 3px rgba(23, 32, 51, .04);
+      --radius: 22px;
+      font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    }
+    html, body { height: 100%; margin: 0; color: var(--ink); background: #eef4fb; }
+    body {
+      overflow: hidden;
+      background:
+        radial-gradient(900px 560px at 8% -8%, rgba(31, 111, 235, .18), transparent 60%),
+        radial-gradient(760px 480px at 96% 8%, rgba(0, 167, 181, .16), transparent 58%),
+        radial-gradient(620px 460px at 66% 118%, rgba(124, 58, 237, .12), transparent 62%),
+        linear-gradient(145deg, #fbfdff 0%, #eef4fb 52%, #f7fafc 100%);
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    ::-webkit-scrollbar { width: 9px; height: 9px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    .demo-shell { height: 100vh; display: grid; grid-template-rows: 72px minmax(0, 1fr); min-width: 1120px; }
+    .topbar {
+      display: flex; align-items: center; gap: 20px; padding: 0 28px;
+      background: rgba(255, 255, 255, .74); backdrop-filter: blur(26px) saturate(1.45);
+      border-bottom: 1px solid var(--line); box-shadow: 0 1px 22px rgba(23, 32, 51, .06);
+      position: relative; z-index: 20;
+    }
+    .brand { display: flex; align-items: center; gap: 13px; min-width: 260px; }
+    .brand-mark {
+      width: 42px; height: 42px; border-radius: 15px; display: grid; place-items: center;
+      color: white; font-weight: 900; letter-spacing: -.06em;
+      background: linear-gradient(135deg, #172033 0%, #1f6feb 52%, #00a7b5 100%);
+      box-shadow: 0 16px 30px rgba(31, 111, 235, .22);
+    }
+    .brand-title { font-size: 19px; font-weight: 900; letter-spacing: -.04em; }
+    .brand-sub { margin-top: 1px; color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+    .nav-tabs { height: 100%; display: flex; align-items: stretch; gap: 2px; }
+    .tab {
+      position: relative; border: 0; background: transparent; color: #5b6678;
+      padding: 0 12px; font-size: 13px; font-weight: 850; white-space: nowrap;
+      transition: .18s ease;
+    }
+    .tab:hover { color: var(--ink); background: rgba(31, 111, 235, .05); }
+    .tab.active { color: var(--blue); }
+    .tab.active::after {
+      content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px;
+      border-radius: 99px 99px 0 0; background: linear-gradient(90deg, var(--blue), var(--cyan));
+    }
+    .top-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line);
+      background: rgba(255, 255, 255, .82); border-radius: 999px; padding: 7px 10px;
+      color: #475467; font-size: 12px; font-weight: 800; box-shadow: 0 1px 2px rgba(23, 32, 51, .03);
+    }
+    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 5px rgba(22, 163, 74, .11); }
+    .avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #f97316, #facc15); border: 2px solid #fff; box-shadow: 0 8px 18px rgba(217, 119, 6, .17); }
+
+    .content { position: relative; min-height: 0; overflow: hidden; }
+    .page { position: absolute; inset: 0; display: none; overflow: hidden; }
+    .page.active { display: grid; animation: pageIn .22s ease both; }
+    @keyframes pageIn { from { opacity: .25; transform: translateY(8px) scale(.995); } to { opacity: 1; transform: none; } }
+    .btn {
+      height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.86);
+      color: #344054; padding: 0 13px; font-size: 13px; font-weight: 850;
+      box-shadow: 0 1px 2px rgba(23,32,51,.03); transition: .16s ease;
+    }
+    .btn:hover { transform: translateY(-1px); border-color: rgba(31,111,235,.32); color: var(--blue); box-shadow: 0 9px 22px rgba(31,111,235,.10); }
+    .btn.primary { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--blue), var(--cyan)); box-shadow: 0 12px 26px rgba(31,111,235,.18); }
+    .btn.dark { color: #fff; border-color: #172033; background: #172033; }
+    .btn.ghost { background: transparent; box-shadow: none; }
+    .btn.small { height: 30px; border-radius: 10px; padding: 0 10px; font-size: 12px; }
+    .card {
+      background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius);
+      box-shadow: var(--soft-shadow); backdrop-filter: blur(22px) saturate(1.25);
+    }
+    .solid-card { background: var(--paper-solid); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--soft-shadow); }
+    .tag {
+      display: inline-flex; align-items: center; gap: 5px; height: 23px; padding: 0 8px;
+      border-radius: 999px; font-size: 11px; font-weight: 900; white-space: nowrap;
+    }
+    .tag.blue { background: #dbeafe; color: #1d4ed8; }
+    .tag.green { background: #dcfce7; color: #15803d; }
+    .tag.amber { background: #fef3c7; color: #b45309; }
+    .tag.red { background: #fee2e2; color: #b91c1c; }
+    .tag.violet { background: #ede9fe; color: #6d28d9; }
+    .tag.gray { background: #f1f5f9; color: #475569; }
+    .section-title { font-size: 12px; color: var(--muted); font-weight: 950; letter-spacing: .09em; text-transform: uppercase; }
+    .h1 { margin: 0; font-size: 28px; line-height: 1.05; letter-spacing: -.07em; }
+    .h2 { margin: 0; font-size: 18px; letter-spacing: -.04em; }
+    .muted { color: var(--muted); }
+    .mono { font-family: "SFMono-Regular", "Cascadia Code", Menlo, Consolas, monospace; }
+
+    .overview { grid-template-rows: auto minmax(0,1fr); padding: 24px 28px 28px; gap: 18px; overflow: auto; }
+    .hero {
+      display: grid; grid-template-columns: 1.08fr .92fr; gap: 18px; min-height: 280px;
+    }
+    .hero-main { position: relative; overflow: hidden; padding: 30px; border-radius: 30px; color: white; background: linear-gradient(135deg, #101828 0%, #153d8a 56%, #008b96 100%); box-shadow: var(--shadow); }
+    .hero-main::before {
+      content: ""; position: absolute; inset: -50% -10% auto auto; width: 540px; height: 540px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,.28), transparent 62%); opacity: .9;
+    }
+    .hero-main::after {
+      content: ""; position: absolute; right: 28px; bottom: 22px; width: 300px; height: 150px;
+      background-image: linear-gradient(rgba(255,255,255,.14) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.14) 1px, transparent 1px);
+      background-size: 26px 26px; transform: rotate(-8deg); opacity: .55; mask-image: linear-gradient(90deg, transparent, #000);
+    }
+    .hero-main > * { position: relative; z-index: 1; }
+    .eyebrow { margin-bottom: 16px; color: rgba(255,255,255,.72); font-size: 12px; font-weight: 950; letter-spacing: .13em; text-transform: uppercase; }
+    .hero-title { margin: 0; max-width: 680px; font-size: 48px; line-height: .98; letter-spacing: -.09em; }
+    .hero-desc { max-width: 620px; margin: 18px 0 24px; color: rgba(255,255,255,.78); font-size: 15px; line-height: 1.8; }
+    .hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .hero-kpis { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-top: 28px; max-width: 620px; }
+    .hero-kpi { border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.10); border-radius: 18px; padding: 14px; backdrop-filter: blur(10px); }
+    .hero-kpi b { display: block; font-size: 25px; letter-spacing: -.05em; }
+    .hero-kpi span { color: rgba(255,255,255,.68); font-size: 12px; font-weight: 800; }
+    .feature-map { padding: 18px; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+    .feature-card { padding: 16px; border-radius: 19px; background: #fff; border: 1px solid var(--line); transition: .15s ease; }
+    .feature-card:hover { transform: translateY(-2px); box-shadow: 0 16px 28px rgba(23,32,51,.08); }
+    .feature-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 13px; color: white; margin-bottom: 11px; font-weight: 950; }
+    .feature-card h3 { margin: 0 0 6px; font-size: 15px; letter-spacing: -.02em; }
+    .feature-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.62; }
+    .overview-grid { display: grid; grid-template-columns: 1.16fr .84fr; gap: 18px; }
+    .timeline { padding: 18px; }
+    .timeline-list { margin-top: 14px; display: grid; gap: 10px; }
+    .timeline-row { display: grid; grid-template-columns: 38px 1fr auto; gap: 12px; align-items: center; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid var(--line); }
+    .timeline-icon { width: 38px; height: 38px; border-radius: 14px; display: grid; place-items: center; color: white; font-weight: 950; }
+    .timeline-title { font-weight: 900; letter-spacing: -.02em; }
+    .timeline-desc { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .architecture { padding: 18px; overflow: hidden; }
+    .stack-layer { display: grid; grid-template-columns: 116px 1fr; gap: 12px; align-items: center; padding: 12px; margin-top: 10px; background: #fff; border: 1px solid var(--line); border-radius: 16px; }
+    .stack-layer b { font-size: 13px; }
+    .stack-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+
+    .workspace-page { grid-template-columns: 282px minmax(0,1fr); gap: 16px; padding: 18px 26px 22px; min-height: 0; }
+    .left-rail { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+    .rail-head { padding: 16px 16px 12px; border-bottom: 1px solid var(--line); }
+    .workspace-list { padding: 10px; overflow: auto; display: grid; gap: 8px; }
+    .ws-row { width: 100%; display: grid; grid-template-columns: 38px 1fr; gap: 10px; align-items: center; text-align: left; border: 1px solid transparent; background: transparent; padding: 10px; border-radius: 16px; }
+    .ws-row.active, .ws-row:hover { background: #fff; border-color: var(--line); box-shadow: 0 10px 22px rgba(23,32,51,.05); }
+    .ws-dot { width: 38px; height: 38px; border-radius: 15px; display: grid; place-items: center; color: white; font-weight: 950; }
+    .ws-name { font-size: 13px; font-weight: 900; }
+    .ws-path { margin-top: 2px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .main-column { min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr) auto; gap: 14px; }
+    .home-header { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: end; }
+    .home-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .job-history { overflow: auto; padding: 14px; }
+    .job-date { margin: 8px 4px 9px; color: var(--weak); font-size: 12px; font-weight: 900; }
+    .job-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px 16px; position: relative; }
+    .job-grid::before { content: ""; position: absolute; top: 4px; bottom: 4px; left: 50%; width: 1px; background: linear-gradient(transparent, var(--line-strong), transparent); }
+    .job-row { position: relative; display: grid; grid-template-columns: 38px minmax(0,1fr) auto; gap: 10px; align-items: center; padding: 11px; border-radius: 16px; border: 1px solid transparent; background: rgba(255,255,255,.54); transition: .15s ease; }
+    .job-row.active, .job-row:hover { background: #fff; border-color: rgba(31,111,235,.18); box-shadow: 0 12px 24px rgba(23,32,51,.07); }
+    .job-icon { width: 38px; height: 38px; border-radius: 14px; display: grid; place-items: center; font-weight: 950; background: #eef4ff; color: var(--blue); }
+    .job-title { font-weight: 900; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; letter-spacing: -.02em; }
+    .job-meta { margin-top: 4px; display: flex; gap: 7px; align-items: center; color: var(--muted); font-size: 11px; }
+    .job-time { color: var(--weak); font-size: 12px; font-weight: 800; }
+    .composer { background: #fff; border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow); overflow: hidden; }
+    .composer textarea { width: 100%; height: 72px; resize: none; border: 0; outline: 0; padding: 17px 18px; color: var(--ink); background: transparent; }
+    .composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #edf2f7; padding: 11px 14px; }
+    .toolstrip { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .chat-page { grid-template-columns: 268px minmax(0,1fr) 330px; gap: 16px; padding: 18px 26px 22px; min-height: 0; }
+    .sidebar { overflow: hidden; display: flex; flex-direction: column; background: rgba(255,255,255,.76); }
+    .sidebar-logo { padding: 18px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+    .new-chat { margin: 12px; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 14px; border-radius: 15px; background: #172033; color: #fff; font-weight: 900; }
+    .session-list { padding: 0 10px 10px; overflow: auto; display: grid; gap: 6px; }
+    .session-row { display: grid; grid-template-columns: 28px minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 9px; border-radius: 13px; }
+    .session-row.active { background: #eff6ff; color: var(--blue); }
+    .session-row:hover { background: #f8fafc; }
+    .session-title { font-size: 12px; font-weight: 850; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chat-main { min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr) auto; overflow: hidden; }
+    .chat-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 17px; border-bottom: 1px solid var(--line); }
+    .chat-title { display: flex; align-items: center; gap: 10px; font-weight: 950; letter-spacing: -.03em; }
+    .messages { overflow: auto; padding: 18px 18px 98px; background: linear-gradient(180deg, rgba(255,255,255,.68), rgba(245,248,252,.72)); }
+    .msg { display: flex; gap: 12px; margin: 0 0 16px; }
+    .msg.user { justify-content: flex-end; }
+    .msg.user .msg-body { order: 1; max-width: 72%; }
+    .msg.user .bubble { background: #172033; color: white; border-radius: 20px 20px 6px 20px; }
+    .msg.assistant .msg-body { max-width: 78%; }
+    .msg-avatar { width: 34px; height: 34px; border-radius: 13px; flex: none; display: grid; place-items: center; background: #fff; border: 1px solid var(--line); box-shadow: 0 6px 16px rgba(23,32,51,.07); font-weight: 950; }
+    .bubble { padding: 13px 15px; border-radius: 20px; line-height: 1.72; background: #fff; border: 1px solid #e2e8f0; box-shadow: 0 8px 22px rgba(23,32,51,.06); }
+    .assistant-head { margin-bottom: 10px; padding-bottom: 9px; border-bottom: 1px solid #eef2f7; color: var(--blue); font-weight: 950; }
+    .thinking { margin: 10px 0; padding: 10px 12px; border-radius: 14px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; font-size: 12px; }
+    .tool-call { margin: 10px 0; overflow: hidden; border-radius: 15px; border: 1px solid #bfdbfe; background: #eff6ff; }
+    .tool-call h4 { margin: 0; padding: 9px 12px; color: #1d4ed8; background: #dbeafe; font-size: 12px; }
+    .tool-call pre { margin: 0; padding: 11px 12px; background: #fff; color: #344054; font-size: 12px; white-space: pre-wrap; }
+    .chat-input { margin: -80px 18px 16px; position: relative; z-index: 2; background: #fff; border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); overflow: hidden; }
+    .chat-input textarea { width: 100%; height: 58px; border: 0; outline: 0; resize: none; padding: 14px 16px; }
+    .chat-input-footer { border-top: 1px solid #edf2f7; padding: 9px 12px; display: flex; justify-content: space-between; align-items: center; }
+    .detail-panel { padding: 16px; overflow: auto; }
+    .kv { display: grid; grid-template-columns: 94px minmax(0,1fr); gap: 10px; margin-top: 14px; font-size: 12px; }
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; font-weight: 850; overflow-wrap: anywhere; }
+    .outline-list { margin-top: 14px; display: grid; gap: 8px; }
+    .outline-step { padding: 10px; border-radius: 14px; background: #fff; border: 1px solid var(--line); }
+    .outline-step b { display: block; font-size: 12px; }
+    .outline-step span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+
+    .loop-page { grid-template-columns: 350px minmax(0,1fr); gap: 16px; padding: 18px 26px 22px; min-height: 0; }
+    .template-list { padding: 12px; overflow: auto; display: grid; gap: 10px; }
+    .template-card { padding: 14px; border-radius: 18px; background: #fff; border: 1px solid var(--line); }
+    .template-card.active { border-color: #99f6e4; background: #f0fdfa; }
+    .progress { height: 8px; border-radius: 99px; background: #e2e8f0; overflow: hidden; margin-top: 11px; }
+    .progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), var(--green)); }
+    .loop-detail { min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr); overflow: hidden; }
+    .loop-config-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+    .loop-canvas { overflow: auto; padding: 22px; display: grid; gap: 16px; }
+    .flow-chain { display: grid; grid-template-columns: 1fr 42px 1fr 42px 1fr; gap: 8px; align-items: center; max-width: 920px; }
+    .flow-card { min-height: 146px; padding: 16px; border-radius: 20px; background: #fff; border: 1px solid #dbe4ef; box-shadow: 0 12px 26px rgba(23,32,51,.06); }
+    .flow-card h3 { margin: 0 0 8px; font-size: 15px; letter-spacing: -.03em; }
+    .flow-card p { margin: 0; color: var(--muted); line-height: 1.65; font-size: 12px; }
+    .arrow { height: 2px; background: #cbd5e1; position: relative; }
+    .arrow::after { content: ""; position: absolute; right: -1px; top: -5px; border-left: 8px solid #cbd5e1; border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+    .iteration-table { max-width: 920px; overflow: hidden; background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; }
+    .iteration-row { display: grid; grid-template-columns: 90px 1fr 120px 120px; gap: 10px; padding: 12px 14px; border-top: 1px solid #edf2f7; align-items: center; font-size: 13px; }
+    .iteration-row:first-child { border-top: 0; background: #f8fafc; color: var(--muted); font-size: 12px; font-weight: 950; }
+
+    .graph-page { grid-template-columns: 304px minmax(0,1fr); gap: 16px; padding: 18px 26px 22px; min-height: 0; }
+    .workflow-list { padding: 12px; overflow: auto; display: grid; gap: 9px; }
+    .workflow-row { padding: 12px; border-radius: 17px; background: #fff; border: 1px solid transparent; }
+    .workflow-row.active, .workflow-row:hover { border-color: #99f6e4; background: #ecfeff; }
+    .graph-editor { overflow: hidden; display: grid; grid-template-rows: auto minmax(0,1fr); }
+    .graph-editor-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+    .graph-body { min-height: 0; display: grid; grid-template-columns: 168px minmax(0,1fr) 286px; }
+    .palette, .props { background: #fff; overflow: auto; padding: 14px; }
+    .palette { border-right: 1px solid #e2e8f0; }
+    .props { border-left: 1px solid #e2e8f0; }
+    .node-chip { display: flex; align-items: center; gap: 9px; width: 100%; margin-bottom: 8px; padding: 9px; border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 13px; font-size: 12px; font-weight: 850; }
+    .chip-icon { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; color: white; font-size: 11px; font-weight: 950; }
+    .canvas { position: relative; overflow: hidden; background: #f8fafc; background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 22px 22px; }
+    .canvas-toolbar { position: absolute; left: 14px; top: 14px; right: 14px; z-index: 5; display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.94); border: 1px solid #dbe4ef; border-radius: 15px; padding: 8px; box-shadow: 0 12px 28px rgba(23,32,51,.10); }
+    .edge-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .graph-node { position: absolute; width: 160px; min-height: 68px; border-radius: 16px; background: #fff; border: 1px solid #dbe4ef; box-shadow: 0 14px 28px rgba(23,32,51,.10); padding: 12px; z-index: 3; }
+    .graph-node.loop { width: 472px; height: 250px; background: rgba(236, 254, 255, .72); border-color: #99f6e4; }
+    .graph-node.start, .graph-node.end { width: 112px; min-height: 58px; text-align: center; border-color: #bfdbfe; background: #eff6ff; }
+    .graph-node.shell { border-left: 5px solid #344054; }
+    .graph-node.agent { border-left: 5px solid var(--blue); }
+    .graph-node.condition { border-left: 5px solid var(--amber); }
+    .graph-node h4 { margin: 0; font-size: 13px; letter-spacing: -.02em; }
+    .graph-node p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .ports { margin-top: 9px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .prop-section { border-bottom: 1px solid #edf2f7; padding-bottom: 14px; margin-bottom: 14px; }
+    .prop-section h3 { margin: 0 0 10px; font-size: 14px; }
+    .field { margin-top: 10px; }
+    .field label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 900; }
+    .field input, .field textarea, .field select { width: 100%; border: 1px solid #dbe4ef; border-radius: 12px; padding: 9px 10px; background: #fff; outline: 0; }
+    .field textarea { min-height: 72px; resize: vertical; }
+
+    .stats-page { grid-template-rows: auto minmax(0,1fr); gap: 14px; padding: 18px 26px 22px; min-height: 0; overflow: auto; }
+    .stats-head { display: flex; justify-content: space-between; align-items: end; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; }
+    .metric-card { padding: 17px; }
+    .metric-card .label { color: var(--muted); font-size: 12px; font-weight: 900; }
+    .metric-card .value { margin-top: 8px; font-size: 32px; line-height: 1; font-weight: 950; letter-spacing: -.07em; }
+    .metric-card .delta { margin-top: 8px; color: var(--green); font-size: 12px; font-weight: 900; }
+    .stats-layout { display: grid; grid-template-columns: 1.24fr .76fr; gap: 14px; }
+    .chart-card { padding: 16px; min-height: 320px; }
+    .bar-chart { height: 238px; display: flex; align-items: flex-end; gap: 10px; padding-top: 18px; }
+    .bar { flex: 1; min-height: 30px; border-radius: 13px 13px 5px 5px; background: linear-gradient(180deg, #60a5fa, #1f6feb); position: relative; }
+    .bar:nth-child(2n) { background: linear-gradient(180deg, #2dd4bf, #0f766e); }
+    .bar span { position: absolute; left: 50%; transform: translateX(-50%); bottom: -24px; color: var(--muted); font-size: 11px; }
+    .donut-card { padding: 16px; display: grid; grid-template-rows: auto 1fr; min-height: 320px; }
+    .donut-wrap { display: grid; place-items: center; }
+    .donut { width: 178px; height: 178px; border-radius: 50%; background: conic-gradient(#1f6feb 0 44%, #00a7b5 44% 69%, #d97706 69% 84%, #e2e8f0 84%); position: relative; }
+    .donut::after { content: "84%"; position: absolute; inset: 30px; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: 30px; font-weight: 950; letter-spacing: -.06em; }
+    .rank-table { margin-top: 14px; overflow: hidden; border-radius: 18px; border: 1px solid #e2e8f0; background: #fff; }
+    .table-row { display: grid; grid-template-columns: 1.2fr .8fr .7fr .7fr; gap: 10px; padding: 12px 14px; border-top: 1px solid #edf2f7; align-items: center; font-size: 13px; }
+    .table-row:first-child { border-top: 0; background: #f8fafc; color: var(--muted); font-size: 12px; font-weight: 950; }
+
+    .settings-page { grid-template-columns: 284px minmax(0,1fr); gap: 16px; padding: 18px 26px 22px; min-height: 0; }
+    .settings-nav-demo { padding: 12px; display: grid; gap: 8px; overflow: auto; }
+    .settings-nav-demo button { display: flex; align-items: center; gap: 10px; width: 100%; height: 42px; border: 0; border-radius: 14px; background: transparent; color: #475467; padding: 0 12px; font-weight: 900; text-align: left; }
+    .settings-nav-demo button.active, .settings-nav-demo button:hover { background: #eff6ff; color: var(--blue); }
+    .settings-content-demo { padding: 18px; overflow: auto; }
+    .settings-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin-top: 16px; }
+    .config-card { padding: 16px; border-radius: 18px; background: #fff; border: 1px solid var(--line); }
+    .config-card h3 { margin: 0 0 10px; font-size: 15px; letter-spacing: -.03em; }
+    .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid #edf2f7; }
+    .switch-row:first-of-type { border-top: 0; }
+    .switch-title { font-weight: 900; }
+    .switch-desc { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .switch { width: 42px; height: 24px; border-radius: 999px; background: #cbd5e1; flex: none; position: relative; }
+    .switch.on { background: var(--blue); }
+    .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(23,32,51,.22); transition: .18s; }
+    .switch.on::after { left: 21px; }
+    .agent-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-top: 14px; }
+    .agent-card { padding: 14px; border-radius: 18px; background: #fff; border: 1px solid var(--line); }
+    .agent-card b { display: block; margin-bottom: 6px; }
+    .agent-card span { color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+    @media (max-width: 1240px) {
+      .chat-page { grid-template-columns: 240px minmax(0,1fr); }
+      .detail-panel { display: none; }
+      .graph-body { grid-template-columns: 150px minmax(0,1fr); }
+      .props { display: none; }
+      .job-grid, .feature-map, .metric-grid, .settings-grid { grid-template-columns: 1fr; }
+      .job-grid::before { display: none; }
+      .overview-grid, .stats-layout, .hero { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">Q</div>
+        <div>
+          <div class="brand-title">Quartet</div>
+          <div class="brand-sub">Agent 工作系统展示</div>
+        </div>
+      </div>
+      <nav class="nav-tabs" aria-label="功能页面">
+        <button class="tab active" data-tab="overview">总览</button>
+        <button class="tab" data-tab="workspace">工作空间与 Job</button>
+        <button class="tab" data-tab="chat">对话执行</button>
+        <button class="tab" data-tab="loop">Loop 循环</button>
+        <button class="tab" data-tab="graph">Graph 工作流</button>
+        <button class="tab" data-tab="stats">统计与调度</button>
+        <button class="tab" data-tab="settings">设置与集成</button>
+      </nav>
+      <div class="top-actions">
+        <span class="pill"><span class="live-dot"></span>Local Runtime</span>
+        <span class="pill">6 Agents Online</span>
+        <div class="avatar" title="Demo User"></div>
+      </div>
+    </header>
+
+    <main class="content">
+      <section class="page overview active" id="overview">
+        <div class="hero">
+          <div class="hero-main">
+            <div class="eyebrow">Pure HTML Demo · Quartet</div>
+            <h1 class="hero-title">一个入口展示 Agent 对话、循环任务、图编排与运行治理。</h1>
+            <p class="hero-desc">这个演示页把 `web` 页面中的主要能力整理成可讲解的产品视图：用户从工作空间发起任务，Agent 执行工具与文件操作，复杂任务可升级为 Loop 或 Graph，系统沉淀统计、日志、调度和集成配置。</p>
+            <div class="hero-actions">
+              <button class="btn primary" data-go="workspace">查看任务入口</button>
+              <button class="btn" data-go="graph">查看工作流编排</button>
+              <button class="btn" data-go="settings">查看系统配置</button>
+            </div>
+            <div class="hero-kpis">
+              <div class="hero-kpi"><b>42</b><span>今日 Job</span></div>
+              <div class="hero-kpi"><b>18.6k</b><span>工具调用</span></div>
+              <div class="hero-kpi"><b>94%</b><span>任务成功率</span></div>
+            </div>
+          </div>
+          <div class="feature-map card">
+            <div class="feature-card"><div class="feature-icon" style="background:#1f6feb">01</div><h3>工作空间隔离</h3><p>按项目保存 workdir、默认 Agent、默认模型和任务历史，支持跨空间切换。</p></div>
+            <div class="feature-card"><div class="feature-icon" style="background:#00a7b5">02</div><h3>对话式执行</h3><p>消息、思考、工具调用、文件引用和图片上传统一在 Job Chat 中呈现。</p></div>
+            <div class="feature-card"><div class="feature-icon" style="background:#7c3aed">03</div><h3>Loop 任务</h3><p>多步骤、循环组、评估器、变量和模板库，适合持续优化类任务。</p></div>
+            <div class="feature-card"><div class="feature-icon" style="background:#d97706">04</div><h3>Graph 编排</h3><p>可视化连接 Start、Shell、Agent、条件分支、循环组和 End 节点。</p></div>
+            <div class="feature-card"><div class="feature-icon" style="background:#16a34a">05</div><h3>统计面板</h3><p>按模型、工作空间、工具和日期查看耗时、轮次、Token 与趋势。</p></div>
+            <div class="feature-card"><div class="feature-icon" style="background:#344054">06</div><h3>系统集成</h3><p>集中配置模型、Prompt、Skill、ACP、Lark、微信、Token 和运行日志。</p></div>
+          </div>
+        </div>
+        <div class="overview-grid">
+          <div class="timeline card">
+            <div class="section-title">典型使用路径</div>
+            <div class="timeline-list">
+              <div class="timeline-row"><div class="timeline-icon" style="background:#1f6feb">1</div><div><div class="timeline-title">选择工作空间并描述任务</div><div class="timeline-desc">系统自动带入 workdir、默认模型、默认 Agent 和历史上下文。</div></div><span class="tag blue">入口</span></div>
+              <div class="timeline-row"><div class="timeline-icon" style="background:#00a7b5">2</div><div><div class="timeline-title">Agent 执行工具与代码修改</div><div class="timeline-desc">消息流中展示思考、工具调用、文件结果、运行日志和错误恢复。</div></div><span class="tag green">执行</span></div>
+              <div class="timeline-row"><div class="timeline-icon" style="background:#7c3aed">3</div><div><div class="timeline-title">复杂任务转成 Loop 或 Graph</div><div class="timeline-desc">把重复流程、条件判断、Shell 脚本和多 Agent 协作固化下来。</div></div><span class="tag violet">编排</span></div>
+              <div class="timeline-row"><div class="timeline-icon" style="background:#d97706">4</div><div><div class="timeline-title">调度、统计与治理</div><div class="timeline-desc">定时触发、查看消耗、定位失败、复用模板并调整系统配置。</div></div><span class="tag amber">治理</span></div>
+            </div>
+          </div>
+          <div class="architecture card">
+            <div class="section-title">系统能力层</div>
+            <div class="stack-layer"><b>入口层</b><div class="stack-chips"><span class="tag blue">Chat</span><span class="tag blue">Workspace</span><span class="tag blue">Job History</span></div></div>
+            <div class="stack-layer"><b>执行层</b><div class="stack-chips"><span class="tag green">Agent</span><span class="tag green">Tools</span><span class="tag green">SSE Stream</span><span class="tag green">File Browser</span></div></div>
+            <div class="stack-layer"><b>编排层</b><div class="stack-chips"><span class="tag violet">Loop</span><span class="tag violet">Graph</span><span class="tag violet">Template</span><span class="tag violet">Variables</span></div></div>
+            <div class="stack-layer"><b>治理层</b><div class="stack-chips"><span class="tag amber">Schedule</span><span class="tag amber">Stats</span><span class="tag amber">Logs</span><span class="tag amber">Settings</span></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page workspace-page" id="workspace">
+        <aside class="left-rail card">
+          <div class="rail-head">
+            <div class="section-title">Workspaces</div>
+            <h2 class="h2" style="margin-top:8px">工作空间</h2>
+          </div>
+          <div class="workspace-list" id="workspaceList"></div>
+        </aside>
+        <div class="main-column">
+          <div class="home-header">
+            <div>
+              <div class="section-title">Home</div>
+              <h1 class="h1" id="workspaceTitle">Sophia Core</h1>
+              <p class="muted" id="workspaceDesc" style="margin:8px 0 0">面向核心服务的 Agent 工作空间。</p>
+            </div>
+            <div class="home-toolbar">
+              <button class="btn dark">+ New Job</button>
+              <button class="btn">导入任务</button>
+              <button class="btn">批量执行</button>
+              <button class="btn">只看运行中</button>
+              <button class="btn">导出日志</button>
+            </div>
+          </div>
+          <div class="job-history card">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+              <div class="section-title">Job History</div>
+              <span class="tag blue">隐藏调度任务</span>
+              <span class="tag gray">所有工作空间</span>
+              <span style="margin-left:auto" class="tag green">自动刷新</span>
+            </div>
+            <div id="jobHistory"></div>
+          </div>
+          <div class="composer">
+            <textarea placeholder="向 Agent 描述一个任务，例如：分析最近失败的 Graph 运行，并生成修复建议"></textarea>
+            <div class="composer-footer">
+              <div class="toolstrip">
+                <button class="btn small">选择 Agent</button>
+                <button class="btn small">选择模型</button>
+                <button class="btn small">附加文件</button>
+                <button class="btn small">MCP 工具</button>
+                <button class="btn small">Loop 配置</button>
+              </div>
+              <button class="btn primary">启动任务</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page chat-page" id="chat">
+        <aside class="sidebar card">
+          <div class="sidebar-logo"><div class="brand-mark" style="width:34px;height:34px;border-radius:12px">Q</div><b>Quartet</b></div>
+          <div class="new-chat">+ 新对话</div>
+          <div class="section-title" style="padding:6px 18px 8px">历史记录</div>
+          <div class="session-list" id="sessionList"></div>
+        </aside>
+        <div class="chat-main card">
+          <div class="chat-head">
+            <div>
+              <div class="chat-title"><span class="tag blue">Graph Job</span> 分析失败链路并生成修复 MR</div>
+              <div class="muted" style="margin-top:5px;font-size:12px">workspace: Sophia Core · model: Claude Sonnet 4 · agent: deepagent-bubble</div>
+            </div>
+            <div class="toolstrip"><button class="btn small">停止</button><button class="btn small">重命名</button><button class="btn small">分享</button></div>
+          </div>
+          <div class="messages">
+            <div class="msg user"><div class="msg-body"><div class="bubble">帮我检查 Graph Runner 最近失败的运行，定位原因并给出修复方案。</div></div><div class="msg-avatar">我</div></div>
+            <div class="msg assistant"><div class="msg-avatar">A</div><div class="msg-body"><div class="bubble"><div class="assistant-head">Agent 回复</div>我会先读取最近的 Graph 运行状态、失败节点和关联日志，再检查对应的工作流配置。</div><div class="thinking">深度思考：需要同时核对 Job 事件流、Graph snapshot 和 Shell 节点退出码，避免只从最后一条错误判断。</div><div class="tool-call"><h4>tool: graph.runStatus</h4><pre>{
+  "workflow": "Release Gatekeeper",
+  "runId": "gr-20260624-0815",
+  "failedNode": "condition-risk-score",
+  "status": "failed"
+}</pre></div></div></div>
+            <div class="msg assistant"><div class="msg-avatar">A</div><div class="msg-body"><div class="bubble"><div class="assistant-head">结论</div>失败原因是条件节点引用了未启用变量 <span class="mono">${'{'}risk_threshold{'}'}</span>，导致表达式计算为空。建议把该变量加入工作流内置变量表，并为调度运行设置默认值。</div><div class="tool-call"><h4>tool: file.write</h4><pre>已生成 docs/feature/graph-risk-threshold-fix.md
+已更新 workflow variables: risk_threshold = 0.72</pre></div></div></div>
+          </div>
+          <div class="chat-input">
+            <textarea placeholder="继续追问，或输入 /ws /job /new 等命令"></textarea>
+            <div class="chat-input-footer"><div class="toolstrip"><button class="btn small">图片</button><button class="btn small">文件</button><button class="btn small">模式: Plan</button></div><button class="btn primary small">发送</button></div>
+          </div>
+        </div>
+        <aside class="detail-panel card">
+          <div class="section-title">Job Detail</div>
+          <dl class="kv">
+            <dt>状态</dt><dd><span class="tag green">running</span></dd>
+            <dt>Job ID</dt><dd class="mono">job-82f6a4</dd>
+            <dt>会话</dt><dd>3 个 Session</dd>
+            <dt>工具调用</dt><dd>17 次</dd>
+            <dt>耗时</dt><dd>12m 43s</dd>
+            <dt>工作目录</dt><dd class="mono">/quartet/services/graph</dd>
+          </dl>
+          <div class="section-title" style="margin-top:18px">步骤大纲</div>
+          <div class="outline-list">
+            <div class="outline-step"><b>1. 收集运行状态</b><span>读取 Graph run、Job events、SSE snapshot</span></div>
+            <div class="outline-step"><b>2. 定位失败节点</b><span>检查条件表达式与变量解析结果</span></div>
+            <div class="outline-step"><b>3. 生成修复建议</b><span>输出文档、配置变更和验证步骤</span></div>
+          </div>
+        </aside>
+      </section>
+
+      <section class="page loop-page" id="loop">
+        <aside class="left-rail card">
+          <div class="rail-head">
+            <div class="section-title">Loop Templates</div>
+            <h2 class="h2" style="margin-top:8px">循环任务模板</h2>
+          </div>
+          <div class="template-list">
+            <div class="template-card active"><b>失败用例修复循环</b><p class="muted">复现 → 修复 → 测试 → 评估，最多 4 轮。</p><div class="progress"><span style="width:72%"></span></div></div>
+            <div class="template-card"><b>文档生成与审校</b><p class="muted">生成草稿、交叉检查、统一术语、输出 HTML。</p><div class="progress"><span style="width:48%"></span></div></div>
+            <div class="template-card"><b>代码审查闭环</b><p class="muted">扫描 diff、提出问题、应用修复、再次 review。</p><div class="progress"><span style="width:86%"></span></div></div>
+          </div>
+        </aside>
+        <div class="loop-detail card">
+          <div class="loop-config-head">
+            <div><div class="section-title">Loop 任务配置</div><h2 class="h2" style="margin-top:7px">失败用例修复循环</h2></div>
+            <div class="toolstrip"><button class="btn small">复制配置</button><button class="btn small">保存为模板</button><button class="btn primary small">开始 Loop</button></div>
+          </div>
+          <div class="loop-canvas">
+            <div class="flow-chain">
+              <div class="flow-card"><span class="tag blue">Step</span><h3>复现失败</h3><p>运行目标测试，记录失败日志、命令、环境变量和关键堆栈。</p></div>
+              <div class="arrow"></div>
+              <div class="flow-card"><span class="tag violet">Group × 4</span><h3>修复循环</h3><p>每轮由 Agent 修改代码，并立即执行最小验证命令。</p></div>
+              <div class="arrow"></div>
+              <div class="flow-card"><span class="tag amber">Evaluator</span><h3>是否通过</h3><p>如果测试通过且无新 lint 错误，停止循环；否则进入下一轮。</p></div>
+            </div>
+            <div class="iteration-table">
+              <div class="iteration-row"><b>轮次</b><b>步骤</b><b>结果</b><b>耗时</b></div>
+              <div class="iteration-row"><span>第 1 轮</span><span>定位 race condition，加入 session lock</span><span class="tag amber">需继续</span><span>3m 12s</span></div>
+              <div class="iteration-row"><span>第 2 轮</span><span>补充重连去重逻辑与测试</span><span class="tag green">通过</span><span>4m 08s</span></div>
+              <div class="iteration-row"><span>汇总</span><span>生成修复说明和验证命令</span><span class="tag blue">已完成</span><span>1m 29s</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page graph-page" id="graph">
+        <aside class="left-rail card">
+          <div class="rail-head">
+            <div class="section-title">Graph Workflows</div>
+            <h2 class="h2" style="margin-top:8px">工作流库</h2>
+          </div>
+          <div class="workflow-list">
+            <div class="workflow-row active"><b>Release Gatekeeper</b><p class="muted">发布前风险扫描、修复、评估与通知。</p><span class="tag green">ready</span></div>
+            <div class="workflow-row"><b>Daily Repo Digest</b><p class="muted">定时读取仓库变化并生成摘要。</p><span class="tag blue">scheduled</span></div>
+            <div class="workflow-row"><b>Doc Sync Pipeline</b><p class="muted">生成文档、同步云文档、发送群通知。</p><span class="tag violet">template</span></div>
+          </div>
+        </aside>
+        <div class="graph-editor card">
+          <div class="graph-editor-head">
+            <div><div class="section-title">Graph Canvas</div><h2 class="h2" style="margin-top:7px">Release Gatekeeper</h2></div>
+            <div class="toolstrip"><button class="btn small">校验</button><button class="btn small">保存</button><button class="btn primary small">运行</button></div>
+          </div>
+          <div class="graph-body">
+            <div class="palette">
+              <div class="section-title" style="margin-bottom:10px">节点</div>
+              <button class="node-chip"><span class="chip-icon" style="background:#1f6feb">A</span>Agent</button>
+              <button class="node-chip"><span class="chip-icon" style="background:#344054">S</span>Shell</button>
+              <button class="node-chip"><span class="chip-icon" style="background:#d97706">?</span>Condition</button>
+              <button class="node-chip"><span class="chip-icon" style="background:#7c3aed">L</span>Loop Group</button>
+              <button class="node-chip"><span class="chip-icon" style="background:#16a34a">N</span>Notify</button>
+            </div>
+            <div class="canvas">
+              <div class="canvas-toolbar"><span class="tag blue">变量: Code, Doc, risk_threshold</span><span class="tag green">并发 4</span><span class="tag gray">自动布局</span></div>
+              <svg class="edge-svg" viewBox="0 0 900 560" preserveAspectRatio="none">
+                <path d="M120 178 C180 178 190 178 242 178" fill="none" stroke="#94a3b8" stroke-width="3" marker-end="url(#arrow)" />
+                <path d="M410 178 C470 178 470 178 526 178" fill="none" stroke="#94a3b8" stroke-width="3" marker-end="url(#arrow)" />
+                <path d="M685 178 C750 178 750 178 802 178" fill="none" stroke="#94a3b8" stroke-width="3" marker-end="url(#arrow)" />
+                <path d="M606 230 C606 285 330 285 330 334" fill="none" stroke="#0ea5e9" stroke-width="3" marker-end="url(#arrow)" />
+                <path d="M410 370 C520 370 622 306 622 230" fill="none" stroke="#0ea5e9" stroke-width="3" marker-end="url(#arrow)" />
+                <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#94a3b8"/></marker></defs>
+              </svg>
+              <div class="graph-node start" style="left:46px;top:146px"><h4>Start</h4><p>触发运行</p></div>
+              <div class="graph-node shell" style="left:242px;top:136px"><h4>收集变更</h4><p>git diff、测试列表、最近失败日志</p><div class="ports"><span class="tag gray">shell</span></div></div>
+              <div class="graph-node condition" style="left:526px;top:136px"><h4>风险评分</h4><p>risk_score &gt; threshold?</p><div class="ports"><span class="tag amber">if</span></div></div>
+              <div class="graph-node end" style="left:802px;top:146px"><h4>End</h4><p>归档结果</p></div>
+              <div class="graph-node loop" style="left:236px;top:316px"><h4>自动修复循环</h4><p>仅在高风险时进入，最多 3 次。</p>
+                <div class="graph-node agent" style="left:26px;top:82px"><h4>修复 Agent</h4><p>修改代码与测试</p></div>
+                <div class="graph-node shell" style="left:242px;top:82px"><h4>验证命令</h4><p>npm test / go test</p></div>
+              </div>
+            </div>
+            <div class="props">
+              <div class="prop-section"><h3>节点属性</h3><div class="field"><label>标题</label><input value="风险评分" /></div><div class="field"><label>条件表达式</label><textarea>risk_score &gt; ${risk_threshold}</textarea></div></div>
+              <div class="prop-section"><h3>运行配置</h3><div class="field"><label>并发上限</label><input value="4" /></div><div class="field"><label>工作目录</label><input value="/quartet/services/graph" /></div></div>
+              <div class="prop-section"><h3>校验结果</h3><span class="tag green">配置完整</span><p class="muted" style="font-size:12px;line-height:1.6">所有节点都有入口与出口，变量已启用，循环组包含评估节点。</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page stats-page" id="stats">
+        <div class="stats-head">
+          <div><div class="section-title">Stats & Schedule</div><h1 class="h1">统计面板与定时任务</h1></div>
+          <div class="toolstrip"><button class="btn">7 天</button><button class="btn primary">30 天</button><button class="btn">90 天</button><button class="btn">导出</button></div>
+        </div>
+        <div class="metric-grid">
+          <div class="metric-card card"><div class="label">总耗时</div><div class="value">128h</div><div class="delta">较上期 +18%</div></div>
+          <div class="metric-card card"><div class="label">对话轮次</div><div class="value">2,486</div><div class="delta">较上期 +11%</div></div>
+          <div class="metric-card card"><div class="label">工具调用</div><div class="value">18.6k</div><div class="delta">较上期 +23%</div></div>
+          <div class="metric-card card"><div class="label">估算 Token</div><div class="value">9.8M</div><div class="delta">较上期 +9%</div></div>
+        </div>
+        <div class="stats-layout">
+          <div class="chart-card card">
+            <div style="display:flex;align-items:center;justify-content:space-between"><div><div class="section-title">Daily Trend</div><h2 class="h2" style="margin-top:7px">模型调用趋势</h2></div><span class="tag blue">按耗时</span></div>
+            <div class="bar-chart">
+              <div class="bar" style="height:42%"><span>06/18</span></div><div class="bar" style="height:58%"><span>06/19</span></div><div class="bar" style="height:52%"><span>06/20</span></div><div class="bar" style="height:74%"><span>06/21</span></div><div class="bar" style="height:69%"><span>06/22</span></div><div class="bar" style="height:86%"><span>06/23</span></div><div class="bar" style="height:78%"><span>06/24</span></div>
+            </div>
+            <div class="rank-table">
+              <div class="table-row"><b>工作空间</b><b>轮次</b><b>工具</b><b>耗时</b></div>
+              <div class="table-row"><span>Sophia Core</span><span>846</span><span>6,281</span><span>42h</span></div>
+              <div class="table-row"><span>Graph Runner</span><span>623</span><span>5,104</span><span>37h</span></div>
+              <div class="table-row"><span>Docs Studio</span><span>418</span><span>2,992</span><span>21h</span></div>
+            </div>
+          </div>
+          <div class="donut-card card">
+            <div><div class="section-title">Schedule</div><h2 class="h2" style="margin-top:7px">定时任务概览</h2></div>
+            <div class="donut-wrap"><div class="donut"></div></div>
+            <div class="outline-list">
+              <div class="outline-step"><b>每日仓库摘要</b><span>每天 09:00 运行，保存 HTML 摘要。</span></div>
+              <div class="outline-step"><b>失败任务巡检</b><span>每 30 分钟扫描失败 Job 并生成修复建议。</span></div>
+              <div class="outline-step"><b>周报同步</b><span>每周五汇总统计并同步到云文档。</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page settings-page" id="settings">
+        <aside class="left-rail card">
+          <div class="rail-head">
+            <div class="section-title">Settings</div>
+            <h2 class="h2" style="margin-top:8px">系统设置</h2>
+          </div>
+          <nav class="settings-nav-demo">
+            <button class="active">通用设置</button><button>工作空间</button><button>Token</button><button>模型配置</button><button>Prompt</button><button>Skills</button><button>ACP</button><button>Lark</button><button>微信</button><button>日志</button>
+          </nav>
+        </aside>
+        <div class="settings-content-demo card">
+          <div style="display:flex;align-items:end;justify-content:space-between;gap:16px">
+            <div><div class="section-title">Configuration Center</div><h1 class="h1">集中管理模型、Agent、集成与运行策略</h1></div>
+            <button class="btn primary">保存设置</button>
+          </div>
+          <div class="settings-grid">
+            <div class="config-card"><h3>模型与 Agent</h3><div class="switch-row"><div><div class="switch-title">默认消息 Agent</div><div class="switch-desc">deepagent-bubble · Claude Sonnet 4</div></div><div class="switch on"></div></div><div class="switch-row"><div><div class="switch-title">深度思考级别</div><div class="switch-desc">按任务自动选择</div></div><div class="switch on"></div></div></div>
+            <div class="config-card"><h3>工作空间策略</h3><div class="switch-row"><div><div class="switch-title">记住最近工作空间</div><div class="switch-desc">刷新后恢复 workspaceId</div></div><div class="switch on"></div></div><div class="switch-row"><div><div class="switch-title">隔离文件白名单</div><div class="switch-desc">限制访问工作目录内文件</div></div><div class="switch on"></div></div></div>
+            <div class="config-card"><h3>消息与集成</h3><div class="switch-row"><div><div class="switch-title">Lark 消息网关</div><div class="switch-desc">接收群消息并回复运行结果</div></div><div class="switch on"></div></div><div class="switch-row"><div><div class="switch-title">微信通知</div><div class="switch-desc">任务完成后推送摘要</div></div><div class="switch"></div></div></div>
+            <div class="config-card"><h3>运行日志</h3><div class="switch-row"><div><div class="switch-title">保留工具调用详情</div><div class="switch-desc">用于调试 SSE 与 Agent 执行链路</div></div><div class="switch on"></div></div><div class="switch-row"><div><div class="switch-title">失败响应采样</div><div class="switch-desc">自动记录接口失败上下文</div></div><div class="switch on"></div></div></div>
+          </div>
+          <div class="section-title" style="margin-top:20px">Agents & Skills</div>
+          <div class="agent-grid">
+            <div class="agent-card"><b>deepagent-bubble</b><span>通用任务、代码修改、工具调用与对话执行。</span><p><span class="tag green">online</span></p></div>
+            <div class="agent-card"><b>Code Reviewer</b><span>针对 diff、MR 和本地改动进行缺陷审查。</span><p><span class="tag blue">skill</span></p></div>
+            <div class="agent-card"><b>Researcher</b><span>跨来源调研、引用整理和报告生成。</span><p><span class="tag violet">skill</span></p></div>
+            <div class="agent-card"><b>Shell Runner</b><span>执行脚本、构建、测试和运行命令。</span><p><span class="tag gray">tool</span></p></div>
+            <div class="agent-card"><b>Lark Bot</b><span>接收飞书消息、同步文档和会议摘要。</span><p><span class="tag green">connected</span></p></div>
+            <div class="agent-card"><b>Graph Executor</b><span>执行可视化工作流并回放运行事件。</span><p><span class="tag amber">scheduler</span></p></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.tab');
+    const pages = document.querySelectorAll('.page');
+    function activate(id) {
+      tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.tab === id));
+      pages.forEach(page => page.classList.toggle('active', page.id === id));
+    }
+    tabs.forEach(tab => tab.addEventListener('click', () => activate(tab.dataset.tab)));
+    document.querySelectorAll('[data-go]').forEach(btn => btn.addEventListener('click', () => activate(btn.dataset.go)));
+
+    const workspaces = [
+      { name: 'Sophia Core', path: '/quartet/services/sophia', desc: '面向核心服务的 Agent 工作空间。', color: '#1f6feb', letter: 'S' },
+      { name: 'Graph Runner', path: '/quartet/services/graph', desc: '构建和运行可视化 Graph 工作流。', color: '#00a7b5', letter: 'G' },
+      { name: 'Docs Studio', path: '/quartet/docs', desc: '沉淀产品说明、功能文档和展示资料。', color: '#7c3aed', letter: 'D' },
+      { name: 'Ops Monitor', path: '/quartet/runtime/ops', desc: '调度巡检、日志分析和异常修复。', color: '#d97706', letter: 'O' }
+    ];
+    const jobs = [
+      { title: '分析失败链路并生成修复 MR', mode: 'graph', status: 'running', model: 'Claude Sonnet 4', time: '09:42' },
+      { title: '为 Loop 重连逻辑补充测试', mode: 'loop', status: 'completed', model: 'GPT-4.1', time: '09:18' },
+      { title: '整理会议纪要并同步飞书文档', mode: 'chat', status: 'completed', model: 'Gemini 2.5', time: '08:57' },
+      { title: '每日仓库摘要自动生成', mode: 'scheduled', status: 'completed', model: 'Claude Haiku', time: '08:30' },
+      { title: '定位 SSE 重复消息问题', mode: 'chat', status: 'failed', model: 'DeepSeek R1', time: '昨天' },
+      { title: '构建发布前风险扫描工作流', mode: 'graph', status: 'completed', model: 'Claude Sonnet 4', time: '昨天' },
+      { title: '批量更新 Prompt 模板', mode: 'loop', status: 'completed', model: 'Qwen3 Coder', time: '周一' },
+      { title: '检查 Lark 网关消息回放', mode: 'chat', status: 'running', model: 'Claude Sonnet 4', time: '周一' }
+    ];
+    const statusMap = {
+      running: ['green', '运行中'],
+      completed: ['blue', '已完成'],
+      failed: ['red', '失败']
+    };
+    const modeMap = { graph: 'Graph', loop: 'Loop', chat: 'Chat', scheduled: 'Schedule' };
+    const workspaceList = document.getElementById('workspaceList');
+    const jobHistory = document.getElementById('jobHistory');
+    const sessionList = document.getElementById('sessionList');
+    function renderWorkspaces(active = 0) {
+      workspaceList.innerHTML = workspaces.map((w, i) => `
+        <button class="ws-row ${i === active ? 'active' : ''}" data-ws="${i}">
+          <span class="ws-dot" style="background:${w.color}">${w.letter}</span>
+          <span><span class="ws-name">${w.name}</span><span class="ws-path">${w.path}</span></span>
+        </button>`).join('');
+      workspaceList.querySelectorAll('.ws-row').forEach(row => row.addEventListener('click', () => {
+        const idx = Number(row.dataset.ws);
+        document.getElementById('workspaceTitle').textContent = workspaces[idx].name;
+        document.getElementById('workspaceDesc').textContent = workspaces[idx].desc;
+        renderWorkspaces(idx);
+      }));
+    }
+    function renderJobs() {
+      const rows = jobs.map((job, i) => {
+        const [color, label] = statusMap[job.status] || ['gray', job.status];
+        return `<div class="job-row ${i === 0 ? 'active' : ''}">
+          <div class="job-icon">${modeMap[job.mode][0]}</div>
+          <div><div class="job-title">${job.title}</div><div class="job-meta"><span class="tag ${job.mode === 'graph' ? 'violet' : job.mode === 'loop' ? 'amber' : 'gray'}">${modeMap[job.mode]}</span><span class="tag ${color}">${label}</span><span>${job.model}</span></div></div>
+          <div class="job-time">${job.time}</div>
+        </div>`;
+      }).join('');
+      jobHistory.innerHTML = `<div class="job-date">今天 · 2026-06-24</div><div class="job-grid">${rows}</div>`;
+      sessionList.innerHTML = jobs.slice(0, 7).map((job, i) => `<div class="session-row ${i === 0 ? 'active' : ''}"><span>${modeMap[job.mode][0]}</span><span class="session-title">${job.title}</span><span class="tag ${job.status === 'running' ? 'green' : job.status === 'failed' ? 'red' : 'gray'}">${job.status === 'running' ? 'run' : job.status === 'failed' ? 'fail' : 'done'}</span></div>`).join('');
+    }
+    renderWorkspaces();
+    renderJobs();
+  </script>
+</body>
+</html>

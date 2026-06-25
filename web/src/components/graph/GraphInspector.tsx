@@ -104,9 +104,13 @@ interface GraphInspectorProps {
   // becomes read-only. Used by run-version editing (in-place and full-page),
   // where adding/removing nodes & edges is disallowed.
   lockStructure?: boolean;
+  // Makes only the global variables / run-config panel read-only while keeping
+  // node and structure edits available.
+  lockGlobals?: boolean;
   onUpdateNode: (id: string, patch: Partial<GraphNode>) => void;
   onUpdateNodeConfig: (id: string, patch: Partial<GraphNodeConfig>) => void;
   onDeleteNode: (id: string) => void;
+  canDeleteNode?: (node: GraphNode) => boolean;
   // Duplicate this node (and, for a loop, its whole body) onto the canvas.
   // Omitted while the graph structure is locked (run-version editing).
   onDuplicateNode?: (id: string) => void;
@@ -131,6 +135,10 @@ function integerOrUndefined(value: string): number | undefined {
   const n = Number(value);
   return Number.isInteger(n) ? n : undefined;
 }
+function updateInteger(value: string, update: (value: number | undefined) => void) {
+  if (value.trim() !== '' && !Number.isInteger(Number(value))) return;
+  update(integerOrUndefined(value));
+}
 
 export function GraphInspector({
   node,
@@ -140,9 +148,11 @@ export function GraphInspector({
   drawerOpen = true,
   frozenNodeIds,
   lockStructure,
+  lockGlobals,
   onUpdateNode,
   onUpdateNodeConfig,
   onDeleteNode,
+  canDeleteNode,
   onDuplicateNode,
   onUpdateVariables,
   onUpdateRunConfig,
@@ -158,7 +168,7 @@ export function GraphInspector({
   const disabled = new Set(config.disabledVars || []);
   // Structure-lock (run-version editing) makes the global variable table and
   // run-config read-only — only per-node config may change there.
-  const globalsReadOnly = readOnly || lockStructure;
+  const globalsReadOnly = readOnly || lockStructure || lockGlobals;
 
   // Which built-in variable's path picker is open (null = closed). The picker
   // can select either a directory or a file and writes the absolute path back
@@ -424,7 +434,7 @@ export function GraphInspector({
           value={runConfig.concurrencyLimit ?? ''}
           placeholder="8"
           disabled={globalsReadOnly}
-          onChange={(e) => onUpdateRunConfig({ concurrencyLimit: integerOrUndefined(e.target.value) })}
+          onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ concurrencyLimit: value }))}
         />
       </div>
       <div className="gi-field">
@@ -437,7 +447,7 @@ export function GraphInspector({
           value={runConfig.defaultNodeTimeoutSec ?? ''}
           placeholder="0"
           disabled={globalsReadOnly}
-          onChange={(e) => onUpdateRunConfig({ defaultNodeTimeoutSec: integerOrUndefined(e.target.value) })}
+          onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ defaultNodeTimeoutSec: value }))}
         />
       </div>
       <div className="gi-field">
@@ -450,7 +460,7 @@ export function GraphInspector({
           value={runConfig.jobTimeoutSec ?? ''}
           placeholder="0"
           disabled={globalsReadOnly}
-          onChange={(e) => onUpdateRunConfig({ jobTimeoutSec: integerOrUndefined(e.target.value) })}
+          onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ jobTimeoutSec: value }))}
         />
       </div>
       <div className="gi-field">
@@ -464,7 +474,7 @@ export function GraphInspector({
           value={runConfig.defaultLoopMaxIters ?? ''}
           placeholder="100"
           disabled={globalsReadOnly}
-          onChange={(e) => onUpdateRunConfig({ defaultLoopMaxIters: integerOrUndefined(e.target.value) })}
+          onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ defaultLoopMaxIters: value }))}
         />
       </div>
       <div className="gi-field">
@@ -477,7 +487,7 @@ export function GraphInspector({
           value={runConfig.instanceLimit ?? ''}
           placeholder="100000"
           disabled={globalsReadOnly}
-          onChange={(e) => onUpdateRunConfig({ instanceLimit: integerOrUndefined(e.target.value) })}
+          onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ instanceLimit: value }))}
         />
       </div>
       <div className="gi-field">
@@ -490,7 +500,7 @@ export function GraphInspector({
           value={runConfig.snapshotByteLimit ?? ''}
           placeholder="1073741824"
           disabled={globalsReadOnly}
-          onChange={(e) => onUpdateRunConfig({ snapshotByteLimit: integerOrUndefined(e.target.value) })}
+          onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ snapshotByteLimit: value }))}
         />
       </div>
 
@@ -581,7 +591,7 @@ export function GraphInspector({
         step={1}
         value={cfg.timeoutSeconds ?? ''}
         disabled={readOnly}
-        onChange={(e) => setCfg({ timeoutSeconds: integerOrUndefined(e.target.value) })}
+        onChange={(e) => updateInteger(e.target.value, (value) => setCfg({ timeoutSeconds: value }))}
       />
     </div>
   );
@@ -675,8 +685,9 @@ export function GraphInspector({
           </div>
         )}
 
+        {TitleField}
+
         <fieldset className="gi-fieldset" disabled={frozen}>
-          {TitleField}
 
       {node.type === 'shell' && (
         <>
@@ -800,7 +811,7 @@ export function GraphInspector({
                   value={cfg.maxIterations ?? ''}
                   placeholder="100"
                   disabled={readOnly}
-                  onChange={(e) => setCfg({ maxIterations: integerOrUndefined(e.target.value) })}
+                  onChange={(e) => updateInteger(e.target.value, (value) => setCfg({ maxIterations: value }))}
                 />
               </div>
             </>
@@ -814,7 +825,7 @@ export function GraphInspector({
                 step={1}
                 value={cfg.fixedCount ?? ''}
                 disabled={readOnly}
-                onChange={(e) => setCfg({ fixedCount: integerOrUndefined(e.target.value) })}
+                onChange={(e) => updateInteger(e.target.value, (value) => setCfg({ fixedCount: value }))}
               />
             </div>
           )}
@@ -826,7 +837,7 @@ export function GraphInspector({
         <div className="gi-desc">{t('graph.inspector.controlNodeDesc')}</div>
       )}
 
-      {!readOnly && !lockStructure && node.type !== 'start' && node.type !== 'end' && (
+      {!readOnly && !lockStructure && (canDeleteNode ? canDeleteNode(node) : node.type !== 'start' && node.type !== 'end') && (
         <div className="gi-node-actions">
           {onDuplicateNode && (
             <button className="gi-dup-btn" onClick={() => onDuplicateNode(node.id)}>

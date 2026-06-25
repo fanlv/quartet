@@ -261,6 +261,24 @@
   white-space: nowrap;
 }
 
+.graph-workflow-row-workspace {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.graph-workflow-row-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
 .graph-workflow-row-meta,
 .graph-workflow-row-date,
 .graph-empty {
@@ -602,7 +620,8 @@
 }
 
 .graph-dirty-badge,
-.graph-clean-badge {
+.graph-clean-badge,
+.graph-draft-badge {
   flex-shrink: 0;
   width: max-content;
   max-width: 100%;
@@ -621,6 +640,11 @@
 .graph-clean-badge {
   color: #047857;
   background: #ecfdf5;
+}
+
+.graph-draft-badge {
+  color: #334155;
+  background: #f1f5f9;
 }
 
 .graph-name-input:hover,
@@ -790,6 +814,10 @@
   font-size: 12px;
   line-height: 1.55;
   outline: none;
+}
+.graph-json-pane textarea:focus-visible {
+  border-color: #5eead4;
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.16);
 }
 .graph-json-actions {
   display: flex;

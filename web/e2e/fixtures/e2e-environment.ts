@@ -458,9 +458,11 @@ async function globalSetup() {
   const logDir = path.join(runDir, 'logs')
   const localMemory = path.join(runDir, 'local-memory')
   const goCache = path.join(runDir, 'go-build-cache')
+  const viteCache = path.join(runDir, 'vite-cache')
   const goTmp = createExternalTempDir('quartet-e2e-go-tmp-')
   fs.mkdirSync(logDir, { recursive: true })
   fs.mkdirSync(goCache, { recursive: true })
+  fs.mkdirSync(viteCache, { recursive: true })
   prepareLocalMemory(localMemory)
   seedAgentConfig(localMemory)
   seedLegacyFirstModelIDFixture(localMemory)
@@ -509,12 +511,13 @@ async function globalSetup() {
     const frontend = startProcess({
       name: 'frontend',
       command: 'npm',
-      args: ['run', 'dev', '--', '--host', '127.0.0.1'],
+      args: ['run', 'dev', '--', '--host', '127.0.0.1', '--configLoader', 'runner'],
       cwd: webDir,
       env: {
         ...process.env,
         VITE_E2E_BACKEND_URL: backendURL,
         VITE_E2E_PORT: String(frontendPort),
+        VITE_CACHE_DIR: viteCache,
       },
       logDir,
     })

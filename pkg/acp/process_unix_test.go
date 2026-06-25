@@ -24,15 +24,15 @@ func resetAllowedAgentCommandsForTest(t *testing.T) {
 
 // Reproduces the real-world orphan tree that slipped past the earlier
 // PPID==1+keyword-on-same-process check:
-//
-//	PID 61915 `sh -c codex-acp`               PPID=1   (orphan root, cmdline lacks keyword)
-//	PID 61916 `node .../.bin/codex-acp`       PPID=61915
-//	PID 61923 `.../@zed-industries/codex-acp-linux-x64/bin/codex-acp` PPID=61916 (keyword match)
+// Real shape:
+// PID 61915: `sh -c codex-acp`, PPID=1 (orphan root, cmdline lacks keyword)
+// PID 61916: `node .../.bin/codex-acp`, PPID=61915
+// PID 61923: `.../@agentclientprotocol/codex-acp/dist/index.js`, PPID=61916 (keyword match)
 func TestWalkToOrphanRoot_NpxCodexAcpTree(t *testing.T) {
 	procs := map[int]procInfo{
 		61915: {ppid: 1, cmdline: "sh\x00-c\x00codex-acp\x00"},
 		61916: {ppid: 61915, cmdline: "node\x00/root/.npm/_npx/e3854e347c184741/node_modules/.bin/codex-acp\x00"},
-		61923: {ppid: 61916, cmdline: "/root/.npm/_npx/e3854e347c184741/node_modules/@zed-industries/codex-acp-linux-x64/bin/codex-acp\x00"},
+		61923: {ppid: 61916, cmdline: "/root/.npm/_npx/e3854e347c184741/node_modules/@agentclientprotocol/codex-acp/dist/index.js\x00"},
 	}
 
 	root, info, ok := walkToOrphanRoot(procs, 61923)
@@ -57,7 +57,7 @@ func TestWalkToOrphanRoot_LiveParentNotOrphan(t *testing.T) {
 	procs := map[int]procInfo{
 		1000: {ppid: 500, cmdline: "/usr/local/bin/quartet-web\x00"},
 		1001: {ppid: 1000, cmdline: "node\x00/root/.npm/_npx/.bin/codex-acp\x00"},
-		1002: {ppid: 1001, cmdline: ".../@zed-industries/codex-acp-linux-x64/bin/codex-acp\x00"},
+		1002: {ppid: 1001, cmdline: ".../@agentclientprotocol/codex-acp/dist/index.js\x00"},
 	}
 
 	if _, _, ok := walkToOrphanRoot(procs, 1002); ok {
@@ -79,7 +79,7 @@ func TestWalkToOrphanRoot_DirectOrphan(t *testing.T) {
 // Defensive: a cycle in the ppid chain must not loop forever.
 func TestWalkToOrphanRoot_CycleGuard(t *testing.T) {
 	procs := map[int]procInfo{
-		100: {ppid: 200, cmdline: "@zed-industries/codex-acp\x00"},
+		100: {ppid: 200, cmdline: "@agentclientprotocol/codex-acp\x00"},
 		200: {ppid: 100, cmdline: "sh\x00"},
 	}
 	if _, _, ok := walkToOrphanRoot(procs, 100); ok {
@@ -211,12 +211,12 @@ func TestCleanupOrphanedConns_SkipsSystemTreesWithoutMarker(t *testing.T) {
 // node of the inherited chain, matched via keyword, root at PPID==1.
 func TestCleanupOrphanedConns_KillsMarkedOrphanTree(t *testing.T) {
 	resetAllowedAgentCommandsForTest(t)
-	RegisterAllowedAgentCommands([]string{"npx @zed-industries/codex-acp"})
+	RegisterAllowedAgentCommands([]string{"npx @agentclientprotocol/codex-acp"})
 
 	procs := map[int]procInfo{
 		61915: {ppid: 1, cmdline: "sh\x00-c\x00codex-acp\x00", marker: boolPtr(true)},
 		61916: {ppid: 61915, cmdline: "node\x00/root/.npm/_npx/e3854e347c184741/node_modules/.bin/codex-acp\x00", marker: boolPtr(true)},
-		61923: {ppid: 61916, cmdline: "/root/.npm/_npx/e3854e347c184741/node_modules/@zed-industries/codex-acp-linux-x64/bin/codex-acp\x00", marker: boolPtr(true)},
+		61923: {ppid: 61916, cmdline: "/root/.npm/_npx/e3854e347c184741/node_modules/@agentclientprotocol/codex-acp/dist/index.js\x00", marker: boolPtr(true)},
 	}
 	kw := orphanCleanupKeywords()
 

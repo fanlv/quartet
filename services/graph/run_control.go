@@ -14,24 +14,24 @@ import (
 // Run-control service methods (step 16) and resume support (step 15).
 
 // StopRun hard-stops a running GraphRun.
-func (s *serviceImpl) StopRun(ctx context.Context, runID string) (*model.GraphRun, error) {
-	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlHardStop, reason: "hard stopped by user"})
+func (s *serviceImpl) StopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error) {
+	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlHardStop, reason: orDefault(reason, "hard stopped by user")})
 }
 
 // PauseRun gracefully pauses a running GraphRun.
-func (s *serviceImpl) PauseRun(ctx context.Context, runID string) (*model.GraphRun, error) {
-	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlPause, reason: "paused by user"})
+func (s *serviceImpl) PauseRun(ctx context.Context, runID, reason string) (*model.GraphRun, error) {
+	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlPause, reason: orDefault(reason, "paused by user")})
 }
 
 // StepStopRun freezes the current ready batch and stops after it.
-func (s *serviceImpl) StepStopRun(ctx context.Context, runID string) (*model.GraphRun, error) {
-	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlStepStop, reason: "step-stopped by user"})
+func (s *serviceImpl) StepStopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error) {
+	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlStepStop, reason: orDefault(reason, "step-stopped by user")})
 }
 
 // CancelStopRun cancels a pending pause / step-stop that has not yet settled,
 // releasing the held dispatch frontier and returning the run to running.
-func (s *serviceImpl) CancelStopRun(ctx context.Context, runID string) (*model.GraphRun, error) {
-	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlCancelStop, reason: "stop cancelled by user"})
+func (s *serviceImpl) CancelStopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error) {
+	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlCancelStop, reason: orDefault(reason, "stop cancelled by user")})
 }
 
 // signalAndSnapshot delivers a control signal then returns the current run
@@ -39,7 +39,7 @@ func (s *serviceImpl) CancelStopRun(ctx context.Context, runID string) (*model.G
 // scheduler goroutine.
 func (s *serviceImpl) signalAndSnapshot(ctx context.Context, runID string, sig controlSignal) (*model.GraphRun, error) {
 	if _, err := s.runRepo.GetRun(ctx, runID); err != nil {
-		return nil, ErrGraphRunNotFound
+		return nil, graphRunLoadError(runID, err)
 	}
 	if err := s.sendControl(runID, sig); err != nil {
 		return nil, err
@@ -60,11 +60,12 @@ func isResumableStatus(st model.GraphRunStatus) bool {
 }
 
 // isInFlightStatus reports whether a run is actively scheduling (and so cannot
-// be deleted).
+// be deleted). Recovering is deliberately excluded: it is a static resumable
+// state after crash recovery, with no live scheduler to accept controls.
 func isInFlightStatus(st model.GraphRunStatus) bool {
 	switch st {
 	case model.GraphRunStatusRunning, model.GraphRunStatusPausing,
-		model.GraphRunStatusStepStopping, model.GraphRunStatusRecovering:
+		model.GraphRunStatusStepStopping:
 		return true
 	default:
 		return false
@@ -80,7 +81,7 @@ func (s *serviceImpl) ResumeRun(ctx context.Context, runID string, runner Runner
 	}
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
-		return nil, ErrGraphRunNotFound
+		return nil, graphRunLoadError(runID, err)
 	}
 	if !isResumableStatus(run.Status) {
 		return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotResumable, run.Status)
@@ -149,7 +150,7 @@ func (s *serviceImpl) ResumeRun(ctx context.Context, runID string, runner Runner
 func (s *serviceImpl) DeleteRun(ctx context.Context, runID string, jobs JobStateSink) error {
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
-		return ErrGraphRunNotFound
+		return graphRunLoadError(runID, err)
 	}
 	if isInFlightStatus(run.Status) {
 		return fmt.Errorf("%w: status=%s", ErrGraphRunInFlight, run.Status)

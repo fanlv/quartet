@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { JobChat, ChatPage, GraphWorkflowPage, Settings } from './components';
 import { StatsPage } from './components/stats/StatsPage';
@@ -91,6 +91,14 @@ function updateUrlWithGraph(open: boolean) {
   }
 }
 
+function graphUrl(): string {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('jobId');
+  url.searchParams.delete('sessionId');
+  url.searchParams.set('view', 'graph');
+  return url.toString();
+}
+
 function App() {
   const { t } = useTranslation();
   const [showChat, setShowChat] = useState(() => !!getJobIdFromUrl());
@@ -109,6 +117,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showStats, setShowStats] = useState(() => getStatsOpenFromUrl());
   const [showGraph, setShowGraph] = useState(() => getGraphOpenFromUrl());
+  const graphDirtyRef = useRef(false);
   const [initialLoopConfig, setInitialLoopConfig] = useState<LoopConfig | undefined>();
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
   const [missingJobNoticeId, setMissingJobNoticeId] = useState<string | null>(null);
@@ -136,11 +145,16 @@ function App() {
 
   useEffect(() => {
     const handlePopState = () => {
+      const graphOpen = getGraphOpenFromUrl();
+      if (showGraph && !graphOpen && graphDirtyRef.current && !window.confirm(t('graph.messages.discardUnsavedConfirm'))) {
+        window.history.pushState({}, '', graphUrl());
+        return;
+      }
       const jobId = getJobIdFromUrl();
       const wsId = getWorkspaceIdFromUrl();
       const sid = getSessionIdFromUrl();
-      const graphOpen = getGraphOpenFromUrl();
       setShowGraph(graphOpen);
+      setShowStats(getStatsOpenFromUrl());
       setCurrentJobId(jobId);
       setInitialSessionId(sid);
       setShowChat(!graphOpen && !!jobId);
@@ -170,7 +184,7 @@ function App() {
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [currentWorkspace]);
+  }, [currentWorkspace, showGraph, t]);
 
   const handleSelectWorkspace = useCallback((ws: WorkspaceInfo) => {
     setCurrentWorkspace(ws);
@@ -917,6 +931,9 @@ function App() {
     setShowGraph(false);
     updateUrlWithGraph(false);
   }, []);
+  const handleGraphDirtyChange = useCallback((dirty: boolean) => {
+    graphDirtyRef.current = dirty;
+  }, []);
   // Jump into the Chat page for a freshly-started Graph run's bound Job, exactly
   // like handleStartLoop does for loop jobs. The job already exists (the backend
   // creates it on /graph/run/start), so we only flip views + URL here.
@@ -959,17 +976,6 @@ function App() {
     setShowChat(false);
     handleCloseStats();
   }, [handleSelectWorkspace, handleCloseStats]);
-  // Keep showStats in sync with the URL so browser back/forward and
-  // direct navigation (typing /?view=stats, refresh, bookmark) all
-  // produce the right view without a stale state pile-up.
-  useEffect(() => {
-    const onPop = () => {
-      setShowStats(getStatsOpenFromUrl());
-      setShowGraph(getGraphOpenFromUrl());
-    };
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, []);
   const handleSettingsChanged = useCallback(() => {
     setHomeRefreshKey((k) => k + 1);
   }, []);
@@ -1040,6 +1046,7 @@ function App() {
             workspaceTitle={currentWorkspace?.title}
             workspaceWorkdir={currentWorkspace?.workdir}
             onClose={handleCloseGraph}
+            onDirtyChange={handleGraphDirtyChange}
             onRunStarted={handleGraphRunStarted}
           />
         </div>

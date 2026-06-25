@@ -3334,7 +3334,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       cancelled = true;
       if (cancelIdlePrefetch) cancelIdlePrefetch();
     };
-  }, [existingJobId, initialSessionId, apiUrl, loadHistory, applyActiveSessionSelection, setLoopSessions, seedServerClockFromResponse]);
+  }, [existingJobId, initialSessionId, apiUrl, loadHistory, applyActiveSessionSelection, setLoopSessions, seedServerClockFromResponse, reportDisconnect]);
 
   // When the active session changes in loop mode, update session-level metadata
   // so ChatInput/MessageList reflect the session's agent/model.

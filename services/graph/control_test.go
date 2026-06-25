@@ -108,7 +108,7 @@ func TestHardStopInterruptsRunning(t *testing.T) {
 		t.Fatalf("StartRun failed: %v", err)
 	}
 	waitRunningCount(t, svc, run.ID, 2)
-	if _, err := svc.StopRun(context.Background(), run.ID); err != nil {
+	if _, err := svc.StopRun(context.Background(), run.ID, ""); err != nil {
 		t.Fatalf("StopRun failed: %v", err)
 	}
 	got := waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusStopped)
@@ -150,7 +150,7 @@ func TestPauseLetsInFlightFinish(t *testing.T) {
 		t.Fatalf("StartRun failed: %v", err)
 	}
 	waitRunningCount(t, svc, run.ID, 1)
-	if _, err := svc.PauseRun(context.Background(), run.ID); err != nil {
+	if _, err := svc.PauseRun(context.Background(), run.ID, ""); err != nil {
 		t.Fatalf("PauseRun failed: %v", err)
 	}
 	// Give the pause signal time to land, then release the in-flight node.
@@ -193,7 +193,7 @@ func TestStepStopFreezesBatch(t *testing.T) {
 		t.Fatalf("StartRun failed: %v", err)
 	}
 	waitRunningCount(t, svc, run.ID, 1)
-	if _, err := svc.StepStopRun(context.Background(), run.ID); err != nil {
+	if _, err := svc.StepStopRun(context.Background(), run.ID, ""); err != nil {
 		t.Fatalf("StepStopRun failed: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)
@@ -228,7 +228,7 @@ func TestControlOnNonRunningRun(t *testing.T) {
 		t.Fatalf("StartRun failed: %v", err)
 	}
 	waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusCompleted)
-	if _, err := svc.StopRun(context.Background(), run.ID); err != ErrGraphRunNotRunning {
+	if _, err := svc.StopRun(context.Background(), run.ID, ""); err != ErrGraphRunNotRunning {
 		t.Fatalf("StopRun on completed run = %v, want ErrGraphRunNotRunning", err)
 	}
 }
@@ -259,7 +259,7 @@ func TestDeleteRunRejectsInFlightAndUnlinksJob(t *testing.T) {
 	if err := svc.DeleteRun(context.Background(), run.ID, sink); !errors.Is(err, ErrGraphRunInFlight) {
 		t.Fatalf("DeleteRun on running run = %v, want ErrGraphRunInFlight", err)
 	}
-	if _, err := svc.StopRun(context.Background(), run.ID); err != nil {
+	if _, err := svc.StopRun(context.Background(), run.ID, ""); err != nil {
 		t.Fatalf("StopRun failed: %v", err)
 	}
 	waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusStopped)

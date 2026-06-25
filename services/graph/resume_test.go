@@ -128,7 +128,7 @@ func TestResumeAfterPauseCompletes(t *testing.T) {
 		t.Fatalf("StartRun failed: %v", err)
 	}
 	waitRunningCount(t, svc, run.ID, 1)
-	if _, err := svc.PauseRun(context.Background(), run.ID); err != nil {
+	if _, err := svc.PauseRun(context.Background(), run.ID, ""); err != nil {
 		t.Fatalf("PauseRun failed: %v", err)
 	}
 	releaseAfter(gate)
@@ -176,7 +176,7 @@ func TestResumeRejectsRunning(t *testing.T) {
 	if err == nil {
 		t.Fatal("ResumeRun on running run should be rejected")
 	}
-	_, _ = svc.StopRun(context.Background(), run.ID)
+	_, _ = svc.StopRun(context.Background(), run.ID, "")
 	waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusStopped)
 }
 

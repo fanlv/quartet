@@ -274,7 +274,7 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 			httputil.InternalError(c, err.Error())
 			return
 		}
-		if _, err := h.graphService.StopRun(ctx, j.GraphRunID); err != nil {
+		if _, err := h.graphService.StopRun(ctx, j.GraphRunID, "hard stopped by user"); err != nil {
 			logger.Errorf(ctx, "[job] stop graph run failed: jobId=%s graphRunId=%s err=%v", jobID, j.GraphRunID, err)
 		}
 		c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopped"})

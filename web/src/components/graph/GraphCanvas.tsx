@@ -9,6 +9,7 @@ import {
   useReactFlow,
   type Connection,
   type EdgeChange,
+  type IsValidConnection,
   type NodeChange,
   type Viewport,
 } from '@xyflow/react';
@@ -95,6 +96,8 @@ interface GraphCanvasProps {
   onUndo?: () => void;
   onRedo?: () => void;
   onHistoryCommit?: () => void;
+  isValidConnection?: IsValidConnection<QuartetFlowEdge>;
+  getConnectionError?: (connection: Connection) => string | null;
   canUndo?: boolean;
   canRedo?: boolean;
 }
@@ -126,6 +129,8 @@ function CanvasInner({
   onUndo,
   onRedo,
   onHistoryCommit,
+  isValidConnection,
+  getConnectionError,
   canUndo,
   canRedo,
 }: GraphCanvasProps) {
@@ -137,6 +142,7 @@ function CanvasInner({
   const [tapConnect, setTapConnect] = useState(false);
   const [connectSource, setConnectSource] = useState<{ id: string; kind: GraphNodeType } | null>(null);
   const [connectPort, setConnectPort] = useState<ConnectPort>('default');
+  const [connectError, setConnectError] = useState('');
 
   useEffect(() => {
     initialViewportRef.current = initialViewport;
@@ -294,10 +300,10 @@ function CanvasInner({
       const type = event.dataTransfer.getData('application/quartet-node') as GraphNodeType;
       if (!type) return;
       const position = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-      // Dropping a non-loop node inside a loop container makes it a child of that
-      // loop. Loops are never nested by drop here (kept top-level); they can be
-      // reparented later by dragging if needed.
-      const container = type === 'loop' ? null : loopContainerAt(position);
+      // Dropping a business node inside a loop container makes it a child of
+      // that loop. Main-graph start/end controls stay top-level; loop-scoped
+      // entry/exit markers are generated with the loop container.
+      const container = type === 'loop' || type === 'start' || type === 'end' ? null : loopContainerAt(position);
       if (container) {
         const origin = absoluteOrigin(container);
         onAddNode(type, { x: position.x - origin.x, y: position.y - origin.y }, container.id);
@@ -387,6 +393,7 @@ function CanvasInner({
     setTapConnect((active) => {
       if (active) {
         setConnectSource(null);
+        setConnectError('');
       }
       return !active;
     });
@@ -399,25 +406,34 @@ function CanvasInner({
         if (!sourceNode) return;
         setConnectSource({ id: targetId, kind: sourceNode.data.kind });
         setConnectPort(sourceNode.data.kind === 'ifElse' ? 'yes' : 'default');
+        setConnectError('');
         onNodeClick(targetId);
         return;
       }
       if (connectSource.id === targetId) {
         setConnectSource(null);
+        setConnectError('');
         onNodeClick(targetId);
         return;
       }
       const sourceHandle = connectSource.kind === 'ifElse' && connectPort !== 'default' ? connectPort : null;
-      onConnect({
+      const connection: Connection = {
         source: connectSource.id,
         target: targetId,
         sourceHandle,
         targetHandle: null,
-      });
+      };
+      const reason = getConnectionError?.(connection);
+      if (reason) {
+        setConnectError(reason);
+        return;
+      }
+      onConnect(connection);
       setConnectSource(null);
+      setConnectError('');
       onNodeClick(targetId);
     },
-    [connectPort, connectSource, nodes, onConnect, onNodeClick],
+    [connectPort, connectSource, getConnectionError, nodes, onConnect, onNodeClick],
   );
 
   const handleNodeClick = useCallback(
@@ -439,6 +455,7 @@ function CanvasInner({
   const handlePaneClick = useCallback(() => {
     if (tapConnect && connectSource) {
       setConnectSource(null);
+      setConnectError('');
       return;
     }
     onPaneClick();
@@ -635,15 +652,31 @@ function CanvasInner({
                     </button>
                   </span>
                 )}
-                {connectTargets.length > 0 && (
+                {connectSource && connectTargets.length > 0 && (
                   <span className="graph-connect-targets" role="group" aria-label={t('graph.canvas.connectTargets')}>
-                    {connectTargets.map((node) => (
-                      <button key={node.id} type="button" onClick={() => finishTapConnect(node.id)}>
-                        {node.data.graphNode.title || node.id}
-                      </button>
-                    ))}
+                    {connectTargets.map((node) => {
+                      const sourceHandle = connectSource.kind === 'ifElse' && connectPort !== 'default' ? connectPort : null;
+                      const reason = getConnectionError?.({
+                        source: connectSource.id,
+                        target: node.id,
+                        sourceHandle,
+                        targetHandle: null,
+                      });
+                      return (
+                        <button
+                          key={node.id}
+                          type="button"
+                          disabled={!!reason}
+                          title={reason || undefined}
+                          onClick={() => finishTapConnect(node.id)}
+                        >
+                          {node.data.graphNode.title || node.id}
+                        </button>
+                      );
+                    })}
                   </span>
                 )}
+                {connectError && <span className="graph-connect-error">{connectError}</span>}
               </>
             )}
           </div>
@@ -656,6 +689,7 @@ function CanvasInner({
           onNodesChange={readOnly && !allowNodeDrag ? undefined : onNodesChange}
           onEdgesChange={readOnly ? undefined : onEdgesChange}
           onConnect={readOnly ? undefined : onConnect}
+          isValidConnection={isValidConnection}
           onNodeClick={(_, node) => handleNodeClick(node.id)}
           onNodeDragStop={readOnly ? undefined : handleNodeDragStop}
           onPaneClick={handlePaneClick}

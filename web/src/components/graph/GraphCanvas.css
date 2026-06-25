@@ -198,6 +198,20 @@
   white-space: nowrap;
 }
 
+.graph-connect-targets button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.graph-connect-error {
+  max-width: 260px;
+  color: #ffa198;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .qg-connect-source .qg-node,
 .qg-connect-source .qg-loop {
   border-color: var(--graph-accent, #4493f8) !important;

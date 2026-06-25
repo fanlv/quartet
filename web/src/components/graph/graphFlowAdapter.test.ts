@@ -4,11 +4,12 @@ import {
   LOOP_DEFAULT_WIDTH,
   clearNestConstraint,
   configToFlow,
+  edgeStatusByEdge,
   flowToConfig,
   nestConstraint,
   runStatusByNode,
 } from './graphFlowAdapter';
-import type { GraphConfig, GraphInstanceState } from '../../types/graph';
+import type { GraphConfig, GraphEdgeState, GraphInstanceState } from '../../types/graph';
 
 const sampleConfig: GraphConfig = {
   nodes: [
@@ -210,18 +211,35 @@ describe('flowToConfig', () => {
 });
 
 describe('runStatusByNode', () => {
-  it('picks the most advanced status per node across instances', () => {
+  it('picks the most actionable status per node across loop instances', () => {
     const instances: GraphInstanceState[] = [
       { key: { nodeId: 'a' }, nodeId: 'a', nodeType: 'shell', status: 'pending', version: 0 },
       { key: { nodeId: 'a' }, nodeId: 'a', nodeType: 'shell', status: 'succeeded', version: 0 },
       { key: { nodeId: 'b' }, nodeId: 'b', nodeType: 'shell', status: 'running', version: 0 },
+      { key: { nodeId: 'c' }, nodeId: 'c', nodeType: 'shell', status: 'succeeded', version: 0 },
+      { key: { nodeId: 'c' }, nodeId: 'c', nodeType: 'shell', status: 'failed', version: 0 },
     ];
     const map = runStatusByNode(instances);
-    expect(map.a).toBe('succeeded');
+    expect(map.a).toBe('pending');
     expect(map.b).toBe('running');
+    expect(map.c).toBe('failed');
   });
 
   it('returns empty map for undefined input', () => {
     expect(runStatusByNode(undefined)).toEqual({});
+  });
+});
+
+describe('edgeStatusByEdge', () => {
+  it('aggregates loop edge instances without letting pruned overwrite active', () => {
+    const edges: GraphEdgeState[] = [
+      { edgeId: 'e1', sourceInstanceKey: { nodeId: 'a' }, targetInstanceKey: { nodeId: 'b' }, status: 'pruned' },
+      { edgeId: 'e1', sourceInstanceKey: { nodeId: 'a' }, targetInstanceKey: { nodeId: 'b' }, status: 'active' },
+      { edgeId: 'e2', sourceInstanceKey: { nodeId: 'a' }, targetInstanceKey: { nodeId: 'c' }, status: 'pending' },
+      { edgeId: 'e2', sourceInstanceKey: { nodeId: 'a' }, targetInstanceKey: { nodeId: 'c' }, status: 'pruned' },
+    ];
+    const map = edgeStatusByEdge(edges);
+    expect(map.e1).toBe('active');
+    expect(map.e2).toBe('pruned');
   });
 });

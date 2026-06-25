@@ -23,16 +23,16 @@ export const KINDS: Record<GraphNodeType, NodeKind> = {
   loop: { labelKey: 'graph.kinds.loopLabel', subKey: 'graph.kinds.loopSub', icon: '🔁', color: '#56d4dd' },
 };
 
-// Order shown in the palette. start/end are intentionally excluded: every
-// workflow already ships with exactly one start and one end node, both of which
-// are protected from deletion. Letting users add duplicates would leave them
-// stuck with undeletable extra control nodes.
+// Order shown in the palette. Main graphs support multiple start/end nodes; the
+// editor only protects the last remaining top-level control node of each kind.
 export const PALETTE_ORDER: GraphNodeType[] = [
+  'start',
   'shell',
   'prompt',
   'evaluator',
   'ifElse',
   'loop',
+  'end',
 ];
 
 export function kindOf(type: GraphNodeType): NodeKind {

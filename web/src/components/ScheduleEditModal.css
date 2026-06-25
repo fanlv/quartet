@@ -240,6 +240,26 @@
   border-radius: 9px;
 }
 
+.schedule-workflow-warnings {
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 9px;
+}
+
+.schedule-workflow-warnings-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.schedule-workflow-warning-item + .schedule-workflow-warning-item {
+  margin-top: 3px;
+}
+
 /* Agent / Model / Mode selector row */
 .schedule-selectors-row {
   display: flex;
@@ -267,6 +287,11 @@
   border: 1px solid #dbeafe;
   padding: 7px 11px;
   border-radius: 8px;
+}
+
+.schedule-config-preview-workspace {
+  margin-top: 3px;
+  color: #475569;
 }
 
 /* Bound workspace (edit view) */

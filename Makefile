@@ -513,6 +513,6 @@ install-acp-deps:
 		fi; \
 	}; \
 	check_and_install claude   "@agentclientprotocol/claude-agent-acp" "Claude"; \
-	check_and_install codex    "@zed-industries/codex-acp"             "Codex"; \
+	check_and_install codex    "@agentclientprotocol/codex-acp"        "Codex"; \
 	check_and_install kilocode "@kilocode/cli"                         "KiloCode"; \
 	echo "✅ ACP dependency check done ($$installed package(s) installed)"

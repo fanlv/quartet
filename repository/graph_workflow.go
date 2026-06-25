@@ -194,7 +194,10 @@ func (r *fileGraphWorkflowRepo) Delete(ctx context.Context, id string, expectedU
 		return err
 	}
 	if wf.Deleted {
-		return nil
+		if expectedUpdatedAt != nil && !wf.UpdatedAt.Equal(*expectedUpdatedAt) {
+			return ErrGraphWorkflowVersionConflict
+		}
+		return os.ErrNotExist
 	}
 	if expectedUpdatedAt != nil && !wf.UpdatedAt.Equal(*expectedUpdatedAt) {
 		return ErrGraphWorkflowVersionConflict

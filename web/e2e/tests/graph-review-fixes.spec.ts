@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
 import { expect, test, type APIRequestContext, type Page } from '../fixtures/test'
 import { e2eAuthToken } from '../fixtures/e2e-environment'
@@ -38,6 +39,39 @@ import { e2eAuthToken } from '../fixtures/e2e-environment'
 //   #28 graph form controls expose reliable accessible names
 //   #29 workflow list dates include the year for older workflows
 //   #30 E2E Go temp output stays outside retained test-results artifacts
+//   #31 parentId must point to an existing loop node
+//   #32 completed runs reject run-version updates
+//   #33 delete uses the open workflow version, not the refreshed list version
+//   #34 save/create/delete success messages survive workflow-list refresh
+//   #35 embedded GraphLoop edit keeps structured validation errors and dirty cancel guard
+//   #36 browser Back/Forward is guarded by Graph dirty state in App
+//   #37 embedded GraphLoop locks global variables and run config when not persisted
+//   #38 corrupted run.json surfaces full load errors for version/resume/delete
+//   #39 JSON draft dirty guard covers Back/New/select-other workflow
+//   #40 run/start rejects stale workflowUpdatedAt with 409
+//   #41 integer fields reject decimal drafts instead of clearing to unset
+//   #42 schedule modal surfaces graph workflow list warnings
+//   #43 JSON draft state badge and textarea keyboard focus are visible
+//   #44 condition builder controls expose reliable accessible names
+//   #45 undo/redo clears stale validation errors
+//   #46 workflow library filters by workspace and shows workflow workspace
+//   #47 run/start workspace/workdir request errors return 400
+//   #48 frozen run-version nodes keep display title editable
+//   #49 schedule modal shows full save / trigger errors
+//   #50 new unsaved workflow shows Draft, not Saved
+//   #51 main canvas can add/delete extra start/end while preserving the last controls
+//   #52 mounted Graph page refreshes workflow list when workspace changes
+//   #53 run/start without workflowId and config returns 400 without creating a Job
+//   #54 cross-workspace save keeps the open workflow in update/delete mode
+//   #55 graph-run control action reason is honored
+//   #56 dirty snapshot run explains and enforces the workflow version lock
+//   #57 validate/save in-flight locks editing controls
+//   #58 full-page run-version edit locks globals/run config
+//   #59 canvas connect-by-click blocks invalid edges before save
+//   #60 run/start invalid workflowId returns 400
+//   #61 deleting an already-deleted workflow no longer returns success
+//   #62 workflow list returns summary fields, not full graph config
+//   #63 unchanged run-version edits do not append duplicate versions
 
 const AUTH_HEADERS = { 'X-AGENT-AUTH': e2eAuthToken }
 
@@ -60,6 +94,7 @@ type GraphWorkspace = {
 
 type E2ERunInfo = {
   localMemory: string
+  repoRoot?: string
   goTmp?: string
 }
 
@@ -78,6 +113,115 @@ async function fileExists(filePath: string) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false
     throw err
   }
+}
+
+async function waitForHTTP(url: string, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs
+  let lastError = ''
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' })
+      if (res.ok) return
+      lastError = `HTTP ${res.status} ${await res.text()}`
+    } catch (err) {
+      lastError = String(err)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  throw new Error(`Timed out waiting for ${url}: ${lastError}`)
+}
+
+async function readSSEUntil(
+  url: string,
+  headers: Record<string, string>,
+  predicate: (chunk: string) => boolean,
+  timeoutMs: number,
+) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let accumulated = ''
+  try {
+    const response = await fetch(url, { headers, signal: controller.signal })
+    if (!response.ok) {
+      throw new Error(`SSE connect failed: ${response.status} ${await response.text()}`)
+    }
+    expect(response.body).toBeTruthy()
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      accumulated += decoder.decode(value, { stream: true })
+      if (predicate(accumulated)) {
+        controller.abort()
+        break
+      }
+    }
+    return accumulated
+  } finally {
+    clearTimeout(timer)
+    controller.abort()
+  }
+}
+
+function parseSSEMessageEvents(text: string): Array<Record<string, unknown>> {
+  const events: Array<Record<string, unknown>> = []
+  for (const block of text.split(/\r?\n\r?\n/)) {
+    const dataLines = block
+      .split(/\r?\n/)
+      .map((line) => line.trimStart())
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim())
+    if (dataLines.length === 0) continue
+    const data = dataLines.join('\n')
+    if (!data) continue
+    try {
+      const parsed = JSON.parse(data)
+      if (parsed && typeof parsed === 'object') events.push(parsed as Record<string, unknown>)
+    } catch {
+      // Ignore keep-alives and partial diagnostic frames.
+    }
+  }
+  return events
+}
+
+async function startReplayBackend(runInfo: E2ERunInfo, port: number): Promise<ChildProcessWithoutNullStreams> {
+  if (!runInfo.repoRoot) throw new Error('repoRoot missing from E2E env.json')
+  const logDir = path.join(process.env.QUARTET_E2E_RUN_DIR || '.', 'logs')
+  await fs.mkdir(logDir, { recursive: true })
+  const stdout = await fs.open(path.join(logDir, `replay-backend-${port}.stdout.log`), 'a')
+  const stderr = await fs.open(path.join(logDir, `replay-backend-${port}.stderr.log`), 'a')
+  const proc = spawn('go', ['run', './cmd/web'], {
+    cwd: runInfo.repoRoot,
+    env: {
+      ...process.env,
+      LOCAL_MEMORY: runInfo.localMemory,
+      GOCACHE: path.join(process.env.QUARTET_E2E_RUN_DIR || '.', `go-build-cache-replay-${port}`),
+      GOTMPDIR: runInfo.goTmp,
+      X_AGENT_AUTH: e2eAuthToken,
+      QUARTET_LISTEN_ADDR: `127.0.0.1:${port}`,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  proc.stdout.pipe(stdout.createWriteStream())
+  proc.stderr.pipe(stderr.createWriteStream())
+  await waitForHTTP(`http://127.0.0.1:${port}/api/v1/health`, 30_000)
+  return proc
+}
+
+async function stopProcess(proc: ChildProcessWithoutNullStreams) {
+  if (proc.exitCode !== null || proc.signalCode !== null) return
+  proc.kill('SIGTERM')
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL')
+      resolve()
+    }, 1_500)
+    proc.once('exit', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
 }
 
 async function createGraphWorkspace(request: APIRequestContext, name: string): Promise<GraphWorkspace> {
@@ -195,6 +339,27 @@ function failingShellConfig(workspace: GraphWorkspace): GraphConfig {
     ],
     edges: [
       { id: 'edge-start-boom', sourceNodeId: 'start', targetNodeId: 'boom' },
+      { id: 'edge-boom-end', sourceNodeId: 'boom', targetNodeId: 'end' },
+    ],
+    variables: {},
+    disabledVars: [],
+    runConfig: { concurrencyLimit: 1 },
+    workspaceId: workspace.workspaceId,
+    workdir: workspace.workdir,
+  }
+}
+
+function frozenTitleConfig(workspace: GraphWorkspace): GraphConfig {
+  return {
+    nodes: [
+      { id: 'start', type: 'start', title: 'Start', layout: { x: 80, y: 160 } },
+      { id: 'done', type: 'shell', title: 'Frozen Title Before', config: { script: 'echo done' }, layout: { x: 300, y: 160 } },
+      { id: 'boom', type: 'shell', title: 'Boom', config: { script: 'exit 1' }, layout: { x: 520, y: 160 } },
+      { id: 'end', type: 'end', title: 'End', layout: { x: 740, y: 160 } },
+    ],
+    edges: [
+      { id: 'edge-start-done', sourceNodeId: 'start', targetNodeId: 'done' },
+      { id: 'edge-done-boom', sourceNodeId: 'done', targetNodeId: 'boom' },
       { id: 'edge-boom-end', sourceNodeId: 'boom', targetNodeId: 'end' },
     ],
     variables: {},
@@ -336,10 +501,18 @@ test('graph review #1: JSON view disables Validate/Save/Run and guards unapplied
 
   // Edit the draft without applying, then try to switch back to canvas: a
   // confirm dialog guards the unapplied change. Dismissing it keeps JSON view.
-  await page.getByTestId('graph-json-textarea').fill(JSON.stringify({ nodes: [], edges: [], variables: { drafted: '1' } }))
+  const jsonTextarea = page.getByTestId('graph-json-textarea')
+  await jsonTextarea.fill(JSON.stringify({ nodes: [], edges: [], variables: { drafted: '1' } }))
+  await expect(page.getByTestId('graph-dirty-badge')).toHaveText('Unapplied JSON draft')
+  await expect(page.getByTestId('graph-clean-badge')).toHaveCount(0)
+
+  await jsonTextarea.focus()
+  await expect(jsonTextarea).toBeFocused()
+  await expect(jsonTextarea).toHaveCSS('box-shadow', 'rgba(45, 212, 191, 0.16) 0px 0px 0px 3px')
+
   page.once('dialog', (d) => void d.dismiss())
   await page.getByTestId('graph-view-canvas').click()
-  await expect(page.getByTestId('graph-json-textarea')).toBeVisible()
+  await expect(jsonTextarea).toBeVisible()
 
   // Accepting the confirm discards the draft and returns to the canvas.
   page.once('dialog', (d) => void d.accept())
@@ -347,6 +520,53 @@ test('graph review #1: JSON view disables Validate/Save/Run and guards unapplied
   await expect(page.getByTestId('graph-node-start')).toBeVisible()
   // Back on canvas the actions are enabled again.
   await expect(page.getByTestId('graph-run')).toBeEnabled()
+})
+
+test('graph review #39: JSON draft dirty guard covers Back, New, and selecting another workflow', async ({ page, request }) => {
+  const workspace = await createGraphWorkspace(request, 'json-draft-leave')
+  const first = await createWorkflow(request, workspace, `e2e-json-leave-a-${Date.now()}`)
+  const second = await createWorkflow(request, workspace, `e2e-json-leave-b-${Date.now()}`)
+
+  await page.addInitScript((token) => {
+    localStorage.setItem('quartet.x_auth_token', token)
+    localStorage.setItem('quartet-language', 'en')
+  }, e2eAuthToken)
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
+  await expect(page.getByTestId(`graph-workflow-row-${first.id}`)).toBeVisible({ timeout: 10_000 })
+  await page.getByTestId(`graph-workflow-row-${first.id}`).click()
+  await expect(page.getByTestId('graph-clean-badge')).toBeVisible({ timeout: 10_000 })
+
+  await page.getByTestId('graph-view-json').click()
+  await page.getByTestId('graph-json-textarea').fill(JSON.stringify({ nodes: [], edges: [], variables: { jsonDraft: 'back' } }))
+  let backDialog = ''
+  page.once('dialog', (d) => {
+    backDialog = d.message()
+    void d.dismiss()
+  })
+  await page.getByRole('button', { name: 'Back' }).click()
+  await expect.poll(() => backDialog).toContain('unsaved')
+  await expect(page.getByTestId('graph-json-textarea')).toBeVisible()
+
+  await page.getByTestId('graph-json-textarea').fill(JSON.stringify({ nodes: [], edges: [], variables: { jsonDraft: 'new' } }))
+  let newDialog = ''
+  page.once('dialog', (d) => {
+    newDialog = d.message()
+    void d.dismiss()
+  })
+  await page.getByRole('button', { name: 'New workflow' }).click()
+  await expect.poll(() => newDialog).toContain('unsaved')
+  await expect(page.getByTestId('graph-json-textarea')).toBeVisible()
+
+  await page.getByTestId('graph-json-textarea').fill(JSON.stringify({ nodes: [], edges: [], variables: { jsonDraft: 'select' } }))
+  let selectDialog = ''
+  page.once('dialog', (d) => {
+    selectDialog = d.message()
+    void d.dismiss()
+  })
+  await page.getByTestId(`graph-workflow-row-${second.id}`).click()
+  await expect.poll(() => selectDialog).toContain('unsaved')
+  await expect(page.getByTestId('graph-json-textarea')).toContainText('jsonDraft')
+  await expect(page.getByTestId('graph-name-input')).toHaveValue(first.name)
 })
 
 // ---------------------------------------------------------------------------
@@ -512,6 +732,104 @@ test('graph review #4b: dirty saved workflow run prompts and executes the unsave
   expect(persistedShell?.config?.script).not.toBe('echo unsaved-snapshot-ran')
 })
 
+test('graph review #57: validate and save in-flight lock editing controls', async ({ page, request }) => {
+  await openGraphCanvas(page, request, 'inflight-lock')
+  await page.getByTestId('graph-name-input').fill(`e2e-inflight-lock-${Date.now()}`)
+
+  let releaseValidate: (() => void) | undefined
+  await page.route('**/api/v1/graph/workflow/validate', async (route) => {
+    await new Promise<void>((resolve) => {
+      releaseValidate = resolve
+    })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        valid: true,
+        errors: [],
+      }),
+    })
+  })
+
+  await page.getByTestId('graph-validate').click()
+  await expect(page.getByTestId('graph-name-input')).toBeDisabled()
+  await expect(page.getByTestId('graph-save')).toBeDisabled()
+  await expect(page.getByRole('button', { name: /Shell Script/ }).first()).toHaveCount(0)
+  releaseValidate?.()
+  await expect(page.getByTestId('graph-name-input')).toBeEnabled({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-error-list')).toHaveCount(0)
+  await page.unroute('**/api/v1/graph/workflow/validate')
+
+  let releaseSave: (() => void) | undefined
+  await page.route('**/api/v1/graph/workflow', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    const requestBody = JSON.parse(route.request().postData() || '{}') as { name?: string; description?: string; config?: GraphConfig }
+    await new Promise<void>((resolve) => {
+      releaseSave = resolve
+    })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        workflow: {
+          id: `gwf-stale-${Date.now()}`,
+          name: requestBody.name,
+          description: requestBody.description || '',
+          config: requestBody.config,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      }),
+    })
+  })
+
+  await page.getByTestId('graph-save').click()
+  await expect(page.getByTestId('graph-name-input')).toBeDisabled()
+  releaseSave?.()
+  await expect(page.getByTestId('graph-name-input')).toBeEnabled({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-message')).toContainText('Workflow created.', { timeout: 10_000 })
+  await expect(page.getByTestId('graph-save')).toContainText('Save')
+})
+
+test('graph review #56: dirty snapshot run rejects stale source workflow after confirm', async ({ page, request }) => {
+  const workspace = await openGraphCanvas(page, request, 'dirty-run-stale-source')
+  const name = `e2e-dirty-run-stale-${Date.now()}`
+
+  await applyJsonConfig(page, linearShellConfig(workspace))
+  await page.getByTestId('graph-name-input').fill(name)
+  await page.getByTestId('graph-save').click()
+  await expect(page.getByTestId('graph-clean-badge')).toBeVisible({ timeout: 10_000 })
+
+  const saved = await request.get('/api/v1/graph/workflow/list', { headers: AUTH_HEADERS })
+  expect(saved.ok()).toBeTruthy()
+  const wf = (await saved.json()).workflows.find((w: { name: string }) => w.name === name)
+  expect(wf, 'saved workflow not found').toBeTruthy()
+
+  await applyJsonConfig(page, updatedLinearConfig(workspace, 'echo stale-local-snapshot'))
+  await expect(page.getByTestId('graph-dirty-badge')).toBeVisible()
+
+  const newer = await request.put(`/api/v1/graph/workflow/${encodeURIComponent(wf.id)}`, {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { name: `${name}-newer`, config: updatedLinearConfig(workspace, 'echo newer-saved'), updatedAt: wf.updatedAt },
+  })
+  expect(newer.ok(), `workflow update failed: ${newer.status()} ${await newer.text()}`).toBeTruthy()
+  const before = await countGraphJobs(request, workspace.workspaceId)
+
+  let promptText = ''
+  page.once('dialog', (d) => {
+    promptText = d.message()
+    void d.accept()
+  })
+  const [startResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/v1/graph/run/start') && r.request().method() === 'POST'),
+    page.getByTestId('graph-run').click(),
+  ])
+  await expect.poll(() => promptText).toContain('saved workflow must still be current')
+  expect(startResp.status(), `expected stale workflowUpdatedAt 409, got ${startResp.status()}: ${await startResp.text()}`).toBe(409)
+  await expect(page.getByTestId('graph-message')).toContainText('graph workflow has been modified', { timeout: 10_000 })
+  expect(await countGraphJobs(request, workspace.workspaceId)).toBe(before)
+})
+
 // ---------------------------------------------------------------------------
 // #8 — edge ID empty / duplicate validation
 // ---------------------------------------------------------------------------
@@ -589,6 +907,27 @@ test('graph review #8b: edge and global validation errors have working click fee
   await expect(page.getByTestId('graph-inspector')).toContainText('Global variables')
 })
 
+test('graph review #59: connect-by-click blocks invalid edges before save', async ({ page, request }) => {
+  await openGraphCanvas(page, request, 'invalid-connect')
+  await page.getByRole('button', { name: 'Connect by click' }).click()
+
+  await page.getByTestId('graph-node-end').click()
+  const shellTarget = page.locator('.graph-connect-targets').getByRole('button', { name: 'Shell' })
+  await expect(shellTarget).toBeDisabled()
+  await expect(shellTarget).toHaveAttribute('title', /End node .* cannot have outgoing edges/)
+  await page.getByTestId('graph-node-shell').click()
+  await expect(page.locator('.graph-connect-error')).toContainText('End node')
+
+  await page.getByTestId('graph-node-end').click()
+  await page.getByTestId('graph-node-shell').click()
+  const startTarget = page.locator('.graph-connect-targets').getByRole('button', { name: 'Start' })
+  await expect(startTarget).toBeDisabled()
+  await expect(startTarget).toHaveAttribute('title', /Start node .* cannot have incoming edges/)
+
+  await page.getByTestId('graph-node-start').click()
+  await expect(page.locator('.graph-connect-error')).toContainText('Start node')
+})
+
 // ---------------------------------------------------------------------------
 // #6 — run replay shows edge state: a pruned branch renders as pruned
 // ---------------------------------------------------------------------------
@@ -651,6 +990,258 @@ test('graph review #9: a corrupt workflow file surfaces as a warning in the UI',
   const warningBlock = page.getByTestId('graph-workflow-warnings')
   await expect(warningBlock).toBeVisible({ timeout: 10_000 })
   await expect(warningBlock).toContainText(corruptName)
+})
+
+test('graph review #42: schedule modal surfaces graph workflow list warnings', async ({ page, request }) => {
+  const { localMemory } = await getE2ERunInfo()
+  const workflowsDir = path.join(localMemory, 'agent', 'graph_workflows')
+  await fs.mkdir(workflowsDir, { recursive: true })
+  const corruptName = `schedule-corrupt-${Date.now()}.json`
+  await fs.writeFile(path.join(workflowsDir, corruptName), '{ this is not valid json', 'utf8')
+
+  const workspace = await createGraphWorkspace(request, 'schedule-warning')
+  await page.addInitScript((token) => {
+    localStorage.setItem('quartet.x_auth_token', token)
+    localStorage.setItem('quartet-language', 'en')
+  }, e2eAuthToken)
+  await page.goto(`/?workspaceId=${workspace.workspaceId}`)
+  await expect(page.getByTestId('auth-gate')).toHaveCount(0)
+  await expect(page.getByTestId('home-content')).toBeVisible({ timeout: 10_000 })
+
+  await page.getByRole('button', { name: /New Task/ }).click()
+  await expect(page.getByRole('heading', { name: 'New Scheduled Task' })).toBeVisible()
+  const warningBlock = page.getByTestId('schedule-graph-workflow-warnings')
+  await expect(warningBlock).toBeVisible({ timeout: 10_000 })
+  await expect(warningBlock).toContainText(corruptName)
+  await expect(warningBlock).toContainText(/invalid character|JSON/i)
+})
+
+test('graph review #45: undo clears stale validation errors after restoring the canvas', async ({ page, request }) => {
+  await openGraphCanvas(page, request, 'undo-validation')
+
+  await page.getByTestId('graph-edge-delete-edge-start-shell').click()
+  await page.getByTestId('graph-validate').click()
+  await expect(page.getByTestId('graph-error-list')).toBeVisible({ timeout: 10_000 })
+
+  await page.getByTestId('graph-undo').click()
+  await expect(page.getByTestId('graph-error-list')).toHaveCount(0)
+  await expect(page.locator('.react-flow__edge[data-id="edge-start-shell"]')).toBeVisible()
+})
+
+test('graph review #46: workflow list filters by workspace and shows workflow workspace', async ({ page, request }) => {
+  const workspaceA = await createGraphWorkspace(request, 'workflow-filter-a')
+  const workspaceB = await createGraphWorkspace(request, 'workflow-filter-b')
+  const wfA = await createWorkflow(request, workspaceA, `e2e-workflow-filter-a-${Date.now()}`)
+  const wfB = await createWorkflow(request, workspaceB, `e2e-workflow-filter-b-${Date.now()}`)
+
+  const filteredA = await request.get(`/api/v1/graph/workflow/list?workspaceId=${encodeURIComponent(workspaceA.workspaceId)}`, { headers: AUTH_HEADERS })
+  expect(filteredA.ok(), `filtered list A failed: ${filteredA.status()} ${await filteredA.text()}`).toBeTruthy()
+  const filteredABody = await filteredA.json()
+  expect((filteredABody.workflows ?? []).some((wf: { id: string }) => wf.id === wfA.id)).toBe(true)
+  expect((filteredABody.workflows ?? []).some((wf: { id: string }) => wf.id === wfB.id)).toBe(false)
+
+  await page.addInitScript((token) => {
+    localStorage.setItem('quartet.x_auth_token', token)
+    localStorage.setItem('quartet-language', 'en')
+  }, e2eAuthToken)
+  await page.goto(`/?workspaceId=${workspaceA.workspaceId}&view=graph`)
+  await expect(page.getByTestId(`graph-workflow-row-${wfA.id}`)).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId(`graph-workflow-row-${wfA.id}`)).toContainText(`E2E GraphFix workflow-filter-a`)
+  await expect(page.getByTestId(`graph-workflow-row-${wfB.id}`)).toHaveCount(0)
+})
+
+test('graph review #54: cross-workspace save keeps the open workflow editable', async ({ page, request }) => {
+  const workspaceA = await createGraphWorkspace(request, 'cross-workspace-save-a')
+  await createGraphWorkspace(request, 'cross-workspace-save-b')
+
+  await page.addInitScript((token) => {
+    localStorage.setItem('quartet.x_auth_token', token)
+    localStorage.setItem('quartet-language', 'en')
+  }, e2eAuthToken)
+  await page.goto(`/?workspaceId=${workspaceA.workspaceId}&view=graph`)
+  await expect(page.getByTestId('graph-workspace-trigger')).toBeVisible({ timeout: 10_000 })
+
+  await applyJsonConfig(page, linearShellConfig(workspaceA))
+  await page.getByTestId('graph-name-input').fill(`e2e-cross-workspace-save-${Date.now()}`)
+  await page.getByTestId('graph-workspace-trigger').click()
+  await page.locator('[data-testid="graph-workspace-item"]').filter({ hasText: `E2E GraphFix cross-workspace-save-b` }).click()
+
+  await page.getByTestId('graph-save').click()
+  await expect(page.getByTestId('graph-message')).toContainText('Workflow created.', { timeout: 10_000 })
+  await expect(page.getByTestId('graph-save')).toContainText('Save')
+  await expect(page.getByTestId('graph-save')).not.toContainText('Create')
+  await expect(page.getByRole('button', { name: /^Delete$/ })).toBeVisible()
+
+  const filteredA = await request.get(`/api/v1/graph/workflow/list?workspaceId=${encodeURIComponent(workspaceA.workspaceId)}`, { headers: AUTH_HEADERS })
+  expect(filteredA.ok()).toBeTruthy()
+  const filteredABody = await filteredA.json()
+  expect((filteredABody.workflows ?? []).some((wf: { name?: string }) => wf.name?.startsWith('e2e-cross-workspace-save-'))).toBe(false)
+
+  await page.getByTestId('graph-name-input').fill(`e2e-cross-workspace-save-updated-${Date.now()}`)
+  const [saveResp] = await Promise.all([
+    page.waitForResponse((r) => /\/api\/v1\/graph\/workflow\/gwf-/.test(r.url()) && r.request().method() === 'PUT'),
+    page.getByTestId('graph-save').click(),
+  ])
+  expect(saveResp.ok(), `update after cross-workspace save failed: ${saveResp.status()} ${await saveResp.text()}`).toBeTruthy()
+})
+
+test('graph review #47: run/start workspace and workdir request errors return 400 without creating a Job', async ({ request }) => {
+  const workspace = await createGraphWorkspace(request, 'run-start-bad-request')
+  const before = await countGraphJobs(request, workspace.workspaceId)
+
+  const missingWorkspace = await request.post('/api/v1/graph/run/start', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: {
+      workspaceId: `ws-missing-${Date.now()}`,
+      config: { ...linearShellConfig(workspace), workspaceId: `ws-missing-${Date.now()}` },
+    },
+  })
+  expect(missingWorkspace.status(), `expected missing workspace 400, got ${missingWorkspace.status()}: ${await missingWorkspace.text()}`).toBe(400)
+  expect((await missingWorkspace.json()).msg).toContain('workspace')
+
+  const invalidWorkdir = await request.post('/api/v1/graph/run/start', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: {
+      workspaceId: workspace.workspaceId,
+      workdir: path.join(workspace.workdir, 'missing-dir'),
+      config: linearShellConfig(workspace),
+    },
+  })
+  expect(invalidWorkdir.status(), `expected invalid workdir 400, got ${invalidWorkdir.status()}: ${await invalidWorkdir.text()}`).toBe(400)
+  expect((await invalidWorkdir.json()).msg).toContain('workdir')
+
+  expect(await countGraphJobs(request, workspace.workspaceId)).toBe(before)
+})
+
+test('graph review #60: run/start invalid workflowId returns 400 without creating a Job', async ({ request }) => {
+  const workspace = await createGraphWorkspace(request, 'run-start-invalid-workflow-id')
+  const before = await countGraphJobs(request, workspace.workspaceId)
+
+  const res = await request.post('/api/v1/graph/run/start', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: {
+      workflowId: '../bad',
+      workspaceId: workspace.workspaceId,
+      workdir: workspace.workdir,
+    },
+  })
+  expect(res.status(), `expected invalid workflowId 400, got ${res.status()}: ${await res.text()}`).toBe(400)
+  const body = await res.json()
+  expect(body.msg || body.error).toContain('workflowId')
+  expect(await countGraphJobs(request, workspace.workspaceId)).toBe(before)
+})
+
+test('graph review #53: run/start without workflowId and config returns 400 without creating a Job', async ({ request }) => {
+  const workspace = await createGraphWorkspace(request, 'run-start-missing-source')
+  const before = await countGraphJobs(request, workspace.workspaceId)
+
+  const res = await request.post('/api/v1/graph/run/start', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { workspaceId: workspace.workspaceId, workdir: workspace.workdir },
+  })
+  expect(res.status(), `expected missing workflow/config 400, got ${res.status()}: ${await res.text()}`).toBe(400)
+  const body = await res.json()
+  expect(body.msg).toContain('workflowId or config is required')
+  expect(await countGraphJobs(request, workspace.workspaceId)).toBe(before)
+})
+
+test('graph review #50: new unsaved workflow shows Draft instead of Saved', async ({ page, request }) => {
+  await openGraphCanvas(page, request, 'draft-badge')
+
+  await expect(page.getByTestId('graph-draft-badge')).toHaveText('Draft')
+  await expect(page.getByTestId('graph-clean-badge')).toHaveCount(0)
+
+  await page.getByTestId('graph-name-input').fill(`e2e-draft-${Date.now()}`)
+  await expect(page.getByTestId('graph-dirty-badge')).toHaveText('Unsaved changes')
+  await expect(page.getByTestId('graph-draft-badge')).toHaveCount(0)
+})
+
+test('graph review #51: canvas manages multiple main start/end nodes without deleting the last controls', async ({ page, request }) => {
+  const workspace = await openGraphCanvas(page, request, 'multi-controls')
+  await page.addStyleTag({ content: '.graph-minimap { display: none !important; }' })
+  const name = `e2e-multi-controls-${Date.now()}`
+
+  const config: GraphConfig = {
+    nodes: [
+      { id: 'start-a', type: 'start', title: 'Start A', layout: { x: 40, y: 80 } },
+      { id: 'start-b', type: 'start', title: 'Start B', layout: { x: 40, y: 260 } },
+      { id: 'shell-a', type: 'shell', title: 'A', config: { script: 'echo a' }, layout: { x: 260, y: 80 } },
+      { id: 'shell-b', type: 'shell', title: 'B', config: { script: 'echo b' }, layout: { x: 260, y: 260 } },
+      { id: 'end-a', type: 'end', title: 'End A', layout: { x: 500, y: 80 } },
+      { id: 'end-b', type: 'end', title: 'End B', layout: { x: 500, y: 260 } },
+    ],
+    edges: [
+      { id: 'edge-start-a-shell-a', sourceNodeId: 'start-a', targetNodeId: 'shell-a' },
+      { id: 'edge-shell-a-end-a', sourceNodeId: 'shell-a', targetNodeId: 'end-a' },
+      { id: 'edge-start-b-shell-b', sourceNodeId: 'start-b', targetNodeId: 'shell-b' },
+      { id: 'edge-shell-b-end-b', sourceNodeId: 'shell-b', targetNodeId: 'end-b' },
+    ],
+    variables: {},
+    disabledVars: [],
+    runConfig: { concurrencyLimit: 4 },
+    workspaceId: workspace.workspaceId,
+    workdir: workspace.workdir,
+  }
+
+  await applyJsonConfig(page, config)
+  await page.getByTestId('graph-name-input').fill(name)
+  await expect(page.getByTestId('graph-node-start-a')).toBeVisible()
+  await expect(page.getByTestId('graph-node-start-b')).toBeVisible()
+  await expect(page.getByTestId('graph-node-end-a')).toBeVisible()
+  await expect(page.getByTestId('graph-node-end-b')).toBeVisible()
+
+  await page.getByTestId('graph-node-start-b').click()
+  await expect(page.getByRole('button', { name: 'Delete node' })).toBeVisible()
+  await page.getByRole('button', { name: 'Delete node' }).click()
+  await expect(page.getByTestId('graph-node-start-b')).toHaveCount(0)
+  await expect(page.getByTestId('graph-node-start-a')).toBeVisible()
+
+  await page.getByTestId('graph-node-start-a').click()
+  await expect(page.getByRole('button', { name: 'Delete node' })).toHaveCount(0)
+
+  await page.getByTestId('graph-node-end-b').click()
+  await expect(page.getByRole('button', { name: 'Delete node' })).toBeVisible()
+  await page.getByRole('button', { name: 'Delete node' }).click()
+  await expect(page.getByTestId('graph-node-end-b')).toHaveCount(0)
+  await expect(page.getByTestId('graph-node-end-a')).toBeVisible()
+
+  await page.getByTestId('graph-node-end-a').click()
+  await expect(page.getByRole('button', { name: 'Delete node' })).toHaveCount(0)
+
+  await expect(page.locator('[data-testid^="graph-node-start-"]')).toHaveCount(1)
+  await page.locator('.graph-palette .graph-node-chip', { hasText: 'Start' }).click()
+  await expect(page.locator('[data-testid^="graph-node-start-"]')).toHaveCount(2)
+
+  await expect(page.locator('[data-testid^="graph-node-end-"]')).toHaveCount(1)
+  await page.locator('.graph-palette .graph-node-chip', { hasText: 'End' }).click()
+  await expect(page.locator('[data-testid^="graph-node-end-"]')).toHaveCount(2)
+})
+
+test('graph review #52: mounted Graph page reloads workflow list when workspace changes', async ({ page, request }) => {
+  const workspaceA = await createGraphWorkspace(request, 'mounted-switch-a')
+  const workspaceB = await createGraphWorkspace(request, 'mounted-switch-b')
+  const workflowA = await createWorkflow(request, workspaceA, `e2e-mounted-switch-a-${Date.now()}`)
+  const workflowB = await createWorkflow(request, workspaceB, `e2e-mounted-switch-b-${Date.now()}`)
+
+  await page.addInitScript((token) => {
+    localStorage.setItem('quartet.x_auth_token', token)
+    localStorage.setItem('quartet-language', 'en')
+  }, e2eAuthToken)
+  await page.goto(`/?workspaceId=${workspaceA.workspaceId}&view=graph`)
+  await expect(page.getByTestId(`graph-workflow-row-${workflowA.id}`)).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId(`graph-workflow-row-${workflowB.id}`)).toHaveCount(0)
+
+  await page.evaluate((workspaceId) => {
+    const url = new URL(window.location.href)
+    url.searchParams.set('workspaceId', workspaceId)
+    url.searchParams.set('view', 'graph')
+    window.history.pushState({}, '', url.toString())
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }, workspaceB.workspaceId)
+
+  await expect(page.getByTestId(`graph-workflow-row-${workflowB.id}`)).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId(`graph-workflow-row-${workflowA.id}`)).toHaveCount(0)
+  await expect(page.locator('.graph-kicker')).toHaveText(`E2E GraphFix mounted-switch-b`)
 })
 
 // ---------------------------------------------------------------------------
@@ -728,6 +1319,31 @@ test('graph review #11: RunConfig instance and snapshot limits persist from the 
   const persisted = await getRes.json()
   expect(persisted.workflow?.config?.runConfig?.instanceLimit).toBe(123)
   expect(persisted.workflow?.config?.runConfig?.snapshotByteLimit).toBe(456789)
+})
+
+test('graph review #41: integer fields reject decimal input instead of clearing saved value', async ({ page, request }) => {
+  await openGraphCanvas(page, request, 'integer-decimal')
+  const name = `e2e-integer-decimal-${Date.now()}`
+  await page.getByTestId('graph-name-input').fill(name)
+
+  const concurrency = page.locator('.gi-field', { hasText: 'Concurrency' }).locator('input')
+  await concurrency.fill('7')
+  await expect(concurrency).toHaveValue('7')
+  await concurrency.fill('1.5')
+  await expect(concurrency).toHaveValue('7')
+
+  await page.getByTestId('graph-save').click()
+  await expect(page.getByTestId('graph-clean-badge')).toBeVisible({ timeout: 10_000 })
+
+  const listRes = await request.get('/api/v1/graph/workflow/list', { headers: AUTH_HEADERS })
+  expect(listRes.ok()).toBeTruthy()
+  const wf = (await listRes.json()).workflows.find((w: { name: string }) => w.name === name)
+  expect(wf, 'saved workflow not found').toBeTruthy()
+
+  const getRes = await request.get(`/api/v1/graph/workflow/${encodeURIComponent(wf.id)}`, { headers: AUTH_HEADERS })
+  expect(getRes.ok()).toBeTruthy()
+  const persisted = await getRes.json()
+  expect(persisted.workflow?.config?.runConfig?.concurrencyLimit).toBe(7)
 })
 
 // ---------------------------------------------------------------------------
@@ -837,6 +1453,31 @@ test('graph review #13: GraphLoop Step Stop button calls the bound job endpoint'
   }, { timeout: 6_000 }).toMatch(/^(stepStopping|stepStopped|completed)$/)
 })
 
+test('graph review #55: graph-run stop honors request reason', async ({ request }) => {
+  const workspace = await createGraphWorkspace(request, 'control-reason')
+  const start = await request.post('/api/v1/graph/run/start', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { workspaceId: workspace.workspaceId, workdir: workspace.workdir, config: sleepingShellConfig(workspace) },
+  })
+  expect(start.ok(), `run start failed: ${start.status()} ${await start.text()}`).toBeTruthy()
+  const jobId: string = (await start.json()).run?.jobId
+  expect(jobId).toMatch(/^job-/)
+
+  const reason = `manual check ${Date.now()}`
+  const stop = await request.post(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run/stop`, {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { reason },
+  })
+  expect(stop.ok(), `stop failed: ${stop.status()} ${await stop.text()}`).toBeTruthy()
+
+  await waitForRunStatus(request, jobId, ['stopped'], 10_000)
+  const statusRes = await request.get(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run`, { headers: AUTH_HEADERS })
+  expect(statusRes.ok(), `run status fetch failed: ${statusRes.status()} ${await statusRes.text()}`).toBeTruthy()
+  const body = await statusRes.json()
+  const interrupted = (body.instances ?? []).find((inst: { status?: string; blockedReason?: string }) => inst.status === 'interrupted')
+  expect(interrupted?.blockedReason).toBe(reason)
+})
+
 // ---------------------------------------------------------------------------
 // #14 — run-version edit allows unfrozen structural repair
 // ---------------------------------------------------------------------------
@@ -895,6 +1536,67 @@ test('graph review #14: failed run version edit can repair unfrozen structure an
   const latest = (run.versions ?? []).find((v: { version: number }) => v.version === run.currentVersion)
   expect((latest?.config?.nodes ?? []).some((n: { id?: string }) => n.id === 'boom')).toBe(false)
   expect((latest?.config?.edges ?? []).some((e: { targetNodeId?: string }) => e.targetNodeId === 'end')).toBe(true)
+})
+
+test('graph review #48: frozen run-version node title remains editable and saves', async ({ page, request }) => {
+  const workspace = await openGraphCanvas(page, request, 'frozen-title')
+  await applyJsonConfig(page, frozenTitleConfig(workspace))
+  await page.getByTestId('graph-name-input').fill(`e2e-frozen-title-${Date.now()}`)
+
+  const [startResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/v1/graph/run/start') && r.request().method() === 'POST'),
+    page.getByTestId('graph-run').click(),
+  ])
+  expect(startResp.ok(), `run start failed: ${startResp.status()} ${await startResp.text()}`).toBeTruthy()
+  const jobId: string = (await startResp.json()).run?.jobId
+  expect(jobId).toMatch(/^job-/)
+  const { status } = await waitForRunStatus(request, jobId, ['failed', 'completed', 'timedOut'])
+  expect(status).toBe('failed')
+
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph&graphEditJob=${jobId}`)
+  await expect(page.getByTestId('graph-run-editing-badge')).toBeVisible({ timeout: 15_000 })
+  await page.getByTestId('graph-node-done').click()
+  await expect(page.getByTestId('gi-frozen-banner')).toBeVisible({ timeout: 10_000 })
+
+  const titleInput = page.getByLabel('Node name')
+  await expect(titleInput).toBeEnabled()
+  await titleInput.fill('Frozen Title After')
+
+  await expect(page.getByLabel('Shell script')).toBeDisabled()
+
+  const [saveResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes(`/api/v1/job/${jobId}/graph-run/version`) && r.request().method() === 'PUT'),
+    page.getByTestId('graph-save-run-version').click(),
+  ])
+  expect(saveResp.ok(), `save run version failed: ${saveResp.status()} ${await saveResp.text()}`).toBeTruthy()
+  const saved = await saveResp.json()
+  const done = saved.run?.versions?.at(-1)?.config?.nodes?.find((node: { id?: string }) => node.id === 'done')
+  expect(done?.title).toBe('Frozen Title After')
+})
+
+test('graph review #58: full-page run-version editor locks global variables and run config', async ({ page, request }) => {
+  const workspace = await openGraphCanvas(page, request, 'fullpage-run-lock-globals')
+  await applyJsonConfig(page, failingShellConfig(workspace))
+  await page.getByTestId('graph-name-input').fill(`e2e-fullpage-lock-globals-${Date.now()}`)
+
+  const [startResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/v1/graph/run/start') && r.request().method() === 'POST'),
+    page.getByTestId('graph-run').click(),
+  ])
+  expect(startResp.ok(), `run start failed: ${startResp.status()} ${await startResp.text()}`).toBeTruthy()
+  const jobId: string = (await startResp.json()).run?.jobId
+  expect(jobId).toMatch(/^job-/)
+  const { status } = await waitForRunStatus(request, jobId, ['failed', 'completed', 'timedOut'])
+  expect(status).toBe('failed')
+
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph&graphEditJob=${jobId}`)
+  await expect(page.getByTestId('graph-run-editing-badge')).toBeVisible({ timeout: 15_000 })
+  await page.locator('.react-flow__pane').click({ position: { x: 10, y: 10 } })
+  const inspector = page.getByTestId('graph-inspector')
+  await expect(inspector.getByRole('spinbutton', { name: 'Concurrency' })).toBeDisabled()
+  await expect(inspector.getByLabel('Code value')).toBeDisabled()
+  await expect(inspector.getByLabel('Doc value')).toBeDisabled()
+  await expect(inspector.getByRole('button', { name: /Add variable/i })).toHaveCount(0)
 })
 
 // ---------------------------------------------------------------------------
@@ -1148,6 +1850,31 @@ test('graph review #22: run/start with deleted workflowId and config returns an 
   expect(await countGraphJobs(request, workspace.workspaceId)).toBe(before)
 })
 
+test('graph review #40: run/start with stale workflowUpdatedAt returns 409 and creates no Job', async ({ request }) => {
+  const workspace = await createGraphWorkspace(request, 'stale-workflow-run-token')
+  const workflow = await createWorkflow(request, workspace, `e2e-stale-run-token-${Date.now()}`)
+  const newer = await request.put(`/api/v1/graph/workflow/${encodeURIComponent(workflow.id)}`, {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { name: `${workflow.name}-newer`, config: updatedLinearConfig(workspace, 'echo newer'), updatedAt: workflow.updatedAt },
+  })
+  expect(newer.ok(), `workflow update failed: ${newer.status()} ${await newer.text()}`).toBeTruthy()
+  const before = await countGraphJobs(request, workspace.workspaceId)
+
+  const start = await request.post('/api/v1/graph/run/start', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: {
+      workflowId: workflow.id,
+      workflowUpdatedAt: workflow.updatedAt,
+      workspaceId: workspace.workspaceId,
+      workdir: workspace.workdir,
+      config: workflow.config,
+    },
+  })
+  expect(start.status(), `expected stale workflowUpdatedAt 409, got ${start.status()}: ${await start.text()}`).toBe(409)
+  expect((await start.json()).msg).toContain('graph workflow has been modified')
+  expect(await countGraphJobs(request, workspace.workspaceId)).toBe(before)
+})
+
 // ---------------------------------------------------------------------------
 // #23 — corrupted run.json is not hidden as "graph run not found"
 // ---------------------------------------------------------------------------
@@ -1175,6 +1902,41 @@ test('graph review #23: corrupted run metadata returns a full load error', async
   expect(msg).not.toBe('graph run not found')
 })
 
+test('graph review #23b: corrupted event log surfaces through disk replay SSE error event', async ({ request }) => {
+  const workspace = await createGraphWorkspace(request, 'corrupt-events-replay')
+  const start = await request.post('/api/v1/graph/run/start', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { workspaceId: workspace.workspaceId, workdir: workspace.workdir, config: linearShellConfig(workspace) },
+  })
+  expect(start.ok(), `run start failed: ${start.status()} ${await start.text()}`).toBeTruthy()
+  const run = (await start.json()).run as { id: string; jobId: string }
+  expect(run.jobId).toMatch(/^job-/)
+  await waitForRunStatus(request, run.jobId, ['completed', 'failed', 'timedOut'])
+
+  const runInfo = await getE2ERunInfo()
+  const eventsFile = path.join(runInfo.localMemory, 'workspaces', workspace.workspaceId, 'jobs', run.jobId, 'graph_run', 'events.jsonl')
+  await fs.writeFile(eventsFile, '{"type":"log"\n', 'utf8')
+
+  const replayPort = 18191
+  const replayBackend = await startReplayBackend(runInfo, replayPort)
+  try {
+    const stream = await readSSEUntil(
+      `http://127.0.0.1:${replayPort}/api/v1/job/${encodeURIComponent(run.jobId)}/graph-run/events`,
+      AUTH_HEADERS,
+      (chunk) => chunk.includes('replay list events failed') && chunk.includes('unmarshal graph event'),
+      15_000,
+    )
+    const events = parseSSEMessageEvents(stream)
+    const errorEvent = events.find((event) => event.type === 'error')
+    expect(errorEvent, `missing graph error event in SSE stream:\n${stream}`).toBeTruthy()
+    expect(errorEvent?.message).toContain('replay list events failed')
+    expect(errorEvent?.message).toContain('unmarshal graph event')
+    expect((errorEvent?.error as { message?: string } | undefined)?.message).toContain('unmarshal graph event')
+  } finally {
+    await stopProcess(replayBackend)
+  }
+})
+
 // ---------------------------------------------------------------------------
 // #24 — workflow workspaceId is normalized between record and config
 // ---------------------------------------------------------------------------
@@ -1192,19 +1954,28 @@ test('graph review #24: workflow create/update normalizes record and config work
   })
   expect(created.ok(), `workflow create failed: ${created.status()} ${await created.text()}`).toBeTruthy()
   const workflow = (await created.json()).workflow as { id: string; updatedAt: string; workspaceId: string; config: GraphConfig }
-  expect(workflow.workspaceId).toBe(workspaceB.workspaceId)
-  expect(workflow.config.workspaceId).toBe(workspaceB.workspaceId)
+  expect(workflow.workspaceId).toBe(workspaceA.workspaceId)
+  expect(workflow.config.workspaceId).toBe(workspaceA.workspaceId)
 
   const cfgB = linearShellConfig(workspaceA)
-  cfgB.workspaceId = workspaceA.workspaceId
+  cfgB.workspaceId = workspaceB.workspaceId
+  cfgB.workdir = workspaceB.workdir
   const updated = await request.put(`/api/v1/graph/workflow/${encodeURIComponent(workflow.id)}`, {
     headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
-    data: { name: 'e2e-workspace-norm-updated', config: cfgB, updatedAt: workflow.updatedAt },
+    data: { name: 'e2e-workspace-norm-updated', workspaceId: workspaceB.workspaceId, config: cfgB, updatedAt: workflow.updatedAt },
   })
   expect(updated.ok(), `workflow update failed: ${updated.status()} ${await updated.text()}`).toBeTruthy()
   const after = (await updated.json()).workflow as { workspaceId: string; config: GraphConfig }
-  expect(after.workspaceId).toBe(workspaceA.workspaceId)
-  expect(after.config.workspaceId).toBe(workspaceA.workspaceId)
+  expect(after.workspaceId).toBe(workspaceB.workspaceId)
+  expect(after.config.workspaceId).toBe(workspaceB.workspaceId)
+
+  const filteredA = await request.get(`/api/v1/graph/workflow/list?workspaceId=${encodeURIComponent(workspaceA.workspaceId)}`, { headers: AUTH_HEADERS })
+  expect(filteredA.ok(), `filtered list A failed: ${filteredA.status()} ${await filteredA.text()}`).toBeTruthy()
+  expect(((await filteredA.json()).workflows ?? []).some((wf: { id?: string }) => wf.id === workflow.id)).toBe(false)
+
+  const filteredB = await request.get(`/api/v1/graph/workflow/list?workspaceId=${encodeURIComponent(workspaceB.workspaceId)}`, { headers: AUTH_HEADERS })
+  expect(filteredB.ok(), `filtered list B failed: ${filteredB.status()} ${await filteredB.text()}`).toBeTruthy()
+  expect(((await filteredB.json()).workflows ?? []).some((wf: { id?: string }) => wf.id === workflow.id)).toBe(true)
 })
 
 // ---------------------------------------------------------------------------
@@ -1323,12 +2094,29 @@ test('graph review #27: delete confirmation cannot submit duplicate DELETE reque
   expect(deleteCalls).toBe(1)
 })
 
+test('graph review #61: deleting an already-deleted workflow no longer returns success', async ({ request }) => {
+  const workspace = await createGraphWorkspace(request, 'delete-already-deleted')
+  const workflow = await createWorkflow(request, workspace, `e2e-delete-already-${Date.now()}`)
+
+  const first = await request.delete(`/api/v1/graph/workflow/${encodeURIComponent(workflow.id)}`, {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { updatedAt: workflow.updatedAt },
+  })
+  expect(first.ok(), `first delete failed: ${first.status()} ${await first.text()}`).toBeTruthy()
+
+  const second = await request.delete(`/api/v1/graph/workflow/${encodeURIComponent(workflow.id)}`, {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { updatedAt: workflow.updatedAt },
+  })
+  expect([404, 409], `second delete should not be success, got ${second.status()}: ${await second.text()}`).toContain(second.status())
+})
+
 // ---------------------------------------------------------------------------
 // #28 — key form controls expose reliable accessible names
 // ---------------------------------------------------------------------------
 
 test('graph review #28: workflow and inspector fields have accessible names', async ({ page, request }) => {
-  await openGraphCanvas(page, request, 'a11y-names')
+  const workspace = await openGraphCanvas(page, request, 'a11y-names')
   await page.addStyleTag({ content: '.graph-minimap { display: none !important; }' })
 
   await expect(page.getByRole('textbox', { name: 'Workflow name' })).toBeVisible()
@@ -1343,6 +2131,18 @@ test('graph review #28: workflow and inspector fields have accessible names', as
   await expect(page.getByRole('textbox', { name: 'Shell script' })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Output variable declaration (optional, comma-separated)' })).toBeVisible()
   await expect(page.getByRole('spinbutton', { name: 'Node-level timeout' })).toBeVisible()
+
+  await applyJsonConfig(page, branchingShellConfig(workspace))
+  await page.getByTestId('graph-node-gate').click()
+  await expect(page.getByRole('combobox', { name: 'Left variable' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Comparison operator' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Right comparison value' })).toBeVisible()
+
+  await page.getByRole('checkbox', { name: 'Compare with a variable' }).check()
+  await expect(page.getByRole('combobox', { name: 'Right comparison variable' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Switch to advanced' }).click()
+  await expect(page.getByRole('textbox', { name: 'Advanced condition expression' })).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
@@ -1378,4 +2178,510 @@ test('graph review #30: E2E GOTMPDIR is outside the retained test-results run di
   expect(info.goTmp, 'env.json should record the external Go temp dir').toBeTruthy()
   expect(path.resolve(info.goTmp!)).not.toContain(path.resolve(runDir!))
   expect(await fileExists(path.join(runDir!, 'go-tmp'))).toBe(false)
+})
+
+// ---------------------------------------------------------------------------
+// #31 — parentId must reference a real loop node
+// ---------------------------------------------------------------------------
+
+test('graph review #31: parentId pointing to a ghost or non-loop node is rejected', async ({ request }) => {
+  const workspace = await createGraphWorkspace(request, 'parent-scope')
+  const base = linearShellConfig(workspace)
+
+  const ghostScope: GraphConfig = {
+    ...base,
+    nodes: [
+      ...base.nodes,
+      { id: 'ghost-start', type: 'start', parentId: 'ghost', title: 'Ghost entry', layout: { x: 0, y: 0 } },
+      { id: 'ghost-shell', type: 'shell', parentId: 'ghost', title: 'Ghost shell', config: { script: 'echo orphan' }, layout: { x: 120, y: 0 } },
+      { id: 'ghost-end', type: 'end', parentId: 'ghost', title: 'Ghost exit', layout: { x: 260, y: 0 } },
+    ],
+    edges: [
+      ...base.edges,
+      { id: 'edge-ghost-start-shell', sourceNodeId: 'ghost-start', targetNodeId: 'ghost-shell' },
+      { id: 'edge-ghost-shell-end', sourceNodeId: 'ghost-shell', targetNodeId: 'ghost-end' },
+    ],
+  }
+
+  const ghostRes = await request.post('/api/v1/graph/workflow/validate', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { config: ghostScope },
+  })
+  expect(ghostRes.ok()).toBeTruthy()
+  const ghostBody = await ghostRes.json()
+  expect(ghostBody.valid).toBe(false)
+  const ghostMessages = (ghostBody.errors ?? []).map((e: { message?: string; nodeId?: string }) => `${e.nodeId}: ${e.message}`).join('\n')
+  expect(ghostMessages).toContain('parentId "ghost" does not exist')
+  expect(ghostMessages).toContain('ghost-shell')
+
+  const nonLoopParent: GraphConfig = {
+    ...base,
+    nodes: base.nodes.map((node) => (
+      node.id === 'shell'
+        ? { ...node, parentId: 'start' }
+        : node
+    )),
+  }
+  const nonLoopRes = await request.post('/api/v1/graph/workflow/validate', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { config: nonLoopParent },
+  })
+  expect(nonLoopRes.ok()).toBeTruthy()
+  const nonLoopBody = await nonLoopRes.json()
+  expect(nonLoopBody.valid).toBe(false)
+  const nonLoopMessages = (nonLoopBody.errors ?? []).map((e: { message?: string; nodeId?: string }) => `${e.nodeId}: ${e.message}`).join('\n')
+  expect(nonLoopMessages).toContain('parentId "start" must point to a loop node')
+})
+
+// ---------------------------------------------------------------------------
+// #32 — completed runs are frozen replays and reject version updates
+// ---------------------------------------------------------------------------
+
+test('graph review #32: completed GraphRun rejects run-version update with 409', async ({ request }) => {
+  const workspace = await createGraphWorkspace(request, 'completed-version')
+  const config = linearShellConfig(workspace)
+  const start = await request.post('/api/v1/graph/run/start', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { workspaceId: workspace.workspaceId, workdir: workspace.workdir, config },
+  })
+  expect(start.ok(), `run start failed: ${start.status()} ${await start.text()}`).toBeTruthy()
+  const run = (await start.json()).run as { jobId: string; currentVersion: number }
+  expect(run.jobId).toMatch(/^job-/)
+  const { status } = await waitForRunStatus(request, run.jobId, ['completed', 'failed', 'timedOut'])
+  expect(status).toBe('completed')
+
+  const edit = await request.put(`/api/v1/job/${encodeURIComponent(run.jobId)}/graph-run/version`, {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { config: updatedLinearConfig(workspace, 'echo should-not-append') },
+  })
+  expect(edit.status(), `expected completed run version edit 409, got ${edit.status()}: ${await edit.text()}`).toBe(409)
+  expect((await edit.json()).msg).toContain('graph run cannot be edited')
+
+  const after = await request.get(`/api/v1/job/${encodeURIComponent(run.jobId)}/graph-run`, { headers: AUTH_HEADERS })
+  expect(after.ok()).toBeTruthy()
+  const afterRun = (await after.json()).run
+  expect(afterRun.currentVersion).toBe(run.currentVersion)
+  expect(afterRun.versions).toHaveLength(1)
+})
+
+test('graph review #63: unchanged failed-run version save does not append duplicate versions', async ({ page, request }) => {
+  const workspace = await openGraphCanvas(page, request, 'run-version-noop')
+  await applyJsonConfig(page, failingShellConfig(workspace))
+  await page.getByTestId('graph-name-input').fill(`e2e-run-version-noop-${Date.now()}`)
+
+  const [startResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/v1/graph/run/start') && r.request().method() === 'POST'),
+    page.getByTestId('graph-run').click(),
+  ])
+  expect(startResp.ok(), `run start failed: ${startResp.status()} ${await startResp.text()}`).toBeTruthy()
+  const jobId: string = (await startResp.json()).run?.jobId
+  expect(jobId).toMatch(/^job-/)
+  const { status } = await waitForRunStatus(request, jobId, ['failed', 'completed', 'timedOut'])
+  expect(status).toBe('failed')
+
+  const before = await request.get(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run`, { headers: AUTH_HEADERS })
+  expect(before.ok()).toBeTruthy()
+  const beforeRun = (await before.json()).run as {
+    currentVersion: number
+    versions: Array<{ version: number; config: GraphConfig }>
+    baseSnapshot?: { config?: GraphConfig }
+  }
+
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph&graphEditJob=${jobId}`)
+  await expect(page.getByTestId('graph-run-editing-badge')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-save-run-version')).toBeDisabled()
+
+  const sameConfig = structuredClone(
+    beforeRun.versions.find((version) => version.version === beforeRun.currentVersion)?.config ??
+    beforeRun.baseSnapshot?.config,
+  ) as GraphConfig
+  sameConfig.canvas = {}
+  sameConfig.variables = {}
+  sameConfig.disabledVars = []
+  const direct = await request.put(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run/version`, {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { config: sameConfig },
+  })
+  expect(direct.ok(), `no-op version update failed: ${direct.status()} ${await direct.text()}`).toBeTruthy()
+  const directRun = (await direct.json()).run as { currentVersion: number; versions: unknown[] }
+  expect(directRun.currentVersion).toBe(beforeRun.currentVersion)
+  expect(directRun.versions).toHaveLength(beforeRun.versions.length)
+})
+
+// ---------------------------------------------------------------------------
+// #33 — delete uses the open workflow version after list refresh
+// ---------------------------------------------------------------------------
+
+test('graph review #33: refreshed list version cannot delete a stale open workflow', async ({ page, request }) => {
+  const workspace = await createGraphWorkspace(request, 'delete-open-token')
+  const name = `e2e-delete-open-token-${Date.now()}`
+  const original = await createWorkflow(request, workspace, name)
+
+  await page.addInitScript((token) => {
+    localStorage.setItem('quartet.x_auth_token', token)
+    localStorage.setItem('quartet-language', 'en')
+  }, e2eAuthToken)
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
+  await expect(page.getByTestId(`graph-workflow-row-${original.id}`)).toBeVisible({ timeout: 10_000 })
+  await page.getByTestId(`graph-workflow-row-${original.id}`).click()
+  await expect(page.getByTestId('graph-clean-badge')).toBeVisible({ timeout: 10_000 })
+
+  const external = await request.put(`/api/v1/graph/workflow/${encodeURIComponent(original.id)}`, {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { name: `${name}-external`, config: updatedLinearConfig(workspace, 'echo external-delete'), updatedAt: original.updatedAt },
+  })
+  expect(external.ok(), `external update failed: ${external.status()} ${await external.text()}`).toBeTruthy()
+
+  await page.getByTitle('Refresh').click()
+  await expect(page.locator('.graph-workflow-row-title', { hasText: `${name}-external` })).toBeVisible({ timeout: 10_000 })
+
+  await page.getByRole('button', { name: /^Delete$/ }).click()
+  await expect(page.locator('.delete-confirm-dialog')).toBeVisible()
+  const [deleteResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes(`/api/v1/graph/workflow/${original.id}`) && r.request().method() === 'DELETE'),
+    page.locator('.delete-confirm-dialog').getByRole('button', { name: /^Delete$/ }).click(),
+  ])
+  expect(deleteResp.status(), `expected stale delete 409, got ${deleteResp.status()}: ${await deleteResp.text()}`).toBe(409)
+  await expect(page.getByTestId('graph-message')).toContainText('graph workflow has been modified')
+
+  const current = await request.get(`/api/v1/graph/workflow/${encodeURIComponent(original.id)}`, { headers: AUTH_HEADERS })
+  expect(current.ok()).toBeTruthy()
+  expect((await current.json()).workflow?.deleted).not.toBe(true)
+})
+
+// ---------------------------------------------------------------------------
+// #34 — success messages remain visible after list reloads
+// ---------------------------------------------------------------------------
+
+test('graph review #34: create/save/delete success messages survive workflow list refresh', async ({ page, request }) => {
+  await openGraphCanvas(page, request, 'success-message')
+  const name = `e2e-success-message-${Date.now()}`
+  await page.getByTestId('graph-name-input').fill(name)
+  await page.getByTestId('graph-save').click()
+  await expect(page.getByTestId('graph-clean-badge')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-message')).toContainText('Workflow created.')
+
+  await page.getByTestId('graph-description-input').fill('updated description')
+  await page.getByTestId('graph-save').click()
+  await expect(page.getByTestId('graph-clean-badge')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-message')).toContainText('Workflow saved.')
+
+  await page.getByRole('button', { name: /^Delete$/ }).click()
+  await expect(page.locator('.delete-confirm-dialog')).toBeVisible()
+  await page.locator('.delete-confirm-dialog').getByRole('button', { name: /^Delete$/ }).click()
+  await expect(page.locator('.delete-confirm-dialog')).toHaveCount(0)
+  await expect(page.getByTestId('graph-message')).toContainText('Workflow deleted.', { timeout: 10_000 })
+})
+
+// ---------------------------------------------------------------------------
+// #35 — embedded edit keeps structured validation errors and dirty cancel guard
+// ---------------------------------------------------------------------------
+
+test('graph review #35: embedded edit shows clickable validation errors and guards dirty cancel', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const workspace = await openGraphCanvas(page, request, 'embedded-validation-dirty')
+  await applyJsonConfig(page, failingShellConfig(workspace))
+  await page.getByTestId('graph-name-input').fill(`e2e-embedded-validation-${Date.now()}`)
+
+  const [startResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/v1/graph/run/start') && r.request().method() === 'POST'),
+    page.getByTestId('graph-run').click(),
+  ])
+  expect(startResp.ok(), `run start failed: ${startResp.status()} ${await startResp.text()}`).toBeTruthy()
+  const jobId: string = (await startResp.json()).run?.jobId
+  expect(jobId).toMatch(/^job-/)
+  const { status } = await waitForRunStatus(request, jobId, ['failed', 'completed', 'timedOut'])
+  expect(status).toBe('failed')
+
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&jobId=${jobId}`)
+  await expect(page.getByTestId('job-chat')).toHaveAttribute('data-job-mode', 'graph', { timeout: 10_000 })
+  await expect(page.getByTestId('graph-loop-progress')).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'Edit' }).click()
+  await expect(page.getByTestId('graph-loop-editor')).toBeVisible()
+
+  // Dirty cancel: editing a node config and pressing Cancel must ask first.
+  await page.getByTestId('graph-loop-editor').getByTestId('graph-node-boom').click()
+  await page.locator('.graph-loop-inspector .gi-field', { hasText: 'Shell script' }).locator('textarea').fill('echo dirty')
+  let cancelDialogSeen = false
+  page.once('dialog', (d) => {
+    cancelDialogSeen = true
+    void d.dismiss()
+  })
+  await page.getByRole('button', { name: 'Cancel edit' }).click()
+  await expect.poll(() => cancelDialogSeen).toBe(true)
+  await expect(page.getByTestId('graph-loop-editor')).toBeVisible()
+
+  // Re-enter a known-invalid graph by deleting the edge to end, then save.
+  await page.locator('.graph-loop-inspector .gi-field', { hasText: 'Shell script' }).locator('textarea').fill('exit 1')
+  await page.getByTestId('graph-edge-delete-edge-boom-end').click()
+  const [versionResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes(`/api/v1/job/${jobId}/graph-run/version`) && r.request().method() === 'PUT'),
+    page.getByRole('button', { name: 'Save run version' }).click(),
+  ])
+  expect(versionResp.status(), `expected embedded invalid save 400, got ${versionResp.status()}: ${await versionResp.text()}`).toBe(400)
+  await expect(page.getByTestId('graph-loop-error-list')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-loop-error-link').first()).toContainText(/node=boom|edge=/)
+
+  await page.getByTestId('graph-loop-error-link').first().click()
+  await expect(page.getByTestId('graph-loop-editor').getByTestId('graph-node-boom')).toHaveClass(/has-error|selected/)
+})
+
+// ---------------------------------------------------------------------------
+// #36 — App-level browser history navigation must respect Graph dirty state
+// ---------------------------------------------------------------------------
+
+test('graph review #36: browser Back is guarded when Graph has unsaved changes', async ({ page, request }) => {
+  const workspace = await openGraphCanvas(page, request, 'browser-back-guard')
+  await page.getByTestId('graph-name-input').fill(`e2e-browser-back-${Date.now()}`)
+  await page.evaluate((workspaceId) => {
+    window.history.pushState({}, '', `/?workspaceId=${workspaceId}`)
+    window.history.pushState({}, '', `/?workspaceId=${workspaceId}&view=graph`)
+  }, workspace.workspaceId)
+
+  let dialogSeen = false
+  page.once('dialog', (d) => {
+    dialogSeen = true
+    void d.dismiss()
+  })
+  await page.evaluate(() => window.history.back())
+  await expect.poll(() => dialogSeen).toBe(true)
+  await expect(page).toHaveURL(/view=graph/)
+  await expect(page.getByTestId('graph-name-input')).toHaveValue(/e2e-browser-back-/)
+  await expect(page.getByTestId('graph-dirty-badge')).toBeVisible()
+
+  page.once('dialog', (d) => void d.accept())
+  await page.evaluate(() => window.history.back())
+  await expect(page).not.toHaveURL(/view=graph/)
+  await expect(page.getByTestId('graph-node-start')).toHaveCount(0)
+  expect(workspace.workspaceId).toMatch(/^ws-/)
+})
+
+// ---------------------------------------------------------------------------
+// #37 — embedded GraphLoop edit locks global controls it does not persist
+// ---------------------------------------------------------------------------
+
+test('graph review #37: embedded run-version editor disables global variables and run config', async ({ page, request }) => {
+  const workspace = await openGraphCanvas(page, request, 'embedded-global-lock')
+  const config = failingShellConfig(workspace)
+  config.variables = { Code: workspace.workdir, custom: 'value' }
+  config.runConfig = { concurrencyLimit: 3, defaultNodeTimeoutSec: 12 }
+  await applyJsonConfig(page, config)
+  await page.getByTestId('graph-name-input').fill(`e2e-embedded-global-lock-${Date.now()}`)
+
+  const [startResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/v1/graph/run/start') && r.request().method() === 'POST'),
+    page.getByTestId('graph-run').click(),
+  ])
+  expect(startResp.ok(), `run start failed: ${startResp.status()} ${await startResp.text()}`).toBeTruthy()
+  const jobId: string = (await startResp.json()).run?.jobId
+  expect(jobId).toMatch(/^job-/)
+  const { status } = await waitForRunStatus(request, jobId, ['failed', 'completed', 'timedOut'])
+  expect(status).toBe('failed')
+
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&jobId=${jobId}`)
+  await expect(page.getByTestId('job-chat')).toHaveAttribute('data-job-mode', 'graph', { timeout: 10_000 })
+  await expect(page.getByTestId('graph-loop-progress')).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'Edit' }).click()
+  await expect(page.getByTestId('graph-loop-editor')).toBeVisible()
+
+  // No selected node -> GraphInspector shows the global variables/run config
+  // panel. These fields are intentionally locked in the embedded editor because
+  // the save payload only persists graph topology + node config.
+  await page.getByTestId('graph-loop-editor').locator('.react-flow__pane').click({ position: { x: 10, y: 10 } })
+  const inspector = page.locator('.graph-loop-inspector')
+  await expect(inspector.getByRole('spinbutton', { name: 'Concurrency' })).toBeDisabled()
+  await expect(inspector.getByLabel('Variable custom value')).toBeDisabled()
+  await expect(inspector.getByRole('button', { name: /Add variable/i })).toHaveCount(0)
+})
+
+// ---------------------------------------------------------------------------
+// #38 — corrupted GraphRun metadata errors are not collapsed to not found
+// ---------------------------------------------------------------------------
+
+test('graph review #38: corrupted run metadata returns full load errors for version, resume, and delete', async ({ request }) => {
+  const workspace = await createGraphWorkspace(request, 'corrupt-run-control')
+  const start = await request.post('/api/v1/graph/run/start', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { workspaceId: workspace.workspaceId, workdir: workspace.workdir, config: failingShellConfig(workspace) },
+  })
+  expect(start.ok(), `run start failed: ${start.status()} ${await start.text()}`).toBeTruthy()
+  const run = (await start.json()).run as { jobId: string; id: string }
+  expect(run.jobId).toMatch(/^job-/)
+  await waitForRunStatus(request, run.jobId, ['failed', 'completed', 'timedOut'])
+
+  const { localMemory } = await getE2ERunInfo()
+  const runFile = path.join(localMemory, 'workspaces', workspace.workspaceId, 'jobs', run.jobId, 'graph_run', 'run.json')
+  await fs.writeFile(runFile, '{ broken run json', 'utf8')
+
+  const version = await request.put(`/api/v1/job/${encodeURIComponent(run.jobId)}/graph-run/version`, {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { config: updatedLinearConfig(workspace, 'echo repaired') },
+  })
+  expect(version.status(), `expected corrupt version update 500, got ${version.status()}: ${await version.text()}`).toBe(500)
+  const versionMsg = (await version.json()).msg as string
+  expect(versionMsg).toContain(`load graph run ${run.id} failed`)
+  expect(versionMsg).not.toBe('graph run not found')
+  expect(versionMsg).toMatch(/invalid character|unexpected|unmarshal/i)
+
+  const resume = await request.post(`/api/v1/job/${encodeURIComponent(run.jobId)}/graph-run/resume`, {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: {},
+  })
+  expect(resume.status(), `expected corrupt resume 500, got ${resume.status()}: ${await resume.text()}`).toBe(500)
+  const resumeMsg = (await resume.json()).msg as string
+  expect(resumeMsg).toContain(`load graph run ${run.id} failed`)
+  expect(resumeMsg).not.toBe('graph run not found')
+  expect(resumeMsg).toMatch(/invalid character|unexpected|unmarshal/i)
+
+  const del = await request.delete(`/api/v1/job/${encodeURIComponent(run.jobId)}/graph-run`, { headers: AUTH_HEADERS })
+  expect(del.status(), `expected corrupt delete 500, got ${del.status()}: ${await del.text()}`).toBe(500)
+  const deleteMsg = (await del.json()).msg as string
+  expect(deleteMsg).toContain(`load graph run ${run.id} failed`)
+  expect(deleteMsg).not.toBe('graph run not found')
+  expect(deleteMsg).toMatch(/invalid character|unexpected|unmarshal/i)
+})
+
+test('graph review #49: schedule modal displays full save and trigger errors', async ({ page, request }) => {
+  const workspace = await createGraphWorkspace(request, 'schedule-full-errors')
+  const workflow = await createWorkflow(request, workspace, `e2e-schedule-errors-${Date.now()}`)
+
+  await page.addInitScript((token) => {
+    localStorage.setItem('quartet.x_auth_token', token)
+    localStorage.setItem('quartet-language', 'en')
+  }, e2eAuthToken)
+
+  await page.route('**/api/v1/schedule/create', async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: 'text/plain',
+      body: 'plain schedule create failure: keep this exact text',
+    })
+  })
+  await page.goto(`/?workspaceId=${workspace.workspaceId}`)
+  await expect(page.getByTestId('home-content')).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: /New Task/ }).click()
+  await expect(page.getByRole('heading', { name: 'New Scheduled Task' })).toBeVisible()
+  await page.locator('.schedule-select').first().selectOption(workflow.id)
+  await expect(page.locator('.schedule-config-preview')).toContainText(`E2E GraphFix schedule-full-errors`)
+  await page.locator('.schedule-modal-body input[type="text"]').fill(`e2e-schedule-save-error-${Date.now()}`)
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.locator('.schedule-error')).toContainText('plain schedule create failure: keep this exact text')
+  await page.unroute('**/api/v1/schedule/create')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
+  const createSchedule = await request.post('/api/v1/schedule/create', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: {
+      name: `e2e-schedule-trigger-error-${Date.now()}`,
+      cronExpr: '0 9 * * *',
+      enabled: true,
+      maxConcurrent: 1,
+      timeout: 0,
+      graphWorkflowId: workflow.id,
+      workspaceId: workspace.workspaceId,
+    },
+  })
+  expect(createSchedule.ok(), `schedule create failed: ${createSchedule.status()} ${await createSchedule.text()}`).toBeTruthy()
+  const schedule = (await createSchedule.json()).schedule as { id: string; name: string }
+
+  await page.goto(`/?workspaceId=${workspace.workspaceId}`)
+  await expect(page.getByText(schedule.name)).toBeVisible({ timeout: 10_000 })
+  await page.getByText(schedule.name).click()
+  await expect(page.getByRole('heading', { name: 'Edit Scheduled Task' })).toBeVisible()
+  await page.route(`**/api/v1/schedule/${schedule.id}/run`, async (route) => {
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'json trigger failure from error field' }),
+    })
+  })
+  await page.getByRole('button', { name: 'Run Now' }).click()
+  await expect(page.locator('.schedule-error')).toContainText('json trigger failure from error field')
+})
+
+test('graph review #49b: schedule Trigger Now is disabled while the request is pending', async ({ page, request }) => {
+  const workspace = await createGraphWorkspace(request, 'schedule-trigger-pending')
+  const workflow = await createWorkflow(request, workspace, `e2e-schedule-pending-${Date.now()}`)
+  const createSchedule = await request.post('/api/v1/schedule/create', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: {
+      name: `e2e-schedule-trigger-pending-${Date.now()}`,
+      cronExpr: '0 9 * * *',
+      enabled: true,
+      maxConcurrent: 1,
+      timeout: 0,
+      graphWorkflowId: workflow.id,
+      workspaceId: workspace.workspaceId,
+    },
+  })
+  expect(createSchedule.ok(), `schedule create failed: ${createSchedule.status()} ${await createSchedule.text()}`).toBeTruthy()
+  const schedule = (await createSchedule.json()).schedule as { id: string; name: string }
+
+  await page.addInitScript((token) => {
+    localStorage.setItem('quartet.x_auth_token', token)
+    localStorage.setItem('quartet-language', 'en')
+  }, e2eAuthToken)
+
+  let runCalls = 0
+  let releaseRun: (() => void) | null = null
+  await page.route(`**/api/v1/schedule/${schedule.id}/run`, async (route) => {
+    runCalls += 1
+    await new Promise<void>((resolve) => { releaseRun = resolve })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'triggered', jobId: 'job-e2e-pending-trigger' }),
+    })
+  })
+
+  await page.goto(`/?workspaceId=${workspace.workspaceId}`)
+  await expect(page.getByText(schedule.name)).toBeVisible({ timeout: 10_000 })
+  await page.getByText(schedule.name).click()
+  await expect(page.getByRole('heading', { name: 'Edit Scheduled Task' })).toBeVisible()
+
+  const trigger = page.getByRole('button', { name: 'Run Now' })
+  await trigger.click()
+  await expect(page.getByRole('button', { name: 'Running...' })).toBeDisabled()
+  await expect.poll(() => runCalls).toBe(1)
+  await page.getByRole('button', { name: 'Running...' }).click({ force: true })
+  await expect.poll(() => runCalls).toBe(1)
+
+  releaseRun?.()
+  await expect(page.getByRole('heading', { name: 'Edit Scheduled Task' })).toHaveCount(0, { timeout: 10_000 })
+  expect(runCalls).toBe(1)
+})
+
+test('graph review #62: workflow list returns summary fields without full graph config', async ({ request }) => {
+  const workspace = await createGraphWorkspace(request, 'workflow-list-summary')
+  const name = `e2e-workflow-list-summary-${Date.now()}`
+  const cfg = linearShellConfig(workspace)
+  const shell = cfg.nodes.find((node) => node.id === 'shell') as { config?: { script?: string } } | undefined
+  expect(shell).toBeTruthy()
+  shell!.config = { ...(shell!.config ?? {}), script: `echo ${'large-prompt-marker-'.repeat(200)}` }
+
+  const created = await request.post('/api/v1/graph/workflow', {
+    headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+    data: { name, workspaceId: workspace.workspaceId, config: cfg },
+  })
+  expect(created.ok(), `workflow create failed: ${created.status()} ${await created.text()}`).toBeTruthy()
+  const workflow = (await created.json()).workflow as { id: string }
+
+  const listRes = await request.get(`/api/v1/graph/workflow/list?workspaceId=${encodeURIComponent(workspace.workspaceId)}`, { headers: AUTH_HEADERS })
+  expect(listRes.ok(), `workflow list failed: ${listRes.status()} ${await listRes.text()}`).toBeTruthy()
+  const listBody = await listRes.json()
+  const summary = (listBody.workflows ?? []).find((wf: { id?: string }) => wf.id === workflow.id)
+  expect(summary, 'workflow summary not found').toBeTruthy()
+  expect(summary).toMatchObject({
+    id: workflow.id,
+    name,
+    workspaceId: workspace.workspaceId,
+    nodeCount: cfg.nodes.length,
+    edgeCount: cfg.edges.length,
+  })
+  expect(summary.config).toBeUndefined()
+  expect(JSON.stringify(summary)).not.toContain('large-prompt-marker')
+
+  const detail = await request.get(`/api/v1/graph/workflow/${encodeURIComponent(workflow.id)}`, { headers: AUTH_HEADERS })
+  expect(detail.ok()).toBeTruthy()
+  expect(JSON.stringify(await detail.json())).toContain('large-prompt-marker')
 })

@@ -72,6 +72,7 @@ func (v *validator) run() {
 	v.validateRunConfig()
 	v.validateInitialVariables()
 	v.validateNodeConfigs()
+	v.validateParentScopes()
 	v.validatePorts()
 	v.validateEdgeScopes()
 	v.validateStructure()
@@ -235,6 +236,27 @@ func (v *validator) validateNodeConfigs() {
 		}
 		if n.Config.TimeoutSeconds != nil && *n.Config.TimeoutSeconds < 0 {
 			v.nodeErr(n.ID, fmt.Sprintf("node timeout must be >= 0 (0 = unlimited), got %d", *n.Config.TimeoutSeconds))
+		}
+	}
+}
+
+func (v *validator) validateParentScopes() {
+	for i := range v.cfg.Nodes {
+		n := &v.cfg.Nodes[i]
+		if n.ID == "" || n.ParentID == "" {
+			continue
+		}
+		if n.ParentID == n.ID {
+			v.nodeErr(n.ID, fmt.Sprintf("node %q parentId must not point to itself", n.ID))
+			continue
+		}
+		parent, ok := v.nodesByID[n.ParentID]
+		if !ok {
+			v.nodeErr(n.ID, fmt.Sprintf("node %q parentId %q does not exist", n.ID, n.ParentID))
+			continue
+		}
+		if parent.Type != model.GraphNodeTypeLoop {
+			v.nodeErr(n.ID, fmt.Sprintf("node %q parentId %q must point to a loop node, got %s", n.ID, n.ParentID, parent.Type))
 		}
 	}
 }

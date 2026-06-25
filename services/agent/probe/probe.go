@@ -94,7 +94,7 @@ var KnownACPAgents = []ACPAgentDef{
 	{"copilot", "copilot --acp --stdio", "Copilot", "🧑‍✈️"},
 	{"droid", "droid exec --output-format acp", "Droid", "https://avatars.githubusercontent.com/u/131064358"},
 	{"kimi", "kimi acp", "Kimi", "https://avatars.githubusercontent.com/u/129152888"},
-	{"codex", "npx @zed-industries/codex-acp", "Codex", "https://avatars.githubusercontent.com/u/14957082"},
+	{"codex", "npx @agentclientprotocol/codex-acp", "Codex", "https://avatars.githubusercontent.com/u/14957082"},
 	{"kiro-cli", "kiro-cli acp", "Kiro", "https://avatars.githubusercontent.com/u/207925904"},
 	{"opencode", "opencode acp", "OpenCode", "https://avatars.githubusercontent.com/in/1549082"},
 	{"kilocode", "npx -y @kilocode/cli acp", "KiloCode", "https://avatars.githubusercontent.com/u/201822503"},
