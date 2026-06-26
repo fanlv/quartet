@@ -26,12 +26,32 @@ type AgentConfig struct {
 	ACPThoughtLevel string `json:"acp_thought_level,omitempty"`
 }
 
+// AgentPrefs holds per-ACP-agent-type UI preferences edited in the
+// "Agent Defaults" settings tab. The map is keyed by agent type (= the ACP
+// serve command, e.g. "claude"). eino is never keyed here: it is flattened
+// into one agent entry per model and has no mode/thought_level concept.
+//
+//   - FavoriteModelIDs pins models to the top of the model dropdown.
+//   - DefaultModelID / DefaultMode / DefaultThoughtLevel are applied when the
+//     agent is selected; if a saved value is no longer in the agent's live
+//     list the frontend falls back to the first available entry.
+type AgentPrefs struct {
+	FavoriteModelIDs    []string `json:"favorite_model_ids,omitempty"`
+	DefaultModelID      string   `json:"default_model_id,omitempty"`
+	DefaultMode         string   `json:"default_mode,omitempty"`
+	DefaultThoughtLevel string   `json:"default_thought_level,omitempty"`
+}
+
 type Settings struct {
 	Username      string                      `json:"username"`
 	AvatarURL     string                      `json:"avatar_url"`
 	TitleAgent    *AgentConfig                `json:"title_agent,omitempty"`
 	MessageAgent  *AgentConfig                `json:"message_agent,omitempty"`
 	ACPEnvVars    map[string][]ACPEnvVarEntry `json:"acp_env_vars,omitempty"`
+	// AgentPrefs is per-ACP-agent-type favorite models + default
+	// model/mode/thought_level, keyed by agent type. Owned by the
+	// "Agent Defaults" settings tab.
+	AgentPrefs    map[string]AgentPrefs       `json:"agent_prefs,omitempty"`
 	LarkAppID     string                      `json:"lark_app_id,omitempty"`
 	LarkAppSecret string                      `json:"lark_app_secret,omitempty"`
 	// LarkIMAdminSenderID is the OpenID of the admin user allowed to send IM commands in P2P.

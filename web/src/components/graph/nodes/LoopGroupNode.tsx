@@ -42,13 +42,20 @@ export function LoopGroupNode({ data, selected }: NodeProps<QuartetFlowNode>) {
           handleClassName="qg-loop-resize-handle"
         />
       )}
-      <Handle type="target" position={Position.Left} />
+      {/* Pin the container's outward connect points to the head row. The loop's
+          entry/exit markers sit vertically-centred on the same left/right
+          borders, and React Flow always paints a child node (z=1) above its
+          parent container (z=0) — so a handle left at the vertical centre is
+          completely covered by the marker and cannot be grabbed to start (or
+          land) a connection. Offsetting them up into the head row clears the
+          markers so the loop is connectable again. */}
+      <Handle type="target" position={Position.Left} style={{ top: 17 }} />
       <div className="qg-loop-head">
         <span className="qg-loop-badge">🔁 {graphNode.title || t('graph.node.loopDefaultTitle')}</span>
         <span className="qg-loop-meta">{meta}</span>
         {cfg?.loopMode === 'until' && cfg?.maxIterations ? <span className="qg-loop-cap">{t('graph.node.loopFallback', { count: cfg.maxIterations })}</span> : null}
       </div>
-      <Handle type="source" position={Position.Right} />
+      <Handle type="source" position={Position.Right} style={{ top: 17 }} />
     </div>
   );
 }

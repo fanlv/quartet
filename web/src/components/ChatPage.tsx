@@ -28,6 +28,7 @@ import { usePendingImages } from '../hooks/usePendingImages';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { workspaceColor, loadWorkspacePrefs, registerWorkspaceColors } from '../utils/workspace';
 import { fetchModelOptions, type ModelOption } from '../utils/models';
+import { fetchAgentPrefs, splitFavoriteModels, resolveAgentDefaults, applyDefaultsToAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { formatStatsDuration } from '../utils/statsFormat';
 import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl } from '../utils/url';
@@ -471,6 +472,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   const { t, i18n } = useTranslation();
   const [input, setInput] = useState('');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [agentPrefs, setAgentPrefs] = useState<AgentPrefsMap>({});
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [workdir, setWorkdir] = useState('');
   const [showDirPicker, setShowDirPicker] = useState(false);
@@ -696,9 +698,10 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   }, [refreshKey, currentLang]);
 
   useEffect(() => {
-    fetchAgentList().then(({ agents: list, workdir: wd, sandboxUnavailable: su, jobEnable: je }) => {
+    Promise.all([fetchAgentList(), fetchAgentPrefs()]).then(([{ agents: list, workdir: wd, sandboxUnavailable: su, jobEnable: je }, prefsMap]) => {
       setSandboxUnavailable(su);
       setJobEnable(je);
+      setAgentPrefs(prefsMap);
 
       // When a workspace is active, stick with its workdir (even if it hasn't
       // been hydrated yet — the server fills it from the workspace record on
@@ -728,20 +731,15 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
         if (idx < 0) idx = su ? list.findIndex((a) => a.type !== 'eino') : 0;
         if (idx < 0) idx = 0;
 
-        // Apply workspace-level default model to the picked agent when it's in
-        // its available list. Does not persist — per-agent model choice is
-        // reset each mount by design.
-        // If no workspace pref is set, auto-select opus if available.
+        // Resolve the picked agent's starting model/mode/thought_level via the
+        // shared resolver: workspace default model > per-agent default >
+        // first available. Per-agent defaults replace the old opus auto-pick;
+        // a stale saved default falls back to the first entry. Does not persist
+        // — per-agent choice is reset each mount by design.
         const nextList = list.map((a, i) => {
-          if (i !== idx || !a.models?.availableModels) return a;
-          if (prefs.defaultModel) {
-            const inList = a.models.availableModels.some((m) => m.modelId === prefs.defaultModel);
-            if (inList) return { ...a, models: { ...a.models, currentModelId: prefs.defaultModel } };
-          }
-          // Auto-prefer opus when no explicit preference is set
-          const opusModel = a.models.availableModels.find((m) => m.modelId.toLowerCase().includes('opus'));
-          if (opusModel) return { ...a, models: { ...a.models, currentModelId: opusModel.modelId } };
-          return a;
+          if (i !== idx) return a;
+          const resolved = resolveAgentDefaults(a, prefsMap[a.type], { workspaceDefaultModel: prefs.defaultModel });
+          return applyDefaultsToAgent(a, resolved);
         });
         setAgents(nextList);
         setSelectedIndex(idx);
@@ -837,6 +835,20 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
 
   const selectedAgent = agents[selectedIndex] ?? null;
   const isSelectedEinoDisabled = sandboxUnavailable && selectedAgent?.type === 'eino';
+
+  // Switch to an agent and apply its per-agent defaults (model/mode/thought).
+  // Manual switch uses per-agent defaults only (no workspace-model override) so
+  // the user's explicit agent choice drives the model; stale defaults fall back
+  // to the first available entry via resolveAgentDefaults. Plain function: only
+  // called from inline .map() onClicks, never passed to a memoized child.
+  const selectAgentAt = (idx: number) => {
+    setSelectedIndex(idx);
+    setAgents((prev) => prev.map((a, i) => {
+      if (i !== idx) return a;
+      return applyDefaultsToAgent(a, resolveAgentDefaults(a, agentPrefs[a.type]));
+    }));
+  };
+
 
   // modelId -> human-readable name map; rebuilt only when agents change.
   const modelLabelMap = useMemo(() => {
@@ -1191,6 +1203,50 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
       setWebRestarting(false);
       window.alert(t('system.restartWebFailed', { message: err instanceof Error ? err.message : String(err) }));
     }
+  };
+
+  // Home composer model dropdown: split into pinned favorites + the rest when
+  // the selected agent has favorites configured. renderHomeModelItem keeps a
+  // single source of truth across the favorites/rest groups and mobile/desktop.
+  // Defined just before render so it can reference handleSelectModel et al.
+  const renderHomeModelItem = (m: { modelId: string; name: string; description?: string }) => {
+    const cur = selectedAgent?.models?.currentModelId;
+    return (
+      <div
+        key={m.modelId}
+        className={`model-dropdown-item ${m.modelId === cur ? 'active' : ''}`}
+        onClick={() => {
+          handleSelectModel(m.modelId);
+          setShowModelDropdown(false);
+        }}
+      >
+        <div className="model-dropdown-info">
+          <span className="model-dropdown-name">{m.name}</span>
+          {m.description && <span className="model-dropdown-provider">{m.description}</span>}
+        </div>
+        {m.modelId === cur && (
+          <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+        )}
+      </div>
+    );
+  };
+
+  const renderHomeModelItems = () => {
+    const all = selectedAgent?.models?.availableModels ?? [];
+    const { favorites, rest } = splitFavoriteModels(all, agentPrefs[selectedAgent?.type ?? '']?.favorite_model_ids);
+    if (favorites.length === 0) {
+      return all.map(renderHomeModelItem);
+    }
+    return (
+      <>
+        <div className="model-dropdown-group-label">{t('chat.favoriteModels')}</div>
+        {favorites.map(renderHomeModelItem)}
+        {rest.length > 0 && <div className="model-dropdown-group-label">{t('chat.otherModels')}</div>}
+        {rest.map(renderHomeModelItem)}
+      </>
+    );
   };
 
   return (
@@ -1658,7 +1714,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                             className={`model-dropdown-item ${idx === selectedIndex ? 'active' : ''} ${isEinoDisabled ? 'disabled' : ''}`}
                             onClick={() => {
                               if (isEinoDisabled) return;
-                              setSelectedIndex(idx);
+                              selectAgentAt(idx);
                               localStorage.setItem('last_agent_type', agent.type);
                               setShowDropdown(false);
                             }}
@@ -1700,7 +1756,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                         className={`model-dropdown-item ${idx === selectedIndex ? 'active' : ''} ${isEinoDisabled ? 'disabled' : ''}`}
                         onClick={() => {
                           if (isEinoDisabled) return;
-                          setSelectedIndex(idx);
+                          selectAgentAt(idx);
                           localStorage.setItem('last_agent_type', agent.type);
                           setShowDropdown(false);
                         }}
@@ -1745,51 +1801,13 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                     isMobile ? createPortal(
                       <div className="mobile-dropdown-overlay" onClick={() => setShowModelDropdown(false)}>
                         <div className="mobile-dropdown-sheet" onClick={e => e.stopPropagation()}>
-                          {selectedAgent.models.availableModels.map((m) => (
-                            <div
-                              key={m.modelId}
-                              className={`model-dropdown-item ${m.modelId === selectedAgent.models!.currentModelId ? 'active' : ''}`}
-                              onClick={() => {
-                                handleSelectModel(m.modelId);
-                                setShowModelDropdown(false);
-                              }}
-                            >
-                              <div className="model-dropdown-info">
-                                <span className="model-dropdown-name">{m.name}</span>
-                                {m.description && <span className="model-dropdown-provider">{m.description}</span>}
-                              </div>
-                              {m.modelId === selectedAgent.models!.currentModelId && (
-                                <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M20 6L9 17l-5-5" />
-                                </svg>
-                              )}
-                            </div>
-                          ))}
+                          {renderHomeModelItems()}
                         </div>
                       </div>,
                       document.body
                     ) : (
                     <div className="model-dropdown">
-                      {selectedAgent.models.availableModels.map((m) => (
-                        <div
-                          key={m.modelId}
-                          className={`model-dropdown-item ${m.modelId === selectedAgent.models!.currentModelId ? 'active' : ''}`}
-                          onClick={() => {
-                            handleSelectModel(m.modelId);
-                            setShowModelDropdown(false);
-                          }}
-                        >
-                          <div className="model-dropdown-info">
-                            <span className="model-dropdown-name">{m.name}</span>
-                            {m.description && <span className="model-dropdown-provider">{m.description}</span>}
-                          </div>
-                          {m.modelId === selectedAgent.models!.currentModelId && (
-                            <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M20 6L9 17l-5-5" />
-                            </svg>
-                          )}
-                        </div>
-                      ))}
+                      {renderHomeModelItems()}
                     </div>
                     )
                   )}

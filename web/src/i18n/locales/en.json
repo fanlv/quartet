@@ -61,6 +61,8 @@
   },
   "chat": {
     "placeholder": "What can I help you?",
+    "favoriteModels": "Favorites",
+    "otherModels": "Others",
     "cancelQueue": "Cancel queue",
     "uploadImage": "Upload image",
     "stopGeneration": "Stop generation",
@@ -388,6 +390,7 @@
       "prompt": "Prompts",
       "skill": "Skills",
       "acp": "ACP",
+      "agentDefaults": "Agent Defaults",
       "lark": "Lark",
       "wechat": "WeChat",
       "logs": "Logs"
@@ -577,6 +580,18 @@
       "addEnvVar": "+ Add Environment Variable",
       "activeTooltip": "Enabled",
       "inactiveTooltip": "Disabled"
+    },
+    "agentDefaults": {
+      "sectionTitle": "Agent Defaults & Favorites",
+      "sectionDesc": "Configure favorite models and the default model, mode, and thought level for each ACP Agent. Favorite models are pinned to the top of the model list; defaults are applied first when starting a new conversation or switching to this Agent, falling back to the first available entry if a saved default is no longer in the list.",
+      "noAgents": "No ACP Agents detected. Please ensure the relevant Agent CLI tools are installed.",
+      "noModels": "This Agent does not expose a selectable model list.",
+      "favoritesLabel": "Favorite Models",
+      "favoritesDesc": "Pick models to favorite from the dropdown. Favorites are pinned to the top of the model dropdown.",
+      "addFavoritePlaceholder": "Select a model to favorite…",
+      "defaultModelLabel": "Default Model",
+      "defaultModeLabel": "Default Mode",
+      "defaultThoughtLevelLabel": "Default Thought Level"
     },
     "lark": {
       "sectionTitle": "Lark Bot Configuration",

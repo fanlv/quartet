@@ -6,6 +6,7 @@ import { ModelSettings } from './ModelSettings';
 import { PromptSettings } from './PromptSettings';
 import { SkillSettings } from './SkillSettings';
 import { ACPSettings } from './ACPSettings';
+import { AgentDefaultsSettings } from './AgentDefaultsSettings';
 import { LarkSettings } from './LarkSettings';
 import { WeChatSettings } from './WeChatSettings';
 import { WorkspacesSettings } from './WorkspacesSettings';
@@ -13,7 +14,7 @@ import { LogsSettings } from './LogsSettings';
 import './Settings.css';
 import './WeChatSettings.css';
 
-type SettingsTab = 'general' | 'workspace' | 'token' | 'model' | 'prompt' | 'skill' | 'acp' | 'lark' | 'wechat' | 'logs';
+type SettingsTab = 'general' | 'workspace' | 'token' | 'model' | 'prompt' | 'skill' | 'acp' | 'agentDefaults' | 'lark' | 'wechat' | 'logs';
 
 interface SettingsProps {
   onClose: () => void;
@@ -28,6 +29,7 @@ const tabDefs: { key: SettingsTab; labelKey: string; icon: string }[] = [
   { key: 'prompt', labelKey: 'settings.tabs.prompt', icon: '📝' },
   { key: 'skill', labelKey: 'settings.tabs.skill', icon: '🧩' },
   { key: 'acp', labelKey: 'settings.tabs.acp', icon: '🔌' },
+  { key: 'agentDefaults', labelKey: 'settings.tabs.agentDefaults', icon: '⭐' },
   { key: 'lark', labelKey: 'settings.tabs.lark', icon: '💬' },
   { key: 'wechat', labelKey: 'settings.tabs.wechat', icon: '💚' },
   { key: 'logs', labelKey: 'settings.tabs.logs', icon: '📋' },
@@ -121,6 +123,8 @@ export function Settings({ onClose, onSettingsChanged }: SettingsProps) {
         return <SkillSettings />;
       case 'acp':
         return <ACPSettings />;
+      case 'agentDefaults':
+        return <AgentDefaultsSettings />;
       case 'lark':
         return <LarkSettings />;
       case 'wechat':

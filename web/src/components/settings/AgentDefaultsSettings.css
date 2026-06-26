@@ -1,0 +1,55 @@
+.agent-fav-select {
+  margin-top: 8px;
+}
+
+.agent-fav-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.agent-fav-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 16px;
+  background: #fff8e6;
+  border: 1px solid #ffe2a8;
+  font-size: 13px;
+  color: #333;
+  user-select: none;
+}
+
+.agent-fav-star {
+  color: #f5a623;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.agent-fav-chip-name {
+  white-space: nowrap;
+}
+
+.agent-fav-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #b58a2e;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.agent-fav-chip-remove:hover {
+  background: #f5a623;
+  color: #fff;
+}

@@ -61,6 +61,8 @@
   },
   "chat": {
     "placeholder": "有什么可以帮你的？",
+    "favoriteModels": "收藏",
+    "otherModels": "其他",
     "cancelQueue": "取消排队",
     "uploadImage": "上传图片",
     "stopGeneration": "停止生成",
@@ -380,6 +382,7 @@
       "prompt": "Prompt 设置",
       "skill": "技能管理",
       "acp": "ACP 配置",
+      "agentDefaults": "Agent 默认",
       "lark": "Lark 配置",
       "wechat": "微信配置",
       "logs": "日志"
@@ -569,6 +572,18 @@
       "addEnvVar": "+ 添加环境变量",
       "activeTooltip": "已启用",
       "inactiveTooltip": "已禁用"
+    },
+    "agentDefaults": {
+      "sectionTitle": "Agent 默认与收藏",
+      "sectionDesc": "为每个 ACP Agent 配置收藏的模型和默认的模型、模式、思考级别。收藏的模型会在模型列表中置顶显示；新建对话或切换到该 Agent 时优先使用默认项，若默认项已不在可用列表中则回退到列表第一个。",
+      "noAgents": "未检测到可用的 ACP Agent，请确认已安装相关 Agent 命令行工具。",
+      "noModels": "该 Agent 未提供可选模型列表。",
+      "favoritesLabel": "收藏的模型",
+      "favoritesDesc": "从下拉列表中选择要收藏的模型，收藏的模型会在模型下拉列表中置顶显示。",
+      "addFavoritePlaceholder": "选择要收藏的模型…",
+      "defaultModelLabel": "默认模型",
+      "defaultModeLabel": "默认模式",
+      "defaultThoughtLevelLabel": "默认思考级别"
     },
     "lark": {
       "sectionTitle": "Lark 机器人配置",

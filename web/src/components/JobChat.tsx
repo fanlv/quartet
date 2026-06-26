@@ -18,6 +18,7 @@ import { useConnectionStatus } from '../contexts/ConnectionStatus';
 import { ServerClockProvider } from '../contexts/ServerClock';
 import { VirtualList } from './VirtualList';
 import { registerWorkspaceColors } from '../utils/workspace';
+import { fetchAgentPrefs, type AgentPrefsMap } from '../utils/agentPrefs';
 import './JobChat.css';
 
 // Must match the backend limit in cmd/web/handler/job.go (jobTitleMaxLen).
@@ -180,6 +181,7 @@ export function JobChat(props: JobChatProps) {
   } = useJobChat({ existingJobId, initialSessionId, shareToken, onJobNotFound });
 
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [agentPrefs, setAgentPrefs] = useState<AgentPrefsMap>({});
   const [workdir, setWorkdir] = useState(initialWorkdir || '');
   const [selectedAgentIndex, setSelectedAgentIndex] = useState<number>(0);
   const [hasUserSelected, setHasUserSelected] = useState(false);
@@ -320,6 +322,14 @@ export function JobChat(props: JobChatProps) {
         }
       })
       .catch(() => {});
+  }, [isReadonly]);
+
+  // Per-agent favorites for the model dropdown grouping. Skip in readonly/
+  // shared views (no settings access). Defaults are not applied here — they
+  // were resolved on ChatPage before this Job existed.
+  useEffect(() => {
+    if (isReadonly) return;
+    fetchAgentPrefs().then(setAgentPrefs).catch(() => {});
   }, [isReadonly]);
 
   useEffect(() => {
@@ -1299,6 +1309,7 @@ export function JobChat(props: JobChatProps) {
             onSelectModel={selectedAgent?.models ? handleSelectModel : undefined}
             onSelectMode={selectedAgent?.modes ? handleSelectMode : undefined}
             onSelectThoughtLevel={selectedAgent?.thoughtLevels ? handleSelectThoughtLevel : undefined}
+            favoriteModelIds={selectedAgent ? agentPrefs[selectedAgent.type]?.favorite_model_ids : undefined}
             overrideModelId={hasUserSelected ? undefined : sessionModelId}
             overrideModeId={sessionACPMode}
             overrideThoughtLevelId={sessionACPThoughtLevel}

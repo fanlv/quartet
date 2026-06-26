@@ -11,6 +11,7 @@ import { workspaceColor } from '../utils/workspace';
 import { ALL_COMMAND_NAMES } from '../utils/commands';
 import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl } from '../utils/url';
+import { splitFavoriteModels } from '../utils/agentPrefs';
 import { DurationBadge } from './DurationBadge';
 import './ChatInput.css';
 
@@ -147,6 +148,10 @@ interface ChatInputProps {
   onSelectModel?: (modelId: string) => void;
   onSelectMode?: (modeId: string) => void;
   onSelectThoughtLevel?: (thoughtLevelId: string) => void;
+  /** Favorite model ids for the currently selected agent. When non-empty the
+   *  model dropdown renders a pinned "favorites" group on top, then the rest.
+   *  Undefined/empty → flat list (preserves shared/readonly behaviour). */
+  favoriteModelIds?: string[];
   /** Override model ID display (per-session, takes priority over agent.models.currentModelId) */
   overrideModelId?: string | null;
   /** Override mode ID display (per-session, takes priority over agent.modes.currentModeId) */
@@ -216,6 +221,7 @@ export function ChatInput({
   onSelectModel,
   onSelectMode,
   onSelectThoughtLevel,
+  favoriteModelIds,
   overrideModelId,
   overrideModeId,
   overrideThoughtLevelId,
@@ -666,6 +672,47 @@ export function ChatInput({
     ? ({ '--tablet-bottom-gap': `${tabletBottomGap}px` } as CSSProperties)
     : undefined;
 
+  // Model dropdown content: when favorites are configured for this agent the
+  // list is split into a pinned group + the rest, with a small group label
+  // between. renderModelItem keeps a single source of truth for item markup
+  // across the favorites/rest groups and the mobile/desktop variants.
+  const renderModelItem = (m: { modelId: string; name: string; description?: string }) => (
+    <div
+      key={m.modelId}
+      className={`model-dropdown-item ${m.modelId === effectiveModelId ? 'active' : ''}`}
+      onClick={() => {
+        onSelectModel?.(m.modelId);
+        setShowModelDropdown(false);
+      }}
+    >
+      <div className="model-dropdown-info">
+        <span className="model-dropdown-name">{m.name}</span>
+        {m.description && <span className="model-dropdown-provider">{m.description}</span>}
+      </div>
+      {m.modelId === effectiveModelId && (
+        <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M20 6L9 17l-5-5" />
+        </svg>
+      )}
+    </div>
+  );
+
+  const renderModelDropdownItems = () => {
+    const all = selectedAgent?.models?.availableModels ?? [];
+    const { favorites, rest } = splitFavoriteModels(all, favoriteModelIds);
+    if (favorites.length === 0) {
+      return all.map(renderModelItem);
+    }
+    return (
+      <>
+        <div className="model-dropdown-group-label">{t('chat.favoriteModels')}</div>
+        {favorites.map(renderModelItem)}
+        {rest.length > 0 && <div className="model-dropdown-group-label">{t('chat.otherModels')}</div>}
+        {rest.map(renderModelItem)}
+      </>
+    );
+  };
+
   return (
     <div className="chat-input-container" style={containerStyle} data-testid="chat-input-container" data-loading={isLoading ? 'true' : 'false'} data-readonly={readOnly ? 'true' : 'false'}>
       <div className="chat-input-wrapper" style={{ position: 'relative' }}>
@@ -889,51 +936,13 @@ export function ChatInput({
                   isMobile ? createPortal(
                     <div className="mobile-dropdown-overlay" onClick={() => setShowModelDropdown(false)}>
                       <div className="mobile-dropdown-sheet" onClick={e => e.stopPropagation()}>
-                        {selectedAgent.models.availableModels.map((m) => (
-                          <div
-                            key={m.modelId}
-                            className={`model-dropdown-item ${m.modelId === effectiveModelId ? 'active' : ''}`}
-                            onClick={() => {
-                              onSelectModel(m.modelId);
-                              setShowModelDropdown(false);
-                            }}
-                          >
-                            <div className="model-dropdown-info">
-                              <span className="model-dropdown-name">{m.name}</span>
-                              {m.description && <span className="model-dropdown-provider">{m.description}</span>}
-                            </div>
-                            {m.modelId === effectiveModelId && (
-                              <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M20 6L9 17l-5-5" />
-                              </svg>
-                            )}
-                          </div>
-                        ))}
+                        {renderModelDropdownItems()}
                       </div>
                     </div>,
                     document.body
                   ) : (
                   <div className="model-dropdown">
-                    {selectedAgent.models.availableModels.map((m) => (
-                      <div
-                        key={m.modelId}
-                        className={`model-dropdown-item ${m.modelId === effectiveModelId ? 'active' : ''}`}
-                        onClick={() => {
-                          onSelectModel(m.modelId);
-                          setShowModelDropdown(false);
-                        }}
-                      >
-                        <div className="model-dropdown-info">
-                          <span className="model-dropdown-name">{m.name}</span>
-                          {m.description && <span className="model-dropdown-provider">{m.description}</span>}
-                        </div>
-                        {m.modelId === effectiveModelId && (
-                          <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M20 6L9 17l-5-5" />
-                          </svg>
-                        )}
-                      </div>
-                    ))}
+                    {renderModelDropdownItems()}
                   </div>
                   )
                 )}
