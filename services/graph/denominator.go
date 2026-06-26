@@ -18,49 +18,52 @@ import "github.com/fanlv/quartet/types/model"
 // progress bar at 100% on natural completion (completed == total) and counts
 // the skipped instances only in their own SkippedCount.
 
-// denomAdjust adds delta (negative to reclaim) to the progress denominator,
+// adjustDenomTotal adds delta (negative to reclaim) to a progress denominator,
 // clamping so it never drops below the count of instances that will still be
 // reflected in the denominator once resolved. Skipped instances are excluded
 // from the floor because they are themselves reclaimed out of the denominator.
-func (sc *scheduler) denomAdjust(delta int) {
-	if delta == 0 || sc.run.Progress == nil {
+// Shared by the live scheduler (denomAdjust) and the static version-edit path
+// (a mid-run FixedCount change adjusts the denominator off the scheduler too).
+func adjustDenomTotal(p *model.GraphProgress, delta int) {
+	if delta == 0 || p == nil {
 		return
 	}
-	resolved := sc.run.Progress.CompletedCount + sc.run.Progress.FailedCount +
-		sc.run.Progress.InterruptedCount
-	total := sc.run.Progress.TotalCount + delta
-	if total < resolved {
-		total = resolved
-	}
-	sc.run.Progress.TotalCount = total
+	resolved := p.CompletedCount + p.FailedCount + p.InterruptedCount
+	p.TotalCount = max(p.TotalCount+delta, resolved)
+}
+
+// denomAdjust applies adjustDenomTotal to the live run's progress.
+func (sc *scheduler) denomAdjust(delta int) {
+	adjustDenomTotal(sc.run.Progress, delta)
 }
 
 // loopSubgraphBusinessCount returns how many business instances one round of the
 // given loop container's subgraph contributes — counting a node once times the
 // product of the max-round bounds of any nested loops between it and this
 // container (so a nested loop's body is counted at its own static bound).
-func (sc *scheduler) loopSubgraphBusinessCount(containerID string) int {
+// nodesByID maps node ID to node for the config the count is computed against.
+func loopSubgraphBusinessCount(nodesByID map[string]model.GraphNode, rc model.GraphRunConfig, containerID string) int {
 	total := 0
-	for _, n := range sc.cfg.Nodes {
+	for _, n := range nodesByID {
 		if !isBusiness(n.Type) {
 			continue
 		}
-		if !sc.isDescendantOf(n, containerID) {
+		if !isDescendantOf(nodesByID, n, containerID) {
 			continue
 		}
-		total += sc.instancesPerRound(n, containerID)
+		total += instancesPerRound(nodesByID, rc, n, containerID)
 	}
 	return total
 }
 
 // isDescendantOf reports whether node n is inside the container (its ParentID
 // chain reaches containerID).
-func (sc *scheduler) isDescendantOf(n model.GraphNode, containerID string) bool {
+func isDescendantOf(nodesByID map[string]model.GraphNode, n model.GraphNode, containerID string) bool {
 	for pid := n.ParentID; pid != ""; {
 		if pid == containerID {
 			return true
 		}
-		parent, ok := sc.nodesByID[pid]
+		parent, ok := nodesByID[pid]
 		if !ok {
 			return false
 		}
@@ -72,15 +75,21 @@ func (sc *scheduler) isDescendantOf(n model.GraphNode, containerID string) bool 
 // instancesPerRound returns how many instances of node n exist per single round
 // of the given container: the product of max-round bounds of every loop ancestor
 // strictly between n and the container (exclusive of the container itself).
-func (sc *scheduler) instancesPerRound(n model.GraphNode, containerID string) int {
+func instancesPerRound(nodesByID map[string]model.GraphNode, rc model.GraphRunConfig, n model.GraphNode, containerID string) int {
 	prod := 1
 	for pid := n.ParentID; pid != "" && pid != containerID; {
-		loop, ok := sc.nodesByID[pid]
+		loop, ok := nodesByID[pid]
 		if !ok {
 			break
 		}
-		prod *= loopMaxRounds(sc.cfg.RunConfig, loop)
+		prod *= loopMaxRounds(rc, loop)
 		pid = loop.ParentID
 	}
 	return prod
+}
+
+// loopSubgraphBusinessCount is the scheduler-bound thin wrapper over the free
+// function, using the scheduler's indexed nodes and run config.
+func (sc *scheduler) loopSubgraphBusinessCount(containerID string) int {
+	return loopSubgraphBusinessCount(sc.nodesByID, sc.cfg.RunConfig, containerID)
 }

@@ -1157,13 +1157,14 @@
       "loopFixed": "Fixed count",
       "loopUntil": "Until condition",
       "untilCondition": "Stop condition (do-while, evaluated at end of round)",
-      "fixedCount": "Fixed count (≥ 0, 0 = skip sub-graph)",
+      "fixedCount": "Fixed count (≥ 0, 0 = skip sub-graph; editable mid-run, applies next round)",
       "maxIterations": "Max iterations fallback (default 100, max 1000)",
       "loopBodyHint": "Drag other nodes into the dashed box to add them to the loop body.",
       "controlNodeDesc": "Control nodes are only used for the workflow entry / exit and cannot configure business actions or output variables.",
       "duplicateNode": "Duplicate node",
       "deleteNode": "Delete node",
-      "frozenBanner": "This node has already started / finished in this run, so its execution config cannot be changed. Nodes inside loop bodies are exempt and apply changes on the next round."
+      "frozenBanner": "This node has already started / finished in this run, so its execution config cannot be changed. Nodes inside loop bodies are exempt and apply changes on the next round.",
+      "frozenBannerLoop": "This loop has already started in this run, so its mode / until condition / max iterations cannot be changed. The fixed count is editable and applies on the next round."
     },
     "kinds": {
       "startLabel": "Start",

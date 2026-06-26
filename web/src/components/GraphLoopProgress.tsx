@@ -82,6 +82,12 @@ interface GraphLoopProgressProps {
   jobId: string | null;
   runId: string | null;
   readOnly?: boolean;
+  // Present only in public share mode. When set, the read-only run status /
+  // events are fetched from /api/v1/public/* with this token instead of the
+  // auth-gated /api/v1/* routes, so a shared graph job can surface its node
+  // sessions. Action/version routes are never reachable here (all gated by
+  // !readOnly), so they keep using the auth-only path.
+  shareToken?: string;
   // Agent list for the inline inspector's Agent/model selectors.
   agents?: AgentInfo[];
   // When true the "Edit" button enters in-place run-version editing on this same
@@ -169,7 +175,7 @@ function statusLabel(t: TFunction, status?: GraphRunStatus): string {
   }
 }
 
-export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit }: GraphLoopProgressProps) {
+export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents = [], canEdit }: GraphLoopProgressProps) {
   const { t } = useTranslation();
   const [run, setRun] = useState<GraphRun | null>(null);
   const [progress, setProgress] = useState<GraphProgress | null>(null);
@@ -208,6 +214,22 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
   const canResume = !readOnly && !!run?.status && RESUMABLE_STATUSES.has(run.status);
   const canEditRun = !!canEdit && !readOnly && !!run?.status && EDITABLE_STATUSES.has(run.status);
 
+  // Build the run status / events URL. In public share mode the auth-gated
+  // /api/v1/* routes 403, so read-only fetches go to /api/v1/public/* with the
+  // shareToken + jobId query params the share-token middleware validates. Only
+  // used for the GET status fetch and the events SSE; mutating actions stay on
+  // /api/v1/* because they are gated behind !readOnly and never fire here.
+  const runApiUrl = useCallback((suffix: string) => {
+    const id = encodeURIComponent(jobId || '');
+    if (shareToken) {
+      const url = new URL(`/api/v1/public/job/${id}/graph-run${suffix}`, window.location.origin);
+      url.searchParams.set('shareToken', shareToken);
+      if (jobId) url.searchParams.set('jobId', jobId);
+      return url.pathname + url.search;
+    }
+    return `/api/v1/job/${id}/graph-run${suffix}`;
+  }, [jobId, shareToken]);
+
   const toggleExpanded = useCallback(() => {
     setExpanded((v) => !v);
   }, []);
@@ -230,7 +252,7 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run`);
+      const res = await fetch(runApiUrl(''));
       if (!res.ok) throw new Error(await readGraphError(res, `GET /job/${jobId}/graph-run`));
       const data = await res.json() as GraphRunStatusResponse;
       setRun(data.run || null);
@@ -243,7 +265,7 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
     } finally {
       setLoading(false);
     }
-  }, [jobId]);
+  }, [jobId, runApiUrl]);
 
   useEffect(() => {
     void refresh();
@@ -270,7 +292,7 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
       void refresh();
     };
     void client.connectUntilReady({
-      url: `/api/v1/job/${encodeURIComponent(jobId)}/graph-run/events`,
+      url: runApiUrl('/events'),
       // Resume from the buffer tail. The server's Last-Event-ID is now an
       // in-memory buffer seq (not a file line count), so seeding it from a
       // client-side counter is meaningless; the SSE client overwrites this with
@@ -310,7 +332,7 @@ export function GraphLoopProgress({ jobId, runId, readOnly, agents = [], canEdit
       client.disconnect();
       if (sseRef.current === client) sseRef.current = null;
     };
-  }, [isLive, refresh, jobId]);
+  }, [isLive, refresh, jobId, runApiUrl]);
 
   const doAction = useCallback(async (action: 'pause' | 'step-stop' | 'cancel-stop' | 'stop' | 'resume') => {
     if (!jobId) return;

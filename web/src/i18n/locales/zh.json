@@ -1147,13 +1147,14 @@
       "loopFixed": "固定次数",
       "loopUntil": "直到条件",
       "untilCondition": "终止条件 (do-while, 轮末求值)",
-      "fixedCount": "固定次数 (≥ 0, 0 跳过子图)",
+      "fixedCount": "固定次数 (≥ 0, 0 跳过子图;运行中可改, 下一轮生效)",
       "maxIterations": "最大次数兜底 (默认 100, 最大 1000)",
       "loopBodyHint": "把其他结点拖入虚线框即可加入循环体。",
       "controlNodeDesc": "控制结点只用于工作流的入口 / 终点，不可配置业务动作或输出变量。",
       "duplicateNode": "复制结点",
       "deleteNode": "删除结点",
-      "frozenBanner": "该结点已在本次运行中开始 / 完成，执行配置不可修改；循环体内结点除外，修改会在下一轮生效。"
+      "frozenBanner": "该结点已在本次运行中开始 / 完成，执行配置不可修改；循环体内结点除外，修改会在下一轮生效。",
+      "frozenBannerLoop": "该循环已在本次运行中开始，循环方式 / 直到条件 / 最大次数不可修改；「固定次数」可改，会在下一轮生效。"
     },
     "kinds": {
       "startLabel": "开始",

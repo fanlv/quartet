@@ -1160,6 +1160,7 @@ export function JobChat(props: JobChatProps) {
           jobId={existingJobId}
           runId={graphRunId}
           readOnly={isReadonly}
+          shareToken={shareToken}
           agents={agents}
           canEdit={!isReadonly}
         />

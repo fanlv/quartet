@@ -681,13 +681,18 @@ export function GraphInspector({
 
         {frozen && (
           <div className="gi-frozen-banner" data-testid="gi-frozen-banner">
-            {t('graph.inspector.frozenBanner')}
+            {t(node.type === 'loop' ? 'graph.inspector.frozenBannerLoop' : 'graph.inspector.frozenBanner')}
           </div>
         )}
 
         {TitleField}
 
-        <fieldset className="gi-fieldset" disabled={frozen}>
+        {/* A frozen loop container keeps most fields locked, but its FixedCount is
+            evaluated at each round boundary so it stays editable mid-run (backend
+            allows the FixedCount-only edit). Disabling the whole fieldset would
+            disable that input too (a disabled <fieldset> disables all descendants),
+            so loop nodes opt out of the blanket freeze and re-apply it per field. */}
+        <fieldset className="gi-fieldset" disabled={frozen && node.type !== 'loop'}>
 
       {node.type === 'shell' && (
         <>
@@ -771,7 +776,7 @@ export function GraphInspector({
               <button
                 type="button"
                 className={cfg.loopMode !== 'until' ? 'active' : ''}
-                disabled={readOnly}
+                disabled={readOnly || frozen}
                 onClick={() => setCfg({ loopMode: 'fixed' as GraphLoopMode, maxIterations: undefined })}
               >
                 {t('graph.inspector.loopFixed')}
@@ -779,7 +784,7 @@ export function GraphInspector({
               <button
                 type="button"
                 className={cfg.loopMode === 'until' ? 'active' : ''}
-                disabled={readOnly}
+                disabled={readOnly || frozen}
                 onClick={() => setCfg({ loopMode: 'until' as GraphLoopMode })}
               >
                 {t('graph.inspector.loopUntil')}
@@ -795,7 +800,7 @@ export function GraphInspector({
                   fieldId={`until-${node.id}`}
                   value={cfg.untilCondition || ''}
                   availableVars={conditionVars}
-                  readOnly={readOnly}
+                  readOnly={readOnly || frozen}
                   onChange={(next) => setCfg({ untilCondition: next })}
                   t={t}
                 />
@@ -810,7 +815,7 @@ export function GraphInspector({
                   step={1}
                   value={cfg.maxIterations ?? ''}
                   placeholder="100"
-                  disabled={readOnly}
+                  disabled={readOnly || frozen}
                   onChange={(e) => updateInteger(e.target.value, (value) => setCfg({ maxIterations: value }))}
                 />
               </div>
@@ -837,7 +842,10 @@ export function GraphInspector({
         <div className="gi-desc">{t('graph.inspector.controlNodeDesc')}</div>
       )}
 
-      {!readOnly && !lockStructure && (canDeleteNode ? canDeleteNode(node) : node.type !== 'start' && node.type !== 'end') && (
+      {/* Loop containers leave the freeze fieldset (so FixedCount stays editable),
+          so re-apply the freeze to their delete/duplicate actions here. Other
+          frozen node types are still covered by the disabled fieldset above. */}
+      {!readOnly && !lockStructure && !(frozen && node.type === 'loop') && (canDeleteNode ? canDeleteNode(node) : node.type !== 'start' && node.type !== 'end') && (
         <div className="gi-node-actions">
           {onDuplicateNode && (
             <button className="gi-dup-btn" onClick={() => onDuplicateNode(node.id)}>

@@ -87,8 +87,9 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	tmpl.DELETE("/:templateId", h.DeleteTemplate)
 
 	// Graph workflow config routes (config management only; runtime execution
-	// is owned by a separate module). Graph deliberately does not expose
-	// /api/v1/public/* — public sharing is not covered for Graph jobs.
+	// is owned by a separate module). These config routes stay auth-only; the
+	// read-only run status/events for a *shared* graph job are exposed under
+	// /api/v1/public/* further below (see the pub group).
 	graph := api.Group("/graph")
 	graph.POST("/workflow", h.CreateGraphWorkflow)
 	graph.GET("/workflow/list", h.ListGraphWorkflows)
@@ -161,6 +162,13 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	pub.GET("/job/:jobId/events", h.JobEvents)
 	pub.GET("/sessions/:sessionId/messages", h.PublicGetSessionMessages)
 	pub.GET("/serve-file", h.PublicServeFile)
+	// Graph jobs store their per-node sessions under GraphSessionIDs, not
+	// SessionIDs. The shared chat view derives the session sidebar from the
+	// run's instances, so a shared graph job needs these two read-only run
+	// endpoints to surface any sessions at all. Only the GET status + GET
+	// events stream are exposed; every action/version route stays auth-only.
+	pub.GET("/job/:jobId/graph-run", h.GetJobGraphRunStatus)
+	pub.GET("/job/:jobId/graph-run/events", h.JobGraphRunEvents)
 }
 
 func healthHandler(ctx context.Context, c *app.RequestContext) {

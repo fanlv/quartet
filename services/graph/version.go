@@ -66,7 +66,54 @@ func (s *serviceImpl) UpdateRunVersion(ctx context.Context, runID string, req *m
 		return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotEditable, run.Status)
 	}
 
-	return s.appendRunVersion(ctx, run, req, src, nil)
+	oldCfg := effectiveConfig(run)
+	updated, err := s.appendRunVersion(ctx, run, req, src, nil)
+	if err != nil {
+		return nil, err
+	}
+	// A mid-run FixedCount change on a stopped/paused run takes effect when the
+	// scheduler rebuilds the loop scope on resume (rebuildLoopScopes re-sources
+	// the node from the new config), but the persisted progress denominator was
+	// seeded with the old count. Correct it here so the bar stays accurate; the
+	// live (in-flight) path does the same inside applyVersionUpdate.
+	if err := s.adjustStaticLoopDenominator(ctx, updated, oldCfg); err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// adjustStaticLoopDenominator corrects the persisted progress denominator after
+// a static-path version edit changed a still-running loop container's FixedCount.
+// It mirrors the live scheduler's per-loop reclaim: for each active loop recorded
+// in Resume.LoopState whose FixedCount differs, it shifts TotalCount by the
+// change in not-yet-run rounds × the loop subgraph's per-round business count.
+func (s *serviceImpl) adjustStaticLoopDenominator(ctx context.Context, run *model.GraphRun, oldCfg model.GraphConfig) error {
+	if run.Progress == nil || run.Resume == nil || len(run.Resume.LoopState) == 0 {
+		return nil
+	}
+	newCfg := effectiveConfig(run)
+	oldNodes := nodesByID(oldCfg)
+	newNodes := nodesByID(newCfg)
+	delta := 0
+	for _, ls := range run.Resume.LoopState {
+		on, ok := oldNodes[ls.LoopNodeID]
+		if !ok {
+			continue
+		}
+		nn, ok := newNodes[ls.LoopNodeID]
+		if !ok || on.Config.FixedCount == nn.Config.FixedCount {
+			continue
+		}
+		roundsRun := ls.CurrentIteration + 1
+		oldRemaining := max(0, loopMaxRounds(oldCfg.RunConfig, on)-roundsRun)
+		newRemaining := max(0, loopMaxRounds(newCfg.RunConfig, nn)-roundsRun)
+		delta += (newRemaining - oldRemaining) * loopSubgraphBusinessCount(newNodes, newCfg.RunConfig, ls.LoopNodeID)
+	}
+	if delta == 0 {
+		return nil
+	}
+	adjustDenomTotal(run.Progress, delta)
+	return s.runRepo.SaveRun(ctx, run)
 }
 
 func isStaticEditableStatus(st model.GraphRunStatus) bool {
@@ -230,6 +277,26 @@ func intPtrEqual(a, b *int) bool {
 	return *a == *b
 }
 
+// loopFixedCountOnlyEdit reports whether the only execution-config difference
+// between old and new is the loop FixedCount. It aligns new's FixedCount onto
+// old and checks the rest is identical via executionConfigEqual, so any change
+// to another field (LoopMode / UntilCondition / MaxIterations / …) makes it
+// false and keeps the loop container frozen for that edit.
+func loopFixedCountOnlyEdit(old, nn model.GraphNode) bool {
+	probe := nn
+	probe.Config.FixedCount = old.Config.FixedCount
+	return executionConfigEqual(old, probe) && old.Config.FixedCount != nn.Config.FixedCount
+}
+
+// nodesByID indexes a config's nodes by ID.
+func nodesByID(cfg model.GraphConfig) map[string]model.GraphNode {
+	m := make(map[string]model.GraphNode, len(cfg.Nodes))
+	for _, n := range cfg.Nodes {
+		m[n.ID] = n
+	}
+	return m
+}
+
 // nodeInsideLoop reports whether node n lives inside a loop container — its
 // ParentID chain reaches a node of type loop. Such nodes re-run each round, so
 // editing their execution config mid-run is allowed (the edit takes effect on
@@ -273,14 +340,8 @@ func stringSliceEqual(a, b []string) bool {
 // failed / interrupted / pending instances impose no constraint: they are
 // resettable and will re-run against the new version on resume.
 func validateVersionEdit(oldCfg model.GraphConfig, newCfg model.GraphConfig, instances map[string]model.GraphInstanceState) []model.GraphValidationError {
-	oldNodes := make(map[string]model.GraphNode, len(oldCfg.Nodes))
-	for _, n := range oldCfg.Nodes {
-		oldNodes[n.ID] = n
-	}
-	newNodes := make(map[string]model.GraphNode, len(newCfg.Nodes))
-	for _, n := range newCfg.Nodes {
-		newNodes[n.ID] = n
-	}
+	oldNodes := nodesByID(oldCfg)
+	newNodes := nodesByID(newCfg)
 	newEdges := make(map[string]model.GraphEdge, len(newCfg.Edges))
 	for _, e := range newCfg.Edges {
 		newEdges[e.ID] = e
@@ -324,6 +385,16 @@ func validateVersionEdit(oldCfg model.GraphConfig, newCfg model.GraphConfig, ins
 			continue
 		}
 		if on, ok := oldNodes[nodeID]; ok && !executionConfigEqual(on, nn) {
+			// Exception (§4 循环容器 FixedCount 可改): a loop container's FixedCount is
+			// evaluated at each round boundary (finishIteration), so changing it
+			// mid-run has a well-defined effect — the next round-end uses the new
+			// count. The in-flight round keeps its decided snapshot; the scheduler
+			// refreshes the active loop scope and corrects the progress denominator
+			// on apply. Other loop-control fields (mode / until / max-iterations)
+			// stay frozen — they have no clean mid-run round boundary.
+			if nn.Type == model.GraphNodeTypeLoop && loopFixedCountOnlyEdit(on, nn) {
+				continue
+			}
 			errs = append(errs, model.GraphValidationError{
 				Type:    model.GraphValidationErrorTypeNode,
 				NodeID:  nodeID,

@@ -238,6 +238,7 @@ func (sc *scheduler) applyVersionUpdate(ctx context.Context, sig controlSignal) 
 	sc.cfg = effectiveConfig(sc.run)
 	sc.disabled = disabledNameSet(sc.cfg.DisabledVars)
 	sc.index()
+	sc.refreshActiveLoopsAfterVersion()
 	sc.remapReadyToLatestVersion(ctx)
 	sc.persist(ctx)
 	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeLog, nil, "", "",
@@ -277,6 +278,32 @@ func (sc *scheduler) remapReadyToLatestVersion(ctx context.Context) {
 		st.NodeType = node.Type
 		st.Version = sc.run.CurrentVersion
 		sc.instances[keyStr] = st
+	}
+}
+
+// refreshActiveLoopsAfterVersion re-points every active loop scope at its node
+// in the just-applied config so a mid-run FixedCount edit takes effect at the
+// next round boundary (finishIteration reads loop.loopNode.Config.FixedCount).
+// The loop captured loopNode by value at startLoop, so index() rebuilding
+// nodesByID alone does not reach the live scopes. activeLoops is keyed per
+// instance, so nested / concurrent instances of the same container are each
+// refreshed. The progress denominator was seeded with the old FixedCount, so we
+// also reclaim/extend the not-yet-run rounds: only FixedCount is editable on a
+// loop container (validateVersionEdit), so the per-round business count is
+// unchanged and the delta is purely the change in remaining rounds.
+func (sc *scheduler) refreshActiveLoopsAfterVersion() {
+	for _, loop := range sc.activeLoops {
+		nn, ok := sc.nodesByID[loop.container]
+		if !ok {
+			continue
+		}
+		oldRemaining := max(0, loopMaxRounds(sc.cfg.RunConfig, loop.loopNode)-loop.roundsRun)
+		newRemaining := max(0, loopMaxRounds(sc.cfg.RunConfig, nn)-loop.roundsRun)
+		loop.loopNode = nn
+		loop.maxIters = effectiveLoopMaxIters(sc.cfg.RunConfig, nn)
+		if delta := (newRemaining - oldRemaining) * sc.loopSubgraphBusinessCount(loop.container); delta != 0 {
+			sc.denomAdjust(delta)
+		}
 	}
 }
 
