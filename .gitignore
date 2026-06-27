@@ -65,3 +65,7 @@ certs/
 /.tmp/*
 
 *.local.*
+
+# CLI binaries
+/cli
+/quartet-workflow
