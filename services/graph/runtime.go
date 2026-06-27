@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -812,6 +813,124 @@ func (s *serviceImpl) appendEvent(ctx context.Context, runID string, typ model.G
 	if buf := s.getBuffer(runID); buf != nil {
 		buf.Publish(evt)
 	}
+}
+
+// appendHookEvent publishes a node hook's execution result (§ 节点 Hook) as a
+// hookCompleted / hookFailed event. It is a sibling of appendEvent that carries a
+// populated Payload (the hook outcome) rather than appendEvent's empty one;
+// keeping it separate avoids reshaping appendEvent's 15+ existing call sites.
+//
+// SAFE OFF THE SCHEDULER GOROUTINE: it touches only s.runRepo.AppendEvent
+// (per-run mutex) and s.getBuffer().Publish() (mutex-guarded) — never any sc.*
+// scheduler state — so the detached hook goroutine may call it directly without
+// violating the single-writer invariant. The event persists (hook types are not
+// in the delta blacklist), so a completed run's hook result survives restart and
+// is readable via ListHookResults.
+func (s *serviceImpl) appendHookEvent(ctx context.Context, runID string, key model.GraphInstanceKey, nodeID, nodeTitle, nodeType, source string, out hookOutcome) {
+	if s.runRepo == nil {
+		return
+	}
+	typ := model.GraphEventTypeHookCompleted
+	var rerr *model.GraphRuntimeError
+	if out.failed {
+		typ = model.GraphEventTypeHookFailed
+		exit := out.exitCode
+		rerr = &model.GraphRuntimeError{
+			RunID:     runID,
+			NodeID:    nodeID,
+			NodeTitle: nodeTitle,
+			Message:   out.message,
+			Stdout:    out.stdout,
+			Stderr:    out.stderr,
+			ExitCode:  &exit,
+		}
+	}
+	keyCopy := key
+	evt := &model.GraphEvent{
+		ID:          model.NewGraphEventID(),
+		RunID:       runID,
+		Type:        typ,
+		InstanceKey: &keyCopy,
+		NodeID:      nodeID,
+		Message:     out.message,
+		Payload: map[string]string{
+			"source":    source,
+			"nodeTitle": nodeTitle,
+			"nodeType":  nodeType,
+			"exitCode":  strconv.Itoa(out.exitCode),
+			"stdout":    out.stdout,
+			"stderr":    out.stderr,
+		},
+		Error:     rerr,
+		CreatedAt: time.Now().UnixMilli(),
+	}
+	if isPersistableGraphEvent(typ) {
+		_ = s.runRepo.AppendEvent(ctx, runID, evt)
+	}
+	if buf := s.getBuffer(runID); buf != nil {
+		buf.Publish(evt)
+	}
+}
+
+// ListHookResults reads a run's persisted events and projects the hook
+// (completed/failed) ones into per-node results for the run-view detail panel.
+// When a resume rollback re-fires a node's hook, events.jsonl holds both the old
+// and new lines for that nodeId; we keep the latest by CreatedAt so the panel
+// shows the current attempt's result, not a stale one.
+func (s *serviceImpl) ListHookResults(ctx context.Context, runID string) (*model.GraphHookResultsResponse, error) {
+	resp, err := s.ListRunEvents(ctx, runID, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	latest := map[string]model.GraphHookResult{}
+	for i := range resp.Events {
+		ev := resp.Events[i]
+		if ev.Type != model.GraphEventTypeHookCompleted && ev.Type != model.GraphEventTypeHookFailed {
+			continue
+		}
+		res := hookResultFromEvent(ev)
+		if prev, ok := latest[res.NodeID]; ok && prev.FinishedAt > res.FinishedAt {
+			continue
+		}
+		latest[res.NodeID] = res
+	}
+	out := &model.GraphHookResultsResponse{}
+	for _, r := range latest {
+		out.Results = append(out.Results, r)
+	}
+	sort.Slice(out.Results, func(i, j int) bool {
+		return out.Results[i].FinishedAt < out.Results[j].FinishedAt
+	})
+	return out, nil
+}
+
+// hookResultFromEvent maps a hookCompleted/hookFailed event to a GraphHookResult,
+// reading node title/type and the captured output from the event payload (which
+// was stamped at fire time from the run's own config, so no editor node list is
+// needed). exitCode is parsed back from its string payload; a malformed value
+// leaves ExitCode nil rather than failing the whole list.
+func hookResultFromEvent(ev model.GraphEvent) model.GraphHookResult {
+	res := model.GraphHookResult{
+		NodeID:     ev.NodeID,
+		NodeTitle:  ev.Payload["nodeTitle"],
+		NodeType:   model.GraphNodeType(ev.Payload["nodeType"]),
+		Source:     ev.Payload["source"],
+		Stdout:     ev.Payload["stdout"],
+		Stderr:     ev.Payload["stderr"],
+		Message:    ev.Message,
+		FinishedAt: ev.CreatedAt,
+	}
+	if ev.Type == model.GraphEventTypeHookFailed {
+		res.Status = "failed"
+	} else {
+		res.Status = "completed"
+	}
+	if raw, ok := ev.Payload["exitCode"]; ok {
+		if code, err := strconv.Atoi(raw); err == nil {
+			res.ExitCode = &code
+		}
+	}
+	return res
 }
 
 // isPersistableGraphEvent reports whether an event should be written to

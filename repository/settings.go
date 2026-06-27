@@ -43,17 +43,17 @@ type AgentPrefs struct {
 }
 
 type Settings struct {
-	Username      string                      `json:"username"`
-	AvatarURL     string                      `json:"avatar_url"`
-	TitleAgent    *AgentConfig                `json:"title_agent,omitempty"`
-	MessageAgent  *AgentConfig                `json:"message_agent,omitempty"`
-	ACPEnvVars    map[string][]ACPEnvVarEntry `json:"acp_env_vars,omitempty"`
+	Username     string                      `json:"username"`
+	AvatarURL    string                      `json:"avatar_url"`
+	TitleAgent   *AgentConfig                `json:"title_agent,omitempty"`
+	MessageAgent *AgentConfig                `json:"message_agent,omitempty"`
+	ACPEnvVars   map[string][]ACPEnvVarEntry `json:"acp_env_vars,omitempty"`
 	// AgentPrefs is per-ACP-agent-type favorite models + default
 	// model/mode/thought_level, keyed by agent type. Owned by the
 	// "Agent Defaults" settings tab.
-	AgentPrefs    map[string]AgentPrefs       `json:"agent_prefs,omitempty"`
-	LarkAppID     string                      `json:"lark_app_id,omitempty"`
-	LarkAppSecret string                      `json:"lark_app_secret,omitempty"`
+	AgentPrefs    map[string]AgentPrefs `json:"agent_prefs,omitempty"`
+	LarkAppID     string                `json:"lark_app_id,omitempty"`
+	LarkAppSecret string                `json:"lark_app_secret,omitempty"`
 	// LarkIMAdminSenderID is the OpenID of the admin user allowed to send IM commands in P2P.
 	LarkIMAdminSenderID string `json:"lark_im_admin_sender_id,omitempty"`
 	// LarkIMSophiaSenderID is the OpenID of the bot to be mentioned in group chats to trigger replies.
@@ -65,6 +65,12 @@ type Settings struct {
 	// login flow (seed entry = logged-in account itself) plus the first-
 	// contact approval UI in Settings → WeChat panel.
 	WeChatAdminIDs []string `json:"wechat_admin_ids,omitempty"`
+
+	// GraphEndHookScript is the global default shell script run when a graph
+	// workflow End node with EndHookMode "default" is reached (e.g. "send a Lark
+	// message when the workflow finishes"). A pure side-effect: its output is
+	// ignored and a failure is logged, never affecting the run.
+	GraphEndHookScript string `json:"graph_end_hook_script,omitempty"`
 }
 
 type SettingsRepo interface {

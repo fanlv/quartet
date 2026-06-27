@@ -22,6 +22,8 @@ func (s *recordingSink) SetGraphRunState(context.Context, string, string, model.
 	return nil
 }
 
+func (s *recordingSink) JobTitle(context.Context, string) string { return "" }
+
 func (s *recordingSink) AttachGraphSession(_ context.Context, jobID, sessionID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

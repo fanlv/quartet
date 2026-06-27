@@ -7,6 +7,17 @@ import (
 	"time"
 )
 
+// GraphWorkflowType distinguishes the two workflow libraries: workflows a user
+// hand-authored in the Web UI ("user") versus workflows created/managed by a
+// model through the CLI ("agent"). An empty type on disk (legacy data) is
+// normalized to "user" at read time.
+type GraphWorkflowType string
+
+const (
+	GraphWorkflowTypeUser  GraphWorkflowType = "user"
+	GraphWorkflowTypeAgent GraphWorkflowType = "agent"
+)
+
 type GraphNodeType string
 
 const (
@@ -41,15 +52,26 @@ const (
 	GraphSessionStrategyInherit GraphSessionStrategy = "inherit"
 )
 
+// GraphEndHookMode selects an End node's hook behavior. Empty is treated as
+// GraphEndHookModeDefault.
+type GraphEndHookMode string
+
+const (
+	GraphEndHookModeDefault GraphEndHookMode = "default" // run the global settings script
+	GraphEndHookModeCustom  GraphEndHookMode = "custom"  // run the node's own HookScript
+	GraphEndHookModeOff     GraphEndHookMode = "off"     // disable the hook
+)
+
 type GraphWorkflow struct {
-	ID          string      `json:"id"`
-	WorkspaceID string      `json:"workspaceId,omitempty"`
-	Name        string      `json:"name"`
-	Description string      `json:"description,omitempty"`
-	Config      GraphConfig `json:"config"`
-	CreatedAt   time.Time   `json:"createdAt"`
-	UpdatedAt   time.Time   `json:"updatedAt"`
-	Deleted     bool        `json:"deleted,omitempty"`
+	ID          string            `json:"id"`
+	WorkspaceID string            `json:"workspaceId,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Type        GraphWorkflowType `json:"type,omitempty"`
+	Config      GraphConfig       `json:"config"`
+	CreatedAt   time.Time         `json:"createdAt"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
+	Deleted     bool              `json:"deleted,omitempty"`
 }
 
 type GraphConfig struct {
@@ -90,6 +112,16 @@ type GraphNodeConfig struct {
 	FixedCount         int                  `json:"fixedCount,omitempty"`
 	UntilCondition     string               `json:"untilCondition,omitempty"`
 	MaxIterations      int                  `json:"maxIterations,omitempty"`
+	// HookScript is a side-effect shell script run AFTER a node completes
+	// (notifications / logging / marking). Used by Prompt nodes (run when
+	// non-empty) and by End nodes whose EndHookMode is "custom". It never
+	// produces variables, never changes node status, and never fails the run —
+	// a non-zero exit / timeout is logged and ignored.
+	HookScript string `json:"hookScript,omitempty"`
+	// EndHookMode selects an End node's hook behavior: "default" runs the global
+	// settings script (GraphEndHookScript), "custom" runs this node's HookScript,
+	// "off" disables it. Empty is treated as "default". End nodes only.
+	EndHookMode GraphEndHookMode `json:"endHookMode,omitempty"`
 }
 
 type GraphNodeLayout struct {
@@ -384,6 +416,13 @@ const (
 	GraphEventTypeAgentTokenUsage   GraphEventType = "agentTokenUsage"
 	GraphEventTypeLog               GraphEventType = "log"
 	GraphEventTypeError             GraphEventType = "error"
+	// GraphEventTypeHookCompleted / GraphEventTypeHookFailed (§ 节点 Hook) carry a
+	// node hook's execution result (exit code, truncated stdout/stderr, origin) so
+	// the run-view node-detail panel can surface what a side-effect script did. A
+	// hook NEVER affects node status or the run; these are the ONLY signal a user
+	// gets that a configured hook ran and how it ended. Both persist to events.jsonl.
+	GraphEventTypeHookCompleted GraphEventType = "hookCompleted"
+	GraphEventTypeHookFailed    GraphEventType = "hookFailed"
 )
 
 type GraphEvent struct {
@@ -400,10 +439,11 @@ type GraphEvent struct {
 }
 
 type CreateGraphWorkflowRequest struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description,omitempty"`
-	WorkspaceID string      `json:"workspaceId,omitempty"`
-	Config      GraphConfig `json:"config"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Type        GraphWorkflowType `json:"type,omitempty"`
+	WorkspaceID string            `json:"workspaceId,omitempty"`
+	Config      GraphConfig       `json:"config"`
 }
 
 type UpdateGraphWorkflowRequest struct {
@@ -450,14 +490,15 @@ type GraphListWorkflowsResponse struct {
 }
 
 type GraphWorkflowSummary struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspaceId,omitempty"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	NodeCount   int       `json:"nodeCount"`
-	EdgeCount   int       `json:"edgeCount"`
+	ID          string            `json:"id"`
+	WorkspaceID string            `json:"workspaceId,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Type        GraphWorkflowType `json:"type,omitempty"`
+	CreatedAt   time.Time         `json:"createdAt"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
+	NodeCount   int               `json:"nodeCount"`
+	EdgeCount   int               `json:"edgeCount"`
 }
 
 // GraphWorkflowWarning describes a workflow file that was skipped during a list
@@ -500,6 +541,29 @@ type GraphRunEventsResponse struct {
 	Events    []GraphEvent `json:"events"`
 	NextLine  int          `json:"nextLine"`
 	LastEvent string       `json:"lastEventId,omitempty"`
+}
+
+// GraphHookResult is one node hook's execution result, derived from a
+// hookCompleted/hookFailed event for the run-view node-detail panel. NodeTitle /
+// NodeType are carried in the event payload (captured at fire time from the run's
+// own config) so the panel needs no access to the editor node list. FinishedAt is
+// the event's CreatedAt, used to keep the latest result per node when a resume
+// rollback re-fires a hook.
+type GraphHookResult struct {
+	NodeID     string        `json:"nodeId"`
+	NodeTitle  string        `json:"nodeTitle,omitempty"`
+	NodeType   GraphNodeType `json:"nodeType,omitempty"`
+	Source     string        `json:"source,omitempty"` // "prompt" | "end"
+	Status     string        `json:"status"`           // "completed" | "failed"
+	ExitCode   *int          `json:"exitCode,omitempty"`
+	Stdout     string        `json:"stdout,omitempty"`
+	Stderr     string        `json:"stderr,omitempty"`
+	Message    string        `json:"message,omitempty"`
+	FinishedAt int64         `json:"finishedAt"`
+}
+
+type GraphHookResultsResponse struct {
+	Results []GraphHookResult `json:"results"`
 }
 
 func NewGraphWorkflowID() string {

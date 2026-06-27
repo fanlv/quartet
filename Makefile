@@ -1,4 +1,4 @@
-.PHONY: build build-all build-acp build-cli build-web test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps
+.PHONY: build build-all build-acp build-cli build-web test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
 
 BACKEND_PORT := 8090
 CERTS_DIR := $(CURDIR)/certs
@@ -13,6 +13,19 @@ BUILD_TIME ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 GIT_DIRTY ?= $(shell if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then echo true; else echo false; fi)
 WEB_LDFLAGS := -X main.buildTime=$(BUILD_TIME) -X main.buildCommit=$(GIT_COMMIT) -X main.buildDirty=$(GIT_DIRTY)
+
+# Skill install (see install-skill target). The quartet-workflow skill drives
+# the quartet-cli binary, which its SKILL.md (requires.bins) expects on PATH, so
+# installing the skill is two steps: build+install the CLI into INSTALL_BIN_DIR,
+# then register the skill directory with the `skills` CLI for each agent.
+QUARTET_CLI_BIN := $(CURDIR)/bin/quartet-cli
+INSTALL_BIN_DIR ?= $(HOME)/.local/bin
+SKILL_NAME ?= quartet-workflow
+SKILL_SOURCE ?= $(CURDIR)/skill
+SKILLS_CLI ?= npx --yes skills
+SKILL_AGENTS ?= claude-code codex opencode trae trae-cn
+SKILL_AGENT_FLAGS = $(foreach agent,$(SKILL_AGENTS),--agent "$(agent)")
+SKILL_COPY_FLAG ?=
 
 build-all:
 	@echo "Building all applications..."
@@ -516,3 +529,62 @@ install-acp-deps:
 	check_and_install codex    "@agentclientprotocol/codex-acp"        "Codex"; \
 	check_and_install kilocode "@kilocode/cli"                         "KiloCode"; \
 	echo "✅ ACP dependency check done ($$installed package(s) installed)"
+
+# install-skill installs the quartet-workflow skill: first build+install its CLI
+# onto PATH, then register the skill directory with the `skills` CLI. Override
+# SKILL_AGENTS / INSTALL_BIN_DIR / SKILLS_CLI / SKILL_SOURCE as needed.
+install-skill: install-skill-cli
+	@$(MAKE) --no-print-directory install-skill-run
+
+# install-skill-copy installs the skill files by copying them (--copy) instead
+# of symlinking, after installing the CLI.
+install-skill-copy: install-skill-cli
+	@$(MAKE) --no-print-directory install-skill-run SKILL_COPY_FLAG=--copy
+
+# install-skill-cli builds the quartet-cli binary and installs it to
+# INSTALL_BIN_DIR so the skill's SKILL.md (requires.bins: quartet-cli) can
+# resolve it on PATH. Warns if INSTALL_BIN_DIR is not the PATH entry that wins.
+install-skill-cli:
+	@echo "==> Building $(QUARTET_CLI_BIN)"
+	@mkdir -p bin
+	@go build -o $(QUARTET_CLI_BIN) ./cmd/cli
+	@echo "==> Installing CLI to $(INSTALL_BIN_DIR)"
+	@mkdir -p "$(INSTALL_BIN_DIR)"
+	@cp "$(QUARTET_CLI_BIN)" "$(INSTALL_BIN_DIR)/quartet-cli"
+	@installed="$$(cd "$(INSTALL_BIN_DIR)" && pwd)/quartet-cli"; \
+	found="$$(command -v quartet-cli 2>/dev/null || true)"; \
+	"$$installed" --help >/dev/null 2>&1 || true; \
+	printf '[ok] CLI installed: %s\n' "$$installed"; \
+	if test "$$found" = "$$installed"; then \
+		printf '  PATH resolves to installed CLI\n'; \
+	else \
+		printf 'warning: %s is installed but not the quartet-cli found on PATH; add %s to PATH before using the skill\n' "$$installed" "$$(cd "$(INSTALL_BIN_DIR)" && pwd)" >&2; \
+	fi
+
+# install-skill-run registers the skill directory with the `skills` CLI for each
+# agent in SKILL_AGENTS. On failure the full skills-add log is printed; on
+# success it verifies the skill is listed by `skills ls -g`.
+install-skill-run:
+	@printf '==> Installing skill %s for agents: %s\n' "$(SKILL_NAME)" "$(SKILL_AGENTS)"
+	@log="$$(mktemp "$${TMPDIR:-/tmp}/quartet-skills-add.XXXXXX")"; \
+	if $(SKILLS_CLI) add "$(SKILL_SOURCE)" -g --skill "$(SKILL_NAME)" $(SKILL_AGENT_FLAGS) -y --full-depth $(SKILL_COPY_FLAG) >"$$log" 2>&1; then \
+		rm -f "$$log"; \
+	else \
+		status=$$?; \
+		printf 'error: skills add failed; full log follows:\n' >&2; \
+		sed 's/^/  /' "$$log" >&2; \
+		rm -f "$$log"; \
+		exit "$$status"; \
+	fi
+	@$(SKILLS_CLI) ls -g --json | python3 -c "import json, sys; name = sys.argv[1]; items = json.load(sys.stdin); matches = [item for item in items if item.get('name') == name]; \
+sys.exit('error: {} is not listed by skills ls -g'.format(name)) if not matches else None; \
+item = matches[0]; print('[ok] Skill installed: {}'.format(item.get('path', '(unknown)'))); agents = ', '.join(item.get('agents') or []); print('  Agents: {}'.format(agents or '(none)'))" "$(SKILL_NAME)"
+
+# install-skill-all installs the skill for every agent the `skills` CLI knows.
+install-skill-all:
+	@$(MAKE) --no-print-directory install-skill SKILL_AGENTS='*'
+
+# install-skill-list lists the skills discoverable under SKILL_SOURCE without
+# installing anything (useful to confirm the skill is detected).
+install-skill-list:
+	$(SKILLS_CLI) add "$(SKILL_SOURCE)" --list --full-depth

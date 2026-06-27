@@ -400,6 +400,10 @@ func (sc *scheduler) seedResume(ctx context.Context) error {
 		}
 		if node.Type == model.GraphNodeTypeEnd && node.ParentID == "" && sc.anyActive[keyStr] {
 			sc.endReached = true
+			// This main-graph end was already reached before the stop, so its hook
+			// (§ 节点 Hook) already fired in the prior run. Pre-mark it so the
+			// frontier re-decide below does not fire it a second time on resume.
+			sc.endHookFired[keyStr] = true
 		}
 	}
 

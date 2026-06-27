@@ -229,6 +229,17 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 	js.SetUsageRecorder(h.usageStats)
 	gs.SetUsageRecorder(h.usageStats)
 
+	// Wire the global default End-node hook script getter. Read at hook time so
+	// editing the script in Settings takes effect on the next End hook (a pure
+	// side-effect, so no replay-snapshot freezing is needed).
+	gs.SetEndHookScriptProvider(func() string {
+		s, err := h.settingsService.GetSettings()
+		if err != nil || s == nil {
+			return ""
+		}
+		return s.GraphEndHookScript
+	})
+
 	// Session services are created on demand via getOrCreateSessionService
 	// (and recreated on miss via reloadSessionByID). Preloading every job's
 	// session.Service at startup would force a full scan of every job's

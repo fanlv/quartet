@@ -400,7 +400,10 @@
       "builtinModel": "内置模型",
       "builtinModelDesc": "用于自动生成对话标题等内置功能，选择 Agent 后自动使用对应模型，留空则不启用",
       "messageModel": "消息模型",
-      "messageModelDesc": "收到 IM 消息后自动调用该 Agent 生成回复，留空则不启用"
+      "messageModelDesc": "收到 IM 消息后自动调用该 Agent 生成回复，留空则不启用",
+      "graphEndHookScript": "图工作流终点默认 Hook（Shell）",
+      "graphEndHookScriptPlaceholder": "# 例如：工作流跑完发个飞书通知\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE 已完成\"",
+      "graphEndHookScriptDesc": "图工作流到达「使用全局默认脚本」的终点结点时执行的默认副作用脚本。输出会被忽略，失败只打日志。可用环境变量：$QUARTET_JOB_TITLE、$QUARTET_JOB_ID、$QUARTET_RUN_ID、$QUARTET_NODE_ID、$QUARTET_NODE_TITLE、$QUARTET_NODE_TYPE、$QUARTET_LAST_ASSISTANT。"
     },
     "token": {
       "sectionTitle": "鉴权 Token",
@@ -907,6 +910,8 @@
       "workspace": "工作区",
       "workspaceUnbound": "未绑定工作区的工作流",
       "library": "工作流库",
+      "tabUser": "用户库",
+      "tabAgent": "模型库",
       "newWorkflow": "新建工作流",
       "closeLibrary": "关闭",
       "loadingWorkflows": "正在加载工作流...",
@@ -1165,10 +1170,46 @@
       "maxIterations": "最大次数兜底 (默认 100, 最大 1000)",
       "loopBodyHint": "把其他结点拖入虚线框即可加入循环体。",
       "controlNodeDesc": "控制结点只用于工作流的入口 / 终点，不可配置业务动作或输出变量。",
+      "hookScript": "完成后 Hook（Shell）",
+      "hookScriptPlaceholder": "# 例如：本结点跑完后发通知\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE 完成\"",
+      "hookScriptDesc": "结点完成后执行的副作用 Shell 脚本。输出会被忽略，失败只打日志，不会改变结点状态或中断工作流。可用环境变量：结点的变量（$Code、$Doc…），以及 $QUARTET_JOB_TITLE、$QUARTET_JOB_ID、$QUARTET_RUN_ID、$QUARTET_NODE_ID、$QUARTET_NODE_TITLE、$QUARTET_NODE_TYPE、$QUARTET_LAST_ASSISTANT。",
+      "endHookMode": "终点 Hook",
+      "endHookModeDefault": "使用全局默认脚本",
+      "endHookModeCustom": "自定义脚本",
+      "endHookModeOff": "关闭",
+      "endHookModeDesc": "到达此终点结点时执行。「使用全局默认脚本」执行 设置 → 通用 里配置的脚本；「自定义脚本」执行下方脚本；「关闭」则不执行。",
       "duplicateNode": "复制结点",
       "deleteNode": "删除结点",
       "frozenBanner": "该结点已在本次运行中开始 / 完成，执行配置不可修改；循环体内结点除外，修改会在下一轮生效。",
       "frozenBannerLoop": "该循环已在本次运行中开始，循环方式 / 直到条件 / 最大次数不可修改；「固定次数」可改，会在下一轮生效。"
+    },
+    "runInspector": {
+      "title": "运行详情",
+      "selectNode": "选择一个节点以查看它的执行详情。",
+      "nodeStatus": "节点状态",
+      "noInstance": "该节点不产生实例（控制节点）。",
+      "instanceError": "错误",
+      "hookResult": "Hook 执行结果",
+      "noHook": "该节点未运行 Hook。",
+      "hookStatusCompleted": "Hook 执行成功",
+      "hookStatusFailed": "Hook 执行失败",
+      "hookExitCode": "退出码",
+      "hookStdout": "标准输出（stdout）",
+      "hookStderr": "错误输出（stderr）",
+      "hookSource": "来源",
+      "hookSourceValue": {
+        "prompt": "Prompt 节点 Hook",
+        "end": "结束节点 Hook"
+      },
+      "instanceStatus": {
+        "pending": "等待中",
+        "running": "运行中",
+        "succeeded": "成功",
+        "failed": "失败",
+        "skipped": "已跳过",
+        "interrupted": "已中断",
+        "awaitingInput": "等待输入"
+      }
     },
     "kinds": {
       "startLabel": "开始",

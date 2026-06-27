@@ -1,0 +1,166 @@
+{
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "title": "开始",
+      "config": {},
+      "layout": { "x": -4028.62, "y": 2365.05 }
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "title": "结束",
+      "config": {},
+      "layout": { "x": -1543.08, "y": 2362.49 }
+    },
+    {
+      "id": "loop-1",
+      "type": "loop",
+      "config": { "loopMode": "fixed", "fixedCount": 10, "maxIterations": 100 },
+      "layout": { "x": -3723.30, "y": 2092.15, "width": 2151, "height": 624 }
+    },
+    {
+      "id": "loop-6",
+      "type": "loop",
+      "parentId": "loop-1",
+      "config": { "loopMode": "fixed", "fixedCount": 2 },
+      "layout": { "x": 105.35, "y": 60.67, "width": 1888, "height": 507 }
+    },
+    {
+      "id": "start-2",
+      "type": "start",
+      "parentId": "loop-1",
+      "config": {},
+      "layout": { "x": 0, "y": 299 }
+    },
+    {
+      "id": "end-3",
+      "type": "end",
+      "parentId": "loop-1",
+      "config": {},
+      "layout": { "x": 2089, "y": 299 }
+    },
+    {
+      "id": "start-7",
+      "type": "start",
+      "parentId": "loop-6",
+      "config": {},
+      "layout": { "x": 0, "y": 241 }
+    },
+    {
+      "id": "end-8",
+      "type": "end",
+      "parentId": "loop-6",
+      "config": {},
+      "layout": { "x": 1826, "y": 241 }
+    },
+    {
+      "id": "ifElse-4",
+      "type": "ifElse",
+      "title": "Agent 选择",
+      "parentId": "loop-6",
+      "config": { "condition": "{{MultiWorker}} == \"1\" 且 {{QUARTET_LOOP_INDEX}} 是偶数" },
+      "layout": { "x": 98.40, "y": 172.40 }
+    },
+    {
+      "id": "prompt-9",
+      "type": "prompt",
+      "title": "Claude",
+      "parentId": "loop-6",
+      "config": {
+        "prompt": "你现在是一名资深 Golang 架构师、后端技术负责人和代码重构专家。请对当前 Go 项目代码进行系统性 Review，从架构设计、代码质量、错误处理、并发与安全、性能与资源、可测试性、业务抽象与扩展性等维度审查。\n\n输出要求：每个问题必须包含 1.问题标题 2.问题位置（文件/模块/函数） 3.问题描述 4.修改建议。\n\n技术文档目录：{{Doc}}\n现在开始。请用 gh 查看 {{PR}} 的 PR 代码、目录结构，然后按上述格式输出 review 结果。不要重新开新的 PR，也不要随便合并 PR。",
+        "agentType": "traex acp serve",
+        "modelId": "gpt-5.5",
+        "sessionStrategy": "new"
+      },
+      "layout": { "x": 351.56, "y": 259.24 }
+    },
+    {
+      "id": "prompt-10",
+      "type": "prompt",
+      "title": "GPT",
+      "parentId": "loop-6",
+      "config": {
+        "prompt": "你现在是一名资深 Golang 架构师、后端技术负责人和代码重构专家。请对当前 Go 项目代码进行系统性 Review，从架构设计、代码质量、错误处理、并发与安全、性能与资源、可测试性、业务抽象与扩展性等维度审查。\n\n输出要求：每个问题必须包含 1.问题标题 2.问题位置（文件/模块/函数） 3.问题描述 4.修改建议。\n\n技术文档目录：{{Doc}}\n现在开始。请用 gh 查看 {{PR}} 的 PR 代码、目录结构，然后按上述格式输出 review 结果。不要重新开新的 PR，也不要随便合并 PR。",
+        "agentType": "traex acp serve",
+        "modelId": "gpt-5.5",
+        "sessionStrategy": "new"
+      },
+      "layout": { "x": 354.62, "y": 92.06 }
+    },
+    {
+      "id": "prompt-16",
+      "type": "prompt",
+      "title": "Double Check",
+      "parentId": "loop-6",
+      "config": {
+        "prompt": "你重新 double check 一下上面输出的每一个问题，确认是不是真的是问题。重新输出真的是问题的 issue list。",
+        "sessionStrategy": "inherit",
+        "lastAssistantAlias": "issues"
+      },
+      "layout": { "x": 617.14, "y": 170.70 }
+    },
+    {
+      "id": "ifElse-21",
+      "type": "ifElse",
+      "title": "对抗验证？",
+      "parentId": "loop-6",
+      "config": { "condition": "{{AgentCheck}} == \"1\"" },
+      "layout": { "x": 879.08, "y": 185.03 }
+    },
+    {
+      "id": "prompt-20",
+      "type": "prompt",
+      "title": "多 Agent 验证",
+      "parentId": "loop-6",
+      "config": {
+        "prompt": "{{issues}}\n---\n上面是其他 Agent Review 输出的内容，确认上面其他 Agent 描述的问题是不是真的是问题。重新输出你觉得真的是问题的 issue list。\n\n{{Notice}}",
+        "agentType": "npx @agentclientprotocol/claude-agent-acp",
+        "modelId": "default",
+        "sessionStrategy": "new"
+      },
+      "layout": { "x": 1259.72, "y": 156.58 }
+    },
+    {
+      "id": "prompt-27",
+      "type": "prompt",
+      "title": "修复确认问题",
+      "parentId": "loop-6",
+      "config": {
+        "prompt": "如果是真的问题，你帮更新代码和文档，修复所有相关问题。提交代码 append 到 {{PR}}，后面会基于新的 PR 做 review。",
+        "sessionStrategy": "inherit"
+      },
+      "layout": { "x": 1515.10, "y": 359.76 }
+    }
+  ],
+  "edges": [
+    { "id": "edge-start-loop-1-4", "sourceNodeId": "start", "targetNodeId": "loop-1" },
+    { "id": "edge-loop-1-end-38", "sourceNodeId": "loop-1", "targetNodeId": "end" },
+    { "id": "edge-start-2-loop-6-10", "sourceNodeId": "start-2", "targetNodeId": "loop-6" },
+    { "id": "edge-loop-6-end-3-13", "sourceNodeId": "loop-6", "targetNodeId": "end-3" },
+    { "id": "edge-start-7-ifElse-4-5", "sourceNodeId": "start-7", "targetNodeId": "ifElse-4" },
+    { "id": "edge-ifElse-4-prompt-10-11", "sourceNodeId": "ifElse-4", "targetNodeId": "prompt-10", "sourcePort": "yes" },
+    { "id": "edge-ifElse-4-prompt-9-7", "sourceNodeId": "ifElse-4", "targetNodeId": "prompt-9", "sourcePort": "no" },
+    { "id": "edge-prompt-9-prompt-16-18", "sourceNodeId": "prompt-9", "targetNodeId": "prompt-16" },
+    { "id": "edge-prompt-10-prompt-16-13", "sourceNodeId": "prompt-10", "targetNodeId": "prompt-16" },
+    { "id": "edge-prompt-16-ifElse-21-22", "sourceNodeId": "prompt-16", "targetNodeId": "ifElse-21" },
+    { "id": "edge-ifElse-21-prompt-20-24", "sourceNodeId": "ifElse-21", "targetNodeId": "prompt-20", "sourcePort": "yes" },
+    { "id": "edge-ifElse-21-prompt-27-32", "sourceNodeId": "ifElse-21", "targetNodeId": "prompt-27", "sourcePort": "no" },
+    { "id": "edge-prompt-20-prompt-27-34", "sourceNodeId": "prompt-20", "targetNodeId": "prompt-27" },
+    { "id": "edge-prompt-27-end-8-1", "sourceNodeId": "prompt-27", "targetNodeId": "end-8" }
+  ],
+  "variables": {
+    "Code": "/data00/home/fanlv/eino",
+    "Doc": "/data00/home/fanlv/memory/knowledge/eino/tech_doc/agent_teams/docs",
+    "AgentCheck": "1",
+    "Info": "",
+    "MultiWorker": "0",
+    "Notice": " ",
+    "PR": "https://github.com/cloudwego/eino/pull/1099"
+  },
+  "disabledVars": ["Notice", "Info"],
+  "runConfig": { "concurrencyLimit": 8 },
+  "workspaceId": "ws-20260327-213844-310967",
+  "workdir": "/home/fanlv/eino"
+}

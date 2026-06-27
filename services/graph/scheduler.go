@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/fanlv/quartet/pkg/logger"
@@ -126,6 +128,16 @@ type scheduler struct {
 	curBatch   *model.GraphReadyBatch // the open ready batch (step-stop boundary)
 
 	activeLoops map[string]*scopeRun // active loop scopes by loop-instance-key string
+
+	// Node hooks (§ 节点 Hook). hookWG tracks in-flight async hook goroutines so
+	// runGraph can join them before the run goroutine exits (no leaked hooks).
+	// endHookFired records main-graph End instance keys whose hook already fired,
+	// keyed by instance-key string. End nodes record NO instance, so decide()'s
+	// succeeded/skipped idempotence guard cannot protect them — without this an
+	// End hook would re-fire every resume (resume re-decides the reached frontier,
+	// including main-graph ends). seedResume pre-marks already-reached ends here.
+	hookWG       sync.WaitGroup
+	endHookFired map[string]bool
 }
 
 const (
@@ -165,24 +177,25 @@ func (s *serviceImpl) runGraph(ctx context.Context, runID string, runner Runner,
 	}
 
 	sc := &scheduler{
-		svc:         s,
-		run:         run,
-		runner:      runner,
-		jobs:        jobs,
-		cfg:         cfg,
-		disabled:    disabledNameSet(cfg.DisabledVars),
-		nodesByID:   map[string]model.GraphNode{},
-		outEdges:    map[string][]model.GraphEdge{},
-		inDegree:    map[string]int{},
-		loopEntry:   map[string]string{},
-		inRemaining: map[string]int{},
-		anyActive:   map[string]bool{},
-		contribs:    map[string][]UpstreamSnapshot{},
-		instances:   map[string]model.GraphInstanceState{},
-		edges:       map[string]model.GraphEdgeState{},
-		varsByKey:   map[string]map[string]string{},
-		control:     handle.controlCh,
-		activeLoops: map[string]*scopeRun{},
+		svc:          s,
+		run:          run,
+		runner:       runner,
+		jobs:         jobs,
+		cfg:          cfg,
+		disabled:     disabledNameSet(cfg.DisabledVars),
+		nodesByID:    map[string]model.GraphNode{},
+		outEdges:     map[string][]model.GraphEdge{},
+		inDegree:     map[string]int{},
+		loopEntry:    map[string]string{},
+		inRemaining:  map[string]int{},
+		anyActive:    map[string]bool{},
+		contribs:     map[string][]UpstreamSnapshot{},
+		instances:    map[string]model.GraphInstanceState{},
+		edges:        map[string]model.GraphEdgeState{},
+		varsByKey:    map[string]map[string]string{},
+		control:      handle.controlCh,
+		activeLoops:  map[string]*scopeRun{},
+		endHookFired: map[string]bool{},
 	}
 	sc.mainScope = &scopeRun{container: "", prefix: nil}
 	sc.index()
@@ -190,6 +203,12 @@ func (s *serviceImpl) runGraph(ctx context.Context, runID string, runner Runner,
 		run.ID, run.JobID, resume, len(sc.cfg.Nodes), len(sc.cfg.Edges),
 		concurrencyLimit(sc.cfg.RunConfig.ConcurrencyLimit), jobTimeout(sc.cfg.RunConfig))
 	sc.loop(ctx, resume)
+	// Join any in-flight node hooks before the run goroutine exits. Hooks are
+	// side-effects that never write run state, so the run is already persisted to
+	// its terminal status by now (loop() did that) — this wait only prevents a
+	// hook goroutine from outliving the run, it does NOT gate persistence. Placed
+	// here in runGraph (the goroutine entry) so it covers every loop() exit path.
+	sc.hookWG.Wait()
 }
 
 // index builds adjacency, static in-edge counts and each loop's subgraph entry.
@@ -568,6 +587,80 @@ func (sc *scheduler) whitelistAgentSession(ctx context.Context, sessionID string
 	}
 }
 
+// fireHook launches a node hook (§ 节点 Hook) asynchronously. It snapshots every
+// input on the scheduler goroutine — cloning the visible map and reading the job
+// title via the sink — BEFORE spawning, so the hook goroutine never touches
+// scheduler-owned state (preserving the single-writer invariant on sc.* maps).
+// Lifetime is tied to the run via hookWG, joined in runGraph. A blank script is
+// a no-op. The hook itself is pure side-effect: see runHook (hook.go).
+func (sc *scheduler) fireHook(ctx context.Context, node model.GraphNode, key model.GraphInstanceKey, visible map[string]string, output, script, source string) {
+	if strings.TrimSpace(script) == "" {
+		return
+	}
+	title := ""
+	if sc.jobs != nil {
+		title = sc.jobs.JobTitle(ctx, sc.run.JobID)
+	}
+	req := hookRequest{
+		script:    script,
+		workdir:   effectiveConfig(sc.run).Workdir,
+		visible:   cloneStringMap(visible),
+		disabled:  cloneStringSet(sc.disabled),
+		jobTitle:  title,
+		jobID:     sc.run.JobID,
+		runID:     sc.run.ID,
+		nodeID:    node.ID,
+		nodeTitle: node.Title,
+		nodeType:  string(node.Type),
+		output:    output,
+	}
+	// Detach the hook's logging context from the scheduler/run context so a
+	// run-level cancel does not abort a side-effect of an already-succeeded node;
+	// runHook applies its own timeout. (Cancellation is what we strip — the
+	// values carried for log correlation are kept.)
+	logCtx := context.WithoutCancel(ctx)
+	// Build the result-emit closure on the scheduler goroutine but capture only
+	// value copies (svc + run id + node identity + key + source) — never sc or the
+	// node struct — so the detached goroutine's call to appendHookEvent stays off
+	// scheduler-owned state. appendHookEvent itself routes through the thread-safe
+	// event sink (per-run mutex + mutex-guarded buffer), so emitting an event from
+	// the hook goroutine does not violate the single-writer invariant.
+	svc := sc.svc
+	runID := sc.run.ID
+	nodeID := node.ID
+	nodeTitle := node.Title
+	nodeType := string(node.Type)
+	keyCopy := key
+	req.emit = func(out hookOutcome) {
+		svc.appendHookEvent(logCtx, runID, keyCopy, nodeID, nodeTitle, nodeType, source, out)
+	}
+	sc.hookWG.Add(1)
+	go func() {
+		defer sc.hookWG.Done()
+		runHook(logCtx, req)
+	}()
+}
+
+// resolveEndHook resolves which script (if any) an End node's hook should run,
+// per its EndHookMode: "off" never runs; "custom" runs the node's own
+// HookScript; "default" (or empty) runs the global settings script. run is false
+// when the resolved script is empty or hooks are disabled.
+func (sc *scheduler) resolveEndHook(node model.GraphNode) (script string, run bool) {
+	switch node.Config.EndHookMode {
+	case model.GraphEndHookModeOff:
+		return "", false
+	case model.GraphEndHookModeCustom:
+		s := node.Config.HookScript
+		return s, strings.TrimSpace(s) != ""
+	default: // GraphEndHookModeDefault or empty → global default script
+		if sc.svc.endHookScriptFn == nil {
+			return "", false
+		}
+		s := sc.svc.endHookScriptFn()
+		return s, strings.TrimSpace(s) != ""
+	}
+}
+
 // handleResult processes one worker completion. On success it records the
 // instance, applies Shell control signals (STOP_WORKFLOW / STOP_LOOP), merges
 // produced outputs into a downstream snapshot and activates the node's out-edges
@@ -662,6 +755,15 @@ func (sc *scheduler) handleResult(ctx context.Context, res nodeResult) {
 	}
 	for name := range produced {
 		logger.Infof(ctx, "[graph] variable written: runId=%s nodeId=%s key=%s variable=%s", sc.run.ID, node.ID, keyStr, name)
+	}
+
+	// Prompt node hook (§ 节点 Hook): fire the configured side-effect script now
+	// that the instance is recorded succeeded and persisted. Async + best-effort
+	// (never affects node status or the run). Only Prompt nodes; a blank script
+	// is a no-op inside fireHook. Resume-safe: a succeeded prompt is skipped by
+	// decide()'s idempotence guard, so handleResult never re-runs for it.
+	if node.Type == model.GraphNodeTypePrompt && node.Config.HookScript != "" {
+		sc.fireHook(ctx, node, key, visibleAfter, res.outcome.output, node.Config.HookScript, "prompt")
 	}
 
 	// Clarify node parking (§ 交互澄清结点): the node ran its turn (draft plan +
@@ -864,6 +966,17 @@ func (sc *scheduler) decide(ctx context.Context, scope *scopeRun, node model.Gra
 		if node.ParentID == "" {
 			// Main-graph end: a terminus is reached (other paths keep running).
 			sc.endReached = true
+			// End node hook (§ 节点 Hook): fire once per reached main-graph end.
+			// End nodes record NO instance, so the succeeded/skipped idempotence
+			// guard above cannot dedup them — endHookFired does, and seedResume
+			// pre-marks already-reached ends so a resume never re-fires.
+			keyStr := instanceKeyString(key)
+			if !sc.endHookFired[keyStr] {
+				sc.endHookFired[keyStr] = true
+				if script, run := sc.resolveEndHook(node); run {
+					sc.fireHook(ctx, node, key, visible, visible[lastAssistantKey], script, "end")
+				}
+			}
 		} else {
 			// Internal loop end: contribute its visible snapshot to the round-end
 			// join (§2). End nodes have no out-edges; this is synchronous. The

@@ -408,7 +408,10 @@
       "builtinModel": "Built-in Model",
       "builtinModelDesc": "Used for auto-generating conversation titles and other built-in features. Select an Agent to use its model. Leave empty to disable",
       "messageModel": "Message Model",
-      "messageModelDesc": "Automatically calls this Agent to generate replies when IM messages are received. Leave empty to disable"
+      "messageModelDesc": "Automatically calls this Agent to generate replies when IM messages are received. Leave empty to disable",
+      "graphEndHookScript": "Graph end-node default hook (Shell)",
+      "graphEndHookScriptPlaceholder": "# e.g. send a Lark message when a workflow finishes\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE finished\"",
+      "graphEndHookScriptDesc": "The default side-effect shell script run when a graph workflow reaches an end node set to \"Use global default script\". Its output is ignored and a failure only logs. Available env vars: $QUARTET_JOB_TITLE, $QUARTET_JOB_ID, $QUARTET_RUN_ID, $QUARTET_NODE_ID, $QUARTET_NODE_TITLE, $QUARTET_NODE_TYPE, $QUARTET_LAST_ASSISTANT."
     },
     "token": {
       "sectionTitle": "Auth Token",
@@ -917,6 +920,8 @@
       "workspace": "Workspace",
       "workspaceUnbound": "Unbound workflow",
       "library": "Workflow Library",
+      "tabUser": "User",
+      "tabAgent": "Agent",
       "newWorkflow": "New workflow",
       "closeLibrary": "Close",
       "loadingWorkflows": "Loading workflows...",
@@ -1175,10 +1180,46 @@
       "maxIterations": "Max iterations fallback (default 100, max 1000)",
       "loopBodyHint": "Drag other nodes into the dashed box to add them to the loop body.",
       "controlNodeDesc": "Control nodes are only used for the workflow entry / exit and cannot configure business actions or output variables.",
+      "hookScript": "Post-completion hook (Shell)",
+      "hookScriptPlaceholder": "# e.g. notify when this node finishes\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE done\"",
+      "hookScriptDesc": "A side-effect shell script run after the node completes. Its output is ignored and a failure only logs — it never changes node status or stops the workflow. Available env vars: the node's variables ($Code, $Doc, ...), plus $QUARTET_JOB_TITLE, $QUARTET_JOB_ID, $QUARTET_RUN_ID, $QUARTET_NODE_ID, $QUARTET_NODE_TITLE, $QUARTET_NODE_TYPE, $QUARTET_LAST_ASSISTANT.",
+      "endHookMode": "End hook",
+      "endHookModeDefault": "Use global default script",
+      "endHookModeCustom": "Custom script",
+      "endHookModeOff": "Off",
+      "endHookModeDesc": "Runs when this end node is reached. \"Use global default script\" runs the script configured in Settings → General; \"Custom script\" runs the script below; \"Off\" disables it.",
       "duplicateNode": "Duplicate node",
       "deleteNode": "Delete node",
       "frozenBanner": "This node has already started / finished in this run, so its execution config cannot be changed. Nodes inside loop bodies are exempt and apply changes on the next round.",
       "frozenBannerLoop": "This loop has already started in this run, so its mode / until condition / max iterations cannot be changed. The fixed count is editable and applies on the next round."
+    },
+    "runInspector": {
+      "title": "Run details",
+      "selectNode": "Select a node to see its execution details.",
+      "nodeStatus": "Node status",
+      "noInstance": "This node records no instance (control node).",
+      "instanceError": "Error",
+      "hookResult": "Hook execution result",
+      "noHook": "This node ran no hook.",
+      "hookStatusCompleted": "Hook succeeded",
+      "hookStatusFailed": "Hook failed",
+      "hookExitCode": "Exit code",
+      "hookStdout": "Standard output (stdout)",
+      "hookStderr": "Error output (stderr)",
+      "hookSource": "Source",
+      "hookSourceValue": {
+        "prompt": "Prompt node hook",
+        "end": "End node hook"
+      },
+      "instanceStatus": {
+        "pending": "Pending",
+        "running": "Running",
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "skipped": "Skipped",
+        "interrupted": "Interrupted",
+        "awaitingInput": "Awaiting input"
+      }
     },
     "kinds": {
       "startLabel": "Start",

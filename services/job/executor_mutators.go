@@ -138,6 +138,16 @@ func (s *serviceImpl) SetFirstModelID(jobID string, modelID string) error {
 // DisplaySessionID at open, success and failure. Kept off SessionIDs so the
 // linear-iteration semantics of that field are unaffected. Follows the same
 // snapshot → save → mirror locking contract as SetGraphRunState.
+// JobTitle implements graph.JobStateSink / Service: it returns the Job's display
+// title so a graph node hook can inject it as $QUARTET_JOB_TITLE. Best-effort —
+// an unknown job returns "" (hooks log-and-continue, never erroring on a miss).
+func (s *serviceImpl) JobTitle(_ context.Context, jobID string) string {
+	if j, ok := s.Get(jobID); ok {
+		return j.Title
+	}
+	return ""
+}
+
 func (s *serviceImpl) AttachGraphSession(_ context.Context, jobID, sessionID string) error {
 	if sessionID == "" {
 		return nil

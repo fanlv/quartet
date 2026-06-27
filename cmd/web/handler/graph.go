@@ -109,6 +109,7 @@ func (h *Handler) ListGraphWorkflows(ctx context.Context, c *app.RequestContext)
 			WorkspaceID: wf.WorkspaceID,
 			Name:        wf.Name,
 			Description: wf.Description,
+			Type:        wf.Type,
 			CreatedAt:   wf.CreatedAt,
 			UpdatedAt:   wf.UpdatedAt,
 			NodeCount:   len(wf.Config.Nodes),
@@ -309,6 +310,25 @@ func (h *Handler) GetJobGraphRunStatus(ctx context.Context, c *app.RequestContex
 		return
 	}
 	c.JSON(http.StatusOK, slimGraphRunStatus(resp))
+}
+
+// JobGraphRunHooks returns the per-node hook (§ 节点 Hook) execution results for
+// a job's current graph run, so the run-view node-detail panel can show what each
+// node's side-effect script did (exit code, stdout, stderr). Mirrors
+// GetJobGraphRunStatus's job→run resolution and not-found mapping.
+func (h *Handler) JobGraphRunHooks(ctx context.Context, c *app.RequestContext) {
+	_, runID, ok := h.resolveJobGraphRun(ctx, c)
+	if !ok {
+		return
+	}
+	resp, err := h.graphService.ListHookResults(ctx, runID)
+	if err != nil {
+		httputil.MapError(c, err, []httputil.ErrorMapping{
+			{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},
+		})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // slimGraphRunStatus trims redundancy from the run-status payload before it is

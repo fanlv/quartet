@@ -90,6 +90,10 @@ type Service interface {
 	// logs. The canvas is rebuilt from the run snapshot, so this stream is only a
 	// best-effort structural backfill.
 	ListReplayEvents(ctx context.Context, runID string, startLine, limit int) (*model.GraphRunEventsResponse, error)
+	// ListHookResults projects a run's persisted hook (completed/failed) events
+	// into per-node results for the run-view node-detail panel, keeping the latest
+	// result per node.
+	ListHookResults(ctx context.Context, runID string) (*model.GraphHookResultsResponse, error)
 	// SubscribeRunEvents attaches an SSE reader to a live run's in-memory event
 	// buffer, resuming after startSeq. live=false means no buffer exists in this
 	// process (run not active here, e.g. after a restart) — the caller degrades
@@ -134,6 +138,10 @@ type Service interface {
 	// SetUsageRecorder wires the optional usage-stats sink for Agent-class graph
 	// nodes. Passing nil disables recording (used by tests).
 	SetUsageRecorder(r usagestats.Recorder)
+	// SetEndHookScriptProvider wires the getter for the global default End-node
+	// hook script (settings.GraphEndHookScript). Read at hook time so a mid-run
+	// edit takes effect; nil (or returning "") disables the "default" End hook.
+	SetEndHookScriptProvider(fn func() string)
 }
 
 // controlSignalKind enumerates the run-control intents delivered to the
@@ -187,6 +195,11 @@ type serviceImpl struct {
 
 	usageMu       sync.RWMutex
 	usageRecorder usagestats.Recorder
+
+	// endHookScriptFn returns the global default End-node hook script. Set once
+	// at startup via SetEndHookScriptProvider (before any run); read at hook
+	// time. nil → no "default" End hook.
+	endHookScriptFn func() string
 }
 
 type Runner interface {
@@ -274,6 +287,10 @@ type JobStateSink interface {
 	// session after the run stops. Best-effort and idempotent; kept off
 	// SessionIDs to preserve that field's linear-iteration semantics.
 	AttachGraphSession(ctx context.Context, jobID, sessionID string) error
+	// JobTitle returns the bound Job's display title for hook env injection
+	// ($QUARTET_JOB_TITLE). Best-effort: an unknown job (or any lookup miss)
+	// returns "" rather than an error, since hooks only log-and-continue.
+	JobTitle(ctx context.Context, jobID string) string
 }
 
 func NewService() (Service, error) {
@@ -411,6 +428,13 @@ func (s *serviceImpl) SetUsageRecorder(r usagestats.Recorder) {
 	s.usageMu.Unlock()
 }
 
+// SetEndHookScriptProvider wires the global default End-node hook script getter.
+// Called once at startup (handler wiring) before any run launches, so it needs
+// no locking against runs.
+func (s *serviceImpl) SetEndHookScriptProvider(fn func() string) {
+	s.endHookScriptFn = fn
+}
+
 func (s *serviceImpl) CreateWorkflow(ctx context.Context, req *model.CreateGraphWorkflowRequest) (*model.GraphWorkflow, error) {
 	if req == nil {
 		return nil, fmt.Errorf("request is required")
@@ -418,6 +442,14 @@ func (s *serviceImpl) CreateWorkflow(ctx context.Context, req *model.CreateGraph
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrWorkflowBadRequest)
+	}
+	// Type is a closed enum (empty defaults to user). Reject any other value at
+	// creation so a bogus type can never reach disk — a workflow with an
+	// unknown type would be invisible in the UI (neither the user nor the agent
+	// tab matches it).
+	wfType := model.GraphWorkflowType(firstNonEmpty(string(req.Type), string(model.GraphWorkflowTypeUser)))
+	if wfType != model.GraphWorkflowTypeUser && wfType != model.GraphWorkflowTypeAgent {
+		return nil, fmt.Errorf("%w: invalid type %q (must be %q or %q)", ErrWorkflowBadRequest, req.Type, model.GraphWorkflowTypeUser, model.GraphWorkflowTypeAgent)
 	}
 	if errs := validateConfig(&req.Config); len(errs) > 0 {
 		return nil, &ValidationError{Errors: errs}
@@ -431,6 +463,7 @@ func (s *serviceImpl) CreateWorkflow(ctx context.Context, req *model.CreateGraph
 		WorkspaceID: workspaceID,
 		Name:        name,
 		Description: req.Description,
+		Type:        wfType,
 		Config:      config,
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -500,6 +533,13 @@ func (s *serviceImpl) UpdateWorkflow(ctx context.Context, id string, req *model.
 		wf.Config = config
 	}
 	normalizeWorkflowWorkspace(wf, "")
+	// Type is a create-time, immutable library tag — UpdateGraphWorkflowRequest
+	// carries no Type, so it stays as loaded. repo.Get already normalizes an
+	// empty (legacy) type to "user"; guard once more so the persisted value is
+	// always canonical even if a future caller bypasses that path.
+	if wf.Type == "" {
+		wf.Type = model.GraphWorkflowTypeUser
+	}
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {

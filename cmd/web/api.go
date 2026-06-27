@@ -115,6 +115,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	jobGroup.GET("/:jobId/events", h.JobEvents)
 	jobGroup.GET("/:jobId/graph-run", h.GetJobGraphRunStatus)
 	jobGroup.GET("/:jobId/graph-run/events", h.JobGraphRunEvents)
+	jobGroup.GET("/:jobId/graph-run/hooks", h.JobGraphRunHooks)
 	jobGroup.POST("/:jobId/graph-run/stop", h.StopJobGraphRun)
 	jobGroup.POST("/:jobId/graph-run/step-stop", h.StepStopJobGraphRun)
 	jobGroup.POST("/:jobId/graph-run/cancel-stop", h.CancelStopJobGraphRun)
@@ -169,6 +170,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// events stream are exposed; every action/version route stays auth-only.
 	pub.GET("/job/:jobId/graph-run", h.GetJobGraphRunStatus)
 	pub.GET("/job/:jobId/graph-run/events", h.JobGraphRunEvents)
+	pub.GET("/job/:jobId/graph-run/hooks", h.JobGraphRunHooks)
 }
 
 func healthHandler(ctx context.Context, c *app.RequestContext) {

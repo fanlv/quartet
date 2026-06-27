@@ -150,7 +150,11 @@ function CanvasInner({
 
   useEffect(() => {
     const viewport = initialViewportRef.current;
-    if (viewport) {
+    // A zoom of 0 is not a real saved viewport — it is the Go zero value that
+    // the backend serializes for workflows created without a canvas (e.g. via
+    // the CLI). Restoring it would scale every node to nothing and blank the
+    // canvas, so treat it like "no viewport" and fall back to fitView.
+    if (viewport && viewport.zoom > 0) {
       void rf.setViewport(viewport, { duration: 0 });
       return;
     }

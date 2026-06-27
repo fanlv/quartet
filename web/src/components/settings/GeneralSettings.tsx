@@ -20,6 +20,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
   const { t, i18n } = useTranslation();
   const [username, setUsername] = useState('User');
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [graphEndHookScript, setGraphEndHookScript] = useState('');
   const [titleAgent, setTitleAgent] = useState<AgentConfigState>(emptyAgentConfig);
   const [messageAgent, setMessageAgent] = useState<AgentConfigState>(emptyAgentConfig);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -76,6 +77,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
       if (data.code === 0 && data.settings) {
         setUsername(data.settings.username || 'User');
         setAvatarUrl(data.settings.avatar_url || '');
+        setGraphEndHookScript(data.settings.graph_end_hook_script || '');
         if (data.settings.title_agent) {
           setTitleAgent({
             agent_type: data.settings.title_agent.agent_type || '',
@@ -130,6 +132,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
           avatar_url: avatarUrl,
           title_agent: ta,
           message_agent: ma,
+          graph_end_hook_script: graphEndHookScript,
         }),
       });
       const data = await res.json();
@@ -450,6 +453,21 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
           msgModeDropdownOpen, setMsgModeDropdownOpen, msgModeRef,
           msgThoughtLevelDropdownOpen, setMsgThoughtLevelDropdownOpen, msgThoughtLevelRef,
         )}
+
+        <div className="settings-form-group">
+          <label className="settings-label">{t('settings.general.graphEndHookScript')}</label>
+          <textarea
+            className="settings-input"
+            value={graphEndHookScript}
+            onChange={(e) => setGraphEndHookScript(e.target.value)}
+            placeholder={t('settings.general.graphEndHookScriptPlaceholder')}
+            rows={6}
+            style={{ fontFamily: 'monospace', resize: 'vertical' }}
+          />
+          <span className="settings-switch-desc">
+            {t('settings.general.graphEndHookScriptDesc')}
+          </span>
+        </div>
       </section>
 
       <section className="settings-section">

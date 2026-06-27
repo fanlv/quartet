@@ -48,6 +48,18 @@ func validateGraphWorkflowID(id string) error {
 	return validateID(id)
 }
 
+// normalizeGraphWorkflowType fills an empty Type with the default "user" so any
+// read path returns a non-empty library tag. Legacy workflows persisted before
+// the Type field existed have an empty type on disk; rather than run a one-off
+// migration, every deserialization point normalizes at read time. New writes
+// (Create/Update in the service) persist the canonical value, so stale files
+// are upgraded the first time they are saved.
+func normalizeGraphWorkflowType(wf *model.GraphWorkflow) {
+	if wf != nil && wf.Type == "" {
+		wf.Type = model.GraphWorkflowTypeUser
+	}
+}
+
 func (r *fileGraphWorkflowRepo) Save(_ context.Context, wf *model.GraphWorkflow) error {
 	if wf == nil {
 		return os.ErrInvalid
@@ -79,6 +91,7 @@ func (r *fileGraphWorkflowRepo) Get(_ context.Context, id string) (*model.GraphW
 	if err := json.Unmarshal([]byte(readResult.Content), &wf); err != nil {
 		return nil, err
 	}
+	normalizeGraphWorkflowType(&wf)
 	return &wf, nil
 }
 
@@ -121,6 +134,7 @@ func (r *fileGraphWorkflowRepo) List(ctx context.Context) ([]*model.GraphWorkflo
 		if wf.Deleted {
 			continue
 		}
+		normalizeGraphWorkflowType(&wf)
 		workflows = append(workflows, &wf)
 	}
 
@@ -219,5 +233,6 @@ func (r *fileGraphWorkflowRepo) readWorkflowFile(fp string) (*model.GraphWorkflo
 	if err := json.Unmarshal([]byte(readResult.Content), &wf); err != nil {
 		return nil, err
 	}
+	normalizeGraphWorkflowType(&wf)
 	return &wf, nil
 }

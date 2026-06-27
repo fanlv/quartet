@@ -66,6 +66,8 @@ func (s *stubGraphJobSink) AttachGraphSession(context.Context, string, string) e
 	return nil
 }
 
+func (s *stubGraphJobSink) JobTitle(context.Context, string) string { return "" }
+
 type failingGraphJobSink struct {
 	err error
 }
@@ -81,6 +83,8 @@ func (s failingGraphJobSink) ClearGraphRunLinkage(context.Context, string, strin
 func (s failingGraphJobSink) AttachGraphSession(context.Context, string, string) error {
 	return nil
 }
+
+func (s failingGraphJobSink) JobTitle(context.Context, string) string { return "" }
 
 func TestStartRunMissingWorkflowAndConfigIsBadRequest(t *testing.T) {
 	uniqueMemoryRoot(t)

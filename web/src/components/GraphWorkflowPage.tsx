@@ -17,6 +17,8 @@ import type {
   GraphConfig,
   GraphEdgeState,
   GraphEvent,
+  GraphHookResult,
+  GraphHookResultsResponse,
   GraphInstanceState,
   GraphListWorkflowsResponse,
   GraphNode,
@@ -32,6 +34,7 @@ import type {
   GraphWorkflow,
   GraphWorkflowResponse,
   GraphWorkflowSummary,
+  GraphWorkflowType,
   GraphWorkflowWarning,
 } from '../types';
 import type { AgentInfo } from './ChatPage';
@@ -53,6 +56,7 @@ import {
 import { createEditorNode, filterNodeRemoveChanges, isNodeDeletable, markEditableNodes } from './graph/editorModel';
 import { GraphCanvas, type GraphCanvasFocus } from './graph/GraphCanvas';
 import { GraphInspector, BUILTIN_VARS } from './graph/GraphInspector';
+import { GraphRunInspector } from './graph/GraphRunInspector';
 import { registerWorkspaceColors, workspaceColor } from '../utils/workspace';
 import './GraphWorkflowPage.css';
 
@@ -568,6 +572,7 @@ function workflowToSummary(workflow: GraphWorkflow | GraphWorkflowSummary): Grap
     workspaceId: workflow.workspaceId || workflow.config?.workspaceId,
     name: workflow.name,
     description: workflow.description,
+    type: workflow.type,
     createdAt: workflow.createdAt,
     updatedAt: workflow.updatedAt,
     nodeCount: workflow.config?.nodes?.length || 0,
@@ -586,6 +591,10 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [workflows, setWorkflows] = useState<GraphWorkflowSummary[]>([]);
+  // Which library tab is active: 'user' = workflows authored in this UI,
+  // 'agent' = workflows created/managed by a model through the CLI. The list is
+  // filtered to the active tab; the UI only ever creates 'user' workflows.
+  const [activeTab, setActiveTab] = useState<GraphWorkflowType>('user');
   // Warnings for workflow files the backend skipped during list (unreadable /
   // malformed JSON). Surfaced in the status area so a corrupt file does not just
   // silently vanish from the library.
@@ -672,6 +681,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const [viewingRun, setViewingRun] = useState(false);
   const [runProgress, setRunProgress] = useState<GraphProgress | undefined>();
   const [runInstances, setRunInstances] = useState<GraphInstanceState[]>([]);
+  // Per-node hook (§ 节点 Hook) execution results for the selected run, keyed by
+  // nodeId, shown in the read-only run-view node-detail panel. Fetched from the
+  // /hooks endpoint rather than accumulated from SSE: the canvas SSE never opens
+  // for a completed run, and an End hook finishes AFTER the run goes terminal (so
+  // the SSE that would carry it is already torn down). See refreshHookResults.
+  const [hookResults, setHookResults] = useState<Record<string, GraphHookResult>>({});
   // Edge run states for the selected run, so replay can show active/pruned/done
   // branch edges (GraphCanvas consumes edgeStatusById, same as GraphLoopProgress).
   const [runEdges, setRunEdges] = useState<GraphEdgeState[]>([]);
@@ -709,8 +724,14 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     [t, workspaceNameById],
   );
   const sortedWorkflows = useMemo(
-    () => [...workflows].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })),
-    [workflows],
+    () =>
+      [...workflows]
+        // Anything that is not explicitly 'agent' is shown in the user tab, so a
+        // missing or unexpected type still surfaces somewhere instead of
+        // vanishing from both tabs.
+        .filter((wf) => (wf.type === 'agent' ? 'agent' : 'user') === activeTab)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })),
+    [workflows, activeTab],
   );
   useEffect(() => {
     selectedWorkflowRef.current = selectedWorkflow;
@@ -1017,6 +1038,23 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     }
   }, []);
 
+  // refreshHookResults fetches the run's per-node hook results and indexes them
+  // by nodeId. Guarded by runLoadSeqRef so a stale fetch from a previous run
+  // selection can't overwrite the current run's results.
+  const refreshHookResults = useCallback(async (jobId: string, guardSeq?: number): Promise<void> => {
+    try {
+      const res = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run/hooks`);
+      if (!res.ok) throw new Error(await readError(res));
+      const data = (await res.json()) as GraphHookResultsResponse;
+      if (guardSeq !== undefined && guardSeq !== runLoadSeqRef.current) return;
+      const byNode: Record<string, GraphHookResult> = {};
+      for (const r of data.results || []) byNode[r.nodeId] = r;
+      setHookResults(byNode);
+    } catch {
+      // Hook results are auxiliary; a fetch failure must not disrupt run viewing.
+    }
+  }, []);
+
   const selectRun = useCallback(
     async (run: GraphRun) => {
       const seq = ++runLoadSeqRef.current;
@@ -1029,6 +1067,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setRunProgress(run.progress);
       setRunInstances([]);
       setRunEdges([]);
+      setHookResults({});
       await refreshJobRunStatus(run.jobId, seq);
     },
     [refreshJobRunStatus],
@@ -1041,6 +1080,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     setViewingRun(false);
     setEditingRun(false);
     setSelectedRun(null);
+    setHookResults({});
   }, []);
 
   useEffect(() => {
@@ -1087,6 +1127,13 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
           ) {
             throttledRefresh();
           }
+          // A live Prompt hook fires while the run is still running and the SSE
+          // is connected — refetch hook results so the panel updates promptly.
+          // (The End hook is handled by the terminal-transition effect below,
+          // because it can land after this stream is torn down.)
+          if (graphEvent.type === 'hookCompleted' || graphEvent.type === 'hookFailed') {
+            void refreshHookResults(selectedRun.jobId, runSeq);
+          }
         },
         onError: (err) => setRunMessage(err.message),
         onResumePointGone: () => {
@@ -1099,7 +1146,26 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       client.disconnect();
       if (graphEventClientRef.current === client) graphEventClientRef.current = null;
     };
-  }, [refreshJobRunStatus, selectedRun?.jobId, selectedRun?.id, selectedRun?.status]);
+  }, [refreshJobRunStatus, refreshHookResults, selectedRun?.jobId, selectedRun?.id, selectedRun?.status]);
+
+  // Hook-result fetch (separate from the SSE refetch loop). Runs on run select
+  // and on every status change. When the run is terminal, the End hook may still
+  // be executing in a detached backend goroutine that finishes AFTER the run was
+  // marked completed — and the canvas SSE has by then disconnected — so a single
+  // fetch can race ahead of the End hook's persisted event. A short backoff burst
+  // (1s/2s/4s) closes that window without indefinite polling. While the run is
+  // live, the SSE's hookCompleted/hookFailed branch keeps results fresh.
+  useEffect(() => {
+    if (!selectedRun?.id || !selectedRun.jobId) return;
+    const jobId = selectedRun.jobId;
+    const runSeq = runLoadSeqRef.current;
+    void refreshHookResults(jobId, runSeq);
+    if (isGraphRunLive(selectedRun.status)) return;
+    const timers = [1000, 2000, 4000].map((delay) =>
+      setTimeout(() => void refreshHookResults(jobId, runSeq), delay),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [refreshHookResults, selectedRun?.jobId, selectedRun?.id, selectedRun?.status]);
 
   // ---- Workflow CRUD ----
   const selectWorkflow = useCallback(
@@ -1139,6 +1205,10 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     workflowLoadSeqRef.current += 1;
     const config = cloneDefaultConfig(t, workspaceId, workspaceWorkdir);
     exitRunView();
+    // The UI only ever creates 'user'-library workflows, so switch to that tab
+    // — otherwise a new workflow saved while the 'agent' tab is active would be
+    // filtered out of the visible list.
+    setActiveTab('user');
     setSelectedId(null);
     setSelectedWorkflowUpdatedAt(undefined);
     setName(t('graph.defaultName'));
@@ -2024,10 +2094,33 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
             </div>
           </div>
 
+          <div className="graph-library-tabs" role="tablist" aria-label={t('graph.sidebar.library')}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'user'}
+              className={`graph-library-tab${activeTab === 'user' ? ' active' : ''}`}
+              data-testid="graph-library-tab-user"
+              onClick={() => setActiveTab('user')}
+            >
+              {t('graph.sidebar.tabUser')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'agent'}
+              className={`graph-library-tab${activeTab === 'agent' ? ' active' : ''}`}
+              data-testid="graph-library-tab-agent"
+              onClick={() => setActiveTab('agent')}
+            >
+              {t('graph.sidebar.tabAgent')}
+            </button>
+          </div>
+
           <div className="graph-workflow-list">
             {loading ? (
               <div className="graph-empty">{t('graph.sidebar.loadingWorkflows')}</div>
-            ) : workflows.length === 0 ? (
+            ) : sortedWorkflows.length === 0 ? (
               <div className="graph-empty">{t('graph.sidebar.noWorkflows')}</div>
             ) : (
               sortedWorkflows.map((wf) => (
@@ -2287,6 +2380,15 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                     onDuplicateNode={editingRun ? undefined : onDuplicateNode}
                     onUpdateVariables={onUpdateVariables}
                     onUpdateRunConfig={onUpdateRunConfig}
+                    onDrawerToggle={() => setInspectorDrawerOpen((open) => !open)}
+                  />
+                )}
+                {viewingRun && !editingRun && selectedNodeId && (
+                  <GraphRunInspector
+                    node={selectedGraphNode}
+                    instance={runInstances.find((i) => i.nodeId === selectedNodeId)}
+                    hookResult={hookResults[selectedNodeId]}
+                    drawerOpen={!isMobile || inspectorDrawerOpen}
                     onDrawerToggle={() => setInspectorDrawerOpen((open) => !open)}
                   />
                 )}

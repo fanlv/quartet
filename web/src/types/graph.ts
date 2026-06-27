@@ -2,12 +2,20 @@ export type GraphNodeType = 'start' | 'end' | 'shell' | 'prompt' | 'clarify' | '
 export type GraphEdgePort = 'default' | 'yes' | 'no';
 export type GraphSessionStrategy = 'new' | 'inherit';
 export type GraphLoopMode = 'fixed' | 'until';
+// End node hook behavior: 'default' runs the global settings script, 'custom'
+// runs the node's own hookScript, 'off' disables it. Empty/undefined = default.
+export type GraphEndHookMode = 'default' | 'custom' | 'off';
+// Which library a workflow belongs to: 'user' = hand-authored in the Web UI,
+// 'agent' = created/managed by a model through the CLI. Legacy workflows with no
+// type are treated as 'user' by the backend's read-time normalization.
+export type GraphWorkflowType = 'user' | 'agent';
 
 export interface GraphWorkflow {
   id: string;
   workspaceId?: string;
   name: string;
   description?: string;
+  type?: GraphWorkflowType;
   config: GraphConfig;
   createdAt: string;
   updatedAt: string;
@@ -19,6 +27,7 @@ export interface GraphWorkflowSummary {
   workspaceId?: string;
   name: string;
   description?: string;
+  type?: GraphWorkflowType;
   createdAt: string;
   updatedAt: string;
   nodeCount: number;
@@ -63,6 +72,11 @@ export interface GraphNodeConfig {
   fixedCount?: number;
   untilCondition?: string;
   maxIterations?: number;
+  // Post-completion side-effect shell script. Prompt nodes run it when
+  // non-empty; End nodes run it when endHookMode is 'custom'.
+  hookScript?: string;
+  // End nodes only: which hook to run (default global script / custom / off).
+  endHookMode?: GraphEndHookMode;
 }
 
 export interface GraphNodeLayout {
@@ -167,7 +181,9 @@ export type GraphEventType =
   | 'agentToolEnd'
   | 'agentTokenUsage'
   | 'log'
-  | 'error';
+  | 'error'
+  | 'hookCompleted'
+  | 'hookFailed';
 
 export interface GraphRun {
   id: string;
@@ -364,4 +380,25 @@ export interface GraphRunStatusResponse {
   instances?: GraphInstanceState[];
   edges?: GraphEdgeState[];
   eventCount?: number;
+}
+
+// GraphHookResult is one node hook's execution result (§ 节点 Hook), surfaced in
+// the run-view node-detail panel. Source is the hook origin ("prompt" | "end");
+// status is "completed" | "failed". nodeTitle/nodeType are carried from the
+// hook event so the panel needs no editor node list.
+export interface GraphHookResult {
+  nodeId: string;
+  nodeTitle?: string;
+  nodeType?: GraphNodeType;
+  source?: string;
+  status: 'completed' | 'failed';
+  exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+  message?: string;
+  finishedAt: number;
+}
+
+export interface GraphHookResultsResponse {
+  results?: GraphHookResult[];
 }

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { AgentInfo } from '../ChatPage';
 import type {
   GraphConfig,
+  GraphEndHookMode,
   GraphLoopMode,
   GraphNode,
   GraphNodeConfig,
@@ -596,63 +597,110 @@ export function GraphInspector({
     </div>
   );
 
-  const AgentFields = isAgentNode && (
+  // HookField is the post-completion side-effect script editor. Reused by Prompt
+  // nodes (always shown) and by End nodes in 'custom' mode. The script runs after
+  // the node completes; its output is ignored and failures only log.
+  const HookField = (
+    <div className="gi-field">
+      <label>{t('graph.inspector.hookScript')}</label>
+      <textarea
+        aria-label={t('graph.inspector.hookScript')}
+        value={cfg.hookScript || ''}
+        placeholder={t('graph.inspector.hookScriptPlaceholder')}
+        disabled={readOnly}
+        onChange={(e) => setCfg({ hookScript: e.target.value })}
+      />
+      <div className="gi-desc">{t('graph.inspector.hookScriptDesc')}</div>
+    </div>
+  );
+
+  const endHookMode: GraphEndHookMode = cfg.endHookMode || 'default';
+  const EndHookFields = node.type === 'end' && (
     <>
       <div className="gi-field">
-        <label>{t('graph.inspector.agent')}</label>
+        <label>{t('graph.inspector.endHookMode')}</label>
         <select
-          aria-label={t('graph.inspector.agent')}
-          value={cfg.agentType || ''}
+          aria-label={t('graph.inspector.endHookMode')}
+          value={endHookMode}
           disabled={readOnly}
-          onChange={(e) => {
-            const agent = agents.find((a) => a.type === e.target.value);
-            setCfg({
-              agentType: e.target.value,
-              modelId: agent?.models?.currentModelId || agent?.model_id || '',
-              // 切换 Agent type 后清空 thought_level：有的 Agent type 不支持该字段，
-              // 残留旧值会导致 "agent does not advertise a thought_level config option" 报错。
-              acpThoughtLevel: undefined,
-            });
-          }}
+          onChange={(e) => setCfg({ endHookMode: e.target.value as GraphEndHookMode })}
         >
-          <option value="">{t('graph.inspector.selectAgent')}</option>
-          {agents.map((a) => (
-            <option key={`${a.type}-${a.model_id}`} value={a.type}>
-              {a.display_name}
-            </option>
-          ))}
+          <option value="default">{t('graph.inspector.endHookModeDefault')}</option>
+          <option value="custom">{t('graph.inspector.endHookModeCustom')}</option>
+          <option value="off">{t('graph.inspector.endHookModeOff')}</option>
         </select>
+        <div className="gi-desc">{t('graph.inspector.endHookModeDesc')}</div>
       </div>
-      {availableModels.length > 0 && (
-        <div className="gi-field">
-          <label>{t('graph.inspector.model')}</label>
-          <select aria-label={t('graph.inspector.model')} value={cfg.modelId || ''} disabled={readOnly} onChange={(e) => setCfg({ modelId: e.target.value })}>
-            {availableModels.map((m) => (
-              <option key={m.modelId} value={m.modelId}>
-                {m.name || m.modelId}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-      {availableThoughtLevels.length > 0 && (
-        <div className="gi-field">
-          <label>{t('graph.inspector.thoughtLevel')}</label>
-          <select
-            aria-label={t('graph.inspector.thoughtLevel')}
-            value={cfg.acpThoughtLevel || ''}
-            disabled={readOnly}
-            onChange={(e) => setCfg({ acpThoughtLevel: e.target.value || undefined })}
-          >
-            <option value="">{t('graph.inspector.thoughtLevelDefault')}</option>
-            {availableThoughtLevels.map((tl) => (
-              <option key={tl.id} value={tl.id}>
-                {tl.name}
-              </option>
-            ))}
-          </select>
-          <div className="gi-desc">{t('graph.inspector.thoughtLevelDesc')}</div>
-        </div>
+      {endHookMode === 'custom' && HookField}
+    </>
+  );
+
+  // An `inherit` node forks the upstream Agent's session and reuses its
+  // Agent/model/thought_level, so those fields are irrelevant (and the backend
+  // validator exempts them). Hide Agent type / model / thought_level then,
+  // leaving only the session-strategy selector so the user can switch back.
+  const inheritsSession = cfg.sessionStrategy === 'inherit';
+  const AgentFields = isAgentNode && (
+    <>
+      {!inheritsSession && (
+        <>
+          <div className="gi-field">
+            <label>{t('graph.inspector.agent')}</label>
+            <select
+              aria-label={t('graph.inspector.agent')}
+              value={cfg.agentType || ''}
+              disabled={readOnly}
+              onChange={(e) => {
+                const agent = agents.find((a) => a.type === e.target.value);
+                setCfg({
+                  agentType: e.target.value,
+                  modelId: agent?.models?.currentModelId || agent?.model_id || '',
+                  // 切换 Agent type 后清空 thought_level：有的 Agent type 不支持该字段，
+                  // 残留旧值会导致 "agent does not advertise a thought_level config option" 报错。
+                  acpThoughtLevel: undefined,
+                });
+              }}
+            >
+              <option value="">{t('graph.inspector.selectAgent')}</option>
+              {agents.map((a) => (
+                <option key={`${a.type}-${a.model_id}`} value={a.type}>
+                  {a.display_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {availableModels.length > 0 && (
+            <div className="gi-field">
+              <label>{t('graph.inspector.model')}</label>
+              <select aria-label={t('graph.inspector.model')} value={cfg.modelId || ''} disabled={readOnly} onChange={(e) => setCfg({ modelId: e.target.value })}>
+                {availableModels.map((m) => (
+                  <option key={m.modelId} value={m.modelId}>
+                    {m.name || m.modelId}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {availableThoughtLevels.length > 0 && (
+            <div className="gi-field">
+              <label>{t('graph.inspector.thoughtLevel')}</label>
+              <select
+                aria-label={t('graph.inspector.thoughtLevel')}
+                value={cfg.acpThoughtLevel || ''}
+                disabled={readOnly}
+                onChange={(e) => setCfg({ acpThoughtLevel: e.target.value || undefined })}
+              >
+                <option value="">{t('graph.inspector.thoughtLevelDefault')}</option>
+                {availableThoughtLevels.map((tl) => (
+                  <option key={tl.id} value={tl.id}>
+                    {tl.name}
+                  </option>
+                ))}
+              </select>
+              <div className="gi-desc">{t('graph.inspector.thoughtLevelDesc')}</div>
+            </div>
+          )}
+        </>
       )}
       <div className="gi-field">
         <label>{t('graph.inspector.sessionStrategy')}</label>
@@ -728,6 +776,7 @@ export function GraphInspector({
           </div>
           {OutputFields}
           {TimeoutField}
+          {HookField}
         </>
       )}
 
@@ -838,8 +887,15 @@ export function GraphInspector({
         </>
       )}
 
-      {(node.type === 'start' || node.type === 'end') && (
+      {node.type === 'start' && (
         <div className="gi-desc">{t('graph.inspector.controlNodeDesc')}</div>
+      )}
+
+      {node.type === 'end' && (
+        <>
+          <div className="gi-desc">{t('graph.inspector.controlNodeDesc')}</div>
+          {EndHookFields}
+        </>
       )}
 
       {/* Loop containers leave the freeze fieldset (so FixedCount stays editable),

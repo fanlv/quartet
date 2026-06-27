@@ -80,6 +80,9 @@ type Service interface {
 	// interactive message may later target it — letting a user keep chatting in
 	// a finished graph node's session after the run stops. Idempotent.
 	AttachGraphSession(ctx context.Context, jobID, sessionID string) error
+	// JobTitle returns the Job's display title (or "" if unknown), used by a
+	// graph node hook to inject $QUARTET_JOB_TITLE. Best-effort, never errors.
+	JobTitle(ctx context.Context, jobID string) string
 	// FailGraphJob forces a Graph-type Job to the Failed terminal status and
 	// records message on Progress.LastError. It is used by the schedule trigger's
 	// stage-two path (the Job was created but graphService.StartRun failed
