@@ -147,12 +147,12 @@ func (v *validator) index() {
 }
 
 func isAgent(t model.GraphNodeType) bool {
-	return t == model.GraphNodeTypePrompt || t == model.GraphNodeTypeEvaluator
+	return t == model.GraphNodeTypePrompt || t == model.GraphNodeTypeClarify
 }
 
 func isBusiness(t model.GraphNodeType) bool {
 	switch t {
-	case model.GraphNodeTypeShell, model.GraphNodeTypePrompt, model.GraphNodeTypeEvaluator,
+	case model.GraphNodeTypeShell, model.GraphNodeTypePrompt, model.GraphNodeTypeClarify,
 		model.GraphNodeTypeIfElse, model.GraphNodeTypeLoop:
 		return true
 	default:
@@ -220,12 +220,19 @@ func (v *validator) validateNodeConfigs() {
 		case model.GraphNodeTypeStart, model.GraphNodeTypeEnd:
 			v.validateControlConfig(n)
 		case model.GraphNodeTypeShell:
-			v.validateOutputDecls(n, false)
+			v.validateOutputDecls(n)
 		case model.GraphNodeTypePrompt:
-			v.validateOutputDecls(n, false)
+			v.validateOutputDecls(n)
 			v.validateAgentNewSession(n)
-		case model.GraphNodeTypeEvaluator:
-			v.validateOutputDecls(n, true)
+		case model.GraphNodeTypeClarify:
+			// Interactive clarification node: same Agent/output contract as Prompt
+			// (its initial prompt is optional, validated at run time, not here).
+			// Restricted to the main scope — parking the whole run mid-round inside
+			// a loop body has no well-defined semantics.
+			if n.ParentID != "" {
+				v.nodeErr(n.ID, fmt.Sprintf("clarify node %q must live in the main graph, not inside a loop body", n.ID))
+			}
+			v.validateOutputDecls(n)
 			v.validateAgentNewSession(n)
 		case model.GraphNodeTypeIfElse:
 			v.validateIfElseConfig(n)
@@ -273,9 +280,8 @@ func (v *validator) validateControlConfig(n *model.GraphNode) {
 }
 
 // validateOutputDecls checks output variable declarations + the optional
-// _last_assistant_msg alias for shell/prompt/evaluator nodes. requireOutput
-// forces >= 1 output variable (evaluator).
-func (v *validator) validateOutputDecls(n *model.GraphNode, requireOutput bool) {
+// _last_assistant_msg alias for shell/prompt nodes.
+func (v *validator) validateOutputDecls(n *model.GraphNode) {
 	seen := make(map[string]bool)
 	for _, name := range n.Config.OutputVariables {
 		if isReservedVar(name) {
@@ -292,9 +298,6 @@ func (v *validator) validateOutputDecls(n *model.GraphNode, requireOutput bool) 
 		}
 		seen[name] = true
 	}
-	if requireOutput && len(n.Config.OutputVariables) == 0 {
-		v.nodeErr(n.ID, fmt.Sprintf("evaluator node %q must declare at least one output variable", n.ID))
-	}
 	if alias := n.Config.LastAssistantAlias; alias != "" {
 		if isReservedVar(alias) {
 			v.varErr(n.ID, alias, fmt.Sprintf("_last_assistant_msg alias %q uses the reserved namespace", alias))
@@ -306,8 +309,8 @@ func (v *validator) validateOutputDecls(n *model.GraphNode, requireOutput bool) 
 	}
 }
 
-// validateAgentNewSession enforces that an Agent-class node (prompt/evaluator)
-// which creates a NEW session must specify an Agent. The `inherit` strategy is
+// validateAgentNewSession enforces that an Agent-class node (prompt) which
+// creates a NEW session must specify an Agent. The `inherit` strategy is
 // exempt: it forks the upstream Agent's session and reuses its Agent/model when
 // no override is given, so a missing agentType is legal there.
 func (v *validator) validateAgentNewSession(n *model.GraphNode) {
@@ -378,8 +381,7 @@ func (v *validator) validatePorts() {
 		}
 	}
 
-	// If-Else must have exactly one yes and one no out-edge; evaluator must not
-	// branch.
+	// If-Else must have exactly one yes and one no out-edge.
 	for i := range v.cfg.Nodes {
 		n := &v.cfg.Nodes[i]
 		if n.ID == "" {
@@ -397,14 +399,6 @@ func (v *validator) validatePorts() {
 			}
 			if yes != 1 || no != 1 {
 				v.nodeErr(n.ID, fmt.Sprintf("if-else node %q must have exactly one 'yes' and one 'no' out-edge (got yes=%d, no=%d)", n.ID, yes, no))
-			}
-		}
-		if n.Type == model.GraphNodeTypeEvaluator {
-			for _, e := range v.outEdges[n.ID] {
-				if e.SourcePort == model.GraphEdgePortYes || e.SourcePort == model.GraphEdgePortNo {
-					v.nodeErr(n.ID, fmt.Sprintf("evaluator node %q must not use branch (yes/no) out-edges", n.ID))
-					break
-				}
 			}
 		}
 	}

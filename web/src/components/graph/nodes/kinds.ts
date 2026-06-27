@@ -18,7 +18,7 @@ export const KINDS: Record<GraphNodeType, NodeKind> = {
   end: { labelKey: 'graph.kinds.endLabel', subKey: 'graph.kinds.endSub', icon: '■', color: '#f85149' },
   shell: { labelKey: 'graph.kinds.shellLabel', subKey: 'graph.kinds.shellSub', icon: '$', color: '#f0883e' },
   prompt: { labelKey: 'graph.kinds.promptLabel', subKey: 'graph.kinds.promptSub', icon: '✦', color: '#58a6ff' },
-  evaluator: { labelKey: 'graph.kinds.evaluatorLabel', subKey: 'graph.kinds.evaluatorSub', icon: '⚖', color: '#a371f7' },
+  clarify: { labelKey: 'graph.kinds.clarifyLabel', subKey: 'graph.kinds.clarifySub', icon: '💬', color: '#a371f7' },
   ifElse: { labelKey: 'graph.kinds.ifElseLabel', subKey: 'graph.kinds.ifElseSub', icon: '◆', color: '#e3b341' },
   loop: { labelKey: 'graph.kinds.loopLabel', subKey: 'graph.kinds.loopSub', icon: '🔁', color: '#56d4dd' },
 };
@@ -29,7 +29,7 @@ export const PALETTE_ORDER: GraphNodeType[] = [
   'start',
   'shell',
   'prompt',
-  'evaluator',
+  'clarify',
   'ifElse',
   'loop',
   'end',

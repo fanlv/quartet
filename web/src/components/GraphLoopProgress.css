@@ -51,7 +51,6 @@
 .graph-loop-status.status-running,
 .graph-loop-status.status-pending,
 .graph-loop-status.status-recovering,
-.graph-loop-status.status-pausing,
 .graph-loop-status.status-stepStopping {
   background: #dbeafe;
   color: #1d4ed8;
@@ -68,11 +67,17 @@
   color: #b91c1c;
 }
 
-.graph-loop-status.status-paused,
 .graph-loop-status.status-stepStopped,
 .graph-loop-status.status-stopped {
   background: #fef3c7;
   color: #92400e;
+}
+
+/* awaitingInput (§ 交互澄清结点): a purple "waiting for human" tint matching the
+   clarify node color, distinct from the gray paused/stopped states. */
+.graph-loop-status.status-awaitingInput {
+  background: #ede9fe;
+  color: #6d28d9;
 }
 
 .graph-loop-actions {
@@ -153,7 +158,6 @@
 
 .graph-loop-bar.status-running,
 .graph-loop-bar.status-pending,
-.graph-loop-bar.status-pausing,
 .graph-loop-bar.status-stepStopping,
 .graph-loop-bar.status-recovering {
   background: #2563eb;
@@ -168,10 +172,13 @@
   background: #ef4444;
 }
 
-.graph-loop-bar.status-paused,
 .graph-loop-bar.status-stepStopped,
 .graph-loop-bar.status-stopped {
   background: #f59e0b;
+}
+
+.graph-loop-bar.status-awaitingInput {
+  background: #8b5cf6;
 }
 
 .graph-loop-stats {
@@ -202,6 +209,19 @@
   border: 1px solid #fde68a;
   background: #fffbeb;
   color: #92400e;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* awaitingInput hint (§ 交互澄清结点): purple to match the parked-state badge,
+   telling the user to discuss in the clarify session then click「讨论完成」. */
+.graph-loop-awaiting-hint {
+  margin-top: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid #ddd6fe;
+  background: #f5f3ff;
+  color: #6d28d9;
   font-size: 12px;
   font-weight: 600;
 }

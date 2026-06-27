@@ -1,4 +1,4 @@
-export type GraphNodeType = 'start' | 'end' | 'shell' | 'prompt' | 'evaluator' | 'ifElse' | 'loop';
+export type GraphNodeType = 'start' | 'end' | 'shell' | 'prompt' | 'clarify' | 'ifElse' | 'loop';
 export type GraphEdgePort = 'default' | 'yes' | 'no';
 export type GraphSessionStrategy = 'new' | 'inherit';
 export type GraphLoopMode = 'fixed' | 'until';
@@ -138,15 +138,14 @@ export type GraphRunStatus =
   | 'running'
   | 'completed'
   | 'failed'
-  | 'pausing'
-  | 'paused'
   | 'stepStopping'
   | 'stepStopped'
   | 'stopped'
   | 'timedOut'
-  | 'recovering';
+  | 'recovering'
+  | 'awaitingInput';
 
-export type GraphInstanceStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'interrupted';
+export type GraphInstanceStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'interrupted' | 'awaitingInput';
 export type GraphEventType =
   | 'instanceStarted'
   | 'instanceCompleted'

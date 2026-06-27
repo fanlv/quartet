@@ -36,8 +36,17 @@ function bodyContent(t: TFunction, kind: string, cfg: GraphNodeConfig | undefine
           {truncate(cfg?.prompt) || <i>{t('graph.node.noPrompt')}</i>}
         </span>
       );
-    case 'evaluator':
-      return truncate(cfg?.prompt, 80) || <i>{t('graph.node.noCriteria')}</i>;
+    case 'clarify':
+      return (
+        <span>
+          {cfg?.agentType ? (
+            <>
+              <span className="qg-mono">{cfg.agentType}</span> ·{' '}
+            </>
+          ) : null}
+          {truncate(cfg?.prompt) || <i>{t('graph.node.noClarifyPrompt')}</i>}
+        </span>
+      );
     case 'ifElse':
       return cfg?.condition ? (
         <span>

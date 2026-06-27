@@ -12,8 +12,8 @@ import (
 func graphRunTerminalForTest(s model.GraphRunStatus) bool {
 	switch s {
 	case model.GraphRunStatusCompleted, model.GraphRunStatusFailed,
-		model.GraphRunStatusStopped, model.GraphRunStatusPaused,
-		model.GraphRunStatusStepStopped, model.GraphRunStatusTimedOut:
+		model.GraphRunStatusStopped, model.GraphRunStatusStepStopped,
+		model.GraphRunStatusTimedOut:
 		return true
 	default:
 		return false

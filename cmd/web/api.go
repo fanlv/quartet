@@ -116,10 +116,10 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	jobGroup.GET("/:jobId/graph-run", h.GetJobGraphRunStatus)
 	jobGroup.GET("/:jobId/graph-run/events", h.JobGraphRunEvents)
 	jobGroup.POST("/:jobId/graph-run/stop", h.StopJobGraphRun)
-	jobGroup.POST("/:jobId/graph-run/pause", h.PauseJobGraphRun)
 	jobGroup.POST("/:jobId/graph-run/step-stop", h.StepStopJobGraphRun)
 	jobGroup.POST("/:jobId/graph-run/cancel-stop", h.CancelStopJobGraphRun)
 	jobGroup.POST("/:jobId/graph-run/resume", h.ResumeJobGraphRun)
+	jobGroup.POST("/:jobId/graph-run/continue", h.ContinueJobGraphRun)
 	jobGroup.PUT("/:jobId/graph-run/version", h.UpdateJobGraphRunVersion)
 	jobGroup.DELETE("/:jobId/graph-run", h.DeleteJobGraphRun)
 

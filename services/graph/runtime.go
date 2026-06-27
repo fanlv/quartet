@@ -29,8 +29,8 @@ var (
 	// scheduler does not yet drive (loop containers / subgraph child nodes).
 	ErrGraphRunUnsupported = errors.New("graph run uses features not yet supported by the scheduler")
 	ErrGraphRunnerMissing  = errors.New("graph runner is required")
-	// ErrGraphRunNotRunning is returned when a control action (stop/pause/
-	// step-stop) targets a run with no live scheduler.
+	// ErrGraphRunNotRunning is returned when a control action (stop/step-stop)
+	// targets a run with no live scheduler.
 	ErrGraphRunNotRunning = errors.New("graph run is not currently running")
 	// ErrGraphRunControlBusy is returned when a live scheduler's control queue
 	// is full and the requested control signal was not accepted.
@@ -360,7 +360,7 @@ type nodeOutcome struct {
 //
 // loopVars carries the QUARTET_LOOP_* iteration context of the innermost
 // enclosing loop (nil in the main scope). It is overlaid onto the {{...}}
-// substitution for Prompt/Evaluator and onto both the substitution and the
+// substitution for Prompt and onto both the substitution and the
 // environment for Shell, without being persisted into the node's snapshot.
 //
 // notify is called once with the opened session id as soon as an Agent node has
@@ -372,13 +372,9 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 	switch node.Type {
 	case model.GraphNodeTypeShell:
 		return s.runShellWithRetries(ctx, run, node, vars, disabled, loopVars)
-	case model.GraphNodeTypePrompt, model.GraphNodeTypeEvaluator:
+	case model.GraphNodeTypePrompt:
 		prompt := node.Config.Prompt
-		if node.Type == model.GraphNodeTypeEvaluator {
-			prompt = buildEvaluatorPrompt(prompt, node.Config.OutputVariables)
-		} else {
-			prompt += buildOutputProtocolSuffix(node.Config.OutputVariables)
-		}
+		prompt += buildOutputProtocolSuffix(node.Config.OutputVariables)
 		prompt = substituteVariables(prompt, mergeLoopVars(vars, loopVars), disabled)
 		overrides := &model.SessionOverrides{
 			AgentType:       node.Config.AgentType,
@@ -430,9 +426,71 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 			return nodeOutcome{output: output, sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, perr
 		}
 		return nodeOutcome{output: output, produced: parsed.Variables, sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, nil
+	case model.GraphNodeTypeClarify:
+		return s.executeClarifyNode(ctx, run, node, key, vars, disabled, runner, inflowSession, loopVars, notify)
 	default:
 		return nodeOutcome{}, fmt.Errorf("node type %q is not supported by the graph engine", node.Type)
 	}
+}
+
+// executeClarifyNode opens the clarify node's session and, if an initial prompt
+// is configured, runs one turn to produce a draft plan the user can react to.
+// Unlike Prompt it is lenient by design: an empty prompt only opens the session
+// (no model turn), and output-protocol parsing is best-effort — the user is
+// still going to discuss, so the authoritative 结论 is captured later at continue
+// time (ContinueRun reads the session's last assistant message). It returns the
+// opened session so the scheduler can park the run waiting for human input.
+func (s *serviceImpl) executeClarifyNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, key model.GraphInstanceKey, vars map[string]string, disabled map[string]struct{}, runner Runner, inflowSession string, loopVars map[string]string, notify func(sessionID string)) (nodeOutcome, error) {
+	overrides := &model.SessionOverrides{
+		AgentType:       node.Config.AgentType,
+		ModelID:         node.Config.ModelID,
+		ACPMode:         node.Config.ACPMode,
+		ACPThoughtLevel: node.Config.ACPThoughtLevel,
+	}
+	sessionID, err := openNodeSession(ctx, runner, run.JobID, node, inflowSession, overrides)
+	if err != nil {
+		return nodeOutcome{}, err
+	}
+	modelID := firstNonEmpty(runner.SessionModelID(sessionID), node.Config.ModelID)
+
+	rawPrompt := strings.TrimSpace(node.Config.Prompt)
+	if rawPrompt == "" {
+		// No initial prompt: just open an empty session and park. Announce it so
+		// the Chat sidebar lists it immediately for the user to start discussing.
+		if notify != nil {
+			notify(sessionID)
+		}
+		return nodeOutcome{sessionID: sessionID, modelID: modelID}, nil
+	}
+
+	prompt := node.Config.Prompt + buildOutputProtocolSuffix(node.Config.OutputVariables)
+	prompt = substituteVariables(prompt, mergeLoopVars(vars, loopVars), disabled)
+	userMsg := &schema.Message{Role: schema.User, Content: prompt}
+	if node.Config.SessionStrategy != model.GraphSessionStrategyInherit {
+		if recorder, ok := runner.(PromptUserMessageRecorder); ok {
+			if err := recorder.RecordPromptUserMessage(ctx, run.JobID, sessionID, prompt, time.Now().UnixMilli()); err != nil {
+				logger.Warnf(ctx, "[graph] record clarify user message failed: runId=%s nodeId=%s sessionId=%s err=%v", run.ID, node.ID, sessionID, err)
+			} else {
+				userMsg.Extra = map[string]any{msgextra.KeyPrePersisted: true}
+			}
+		}
+	}
+	if notify != nil {
+		notify(sessionID)
+	}
+	result := s.runPromptWithRetries(ctx, run.ID, run.JobID, sessionID, node.ID, key, runner, []*schema.Message{userMsg})
+	if result.err != nil {
+		return nodeOutcome{output: result.handler.AccumulatedContent(), sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, withGraphRetryCount(result.err, result.retryCount)
+	}
+	output := result.handler.AccumulatedContent()
+	// Best-effort parse: a missing declared output on this first draft is not a
+	// failure (the user will keep discussing). The authoritative capture is at
+	// continue time. Any markers present are still surfaced.
+	produced := map[string]string{}
+	if parsed, perr := ParseQuartetOutput(output, nil); perr == nil {
+		produced = parsed.Variables
+	}
+	return nodeOutcome{output: output, produced: produced, sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, nil
 }
 
 // openNodeSession opens the session an Agent-class node executes against per its
@@ -468,7 +526,7 @@ func openNodeSession(ctx context.Context, runner Runner, jobID string, node mode
 }
 
 // runShellWithRetries executes a Shell node through the shared transient/rate-
-// limit retry driver (§2 瞬态错误重试), matching Prompt/评估 behavior: network
+// limit retry driver (§2 瞬态错误重试), matching Prompt behavior: network
 // reset / HTTP2 stream errors retry twice (fixed backoff), rate-limit errors
 // retry three times (exponential backoff). Retries happen inside the node so
 // edge state and progress are unaffected; the surfaced error carries the retry

@@ -111,15 +111,19 @@ type scheduler struct {
 	endReached     bool
 	failed         bool
 	stopScheduling bool // STOP_WORKFLOW: stop dispatching, terminate with early success
+	// awaitingInput is set when a clarify node parked the run waiting for human
+	// input: its instance is held in awaitingInput status with unresolved
+	// out-edges. Once the dispatchable frontier drains, the run settles into
+	// GraphRunStatusAwaitingInput (finishAwaiting) rather than its natural end.
+	awaitingInput bool
 
 	// Run-control state (steps 15/16). All mutated only by the scheduler
 	// goroutine in response to a controlSignal delivered over `control`.
-	control        <-chan controlSignal
-	pauseRequested bool                   // 暂停/优雅停止: stop dispatching new ready items
-	stepStop       bool                   // 步骤后停止: only dispatch the frozen batch
-	stopReason     string                 // reason recorded on graceful/hard stop
-	batchSeq       int                    // monotonically increasing ready-batch id source
-	curBatch       *model.GraphReadyBatch // the open ready batch (step-stop boundary)
+	control    <-chan controlSignal
+	stepStop   bool                   // 步骤后停止: only dispatch the frozen batch
+	stopReason string                 // reason recorded on graceful/hard stop
+	batchSeq   int                    // monotonically increasing ready-batch id source
+	curBatch   *model.GraphReadyBatch // the open ready batch (step-stop boundary)
 
 	activeLoops map[string]*scopeRun // active loop scopes by loop-instance-key string
 }
@@ -364,7 +368,7 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 		}
 		// Dispatch as many dispatchable ready instances as free semaphore slots
 		// allow without blocking the loop (so completions can always free slots).
-		// canDispatch gates pause/step-stop.
+		// canDispatch gates step-stop.
 		for len(sc.ready) > 0 && sc.canDispatch(sc.ready[0]) {
 			select {
 			case sem <- struct{}{}:
@@ -399,11 +403,22 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 		}
 	wait:
 		if inFlight == 0 && !sc.hasDispatchable() {
-			// In-flight drained and nothing left to dispatch. If a graceful stop
-			// (pause / step-stop) is in progress, finish into its terminal state;
-			// otherwise the run has reached its natural end.
-			if sc.pauseRequested || sc.stepStop {
+			// In-flight drained and nothing left to dispatch. If a step-stop is
+			// in progress, finish into its terminal state;
+			// if a clarify node parked the run waiting for human input, settle into
+			// the awaitingInput terminal; otherwise the run reached its natural end.
+			//
+			// awaitingInput takes priority over endReached: a parked clarify holds
+			// unresolved out-edges, so its downstream is still pending behind the
+			// human discussion even if a parallel branch already reached an end —
+			// the run is not actually complete until the user clicks「讨论完成」and the
+			// continue path finalizes the clarify and runs its downstream.
+			if sc.stepStop {
 				sc.finishGraceful(ctx)
+				return
+			}
+			if sc.awaitingInput {
+				sc.finishAwaiting(ctx)
 				return
 			}
 			break
@@ -649,6 +664,28 @@ func (sc *scheduler) handleResult(ctx context.Context, res nodeResult) {
 		logger.Infof(ctx, "[graph] variable written: runId=%s nodeId=%s key=%s variable=%s", sc.run.ID, node.ID, keyStr, name)
 	}
 
+	// Clarify node parking (§ 交互澄清结点): the node ran its turn (draft plan +
+	// open session) but the run must now wait for the user to discuss in its
+	// session before proceeding. Re-mark the instance awaitingInput, DO NOT
+	// resolve its out-edges (they are held so the DAG stops here), and flag the
+	// run so it settles into GraphRunStatusAwaitingInput once the dispatchable
+	// frontier drains. The session is whitelisted above so the Chat append path
+	// accepts the user's discussion turns while the run is parked. The held edges
+	// are resolved later by ContinueRun via the resume frontier rebuild.
+	if node.Type == model.GraphNodeTypeClarify {
+		state.Status = model.GraphInstanceStatusAwaitingInput
+		state.BlockedReason = "awaiting user input"
+		sc.instances[keyStr] = state
+		sc.awaitingInput = true
+		updateRunProgress(sc.run, sc.instances)
+		sc.persist(ctx)
+		sc.appendInstanceEvent(ctx, model.GraphEventTypeProgressUpdated, key, node.ID, "awaiting user input", nil)
+		logger.Infof(ctx, "[graph] clarify node awaiting input: runId=%s nodeId=%s key=%s sessionId=%s", sc.run.ID, node.ID, keyStr, outflowSession)
+		scope.live--
+		sc.onScopeQuiesced(ctx, scope)
+		return
+	}
+
 	// STOP_WORKFLOW: the run ends with early success. Stop dispatching, treat the
 	// terminus as reached, and do not activate this node's out-edges.
 	if res.outcome.stopWorkflow {
@@ -841,7 +878,7 @@ func (sc *scheduler) decide(ctx context.Context, scope *scopeRun, node model.Gra
 		}
 	case model.GraphNodeTypeIfElse:
 		sc.decideIfElse(ctx, scope, node, key, visible, inflowSession)
-	case model.GraphNodeTypeShell, model.GraphNodeTypePrompt, model.GraphNodeTypeEvaluator:
+	case model.GraphNodeTypeShell, model.GraphNodeTypePrompt, model.GraphNodeTypeClarify:
 		sc.enqueue(ctx, scope, node, key, visible, inflowSession)
 	case model.GraphNodeTypeLoop:
 		sc.startLoop(ctx, scope, node, key, visible, inflowSession)

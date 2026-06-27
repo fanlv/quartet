@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
@@ -184,6 +185,43 @@ func (r *jobRunnerImpl) RecordPromptUserMessage(ctx context.Context, jobID, sess
 
 func errSessionNotFound(sessionID string) error {
 	return &sessionNotFoundError{sessionID: sessionID}
+}
+
+// SessionLastAssistantMessage reads the latest assistant reply of a session for
+// the Clarify node's「讨论结论」capture (§ 交互澄清结点). It scans the persisted
+// transcript from the tail and returns the first non-empty assistant message,
+// skipping summary markers (a compressed-context summary is not the user-facing
+// 结论). ok=false means the session has no assistant turn yet (a clarify node
+// opened with no initial prompt that the user continued without a reply). The
+// content is trimmed so a downstream {{...}} reference sees no leading/trailing
+// whitespace.
+func (r *jobRunnerImpl) SessionLastAssistantMessage(ctx context.Context, jobID, sessionID string) (string, bool, error) {
+	if sessionID == "" {
+		return "", false, nil
+	}
+	repo, err := repository.NewChatContextRepo(r.wsID, jobID, sessionID)
+	if err != nil {
+		return "", false, fmt.Errorf("open clarify chat context repo: %w", err)
+	}
+	msgs, err := repo.LoadAllMessages(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("load clarify session messages: %w", err)
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := msgs[i]
+		if m == nil || m.Role != schema.Assistant {
+			continue
+		}
+		if v, ok := m.Extra[msgextra.KeyIsSummary].(bool); ok && v {
+			continue
+		}
+		content := strings.TrimSpace(m.Content)
+		if content == "" {
+			continue
+		}
+		return content, true, nil
+	}
+	return "", false, nil
 }
 
 // SessionModelID resolves the bound model id for sessionID, going through the

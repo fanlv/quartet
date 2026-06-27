@@ -9,8 +9,8 @@ import (
 
 // buildSnapshotContent freezes the referenced Agent/model config content of a
 // GraphConfig so a GraphRun can replay immune to later global config edits
-// (§4 GraphRun 启动保存基线快照). It walks the Prompt/评估 nodes (the only Agent
-// class nodes) and captures:
+// (§4 GraphRun 启动保存基线快照). It walks the Agent-class nodes (Prompt and
+// Clarify) and captures:
 //
 //   - ModelSnapshots: keyed by the node's string ModelID, the current
 //     ModelInstance content. Deduplicated across nodes sharing a model.
@@ -34,7 +34,7 @@ func buildSnapshotContent(ctx context.Context, cfg model.GraphConfig, src Runner
 	models := map[string]model.ModelInstance{}
 	agents := map[string]model.GraphAgentSnapshot{}
 	for _, n := range cfg.Nodes {
-		if n.Type != model.GraphNodeTypePrompt && n.Type != model.GraphNodeTypeEvaluator {
+		if !isAgent(n.Type) {
 			continue
 		}
 		agents[n.ID] = model.GraphAgentSnapshot{

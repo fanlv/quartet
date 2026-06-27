@@ -8,7 +8,7 @@ import (
 	"github.com/fanlv/quartet/types/model"
 )
 
-// Run control state machine (steps 15/16, §2 步骤后停止 + §4 停止/暂停).
+// Run control state machine (steps 15/16, §2 步骤后停止 + §4 停止).
 //
 // All functions here run in the single scheduler goroutine. Control intents
 // arrive over sc.control (see loop()'s select); these helpers only mutate
@@ -35,12 +35,9 @@ func (sc *scheduler) seedFresh(ctx context.Context) {
 }
 
 // canDispatch reports whether a ready item may be dispatched now given the
-// current control state. A pause stops all new dispatch; a step-stop only
-// allows the frozen batch's members through.
+// current control state. A step-stop only allows the frozen batch's members
+// through.
 func (sc *scheduler) canDispatch(item readyItem) bool {
-	if sc.pauseRequested {
-		return false
-	}
 	if sc.stepStop {
 		if sc.curBatch == nil {
 			return false
@@ -52,8 +49,8 @@ func (sc *scheduler) canDispatch(item readyItem) bool {
 }
 
 // hasDispatchable reports whether any ready item can still be dispatched. Under
-// a graceful stop this becomes false once the frozen batch (or nothing) remains,
-// which is the signal for loop() to finalise into paused/stepStopped.
+// a step-stop this becomes false once the frozen batch (or nothing) remains,
+// which is the signal for loop() to finalise into stepStopped.
 func (sc *scheduler) hasDispatchable() bool {
 	for _, item := range sc.ready {
 		if sc.canDispatch(item) {
@@ -63,19 +60,11 @@ func (sc *scheduler) hasDispatchable() bool {
 	return false
 }
 
-// applyGracefulSignal records a pause or step-stop request. Neither cancels
-// in-flight work; they only change what may be dispatched and where the run
-// settles when the dispatchable frontier drains.
+// applyGracefulSignal records a step-stop request. It does not cancel in-flight
+// work; it only changes what may be dispatched and where the run settles when
+// the dispatchable frontier drains.
 func (sc *scheduler) applyGracefulSignal(ctx context.Context, sig controlSignal) {
 	switch sig.kind {
-	case ctrlPause:
-		if sc.pauseRequested {
-			return
-		}
-		sc.pauseRequested = true
-		sc.stopReason = orDefault(sig.reason, "paused")
-		sc.run.Status = model.GraphRunStatusPausing
-		logger.Infof(ctx, "[graph] pause requested: runId=%s reason=%s ready=%d", sc.run.ID, sc.stopReason, len(sc.ready))
 	case ctrlStepStop:
 		if sc.stepStop {
 			return
@@ -97,18 +86,17 @@ func (sc *scheduler) applyGracefulSignal(ctx context.Context, sig controlSignal)
 	sc.persist(ctx)
 }
 
-// cancelGracefulSignal reverses a not-yet-settled pause / step-stop request,
-// returning the run to running. Because a graceful stop never cancels in-flight
-// work (it only gates dispatch), clearing the flags simply releases the held
-// dispatch frontier: the next loop pass dispatches the previously-blocked ready
-// items again. The frozen batch is discarded so a later step-stop re-freezes
-// cleanly. No-op if no graceful stop is pending.
+// cancelGracefulSignal reverses a not-yet-settled step-stop request, returning
+// the run to running. Because a step-stop never cancels in-flight work (it only
+// gates dispatch), clearing the flag releases the held dispatch frontier: the
+// next loop pass dispatches the previously-blocked ready items again. The frozen
+// batch is discarded so a later step-stop re-freezes cleanly. No-op if no
+// step-stop is pending.
 func (sc *scheduler) cancelGracefulSignal(ctx context.Context, sig controlSignal) {
-	if !sc.pauseRequested && !sc.stepStop {
+	if !sc.stepStop {
 		return
 	}
 	wasStepStop := sc.stepStop
-	sc.pauseRequested = false
 	sc.stepStop = false
 	sc.stopReason = ""
 	sc.curBatch = nil
@@ -123,6 +111,7 @@ func (sc *scheduler) cancelGracefulSignal(ctx context.Context, sig controlSignal
 	logger.Infof(ctx, "[graph] graceful stop cancelled: runId=%s wasStepStop=%v ready=%d",
 		sc.run.ID, wasStepStop, len(sc.ready))
 }
+
 // flight or queued (the "current ready batch", §2) into Resume.FrozenBatch.
 // Only these members may keep dispatching; downstream instances decided later
 // are held until resume.
@@ -174,20 +163,15 @@ func (sc *scheduler) finishStopped(ctx context.Context) {
 	}
 }
 
-// finishGraceful finalises a pause or step-stop once the dispatchable frontier
-// has drained and no workers are in flight. Un-dispatched ready instances are
-// rolled back so resume re-derives them cleanly.
+// finishGraceful finalises a step-stop once the dispatchable frontier has
+// drained and no workers are in flight. Un-dispatched ready instances are rolled
+// back so resume re-derives them cleanly.
 func (sc *scheduler) finishGraceful(ctx context.Context) {
 	sc.rollbackUndispatched(ctx)
 	finishedAt := time.Now().UnixMilli()
-	status := model.GraphRunStatusPaused
 	jobStatus := model.JobStatusStopped
-	label := "run paused"
-	if sc.stepStop {
-		status = model.GraphRunStatusStepStopped
-		label = "run step-stopped"
-	}
-	sc.run.Status = status
+	label := "run step-stopped"
+	sc.run.Status = model.GraphRunStatusStepStopped
 	sc.run.FinishedAt = finishedAt
 	sc.run.UpdatedAt = time.Now()
 	sc.snapshotLoopState()
@@ -199,6 +183,44 @@ func (sc *scheduler) finishGraceful(ctx context.Context) {
 		sc.run.Progress.FailedCount, sc.run.Progress.TotalCount)
 	if sc.jobs != nil {
 		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, jobStatus, sc.run.StartedAt, finishedAt)
+	}
+}
+
+// finishAwaiting finalises the run into the awaitingInput terminal (§ 交互澄清结点):
+// one or more clarify nodes ran their turn (draft plan + open session) and the
+// dispatchable frontier has drained with their out-edges held unresolved. The
+// run settles like a step-stop — scheduler exits, state stays resumable —
+// but into GraphRunStatusAwaitingInput, and the bound Job is set to a
+// non-running status (JobStatusStopped, same as stop) so the Chat
+// append-message path accepts the user's multi-turn discussion in the clarify
+// session(s). The held edges and awaitingInput instances are finalized later by
+// ContinueRun (read 结论 → succeeded → resolve out-edges → resume frontier).
+//
+// Un-dispatched ready items are rolled back exactly like finishGraceful so a
+// continue re-derives them cleanly; awaitingInput instances are NOT rolled back
+// (they are not in sc.ready — they completed their turn and are held in the
+// instances map), and the continue path keys off their persisted status.
+func (sc *scheduler) finishAwaiting(ctx context.Context) {
+	sc.rollbackUndispatched(ctx)
+	finishedAt := time.Now().UnixMilli()
+	sc.run.Status = model.GraphRunStatusAwaitingInput
+	sc.run.FinishedAt = finishedAt
+	sc.run.UpdatedAt = time.Now()
+	sc.snapshotLoopState()
+	updateRunProgress(sc.run, sc.instances)
+	if sc.run.Progress != nil {
+		sc.run.Progress.LastError = ""
+	}
+	sc.persist(ctx)
+	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeProgressUpdated, nil, "", "", "run awaiting user input", nil)
+	logger.Infof(ctx, "[graph] run awaiting input: runId=%s completed=%d skipped=%d failed=%d total=%d",
+		sc.run.ID, sc.run.Progress.CompletedCount, sc.run.Progress.SkippedCount,
+		sc.run.Progress.FailedCount, sc.run.Progress.TotalCount)
+	if sc.jobs != nil {
+		// JobStatusStopped is a non-running, non-terminal-for-chat status: the Chat
+		// append path rejects only JobStatusRunning, so the user can discuss in the
+		// clarify session while the run is parked. Continue re-launches via resume.
+		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusStopped, sc.run.StartedAt, finishedAt)
 	}
 }
 
@@ -221,7 +243,7 @@ func (sc *scheduler) rollbackUndispatched(_ context.Context) {
 // snapshotLoopState walks the live scope tree and records one GraphLoopState per
 // active loop container so a fresh scheduler can rebuild the scope tree on
 // resume (§4 Resume/续跑). It is called on every resumable terminal transition —
-// graceful pause/step-stop AND failure/timeout — so a resume continues each
+// step-stop AND failure/timeout — so a resume continues each
 // in-flight loop from its current round (step-level resume) rather than
 // re-running it from round 0. Completed loops are derivable from their succeeded
 // container instance, so only in-flight loops (still in sc.activeLoops) are

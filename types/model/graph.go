@@ -10,13 +10,13 @@ import (
 type GraphNodeType string
 
 const (
-	GraphNodeTypeStart     GraphNodeType = "start"
-	GraphNodeTypeEnd       GraphNodeType = "end"
-	GraphNodeTypeShell     GraphNodeType = "shell"
-	GraphNodeTypePrompt    GraphNodeType = "prompt"
-	GraphNodeTypeEvaluator GraphNodeType = "evaluator"
-	GraphNodeTypeIfElse    GraphNodeType = "ifElse"
-	GraphNodeTypeLoop      GraphNodeType = "loop"
+	GraphNodeTypeStart   GraphNodeType = "start"
+	GraphNodeTypeEnd     GraphNodeType = "end"
+	GraphNodeTypeShell   GraphNodeType = "shell"
+	GraphNodeTypePrompt  GraphNodeType = "prompt"
+	GraphNodeTypeClarify GraphNodeType = "clarify"
+	GraphNodeTypeIfElse  GraphNodeType = "ifElse"
+	GraphNodeTypeLoop    GraphNodeType = "loop"
 )
 
 type GraphEdgePort string
@@ -134,13 +134,17 @@ const (
 	GraphRunStatusRunning      GraphRunStatus = "running"
 	GraphRunStatusCompleted    GraphRunStatus = "completed"
 	GraphRunStatusFailed       GraphRunStatus = "failed"
-	GraphRunStatusPausing      GraphRunStatus = "pausing"
-	GraphRunStatusPaused       GraphRunStatus = "paused"
 	GraphRunStatusStepStopping GraphRunStatus = "stepStopping"
 	GraphRunStatusStepStopped  GraphRunStatus = "stepStopped"
 	GraphRunStatusStopped      GraphRunStatus = "stopped"
 	GraphRunStatusTimedOut     GraphRunStatus = "timedOut"
 	GraphRunStatusRecovering   GraphRunStatus = "recovering"
+	// GraphRunStatusAwaitingInput is a resumable terminal: a clarify node ran its
+	// turn and the run settled here waiting for the user to discuss in its session
+	// and then continue. The scheduler has exited (like stopped); the bound
+	// Job is non-running so the Chat append-message path accepts new turns. A
+	// continue (ContinueRun) finalizes the awaiting clarify instances and resumes.
+	GraphRunStatusAwaitingInput GraphRunStatus = "awaitingInput"
 )
 
 type GraphRun struct {
@@ -206,6 +210,11 @@ const (
 	GraphInstanceStatusFailed      GraphInstanceStatus = "failed"
 	GraphInstanceStatusSkipped     GraphInstanceStatus = "skipped"
 	GraphInstanceStatusInterrupted GraphInstanceStatus = "interrupted"
+	// GraphInstanceStatusAwaitingInput marks a clarify instance that ran its turn
+	// and is holding its out-edges, waiting for the user to discuss in its session
+	// and continue. It is a non-terminal hold (not resettable on resume): a
+	// continue finalizes it (capture结论 → succeeded → resolve out-edges).
+	GraphInstanceStatusAwaitingInput GraphInstanceStatus = "awaitingInput"
 )
 
 type GraphInstanceKey struct {

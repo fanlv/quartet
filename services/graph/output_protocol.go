@@ -6,10 +6,10 @@ import (
 	"strings"
 )
 
-// Prompt/evaluator output variable protocol (§1 输出变量契约). Unlike Shell,
-// Agent nodes have no control file, so declared output variables are carried
-// in the model's raw output via QUARTET_OUTPUT markers matched as a substring
-// anywhere within a line.
+// Prompt output variable protocol (§1 输出变量契约). Unlike Shell, Agent nodes
+// have no control file, so declared output variables are carried in the model's
+// raw output via QUARTET_OUTPUT markers matched as a substring anywhere within a
+// line.
 
 const quartetOutputMarker = "QUARTET_OUTPUT:"
 
@@ -133,23 +133,5 @@ func buildOutputProtocolSuffix(declared []string) string {
 		b.WriteString(name)
 		b.WriteString(" 的值>\n")
 	}
-	return b.String()
-}
-
-// buildEvaluatorPrompt wraps an evaluator node's judgement prompt: the fixed
-// framing instructs the model to make the decision, and the output-protocol
-// suffix forces it to emit the declared named variables (replacing the old
-// LOOP_DECISION:STOP marker; the decision is now carried by an explicit
-// variable consumed by a downstream If-Else / loop "until" condition).
-func buildEvaluatorPrompt(condition string, declared []string) string {
-	var b strings.Builder
-	b.WriteString("【")
-	b.WriteString(strings.TrimSpace(condition))
-	b.WriteString("】\n\n")
-	b.WriteString("---\n")
-	b.WriteString("上面内是用户输入的判断条件。\n")
-	b.WriteString("请结合你可以使用的所有工具，然后按下面的协议输出你的判断结论。\n")
-	b.WriteString("如果条件已经完成，设置变量为\"1\"，否则设置为\"0\"。\n")
-	b.WriteString(buildOutputProtocolSuffix(declared))
 	return b.String()
 }

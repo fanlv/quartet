@@ -104,53 +104,6 @@ func TestResumeAfterFailureReRunsOnlyResettable(t *testing.T) {
 	}
 }
 
-// TestResumeAfterPauseCompletes verifies a paused run resumes and finishes with
-// completed==total, without re-running the already-succeeded node.
-func TestResumeAfterPauseCompletes(t *testing.T) {
-	uniqueMemoryRoot(t)
-	svc, err := NewService()
-	if err != nil {
-		t.Fatalf("NewService failed: %v", err)
-	}
-	cfg := model.GraphConfig{
-		Workdir: t.TempDir(),
-		Nodes: []model.GraphNode{
-			node("s", model.GraphNodeTypeStart),
-			promptNode("a"),
-			promptNode("b"),
-			node("e", model.GraphNodeTypeEnd),
-		},
-		Edges: []model.GraphEdge{edge("s_a", "s", "a"), edge("a_b", "a", "b"), edge("b_e", "b", "e")},
-	}
-	gate := &gatedRunner{release: make(chan struct{})}
-	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1", Config: &cfg}, gate, nil)
-	if err != nil {
-		t.Fatalf("StartRun failed: %v", err)
-	}
-	waitRunningCount(t, svc, run.ID, 1)
-	if _, err := svc.PauseRun(context.Background(), run.ID, ""); err != nil {
-		t.Fatalf("PauseRun failed: %v", err)
-	}
-	releaseAfter(gate)
-	waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusPaused)
-
-	resumeRunner := newCountingRunner()
-	if _, err := svc.ResumeRun(context.Background(), run.ID, resumeRunner, nil); err != nil {
-		t.Fatalf("ResumeRun failed: %v", err)
-	}
-	got := waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusCompleted)
-	// a already succeeded before pause; resume must not re-run it.
-	if resumeRunner.callCount("do a") != 0 {
-		t.Fatalf("a was succeeded before pause; resume must not re-run it, got %d", resumeRunner.callCount("do a"))
-	}
-	if resumeRunner.callCount("do b") != 1 {
-		t.Fatalf("b should run once on resume, got %d", resumeRunner.callCount("do b"))
-	}
-	if got.Progress.CompletedCount != got.Progress.TotalCount {
-		t.Fatalf("expected completed==total, got %+v", got.Progress)
-	}
-}
-
 // TestResumeRejectsRunning verifies ResumeRun on a running run is rejected.
 func TestResumeRejectsRunning(t *testing.T) {
 	uniqueMemoryRoot(t)

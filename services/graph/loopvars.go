@@ -13,7 +13,7 @@ import (
 // its enclosing (innermost) loop: the current 0-based round index, the loop's
 // fixed count (empty for until-mode loops), and the max-iterations backstop.
 // They are exposed identically across all three channels — Shell environment
-// variables, {{...}} text substitution (Shell/Prompt/Evaluator), and condition
+// variables, {{...}} text substitution (Shell/Prompt), and condition
 // evaluation (If-Else / 直到条件) — under the same QUARTET_LOOP_* names.
 //
 // These values are computed on the fly from the live loop scope at decision /

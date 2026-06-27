@@ -122,50 +122,6 @@ func TestHardStopInterruptsRunning(t *testing.T) {
 	}
 }
 
-// TestPauseLetsInFlightFinish verifies a pause stops dispatching new instances,
-// lets in-flight ones finish, and settles to "paused".
-func TestPauseLetsInFlightFinish(t *testing.T) {
-	uniqueMemoryRoot(t)
-	svc, err := NewService()
-	if err != nil {
-		t.Fatalf("NewService failed: %v", err)
-	}
-	// start → a (gated prompt) → b (prompt) → end. Pause while a is in flight;
-	// a finishes, b must NOT dispatch.
-	cfg := model.GraphConfig{
-		Workdir: t.TempDir(),
-		Nodes: []model.GraphNode{
-			node("s", model.GraphNodeTypeStart),
-			promptNode("a"),
-			promptNode("b"),
-			node("e", model.GraphNodeTypeEnd),
-		},
-		Edges: []model.GraphEdge{
-			edge("s_a", "s", "a"), edge("a_b", "a", "b"), edge("b_e", "b", "e"),
-		},
-	}
-	gate := &gatedRunner{release: make(chan struct{})}
-	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1", Config: &cfg}, gate, nil)
-	if err != nil {
-		t.Fatalf("StartRun failed: %v", err)
-	}
-	waitRunningCount(t, svc, run.ID, 1)
-	if _, err := svc.PauseRun(context.Background(), run.ID, ""); err != nil {
-		t.Fatalf("PauseRun failed: %v", err)
-	}
-	// Give the pause signal time to land, then release the in-flight node.
-	time.Sleep(100 * time.Millisecond)
-	close(gate.release)
-	got := waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusPaused)
-	a, _ := instByNode(got, "a")
-	if a.Status != model.GraphInstanceStatusSucceeded {
-		t.Fatalf("expected a succeeded, got %s", a.Status)
-	}
-	if b, ok := instByNode(got, "b"); ok && b.Status == model.GraphInstanceStatusRunning {
-		t.Fatalf("b should not have dispatched after pause, got %s", b.Status)
-	}
-}
-
 // TestStepStopFreezesBatch verifies step-stop runs the frozen batch to terminal
 // and holds downstream instances, settling to "stepStopped" with a persisted
 // frozen batch.

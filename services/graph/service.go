@@ -103,20 +103,22 @@ type Service interface {
 	// StopRun hard-stops a running GraphRun: in-flight instances are cancelled
 	// and marked interrupted, the run becomes "stopped" and stays resumable.
 	StopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error)
-	// PauseRun gracefully pauses: no new instances dispatch, in-flight ones
-	// finish, then the run becomes "paused" and stays resumable.
-	PauseRun(ctx context.Context, runID, reason string) (*model.GraphRun, error)
 	// StepStopRun freezes the current ready batch and stops after its members
 	// reach a terminal state; the run becomes "stepStopped" and stays resumable.
 	StepStopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error)
-	// CancelStopRun cancels a pending pause / step-stop that has not yet settled
-	// (run still in pausing / stepStopping): the held dispatch frontier is
-	// released and the run returns to "running".
+	// CancelStopRun cancels a pending step-stop that has not yet settled (run
+	// still in stepStopping): the held dispatch frontier is released and the run
+	// returns to "running".
 	CancelStopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error)
-	// ResumeRun re-launches a resumable GraphRun (failed/paused/stepStopped/
-	// stopped/timedOut/recovering): succeeded/skipped instances are kept,
+	// ResumeRun re-launches a resumable GraphRun (failed/stepStopped/stopped/
+	// timedOut/recovering): succeeded/skipped instances are kept,
 	// failed/interrupted ones are reset and rescheduled.
 	ResumeRun(ctx context.Context, runID string, runner Runner, jobs JobStateSink) (*model.GraphRun, error)
+	// ContinueRun continues a GraphRun parked at awaitingInput (§ 交互澄清结点): it
+	// finalizes the clarify instances (capturing each session's discussion 结论
+	// into their output variables), resolves their held out-edges, and resumes the
+	// DAG. Rejected unless the run is in awaitingInput.
+	ContinueRun(ctx context.Context, runID string, runner Runner, jobs JobStateSink) (*model.GraphRun, error)
 	// DeleteRun deletes a non-in-flight GraphRun, cascading all of its run
 	// artifacts and clearing the bound Job's GraphRunID linkage.
 	DeleteRun(ctx context.Context, runID string, jobs JobStateSink) error
@@ -140,9 +142,8 @@ type controlSignalKind int
 
 const (
 	ctrlHardStop      controlSignalKind = iota // 硬停止
-	ctrlPause                                  // 暂停 / 优雅停止
 	ctrlStepStop                               // 步骤后停止
-	ctrlCancelStop                             // 取消待生效的暂停 / 步骤后停止
+	ctrlCancelStop                             // 取消待生效的步骤后停止
 	ctrlUpdateVersion                          // 运行中追加图版本
 )
 
@@ -227,7 +228,7 @@ type ShellSessionRecorder interface {
 }
 
 // PromptUserMessageRecorder is an optional capability a Runner may implement so
-// an Agent-class node (Prompt/评估) can persist its rendered prompt as the
+// an Agent-class node (Prompt/Clarify) can persist its rendered prompt as the
 // session's user message at enqueue time — before the agent subprocess spawns
 // and starts replying. Without it, the user message is only written inside the
 // agent's Run (ctxManager.BeginRun), which for a freshly-minted ACP session
@@ -245,6 +246,20 @@ type ShellSessionRecorder interface {
 // record failure leaves the node to persist normally inside its Run.
 type PromptUserMessageRecorder interface {
 	RecordPromptUserMessage(ctx context.Context, jobID, sessionID, content string, startedAt int64) error
+}
+
+// SessionLastAssistantReader is an optional capability a Runner may implement so
+// the graph engine can read the latest assistant reply of a session — used by
+// the Clarify node (§ 交互澄清结点) to capture the「讨论结论」at continue time: the
+// authoritative result of an open-ended discussion is the session's last
+// assistant message, written into _last_assistant_msg / the optional alias /
+// declared output variables when the user clicks「讨论完成」. Returns the trimmed
+// content of the last non-empty assistant message, or "" (ok=false) when the
+// session has no assistant turn yet (e.g. a clarify node opened with no initial
+// prompt that the user continued without ever getting a reply). Best-effort: a
+// missing implementation or a read error degrades to an empty 结论, not a failure.
+type SessionLastAssistantReader interface {
+	SessionLastAssistantMessage(ctx context.Context, jobID, sessionID string) (content string, ok bool, err error)
 }
 
 type JobStateSink interface {

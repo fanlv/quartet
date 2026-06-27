@@ -71,7 +71,7 @@ func (s *serviceImpl) UpdateRunVersion(ctx context.Context, runID string, req *m
 	if err != nil {
 		return nil, err
 	}
-	// A mid-run FixedCount change on a stopped/paused run takes effect when the
+	// A mid-run FixedCount change on a stopped run takes effect when the
 	// scheduler rebuilds the loop scope on resume (rebuildLoopScopes re-sources
 	// the node from the new config), but the persisted progress denominator was
 	// seeded with the old count. Correct it here so the bar stays accurate; the
@@ -118,9 +118,10 @@ func (s *serviceImpl) adjustStaticLoopDenominator(ctx context.Context, run *mode
 
 func isStaticEditableStatus(st model.GraphRunStatus) bool {
 	switch st {
-	case model.GraphRunStatusFailed, model.GraphRunStatusPaused,
-		model.GraphRunStatusStepStopped, model.GraphRunStatusStopped,
-		model.GraphRunStatusTimedOut, model.GraphRunStatusRecovering:
+	case model.GraphRunStatusFailed, model.GraphRunStatusStepStopped,
+		model.GraphRunStatusStopped,
+		model.GraphRunStatusTimedOut, model.GraphRunStatusRecovering,
+		model.GraphRunStatusAwaitingInput:
 		return true
 	default:
 		return false

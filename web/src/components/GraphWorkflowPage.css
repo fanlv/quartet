@@ -304,7 +304,6 @@
 
 .graph-run-status.status-running,
 .graph-run-status.status-pending,
-.graph-run-status.status-pausing,
 .graph-run-status.status-stepStopping {
   background: #ecfeff;
   color: #0f766e;
@@ -319,6 +318,11 @@
 .graph-run-status.status-timedOut {
   background: #fff1f2;
   color: #be123c;
+}
+
+.graph-run-status.status-awaitingInput {
+  background: #f5f3ff;
+  color: #6d28d9;
 }
 
 .graph-empty {

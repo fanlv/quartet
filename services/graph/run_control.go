@@ -18,17 +18,12 @@ func (s *serviceImpl) StopRun(ctx context.Context, runID, reason string) (*model
 	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlHardStop, reason: orDefault(reason, "hard stopped by user")})
 }
 
-// PauseRun gracefully pauses a running GraphRun.
-func (s *serviceImpl) PauseRun(ctx context.Context, runID, reason string) (*model.GraphRun, error) {
-	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlPause, reason: orDefault(reason, "paused by user")})
-}
-
 // StepStopRun freezes the current ready batch and stops after it.
 func (s *serviceImpl) StepStopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error) {
 	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlStepStop, reason: orDefault(reason, "step-stopped by user")})
 }
 
-// CancelStopRun cancels a pending pause / step-stop that has not yet settled,
+// CancelStopRun cancels a pending step-stop that has not yet settled,
 // releasing the held dispatch frontier and returning the run to running.
 func (s *serviceImpl) CancelStopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error) {
 	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlCancelStop, reason: orDefault(reason, "stop cancelled by user")})
@@ -48,11 +43,16 @@ func (s *serviceImpl) signalAndSnapshot(ctx context.Context, runID string, sig c
 }
 
 // resumableStatuses are the GraphRun statuses from which ResumeRun is allowed.
+// awaitingInput is included: a parked clarify run is a resumable terminal (its
+// scheduler has exited and state is persisted), continued via ContinueRun which
+// shares this resume kernel — the continue finalizes the clarify instances on
+// the way through seedResume (finalizeAwaitingClarify).
 func isResumableStatus(st model.GraphRunStatus) bool {
 	switch st {
-	case model.GraphRunStatusFailed, model.GraphRunStatusPaused,
-		model.GraphRunStatusStepStopped, model.GraphRunStatusStopped,
-		model.GraphRunStatusTimedOut, model.GraphRunStatusRecovering:
+	case model.GraphRunStatusFailed, model.GraphRunStatusStepStopped,
+		model.GraphRunStatusStopped,
+		model.GraphRunStatusTimedOut, model.GraphRunStatusRecovering,
+		model.GraphRunStatusAwaitingInput:
 		return true
 	default:
 		return false
@@ -64,8 +64,7 @@ func isResumableStatus(st model.GraphRunStatus) bool {
 // state after crash recovery, with no live scheduler to accept controls.
 func isInFlightStatus(st model.GraphRunStatus) bool {
 	switch st {
-	case model.GraphRunStatusRunning, model.GraphRunStatusPausing,
-		model.GraphRunStatusStepStopping:
+	case model.GraphRunStatusRunning, model.GraphRunStatusStepStopping:
 		return true
 	default:
 		return false
@@ -86,7 +85,38 @@ func (s *serviceImpl) ResumeRun(ctx context.Context, runID string, runner Runner
 	if !isResumableStatus(run.Status) {
 		return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotResumable, run.Status)
 	}
+	return s.relaunchResumableRun(ctx, run, runner, jobs)
+}
 
+// ContinueRun continues a GraphRun parked at「等待人工」(§5 讨论完成/续跑): the user
+// finished discussing in the clarify node session(s) and clicked「讨论完成」. It
+// shares the resume kernel with ResumeRun — relaunchResumableRun re-enters the
+// scheduler in resume mode, and seedResume's finalizeAwaitingClarify captures
+// each clarify's 结论 (the session's last assistant message), flips it to
+// succeeded, and resolves its held out-edges so the DAG continues. Guarded to the
+// awaitingInput status specifically so a misfired continue on a failed/stopped
+// run returns a clear error rather than silently resuming.
+func (s *serviceImpl) ContinueRun(ctx context.Context, runID string, runner Runner, jobs JobStateSink) (*model.GraphRun, error) {
+	if runner == nil {
+		return nil, ErrGraphRunnerMissing
+	}
+	run, err := s.runRepo.GetRun(ctx, runID)
+	if err != nil {
+		return nil, graphRunLoadError(runID, err)
+	}
+	if run.Status != model.GraphRunStatusAwaitingInput {
+		return nil, fmt.Errorf("%w: continue requires awaitingInput, status=%s", ErrGraphRunNotResumable, run.Status)
+	}
+	return s.relaunchResumableRun(ctx, run, runner, jobs)
+}
+
+// relaunchResumableRun is the shared resume kernel for ResumeRun and ContinueRun:
+// it resets the resettable terminal instances (failed/interrupted) and their
+// downstream, keeps succeeded/skipped (and awaitingInput) instances, persists the
+// post-reset state, then re-launches the scheduler in resume mode. The caller is
+// responsible for status validation; `run` is the already-loaded run.
+func (s *serviceImpl) relaunchResumableRun(ctx context.Context, run *model.GraphRun, runner Runner, jobs JobStateSink) (*model.GraphRun, error) {
+	runID := run.ID
 	instances, err := s.runRepo.GetInstances(ctx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("load instances failed: %w", err)

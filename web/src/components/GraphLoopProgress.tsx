@@ -100,14 +100,13 @@ interface GraphLoopProgressProps {
 // isGraphRunEditable and the backend's editable set.
 const EDITABLE_STATUSES = new Set<GraphRunStatus>([
   'running',
-  'pausing',
   'stepStopping',
   'recovering',
-  'paused',
   'stepStopped',
   'stopped',
   'failed',
   'timedOut',
+  'awaitingInput',
 ]);
 
 // LIVE = run is actively scheduling and still producing events → keep an SSE
@@ -117,8 +116,12 @@ const EDITABLE_STATUSES = new Set<GraphRunStatus>([
 // live (no SSE tail, no replay) and instead shows a Resume action. Keeping these
 // two in sync with the backend is load-bearing: if 'recovering' were in neither
 // set the run would show neither Stop nor Resume and get stuck.
-const LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'pausing', 'stepStopping']);
-const RESUMABLE_STATUSES = new Set<GraphRunStatus>(['failed', 'paused', 'stepStopped', 'stopped', 'timedOut', 'recovering']);
+//
+// 'awaitingInput' (§ 交互澄清结点) is deliberately in NEITHER set: it is a parked
+// terminal (no SSE tail, like a resumable) but it gets its own「讨论完成」continue
+// action rather than the generic Resume — so canContinue handles it separately.
+const LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'stepStopping']);
+const RESUMABLE_STATUSES = new Set<GraphRunStatus>(['failed', 'stepStopped', 'stopped', 'timedOut', 'recovering']);
 
 function makeValidationLabel(err: GraphValidationError): string {
   const loc = [
@@ -164,13 +167,12 @@ function statusLabel(t: TFunction, status?: GraphRunStatus): string {
     case 'running': return t('graph.status.running');
     case 'completed': return t('graph.status.completed');
     case 'failed': return t('graph.status.failed');
-    case 'pausing': return t('graph.status.pausing');
-    case 'paused': return t('graph.status.paused');
     case 'stepStopping': return t('graph.status.stepStopping');
     case 'stepStopped': return t('graph.status.stepStopped');
     case 'stopped': return t('graph.status.stopped');
     case 'timedOut': return t('graph.status.timedOut');
     case 'recovering': return t('graph.status.recovering');
+    case 'awaitingInput': return t('graph.status.awaitingInput');
     default: return t('graph.status.notLoaded');
   }
 }
@@ -205,13 +207,15 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
   const bindingRef = useRef(`${jobId || ''}:${runId || ''}`);
 
   const isLive = !!run?.status && LIVE_STATUSES.has(run.status);
-  const canPause = !readOnly && run?.status === 'running';
   const canStepStop = !readOnly && run?.status === 'running';
-  // A pending pause / legacy step-stop (not yet settled) can be cancelled, releasing
+  // A pending step-stop (not yet settled) can be cancelled, releasing
   // the held dispatch frontier back to running — mirrors Loop's "keep running".
-  const canCancelStop = !readOnly && (run?.status === 'pausing' || run?.status === 'stepStopping');
+  const canCancelStop = !readOnly && run?.status === 'stepStopping';
   const canStop = !readOnly && !!run?.status && LIVE_STATUSES.has(run.status);
   const canResume = !readOnly && !!run?.status && RESUMABLE_STATUSES.has(run.status);
+  // A run parked at「等待人工」(§ 交互澄清结点) shows a dedicated「讨论完成」continue
+  // action that finalizes the clarify node(s) and resumes the DAG.
+  const canContinue = !readOnly && run?.status === 'awaitingInput';
   const canEditRun = !!canEdit && !readOnly && !!run?.status && EDITABLE_STATUSES.has(run.status);
 
   // Build the run status / events URL. In public share mode the auth-gated
@@ -334,7 +338,7 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
     };
   }, [isLive, refresh, jobId, runApiUrl]);
 
-  const doAction = useCallback(async (action: 'pause' | 'step-stop' | 'cancel-stop' | 'stop' | 'resume') => {
+  const doAction = useCallback(async (action: 'step-stop' | 'cancel-stop' | 'stop' | 'resume' | 'continue') => {
     if (!jobId) return;
     setActionPending(action);
     setError('');
@@ -717,25 +721,27 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
                   <span>{t('graph.loop.edit')}</span>
                 </button>
               )}
-              {run?.status === 'pausing' || run?.status === 'stepStopping' ? (
+              {run?.status === 'stepStopping' ? (
                 <button type="button" className="graph-loop-action primary" onClick={() => void doAction('cancel-stop')} disabled={!canCancelStop || !!actionPending} title={t('graph.loop.cancelStopTitle')}>
                   <GraphActionIcon type="keepRunning" />
                   <span>{t('graph.loop.cancelStop')}</span>
                 </button>
               ) : (
-                <button type="button" className="graph-loop-action warn" onClick={() => void doAction('pause')} disabled={!canPause || !!actionPending} title={t('graph.loop.pauseTitle')}>
-                  <GraphActionIcon type="pause" />
-                  <span>{t('graph.loop.pause')}</span>
+                <button type="button" className="graph-loop-action warn" onClick={() => void doAction('step-stop')} disabled={!canStepStop || !!actionPending} title={t('graph.loop.stepStopTitle')}>
+                  <GraphActionIcon type="stepStop" />
+                  <span>{t('graph.loop.stepStop')}</span>
                 </button>
               )}
-              <button type="button" className="graph-loop-action warn" onClick={() => void doAction('step-stop')} disabled={!canStepStop || !!actionPending} title={t('graph.loop.stepStopTitle')}>
-                <GraphActionIcon type="pause" />
-                <span>{t('graph.loop.stepStop')}</span>
-              </button>
               <button type="button" className="graph-loop-action danger" onClick={() => void doAction('stop')} disabled={!canStop || !!actionPending} title={t('graph.loop.stopTitle')}>
                 <GraphActionIcon type="stop" />
                 <span>{t('graph.loop.stop')}</span>
               </button>
+              {canContinue && (
+                <button type="button" className="graph-loop-action primary" onClick={() => void doAction('continue')} disabled={!!actionPending} title={t('graph.loop.continueTitle')}>
+                  <GraphActionIcon type="continue" />
+                  <span>{t('graph.loop.continue')}</span>
+                </button>
+              )}
               <button type="button" className="graph-loop-action primary" onClick={() => void doAction('resume')} disabled={!canResume || !!actionPending} title={t('graph.loop.resumeTitle')}>
                 <GraphActionIcon type="resume" />
                 <span>{t('graph.loop.resume')}</span>
@@ -748,6 +754,12 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
       <div className="graph-loop-bar-wrapper">
         <div className={`graph-loop-bar status-${run?.status || 'loading'}`} style={{ width: `${percent}%` }} />
       </div>
+
+      {run?.status === 'awaitingInput' && !editing && (
+        <div className="graph-loop-awaiting-hint" data-testid="graph-loop-awaiting-hint">
+          {t('graph.loop.awaitingInputHint')}
+        </div>
+      )}
 
       {editing ? (
         <>
@@ -860,12 +872,16 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
   );
 }
 
-function GraphActionIcon({ type }: { type: 'edit' | 'pause' | 'stop' | 'resume' | 'keepRunning' | 'expand' | 'collapse' | 'save' | 'cancel' }) {
+function GraphActionIcon({ type }: { type: 'edit' | 'stepStop' | 'stop' | 'resume' | 'keepRunning' | 'expand' | 'collapse' | 'save' | 'cancel' | 'continue' }) {
   if (type === 'expand') {
     return <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>;
   }
   if (type === 'collapse') {
     return <svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6" /></svg>;
+  }
+  if (type === 'continue') {
+    // Check mark inside motion — "discussion done, proceed".
+    return <svg viewBox="0 0 24 24"><path d="m5 13 4 4L19 7" /></svg>;
   }
   if (type === 'keepRunning') {
     return <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7-11-7Z" /><path d="M4 6v12" /></svg>;
@@ -879,7 +895,7 @@ function GraphActionIcon({ type }: { type: 'edit' | 'pause' | 'stop' | 'resume' 
   if (type === 'edit') {
     return <svg viewBox="0 0 24 24"><path d="M4 20h4.5L19 9.5a2.1 2.1 0 0 0 0-3L17.5 5a2.1 2.1 0 0 0-3 0L4 15.5V20Z" /><path d="M13.5 6 18 10.5" /></svg>;
   }
-  if (type === 'pause') {
+  if (type === 'stepStop') {
     return <svg viewBox="0 0 24 24"><path d="M8 5v14" /><path d="M16 5v14" /></svg>;
   }
   if (type === 'stop') {

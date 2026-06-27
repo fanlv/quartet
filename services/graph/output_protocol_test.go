@@ -122,16 +122,3 @@ func TestBuildOutputProtocolSuffix(t *testing.T) {
 		t.Fatalf("suffix missing per-variable lines: %q", suffix)
 	}
 }
-
-func TestBuildEvaluatorPrompt(t *testing.T) {
-	p := buildEvaluatorPrompt("是否完成", []string{"decision"})
-	if !strings.Contains(p, "是否完成") {
-		t.Fatal("evaluator prompt must embed the user condition")
-	}
-	if !strings.Contains(p, "QUARTET_OUTPUT:decision=") {
-		t.Fatal("evaluator prompt must include output protocol for declared variable")
-	}
-	if strings.Contains(p, "LOOP_DECISION") {
-		t.Fatal("evaluator prompt must not use the legacy LOOP_DECISION marker")
-	}
-}

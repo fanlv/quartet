@@ -98,7 +98,7 @@ export function createEditorNode(
     type,
     title: '',
     ...(intoParent ? { parentId: intoParent } : {}),
-    config: type === 'loop' ? { loopMode: 'fixed', fixedCount: 1 } : type === 'prompt' || type === 'evaluator' ? { sessionStrategy: 'new' } : {},
+    config: type === 'loop' ? { loopMode: 'fixed', fixedCount: 1 } : type === 'prompt' || type === 'clarify' ? { sessionStrategy: 'new' } : {},
     layout: {
       x: Math.round(position.x),
       y: Math.round(position.y),

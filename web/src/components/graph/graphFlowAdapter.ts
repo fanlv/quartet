@@ -126,7 +126,7 @@ function rfNodeType(kind: GraphNodeType): string {
 /**
  * React Flow constraint applied to a node nested inside a loop container.
  *
- * Business/control nodes (shell/prompt/evaluator/if-else) get NO constraint:
+ * Business/control nodes (shell/prompt/clarify/if-else) get NO constraint:
  * they are plain children that can be dragged freely, including OUT of the loop
  * box. Drag-out is then detected by the canvas drag-stop handler, which
  * reparents the node to the top level. `extent: 'parent'` was previously used

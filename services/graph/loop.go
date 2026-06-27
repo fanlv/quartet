@@ -140,14 +140,14 @@ func (sc *scheduler) startIteration(ctx context.Context, loop *scopeRun, index i
 
 // onScopeQuiesced is invoked whenever a scope's live count may have reached zero.
 // For a loop scope at zero, the current round has finished and its termination
-// rule is evaluated — unless a graceful stop (pause / step-stop) is in progress,
+// rule is evaluated — unless a step-stop is in progress,
 // in which case the loop is left open at the round boundary for resume to pick
 // up (§2 循环内触发停在当前批次边界).
 func (sc *scheduler) onScopeQuiesced(ctx context.Context, scope *scopeRun) {
 	if scope.container == "" || scope.live > 0 || sc.failed || sc.stopScheduling {
 		return
 	}
-	if sc.pauseRequested || sc.stepStop {
+	if sc.stepStop {
 		return
 	}
 	sc.finishIteration(ctx, scope)

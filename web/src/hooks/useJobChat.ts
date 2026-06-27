@@ -199,6 +199,11 @@ function mapGraphInstanceStatus(status: GraphInstanceStatus): LoopSessionEntry['
     case 'succeeded':
     case 'skipped':
       return 'completed';
+    // A clarify node parked at awaitingInput has finished its turn and is open
+    // for the user to discuss — render it as completed (no spinner) rather than
+    // running, so the sidebar doesn't imply the agent is still busy.
+    case 'awaitingInput':
+      return 'completed';
     case 'failed':
       return 'failed';
     case 'interrupted':
@@ -235,7 +240,7 @@ function instanceKeyString(key: GraphInstanceKey | undefined): string {
 }
 
 // graphSessionEntries derives loop-style session entries from a graph run's
-// executed instances. Agent nodes (Prompt/Evaluator) expose their session via
+// executed instances. Agent nodes (Prompt/Clarify) expose their session via
 // sessionId; Shell nodes record their own transcript session in
 // displaySessionId. Nodes with neither (IfElse/start/end) have no session and
 // show on the mini canvas instead.
@@ -271,12 +276,12 @@ function graphSessionEntries(
   });
   for (const inst of ordered) {
     // Only nodes that own a real conversation/transcript belong in the session
-    // sidebar: Agent nodes (Prompt/Evaluator) and Shell nodes. Control nodes
+    // sidebar: Agent nodes (Prompt/Clarify) and Shell nodes. Control nodes
     // (loop/ifElse/start/end) inherit a sessionId via session lineage but never
     // represent a chat round — and a loop instance that is still iterating stays
     // `running`, which would pin its whole session group to ⏳ forever even after
     // every actual round has finished. Skip them.
-    if (inst.nodeType !== 'prompt' && inst.nodeType !== 'evaluator' && inst.nodeType !== 'shell') {
+    if (inst.nodeType !== 'prompt' && inst.nodeType !== 'clarify' && inst.nodeType !== 'shell') {
       continue;
     }
     // Prefer displaySessionId (Shell nodes record their own transcript session
@@ -301,7 +306,7 @@ function graphSessionEntries(
 // is intentionally excluded — a crash-recovered run is a static, resumable
 // terminal that emits no new events, so the Chat page treats it as non-live
 // (stops the loading spinner) and relies on the snapshot reconcile.
-const GRAPH_LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'pausing', 'stepStopping']);
+const GRAPH_LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'stepStopping']);
 
 export interface QueuedMessage {
   id: string;

@@ -597,13 +597,6 @@ func (h *Handler) StopJobGraphRun(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
-// PauseJobGraphRun gracefully pauses a running GraphRun bound to a Job.
-func (h *Handler) PauseJobGraphRun(ctx context.Context, c *app.RequestContext) {
-	h.jobGraphRunControl(ctx, c, func(runID, reason string) (*model.GraphRun, error) {
-		return h.graphService.PauseRun(ctx, runID, reason)
-	})
-}
-
 // StepStopJobGraphRun freezes the current ready batch and stops after it.
 func (h *Handler) StepStopJobGraphRun(ctx context.Context, c *app.RequestContext) {
 	h.jobGraphRunControl(ctx, c, func(runID, reason string) (*model.GraphRun, error) {
@@ -611,7 +604,7 @@ func (h *Handler) StepStopJobGraphRun(ctx context.Context, c *app.RequestContext
 	})
 }
 
-// CancelStopJobGraphRun cancels a pending pause / step-stop, returning the run to
+// CancelStopJobGraphRun cancels a pending step-stop, returning the run to
 // running.
 func (h *Handler) CancelStopJobGraphRun(ctx context.Context, c *app.RequestContext) {
 	h.jobGraphRunControl(ctx, c, func(runID, reason string) (*model.GraphRun, error) {
@@ -653,6 +646,28 @@ func (h *Handler) ResumeJobGraphRun(ctx context.Context, c *app.RequestContext) 
 	}
 	runner := newJobRunner(h, j)
 	run, err := h.graphService.ResumeRun(ctx, runID, runner, h.jobService)
+	if err != nil {
+		httputil.MapError(c, err, []httputil.ErrorMapping{
+			{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},
+			{Err: graphsvc.ErrGraphRunNotResumable, Status: http.StatusConflict},
+			{Err: graphsvc.ErrGraphRunnerMissing, Status: http.StatusBadRequest},
+		})
+		return
+	}
+	c.JSON(http.StatusOK, model.GraphRunResponse{Run: run})
+}
+
+// ContinueJobGraphRun continues a GraphRun parked at「等待人工」on its bound Job
+// (§5 讨论完成/续跑): the user finished discussing in the clarify node session and
+// clicked「讨论完成」. The clarify instances are finalized (capturing each session's
+// discussion 结论 into their output variables) and the DAG resumes.
+func (h *Handler) ContinueJobGraphRun(ctx context.Context, c *app.RequestContext) {
+	j, runID, ok := h.resolveJobGraphRun(ctx, c)
+	if !ok {
+		return
+	}
+	runner := newJobRunner(h, j)
+	run, err := h.graphService.ContinueRun(ctx, runID, runner, h.jobService)
 	if err != nil {
 		httputil.MapError(c, err, []httputil.ErrorMapping{
 			{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},
@@ -743,11 +758,11 @@ func graphRunSSETerminal(status model.GraphRunStatus) bool {
 	switch status {
 	case model.GraphRunStatusCompleted,
 		model.GraphRunStatusFailed,
-		model.GraphRunStatusPaused,
 		model.GraphRunStatusStepStopped,
 		model.GraphRunStatusStopped,
 		model.GraphRunStatusTimedOut,
-		model.GraphRunStatusRecovering:
+		model.GraphRunStatusRecovering,
+		model.GraphRunStatusAwaitingInput:
 		return true
 	default:
 		return false

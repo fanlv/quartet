@@ -538,7 +538,7 @@ export function GraphInspector({
   // in-flight instance cannot change its execution config (backend enforces).
   const frozen = !!frozenNodeIds?.has(node.id);
 
-  const isAgentNode = node.type === 'prompt' || node.type === 'evaluator';
+  const isAgentNode = node.type === 'prompt' || node.type === 'clarify';
   const canHaveOutput = node.type === 'shell' || isAgentNode;
 
   const TitleField = (
@@ -552,10 +552,10 @@ export function GraphInspector({
     <>
       <div className="gi-field">
         <label>
-          {node.type === 'evaluator' ? t('graph.inspector.outputVarsEvaluator') : t('graph.inspector.outputVarsOptional')}
+          {t('graph.inspector.outputVarsOptional')}
         </label>
         <input
-          aria-label={node.type === 'evaluator' ? t('graph.inspector.outputVarsEvaluator') : t('graph.inspector.outputVarsOptional')}
+          aria-label={t('graph.inspector.outputVarsOptional')}
           value={listToText(cfg.outputVariables)}
           placeholder={t('graph.inspector.outputVarsPlaceholder')}
           disabled={readOnly}
@@ -731,19 +731,19 @@ export function GraphInspector({
         </>
       )}
 
-      {node.type === 'evaluator' && (
+      {node.type === 'clarify' && (
         <>
           {AgentFields}
           <div className="gi-field">
-            <label>{t('graph.inspector.evaluatorPrompt')}</label>
+            <label>{t('graph.inspector.clarifyPrompt')}</label>
             <textarea
-              aria-label={t('graph.inspector.evaluatorPrompt')}
+              aria-label={t('graph.inspector.clarifyPrompt')}
               value={cfg.prompt || ''}
-              placeholder={t('graph.inspector.evaluatorPromptPlaceholder')}
+              placeholder={t('graph.inspector.clarifyPromptPlaceholder')}
               disabled={readOnly}
               onChange={(e) => setCfg({ prompt: e.target.value })}
             />
-            <div className="gi-desc">{t('graph.inspector.evaluatorPromptDesc')}</div>
+            <div className="gi-desc">{t('graph.inspector.clarifyPromptDesc')}</div>
           </div>
           {OutputFields}
           {TimeoutField}

@@ -344,7 +344,7 @@ function formatDate(value: string): string {
 }
 
 function isGraphRunLive(status?: GraphRunStatus): boolean {
-  return status === 'pending' || status === 'running' || status === 'pausing' || status === 'stepStopping';
+  return status === 'pending' || status === 'running' || status === 'stepStopping';
 }
 
 // A GraphRun accepts version edits while it is still actively scheduling or in a
@@ -353,14 +353,13 @@ function isGraphRunLive(status?: GraphRunStatus): boolean {
 function isGraphRunEditable(status?: GraphRunStatus): boolean {
   return (
     status === 'running' ||
-    status === 'pausing' ||
     status === 'stepStopping' ||
     status === 'recovering' ||
-    status === 'paused' ||
     status === 'stepStopped' ||
     status === 'stopped' ||
     status === 'failed' ||
-    status === 'timedOut'
+    status === 'timedOut' ||
+    status === 'awaitingInput'
   );
 }
 

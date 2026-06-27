@@ -11,7 +11,7 @@ import (
 func node(id string, t model.GraphNodeType) model.GraphNode {
 	n := model.GraphNode{ID: id, Type: t}
 	// Agent-class nodes default to a new session, which requires an Agent.
-	if t == model.GraphNodeTypePrompt || t == model.GraphNodeTypeEvaluator {
+	if t == model.GraphNodeTypePrompt {
 		n.Config.AgentType = "tester"
 	}
 	return n
@@ -254,27 +254,6 @@ func TestValidate_BadConditionExpression(t *testing.T) {
 	}
 	if !hasErrForNode(validateConfig(cfg), "if") {
 		t.Fatal("expected invalid condition error on if-else node")
-	}
-}
-
-func TestValidate_EvaluatorRequiresOutputAndNoBranch(t *testing.T) {
-	// evaluator with no output vars + a yes/no out-edge
-	cfg := &model.GraphConfig{
-		Nodes: []model.GraphNode{
-			node("s", model.GraphNodeTypeStart),
-			node("ev", model.GraphNodeTypeEvaluator),
-			node("a", model.GraphNodeTypeShell),
-			node("e", model.GraphNodeTypeEnd),
-		},
-		Edges: []model.GraphEdge{
-			edge("e1", "s", "ev"),
-			portEdge("e2", "ev", "a", model.GraphEdgePortYes),
-			edge("e3", "a", "e"),
-		},
-	}
-	errs := validateConfig(cfg)
-	if !hasErrForNode(errs, "ev") {
-		t.Fatalf("expected evaluator errors (missing output + branch port), got: %+v", errs)
 	}
 }
 

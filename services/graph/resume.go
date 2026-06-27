@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"time"
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
@@ -62,7 +63,10 @@ func newResumeBuilder(cfg model.GraphConfig, instances map[string]model.GraphIns
 }
 
 // isResettableStatus reports whether an instance state is a reset start (its
-// output is unreliable or it was interrupted).
+// output is unreliable or it was interrupted). Succeeded/skipped are kept
+// verbatim; awaitingInput is also NOT resettable — a parked clarify instance is
+// finalized in place by finalizeAwaitingClarify on continue (capture 结论 →
+// succeeded → resolve out-edges), not reset and re-run.
 func isResettableStatus(st model.GraphInstanceStatus) bool {
 	switch st {
 	case model.GraphInstanceStatusFailed, model.GraphInstanceStatusInterrupted,
@@ -348,6 +352,13 @@ func (sc *scheduler) seedResume(ctx context.Context) error {
 	sc.edges = edges
 	sc.varsByKey = vars
 
+	// Finalize any parked clarify instances BEFORE the edge-driven rebuild
+	// (§5 讨论完成/续跑): capture each one's discussion 结论, flip it to succeeded,
+	// and resolve its held out-edges as active — so the rebuild below counts those
+	// fresh edges and the frontier decide drives the clarify's downstream. A
+	// no-op when no instance is awaitingInput (a plain failure resume).
+	sc.finalizeAwaitingClarify(ctx)
+
 	// Rebuild the in-memory loop scope tree from the persisted in-flight loop
 	// snapshot BEFORE the frontier re-decide, so re-run steps inside a loop
 	// resolve to their (rebuilt) scope and execute in the correct round with the
@@ -452,6 +463,123 @@ func (sc *scheduler) seedResume(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// finalizeAwaitingClarify converts every parked clarify instance (status
+// awaitingInput) into a succeeded one and resolves its held out-edges, run once
+// at the start of seedResume so the continue (§5 讨论完成/续跑) reuses the normal
+// edge-driven rebuild rather than a parallel code path. For each such instance
+// it:
+//
+//   - reads the discussion 结论 (the session's last assistant message via the
+//     runner's optional SessionLastAssistantReader); a session with no assistant
+//     turn yet yields an empty 结论 (best-effort, not a failure);
+//   - writes the 结论 into _last_assistant_msg, the optional alias, and every
+//     declared output variable — mirroring handleResult's success bookkeeping so
+//     downstream {{...}} references resolve identically to a Prompt node;
+//   - flips the instance to succeeded and records its visible/output snapshot in
+//     varsByKey (the rebuild reads varsByKey for the source's contribution);
+//   - writes an ACTIVE edge state for each of the node's out-edges, keyed exactly
+//     like resolveEdge (edgeStateKey(edgeID, targetKey)), so the seedResume edge
+//     loop counts them down and decides the downstream frontier.
+//
+// Clarify nodes are restricted to the main scope (validated), so their instance
+// keys have no iteration prefix and out-edges resolve in the main scope.
+func (sc *scheduler) finalizeAwaitingClarify(ctx context.Context) {
+	for keyStr, st := range sc.instances {
+		if st.Status != model.GraphInstanceStatusAwaitingInput {
+			continue
+		}
+		node, ok := sc.nodesByID[st.NodeID]
+		if !ok {
+			// Node removed by a static version edit while parked: drop the hold so
+			// the run can still finish. Its downstream is unreachable from here.
+			logger.Warnf(ctx, "[graph] continue: clarify node missing from config, skipping: runId=%s key=%s nodeId=%s", sc.run.ID, keyStr, st.NodeID)
+			continue
+		}
+
+		conclusion := sc.readClarifyConclusion(ctx, node, st)
+
+		visible := cloneStringMap(st.VisibleVariables)
+		if visible == nil {
+			visible = map[string]string{}
+		}
+		produced := cloneStringMap(st.OutputVariables)
+		if produced == nil {
+			produced = map[string]string{}
+		}
+		// The discussion 结论 is the authoritative output of a clarify node: it
+		// populates the reserved last-assistant variable, the optional alias, and
+		// every declared output variable (so a downstream node can reference any of
+		// them). This overwrites any best-effort draft markers captured at open time.
+		visible[lastAssistantKey] = conclusion
+		if alias := node.Config.LastAssistantAlias; alias != "" {
+			visible[alias] = conclusion
+			produced[alias] = conclusion
+		}
+		for _, name := range node.Config.OutputVariables {
+			visible[name] = conclusion
+			produced[name] = conclusion
+		}
+
+		now := time.Now().UnixMilli()
+		st.Status = model.GraphInstanceStatusSucceeded
+		st.BlockedReason = ""
+		st.VisibleVariables = visible
+		st.OutputVariables = produced
+		if st.FinishedAt == 0 {
+			st.FinishedAt = now
+		}
+		sc.instances[keyStr] = st
+		sc.varsByKey[keyStr] = cloneStringMap(visible)
+
+		// Resolve the held out-edges as active, keyed identically to resolveEdge so
+		// the seedResume edge-rebuild loop picks them up. Clarify lives in the main
+		// scope (no iteration prefix), so source/target keys are plain node IDs.
+		srcKey := model.GraphInstanceKey{NodeID: node.ID}
+		for _, e := range sc.outEdges[node.ID] {
+			targetKey := model.GraphInstanceKey{NodeID: e.TargetNodeID}
+			sc.edges[edgeStateKey(e.ID, targetKey)] = model.GraphEdgeState{
+				EdgeID:            e.ID,
+				SourceInstanceKey: srcKey,
+				TargetInstanceKey: targetKey,
+				Status:            model.GraphEdgeStatusActive,
+				ResolvedAt:        now,
+			}
+		}
+		sc.appendInstanceEvent(ctx, model.GraphEventTypeInstanceCompleted, st.Key, node.ID, "clarify finalized after discussion", nil)
+		logger.Infof(ctx, "[graph] clarify finalized: runId=%s nodeId=%s key=%s sessionId=%s conclusionLen=%d outEdges=%d",
+			sc.run.ID, node.ID, keyStr, st.SessionID, len(conclusion), len(sc.outEdges[node.ID]))
+	}
+}
+
+// readClarifyConclusion resolves a clarify instance's discussion 结论 — the last
+// assistant message of its session — through the runner's optional
+// SessionLastAssistantReader. Best-effort: a missing capability, a read error,
+// or a session with no assistant turn all degrade to an empty 结论 (logged), so a
+// continue never fails on conclusion capture. The display session is preferred
+// (it is the conversation the UI lists for the node), falling back to the
+// lineage session.
+func (sc *scheduler) readClarifyConclusion(ctx context.Context, node model.GraphNode, st model.GraphInstanceState) string {
+	sessionID := firstNonEmpty(st.DisplaySessionID, st.SessionID)
+	if sessionID == "" {
+		return ""
+	}
+	reader, ok := sc.runner.(SessionLastAssistantReader)
+	if !ok {
+		logger.Warnf(ctx, "[graph] continue: runner has no SessionLastAssistantReader, clarify conclusion empty: runId=%s nodeId=%s", sc.run.ID, node.ID)
+		return ""
+	}
+	content, found, err := reader.SessionLastAssistantMessage(ctx, sc.run.JobID, sessionID)
+	if err != nil {
+		logger.Warnf(ctx, "[graph] continue: read clarify conclusion failed: runId=%s nodeId=%s sessionId=%s err=%v", sc.run.ID, node.ID, sessionID, err)
+		return ""
+	}
+	if !found {
+		logger.Infof(ctx, "[graph] continue: clarify session has no assistant message, conclusion empty: runId=%s nodeId=%s sessionId=%s", sc.run.ID, node.ID, sessionID)
+		return ""
+	}
+	return content
 }
 
 // resumeKeyResolver returns a function mapping an instance-key string back to its
