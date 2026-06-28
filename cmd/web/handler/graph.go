@@ -360,6 +360,7 @@ func slimGraphRunStatus(resp *model.GraphRunStatusResponse) *model.GraphRunStatu
 	for i := range resp.Instances {
 		resp.Instances[i].VisibleVariables = nil
 		resp.Instances[i].OutputVariables = nil
+		resp.Instances[i].VariableWriters = nil
 	}
 	if resp.Progress != nil {
 		resp.Progress.Instances = nil
@@ -381,6 +382,7 @@ func slimGraphRunStatus(resp *model.GraphRunStatusResponse) *model.GraphRunStatu
 		for k, st := range resp.Run.ArchivedInstances {
 			st.VisibleVariables = nil
 			st.OutputVariables = nil
+			st.VariableWriters = nil
 			resp.Run.ArchivedInstances[k] = st
 		}
 	}

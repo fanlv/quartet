@@ -610,6 +610,10 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
     (id: string, patch: Partial<GraphNodeConfig>) => patchGraphNode(id, (gn) => ({ ...gn, config: { ...gn.config, ...patch } })),
     [patchGraphNode],
   );
+  const onUpdateVariables = useCallback((variables: Record<string, string>, disabledVars: string[]) => {
+    setValidationErrors([]);
+    setEditSnapshot((prev) => (prev ? { ...prev, variables, disabledVars } : prev));
+  }, []);
 
   const saveRunVersion = useCallback(async () => {
     if (!jobId || !editSnapshot) return;
@@ -793,11 +797,11 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
                 config={inspectorConfig}
                 agents={agents}
                 frozenNodeIds={frozenNodeIds}
-                lockGlobals
+                lockRunConfig
                 onUpdateNode={onUpdateNode}
                 onUpdateNodeConfig={onUpdateNodeConfig}
                 onDeleteNode={onDeleteEditNode}
-                onUpdateVariables={NOOP}
+                onUpdateVariables={onUpdateVariables}
                 onUpdateRunConfig={NOOP}
               />
             </div>

@@ -1931,8 +1931,13 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   // editor reuses the same mounted ReactFlow instance. React Flow caches node
   // measurements per instance, and a read-only → editable swap can leave them
   // stale so edges have no endpoints to draw (canvas looks empty until a node is
-  // dragged). Remounting on mode change forces a fresh measure so edges render.
+  // dragged). The same stale endpoint cache can happen after save: the editor is
+  // temporarily locked read-only, then the just-saved config with the same node
+  // IDs is loaded back into the same React Flow instance. Remount on mode changes,
+  // config reloads and save lock/unlock transitions so every saved canvas gets a
+  // fresh node measurement pass and its edges render immediately.
   const canvasMode = viewingRun ? (editingRun ? 'run-edit' : 'run-view') : 'editor';
+  const canvasKey = `${canvasMode}-${viewportResetKey}-${saving ? 'saving' : 'ready'}`;
 
   // Nodes whose execution config is frozen during run-time editing: those with a
   // succeeded / skipped / running instance (mirrors backend validateVersionEdit).
@@ -2327,7 +2332,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
             ) : (
               <>
                 <GraphCanvas
-                  key={canvasMode}
+                  key={canvasKey}
                   nodes={canvasNodes}
                   edges={canvasEdges}
                   readOnly={(viewingRun && !editingRun) || editingLocked}
@@ -2372,7 +2377,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                     readOnly={editingLocked}
                     drawerOpen={!isMobile || inspectorDrawerOpen}
                     frozenNodeIds={frozenRunNodeIds}
-                    lockGlobals={editingRun}
+                    lockRunConfig={editingRun}
                     onUpdateNode={onUpdateNode}
                     onUpdateNodeConfig={onUpdateNodeConfig}
                     onDeleteNode={onDeleteNode}

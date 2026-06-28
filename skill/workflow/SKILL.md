@@ -1,6 +1,5 @@
 ---
 name: quartet-workflow
-version: 1.0.0
 description: "管理 Quartet graph workflow（图工作流）：在「模型库（agent）」里新增、列出、查看、更新、删除、校验工作流。当用户要创建/编排一个 Quartet workflow、graph、DAG 流程，或要增删改查图工作流、定时任务流程时使用。本 skill 通过 CLI 调 Quartet 后端 HTTP API，内置了编写合法 workflow config（节点/边/变量/条件）的完整指南，以及「多 Agent 选择 / Double Check / 对抗验证」等推荐编排模式。"
 metadata:
   requires:
@@ -38,9 +37,24 @@ bash <skill_dir>/build.sh   # 产出 <skill_dir>/bin/quartet-cli
 | 变量 | 说明 | 默认 |
 |---|---|---|
 | `QUARTET_BASE_URL` | 后端地址 | `http://127.0.0.1:8090` |
-| `X_AGENT_AUTH` | 鉴权 token，非空时作为 `X-AGENT-AUTH` 头发送 | 空 |
+| `X_AGENT_AUTH` | CLI 客户端要发送的**单个**鉴权 token，非空时原样作为 `X-AGENT-AUTH` 头发送 | 空 |
 
-> 后端若设置了 `X_AGENT_AUTH`，CLI 必须用同一个 token，否则返回 403。token 与后端进程的 `X_AGENT_AUTH` 环境变量一致（多个用逗号分隔，任取其一）。
+鉴权规则必须区分**后端配置**和**CLI 请求头**：
+- 后端进程的 `X_AGENT_AUTH` 可以是逗号分隔的 token 列表，例如 `tokenA,tokenB`；后端校验时会拆开，任意一个匹配即可。
+- CLI 读取自己环境里的 `X_AGENT_AUTH` 后，**不会拆逗号**，而是把整个字符串原样放进 `X-AGENT-AUTH` header。
+- 所以调用 CLI 时，`X_AGENT_AUTH` 必须是列表里的**一个 token**，不能是完整逗号列表。错误示例：`X_AGENT_AUTH=tokenA,tokenB qwf list`；正确示例：`X_AGENT_AUTH=tokenA qwf list`。
+- 如果当前 shell 里的 `X_AGENT_AUTH` 已经是逗号列表，不要改全局环境；在单条命令前临时覆盖即可：
+
+```bash
+QWF_TOKEN="$(printf '%s' "$X_AGENT_AUTH" | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/, "", $1); print $1}')"
+X_AGENT_AUTH="$QWF_TOKEN" qwf list --type agent
+```
+
+403 排查顺序：
+1. 先确认后端是否要求鉴权：`curl -s "$QUARTET_BASE_URL/api/v1/health"`，看 `authRequired`。
+2. 如果 `authRequired=true`，确认 CLI 这一侧发送的是**单个 token**，不是逗号列表。
+3. 如果浏览器已登录，可从 localStorage 取 `quartet.x_auth_token`，它就是可用于 CLI 的单个 token。
+4. 仍然 403 时，看后端日志里的 `tokenPrefix` 和 `tokenLen`；如果 `tokenLen` 接近整段逗号列表长度，说明 CLI 误发了完整列表。
 
 所有错误（含后端校验错误）都会**全量打印**到 stderr。结果 JSON 打印到 stdout。
 
@@ -126,17 +140,17 @@ cat config.json | qwf validate
 |---|---|---|---|
 | `nodes` | 节点数组 | 是 | 见 §2 |
 | `edges` | 边数组 | 是 | 见 §3 |
-| `variables` | `{string:string}` | 否 | 初始变量表，键须合法且非保留名（§4） |
+| `variables` | `{string:string}` | 否 | 初始变量表，键须合法且非保留名（§5） |
 | `disabledVars` | `string[]` | 否 | 被禁用变量名（运行时按空串参与） |
-| `runConfig` | 对象 | 否 | 运行配置，见 §6 |
+| `runConfig` | 对象 | 否 | 运行配置，见 §7 |
 | `workspaceId` / `workdir` / `sandboxId` | string | 否 | 运行环境绑定 |
 | `canvas` | 对象 | 否 | 纯画布视图状态，不影响执行/校验，可省略 |
 
-> `layout`（节点坐标）、`metadata` 等纯展示字段对校验无影响，生成时可全部省略。
+> `metadata` 等纯展示字段对校验无影响，可省略。**但模型新建 workflow 时必须给每个节点写 `layout`**，否则前端只能用兜底坐标，复杂图会挤在一条线或互相遮挡。
 
 ## 2. 节点 GraphNode
 
-通用字段：`id`（必填、全局唯一）、`type`（必填）、`title`（可选）、`parentId`（仅 loop 子图用）、`config`（类型专属）。
+通用字段：`id`（必填、全局唯一）、`type`（必填）、`title`（可选）、`parentId`（仅 loop 子图用）、`config`（类型专属）、`layout`（见 §4）。
 
 节点类型与 config 约束：
 
@@ -150,7 +164,7 @@ cat config.json | qwf validate
 - `config.outputVariables`（可选）：输出变量名数组，每个须合法、非保留、本节点内不重名。
 - `config.lastAssistantAlias`（可选）：给本节点输出起别名（规则同上）。
 - `config.timeoutSeconds`（可选，整数 ≥0，0=不限）。
-- Shell 用 `quartet_set "名" "值"` 写输出变量（§4）。
+- Shell 用 `quartet_set "名" "值"` 写输出变量（§5）。
 
 ### prompt（Agent 节点）
 - `config.prompt`：提示词（实践上必给）。
@@ -158,14 +172,14 @@ cat config.json | qwf validate
 - `config.agentType`：**当 sessionStrategy 为 new（或空）时必填**；inherit 时可省（继承上游 Agent 会话）。
 - `config.modelId` / `acpMode` / `acpThoughtLevel`（可选）。
 - `outputVariables` / `lastAssistantAlias` / `timeoutSeconds`：同 shell。
-- 输出变量靠模型输出 `QUARTET_OUTPUT:名=值`（§4）。
+- 输出变量靠模型输出 `QUARTET_OUTPUT:名=值`（§5）。
 
 ### clarify（澄清 Agent 节点，与用户讨论后续跑）
 - 与 prompt 相同的 Agent/输出契约。
 - **额外约束**：`parentId` 必须为空 —— **clarify 不能放进 loop 子图**。
 
 ### ifElse（条件分支，只路由不产出）
-- `config.condition`：**必填**，语法见 §5。
+- `config.condition`：**必填**，语法见 §6。
 - **不得**声明 `outputVariables` / `lastAssistantAlias`。
 - 出边：**必须恰好一条 `yes` + 一条 `no`**（见 §3）。
 
@@ -196,7 +210,27 @@ cat config.json | qwf validate
 - loop 子图内节点之间互连。
 - **外部不能直接连进 loop 子图内部**，子图内部也不能直接连到外部 —— 只能经由 loop 容器节点进出。
 
-## 4. 变量系统
+## 4. 画布布局 layout（新建时必写）
+
+`layout` 只影响前端展示，不参与后端执行校验；但为了让用户打开模型生成的 workflow 时能直接看懂结构，**create/update config 时要为每个 node 提供非重叠坐标**。
+
+基础规则：
+- 主图从左到右排：start 在左，end 在右；同一执行顺序每列水平间距建议 `260`，普通节点纵向间距建议 `140`。
+- 普通节点可按约 `200x92` 的视觉占位规划；不要让两个普通节点的 `x/y` 完全相同，分支节点要上下错开。
+- `ifElse` 的 `yes` / `no` 分支放到下一列的上下两行，汇合节点放到再下一列的中间。
+- loop 容器节点必须写 `layout.width` / `layout.height`，默认用 `560x320` 起步；子图复杂时按内容加大，保证内部业务节点不贴边。
+- loop 子图节点的 `layout.x/y` 是**相对父 loop 容器**的坐标，不是全局坐标。
+- loop 内的 start/end 是入口/出口端口，前端会按容器尺寸钉在边界上；仍建议写入合理坐标：start `{x:0,y:height/2-13}`，end `{x:width-62,y:height/2-13}`。
+- 嵌套 loop 时，内层 loop 也是父 loop 内的一个普通大节点：内层 `layout.x/y` 用父容器相对坐标，内层子节点再用内层相对坐标。
+- 可加 `canvas.viewport`，推荐 `{ "x": 0, "y": 0, "zoom": 0.8 }`；不确定时省略。
+
+推荐坐标模板：
+- 线性主图：`start(40,160) -> node1(300,160) -> node2(560,160) -> end(820,160)`。
+- 二分支：`if(300,160) -> yes(560,80), no(560,240) -> join/end(820,160)`。
+- loop 容器：主图 `loop(300,40,width=820,height=360)`；内部 `loop_start(0,167) -> work(140,134) -> loop_end(758,167)`。
+- 复杂图先按 DAG 分层：第 `col` 列 `x = 40 + col*260`，同列第 `row` 个 `y = 80 + row*140`；主图和每个 loop 子图分别计算。
+
+## 5. 变量系统
 
 **初始变量** `config.variables`：`{名:值}`，键须 `[A-Za-z_][A-Za-z0-9_]*` 且非保留名。
 
@@ -219,7 +253,7 @@ cat config.json | qwf validate
 
 **文本替换 `{{名}}`**（用于 shell script、prompt）：已知变量→替换为值；禁用变量→空串；**未知变量→保留 `{{名}}` 字面量不报错**。单趟替换。
 
-## 5. 条件表达式语法（ifElse 的 condition、loop 的 untilCondition 通用）
+## 6. 条件表达式语法（ifElse 的 condition、loop 的 untilCondition 通用）
 
 **最易写错，务必精确**：
 
@@ -235,7 +269,7 @@ cat config.json | qwf validate
 
 合法示例：`{{status}} == "done"`、`{{count}} != "0" 且 {{ready}} == "true"`、`非 ({{name}} StartWith "tmp_")`、`{{i}} 是偶数`。
 
-## 6. runConfig 边界
+## 7. runConfig 边界
 
 | 字段 | 范围 | 默认 |
 |---|---|---|
@@ -247,18 +281,18 @@ cat config.json | qwf validate
 
 可整段省略，用默认值。
 
-## 7. 示例
+## 8. 示例
 
-### 7.1 最简：start → shell → end
+### 8.1 最简：start → shell → end
 
 ```json
 {
   "name": "minimal-shell",
   "config": {
     "nodes": [
-      { "id": "start_1", "type": "start" },
-      { "id": "shell_1", "type": "shell", "title": "打印", "config": { "script": "echo hello" } },
-      { "id": "end_1", "type": "end" }
+      { "id": "start_1", "type": "start", "layout": { "x": 40, "y": 160 } },
+      { "id": "shell_1", "type": "shell", "title": "打印", "config": { "script": "echo hello" }, "layout": { "x": 300, "y": 160 } },
+      { "id": "end_1", "type": "end", "layout": { "x": 560, "y": 160 } }
     ],
     "edges": [
       { "id": "e1", "sourceNodeId": "start_1", "targetNodeId": "shell_1", "sourcePort": "default" },
@@ -268,17 +302,18 @@ cat config.json | qwf validate
 }
 ```
 
-### 7.2 Agent：start → prompt → end
+### 8.2 Agent：start → prompt → end
 
 ```json
 {
   "name": "minimal-prompt",
   "config": {
     "nodes": [
-      { "id": "start_1", "type": "start" },
+      { "id": "start_1", "type": "start", "layout": { "x": 40, "y": 160 } },
       { "id": "p1", "type": "prompt", "title": "问答",
-        "config": { "prompt": "请回答用户问题", "sessionStrategy": "new", "agentType": "<你的 agentType>", "outputVariables": ["answer"] } },
-      { "id": "end_1", "type": "end" }
+        "config": { "prompt": "请回答用户问题", "sessionStrategy": "new", "agentType": "<你的 agentType>", "outputVariables": ["answer"] },
+        "layout": { "x": 300, "y": 160 } },
+      { "id": "end_1", "type": "end", "layout": { "x": 560, "y": 160 } }
     ],
     "edges": [
       { "id": "e1", "sourceNodeId": "start_1", "targetNodeId": "p1", "sourcePort": "default" },
@@ -289,7 +324,7 @@ cat config.json | qwf validate
 ```
 > `agentType` 必填（因 sessionStrategy=new）。第一个 Agent 不能 inherit。
 
-### 7.3 分支：ifElse（一 yes 一 no，各自汇到 end）
+### 8.3 分支：ifElse（一 yes 一 no，各自汇到 end）
 
 ```json
 {
@@ -297,11 +332,11 @@ cat config.json | qwf validate
   "config": {
     "variables": { "mode": "fast" },
     "nodes": [
-      { "id": "start_1", "type": "start" },
-      { "id": "if_1", "type": "ifElse", "title": "判断", "config": { "condition": "{{mode}} == \"fast\"" } },
-      { "id": "s_fast", "type": "shell", "config": { "script": "echo fast" } },
-      { "id": "s_slow", "type": "shell", "config": { "script": "echo slow" } },
-      { "id": "end_1", "type": "end" }
+      { "id": "start_1", "type": "start", "layout": { "x": 40, "y": 160 } },
+      { "id": "if_1", "type": "ifElse", "title": "判断", "config": { "condition": "{{mode}} == \"fast\"" }, "layout": { "x": 300, "y": 160 } },
+      { "id": "s_fast", "type": "shell", "config": { "script": "echo fast" }, "layout": { "x": 560, "y": 80 } },
+      { "id": "s_slow", "type": "shell", "config": { "script": "echo slow" }, "layout": { "x": 560, "y": 240 } },
+      { "id": "end_1", "type": "end", "layout": { "x": 820, "y": 160 } }
     ],
     "edges": [
       { "id": "e1", "sourceNodeId": "start_1", "targetNodeId": "if_1", "sourcePort": "default" },
@@ -314,19 +349,19 @@ cat config.json | qwf validate
 }
 ```
 
-### 7.4 循环：loop 子图（固定 3 次）
+### 8.4 循环：loop 子图（固定 3 次）
 
 ```json
 {
   "name": "loop-demo",
   "config": {
     "nodes": [
-      { "id": "start_1", "type": "start" },
-      { "id": "loop_1", "type": "loop", "title": "重复3次", "config": { "loopMode": "fixed", "fixedCount": 3, "maxIterations": 10 } },
-      { "id": "loop_start", "type": "start", "parentId": "loop_1" },
-      { "id": "loop_body", "type": "shell", "parentId": "loop_1", "config": { "script": "echo round $QUARTET_LOOP_INDEX" } },
-      { "id": "loop_end", "type": "end", "parentId": "loop_1" },
-      { "id": "end_1", "type": "end" }
+      { "id": "start_1", "type": "start", "layout": { "x": 40, "y": 160 } },
+      { "id": "loop_1", "type": "loop", "title": "重复3次", "config": { "loopMode": "fixed", "fixedCount": 3, "maxIterations": 10 }, "layout": { "x": 300, "y": 40, "width": 820, "height": 360 } },
+      { "id": "loop_start", "type": "start", "parentId": "loop_1", "layout": { "x": 0, "y": 167 } },
+      { "id": "loop_body", "type": "shell", "parentId": "loop_1", "config": { "script": "echo round $QUARTET_LOOP_INDEX" }, "layout": { "x": 140, "y": 134 } },
+      { "id": "loop_end", "type": "end", "parentId": "loop_1", "layout": { "x": 758, "y": 167 } },
+      { "id": "end_1", "type": "end", "layout": { "x": 1180, "y": 160 } }
     ],
     "edges": [
       { "id": "e1", "sourceNodeId": "start_1", "targetNodeId": "loop_1", "sourcePort": "default" },
@@ -339,7 +374,7 @@ cat config.json | qwf validate
 ```
 > 主图边（e1/e2）连的是 loop **容器** `loop_1`；子图三节点 `parentId` 都是 `"loop_1"`，子图边（e3/e4）只在子图内部。until 模式则改 `loopMode:"until"` + `untilCondition:"{{done}} == \"true\""`。
 
-## 8. 避坑清单
+## 9. 避坑清单
 
 1. **纯 start→end**：没有业务节点 → 报错（进度分母为 0）。
 2. **端口错配**：ifElse 出边用了 `default` 或缺一条；普通节点出边用了 `yes`/`no`。
@@ -356,12 +391,13 @@ cat config.json | qwf validate
 13. **条件语法错**：用了 `&&`/`and`、裸变量当条件、字符串用单引号、数字比较踩字典序坑。
 14. **loop 缺 loopMode / until 缺 untilCondition / fixedCount 为负 / maxIterations > 1000**。
 15. **重复的节点 id 或边 id**。
+16. **新建 workflow 没写 layout，或多个节点 layout 坐标相同**：前端打开后会堆在一起；按 §4 分层排布。
 
 > 拿不准就先 `qwf validate`：它返回每条错误的定位（节点/边/变量/配置项）和原因。
 >
-> 另外提醒：§7 的最简示例（start→shell→end）是为讲语法而**没有**用 loop 包裹；真正新建任务时请按 §9 模式 D，把执行节点放进 loop 子图里。
+> 另外提醒：§8 的最简示例（start→shell→end）是为讲语法而**没有**用 loop 包裹；真正新建任务时请按 §10 模式 D，把执行节点放进 loop 子图里。
 
-## 9. 推荐模式（新建 workflow 时尽量用上）
+## 10. 推荐模式（新建 workflow 时尽量用上）
 
 **用户偏好**：新建工作流（尤其是「Review / 审查 / 多 Agent 校验」类任务）时，应尽量组合下面四种模式。它们的目的是用「多源 + 复核 + 对抗 + 重复」把单个 Agent 的幻觉/误报压下去、并让任务能反复迭代直到收敛。完整可运行示例见 `references/code-review-demo.json`（已通过 `validate`），下面只讲模式本身。
 
@@ -397,12 +433,12 @@ cat config.json | qwf validate
 ```json
 {
   "nodes": [
-    { "id": "start", "type": "start" },
-    { "id": "loop", "type": "loop", "config": { "loopMode": "until", "untilCondition": "{{ok}} == \"true\"", "maxIterations": 5 } },
-    { "id": "l_start", "type": "start", "parentId": "loop" },
-    { "id": "work", "type": "shell", "parentId": "loop", "config": { "script": "echo work; quartet_set ok true", "outputVariables": ["ok"] } },
-    { "id": "l_end", "type": "end", "parentId": "loop" },
-    { "id": "end", "type": "end" }
+    { "id": "start", "type": "start", "layout": { "x": 40, "y": 160 } },
+    { "id": "loop", "type": "loop", "config": { "loopMode": "until", "untilCondition": "{{ok}} == \"true\"", "maxIterations": 5 }, "layout": { "x": 300, "y": 40, "width": 820, "height": 360 } },
+    { "id": "l_start", "type": "start", "parentId": "loop", "layout": { "x": 0, "y": 167 } },
+    { "id": "work", "type": "shell", "parentId": "loop", "config": { "script": "echo work; quartet_set ok true", "outputVariables": ["ok"] }, "layout": { "x": 140, "y": 134 } },
+    { "id": "l_end", "type": "end", "parentId": "loop", "layout": { "x": 758, "y": 167 } },
+    { "id": "end", "type": "end", "layout": { "x": 1180, "y": 160 } }
   ],
   "edges": [
     { "id": "e1", "sourceNodeId": "start", "targetNodeId": "loop", "sourcePort": "default" },
@@ -429,4 +465,3 @@ cat config.json | qwf validate
 - `Notice` / `Info`：给 Agent 的额外提示位（常放 `disabledVars` 里默认关闭）。
 
 > 想直接复用：`qwf create --name "代码 Review" --config-file references/code-review-demo.json`（记得先按需改 `PR`/`Doc`/`Code`/`workdir`/`workspaceId`）。也可以先 `qwf validate --config-file references/code-review-demo.json` 看一眼。
-

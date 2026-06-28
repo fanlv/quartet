@@ -61,3 +61,20 @@ func TestMergeVisibleSnapshots_Empty(t *testing.T) {
 		t.Fatalf("expected empty map, got %v", merged)
 	}
 }
+
+func TestMergeVisibleSnapshotsWithWriters(t *testing.T) {
+	ups := []UpstreamSnapshot{
+		{NodeID: "n1", Variables: map[string]string{"seed": "old", "out": "one"}, Writers: map[string]string{"out": "n1"}, LastAssistantMsg: "one"},
+		{NodeID: "n2", Variables: map[string]string{"other": "two"}, Writers: map[string]string{"other": "n2"}, LastAssistantMsg: "two"},
+	}
+	merged, writers := MergeVisibleSnapshotsWithWriters(ups)
+	if merged["seed"] != "old" || writers["seed"] != "" {
+		t.Fatalf("seed should remain initial-sourced, merged=%v writers=%v", merged, writers)
+	}
+	if merged["out"] != "one" || writers["out"] != "n1" || merged["other"] != "two" || writers["other"] != "n2" {
+		t.Fatalf("output writers not preserved, merged=%v writers=%v", merged, writers)
+	}
+	if merged[reservedLastAssistant] != "two" || writers[reservedLastAssistant] != "n2" {
+		t.Fatalf("last assistant writer wrong, merged=%v writers=%v", merged, writers)
+	}
+}

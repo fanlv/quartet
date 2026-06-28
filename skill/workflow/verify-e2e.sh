@@ -6,7 +6,9 @@
 #
 # Usage:
 #   X_AGENT_AUTH=<token> bash skill/workflow/verify-e2e.sh
-# (token must match one of the backend's X_AGENT_AUTH values)
+# Token must be ONE value from the backend's comma-separated X_AGENT_AUTH list.
+# Do not pass the whole comma-separated list here; the CLI sends its
+# X_AGENT_AUTH env value as one X-AGENT-AUTH header without splitting it.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

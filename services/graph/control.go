@@ -17,7 +17,7 @@ import (
 // seedFresh activates the main-graph start nodes' out-edges with the run's
 // initial variable snapshot — the cold-start entry into the DAG.
 func (sc *scheduler) seedFresh(ctx context.Context) {
-	initial := UpstreamSnapshot{Variables: cloneStringMap(sc.cfg.Variables)}
+	initial := UpstreamSnapshot{Variables: cloneStringMap(sc.cfg.Variables), Writers: initialVariableWriters(sc.cfg.Variables)}
 	for _, n := range sc.cfg.Nodes {
 		if n.Type == model.GraphNodeTypeStart && n.ParentID == "" {
 			logger.Infof(ctx, "[graph] seed start node: runId=%s nodeId=%s outEdges=%d initialVars=%d",
@@ -262,6 +262,7 @@ func (sc *scheduler) snapshotLoopState() {
 			CurrentIteration: scope.iterIndex,
 			Completed:        false,
 			Variables:        cloneStringMap(scope.roundEntry),
+			VariableWriters:  cloneStringMap(scope.roundEntryWriters),
 			EntrySession:     scope.roundEntrySession,
 		}
 	}

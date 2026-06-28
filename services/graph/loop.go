@@ -43,6 +43,8 @@ type scopeRun struct {
 	inflowSession     string                 // session flowing into the loop (§3 会话血缘); carried into each round and out via finishLoop
 	roundEntry        map[string]string      // this round's entry snapshot (fallback round-end value)
 	roundEntrySession string                 // this round's entry session (fallback round-end session)
+	roundWriters      map[string]string      // writers for the accumulated snapshot
+	roundEntryWriters map[string]string      // writers for this round's entry snapshot
 	roundContribs     []UpstreamSnapshot     // this round's activated internal-end contributions
 	stopLoopRequested bool                   // a Shell quartet_break/STOP_LOOP ended this container early
 }
@@ -50,14 +52,15 @@ type scopeRun struct {
 // startLoop activates a loop container instance: it records the container as
 // running, seeds the first round (or finishes immediately for a 0-count fixed
 // loop), and accounts the whole loop as one async unit in the parent scope.
-func (sc *scheduler) startLoop(ctx context.Context, parent *scopeRun, node model.GraphNode, key model.GraphInstanceKey, visible map[string]string, inflowSession string) {
+func (sc *scheduler) startLoop(ctx context.Context, parent *scopeRun, node model.GraphNode, key model.GraphInstanceKey, visible, writers map[string]string, inflowSession string) {
 	keyStr := instanceKeyString(key)
 	now := time.Now().UnixMilli()
 	sc.instances[keyStr] = model.GraphInstanceState{
 		Key: key, NodeID: node.ID, NodeTitle: node.Title, NodeType: node.Type,
 		Status: model.GraphInstanceStatusRunning, Version: sc.run.CurrentVersion,
-		VisibleVariables: cloneStringMap(visible), StartedAt: now, SessionID: inflowSession,
+		VisibleVariables: cloneStringMap(visible), VariableWriters: cloneStringMap(writers), StartedAt: now, SessionID: inflowSession,
 	}
+	sc.writersByKey[keyStr] = cloneStringMap(writers)
 	updateRunProgress(sc.run, sc.instances)
 	if sc.checkRunLimits(ctx) {
 		return
@@ -75,6 +78,7 @@ func (sc *scheduler) startLoop(ctx context.Context, parent *scopeRun, node model
 		loopKey:       key,
 		maxIters:      effectiveLoopMaxIters(sc.cfg.RunConfig, node),
 		accumSnapshot: cloneStringMap(visible),
+		roundWriters:  cloneStringMap(writers),
 		inflowSession: inflowSession,
 	}
 	sc.activeLoops[keyStr] = loop
@@ -99,6 +103,7 @@ func (sc *scheduler) startIteration(ctx context.Context, loop *scopeRun, index i
 		model.GraphLoopIteration{LoopNodeID: loop.container, Index: index})
 	loop.roundEntry = cloneStringMap(loop.accumSnapshot)
 	loop.roundEntrySession = loop.inflowSession
+	loop.roundEntryWriters = cloneStringMap(loop.roundWriters)
 	loop.roundContribs = nil
 	loop.live = 0
 
@@ -122,6 +127,7 @@ func (sc *scheduler) startIteration(ctx context.Context, loop *scopeRun, index i
 	contrib := UpstreamSnapshot{
 		NodeID:           entryID,
 		Variables:        cloneStringMap(loop.accumSnapshot),
+		Writers:          cloneStringMap(loop.roundWriters),
 		LastAssistantMsg: loop.accumSnapshot[lastAssistantKey],
 		SessionID:        loop.inflowSession,
 	}
@@ -160,15 +166,18 @@ func (sc *scheduler) finishIteration(ctx context.Context, loop *scopeRun) {
 	// Round-end snapshot = join of all activated internal ends; if none were
 	// activated (all internal paths pruned), reuse this round's entry snapshot.
 	var roundEnd map[string]string
+	var roundEndWriters map[string]string
 	var roundEndSession string
 	if len(loop.roundContribs) > 0 {
-		roundEnd = MergeVisibleSnapshots(loop.roundContribs)
+		roundEnd, roundEndWriters = MergeVisibleSnapshotsWithWriters(loop.roundContribs)
 		roundEndSession = pickInflowSession(loop.roundContribs)
 	} else {
 		roundEnd = cloneStringMap(loop.roundEntry)
+		roundEndWriters = cloneStringMap(loop.roundEntryWriters)
 		roundEndSession = loop.roundEntrySession
 	}
 	loop.accumSnapshot = roundEnd
+	loop.roundWriters = roundEndWriters
 	// The round-end session accumulates across rounds (§3 不轮间隔离), so the next
 	// round's entry — and the loop's outflow — inherits the latest round's session.
 	loop.inflowSession = roundEndSession
@@ -240,6 +249,7 @@ func (sc *scheduler) finishLoop(ctx context.Context, loop *scopeRun) {
 	now := time.Now().UnixMilli()
 	state.Status = model.GraphInstanceStatusSucceeded
 	state.VisibleVariables = cloneStringMap(loop.accumSnapshot)
+	state.VariableWriters = cloneStringMap(loop.roundWriters)
 	state.SessionID = loop.inflowSession
 	state.FinishedAt = now
 	state.DurationMs = now - state.StartedAt
@@ -248,6 +258,7 @@ func (sc *scheduler) finishLoop(ctx context.Context, loop *scopeRun) {
 	}
 	sc.instances[keyStr] = state
 	sc.varsByKey[keyStr] = cloneStringMap(loop.accumSnapshot)
+	sc.writersByKey[keyStr] = cloneStringMap(loop.roundWriters)
 	updateRunProgress(sc.run, sc.instances)
 	if sc.checkRunLimits(ctx) {
 		return
@@ -260,6 +271,7 @@ func (sc *scheduler) finishLoop(ctx context.Context, loop *scopeRun) {
 	contrib := UpstreamSnapshot{
 		NodeID:           loop.container,
 		Variables:        loop.accumSnapshot,
+		Writers:          loop.roundWriters,
 		LastAssistantMsg: loop.accumSnapshot[lastAssistantKey],
 		SessionID:        loop.inflowSession,
 	}

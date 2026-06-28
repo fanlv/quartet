@@ -141,6 +141,88 @@ func TestUpdateRunVersionInFlightAppliesToFutureNode(t *testing.T) {
 	}
 }
 
+func TestUpdateRunVersionInFlightVariablesApplyToFutureNode(t *testing.T) {
+	uniqueMemoryRoot(t)
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	cfg := model.GraphConfig{
+		Workdir:   t.TempDir(),
+		Variables: map[string]string{"flag": "old"},
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			shellNode("a", "sleep 1"),
+			shellNode("b", "quartet_set seen {{flag}}", "seen"),
+			node("e", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{edge("s_a", "s", "a"), edge("a_b", "a", "b"), edge("b_e", "b", "e")},
+	}
+	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-vars-live", Config: &cfg}, stubGraphRunner{}, nil)
+	if err != nil {
+		t.Fatalf("StartRun failed: %v", err)
+	}
+	waitRunningCount(t, svc, run.ID, 1)
+	edited := cloneGraphConfig(cfg)
+	edited.Variables["flag"] = "new"
+	updated, err := svc.UpdateRunVersion(context.Background(), run.ID, &model.UpdateGraphRunVersionRequest{Config: edited, Reason: "live variable edit"}, stubGraphRunner{})
+	if err != nil {
+		t.Fatalf("UpdateRunVersion while running failed: %v", err)
+	}
+	if updated.CurrentVersion != 2 {
+		t.Fatalf("expected current version 2, got %d", updated.CurrentVersion)
+	}
+	got := waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusCompleted)
+	bInst, ok := instByNode(got, "b")
+	if !ok {
+		t.Fatalf("missing instance for b")
+	}
+	if bInst.VisibleVariables["flag"] != "new" || bInst.VisibleVariables["seen"] != "new" {
+		t.Fatalf("future node should see edited global variable, vars=%+v", bInst.VisibleVariables)
+	}
+}
+
+func TestUpdateRunVersionDoesNotOverrideWrittenVariable(t *testing.T) {
+	uniqueMemoryRoot(t)
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	cfg := model.GraphConfig{
+		Workdir:   t.TempDir(),
+		Variables: map[string]string{"flag": "old"},
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			shellNode("a", "sleep 1\nquartet_set flag written", "flag"),
+			shellNode("b", "quartet_set seen {{flag}}", "seen"),
+			node("e", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{edge("s_a", "s", "a"), edge("a_b", "a", "b"), edge("b_e", "b", "e")},
+	}
+	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-vars-written", Config: &cfg}, stubGraphRunner{}, nil)
+	if err != nil {
+		t.Fatalf("StartRun failed: %v", err)
+	}
+	waitRunningCount(t, svc, run.ID, 1)
+	edited := cloneGraphConfig(cfg)
+	edited.Variables["flag"] = "new"
+	_, err = svc.UpdateRunVersion(context.Background(), run.ID, &model.UpdateGraphRunVersionRequest{Config: edited, Reason: "global edit after write"}, stubGraphRunner{})
+	if err != nil {
+		t.Fatalf("UpdateRunVersion while running failed: %v", err)
+	}
+	got := waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusCompleted)
+	bInst, ok := instByNode(got, "b")
+	if !ok {
+		t.Fatalf("missing instance for b")
+	}
+	if bInst.VisibleVariables["flag"] != "written" || bInst.VisibleVariables["seen"] != "written" {
+		t.Fatalf("node output variable should win over edited global, vars=%+v", bInst.VisibleVariables)
+	}
+	if bInst.VariableWriters["flag"] != "a" {
+		t.Fatalf("flag writer = %q, want a", bInst.VariableWriters["flag"])
+	}
+}
+
 func TestUpdateRunVersionNoOpDoesNotAppend(t *testing.T) {
 	uniqueMemoryRoot(t)
 	svc, err := NewService()

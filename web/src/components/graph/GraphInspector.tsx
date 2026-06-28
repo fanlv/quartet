@@ -105,9 +105,11 @@ interface GraphInspectorProps {
   // becomes read-only. Used by run-version editing (in-place and full-page),
   // where adding/removing nodes & edges is disallowed.
   lockStructure?: boolean;
-  // Makes only the global variables / run-config panel read-only while keeping
-  // node and structure edits available.
+  // Makes only the global variables panel read-only while keeping node,
+  // structure, and run-config edits available.
   lockGlobals?: boolean;
+  // Makes only the run-config panel read-only.
+  lockRunConfig?: boolean;
   onUpdateNode: (id: string, patch: Partial<GraphNode>) => void;
   onUpdateNodeConfig: (id: string, patch: Partial<GraphNodeConfig>) => void;
   onDeleteNode: (id: string) => void;
@@ -150,6 +152,7 @@ export function GraphInspector({
   frozenNodeIds,
   lockStructure,
   lockGlobals,
+  lockRunConfig,
   onUpdateNode,
   onUpdateNodeConfig,
   onDeleteNode,
@@ -167,9 +170,11 @@ export function GraphInspector({
     [config.variables],
   );
   const disabled = new Set(config.disabledVars || []);
-  // Structure-lock (run-version editing) makes the global variable table and
-  // run-config read-only — only per-node config may change there.
+  // Run-version editing may lock structure, variables, and run config
+  // independently because variables can now hot-apply to future instances while
+  // run config still has runtime-specific behavior.
   const globalsReadOnly = readOnly || lockStructure || lockGlobals;
+  const runConfigReadOnly = readOnly || lockStructure || lockGlobals || lockRunConfig;
 
   // Which built-in variable's path picker is open (null = closed). The picker
   // can select either a directory or a file and writes the absolute path back
@@ -434,7 +439,7 @@ export function GraphInspector({
           step={1}
           value={runConfig.concurrencyLimit ?? ''}
           placeholder="8"
-          disabled={globalsReadOnly}
+          disabled={runConfigReadOnly}
           onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ concurrencyLimit: value }))}
         />
       </div>
@@ -447,7 +452,7 @@ export function GraphInspector({
           step={1}
           value={runConfig.defaultNodeTimeoutSec ?? ''}
           placeholder="0"
-          disabled={globalsReadOnly}
+          disabled={runConfigReadOnly}
           onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ defaultNodeTimeoutSec: value }))}
         />
       </div>
@@ -460,7 +465,7 @@ export function GraphInspector({
           step={1}
           value={runConfig.jobTimeoutSec ?? ''}
           placeholder="0"
-          disabled={globalsReadOnly}
+          disabled={runConfigReadOnly}
           onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ jobTimeoutSec: value }))}
         />
       </div>
@@ -474,7 +479,7 @@ export function GraphInspector({
           step={1}
           value={runConfig.defaultLoopMaxIters ?? ''}
           placeholder="100"
-          disabled={globalsReadOnly}
+          disabled={runConfigReadOnly}
           onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ defaultLoopMaxIters: value }))}
         />
       </div>
@@ -487,7 +492,7 @@ export function GraphInspector({
           step={1}
           value={runConfig.instanceLimit ?? ''}
           placeholder="100000"
-          disabled={globalsReadOnly}
+          disabled={runConfigReadOnly}
           onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ instanceLimit: value }))}
         />
       </div>
@@ -500,7 +505,7 @@ export function GraphInspector({
           step={1}
           value={runConfig.snapshotByteLimit ?? ''}
           placeholder="1073741824"
-          disabled={globalsReadOnly}
+          disabled={runConfigReadOnly}
           onChange={(e) => updateInteger(e.target.value, (value) => onUpdateRunConfig({ snapshotByteLimit: value }))}
         />
       </div>

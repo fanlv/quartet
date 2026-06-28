@@ -279,6 +279,7 @@ type GraphInstanceState struct {
 	DisplaySessionID string             `json:"displaySessionId,omitempty"`
 	VisibleVariables map[string]string  `json:"visibleVariables,omitempty"`
 	OutputVariables  map[string]string  `json:"outputVariables,omitempty"`
+	VariableWriters  map[string]string  `json:"variableWriters,omitempty"`
 	StartedAt        int64              `json:"startedAt,omitempty"`
 	FinishedAt       int64              `json:"finishedAt,omitempty"`
 	DurationMs       int64              `json:"durationMs,omitempty"`
@@ -330,6 +331,7 @@ type GraphLoopState struct {
 	CurrentIteration int               `json:"currentIteration"`
 	Completed        bool              `json:"completed"`
 	Variables        map[string]string `json:"variables,omitempty"`
+	VariableWriters  map[string]string `json:"variableWriters,omitempty"`
 	// EntrySession is the session flowing into the current round (the loop
 	// scope's roundEntrySession). Persisted so resume can rebuild the in-flight
 	// round's inflow session and a session-inheriting first body Agent forks the

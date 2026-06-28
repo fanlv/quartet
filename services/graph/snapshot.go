@@ -21,6 +21,9 @@ type UpstreamSnapshot struct {
 	// Variables is the upstream instance's visible variable snapshot, including
 	// any named outputs and aliases it wrote.
 	Variables map[string]string
+	// Writers identifies variables written by a concrete node ID. Variables not
+	// present here are still inherited from the run's initial variable table.
+	Writers map[string]string
 	// LastAssistantMsg is the upstream instance's raw final output
 	// (_last_assistant_msg). Empty string is a valid value.
 	LastAssistantMsg string
@@ -47,9 +50,15 @@ const lastAssistantKey = reservedLastAssistant
 // Passing a single upstream degenerates to "inherit upstream snapshot".
 // Pruned upstreams must be excluded by the caller (not passed in).
 func MergeVisibleSnapshots(upstreams []UpstreamSnapshot) map[string]string {
+	merged, _ := MergeVisibleSnapshotsWithWriters(upstreams)
+	return merged
+}
+
+func MergeVisibleSnapshotsWithWriters(upstreams []UpstreamSnapshot) (map[string]string, map[string]string) {
 	merged := make(map[string]string)
+	writers := make(map[string]string)
 	if len(upstreams) == 0 {
-		return merged
+		return merged, writers
 	}
 
 	// Sort by NodeID ascending so both variable tie-breaks and the
@@ -66,12 +75,18 @@ func MergeVisibleSnapshots(upstreams []UpstreamSnapshot) map[string]string {
 				continue
 			}
 			merged[k] = v
+			if writer := up.Writers[k]; writer != "" {
+				writers[k] = writer
+			} else {
+				delete(writers, k)
+			}
 		}
 	}
 
 	// _last_assistant_msg: last position after ascending sort = greatest node ID.
 	merged[lastAssistantKey] = sorted[len(sorted)-1].LastAssistantMsg
-	return merged
+	writers[lastAssistantKey] = sorted[len(sorted)-1].NodeID
+	return merged, writers
 }
 
 // pickInflowSession resolves the session an inheriting downstream Agent forks

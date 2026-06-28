@@ -244,6 +244,7 @@ func (sc *scheduler) rebuildLoopScopes(ctx context.Context) []*scopeRun {
 			continue
 		}
 		entry := cloneStringMap(ls.Variables)
+		writers := cloneStringMap(ls.VariableWriters)
 		loop := &scopeRun{
 			container:         ls.LoopNodeID,
 			parent:            parent,
@@ -253,8 +254,10 @@ func (sc *scheduler) rebuildLoopScopes(ctx context.Context) []*scopeRun {
 			iterIndex:         ls.CurrentIteration,
 			roundsRun:         ls.CurrentIteration + 1,
 			accumSnapshot:     cloneStringMap(entry),
+			roundWriters:      cloneStringMap(writers),
 			inflowSession:     ls.EntrySession,
 			roundEntry:        cloneStringMap(entry),
+			roundEntryWriters: cloneStringMap(writers),
 			roundEntrySession: ls.EntrySession,
 		}
 		loop.prefix = append(append([]model.GraphLoopIteration{}, parent.prefix...),
@@ -281,7 +284,7 @@ func (sc *scheduler) rebuildLoopScopes(ctx context.Context) []*scopeRun {
 // in-flight round contributes that round's entry snapshot/session (neither has a
 // persisted instance). Any other source contributes its persisted varsByKey
 // snapshot and instance session.
-func (sc *scheduler) resumeSourceContrib(srcKey model.GraphInstanceKey) (map[string]string, string) {
+func (sc *scheduler) resumeSourceContrib(srcKey model.GraphInstanceKey) (map[string]string, map[string]string, string) {
 	srcKeyStr := instanceKeyString(srcKey)
 	if srcNode, ok := sc.nodesByID[srcKey.NodeID]; ok && srcNode.Type == model.GraphNodeTypeStart {
 		if srcNode.ParentID == "" {
@@ -290,18 +293,20 @@ func (sc *scheduler) resumeSourceContrib(srcKey model.GraphInstanceKey) (map[str
 			// loop fed directly by the start node loses every initial variable, so a
 			// condition referencing one would silently see an empty string and route
 			// to the wrong branch.
-			return cloneStringMap(sc.cfg.Variables), ""
+			return cloneStringMap(sc.cfg.Variables), initialVariableWriters(sc.cfg.Variables), ""
 		}
-		if vars, sess, ok := sc.loopEntrySnapshot(srcKey, srcNode); ok {
-			return vars, sess
+		if vars, writers, sess, ok := sc.loopEntrySnapshot(srcKey, srcNode); ok {
+			return vars, writers, sess
 		}
 	}
 	srcVars := sc.varsByKey[srcKeyStr]
+	srcWriters := sc.writersByKey[srcKeyStr]
 	srcSession := ""
 	if srcState, ok := sc.instances[srcKeyStr]; ok {
+		srcWriters = inferWritersFromState(srcState, srcWriters)
 		srcSession = srcState.SessionID
 	}
-	return srcVars, srcSession
+	return srcVars, srcWriters, srcSession
 }
 
 // loopEntrySnapshot returns the round-entry snapshot/session for an edge whose
@@ -310,16 +315,16 @@ func (sc *scheduler) resumeSourceContrib(srcKey model.GraphInstanceKey) (map[str
 // the persisted LoopState. Returns ok=false for any other start (e.g. a
 // completed round's entry, whose downstream is already succeeded and never
 // re-read).
-func (sc *scheduler) loopEntrySnapshot(srcKey model.GraphInstanceKey, srcNode model.GraphNode) (map[string]string, string, bool) {
+func (sc *scheduler) loopEntrySnapshot(srcKey model.GraphInstanceKey, srcNode model.GraphNode) (map[string]string, map[string]string, string, bool) {
 	if sc.run.Resume == nil || len(srcKey.Iterations) == 0 {
-		return nil, "", false
+		return nil, nil, "", false
 	}
 	if sc.loopEntry[srcNode.ParentID] != srcNode.ID {
-		return nil, "", false
+		return nil, nil, "", false
 	}
 	last := srcKey.Iterations[len(srcKey.Iterations)-1]
 	if last.LoopNodeID != srcNode.ParentID {
-		return nil, "", false
+		return nil, nil, "", false
 	}
 	scopeKeyStr := instanceKeyString(model.GraphInstanceKey{
 		NodeID:     srcNode.ParentID,
@@ -327,9 +332,9 @@ func (sc *scheduler) loopEntrySnapshot(srcKey model.GraphInstanceKey, srcNode mo
 	})
 	ls, ok := sc.run.Resume.LoopState[scopeKeyStr]
 	if !ok || ls.CurrentIteration != last.Index {
-		return nil, "", false
+		return nil, nil, "", false
 	}
-	return cloneStringMap(ls.Variables), ls.EntrySession, true
+	return cloneStringMap(ls.Variables), cloneStringMap(ls.VariableWriters), ls.EntrySession, true
 }
 
 // seedResume re-derives the scheduler's in-memory state from the post-reset
@@ -351,6 +356,14 @@ func (sc *scheduler) seedResume(ctx context.Context) error {
 	sc.instances = instances
 	sc.edges = edges
 	sc.varsByKey = vars
+	sc.writersByKey = map[string]map[string]string{}
+	for keyStr, st := range sc.instances {
+		sc.writersByKey[keyStr] = inferWritersFromState(st, nil)
+		if len(st.VariableWriters) == 0 && len(sc.writersByKey[keyStr]) > 0 {
+			st.VariableWriters = cloneStringMap(sc.writersByKey[keyStr])
+			sc.instances[keyStr] = st
+		}
+	}
 
 	// Finalize any parked clarify instances BEFORE the edge-driven rebuild
 	// (§5 讨论完成/续跑): capture each one's discussion 结论, flip it to succeeded,
@@ -378,10 +391,11 @@ func (sc *scheduler) seedResume(ctx context.Context) error {
 		sc.inRemaining[targetKeyStr]--
 		if es.Status == model.GraphEdgeStatusActive {
 			sc.anyActive[targetKeyStr] = true
-			srcVars, srcSession := sc.resumeSourceContrib(es.SourceInstanceKey)
+			srcVars, srcWriters, srcSession := sc.resumeSourceContrib(es.SourceInstanceKey)
 			sc.contribs[targetKeyStr] = append(sc.contribs[targetKeyStr], UpstreamSnapshot{
 				NodeID:           es.SourceInstanceKey.NodeID,
 				Variables:        srcVars,
+				Writers:          srcWriters,
 				LastAssistantMsg: srcVars[lastAssistantKey],
 				SessionID:        srcSession,
 			})
@@ -418,6 +432,7 @@ func (sc *scheduler) seedResume(ctx context.Context) error {
 		key           model.GraphInstanceKey
 		scope         *scopeRun
 		visible       map[string]string
+		writers       map[string]string
 		inflowSession string
 	}
 	fullKey := sc.resumeKeyResolver()
@@ -442,16 +457,18 @@ func (sc *scheduler) seedResume(ctx context.Context) error {
 		if scope == nil {
 			continue // completed round / wholesale-reset internal — nothing to do
 		}
+		visible, writers := MergeVisibleSnapshotsWithWriters(sc.contribs[targetKeyStr])
 		frontier = append(frontier, frontierItem{
 			node:          node,
 			key:           key,
 			scope:         scope,
-			visible:       MergeVisibleSnapshots(sc.contribs[targetKeyStr]),
+			visible:       visible,
+			writers:       writers,
 			inflowSession: pickInflowSession(sc.contribs[targetKeyStr]),
 		})
 	}
 	for _, fi := range frontier {
-		sc.decide(ctx, fi.scope, fi.node, fi.key, fi.visible, fi.inflowSession)
+		sc.decide(ctx, fi.scope, fi.node, fi.key, fi.visible, fi.writers, fi.inflowSession)
 		if sc.failed {
 			return nil
 		}
@@ -516,14 +533,18 @@ func (sc *scheduler) finalizeAwaitingClarify(ctx context.Context) {
 		// populates the reserved last-assistant variable, the optional alias, and
 		// every declared output variable (so a downstream node can reference any of
 		// them). This overwrites any best-effort draft markers captured at open time.
+		writers := inferWritersFromState(st, sc.writersByKey[keyStr])
 		visible[lastAssistantKey] = conclusion
+		writers[lastAssistantKey] = node.ID
 		if alias := node.Config.LastAssistantAlias; alias != "" {
 			visible[alias] = conclusion
 			produced[alias] = conclusion
+			writers[alias] = node.ID
 		}
 		for _, name := range node.Config.OutputVariables {
 			visible[name] = conclusion
 			produced[name] = conclusion
+			writers[name] = node.ID
 		}
 
 		now := time.Now().UnixMilli()
@@ -531,11 +552,13 @@ func (sc *scheduler) finalizeAwaitingClarify(ctx context.Context) {
 		st.BlockedReason = ""
 		st.VisibleVariables = visible
 		st.OutputVariables = produced
+		st.VariableWriters = writers
 		if st.FinishedAt == 0 {
 			st.FinishedAt = now
 		}
 		sc.instances[keyStr] = st
 		sc.varsByKey[keyStr] = cloneStringMap(visible)
+		sc.writersByKey[keyStr] = cloneStringMap(writers)
 
 		// Resolve the held out-edges as active, keyed identically to resolveEdge so
 		// the seedResume edge-rebuild loop picks them up. Clarify lives in the main

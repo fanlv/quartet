@@ -45,7 +45,7 @@ import { e2eAuthToken } from '../fixtures/e2e-environment'
 //   #34 save/create/delete success messages survive workflow-list refresh
 //   #35 embedded GraphLoop edit keeps structured validation errors and dirty cancel guard
 //   #36 browser Back/Forward is guarded by Graph dirty state in App
-//   #37 embedded GraphLoop locks global variables and run config when not persisted
+//   #37 embedded GraphLoop edits global variables while keeping run config locked
 //   #38 corrupted run.json surfaces full load errors for version/resume/delete
 //   #39 JSON draft dirty guard covers Back/New/select-other workflow
 //   #40 run/start rejects stale workflowUpdatedAt with 409
@@ -72,6 +72,7 @@ import { e2eAuthToken } from '../fixtures/e2e-environment'
 //   #61 deleting an already-deleted workflow no longer returns success
 //   #62 workflow list returns summary fields, not full graph config
 //   #63 unchanged run-version edits do not append duplicate versions
+//   #64 saving a workflow keeps canvas edges visible after the editor unlocks
 
 const AUTH_HEADERS = { 'X-AGENT-AUTH': e2eAuthToken }
 
@@ -789,6 +790,9 @@ test('graph review #57: validate and save in-flight lock editing controls', asyn
   await expect(page.getByTestId('graph-name-input')).toBeEnabled({ timeout: 10_000 })
   await expect(page.getByTestId('graph-message')).toContainText('Workflow created.', { timeout: 10_000 })
   await expect(page.getByTestId('graph-save')).toContainText('Save')
+  await expect(page.locator('.react-flow__edge')).toHaveCount(2)
+  await expect(page.locator('.react-flow__edge[data-id="edge-start-shell"]')).toBeVisible()
+  await expect(page.locator('.react-flow__edge[data-id="edge-shell-end"]')).toBeVisible()
 })
 
 test('graph review #56: dirty snapshot run rejects stale source workflow after confirm', async ({ page, request }) => {
@@ -1584,7 +1588,7 @@ test('graph review #48: frozen run-version node title remains editable and saves
   expect(done?.title).toBe('Frozen Title After')
 })
 
-test('graph review #58: full-page run-version editor locks global variables and run config', async ({ page, request }) => {
+test('graph review #58: full-page run-version editor edits global variables but locks run config', async ({ page, request }) => {
   const workspace = await openGraphCanvas(page, request, 'fullpage-run-lock-globals')
   await applyJsonConfig(page, failingShellConfig(workspace))
   await page.getByTestId('graph-name-input').fill(`e2e-fullpage-lock-globals-${Date.now()}`)
@@ -1604,9 +1608,9 @@ test('graph review #58: full-page run-version editor locks global variables and 
   await page.locator('.react-flow__pane').click({ position: { x: 10, y: 10 } })
   const inspector = page.getByTestId('graph-inspector')
   await expect(inspector.getByRole('spinbutton', { name: 'Concurrency' })).toBeDisabled()
-  await expect(inspector.getByLabel('Code value')).toBeDisabled()
-  await expect(inspector.getByLabel('Doc value')).toBeDisabled()
-  await expect(inspector.getByRole('button', { name: /Add variable/i })).toHaveCount(0)
+  await expect(inspector.getByLabel('Code value')).toBeEnabled()
+  await expect(inspector.getByLabel('Doc value')).toBeEnabled()
+  await expect(inspector.getByRole('button', { name: /Add variable/i })).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
@@ -2467,10 +2471,10 @@ test('graph review #36: browser Back is guarded when Graph has unsaved changes',
 })
 
 // ---------------------------------------------------------------------------
-// #37 — embedded GraphLoop edit locks global controls it does not persist
+// #37 — embedded GraphLoop edit persists global variables but locks run config
 // ---------------------------------------------------------------------------
 
-test('graph review #37: embedded run-version editor disables global variables and run config', async ({ page, request }) => {
+test('graph review #37: embedded run-version editor edits global variables and locks run config', async ({ page, request }) => {
   const workspace = await openGraphCanvas(page, request, 'embedded-global-lock')
   const config = failingShellConfig(workspace)
   config.variables = { Code: workspace.workdir, custom: 'value' }
@@ -2495,13 +2499,23 @@ test('graph review #37: embedded run-version editor disables global variables an
   await expect(page.getByTestId('graph-loop-editor')).toBeVisible()
 
   // No selected node -> GraphInspector shows the global variables/run config
-  // panel. These fields are intentionally locked in the embedded editor because
-  // the save payload only persists graph topology + node config.
+  // panel. Global variables are part of the run-version payload; run config
+  // remains locked because it has separate runtime semantics.
   await page.getByTestId('graph-loop-editor').locator('.react-flow__pane').click({ position: { x: 10, y: 10 } })
   const inspector = page.locator('.graph-loop-inspector')
   await expect(inspector.getByRole('spinbutton', { name: 'Concurrency' })).toBeDisabled()
-  await expect(inspector.getByLabel('Variable custom value')).toBeDisabled()
-  await expect(inspector.getByRole('button', { name: /Add variable/i })).toHaveCount(0)
+  const customValue = inspector.getByLabel('Variable custom value')
+  await expect(customValue).toBeEnabled()
+  await customValue.fill('edited')
+  await expect(inspector.getByRole('button', { name: /Add variable/i })).toBeVisible()
+
+  const [saveResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes(`/api/v1/job/${jobId}/graph-run/version`) && r.request().method() === 'PUT'),
+    page.getByRole('button', { name: /Save run version/i }).click(),
+  ])
+  expect(saveResp.ok(), `save run version failed: ${saveResp.status()} ${await saveResp.text()}`).toBeTruthy()
+  const saved = await saveResp.json()
+  expect(saved.run?.versions?.at(-1)?.config?.variables?.custom).toBe('edited')
 })
 
 // ---------------------------------------------------------------------------

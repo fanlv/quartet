@@ -51,6 +51,7 @@ type readyItem struct {
 	disabled      map[string]struct{}
 	key           model.GraphInstanceKey
 	visible       map[string]string
+	writers       map[string]string
 	scope         *scopeRun
 	inflowSession string
 	// loopVars carries the QUARTET_LOOP_* iteration context of the innermost
@@ -67,6 +68,7 @@ type nodeResult struct {
 	key           model.GraphInstanceKey
 	scope         *scopeRun
 	visible       map[string]string // snapshot the node executed against
+	writers       map[string]string // variables written by concrete upstream nodes
 	inflowSession string            // session that flowed into the node
 	outcome       nodeOutcome       // raw output + named outputs + control signals
 	err           error
@@ -99,9 +101,10 @@ type scheduler struct {
 	inDegree  map[string]int    // intra-scope static in-edge count by node ID
 	loopEntry map[string]string // loop container ID -> its single subgraph entry node ID
 
-	inRemaining map[string]int                // unresolved in-edge count by instance-key string
-	anyActive   map[string]bool               // any in-edge activated, by instance-key string
-	contribs    map[string][]UpstreamSnapshot // active in-edge contributions, by instance-key string
+	inRemaining  map[string]int                // unresolved in-edge count by instance-key string
+	anyActive    map[string]bool               // any in-edge activated, by instance-key string
+	contribs     map[string][]UpstreamSnapshot // active in-edge contributions, by instance-key string
+	writersByKey map[string]map[string]string
 
 	instances map[string]model.GraphInstanceState
 	edges     map[string]model.GraphEdgeState
@@ -190,6 +193,7 @@ func (s *serviceImpl) runGraph(ctx context.Context, runID string, runner Runner,
 		inRemaining:  map[string]int{},
 		anyActive:    map[string]bool{},
 		contribs:     map[string][]UpstreamSnapshot{},
+		writersByKey: map[string]map[string]string{},
 		instances:    map[string]model.GraphInstanceState{},
 		edges:        map[string]model.GraphEdgeState{},
 		varsByKey:    map[string]map[string]string{},
@@ -304,6 +308,49 @@ func (sc *scheduler) remapReadyToLatestVersion(ctx context.Context) {
 	}
 }
 
+func (sc *scheduler) overlayCurrentInitialVariables(visible map[string]string, writers map[string]string) map[string]string {
+	next := cloneStringMap(visible)
+	if next == nil {
+		next = map[string]string{}
+	}
+	for k := range next {
+		if k == lastAssistantKey {
+			continue
+		}
+		if writers[k] == "" {
+			delete(next, k)
+		}
+	}
+	for k, v := range sc.cfg.Variables {
+		if writers[k] == "" {
+			next[k] = v
+		}
+	}
+	return next
+}
+
+func initialVariableWriters(variables map[string]string) map[string]string {
+	writers := make(map[string]string, len(variables))
+	for k := range variables {
+		writers[k] = ""
+	}
+	return writers
+}
+
+func inferWritersFromState(st model.GraphInstanceState, fallback map[string]string) map[string]string {
+	if len(st.VariableWriters) > 0 {
+		return cloneStringMap(st.VariableWriters)
+	}
+	writers := cloneStringMap(fallback)
+	if writers == nil {
+		writers = map[string]string{}
+	}
+	for k := range st.OutputVariables {
+		writers[k] = st.NodeID
+	}
+	return writers
+}
+
 // refreshActiveLoopsAfterVersion re-points every active loop scope at its node
 // in the just-applied config so a mid-run FixedCount edit takes effect at the
 // next round boundary (finishIteration reads loop.loopNode.Config.FixedCount).
@@ -414,7 +461,7 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 						execErr = nodeTimeoutErr(it.node, effectiveNodeTimeout(it.runConfig, it.node), execErr)
 					}
 					nodeCancel()
-					resultCh <- nodeResult{node: it.node, outEdges: it.outEdges, key: it.key, scope: it.scope, visible: it.visible, inflowSession: it.inflowSession, outcome: outcome, err: execErr}
+					resultCh <- nodeResult{node: it.node, outEdges: it.outEdges, key: it.key, scope: it.scope, visible: it.visible, writers: it.writers, inflowSession: it.inflowSession, outcome: outcome, err: execErr}
 				}(item)
 			default:
 				goto wait
@@ -704,9 +751,18 @@ func (sc *scheduler) handleResult(ctx context.Context, res nodeResult) {
 		visibleAfter[k] = v
 	}
 	visibleAfter[lastAssistantKey] = res.outcome.output
+	writersAfter := cloneStringMap(res.writers)
+	if writersAfter == nil {
+		writersAfter = map[string]string{}
+	}
+	for k := range produced {
+		writersAfter[k] = node.ID
+	}
+	writersAfter[lastAssistantKey] = node.ID
 	if node.Config.LastAssistantAlias != "" {
 		visibleAfter[node.Config.LastAssistantAlias] = res.outcome.output
 		produced[node.Config.LastAssistantAlias] = res.outcome.output
+		writersAfter[node.Config.LastAssistantAlias] = node.ID
 	}
 	// Outflow session (§3 会话血缘): an Agent node carries the session it created
 	// or forked; any other node passes the inflow session through unchanged so it
@@ -718,6 +774,7 @@ func (sc *scheduler) handleResult(ctx context.Context, res nodeResult) {
 	state.Status = model.GraphInstanceStatusSucceeded
 	state.VisibleVariables = visibleAfter
 	state.OutputVariables = cloneStringMap(produced)
+	state.VariableWriters = cloneStringMap(writersAfter)
 	state.SessionID = outflowSession
 	// DisplaySessionID is the session the UI lists/opens for this instance. A
 	// Shell node keeps the display session minted at enqueue time (already on
@@ -738,6 +795,7 @@ func (sc *scheduler) handleResult(ctx context.Context, res nodeResult) {
 	}
 	sc.instances[keyStr] = state
 	sc.varsByKey[keyStr] = cloneStringMap(visibleAfter)
+	sc.writersByKey[keyStr] = cloneStringMap(writersAfter)
 	if node.Type != model.GraphNodeTypeShell {
 		sc.whitelistAgentSession(ctx, outflowSession)
 	}
@@ -799,7 +857,7 @@ func (sc *scheduler) handleResult(ctx context.Context, res nodeResult) {
 		return
 	}
 
-	contrib := UpstreamSnapshot{NodeID: node.ID, Variables: visibleAfter, LastAssistantMsg: res.outcome.output, SessionID: outflowSession}
+	contrib := UpstreamSnapshot{NodeID: node.ID, Variables: visibleAfter, Writers: writersAfter, LastAssistantMsg: res.outcome.output, SessionID: outflowSession}
 	if res.outcome.stopLoop {
 		// STOP_LOOP inside a loop: end the current container at the round
 		// boundary. Prune this node's out-edges (do not continue downstream this
@@ -843,6 +901,7 @@ func (sc *scheduler) failInstance(ctx context.Context, state *model.GraphInstanc
 		outflowSession = outcome.sessionID
 	}
 	state.SessionID = outflowSession
+	state.VariableWriters = cloneStringMap(sc.writersByKey[instanceKeyString(key)])
 	// A Shell node keeps the display session minted at enqueue time
 	// (state.DisplaySessionID); append whatever output it produced before failing
 	// so the user can open the session and inspect it. Best-effort. Other nodes
@@ -940,7 +999,8 @@ func (sc *scheduler) resolveEdge(ctx context.Context, scope *scopeRun, e model.G
 	}
 	logger.Infof(ctx, "[graph] join ready: runId=%s nodeId=%s key=%s activeInputs=%d",
 		sc.run.ID, e.TargetNodeID, targetKeyStr, len(sc.contribs[targetKeyStr]))
-	sc.decide(ctx, scope, sc.nodesByID[e.TargetNodeID], targetKey, MergeVisibleSnapshots(sc.contribs[targetKeyStr]), pickInflowSession(sc.contribs[targetKeyStr]))
+	visible, writers := MergeVisibleSnapshotsWithWriters(sc.contribs[targetKeyStr])
+	sc.decide(ctx, scope, sc.nodesByID[e.TargetNodeID], targetKey, visible, writers, pickInflowSession(sc.contribs[targetKeyStr]))
 }
 
 // decide is invoked once a node instance's every in-edge is resolved. ≥1 active
@@ -948,7 +1008,7 @@ func (sc *scheduler) resolveEdge(ctx context.Context, scope *scopeRun, e model.G
 // all-pruned prunes it and propagates the prune downstream. inflowSession is the
 // session flowing into the instance (§3 会话血缘), resolved from its activated
 // in-edges.
-func (sc *scheduler) decide(ctx context.Context, scope *scopeRun, node model.GraphNode, key model.GraphInstanceKey, visible map[string]string, inflowSession string) {
+func (sc *scheduler) decide(ctx context.Context, scope *scopeRun, node model.GraphNode, key model.GraphInstanceKey, visible, writers map[string]string, inflowSession string) {
 	// Defensive idempotence (also relied on by resume): an instance already in a
 	// reliable terminal state (succeeded/skipped) is never re-decided or re-run.
 	if st, ok := sc.instances[instanceKeyString(key)]; ok {
@@ -961,6 +1021,7 @@ func (sc *scheduler) decide(ctx context.Context, scope *scopeRun, node model.Gra
 		sc.pruneNode(ctx, scope, node, key)
 		return
 	}
+	visible = sc.overlayCurrentInitialVariables(visible, writers)
 	switch node.Type {
 	case model.GraphNodeTypeEnd:
 		if node.ParentID == "" {
@@ -985,16 +1046,17 @@ func (sc *scheduler) decide(ctx context.Context, scope *scopeRun, node model.Gra
 			scope.roundContribs = append(scope.roundContribs, UpstreamSnapshot{
 				NodeID:           node.ID,
 				Variables:        visible,
+				Writers:          writers,
 				LastAssistantMsg: visible[lastAssistantKey],
 				SessionID:        inflowSession,
 			})
 		}
 	case model.GraphNodeTypeIfElse:
-		sc.decideIfElse(ctx, scope, node, key, visible, inflowSession)
+		sc.decideIfElse(ctx, scope, node, key, visible, writers, inflowSession)
 	case model.GraphNodeTypeShell, model.GraphNodeTypePrompt, model.GraphNodeTypeClarify:
-		sc.enqueue(ctx, scope, node, key, visible, inflowSession)
+		sc.enqueue(ctx, scope, node, key, visible, writers, inflowSession)
 	case model.GraphNodeTypeLoop:
-		sc.startLoop(ctx, scope, node, key, visible, inflowSession)
+		sc.startLoop(ctx, scope, node, key, visible, writers, inflowSession)
 	case model.GraphNodeTypeStart:
 		// A start with in-edges is illegal (caught at save time); ignore.
 	default:
@@ -1008,7 +1070,7 @@ func (sc *scheduler) decide(ctx context.Context, scope *scopeRun, node model.Gra
 // succeeded. It runs synchronously in the scheduler goroutine (no worker slot).
 // It passes the inflow session through unchanged (If-Else does not touch
 // sessions) so downstream Agents on the chosen branch can still inherit it.
-func (sc *scheduler) decideIfElse(ctx context.Context, scope *scopeRun, node model.GraphNode, key model.GraphInstanceKey, visible map[string]string, inflowSession string) {
+func (sc *scheduler) decideIfElse(ctx context.Context, scope *scopeRun, node model.GraphNode, key model.GraphInstanceKey, visible, writers map[string]string, inflowSession string) {
 	keyStr := instanceKeyString(key)
 	now := time.Now().UnixMilli()
 	// Loop iteration vars are visible to a condition inside a loop body, on a
@@ -1021,7 +1083,7 @@ func (sc *scheduler) decideIfElse(ctx context.Context, scope *scopeRun, node mod
 		sc.instances[keyStr] = model.GraphInstanceState{
 			Key: key, NodeID: node.ID, NodeTitle: node.Title, NodeType: node.Type,
 			Status: model.GraphInstanceStatusFailed, Version: sc.run.CurrentVersion,
-			VisibleVariables: visible, StartedAt: now, FinishedAt: now, Error: rerr,
+			VisibleVariables: visible, VariableWriters: cloneStringMap(writers), StartedAt: now, FinishedAt: now, Error: rerr,
 		}
 		sc.run.LastError = rerr
 		updateRunProgress(sc.run, sc.instances)
@@ -1034,9 +1096,10 @@ func (sc *scheduler) decideIfElse(ctx context.Context, scope *scopeRun, node mod
 	sc.instances[keyStr] = model.GraphInstanceState{
 		Key: key, NodeID: node.ID, NodeTitle: node.Title, NodeType: node.Type,
 		Status: model.GraphInstanceStatusSucceeded, Version: sc.run.CurrentVersion,
-		VisibleVariables: visible, StartedAt: now, FinishedAt: now,
+		VisibleVariables: visible, VariableWriters: cloneStringMap(writers), StartedAt: now, FinishedAt: now,
 	}
 	sc.varsByKey[keyStr] = cloneStringMap(visible)
+	sc.writersByKey[keyStr] = cloneStringMap(writers)
 	updateRunProgress(sc.run, sc.instances)
 	if sc.checkRunLimits(ctx) {
 		return
@@ -1050,7 +1113,7 @@ func (sc *scheduler) decideIfElse(ctx context.Context, scope *scopeRun, node mod
 	if !result {
 		chosen = model.GraphEdgePortNo
 	}
-	contrib := UpstreamSnapshot{NodeID: node.ID, Variables: visible, LastAssistantMsg: visible[lastAssistantKey], SessionID: inflowSession}
+	contrib := UpstreamSnapshot{NodeID: node.ID, Variables: visible, Writers: writers, LastAssistantMsg: visible[lastAssistantKey], SessionID: inflowSession}
 	for _, e := range sc.outEdges[node.ID] {
 		active := e.SourcePort == chosen
 		sc.resolveEdge(ctx, scope, e, active, contrib)
@@ -1104,7 +1167,7 @@ func (sc *scheduler) pruneNode(ctx context.Context, scope *scopeRun, node model.
 // queue for the worker pool to dispatch, marking the owning scope as having one
 // more async unit in flight. inflowSession travels with the ready item so the
 // worker can fork it for an `inherit` Agent (§3 会话血缘).
-func (sc *scheduler) enqueue(ctx context.Context, scope *scopeRun, node model.GraphNode, key model.GraphInstanceKey, visible map[string]string, inflowSession string) {
+func (sc *scheduler) enqueue(ctx context.Context, scope *scopeRun, node model.GraphNode, key model.GraphInstanceKey, visible, writers map[string]string, inflowSession string) {
 	if sc.stopScheduling {
 		return
 	}
@@ -1117,7 +1180,7 @@ func (sc *scheduler) enqueue(ctx context.Context, scope *scopeRun, node model.Gr
 	state := model.GraphInstanceState{
 		Key: key, NodeID: node.ID, NodeTitle: node.Title, NodeType: node.Type,
 		Status: model.GraphInstanceStatusRunning, Version: sc.run.CurrentVersion,
-		VisibleVariables: cloneStringMap(visible), StartedAt: startedAt,
+		VisibleVariables: cloneStringMap(visible), VariableWriters: cloneStringMap(writers), StartedAt: startedAt,
 	}
 	// Graph Shell 默认新开一个 session: mint the Shell node's display session and
 	// record the script as its user message *now*, at enqueue time, so the Chat
@@ -1143,6 +1206,7 @@ func (sc *scheduler) enqueue(ctx context.Context, scope *scopeRun, node model.Gr
 	}
 	sc.instances[keyStr] = state
 	sc.varsByKey[keyStr] = cloneStringMap(visible)
+	sc.writersByKey[keyStr] = cloneStringMap(writers)
 	updateRunProgress(sc.run, sc.instances)
 	if sc.checkRunLimits(ctx) {
 		return
@@ -1160,6 +1224,7 @@ func (sc *scheduler) enqueue(ctx context.Context, scope *scopeRun, node model.Gr
 		disabled:      cloneStringSet(sc.disabled),
 		key:           key,
 		visible:       visible,
+		writers:       cloneStringMap(writers),
 		scope:         scope,
 		inflowSession: inflowSession,
 		loopVars:      loopVars,
