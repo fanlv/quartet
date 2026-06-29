@@ -212,6 +212,8 @@ github.com/eapache/queue v1.1.0/go.mod h1:6eCeP0CKFpHLu8blIFXhExK/dRa7WDZfr6jVFP
 github.com/edsrzf/mmap-go v1.0.0/go.mod h1:YO35OhQPt3KJa3ryjFM5Bs14WD66h8eGKpfaBNrHW5M=
 github.com/eino-contrib/acp v0.0.3-0.20260603093805-d91302f55821 h1:kIqGKa+YWObfqIFC4wvq5aq6y8TlkJKT8F37KS1GBR8=
 github.com/eino-contrib/acp v0.0.3-0.20260603093805-d91302f55821/go.mod h1:tXIZVWtmxOg28DmazjYxXT3DdtnBVQvUzqMBXppHoyo=
+github.com/eino-contrib/acp v0.0.4-0.20260629091845-cd16b45fb1ef h1:qNX7CvFAmMOtl4gbLTG2IWmevF/d49v5dHD59orGQ5Y=
+github.com/eino-contrib/acp v0.0.4-0.20260629091845-cd16b45fb1ef/go.mod h1:tXIZVWtmxOg28DmazjYxXT3DdtnBVQvUzqMBXppHoyo=
 github.com/eino-contrib/jsonschema v1.0.3 h1:2Kfsm1xlMV0ssY2nuxshS4AwbLFuqmPmzIjLVJ1Fsp0=
 github.com/eino-contrib/jsonschema v1.0.3/go.mod h1:cpnX4SyKjWjGC7iN2EbhxaTdLqGjCi0e9DxpLYxddD4=
 github.com/eino-contrib/ollama v0.1.0 h1:z1NaMdKW6X1ftP8g5xGGR5zDRPUtuTKFq35vBQgxsN4=

@@ -342,25 +342,12 @@ func connectACPWithNpxHealRetry(ctx context.Context, command, cwd string) (*pkga
 }
 
 // modelsFromSessionResponse extracts the model list from the ACP session
-// response. It prefers the standard Models field; when that is nil/empty it
-// falls back to the "model" ConfigOptions select (index 1 by convention in
-// agents like claude-agent-acp that don't populate Models).
+// response. The ACP v1 schema dropped the dedicated Models field, so models
+// now always come from the "model" ConfigOptions select (index 1 by convention
+// in agents like claude-agent-acp that don't set the category).
 func modelsFromSessionResponse(resp *pkgacp.SessionResponse) *model.SessionModelState {
 	if resp == nil {
 		return nil
-	}
-	// Prefer the standard Models field.
-	if resp.Models != nil && len(resp.Models.AvailableModels) > 0 {
-		ms := &model.SessionModelState{CurrentModelId: string(resp.Models.CurrentModelID)}
-		for _, m := range resp.Models.AvailableModels {
-			desc := m.Description
-			ms.AvailableModels = append(ms.AvailableModels, model.ModelInfoACP{
-				Description: &desc,
-				ModelId:     string(m.ModelID),
-				Name:        m.Name,
-			})
-		}
-		return ms
 	}
 	selectOpt := resp.ModelConfigSelect()
 	if selectOpt == nil {

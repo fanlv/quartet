@@ -39,7 +39,6 @@ type SessionID = acp.SessionID
 type SessionResponse struct {
 	SessionID     string
 	ConfigOptions []acp.SessionConfigOption
-	Models        *acp.SessionModelState
 	Modes         *acp.SessionModeState
 }
 
@@ -182,7 +181,6 @@ func (c *Conn) NewSession(ctx context.Context, workdir string) (*SessionResponse
 	return &SessionResponse{
 		SessionID:     string(resp.SessionID),
 		ConfigOptions: resp.ConfigOptions,
-		Models:        resp.Models,
 		Modes:         resp.Modes,
 	}, nil
 }
@@ -205,7 +203,6 @@ func (c *Conn) LoadSession(ctx context.Context, sessionID, workdir string) (*Ses
 	return &SessionResponse{
 		SessionID:     sessionID,
 		ConfigOptions: resp.ConfigOptions,
-		Models:        resp.Models,
 		Modes:         resp.Modes,
 	}, nil
 }
@@ -233,7 +230,7 @@ func (c *Conn) ResumeSession(ctx context.Context, sessionID, workdir string) (*S
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.conn.UnstableResumeSession(ctx, acp.ResumeSessionRequest{
+	resp, err := c.conn.ResumeSession(ctx, acp.ResumeSessionRequest{
 		SessionID:  acp.SessionID(sessionID),
 		Cwd:        cwd,
 		MCPServers: []acp.MCPServer{},
@@ -245,7 +242,6 @@ func (c *Conn) ResumeSession(ctx context.Context, sessionID, workdir string) (*S
 	return &SessionResponse{
 		SessionID:     sessionID,
 		ConfigOptions: resp.ConfigOptions,
-		Models:        resp.Models,
 		Modes:         resp.Modes,
 	}, nil
 }
@@ -335,28 +331,14 @@ func (c *Conn) SetSessionMode(ctx context.Context, sessionID SessionID, mode str
 	return nil
 }
 
-// SetSessionModel switches the active model through the ACP session config API.
-// Tries UnstableSetSessionModel first; falls back to SetSessionConfigOption
-// if the agent does not support the unstable method (ErrorCodeMethodNotFound).
+// SetSessionModel switches the active model for the session. The dedicated
+// session/set_model RPC was removed from the ACP v1 schema, so model selection
+// now always goes through the generic SetSessionConfigOption API keyed by the
+// "model" config option.
 func (c *Conn) SetSessionModel(ctx context.Context, sessionID SessionID, modelID string) error {
-	resp, err := c.conn.UnstableSetSessionModel(ctx, acp.SetSessionModelRequest{
-		SessionID: sessionID,
-		ModelID:   acp.ModelID(modelID),
-	})
-	if err == nil {
-		logger.Debugf(ctx, "[ACP] SetSessionModel modelID=%s resp=%s", modelID, json.String(resp))
-		return nil
-	}
-
-	var rpcErr *acp.RPCError
-	if !errors.As(err, &rpcErr) || rpcErr.Code != int(acp.ErrorCodeMethodNotFound) {
-		return err
-	}
-
-	logger.Debugf(ctx, "[ACP] UnstableSetSessionModel not supported, falling back to SetSessionConfigOption")
 	configID := acp.SessionConfigID("model")
 	value := acp.SessionConfigValueID(modelID)
-	optResp, err := c.conn.SetSessionConfigOption(ctx, acp.NewSetSessionConfigOptionRequestValueID(acp.SetSessionConfigOptionRequestValueID{
+	resp, err := c.conn.SetSessionConfigOption(ctx, acp.NewSetSessionConfigOptionRequestValueID(acp.SetSessionConfigOptionRequestValueID{
 		SessionID: &sessionID,
 		ConfigID:  &configID,
 		Value:     &value,
@@ -364,7 +346,7 @@ func (c *Conn) SetSessionModel(ctx context.Context, sessionID SessionID, modelID
 	if err != nil {
 		return err
 	}
-	logger.Debugf(ctx, "[ACP] SetSessionModel modelID=%s resp=%s", modelID, json.String(optResp))
+	logger.Debugf(ctx, "[ACP] SetSessionModel modelID=%s resp=%s", modelID, json.String(resp))
 	return nil
 }
 

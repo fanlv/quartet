@@ -14,7 +14,7 @@ require (
 	github.com/cloudwego/eino-ext/components/model/qwen v0.1.5
 	github.com/cloudwego/hertz v0.10.4
 	github.com/deep-agent/sandbox v0.0.0-20260503094408-99da74bc3bf8
-	github.com/eino-contrib/acp v0.0.3-0.20260603093805-d91302f55821
+	github.com/eino-contrib/acp v0.0.4-0.20260629091845-cd16b45fb1ef
 	github.com/eino-contrib/ollama v0.1.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
