@@ -346,7 +346,7 @@ func (c *Conn) SetSessionModel(ctx context.Context, sessionID SessionID, modelID
 	if err != nil {
 		return err
 	}
-	logger.Debugf(ctx, "[ACP] SetSessionModel modelID=%s resp=%s", modelID, json.String(resp))
+	logger.Infof(ctx, "[ACP] SetSessionModel modelID=%s resp=%s", modelID, json.String(resp))
 	return nil
 }
 
