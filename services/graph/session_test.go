@@ -299,7 +299,7 @@ func TestSessionMultiInEdgeInheritReusesGreatestNodeID(t *testing.T) {
 func TestSessionInheritWithoutParentFails(t *testing.T) {
 	node := agentNode("b", model.GraphSessionStrategyInherit)
 	runner := newSessionRunner()
-	_, err := openNodeSession(context.Background(), runner, "job-1", node, "", &model.SessionOverrides{})
+	_, err := openNodeSession(context.Background(), runner, "job-1", node, "", &model.SessionOverrides{}, "")
 	if err == nil {
 		t.Fatalf("openNodeSession with empty inflow + inherit must fail")
 	}

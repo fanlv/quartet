@@ -561,12 +561,17 @@ export function JobChat(props: JobChatProps) {
     ? `${isGraph ? 'graph' : 'loop'}:${existingJobId}:${activeSessionId ?? 'none'}`
     : `chat:${existingJobId}`;
 
-  // In Loop mode the footer duration badge should reflect the whole job, not
-  // just the current run that `roundStartedAt` anchors to. Aggregate the same
-  // way the Sessions sidebar header does: sum of finished session durations
-  // plus a live delta for any still-running session.
+  // In Loop / Graph mode the footer duration badge should reflect the whole
+  // job, not just the current run that `roundStartedAt` anchors to. Aggregate
+  // the same way the Sessions sidebar header does: sum of finished session
+  // durations plus a live delta for any still-running session. This keeps the
+  // footer consistent with the sidebar and, crucially, keeps the badge in its
+  // "running" (non-greyed) state while any session is still in flight — the
+  // job-level roundStartedAt/roundFinishedAt fallback greys out as soon as a
+  // single node session sets jobFinishedAt, even if other sessions are still
+  // running.
   const loopAggregateDuration = useMemo(() => {
-    if (!isLoop) return null;
+    if (!isLoop && !isGraph) return null;
     let baseMs = 0;
     const runningStartedAts: number[] = [];
     for (const s of loopSessions) {
@@ -576,7 +581,7 @@ export function JobChat(props: JobChatProps) {
       }
     }
     return { baseMs, runningStartedAts };
-  }, [isLoop, loopSessions]);
+  }, [isLoop, isGraph, loopSessions]);
 
   const agentEffectiveModelId = selectedAgent ? (selectedAgent.models?.currentModelId || selectedAgent.model_id) : null;
   const effectiveModelId = hasUserSelected

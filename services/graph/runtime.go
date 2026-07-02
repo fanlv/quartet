@@ -383,7 +383,15 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 			ACPMode:         node.Config.ACPMode,
 			ACPThoughtLevel: node.Config.ACPThoughtLevel,
 		}
-		sessionID, err := openNodeSession(ctx, runner, run.JobID, node, inflowSession, overrides)
+		// Hard-stop resume (§5 硬停续跑复用会话): reuse the interrupted node's own
+		// session and re-run it with a bare "继续" turn — the user's mid-run edits
+		// stay in the same thread and the node picks up where it stopped, rather
+		// than opening a fresh conversation from the original prompt.
+		carrySession := resumeCarrySession(run, key, node)
+		if carrySession != "" {
+			prompt = "继续"
+		}
+		sessionID, err := openNodeSession(ctx, runner, run.JobID, node, inflowSession, overrides, carrySession)
 		if err != nil {
 			return nodeOutcome{}, err
 		}
@@ -400,7 +408,7 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 		// re-append (chatctx.BeginRun); the tag rides only the in-memory copy and
 		// never reaches disk. Best-effort: a record failure logs and falls back
 		// to the agent's own in-Run persistence (message just shows a bit later).
-		if node.Config.SessionStrategy != model.GraphSessionStrategyInherit && strings.TrimSpace(prompt) != "" {
+		if carrySession == "" && node.Config.SessionStrategy != model.GraphSessionStrategyInherit && strings.TrimSpace(prompt) != "" {
 			if recorder, ok := runner.(PromptUserMessageRecorder); ok {
 				if err := recorder.RecordPromptUserMessage(ctx, run.JobID, sessionID, prompt, time.Now().UnixMilli()); err != nil {
 					logger.Warnf(ctx, "[graph] record prompt user message failed: runId=%s nodeId=%s sessionId=%s err=%v", run.ID, node.ID, sessionID, err)
@@ -448,7 +456,7 @@ func (s *serviceImpl) executeClarifyNode(ctx context.Context, run *model.GraphRu
 		ACPMode:         node.Config.ACPMode,
 		ACPThoughtLevel: node.Config.ACPThoughtLevel,
 	}
-	sessionID, err := openNodeSession(ctx, runner, run.JobID, node, inflowSession, overrides)
+	sessionID, err := openNodeSession(ctx, runner, run.JobID, node, inflowSession, overrides, "")
 	if err != nil {
 		return nodeOutcome{}, err
 	}
@@ -494,6 +502,26 @@ func (s *serviceImpl) executeClarifyNode(ctx context.Context, run *model.GraphRu
 	return nodeOutcome{output: output, produced: produced, sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, nil
 }
 
+// resumeCarrySession returns the session a Prompt node should reuse when a hard
+// stop (§5 硬停续跑复用会话) interrupted it mid-run. On resume the interrupted
+// instance was reset and removed from the live set, but resetResettable archived
+// its full state (session + pre-reset status) in run.ArchivedInstances. When that
+// archived instance is a Prompt node left Interrupted with a real session, the
+// re-run reuses that session verbatim: the user keeps chatting in the same thread
+// and the node re-runs with an auto "继续" turn. Any other case (fresh run, a
+// failed/timed-out node, a non-Prompt node, no session) returns "" so the node
+// mints a fresh session per its declared strategy.
+func resumeCarrySession(run *model.GraphRun, key model.GraphInstanceKey, node model.GraphNode) string {
+	if run == nil || node.Type != model.GraphNodeTypePrompt {
+		return ""
+	}
+	archived, ok := run.ArchivedInstances[instanceKeyString(key)]
+	if !ok || archived.Status != model.GraphInstanceStatusInterrupted {
+		return ""
+	}
+	return firstNonEmpty(archived.DisplaySessionID, archived.SessionID)
+}
+
 // openNodeSession opens the session an Agent-class node executes against per its
 // declared strategy (§3 会话血缘). `inherit` REUSES the inflow session verbatim:
 // the node appends its turn to the SAME session's message list, continuing one
@@ -509,7 +537,15 @@ func (s *serviceImpl) executeClarifyNode(ctx context.Context, run *model.GraphRu
 // iteration appends to the SAME session — one continuous conversation spanning all
 // rounds. This is safe: iterations run strictly sequentially on the scheduler
 // goroutine, so reuse never yields concurrent turns on one session.
-func openNodeSession(ctx context.Context, runner Runner, jobID string, node model.GraphNode, inflowSession string, overrides *model.SessionOverrides) (sessionID string, err error) {
+func openNodeSession(ctx context.Context, runner Runner, jobID string, node model.GraphNode, inflowSession string, overrides *model.SessionOverrides, carrySession string) (sessionID string, err error) {
+	// A hard-stop resume carries the interrupted node's own session forward so the
+	// user continues the SAME conversation (§5 硬停续跑复用会话) instead of a fresh
+	// thread. carrySession wins over the strategy: the node re-runs against its
+	// prior session, history intact, and the scheduler auto-sends a "继续" turn.
+	if carrySession != "" {
+		logger.Infof(ctx, "[graph] resume: reusing interrupted session: jobId=%s nodeId=%s sessionId=%s", jobID, node.ID, carrySession)
+		return carrySession, nil
+	}
 	if node.Config.SessionStrategy == model.GraphSessionStrategyInherit {
 		if inflowSession == "" {
 			return "", fmt.Errorf("node %q declares 'inherit' session strategy but no upstream session is available to inherit", node.ID)
