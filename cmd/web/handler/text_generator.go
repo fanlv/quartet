@@ -29,7 +29,7 @@ func (h *Handler) generateText(ctx context.Context, agentType, modelID string, m
 	}
 
 	// Non-eino agent: resolve the headless one-shot binary. agentType is the
-	// ACP *serve* command (e.g. "coco acp serve"); it cannot be exec'd with
+	// ACP *serve* command (e.g. "gemini --acp"); it cannot be exec'd with
 	// "-p <prompt>" because that boots the ACP JSON-RPC server instead of
 	// running a one-shot. KnownACPAgents records the matching plain CLI bin.
 	bin, ok := probe.HeadlessBin(agentType)
@@ -77,7 +77,7 @@ func (h *Handler) generateTextWithModel(ctx context.Context, modelID string, mes
 }
 
 // generateTextWithCLI executes an external CLI agent in headless print mode
-// to generate text. bin is the agent's plain CLI binary (e.g. "coco",
+// to generate text. bin is the agent's plain CLI binary (e.g. "gemini",
 // "claude"); the prompt is passed via "-p". This is intentionally NOT the
 // agent's ACP serve command, which speaks JSON-RPC over stdio and would
 // exit non-zero if invoked this way.

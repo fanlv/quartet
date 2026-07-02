@@ -19,6 +19,7 @@ import { ServerClockProvider } from '../contexts/ServerClock';
 import { VirtualList } from './VirtualList';
 import { registerWorkspaceColors } from '../utils/workspace';
 import { fetchAgentPrefs, type AgentPrefsMap } from '../utils/agentPrefs';
+import { setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
 import './JobChat.css';
 
 // Must match the backend limit in cmd/web/handler/job.go (jobTitleMaxLen).
@@ -185,6 +186,7 @@ export function JobChat(props: JobChatProps) {
   const [workdir, setWorkdir] = useState(initialWorkdir || '');
   const [selectedAgentIndex, setSelectedAgentIndex] = useState<number>(0);
   const [hasUserSelected, setHasUserSelected] = useState(false);
+  const [acpConfigError, setAcpConfigError] = useState<string | null>(null);
   const [allowEinoSelection, setAllowEinoSelection] = useState<boolean | null>(null);
   const [jobEnable, setJobEnable] = useState(false);
   const [loopSidebarOpen, setLoopSidebarOpen] = useState(false);
@@ -499,33 +501,107 @@ export function JobChat(props: JobChatProps) {
     ? einoAgents.findIndex((agent) => agent.model_id === selectedAgent.model_id && agent.type === selectedAgent.type)
     : -1;
 
+  // applyACPConfig pushes a live-config switch to the backend and merges the
+  // refreshed selector lists back into the selected agent. When a session is
+  // active it switches on that session (and the backend persists it); before a
+  // session exists (interactive job not yet sent) it falls back to a Home
+  // preview against agentType so the lists still refresh. Rolls back the
+  // optimistic pick on failure.
+  const applyACPConfig = useCallback(
+    async (
+      target: ACPConfigTarget,
+      change: { model?: string; mode?: string; thoughtLevel?: string },
+      rollback: () => void,
+    ) => {
+      const agent = agents[selectedAgentIndex];
+      if (!agent) return;
+      setAcpConfigError(null);
+      try {
+        const state: ACPConfigState = await setACPConfig({
+          target,
+          sessionId: activeSessionId || undefined,
+          agentType: activeSessionId ? undefined : agent.type,
+          model: change.model ?? agent.models?.currentModelId,
+          mode: change.mode ?? agent.modes?.currentModeId,
+          thoughtLevel: change.thoughtLevel ?? agent.thoughtLevels?.currentThoughtLevelId,
+        });
+        setAgents((prev) => prev.map((a, i) =>
+          i === selectedAgentIndex
+            ? {
+                ...a,
+                models: state.models ?? a.models,
+                modes: state.modes ?? a.modes,
+                thoughtLevels: state.thoughtLevels ?? a.thoughtLevels,
+              }
+            : a
+        ));
+      } catch (err) {
+        rollback();
+        const msg = err instanceof Error ? err.message : String(err);
+        setAcpConfigError(msg);
+        console.error(`[JobChat] set ACP ${target} failed:`, err);
+      }
+    },
+    [agents, selectedAgentIndex, activeSessionId],
+  );
+
   const handleSelectModel = useCallback((modelId: string) => {
     // Mark manual control so the session-reported model (sessionModelId) stops
     // pinning the selector. Without this, once a session reports its model the
     // tag/dropdown freeze on it and both display and send ignore new picks.
+    const agent = agents[selectedAgentIndex];
+    const prevModelId = agent?.models?.currentModelId;
+    if (!agent?.models || modelId === prevModelId) return;
     setHasUserSelected(true);
-    setAgents((prev) => prev.map((agent, idx) =>
-      idx === selectedAgentIndex && agent.models
-        ? { ...agent, models: { ...agent.models, currentModelId: modelId } }
-        : agent
+    setAgents((prev) => prev.map((a, idx) =>
+      idx === selectedAgentIndex && a.models
+        ? { ...a, models: { ...a.models, currentModelId: modelId } }
+        : a
     ));
-  }, [selectedAgentIndex]);
+    void applyACPConfig('model', { model: modelId }, () => {
+      setAgents((prev) => prev.map((a, idx) =>
+        idx === selectedAgentIndex && a.models
+          ? { ...a, models: { ...a.models, currentModelId: prevModelId ?? '' } }
+          : a
+      ));
+    });
+  }, [agents, selectedAgentIndex, applyACPConfig]);
 
   const handleSelectMode = useCallback((modeId: string) => {
-    setAgents((prev) => prev.map((agent, idx) =>
-      idx === selectedAgentIndex && agent.modes
-        ? { ...agent, modes: { ...agent.modes, currentModeId: modeId } }
-        : agent
+    const agent = agents[selectedAgentIndex];
+    const prevModeId = agent?.modes?.currentModeId;
+    if (!agent?.modes || modeId === prevModeId) return;
+    setAgents((prev) => prev.map((a, idx) =>
+      idx === selectedAgentIndex && a.modes
+        ? { ...a, modes: { ...a.modes, currentModeId: modeId } }
+        : a
     ));
-  }, [selectedAgentIndex]);
+    void applyACPConfig('mode', { mode: modeId }, () => {
+      setAgents((prev) => prev.map((a, idx) =>
+        idx === selectedAgentIndex && a.modes
+          ? { ...a, modes: { ...a.modes, currentModeId: prevModeId ?? '' } }
+          : a
+      ));
+    });
+  }, [agents, selectedAgentIndex, applyACPConfig]);
 
   const handleSelectThoughtLevel = useCallback((thoughtLevelId: string) => {
-    setAgents((prev) => prev.map((agent, idx) =>
-      idx === selectedAgentIndex && agent.thoughtLevels
-        ? { ...agent, thoughtLevels: { ...agent.thoughtLevels, currentThoughtLevelId: thoughtLevelId } }
-        : agent
+    const agent = agents[selectedAgentIndex];
+    const prevLevelId = agent?.thoughtLevels?.currentThoughtLevelId;
+    if (!agent?.thoughtLevels || thoughtLevelId === prevLevelId) return;
+    setAgents((prev) => prev.map((a, idx) =>
+      idx === selectedAgentIndex && a.thoughtLevels
+        ? { ...a, thoughtLevels: { ...a.thoughtLevels, currentThoughtLevelId: thoughtLevelId } }
+        : a
     ));
-  }, [selectedAgentIndex]);
+    void applyACPConfig('thoughtLevel', { thoughtLevel: thoughtLevelId }, () => {
+      setAgents((prev) => prev.map((a, idx) =>
+        idx === selectedAgentIndex && a.thoughtLevels
+          ? { ...a, thoughtLevels: { ...a.thoughtLevels, currentThoughtLevelId: prevLevelId ?? '' } }
+          : a
+      ));
+    });
+  }, [agents, selectedAgentIndex, applyACPConfig]);
 
   // Lock selector behavior once when entering chat page:
   // only sessions that start with an eino agent can switch among eino agents.
@@ -1267,6 +1343,12 @@ export function JobChat(props: JobChatProps) {
             followBottom={shouldFollowMessageListBottom}
             scrollContextKey={messageListScrollContextKey}
           />
+          )}
+          {acpConfigError && (
+            <div className="acp-config-error" data-testid="acp-config-error" role="alert">
+              <span>{acpConfigError}</span>
+              <button type="button" onClick={() => setAcpConfigError(null)} aria-label="dismiss">×</button>
+            </div>
           )}
           <ChatInput
             onSend={handleSendMessage}

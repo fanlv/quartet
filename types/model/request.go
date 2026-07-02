@@ -52,6 +52,42 @@ type JobMessageRequest struct {
 	BypassCommand bool `json:"bypassCommand,omitempty"`
 }
 
+// ACPConfigTarget names which selector an ACP live-config switch changes.
+type ACPConfigTarget string
+
+const (
+	ACPConfigTargetModel        ACPConfigTarget = "model"
+	ACPConfigTargetMode         ACPConfigTarget = "mode"
+	ACPConfigTargetThoughtLevel ACPConfigTarget = "thoughtLevel"
+)
+
+// SetACPConfigRequest switches an ACP selector (model / mode / thought_level)
+// and asks for the refreshed selector lists back. When SessionID is set the
+// switch applies to that session's live agent; otherwise it is a Home
+// (session-less) preview that spins up a throwaway session on AgentType.
+//
+// Model / Mode / ThoughtLevel carry the full current selection so the Home
+// preview can replay it into a fresh session before reading the linked lists
+// back. For the session path only the Target's value is used (the others are
+// already the session's persisted state).
+type SetACPConfigRequest struct {
+	SessionID    string          `json:"sessionId,omitempty"`
+	AgentType    string          `json:"agentType,omitempty"`
+	Target       ACPConfigTarget `json:"target"`
+	Model        string          `json:"model,omitempty"`
+	Mode         string          `json:"mode,omitempty"`
+	ThoughtLevel string          `json:"thoughtLevel,omitempty"`
+}
+
+// SetACPConfigResponse returns the refreshed selector lists after a switch.
+// Each list is populated only when the ACP response carried a refreshed list
+// for it (see ACPConfigState); the frontend keeps its current values for nil
+// lists.
+type SetACPConfigResponse struct {
+	Code int `json:"code"`
+	ACPConfigState
+}
+
 type CreateWorkspaceRequest struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`

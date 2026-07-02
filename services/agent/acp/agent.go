@@ -15,6 +15,7 @@ import (
 	"github.com/fanlv/quartet/pkg/tokenizer"
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/agent/chatctx"
+	"github.com/fanlv/quartet/services/agent/internal/acpstate"
 	"github.com/fanlv/quartet/services/agent/round"
 	"github.com/fanlv/quartet/types/agui"
 	"github.com/fanlv/quartet/types/model"
@@ -77,16 +78,6 @@ type ACPAgent struct {
 	// Stored for reconnection when the underlying process dies.
 	agentType string
 	workdir   string
-
-	// constructorModelID captures the acpModelID used at NewACPAgent time.
-	// Only meaningful for Coco backends, where SetSessionModel does NOT
-	// take effect on an existing subprocess session — the model is instead
-	// pinned via presetCocoModel during construction. The cache layer
-	// compares this against the next GetOrCreate's acpModelID and rebuilds
-	// on mismatch; without that, switching models on a Coco session would
-	// silently keep dispatching to the originally-pinned model. Empty for
-	// non-Coco backends, where UpdateACPModelID at Run time is sufficient.
-	constructorModelID string
 
 	// sessionStore drives all session-metadata writes (ACPSessionID,
 	// ACPLastSyncedMessageCount) through a single in-memory+disk writer,
@@ -182,28 +173,8 @@ func thoughtLevelConfigIDFromSession(resp *pkgacp.SessionResponse) string {
 // NewACPAgent starts an ACP agent subprocess (via pkg/acp), creates or
 // reloads the ACP session for this quartet session, and prepares the
 // chat context manager so Run() can stream events.
-func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, workdir, jobID, wsID, acpModelID string) (_ *ACPAgent, retErr error) {
+func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, workdir, jobID, wsID string) (_ *ACPAgent, retErr error) {
 	logger.Debugf(ctx, "[acp] new agent: sessionId=%s type=%s workdir=%s jobId=%s", sessionID, agentType, workdir, jobID)
-
-	// Coco workaround: SetSessionModel does not take effect on the current
-	// session. To work around this, spin up a throwaway connection, create a
-	// session, set the model, then tear it down. The next connection will
-	// pick up the persisted model preference.
-	//
-	// Fail-fast on error: constructorModelID below is set to acpModelID
-	// unconditionally, and RequiresRebuild treats it as the source of truth
-	// for "this Coco agent is pinned to that model". If preset failed but we
-	// continued, the cache layer would skip rebuild on subsequent calls with
-	// the same acpModelID even though the subprocess is actually still on
-	// the previous (or default) model — the user picks model A, we silently
-	// answer with model B, and usage stats / cost attribution are wrong with
-	// no user-visible signal. Returning here surfaces the failure to the
-	// caller so a retry can rebuild from a clean state.
-	if acpModelID != "" && isCoco(agentType) {
-		if err := presetCocoModel(ctx, agentType, workdir, acpModelID); err != nil {
-			return nil, fmt.Errorf("preset coco model %q failed: %w", acpModelID, err)
-		}
-	}
 
 	conn, err := pkgacp.NewTrackedConn(ctx, agentType, workdir)
 	if err != nil {
@@ -329,7 +300,6 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 		builder:              round.New(),
 		agentType:            agentType,
 		workdir:              workdir,
-		constructorModelID:   constructorModelIDFor(agentType, acpModelID),
 		thoughtLevelConfigID: thoughtLevelConfigID,
 		sessionStore:         store,
 		sessionID:            sessionID,
@@ -737,7 +707,7 @@ func (a *ACPAgent) resetACPSession(ctx context.Context) error {
 // jobID is threaded into the round builder's log label so WARN lines
 // ([round] eager flush superseded / drop terminal ...) can be traced back
 // to the concrete loop job, not just the session pair.
-func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, acpModelID, acpMode, acpThoughtLevel, jobID string) (retErr error) {
+func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, jobID string) (retErr error) {
 	a.running.Add(1)
 	defer a.running.Add(-1)
 
@@ -931,30 +901,21 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 	// cleanup) must run against the current pair, not the pre-reset one.
 	conn, acpSession = a.snapshotTransport()
 
-	// Apply the per-Run model/mode selection on the freshly-snapshotted
-	// transport. Held until after the drift / BeginRun-truncate resets so
-	// a soon-to-be-discarded subprocess session does not pay for an
-	// up-front SetSessionModel / SetSessionMode RPC: reconnectIfNeeded
-	// and resetACPSession both clear currentModelID / currentMode, so the
-	// fresh-session path lands here with empty cache and fires the RPC
-	// against the new session; the no-reset path keeps the previous Run's
-	// values cached and short-circuits the RPC when the selection has not
-	// changed. Use runCtx so a Stop in flight cancels the RPC rather than
+	// Apply the persisted model/mode/thought_level selection on the
+	// freshly-snapshotted transport. Held until after the drift /
+	// BeginRun-truncate resets so a soon-to-be-discarded subprocess session
+	// does not pay for an up-front SetSessionModel / SetSessionMode RPC:
+	// reconnectIfNeeded and resetACPSession both clear currentModelID /
+	// currentMode, so the fresh-session path lands here with empty cache and
+	// fires the RPC against the new session; the no-reset path keeps the
+	// previous Run's values cached and short-circuits the RPC when the
+	// selection has not changed. Values come from the persisted session (see
+	// applyPersistedConfig) rather than Run parameters, so a live switch made
+	// between Runs — and the last selection after reconnect / reset — is
+	// honoured. Use runCtx so a Stop in flight cancels the RPC rather than
 	// blocking on the caller's parent ctx.
-	if acpModelID != "" {
-		if err := a.UpdateACPModelID(runCtx, acpModelID); err != nil {
-			return err
-		}
-	}
-	if acpMode != "" {
-		if err := a.UpdateACPMode(runCtx, acpMode); err != nil {
-			return err
-		}
-	}
-	if acpThoughtLevel != "" {
-		if err := a.UpdateACPThoughtLevel(runCtx, acpThoughtLevel); err != nil {
-			return err
-		}
+	if err := a.applyPersistedConfig(runCtx); err != nil {
+		return err
 	}
 
 	// Wire the round builder for this Run: reset state, install the agui
@@ -1168,7 +1129,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 		if strings.Contains(errStr, "refresh token") || strings.Contains(errStr, "access token") || strings.Contains(errStr, "sign in again") {
 			logger.Errorf(runCtx, "[acp] auth token expired or revoked — please re-login to the ACP provider (e.g. run the provider's auth flow again): %v", err)
 		}
-		// Known upstream defect: the ACP backend (coco / claude-agent-acp)
+		// Known upstream defect: the ACP backend (e.g. claude-agent-acp)
 		// occasionally builds an invalid tool_use sequence — typically right
 		// after an image Read tool_result — and the Claude API rejects the
 		// follow-up request with "tool use concurrency issues" /
@@ -1180,7 +1141,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 		// Return an actionable message instead of the bare RPC error so the
 		// user knows it is an upstream issue and how to get unstuck.
 		if strings.Contains(errStr, "tool use concurrency issues") || strings.Contains(errStr, "tool_use_mismatch") {
-			logger.Errorf(runCtx, "[acp] upstream tool-use sequence rejected by Claude API (known coco / claude-agent-acp defect, often after an image Read): type=%s acpSession=%s err=%v",
+			logger.Errorf(runCtx, "[acp] upstream tool-use sequence rejected by Claude API (known claude-agent-acp defect, often after an image Read): type=%s acpSession=%s err=%v",
 				a.agentType, acpSession, err)
 			return fmt.Errorf("ACP backend (%s) produced an invalid tool-use sequence that the Claude API rejected — this is a known upstream issue, often triggered after reading an image. Retrying the same message will fail the same way; start a new conversation to continue. Raw error: %w", a.agentType, err)
 		}
@@ -1410,26 +1371,51 @@ func (a *ACPAgent) IsRunning() bool {
 // re-attempt instead of being short-circuited by the equality check.
 func (a *ACPAgent) UpdateACPModelID(ctx context.Context, modelID string) error {
 	a.mu.RLock()
-	if modelID == a.currentModelID {
-		a.mu.RUnlock()
+	skip := modelID == a.currentModelID
+	a.mu.RUnlock()
+	if skip {
 		return nil
 	}
+	_, err := a.setModel(ctx, modelID)
+	return err
+}
+
+// SetModel switches the model on the live session and returns the refreshed
+// selector lists carried in the ACP response (model + thought_level may both
+// change as a linked side effect). Unlike UpdateACPModelID it does not
+// short-circuit on an unchanged value: the caller is an explicit user switch
+// that wants the freshly-linked ConfigOptions back.
+func (a *ACPAgent) SetModel(ctx context.Context, modelID string) (*model.ACPConfigState, error) {
+	resp, err := a.setModel(ctx, modelID)
+	if err != nil {
+		return nil, err
+	}
+	return acpstate.ConfigState(resp), nil
+}
+
+// setModel performs the model RPC and updates the current-model cache,
+// returning the session response so callers can surface refreshed
+// ConfigOptions. currentModelID stays unchanged on failure so a retry
+// re-attempts instead of being short-circuited by an equality check.
+func (a *ACPAgent) setModel(ctx context.Context, modelID string) (*pkgacp.SessionResponse, error) {
+	a.mu.RLock()
 	conn := a.conn
 	acpSession := a.acpSession
 	old := a.currentModelID
 	a.mu.RUnlock()
 
 	if conn == nil {
-		return fmt.Errorf("set model: no active conn")
+		return nil, fmt.Errorf("set model: no active conn")
 	}
-	if err := conn.SetSessionModel(ctx, acpSession, modelID); err != nil {
-		return fmt.Errorf("set model failed: acpSession=%s model=%s: %w", acpSession, modelID, err)
+	resp, err := conn.SetSessionModel(ctx, acpSession, modelID)
+	if err != nil {
+		return nil, fmt.Errorf("set model failed: acpSession=%s model=%s: %w", acpSession, modelID, err)
 	}
 	a.mu.Lock()
 	a.currentModelID = modelID
 	a.mu.Unlock()
 	logger.Debugf(ctx, "[acp] set model: acpSession=%s model=%s prev=%s", acpSession, modelID, old)
-	return nil
+	return resp, nil
 }
 
 // UpdateACPMode is the mode counterpart to UpdateACPModelID with the
@@ -1439,25 +1425,44 @@ func (a *ACPAgent) UpdateACPModelID(ctx context.Context, modelID string) error {
 // "log-and-continue" would produce a silent semantic mismatch.
 func (a *ACPAgent) UpdateACPMode(ctx context.Context, mode string) error {
 	a.mu.RLock()
-	if mode == a.currentMode {
-		a.mu.RUnlock()
+	skip := mode == a.currentMode
+	a.mu.RUnlock()
+	if skip {
 		return nil
 	}
+	_, err := a.setMode(ctx, mode)
+	return err
+}
+
+// SetMode switches the mode on the live session. The mode RPC carries no
+// ConfigOptions, so the returned state has all lists nil — the caller keeps
+// its current selector lists and just reflects the newly-active mode.
+func (a *ACPAgent) SetMode(ctx context.Context, mode string) (*model.ACPConfigState, error) {
+	resp, err := a.setMode(ctx, mode)
+	if err != nil {
+		return nil, err
+	}
+	return acpstate.ConfigState(resp), nil
+}
+
+func (a *ACPAgent) setMode(ctx context.Context, mode string) (*pkgacp.SessionResponse, error) {
+	a.mu.RLock()
 	conn := a.conn
 	acpSession := a.acpSession
 	a.mu.RUnlock()
 
 	if conn == nil {
-		return fmt.Errorf("set mode: no active conn")
+		return nil, fmt.Errorf("set mode: no active conn")
 	}
-	if err := conn.SetSessionMode(ctx, acpSession, mode); err != nil {
-		return fmt.Errorf("set mode failed: acpSession=%s mode=%s: %w", acpSession, mode, err)
+	resp, err := conn.SetSessionMode(ctx, acpSession, mode)
+	if err != nil {
+		return nil, fmt.Errorf("set mode failed: acpSession=%s mode=%s: %w", acpSession, mode, err)
 	}
 	a.mu.Lock()
 	a.currentMode = mode
 	a.mu.Unlock()
 	logger.Debugf(ctx, "[acp] set mode: acpSession=%s mode=%s", acpSession, mode)
-	return nil
+	return resp, nil
 }
 
 // UpdateACPThoughtLevel is the thought_level counterpart to UpdateACPMode.
@@ -1469,29 +1474,92 @@ func (a *ACPAgent) UpdateACPMode(ctx context.Context, mode string) error {
 // re-attempts instead of being short-circuited by the equality check.
 func (a *ACPAgent) UpdateACPThoughtLevel(ctx context.Context, thoughtLevel string) error {
 	a.mu.RLock()
-	if thoughtLevel == a.currentThoughtLevel {
-		a.mu.RUnlock()
+	skip := thoughtLevel == a.currentThoughtLevel
+	a.mu.RUnlock()
+	if skip {
 		return nil
 	}
+	_, err := a.setThoughtLevel(ctx, thoughtLevel)
+	return err
+}
+
+// SetThoughtLevel switches the thought_level on the live session and returns
+// the refreshed selector lists carried in the ACP response (model +
+// thought_level may both change as a linked side effect).
+func (a *ACPAgent) SetThoughtLevel(ctx context.Context, thoughtLevel string) (*model.ACPConfigState, error) {
+	resp, err := a.setThoughtLevel(ctx, thoughtLevel)
+	if err != nil {
+		return nil, err
+	}
+	return acpstate.ConfigState(resp), nil
+}
+
+func (a *ACPAgent) setThoughtLevel(ctx context.Context, thoughtLevel string) (*pkgacp.SessionResponse, error) {
+	a.mu.RLock()
 	conn := a.conn
 	acpSession := a.acpSession
 	configID := a.thoughtLevelConfigID
 	a.mu.RUnlock()
 
 	if conn == nil {
-		return fmt.Errorf("set thought_level: no active conn")
+		return nil, fmt.Errorf("set thought_level: no active conn")
 	}
 	if configID == "" {
-		return fmt.Errorf("set thought_level failed: acpSession=%s thoughtLevel=%s: agent does not advertise a thought_level config option", acpSession, thoughtLevel)
+		return nil, fmt.Errorf("set thought_level failed: acpSession=%s thoughtLevel=%s: agent does not advertise a thought_level config option", acpSession, thoughtLevel)
 	}
-	if err := conn.SetSessionThoughtLevel(ctx, acpSession, configID, thoughtLevel); err != nil {
-		return fmt.Errorf("set thought_level failed: acpSession=%s thoughtLevel=%s: %w", acpSession, thoughtLevel, err)
+	resp, err := conn.SetSessionThoughtLevel(ctx, acpSession, configID, thoughtLevel)
+	if err != nil {
+		return nil, fmt.Errorf("set thought_level failed: acpSession=%s thoughtLevel=%s: %w", acpSession, thoughtLevel, err)
 	}
 	a.mu.Lock()
 	a.currentThoughtLevel = thoughtLevel
 	a.mu.Unlock()
 	logger.Debugf(ctx, "[acp] set thought_level: acpSession=%s thoughtLevel=%s configID=%s", acpSession, thoughtLevel, configID)
+	return resp, nil
+}
+
+// applyPersistedConfig pushes the session's persisted model / mode /
+// thought_level selection onto the (possibly freshly-minted) subprocess
+// session. Called from Run after drift / reconnect resets have settled, so a
+// fresh session picks up the user's last selection while a no-reset session
+// short-circuits via the Update* equality checks. Values come from the
+// persisted session rather than Run parameters: live switches (SetModel etc.)
+// persist to the session, and reconnect / reset clear the current* cache, so
+// the persisted session is the single source of truth for what the user
+// picked.
+func (a *ACPAgent) applyPersistedConfig(ctx context.Context) error {
+	modelID, acpMode, thoughtLevel := a.persistedConfig()
+	if modelID != "" {
+		if err := a.UpdateACPModelID(ctx, modelID); err != nil {
+			return err
+		}
+	}
+	if acpMode != "" {
+		if err := a.UpdateACPMode(ctx, acpMode); err != nil {
+			return err
+		}
+	}
+	if thoughtLevel != "" {
+		if err := a.UpdateACPThoughtLevel(ctx, thoughtLevel); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// persistedConfig reads the ACP model / mode / thought_level selection from
+// the persisted session. Returns empty strings when the store or session is
+// unavailable, in which case applyPersistedConfig leaves the subprocess
+// session on its defaults.
+func (a *ACPAgent) persistedConfig() (modelID, acpMode, thoughtLevel string) {
+	if a.sessionStore == nil || a.sessionID == "" {
+		return "", "", ""
+	}
+	s, ok := a.sessionStore.Get(a.sessionID)
+	if !ok {
+		return "", "", ""
+	}
+	return s.ModelID, s.ACPMode, s.ACPThoughtLevel
 }
 
 func extractTextFromMessages(messages []*schema.Message) string {
@@ -1534,61 +1602,12 @@ func userMessagesHaveAttachment(messages []*schema.Message) bool {
 	return false
 }
 
-func isCoco(agentType string) bool {
-	return strings.Contains(agentType, "coco")
-}
-
-// constructorModelIDFor returns the model id that the ACPAgent constructor
-// pins into the subprocess session for backends where the per-session
-// SetSessionModel call does not take effect at Run time. Only Coco needs
-// this today (see presetCocoModel); other backends accept SetSessionModel
-// on the live session, so their effective model can change without
-// rebuilding the agent and we return an empty string to signal "no
-// rebuild needed on model change".
-func constructorModelIDFor(agentType, acpModelID string) string {
-	if isCoco(agentType) {
-		return acpModelID
-	}
-	return ""
-}
-
 // RequiresRebuild reports whether a cached ACPAgent must be discarded and
 // recreated to honour the next call's parameters. agentType / workdir are
 // baked into the subprocess + tracked-conn at construction (NewTrackedConn,
-// env loading) and cannot be hot-swapped. For Coco the active model is
-// also baked in at construction via presetCocoModel — see the comments on
-// constructorModelID. For non-Coco backends the model can be hot-swapped
-// via UpdateACPModelID at Run time, so it does not factor into rebuild.
-func (a *ACPAgent) RequiresRebuild(agentType, workdir, acpModelID string) bool {
-	if a.agentType != agentType || a.workdir != workdir {
-		return true
-	}
-	wantConstructorModel := constructorModelIDFor(agentType, acpModelID)
-	return a.constructorModelID != wantConstructorModel
-}
-
-// presetCocoModel works around Coco's SetSessionModel not taking effect on
-// the current session. It creates a throwaway connection + session, sets the
-// model, then tears everything down. The next real connection will inherit the
-// persisted model preference.
-func presetCocoModel(ctx context.Context, agentType, workdir, modelID string) error {
-	logger.Debugf(ctx, "[acp] presetCocoModel start: model=%s", modelID)
-
-	tmpConn, err := pkgacp.NewConn(ctx, agentType, workdir)
-	if err != nil {
-		return fmt.Errorf("create temp conn: %w", err)
-	}
-	defer tmpConn.Close()
-
-	sessResp, err := tmpConn.NewSession(ctx, workdir)
-	if err != nil {
-		return fmt.Errorf("create temp session: %w", err)
-	}
-
-	if err := tmpConn.SetSessionModel(ctx, pkgacp.SessionID(sessResp.SessionID), modelID); err != nil {
-		return fmt.Errorf("set model on temp session: %w", err)
-	}
-
-	logger.Debugf(ctx, "[acp] presetCocoModel done: model=%s tempSession=%s", modelID, sessResp.SessionID)
-	return nil
+// env loading) and cannot be hot-swapped. The model is hot-swapped on the
+// live session via SetSessionModel (from applyPersistedConfig at Run time or
+// an explicit SetModel switch), so it does not factor into rebuild.
+func (a *ACPAgent) RequiresRebuild(agentType, workdir string) bool {
+	return a.agentType != agentType || a.workdir != workdir
 }

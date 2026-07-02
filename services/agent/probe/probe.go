@@ -6,6 +6,7 @@ package probe
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"github.com/fanlv/quartet/pkg/fileserver"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/safe"
+	"github.com/fanlv/quartet/services/agent/internal/acpstate"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -85,7 +87,6 @@ type ACPAgentDef struct {
 
 // KnownACPAgents lists all known ACP agents.
 var KnownACPAgents = []ACPAgentDef{
-	{"coco", "coco acp serve", "COCO", "🥥"},
 	{Bin: "traex", Command: "traex acp serve", DisplayName: "TraeCLI", IconURL: "https://avatars.githubusercontent.com/u/192691831"},
 	{"openclaw", "openclaw acp", "OpenClaw", "🦞"},
 	{"claude", "npx @agentclientprotocol/claude-agent-acp", "Claude", "https://avatars.githubusercontent.com/u/81847"},
@@ -130,9 +131,9 @@ func InstalledACPAgents() []ACPAgentDef {
 }
 
 // HeadlessBin maps an ACP agent's *serve* command (the string stored in
-// AgentInfo.Type, e.g. "coco acp serve" or "npx @agentclientprotocol/claude-agent-acp")
+// AgentInfo.Type, e.g. "gemini --acp" or "npx @agentclientprotocol/claude-agent-acp")
 // to the binary used to run that same tool in *headless one-shot* mode
-// (e.g. "coco", "claude").
+// (e.g. "gemini", "claude").
 //
 // This distinction matters: an ACP serve command speaks JSON-RPC over
 // stdio and cannot be invoked as `<cmd> -p <prompt>`; doing so just boots
@@ -342,110 +343,133 @@ func connectACPWithNpxHealRetry(ctx context.Context, command, cwd string) (*pkga
 }
 
 // modelsFromSessionResponse extracts the model list from the ACP session
-// response. The ACP v1 schema dropped the dedicated Models field, so models
-// now always come from the "model" ConfigOptions select (index 1 by convention
-// in agents like claude-agent-acp that don't set the category).
+// response. Delegates to the shared acpstate converter so probe and the live
+// ACP session agent agree on the mapping.
 func modelsFromSessionResponse(resp *pkgacp.SessionResponse) *model.SessionModelState {
-	if resp == nil {
-		return nil
-	}
-	selectOpt := resp.ModelConfigSelect()
-	if selectOpt == nil {
-		return nil
-	}
-	ms := &model.SessionModelState{CurrentModelId: selectOpt.CurrentValue}
-	for _, o := range selectOpt.Options {
-		var desc *string
-		if o.Description != "" {
-			d := o.Description
-			desc = &d
-		}
-		ms.AvailableModels = append(ms.AvailableModels, model.ModelInfoACP{
-			Description: desc,
-			ModelId:     o.Value,
-			Name:        o.Name,
-		})
-	}
-	return ms
+	return acpstate.Models(resp)
 }
 
 // modesFromSessionResponse extracts the mode list from the ACP session
-// response. It prefers the standard Modes field; when that is nil/empty it
-// falls back to the "mode" ConfigOptions select (agents like opencode expose
-// modes there instead of populating Modes).
+// response. Delegates to the shared acpstate converter.
 func modesFromSessionResponse(resp *pkgacp.SessionResponse) *model.SessionModeState {
-	if resp == nil {
-		return nil
-	}
-	// Prefer the standard Modes field.
-	if resp.Modes != nil {
-		ms := &model.SessionModeState{
-			CurrentModeId: string(resp.Modes.CurrentModeID),
-		}
-		for _, m := range resp.Modes.AvailableModes {
-			var desc *string
-			if m.Description != "" {
-				d := m.Description
-				desc = &d
-			}
-			ms.AvailableModes = append(ms.AvailableModes, model.ACPSessionMode{
-				Description: desc,
-				Id:          string(m.ID),
-				Name:        m.Name,
-			})
-		}
-		return ms
-	}
-	selectOpt := resp.ModeConfigSelect()
-	if selectOpt == nil {
-		return nil
-	}
-	ms := &model.SessionModeState{CurrentModeId: selectOpt.CurrentValue}
-	for _, o := range selectOpt.Options {
-		var desc *string
-		if o.Description != "" {
-			d := o.Description
-			desc = &d
-		}
-		ms.AvailableModes = append(ms.AvailableModes, model.ACPSessionMode{
-			Description: desc,
-			Id:          o.Value,
-			Name:        o.Name,
-		})
-	}
-	return ms
+	return acpstate.Modes(resp)
 }
 
 // thoughtLevelsFromSessionResponse extracts the thought_level list from the
-// ACP session response. thought_level has no standard top-level field, so it
-// is sourced solely from the "thought_level" ConfigOptions select. The
-// select's ConfigID is carried through so the setter can target the right
-// config option (e.g. "reasoning_effort").
+// ACP session response. Delegates to the shared acpstate converter.
 func thoughtLevelsFromSessionResponse(resp *pkgacp.SessionResponse) *model.SessionThoughtLevelState {
-	if resp == nil {
-		return nil
+	return acpstate.ThoughtLevels(resp)
+}
+
+// PreviewTarget names which selector a Home (session-less) config switch
+// changes.
+type PreviewTarget string
+
+const (
+	PreviewTargetModel        PreviewTarget = "model"
+	PreviewTargetMode         PreviewTarget = "mode"
+	PreviewTargetThoughtLevel PreviewTarget = "thoughtLevel"
+)
+
+// PreviewSelection carries the full current selection for a Home config
+// switch. Target is the selector the user just changed; Model / Mode /
+// ThoughtLevel hold the current values of all three so the throwaway session
+// can be replayed into the same state before the refreshed lists are read
+// back. Empty values are skipped.
+type PreviewSelection struct {
+	Target       PreviewTarget
+	Model        string
+	Mode         string
+	ThoughtLevel string
+}
+
+// PreviewSetConfig applies a Home (session-less) config switch. It spins up a
+// throwaway ACP session for the command, replays the current selection so the
+// linked ConfigOptions reflect the full state, and returns the refreshed
+// selector lists. The session is torn down before returning — Home switches
+// are stateless, so no session id is persisted or reused.
+//
+// Only the Target selector's value is authoritative for the returned lists:
+// switching model / thought_level re-links both, while switching mode carries
+// no ConfigOptions back (the frontend keeps its current lists and just
+// reflects the new mode).
+func PreviewSetConfig(ctx context.Context, command string, sel PreviewSelection) (*model.ACPConfigState, error) {
+	ctx, cancel := context.WithTimeout(ctx, acpProbeTimeout)
+	defer cancel()
+
+	var cwd string
+	if home, err := fileserver.UserHomeDir(); err == nil {
+		cwd = home
 	}
-	selectOpt := resp.ThoughtLevelConfigSelect()
-	if selectOpt == nil {
-		return nil
+	acpConn, err := connectACPWithNpxHealRetry(ctx, command, cwd)
+	if err != nil {
+		return nil, fmt.Errorf("connect ACP agent failed: cmd=%s: %w", command, err)
 	}
-	ts := &model.SessionThoughtLevelState{
-		CurrentThoughtLevelId: selectOpt.CurrentValue,
-		ConfigId:              selectOpt.ConfigID,
+	defer acpConn.Close()
+
+	sessResp, err := acpConn.NewSession(ctx, cwd)
+	if err != nil {
+		return nil, fmt.Errorf("create ACP session failed: cmd=%s: %w", command, err)
 	}
-	for _, o := range selectOpt.Options {
-		var desc *string
-		if o.Description != "" {
-			d := o.Description
-			desc = &d
+	sessionID := pkgacp.SessionID(sessResp.SessionID)
+	thoughtLevelConfigID := acpstate.ThoughtLevelConfigID(sessResp)
+
+	// Replay the current selection, applying the just-changed target last so
+	// its response carries the freshly-linked ConfigOptions we return. mode is
+	// never the source of returned lists (its RPC has no ConfigOptions), so
+	// applying it before model / thought_level is fine.
+	var last *pkgacp.SessionResponse
+	apply := func(target PreviewTarget) error {
+		switch target {
+		case PreviewTargetModel:
+			if sel.Model == "" {
+				return nil
+			}
+			resp, err := acpConn.SetSessionModel(ctx, sessionID, sel.Model)
+			if err != nil {
+				return fmt.Errorf("set model %q failed: %w", sel.Model, err)
+			}
+			last = resp
+		case PreviewTargetMode:
+			if sel.Mode == "" {
+				return nil
+			}
+			resp, err := acpConn.SetSessionMode(ctx, sessionID, sel.Mode)
+			if err != nil {
+				return fmt.Errorf("set mode %q failed: %w", sel.Mode, err)
+			}
+			last = resp
+		case PreviewTargetThoughtLevel:
+			if sel.ThoughtLevel == "" {
+				return nil
+			}
+			if thoughtLevelConfigID == "" {
+				return fmt.Errorf("set thought_level %q failed: agent does not advertise a thought_level config option", sel.ThoughtLevel)
+			}
+			resp, err := acpConn.SetSessionThoughtLevel(ctx, sessionID, thoughtLevelConfigID, sel.ThoughtLevel)
+			if err != nil {
+				return fmt.Errorf("set thought_level %q failed: %w", sel.ThoughtLevel, err)
+			}
+			last = resp
 		}
-		ts.AvailableThoughtLevels = append(ts.AvailableThoughtLevels, model.ACPThoughtLevel{
-			Description: desc,
-			Id:          o.Value,
-			Name:        o.Name,
-		})
+		return nil
 	}
-	return ts
+
+	// Apply the non-target selectors first (order among them does not matter),
+	// then the target so `last` holds the target's response.
+	for _, t := range []PreviewTarget{PreviewTargetMode, PreviewTargetModel, PreviewTargetThoughtLevel} {
+		if t == sel.Target {
+			continue
+		}
+		if err := apply(t); err != nil {
+			return nil, err
+		}
+	}
+	if err := apply(sel.Target); err != nil {
+		return nil, err
+	}
+
+	return acpstate.ConfigState(last), nil
 }
 
 func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState) {

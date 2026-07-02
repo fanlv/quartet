@@ -90,7 +90,7 @@ func (h *Handler) runACPInternal(ctx context.Context, s *model.Session, userMess
 		return fmt.Errorf("get session service: %w", err)
 	}
 
-	lease, err := h.acpAgentService.GetOrCreate(ctx, ss, s.WorkspaceID, s.JobID, s.ID, s.Type, s.Workdir, s.ModelID)
+	lease, err := h.acpAgentService.GetOrCreate(ctx, ss, s.WorkspaceID, s.JobID, s.ID, s.Type, s.Workdir)
 	if err != nil {
 		return fmt.Errorf("initialize ACP agent: %w", err)
 	}
@@ -98,5 +98,5 @@ func (h *Handler) runACPInternal(ctx context.Context, s *model.Session, userMess
 	// agent under us via concurrent eviction or Delete.
 	defer lease.Release()
 
-	return lease.Value.Run(ctx, userMessages, handler, s.ModelID, s.ACPMode, s.ACPThoughtLevel, s.JobID)
+	return lease.Value.Run(ctx, userMessages, handler, s.JobID)
 }

@@ -483,6 +483,40 @@
   color: #7f1d1d;
 }
 
+/* Inline error shown above the composer when a live ACP config switch
+   (model / mode / thought_level) fails. Full backend error text is shown. */
+.acp-config-error {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 auto 8px;
+  max-width: 820px;
+  padding: 8px 12px;
+  background: linear-gradient(180deg, #fff5f5, #fef2f2);
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #991b1b;
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.acp-config-error button {
+  background: none;
+  border: none;
+  color: #b91c1c;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.acp-config-error button:hover {
+  color: #7f1d1d;
+}
+
 .readonly-banner {
   display: flex;
   align-items: center;

@@ -51,11 +51,11 @@ func (c *Conn) terminate() {
 // Matching has three stages:
 //
 //  1. Cheap filter — allowlist keyword appears as a substring of
-//     /proc/<pid>/cmdline. Keywords like "coco", "openclaw", "gemini" are
+//     /proc/<pid>/cmdline. Keywords like "openclaw", "gemini", "kimi" are
 //     specific enough to look distinctive but can still collide with
 //     unrelated processes (e.g. /etc/sysop/mongoosev3-agent/plugin/
 //     openclaw-collector/openclaw-collector or an ssh session running a
-//     user command happening to contain "coco"). That substring match on
+//     user command happening to contain "kimi"). That substring match on
 //     its own is NOT safe to escalate to kill(-pgid).
 //
 //  2. Marker guard — every ACP subprocess NewConn launches is started with

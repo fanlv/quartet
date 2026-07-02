@@ -126,6 +126,18 @@ type ACPThoughtLevel struct {
 	Name        string  `json:"name"`
 }
 
+// ACPConfigState is the response of an ACP live-config switch. Each selector
+// list is populated only when the underlying ACP response carried a refreshed
+// list for it: switching model or thought_level returns the full linked
+// ConfigOptions (so both may refresh together), while switching mode carries
+// no ConfigOptions and leaves all three nil. The frontend refreshes the
+// non-nil lists and keeps its current values for the nil ones.
+type ACPConfigState struct {
+	Models        *SessionModelState        `json:"models,omitempty"`
+	Modes         *SessionModeState         `json:"modes,omitempty"`
+	ThoughtLevels *SessionThoughtLevelState `json:"thoughtLevels,omitempty"`
+}
+
 type AgentListResponse struct {
 	Code               int         `json:"code"`
 	AgentList          []AgentInfo `json:"agent_list"`

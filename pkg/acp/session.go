@@ -318,24 +318,29 @@ func (c *Conn) CancelSession(ctx context.Context, sessionID SessionID) error {
 	return c.conn.SessionCancel(ctx, acp.CancelNotification{SessionID: sessionID})
 }
 
-// SetSessionMode switches the active mode for the session.
-func (c *Conn) SetSessionMode(ctx context.Context, sessionID SessionID, mode string) error {
+// SetSessionMode switches the active mode for the session. The mode RPC
+// response carries no ConfigOptions, so the returned SessionResponse has an
+// empty ConfigOptions list — callers get a confirmation that the switch
+// succeeded but no refreshed option lists to propagate.
+func (c *Conn) SetSessionMode(ctx context.Context, sessionID SessionID, mode string) (*SessionResponse, error) {
 	resp, err := c.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
 		SessionID: sessionID,
 		ModeID:    acp.SessionModeID(mode),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	logger.Debugf(ctx, "[ACP] SetSessionMode mode=%s resp=%s", mode, json.String(resp))
-	return nil
+	return &SessionResponse{SessionID: string(sessionID)}, nil
 }
 
 // SetSessionModel switches the active model for the session. The dedicated
 // session/set_model RPC was removed from the ACP v1 schema, so model selection
 // now always goes through the generic SetSessionConfigOption API keyed by the
-// "model" config option.
-func (c *Conn) SetSessionModel(ctx context.Context, sessionID SessionID, modelID string) error {
+// "model" config option. The response carries the full, freshly-linked
+// ConfigOptions list, which is returned so callers can refresh model /
+// thought_level selectors that changed as a side effect.
+func (c *Conn) SetSessionModel(ctx context.Context, sessionID SessionID, modelID string) (*SessionResponse, error) {
 	configID := acp.SessionConfigID("model")
 	value := acp.SessionConfigValueID(modelID)
 	resp, err := c.conn.SetSessionConfigOption(ctx, acp.NewSetSessionConfigOptionRequestValueID(acp.SetSessionConfigOptionRequestValueID{
@@ -344,17 +349,22 @@ func (c *Conn) SetSessionModel(ctx context.Context, sessionID SessionID, modelID
 		Value:     &value,
 	}))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	logger.Infof(ctx, "[ACP] SetSessionModel modelID=%s resp=%s", modelID, json.String(resp))
-	return nil
+	return &SessionResponse{
+		SessionID:     string(sessionID),
+		ConfigOptions: resp.ConfigOptions,
+	}, nil
 }
 
 // SetSessionThoughtLevel switches the active thought_level for the session.
 // thought_level has no dedicated RPC, so it always goes through the generic
 // SetSessionConfigOption API keyed by the config option id (e.g.
-// "reasoning_effort") discovered from the session's ConfigOptions.
-func (c *Conn) SetSessionThoughtLevel(ctx context.Context, sessionID SessionID, configID, value string) error {
+// "reasoning_effort") discovered from the session's ConfigOptions. Like
+// SetSessionModel, the response carries the full ConfigOptions list and is
+// returned for selector refresh.
+func (c *Conn) SetSessionThoughtLevel(ctx context.Context, sessionID SessionID, configID, value string) (*SessionResponse, error) {
 	cid := acp.SessionConfigID(configID)
 	val := acp.SessionConfigValueID(value)
 	resp, err := c.conn.SetSessionConfigOption(ctx, acp.NewSetSessionConfigOptionRequestValueID(acp.SetSessionConfigOptionRequestValueID{
@@ -363,10 +373,13 @@ func (c *Conn) SetSessionThoughtLevel(ctx context.Context, sessionID SessionID, 
 		Value:     &val,
 	}))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	logger.Debugf(ctx, "[ACP] SetSessionThoughtLevel configID=%s value=%s resp=%s", configID, value, json.String(resp))
-	return nil
+	return &SessionResponse{
+		SessionID:     string(sessionID),
+		ConfigOptions: resp.ConfigOptions,
+	}, nil
 }
 
 func resolveCwd(workdir string) (string, error) {

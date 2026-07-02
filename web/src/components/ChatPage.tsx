@@ -28,6 +28,7 @@ import { usePendingImages } from '../hooks/usePendingImages';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { workspaceColor, loadWorkspacePrefs, registerWorkspaceColors } from '../utils/workspace';
 import { fetchModelOptions, type ModelOption } from '../utils/models';
+import { setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
 import { fetchAgentPrefs, splitFavoriteModels, resolveAgentDefaults, applyDefaultsToAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { formatStatsDuration } from '../utils/statsFormat';
 import { isImeComposing } from '../utils/keyboard';
@@ -472,6 +473,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   const { t, i18n } = useTranslation();
   const [input, setInput] = useState('');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [acpConfigError, setAcpConfigError] = useState<string | null>(null);
   const [agentPrefs, setAgentPrefs] = useState<AgentPrefsMap>({});
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [workdir, setWorkdir] = useState('');
@@ -950,29 +952,110 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     }
   };
 
+  // applyACPConfig pushes a Home (session-less) config switch to the backend
+  // and merges the refreshed selector lists back into the agent at idx. The
+  // full current selection is sent so the throwaway session is replayed into
+  // the same state before the linked lists are read. On failure it clears the
+  // optimistic pick via rollback and surfaces the error.
+  const applyACPConfig = useCallback(
+    async (
+      target: ACPConfigTarget,
+      idx: number,
+      change: { model?: string; mode?: string; thoughtLevel?: string },
+      rollback: () => void,
+    ) => {
+      const agent = agents[idx];
+      if (!agent) return;
+      setAcpConfigError(null);
+      try {
+        const state: ACPConfigState = await setACPConfig({
+          target,
+          agentType: agent.type,
+          model: change.model ?? agent.models?.currentModelId,
+          mode: change.mode ?? agent.modes?.currentModeId,
+          thoughtLevel: change.thoughtLevel ?? agent.thoughtLevels?.currentThoughtLevelId,
+        });
+        // Merge only the lists the backend refreshed; keep current ones for
+        // the nil lists (mode switches return none).
+        setAgents((prev) => prev.map((a, i) =>
+          i === idx
+            ? {
+                ...a,
+                models: state.models ?? a.models,
+                modes: state.modes ?? a.modes,
+                thoughtLevels: state.thoughtLevels ?? a.thoughtLevels,
+              }
+            : a
+        ));
+      } catch (err) {
+        rollback();
+        const msg = err instanceof Error ? err.message : String(err);
+        setAcpConfigError(msg);
+        console.error(`[ChatPage] set ACP ${target} failed:`, err);
+      }
+    },
+    [agents],
+  );
+
   const handleSelectModel = useCallback((modelId: string) => {
-    setAgents((prev) => prev.map((agent, idx) =>
-      idx === selectedIndex && agent.models
-        ? { ...agent, models: { ...agent.models, currentModelId: modelId } }
-        : agent
+    const agent = agents[selectedIndex];
+    if (!agent?.models) return;
+    const prevModelId = agent.models.currentModelId;
+    if (modelId === prevModelId) return;
+    // Optimistic: reflect the pick immediately, then push it to a throwaway
+    // ACP session and merge back the refreshed (linked) lists. Roll back on
+    // failure so the dropdown never shows a selection the agent rejected.
+    setAgents((prev) => prev.map((a, idx) =>
+      idx === selectedIndex && a.models
+        ? { ...a, models: { ...a.models, currentModelId: modelId } }
+        : a
     ));
-  }, [selectedIndex]);
+    void applyACPConfig('model', selectedIndex, { model: modelId }, () => {
+      setAgents((prev) => prev.map((a, idx) =>
+        idx === selectedIndex && a.models
+          ? { ...a, models: { ...a.models, currentModelId: prevModelId } }
+          : a
+      ));
+    });
+  }, [agents, selectedIndex, applyACPConfig]);
 
   const handleSelectMode = useCallback((modeId: string) => {
-    setAgents((prev) => prev.map((agent, idx) =>
-      idx === selectedIndex && agent.modes
-        ? { ...agent, modes: { ...agent.modes, currentModeId: modeId } }
-        : agent
+    const agent = agents[selectedIndex];
+    if (!agent?.modes) return;
+    const prevModeId = agent.modes.currentModeId;
+    if (modeId === prevModeId) return;
+    setAgents((prev) => prev.map((a, idx) =>
+      idx === selectedIndex && a.modes
+        ? { ...a, modes: { ...a.modes, currentModeId: modeId } }
+        : a
     ));
-  }, [selectedIndex]);
+    void applyACPConfig('mode', selectedIndex, { mode: modeId }, () => {
+      setAgents((prev) => prev.map((a, idx) =>
+        idx === selectedIndex && a.modes
+          ? { ...a, modes: { ...a.modes, currentModeId: prevModeId } }
+          : a
+      ));
+    });
+  }, [agents, selectedIndex, applyACPConfig]);
 
   const handleSelectThoughtLevel = useCallback((thoughtLevelId: string) => {
-    setAgents((prev) => prev.map((agent, idx) =>
-      idx === selectedIndex && agent.thoughtLevels
-        ? { ...agent, thoughtLevels: { ...agent.thoughtLevels, currentThoughtLevelId: thoughtLevelId } }
-        : agent
+    const agent = agents[selectedIndex];
+    if (!agent?.thoughtLevels) return;
+    const prevLevelId = agent.thoughtLevels.currentThoughtLevelId;
+    if (thoughtLevelId === prevLevelId) return;
+    setAgents((prev) => prev.map((a, idx) =>
+      idx === selectedIndex && a.thoughtLevels
+        ? { ...a, thoughtLevels: { ...a.thoughtLevels, currentThoughtLevelId: thoughtLevelId } }
+        : a
     ));
-  }, [selectedIndex]);
+    void applyACPConfig('thoughtLevel', selectedIndex, { thoughtLevel: thoughtLevelId }, () => {
+      setAgents((prev) => prev.map((a, idx) =>
+        idx === selectedIndex && a.thoughtLevels
+          ? { ...a, thoughtLevels: { ...a.thoughtLevels, currentThoughtLevelId: prevLevelId } }
+          : a
+      ));
+    });
+  }, [agents, selectedIndex, applyACPConfig]);
 
   const handleSelectDir = () => {
     setShowDirPicker(true);
@@ -1618,6 +1701,12 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
       </div>
 
       <div className="home-input-container">
+      {acpConfigError && (
+        <div className="acp-config-error" data-testid="acp-config-error" role="alert">
+          <span>{acpConfigError}</span>
+          <button type="button" onClick={() => setAcpConfigError(null)} aria-label="dismiss">×</button>
+        </div>
+      )}
       <div className="home-input-wrapper" style={{ position: 'relative' }}>
           {mentionState && workdir && (
             <FileMention

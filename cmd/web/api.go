@@ -20,6 +20,10 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 
 	agent := api.Group("/agent")
 	agent.GET("/list", h.AgentList)
+	// ACP live-config switch: change model / mode / thought_level and get the
+	// refreshed selector lists back. Body carries an optional sessionId (live
+	// session switch) or agentType (Home session-less preview).
+	agent.POST("/config", h.SetACPConfig)
 
 	api.GET("/list-dir", h.ListDir)
 	api.POST("/mkdir", h.MkDir)

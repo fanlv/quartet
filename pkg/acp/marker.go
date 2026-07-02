@@ -11,7 +11,7 @@ package acp
 // matching is only a cheap prefilter and cannot, on its own, authorize a
 // kill(-pgid) on a PPID==1 root. Without the marker check, substring
 // collisions (e.g. "openclaw" matching /etc/sysop/mongoosev3-agent/plugin/
-// openclaw-collector/openclaw-collector, or "coco" matching an unrelated
+// openclaw-collector/openclaw-collector, or "kimi" matching an unrelated
 // user command in an ssh session) would escalate to killing system-level
 // service process groups.
 const (
