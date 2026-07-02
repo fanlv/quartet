@@ -42,6 +42,7 @@ import {
   type QuartetFlowNode,
 } from './graph/graphFlowAdapter';
 import { createEditorNode, filterNodeRemoveChanges, markEditableNodes } from './graph/editorModel';
+import { useIsMobile } from '../hooks/useIsMobile';
 import './GraphLoopProgress.css';
 
 // The embedded mini canvas visualizes run state. Outside edit mode structural
@@ -179,6 +180,11 @@ function statusLabel(t: TFunction, status?: GraphRunStatus): string {
 
 export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents = [], canEdit }: GraphLoopProgressProps) {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
+  // On phones the control panel (expand / edit / step-stop / stop / resume)
+  // wraps into several rows and eats a lot of vertical space, so it is hidden
+  // by default and toggled on demand. On desktop it is always shown.
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [run, setRun] = useState<GraphRun | null>(null);
   const [progress, setProgress] = useState<GraphProgress | null>(null);
   const [instances, setInstances] = useState<GraphInstanceState[]>([]);
@@ -683,6 +689,22 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
             <span>{t('graph.loop.skipped', { count: progress?.skippedCount ?? 0 })}</span>
           </span>
         </div>
+        {/* On phones the action panel is hidden by default; this toggle shows /
+            hides it. In edit mode the panel stays visible so save/cancel are
+            always reachable. */}
+        {isMobile && !editing && (
+          <button
+            type="button"
+            className="graph-loop-actions-toggle"
+            onClick={() => setActionsOpen((v) => !v)}
+            aria-expanded={actionsOpen}
+            title={actionsOpen ? t('graph.loop.hideControls') : t('graph.loop.showControls')}
+          >
+            <GraphActionIcon type={actionsOpen ? 'collapse' : 'controls'} />
+            <span>{actionsOpen ? t('graph.loop.hideControls') : t('graph.loop.showControls')}</span>
+          </button>
+        )}
+        {(!isMobile || actionsOpen || editing) && (
         <div className="graph-loop-actions" aria-label={t('graph.loop.controls')}>
           {editing ? (
             <>
@@ -753,6 +775,7 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
             </>
           )}
         </div>
+        )}
       </div>
 
       <div className="graph-loop-bar-wrapper">
@@ -876,7 +899,11 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
   );
 }
 
-function GraphActionIcon({ type }: { type: 'edit' | 'stepStop' | 'stop' | 'resume' | 'keepRunning' | 'expand' | 'collapse' | 'save' | 'cancel' | 'continue' }) {
+function GraphActionIcon({ type }: { type: 'edit' | 'stepStop' | 'stop' | 'resume' | 'keepRunning' | 'expand' | 'collapse' | 'save' | 'cancel' | 'continue' | 'controls' }) {
+  if (type === 'controls') {
+    // Sliders / control-panel glyph for the mobile actions toggle.
+    return <svg viewBox="0 0 24 24"><path d="M4 6h10" /><path d="M18 6h2" /><circle cx="16" cy="6" r="2" /><path d="M4 12h4" /><path d="M12 12h8" /><circle cx="10" cy="12" r="2" /><path d="M4 18h10" /><path d="M18 18h2" /><circle cx="16" cy="18" r="2" /></svg>;
+  }
   if (type === 'expand') {
     return <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>;
   }

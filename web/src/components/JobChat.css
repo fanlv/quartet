@@ -49,6 +49,10 @@
   cursor: pointer;
   color: #64748b;
   transition: all 0.15s;
+  /* Never let the nav toolbar squeeze the back button out of view: with many
+     header icons on a narrow phone the overflow-hidden .header-left could
+     otherwise collapse this to zero width. */
+  flex-shrink: 0;
 }
 
 .back-button:hover {

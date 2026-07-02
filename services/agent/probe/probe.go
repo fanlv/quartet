@@ -493,7 +493,7 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.Se
 		currentModelID(models), countModels(models),
 		currentModeID(modes), countModes(modes),
 		currentThoughtLevelID(thoughtLevels), countThoughtLevels(thoughtLevels))
-	logger.Debugf(ctx, "[probe] %s ACP session info: %v", command, json.String(sessResp))
+	logger.Infof(ctx, "[probe] %s ACP session info: %v", command, json.String(sessResp))
 
 	return models, modes, thoughtLevels
 }

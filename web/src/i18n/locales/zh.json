@@ -1013,6 +1013,8 @@
     "loop": {
       "notBound": "该任务尚未绑定 GraphRun。",
       "controls": "Graph 运行控制",
+      "showControls": "控制面板",
+      "hideControls": "收起控制",
       "expand": "展开",
       "collapse": "收起",
       "editTitle": "编辑运行版本",

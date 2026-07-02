@@ -87,6 +87,39 @@
   gap: 8px;
 }
 
+/* Mobile-only toggle that shows / hides the action panel. Hidden on desktop
+   (the media query below flips it on) so the panel is always visible there. */
+.graph-loop-actions-toggle {
+  display: none;
+  height: 30px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.graph-loop-actions-toggle:active {
+  background: #f1f5f9;
+}
+
+.graph-loop-actions-toggle svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .graph-loop-action {
   height: 30px;
   border: 1px solid #cbd5e1;
@@ -492,6 +525,11 @@
 
   .graph-loop-header {
     flex-direction: column;
+  }
+
+  .graph-loop-actions-toggle {
+    display: inline-flex;
+    align-self: flex-start;
   }
 
   .graph-loop-actions {
