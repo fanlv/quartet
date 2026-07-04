@@ -101,6 +101,13 @@
   line-height: 1.5;
 }
 
+.gi-error {
+  font-size: 11px;
+  color: #f85149;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
 .gi-seg {
   display: flex;
   gap: 0;

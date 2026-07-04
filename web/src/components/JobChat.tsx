@@ -186,6 +186,14 @@ export function JobChat(props: JobChatProps) {
   const [workdir, setWorkdir] = useState(initialWorkdir || '');
   const [selectedAgentIndex, setSelectedAgentIndex] = useState<number>(0);
   const [hasUserSelected, setHasUserSelected] = useState(false);
+  // Per-dimension manual-control flags. Once the user picks a mode /
+  // thought_level, the session-reported value (sessionACPMode /
+  // sessionACPThoughtLevel) must stop pinning that selector — mirrors
+  // hasUserSelected for model. Tracked separately so switching mode does not
+  // freeze the model selector's session-follow (and vice versa). Reset on job
+  // switch via the component's key={jobId} remount.
+  const [hasUserSelectedMode, setHasUserSelectedMode] = useState(false);
+  const [hasUserSelectedThoughtLevel, setHasUserSelectedThoughtLevel] = useState(false);
   const [acpConfigError, setAcpConfigError] = useState<string | null>(null);
   const [allowEinoSelection, setAllowEinoSelection] = useState<boolean | null>(null);
   const [jobEnable, setJobEnable] = useState(false);
@@ -196,6 +204,7 @@ export function JobChat(props: JobChatProps) {
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const [agentsEditorOpen, setAgentsEditorOpen] = useState(false);
   const [jobListOpen, setJobListOpen] = useState(false);
+  const [headerMoreOpen, setHeaderMoreOpen] = useState(false);
   // Step outline panel (right side): lists thinking / tool-call / assistant
   // steps with per-step duration; clicking a row scrolls the bubble into view.
   const [outlineOpen, setOutlineOpen] = useState(false);
@@ -275,6 +284,7 @@ export function JobChat(props: JobChatProps) {
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const initialMessageSent = useRef(false);
   const jobListRef = useRef<HTMLDivElement | null>(null);
+  const headerMoreRef = useRef<HTMLDivElement | null>(null);
 
   // Sync share token from loaded job data
   useEffect(() => {
@@ -396,18 +406,18 @@ export function JobChat(props: JobChatProps) {
       if (!shouldApplySessionACP) return agent;
 
       let updated = agent;
-      if (sessionModelId && updated.models && updated.models.availableModels.some((m) => m.modelId === sessionModelId) && updated.models.currentModelId !== sessionModelId) {
+      if (!hasUserSelected && sessionModelId && updated.models && updated.models.availableModels.some((m) => m.modelId === sessionModelId) && updated.models.currentModelId !== sessionModelId) {
         updated = { ...updated, models: { ...updated.models, currentModelId: sessionModelId } };
       }
-      if (sessionACPMode && updated.modes && updated.modes.currentModeId !== sessionACPMode) {
+      if (!hasUserSelectedMode && sessionACPMode && updated.modes && updated.modes.currentModeId !== sessionACPMode) {
         updated = { ...updated, modes: { ...updated.modes, currentModeId: sessionACPMode } };
       }
-      if (sessionACPThoughtLevel && updated.thoughtLevels && updated.thoughtLevels.currentThoughtLevelId !== sessionACPThoughtLevel) {
+      if (!hasUserSelectedThoughtLevel && sessionACPThoughtLevel && updated.thoughtLevels && updated.thoughtLevels.currentThoughtLevelId !== sessionACPThoughtLevel) {
         updated = { ...updated, thoughtLevels: { ...updated.thoughtLevels, currentThoughtLevelId: sessionACPThoughtLevel } };
       }
       return updated;
     }));
-  }, [sessionModelId, sessionACPMode, sessionACPThoughtLevel, sessionType, agents.length, selectedAgentIndex]);
+  }, [sessionModelId, sessionACPMode, sessionACPThoughtLevel, sessionType, agents.length, selectedAgentIndex, hasUserSelected, hasUserSelectedMode, hasUserSelectedThoughtLevel]);
 
   // Refresh on open + close-on-outside-click. The useJobList hook handles
   // initial load + background polling; here we only refresh eagerly when the
@@ -426,6 +436,26 @@ export function JobChat(props: JobChatProps) {
     document.addEventListener('mousedown', handlePointerDown);
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [jobListOpen, refreshJobs]);
+
+  useEffect(() => {
+    if (!headerMoreOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!headerMoreRef.current?.contains(event.target as Node)) {
+        setHeaderMoreOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setHeaderMoreOpen(false);
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [headerMoreOpen]);
 
   useEffect(() => {
     // In loop mode, always update agent index when active session changes.
@@ -571,6 +601,7 @@ export function JobChat(props: JobChatProps) {
     const agent = agents[selectedAgentIndex];
     const prevModeId = agent?.modes?.currentModeId;
     if (!agent?.modes || modeId === prevModeId) return;
+    setHasUserSelectedMode(true);
     setAgents((prev) => prev.map((a, idx) =>
       idx === selectedAgentIndex && a.modes
         ? { ...a, modes: { ...a.modes, currentModeId: modeId } }
@@ -589,6 +620,7 @@ export function JobChat(props: JobChatProps) {
     const agent = agents[selectedAgentIndex];
     const prevLevelId = agent?.thoughtLevels?.currentThoughtLevelId;
     if (!agent?.thoughtLevels || thoughtLevelId === prevLevelId) return;
+    setHasUserSelectedThoughtLevel(true);
     setAgents((prev) => prev.map((a, idx) =>
       idx === selectedAgentIndex && a.thoughtLevels
         ? { ...a, thoughtLevels: { ...a.thoughtLevels, currentThoughtLevelId: thoughtLevelId } }
@@ -999,7 +1031,10 @@ export function JobChat(props: JobChatProps) {
               <div className="header-joblist" ref={jobListRef}>
                 <button
                   className={`header-filebrowser-btn ${jobListOpen ? 'active' : ''}`}
-                  onClick={() => setJobListOpen((open) => !open)}
+                  onClick={() => {
+                    setHeaderMoreOpen(false);
+                    setJobListOpen((open) => !open);
+                  }}
                   title="Job List"
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1071,7 +1106,7 @@ export function JobChat(props: JobChatProps) {
                 </svg>
               </button>
               <button
-                className={`header-filebrowser-btn ${outlineOpen ? 'active' : ''}`}
+                className={`header-filebrowser-btn header-action-overflow ${outlineOpen ? 'active' : ''}`}
                 onClick={() => setOutlineOpen((v) => !v)}
                 title={t('chat.outline.title')}
                 data-testid="step-outline-toggle"
@@ -1089,7 +1124,7 @@ export function JobChat(props: JobChatProps) {
               {jobShareToken ? (
                 <>
                   <button
-                    className="header-filebrowser-btn"
+                    className="header-filebrowser-btn header-action-overflow"
                     onClick={handleCopyShareLink}
                     title={shareCopied ? 'Copied!' : 'Copy share link'}
                   >
@@ -1108,7 +1143,7 @@ export function JobChat(props: JobChatProps) {
                     </svg>
                   </button>
                   <button
-                    className="header-filebrowser-btn"
+                    className="header-filebrowser-btn header-action-overflow"
                     onClick={handleUnshare}
                     title="Stop sharing"
                   >
@@ -1120,7 +1155,7 @@ export function JobChat(props: JobChatProps) {
                 </>
               ) : (
                 <button
-                  className="header-filebrowser-btn"
+                  className="header-filebrowser-btn header-action-overflow"
                   onClick={handleShare}
                   title={shareCopied ? 'Link copied!' : 'Share'}
                 >
@@ -1142,7 +1177,7 @@ export function JobChat(props: JobChatProps) {
               {/* Shared buttons (right): same order as the home page's header. */}
               {onOpenStats && (
                 <button
-                  className="header-filebrowser-btn"
+                  className="header-filebrowser-btn header-action-overflow"
                   onClick={onOpenStats}
                   title={t('stats.topbarTooltip')}
                   aria-label={t('stats.topbarTooltip')}
@@ -1156,7 +1191,7 @@ export function JobChat(props: JobChatProps) {
               )}
               {onOpenGraph && (
                 <button
-                  className="header-filebrowser-btn"
+                  className="header-filebrowser-btn header-action-overflow"
                   onClick={onOpenGraph}
                   title="Graph Workflows"
                   aria-label="Graph Workflows"
@@ -1174,7 +1209,7 @@ export function JobChat(props: JobChatProps) {
                 </button>
               )}
               <button
-                className={`header-filebrowser-btn ${agentsEditorOpen ? 'active' : ''}`}
+                className={`header-filebrowser-btn header-action-overflow ${agentsEditorOpen ? 'active' : ''}`}
                 onClick={() => setAgentsEditorOpen(!agentsEditorOpen)}
                 title="AGENTS.md"
               >
@@ -1187,7 +1222,7 @@ export function JobChat(props: JobChatProps) {
                 </svg>
               </button>
               <button
-                className={`header-filebrowser-btn ${fileBrowserOpen ? 'active' : ''}`}
+                className={`header-filebrowser-btn header-action-overflow ${fileBrowserOpen ? 'active' : ''}`}
                 onClick={() => setFileBrowserOpen(!fileBrowserOpen)}
                 title="File Browser"
               >
@@ -1196,10 +1231,224 @@ export function JobChat(props: JobChatProps) {
                 </svg>
               </button>
               {onOpenSettings && (
-                <button className="header-settings-btn" onClick={onOpenSettings} title="Settings" data-testid="settings-open-button">
+                <button className="header-settings-btn header-action-overflow" onClick={onOpenSettings} title="Settings" data-testid="settings-open-button">
                   ⚙️
                 </button>
               )}
+              <div className="header-more" ref={headerMoreRef}>
+                <button
+                  type="button"
+                  className={`header-filebrowser-btn header-more-trigger ${headerMoreOpen ? 'active' : ''}`}
+                  onClick={() => {
+                    setJobListOpen(false);
+                    setHeaderMoreOpen((open) => !open);
+                  }}
+                  title={t('chat.headerActions.more')}
+                  aria-label={t('chat.headerActions.more')}
+                  aria-haspopup="menu"
+                  aria-expanded={headerMoreOpen}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="1" />
+                    <circle cx="19" cy="12" r="1" />
+                    <circle cx="5" cy="12" r="1" />
+                  </svg>
+                </button>
+                {headerMoreOpen && (
+                  <div className="header-more-menu" role="menu">
+                    <button
+                      type="button"
+                      className={`header-more-item ${outlineOpen ? 'active' : ''}`}
+                      role="menuitem"
+                      onClick={() => {
+                        setHeaderMoreOpen(false);
+                        setOutlineOpen((open) => !open);
+                      }}
+                    >
+                      <span className="header-more-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="8" y1="6" x2="21" y2="6" />
+                          <line x1="8" y1="12" x2="21" y2="12" />
+                          <line x1="8" y1="18" x2="21" y2="18" />
+                          <line x1="3" y1="6" x2="3.01" y2="6" />
+                          <line x1="3" y1="12" x2="3.01" y2="12" />
+                          <line x1="3" y1="18" x2="3.01" y2="18" />
+                        </svg>
+                      </span>
+                      <span>{t('chat.outline.title')}</span>
+                    </button>
+                    {jobShareToken ? (
+                      <>
+                        <button
+                          type="button"
+                          className="header-more-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setHeaderMoreOpen(false);
+                            void handleCopyShareLink();
+                          }}
+                        >
+                          <span className="header-more-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={shareCopied ? '#22c55e' : 'currentColor'} strokeWidth="2">
+                              {shareCopied ? (
+                                <path d="M20 6L9 17l-5-5" />
+                              ) : (
+                                <>
+                                  <circle cx="18" cy="5" r="3" />
+                                  <circle cx="6" cy="12" r="3" />
+                                  <circle cx="18" cy="19" r="3" />
+                                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                                </>
+                              )}
+                            </svg>
+                          </span>
+                          <span>{shareCopied ? t('common.copySuccess') : t('chat.headerActions.copyShareLink')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="header-more-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setHeaderMoreOpen(false);
+                            void handleUnshare();
+                          }}
+                        >
+                          <span className="header-more-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </span>
+                          <span>{t('chat.headerActions.stopSharing')}</span>
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="header-more-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setHeaderMoreOpen(false);
+                          void handleShare();
+                        }}
+                      >
+                        <span className="header-more-icon">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={shareCopied ? '#22c55e' : 'currentColor'} strokeWidth="2">
+                            {shareCopied ? (
+                              <path d="M20 6L9 17l-5-5" />
+                            ) : (
+                              <>
+                                <circle cx="18" cy="5" r="3" />
+                                <circle cx="6" cy="12" r="3" />
+                                <circle cx="18" cy="19" r="3" />
+                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                              </>
+                            )}
+                          </svg>
+                        </span>
+                        <span>{shareCopied ? t('common.copySuccess') : t('chat.headerActions.share')}</span>
+                      </button>
+                    )}
+                    {onOpenStats && (
+                      <button
+                        type="button"
+                        className="header-more-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setHeaderMoreOpen(false);
+                          onOpenStats();
+                        }}
+                      >
+                        <span className="header-more-icon">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="18" y1="20" x2="18" y2="10" />
+                            <line x1="12" y1="20" x2="12" y2="4" />
+                            <line x1="6" y1="20" x2="6" y2="14" />
+                          </svg>
+                        </span>
+                        <span>{t('chat.headerActions.stats')}</span>
+                      </button>
+                    )}
+                    {onOpenGraph && (
+                      <button
+                        type="button"
+                        className="header-more-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setHeaderMoreOpen(false);
+                          onOpenGraph();
+                        }}
+                      >
+                        <span className="header-more-icon">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="5" cy="12" r="2" />
+                            <circle cx="12" cy="5" r="2" />
+                            <circle cx="19" cy="12" r="2" />
+                            <circle cx="12" cy="19" r="2" />
+                            <path d="M6.5 10.5 10.5 6.5" />
+                            <path d="M13.5 6.5 17.5 10.5" />
+                            <path d="M17.5 13.5 13.5 17.5" />
+                            <path d="M10.5 17.5 6.5 13.5" />
+                          </svg>
+                        </span>
+                        <span>{t('chat.headerActions.graph')}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={`header-more-item ${agentsEditorOpen ? 'active' : ''}`}
+                      role="menuitem"
+                      onClick={() => {
+                        setHeaderMoreOpen(false);
+                        setAgentsEditorOpen((open) => !open);
+                      }}
+                    >
+                      <span className="header-more-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                          <polyline points="14 2 14 8 20 8" />
+                          <line x1="16" y1="13" x2="8" y2="13" />
+                          <line x1="16" y1="17" x2="8" y2="17" />
+                          <polyline points="10 9 9 9 8 9" />
+                        </svg>
+                      </span>
+                      <span>{t('chat.headerActions.agents')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`header-more-item ${fileBrowserOpen ? 'active' : ''}`}
+                      role="menuitem"
+                      onClick={() => {
+                        setHeaderMoreOpen(false);
+                        setFileBrowserOpen((open) => !open);
+                      }}
+                    >
+                      <span className="header-more-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+                        </svg>
+                      </span>
+                      <span>{t('chat.headerActions.files')}</span>
+                    </button>
+                    {onOpenSettings && (
+                      <button
+                        type="button"
+                        className="header-more-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setHeaderMoreOpen(false);
+                          onOpenSettings();
+                        }}
+                      >
+                        <span className="header-more-icon" aria-hidden="true">⚙️</span>
+                        <span>{t('chat.headerActions.settings')}</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </>
           )}
           {isReadonly && (
@@ -1398,8 +1647,8 @@ export function JobChat(props: JobChatProps) {
             onSelectThoughtLevel={selectedAgent?.thoughtLevels ? handleSelectThoughtLevel : undefined}
             favoriteModelIds={selectedAgent ? agentPrefs[selectedAgent.type]?.favorite_model_ids : undefined}
             overrideModelId={hasUserSelected ? undefined : sessionModelId}
-            overrideModeId={sessionACPMode}
-            overrideThoughtLevelId={sessionACPThoughtLevel}
+            overrideModeId={hasUserSelectedMode ? undefined : sessionACPMode}
+            overrideThoughtLevelId={hasUserSelectedThoughtLevel ? undefined : sessionACPThoughtLevel}
           />
         </div>
 

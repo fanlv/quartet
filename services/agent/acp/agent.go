@@ -1411,10 +1411,21 @@ func (a *ACPAgent) setModel(ctx context.Context, modelID string) (*pkgacp.Sessio
 	if err != nil {
 		return nil, fmt.Errorf("set model failed: acpSession=%s model=%s: %w", acpSession, modelID, err)
 	}
+	// A model switch relinks the session's ConfigOptions: the thought_level
+	// selector — and the config id used to drive it — can change or vanish
+	// entirely for a model that does not support reasoning effort. Refresh
+	// the cached config id from the linked response so a later
+	// SetSessionThoughtLevel targets the right option (or is skipped when the
+	// new model advertises none), and clear the last-pushed thought_level so
+	// applyPersistedConfig re-applies the persisted selection against the
+	// newly-linked session instead of short-circuiting on a stale value.
+	newThoughtLevelConfigID := thoughtLevelConfigIDFromSession(resp)
 	a.mu.Lock()
 	a.currentModelID = modelID
+	a.thoughtLevelConfigID = newThoughtLevelConfigID
+	a.currentThoughtLevel = ""
 	a.mu.Unlock()
-	logger.Debugf(ctx, "[acp] set model: acpSession=%s model=%s prev=%s", acpSession, modelID, old)
+	logger.Debugf(ctx, "[acp] set model: acpSession=%s model=%s prev=%s thoughtLevelConfigID=%s", acpSession, modelID, old, newThoughtLevelConfigID)
 	return resp, nil
 }
 
@@ -1475,8 +1486,19 @@ func (a *ACPAgent) setMode(ctx context.Context, mode string) (*pkgacp.SessionRes
 func (a *ACPAgent) UpdateACPThoughtLevel(ctx context.Context, thoughtLevel string) error {
 	a.mu.RLock()
 	skip := thoughtLevel == a.currentThoughtLevel
+	// The active model may not support reasoning effort at all — switching to
+	// such a model clears thoughtLevelConfigID (see setModel). Replaying a
+	// persisted thought_level here would push an unknown config option and
+	// fail the whole Run, so treat "no config id" as "nothing to apply". A
+	// genuine live switch (SetThoughtLevel) still surfaces the error via
+	// setThoughtLevel; this skip only covers the persisted-replay path.
+	noConfigID := a.thoughtLevelConfigID == ""
+	acpSession := a.acpSession
 	a.mu.RUnlock()
-	if skip {
+	if skip || noConfigID {
+		if noConfigID {
+			logger.Debugf(ctx, "[acp] skip thought_level replay: acpSession=%s thoughtLevel=%s (active model advertises no thought_level option)", acpSession, thoughtLevel)
+		}
 		return nil
 	}
 	_, err := a.setThoughtLevel(ctx, thoughtLevel)

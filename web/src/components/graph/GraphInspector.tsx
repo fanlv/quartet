@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AgentInfo } from '../ChatPage';
+import type { AgentInfo, SessionThoughtLevelState } from '../ChatPage';
+import { setACPConfig } from '../../utils/acpConfig';
 import type {
   GraphConfig,
   GraphEndHookMode,
@@ -185,7 +186,97 @@ export function GraphInspector({
     ? agents.find((a) => a.type === node.config?.agentType)
     : undefined;
   const availableModels = selectedAgent?.models?.availableModels || [];
-  const availableThoughtLevels = selectedAgent?.thoughtLevels?.availableThoughtLevels || [];
+
+  // thought_level is model-linked in ACP: the static /api/v1/agent/list only
+  // carries each agent's DEFAULT-model thought_level set, so picking a
+  // non-default model here would otherwise keep showing the wrong list. Mirror
+  // Home's live relink (ChatPage.applyACPConfig) — but Home mutates its own
+  // agent state, which we can't do: `agents` is a shared list keyed by type and
+  // the same agent type may be used by multiple nodes with different models.
+  // So we relink into local state, cached by `agentType::modelId`.
+  const linkCacheRef = useRef<Map<string, SessionThoughtLevelState>>(new Map());
+  const [linkedKey, setLinkedKey] = useState<string | null>(null);
+  const [linkedLevels, setLinkedLevels] = useState<SessionThoughtLevelState | null>(null);
+  const [thoughtLevelLinking, setThoughtLevelLinking] = useState(false);
+  const [thoughtLevelLinkError, setThoughtLevelLinkError] = useState<string | null>(null);
+
+  const isAgentNodeType = node?.type === 'prompt' || node?.type === 'clarify';
+  const linkAgentType = node?.config?.agentType || '';
+  const staticModels = selectedAgent?.models;
+  // Effective model of the node: explicit override, else the agent's default.
+  const linkModelId = node?.config?.modelId || staticModels?.currentModelId || '';
+  const linkKey = linkAgentType && linkModelId ? `${linkAgentType}::${linkModelId}` : '';
+  const inheritsUpstreamSession = node?.config?.sessionStrategy === 'inherit';
+
+  useEffect(() => {
+    // Only relink for a real agent node that selects a concrete model and does
+    // NOT inherit the upstream session (an inherit node reuses the upstream
+    // agent's model/thought_level and hides these fields).
+    if (!isAgentNodeType || inheritsUpstreamSession || !linkAgentType || !staticModels || !linkModelId) {
+      setLinkedKey(null);
+      setLinkedLevels(null);
+      setThoughtLevelLinking(false);
+      setThoughtLevelLinkError(null);
+      return;
+    }
+    // Default model: the static per-agent thought_level list is already correct
+    // for it, so skip the ACP round-trip entirely.
+    if (linkModelId === staticModels.currentModelId) {
+      setLinkedKey(null);
+      setLinkedLevels(null);
+      setThoughtLevelLinking(false);
+      setThoughtLevelLinkError(null);
+      return;
+    }
+    const cached = linkCacheRef.current.get(linkKey);
+    if (cached) {
+      setLinkedKey(linkKey);
+      setLinkedLevels(cached);
+      setThoughtLevelLinking(false);
+      setThoughtLevelLinkError(null);
+      return;
+    }
+    // Relink via a session-less Home preview. Only the model target is sent —
+    // the returned linked lists depend solely on the model, and replaying a
+    // stale mode/thought_level (possibly invalid for the new model) would make
+    // the backend preview error out during apply.
+    let cancelled = false;
+    setThoughtLevelLinking(true);
+    setThoughtLevelLinkError(null);
+    void (async () => {
+      try {
+        const state = await setACPConfig({ target: 'model', agentType: linkAgentType, model: linkModelId });
+        if (cancelled) return;
+        if (state.thoughtLevels) {
+          linkCacheRef.current.set(linkKey, state.thoughtLevels);
+          setLinkedKey(linkKey);
+          setLinkedLevels(state.thoughtLevels);
+        } else {
+          // Model advertises no thought_level option: fall back to an empty
+          // linked list so the field hides rather than showing a stale set.
+          const empty: SessionThoughtLevelState = { availableThoughtLevels: [], currentThoughtLevelId: '' };
+          linkCacheRef.current.set(linkKey, empty);
+          setLinkedKey(linkKey);
+          setLinkedLevels(empty);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setLinkedKey(null);
+        setLinkedLevels(null);
+        setThoughtLevelLinkError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setThoughtLevelLinking(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAgentNodeType, inheritsUpstreamSession, linkAgentType, linkModelId, linkKey, staticModels]);
+
+  // Use the model-linked list when it matches the current selection; otherwise
+  // fall back to the static per-agent (default-model) list.
+  const availableThoughtLevels =
+    (linkedKey && linkedKey === linkKey && linkedLevels
+      ? linkedLevels.availableThoughtLevels
+      : selectedAgent?.thoughtLevels?.availableThoughtLevels) || [];
 
   // Variable names selectable in the If-Else / loop-until condition builder.
   // Computed for any selected node (empty when nothing is selected); kept above
@@ -660,8 +751,13 @@ export function GraphInspector({
                 setCfg({
                   agentType: e.target.value,
                   modelId: agent?.models?.currentModelId || agent?.model_id || '',
-                  // 切换 Agent type 后清空 thought_level：有的 Agent type 不支持该字段，
-                  // 残留旧值会导致 "agent does not advertise a thought_level config option" 报错。
+                  // 切换 Agent type 后清空 acpMode / thought_level：不同 Agent 的 mode /
+                  // thought_level 取值集合互不相同，残留旧值（如从 trae 的 "default"
+                  // 切到只认 read-only/agent/agent-full-access 的 codex）会在运行时触发
+                  // "set mode failed: Invalid params" 或 "agent does not advertise a
+                  // thought_level config option" 报错。清空后由后端 applyPersistedConfig
+                  // 跳过设置、直接走该 Agent 的默认 mode / thought_level。
+                  acpMode: undefined,
                   acpThoughtLevel: undefined,
                 });
               }}
@@ -686,23 +782,31 @@ export function GraphInspector({
               </select>
             </div>
           )}
-          {availableThoughtLevels.length > 0 && (
+          {(availableThoughtLevels.length > 0 || thoughtLevelLinking || thoughtLevelLinkError) && (
             <div className="gi-field">
               <label>{t('graph.inspector.thoughtLevel')}</label>
-              <select
-                aria-label={t('graph.inspector.thoughtLevel')}
-                value={cfg.acpThoughtLevel || ''}
-                disabled={readOnly}
-                onChange={(e) => setCfg({ acpThoughtLevel: e.target.value || undefined })}
-              >
-                <option value="">{t('graph.inspector.thoughtLevelDefault')}</option>
-                {availableThoughtLevels.map((tl) => (
-                  <option key={tl.id} value={tl.id}>
-                    {tl.name}
-                  </option>
-                ))}
-              </select>
-              <div className="gi-desc">{t('graph.inspector.thoughtLevelDesc')}</div>
+              {availableThoughtLevels.length > 0 && (
+                <select
+                  aria-label={t('graph.inspector.thoughtLevel')}
+                  value={cfg.acpThoughtLevel || ''}
+                  disabled={readOnly || thoughtLevelLinking}
+                  onChange={(e) => setCfg({ acpThoughtLevel: e.target.value || undefined })}
+                >
+                  <option value="">{t('graph.inspector.thoughtLevelDefault')}</option>
+                  {availableThoughtLevels.map((tl) => (
+                    <option key={tl.id} value={tl.id}>
+                      {tl.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {thoughtLevelLinking ? (
+                <div className="gi-desc">{t('graph.inspector.thoughtLevelLinking')}</div>
+              ) : thoughtLevelLinkError ? (
+                <div className="gi-error">{t('graph.inspector.thoughtLevelLinkFailed', { detail: thoughtLevelLinkError })}</div>
+              ) : (
+                <div className="gi-desc">{t('graph.inspector.thoughtLevelDesc')}</div>
+              )}
             </div>
           )}
         </>

@@ -83,6 +83,17 @@
       "totalSteps": "共 {{count}} 步",
       "assistant": "回复",
       "empty": "暂无步骤"
+    },
+    "headerActions": {
+      "more": "更多操作",
+      "share": "分享",
+      "copyShareLink": "复制分享链接",
+      "stopSharing": "停止分享",
+      "stats": "统计",
+      "graph": "Graph 工作流",
+      "agents": "AGENTS.md",
+      "files": "文件浏览器",
+      "settings": "设置"
     }
   },
   "connection": {
@@ -1119,6 +1130,8 @@
       "thoughtLevel": "思考级别",
       "thoughtLevelDefault": "（Agent 默认）",
       "thoughtLevelDesc": "该结点新建会话时应用的思考级别。",
+      "thoughtLevelLinking": "正在按所选模型刷新思考级别…",
+      "thoughtLevelLinkFailed": "刷新思考级别失败：{{detail}}",
       "sessionStrategy": "会话策略",
       "sessionNew": "新建会话",
       "sessionInherit": "继承上游",

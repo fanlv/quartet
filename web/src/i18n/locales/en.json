@@ -84,6 +84,17 @@
       "totalSteps_other": "{{count}} steps",
       "assistant": "Reply",
       "empty": "No steps yet"
+    },
+    "headerActions": {
+      "more": "More actions",
+      "share": "Share",
+      "copyShareLink": "Copy share link",
+      "stopSharing": "Stop sharing",
+      "stats": "Statistics",
+      "graph": "Graph workflows",
+      "agents": "AGENTS.md",
+      "files": "File browser",
+      "settings": "Settings"
     }
   },
   "connection": {
@@ -1129,6 +1140,8 @@
       "thoughtLevel": "Thinking level",
       "thoughtLevelDefault": "(Agent default)",
       "thoughtLevelDesc": "Thinking level applied when this node creates a new session.",
+      "thoughtLevelLinking": "Refreshing thinking levels for the selected model…",
+      "thoughtLevelLinkFailed": "Failed to refresh thinking levels: {{detail}}",
       "sessionStrategy": "Session strategy",
       "sessionNew": "New session",
       "sessionInherit": "Inherit upstream",
