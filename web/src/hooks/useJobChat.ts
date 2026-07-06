@@ -1242,33 +1242,50 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
       case EventTypeEnum.TEXT_MESSAGE_CONTENT: {
         const isThinking = event.external?.isThinking ?? false;
-        setMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.id === event.messageId && msg.role === MessageRoleEnum.ASSISTANT) {
-              // Don't append delta to an already-Finished message from history.
-              if (msg.status === MessageStatusEnum.Finished) return msg;
-              const assistantMsg = msg as AssistantMessage;
-              if (isThinking) {
-                return {
-                  ...assistantMsg,
-                  thinkingContent: (assistantMsg.thinkingContent || '') + event.delta,
-                  isThinking: true,
-                };
-              }
-              // Transition from thinking to non-thinking: record thinkingFinishedAt
-              const thinkingFinishedAt = assistantMsg.isThinking && !assistantMsg.thinkingFinishedAt
-                ? (event.timestamp || Date.now())
-                : assistantMsg.thinkingFinishedAt;
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === event.messageId && m.role === MessageRoleEnum.ASSISTANT);
+          if (idx < 0) {
+            // No bubble for this messageId — the TEXT_MESSAGE_START was
+            // missed (e.g. graph SSE reconnect from the buffer tail after
+            // a page refresh). Auto-create the bubble so streaming
+            // resumes visibly instead of silently dropping every delta.
+            const newMsg: AssistantMessage = {
+              id: event.messageId,
+              role: MessageRoleEnum.ASSISTANT,
+              content: isThinking ? '' : (event.delta || ''),
+              createdAt: event.timestamp,
+              status: MessageStatusEnum.Started,
+              thinkingContent: isThinking ? (event.delta || '') : '',
+              isThinking,
+              isShellOutput: false,
+              sessionId: event.sessionId,
+            };
+            return [...prev, newMsg];
+          }
+          return prev.map((msg, i) => {
+            if (i !== idx) return msg;
+            // Don't append delta to an already-Finished message from history.
+            if (msg.status === MessageStatusEnum.Finished) return msg;
+            const assistantMsg = msg as AssistantMessage;
+            if (isThinking) {
               return {
                 ...assistantMsg,
-                content: assistantMsg.content + event.delta,
-                isThinking: false,
-                thinkingFinishedAt,
+                thinkingContent: (assistantMsg.thinkingContent || '') + event.delta,
+                isThinking: true,
               };
             }
-            return msg;
-          })
-        );
+            // Transition from thinking to non-thinking: record thinkingFinishedAt
+            const thinkingFinishedAt = assistantMsg.isThinking && !assistantMsg.thinkingFinishedAt
+              ? (event.timestamp || Date.now())
+              : assistantMsg.thinkingFinishedAt;
+            return {
+              ...assistantMsg,
+              content: assistantMsg.content + event.delta,
+              isThinking: false,
+              thinkingFinishedAt,
+            };
+          });
+        });
         break;
       }
 
@@ -1323,29 +1340,59 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
 
       case EventTypeEnum.TOOL_CALL_ARGS:
-        setMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.id === event.toolCallId && msg.role === MessageRoleEnum.TOOL) {
-              if (msg.status === MessageStatusEnum.Finished) return msg;
-              const toolMsg = msg as ToolMessage;
-              return { ...toolMsg, toolCallArgs: toolMsg.toolCallArgs + event.delta, toolCallStatus: event.toolCallStatus || toolMsg.toolCallStatus };
-            }
-            return msg;
-          })
-        );
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === event.toolCallId && m.role === MessageRoleEnum.TOOL);
+          if (idx < 0) {
+            // TOOL_CALL_START missed (graph SSE reconnect). Create the bubble.
+            const newTool: ToolMessage = {
+              id: event.toolCallId,
+              role: MessageRoleEnum.TOOL,
+              content: '',
+              createdAt: event.timestamp,
+              status: MessageStatusEnum.Started,
+              toolCallId: event.toolCallId,
+              toolCallName: '',
+              toolCallArgs: event.delta || '',
+              toolCallStatus: event.toolCallStatus || ToolCallStatusEnum.Processing,
+              sessionId: event.sessionId,
+            };
+            return [...prev, newTool];
+          }
+          return prev.map((msg, i) => {
+            if (i !== idx) return msg;
+            if (msg.status === MessageStatusEnum.Finished) return msg;
+            const toolMsg = msg as ToolMessage;
+            return { ...toolMsg, toolCallArgs: toolMsg.toolCallArgs + event.delta, toolCallStatus: event.toolCallStatus || toolMsg.toolCallStatus };
+          });
+        });
         break;
 
       case EventTypeEnum.TOOL_CALL_RESULT:
-        setMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.id === event.toolCallId && msg.role === MessageRoleEnum.TOOL) {
-              if (msg.status === MessageStatusEnum.Finished) return msg;
-              const toolMsg = msg as ToolMessage;
-              return { ...toolMsg, content: toolMsg.content + event.delta, toolCallStatus: event.toolCallStatus };
-            }
-            return msg;
-          })
-        );
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === event.toolCallId && m.role === MessageRoleEnum.TOOL);
+          if (idx < 0) {
+            // TOOL_CALL_START missed (graph SSE reconnect). Create the bubble.
+            const newTool: ToolMessage = {
+              id: event.toolCallId,
+              role: MessageRoleEnum.TOOL,
+              content: event.delta || '',
+              createdAt: event.timestamp,
+              status: MessageStatusEnum.Started,
+              toolCallId: event.toolCallId,
+              toolCallName: '',
+              toolCallArgs: '',
+              toolCallStatus: event.toolCallStatus || ToolCallStatusEnum.Processing,
+              sessionId: event.sessionId,
+            };
+            return [...prev, newTool];
+          }
+          return prev.map((msg, i) => {
+            if (i !== idx) return msg;
+            if (msg.status === MessageStatusEnum.Finished) return msg;
+            const toolMsg = msg as ToolMessage;
+            return { ...toolMsg, content: toolMsg.content + event.delta, toolCallStatus: event.toolCallStatus };
+          });
+        });
         break;
 
       case EventTypeEnum.TOOL_CALL_END:
