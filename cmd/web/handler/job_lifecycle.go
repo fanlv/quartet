@@ -16,6 +16,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/sse"
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/logger"
+	graphsvc "github.com/fanlv/quartet/services/graph"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/session"
 	"github.com/fanlv/quartet/types/model"
@@ -268,6 +269,8 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 	// in graphService keyed by GraphRunID — not in jobService's cancel table.
 	// A plain jobService.Stop would no-op (the job ID was never registered as a
 	// cancelable loop), so route hard-stop to the graph service instead.
+	// If the scheduler has already exited (ErrGraphRunNotRunning), fall through
+	// to the normal stopAndWait path — the job may have an interactive run active.
 	if j.Mode == model.JobModeGraph && j.GraphRunID != "" {
 		if err := h.graphService.RegisterRunLocation(ctx, j.GraphRunID, j.WorkspaceID, j.ID); err != nil {
 			logger.Errorf(ctx, "[job] register graph run location failed: jobId=%s graphRunId=%s err=%v", jobID, j.GraphRunID, err)
@@ -276,9 +279,15 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 		}
 		if _, err := h.graphService.StopRun(ctx, j.GraphRunID, "hard stopped by user"); err != nil {
 			logger.Errorf(ctx, "[job] stop graph run failed: jobId=%s graphRunId=%s err=%v", jobID, j.GraphRunID, err)
+			if !errors.Is(err, graphsvc.ErrGraphRunNotRunning) {
+				c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopped"})
+				return
+			}
+			// Graph scheduler gone — fall through to stopAndWait for the interactive run.
+		} else {
+			c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopped"})
+			return
 		}
-		c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopped"})
-		return
 	}
 
 	// Optional { "graceful": true } body switches from a hard Stop (cancel the
