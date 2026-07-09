@@ -114,7 +114,7 @@ run-frontend:
 
 run: web
 
-web:
+web: install-acp-deps
 	@if [ -z "$$LOCAL_MEMORY" ]; then \
 		echo "❌ LOCAL_MEMORY environment variable is not set. Please set it first."; \
 		echo "   Example: export LOCAL_MEMORY=/path/to/local_memory"; \
@@ -281,31 +281,14 @@ web-status:
 clean:
 	rm -rf bin
 
-# install-acp-deps installs the npm packages required by npx-based ACP
-# agents, but only when the agent's own CLI binary is already present in
-# $PATH. For these agents the bin looked up in $PATH (e.g. `claude`) is a
-# different program from what the ACP serve command actually runs (e.g.
-# `npx @agentclientprotocol/claude-agent-acp`), so having the CLI alone is
-# not enough to talk ACP — the helper package must be installed too.
-# Agents whose bin and serve command are the same program need nothing
-# here and are intentionally omitted.
+# install-acp-deps installs (or upgrades) the npm packages required for
+# ACP agents: Claude Code, Codex, and OpenCode.
 install-acp-deps:
-	@echo "🔍 Checking ACP agent dependencies..."
-	@installed=0; \
-	check_and_install() { \
-		bin="$$1"; pkg="$$2"; name="$$3"; \
-		if command -v "$$bin" >/dev/null 2>&1; then \
-			echo "📦 $$name detected ($$bin), installing $$pkg ..."; \
-			npm install -g "$$pkg" || { echo "❌ Failed to install $$pkg"; exit 1; }; \
-			installed=$$((installed+1)); \
-		else \
-			echo "⏭️  $$name not found ($$bin in \$$PATH), skipping $$pkg"; \
-		fi; \
-	}; \
-	check_and_install claude   "@agentclientprotocol/claude-agent-acp" "Claude"; \
-	check_and_install codex    "@agentclientprotocol/codex-acp"        "Codex"; \
-	check_and_install kilocode "@kilocode/cli"                         "KiloCode"; \
-	echo "✅ ACP dependency check done ($$installed package(s) installed)"
+	@echo "� Installing/upgrading ACP agent dependencies..."
+	@npm install -g @agentclientprotocol/claude-agent-acp || { echo "❌ Failed to install @agentclientprotocol/claude-agent-acp"; exit 1; }
+	@npm install -g @agentclientprotocol/codex-acp || { echo "❌ Failed to install @agentclientprotocol/codex-acp"; exit 1; }
+	@npm install -g opencode-ai || { echo "❌ Failed to install opencode-ai"; exit 1; }
+	@echo "✅ ACP dependencies ready"
 
 # install-skill installs the quartet-workflow skill: first build+install its CLI
 # onto PATH, then register the skill directory with the `skills` CLI. Override
