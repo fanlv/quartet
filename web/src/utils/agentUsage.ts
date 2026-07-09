@@ -55,23 +55,36 @@ export async function fetchAgentUsage(
   return { codex: data.codex, claude: data.claude };
 }
 
-// Module-level cache of the last successful usage payload per provider. Lets
-// the card show the previously-fetched plan info instantly when the user
-// switches agent type (or the composer re-mounts) while a fresh request loads
-// in the background — stale-while-revalidate, no loading flash.
-const usageCache: { codex: CodexUsage | null; claude: ClaudeUsage | null } = {
-  codex: null,
-  claude: null,
-};
+// Persistent cache of the last successful usage payload per provider, stored in
+// localStorage. Lets the card show the previously-fetched plan info instantly —
+// on page load, when the user switches agent type, or when the composer
+// re-mounts — while a fresh request loads in the background
+// (stale-while-revalidate, no loading flash). A failed refresh keeps whatever
+// is cached here; with no cache the card shows nothing.
+function cacheKey(provider: AgentUsageProvider): string {
+  return `agentUsage_${provider}`;
+}
 
 export function getCachedUsage(provider: AgentUsageProvider): CodexUsage | ClaudeUsage | null {
-  return provider === 'codex' ? usageCache.codex : usageCache.claude;
+  try {
+    const raw = localStorage.getItem(cacheKey(provider));
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    return obj && typeof obj === 'object' ? obj : null;
+  } catch {
+    return null;
+  }
 }
 
 export function setCachedUsage(
   provider: AgentUsageProvider,
   data: { codex?: CodexUsage; claude?: ClaudeUsage },
 ): void {
-  if (provider === 'codex') usageCache.codex = data.codex ?? null;
-  else usageCache.claude = data.claude ?? null;
+  const value = provider === 'codex' ? data.codex : data.claude;
+  try {
+    if (value) localStorage.setItem(cacheKey(provider), JSON.stringify(value));
+    else localStorage.removeItem(cacheKey(provider));
+  } catch {
+    /* ignore quota / serialization errors */
+  }
 }

@@ -130,10 +130,11 @@ function formatResetAt(w: UsageWindow, withDate: boolean): string {
  *  agent without a usage view.
  *
  *  Switching agent type keeps the previously-fetched plan info on screen (from
- *  a module-level cache) and refreshes it asynchronously — the new data swaps
- *  in only once its request returns, so there is no loading flash. A failed
- *  refresh is silent: the last successful data stays on screen, and if nothing
- *  ever succeeded the strip shows no data (no error message). */
+ *  a localStorage cache that also survives page reloads) and refreshes it
+ *  asynchronously — the new data swaps in only once its request returns, so
+ *  there is no loading flash. A failed refresh is silent: the last cached data
+ *  stays on screen, and if nothing was ever cached the strip shows no data (no
+ *  error message). */
 export function AgentUsageCard({ agentType, displayName }: AgentUsageCardProps) {
   const { t } = useTranslation();
   const provider = agentUsageProvider(agentType, displayName);
