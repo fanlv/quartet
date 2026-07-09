@@ -2305,7 +2305,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   useEffect(() => {
     graphSseRef.current?.disconnect();
     graphSseRef.current = null;
-    if (!isGraph || !graphRunId || !jobId) return;
+    if (!isGraph || !graphRunId || !jobId || !isLoading) return;
 
     let cancelled = false;
     let lastInstanceRefreshAt = 0;
@@ -2454,7 +2454,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       client.disconnect();
       if (graphSseRef.current === client) graphSseRef.current = null;
     };
-  }, [isGraph, graphRunId, jobId, apiUrl, loadHistory, setLoopSessions, applyActiveSessionSelection]);
+  }, [isGraph, graphRunId, jobId, isLoading, apiUrl, loadHistory, setLoopSessions, applyActiveSessionSelection]);
 
   // Send interactive message.
   //

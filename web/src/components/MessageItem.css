@@ -75,6 +75,27 @@
   white-space: nowrap;
 }
 
+/* Left gutter of a user message: copy button stacked above the timestamp,
+   both bottom-aligned to sit next to the bubble's lower edge. */
+.user-meta-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Keep the gutter clean; reveal the copy button on message hover. */
+.user-meta-col .assistant-copy-btn {
+  opacity: 0;
+  transition: opacity 0.2s, color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.user-message:hover .user-meta-col .assistant-copy-btn,
+.user-meta-col .assistant-copy-btn:focus-visible {
+  opacity: 1;
+}
+
 .assistant-timestamp {
   color: #8e8e93;
   margin-top: 0;

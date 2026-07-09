@@ -198,7 +198,10 @@ function UserMessageContent({ message }: { message: UserMessage }) {
     <div className="message-item user-message" data-testid="message-item" data-message-id={message.id} data-message-role="user" data-session-id={message.sessionId || ''}>
       <div className="message-content">
         <div className="user-bubble-row">
-          {timeStr && <div className="message-timestamp user-timestamp">{timeStr}</div>}
+          <div className="user-meta-col">
+            <CopyMessageButton content={message.content} />
+            {timeStr && <div className="message-timestamp user-timestamp">{timeStr}</div>}
+          </div>
           <div className="message-bubble user-bubble">
             {imageUrls && imageUrls.length > 0 && (
               <div className="user-message-images">
