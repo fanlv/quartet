@@ -17,6 +17,7 @@ import (
 	"github.com/fanlv/quartet/services/agent/acp"
 	"github.com/fanlv/quartet/services/agent/eino"
 	"github.com/fanlv/quartet/services/agent/probe"
+	"github.com/fanlv/quartet/services/agent/usage"
 	"github.com/fanlv/quartet/services/config"
 	"github.com/fanlv/quartet/services/graph"
 	"github.com/fanlv/quartet/services/job"
@@ -113,6 +114,7 @@ type Handler struct {
 	scheduleService  schedule.Service
 	scheduler        *schedule.Scheduler
 	usageStats       usagestats.Service
+	usageService     usage.Service
 
 	// imGateway is shared across all IM platforms. It is initialized lazily
 	// by ensureIMGateway so each StartLarkListener / StartWeiXinListener can
@@ -221,6 +223,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		workspaceService: wss,
 		scheduleService:  schSvc,
 		usageStats:       usagestats.NewService(ctx),
+		usageService:     usage.NewService(ss),
 	}
 
 	// Wire usage-stats sink into the job service so every step finalize

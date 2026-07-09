@@ -20,6 +20,9 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 
 	agent := api.Group("/agent")
 	agent.GET("/list", h.AgentList)
+	// Live subscription / quota info for the Codex / Claude ACP agents,
+	// shown on the Home page. Refetched on every agent-type switch.
+	agent.GET("/usage", h.AgentUsage)
 	// ACP live-config switch: change model / mode / thought_level and get the
 	// refreshed selector lists back. Body carries an optional sessionId (live
 	// session switch) or agentType (Home session-less preview).

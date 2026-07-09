@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { AgentInfo } from './ChatPage';
+import { AgentUsageCard } from './AgentUsageCard';
 import { FileMention, FileResult } from './FileMention';
 import { copyToClipboard } from '../utils/clipboard';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -1122,6 +1123,12 @@ export function ChatInput({
                 <polyline points="21 15 16 10 5 21" />
               </svg>
             </button>
+            {selectedAgent && (
+              <AgentUsageCard
+                agentType={selectedAgent.type}
+                displayName={selectedAgent.display_name}
+              />
+            )}
           </div>
           <div className="chat-input-actions">
             <div className="chat-model-selector chat-history-selector" ref={historyRef}>

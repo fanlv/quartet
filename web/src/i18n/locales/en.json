@@ -59,6 +59,20 @@
       "hotNews": "Search for today's hot news"
     }
   },
+  "agentUsage": {
+    "fiveHour": "5-hour window",
+    "sevenDay": "7-day window",
+    "resetIn": "resets in {{time}}",
+    "resetAt": "resets at {{time}}",
+    "resetCredits": "Reset credits",
+    "today": "Today",
+    "total": "Total",
+    "loading": "Fetching usage…",
+    "refresh": "Refresh",
+    "day": "d",
+    "hour": "h",
+    "minute": "m"
+  },
   "chat": {
     "placeholder": "What can I help you?",
     "favoriteModels": "Favorites",

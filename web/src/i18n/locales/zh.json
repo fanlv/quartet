@@ -59,6 +59,20 @@
       "hotNews": "帮我搜索今天热点新闻"
     }
   },
+  "agentUsage": {
+    "fiveHour": "5 小时窗口",
+    "sevenDay": "7 天窗口",
+    "resetIn": "{{time}}后重置",
+    "resetAt": "{{time}} 重置",
+    "resetCredits": "额度重置券",
+    "today": "今日消费",
+    "total": "累计消费",
+    "loading": "正在获取额度…",
+    "refresh": "刷新",
+    "day": "天",
+    "hour": "小时",
+    "minute": "分钟"
+  },
   "chat": {
     "placeholder": "有什么可以帮你的？",
     "favoriteModels": "收藏",

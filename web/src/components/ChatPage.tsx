@@ -22,6 +22,7 @@ import { FileBrowser } from './FileBrowser';
 import { ScheduleEditModal } from './ScheduleEditModal';
 import { cronToHuman } from './CronInput';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
+import { AgentUsageCard } from './AgentUsageCard';
 import { copyToClipboard } from '../utils/clipboard';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { usePendingImages } from '../hooks/usePendingImages';
@@ -2044,6 +2045,12 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                   <polyline points="21 15 16 10 5 21" />
                 </svg>
               </button>
+              {selectedAgent && (
+                <AgentUsageCard
+                  agentType={selectedAgent.type}
+                  displayName={selectedAgent.display_name}
+                />
+              )}
             </div>
             <div className="home-input-actions">
               <div className="chat-model-selector chat-history-selector" ref={historyRef}>
