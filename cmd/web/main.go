@@ -2,16 +2,19 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/config"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"github.com/fanlv/quartet/cmd/web/handler"
 	acpagent "github.com/fanlv/quartet/pkg/acp"
@@ -25,7 +28,20 @@ import (
 	"github.com/hertz-contrib/cors"
 )
 
-const defaultListenAddr = "127.0.0.1:8090"
+const (
+	// defaultHTTPAddr is the plaintext default: loopback only, so a
+	// misconfigured machine cannot accidentally expose the file-read/write/shell
+	// APIs to the network when no TLS certs are present.
+	defaultHTTPAddr = "127.0.0.1:8090"
+	// defaultHTTPSAddr is the default when TLS certs are present. It binds all
+	// interfaces so the UI is reachable by domain (matching the previous vite
+	// front-end behaviour on 443).
+	defaultHTTPSAddr = "0.0.0.0:443"
+
+	defaultCertsDir = "certs"
+	certFileName    = "cert.pem"
+	keyFileName     = "key.pem"
+)
 
 const maxRequestBodySize = 16 << 20 // 16 MiB: 10 MiB upload cap + multipart overhead.
 const httpShutdownTimeout = 5 * time.Second
@@ -40,15 +56,66 @@ var (
 	buildDirty  = "unknown"
 )
 
-// listenAddr returns the address the HTTP server binds to. By default it is
-// 127.0.0.1:8090 so a misconfigured machine cannot accidentally expose the
-// file-read/write/shell APIs to the network. Operators that need LAN access
-// can explicitly opt in by setting QUARTET_LISTEN_ADDR (e.g. "0.0.0.0:8090").
-func listenAddr() string {
-	if v := os.Getenv(consts.EnvKeyListenAddr); v != "" {
+// listenConfig is the resolved server binding: the address plus an optional TLS
+// config. tlsCfg is nil for plaintext HTTP.
+type listenConfig struct {
+	addr   string
+	tlsCfg *tls.Config
+}
+
+// scheme returns "https" or "http" for logging/printing.
+func (lc listenConfig) scheme() string {
+	if lc.tlsCfg != nil {
+		return "https"
+	}
+	return "http"
+}
+
+// certsDir returns the directory that may hold cert.pem/key.pem.
+func certsDir() string {
+	if v := strings.TrimSpace(os.Getenv(consts.EnvKeyCertsDir)); v != "" {
 		return v
 	}
-	return defaultListenAddr
+	return defaultCertsDir
+}
+
+// resolveListen decides the final bind address and whether to enable TLS.
+//
+//   - certs present → load them and default the address to 0.0.0.0:443
+//   - certs absent  → plaintext, default address 127.0.0.1:8090
+//
+// TLS is coupled ONLY to cert existence: QUARTET_LISTEN_ADDR overrides the
+// default address but never the TLS decision, so a custom address still gets
+// HTTPS when certs exist. A cert that exists but fails to load is a hard error
+// (never a silent downgrade to HTTP) so operators aren't fooled into thinking
+// HTTPS is up when it isn't.
+func resolveListen(ctx context.Context) listenConfig {
+	dir := certsDir()
+	certPath := filepath.Join(dir, certFileName)
+	keyPath := filepath.Join(dir, keyFileName)
+
+	var tlsCfg *tls.Config
+	defaultAddr := defaultHTTPAddr
+	if fileExists(certPath) && fileExists(keyPath) {
+		cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+		if err != nil {
+			logger.Fatalf(ctx, "TLS certs found under %s but failed to load (cert=%s key=%s): %v", dir, certPath, keyPath, err)
+		}
+		tlsCfg = &tls.Config{Certificates: []tls.Certificate{cert}}
+		defaultAddr = defaultHTTPSAddr
+	}
+
+	addr := defaultAddr
+	if v := strings.TrimSpace(os.Getenv(consts.EnvKeyListenAddr)); v != "" {
+		addr = v
+	}
+	return listenConfig{addr: addr, tlsCfg: tlsCfg}
+}
+
+// fileExists reports whether p exists and is a regular file.
+func fileExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
 }
 
 // corsOrigins parses QUARTET_CORS_ORIGINS into a comma-separated allowlist.
@@ -186,7 +253,12 @@ func main() {
 		logger.Fatalf(ctx, "Failed to initialize handler: %v", err)
 	}
 
-	s := newServer()
+	// Resolve the bind address and TLS decision ONCE. Everything below —
+	// server construction, the pre-bind probe, and the readiness self-check —
+	// shares this single result so address/protocol is a single-point change.
+	lc := resolveListen(ctx)
+
+	s := newServer(lc)
 	registerRoutes(s, h)
 
 	// Pre-bind probe: reserve the TCP port BEFORE starting any background
@@ -194,8 +266,9 @@ func main() {
 	// launch fails fast with a clear error instead of silently running its
 	// schedulers / IM connections alongside the real instance. We hold the
 	// probe listener until just before Hertz binds so another process can't
-	// steal the port between probe close and Hertz listen.
-	addr := listenAddr()
+	// steal the port between probe close and Hertz listen. A plain TCP probe is
+	// fine even in TLS mode — it only reserves the port, no handshake.
+	addr := lc.addr
 	probe, err := net.Listen("tcp", addr)
 	if err != nil {
 		logger.Fatalf(ctx, "bind probe failed on %s: %v (is another quartet instance already running?)", addr, err)
@@ -245,7 +318,7 @@ func main() {
 		logger.Errorf(ctx, "HTTP server readiness self-check failed on %s: %v", addr, err)
 		cancel()
 	} else {
-		logger.Infof(ctx, "Server is running on %s", addr)
+		logger.Infof(ctx, "Server is running on %s://%s", lc.scheme(), addr)
 	}
 	if os.Getenv(consts.EnvKeyAgentAuth) == "" {
 		logger.Warnf(ctx, "[security] %s is not set; API access is OPEN — every request is allowed. Set %s to a token before exposing this server to untrusted networks.",
@@ -317,7 +390,7 @@ func main() {
 	logger.Info("Server stopped")
 }
 
-func newServer() *server.Hertz {
+func newServer(lc listenConfig) *server.Hertz {
 	// Route Hertz's own logs through pkg/logger so timestamps and levels match
 	// the rest of the backend log. Default hlog emits `2026/05/07 17:19:17.873 ...
 	// [Info] HERTZ: ...` which would interleave with our own
@@ -330,13 +403,20 @@ func newServer() *server.Hertz {
 	// want to keep visible.
 	hlog.SetLevel(hlog.LevelInfo)
 
-	h := server.Default(
-		server.WithHostPorts(listenAddr()),
+	opts := []config.Option{
+		server.WithHostPorts(lc.addr),
 		server.WithExitWaitTime(httpShutdownTimeout),
-		server.WithIdleTimeout(30*time.Minute),
+		server.WithIdleTimeout(30 * time.Minute),
 		server.WithStreamBody(true),
 		server.WithMaxRequestBodySize(maxRequestBodySize),
-	)
+	}
+	// WithTLS flips Hertz to the standard (net/http) transporter — netpoll has
+	// no TLS support — and serves HTTPS only: the port will not accept plaintext
+	// requests (matching the previous vite-on-443 behaviour).
+	if lc.tlsCfg != nil {
+		opts = append(opts, server.WithTLS(lc.tlsCfg))
+	}
+	h := server.Default(opts...)
 
 	origins := corsOrigins()
 	if len(origins) > 0 {

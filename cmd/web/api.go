@@ -178,6 +178,11 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	pub.GET("/job/:jobId/graph-run", h.GetJobGraphRunStatus)
 	pub.GET("/job/:jobId/graph-run/events", h.JobGraphRunEvents)
 	pub.GET("/job/:jobId/graph-run/hooks", h.JobGraphRunHooks)
+
+	// No-matching-route fallback: serve the front-end static build for non-API
+	// paths (with SPA index fallback) and a JSON 404 for unknown /api paths.
+	// Registered last so it only catches what the concrete routes above miss.
+	registerStaticFallback(s)
 }
 
 func healthHandler(ctx context.Context, c *app.RequestContext) {

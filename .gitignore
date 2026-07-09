@@ -35,6 +35,9 @@ dist
 dist-ssr
 *.local
 
+# Front-end production build served by the backend (vite build outDir).
+/static/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

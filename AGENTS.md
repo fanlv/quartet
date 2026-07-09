@@ -19,14 +19,16 @@ make test          # Run Go build, frontend component tests, and Playwright E2E
 make test-web      # Run frontend component tests (cd web && npm test)
 make e2e           # Run frontend Playwright E2E tests
 make run-backend   # Run web backend only (go run ./cmd/web)
-make run-frontend  # Run frontend only (npm run dev; 5173 or 443 with certs)
-make web           # Detached restart (setsid+nohup); survives caller exit. Use this to start the backend.
+make run-frontend  # Dev-only vite dev server (npm run dev; 5173 or 443 with certs). NOT used by `make web`.
+make web           # Build frontend into static/, build backend, then start/restart the backend as the SINGLE
+                   #   web service: it serves the built UI and, when certs/ holds cert.pem+key.pem, terminates
+                   #   HTTPS on :443 (else plain HTTP on 127.0.0.1:8090). Detached; survives caller exit.
 make run           # Alias for make web
-make web-stop      # Stop backend, frontend, and orphan quartet-web processes
-make backend-stop  # Stop backend only; frontend untouched
-make web-status    # Check backend/frontend status
+make web-stop      # Stop the backend web service and orphan quartet-web processes
+make backend-stop  # Stop backend only; watchdog untouched
+make web-status    # Check backend + watchdog status
 make web-logs      # Follow backend log (/tmp/quartet-backend.log)
-make web-watch     # Start detached watchdog: revives backend/frontend if their port goes down
+make web-watch     # Start detached watchdog: revives the backend if its port goes down
 make web-watch-stop# Stop the watchdog (running services are left untouched)
 make web-watch-logs# Follow watchdog log (/tmp/quartet-watchdog.log)
 make clean         # Remove bin/
@@ -34,7 +36,7 @@ make clean         # Remove bin/
 
 > 在 agent / Codex 的 shell 调用里持久拉起后端，必须用 `make web`（detached：setsid 双 fork + nohup，reparent 到 init，调用方退出后依然存活）。
 >
-> agent 不要自己执行 `make web` 重启后端：当前 agent（ACP 子进程）跑在后端进程树之下，`make web` 会 kill 旧后端，旧后端一死，agent 这条 ACP 链会被 `Pdeathsig` 连带 SIGKILL，重启过程当场失去执行者。重启后端这一步交给用户在机器上手动执行。需要“挂掉自动拉起”时用 `make web-watch`：它 detached 在后端进程树之外，只在端口已空时才拉起服务、从不 kill 活着的进程，所以既不会误伤 agent，也能在后端/前端宕掉后自动恢复。
+> agent 不要自己执行 `make web` 重启后端：当前 agent（ACP 子进程）跑在后端进程树之下，`make web` 会 kill 旧后端，旧后端一死，agent 这条 ACP 链会被 `Pdeathsig` 连带 SIGKILL，重启过程当场失去执行者。重启后端这一步交给用户在机器上手动执行。需要”挂掉自动拉起”时用 `make web-watch`：它 detached 在后端进程树之外，只在端口已空时才拉起服务、从不 kill 活着的进程，所以既不会误伤 agent，也能在后端宕掉后自动恢复。
 
 Frontend (from `web/`):
 
@@ -54,7 +56,7 @@ Go tests: `go test ./...`
 
 - Logging: use `pkg/logger` (`logger.Infof/Warnf/Errorf/...`). Avoid `log.Printf`, `fmt.Printf`, etc.
 - Tests: during development, do not add unit tests unless explicitly requested.
-- Default backend startup requires `LOCAL_MEMORY`; web server binds to `127.0.0.1:8090` by default and can be overridden with `QUARTET_LISTEN_ADDR`.
+- Default backend startup requires `LOCAL_MEMORY`; the web server binds to `127.0.0.1:8090` (plain HTTP) by default, or `0.0.0.0:443` (HTTPS, serving the built UI same-origin) when `certs/` holds `cert.pem`+`key.pem`. `QUARTET_LISTEN_ADDR` overrides the address but not the TLS decision; the served UI dir defaults to `static/` (`QUARTET_STATIC_DIR`) and the cert dir to `certs/` (`QUARTET_CERTS_DIR`).
 - Frontend requires Node `>=22.18.0 <23` and npm `>=10.9.0 <11`.
 
 ### Code Layering

@@ -26,6 +26,15 @@ const e2ePort = (() => {
 export default defineConfig({
   plugins: [react()],
   ...(viteCacheDir ? { cacheDir: viteCacheDir } : {}),
+  // Production build (`vite build`) output. The backend serves this directory
+  // as the web UI root, so it goes to the repo root `static/` (one level up
+  // from this `web/` root). emptyOutDir clears it before each build and, since
+  // it sits outside the vite root, also silences Vite's out-of-root warning.
+  // Only affects `vite build`; the dev server (`npm run dev`) is untouched.
+  build: {
+    outDir: '../static',
+    emptyOutDir: true,
+  },
   server: {
     host: '0.0.0.0',
     port: e2ePort ?? (hasCerts ? 443 : 5173),
