@@ -29,7 +29,7 @@ import { usePendingImages } from '../hooks/usePendingImages';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { workspaceColor, loadWorkspacePrefs, registerWorkspaceColors } from '../utils/workspace';
 import { fetchModelOptions, type ModelOption } from '../utils/models';
-import { setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
+import { relinkACPThoughtLevels, setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
 import { fetchAgentPrefs, splitFavoriteModels, resolveAgentDefaults, applyDefaultsToAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { formatStatsDuration } from '../utils/statsFormat';
 import { isImeComposing } from '../utils/keyboard';
@@ -701,10 +701,13 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   }, [refreshKey, currentLang]);
 
   useEffect(() => {
-    Promise.all([fetchAgentList(), fetchAgentPrefs()]).then(([{ agents: list, workdir: wd, sandboxUnavailable: su, jobEnable: je }, prefsMap]) => {
+    let cancelled = false;
+    void Promise.all([fetchAgentList(), fetchAgentPrefs()]).then(([{ agents: list, workdir: wd, sandboxUnavailable: su, jobEnable: je }, prefsMap]) => {
+      if (cancelled) return;
       setSandboxUnavailable(su);
       setJobEnable(je);
       setAgentPrefs(prefsMap);
+      setAcpConfigError(null);
 
       // When a workspace is active, stick with its workdir (even if it hasn't
       // been hydrated yet — the server fills it from the workspace record on
@@ -744,12 +747,37 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
           const resolved = resolveAgentDefaults(a, prefsMap[a.type], { workspaceDefaultModel: prefs.defaultModel });
           return applyDefaultsToAgent(a, resolved);
         });
+        const selected = nextList[idx];
+        const selectedModelId = selected.models?.currentModelId;
         setAgents(nextList);
         setSelectedIndex(idx);
+        if (selected.type !== 'eino' && selectedModelId) {
+          void relinkACPThoughtLevels(selected.type, selectedModelId).then((state) => {
+            if (cancelled) return;
+            let thoughtLevels = state;
+            const preferred = prefsMap[selected.type]?.default_thought_level;
+            if (preferred && thoughtLevels.availableThoughtLevels.some((level) => level.id === preferred)) {
+              thoughtLevels = { ...thoughtLevels, currentThoughtLevelId: preferred };
+            }
+            setAgents((prev) => prev.map((agent, agentIndex) =>
+              agentIndex === idx && agent.type === selected.type && agent.models?.currentModelId === selectedModelId
+                ? { ...agent, thoughtLevels }
+                : agent
+            ));
+          }).catch((err) => {
+            if (cancelled) return;
+            const msg = err instanceof Error ? err.message : String(err);
+            setAcpConfigError(msg);
+            console.error('[ChatPage] refresh initial ACP thought levels failed:', err);
+          });
+        }
       } else {
         setAgents(list);
       }
     });
+    return () => {
+      cancelled = true;
+    };
   }, [refreshKey, workspaceWorkdir, workspaceId]);
 
   useEffect(() => {
@@ -846,10 +874,37 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   // called from inline .map() onClicks, never passed to a memoized child.
   const selectAgentAt = (idx: number) => {
     setSelectedIndex(idx);
-    setAgents((prev) => prev.map((a, i) => {
-      if (i !== idx) return a;
-      return applyDefaultsToAgent(a, resolveAgentDefaults(a, agentPrefs[a.type]));
-    }));
+    const agent = agents[idx];
+    if (!agent) return;
+    const resolved = resolveAgentDefaults(agent, agentPrefs[agent.type]);
+    // Switching Agent type must not reset that Agent's cached mode. Mode is
+    // independent from the model-linked thought-level refresh and changes only
+    // through the explicit mode selector.
+    const selected = applyDefaultsToAgent(agent, {
+      modelId: resolved.modelId,
+      thoughtLevelId: resolved.thoughtLevelId,
+    });
+    setAgents((prev) => prev.map((a, i) => i === idx ? selected : a));
+    const selectedModelId = selected.models?.currentModelId;
+    if (selected.type === 'eino' || !selectedModelId) return;
+
+    setAcpConfigError(null);
+    void relinkACPThoughtLevels(selected.type, selectedModelId).then((state) => {
+      let thoughtLevels = state;
+      const preferred = agentPrefs[selected.type]?.default_thought_level;
+      if (preferred && state.availableThoughtLevels.some((level) => level.id === preferred)) {
+        thoughtLevels = { ...state, currentThoughtLevelId: preferred };
+      }
+      setAgents((prev) => prev.map((a, i) =>
+        i === idx && a.type === selected.type && a.models?.currentModelId === selectedModelId
+          ? { ...a, thoughtLevels }
+          : a
+      ));
+    }).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAcpConfigError(msg);
+      console.error('[ChatPage] refresh selected ACP thought levels failed:', err);
+    });
   };
 
 
@@ -955,9 +1010,9 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
 
   // applyACPConfig pushes a Home (session-less) config switch to the backend
   // and merges the refreshed selector lists back into the agent at idx. The
-  // full current selection is sent so the throwaway session is replayed into
-  // the same state before the linked lists are read. On failure it clears the
-  // optimistic pick via rollback and surfaces the error.
+  // For model switches, only the model is replayed: mode / thought_level may
+  // belong to the previous model and must not poison the relink request. On
+  // failure it clears the optimistic pick via rollback and surfaces the error.
   const applyACPConfig = useCallback(
     async (
       target: ACPConfigTarget,
@@ -973,8 +1028,8 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
           target,
           agentType: agent.type,
           model: change.model ?? agent.models?.currentModelId,
-          mode: change.mode ?? agent.modes?.currentModeId,
-          thoughtLevel: change.thoughtLevel ?? agent.thoughtLevels?.currentThoughtLevelId,
+          mode: target === 'model' ? undefined : change.mode ?? agent.modes?.currentModeId,
+          thoughtLevel: target === 'model' ? undefined : change.thoughtLevel ?? agent.thoughtLevels?.currentThoughtLevelId,
         });
         // Merge only the lists the backend refreshed; keep current ones for
         // the nil lists (mode switches return none).
@@ -984,7 +1039,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                 ...a,
                 models: state.models ?? a.models,
                 modes: state.modes ?? a.modes,
-                thoughtLevels: state.thoughtLevels ?? a.thoughtLevels,
+                thoughtLevels: target === 'model' ? state.thoughtLevels : state.thoughtLevels ?? a.thoughtLevels,
               }
             : a
         ));
@@ -1333,6 +1388,11 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     );
   };
 
+  // Loading (data not yet ready) or offline: drives the centered spinner that
+  // now renders below Job History, and suppresses the "no jobs" body message so
+  // the loading state doesn't read as an empty workspace.
+  const homeLoadingOrOffline = jobs.length === 0 && (!schedulesLoaded || isLoadingJobs || !connected);
+
   return (
     <div className="home-page" data-testid="home-page">
       <header className="chatbot-header" data-testid="home-header">
@@ -1528,32 +1588,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
           )}
         </div>
 
-        {jobs.length === 0 && (!schedulesLoaded || isLoadingJobs || !connected) && (
-          <div
-            className={`home-center-status ${!connected ? 'offline' : 'loading'}`}
-            data-testid="home-center-status"
-            data-home-center-status={!connected ? 'offline' : 'loading'}
-          >
-            {!connected ? (
-              <>
-                <svg className="home-center-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-                <span className="home-center-text" data-testid="home-center-status-text">{t('connection.disconnected')}</span>
-              </>
-            ) : (
-              <>
-                <svg className="home-center-spinner" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M21 12a9 9 0 11-6.219-8.56" />
-                </svg>
-                <span className="home-center-text" data-testid="home-center-status-text">{t('home.loading')}</span>
-              </>
-            )}
-          </div>
-        )}
-
         <div className={`home-job-list ${jobHistoryExpanded ? 'expanded' : 'collapsed'}`} data-testid="home-job-history" data-expanded={jobHistoryExpanded ? 'true' : 'false'}>
           <div className="home-job-list-header" onClick={() => setJobHistoryExpanded(!jobHistoryExpanded)} style={{ cursor: 'pointer' }} data-testid="home-job-history-header">
               <div className="home-job-list-title">
@@ -1640,7 +1674,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
           </div>
           {jobHistoryExpanded && (
               <div className="home-job-history-body" data-testid="home-job-history-body">
-                {jobsByDay.length === 0 && (
+                {jobsByDay.length === 0 && !homeLoadingOrOffline && (
                   <div className="home-job-history-empty">
                     {t('home.noJobsInWorkspace')}
                   </div>
@@ -1699,6 +1733,32 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
               </div>
           )}
         </div>
+
+        {homeLoadingOrOffline && (
+          <div
+            className={`home-center-status ${!connected ? 'offline' : 'loading'}`}
+            data-testid="home-center-status"
+            data-home-center-status={!connected ? 'offline' : 'loading'}
+          >
+            {!connected ? (
+              <>
+                <svg className="home-center-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <span className="home-center-text" data-testid="home-center-status-text">{t('connection.disconnected')}</span>
+              </>
+            ) : (
+              <>
+                <svg className="home-center-spinner" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M21 12a9 9 0 11-6.219-8.56" />
+                </svg>
+                <span className="home-center-text" data-testid="home-center-status-text">{t('home.loading')}</span>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="home-input-container">

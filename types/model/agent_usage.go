@@ -22,10 +22,24 @@ type UsageWindow struct {
 type CodexUsage struct {
 	Email           string       `json:"email,omitempty"`
 	PlanType        string       `json:"plan_type,omitempty"`
-	Version         string       `json:"version,omitempty"` // codex-acp version, e.g. "v1.1.0"
+	Version         string       `json:"version,omitempty"` // bundled codex CLI version, e.g. "v0.144.0"
 	PrimaryWindow   *UsageWindow `json:"primary_window,omitempty"`   // 5-hour
 	SecondaryWindow *UsageWindow `json:"secondary_window,omitempty"` // 7-day
-	ResetCredits    int          `json:"reset_credits"`              // rate_limit_reset_credits.available_count
+	ResetCredits    int          `json:"reset_credits"`              // count of available rate-limit reset credits
+	// ResetCreditExpiries lists the expiry (unix seconds) of each available reset
+	// credit, ascending. Sourced from the rate-limit-reset-credits endpoint;
+	// empty when that supplementary call fails.
+	ResetCreditExpiries []int64 `json:"reset_credit_expiries,omitempty"`
+}
+
+// AgentVersionResponse is the envelope for GET /api/v1/agent/version. It
+// reports the installed CLI version of a known ACP agent (e.g. "v1.17.18"),
+// used by the composer usage strip for agents that have no quota view of their
+// own (everything except Codex / Claude). Version is empty when the agent's
+// binary advertises no parseable version.
+type AgentVersionResponse struct {
+	Code    int    `json:"code"`
+	Version string `json:"version,omitempty"`
 }
 
 // ClaudeUsage is the current Claude key's spend in USD (today + total).

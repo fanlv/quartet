@@ -29,16 +29,15 @@ func (h *Handler) AgentList(ctx context.Context, c *app.RequestContext) {
 			DisplayName: a.DisplayName,
 			IconURL:     a.IconURL,
 		}
-		if models, modes, thoughtLevels := probe.GetACPSessionInfo(a.Command); models != nil || modes != nil || thoughtLevels != nil {
-			info.Models = models
-			info.Modes = modes
-			info.ThoughtLevels = thoughtLevels
+		models, modes, thoughtLevels, err := probe.GetACPSessionInfo(ctx, a.Command)
+		if err != nil {
+			logger.Errorf(ctx, "[agent.list] load ACP selector cache failed: agentType=%s err=%v", a.Command, err)
+			httputil.InternalError(c, err.Error())
+			return
 		}
-		if info.Modes != nil {
-			if id := probe.PickDefaultModeID(info.Modes.AvailableModes); id != "" {
-				info.Modes.CurrentModeId = id
-			}
-		}
+		info.Models = models
+		info.Modes = modes
+		info.ThoughtLevels = thoughtLevels
 		agentList = append(agentList, info)
 	}
 

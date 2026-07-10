@@ -15,6 +15,10 @@ import (
 // switch, so this always fetches fresh (no caching). Errors are returned in
 // full per the project convention.
 func (h *Handler) AgentUsage(ctx context.Context, c *app.RequestContext) {
+	// Never cache: this quota reading changes continuously, and a cached GET
+	// response (browser or any intermediary) would surface a stale window
+	// (e.g. an old Codex 5h percentage) after a refresh.
+	c.Header("Cache-Control", "no-store")
 	typ := string(c.Query("type"))
 	switch typ {
 	case "codex":
@@ -34,4 +38,23 @@ func (h *Handler) AgentUsage(ctx context.Context, c *app.RequestContext) {
 	default:
 		httputil.BadRequest(c, fmt.Sprintf("invalid type %q (want codex|claude)", typ))
 	}
+}
+
+// AgentVersion returns the installed CLI version of a known ACP agent, keyed by
+// its serve command (the string stored in AgentInfo.Type). It backs the
+// composer usage strip for agents that have no quota view of their own —
+// everything except Codex / Claude, which carry their version in AgentUsage.
+func (h *Handler) AgentVersion(ctx context.Context, c *app.RequestContext) {
+	c.Header("Cache-Control", "no-store")
+	command := string(c.Query("command"))
+	if command == "" {
+		httputil.BadRequest(c, "command is required")
+		return
+	}
+	v, err := h.usageService.AgentVersion(ctx, command)
+	if err != nil {
+		httputil.InternalErrorLog(ctx, c, "[agent.version]", err)
+		return
+	}
+	c.JSON(http.StatusOK, model.AgentVersionResponse{Code: 0, Version: v})
 }

@@ -5,6 +5,7 @@ import { AgentInfo } from '../ChatPage';
 import { ShellEditor } from '../ShellEditor';
 import { ROUND_MODE_OPTIONS, isStepValid, detectShellVarsForStep, getStepPreview } from './utils';
 import { isImageUrl } from '../../utils/url';
+import { useACPThoughtLevels } from '../../hooks/useACPThoughtLevels';
 
 interface FlowStepEditorProps {
   node: FlowNode;
@@ -190,10 +191,20 @@ export function FlowStepEditor({
   const agentLabel = selectedAgent ? selectedAgent.display_name : t('loop.step.agentPlaceholder');
   const availableModels = selectedAgent?.models?.availableModels || [];
   const availableModes = selectedAgent?.modes?.availableModes || [];
-  const availableThoughtLevels = selectedAgent?.thoughtLevels?.availableThoughtLevels || [];
   const currentModelId = node.modelId || selectedAgent?.models?.currentModelId || selectedAgent?.model_id || '';
+  const {
+    state: linkedThoughtLevels,
+    loading: thoughtLevelLinking,
+    error: thoughtLevelLinkError,
+  } = useACPThoughtLevels(
+    selectedAgent?.type || '',
+    currentModelId,
+    Boolean(selectedAgent?.models),
+    currentModelId === selectedAgent?.models?.currentModelId ? selectedAgent?.thoughtLevels || null : null,
+  );
+  const availableThoughtLevels = linkedThoughtLevels?.availableThoughtLevels || [];
   const currentAcpMode = node.acpMode || selectedAgent?.modes?.currentModeId || '';
-  const currentAcpThoughtLevel = node.acpThoughtLevel || selectedAgent?.thoughtLevels?.currentThoughtLevelId || '';
+  const currentAcpThoughtLevel = node.acpThoughtLevel || linkedThoughtLevels?.currentThoughtLevelId || '';
   const selectedModelName = availableModels.find((m) => m.modelId === currentModelId)?.name || currentModelId || t('common.default');
   const selectedModeName = availableModes.find((m) => m.id === currentAcpMode)?.name || currentAcpMode || t('common.default');
   const selectedThoughtLevelName = availableThoughtLevels.find((m) => m.id === currentAcpThoughtLevel)?.name || currentAcpThoughtLevel || t('common.default');
@@ -204,7 +215,7 @@ export function FlowStepEditor({
       agentType: agent.type,
       modelId: agent.models?.currentModelId || agent.model_id,
       acpMode: agent.modes?.currentModeId || undefined,
-      acpThoughtLevel: agent.thoughtLevels?.currentThoughtLevelId || undefined,
+      acpThoughtLevel: undefined,
     });
     setAgentDropdownOpen(false);
   };
@@ -421,7 +432,7 @@ export function FlowStepEditor({
                               key={m.modelId}
                               className={`loop-round-agent-override-item${currentModelId === m.modelId ? ' active' : ''}`}
                               onClick={() => {
-                                onUpdate({ ...node, modelId: m.modelId });
+                                onUpdate({ ...node, modelId: m.modelId, acpThoughtLevel: undefined });
                                 setModelDropdownOpen(false);
                               }}
                               type="button"
@@ -477,20 +488,24 @@ export function FlowStepEditor({
                     </div>
                   )}
 
-                  {selectedAgent && availableThoughtLevels.length > 1 && (
+                  {selectedAgent && (availableThoughtLevels.length > 1 || thoughtLevelLinking || thoughtLevelLinkError) && (
                     <div className="loop-round-agent-override-field" ref={thoughtLevelListRef}>
                       <span className="loop-round-agent-override-field-label">Thought</span>
-                      <button
-                        className="loop-round-agent-override-btn"
-                        onClick={() => setThoughtLevelListOpen(!thoughtLevelListOpen)}
-                        type="button"
-                      >
-                        <span>{selectedThoughtLevelName}</span>
-                        <svg className="loop-round-mode-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M6 9l6 6 6-6" />
-                        </svg>
-                      </button>
-                      {thoughtLevelListOpen && (
+                      {availableThoughtLevels.length > 1 && (
+                        <button
+                          className="loop-round-agent-override-btn"
+                          onClick={() => setThoughtLevelListOpen(!thoughtLevelListOpen)}
+                          type="button"
+                        >
+                          <span>{selectedThoughtLevelName}</span>
+                          <svg className="loop-round-mode-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M6 9l6 6 6-6" />
+                          </svg>
+                        </button>
+                      )}
+                      {thoughtLevelLinking && <span className="loop-round-agent-override-status">{t('common.loading')}</span>}
+                      {thoughtLevelLinkError && <span className="loop-round-agent-override-error" role="alert">{thoughtLevelLinkError}</span>}
+                      {availableThoughtLevels.length > 1 && thoughtLevelListOpen && (
                         <div className="loop-round-agent-override-dropdown">
                           {availableThoughtLevels.map((m) => (
                             <button

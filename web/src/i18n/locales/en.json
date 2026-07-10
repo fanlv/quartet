@@ -65,6 +65,8 @@
     "resetIn": "resets in {{time}}",
     "resetAt": "resets at {{time}}",
     "resetCredits": "Reset credits",
+    "resetCreditsLeft": "{{count}} resets left",
+    "creditExpiry": "expires {{time}}",
     "today": "Today",
     "total": "Total",
     "loading": "Fetching usage…",

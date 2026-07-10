@@ -34,9 +34,8 @@ make web-watch-logs# Follow watchdog log (/tmp/quartet-watchdog.log)
 make clean         # Remove bin/
 ```
 
-> 在 agent / Codex 的 shell 调用里持久拉起后端，必须用 `make web`（detached：setsid 双 fork + nohup，reparent 到 init，调用方退出后依然存活）。
->
 > agent 不要自己执行 `make web` 重启后端：当前 agent（ACP 子进程）跑在后端进程树之下，`make web` 会 kill 旧后端，旧后端一死，agent 这条 ACP 链会被 `Pdeathsig` 连带 SIGKILL，重启过程当场失去执行者。重启后端这一步交给用户在机器上手动执行。需要”挂掉自动拉起”时用 `make web-watch`：它 detached 在后端进程树之外，只在端口已空时才拉起服务、从不 kill 活着的进程，所以既不会误伤 agent，也能在后端宕掉后自动恢复。
+> 修改前端完以后可以 make build-frontend 更页面到 static 目录下。然后后端可以刷新后查看更新
 
 Frontend (from `web/`):
 

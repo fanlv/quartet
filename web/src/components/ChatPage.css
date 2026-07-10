@@ -908,6 +908,16 @@
   overscroll-behavior: contain;
 }
 
+/* While loading or offline the job list has no rows, so don't let it grow to
+   fill the viewport — keep it at natural height right below the (empty)
+   schedule section, and let the centered spinner (rendered after it) occupy the
+   remaining space below Job History. */
+.home-content[data-home-state="loading"] .home-job-list.expanded,
+.home-content[data-home-state="offline"] .home-job-list.expanded {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
 .home-job-list-header {
   display: flex;
   align-items: center;
@@ -1553,6 +1563,14 @@
   .home-job-list-header {
     gap: 6px;
     flex-wrap: wrap;
+  }
+
+  /* The filter wraps to its own row (flex-basis: 100%), leaving only the title
+     and count on the first row. Without this the header's space-between would
+     shove the count to the far right; margin-right:auto keeps "50 JOBS" pinned
+     next to the title, matching the schedule header's "N tasks" pill. */
+  .home-job-list-count {
+    margin-right: auto;
   }
 
   .home-job-list-filter {

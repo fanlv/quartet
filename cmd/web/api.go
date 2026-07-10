@@ -23,6 +23,9 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// Live subscription / quota info for the Codex / Claude ACP agents,
 	// shown on the Home page. Refetched on every agent-type switch.
 	agent.GET("/usage", h.AgentUsage)
+	// Installed CLI version of a known ACP agent, keyed by its serve command.
+	// Backs the composer usage strip for agents without a quota view.
+	agent.GET("/version", h.AgentVersion)
 	// ACP live-config switch: change model / mode / thought_level and get the
 	// refreshed selector lists back. Body carries an optional sessionId (live
 	// session switch) or agentType (Home session-less preview).

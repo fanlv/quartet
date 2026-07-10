@@ -65,6 +65,8 @@
     "resetIn": "{{time}}后重置",
     "resetAt": "{{time}} 重置",
     "resetCredits": "额度重置券",
+    "resetCreditsLeft": "剩余重置 {{count}} 次",
+    "creditExpiry": "{{time}} 过期",
     "today": "今日消费",
     "total": "累计消费",
     "loading": "正在获取额度…",

@@ -19,7 +19,7 @@ import { ServerClockProvider } from '../contexts/ServerClock';
 import { VirtualList } from './VirtualList';
 import { registerWorkspaceColors } from '../utils/workspace';
 import { fetchAgentPrefs, type AgentPrefsMap } from '../utils/agentPrefs';
-import { setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
+import { relinkACPThoughtLevels, setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
 import './JobChat.css';
 
 // Must match the backend limit in cmd/web/handler/job.go (jobTitleMaxLen).
@@ -195,6 +195,7 @@ export function JobChat(props: JobChatProps) {
   const [hasUserSelectedMode, setHasUserSelectedMode] = useState(false);
   const [hasUserSelectedThoughtLevel, setHasUserSelectedThoughtLevel] = useState(false);
   const [acpConfigError, setAcpConfigError] = useState<string | null>(null);
+  const [initialAgentRefreshPending, setInitialAgentRefreshPending] = useState(false);
   const [allowEinoSelection, setAllowEinoSelection] = useState<boolean | null>(null);
   const [jobEnable, setJobEnable] = useState(false);
   const [loopSidebarOpen, setLoopSidebarOpen] = useState(false);
@@ -283,6 +284,7 @@ export function JobChat(props: JobChatProps) {
   const [titleEditError, setTitleEditError] = useState<string | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const initialMessageSent = useRef(false);
+  const refreshedAgentModelsRef = useRef<Set<string>>(new Set());
   const jobListRef = useRef<HTMLDivElement | null>(null);
   const headerMoreRef = useRef<HTMLDivElement | null>(null);
 
@@ -345,7 +347,10 @@ export function JobChat(props: JobChatProps) {
   }, [isReadonly]);
 
   useEffect(() => {
-    fetchAgentList(shareToken, existingJobId).then(({ agents: list, jobEnable: je }) => {
+    let cancelled = false;
+    void fetchAgentList(shareToken, existingJobId).then(({ agents: list, jobEnable: je }) => {
+      if (cancelled) return;
+      setInitialAgentRefreshPending(false);
       // Apply initial modelId/acpMode to the matching agent so the initial
       // message uses the model the user selected on the ChatPage.
       let finalList = list;
@@ -374,22 +379,58 @@ export function JobChat(props: JobChatProps) {
         });
       }
 
-      setAgents(finalList);
-      setJobEnable(je);
+      let selectedIdx = 0;
       if (finalList.length > 0) {
         // Type first for non-eino ACP agents (unique identifier); model id may
         // collide across ACP agents. Fall back to model id for eino / no type.
         if (initialAgentType && initialAgentType !== 'eino') {
           const idx = finalList.findIndex((a) => a.type === initialAgentType);
-          if (idx >= 0) { setSelectedAgentIndex(idx); return; }
+          if (idx >= 0) selectedIdx = idx;
         }
-        if (initialModelId) {
+        if ((!initialAgentType || initialAgentType === 'eino') && initialModelId) {
           const idx = finalList.findIndex((a) => a.model_id === initialModelId || a.models?.availableModels.some((m) => m.modelId === initialModelId));
-          if (idx >= 0) setSelectedAgentIndex(idx);
+          if (idx >= 0) selectedIdx = idx;
         }
+
+        const selected = finalList[selectedIdx];
+        const selectedModelId = selected.models?.currentModelId;
+        setAgents(finalList);
+        setJobEnable(je);
+        setSelectedAgentIndex(selectedIdx);
+        if (!isReadonly && selected.type !== 'eino' && selectedModelId) {
+          const refreshKey = `${selected.type}::${selectedModelId}`;
+          refreshedAgentModelsRef.current.add(refreshKey);
+          setInitialAgentRefreshPending(true);
+          void relinkACPThoughtLevels(selected.type, selectedModelId).then((state) => {
+            if (cancelled) return;
+            let thoughtLevels = state;
+            if (initialAcpThoughtLevel && thoughtLevels.availableThoughtLevels.some((level) => level.id === initialAcpThoughtLevel)) {
+              thoughtLevels = { ...thoughtLevels, currentThoughtLevelId: initialAcpThoughtLevel };
+            }
+            setAgents((prev) => prev.map((agent, agentIndex) =>
+              agentIndex === selectedIdx && agent.type === selected.type && agent.models?.currentModelId === selectedModelId
+                ? { ...agent, thoughtLevels }
+                : agent
+            ));
+          }).catch((err) => {
+            if (cancelled) return;
+            const msg = err instanceof Error ? err.message : String(err);
+            setAcpConfigError(msg);
+            console.error('[JobChat] refresh initial ACP thought levels failed:', err);
+          }).finally(() => {
+            if (!cancelled) setInitialAgentRefreshPending(false);
+          });
+        }
+      } else {
+        setAgents(finalList);
+        setJobEnable(je);
+        setSelectedAgentIndex(0);
       }
     });
-  }, [existingJobId, shareToken, initialAgentType, initialModelId, initialAcpMode, initialAcpThoughtLevel]);
+    return () => {
+      cancelled = true;
+    };
+  }, [existingJobId, shareToken, initialAgentType, initialModelId, initialAcpMode, initialAcpThoughtLevel, isReadonly]);
 
   useEffect(() => {
     if (sessionWorkdir) setWorkdir(sessionWorkdir);
@@ -499,6 +540,62 @@ export function JobChat(props: JobChatProps) {
 
   const selectedAgent = agents[selectedAgentIndex] ?? null;
 
+  // Existing jobs learn their real agent/model from session history after the
+  // agent list has already loaded. Refresh that concrete pair once as soon as
+  // it becomes selected so ChatInput never combines a restored model with the
+  // probe cache's thought-level list from another model.
+  useEffect(() => {
+    if (isReadonly || !selectedAgent || selectedAgent.type === 'eino') return;
+    if (sessionType && sessionType !== 'eino' && selectedAgent.type !== sessionType) return;
+
+    const modelId = !hasUserSelected && sessionModelId
+      ? sessionModelId
+      : selectedAgent.models?.currentModelId;
+    if (!modelId || !selectedAgent.models?.availableModels.some((model) => model.modelId === modelId)) return;
+
+    const refreshKey = `${selectedAgent.type}::${modelId}`;
+    if (refreshedAgentModelsRef.current.has(refreshKey)) return;
+    refreshedAgentModelsRef.current.add(refreshKey);
+
+    let cancelled = false;
+    setAcpConfigError(null);
+    void relinkACPThoughtLevels(selectedAgent.type, modelId).then((state) => {
+      if (cancelled) return;
+      const preferred = hasUserSelectedThoughtLevel
+        ? selectedAgent.thoughtLevels?.currentThoughtLevelId
+        : sessionACPThoughtLevel || initialAcpThoughtLevel;
+      const thoughtLevels = preferred && state.availableThoughtLevels.some((level) => level.id === preferred)
+        ? { ...state, currentThoughtLevelId: preferred }
+        : state;
+      setAgents((prev) => prev.map((agent) =>
+        agent.type === selectedAgent.type
+          ? {
+              ...agent,
+              models: agent.models ? { ...agent.models, currentModelId: modelId } : agent.models,
+              thoughtLevels,
+            }
+          : agent
+      ));
+    }).catch((err) => {
+      if (cancelled) return;
+      const msg = err instanceof Error ? err.message : String(err);
+      setAcpConfigError(msg);
+      console.error('[JobChat] refresh restored ACP thought levels failed:', err);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    hasUserSelected,
+    hasUserSelectedThoughtLevel,
+    initialAcpThoughtLevel,
+    isReadonly,
+    selectedAgent,
+    sessionACPThoughtLevel,
+    sessionModelId,
+    sessionType,
+  ]);
+
   // Resolve agent icon/name for a specific session. Falls back to selectedAgent.
   const resolveAgentForSession = useCallback((sessionId?: string): { iconUrl?: string; displayName?: string } => {
     if (!sessionId || agents.length === 0) {
@@ -552,8 +649,8 @@ export function JobChat(props: JobChatProps) {
           sessionId: activeSessionId || undefined,
           agentType: activeSessionId ? undefined : agent.type,
           model: change.model ?? agent.models?.currentModelId,
-          mode: change.mode ?? agent.modes?.currentModeId,
-          thoughtLevel: change.thoughtLevel ?? agent.thoughtLevels?.currentThoughtLevelId,
+          mode: target === 'model' ? undefined : change.mode ?? agent.modes?.currentModeId,
+          thoughtLevel: target === 'model' ? undefined : change.thoughtLevel ?? agent.thoughtLevels?.currentThoughtLevelId,
         });
         setAgents((prev) => prev.map((a, i) =>
           i === selectedAgentIndex
@@ -561,7 +658,7 @@ export function JobChat(props: JobChatProps) {
                 ...a,
                 models: state.models ?? a.models,
                 modes: state.modes ?? a.modes,
-                thoughtLevels: state.thoughtLevels ?? a.thoughtLevels,
+                thoughtLevels: target === 'model' ? state.thoughtLevels : state.thoughtLevels ?? a.thoughtLevels,
               }
             : a
         ));
@@ -582,6 +679,7 @@ export function JobChat(props: JobChatProps) {
     const agent = agents[selectedAgentIndex];
     const prevModelId = agent?.models?.currentModelId;
     if (!agent?.models || modelId === prevModelId) return;
+    refreshedAgentModelsRef.current.add(`${agent.type}::${modelId}`);
     setHasUserSelected(true);
     setAgents((prev) => prev.map((a, idx) =>
       idx === selectedAgentIndex && a.models
@@ -722,6 +820,7 @@ export function JobChat(props: JobChatProps) {
   useEffect(() => {
     if (initialMessageSent.current) return;
     if (!eventsReady) return;
+    if (initialAgentRefreshPending) return;
     if (isLoadingHistory || error) return;
 
     // Loop mode: auto-start
@@ -742,7 +841,7 @@ export function JobChat(props: JobChatProps) {
         console.error('Failed to send initial message:', err);
       });
     }
-  }, [effectiveModelId, error, eventsReady, initialMessage, initialImageUrls, initialLoopConfig, isLoadingHistory, jobId, messages.length, sendMessage, startLoop, selectedAgent]);
+  }, [effectiveModelId, error, eventsReady, initialAgentRefreshPending, initialMessage, initialImageUrls, initialLoopConfig, isLoadingHistory, jobId, messages.length, sendMessage, startLoop, selectedAgent]);
 
   const handleNewChat = () => {
     clearMessages();

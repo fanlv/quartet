@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
   agentUsageProvider,
   fetchAgentUsage,
+  fetchAgentVersion,
   getCachedUsage,
+  getCachedVersion,
   setCachedUsage,
+  setCachedVersion,
   type AgentUsageProvider,
   type CodexUsage,
   type ClaudeUsage,
@@ -29,13 +32,24 @@ function pctClass(pct: number): string {
 }
 
 /** Tiny circular progress icon for a usage window. The arc fills to
- *  `percent` and is colored by usage tier; the short label (5h / 7d) sits in
- *  the center so each ring stays identifiable, and the full "5h 1% · 15:30
- *  重置" text lives in the tooltip. The tooltip shows on hover and can also be
+ *  `percent` and is colored by usage tier (or by an explicit `tone` class, used
+ *  by the reset-credit ring whose color semantics differ); the short label (5h
+ *  / 7d / a count) sits in the center so each ring stays identifiable, and the
+ *  full detail lives in the tooltip. The tooltip shows on hover and can also be
  *  pinned open by clicking the ring (click again, or click outside, to hide).
  *  It is rendered in a portal with fixed positioning so no ancestor's
  *  `overflow: hidden` (the composer footer clips its content) can cut it off. */
-function UsageRing({ percent, label, title }: { percent: number; label: string; title: string }) {
+function UsageRing({
+  percent,
+  label,
+  title,
+  tone,
+}: {
+  percent: number;
+  label: string;
+  title: ReactNode;
+  tone?: string;
+}) {
   const pct = Math.max(0, Math.min(100, percent));
   const [hover, setHover] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -47,6 +61,7 @@ function UsageRing({ percent, label, title }: { percent: number; label: string; 
   const c = 2 * Math.PI * r;
   const offset = c * (1 - pct / 100);
   const visible = hover || pinned;
+  const colorClass = tone ?? pctClass(pct);
 
   const updatePos = useCallback(() => {
     const el = ref.current;
@@ -82,7 +97,7 @@ function UsageRing({ percent, label, title }: { percent: number; label: string; 
   return (
     <span
       ref={ref}
-      className={`usage-ring ${pctClass(pct)}${pinned ? ' pinned' : ''}`}
+      className={`usage-ring ${colorClass}${pinned ? ' pinned' : ''}`}
       onClick={() => setPinned((v) => !v)}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -114,6 +129,26 @@ function UsageRing({ percent, label, title }: { percent: number; label: string; 
   );
 }
 
+/** Small refresh button shared by the quota card and the version chip. */
+function RefreshButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      className={`usage-inline-refresh ${loading ? 'spinning' : ''}`}
+      onClick={onClick}
+      disabled={loading}
+      title={t('agentUsage.refresh')}
+      aria-label={t('agentUsage.refresh')}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M23 4v6h-6M1 20v-6h6" />
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+      </svg>
+    </button>
+  );
+}
+
 const pad = (n: number): string => String(n).padStart(2, '0');
 
 // Absolute reset time for a window. Codex returns reset_at (unix seconds); fall
@@ -125,9 +160,25 @@ function formatResetAt(w: UsageWindow, withDate: boolean): string {
   return withDate ? `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}` : hm;
 }
 
+// Local "MM-dd HH:mm" for a reset-credit expiry (unix seconds).
+function formatExpiry(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /** Compact inline usage strip shown in the composer footer (after the
- *  image-upload button) for the Codex / Claude agents. Returns null for any
- *  agent without a usage view.
+ *  image-upload button). Codex / Claude get a full quota view; every other
+ *  known ACP agent gets a version chip. Returns null for agents that are
+ *  neither (no quota view and no parseable version, e.g. the built-in runner). */
+export function AgentUsageCard({ agentType, displayName }: AgentUsageCardProps) {
+  const provider = agentUsageProvider(agentType, displayName);
+  if (provider) return <AgentQuotaCard provider={provider} />;
+  if (agentType) return <AgentVersionChip command={agentType} />;
+  return null;
+}
+
+/** Full quota view for the Codex / Claude agents (rate-limit rings + version,
+ *  or today/total spend + version).
  *
  *  Switching agent type keeps the previously-fetched plan info on screen (from
  *  a localStorage cache that also survives page reloads) and refreshes it
@@ -135,9 +186,8 @@ function formatResetAt(w: UsageWindow, withDate: boolean): string {
  *  there is no loading flash. A failed refresh is silent: the last cached data
  *  stays on screen, and if nothing was ever cached the strip shows no data (no
  *  error message). */
-export function AgentUsageCard({ agentType, displayName }: AgentUsageCardProps) {
+function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
   const { t } = useTranslation();
-  const provider = agentUsageProvider(agentType, displayName);
 
   const [loading, setLoading] = useState(false);
   const [codex, setCodex] = useState<CodexUsage | null>(
@@ -169,13 +219,7 @@ export function AgentUsageCard({ agentType, displayName }: AgentUsageCardProps) 
     };
   }, []);
 
-  useEffect(() => {
-    if (!provider) return;
-    const cancel = load(provider);
-    return cancel;
-  }, [provider, load]);
-
-  if (!provider) return null;
+  useEffect(() => load(provider), [provider, load]);
 
   // Tooltip for a usage ring, e.g. "5h 1% · 15:30 重置".
   const ringTitle = (label: string, w: UsageWindow, withDate: boolean) =>
@@ -206,32 +250,111 @@ export function AgentUsageCard({ agentType, displayName }: AgentUsageCardProps) 
               title={ringTitle('7d', codex.secondary_window, true)}
             />
           )}
+          <UsageRing
+            percent={codex.reset_credits > 0 ? 100 : 0}
+            label={String(codex.reset_credits)}
+            tone={codex.reset_credits > 0 ? 'credit' : 'credit-empty'}
+            title={
+              <>
+                <span className="usage-tip-line usage-tip-head">
+                  {t('agentUsage.resetCreditsLeft', { count: codex.reset_credits })}
+                </span>
+                {(codex.reset_credit_expiries ?? []).map((e, i) => (
+                  <span key={i} className="usage-tip-line">
+                    {t('agentUsage.creditExpiry', { time: formatExpiry(e) })}
+                  </span>
+                ))}
+              </>
+            }
+          />
         </>
       ) : provider === 'claude' && claude ? (
         <>
           {claude.version && <span className="usage-inline-ver">{claude.version}</span>}
           <span className="usage-inline-metric" title={t('agentUsage.today')}>
-            now <b className="today">${money(claude.today_cost)}</b>
+            <svg
+              className="usage-metric-icon today"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3" y="4.5" width="18" height="16.5" rx="2" />
+              <path d="M16 2.5v4M8 2.5v4M3 9.5h18" />
+            </svg>
+            <b className="today">${money(claude.today_cost)}</b>
           </span>
           <span className="usage-inline-metric" title={t('agentUsage.total')}>
-            sum <b>${money(claude.total_cost)}</b>
+            <svg
+              className="usage-metric-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M17 5H7l5 7-5 7h10" />
+            </svg>
+            <b>${money(claude.total_cost)}</b>
           </span>
         </>
       ) : null}
 
-      <button
-        type="button"
-        className={`usage-inline-refresh ${loading ? 'spinning' : ''}`}
-        onClick={() => load(provider)}
-        disabled={loading}
-        title={t('agentUsage.refresh')}
-        aria-label={t('agentUsage.refresh')}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M23 4v6h-6M1 20v-6h6" />
-          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-        </svg>
-      </button>
+      <RefreshButton loading={loading} onClick={() => load(provider)} />
+    </div>
+  );
+}
+
+/** Version-only chip for known ACP agents that have no quota view (traex,
+ *  opencode, gemini, cursor, droid, qwen, ...). The version is fetched from the
+ *  backend (`<bin> --version`) and cached per agent command so switching agents
+ *  shows the last-probed version instantly while a fresh probe runs.
+ *
+ *  Version is supplementary, so the chip renders nothing until it actually has
+ *  a version: agents without a parseable version — or non-ACP agents like the
+ *  built-in runner — show no empty strip and no loading flash. */
+function AgentVersionChip({ command }: { command: string }) {
+  const [version, setVersion] = useState<string>(() => getCachedVersion(command));
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback((cmd: string) => {
+    let cancelled = false;
+    setLoading(true);
+    fetchAgentVersion(cmd)
+      .then((v) => {
+        if (cancelled) return;
+        setCachedVersion(cmd, v);
+        setVersion(v);
+      })
+      .catch(() => {
+        // Swallow: keep the last cached version (if any); never surface errors.
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Swap to the cached version for the newly-selected agent instantly, then
+    // refresh it in the background.
+    setVersion(getCachedVersion(command));
+    return load(command);
+  }, [command, load]);
+
+  if (!version) return null;
+
+  return (
+    <div className="agent-usage-inline" data-testid="agent-usage-card" data-provider="version">
+      <span className="usage-inline-ver">{version}</span>
+      <RefreshButton loading={loading} onClick={() => load(command)} />
     </div>
   );
 }

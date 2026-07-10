@@ -64,12 +64,12 @@ const (
 // SetACPConfigRequest switches an ACP selector (model / mode / thought_level)
 // and asks for the refreshed selector lists back. When SessionID is set the
 // switch applies to that session's live agent; otherwise it is a Home
-// (session-less) preview that spins up a throwaway session on AgentType.
+// (session-less) cache selection on AgentType. Cached model-linked state is
+// returned immediately and refreshed asynchronously; cache misses probe
+// synchronously.
 //
-// Model / Mode / ThoughtLevel carry the full current selection so the Home
-// preview can replay it into a fresh session before reading the linked lists
-// back. For the session path only the Target's value is used (the others are
-// already the session's persisted state).
+// Model / Mode / ThoughtLevel carry the current selection. For the session
+// path only the Target's value is applied to the live agent.
 type SetACPConfigRequest struct {
 	SessionID    string          `json:"sessionId,omitempty"`
 	AgentType    string          `json:"agentType,omitempty"`

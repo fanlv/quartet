@@ -15,7 +15,7 @@ import (
 // SetACPConfig applies an ACP live-config switch (model / mode / thought_level)
 // and returns the refreshed selector lists. With a sessionId it switches on
 // that session's live ACP agent and persists the new selection to the session;
-// without one it runs a Home (session-less) preview against agentType.
+// without one it updates and refreshes the Home selector cache for agentType.
 func (h *Handler) SetACPConfig(ctx context.Context, c *app.RequestContext) {
 	var req model.SetACPConfigRequest
 	if err := c.BindJSON(&req); err != nil {
@@ -65,6 +65,7 @@ func (h *Handler) setACPConfigForSession(ctx context.Context, req *model.SetACPC
 		if err != nil {
 			return nil, err
 		}
+		probe.CacheACPConfigState(s.Type, req.Target, req.Model, s.ACPMode, s.ACPThoughtLevel, state)
 		if err := ss.UpdateModelID(s.ID, req.Model); err != nil {
 			logger.Errorf(ctx, "[acp.config] persist model failed: sessionId=%s err=%v", s.ID, err)
 		}
@@ -74,6 +75,7 @@ func (h *Handler) setACPConfigForSession(ctx context.Context, req *model.SetACPC
 		if err != nil {
 			return nil, err
 		}
+		probe.CacheACPConfigState(s.Type, req.Target, s.ModelID, req.Mode, s.ACPThoughtLevel, state)
 		if err := ss.UpdateACPMode(s.ID, req.Mode); err != nil {
 			logger.Errorf(ctx, "[acp.config] persist mode failed: sessionId=%s err=%v", s.ID, err)
 		}
@@ -83,6 +85,7 @@ func (h *Handler) setACPConfigForSession(ctx context.Context, req *model.SetACPC
 		if err != nil {
 			return nil, err
 		}
+		probe.CacheACPConfigState(s.Type, req.Target, s.ModelID, s.ACPMode, req.ThoughtLevel, state)
 		if err := ss.UpdateACPThoughtLevel(s.ID, req.ThoughtLevel); err != nil {
 			logger.Errorf(ctx, "[acp.config] persist thought_level failed: sessionId=%s err=%v", s.ID, err)
 		}
@@ -91,9 +94,8 @@ func (h *Handler) setACPConfigForSession(ctx context.Context, req *model.SetACPC
 	return nil, fmt.Errorf("invalid target %q", req.Target)
 }
 
-// setACPConfigPreview runs a Home (session-less) switch: it spins up a
-// throwaway ACP session on agentType, replays the current selection, and
-// returns the refreshed lists. Nothing is persisted.
+// setACPConfigPreview runs a Home (session-less) cache selection. Cache hits
+// return immediately and refresh asynchronously; misses probe synchronously.
 func (h *Handler) setACPConfigPreview(ctx context.Context, req *model.SetACPConfigRequest) (*model.ACPConfigState, error) {
 	if req.AgentType == "" {
 		return nil, fmt.Errorf("agentType is required for a session-less config switch")

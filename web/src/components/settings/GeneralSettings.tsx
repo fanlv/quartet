@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AgentInfo } from '../ChatPage';
+import type { AgentInfo, SessionThoughtLevelState } from '../ChatPage';
 import { isImageUrl } from '../../utils/url';
+import { useACPThoughtLevels } from '../../hooks/useACPThoughtLevels';
 
 interface AgentConfigState {
   agent_type: string;
@@ -46,6 +47,29 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
   const msgModeRef = useRef<HTMLDivElement>(null);
   const msgThoughtLevelRef = useRef<HTMLDivElement>(null);
 
+  const titleSelectedAgent = titleAgent.agent_type
+    ? agents.find((agent) => agent.type === titleAgent.agent_type)
+    : undefined;
+  const messageSelectedAgent = messageAgent.agent_type
+    ? agents.find((agent) => agent.type === messageAgent.agent_type)
+    : undefined;
+  const titleThoughtLevelLink = useACPThoughtLevels(
+    titleSelectedAgent?.type || '',
+    titleAgent.model_id || titleSelectedAgent?.models?.currentModelId || '',
+    Boolean(titleSelectedAgent?.models),
+    !titleAgent.model_id || titleAgent.model_id === titleSelectedAgent?.models?.currentModelId
+      ? titleSelectedAgent?.thoughtLevels || null
+      : null,
+  );
+  const messageThoughtLevelLink = useACPThoughtLevels(
+    messageSelectedAgent?.type || '',
+    messageAgent.model_id || messageSelectedAgent?.models?.currentModelId || '',
+    Boolean(messageSelectedAgent?.models),
+    !messageAgent.model_id || messageAgent.model_id === messageSelectedAgent?.models?.currentModelId
+      ? messageSelectedAgent?.thoughtLevels || null
+      : null,
+  );
+
   useEffect(() => {
     fetchSettings();
     fetchAgents();
@@ -69,6 +93,36 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [titleAgentDropdownOpen, titleModelDropdownOpen, titleModeDropdownOpen, titleThoughtLevelDropdownOpen, msgAgentDropdownOpen, msgModelDropdownOpen, msgModeDropdownOpen, msgThoughtLevelDropdownOpen]);
+
+  useEffect(() => {
+    const state = titleThoughtLevelLink.state;
+    if (!state) return;
+    setTitleAgent((current) => {
+      if (current.agent_type !== titleSelectedAgent?.type) return current;
+      const modelId = current.model_id || titleSelectedAgent?.models?.currentModelId || '';
+      if (modelId !== (titleAgent.model_id || titleSelectedAgent?.models?.currentModelId || '')) return current;
+      const currentStillAvailable = state.availableThoughtLevels.some((level) => level.id === current.acp_thought_level);
+      const nextThoughtLevel = currentStillAvailable ? current.acp_thought_level : state.currentThoughtLevelId;
+      return nextThoughtLevel === current.acp_thought_level
+        ? current
+        : { ...current, acp_thought_level: nextThoughtLevel };
+    });
+  }, [titleAgent.model_id, titleSelectedAgent, titleThoughtLevelLink.state]);
+
+  useEffect(() => {
+    const state = messageThoughtLevelLink.state;
+    if (!state) return;
+    setMessageAgent((current) => {
+      if (current.agent_type !== messageSelectedAgent?.type) return current;
+      const modelId = current.model_id || messageSelectedAgent?.models?.currentModelId || '';
+      if (modelId !== (messageAgent.model_id || messageSelectedAgent?.models?.currentModelId || '')) return current;
+      const currentStillAvailable = state.availableThoughtLevels.some((level) => level.id === current.acp_thought_level);
+      const nextThoughtLevel = currentStillAvailable ? current.acp_thought_level : state.currentThoughtLevelId;
+      return nextThoughtLevel === current.acp_thought_level
+        ? current
+        : { ...current, acp_thought_level: nextThoughtLevel };
+    });
+  }, [messageAgent.model_id, messageSelectedAgent, messageThoughtLevelLink.state]);
 
   const fetchSettings = async () => {
     try {
@@ -203,11 +257,14 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
     thoughtLevelOpen: boolean,
     setThoughtLevelOpen: (v: boolean) => void,
     thoughtLevelRef: React.RefObject<HTMLDivElement | null>,
+    linkedThoughtLevels: SessionThoughtLevelState | null,
+    thoughtLevelLinking: boolean,
+    thoughtLevelLinkError: string,
   ) => {
     const selected = findAgent(cfg);
     const availableModels = selected?.models?.availableModels || [];
     const availableModes = selected?.modes?.availableModes || [];
-    const availableThoughtLevels = selected?.thoughtLevels?.availableThoughtLevels || [];
+    const availableThoughtLevels = linkedThoughtLevels?.availableThoughtLevels || [];
     const showModel = selected && availableModels.length > 1;
     const showMode = selected && availableModes.length > 1;
     const showThoughtLevel = selected && availableThoughtLevels.length > 1;
@@ -374,6 +431,8 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
             </div>
           )}
         </div>
+        {thoughtLevelLinking && <span className="settings-switch-desc">{t('common.loading')}</span>}
+        {thoughtLevelLinkError && <div className="settings-message error" role="alert">{thoughtLevelLinkError}</div>}
         <span className="settings-switch-desc">{desc}</span>
       </div>
     );
@@ -441,6 +500,9 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
           titleModelDropdownOpen, setTitleModelDropdownOpen, titleModelRef,
           titleModeDropdownOpen, setTitleModeDropdownOpen, titleModeRef,
           titleThoughtLevelDropdownOpen, setTitleThoughtLevelDropdownOpen, titleThoughtLevelRef,
+          titleThoughtLevelLink.state,
+          titleThoughtLevelLink.loading,
+          titleThoughtLevelLink.error,
         )}
 
         {renderAgentSelector(
@@ -452,6 +514,9 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
           msgModelDropdownOpen, setMsgModelDropdownOpen, msgModelRef,
           msgModeDropdownOpen, setMsgModeDropdownOpen, msgModeRef,
           msgThoughtLevelDropdownOpen, setMsgThoughtLevelDropdownOpen, msgThoughtLevelRef,
+          messageThoughtLevelLink.state,
+          messageThoughtLevelLink.loading,
+          messageThoughtLevelLink.error,
         )}
 
         <div className="settings-form-group">

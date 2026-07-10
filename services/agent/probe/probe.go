@@ -23,6 +23,7 @@ import (
 	"github.com/fanlv/quartet/pkg/safe"
 	"github.com/fanlv/quartet/services/agent/internal/acpstate"
 	"github.com/fanlv/quartet/types/model"
+	"golang.org/x/sync/singleflight"
 )
 
 // acpProbeTimeout bounds a single ACP agent probe (connect + new session)
@@ -160,9 +161,9 @@ func HeadlessBin(command string) (string, bool) {
 // ---------------------------------------------------------------------------
 
 type acpSessionInfoCache struct {
-	models        *model.SessionModelState
-	modes         *model.SessionModeState
-	thoughtLevels *model.SessionThoughtLevelState
+	models               *model.SessionModelState
+	modes                *model.SessionModeState
+	thoughtLevelsByModel map[string]*model.SessionThoughtLevelState
 }
 
 // acpProbeFailureState tracks consecutive failures of a single agent
@@ -181,6 +182,7 @@ var (
 	acpSessionCache   = make(map[string]*acpSessionInfoCache)
 	acpSessionCacheMu sync.RWMutex
 	acpRefreshing     atomic.Bool
+	acpProbeGroup     singleflight.Group
 
 	acpProbeFailures   = make(map[string]*acpProbeFailureState)
 	acpProbeFailuresMu sync.Mutex
@@ -245,20 +247,118 @@ func noteProbeSuccess(command string) int {
 	return 0
 }
 
-// GetACPSessionInfo returns the cached models/modes for an ACP agent command.
-//
-// The returned values are deep copies of the cache entries so callers can
-// freely mutate them (AgentList writes a default CurrentModeId into Modes,
-// for example) without racing other concurrent /agent/list handlers on the
-// same cached objects. Without copying, the cached pointers would be
-// shared write targets across all goroutines and corrupt the cache too.
-func GetACPSessionInfo(command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState) {
+// GetACPSessionInfo returns a cached ACP selector snapshot. A cache miss is
+// filled synchronously so /agent/list never returns an installed ACP agent
+// without its model/mode selectors merely because startup warmup is still in
+// flight. Returned values are deep copies and may be freely mutated by callers.
+func GetACPSessionInfo(ctx context.Context, command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState, error) {
+	if models, modes, thoughtLevels, ok := getCachedACPSessionInfo(command); ok {
+		return models, modes, thoughtLevels, nil
+	}
+	if cooling, wait := recentlyFailed(command); cooling {
+		return nil, nil, nil, fmt.Errorf("ACP agent probe is cooling down after a failure: cmd=%s retryAfter=%s", command, wait.Truncate(time.Second))
+	}
+	if _, err := refreshACPSessionCacheEntry(ctx, command, ""); err != nil {
+		return nil, nil, nil, err
+	}
+	models, modes, thoughtLevels, ok := getCachedACPSessionInfo(command)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("ACP agent probe returned no selector state: cmd=%s", command)
+	}
+	return models, modes, thoughtLevels, nil
+}
+
+func getCachedACPSessionInfo(command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState, bool) {
 	acpSessionCacheMu.RLock()
 	defer acpSessionCacheMu.RUnlock()
-	if cached, ok := acpSessionCache[command]; ok {
-		return cloneSessionModelState(cached.models), cloneSessionModeState(cached.modes), cloneSessionThoughtLevelState(cached.thoughtLevels)
+	cached, ok := acpSessionCache[command]
+	if !ok || cached == nil {
+		return nil, nil, nil, false
 	}
-	return nil, nil, nil
+	modelID := currentModelID(cached.models)
+	return cloneSessionModelState(cached.models),
+		cloneSessionModeState(cached.modes),
+		cloneSessionThoughtLevelState(cached.thoughtLevelsByModel[modelID]),
+		true
+}
+
+// CacheACPConfigState mirrors a successful live-session selector change into
+// the probe cache so later /agent/list requests return the most recently used
+// values. Model/thought updates are scoped to their model key; mode updates do
+// not touch either model-linked field.
+func CacheACPConfigState(
+	command string,
+	target model.ACPConfigTarget,
+	modelID string,
+	modeID string,
+	thoughtLevelID string,
+	state *model.ACPConfigState,
+) {
+	acpSessionCacheMu.Lock()
+	defer acpSessionCacheMu.Unlock()
+	entry := acpSessionCache[command]
+	if entry == nil {
+		if state == nil || state.Models == nil {
+			return
+		}
+		entry = &acpSessionInfoCache{thoughtLevelsByModel: make(map[string]*model.SessionThoughtLevelState)}
+		acpSessionCache[command] = entry
+	}
+	if entry.thoughtLevelsByModel == nil {
+		entry.thoughtLevelsByModel = make(map[string]*model.SessionThoughtLevelState)
+	}
+	if state != nil {
+		if state.Models != nil {
+			entry.models = cloneSessionModelState(state.Models)
+		}
+		if state.Modes != nil {
+			entry.modes = cloneSessionModeState(state.Modes)
+		}
+	}
+	if modelID == "" {
+		modelID = currentModelID(entry.models)
+	}
+
+	switch target {
+	case model.ACPConfigTargetModel:
+		if entry.models != nil && modelID != "" {
+			entry.models.CurrentModelId = modelID
+			var thoughtLevels *model.SessionThoughtLevelState
+			if state != nil {
+				thoughtLevels = state.ThoughtLevels
+			}
+			entry.thoughtLevelsByModel[modelID] = cloneSessionThoughtLevelState(thoughtLevels)
+		}
+	case model.ACPConfigTargetMode:
+		if entry.modes != nil {
+			entry.modes.CurrentModeId = modeID
+		}
+	case model.ACPConfigTargetThoughtLevel:
+		if entry.models != nil && modelID != "" {
+			entry.models.CurrentModelId = modelID
+			if state != nil && state.ThoughtLevels != nil {
+				entry.thoughtLevelsByModel[modelID] = cloneSessionThoughtLevelState(state.ThoughtLevels)
+			}
+			if thoughtLevels := entry.thoughtLevelsByModel[modelID]; thoughtLevels != nil {
+				thoughtLevels.CurrentThoughtLevelId = thoughtLevelID
+			}
+		}
+	}
+}
+
+func cloneACPSessionInfoCache(in *acpSessionInfoCache) *acpSessionInfoCache {
+	if in == nil {
+		return nil
+	}
+	out := &acpSessionInfoCache{
+		models:               cloneSessionModelState(in.models),
+		modes:                cloneSessionModeState(in.modes),
+		thoughtLevelsByModel: make(map[string]*model.SessionThoughtLevelState, len(in.thoughtLevelsByModel)),
+	}
+	for modelID, thoughtLevels := range in.thoughtLevelsByModel {
+		out.thoughtLevelsByModel[modelID] = cloneSessionThoughtLevelState(thoughtLevels)
+	}
+	return out
 }
 
 func cloneSessionModelState(in *model.SessionModelState) *model.SessionModelState {
@@ -388,99 +488,123 @@ type PreviewSelection struct {
 	ThoughtLevel string
 }
 
-// PreviewSetConfig applies a Home (session-less) config switch. It spins up a
-// throwaway ACP session for the command, replays the current selection so the
-// linked ConfigOptions reflect the full state, and returns the refreshed
-// selector lists. The session is torn down before returning — Home switches
-// are stateless, so no session id is persisted or reused.
-//
-// Only the Target selector's value is authoritative for the returned lists:
-// switching model / thought_level re-links both, while switching mode carries
-// no ConfigOptions back (the frontend keeps its current lists and just
-// reflects the new mode).
+// PreviewSetConfig applies a session-less selector change against the probe
+// cache. Cached state is returned immediately and refreshed asynchronously;
+// only an uncached agent/model pair performs a synchronous ACP probe. Because
+// each target updates only its own cached selection, refreshing a model-linked
+// thought-level list can never reset the cached mode.
 func PreviewSetConfig(ctx context.Context, command string, sel PreviewSelection) (*model.ACPConfigState, error) {
-	ctx, cancel := context.WithTimeout(ctx, acpProbeTimeout)
-	defer cancel()
-
-	var cwd string
-	if home, err := fileserver.UserHomeDir(); err == nil {
-		cwd = home
-	}
-	acpConn, err := connectACPWithNpxHealRetry(ctx, command, cwd)
+	state, cached, err := applyCachedPreviewSelection(command, sel)
 	if err != nil {
-		return nil, fmt.Errorf("connect ACP agent failed: cmd=%s: %w", command, err)
-	}
-	defer acpConn.Close()
-
-	sessResp, err := acpConn.NewSession(ctx, cwd)
-	if err != nil {
-		return nil, fmt.Errorf("create ACP session failed: cmd=%s: %w", command, err)
-	}
-	sessionID := pkgacp.SessionID(sessResp.SessionID)
-	thoughtLevelConfigID := acpstate.ThoughtLevelConfigID(sessResp)
-
-	// Replay the current selection, applying the just-changed target last so
-	// its response carries the freshly-linked ConfigOptions we return. mode is
-	// never the source of returned lists (its RPC has no ConfigOptions), so
-	// applying it before model / thought_level is fine.
-	var last *pkgacp.SessionResponse
-	apply := func(target PreviewTarget) error {
-		switch target {
-		case PreviewTargetModel:
-			if sel.Model == "" {
-				return nil
-			}
-			resp, err := acpConn.SetSessionModel(ctx, sessionID, sel.Model)
-			if err != nil {
-				return fmt.Errorf("set model %q failed: %w", sel.Model, err)
-			}
-			last = resp
-		case PreviewTargetMode:
-			if sel.Mode == "" {
-				return nil
-			}
-			resp, err := acpConn.SetSessionMode(ctx, sessionID, sel.Mode)
-			if err != nil {
-				return fmt.Errorf("set mode %q failed: %w", sel.Mode, err)
-			}
-			last = resp
-		case PreviewTargetThoughtLevel:
-			if sel.ThoughtLevel == "" {
-				return nil
-			}
-			if thoughtLevelConfigID == "" {
-				return fmt.Errorf("set thought_level %q failed: agent does not advertise a thought_level config option", sel.ThoughtLevel)
-			}
-			resp, err := acpConn.SetSessionThoughtLevel(ctx, sessionID, thoughtLevelConfigID, sel.ThoughtLevel)
-			if err != nil {
-				return fmt.Errorf("set thought_level %q failed: %w", sel.ThoughtLevel, err)
-			}
-			last = resp
-		}
-		return nil
-	}
-
-	// Apply the non-target selectors first (order among them does not matter),
-	// then the target so `last` holds the target's response.
-	for _, t := range []PreviewTarget{PreviewTargetMode, PreviewTargetModel, PreviewTargetThoughtLevel} {
-		if t == sel.Target {
-			continue
-		}
-		if err := apply(t); err != nil {
-			return nil, err
-		}
-	}
-	if err := apply(sel.Target); err != nil {
 		return nil, err
 	}
+	if cached {
+		refreshACPModelCacheAsync(ctx, command, selectedPreviewModel(command, sel.Model))
+		return state, nil
+	}
 
-	return acpstate.ConfigState(last), nil
+	if _, err := refreshACPSessionCacheEntry(ctx, command, sel.Model); err != nil {
+		return nil, err
+	}
+	state, cached, err = applyCachedPreviewSelection(command, sel)
+	if err != nil {
+		return nil, err
+	}
+	if !cached {
+		return nil, fmt.Errorf("ACP selector cache is still missing after synchronous probe: cmd=%s model=%s target=%s", command, sel.Model, sel.Target)
+	}
+	return state, nil
 }
 
-func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState) {
+func applyCachedPreviewSelection(command string, sel PreviewSelection) (*model.ACPConfigState, bool, error) {
+	acpSessionCacheMu.Lock()
+	defer acpSessionCacheMu.Unlock()
+	entry, ok := acpSessionCache[command]
+	if !ok || entry == nil {
+		return nil, false, nil
+	}
+
+	modelID := sel.Model
+	if modelID == "" {
+		modelID = currentModelID(entry.models)
+	}
+	switch sel.Target {
+	case PreviewTargetModel:
+		if modelID == "" {
+			return nil, false, fmt.Errorf("model is required for agent %s", command)
+		}
+		if !modelAvailable(entry.models, modelID) {
+			return nil, false, fmt.Errorf("set model %q failed: model is not available for agent %s", modelID, command)
+		}
+		thoughtLevels, known := entry.thoughtLevelsByModel[modelID]
+		if !known {
+			return nil, false, nil
+		}
+		entry.models.CurrentModelId = modelID
+		return &model.ACPConfigState{
+			Models:        cloneSessionModelState(entry.models),
+			ThoughtLevels: cloneSessionThoughtLevelState(thoughtLevels),
+		}, true, nil
+
+	case PreviewTargetMode:
+		if !modeAvailable(entry.modes, sel.Mode) {
+			return nil, false, fmt.Errorf("set mode %q failed: mode is not available for agent %s", sel.Mode, command)
+		}
+		entry.modes.CurrentModeId = sel.Mode
+		return &model.ACPConfigState{}, true, nil
+
+	case PreviewTargetThoughtLevel:
+		if !modelAvailable(entry.models, modelID) {
+			return nil, false, fmt.Errorf("set thought_level %q failed: model %q is not available for agent %s", sel.ThoughtLevel, modelID, command)
+		}
+		thoughtLevels, known := entry.thoughtLevelsByModel[modelID]
+		if !known {
+			return nil, false, nil
+		}
+		if thoughtLevels == nil {
+			return nil, false, fmt.Errorf("set thought_level %q failed: agent does not advertise a thought_level config option for model %s", sel.ThoughtLevel, modelID)
+		}
+		if !thoughtLevelAvailable(thoughtLevels, sel.ThoughtLevel) {
+			return nil, false, fmt.Errorf("set thought_level %q failed: value is not available for agent %s model %s", sel.ThoughtLevel, command, modelID)
+		}
+		entry.models.CurrentModelId = modelID
+		thoughtLevels.CurrentThoughtLevelId = sel.ThoughtLevel
+		return &model.ACPConfigState{
+			Models:        cloneSessionModelState(entry.models),
+			ThoughtLevels: cloneSessionThoughtLevelState(thoughtLevels),
+		}, true, nil
+	}
+	return nil, false, fmt.Errorf("invalid preview target %q", sel.Target)
+}
+
+func selectedPreviewModel(command, requestedModelID string) string {
+	if requestedModelID != "" {
+		return requestedModelID
+	}
+	acpSessionCacheMu.RLock()
+	defer acpSessionCacheMu.RUnlock()
+	if entry := acpSessionCache[command]; entry != nil {
+		return currentModelID(entry.models)
+	}
+	return ""
+}
+
+func refreshACPModelCacheAsync(ctx context.Context, command, modelID string) {
+	bgCtx := context.WithoutCancel(ctx)
+	safe.Go(bgCtx, func() {
+		if cooling, wait := recentlyFailed(command); cooling {
+			logger.Debugf(bgCtx, "[probe] skip ACP model refresh in cooldown: cmd=%s model=%s waitRemaining=%s", command, modelID, wait.Truncate(time.Second))
+			return
+		}
+		if _, err := refreshACPSessionCacheEntry(bgCtx, command, modelID); err != nil {
+			logger.Debugf(bgCtx, "[probe] async ACP model refresh failed: cmd=%s model=%s err=%v", command, modelID, err)
+		}
+	})
+}
+
+func fetchACPSessionInfoForAgent(ctx context.Context, command, preferredModelID string) (*acpSessionInfoCache, error) {
 	// Bound every probe so one slow / hung agent can't wedge the refresh
-	// goroutine. Callers that want no timeout should not exist — the cache
-	// refresh is best-effort and missing entries degrade gracefully.
+	// goroutine or a synchronous cache miss.
 	ctx, cancel := context.WithTimeout(ctx, acpProbeTimeout)
 	defer cancel()
 
@@ -490,12 +614,9 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.Se
 	}
 	acpConn, err := connectACPWithNpxHealRetry(ctx, command, cwd)
 	if err != nil {
-		shouldLog, suppressed, firstFailedAt := noteProbeFailure(command, err)
-		if shouldLog {
-			logger.Warnf(ctx, "[probe] connect ACP agent failed: cmd=%s err=%v suppressed=%d firstFailedAgo=%s",
-				command, err, suppressed, time.Since(firstFailedAt).Truncate(time.Second))
-		}
-		return nil, nil, nil
+		err = fmt.Errorf("connect ACP agent failed: cmd=%s: %w", command, err)
+		recordProbeFailure(ctx, command, err)
+		return nil, err
 	}
 	defer acpConn.Close()
 
@@ -503,12 +624,9 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.Se
 	// persisting/maintaining probe-session IDs across refresh cycles.
 	sessResp, err := acpConn.NewSession(ctx, cwd)
 	if err != nil {
-		shouldLog, suppressed, firstFailedAt := noteProbeFailure(command, err)
-		if shouldLog {
-			logger.Warnf(ctx, "[probe] create ACP session failed: cmd=%s err=%v suppressed=%d firstFailedAgo=%s",
-				command, err, suppressed, time.Since(firstFailedAt).Truncate(time.Second))
-		}
-		return nil, nil, nil
+		err = fmt.Errorf("create ACP session failed: cmd=%s: %w", command, err)
+		recordProbeFailure(ctx, command, err)
+		return nil, err
 	}
 	if recovered := noteProbeSuccess(command); recovered > 0 {
 		logger.Infof(ctx, "[probe] ACP agent recovered: cmd=%s consecutiveFailures=%d", command, recovered)
@@ -516,7 +634,40 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.Se
 
 	models := modelsFromSessionResponse(sessResp)
 	modes := modesFromSessionResponse(sessResp)
-	thoughtLevels := thoughtLevelsFromSessionResponse(sessResp)
+	defaultModelID := currentModelID(models)
+	thoughtLevelsByModel := map[string]*model.SessionThoughtLevelState{}
+	if defaultModelID != "" {
+		// Keep the key even when the value is nil. Presence means this model was
+		// probed and is known not to expose a thought-level option.
+		thoughtLevelsByModel[defaultModelID] = thoughtLevelsFromSessionResponse(sessResp)
+	}
+
+	if preferredModelID != "" && preferredModelID != defaultModelID {
+		if !modelAvailable(models, preferredModelID) {
+			return nil, fmt.Errorf("set model %q failed: model is not available for agent %s", preferredModelID, command)
+		}
+		linkedResp, setErr := acpConn.SetSessionModel(ctx, pkgacp.SessionID(sessResp.SessionID), preferredModelID)
+		if setErr != nil {
+			err = fmt.Errorf("set model %q failed: %w", preferredModelID, setErr)
+			recordProbeFailure(ctx, command, err)
+			return nil, err
+		}
+		if linkedModels := modelsFromSessionResponse(linkedResp); linkedModels != nil {
+			models = linkedModels
+		} else if models != nil {
+			models.CurrentModelId = preferredModelID
+		}
+		thoughtLevelsByModel[preferredModelID] = thoughtLevelsFromSessionResponse(linkedResp)
+	}
+
+	// Preserve the historical initial-mode policy, but only when creating the
+	// cache entry. Later refreshes merge the user's cached current mode back in.
+	if modes != nil {
+		if id := PickDefaultModeID(modes.AvailableModes); id != "" {
+			modes.CurrentModeId = id
+		}
+	}
+	thoughtLevels := thoughtLevelsByModel[currentModelID(models)]
 	logger.Infof(ctx, "[probe] ACP session info loaded: cmd=%s model=%q models=%d mode=%q modes=%d thoughtLevel=%q thoughtLevels=%d",
 		command,
 		currentModelID(models), countModels(models),
@@ -524,7 +675,110 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command string) (*model.Se
 		currentThoughtLevelID(thoughtLevels), countThoughtLevels(thoughtLevels))
 	logger.Infof(ctx, "[probe] %s ACP session info: %v", command, json.String(sessResp))
 
-	return models, modes, thoughtLevels
+	return &acpSessionInfoCache{
+		models:               models,
+		modes:                modes,
+		thoughtLevelsByModel: thoughtLevelsByModel,
+	}, nil
+}
+
+func recordProbeFailure(ctx context.Context, command string, err error) {
+	shouldLog, suppressed, firstFailedAt := noteProbeFailure(command, err)
+	if shouldLog {
+		logger.Warnf(ctx, "[probe] ACP agent probe failed: cmd=%s err=%v suppressed=%d firstFailedAgo=%s",
+			command, err, suppressed, time.Since(firstFailedAt).Truncate(time.Second))
+	}
+}
+
+func modelAvailable(models *model.SessionModelState, modelID string) bool {
+	if models == nil || modelID == "" {
+		return false
+	}
+	for _, available := range models.AvailableModels {
+		if available.ModelId == modelID {
+			return true
+		}
+	}
+	return false
+}
+
+func modeAvailable(modes *model.SessionModeState, modeID string) bool {
+	if modes == nil || modeID == "" {
+		return false
+	}
+	for _, available := range modes.AvailableModes {
+		if available.Id == modeID {
+			return true
+		}
+	}
+	return false
+}
+
+func thoughtLevelAvailable(state *model.SessionThoughtLevelState, thoughtLevelID string) bool {
+	if state == nil || thoughtLevelID == "" {
+		return false
+	}
+	for _, available := range state.AvailableThoughtLevels {
+		if available.Id == thoughtLevelID {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeACPSessionInfoCache(previous, fresh *acpSessionInfoCache) *acpSessionInfoCache {
+	if fresh == nil {
+		return cloneACPSessionInfoCache(previous)
+	}
+	merged := cloneACPSessionInfoCache(fresh)
+	if previous == nil {
+		return merged
+	}
+
+	if previous.models != nil && modelAvailable(merged.models, previous.models.CurrentModelId) {
+		merged.models.CurrentModelId = previous.models.CurrentModelId
+	}
+	if previous.modes != nil && modeAvailable(merged.modes, previous.modes.CurrentModeId) {
+		merged.modes.CurrentModeId = previous.modes.CurrentModeId
+	}
+	if merged.thoughtLevelsByModel == nil {
+		merged.thoughtLevelsByModel = make(map[string]*model.SessionThoughtLevelState)
+	}
+	for modelID, previousState := range previous.thoughtLevelsByModel {
+		freshState, refreshed := merged.thoughtLevelsByModel[modelID]
+		if !refreshed {
+			merged.thoughtLevelsByModel[modelID] = cloneSessionThoughtLevelState(previousState)
+			continue
+		}
+		if previousState != nil && freshState != nil && thoughtLevelAvailable(freshState, previousState.CurrentThoughtLevelId) {
+			freshState.CurrentThoughtLevelId = previousState.CurrentThoughtLevelId
+		}
+	}
+	return merged
+}
+
+func refreshACPSessionCacheEntry(ctx context.Context, command, preferredModelID string) (*acpSessionInfoCache, error) {
+	key := command + "\x00" + preferredModelID
+	value, err, _ := acpProbeGroup.Do(key, func() (any, error) {
+		fresh, fetchErr := fetchACPSessionInfoForAgent(ctx, command, preferredModelID)
+		if fetchErr != nil {
+			return nil, fetchErr
+		}
+		acpSessionCacheMu.Lock()
+		merged := mergeACPSessionInfoCache(acpSessionCache[command], fresh)
+		acpSessionCache[command] = merged
+		stored := cloneACPSessionInfoCache(merged)
+		acpSessionCacheMu.Unlock()
+		return stored, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	entry, ok := value.(*acpSessionInfoCache)
+	if !ok || entry == nil {
+		return nil, fmt.Errorf("ACP agent probe returned invalid cache state: cmd=%s model=%s", command, preferredModelID)
+	}
+	return entry, nil
 }
 
 func currentModelID(models *model.SessionModelState) string {
@@ -570,14 +824,7 @@ func countThoughtLevels(thoughtLevels *model.SessionThoughtLevelState) int {
 }
 
 func refreshACPSessionCache(ctx context.Context) {
-	type result struct {
-		command string
-		info    *acpSessionInfoCache
-	}
-
 	targets := InstalledACPAgents()
-
-	results := make([]result, len(targets))
 	var wg sync.WaitGroup
 	skippedCooldown := 0
 	// Bound the number of in-flight probes so 10+ npx/node cold starts
@@ -585,26 +832,16 @@ func refreshACPSessionCache(ctx context.Context) {
 	// cap is read here (not at package init) so tests / operators can
 	// override QUARTET_ACP_PROBE_CONCURRENCY without re-importing.
 	probeSlots := make(chan struct{}, acpProbeConcurrency())
-	for i, t := range targets {
-		idx, command := i, t.Command
-		// Pre-fill the slot with the existing cache entry under this command.
-		// Two reasons:
-		//   1. If the goroutine returns early (ctx cancel before acquiring a
-		//      probe slot), results[idx] would otherwise stay at zero value
-		//      ({command:"", info:nil}) and the rebuild loop would write
-		//      next[""]=nil — polluting the cache with an empty key AND
-		//      losing the previously-good entry under `command`.
-		//   2. The cooldown branch wants the same carry-forward semantics, so
-		//      lifting it out of that branch keeps both paths consistent.
+	for _, target := range targets {
+		command := target.Command
 		acpSessionCacheMu.RLock()
 		prev := acpSessionCache[command]
+		preferredModelID := ""
+		if prev != nil {
+			preferredModelID = currentModelID(prev.models)
+		}
 		acpSessionCacheMu.RUnlock()
-		results[idx] = result{command: command, info: prev}
 
-		// Carry forward the existing cache entry for commands still in
-		// their failure-backoff window. Without this, "recently failed"
-		// would also mean "wiped from the cache and refetched on the
-		// next miss", which defeats the backoff.
 		if cooling, wait := recentlyFailed(command); cooling {
 			skippedCooldown++
 			logger.Debugf(ctx, "[probe] skip ACP probe in cooldown: cmd=%s waitRemaining=%s", command, wait.Truncate(time.Second))
@@ -634,11 +871,9 @@ func refreshACPSessionCache(ctx context.Context) {
 				return
 			}
 			defer func() { <-probeSlots }()
-			models, modes, thoughtLevels := fetchACPSessionInfoForAgent(ctx, command)
-			logger.Debugf(ctx, "[probe] %s ACP session models: %v", command, json.String(models))
-			logger.Debugf(ctx, "[probe] %s ACP session modes: %v", command, json.String(modes))
-			logger.Debugf(ctx, "[probe] %s ACP session thoughtLevels: %v", command, json.String(thoughtLevels))
-			results[idx] = result{command: command, info: &acpSessionInfoCache{models: models, modes: modes, thoughtLevels: thoughtLevels}}
+			if _, err := refreshACPSessionCacheEntry(ctx, command, preferredModelID); err != nil {
+				logger.Debugf(ctx, "[probe] refresh ACP cache entry failed: cmd=%s model=%s err=%v", command, preferredModelID, err)
+			}
 		})
 	}
 	wg.Wait()
@@ -646,22 +881,19 @@ func refreshACPSessionCache(ctx context.Context) {
 		logger.Debugf(ctx, "[probe] refresh complete: probed=%d skippedCooldown=%d", len(targets)-skippedCooldown, skippedCooldown)
 	}
 
-	// Rebuild the cache from scratch so entries for agents that are no
-	// longer installed are dropped. Without this the map grows over the
-	// lifetime of the process as operators install + uninstall ACP agents.
-	next := make(map[string]*acpSessionInfoCache, len(results))
-	for _, r := range results {
-		if r.command == "" {
-			// Defensive: results[idx] is pre-filled before launching each
-			// goroutine, so this should be unreachable. Skip rather than
-			// trust the invariant — writing next[""]=nil silently corrupts
-			// the cache.
-			continue
-		}
-		next[r.command] = r.info
+	// Drop entries for commands that are no longer installed without replacing
+	// the whole map; replacing it would race explicit model/mode selections made
+	// while this background refresh was in flight.
+	installed := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		installed[target.Command] = struct{}{}
 	}
 	acpSessionCacheMu.Lock()
-	acpSessionCache = next
+	for command := range acpSessionCache {
+		if _, ok := installed[command]; !ok {
+			delete(acpSessionCache, command)
+		}
+	}
 	acpSessionCacheMu.Unlock()
 }
 

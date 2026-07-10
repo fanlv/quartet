@@ -1,4 +1,4 @@
-.PHONY: build build-all build-acp build-cli build-web test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
+.PHONY: build build-all build-acp build-cli build-web build-frontend test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
 
 CERTS_DIR := $(CURDIR)/certs
 # Serving model, derived ONCE at parse time so every target below
@@ -81,6 +81,26 @@ build-web:
 	@mkdir -p bin
 	go build -ldflags "$(WEB_LDFLAGS)" -o bin/quartet-web ./cmd/web
 
+# Build only the frontend SPA into static/ (no backend build, no restart). Safe
+# to run from inside an agent shell — it never touches the running backend.
+# Syncs frontend deps first when node_modules is missing or package(-lock).json
+# changed, then runs the vite production build (outputs to ../static per
+# web/vite.config.ts).
+build-frontend:
+	@echo "🎨 Building frontend into static/ ..."; \
+	cd web || exit 1; \
+	if [ ! -d node_modules ] || [ ! -x node_modules/.bin/vite ]; then \
+		echo "📦 Installing frontend dependencies..."; \
+		if [ -f package-lock.json ]; then npm ci || npm install || exit 1; else npm install || exit 1; fi; \
+		touch node_modules; \
+	elif [ package.json -nt node_modules ] || { [ -f package-lock.json ] && [ package-lock.json -nt node_modules ]; }; then \
+		echo "📦 Syncing frontend dependencies..."; \
+		if [ -f package-lock.json ]; then npm ci || npm install || exit 1; else npm install || exit 1; fi; \
+		touch node_modules; \
+	fi; \
+	npm run build || { echo "❌ Frontend build failed"; exit 1; }; \
+	echo "✅ Frontend built into static/"
+
 run-cli:
 	go run ./cmd/cli
 
@@ -114,7 +134,7 @@ run-frontend:
 
 run: web
 
-web: install-acp-deps
+web: 
 	@if [ -z "$$LOCAL_MEMORY" ]; then \
 		echo "❌ LOCAL_MEMORY environment variable is not set. Please set it first."; \
 		echo "   Example: export LOCAL_MEMORY=/path/to/local_memory"; \
@@ -124,19 +144,7 @@ web: install-acp-deps
 	chmod 755 "$$LOCAL_MEMORY/workspaces" "$$LOCAL_MEMORY/knowledge" "$$LOCAL_MEMORY/agent" "$$LOCAL_MEMORY/bin" "$$LOCAL_MEMORY/shell" "$$LOCAL_MEMORY/im"; \
 	chmod 777 "$$LOCAL_MEMORY/workspaces"; \
 	echo "✅ LOCAL_MEMORY directories ready"
-	@echo "🎨 Building frontend into static/ ..."; \
-	cd web || exit 1; \
-	if [ ! -d node_modules ] || [ ! -x node_modules/.bin/vite ]; then \
-		echo "📦 Installing frontend dependencies..."; \
-		if [ -f package-lock.json ]; then npm ci || npm install || exit 1; else npm install || exit 1; fi; \
-		touch node_modules; \
-	elif [ package.json -nt node_modules ] || { [ -f package-lock.json ] && [ package-lock.json -nt node_modules ]; }; then \
-		echo "📦 Syncing frontend dependencies..."; \
-		if [ -f package-lock.json ]; then npm ci || npm install || exit 1; else npm install || exit 1; fi; \
-		touch node_modules; \
-	fi; \
-	npm run build || { echo "❌ Frontend build failed"; exit 1; }; \
-	echo "✅ Frontend built into static/"
+	@$(MAKE) build-frontend
 	@echo "📦 Building backend..."; \
 	mkdir -p bin; \
 	go build -ldflags "$(WEB_LDFLAGS)" -o bin/quartet-web ./cmd/web || exit 1; \
@@ -283,11 +291,16 @@ clean:
 
 # install-acp-deps installs (or upgrades) the npm packages required for
 # ACP agents: Claude Code, Codex, and OpenCode.
+#
+# --force is required because these bins (e.g. codex-acp) may already exist as
+# leftover symlinks from a differently-scoped package; without it npm aborts
+# with EEXIST, which — since this is a prerequisite of `web` — would block the
+# whole build/restart before it ever recompiles or bounces the backend.
 install-acp-deps:
-	@echo "� Installing/upgrading ACP agent dependencies..."
-	@npm install -g @agentclientprotocol/claude-agent-acp || { echo "❌ Failed to install @agentclientprotocol/claude-agent-acp"; exit 1; }
-	@npm install -g @agentclientprotocol/codex-acp || { echo "❌ Failed to install @agentclientprotocol/codex-acp"; exit 1; }
-	@npm install -g opencode-ai || { echo "❌ Failed to install opencode-ai"; exit 1; }
+	@echo "📦 Installing/upgrading ACP agent dependencies..."
+	@npm install -g --force @agentclientprotocol/claude-agent-acp || { echo "❌ Failed to install @agentclientprotocol/claude-agent-acp"; exit 1; }
+	@npm install -g --force @agentclientprotocol/codex-acp || { echo "❌ Failed to install @agentclientprotocol/codex-acp"; exit 1; }
+	@npm install -g --force opencode-ai || { echo "❌ Failed to install opencode-ai"; exit 1; }
 	@echo "✅ ACP dependencies ready"
 
 # install-skill installs the quartet-workflow skill: first build+install its CLI

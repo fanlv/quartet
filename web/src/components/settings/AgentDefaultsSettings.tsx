@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { AgentInfo } from '../ChatPage';
 import type { AgentPrefs, AgentPrefsMap } from '../../utils/agentPrefs';
 import { invalidateAgentPrefs } from '../../utils/agentPrefs';
+import { useACPThoughtLevels } from '../../hooks/useACPThoughtLevels';
 import './ACPSettings.css';
 import './AgentDefaultsSettings.css';
 
@@ -57,7 +58,39 @@ export function AgentDefaultsSettings() {
   const currentPref = prefMap[activeAgent] || emptyPref;
   const availableModels = currentAgent?.models?.availableModels || [];
   const availableModes = currentAgent?.modes?.availableModes || [];
-  const availableThoughtLevels = currentAgent?.thoughtLevels?.availableThoughtLevels || [];
+  const agentModelId = currentAgent?.models?.currentModelId || '';
+  const defaultModelId = currentPref.default_model_id || agentModelId;
+  const {
+    state: thoughtLevelState,
+    loading: thoughtLevelLinking,
+    error: currentThoughtLevelLinkError,
+  } = useACPThoughtLevels(
+    currentAgent?.type || '',
+    defaultModelId,
+    Boolean(currentAgent?.models),
+    defaultModelId === agentModelId ? currentAgent?.thoughtLevels || null : null,
+  );
+  const availableThoughtLevels = thoughtLevelState?.availableThoughtLevels || [];
+
+  useEffect(() => {
+    if (!currentAgent || !thoughtLevelState) return;
+    const agentType = currentAgent.type;
+    setPrefMap((prev) => {
+      const pref = prev[agentType];
+      if (!pref?.default_thought_level) return prev;
+
+      const selectedModelId = pref.default_model_id || agentModelId;
+      const stillAvailable = thoughtLevelState.availableThoughtLevels.some(
+        (level) => level.id === pref.default_thought_level,
+      );
+      if (selectedModelId !== defaultModelId || stillAvailable) return prev;
+
+      return {
+        ...prev,
+        [agentType]: { ...pref, default_thought_level: undefined },
+      };
+    });
+  }, [agentModelId, currentAgent, defaultModelId, thoughtLevelState]);
 
   const updatePref = (patch: Partial<AgentPrefs>) => {
     setPrefMap((prev) => ({ ...prev, [activeAgent]: { ...(prev[activeAgent] || {}), ...patch } }));
@@ -228,19 +261,27 @@ export function AgentDefaultsSettings() {
         )}
 
         {/* Default thought level */}
-        {availableThoughtLevels.length > 1 && (
+        {(availableThoughtLevels.length > 1 || thoughtLevelLinking || currentThoughtLevelLinkError) && (
           <div className="settings-form-group">
             <label className="settings-label">{t('settings.agentDefaults.defaultThoughtLevelLabel')}</label>
-            <select
-              className="settings-input"
-              value={currentPref.default_thought_level || ''}
-              onChange={(e) => updatePref({ default_thought_level: e.target.value })}
-            >
-              <option value="">{t('common.notSet')}</option>
-              {availableThoughtLevels.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
+            {availableThoughtLevels.length > 1 ? (
+              <select
+                className="settings-input"
+                value={currentPref.default_thought_level || ''}
+                onChange={(e) => updatePref({ default_thought_level: e.target.value })}
+              >
+                <option value="">{t('common.notSet')}</option>
+                {availableThoughtLevels.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+            ) : thoughtLevelLinking ? (
+              <span className="settings-switch-desc">{t('common.loading')}</span>
+            ) : null}
+            {thoughtLevelLinking && availableThoughtLevels.length > 1 && (
+              <span className="settings-switch-desc">{t('common.loading')}</span>
+            )}
+            {currentThoughtLevelLinkError && <div className="settings-message error">{currentThoughtLevelLinkError}</div>}
           </div>
         )}
 

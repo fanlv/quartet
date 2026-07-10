@@ -1,18 +1,41 @@
 .agent-usage-inline {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  /* Wrap internally on narrow (mobile) widths so the trailing refresh button
+   * moves to the next line instead of being clipped. `overflow: hidden` used to
+   * cut off the refresh button (and part of the sum) when this strip could not
+   * fit on one line; the ring tooltip is portaled to <body>, so it is not
+   * affected by dropping the clip. */
+  flex-wrap: wrap;
+  gap: 4px 10px;
   margin-left: 4px;
   font-size: 12px;
   color: #64748b;
   min-width: 0;
-  overflow: hidden;
 }
 
 .agent-usage-inline .usage-inline-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
+}
+
+/* Icon labels for the Claude cost metrics: a calendar "day" icon for today's
+ * cost and a sigma (Σ) "sum" icon for the cumulative total, replacing the old
+ * "now" / "sum" text labels. The day icon inherits the today accent so it reads
+ * as a pair with the orange value; the sum icon stays muted. */
+.agent-usage-inline .usage-metric-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.agent-usage-inline .usage-metric-icon.today {
+  color: #ea580c;
 }
 
 .agent-usage-inline .usage-inline-metric b {
@@ -86,6 +109,19 @@
   color: #dc2626;
 }
 
+/* Reset-credit ring: color semantics differ from the usage tiers (more credits
+ * is better, not worse), so it uses its own indigo accent. `credit-empty` (zero
+ * credits) stays muted. */
+.agent-usage-inline .usage-ring.credit .usage-ring-arc {
+  stroke: #6366f1;
+}
+.agent-usage-inline .usage-ring.credit .usage-ring-label {
+  color: #6366f1;
+}
+.agent-usage-inline .usage-ring.credit-empty .usage-ring-label {
+  color: #94a3b8;
+}
+
 /* Portaled to document.body and positioned via fixed coords computed from the
  * ring's bounding box, so no ancestor's overflow can clip it. Shown on hover
  * or when the ring is clicked (pinned). */
@@ -114,6 +150,17 @@
   transform: translateX(-50%);
   border: 4px solid transparent;
   border-top-color: #1e293b;
+}
+
+/* Multi-line tooltip body (reset-credit ring): each entry on its own line,
+ * left-aligned; the header carries the count. */
+.usage-ring-tip .usage-tip-line {
+  display: block;
+  text-align: left;
+}
+.usage-ring-tip .usage-tip-head {
+  font-weight: 700;
+  margin-bottom: 2px;
 }
 
 .agent-usage-inline .usage-inline-ver {

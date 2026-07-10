@@ -2193,6 +2193,22 @@
   white-space: nowrap;
 }
 
+.loop-round-agent-override-status,
+.loop-round-agent-override-error {
+  max-width: 320px;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.loop-round-agent-override-status {
+  color: #64748b;
+}
+
+.loop-round-agent-override-error {
+  color: #b91c1c;
+}
+
 .loop-round-agent-override-icon {
   width: 16px;
   height: 16px;
