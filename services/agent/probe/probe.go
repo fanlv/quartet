@@ -425,10 +425,15 @@ func cloneSessionThoughtLevelState(in *model.SessionThoughtLevelState) *model.Se
 // the next attempt, so recovery from a transient cache-corruption is
 // delayed by minutes instead of completing in the same call.
 //
+// Uses NewProbeConn (not NewTrackedConn) so the caller's acpProbeTimeout
+// deadline bounds the connect + initialize handshake too; NewTrackedConn
+// would strip that deadline and widen it back to connCreateTimeout, letting a
+// not-logged-in agent hang the probe for up to 60s.
+//
 // Real packages and paths outside the npx cache are protected by
 // looksLikeNpxStaleTemp; see npx_heal.go for the safety contract.
 func connectACPWithNpxHealRetry(ctx context.Context, command, cwd string) (*pkgacp.Conn, error) {
-	conn, err := pkgacp.NewTrackedConn(ctx, command, cwd)
+	conn, err := pkgacp.NewProbeConn(ctx, command, cwd)
 	if err == nil {
 		return conn, nil
 	}
@@ -438,7 +443,7 @@ func connectACPWithNpxHealRetry(ctx context.Context, command, cwd string) (*pkga
 	}
 	logger.Infof(ctx, "[probe] healed npx cache: cmd=%s removedTempDirs=%d originalErr=%v (retrying immediately)",
 		command, cleaned, err)
-	conn, retryErr := pkgacp.NewTrackedConn(ctx, command, cwd)
+	conn, retryErr := pkgacp.NewProbeConn(ctx, command, cwd)
 	if retryErr != nil {
 		logger.Warnf(ctx, "[probe] retry after npx heal still failed: cmd=%s err=%v", command, retryErr)
 		return nil, retryErr

@@ -316,6 +316,33 @@ func NewTrackedConn(ctx context.Context, agentType, workdir string) (*Conn, erro
 	return conn, nil
 }
 
+// NewProbeConn creates a short-lived Conn for capability probing.
+//
+// Unlike NewTrackedConn it does NOT detach from the caller's context via
+// context.WithoutCancel. A probe deliberately sets a tight deadline (see
+// services/agent/probe.acpProbeTimeout) that must bound BOTH subprocess
+// startup + initialize handshake AND the throwaway session/new that follows,
+// so an agent that is installed but not logged in — and therefore never
+// answers session/new — can't wedge the probe or the /agent/list request that
+// triggered it. NewTrackedConn's WithoutCancel silently widens that 30s
+// deadline back to connCreateTimeout (60s), which is exactly the behavior a
+// probe must avoid; here we honor the caller's deadline and only fall back to
+// connCreateTimeout when none was set.
+//
+// The returned Conn is not registered for idle reaping: probe callers Close it
+// immediately after reading its session info.
+func NewProbeConn(ctx context.Context, agentType, workdir string) (*Conn, error) {
+	if isConnPoolClosing() {
+		return nil, errConnPoolClosing
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, connCreateTimeout)
+		defer cancel()
+	}
+	return NewConn(ctx, agentType, workdir)
+}
+
 // NewConn starts an ACP agent subprocess and completes the initialize
 // handshake. Caller is responsible for tracking the returned Conn for idle
 // reaping if desired; most callers should use NewTrackedConn instead.

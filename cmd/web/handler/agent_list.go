@@ -31,9 +31,16 @@ func (h *Handler) AgentList(ctx context.Context, c *app.RequestContext) {
 		}
 		models, modes, thoughtLevels, err := probe.GetACPSessionInfo(ctx, a.Command)
 		if err != nil {
-			logger.Errorf(ctx, "[agent.list] load ACP selector cache failed: agentType=%s err=%v", a.Command, err)
-			httputil.InternalError(c, err.Error())
-			return
+			// A single agent that is installed but not usable (not logged in,
+			// slow/hung cold start, npx cache corruption, ...) probes with a
+			// bounded acpProbeTimeout and then fails. Treat that agent as
+			// unavailable and drop it from the list instead of failing the whole
+			// /agent/list request — one broken agent must not wedge the picker
+			// for every other working agent. The probe records the failure so it
+			// stays in cooldown and later requests skip it fast; it reappears
+			// automatically once a probe succeeds.
+			logger.Warnf(ctx, "[agent.list] skip unavailable ACP agent: agentType=%s err=%v", a.Command, err)
+			continue
 		}
 		info.Models = models
 		info.Modes = modes
