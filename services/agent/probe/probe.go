@@ -95,17 +95,22 @@ var KnownACPAgents = []ACPAgentDef{
 	{Bin: "traex", Command: "traex acp serve", DisplayName: "TraeCLI", IconURL: "https://avatars.githubusercontent.com/u/192691831"},
 	// {Bin: "grok", Command: "grok agent stdio", DisplayName: "Grok", IconURL: grokIconDataURI},
 	{"openclaw", "openclaw acp", "OpenClaw", "🦞"},
-	{"claude", "npx @agentclientprotocol/claude-agent-acp", "Claude", "https://avatars.githubusercontent.com/u/81847"},
+	{"claude", "claude-agent-acp", "Claude", "https://avatars.githubusercontent.com/u/81847"},
 	{"gemini", "gemini --acp", "Gemini", "https://avatars.githubusercontent.com/u/161781182"},
 	{"cursor-agent", "cursor-agent acp", "Cursor", "https://avatars.githubusercontent.com/u/126759922"},
 	{"copilot", "copilot --acp --stdio", "Copilot", "🧑‍✈️"},
 	{"droid", "droid exec --output-format acp", "Droid", "https://avatars.githubusercontent.com/u/131064358"},
 	{"kimi", "kimi acp", "Kimi", "https://avatars.githubusercontent.com/u/129152888"},
-	{"codex", "npx @agentclientprotocol/codex-acp", "Codex", "https://avatars.githubusercontent.com/u/14957082"},
+	{"codex", "codex-acp", "Codex", "https://avatars.githubusercontent.com/u/14957082"},
 	{"kiro-cli", "kiro-cli acp", "Kiro", "https://avatars.githubusercontent.com/u/207925904"},
 	{"opencode", "opencode acp", "OpenCode", "https://avatars.githubusercontent.com/in/1549082"},
 	{"kilocode", "npx -y @kilocode/cli acp", "KiloCode", "https://avatars.githubusercontent.com/u/201822503"},
 	{"qwen", "qwen --acp", "Qwen", "https://avatars.githubusercontent.com/u/141221163"},
+}
+
+var legacyACPAgentCommands = map[string][]string{
+	"claude": {"npx @agentclientprotocol/claude-agent-acp"},
+	"codex":  {"npx @agentclientprotocol/codex-acp"},
 }
 
 // InitAllowedAgentCommands pushes KnownACPAgents' command strings to
@@ -130,6 +135,9 @@ func InstalledACPAgents() []ACPAgentDef {
 	var installed []ACPAgentDef
 	for _, a := range KnownACPAgents {
 		if _, err := exec.LookPath(a.Bin); err == nil {
+			if !serveCommandAvailable(a) {
+				continue
+			}
 			installed = append(installed, a)
 		}
 	}
@@ -137,7 +145,7 @@ func InstalledACPAgents() []ACPAgentDef {
 }
 
 // HeadlessBin maps an ACP agent's *serve* command (the string stored in
-// AgentInfo.Type, e.g. "gemini --acp" or "npx @agentclientprotocol/claude-agent-acp")
+// AgentInfo.Type, e.g. "gemini --acp" or "claude-agent-acp")
 // to the binary used to run that same tool in *headless one-shot* mode
 // (e.g. "gemini", "claude").
 //
@@ -154,6 +162,93 @@ func HeadlessBin(command string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func serveCommandAvailable(a ACPAgentDef) bool {
+	parts := strings.Fields(a.Command)
+	if len(parts) == 0 {
+		return false
+	}
+	serveBin := parts[0]
+	if serveBin == a.Bin {
+		return true
+	}
+	_, err := exec.LookPath(serveBin)
+	return err == nil
+}
+
+// ACPAgentEnvKey returns the stable settings key for an ACP agent. Runtime
+// AgentInfo.Type intentionally remains the serve command, but settings such as
+// ACP env vars should not be invalidated when that command changes.
+func ACPAgentEnvKey(commandOrKey string) string {
+	if a, ok := findACPAgentByCommandOrEnvKey(commandOrKey); ok {
+		return a.Bin
+	}
+	return commandOrKey
+}
+
+// ACPAgentEnvLookupKeys returns the current and historical settings keys that
+// may hold env vars for this agent. New writes should use ACPAgentEnvKey; reads
+// use this list to migrate older command-keyed settings.
+func ACPAgentEnvLookupKeys(commandOrKey string) []string {
+	a, ok := findACPAgentByCommandOrEnvKey(commandOrKey)
+	if !ok {
+		if commandOrKey == "" {
+			return nil
+		}
+		return []string{commandOrKey}
+	}
+	keys := []string{a.Bin, a.Command}
+	keys = append(keys, legacyACPAgentCommands[a.Bin]...)
+	return uniqueNonEmptyStrings(keys)
+}
+
+// ACPAgentEnvKeyPriority reports the stable env key and precedence for a saved
+// settings key. Higher priority wins when normalizing duplicates.
+func ACPAgentEnvKeyPriority(savedKey string) (string, int) {
+	a, ok := findACPAgentByCommandOrEnvKey(savedKey)
+	if !ok {
+		return savedKey, 3
+	}
+	switch savedKey {
+	case a.Bin:
+		return a.Bin, 3
+	case a.Command:
+		return a.Bin, 2
+	}
+	for _, legacy := range legacyACPAgentCommands[a.Bin] {
+		if savedKey == legacy {
+			return a.Bin, 1
+		}
+	}
+	return a.Bin, 0
+}
+
+func findACPAgentByCommandOrEnvKey(commandOrKey string) (ACPAgentDef, bool) {
+	for _, a := range KnownACPAgents {
+		if commandOrKey == a.Bin || commandOrKey == a.Command {
+			return a, true
+		}
+		for _, legacy := range legacyACPAgentCommands[a.Bin] {
+			if commandOrKey == legacy {
+				return a, true
+			}
+		}
+	}
+	return ACPAgentDef{}, false
+}
+
+func uniqueNonEmptyStrings(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------

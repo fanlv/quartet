@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, Re
 
 interface ConnectionStatusContextType {
   connected: boolean;
+  buildTime: string;
   /** Call when SSE stream disconnects unexpectedly */
   reportDisconnect: () => void;
   /** Call when SSE stream reconnects successfully */
@@ -10,6 +11,7 @@ interface ConnectionStatusContextType {
 
 const ConnectionStatusContext = createContext<ConnectionStatusContextType>({
   connected: true,
+  buildTime: '',
   reportDisconnect: () => {},
   reportReconnect: () => {},
 });
@@ -26,6 +28,7 @@ const POLL_INTERVAL = 5000;
 
 export function ConnectionStatusProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(true);
+  const [buildTime, setBuildTime] = useState('');
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
 
@@ -39,7 +42,17 @@ export function ConnectionStatusProvider({ children }: { children: ReactNode }) 
   const checkHealth = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch(HEALTH_URL, { method: 'GET', signal: AbortSignal.timeout(3000) });
-      return res.ok;
+      if (!res.ok) return false;
+
+      try {
+        const body = await res.json() as { buildTime?: unknown };
+        if (typeof body.buildTime === 'string' && body.buildTime) {
+          setBuildTime(body.buildTime);
+        }
+      } catch {
+        // An older backend may return a non-JSON health body. It is still up.
+      }
+      return true;
     } catch {
       return false;
     }
@@ -68,7 +81,8 @@ export function ConnectionStatusProvider({ children }: { children: ReactNode }) 
   const reportReconnect = useCallback(() => {
     setConnected(true);
     stopPolling();
-  }, [stopPolling]);
+    void checkHealth();
+  }, [checkHealth, stopPolling]);
 
   // Initial health check on mount
   useEffect(() => {
@@ -87,7 +101,7 @@ export function ConnectionStatusProvider({ children }: { children: ReactNode }) 
   }, [checkHealth, startPolling, stopPolling]);
 
   return (
-    <ConnectionStatusContext.Provider value={{ connected, reportDisconnect, reportReconnect }}>
+    <ConnectionStatusContext.Provider value={{ connected, buildTime, reportDisconnect, reportReconnect }}>
       {children}
     </ConnectionStatusContext.Provider>
   );

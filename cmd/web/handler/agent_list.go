@@ -25,6 +25,7 @@ func (h *Handler) AgentList(ctx context.Context, c *app.RequestContext) {
 	for _, a := range probe.InstalledACPAgents() {
 		info := model.AgentInfo{
 			Type:        a.Command,
+			EnvKey:      probe.ACPAgentEnvKey(a.Command),
 			ModelID:     "",
 			DisplayName: a.DisplayName,
 			IconURL:     a.IconURL,

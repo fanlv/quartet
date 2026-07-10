@@ -12,7 +12,7 @@
 //      response now carries authRequired: bool.
 //   2. authRequired === false → render children immediately.
 //   3. authRequired === true && localStorage has a token →
-//      probe a cheap protected endpoint (/api/v1/agent/list) to validate
+//      probe a cheap protected endpoint (/api/v1/auth/verify) to validate
 //      the token. 200 → render children. 4xx → render the token form.
 //   4. authRequired === true && no token → render the token form.
 //
@@ -113,10 +113,10 @@ export function AuthGate({ children }: AuthGateProps) {
     }
 
     // The fetch wrapper in main.tsx will inject the header from localStorage
-    // automatically. agent/list is small, idempotent, and already part of
-    // App's normal first-paint set, so the probe is essentially free.
+    // automatically. auth/verify is a lightweight endpoint that does not
+    // probe ACP agents — it only validates the token against the middleware.
     try {
-      const res = await fetch('/api/v1/agent/list', { cache: 'no-store' });
+      const res = await fetch('/api/v1/auth/verify', { cache: 'no-store' });
       if (res.ok) {
         setStage('ready');
         return;
@@ -128,10 +128,10 @@ export function AuthGate({ children }: AuthGateProps) {
       // Any other status (5xx, 404 if route shape ever changes, etc.) is
       // surfaced as a probe failure rather than silently letting App boot
       // into a broken state.
-      console.error(`[AuthGate] /api/v1/agent/list probe returned unexpected status=${res.status}`);
+      console.error(`[AuthGate] /api/v1/auth/verify probe returned unexpected status=${res.status}`);
       setStage('probeFailed');
     } catch (err) {
-      console.error('[AuthGate] /api/v1/agent/list probe threw', err);
+      console.error('[AuthGate] /api/v1/auth/verify probe threw', err);
       setStage('probeFailed');
     }
   }, []);

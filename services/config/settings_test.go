@@ -42,6 +42,68 @@ func cloneSettingsForTest(s *repository.Settings) *repository.Settings {
 	return &clone
 }
 
+func TestGetACPEnvVarsUsesStableKeyAndLegacyCommandKeys(t *testing.T) {
+	repo := &fakeSettingsRepo{settings: repository.Settings{
+		ACPEnvVars: map[string][]repository.ACPEnvVarEntry{
+			"codex": {
+				{Key: "http_proxy", Value: "http://stable", Enabled: false},
+			},
+			"npx @agentclientprotocol/codex-acp": {
+				{Key: "http_proxy", Value: "http://legacy", Enabled: true},
+				{Key: "no_proxy", Value: "code.byted.org", Enabled: true},
+			},
+		},
+	}}
+	svc := &settingsServiceImpl{repo: repo}
+
+	got := svc.GetACPEnvVars("codex-acp")
+	want := map[string]string{
+		"http_proxy": "http://legacy",
+		"no_proxy":   "code.byted.org",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GetACPEnvVars() = %v, want %v", got, want)
+	}
+}
+
+func TestSaveSettingsNormalizesACPEnvVarsToStableKeys(t *testing.T) {
+	repo := &fakeSettingsRepo{}
+	svc := &settingsServiceImpl{repo: repo}
+
+	err := svc.SaveSettings(&repository.Settings{
+		ACPEnvVars: map[string][]repository.ACPEnvVarEntry{
+			"claude-agent-acp": {
+				{Key: "https_proxy", Value: "http://current", Enabled: false},
+			},
+			"npx @agentclientprotocol/claude-agent-acp": {
+				{Key: "https_proxy", Value: "http://legacy", Enabled: true},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveSettings() error = %v", err)
+	}
+
+	got, err := svc.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings() error = %v", err)
+	}
+	if _, ok := got.ACPEnvVars["claude-agent-acp"]; ok {
+		t.Fatalf("claude-agent-acp key should have been normalized: %v", got.ACPEnvVars)
+	}
+	if _, ok := got.ACPEnvVars["npx @agentclientprotocol/claude-agent-acp"]; ok {
+		t.Fatalf("legacy key should have been normalized: %v", got.ACPEnvVars)
+	}
+	want := map[string][]repository.ACPEnvVarEntry{
+		"claude": {
+			{Key: "https_proxy", Value: "http://legacy", Enabled: true},
+		},
+	}
+	if !reflect.DeepEqual(got.ACPEnvVars, want) {
+		t.Fatalf("ACPEnvVars = %v, want %v", got.ACPEnvVars, want)
+	}
+}
+
 func TestSaveSettingsPreservesConcurrentWeChatAdminAdd(t *testing.T) {
 	repo := &fakeSettingsRepo{settings: repository.Settings{WeChatAdminIDs: []string{"alice"}}}
 	svc := &settingsServiceImpl{repo: repo}

@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"context"
 	"crypto/subtle"
+	"net/http"
 	"os"
 	"strings"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/fanlv/quartet/types/consts"
 )
 
@@ -30,6 +33,15 @@ func CheckAgentAuth(token string) bool {
 		}
 	}
 	return false
+}
+
+// AuthVerify handler for /api/v1/auth/verify. Returns 200 for any request
+// that passed agentAuthMiddleware (i.e. the token is valid). This is a
+// lightweight counterpart to /api/v1/agent/list; it does zero ACP agent
+// probing, so the frontend AuthGate can validate tokens without blocking
+// on slow/unreachable agents.
+func (h *Handler) AuthVerify(ctx context.Context, c *app.RequestContext) {
+	c.JSON(http.StatusOK, map[string]any{"status": "ok"})
 }
 
 // IsAuthRequired reports whether the server has at least one non-empty token

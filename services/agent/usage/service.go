@@ -271,7 +271,7 @@ func (s *serviceImpl) codexProxyEnv() map[string]string {
 }
 
 // acpCommandByBin resolves an ACP agent's full serve command from the
-// known-agent registry (e.g. "codex" -> "npx @agentclientprotocol/codex-acp").
+// known-agent registry (e.g. "codex" -> "codex-acp").
 func acpCommandByBin(bin string) string {
 	for _, a := range probe.KnownACPAgents {
 		if a.Bin == bin {
@@ -299,27 +299,27 @@ func (s *serviceImpl) acpVersionAsync(ctx context.Context, bin string) <-chan st
 // display is supplementary — a probe failure must not fail the whole usage
 // request. Reads stdout only so npx stderr warnings can't false-match a version.
 //
-// codex is special-cased: `npx @agentclientprotocol/codex-acp --version` reports
-// the codex-acp wrapper's own version, not the codex binary it bundles as a
-// dependency, so we run `npx -p @agentclientprotocol/codex-acp -c 'codex --version'`
-// to read the actual bundled codex version. Other agents use `<command> --cli --version`.
+// codex is special-cased: `codex-acp --version` reports the ACP wrapper's own
+// version, while quota/usage belongs to the Codex CLI underneath it, so we run
+// `codex --version`. Other wrapper agents use `<command> --cli --version`.
 func (s *serviceImpl) acpVersion(ctx context.Context, bin, command string) string {
 	if command == "" {
-		return ""
-	}
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
 		return ""
 	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	name := parts[0]
+	name := command
 	var args []string
 	if bin == "codex" {
-		pkg := strings.Join(parts[1:], " ")
-		args = []string{"-p", pkg, "-c", "codex --version"}
+		name = "codex"
+		args = []string{"--version"}
 	} else {
+		parts := strings.Fields(command)
+		if len(parts) == 0 {
+			return ""
+		}
+		name = parts[0]
 		args = append(parts[1:], "--cli", "--version")
 	}
 	out, err := exec.CommandContext(cctx, name, args...).Output()

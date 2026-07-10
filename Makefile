@@ -298,9 +298,9 @@ clean:
 # whole build/restart before it ever recompiles or bounces the backend.
 install-acp-deps:
 	@echo "📦 Installing/upgrading ACP agent dependencies..."
-	@npm install -g --force @agentclientprotocol/claude-agent-acp || { echo "❌ Failed to install @agentclientprotocol/claude-agent-acp"; exit 1; }
-	@npm install -g --force @agentclientprotocol/codex-acp || { echo "❌ Failed to install @agentclientprotocol/codex-acp"; exit 1; }
-	@npm install -g --force opencode-ai || { echo "❌ Failed to install opencode-ai"; exit 1; }
+	@npm install -g @agentclientprotocol/claude-agent-acp || { echo "❌ Failed to install @agentclientprotocol/claude-agent-acp"; exit 1; }
+	@npm install -g @agentclientprotocol/codex-acp || { echo "❌ Failed to install @agentclientprotocol/codex-acp"; exit 1; }
+	@npm install -g opencode-ai || { echo "❌ Failed to install opencode-ai"; exit 1; }
 	@echo "✅ ACP dependencies ready"
 
 # install-skill installs the quartet-workflow skill: first build+install its CLI

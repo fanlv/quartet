@@ -6,6 +6,7 @@ import (
 	pkgacp "github.com/fanlv/quartet/pkg/acp"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/repository"
+	"github.com/fanlv/quartet/services/agent/probe"
 )
 
 // InitEnvProvider wires the service-layer settings lookup into pkg/acp so
@@ -43,16 +44,29 @@ func loadEnvFromSettings(agentType string) []pkgacp.EnvVar {
 	if len(settings.ACPEnvVars) == 0 {
 		return nil
 	}
-	entries := settings.ACPEnvVars[agentType]
-	if len(entries) == 0 {
+	type envValue struct {
+		value    string
+		priority int
+	}
+	envMap := make(map[string]envValue)
+	for _, key := range probe.ACPAgentEnvLookupKeys(agentType) {
+		_, priority := probe.ACPAgentEnvKeyPriority(key)
+		for _, e := range settings.ACPEnvVars[key] {
+			if !e.Enabled || e.Key == "" {
+				continue
+			}
+			current, ok := envMap[e.Key]
+			if !ok || priority > current.priority {
+				envMap[e.Key] = envValue{value: e.Value, priority: priority}
+			}
+		}
+	}
+	if len(envMap) == 0 {
 		return nil
 	}
-	out := make([]pkgacp.EnvVar, 0, len(entries))
-	for _, e := range entries {
-		if !e.Enabled || e.Key == "" {
-			continue
-		}
-		out = append(out, pkgacp.EnvVar{Key: e.Key, Value: e.Value})
+	out := make([]pkgacp.EnvVar, 0, len(envMap))
+	for key, value := range envMap {
+		out = append(out, pkgacp.EnvVar{Key: key, Value: value.value})
 	}
 	return out
 }

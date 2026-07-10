@@ -838,6 +838,8 @@
   },
   "home": {
     "loading": "Loading...",
+    "buildTime": "Build time",
+    "buildTimeValue": "Built {{time}}",
     "filterByWorkspace": "Filter by workspace",
     "filterByWorkspaceShort": "Filter",
     "allWorkspaces": "All workspaces",

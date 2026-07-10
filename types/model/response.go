@@ -81,6 +81,7 @@ type SavePromptResponse struct {
 
 type AgentInfo struct {
 	Type          string                    `json:"type"`
+	EnvKey        string                    `json:"env_key,omitempty"`
 	ModelID       string                    `json:"model_id"`
 	DisplayName   string                    `json:"display_name"`
 	IconURL       string                    `json:"icon_url"`

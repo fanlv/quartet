@@ -830,6 +830,8 @@
   },
   "home": {
     "loading": "加载中...",
+    "buildTime": "编译时间",
+    "buildTimeValue": "编译于 {{time}}",
     "filterByWorkspace": "按工作空间筛选",
     "filterByWorkspaceShort": "筛选",
     "allWorkspaces": "全部工作空间",

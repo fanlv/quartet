@@ -57,7 +57,7 @@ describe('AuthGate', () => {
     localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, 'bad-token')
     mockFetchByRoute({
       '/api/v1/health': jsonResponse({ authRequired: true }, { status: 200 }),
-      '/api/v1/agent/list': textResponse('forbidden', { status: 403 }),
+      '/api/v1/auth/verify': textResponse('forbidden', { status: 403 }),
     })
 
     render(<AuthGate><div>App Ready</div></AuthGate>)
@@ -92,7 +92,7 @@ describe('AuthGate', () => {
     localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
     mockFetchByRoute({
       '/api/v1/health': () => jsonResponse({ authRequired: true }, { status: 200 }),
-      '/api/v1/agent/list': () => jsonResponse({ agents: [] }, { status: 200 }),
+      '/api/v1/auth/verify': () => jsonResponse({ status: 'ok' }, { status: 200 }),
     })
 
     render(<AuthGate><div>App Ready</div></AuthGate>)
@@ -103,6 +103,6 @@ describe('AuthGate', () => {
 
     expect(await screen.findByText('App Ready')).toBeTruthy()
     await waitFor(() => expect(localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)).toBe('valid-token'))
-    expect(fetch).toHaveBeenCalledWith('/api/v1/agent/list', { cache: 'no-store' })
+    expect(fetch).toHaveBeenCalledWith('/api/v1/auth/verify', { cache: 'no-store' })
   })
 })

@@ -10,6 +10,7 @@ interface EnvVar {
 
 interface AgentOption {
   type: string;
+  env_key?: string;
   display_name: string;
 }
 
@@ -43,8 +44,9 @@ export function ACPSettings() {
 
       const acpAgents: AgentOption[] = (agentData.agent_list || [])
         .filter((a: { type: string }) => a.type !== 'eino')
-        .map((a: { type: string; display_name: string }) => ({
+        .map((a: { type: string; env_key?: string; display_name: string }) => ({
           type: a.type,
+          env_key: a.env_key || a.type,
           display_name: a.display_name,
         }));
       setAgents(acpAgents);
@@ -56,15 +58,16 @@ export function ACPSettings() {
 
       const newEnvMap: Record<string, EnvVar[]> = {};
       for (const agent of acpAgents) {
-        const vars = savedVars[agent.type];
+        const envKey = agent.env_key || agent.type;
+        const vars = savedVars[envKey] || savedVars[agent.type];
         if (vars && vars.length > 0) {
-          newEnvMap[agent.type] = vars.map((v) => ({
+          newEnvMap[envKey] = vars.map((v) => ({
             key: v.key,
             value: v.value,
             enabled: v.enabled,
           }));
         } else {
-          newEnvMap[agent.type] = DEFAULT_ENV_VARS.map((v) => ({ ...v }));
+          newEnvMap[envKey] = DEFAULT_ENV_VARS.map((v) => ({ ...v }));
         }
       }
 
@@ -81,7 +84,7 @@ export function ACPSettings() {
 
       setEnvMap(newEnvMap);
       if (acpAgents.length > 0) {
-        setActiveAgent(acpAgents[0].type);
+        setActiveAgent(acpAgents[0].env_key || acpAgents[0].type);
       }
     } catch (err) {
       console.error('Failed to load ACP settings:', err);
@@ -186,8 +189,8 @@ export function ACPSettings() {
           {agents.map((agent) => (
             <div
               key={agent.type}
-              className={`acp-agent-tab ${activeAgent === agent.type ? 'active' : ''}`}
-              onClick={() => setActiveAgent(agent.type)}
+              className={`acp-agent-tab ${activeAgent === (agent.env_key || agent.type) ? 'active' : ''}`}
+              onClick={() => setActiveAgent(agent.env_key || agent.type)}
             >
               {agent.display_name}
             </div>

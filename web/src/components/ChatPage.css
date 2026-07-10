@@ -10,6 +10,38 @@
   max-width: 100%;
 }
 
+.home-build-time {
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.home-build-time-compact {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .home-page .header-logo {
+    gap: 4px;
+  }
+
+  .home-build-time {
+    font-size: 8px;
+  }
+
+  .home-build-time-full {
+    display: none;
+  }
+
+  .home-build-time-compact {
+    display: inline;
+  }
+}
+
 .home-content {
   display: flex;
   flex-direction: column;

@@ -470,7 +470,7 @@ const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceNa
 });
 
 export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey, workspaceWorkdir, workspaceId, workspaceTitle, onSelectWorkspace, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph }: ChatPageProps) {
-  const { connected } = useConnectionStatus();
+  const { connected, buildTime } = useConnectionStatus();
   const { t, i18n } = useTranslation();
   const [input, setInput] = useState('');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -1392,6 +1392,23 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   // now renders below Job History, and suppresses the "no jobs" body message so
   // the loading state doesn't read as an empty workspace.
   const homeLoadingOrOffline = jobs.length === 0 && (!schedulesLoaded || isLoadingJobs || !connected);
+  const localizedBuildTime = useMemo(() => {
+    if (!buildTime) return { full: '', compact: '' };
+    const parsed = new Date(buildTime);
+    if (Number.isNaN(parsed.getTime())) return { full: buildTime, compact: buildTime };
+    const locale = i18n.resolvedLanguage || i18n.language;
+    return {
+      full: new Intl.DateTimeFormat(locale, {
+        dateStyle: 'short',
+        timeStyle: 'medium',
+      }).format(parsed),
+      compact: new Intl.DateTimeFormat(locale, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(parsed),
+    };
+  }, [buildTime, i18n.language, i18n.resolvedLanguage]);
 
   return (
     <div className="home-page" data-testid="home-page">
@@ -1404,6 +1421,12 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
               '🤖'
             )}
             {' '}<span className="header-logo-text">{workspaceTitle || 'Quartet'}</span>
+            {localizedBuildTime.full && (
+              <span className="home-build-time" title={`${t('home.buildTime')}: ${buildTime}`} data-testid="home-build-time">
+                <span className="home-build-time-full">{t('home.buildTimeValue', { time: localizedBuildTime.full })}</span>
+                <span className="home-build-time-compact">{localizedBuildTime.compact}</span>
+              </span>
+            )}
           </span>
         </div>
         <nav className="header-nav">

@@ -18,6 +18,11 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 
 	api := s.Group("/api/v1", agentAuthMiddleware())
 
+	// Lightweight token validation: returns 200 if the token is valid without
+	// probing ACP agents. Used by the frontend AuthGate to avoid blocking on
+	// slow/unreachable agents during boot.
+	api.GET("/auth/verify", h.AuthVerify)
+
 	agent := api.Group("/agent")
 	agent.GET("/list", h.AgentList)
 	// Live subscription / quota info for the Codex / Claude ACP agents,
@@ -197,6 +202,7 @@ func healthHandler(ctx context.Context, c *app.RequestContext) {
 	c.JSON(http.StatusOK, map[string]any{
 		"status":       "ok",
 		"time":         time.Now().Format(time.RFC3339),
+		"buildTime":    buildTime,
 		"authRequired": handler.IsAuthRequired(),
 	})
 }

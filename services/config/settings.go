@@ -6,6 +6,7 @@ import (
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/repository"
+	"github.com/fanlv/quartet/services/agent/probe"
 )
 
 type SettingsService interface {
@@ -45,7 +46,12 @@ func NewSettingsService() (SettingsService, error) {
 }
 
 func (s *settingsServiceImpl) GetSettings() (*repository.Settings, error) {
-	return s.repo.Get()
+	settings, err := s.repo.Get()
+	if err != nil {
+		return nil, err
+	}
+	normalizeACPEnvVars(settings)
+	return settings, nil
 }
 
 func (s *settingsServiceImpl) SaveSettings(settings *repository.Settings) error {
@@ -62,6 +68,7 @@ func (s *settingsServiceImpl) SaveSettings(settings *repository.Settings) error 
 		// IM-triggered admin add/remove.
 		settings.WeChatAdminIDs = append([]string(nil), current.WeChatAdminIDs...)
 	}
+	normalizeACPEnvVars(settings)
 	return s.repo.Save(settings)
 }
 
@@ -70,7 +77,8 @@ func (s *settingsServiceImpl) GetACPEnvVars(agentType string) map[string]string 
 	if err != nil || settings == nil || len(settings.ACPEnvVars) == 0 {
 		return nil
 	}
-	envList := settings.ACPEnvVars[agentType]
+	normalizeACPEnvVars(settings)
+	envList := envVarsForAgent(settings.ACPEnvVars, agentType)
 	if len(envList) == 0 {
 		return nil
 	}
@@ -84,6 +92,112 @@ func (s *settingsServiceImpl) GetACPEnvVars(agentType string) map[string]string 
 		return nil
 	}
 	return result
+}
+
+func normalizeACPEnvVars(settings *repository.Settings) {
+	if settings == nil || len(settings.ACPEnvVars) == 0 {
+		return
+	}
+	type rankedEnvVars struct {
+		vars     []repository.ACPEnvVarEntry
+		priority int
+	}
+	byKey := make(map[string]rankedEnvVars, len(settings.ACPEnvVars))
+	for savedKey, entries := range settings.ACPEnvVars {
+		envKey, priority := probe.ACPAgentEnvKeyPriority(savedKey)
+		current, ok := byKey[envKey]
+		if !ok {
+			byKey[envKey] = rankedEnvVars{vars: cloneACPEnvVarEntries(entries), priority: priority}
+			continue
+		}
+		mergedPriority := current.priority
+		if priority > mergedPriority {
+			mergedPriority = priority
+		}
+		byKey[envKey] = rankedEnvVars{
+			vars:     mergeACPEnvVarEntries(current.vars, entries, current.priority, priority),
+			priority: mergedPriority,
+		}
+	}
+	normalized := make(map[string][]repository.ACPEnvVarEntry, len(byKey))
+	for key, ranked := range byKey {
+		if len(ranked.vars) > 0 {
+			normalized[key] = ranked.vars
+		}
+	}
+	settings.ACPEnvVars = normalized
+}
+
+func envVarsForAgent(envMap map[string][]repository.ACPEnvVarEntry, agentType string) []repository.ACPEnvVarEntry {
+	var out []repository.ACPEnvVarEntry
+	priority := -1
+	for _, key := range probe.ACPAgentEnvLookupKeys(agentType) {
+		if entries := envMap[key]; len(entries) > 0 {
+			_, keyPriority := probe.ACPAgentEnvKeyPriority(key)
+			out = mergeACPEnvVarEntries(out, entries, priority, keyPriority)
+			if keyPriority > priority {
+				priority = keyPriority
+			}
+		}
+	}
+	return out
+}
+
+func mergeACPEnvVarEntries(
+	base []repository.ACPEnvVarEntry,
+	incoming []repository.ACPEnvVarEntry,
+	basePriority int,
+	incomingPriority int,
+) []repository.ACPEnvVarEntry {
+	type indexedEntry struct {
+		entry    repository.ACPEnvVarEntry
+		priority int
+		index    int
+	}
+	out := cloneACPEnvVarEntries(base)
+	byKey := make(map[string]indexedEntry, len(out))
+	for i, entry := range out {
+		byKey[entry.Key] = indexedEntry{entry: entry, priority: basePriority, index: i}
+	}
+	for _, entry := range incoming {
+		if existing, ok := byKey[entry.Key]; ok {
+			if shouldReplaceACPEnvVar(existing.entry, entry, existing.priority, incomingPriority) {
+				out[existing.index] = entry
+				byKey[entry.Key] = indexedEntry{entry: entry, priority: incomingPriority, index: existing.index}
+			}
+			continue
+		}
+		byKey[entry.Key] = indexedEntry{entry: entry, priority: incomingPriority, index: len(out)}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func shouldReplaceACPEnvVar(
+	existing repository.ACPEnvVarEntry,
+	incoming repository.ACPEnvVarEntry,
+	existingPriority int,
+	incomingPriority int,
+) bool {
+	if existing.Enabled != incoming.Enabled {
+		return incoming.Enabled
+	}
+	if incomingPriority != existingPriority {
+		return incomingPriority > existingPriority
+	}
+	if existing.Value == "" && incoming.Value != "" {
+		return true
+	}
+	return false
+}
+
+func cloneACPEnvVarEntries(in []repository.ACPEnvVarEntry) []repository.ACPEnvVarEntry {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]repository.ACPEnvVarEntry, len(in))
+	copy(out, in)
+	return out
 }
 
 func (s *settingsServiceImpl) GetLarkConfig() (appID, appSecret string) {

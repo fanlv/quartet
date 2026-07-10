@@ -30,7 +30,7 @@ export type AgentUsageProvider = 'codex' | 'claude';
 
 // agentUsageProvider maps a selected agent to a usage provider, or null when
 // the agent has no quota view (eino, Gemini, etc.). ACP agent `type` is the
-// full serve command (e.g. "npx @agentclientprotocol/codex-acp"), so match on
+// full serve command (e.g. "codex-acp"), so match on
 // the command and display name together.
 export function agentUsageProvider(
   agentType?: string,
