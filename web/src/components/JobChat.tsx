@@ -13,7 +13,7 @@ import { StepOutline } from './StepOutline';
 import { FileBrowser } from './FileBrowser';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
 import { AgentInfo } from './ChatPage';
-import { LoopConfig } from '../types';
+import { LoopConfig, MessageRoleEnum, MessageStatusEnum, type UserMessage } from '../types';
 import { useConnectionStatus } from '../contexts/ConnectionStatus';
 import { ServerClockProvider } from '../contexts/ServerClock';
 import { VirtualList } from './VirtualList';
@@ -133,6 +133,25 @@ export function JobChat(props: JobChatProps) {
   const workspaceTitle = workspaceMeta.title;
   const workspaceWorkdir = workspaceMeta.workdir;
 
+  // The home page already has the complete user message before this page
+  // mounts. Seed it into chat state immediately instead of making the bubble
+  // wait for job hydration, agent refresh and SSE readiness.
+  const [initialUserMessage] = useState<UserMessage | undefined>(() => {
+    if (!initialMessage) return undefined;
+    const id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    return {
+      id,
+      role: MessageRoleEnum.USER,
+      content: initialMessage,
+      createdAt: Date.now(),
+      status: MessageStatusEnum.Finished,
+      clientMessageId: id,
+      pending: true,
+      failed: false,
+      imageUrls: initialImageUrls?.length ? initialImageUrls : undefined,
+    };
+  });
+
   const {
     jobId,
     jobTitle,
@@ -179,7 +198,7 @@ export function JobChat(props: JobChatProps) {
     eventsReady,
     getSessionMeta,
     getServerNow,
-  } = useJobChat({ existingJobId, initialSessionId, shareToken, onJobNotFound });
+  } = useJobChat({ existingJobId, initialSessionId, shareToken, initialUserMessage, onJobNotFound });
 
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agentPrefs, setAgentPrefs] = useState<AgentPrefsMap>({});
@@ -284,6 +303,7 @@ export function JobChat(props: JobChatProps) {
   const [titleEditError, setTitleEditError] = useState<string | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const initialMessageSent = useRef(false);
+  const [initialDispatchPending, setInitialDispatchPending] = useState(!!initialMessage);
   const refreshedAgentModelsRef = useRef<Set<string>>(new Set());
   const jobListRef = useRef<HTMLDivElement | null>(null);
   const headerMoreRef = useRef<HTMLDivElement | null>(null);
@@ -835,13 +855,16 @@ export function JobChat(props: JobChatProps) {
     // if the user typed `/help` on the home page, it must become a normal
     // first message here, not a command dispatch. Commands only apply to
     // messages the user types INSIDE an existing chat.
-    if (initialMessage && messages.length === 0 && selectedAgent) {
+    if (initialMessage && selectedAgent) {
       initialMessageSent.current = true;
-      sendMessage(initialMessage, effectiveModelId, null, initialImageUrls, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId, { bypassCommand: true }).catch((err) => {
+      sendMessage(initialMessage, effectiveModelId, null, initialImageUrls, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId, {
+        bypassCommand: true,
+        optimisticMessageId: initialUserMessage?.id,
+      }).catch((err) => {
         console.error('Failed to send initial message:', err);
-      });
+      }).finally(() => setInitialDispatchPending(false));
     }
-  }, [effectiveModelId, error, eventsReady, initialAgentRefreshPending, initialMessage, initialImageUrls, initialLoopConfig, isLoadingHistory, jobId, messages.length, sendMessage, startLoop, selectedAgent]);
+  }, [effectiveModelId, error, eventsReady, initialAgentRefreshPending, initialMessage, initialImageUrls, initialLoopConfig, initialUserMessage, isLoadingHistory, jobId, sendMessage, startLoop, selectedAgent]);
 
   const handleNewChat = () => {
     clearMessages();
@@ -1638,7 +1661,7 @@ export function JobChat(props: JobChatProps) {
         />
       )}
 
-      {isLoadingHistory && (
+      {isLoadingHistory && !initialUserMessage && (
         <div className="chatbot-body">
           <div className="chatbot-main">
             <div className="jobchat-loading">
@@ -1651,7 +1674,7 @@ export function JobChat(props: JobChatProps) {
         </div>
       )}
 
-      {!isLoadingHistory && (
+      {(!isLoadingHistory || initialUserMessage) && (
       <div className={`chatbot-body ${(isLoop || isGraph) ? 'loop-layout' : ''} ${loopSidebarOpen ? 'loop-sidebar-open' : ''}`} data-testid="job-chat-body">
         {/* Session sidebar for loop + graph modes (per-iteration / per-node) */}
         {(isLoop || isGraph) && (
@@ -1680,7 +1703,7 @@ export function JobChat(props: JobChatProps) {
           ) : (
           <MessageList
             messages={messages}
-            isLoading={isLoading}
+            isLoading={isLoading || initialDispatchPending}
             onSendMessage={isReadonly ? undefined : handleSendMessage}
             agentIconUrl={selectedAgent?.icon_url}
             agentDisplayName={selectedAgent?.display_name}
@@ -1702,7 +1725,7 @@ export function JobChat(props: JobChatProps) {
             onSend={handleSendMessage}
             onStop={isReadonly ? undefined : stopGeneration}
             isLoading={isLoading}
-            disabled={((isLoop || isGraph) && !(activeSessionId && endedSessionIds.has(activeSessionId))) || !connected}
+            disabled={initialDispatchPending || ((isLoop || isGraph) && !(activeSessionId && endedSessionIds.has(activeSessionId))) || !connected}
             readOnly={!!isReadonly}
             placeholder={isGraph && !(activeSessionId && endedSessionIds.has(activeSessionId)) ? 'Graph workflow run' : isReadonly ? 'Read-only mode' : undefined}
             localHistoryKey={`${workspaceId || 'default'}`}

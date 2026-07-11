@@ -12,6 +12,8 @@ type Workspace struct {
 	Description string    `json:"description"`
 	Workdir     string    `json:"workdir"`
 	Color       string    `json:"color,omitempty"`
+	Favorite    bool      `json:"favorite,omitempty"`
+	SortOrder   int       `json:"sortOrder,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 	Deleted     bool      `json:"deleted,omitempty"`

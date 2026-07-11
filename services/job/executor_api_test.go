@@ -90,6 +90,10 @@ func (s *testWorkspaceService) List() []*model.Workspace {
 func (s *testWorkspaceService) Update(id string, title, description, workdir string) (*model.Workspace, error) {
 	return nil, nil
 }
+func (s *testWorkspaceService) SetFavorite(id string, favorite bool) (*model.Workspace, error) {
+	return nil, nil
+}
+func (s *testWorkspaceService) Reorder(ids []string) error                           { return nil }
 func (s *testWorkspaceService) SetSandboxRef(id string, ref *model.SandboxRef) error { return nil }
 func (s *testWorkspaceService) Revision() uint64                                     { return 0 }
 func (s *testWorkspaceService) TrustedFileWorkspaceRoots() []string                  { return nil }

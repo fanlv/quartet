@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect, type SetStateAction } from 'react';
 import {
   Message,
+  UserMessage,
   AssistantMessage,
   ToolMessage,
   AgentEvent,
@@ -337,6 +338,9 @@ interface UseJobChatOptions {
   existingJobId?: string;
   initialSessionId?: string;
   shareToken?: string;
+  /** Optimistic first message created by the home page. It is rendered while
+   * job history, agents and the SSE connection are still initializing. */
+  initialUserMessage?: UserMessage;
   /** Fired when the backend returns 404 for the existing Job (deleted / never
    *  existed). Lets the parent clear the stale jobId from URL + state and
    *  route back to the workspace home, instead of leaving the user stuck on
@@ -345,7 +349,7 @@ interface UseJobChatOptions {
 }
 
 export function useJobChat(options: UseJobChatOptions = {}) {
-  const { existingJobId, initialSessionId, shareToken, onJobNotFound } = options;
+  const { existingJobId, initialSessionId, shareToken, initialUserMessage, onJobNotFound } = options;
   const isPublic = !!shareToken;
   // Latest onJobNotFound stored in a ref so the load effect doesn't have to
   // depend on the callback identity (parent wrappers reallocate it every
@@ -376,7 +380,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // hammering /events for a job that doesn't exist) and lets JobChat surface
   // a dedicated "job not found" banner instead of an empty chat.
   const [jobNotFound, setJobNotFound] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => initialUserMessage ? [initialUserMessage] : []);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -609,7 +613,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     lastEventSeqRef.current = '';
     setJobId(existingJobId || null);
     setJobTitle('');
-    setMessages([]);
+    setMessages(initialUserMessage ? [initialUserMessage] : []);
     setIsLoop(false);
     isLoopRef.current = false;
     setIsGraph(false);
@@ -643,7 +647,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setJobStartedAt(undefined);
     setJobFinishedAt(undefined);
     setInteractiveAccumulatedMs(0);
-  }, [existingJobId, applyActiveSessionSelection, setLoopSessions]);
+  }, [existingJobId, initialUserMessage, applyActiveSessionSelection, setLoopSessions]);
 
   const handleEventRef = useRef<(event: AgentEvent) => void>(() => {});
   // Ref to syncJobState so handleEvent can call it without a dependency cycle
@@ -2462,7 +2466,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // server to skip its command-dispatch branch. Used by the home-page path
   // where the user typed `/help` as the very first message so the text becomes
   // the Job's first message, not a command.
-  const sendMessage = useCallback(async (content: string, modelId?: string | null, targetSessionId?: string | null, imageUrls?: string[], acpMode?: string, agentType?: string, acpThoughtLevel?: string, options?: { bypassCommand?: boolean }) => {
+  const sendMessage = useCallback(async (content: string, modelId?: string | null, targetSessionId?: string | null, imageUrls?: string[], acpMode?: string, agentType?: string, acpThoughtLevel?: string, options?: { bypassCommand?: boolean; optimisticMessageId?: string }) => {
     if (!jobId || isPublic) return;
     // We're about to flip the buffering flag so handleEvent will route
     // incoming SSE events straight to state. Any events that were buffered
@@ -2536,7 +2540,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     }
     const effectiveBypassCommand = options?.bypassCommand ?? false;
 
-    const userMessageId = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const userMessageId = options?.optimisticMessageId
+      ?? crypto.randomUUID?.()
+      ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
     const clientMessageId = userMessageId;
     const userMessage: Message = {
       id: userMessageId,
@@ -2553,7 +2559,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       imageUrls: imageUrls && imageUrls.length > 0 ? imageUrls : undefined,
     } as Message;
 
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages((prev) => {
+      const optimisticIndex = prev.findIndex((message) => message.id === userMessageId);
+      if (optimisticIndex < 0) return [...prev, userMessage];
+      const next = [...prev];
+      next[optimisticIndex] = userMessage;
+      return next;
+    });
     setIsLoading(true);
     setError(null);
     // Accumulate previous turn's duration before resetting (interactive mode).

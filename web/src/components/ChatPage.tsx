@@ -603,7 +603,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [wsFilterOpen]);
 
-  const [allWorkspaces, setAllWorkspaces] = useState<Array<{ id: string; title: string; description: string; workdir: string; color?: string }>>([]);
+  const [allWorkspaces, setAllWorkspaces] = useState<Array<{ id: string; title: string; description: string; workdir: string; color?: string; favorite?: boolean; sortOrder?: number }>>([]);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -640,11 +640,19 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
       if (!detail?.id) return;
       setAllWorkspaces((prev) => prev.filter((w) => w.id !== detail.id));
     };
+    const onListUpdated = (e: Event) => {
+      const list = (e as CustomEvent).detail as Array<{ id: string; title: string; description: string; workdir: string; color?: string; favorite?: boolean; sortOrder?: number }> | null;
+      if (!Array.isArray(list)) return;
+      registerWorkspaceColors(list);
+      setAllWorkspaces(list);
+    };
     window.addEventListener('quartet:workspace-updated', onUpdated);
     window.addEventListener('quartet:workspace-deleted', onDeleted);
+    window.addEventListener('quartet:workspace-list-updated', onListUpdated);
     return () => {
       window.removeEventListener('quartet:workspace-updated', onUpdated);
       window.removeEventListener('quartet:workspace-deleted', onDeleted);
+      window.removeEventListener('quartet:workspace-list-updated', onListUpdated);
     };
   }, []);
 

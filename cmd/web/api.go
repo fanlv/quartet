@@ -145,8 +145,10 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	wsGroup.GET("/list", h.WorkspaceList)
 	wsGroup.GET("/default-workdir", h.WorkspaceDefaultWorkdir)
 	wsGroup.POST("/regenerate-colors", h.WorkspaceRegenerateColors)
+	wsGroup.PUT("/order", h.WorkspaceReorder)
 	wsGroup.GET("/:id", h.WorkspaceGet)
 	wsGroup.PUT("/:id", h.WorkspaceUpdate)
+	wsGroup.PUT("/:id/favorite", h.WorkspaceUpdateFavorite)
 	wsGroup.DELETE("/:id", h.WorkspaceDelete)
 
 	// Usage stats routes

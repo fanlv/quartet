@@ -57,12 +57,12 @@
 .ws-settings-list { display: flex; flex-direction: column; gap: 10px; }
 .ws-settings-row {
   display: grid;
-  grid-template-columns: 8px 1fr auto;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
   gap: 14px;
   align-items: center;
   padding: 14px 16px;
   border: 1px solid #f0f0f0;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fafbfc;
   transition: box-shadow .15s, border-color .15s, background .15s;
 }
@@ -112,6 +112,41 @@
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+}
+.ws-settings-row-order {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ws-settings-row-order button {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 6px;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.ws-settings-row-order button:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  color: #111827;
+}
+.ws-settings-row-order button:disabled {
+  color: #d1d5db;
+  cursor: not-allowed;
+}
+.ws-settings-row-order .ws-settings-favorite.active {
+  color: #d97706;
+  border-color: #fcd34d;
+  background: #fffbeb;
 }
 .ws-settings-row-actions button {
   padding: 5px 12px;
@@ -288,6 +323,9 @@
   .ws-settings-row-main { grid-column: 2; }
   .ws-settings-row-title { font-size: 13px; }
   .ws-settings-row-path { font-size: 11px; }
+  .ws-settings-row-order {
+    grid-column: 2;
+  }
   .ws-settings-row-actions {
     grid-column: 2;
     gap: 6px;

@@ -97,7 +97,7 @@ var KnownACPAgents = []ACPAgentDef{
 	{"openclaw", "openclaw acp", "OpenClaw", "🦞"},
 	{"claude", "claude-agent-acp", "Claude", "https://avatars.githubusercontent.com/u/81847"},
 	{"gemini", "gemini --acp", "Gemini", "https://avatars.githubusercontent.com/u/161781182"},
-	{"antigravity-acp", "antigravity-acp", "Antigravity", "https://avatars.githubusercontent.com/u/242056456"},
+	{"agy", "antigravity-acp", "Antigravity", "https://avatars.githubusercontent.com/u/242056456"},
 	{"cursor-agent", "cursor-agent acp", "Cursor", "https://avatars.githubusercontent.com/u/126759922"},
 	{"copilot", "copilot --acp --stdio", "Copilot", "🧑‍✈️"},
 	{"droid", "droid exec --output-format acp", "Droid", "https://avatars.githubusercontent.com/u/131064358"},

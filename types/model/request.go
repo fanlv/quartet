@@ -100,6 +100,14 @@ type UpdateWorkspaceRequest struct {
 	Workdir     string `json:"workdir"`
 }
 
+type UpdateWorkspaceFavoriteRequest struct {
+	Favorite bool `json:"favorite"`
+}
+
+type ReorderWorkspacesRequest struct {
+	WorkspaceIDs []string `json:"workspaceIds"`
+}
+
 // ---- Scheduled Task requests ----
 
 type CreateScheduleRequest struct {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,8 @@ type Service interface {
 	Get(id string) (*model.Workspace, bool)
 	List() []*model.Workspace
 	Update(id string, title, description, workdir string) (*model.Workspace, error)
+	SetFavorite(id string, favorite bool) (*model.Workspace, error)
+	Reorder(ids []string) error
 	SetSandboxRef(id string, ref *model.SandboxRef) error
 	Revision() uint64
 	// TrustedFileWorkspaceRoots returns the set of workspace Workdirs that
@@ -156,6 +159,7 @@ func (s *serviceImpl) Create(ws *model.Workspace) error {
 	mu := s.lockFor(copy.ID)
 	mu.Lock()
 	defer mu.Unlock()
+	copy.SortOrder = s.nextSortOrder()
 
 	if err := s.repo.Save(copy.ID, copy); err != nil {
 		return fmt.Errorf("save workspace failed: %w", err)
@@ -166,6 +170,18 @@ func (s *serviceImpl) Create(ws *model.Workspace) error {
 	s.bumpRevisionLocked()
 	s.mu.Unlock()
 	return nil
+}
+
+func (s *serviceImpl) nextSortOrder() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	maxOrder := -1
+	for _, ws := range s.workspaces {
+		if ws != nil && !ws.Deleted && ws.SortOrder > maxOrder {
+			maxOrder = ws.SortOrder
+		}
+	}
+	return maxOrder + 1
 }
 
 func (s *serviceImpl) Get(id string) (*model.Workspace, bool) {
@@ -188,10 +204,23 @@ func (s *serviceImpl) List() []*model.Workspace {
 			result = append(result, cloneWorkspace(ws))
 		}
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt.Before(result[j].CreatedAt)
-	})
+	sortWorkspaceList(result)
 	return result
+}
+
+func sortWorkspaceList(workspaces []*model.Workspace) {
+	sort.SliceStable(workspaces, func(i, j int) bool {
+		if workspaces[i].Favorite != workspaces[j].Favorite {
+			return workspaces[i].Favorite
+		}
+		if workspaces[i].SortOrder != workspaces[j].SortOrder {
+			return workspaces[i].SortOrder < workspaces[j].SortOrder
+		}
+		if !workspaces[i].CreatedAt.Equal(workspaces[j].CreatedAt) {
+			return workspaces[i].CreatedAt.Before(workspaces[j].CreatedAt)
+		}
+		return workspaces[i].ID < workspaces[j].ID
+	})
 }
 
 func (s *serviceImpl) Update(id string, title, description, workdir string) (*model.Workspace, error) {
@@ -242,6 +271,125 @@ func (s *serviceImpl) Update(id string, title, description, workdir string) (*mo
 	s.bumpRevisionLocked()
 	s.mu.Unlock()
 	return cloneWorkspace(updated), nil
+}
+
+func (s *serviceImpl) SetFavorite(id string, favorite bool) (*model.Workspace, error) {
+	mu := s.lockFor(id)
+	mu.Lock()
+	defer mu.Unlock()
+
+	s.mu.RLock()
+	ws, ok := s.workspaces[id]
+	if !ok || ws == nil || ws.Deleted {
+		s.mu.RUnlock()
+		return nil, fmt.Errorf("workspace not found: %s", id)
+	}
+	updated := cloneWorkspace(ws)
+	s.mu.RUnlock()
+
+	updated.Favorite = favorite
+	updated.UpdatedAt = time.Now()
+	if err := s.repo.Save(updated.ID, updated); err != nil {
+		return nil, fmt.Errorf("save workspace failed: %w", err)
+	}
+
+	s.mu.Lock()
+	cur, ok := s.workspaces[id]
+	if !ok || cur == nil || cur.Deleted {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("workspace not found: %s", id)
+	}
+	cur.Favorite = updated.Favorite
+	cur.UpdatedAt = updated.UpdatedAt
+	s.bumpRevisionLocked()
+	result := cloneWorkspace(cur)
+	s.mu.Unlock()
+	return result, nil
+}
+
+func (s *serviceImpl) Reorder(ids []string) error {
+	s.mu.RLock()
+	activeCount := 0
+	for _, ws := range s.workspaces {
+		if ws != nil && !ws.Deleted {
+			activeCount++
+		}
+	}
+	s.mu.RUnlock()
+	if len(ids) != activeCount {
+		return fmt.Errorf("workspaceIds must contain all %d active workspaces, got %d", activeCount, len(ids))
+	}
+
+	seen := make(map[string]struct{}, len(ids))
+	lockIndexes := make([]int, 0, len(ids))
+	locked := make(map[int]struct{}, len(ids))
+	for _, id := range ids {
+		if _, exists := seen[id]; exists {
+			return fmt.Errorf("workspaceIds contains duplicate id: %s", id)
+		}
+		seen[id] = struct{}{}
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(id))
+		idx := int(h.Sum32() % uint32(len(s.locks)))
+		if _, exists := locked[idx]; !exists {
+			locked[idx] = struct{}{}
+			lockIndexes = append(lockIndexes, idx)
+		}
+	}
+	sort.Ints(lockIndexes)
+	for _, idx := range lockIndexes {
+		s.locks[idx].Lock()
+	}
+	defer func() {
+		for i := len(lockIndexes) - 1; i >= 0; i-- {
+			s.locks[lockIndexes[i]].Unlock()
+		}
+	}()
+
+	s.mu.RLock()
+	originals := make([]*model.Workspace, 0, len(ids))
+	updates := make([]*model.Workspace, 0, len(ids))
+	now := time.Now()
+	for order, id := range ids {
+		ws, ok := s.workspaces[id]
+		if !ok || ws == nil || ws.Deleted {
+			s.mu.RUnlock()
+			return fmt.Errorf("workspace not found: %s", id)
+		}
+		originals = append(originals, cloneWorkspace(ws))
+		updated := cloneWorkspace(ws)
+		updated.SortOrder = order
+		updated.UpdatedAt = now
+		updates = append(updates, updated)
+	}
+	s.mu.RUnlock()
+
+	for i, updated := range updates {
+		if err := s.repo.Save(updated.ID, updated); err != nil {
+			rollbackErrors := make([]string, 0)
+			for j := 0; j < i; j++ {
+				if rollbackErr := s.repo.Save(originals[j].ID, originals[j]); rollbackErr != nil {
+					rollbackErrors = append(rollbackErrors, fmt.Sprintf("%s: %v", originals[j].ID, rollbackErr))
+				}
+			}
+			if len(rollbackErrors) > 0 {
+				return fmt.Errorf("save workspace order failed at %s: %w; rollback failed: %s", updated.ID, err, strings.Join(rollbackErrors, "; "))
+			}
+			return fmt.Errorf("save workspace order failed at %s: %w", updated.ID, err)
+		}
+	}
+
+	s.mu.Lock()
+	for _, updated := range updates {
+		cur, ok := s.workspaces[updated.ID]
+		if ok && cur != nil && !cur.Deleted {
+			cur.SortOrder = updated.SortOrder
+			cur.UpdatedAt = updated.UpdatedAt
+		}
+	}
+	s.bumpRevisionLocked()
+	s.mu.Unlock()
+	return nil
 }
 
 func (s *serviceImpl) SetSandboxRef(id string, ref *model.SandboxRef) error {
@@ -449,6 +597,7 @@ func (s *serviceImpl) EnsureDefault() error {
 		Title:     consts.DefaultWorkspaceTitle,
 		Workdir:   resolveDefaultWorkdir(),
 		Color:     model.RandomWorkspaceColor(),
+		SortOrder: s.nextSortOrder(),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -528,9 +677,7 @@ func (s *serviceImpl) RegenerateAllColors() ([]*model.Workspace, error) {
 		}
 	}
 	s.mu.RUnlock()
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt.Before(result[j].CreatedAt)
-	})
+	sortWorkspaceList(result)
 	return result, nil
 }
 

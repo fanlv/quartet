@@ -218,6 +218,8 @@ type WorkspaceInfo struct {
 	Description string `json:"description"`
 	Workdir     string `json:"workdir"`
 	Color       string `json:"color,omitempty"`
+	Favorite    bool   `json:"favorite"`
+	SortOrder   int    `json:"sortOrder"`
 	CreatedAt   int64  `json:"createdAt"`
 	UpdatedAt   int64  `json:"updatedAt"`
 }

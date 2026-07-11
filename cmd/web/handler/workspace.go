@@ -116,9 +116,49 @@ func toWorkspaceInfo(ws *model.Workspace) model.WorkspaceInfo {
 		Description: ws.Description,
 		Workdir:     ws.Workdir,
 		Color:       ws.Color,
+		Favorite:    ws.Favorite,
+		SortOrder:   ws.SortOrder,
 		CreatedAt:   ws.CreatedAt.UnixMilli(),
 		UpdatedAt:   ws.UpdatedAt.UnixMilli(),
 	}
+}
+
+func (h *Handler) WorkspaceUpdateFavorite(ctx context.Context, c *app.RequestContext) {
+	id := c.Param("id")
+	var req model.UpdateWorkspaceFavoriteRequest
+	if err := c.BindJSON(&req); err != nil {
+		httputil.BadRequest(c, err.Error())
+		return
+	}
+	if _, err := h.workspaceService.SetFavorite(id, req.Favorite); err != nil {
+		logger.Errorf(ctx, "[WorkspaceUpdateFavorite] Failed: %v", err)
+		httputil.InternalError(c, err.Error())
+		return
+	}
+	h.writeWorkspaceList(c)
+}
+
+func (h *Handler) WorkspaceReorder(ctx context.Context, c *app.RequestContext) {
+	var req model.ReorderWorkspacesRequest
+	if err := c.BindJSON(&req); err != nil {
+		httputil.BadRequest(c, err.Error())
+		return
+	}
+	if err := h.workspaceService.Reorder(req.WorkspaceIDs); err != nil {
+		logger.Errorf(ctx, "[WorkspaceReorder] Failed: %v", err)
+		httputil.BadRequest(c, err.Error())
+		return
+	}
+	h.writeWorkspaceList(c)
+}
+
+func (h *Handler) writeWorkspaceList(c *app.RequestContext) {
+	list := h.workspaceService.List()
+	infos := make([]model.WorkspaceInfo, 0, len(list))
+	for _, ws := range list {
+		infos = append(infos, toWorkspaceInfo(ws))
+	}
+	c.JSON(http.StatusOK, model.ListWorkspacesResponse{Workspaces: infos})
 }
 
 // WorkspaceRegenerateColors assigns a new random color to every workspace and

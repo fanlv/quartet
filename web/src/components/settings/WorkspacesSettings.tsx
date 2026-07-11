@@ -18,6 +18,8 @@ interface WorkspaceItem {
   description: string;
   workdir: string;
   color?: string;
+  favorite: boolean;
+  sortOrder: number;
 }
 
 interface AgentInfo {
@@ -34,6 +36,16 @@ export function WorkspacesSettings() {
   const [deleteConfirm, setDeleteConfirm] = useState<WorkspaceItem | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [regenerating, setRegenerating] = useState(false);
+  const [organizing, setOrganizing] = useState(false);
+
+  const applyWorkspaceList = useCallback((list: WorkspaceItem[]) => {
+    registerWorkspaceColors(list);
+    setWorkspaces(list);
+    for (const ws of list) {
+      try { localStorage.setItem(`workspace_${ws.id}`, JSON.stringify(ws)); } catch { /* ignore */ }
+    }
+    window.dispatchEvent(new CustomEvent('quartet:workspace-list-updated', { detail: list }));
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -68,20 +80,69 @@ export function WorkspacesSettings() {
       }
       const data = await res.json();
       const list: WorkspaceItem[] = data?.workspaces || [];
-      registerWorkspaceColors(list);
-      setWorkspaces(list);
-      for (const ws of list) {
-        try {
-          localStorage.setItem(`workspace_${ws.id}`, JSON.stringify(ws));
-          window.dispatchEvent(new CustomEvent('quartet:workspace-updated', { detail: ws }));
-        } catch { /* ignore */ }
-      }
+      applyWorkspaceList(list);
     } catch (err) {
       alert(`${t('settings.workspace.regenerateFailed')}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setRegenerating(false);
     }
-  }, [regenerating, t]);
+  }, [applyWorkspaceList, regenerating, t]);
+
+  const readResponseError = useCallback(async (res: Response) => {
+    const body = await res.text().catch((err) => String(err));
+    return body || `HTTP ${res.status} ${res.statusText}`;
+  }, []);
+
+  const handleFavorite = useCallback(async (ws: WorkspaceItem) => {
+    if (organizing) return;
+    setOrganizing(true);
+    try {
+      const res = await fetch(`/api/v1/workspace/${ws.id}/favorite`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ favorite: !ws.favorite }),
+      });
+      if (!res.ok) {
+        alert(`${t('settings.workspace.favoriteFailed')}: ${await readResponseError(res)}`);
+        return;
+      }
+      const data = await res.json();
+      applyWorkspaceList((data?.workspaces || []) as WorkspaceItem[]);
+    } catch (err) {
+      alert(`${t('settings.workspace.favoriteFailed')}: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setOrganizing(false);
+    }
+  }, [applyWorkspaceList, organizing, readResponseError, t]);
+
+  const handleMove = useCallback(async (index: number, direction: -1 | 1) => {
+    if (organizing) return;
+    const targetIndex = index + direction;
+    const ws = workspaces[index];
+    const target = workspaces[targetIndex];
+    if (!ws || !target || ws.favorite !== target.favorite) return;
+
+    const reordered = workspaces.slice();
+    [reordered[index], reordered[targetIndex]] = [reordered[targetIndex], reordered[index]];
+    setOrganizing(true);
+    try {
+      const res = await fetch('/api/v1/workspace/order', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceIds: reordered.map((item) => item.id) }),
+      });
+      if (!res.ok) {
+        alert(`${t('settings.workspace.orderFailed')}: ${await readResponseError(res)}`);
+        return;
+      }
+      const data = await res.json();
+      applyWorkspaceList((data?.workspaces || []) as WorkspaceItem[]);
+    } catch (err) {
+      alert(`${t('settings.workspace.orderFailed')}: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setOrganizing(false);
+    }
+  }, [applyWorkspaceList, organizing, readResponseError, t, workspaces]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteConfirm) return;
@@ -137,9 +198,11 @@ export function WorkspacesSettings() {
         <div className="ws-settings-empty">{t('settings.workspace.noWorkspaces')}</div>
       ) : (
         <div className="ws-settings-list">
-          {workspaces.map((ws) => {
+          {workspaces.map((ws, index) => {
             const isDefault = isDefaultWorkspace(ws.id);
             const prefs = loadWorkspacePrefs(ws.id);
+            const canMoveUp = index > 0 && workspaces[index - 1].favorite === ws.favorite;
+            const canMoveDown = index < workspaces.length - 1 && workspaces[index + 1].favorite === ws.favorite;
             return (
               <div key={ws.id} className="ws-settings-row">
                 <span className="ws-settings-row-color" style={{ backgroundColor: workspaceColor(ws) }} />
@@ -154,6 +217,27 @@ export function WorkspacesSettings() {
                       {t('settings.workspace.defaultPrefs', { agent: prefs.defaultAgent || '—', model: prefs.defaultModel || '—' })}
                     </div>
                   )}
+                </div>
+                <div className="ws-settings-row-order">
+                  <button
+                    className={`ws-settings-favorite${ws.favorite ? ' active' : ''}`}
+                    onClick={() => void handleFavorite(ws)}
+                    disabled={organizing}
+                    aria-label={ws.favorite ? t('settings.workspace.unfavorite') : t('settings.workspace.favorite')}
+                    title={ws.favorite ? t('settings.workspace.unfavorite') : t('settings.workspace.favorite')}
+                  >{ws.favorite ? '★' : '☆'}</button>
+                  <button
+                    onClick={() => void handleMove(index, -1)}
+                    disabled={organizing || !canMoveUp}
+                    aria-label={t('settings.workspace.moveUp')}
+                    title={t('settings.workspace.moveUp')}
+                  >↑</button>
+                  <button
+                    onClick={() => void handleMove(index, 1)}
+                    disabled={organizing || !canMoveDown}
+                    aria-label={t('settings.workspace.moveDown')}
+                    title={t('settings.workspace.moveDown')}
+                  >↓</button>
                 </div>
                 <div className="ws-settings-row-actions">
                   <button onClick={() => setFormState({ mode: 'edit', ws })}>{t('common.edit')}</button>
@@ -274,6 +358,8 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
             description: body.description,
             workdir: body.workdir,
             color: (data?.color as string | undefined) ?? initial?.color,
+            favorite: (data?.favorite as boolean | undefined) ?? initial?.favorite ?? false,
+            sortOrder: (data?.sortOrder as number | undefined) ?? initial?.sortOrder ?? 0,
           };
           localStorage.setItem(`workspace_${savedId}`, JSON.stringify(cached));
           window.dispatchEvent(new CustomEvent('quartet:workspace-updated', { detail: cached }));
