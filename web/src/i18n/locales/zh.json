@@ -120,6 +120,7 @@
     "restartWeb": "重启 Web",
     "restartWebRunning": "正在重启 Web...",
     "restartWebFailed": "重启失败：{{message}}",
+    "restartWebTimeout": "等待重启后的 Web 服务就绪超时。完整重启日志：{{logPath}}",
     "restartWebConfirmTitle": "确认重启 Web？",
     "restartWebConfirmMessage": "将执行 `make web`，当前页面会短暂断开连接。确认继续吗？",
     "restartWebCancel": "取消",

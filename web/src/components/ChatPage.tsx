@@ -7,6 +7,62 @@ import './JobChat.css';
 import './ChatInput.css';
 
 const MSG_AUTH_TOKEN_KEY = 'quartet.x_auth_token';
+const WEB_RESTART_POLL_INTERVAL_MS = 500;
+const WEB_RESTART_PROBE_TIMEOUT_MS = 3000;
+const WEB_RESTART_TIMEOUT_MS = 180_000;
+
+interface WebHealthProbe {
+  ok: boolean;
+  instanceId: string;
+}
+
+async function probeWebHealth(): Promise<WebHealthProbe> {
+  try {
+    const probeUrl = `/api/v1/health?restartProbe=${Date.now()}`;
+    const res = await fetch(probeUrl, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(WEB_RESTART_PROBE_TIMEOUT_MS),
+    });
+    if (!res.ok) return { ok: false, instanceId: '' };
+
+    const body = await res.json().catch(() => null);
+    return {
+      ok: true,
+      instanceId: typeof body?.instanceId === 'string' ? body.instanceId : '',
+    };
+  } catch {
+    return { ok: false, instanceId: '' };
+  }
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function waitForWebRestart(previousHealth: WebHealthProbe): Promise<boolean> {
+  const deadline = Date.now() + WEB_RESTART_TIMEOUT_MS;
+  let sawUnavailable = false;
+
+  while (Date.now() < deadline) {
+    await wait(WEB_RESTART_POLL_INTERVAL_MS);
+    const currentHealth = await probeWebHealth();
+    if (!currentHealth.ok) {
+      sawUnavailable = true;
+      continue;
+    }
+
+    const instanceChanged = !!previousHealth.instanceId
+      && !!currentHealth.instanceId
+      && currentHealth.instanceId !== previousHealth.instanceId;
+    const instanceAdded = previousHealth.ok
+      && !previousHealth.instanceId
+      && !!currentHealth.instanceId;
+    if (instanceChanged || instanceAdded || sawUnavailable) return true;
+  }
+
+  return false;
+}
+
 function toImagePreviewUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:') || path.startsWith('blob:')) return path;
   const token = (localStorage.getItem(MSG_AUTH_TOKEN_KEY) ?? '').trim();
@@ -1330,13 +1386,19 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     setRestartConfirmOpen(false);
     setWebRestarting(true);
     try {
+      const previousHealth = await probeWebHealth();
       const res = await fetch('/api/v1/system/restart-web', { method: 'POST' });
       const data = await res.json().catch(() => null);
       if (!res.ok || data?.code !== 0) {
         throw new Error(data?.msg || `HTTP ${res.status}`);
       }
-      // The current backend and Vite server will be replaced by `make web`.
-      // Keep the button in a busy state instead of flipping back immediately.
+      const restarted = await waitForWebRestart(previousHealth);
+      if (!restarted) {
+        throw new Error(t('system.restartWebTimeout', {
+          logPath: data?.log_path || '/tmp/quartet-web-restart.log',
+        }));
+      }
+      window.location.reload();
     } catch (err) {
       console.error('Failed to restart web services:', err);
       setWebRestarting(false);

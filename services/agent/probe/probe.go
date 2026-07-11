@@ -33,8 +33,8 @@ import (
 const acpProbeTimeout = 30 * time.Second
 
 // acpProbeFailureBackoff is the cooldown a command sits out after failing
-// to probe. Without it, every AgentList HTTP call triggers a fresh
-// RefreshACPSessionCacheAsync that re-attempts every installed agent —
+// to probe. Without it, every AgentList HTTP call triggers a fresh async
+// refresh that re-attempts every installed agent —
 // for a persistently broken one (npx cache corrupted, agent binary
 // missing a runtime dep, ...) that produces a steady stream of WARN logs
 // proportional to UI poll frequency. The backoff is reset on the next
@@ -263,7 +263,7 @@ type acpSessionInfoCache struct {
 }
 
 // acpProbeFailureState tracks consecutive failures of a single agent
-// command so RefreshACPSessionCacheAsync can short-circuit while the
+// command so an async refresh can short-circuit while the
 // backoff window is open, and so identical repeated failures fold into
 // summary lines instead of one WARN per HTTP poll.
 type acpProbeFailureState struct {
@@ -956,12 +956,12 @@ func refreshACPSessionCache(ctx context.Context) {
 			// acpProbeConcurrency() probes hold a slot at once; the
 			// rest park here until one releases.
 			//
-			// ctx-aware acquire: WarmupACPSessionCache documents that the
+			// ctx-aware acquire: CacheService.Warmup documents that the
 			// caller's ctx gates the work so server shutdown stops new
 			// subprocess probes. A bare `probeSlots <- struct{}{}` blocked
 			// on shutdown — a parked goroutine eventually got a slot and
 			// fired a fresh probe long after ctx was cancelled, holding
-			// acpRefreshing true and delaying wg.Wait(). RefreshACPSessionCacheAsync
+			// acpRefreshing true and delaying wg.Wait(). CacheService.RefreshAsync
 			// uses WithoutCancel so its goroutines are immune to caller
 			// cancellation by design; only warmup-style root ctx
 			// cancellation is meant to short-circuit here.
@@ -996,46 +996,6 @@ func refreshACPSessionCache(ctx context.Context) {
 		}
 	}
 	acpSessionCacheMu.Unlock()
-}
-
-// WarmupACPSessionCache starts an async background refresh of the ACP session
-// cache. The caller's ctx gates the work so server shutdown during warmup stops
-// new subprocess probes from firing — previously this goroutine hardcoded
-// context.Background() and kept spawning during shutdown.
-//
-// Shares the acpRefreshing gate with RefreshACPSessionCacheAsync: a warmup
-// already in flight when the first HTTP-triggered refresh arrives would
-// otherwise double the subprocess-probe fan-out in the startup window.
-func WarmupACPSessionCache(ctx context.Context) {
-	safe.Go(ctx, func() {
-		if err := ctx.Err(); err != nil {
-			logger.Debugf(ctx, "[probe] warmup skipped: ctx already canceled: %v", err)
-			return
-		}
-		if !acpRefreshing.CompareAndSwap(false, true) {
-			logger.Debugf(ctx, "[probe] warmup skipped: refresh already in flight")
-			return
-		}
-		defer acpRefreshing.Store(false)
-		logger.Debugf(ctx, "[probe] warming ACP session cache")
-		refreshACPSessionCache(ctx)
-		logger.Infof(ctx, "[probe] ACP session cache ready")
-	})
-}
-
-// RefreshACPSessionCacheAsync triggers an async refresh if one is not already
-// in progress. The caller's ctx is typically a short-lived request ctx, which
-// would cancel the refresh as soon as the HTTP handler returns; wrap with
-// WithoutCancel so logger/trace attrs propagate but cancellation does not.
-func RefreshACPSessionCacheAsync(ctx context.Context) {
-	if !acpRefreshing.CompareAndSwap(false, true) {
-		return
-	}
-	bgCtx := context.WithoutCancel(ctx)
-	safe.Go(bgCtx, func() {
-		defer acpRefreshing.Store(false)
-		refreshACPSessionCache(bgCtx)
-	})
 }
 
 // PickDefaultModeID selects a default mode from the available modes list,

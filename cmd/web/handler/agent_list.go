@@ -21,35 +21,35 @@ func (h *Handler) AgentList(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	persisted, err := h.acpProbeCache.LoadPersisted(ctx)
+	// Every list request attempts a live refresh. It never delays this response;
+	// concurrent requests coalesce into the refresh already in flight.
+	h.acpProbeCache.RefreshAsync(ctx)
+	if err != nil {
+		logger.Errorf(ctx, "[agent.list] load persisted ACP cache failed: %v", err)
+		httputil.InternalError(c, err.Error())
+		return
+	}
+
 	agentList := make([]model.AgentInfo, 0, len(list))
 	for _, a := range probe.InstalledACPAgents() {
-		info := model.AgentInfo{
-			Type:        a.Command,
-			EnvKey:      probe.ACPAgentEnvKey(a.Command),
-			ModelID:     "",
-			DisplayName: a.DisplayName,
-			IconURL:     a.IconURL,
-		}
-		models, modes, thoughtLevels, err := probe.GetACPSessionInfo(ctx, a.Command)
-		if err != nil {
-			// A single agent that is installed but not usable (not logged in,
-			// slow/hung cold start, npx cache corruption, ...) probes with a
-			// bounded acpProbeTimeout and then fails. Treat that agent as
-			// unavailable and drop it from the list instead of failing the whole
-			// /agent/list request — one broken agent must not wedge the picker
-			// for every other working agent. The probe records the failure so it
-			// stays in cooldown and later requests skip it fast; it reappears
-			// automatically once a probe succeeds.
-			logger.Warnf(ctx, "[agent.list] skip unavailable ACP agent: agentType=%s err=%v", a.Command, err)
+		cached, ok := persisted.Entries[a.Command]
+		if !ok {
 			continue
 		}
-		info.Models = models
-		info.Modes = modes
-		info.ThoughtLevels = thoughtLevels
+		info := model.AgentInfo{
+			Type:          a.Command,
+			EnvKey:        probe.ACPAgentEnvKey(a.Command),
+			ModelID:       "",
+			DisplayName:   a.DisplayName,
+			IconURL:       a.IconURL,
+			Models:        cached.Models,
+			Modes:         cached.Modes,
+			ThoughtLevels: cached.ThoughtLevels,
+		}
 		agentList = append(agentList, info)
 	}
 
-	probe.RefreshACPSessionCacheAsync(ctx)
 	for _, provider := range list {
 		for _, m := range provider.ModelList {
 			agentList = append(agentList, model.AgentInfo{

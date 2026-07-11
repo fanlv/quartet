@@ -203,6 +203,7 @@ func healthHandler(ctx context.Context, c *app.RequestContext) {
 		"status":       "ok",
 		"time":         time.Now().Format(time.RFC3339),
 		"buildTime":    buildTime,
+		"instanceId":   serverInstanceID,
 		"authRequired": handler.IsAuthRequired(),
 	})
 }

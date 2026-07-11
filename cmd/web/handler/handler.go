@@ -115,6 +115,7 @@ type Handler struct {
 	scheduler        *schedule.Scheduler
 	usageStats       usagestats.Service
 	usageService     usage.Service
+	acpProbeCache    *probe.CacheService
 
 	// imGateway is shared across all IM platforms. It is initialized lazily
 	// by ensureIMGateway so each StartLarkListener / StartWeiXinListener can
@@ -207,6 +208,11 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		return nil, err
 	}
 
+	acpProbeCache, err := probe.NewCacheService()
+	if err != nil {
+		return nil, err
+	}
+
 	h := &Handler{
 		rootCtx:          ctx,
 		sessionServices:  make(map[string]*sessionEntry),
@@ -224,6 +230,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		scheduleService:  schSvc,
 		usageStats:       usagestats.NewService(ctx),
 		usageService:     usage.NewService(ss),
+		acpProbeCache:    acpProbeCache,
 	}
 
 	// Wire usage-stats sink into the job service so every step finalize
@@ -252,7 +259,9 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 	// path scans jobService.List() / job.SessionIDs to locate the owner job
 	// and reloads the service from disk on first access.
 
-	probe.WarmupACPSessionCache(ctx)
+	if err := h.acpProbeCache.Warmup(ctx); err != nil {
+		return nil, err
+	}
 
 	// Register job completion callback to update schedule status and release resources.
 	js.SetOnJobDone(func(j *model.Job) {

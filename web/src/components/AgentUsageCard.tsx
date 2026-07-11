@@ -12,6 +12,7 @@ import {
   type AgentUsageProvider,
   type CodexUsage,
   type ClaudeUsage,
+  type AntigravityUsage,
   type UsageWindow,
 } from '../utils/agentUsage';
 import './AgentUsageCard.css';
@@ -196,6 +197,9 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
   const [claude, setClaude] = useState<ClaudeUsage | null>(
     () => (getCachedUsage('claude') as ClaudeUsage | null) ?? null,
   );
+  const [antigravity, setAntigravity] = useState<AntigravityUsage | null>(
+    () => (getCachedUsage('antigravity') as AntigravityUsage | null) ?? null,
+  );
 
   const load = useCallback((p: AgentUsageProvider) => {
     let cancelled = false;
@@ -205,7 +209,8 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
         if (cancelled) return;
         setCachedUsage(p, data);
         if (p === 'codex') setCodex(data.codex ?? null);
-        else setClaude(data.claude ?? null);
+        else if (p === 'claude') setClaude(data.claude ?? null);
+        else setAntigravity(data.antigravity ?? null);
       })
       .catch(() => {
         // Swallow: keep the last successful data on screen (if any) and never
@@ -227,7 +232,7 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
       time: formatResetAt(w, withDate),
     })}`;
 
-  const current = provider === 'codex' ? codex : claude;
+  const current = provider === 'codex' ? codex : provider === 'claude' ? claude : antigravity;
 
   return (
     <div className="agent-usage-inline" data-testid="agent-usage-card" data-provider={provider}>
@@ -302,6 +307,48 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
             </svg>
             <b>${money(claude.total_cost)}</b>
           </span>
+        </>
+      ) : provider === 'antigravity' && antigravity ? (
+        <>
+          {antigravity.version && <span className="usage-inline-ver">{antigravity.version}</span>}
+          {(antigravity.claude_5h || antigravity.claude_weekly) && (
+            <span className="usage-window-group" aria-label="Claude and GPT usage">
+              <span className="usage-provider-mark" aria-hidden="true">C</span>
+              {antigravity.claude_5h && (
+                <UsageRing
+                  percent={antigravity.claude_5h.used_percent}
+                  label="5h"
+                  title={ringTitle('Claude 5h', antigravity.claude_5h, false)}
+                />
+              )}
+              {antigravity.claude_weekly && (
+                <UsageRing
+                  percent={antigravity.claude_weekly.used_percent}
+                  label="7d"
+                  title={ringTitle('Claude 7d', antigravity.claude_weekly, true)}
+                />
+              )}
+            </span>
+          )}
+          {(antigravity.gemini_5h || antigravity.gemini_weekly) && (
+            <span className="usage-window-group" aria-label="Gemini usage">
+              <span className="usage-provider-mark" aria-hidden="true">G</span>
+              {antigravity.gemini_5h && (
+                <UsageRing
+                  percent={antigravity.gemini_5h.used_percent}
+                  label="5h"
+                  title={ringTitle('Gemini 5h', antigravity.gemini_5h, false)}
+                />
+              )}
+              {antigravity.gemini_weekly && (
+                <UsageRing
+                  percent={antigravity.gemini_weekly.used_percent}
+                  label="7d"
+                  title={ringTitle('Gemini 7d', antigravity.gemini_weekly, true)}
+                />
+              )}
+            </span>
+          )}
         </>
       ) : null}
 

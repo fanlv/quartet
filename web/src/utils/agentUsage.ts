@@ -26,17 +26,31 @@ export interface ClaudeUsage {
   total_cost: number;
 }
 
-export type AgentUsageProvider = 'codex' | 'claude';
+// Antigravity (agy) plan snapshot: the agy CLI version plus the two model
+// groups' quota windows (Claude/GPT and Gemini), each with a 7-day (weekly) and
+// a 5-hour bucket. Each window reuses UsageWindow — used_percent is the used
+// share and reset_at the bucket's reset time. A window is absent when the API
+// doesn't report that bucket.
+export interface AntigravityUsage {
+  version?: string; // e.g. "v1.1.1"
+  claude_weekly?: UsageWindow; // Claude/GPT group, 7-day
+  claude_5h?: UsageWindow; // Claude/GPT group, 5-hour
+  gemini_weekly?: UsageWindow; // Gemini group, 7-day
+  gemini_5h?: UsageWindow; // Gemini group, 5-hour
+}
+
+export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity';
 
 // agentUsageProvider maps a selected agent to a usage provider, or null when
-// the agent has no quota view (eino, Gemini, etc.). ACP agent `type` is the
-// full serve command (e.g. "codex-acp"), so match on
-// the command and display name together.
+// the agent has no quota view (eino, etc.). ACP agent `type` is the full serve
+// command (e.g. "codex-acp", "antigravity-acp"), so match on the command and
+// display name together.
 export function agentUsageProvider(
   agentType?: string,
   displayName?: string,
 ): AgentUsageProvider | null {
   const s = `${agentType || ''} ${displayName || ''}`.toLowerCase();
+  if (s.includes('antigravity')) return 'antigravity';
   if (s.includes('codex')) return 'codex';
   if (s.includes('claude')) return 'claude';
   return null;
@@ -44,7 +58,7 @@ export function agentUsageProvider(
 
 export async function fetchAgentUsage(
   provider: AgentUsageProvider,
-): Promise<{ codex?: CodexUsage; claude?: ClaudeUsage }> {
+): Promise<{ codex?: CodexUsage; claude?: ClaudeUsage; antigravity?: AntigravityUsage }> {
   // `cache: 'no-store'` is required: this quota reading changes continuously
   // (the Codex 5h window especially), so a browser/intermediary HTTP-cache hit
   // would serve an old snapshot and — since the result is re-written to the
@@ -57,7 +71,7 @@ export async function fetchAgentUsage(
       `get agent usage failed (status ${res.status})`;
     throw new Error(msg);
   }
-  return { codex: data.codex, claude: data.claude };
+  return { codex: data.codex, claude: data.claude, antigravity: data.antigravity };
 }
 
 // fetchAgentVersion returns the installed CLI version of a known ACP agent
@@ -89,7 +103,9 @@ function cacheKey(provider: AgentUsageProvider): string {
   return `agentUsage_${provider}`;
 }
 
-export function getCachedUsage(provider: AgentUsageProvider): CodexUsage | ClaudeUsage | null {
+export function getCachedUsage(
+  provider: AgentUsageProvider,
+): CodexUsage | ClaudeUsage | AntigravityUsage | null {
   try {
     const raw = localStorage.getItem(cacheKey(provider));
     if (!raw) return null;
@@ -102,9 +118,10 @@ export function getCachedUsage(provider: AgentUsageProvider): CodexUsage | Claud
 
 export function setCachedUsage(
   provider: AgentUsageProvider,
-  data: { codex?: CodexUsage; claude?: ClaudeUsage },
+  data: { codex?: CodexUsage; claude?: ClaudeUsage; antigravity?: AntigravityUsage },
 ): void {
-  const value = provider === 'codex' ? data.codex : data.claude;
+  const value =
+    provider === 'codex' ? data.codex : provider === 'claude' ? data.claude : data.antigravity;
   try {
     if (value) localStorage.setItem(cacheKey(provider), JSON.stringify(value));
     else localStorage.removeItem(cacheKey(provider));

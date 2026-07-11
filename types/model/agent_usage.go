@@ -1,12 +1,13 @@
 package model
 
 // AgentUsageResponse is the envelope for GET /api/v1/agent/usage. Exactly one
-// of Codex / Claude is populated, matching the requested Type.
+// of Codex / Claude / Antigravity is populated, matching the requested Type.
 type AgentUsageResponse struct {
-	Code   int          `json:"code"`
-	Type   string       `json:"type"` // "codex" | "claude"
-	Codex  *CodexUsage  `json:"codex,omitempty"`
-	Claude *ClaudeUsage `json:"claude,omitempty"`
+	Code        int               `json:"code"`
+	Type        string            `json:"type"` // "codex" | "claude" | "antigravity"
+	Codex       *CodexUsage       `json:"codex,omitempty"`
+	Claude      *ClaudeUsage      `json:"claude,omitempty"`
+	Antigravity *AntigravityUsage `json:"antigravity,omitempty"`
 }
 
 // UsageWindow is one Codex rate-limit window (5-hour primary / 7-day secondary).
@@ -49,4 +50,17 @@ type ClaudeUsage struct {
 	Version   string  `json:"version,omitempty"` // claude-agent-acp version, e.g. "v2.1.202"
 	TodayCost float64 `json:"today_cost"`
 	TotalCost float64 `json:"total_cost"`
+}
+
+// AntigravityUsage is the Antigravity (agy) built-in plan snapshot: the agy CLI
+// version plus the two model groups' quota windows, each with a 7-day (weekly)
+// and a 5-hour bucket. Each window reuses UsageWindow — its UsedPercent is
+// derived from the API's remaining fraction, and ResetAt from the bucket's
+// reset time. A window is nil when the corresponding bucket is absent.
+type AntigravityUsage struct {
+	Version      string       `json:"version,omitempty"`       // agy CLI version, e.g. "v1.1.1"
+	ClaudeWeekly *UsageWindow `json:"claude_weekly,omitempty"` // Claude/GPT group, 7-day  (bucketId 3p-weekly)
+	Claude5h     *UsageWindow `json:"claude_5h,omitempty"`     // Claude/GPT group, 5-hour (bucketId 3p-5h)
+	GeminiWeekly *UsageWindow `json:"gemini_weekly,omitempty"` // Gemini group, 7-day  (bucketId gemini-weekly)
+	Gemini5h     *UsageWindow `json:"gemini_5h,omitempty"`     // Gemini group, 5-hour (bucketId gemini-5h)
 }

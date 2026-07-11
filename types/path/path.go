@@ -39,6 +39,10 @@ const (
 	// recentDirsFile is the filename for recent directory history
 	recentDirsFile = "recent_dirs.json"
 
+	// acpProbeCacheFile stores the last successfully refreshed ACP selector
+	// snapshot so the Home agent list does not wait for subprocess cold starts.
+	acpProbeCacheFile = "acp_probe_cache.json"
+
 	// jobMetaFile is the filename for job metadata
 	jobMetaFile = "job.json"
 
@@ -121,6 +125,15 @@ func RecentDirsFile() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, recentDirsFile), nil
+}
+
+// ACPProbeCacheFile returns the persisted ACP selector snapshot path.
+func ACPProbeCacheFile() (string, error) {
+	dir, err := AgentDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, acpProbeCacheFile), nil
 }
 
 // PromptsDir returns the prompts directory path within AgentDir

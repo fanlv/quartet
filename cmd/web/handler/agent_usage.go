@@ -35,8 +35,15 @@ func (h *Handler) AgentUsage(ctx context.Context, c *app.RequestContext) {
 			return
 		}
 		c.JSON(http.StatusOK, model.AgentUsageResponse{Code: 0, Type: typ, Claude: u})
+	case "antigravity":
+		u, err := h.usageService.AntigravityUsage(ctx)
+		if err != nil {
+			httputil.InternalErrorLog(ctx, c, "[agent.usage] antigravity", err)
+			return
+		}
+		c.JSON(http.StatusOK, model.AgentUsageResponse{Code: 0, Type: typ, Antigravity: u})
 	default:
-		httputil.BadRequest(c, fmt.Sprintf("invalid type %q (want codex|claude)", typ))
+		httputil.BadRequest(c, fmt.Sprintf("invalid type %q (want codex|claude|antigravity)", typ))
 	}
 }
 

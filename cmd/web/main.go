@@ -56,6 +56,10 @@ var (
 	buildDirty  = "unknown"
 )
 
+// Changes on every process start so clients can distinguish a completed
+// restart from a health response served by the old process.
+var serverInstanceID = fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
+
 // listenConfig is the resolved server binding: the address plus an optional TLS
 // config. tlsCfg is nil for plaintext HTTP.
 type listenConfig struct {
@@ -233,7 +237,7 @@ func main() {
 	// Register ACP command allowlist and settings-backed env provider
 	// before anything constructs an ACP connection. pkg/acp rejects
 	// unregistered commands and skips env injection when no provider is
-	// installed, and handler.NewHandler calls probe.WarmupACPSessionCache
+	// installed, and handler.NewHandler initializes the ACP probe cache
 	// which opens real NewConn subprocesses — so these two registrations
 	// must land BEFORE NewHandler, not after it. Split from init() (was
 	// services/agent/acp/env.go + services/agent/probe/probe.go) so
@@ -244,7 +248,7 @@ func main() {
 
 	// Clean up orphaned ACP subprocesses left by a previous crash before
 	// creating any new connections. Must run BEFORE handler.NewHandler,
-	// which calls probe.WarmupACPSessionCache and may spawn fresh ACP
+	// which initializes the ACP probe cache and may spawn fresh ACP
 	// subprocesses — racing the cleanup window otherwise.
 	acpagent.CleanupOrphanedConns()
 

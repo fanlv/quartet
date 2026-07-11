@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fanlv/quartet/pkg/logger"
@@ -46,6 +48,9 @@ const (
 type Service interface {
 	CodexUsage(ctx context.Context) (*model.CodexUsage, error)
 	ClaudeUsage(ctx context.Context) (*model.ClaudeUsage, error)
+	// AntigravityUsage returns the Antigravity (agy) plan quota + agy CLI
+	// version, read from the local agy language-server RPC.
+	AntigravityUsage(ctx context.Context) (*model.AntigravityUsage, error)
 	// AgentVersion returns the installed CLI version of a known ACP agent,
 	// resolved from its serve command. Used by agents that have no quota view.
 	AgentVersion(ctx context.Context, command string) (string, error)
@@ -53,6 +58,13 @@ type Service interface {
 
 type serviceImpl struct {
 	settings config.SettingsService
+
+	// agy is a short-lived per-request process, so a usage poll frequently misses
+	// its live window. These fields hold the last successful Antigravity quota so
+	// AntigravityUsage can fall back to it instead of failing. See antigravity.go.
+	agyMu       sync.Mutex
+	agyCache    *model.AntigravityUsage
+	agyCachedAt time.Time
 }
 
 // NewService builds the usage service. It depends on the settings service to
@@ -418,10 +430,17 @@ func (s *serviceImpl) ClaudeUsage(ctx context.Context) (*model.ClaudeUsage, erro
 
 	// Direct client (no proxy): the usage host is in no_proxy and reachable
 	// without the byted proxy. Explicitly disable proxy so a global http_proxy
-	// in the process env can't misroute it.
+	// in the process env can't misroute it. Force IPv6 because the sinf IPv4
+	// load-balancer path intermittently stalls during the TLS handshake.
+	dialer := &net.Dialer{}
 	client := &http.Client{
-		Timeout:   15 * time.Second,
-		Transport: &http.Transport{Proxy: nil},
+		Timeout: 15 * time.Second,
+		Transport: &http.Transport{
+			Proxy: nil,
+			DialContext: func(ctx context.Context, _ string, address string) (net.Conn, error) {
+				return dialer.DialContext(ctx, "tcp6", address)
+			},
+		},
 	}
 
 	total, err := s.claudeCost(ctx, client, base, suffix, "")

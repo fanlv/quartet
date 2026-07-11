@@ -121,6 +121,7 @@
     "restartWeb": "Restart Web",
     "restartWebRunning": "Restarting Web...",
     "restartWebFailed": "Restart failed: {{message}}",
+    "restartWebTimeout": "Timed out waiting for the restarted Web service. Full restart log: {{logPath}}",
     "restartWebConfirmTitle": "Restart Web?",
     "restartWebConfirmMessage": "This will run `make web` and briefly disconnect the current page. Continue?",
     "restartWebCancel": "Cancel",

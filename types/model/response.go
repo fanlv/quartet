@@ -127,6 +127,23 @@ type ACPThoughtLevel struct {
 	Name        string  `json:"name"`
 }
 
+const ACPProbeCacheVersion = 1
+
+// ACPProbeCacheEntry is the persisted selector state for one ACP command.
+type ACPProbeCacheEntry struct {
+	Models        *SessionModelState        `json:"models,omitempty"`
+	Modes         *SessionModeState         `json:"modes,omitempty"`
+	ThoughtLevels *SessionThoughtLevelState `json:"thoughtLevels,omitempty"`
+}
+
+// ACPProbeCacheSnapshot is the last complete in-memory ACP cache written to
+// disk. RefreshedAt is Unix milliseconds and controls the disk write interval.
+type ACPProbeCacheSnapshot struct {
+	Version     int                           `json:"version"`
+	RefreshedAt int64                         `json:"refreshed_at"`
+	Entries     map[string]ACPProbeCacheEntry `json:"entries"`
+}
+
 // ACPConfigState is the response of an ACP live-config switch. Each selector
 // list is populated only when the underlying ACP response carried a refreshed
 // list for it: switching model or thought_level returns the full linked
