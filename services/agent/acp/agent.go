@@ -1434,14 +1434,21 @@ func (a *ACPAgent) setModel(ctx context.Context, modelID string) (*pkgacp.Sessio
 // caller does not run under a mode different from what the user
 // requested. Mode affects tool availability and assistant behavior, so
 // "log-and-continue" would produce a silent semantic mismatch.
+// Exception: antigravity-acp does not implement session/set_mode, so
+// failures are logged and skipped for that agent type.
 func (a *ACPAgent) UpdateACPMode(ctx context.Context, mode string) error {
 	a.mu.RLock()
 	skip := mode == a.currentMode
+	agentType := a.agentType
 	a.mu.RUnlock()
 	if skip {
 		return nil
 	}
 	_, err := a.setMode(ctx, mode)
+	if err != nil && agentType == "antigravity-acp" {
+		logger.Warnf(ctx, "[acp] set mode skipped for antigravity-acp: %v", err)
+		return nil
+	}
 	return err
 }
 
