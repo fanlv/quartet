@@ -326,25 +326,14 @@ func noteProbeSuccess(command string) int {
 	return 0
 }
 
-// GetACPSessionInfo returns a cached ACP selector snapshot. A cache miss is
-// filled synchronously so /agent/list never returns an installed ACP agent
-// without its model/mode selectors merely because startup warmup is still in
-// flight. Returned values are deep copies and may be freely mutated by callers.
-func GetACPSessionInfo(ctx context.Context, command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState, error) {
-	if models, modes, thoughtLevels, ok := getCachedACPSessionInfo(command); ok {
-		return models, modes, thoughtLevels, nil
-	}
-	if cooling, wait := recentlyFailed(command); cooling {
-		return nil, nil, nil, fmt.Errorf("ACP agent probe is cooling down after a failure: cmd=%s retryAfter=%s", command, wait.Truncate(time.Second))
-	}
-	if _, err := refreshACPSessionCacheEntry(ctx, command, ""); err != nil {
-		return nil, nil, nil, err
-	}
-	models, modes, thoughtLevels, ok := getCachedACPSessionInfo(command)
-	if !ok {
-		return nil, nil, nil, fmt.Errorf("ACP agent probe returned no selector state: cmd=%s", command)
-	}
-	return models, modes, thoughtLevels, nil
+// CachedACPSessionInfo returns the in-memory selector snapshot for command
+// without triggering any probe, so /agent/list stays non-blocking. A freshly
+// probed agent becomes visible here the moment refreshACPSessionCache writes it
+// into the process cache — the throttled on-disk snapshot no longer gates
+// visibility. ok is false when nothing has been cached yet (neither seeded from
+// disk nor probed live). Returned values are deep copies callers may mutate.
+func CachedACPSessionInfo(command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState, bool) {
+	return getCachedACPSessionInfo(command)
 }
 
 func getCachedACPSessionInfo(command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState, bool) {

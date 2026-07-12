@@ -33,9 +33,17 @@ func (h *Handler) AgentList(ctx context.Context, c *app.RequestContext) {
 
 	agentList := make([]model.AgentInfo, 0, len(list))
 	for _, a := range probe.InstalledACPAgents() {
-		cached, ok := persisted.Entries[a.Command]
+		// 权威数据源是进程内探测缓存：某个 agent 一旦探测成功就立刻出现在
+		// 列表里，无需等被 10 分钟节流的磁盘快照落盘。内存尚未预热时(刚重启、
+		// 后台首刷未完成)退回磁盘快照,避免已知 agent 在列表里短暂消失;两者都
+		// 没有才跳过。
+		models, modes, thoughtLevels, ok := probe.CachedACPSessionInfo(a.Command)
 		if !ok {
-			continue
+			cached, disk := persisted.Entries[a.Command]
+			if !disk {
+				continue
+			}
+			models, modes, thoughtLevels = cached.Models, cached.Modes, cached.ThoughtLevels
 		}
 		info := model.AgentInfo{
 			Type:          a.Command,
@@ -43,9 +51,9 @@ func (h *Handler) AgentList(ctx context.Context, c *app.RequestContext) {
 			ModelID:       "",
 			DisplayName:   a.DisplayName,
 			IconURL:       a.IconURL,
-			Models:        cached.Models,
-			Modes:         cached.Modes,
-			ThoughtLevels: cached.ThoughtLevels,
+			Models:        models,
+			Modes:         modes,
+			ThoughtLevels: thoughtLevels,
 		}
 		agentList = append(agentList, info)
 	}
