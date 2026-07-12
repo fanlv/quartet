@@ -13,13 +13,19 @@ import (
 const (
 	localMemoryEnvVar = "LOCAL_MEMORY"
 
-	// metaDir is the directory name for quartet data
-	metaDir       = ".meta"
-	agentDir      = "agent"
-	jobsDir       = "jobs"
-	sessionsDir   = "sessions"
-	workspacesDir = "workspaces"
-	graphRunDir   = "graph_run"
+	quartetDir        = "quartet"
+	quartetConfigDir  = "config"
+	quartetDataDir    = "data"
+	varDir            = "var"
+	stateDir          = "state"
+	cacheDir          = "cache"
+	tmpDir            = "tmp"
+	metaDir           = ".meta"
+	jobsDir           = "jobs"
+	sessionsDir       = "sessions"
+	workspacesDir     = "workspaces"
+	graphWorkflowsDir = "graph-workflows"
+	graphRunDir       = "graph_run"
 
 	// metaFile is the filename for session metadata
 	metaFile = "meta.json"
@@ -37,11 +43,11 @@ const (
 	settingsFile = "settings.json"
 
 	// recentDirsFile is the filename for recent directory history
-	recentDirsFile = "recent_dirs.json"
+	recentDirsFile = "recent-dirs.json"
 
 	// acpProbeCacheFile stores the last successfully refreshed ACP selector
 	// snapshot so the Home agent list does not wait for subprocess cold starts.
-	acpProbeCacheFile = "acp_probe_cache.json"
+	acpProbeCacheFile = "acp-probe.json"
 
 	// jobMetaFile is the filename for job metadata
 	jobMetaFile = "job.json"
@@ -57,6 +63,7 @@ const (
 	graphRunProgressFile  = "progress.json"
 	graphRunResumeFile    = "resume.json"
 	graphRunEventsFile    = "events.jsonl"
+	memoryLayoutFile      = "layout.json"
 )
 
 // SessionTasksDir returns the .tasks directory path within a session directory.
@@ -92,35 +99,108 @@ func SummaryFilePath(sessionDir string) string {
 	return filepath.Join(sessionDir, metaDir, summaryFile)
 }
 
-func AgentDir() (string, error) {
-	if ws := os.Getenv(localMemoryEnvVar); ws != "" {
-		return filepath.Join(ws, agentDir), nil
+// LocalMemoryDir returns the stable Memory root configured by LOCAL_MEMORY.
+func LocalMemoryDir() (string, error) {
+	root := strings.TrimSpace(os.Getenv(localMemoryEnvVar))
+	if root == "" {
+		return "", fmt.Errorf("%s env var is not set", localMemoryEnvVar)
 	}
-
-	return "", fmt.Errorf("%s env var is not set", localMemoryEnvVar)
+	if !filepath.IsAbs(root) {
+		return "", fmt.Errorf("%s must be an absolute path, got %q", localMemoryEnvVar, root)
+	}
+	return filepath.Clean(root), nil
 }
 
-// ModelsConfigFile returns the models.json file path in user's home .quartet directory
+// QuartetDir returns the root of Quartet-owned files.
+func QuartetDir() (string, error) {
+	root, err := LocalMemoryDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, quartetDir), nil
+}
+
+// QuartetConfigDir returns the root of human-maintained Quartet configuration.
+func QuartetConfigDir() (string, error) {
+	dir, err := QuartetDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, quartetConfigDir), nil
+}
+
+// QuartetDataDir returns the root of persistent Quartet business data.
+func QuartetDataDir() (string, error) {
+	dir, err := QuartetDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, quartetDataDir), nil
+}
+
+// QuartetRuntimeDir returns the root of Quartet runtime state, cache and temp files.
+func QuartetRuntimeDir() (string, error) {
+	root, err := LocalMemoryDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, varDir, quartetDir), nil
+}
+
+func QuartetStateDir() (string, error) {
+	dir, err := QuartetRuntimeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, stateDir), nil
+}
+
+func QuartetCacheDir() (string, error) {
+	dir, err := QuartetRuntimeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, cacheDir), nil
+}
+
+func QuartetTmpDir() (string, error) {
+	dir, err := QuartetRuntimeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, tmpDir), nil
+}
+
+// MemoryLayoutFile returns the manifest used to gate incompatible layouts.
+func MemoryLayoutFile() (string, error) {
+	dir, err := QuartetDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, memoryLayoutFile), nil
+}
+
+// ModelsConfigFile returns the persistent models.json path.
 func ModelsConfigFile() (string, error) {
-	dir, err := AgentDir()
+	dir, err := QuartetDataDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, modelsFile), nil
 }
 
-// SettingsConfigFile returns the settings.json file path in AgentDir
+// SettingsConfigFile returns the persistent settings.json path.
 func SettingsConfigFile() (string, error) {
-	dir, err := AgentDir()
+	dir, err := QuartetDataDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, settingsFile), nil
 }
 
-// RecentDirsFile returns the recent_dirs.json file path in AgentDir
+// RecentDirsFile returns the runtime recent-directory state file.
 func RecentDirsFile() (string, error) {
-	dir, err := AgentDir()
+	dir, err := QuartetStateDir()
 	if err != nil {
 		return "", err
 	}
@@ -129,41 +209,41 @@ func RecentDirsFile() (string, error) {
 
 // ACPProbeCacheFile returns the persisted ACP selector snapshot path.
 func ACPProbeCacheFile() (string, error) {
-	dir, err := AgentDir()
+	dir, err := QuartetCacheDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, acpProbeCacheFile), nil
 }
 
-// PromptsDir returns the prompts directory path within AgentDir
+// PromptsDir returns the human-maintained prompt directory.
 func PromptsDir() (string, error) {
-	dir, err := AgentDir()
+	dir, err := QuartetConfigDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "prompts"), nil
 }
 
-// TemplatesDir returns the templates directory path within AgentDir
+// TemplatesDir returns the human-maintained template directory.
 func TemplatesDir() (string, error) {
-	dir, err := AgentDir()
+	dir, err := QuartetConfigDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "templates"), nil
 }
 
-// GraphWorkflowsDir returns the graph_workflows directory path within AgentDir.
+// GraphWorkflowsDir returns the graph-workflows configuration directory.
 // Holds one JSON file per GraphWorkflow config (the editable/saved workflow
 // definitions). GraphRun runtime artifacts (snapshots, instance/edge state)
 // live elsewhere and are owned by the execution engine, not here.
 func GraphWorkflowsDir() (string, error) {
-	dir, err := AgentDir()
+	dir, err := QuartetConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "graph_workflows"), nil
+	return filepath.Join(dir, graphWorkflowsDir), nil
 }
 
 // GraphRunDir returns the runtime artifact directory for a GraphRun bound to a
@@ -215,32 +295,41 @@ func GraphRunEventsFile(wsID, jobID string) string {
 // ShellTempDir returns the process-owned temp directory used for shell helper
 // scripts and control files when a job has no explicit workdir.
 func ShellTempDir() (string, error) {
-	dir, err := AgentDir()
+	dir, err := QuartetTmpDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "tmp", "shell"), nil
+	return filepath.Join(dir, "shell"), nil
 }
 
-// SchedulesDir returns the schedules directory path within AgentDir
+// SchedulesDir returns the Schedule definition directory.
 func SchedulesDir() (string, error) {
-	dir, err := AgentDir()
+	dir, err := QuartetConfigDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "schedules"), nil
 }
 
-// UsageStatsDir returns {LOCAL_MEMORY}/agent/usage_stats/.
-func UsageStatsDir() (string, error) {
-	dir, err := AgentDir()
+// ScheduleStatesDir returns the runtime Schedule state directory.
+func ScheduleStatesDir() (string, error) {
+	dir, err := QuartetStateDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "usage_stats"), nil
+	return filepath.Join(dir, "schedules"), nil
 }
 
-// UsageStatsMonthFile returns {LOCAL_MEMORY}/agent/usage_stats/YYYY-MM.json
+// UsageStatsDir returns {LOCAL_MEMORY}/quartet/data/usage-stats/.
+func UsageStatsDir() (string, error) {
+	dir, err := QuartetDataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "usage-stats"), nil
+}
+
+// UsageStatsMonthFile returns {LOCAL_MEMORY}/quartet/data/usage-stats/YYYY-MM.json
 // for the given time in the server's local timezone.
 func UsageStatsMonthFile(t time.Time) (string, error) {
 	dir, err := UsageStatsDir()
@@ -260,35 +349,54 @@ func JobMetaFilePath(jobDir string) string {
 	return filepath.Join(jobDir, metaDir, jobMetaFile)
 }
 
-// UploadsDir returns {LOCAL_MEMORY}/uploads/
+// UploadsDir returns the persistent upload directory.
 func UploadsDir() (string, error) {
-	if ws := os.Getenv(localMemoryEnvVar); ws != "" {
-		return filepath.Join(ws, "uploads"), nil
+	dir, err := QuartetDataDir()
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("%s env var is not set", localMemoryEnvVar)
+	return filepath.Join(dir, "uploads"), nil
 }
 
-// LocalJobsDirInWorkspace returns {LOCAL_MEMORY}/workspaces/{wsID}/jobs/
+// PersistentIMMediaDir returns the directory for media referenced by durable records.
+func PersistentIMMediaDir() (string, error) {
+	dir, err := UploadsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "im-media"), nil
+}
+
+// IMMediaCacheDir returns the disposable processing cache for IM media.
+func IMMediaCacheDir() (string, error) {
+	dir, err := QuartetCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "im-media"), nil
+}
+
+// LocalJobsDirInWorkspace returns {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/.
 func LocalJobsDirInWorkspace(wsID string) string {
 	return filepath.Join(LocalWorkspaceDir(wsID), jobsDir)
 }
 
-// LocalJobDirInWorkspace returns {LOCAL_MEMORY}/workspaces/{wsID}/jobs/{jobID}
+// LocalJobDirInWorkspace returns {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}.
 func LocalJobDirInWorkspace(wsID, jobID string) string {
 	return filepath.Join(LocalJobsDirInWorkspace(wsID), jobID)
 }
 
-// LocalSessionsDirInWorkspaceJob returns {LOCAL_MEMORY}/workspaces/{wsID}/jobs/{jobID}/sessions/
+// LocalSessionsDirInWorkspaceJob returns {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}/sessions/.
 func LocalSessionsDirInWorkspaceJob(wsID, jobID string) string {
 	return filepath.Join(LocalJobDirInWorkspace(wsID, jobID), sessionsDir)
 }
 
-// LocalSessionDirInWorkspaceJob returns {LOCAL_MEMORY}/workspaces/{wsID}/jobs/{jobID}/sessions/{sessionID}
+// LocalSessionDirInWorkspaceJob returns {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}/sessions/{sessionID}.
 func LocalSessionDirInWorkspaceJob(wsID, jobID, sessionID string) string {
 	return filepath.Join(LocalJobDirInWorkspace(wsID, jobID), sessionsDir, sessionID)
 }
 
-// LocalWorkspacesDir returns {LOCAL_MEMORY}/workspaces/. Panics if the env
+// LocalWorkspacesDir returns {LOCAL_MEMORY}/quartet/data/workspaces/. Panics if the env
 // var is not set — the previous behaviour (falling back to the relative path
 // "workspaces") created data directories in whatever CWD the process happened
 // to have, which routinely caused data to silently land outside LOCAL_MEMORY.
@@ -297,14 +405,14 @@ func LocalSessionDirInWorkspaceJob(wsID, jobID, sessionID string) string {
 // bug. Panic (rather than log.Fatalf) runs deferred cleanup and yields a
 // stack trace so the buggy caller is obvious.
 func LocalWorkspacesDir() string {
-	ws := os.Getenv(localMemoryEnvVar)
-	if ws == "" {
-		panic(fmt.Sprintf("%s env var is not set; cannot resolve workspaces dir", localMemoryEnvVar))
+	dir, err := QuartetDataDir()
+	if err != nil {
+		panic(fmt.Sprintf("cannot resolve workspaces dir: %v", err))
 	}
-	return filepath.Join(ws, workspacesDir)
+	return filepath.Join(dir, workspacesDir)
 }
 
-// LocalWorkspaceDir returns {LOCAL_MEMORY}/workspaces/{id}
+// LocalWorkspaceDir returns {LOCAL_MEMORY}/quartet/data/workspaces/{id}.
 func LocalWorkspaceDir(id string) string {
 	return filepath.Join(LocalWorkspacesDir(), id)
 }
@@ -319,17 +427,16 @@ func WorkspaceMetaFilePath(wsDir string) string {
 	return filepath.Join(wsDir, metaDir, workspaceMetaFile)
 }
 
-// IMJobMappingDir returns {LOCAL_MEMORY}/im/mappings/. Panics on missing
-// env var (see LocalWorkspacesDir for rationale).
+// IMJobMappingDir returns the persistent IM mapping directory.
 func IMJobMappingDir() string {
-	ws := os.Getenv(localMemoryEnvVar)
-	if ws == "" {
-		panic(fmt.Sprintf("%s env var is not set; cannot resolve IM job mapping dir", localMemoryEnvVar))
+	dir, err := QuartetDataDir()
+	if err != nil {
+		panic(fmt.Sprintf("cannot resolve IM job mapping dir: %v", err))
 	}
-	return filepath.Join(ws, "im", "mappings")
+	return filepath.Join(dir, "im", "mappings")
 }
 
-// IMJobMappingFilePath returns {LOCAL_MEMORY}/im/mappings/{platform}/{chatID}.json
+// IMJobMappingFilePath returns {LOCAL_MEMORY}/quartet/data/im/mappings/{platform}/{chatID}.json.
 func IMJobMappingFilePath(platform, chatID string) string {
 	// chatID comes from third-party IM platforms; make sure it cannot escape
 	// the IMJobMappingDir via path traversal or path separators.
@@ -337,7 +444,7 @@ func IMJobMappingFilePath(platform, chatID string) string {
 }
 
 // IMJobMappingLegacyFilePath returns the old flat layout used by early
-// versions: {LOCAL_MEMORY}/im/mappings/{platform}_{chatID}.json.
+// versions: {LOCAL_MEMORY}/quartet/data/im/mappings/{platform}_{chatID}.json.
 //
 // Kept for backward-compatible reads so existing deployments do not lose
 // mappings after upgrading.
@@ -345,19 +452,18 @@ func IMJobMappingLegacyFilePath(platform, chatID string) string {
 	return filepath.Join(IMJobMappingDir(), safeExternalID(platform)+"_"+safeExternalID(chatID)+".json")
 }
 
-// IMMessageDir returns {LOCAL_MEMORY}/im/{chatID}/. Panics on missing env
-// var (see LocalWorkspacesDir for rationale).
+// IMMessageDir returns the persistent IM message directory for a chat.
 func IMMessageDir(chatID string) string {
-	ws := os.Getenv(localMemoryEnvVar)
-	if ws == "" {
-		panic(fmt.Sprintf("%s env var is not set; cannot resolve IM message dir", localMemoryEnvVar))
+	dir, err := QuartetDataDir()
+	if err != nil {
+		panic(fmt.Sprintf("cannot resolve IM message dir: %v", err))
 	}
 	// chatID comes from third-party IM platforms; ensure it cannot traverse out
-	// of {LOCAL_MEMORY}/im.
-	return filepath.Join(ws, "im", safeExternalID(chatID))
+	// of {LOCAL_MEMORY}/quartet/data/im.
+	return filepath.Join(dir, "im", safeExternalID(chatID))
 }
 
-// IMMessageFilePath returns {LOCAL_MEMORY}/im/{chatID}/YYYY-MM-DD.jsonl
+// IMMessageFilePath returns {LOCAL_MEMORY}/quartet/data/im/{chatID}/YYYY-MM-DD.jsonl.
 func IMMessageFilePath(chatID string, t time.Time) string {
 	return filepath.Join(IMMessageDir(chatID), t.Format("2006-01-02")+".jsonl")
 }
@@ -393,37 +499,42 @@ func safeExternalID(id string) string {
 	return id
 }
 
-// UserInputDir returns {LOCAL_MEMORY}/user_input/. Flat, single-level layout so
-// all "真实用户输入" (IM admin private chat + Web) from every source land in one
-// place and can be scanned by date alone. Panics on missing env var (see
-// LocalWorkspacesDir for rationale).
+// UserInputDir returns the persistent flat user-input directory.
 func UserInputDir() string {
-	ws := os.Getenv(localMemoryEnvVar)
-	if ws == "" {
-		panic(fmt.Sprintf("%s env var is not set; cannot resolve user input dir", localMemoryEnvVar))
+	dir, err := QuartetDataDir()
+	if err != nil {
+		panic(fmt.Sprintf("cannot resolve user input dir: %v", err))
 	}
-	return filepath.Join(ws, "user_input")
+	return filepath.Join(dir, "user-input")
 }
 
-// UserInputFilePath returns {LOCAL_MEMORY}/user_input/YYYY-MM-DD.jsonl for the
+// UserInputFilePath returns {LOCAL_MEMORY}/quartet/data/user-input/YYYY-MM-DD.jsonl for the
 // given time in the server's local timezone.
 func UserInputFilePath(t time.Time) string {
 	return filepath.Join(UserInputDir(), t.Format("2006-01-02")+".jsonl")
 }
 
-// WeChatAccountsDir returns {LOCAL_MEMORY}/wechat/accounts/. Panics on
-// missing env var (see LocalWorkspacesDir for rationale).
+// WeChatAccountsDir returns the persistent WeChat account directory.
 func WeChatAccountsDir() string {
-	ws := os.Getenv(localMemoryEnvVar)
-	if ws == "" {
-		panic(fmt.Sprintf("%s env var is not set; cannot resolve wechat accounts dir", localMemoryEnvVar))
+	dir, err := QuartetDataDir()
+	if err != nil {
+		panic(fmt.Sprintf("cannot resolve wechat accounts dir: %v", err))
 	}
-	return filepath.Join(ws, "wechat", "accounts")
+	return filepath.Join(dir, "wechat", "accounts")
 }
 
-// WeChatSyncBufFile returns {LOCAL_MEMORY}/wechat/accounts/{botID}.sync.json.
+// WeChatSyncBufFile returns {LOCAL_MEMORY}/quartet/data/wechat/accounts/{botID}.sync.json.
 // Used by the iLink long-poll monitor to persist get_updates_buf so reconnects
 // after a restart resume from the last seen seq instead of replaying history.
 func WeChatSyncBufFile(botID string) string {
 	return filepath.Join(WeChatAccountsDir(), safeExternalID(botID)+".sync.json")
+}
+
+// SandboxComposeStateDir returns the durable compose state directory.
+func SandboxComposeStateDir() (string, error) {
+	dir, err := QuartetStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "sandbox", "compose"), nil
 }

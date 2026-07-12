@@ -81,7 +81,8 @@ func TestIsPathInAllowedRegion(t *testing.T) {
 	resetWorkspaceRootsProvider(t)
 
 	memoryRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(memoryRoot, "uploads"), 0o755); err != nil {
+	uploadsDir := filepath.Join(memoryRoot, "quartet", "data", "uploads")
+	if err := os.MkdirAll(uploadsDir, 0o755); err != nil {
 		t.Fatalf("mkdir uploads: %v", err)
 	}
 	wsRoot := t.TempDir()
@@ -100,7 +101,7 @@ func TestIsPathInAllowedRegion(t *testing.T) {
 	}{
 		{"empty rejected", "", false},
 		{"under LOCAL_MEMORY accepted", filepath.Join(memoryRoot, "notes.md"), true},
-		{"under uploads accepted", filepath.Join(memoryRoot, "uploads", "a.bin"), true},
+		{"under uploads accepted", filepath.Join(uploadsDir, "a.bin"), true},
 		{"under workspace root accepted", filepath.Join(wsRoot, "src", "main.go"), true},
 		{"under HOME accepted", filepath.Join(homeRoot, "code", "main.go"), true},
 		{"outside every root rejected", filepath.Join(stranger, "secret"), false},

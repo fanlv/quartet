@@ -34,7 +34,7 @@ func validateSessionID(sessionID string) error {
 	return validateID(sessionID)
 }
 
-// NewSessionRepo creates a SessionRepo. Root dir: {LOCAL_MEMORY}/workspaces/{wsID}/jobs/{jobID}/sessions/
+// NewSessionRepo creates a SessionRepo. Root dir: {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}/sessions/.
 func NewSessionRepo(wsID, jobID string) (SessionRepo, error) {
 	sessionDir := path.LocalSessionsDirInWorkspaceJob(wsID, jobID)
 	sb := fileserver.GetFileManager()

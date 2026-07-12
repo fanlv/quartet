@@ -184,23 +184,45 @@ function createRunDir() {
 }
 
 function prepareLocalMemory(localMemory: string) {
-  for (const dir of ['workspaces', 'knowledge', 'agent', 'bin', 'shell', 'im']) {
+  for (const dir of [
+    'quartet/config/prompts',
+    'quartet/config/templates',
+    'quartet/config/graph-workflows',
+    'quartet/config/schedules',
+    'quartet/data/usage-stats',
+    'quartet/data/workspaces',
+    'quartet/data/im',
+    'quartet/data/uploads/im-media',
+    'quartet/data/user-input',
+    'quartet/data/wechat',
+    'var/quartet/state/schedules',
+    'var/quartet/state/sandbox/compose',
+    'var/quartet/cache/im-media',
+    'var/quartet/tmp/shell',
+    'knowledge',
+  ]) {
     fs.mkdirSync(path.join(localMemory, dir), { recursive: true })
   }
-  fs.chmodSync(path.join(localMemory, 'workspaces'), 0o777)
+  fs.chmodSync(path.join(localMemory, 'quartet', 'data', 'workspaces'), 0o777)
+  fs.writeFileSync(path.join(localMemory, 'quartet', 'layout.json'), `${JSON.stringify({
+    version: 1,
+    status: 'complete',
+    batchId: 'playwright-e2e-layout-v1',
+    completedAt: new Date().toISOString(),
+  }, null, 2)}\n`)
 }
 
 // seedAgentConfig writes settings.json (always) and, when Eino credentials
-// are supplied, an isolated models.json into the temp LOCAL_MEMORY.
+// are supplied, an isolated model into the temp LOCAL_MEMORY models.json.
 //
 //   - settings.json always carries the E2E username + default IM workspace.
 //   - When QUARTET_E2E_MODEL_API_KEY (and _MODEL_NAME) are set, an Eino model
 //     is seeded and title/message agents point at it, enabling Eino chat
 //     coverage.
-//   - Otherwise no model is seeded: the default run relies on an installed
+//   - Otherwise an empty models list is seeded: the default run relies on an installed
 //     ACP agent (discovered at runtime) for chat-link coverage. The ACP
-//     subprocess uses its own login state in $HOME, so no models.json is
-//     needed and the run must NOT fail for lack of credentials.
+//     subprocess uses its own login state in $HOME, so the run must NOT fail
+//     for lack of Eino credentials.
 function seedAgentConfig(localMemory: string) {
   const settings: Record<string, unknown> = {
     username: 'Quartet E2E',
@@ -208,6 +230,7 @@ function seedAgentConfig(localMemory: string) {
     im_workspace_id: 'ws-1',
   }
 
+  const models: { models: Array<Record<string, unknown>> } = { models: [] }
   if (e2eModelAPIKey) {
     if (!e2eModelName) {
       throw new Error(
@@ -217,29 +240,25 @@ function seedAgentConfig(localMemory: string) {
       )
     }
     const now = Date.now()
-    const models = {
-      models: [
-        {
-          id: Number(e2eModelID),
-          model_class: e2eModelClass,
-          display_name: e2eModelDisplayName,
-          connection: {
-            api_key: e2eModelAPIKey,
-            base_url: e2eModelBaseURL || undefined,
-            model: e2eModelName,
-          },
-          status: 1,
-          created_at: now,
-          updated_at: now,
-        },
-      ],
-    }
-    fs.writeFileSync(path.join(localMemory, 'agent', 'models.json'), `${JSON.stringify(models, null, 2)}\n`)
+    models.models.push({
+      id: Number(e2eModelID),
+      model_class: e2eModelClass,
+      display_name: e2eModelDisplayName,
+      connection: {
+        api_key: e2eModelAPIKey,
+        base_url: e2eModelBaseURL || undefined,
+        model: e2eModelName,
+      },
+      status: 1,
+      created_at: now,
+      updated_at: now,
+    })
     settings.title_agent = { agent_type: 'eino', model_id: e2eModelID }
     settings.message_agent = { agent_type: 'eino', model_id: e2eModelID }
   }
 
-  fs.writeFileSync(path.join(localMemory, 'agent', 'settings.json'), `${JSON.stringify(settings, null, 2)}\n`)
+  fs.writeFileSync(path.join(localMemory, 'quartet', 'data', 'models.json'), `${JSON.stringify(models, null, 2)}\n`)
+  fs.writeFileSync(path.join(localMemory, 'quartet', 'data', 'settings.json'), `${JSON.stringify(settings, null, 2)}\n`)
 }
 
 function seedLegacyFirstModelIDFixture(localMemory: string) {
@@ -247,7 +266,7 @@ function seedLegacyFirstModelIDFixture(localMemory: string) {
   const deletedSessionID = 'session-e2e-legacy-deleted'
   const liveSessionID = 'session-e2e-legacy-live'
   const now = new Date().toISOString()
-  const jobDir = path.join(localMemory, 'workspaces', 'ws-1', 'jobs', jobID)
+  const jobDir = path.join(localMemory, 'quartet', 'data', 'workspaces', 'ws-1', 'jobs', jobID)
   const jobMetaDir = path.join(jobDir, '.meta')
   fs.mkdirSync(jobMetaDir, { recursive: true })
   fs.writeFileSync(path.join(jobMetaDir, 'job.json'), `${JSON.stringify({
@@ -285,7 +304,7 @@ function seedLegacyFirstModelIDFixture(localMemory: string) {
 
 function seedInterruptedRunningJobFixture(localMemory: string) {
   const now = new Date().toISOString()
-  const jobMetaDir = path.join(localMemory, 'workspaces', 'ws-1', 'jobs', e2eInterruptedRunningJobID, '.meta')
+  const jobMetaDir = path.join(localMemory, 'quartet', 'data', 'workspaces', 'ws-1', 'jobs', e2eInterruptedRunningJobID, '.meta')
   fs.mkdirSync(jobMetaDir, { recursive: true })
   fs.writeFileSync(path.join(jobMetaDir, 'job.json'), `${JSON.stringify({
     id: e2eInterruptedRunningJobID,
@@ -316,7 +335,7 @@ function seedInterruptedRunningJobFixture(localMemory: string) {
 function seedLegacyRoundsOnlyJobFixture(localMemory: string) {
   const now = new Date().toISOString()
   const workdir = path.join(localMemory, 'e2e-legacy-rounds-workdir')
-  const jobMetaDir = path.join(localMemory, 'workspaces', 'ws-1', 'jobs', e2eLegacyRoundsJobID, '.meta')
+  const jobMetaDir = path.join(localMemory, 'quartet', 'data', 'workspaces', 'ws-1', 'jobs', e2eLegacyRoundsJobID, '.meta')
   fs.mkdirSync(workdir, { recursive: true })
   fs.mkdirSync(jobMetaDir, { recursive: true })
   fs.writeFileSync(path.join(jobMetaDir, 'job.json'), `${JSON.stringify({
@@ -349,7 +368,7 @@ function seedLegacyRoundsOnlyJobFixture(localMemory: string) {
 function seedPersistWarningJobFixture(localMemory: string) {
   const now = new Date().toISOString()
   const warning = 'persist failed after iteration_started: injected e2e disk warning'
-  const jobMetaDir = path.join(localMemory, 'workspaces', 'ws-1', 'jobs', e2ePersistWarningJobID, '.meta')
+  const jobMetaDir = path.join(localMemory, 'quartet', 'data', 'workspaces', 'ws-1', 'jobs', e2ePersistWarningJobID, '.meta')
   fs.mkdirSync(jobMetaDir, { recursive: true })
   fs.writeFileSync(path.join(jobMetaDir, 'job.json'), `${JSON.stringify({
     id: e2ePersistWarningJobID,
@@ -395,7 +414,7 @@ function seedPersistWarningJobFixture(localMemory: string) {
 function seedStartupCleanupFixture(localMemory: string) {
   const now = new Date()
   const workdir = path.join(localMemory, 'e2e-startup-cleanup-workdir')
-  const workspaceMetaDir = path.join(localMemory, 'workspaces', e2eCleanupWorkspaceID, '.meta')
+  const workspaceMetaDir = path.join(localMemory, 'quartet', 'data', 'workspaces', e2eCleanupWorkspaceID, '.meta')
   fs.mkdirSync(workdir, { recursive: true })
   fs.mkdirSync(workspaceMetaDir, { recursive: true })
 
@@ -459,10 +478,12 @@ async function globalSetup() {
   const localMemory = path.join(runDir, 'local-memory')
   const goCache = path.join(runDir, 'go-build-cache')
   const viteCache = path.join(runDir, 'vite-cache')
+  const certsDir = path.join(runDir, 'certs-empty')
   const goTmp = createExternalTempDir('quartet-e2e-go-tmp-')
   fs.mkdirSync(logDir, { recursive: true })
   fs.mkdirSync(goCache, { recursive: true })
   fs.mkdirSync(viteCache, { recursive: true })
+  fs.mkdirSync(certsDir, { recursive: true })
   prepareLocalMemory(localMemory)
   seedAgentConfig(localMemory)
   seedLegacyFirstModelIDFixture(localMemory)
@@ -502,6 +523,9 @@ async function globalSetup() {
         QUARTET_CONTROL: e2eShellStaleControl,
         X_AGENT_AUTH: e2eAuthToken,
         QUARTET_LISTEN_ADDR: `127.0.0.1:${backendPort}`,
+        // The repository may contain production certs. E2E always exercises
+        // its isolated loopback backend over plain HTTP.
+        QUARTET_CERTS_DIR: certsDir,
       },
       logDir,
     })

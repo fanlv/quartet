@@ -207,6 +207,7 @@ func (h *Handler) ScheduleToggle(ctx context.Context, c *app.RequestContext) {
 
 	task.Enabled = !task.Enabled
 	task.UpdatedAt = time.Now()
+	task.StateUpdatedAt = task.UpdatedAt
 	if task.Enabled {
 		task.NextRunAt = schedule.NextCronTime(task.CronExpr, time.Now())
 	} else {

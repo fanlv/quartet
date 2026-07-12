@@ -72,3 +72,5 @@ certs/
 # CLI binaries
 /cli
 /quartet-workflow
+
+feature-2026-07-12-memory-directory-reorganization.md

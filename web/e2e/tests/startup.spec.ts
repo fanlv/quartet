@@ -507,7 +507,7 @@ test('startup load reconciles interrupted running jobs and persists the repair',
 
   const { localMemory } = await getE2ERunInfo()
   const raw = await fs.readFile(
-    path.join(localMemory, 'workspaces', 'ws-1', 'jobs', e2eInterruptedRunningJobID, '.meta', 'job.json'),
+    path.join(localMemory, 'quartet', 'data', 'workspaces', 'ws-1', 'jobs', e2eInterruptedRunningJobID, '.meta', 'job.json'),
     'utf8',
   )
   const persisted = JSON.parse(raw)
@@ -789,7 +789,7 @@ test('home job history delete requires confirmation and persists removal', async
 
   const { localMemory } = await getE2ERunInfo()
   await expect.poll(async () => {
-    return await pathExists(path.join(localMemory, 'workspaces', 'ws-1', 'jobs', remove.jobId))
+    return await pathExists(path.join(localMemory, 'quartet', 'data', 'workspaces', 'ws-1', 'jobs', remove.jobId))
   }).toBe(false)
 })
 
@@ -1105,7 +1105,7 @@ test('shell message persistence failure is surfaced as a persistence warning', a
   const titlePattern = shellSingleQuote(title)
   const script = [
     'echo "persist-warning-e2e-before"',
-    `JOB_DIR=$(grep -R -l ${titlePattern} "$LOCAL_MEMORY/workspaces/ws-1/jobs"/*/.meta/job.json | sed 's#/.meta/job.json$##' | head -n 1 || true)`,
+    `JOB_DIR=$(grep -R -l ${titlePattern} "$LOCAL_MEMORY/quartet/data/workspaces/ws-1/jobs"/*/.meta/job.json | sed 's#/.meta/job.json$##' | head -n 1 || true)`,
     'if [ -z "$JOB_DIR" ]; then echo "persist warning job dir not found"; exit 1; fi',
     'SESSION_DIR=$(find "$JOB_DIR/sessions" -mindepth 1 -maxdepth 1 -type d | head -n 1 || true)',
     'if [ -z "$SESSION_DIR" ]; then echo "persist warning session dir not found"; exit 1; fi',
@@ -1133,7 +1133,7 @@ test('shell message persistence failure is surfaced as a persistence warning', a
   // failure. Remove that injected fault before opening the UI so this assertion
   // focuses on the user-visible persistence warning instead of read-side error
   // handling for a corrupted messages path.
-  await fs.rm(path.join(localMemory, 'workspaces', 'ws-1', 'jobs', job.jobId, 'sessions', sessionId, '.meta', 'messages.jsonl'), {
+  await fs.rm(path.join(localMemory, 'quartet', 'data', 'workspaces', 'ws-1', 'jobs', job.jobId, 'sessions', sessionId, '.meta', 'messages.jsonl'), {
     recursive: true,
     force: true,
   })

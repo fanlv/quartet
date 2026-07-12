@@ -203,8 +203,8 @@ func TestExtractContent_ImageDownloaded(t *testing.T) {
 		t.Fatalf("unexpected content: %q", got)
 	}
 	localPath := strings.TrimSuffix(strings.TrimPrefix(got, prefix), ")")
-	if filepath.Dir(localPath) != filepath.Join(tmp, "uploads", "im-media") {
-		t.Fatalf("image saved outside media cache dir: %s", localPath)
+	if filepath.Dir(localPath) != filepath.Join(tmp, "quartet", "data", "uploads", "im-media") {
+		t.Fatalf("image saved outside persistent media dir: %s", localPath)
 	}
 	if filepath.Ext(localPath) != ".png" {
 		t.Fatalf("expected .png extension, got %s", localPath)
@@ -286,8 +286,8 @@ func TestExtractContent_VideoDownloaded(t *testing.T) {
 		t.Fatalf("unexpected content: %q", got)
 	}
 	localPath := strings.TrimSuffix(strings.TrimPrefix(got, prefix), ">)")
-	if filepath.Dir(localPath) != filepath.Join(tmp, "uploads", "im-media") {
-		t.Fatalf("video saved outside media cache dir: %s", localPath)
+	if filepath.Dir(localPath) != filepath.Join(tmp, "quartet", "data", "uploads", "im-media") {
+		t.Fatalf("video saved outside persistent media dir: %s", localPath)
 	}
 	if filepath.Ext(localPath) != ".mp4" {
 		t.Fatalf("expected .mp4 extension, got %s", localPath)

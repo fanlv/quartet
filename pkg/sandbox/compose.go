@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fanlv/quartet/pkg/logger"
+	typepath "github.com/fanlv/quartet/types/path"
 )
 
 // containerDriver abstracts the pieces of docker-compose Manager depends
@@ -40,7 +41,7 @@ type listedContainer struct {
 }
 
 // composeDriver is the production containerDriver. It materialises a
-// per-workspace docker-compose YAML in $LOCAL_MEMORY/.sandbox/compose/
+// per-workspace docker-compose YAML in $LOCAL_MEMORY/var/quartet/state/sandbox/compose/.
 // and shells out to `docker compose`.
 type composeDriver struct {
 	stateDir string
@@ -52,18 +53,13 @@ type composeDriver struct {
 }
 
 func newComposeDriver() containerDriver {
-	// main() already hard-fails on empty LOCAL_MEMORY, but this package is
-	// also loaded by tests and future callers that skip cmd/web/main. Keep
-	// the guard so a missing env var produces "LOCAL_MEMORY not set"
-	// instead of a confusing "/.sandbox/compose: permission denied" on the
-	// first Up.
-	base := os.Getenv("LOCAL_MEMORY")
 	d := &composeDriver{docker: "docker"}
-	if base == "" {
-		d.initErr = errors.New("LOCAL_MEMORY environment variable is required for sandbox compose driver")
+	stateDir, err := typepath.SandboxComposeStateDir()
+	if err != nil {
+		d.initErr = fmt.Errorf("resolve sandbox compose state dir failed: %w", err)
 		return d
 	}
-	d.stateDir = filepath.Join(base, ".sandbox", "compose")
+	d.stateDir = stateDir
 	if err := os.MkdirAll(d.stateDir, 0o755); err != nil {
 		d.initErr = fmt.Errorf("create compose state dir %s failed: %w", d.stateDir, err)
 	}

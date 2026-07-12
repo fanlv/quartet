@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestCacheDirUsesUploadsSubdir(t *testing.T) {
+func TestCacheDirUsesRuntimeCacheSubdir(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("LOCAL_MEMORY", root)
 
@@ -15,7 +15,7 @@ func TestCacheDirUsesUploadsSubdir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CacheDir: %v", err)
 	}
-	if want := filepath.Join(root, "uploads", cacheSubdir); dir != want {
+	if want := filepath.Join(root, "var", "quartet", "cache", "im-media"); dir != want {
 		t.Fatalf("CacheDir = %q, want %q", dir, want)
 	}
 }

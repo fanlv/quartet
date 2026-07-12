@@ -968,10 +968,10 @@ test('graph review #6: run replay marks the pruned if-else branch edge', async (
 // ---------------------------------------------------------------------------
 
 test('graph review #9: a corrupt workflow file surfaces as a warning in the UI', async ({ page, request }) => {
-  // Write a malformed JSON file directly into the graph_workflows dir so the
+  // Write a malformed JSON file directly into the graph-workflows dir so the
   // list must skip it AND report it.
   const { localMemory } = await getE2ERunInfo()
-  const workflowsDir = path.join(localMemory, 'agent', 'graph_workflows')
+  const workflowsDir = path.join(localMemory, 'quartet', 'config', 'graph-workflows')
   await fs.mkdir(workflowsDir, { recursive: true })
   const corruptName = `corrupt-${Date.now()}.json`
   await fs.writeFile(path.join(workflowsDir, corruptName), '{ this is not valid json', 'utf8')
@@ -998,7 +998,7 @@ test('graph review #9: a corrupt workflow file surfaces as a warning in the UI',
 
 test('graph review #42: schedule modal surfaces graph workflow list warnings', async ({ page, request }) => {
   const { localMemory } = await getE2ERunInfo()
-  const workflowsDir = path.join(localMemory, 'agent', 'graph_workflows')
+  const workflowsDir = path.join(localMemory, 'quartet', 'config', 'graph-workflows')
   await fs.mkdir(workflowsDir, { recursive: true })
   const corruptName = `schedule-corrupt-${Date.now()}.json`
   await fs.writeFile(path.join(workflowsDir, corruptName), '{ this is not valid json', 'utf8')
@@ -1725,7 +1725,7 @@ test('graph review #18: opening a corrupt workflow surfaces the parse error', as
   // has loaded so selecting the row exercises the direct GetWorkflow path.
   await expect(page.getByTestId(`graph-workflow-row-${workflow.id}`)).toBeVisible({ timeout: 10_000 })
   const { localMemory } = await getE2ERunInfo()
-  const fp = path.join(localMemory, 'agent', 'graph_workflows', `${workflow.id}.json`)
+  const fp = path.join(localMemory, 'quartet', 'config', 'graph-workflows', `${workflow.id}.json`)
   await fs.writeFile(fp, '{ this is not valid json', 'utf8')
   await page.getByTestId(`graph-workflow-row-${workflow.id}`).click()
 
@@ -1905,7 +1905,7 @@ test('graph review #23: corrupted run metadata returns a full load error', async
   await waitForRunStatus(request, run.jobId, ['completed', 'failed', 'timedOut'])
 
   const { localMemory } = await getE2ERunInfo()
-  const runFile = path.join(localMemory, 'workspaces', workspace.workspaceId, 'jobs', run.jobId, 'graph_run', 'run.json')
+  const runFile = path.join(localMemory, 'quartet', 'data', 'workspaces', workspace.workspaceId, 'jobs', run.jobId, 'graph_run', 'run.json')
   await fs.writeFile(runFile, '{ broken run json', 'utf8')
 
   const status = await request.get(`/api/v1/job/${encodeURIComponent(run.jobId)}/graph-run`, { headers: AUTH_HEADERS })
@@ -1928,7 +1928,7 @@ test('graph review #23b: corrupted event log surfaces through disk replay SSE er
   await waitForRunStatus(request, run.jobId, ['completed', 'failed', 'timedOut'])
 
   const runInfo = await getE2ERunInfo()
-  const eventsFile = path.join(runInfo.localMemory, 'workspaces', workspace.workspaceId, 'jobs', run.jobId, 'graph_run', 'events.jsonl')
+  const eventsFile = path.join(runInfo.localMemory, 'quartet', 'data', 'workspaces', workspace.workspaceId, 'jobs', run.jobId, 'graph_run', 'events.jsonl')
   await fs.writeFile(eventsFile, '{"type":"log"\n', 'utf8')
 
   const replayPort = 18191
@@ -2167,7 +2167,7 @@ test('graph review #29: workflow list date includes year for older workflow', as
   const workspace = await createGraphWorkspace(request, 'date-year')
   const workflow = await createWorkflow(request, workspace, `e2e-date-year-${Date.now()}`)
   const { localMemory } = await getE2ERunInfo()
-  const workflowFile = path.join(localMemory, 'agent', 'graph_workflows', `${workflow.id}.json`)
+  const workflowFile = path.join(localMemory, 'quartet', 'config', 'graph-workflows', `${workflow.id}.json`)
   const raw = JSON.parse(await fs.readFile(workflowFile, 'utf8')) as { updatedAt: string }
   raw.updatedAt = '2024-01-02T12:00:00Z'
   await fs.writeFile(workflowFile, `${JSON.stringify(raw, null, 2)}\n`, 'utf8')
@@ -2534,7 +2534,7 @@ test('graph review #38: corrupted run metadata returns full load errors for vers
   await waitForRunStatus(request, run.jobId, ['failed', 'completed', 'timedOut'])
 
   const { localMemory } = await getE2ERunInfo()
-  const runFile = path.join(localMemory, 'workspaces', workspace.workspaceId, 'jobs', run.jobId, 'graph_run', 'run.json')
+  const runFile = path.join(localMemory, 'quartet', 'data', 'workspaces', workspace.workspaceId, 'jobs', run.jobId, 'graph_run', 'run.json')
   await fs.writeFile(runFile, '{ broken run json', 'utf8')
 
   const version = await request.put(`/api/v1/job/${encodeURIComponent(run.jobId)}/graph-run/version`, {

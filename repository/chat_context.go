@@ -124,10 +124,10 @@ func isNotFoundError(err error) bool {
 
 type chatContextRepo struct {
 	sandbox    fileserver.Storage
-	sessionDir string // {LOCAL_MEMORY}/workspaces/{wsID}/jobs/{jobID}/sessions/{sessionID}/
+	sessionDir string // {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}/sessions/{sessionID}/
 }
 
-// NewChatContextRepo creates a ChatContextRepo. Root dir: {LOCAL_MEMORY}/workspaces/{wsID}/jobs/{jobID}/sessions/{sessionID}/
+// NewChatContextRepo creates a ChatContextRepo. Root dir: {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}/sessions/{sessionID}/.
 //
 // Concurrency: every method serialises against other ChatContextRepo
 // instances pointed at the same sessionDir via the process-wide lock

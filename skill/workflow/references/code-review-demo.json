@@ -152,7 +152,7 @@
   ],
   "variables": {
     "Code": "/data00/home/fanlv/eino",
-    "Doc": "/data00/home/fanlv/memory/knowledge/eino/tech_doc/agent_teams/docs",
+    "Doc": "/home/fanlv/memory/knowledge/ai-and-agents/eino/tech_doc/agent_teams/docs",
     "AgentCheck": "1",
     "Info": "",
     "MultiWorker": "0",

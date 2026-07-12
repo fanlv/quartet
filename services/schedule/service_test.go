@@ -17,6 +17,11 @@ func (s *stubScheduleRepo) Save(_ context.Context, task *model.ScheduledTask) er
 	return nil
 }
 
+func (s *stubScheduleRepo) SaveState(_ context.Context, task *model.ScheduledTask) error {
+	s.tasks[task.ID] = task
+	return nil
+}
+
 func (s *stubScheduleRepo) Get(_ context.Context, id string) (*model.ScheduledTask, error) {
 	return s.tasks[id], nil
 }

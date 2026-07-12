@@ -23,6 +23,7 @@ import (
 	"github.com/fanlv/quartet/pkg/sandbox"
 	svcacp "github.com/fanlv/quartet/services/agent/acp"
 	acpprobe "github.com/fanlv/quartet/services/agent/probe"
+	"github.com/fanlv/quartet/services/memorylayout"
 	"github.com/fanlv/quartet/services/schedule"
 	"github.com/fanlv/quartet/types/consts"
 	"github.com/hertz-contrib/cors"
@@ -224,6 +225,13 @@ func main() {
 	logStartupBuildInfo(context.Background())
 	if os.Getenv("LOCAL_MEMORY") == "" {
 		logger.Fatalf(context.Background(), "LOCAL_MEMORY environment variable is required")
+	}
+	layoutService, err := memorylayout.NewService()
+	if err != nil {
+		logger.Fatalf(context.Background(), "Failed to initialize Memory layout validation: %v", err)
+	}
+	if err := layoutService.Validate(context.Background()); err != nil {
+		logger.Fatalf(context.Background(), "%v", err)
 	}
 
 	// Root context is cancellable by SIGINT/SIGTERM and is the parent of all

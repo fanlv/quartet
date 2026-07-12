@@ -474,11 +474,11 @@ func detectVideoExt(data []byte) string {
 }
 
 // writeBytesToUploads persists decrypted CDN bytes under the dedicated IM
-// media cache directory,
+// media data directory,
 // returning the resulting absolute path. baseName MUST already be sanitized.
 func writeBytesToUploads(baseName string, data []byte) (string, error) {
 	sb := fileserver.GetFileManager()
-	dir, err := media.CacheDir()
+	dir, err := media.PersistentDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve media cache dir failed: %w", err)
 	}

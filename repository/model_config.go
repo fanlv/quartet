@@ -66,7 +66,7 @@ func (r *fileModelConfigRepo) Load(ctx context.Context) ([]*model.ModelInstance,
 	return state.Models, nil
 }
 
-// GetByID finds a model by ID from the in-memory cache (loaded from {LOCAL_MEMORY}/agent/models.json)
+// GetByID finds a model by ID from the in-memory cache (loaded from {LOCAL_MEMORY}/quartet/data/models.json).
 func (r *fileModelConfigRepo) GetByID(ctx context.Context, id int64) (*model.ModelInstance, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -94,7 +94,7 @@ func genModelID(models []*model.ModelInstance) int64 {
 	}
 }
 
-// Save inserts or updates a model config in {LOCAL_MEMORY}/agent/models.json
+// Save inserts or updates a model config in {LOCAL_MEMORY}/quartet/data/models.json.
 func (r *fileModelConfigRepo) Save(ctx context.Context, m *model.ModelInstance) error {
 	if m == nil {
 		return fmt.Errorf("model is nil")
@@ -143,7 +143,7 @@ func (r *fileModelConfigRepo) loadNoLock() ([]*model.ModelInstance, error) {
 	return state.Models, nil
 }
 
-// saveNoLock writes models to {LOCAL_MEMORY}/agent/models.json without acquiring lock.
+// saveNoLock writes models to {LOCAL_MEMORY}/quartet/data/models.json without acquiring lock.
 func (r *fileModelConfigRepo) saveNoLock(models []*model.ModelInstance) error {
 	data, err := json.MarshalIndent(&modelConfigFile{Models: models}, "", "  ")
 	if err != nil {

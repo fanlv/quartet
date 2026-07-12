@@ -140,10 +140,7 @@ web:
 		echo "   Example: export LOCAL_MEMORY=/path/to/local_memory"; \
 		exit 1; \
 	fi; \
-	mkdir -p "$$LOCAL_MEMORY/workspaces" "$$LOCAL_MEMORY/knowledge" "$$LOCAL_MEMORY/agent" "$$LOCAL_MEMORY/bin" "$$LOCAL_MEMORY/shell" "$$LOCAL_MEMORY/im"; \
-	chmod 755 "$$LOCAL_MEMORY/workspaces" "$$LOCAL_MEMORY/knowledge" "$$LOCAL_MEMORY/agent" "$$LOCAL_MEMORY/bin" "$$LOCAL_MEMORY/shell" "$$LOCAL_MEMORY/im"; \
-	chmod 777 "$$LOCAL_MEMORY/workspaces"; \
-	echo "✅ LOCAL_MEMORY directories ready"
+	echo "✅ LOCAL_MEMORY configured: $$LOCAL_MEMORY (layout is validated by quartet-web at startup)"
 	@$(MAKE) build-frontend
 	@echo "📦 Building backend..."; \
 	mkdir -p bin; \

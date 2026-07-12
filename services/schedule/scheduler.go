@@ -240,8 +240,8 @@ func (s *Scheduler) MarkDone(ctx context.Context, scheduleID, jobID string, stat
 	} else {
 		logger.Debugf(ctx, "[scheduler] MarkDone status skipped (concurrent run): schedule=%s done_job=%s latest_job=%s status=%s", scheduleID, jobID, task.LastRunJobID, status)
 	}
-	task.UpdatedAt = time.Now()
-	if err := s.svc.Save(ctx, task); err != nil {
+	task.StateUpdatedAt = time.Now()
+	if err := s.svc.SaveState(ctx, task); err != nil {
 		logger.Errorf(ctx, "[scheduler] MarkDone save failed: schedule=%s job=%s err=%v", scheduleID, jobID, err)
 		return
 	}
@@ -318,9 +318,9 @@ func (s *Scheduler) RecordTrigger(ctx context.Context, scheduleID, jobID, cronEx
 		task.LastTriggerError = ""
 	}
 	task.NextRunAt = NextCronTime(cronExpr, now)
-	task.UpdatedAt = time.Now()
+	task.StateUpdatedAt = time.Now()
 
-	if saveErr := s.svc.Save(ctx, task); saveErr != nil {
+	if saveErr := s.svc.SaveState(ctx, task); saveErr != nil {
 		logger.Errorf(ctx, "[scheduler] RecordTrigger: save failed: schedule=%s err=%v", scheduleID, saveErr)
 	}
 }

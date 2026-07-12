@@ -41,6 +41,37 @@ type ScheduledTask struct {
 	LastTriggerError string     `json:"lastTriggerError,omitempty"`
 	NextRunAt        *time.Time `json:"nextRunAt,omitempty"`
 	RunCount         int        `json:"runCount"`
+	StateUpdatedAt   time.Time  `json:"-"`
+}
+
+// ScheduleDefinition is the human-maintained portion stored under
+// quartet/config/schedules. Scheduler executions never modify this shape.
+type ScheduleDefinition struct {
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Enabled         bool      `json:"enabled"`
+	CronExpr        string    `json:"cronExpr"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	GraphWorkflowID string    `json:"graphWorkflowId,omitempty"`
+	WorkspaceID     string    `json:"workspaceId,omitempty"`
+	Workdir         string    `json:"workdir,omitempty"`
+	MaxConcurrent   int       `json:"maxConcurrent,omitempty"`
+	Timeout         int       `json:"timeout,omitempty"`
+}
+
+// ScheduleState is the scheduler-owned portion stored under
+// var/quartet/state/schedules. A missing state file means the definition has
+// not run yet.
+type ScheduleState struct {
+	ID               string     `json:"id"`
+	LastRunAt        *time.Time `json:"lastRunAt,omitempty"`
+	LastRunJobID     string     `json:"lastRunJobID,omitempty"`
+	LastStatus       JobStatus  `json:"lastStatus,omitempty"`
+	LastTriggerError string     `json:"lastTriggerError,omitempty"`
+	NextRunAt        *time.Time `json:"nextRunAt,omitempty"`
+	RunCount         int        `json:"runCount"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
 }
 
 func NewScheduleID() string {

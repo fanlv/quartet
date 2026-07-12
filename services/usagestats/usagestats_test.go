@@ -48,7 +48,7 @@ func TestGetUsageSurfacesParseError(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("LOCAL_MEMORY", root)
 	now := time.Date(2026, 5, 9, 12, 0, 0, 0, time.Local)
-	dir := filepath.Join(root, "agent", "usage_stats")
+	dir := filepath.Join(root, "quartet", "data", "usage-stats")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}

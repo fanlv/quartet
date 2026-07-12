@@ -42,7 +42,7 @@ func (r *jobRepo) lockFor(id string) *sync.Mutex {
 	return &r.locks[idx]
 }
 
-// NewJobRepo creates a JobRepo. Root dir: {LOCAL_MEMORY}/workspaces/{wsID}/jobs/
+// NewJobRepo creates a JobRepo. Root dir: {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/.
 func NewJobRepo(wsID string) (JobRepo, error) {
 	baseDir := path.LocalJobsDirInWorkspace(wsID)
 	sb := fileserver.GetFileManager()
@@ -56,7 +56,7 @@ func NewJobRepo(wsID string) (JobRepo, error) {
 	return &jobRepo{sandbox: sb, wsID: wsID, baseDir: baseDir}, nil
 }
 
-// ensureJobDir ensures dirs: {LOCAL_MEMORY}/workspaces/{wsID}/jobs/{jobID}/.meta/
+// ensureJobDir ensures dirs: {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}/.meta/.
 func (r *jobRepo) ensureJobDir(jobID string) (string, error) {
 	if err := validateJobID(jobID); err != nil {
 		return "", err
@@ -72,7 +72,7 @@ func (r *jobRepo) ensureJobDir(jobID string) (string, error) {
 	return jobDir, nil
 }
 
-// Save writes job metadata to {LOCAL_MEMORY}/workspaces/{wsID}/jobs/{jobID}/.meta/job.json
+// Save writes job metadata to {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}/.meta/job.json.
 // Uses atomic write (temp + rename) to prevent corruption on crash.
 func (r *jobRepo) Save(jobID string, job *model.Job) error {
 	if err := validateJobID(jobID); err != nil {
@@ -100,7 +100,7 @@ func (r *jobRepo) Save(jobID string, job *model.Job) error {
 	return nil
 }
 
-// Load reads job metadata from {LOCAL_MEMORY}/workspaces/{wsID}/jobs/{jobID}/.meta/job.json
+// Load reads job metadata from {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}/.meta/job.json.
 func (r *jobRepo) Load(jobID string) (*model.Job, error) {
 	if err := validateJobID(jobID); err != nil {
 		return nil, err
@@ -122,7 +122,7 @@ func (r *jobRepo) Load(jobID string) (*model.Job, error) {
 	return &job, nil
 }
 
-// ListIDs lists subdirectories under {LOCAL_MEMORY}/workspaces/{wsID}/jobs/, returns those containing .meta/job.json
+// ListIDs lists subdirectories under {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/, returning those containing .meta/job.json.
 func (r *jobRepo) ListIDs() ([]string, error) {
 	result, err := r.sandbox.FileList(&fsmodel.FileListRequest{
 		Path: r.baseDir,

@@ -189,7 +189,7 @@ func TestStartRunCleansArtifactsWhenExplicitJobBindFails(t *testing.T) {
 	if !errors.Is(err, bindErr) {
 		t.Fatalf("StartRun err = %v, want bind error", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(root, "workspaces", consts.DefaultWorkspaceID, "jobs", "job-explicit", "graph_run")); !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Stat(filepath.Join(root, "quartet", "data", "workspaces", consts.DefaultWorkspaceID, "jobs", "job-explicit", "graph_run")); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("graph_run dir stat err = %v, want not exist", statErr)
 	}
 }
@@ -246,7 +246,7 @@ func TestStartRunLinearShellCompletes(t *testing.T) {
 	if !waitSinkStatus(sink.updates, run.ID, model.JobStatusCompleted) {
 		t.Fatalf("job sink did not see completed update for %s", run.ID)
 	}
-	if _, err := os.Stat(filepath.Join(root, "workspaces", run.WorkspaceID, "jobs", run.JobID, "graph_run", "run.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "quartet", "data", "workspaces", run.WorkspaceID, "jobs", run.JobID, "graph_run", "run.json")); err != nil {
 		t.Fatalf("run.json not persisted: %v", err)
 	}
 }

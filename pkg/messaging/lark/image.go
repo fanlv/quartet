@@ -39,7 +39,7 @@ func (l *Listener) downloadPostImages(ctx context.Context, messageID string, pos
 		return nil
 	}
 
-	dir, err := media.CacheDir()
+	dir, err := media.PersistentDir()
 	if err != nil {
 		logger.Warn("[lark] resolve media cache dir failed: %v", err)
 		return nil
@@ -99,7 +99,7 @@ func (l *Listener) renderImageReference(ctx context.Context, messageID string, i
 		return "![image](#)"
 	}
 
-	dir, err := media.CacheDir()
+	dir, err := media.PersistentDir()
 	if err != nil {
 		logger.Warn("[lark] resolve media cache dir failed: %v", err)
 		return "![image](# \"image_key=" + imageKey + "\")"

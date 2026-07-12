@@ -201,6 +201,11 @@ func (f *fakeService) Save(_ context.Context, task *model.ScheduledTask) error {
 	return nil
 }
 
+func (f *fakeService) SaveState(_ context.Context, task *model.ScheduledTask) error {
+	f.tasks[task.ID] = task
+	return nil
+}
+
 func (f *fakeService) Create(context.Context, *model.CreateScheduleRequest) (*model.ScheduledTask, error) {
 	return nil, nil
 }

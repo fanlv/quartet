@@ -40,7 +40,7 @@ type QRStatusResponse struct {
 }
 
 // Credentials stores login session data persisted to
-// {LOCAL_MEMORY}/wechat/accounts/{normalized_bot_id}.json.
+// {LOCAL_MEMORY}/quartet/data/wechat/accounts/{normalized_bot_id}.json.
 type Credentials struct {
 	BotToken    string `json:"bot_token"`
 	ILinkBotID  string `json:"ilink_bot_id"`

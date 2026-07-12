@@ -25,6 +25,7 @@ type Service interface {
 	Update(ctx context.Context, id string, req *model.UpdateScheduleRequest) (*model.ScheduledTask, error)
 	Delete(ctx context.Context, id string) error
 	Save(ctx context.Context, task *model.ScheduledTask) error
+	SaveState(ctx context.Context, task *model.ScheduledTask) error
 }
 
 type serviceImpl struct {
@@ -62,6 +63,7 @@ func (s *serviceImpl) Create(ctx context.Context, req *model.CreateScheduleReque
 		Timeout:         req.Timeout,
 		CreatedAt:       now,
 		UpdatedAt:       now,
+		StateUpdatedAt:  now,
 	}
 	if err := s.validateGraphWorkflow(ctx, task); err != nil {
 		return nil, err
@@ -141,6 +143,7 @@ func (s *serviceImpl) Update(ctx context.Context, id string, req *model.UpdateSc
 		return nil, err
 	}
 	task.UpdatedAt = time.Now()
+	task.StateUpdatedAt = task.UpdatedAt
 
 	// Recompute NextRunAt based on current enabled/cron state
 	if task.Enabled {
@@ -161,6 +164,10 @@ func (s *serviceImpl) Delete(ctx context.Context, id string) error {
 
 func (s *serviceImpl) Save(ctx context.Context, task *model.ScheduledTask) error {
 	return s.repo.Save(ctx, task)
+}
+
+func (s *serviceImpl) SaveState(ctx context.Context, task *model.ScheduledTask) error {
+	return s.repo.SaveState(ctx, task)
 }
 
 func (s *serviceImpl) validateGraphWorkflow(ctx context.Context, task *model.ScheduledTask) error {

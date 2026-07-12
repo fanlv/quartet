@@ -135,7 +135,7 @@ func normalizeAccountID(raw string) string {
 }
 
 // SaveCredentials saves credentials to disk under
-// {LOCAL_MEMORY}/wechat/accounts/{normalized_bot_id}.json (mode 0600).
+// {LOCAL_MEMORY}/quartet/data/wechat/accounts/{normalized_bot_id}.json (mode 0600).
 // Writes go through sandbox atomic write so a crash mid-write can't leave a
 // truncated credential file that would need manual cleanup.
 func SaveCredentials(creds *Credentials) error {

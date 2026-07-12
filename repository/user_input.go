@@ -14,7 +14,7 @@ import (
 
 // UserInputRepo appends "真实用户输入" entries — the narrow-spec stream that
 // covers IM admin private chat + Web, flat-dated under
-// {LOCAL_MEMORY}/user_input/YYYY-MM-DD.jsonl. Coexists with IMMessageRepo:
+// {LOCAL_MEMORY}/quartet/data/user-input/YYYY-MM-DD.jsonl. Coexists with IMMessageRepo:
 // the two feeds have different intakes and different consumers (see
 // docs/feature-2026-05-03-user-input-logging.md §4).
 type UserInputRepo interface {

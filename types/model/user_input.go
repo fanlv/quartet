@@ -25,7 +25,7 @@ const (
 )
 
 // UserInput is the narrow-spec "真实用户输入" record persisted to
-// {LOCAL_MEMORY}/user_input/YYYY-MM-DD.jsonl. IM and Web both write into this
+// {LOCAL_MEMORY}/quartet/data/user-input/YYYY-MM-DD.jsonl. IM and Web both write into this
 // single flat stream; per-source fields are populated when relevant and left
 // empty otherwise (no per-source subtypes — keeps reader logic single-shape).
 type UserInput struct {

@@ -1,9 +1,6 @@
-// Package media owns platform-agnostic IM attachment storage: a dedicated
-// cache directory under UploadsDir (with a temp-dir fallback) and a periodic
-// sweeper that drops stale files. Each messaging platform writes downloaded
-// images / files / voices through this package so cleanup, retention and
-// directory layout stay consistent across lark, wechat and any future
-// integrations.
+// Package media owns platform-agnostic IM attachment directories. Media that
+// is referenced by a persisted message is stored under Quartet data and is
+// never swept. Disposable processing files use a separate runtime cache.
 package media
 
 import (
@@ -19,7 +16,6 @@ import (
 )
 
 const (
-	cacheSubdir     = "im-media"
 	tempCacheSubdir = "quartet-im-media"
 
 	cacheRetention  = 7 * 24 * time.Hour
@@ -32,12 +28,16 @@ const (
 	cacheMaxDepth = 32
 )
 
-// CacheDir returns the dedicated directory used for downloaded IM media.
-// Using a subdirectory keeps temporary attachments isolated from user uploads
-// so cleanup can safely delete only cache files.
+// PersistentDir returns the directory for media referenced by durable IM,
+// user-input, Job or session records.
+func PersistentDir() (string, error) {
+	return deeppath.PersistentIMMediaDir()
+}
+
+// CacheDir returns the disposable directory for processing intermediates.
 func CacheDir() (string, error) {
-	if uploadsDir, err := deeppath.UploadsDir(); err == nil {
-		return filepath.Join(uploadsDir, cacheSubdir), nil
+	if dir, err := deeppath.IMMediaCacheDir(); err == nil {
+		return dir, nil
 	}
 	tmpDir, err := fileserver.TempDir()
 	if err != nil {
@@ -79,8 +79,7 @@ func sweepCache(now time.Time) {
 func cacheRoots() []string {
 	seen := make(map[string]struct{}, 2)
 	roots := make([]string, 0, 2)
-	if uploadsDir, err := deeppath.UploadsDir(); err == nil {
-		root := filepath.Join(uploadsDir, cacheSubdir)
+	if root, err := deeppath.IMMediaCacheDir(); err == nil {
 		seen[root] = struct{}{}
 		roots = append(roots, root)
 	}
