@@ -42,23 +42,25 @@ func cloneSettingsForTest(s *repository.Settings) *repository.Settings {
 	return &clone
 }
 
-func TestGetACPEnvVarsUsesStableKeyAndLegacyCommandKeys(t *testing.T) {
+func TestGetACPEnvVarsUsesStableAndCommandKeys(t *testing.T) {
 	repo := &fakeSettingsRepo{settings: repository.Settings{
 		ACPEnvVars: map[string][]repository.ACPEnvVarEntry{
 			"codex": {
-				{Key: "http_proxy", Value: "http://stable", Enabled: false},
+				{Key: "http_proxy", Value: "http://stable", Enabled: true},
+				{Key: "all_proxy", Value: "http://disabled", Enabled: false},
 			},
-			"npx @agentclientprotocol/codex-acp": {
-				{Key: "http_proxy", Value: "http://legacy", Enabled: true},
+			"codex-acp": {
 				{Key: "no_proxy", Value: "code.byted.org", Enabled: true},
 			},
 		},
 	}}
 	svc := &settingsServiceImpl{repo: repo}
 
+	// A serve command ("codex-acp") resolves to the bin key ("codex"), and
+	// env vars saved under either key are merged; disabled entries drop out.
 	got := svc.GetACPEnvVars("codex-acp")
 	want := map[string]string{
-		"http_proxy": "http://legacy",
+		"http_proxy": "http://stable",
 		"no_proxy":   "code.byted.org",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -72,11 +74,11 @@ func TestSaveSettingsNormalizesACPEnvVarsToStableKeys(t *testing.T) {
 
 	err := svc.SaveSettings(&repository.Settings{
 		ACPEnvVars: map[string][]repository.ACPEnvVarEntry{
-			"claude-agent-acp": {
-				{Key: "https_proxy", Value: "http://current", Enabled: false},
+			"claude": {
+				{Key: "https_proxy", Value: "http://stable", Enabled: true},
 			},
-			"npx @agentclientprotocol/claude-agent-acp": {
-				{Key: "https_proxy", Value: "http://legacy", Enabled: true},
+			"claude-agent-acp": {
+				{Key: "https_proxy", Value: "http://command", Enabled: true},
 			},
 		},
 	})
@@ -89,14 +91,11 @@ func TestSaveSettingsNormalizesACPEnvVarsToStableKeys(t *testing.T) {
 		t.Fatalf("GetSettings() error = %v", err)
 	}
 	if _, ok := got.ACPEnvVars["claude-agent-acp"]; ok {
-		t.Fatalf("claude-agent-acp key should have been normalized: %v", got.ACPEnvVars)
-	}
-	if _, ok := got.ACPEnvVars["npx @agentclientprotocol/claude-agent-acp"]; ok {
-		t.Fatalf("legacy key should have been normalized: %v", got.ACPEnvVars)
+		t.Fatalf("claude-agent-acp command key should have been normalized to bin key: %v", got.ACPEnvVars)
 	}
 	want := map[string][]repository.ACPEnvVarEntry{
 		"claude": {
-			{Key: "https_proxy", Value: "http://legacy", Enabled: true},
+			{Key: "https_proxy", Value: "http://stable", Enabled: true},
 		},
 	}
 	if !reflect.DeepEqual(got.ACPEnvVars, want) {

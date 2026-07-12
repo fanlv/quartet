@@ -109,11 +109,6 @@ var KnownACPAgents = []ACPAgentDef{
 	{"qwen", "qwen --acp", "Qwen", "https://avatars.githubusercontent.com/u/141221163"},
 }
 
-var legacyACPAgentCommands = map[string][]string{
-	"claude": {"npx @agentclientprotocol/claude-agent-acp"},
-	"codex":  {"npx @agentclientprotocol/codex-acp"},
-}
-
 // InitAllowedAgentCommands pushes KnownACPAgents' command strings to
 // pkg/acp's execution allowlist. Must be called once at startup
 // (cmd/web/main.go) before any ACP subprocess is launched — NewConn
@@ -199,9 +194,7 @@ func ACPAgentEnvLookupKeys(commandOrKey string) []string {
 		}
 		return []string{commandOrKey}
 	}
-	keys := []string{a.Bin, a.Command}
-	keys = append(keys, legacyACPAgentCommands[a.Bin]...)
-	return uniqueNonEmptyStrings(keys)
+	return uniqueNonEmptyStrings([]string{a.Bin, a.Command})
 }
 
 // ACPAgentEnvKeyPriority reports the stable env key and precedence for a saved
@@ -217,11 +210,6 @@ func ACPAgentEnvKeyPriority(savedKey string) (string, int) {
 	case a.Command:
 		return a.Bin, 2
 	}
-	for _, legacy := range legacyACPAgentCommands[a.Bin] {
-		if savedKey == legacy {
-			return a.Bin, 1
-		}
-	}
 	return a.Bin, 0
 }
 
@@ -229,11 +217,6 @@ func findACPAgentByCommandOrEnvKey(commandOrKey string) (ACPAgentDef, bool) {
 	for _, a := range KnownACPAgents {
 		if commandOrKey == a.Bin || commandOrKey == a.Command {
 			return a, true
-		}
-		for _, legacy := range legacyACPAgentCommands[a.Bin] {
-			if commandOrKey == legacy {
-				return a, true
-			}
 		}
 	}
 	return ACPAgentDef{}, false
