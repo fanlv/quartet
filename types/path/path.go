@@ -63,23 +63,21 @@ const (
 	graphRunProgressFile  = "progress.json"
 	graphRunResumeFile    = "resume.json"
 	graphRunEventsFile    = "events.jsonl"
-	memoryLayoutFile      = "layout.json"
 )
 
-// SessionTasksDir returns the .tasks directory path within a session directory.
+// SessionTasksDir returns {sessionDir}/.tasks/.
 // Sibling to .meta; owned by the plan_task middleware (eino path only).
 func SessionTasksDir(sessionDir string) string {
 	return filepath.Join(sessionDir, ".tasks")
 }
 
-// SessionReductionDir returns the reduction cache directory path within a
-// session directory. Sibling to .meta; owned by the reduction middleware
-// (eino path only).
+// SessionReductionDir returns {sessionDir}/reduction/.
+// Sibling to .meta; owned by the reduction middleware (eino path only).
 func SessionReductionDir(sessionDir string) string {
 	return filepath.Join(sessionDir, "reduction")
 }
 
-// MetaDir returns the .meta directory path within a session directory
+// MetaDir returns {sessionDir}/.meta/.
 func MetaDir(sessionDir string) string {
 	return filepath.Join(sessionDir, metaDir)
 }
@@ -99,7 +97,8 @@ func SummaryFilePath(sessionDir string) string {
 	return filepath.Join(sessionDir, metaDir, summaryFile)
 }
 
-// LocalMemoryDir returns the stable Memory root configured by LOCAL_MEMORY.
+// LocalMemoryDir returns {LOCAL_MEMORY}/, the stable Memory root configured by
+// the LOCAL_MEMORY env var.
 func LocalMemoryDir() (string, error) {
 	root := strings.TrimSpace(os.Getenv(localMemoryEnvVar))
 	if root == "" {
@@ -111,7 +110,7 @@ func LocalMemoryDir() (string, error) {
 	return filepath.Clean(root), nil
 }
 
-// QuartetDir returns the root of Quartet-owned files.
+// QuartetDir returns {LOCAL_MEMORY}/quartet/, the root of Quartet-owned files.
 func QuartetDir() (string, error) {
 	root, err := LocalMemoryDir()
 	if err != nil {
@@ -120,7 +119,8 @@ func QuartetDir() (string, error) {
 	return filepath.Join(root, quartetDir), nil
 }
 
-// QuartetConfigDir returns the root of human-maintained Quartet configuration.
+// QuartetConfigDir returns {LOCAL_MEMORY}/quartet/config/, the root of
+// human-maintained Quartet configuration.
 func QuartetConfigDir() (string, error) {
 	dir, err := QuartetDir()
 	if err != nil {
@@ -129,7 +129,8 @@ func QuartetConfigDir() (string, error) {
 	return filepath.Join(dir, quartetConfigDir), nil
 }
 
-// QuartetDataDir returns the root of persistent Quartet business data.
+// QuartetDataDir returns {LOCAL_MEMORY}/quartet/data/, the root of persistent
+// Quartet business data.
 func QuartetDataDir() (string, error) {
 	dir, err := QuartetDir()
 	if err != nil {
@@ -138,7 +139,8 @@ func QuartetDataDir() (string, error) {
 	return filepath.Join(dir, quartetDataDir), nil
 }
 
-// QuartetRuntimeDir returns the root of Quartet runtime state, cache and temp files.
+// QuartetRuntimeDir returns {LOCAL_MEMORY}/var/quartet/, the root of Quartet
+// runtime state, cache and temp files.
 func QuartetRuntimeDir() (string, error) {
 	root, err := LocalMemoryDir()
 	if err != nil {
@@ -147,6 +149,7 @@ func QuartetRuntimeDir() (string, error) {
 	return filepath.Join(root, varDir, quartetDir), nil
 }
 
+// QuartetStateDir returns {LOCAL_MEMORY}/var/quartet/state/.
 func QuartetStateDir() (string, error) {
 	dir, err := QuartetRuntimeDir()
 	if err != nil {
@@ -155,6 +158,7 @@ func QuartetStateDir() (string, error) {
 	return filepath.Join(dir, stateDir), nil
 }
 
+// QuartetCacheDir returns {LOCAL_MEMORY}/var/quartet/cache/.
 func QuartetCacheDir() (string, error) {
 	dir, err := QuartetRuntimeDir()
 	if err != nil {
@@ -163,21 +167,13 @@ func QuartetCacheDir() (string, error) {
 	return filepath.Join(dir, cacheDir), nil
 }
 
+// QuartetTmpDir returns {LOCAL_MEMORY}/var/quartet/tmp/.
 func QuartetTmpDir() (string, error) {
 	dir, err := QuartetRuntimeDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, tmpDir), nil
-}
-
-// MemoryLayoutFile returns the manifest used to gate incompatible layouts.
-func MemoryLayoutFile() (string, error) {
-	dir, err := QuartetDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, memoryLayoutFile), nil
 }
 
 // ModelsConfigFile returns the persistent models.json path.
@@ -216,7 +212,8 @@ func ACPProbeCacheFile() (string, error) {
 	return filepath.Join(dir, acpProbeCacheFile), nil
 }
 
-// PromptsDir returns the human-maintained prompt directory.
+// PromptsDir returns {LOCAL_MEMORY}/quartet/config/prompts/, the
+// human-maintained prompt directory.
 func PromptsDir() (string, error) {
 	dir, err := QuartetConfigDir()
 	if err != nil {
@@ -225,7 +222,8 @@ func PromptsDir() (string, error) {
 	return filepath.Join(dir, "prompts"), nil
 }
 
-// TemplatesDir returns the human-maintained template directory.
+// TemplatesDir returns {LOCAL_MEMORY}/quartet/config/templates/, the
+// human-maintained template directory.
 func TemplatesDir() (string, error) {
 	dir, err := QuartetConfigDir()
 	if err != nil {
@@ -234,7 +232,7 @@ func TemplatesDir() (string, error) {
 	return filepath.Join(dir, "templates"), nil
 }
 
-// GraphWorkflowsDir returns the graph-workflows configuration directory.
+// GraphWorkflowsDir returns {LOCAL_MEMORY}/quartet/config/graph-workflows/.
 // Holds one JSON file per GraphWorkflow config (the editable/saved workflow
 // definitions). GraphRun runtime artifacts (snapshots, instance/edge state)
 // live elsewhere and are owned by the execution engine, not here.
@@ -247,7 +245,8 @@ func GraphWorkflowsDir() (string, error) {
 }
 
 // GraphRunDir returns the runtime artifact directory for a GraphRun bound to a
-// Job. The run data lives with the Job, not in the global agent directory.
+// Job: {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}/graph_run/.
+// The run data lives with the Job, not in the global agent directory.
 func GraphRunDir(wsID, jobID string) string {
 	return filepath.Join(LocalJobDirInWorkspace(wsID, jobID), graphRunDir)
 }
@@ -292,8 +291,9 @@ func GraphRunEventsFile(wsID, jobID string) string {
 	return filepath.Join(GraphRunDir(wsID, jobID), graphRunEventsFile)
 }
 
-// ShellTempDir returns the process-owned temp directory used for shell helper
-// scripts and control files when a job has no explicit workdir.
+// ShellTempDir returns {LOCAL_MEMORY}/var/quartet/tmp/shell/, the process-owned
+// temp directory used for shell helper scripts and control files when a job has
+// no explicit workdir.
 func ShellTempDir() (string, error) {
 	dir, err := QuartetTmpDir()
 	if err != nil {
@@ -302,7 +302,8 @@ func ShellTempDir() (string, error) {
 	return filepath.Join(dir, "shell"), nil
 }
 
-// SchedulesDir returns the Schedule definition directory.
+// SchedulesDir returns {LOCAL_MEMORY}/quartet/config/schedules/, the Schedule
+// definition directory.
 func SchedulesDir() (string, error) {
 	dir, err := QuartetConfigDir()
 	if err != nil {
@@ -311,7 +312,8 @@ func SchedulesDir() (string, error) {
 	return filepath.Join(dir, "schedules"), nil
 }
 
-// ScheduleStatesDir returns the runtime Schedule state directory.
+// ScheduleStatesDir returns {LOCAL_MEMORY}/var/quartet/state/schedules/, the
+// runtime Schedule state directory.
 func ScheduleStatesDir() (string, error) {
 	dir, err := QuartetStateDir()
 	if err != nil {
@@ -339,7 +341,7 @@ func UsageStatsMonthFile(t time.Time) (string, error) {
 	return filepath.Join(dir, t.Format("2006-01")+".json"), nil
 }
 
-// JobMetaDir returns the .meta directory path within a job directory
+// JobMetaDir returns {jobDir}/.meta/.
 func JobMetaDir(jobDir string) string {
 	return filepath.Join(jobDir, metaDir)
 }
@@ -349,7 +351,8 @@ func JobMetaFilePath(jobDir string) string {
 	return filepath.Join(jobDir, metaDir, jobMetaFile)
 }
 
-// UploadsDir returns the persistent upload directory.
+// UploadsDir returns {LOCAL_MEMORY}/quartet/data/uploads/, the persistent
+// upload directory.
 func UploadsDir() (string, error) {
 	dir, err := QuartetDataDir()
 	if err != nil {
@@ -358,7 +361,8 @@ func UploadsDir() (string, error) {
 	return filepath.Join(dir, "uploads"), nil
 }
 
-// PersistentIMMediaDir returns the directory for media referenced by durable records.
+// PersistentIMMediaDir returns {LOCAL_MEMORY}/quartet/data/uploads/im-media/,
+// the directory for media referenced by durable records.
 func PersistentIMMediaDir() (string, error) {
 	dir, err := UploadsDir()
 	if err != nil {
@@ -367,7 +371,8 @@ func PersistentIMMediaDir() (string, error) {
 	return filepath.Join(dir, "im-media"), nil
 }
 
-// IMMediaCacheDir returns the disposable processing cache for IM media.
+// IMMediaCacheDir returns {LOCAL_MEMORY}/var/quartet/cache/im-media/, the
+// disposable processing cache for IM media.
 func IMMediaCacheDir() (string, error) {
 	dir, err := QuartetCacheDir()
 	if err != nil {
@@ -417,7 +422,7 @@ func LocalWorkspaceDir(id string) string {
 	return filepath.Join(LocalWorkspacesDir(), id)
 }
 
-// WorkspaceMetaDir returns the .meta directory within a workspace directory
+// WorkspaceMetaDir returns {wsDir}/.meta/.
 func WorkspaceMetaDir(wsDir string) string {
 	return filepath.Join(wsDir, metaDir)
 }
@@ -427,7 +432,8 @@ func WorkspaceMetaFilePath(wsDir string) string {
 	return filepath.Join(wsDir, metaDir, workspaceMetaFile)
 }
 
-// IMJobMappingDir returns the persistent IM mapping directory.
+// IMJobMappingDir returns {LOCAL_MEMORY}/quartet/data/im/mappings/, the
+// persistent IM mapping directory.
 func IMJobMappingDir() string {
 	dir, err := QuartetDataDir()
 	if err != nil {
@@ -452,7 +458,8 @@ func IMJobMappingLegacyFilePath(platform, chatID string) string {
 	return filepath.Join(IMJobMappingDir(), safeExternalID(platform)+"_"+safeExternalID(chatID)+".json")
 }
 
-// IMMessageDir returns the persistent IM message directory for a chat.
+// IMMessageDir returns {LOCAL_MEMORY}/quartet/data/im/{chatID}/, the persistent
+// IM message directory for a chat.
 func IMMessageDir(chatID string) string {
 	dir, err := QuartetDataDir()
 	if err != nil {
@@ -499,7 +506,8 @@ func safeExternalID(id string) string {
 	return id
 }
 
-// UserInputDir returns the persistent flat user-input directory.
+// UserInputDir returns {LOCAL_MEMORY}/quartet/data/user-input/, the persistent
+// flat user-input directory.
 func UserInputDir() string {
 	dir, err := QuartetDataDir()
 	if err != nil {
@@ -514,7 +522,8 @@ func UserInputFilePath(t time.Time) string {
 	return filepath.Join(UserInputDir(), t.Format("2006-01-02")+".jsonl")
 }
 
-// WeChatAccountsDir returns the persistent WeChat account directory.
+// WeChatAccountsDir returns {LOCAL_MEMORY}/quartet/data/wechat/accounts/, the
+// persistent WeChat account directory.
 func WeChatAccountsDir() string {
 	dir, err := QuartetDataDir()
 	if err != nil {
@@ -530,7 +539,9 @@ func WeChatSyncBufFile(botID string) string {
 	return filepath.Join(WeChatAccountsDir(), safeExternalID(botID)+".sync.json")
 }
 
-// SandboxComposeStateDir returns the durable compose state directory.
+// SandboxComposeStateDir returns
+// {LOCAL_MEMORY}/var/quartet/state/sandbox/compose/, the durable compose state
+// directory.
 func SandboxComposeStateDir() (string, error) {
 	dir, err := QuartetStateDir()
 	if err != nil {
