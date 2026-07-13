@@ -152,13 +152,30 @@ function RefreshButton({ loading, onClick }: { loading: boolean; onClick: () => 
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 
+// Short label derived from the actual window length returned by the provider.
+// Codex's primary / secondary field names do not imply a fixed duration.
+function formatWindowLabel(windowSeconds: number): string {
+  const day = 24 * 60 * 60;
+  const hour = 60 * 60;
+  const minute = 60;
+  if (windowSeconds > 0 && windowSeconds % day === 0) return `${windowSeconds / day}d`;
+  if (windowSeconds > 0 && windowSeconds % hour === 0) return `${windowSeconds / hour}h`;
+  if (windowSeconds > 0 && windowSeconds % minute === 0) return `${windowSeconds / minute}m`;
+  return `${Math.max(0, windowSeconds)}s`;
+}
+
 // Absolute reset time for a window. Codex returns reset_at (unix seconds); fall
-// back to now + reset_after_seconds when the API omits it. `withDate` adds the
-// MM-dd prefix for the multi-day (7d) window; the 5h window shows only HH:mm.
-function formatResetAt(w: UsageWindow, withDate: boolean): string {
+// back to now + reset_after_seconds when the API omits it. Multi-day windows
+// include the MM-dd prefix; shorter windows show only HH:mm.
+function formatResetAt(
+  w: UsageWindow,
+  withDate = w.limit_window_seconds >= 24 * 60 * 60,
+): string {
   const d = w.reset_at > 0 ? new Date(w.reset_at * 1000) : new Date(Date.now() + w.reset_after_seconds * 1000);
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return withDate ? `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}` : hm;
+  return withDate
+    ? `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`
+    : hm;
 }
 
 // Local "MM-dd HH:mm" for a reset-credit expiry (unix seconds).
@@ -227,7 +244,7 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
   useEffect(() => load(provider), [provider, load]);
 
   // Tooltip for a usage ring, e.g. "5h 1% · 15:30 重置".
-  const ringTitle = (label: string, w: UsageWindow, withDate: boolean) =>
+  const ringTitle = (label: string, w: UsageWindow, withDate?: boolean) =>
     `${label} ${Math.round(w.used_percent)}% · ${t('agentUsage.resetAt', {
       time: formatResetAt(w, withDate),
     })}`;
@@ -241,20 +258,18 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
       ) : provider === 'codex' && codex ? (
         <>
           {codex.version && <span className="usage-inline-ver">{codex.version}</span>}
-          {codex.primary_window && (
-            <UsageRing
-              percent={codex.primary_window.used_percent}
-              label="5h"
-              title={ringTitle('5h', codex.primary_window, false)}
-            />
-          )}
-          {codex.secondary_window && (
-            <UsageRing
-              percent={codex.secondary_window.used_percent}
-              label="7d"
-              title={ringTitle('7d', codex.secondary_window, true)}
-            />
-          )}
+          {[codex.primary_window, codex.secondary_window].map((window, index) => {
+            if (!window) return null;
+            const label = formatWindowLabel(window.limit_window_seconds);
+            return (
+              <UsageRing
+                key={index}
+                percent={window.used_percent}
+                label={label}
+                title={ringTitle(label, window)}
+              />
+            );
+          })}
           <UsageRing
             percent={codex.reset_credits > 0 ? 100 : 0}
             label={String(codex.reset_credits)}
@@ -318,7 +333,7 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
                 <UsageRing
                   percent={antigravity.claude_5h.used_percent}
                   label="5h"
-                  title={ringTitle('Claude 5h', antigravity.claude_5h, false)}
+                  title={ringTitle('Claude 5h', antigravity.claude_5h)}
                 />
               )}
               {antigravity.claude_weekly && (
@@ -337,7 +352,7 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
                 <UsageRing
                   percent={antigravity.gemini_5h.used_percent}
                   label="5h"
-                  title={ringTitle('Gemini 5h', antigravity.gemini_5h, false)}
+                  title={ringTitle('Gemini 5h', antigravity.gemini_5h)}
                 />
               )}
               {antigravity.gemini_weekly && (

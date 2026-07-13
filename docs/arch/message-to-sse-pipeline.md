@@ -6,6 +6,20 @@
 
 ---
 
+## 0. 消息子系统文档索引
+
+本文是「用户消息 → SSE 推送」这条链路的时序总览。消息子系统按三个方向拆分了独立文档：
+
+| 方向 | 文档 |
+|------|------|
+| 消息**存储**（落盘、原子写、会话锁、去重、恢复、缓存） | [message-storage.md](./message-storage.md) |
+| 消息**拉取**（历史 REST、summary 投影、懒加载、前端合并去重、public 分享） | [message-pull.md](./message-pull.md) |
+| SSE **推送**（当前设计 / 恢复语义 / 慢客户端） | [sse-event-buffer-design.md](./sse-event-buffer-design.md) |
+| SSE 推送**演进背景**（旧链路问题与重构方向） | [sse-event-buffer-history.md](./sse-event-buffer-history.md) |
+| **Graph 运行**的存储与实时流差异 | [graph-run-message-storage-and-live-flow.md](./graph-run-message-storage-and-live-flow.md) |
+
+---
+
 ## 1. 整体时序
 
 ```

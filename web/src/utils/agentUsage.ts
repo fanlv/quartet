@@ -12,8 +12,9 @@ export interface CodexUsage {
   email?: string;
   plan_type?: string;
   version?: string; // e.g. "v1.1.0"
-  primary_window?: UsageWindow; // 5-hour
-  secondary_window?: UsageWindow; // 7-day
+  // Upstream field positions; use each window's limit_window_seconds for its duration.
+  primary_window?: UsageWindow;
+  secondary_window?: UsageWindow;
   reset_credits: number; // count of available rate-limit reset credits
   reset_credit_expiries?: number[]; // unix seconds, one per available credit, ascending
 }
@@ -60,7 +61,7 @@ export async function fetchAgentUsage(
   provider: AgentUsageProvider,
 ): Promise<{ codex?: CodexUsage; claude?: ClaudeUsage; antigravity?: AntigravityUsage }> {
   // `cache: 'no-store'` is required: this quota reading changes continuously
-  // (the Codex 5h window especially), so a browser/intermediary HTTP-cache hit
+  // (Codex windows especially), so a browser/intermediary HTTP-cache hit
   // would serve an old snapshot and — since the result is re-written to the
   // localStorage cache — make the stale value stick across refreshes.
   const res = await fetch(`/api/v1/agent/usage?type=${provider}`, { cache: 'no-store' });

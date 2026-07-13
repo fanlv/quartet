@@ -10,7 +10,8 @@ type AgentUsageResponse struct {
 	Antigravity *AntigravityUsage `json:"antigravity,omitempty"`
 }
 
-// UsageWindow is one Codex rate-limit window (5-hour primary / 7-day secondary).
+// UsageWindow is one rate-limit window. LimitWindowSeconds is the source of
+// truth for its duration; upstream field names do not imply a fixed period.
 type UsageWindow struct {
 	UsedPercent        float64 `json:"used_percent"`
 	LimitWindowSeconds int64   `json:"limit_window_seconds"`
@@ -24,8 +25,8 @@ type CodexUsage struct {
 	Email           string       `json:"email,omitempty"`
 	PlanType        string       `json:"plan_type,omitempty"`
 	Version         string       `json:"version,omitempty"` // bundled codex CLI version, e.g. "v0.144.0"
-	PrimaryWindow   *UsageWindow `json:"primary_window,omitempty"`   // 5-hour
-	SecondaryWindow *UsageWindow `json:"secondary_window,omitempty"` // 7-day
+	PrimaryWindow   *UsageWindow `json:"primary_window,omitempty"`
+	SecondaryWindow *UsageWindow `json:"secondary_window,omitempty"`
 	ResetCredits    int          `json:"reset_credits"`              // count of available rate-limit reset credits
 	// ResetCreditExpiries lists the expiry (unix seconds) of each available reset
 	// credit, ascending. Sourced from the rate-limit-reset-credits endpoint;
