@@ -49,6 +49,22 @@
   color: var(--color-fg-muted, #9aa4ad);
 }
 
+.auth-gate-error-detail {
+  max-height: 180px;
+  margin: -8px 0 20px;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, #f85149 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, #f85149 8%, transparent);
+  color: inherit;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
 .auth-gate-input-row {
   display: flex;
   gap: 8px;

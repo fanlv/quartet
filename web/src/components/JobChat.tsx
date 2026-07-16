@@ -148,6 +148,7 @@ export function JobChat(props: JobChatProps) {
       clientMessageId: id,
       pending: true,
       failed: false,
+      deliveryStatus: 'sending',
       imageUrls: initialImageUrls?.length ? initialImageUrls : undefined,
     };
   });
@@ -173,6 +174,9 @@ export function JobChat(props: JobChatProps) {
     isLoop,
     isGraph,
     graphRunId,
+    graphRunStatusSnapshot,
+    graphStreamError,
+    applyGraphRunStatusSnapshot,
     loopProgress,
     loopStatus,
     stopPending,
@@ -1621,6 +1625,9 @@ export function JobChat(props: JobChatProps) {
         <GraphLoopProgress
           jobId={existingJobId}
           runId={graphRunId}
+          snapshot={graphRunStatusSnapshot}
+          streamError={graphStreamError}
+          onSnapshot={applyGraphRunStatusSnapshot}
           readOnly={isReadonly}
           shareToken={shareToken}
           agents={agents}

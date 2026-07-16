@@ -24,6 +24,7 @@
 // entirely in that case.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { markBootStage } from '../utils/boot';
 import { setAuthForwarderEnabled } from '../utils/frontend-log';
 import './AuthGate.css';
 
@@ -46,6 +47,22 @@ function hasShareToken(): boolean {
   return !!params.get('shareToken');
 }
 
+function fullErrorDetail(error: unknown): string {
+  if (error instanceof Error) return error.stack || `${error.name}: ${error.message}`;
+  return String(error);
+}
+
+async function fullHttpErrorDetail(endpoint: string, response: Response): Promise<string> {
+  let body = '';
+  try {
+    body = await response.text();
+  } catch (error) {
+    body = `Failed to read response body: ${fullErrorDetail(error)}`;
+  }
+  const status = `${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
+  return `GET ${endpoint} returned HTTP ${status}${body ? `\n${body}` : ''}`;
+}
+
 interface AuthGateProps {
   children: React.ReactNode;
 }
@@ -60,6 +77,7 @@ export function AuthGate({ children }: AuthGateProps) {
   const [tokenInput, setTokenInput] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [probeError, setProbeError] = useState('');
 
   // The token-forwarder in main.tsx attaches X-AGENT-AUTH from localStorage
   // for every fetch. The frontend-log forwarder runs independently and would
@@ -67,10 +85,13 @@ export function AuthGate({ children }: AuthGateProps) {
   // up. Disable forwarding until the gate resolves to "ready".
   useEffect(() => {
     setAuthForwarderEnabled(stage === 'ready');
+    markBootStage('auth-gate-rendered', `stage=${stage}`);
   }, [stage]);
 
   const probe = useCallback(async () => {
     setStage('probing');
+    setProbeError('');
+    markBootStage('health-request-start');
 
     let authRequired = false;
     try {
@@ -78,6 +99,7 @@ export function AuthGate({ children }: AuthGateProps) {
       // X-AGENT-AUTH header. Cache-bust so the probe never reads a stale
       // service-worker / proxy response.
       const res = await fetch('/api/v1/health', { cache: 'no-store' });
+      markBootStage('health-request-end', `status=${res.status}`);
       if (!res.ok) {
         // Surface the HTTP error so operators can tell "backend down" (no
         // response / 5xx) apart from "endpoint missing" (404 — old binary).
@@ -86,17 +108,25 @@ export function AuthGate({ children }: AuthGateProps) {
         // to the backend only if the gate later reaches 'ready'. If probing
         // never recovers, keeping it browser-local is intentional: the report
         // endpoint is protected and would otherwise add auth noise.
-        console.error(`[AuthGate] /api/v1/health probe returned non-OK status=${res.status}`);
+        const detail = await fullHttpErrorDetail('/api/v1/health', res);
+        console.error(`[AuthGate] ${detail}`);
+        setProbeError(detail);
         setStage('probeFailed');
         return;
       }
-      const body = await res.json().catch((err) => {
-        console.warn('[AuthGate] /api/v1/health body was not valid JSON', err);
-        return {};
-      });
+      const rawBody = await res.text();
+      let body: { authRequired?: boolean };
+      try {
+        body = JSON.parse(rawBody) as { authRequired?: boolean };
+      } catch (error) {
+        throw new Error(`GET /api/v1/health returned invalid JSON\n${rawBody}`, { cause: error });
+      }
       authRequired = !!body?.authRequired;
     } catch (err) {
+      const detail = fullErrorDetail(err);
+      markBootStage('health-request-failed', detail);
       console.error('[AuthGate] /api/v1/health probe threw', err);
+      setProbeError(detail);
       setStage('probeFailed');
       return;
     }
@@ -116,22 +146,30 @@ export function AuthGate({ children }: AuthGateProps) {
     // automatically. auth/verify is a lightweight endpoint that does not
     // probe ACP agents — it only validates the token against the middleware.
     try {
+      markBootStage('auth-verify-request-start');
       const res = await fetch('/api/v1/auth/verify', { cache: 'no-store' });
+      markBootStage('auth-verify-request-end', `status=${res.status}`);
       if (res.ok) {
         setStage('ready');
         return;
       }
       if (res.status === 403 || res.status === 401) {
+        setProbeError(await fullHttpErrorDetail('/api/v1/auth/verify', res));
         setStage('invalidToken');
         return;
       }
       // Any other status (5xx, 404 if route shape ever changes, etc.) is
       // surfaced as a probe failure rather than silently letting App boot
       // into a broken state.
-      console.error(`[AuthGate] /api/v1/auth/verify probe returned unexpected status=${res.status}`);
+      const detail = await fullHttpErrorDetail('/api/v1/auth/verify', res);
+      console.error(`[AuthGate] ${detail}`);
+      setProbeError(detail);
       setStage('probeFailed');
     } catch (err) {
+      const detail = fullErrorDetail(err);
+      markBootStage('auth-verify-request-failed', detail);
       console.error('[AuthGate] /api/v1/auth/verify probe threw', err);
+      setProbeError(detail);
       setStage('probeFailed');
     }
   }, []);
@@ -200,6 +238,7 @@ export function AuthGate({ children }: AuthGateProps) {
         {stage === 'probeFailed' && (
           <>
             <p className="auth-gate-desc" data-testid="auth-gate-error">{t('settings.token.gateProbeFailed')}</p>
+            {probeError && <pre className="auth-gate-error-detail">{probeError}</pre>}
             <div className="auth-gate-actions">
               <button
                 className="auth-gate-btn auth-gate-btn-primary"
@@ -220,6 +259,9 @@ export function AuthGate({ children }: AuthGateProps) {
                 ? t('settings.token.gateDescInvalidToken')
                 : t('settings.token.gateDescNeedToken')}
             </p>
+            {stage === 'invalidToken' && probeError && (
+              <pre className="auth-gate-error-detail">{probeError}</pre>
+            )}
             <div className="auth-gate-input-row">
               <input
                 type={showToken ? 'text' : 'password'}

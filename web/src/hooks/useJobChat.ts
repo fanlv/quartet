@@ -465,6 +465,20 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const isLoopRef = useRef(false);
   const [isGraph, setIsGraph] = useState(false);
   const [graphRunId, setGraphRunId] = useState<string | null>(null);
+  // Page-level graph state shared by the chat/session view and
+  // GraphLoopProgress. useJobChat owns the single live Graph SSE subscription;
+  // every structural event reconciles one authoritative run snapshot here and
+  // the progress component consumes that snapshot instead of opening a second
+  // long-lived connection to the same endpoint.
+  const [graphRunStatusSnapshot, setGraphRunStatusSnapshot] = useState<GraphRunStatusResponse | null>(null);
+  const [graphStreamError, setGraphStreamError] = useState<string | null>(null);
+  const applyGraphRunStatusSnapshot = useCallback((snapshot: GraphRunStatusResponse) => {
+    setGraphRunStatusSnapshot(snapshot);
+    setGraphStreamError(null);
+    if (snapshot.run?.status) {
+      setIsLoading(GRAPH_LIVE_STATUSES.has(snapshot.run.status));
+    }
+  }, []);
   const [loopProgress, setLoopProgress] = useState<JobProgress | null>(null);
   const [loopStatus, setLoopStatus] = useState<'idle' | 'running' | 'completed' | 'stopped' | 'failed'>('idle');
   // True once a graceful "stop after step" has been requested but the loop has
@@ -1046,7 +1060,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setMessages((prev) =>
             prev.map((m) =>
               m.role === MessageRoleEnum.USER && m.clientMessageId === clientMessageId
-                ? { ...m, sessionId: iterSessionId, pending: false, failed: false }
+                ? { ...m, sessionId: iterSessionId, pending: false, failed: false, deliveryStatus: 'sent', sendError: undefined }
                 : m
             )
           );
@@ -2297,14 +2311,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     };
   }, [jobId, jobNotFound, snapshotReady, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistory]);
 
-  // Graph mode: keep node sessions live. The job-events SSE above carries no
-  // graph traffic (graph runs emit on their own /job/:jobId/graph-run/events
-  // stream), so subscribe separately while the run is in flight. We don't
-  // re-stream agent token deltas into messages here — GraphLoopProgress already
-  // animates the run, and the message view is the per-node conversation. On any
-  // instance lifecycle / progress event we reconcile: rebuild the session list
-  // from the run's instances and reload the messages of sessions whose node
-  // just produced output.
+  // Graph mode has one page-level stream. It feeds agent deltas into the chat,
+  // reconciles node sessions, and publishes the same authoritative run snapshot
+  // to GraphLoopProgress. Keeping all three consumers behind this one owner
+  // avoids opening a second /graph-run/events connection from the progress
+  // component (which exhausted HTTP/1.1 connection slots across two tabs).
   const graphSseRef = useRef<SSEClient | null>(null);
   useEffect(() => {
     graphSseRef.current?.disconnect();
@@ -2321,15 +2332,17 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       const seq = ++reconcileSeq;
       let instances: GraphInstanceState[] = [];
       let archivedInstances: Record<string, GraphInstanceState> | undefined;
-      let runStatus: GraphRunStatus | undefined;
       try {
         const res = await fetch(apiUrl(`/job/${encodeURIComponent(jobId)}/graph-run`));
-        if (!res.ok) return;
+        if (!res.ok) {
+          throw new Error(await readHTTPError(res, `GET /job/${jobId}/graph-run`));
+        }
         const data = (await res.json()) as GraphRunStatusResponse;
+        applyGraphRunStatusSnapshot(data);
         instances = data.instances || [];
         archivedInstances = data.run?.archivedInstances;
-        runStatus = data.run?.status;
       } catch (err) {
+        setGraphStreamError(err instanceof Error ? err.message : String(err));
         console.error(`[graph-sse] reconcile fetch failed for job ${jobId} run ${graphRunId}:`, err);
         return;
       }
@@ -2375,9 +2388,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         }
       }
 
-      if (runStatus && !GRAPH_LIVE_STATUSES.has(runStatus)) {
-        setIsLoading(false);
-      }
+      // applyGraphRunStatusSnapshot above is the single source of truth for
+      // the page's live/terminal state, including Resume actions initiated by
+      // GraphLoopProgress and terminal transitions observed on this stream.
     };
 
     const client = new SSEClient();
@@ -2419,8 +2432,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       onEvent: (raw) => {
         const evt = raw as unknown as GraphEvent;
         const t = evt.type;
+        if (t === 'progressUpdated' || t === 'error') {
+          if (t === 'error') {
+            setGraphStreamError(evt.error?.message || evt.message || 'Graph run stream reported an error');
+          }
+          immediateReconcile();
+          return;
+        }
         if (t === 'instanceStarted' || t === 'instanceCompleted' || t === 'instanceFailed'
-          || t === 'instanceSkipped' || t === 'progressUpdated') {
+          || t === 'instanceSkipped' || t === 'edgeResolved' || t === 'loopIteration') {
           if (t === 'instanceStarted' && evt.message === 'session opened') {
             immediateReconcile();
           } else {
@@ -2445,9 +2465,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         }
         handleEventRef.current(translated);
       },
-      onError: () => { /* progress component surfaces graph errors */ },
-      onResumePointGone: () => void reconcile(),
-    }).catch(() => { /* best-effort live refresh */ });
+      onError: (err) => setGraphStreamError(err.message || String(err)),
+      onResumePointGone: (errorMessage) => {
+        setGraphStreamError(errorMessage);
+        void reconcile();
+      },
+    }).catch((err) => {
+      setGraphStreamError(err instanceof Error ? err.message : String(err));
+    });
 
     return () => {
       cancelled = true;
@@ -2458,7 +2483,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       client.disconnect();
       if (graphSseRef.current === client) graphSseRef.current = null;
     };
-  }, [isGraph, graphRunId, jobId, isLoading, apiUrl, loadHistory, setLoopSessions, applyActiveSessionSelection]);
+  }, [isGraph, graphRunId, jobId, isLoading, apiUrl, loadHistory, setLoopSessions, applyActiveSessionSelection, applyGraphRunStatusSnapshot]);
 
   // Send interactive message.
   //
@@ -2556,6 +2581,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       sessionId: targetSessionId || activeSessionIdRef.current || undefined,
       clientMessageId,
       pending: true,
+      deliveryStatus: 'sending',
       imageUrls: imageUrls && imageUrls.length > 0 ? imageUrls : undefined,
     } as Message;
 
@@ -2625,10 +2651,23 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         setIsLoading(false);
         const event = body?.event as CommandSystemMessageEvent | undefined;
         if (event && event.text) applyCommandEvent(event);
+      } else {
+        // The HTTP response is the delivery acknowledgement: the backend has
+        // accepted the message and started the run. Keep `pending` untouched
+        // until RUN_STARTED reconciles the optimistic bubble with its session,
+        // but stop the delivery spinner immediately.
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === userMessageId
+              ? { ...msg, deliveryStatus: 'sent', sendError: undefined }
+              : msg
+          )
+        );
       }
       // Events come through the /events SSE connection
     } catch (err) {
       console.error('[sendMessage] error:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err || 'Failed to send message');
       const ignoreNetworkError = isIgnorableNetworkError(err);
       if (ignoreNetworkError) {
         reportDisconnect();
@@ -2636,7 +2675,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === userMessageId
-            ? { ...msg, pending: false, failed: true }
+            ? { ...msg, pending: false, failed: true, deliveryStatus: 'failed', sendError: errorMessage }
             : msg
         )
       );
@@ -2644,7 +2683,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       if (ignoreNetworkError) {
         return;
       }
-      setError(err instanceof Error ? err.message : 'Failed to send message');
+      setError(errorMessage);
     }
   }, [jobId, isPublic, clearPendingCommandWatchdog, applyCommandEvent, reportDisconnect]);
 
@@ -3251,6 +3290,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
               const runRes = await fetch(apiUrl(`/job/${encodeURIComponent(job.id)}/graph-run`));
               if (runRes.ok) {
                 const runData = (await runRes.json()) as GraphRunStatusResponse;
+                applyGraphRunStatusSnapshot(runData);
                 graphInstances = runData.instances || [];
                 graphArchived = runData.run?.archivedInstances;
               }
@@ -3398,7 +3438,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       cancelled = true;
       if (cancelIdlePrefetch) cancelIdlePrefetch();
     };
-  }, [existingJobId, initialSessionId, apiUrl, loadHistory, applyActiveSessionSelection, setLoopSessions, seedServerClockFromResponse, reportDisconnect]);
+  }, [existingJobId, initialSessionId, apiUrl, loadHistory, applyActiveSessionSelection, setLoopSessions, seedServerClockFromResponse, reportDisconnect, applyGraphRunStatusSnapshot]);
 
   // When the active session changes in loop mode, update session-level metadata
   // so ChatInput/MessageList reflect the session's agent/model.
@@ -3553,6 +3593,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     isLoop,
     isGraph,
     graphRunId,
+    graphRunStatusSnapshot,
+    graphStreamError,
+    applyGraphRunStatusSnapshot,
     loopProgress,
     loopStatus,
     stopPending,

@@ -305,7 +305,7 @@ install-acp-deps:
 	@echo "📦 Installing/upgrading ACP agent dependencies..."
 	@npm install -g @anthropic-ai/claude-code@latest
 	@npm install -g @openai/codex@latest
-	@npm install -g @agentclientprotocol/claude-agent-acp || { echo "❌ Failed to install @agentclientprotocol/claude-agent-acp"; exit 1; }
+	@npm install -g @agentclientprotocol/claude-agent-acp@0.58.1 || { echo "❌ Failed to install @agentclientprotocol/claude-agent-acp@0.58.1"; exit 1; }
 	@npm install -g @agentclientprotocol/codex-acp || { echo "❌ Failed to install @agentclientprotocol/codex-acp"; exit 1; }
 	@npm install -g --force bun@latest || { echo "❌ Failed to install bun (required by antigravity-acp)"; exit 1; }
 	@npm install -g --force antigravity-acp@latest || { echo "❌ Failed to install antigravity-acp"; exit 1; }

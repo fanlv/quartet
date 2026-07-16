@@ -5,6 +5,7 @@ import { StatsPage } from './components/stats/StatsPage';
 import { ConnectionStatusProvider } from './contexts/ConnectionStatus';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import { LoopConfig } from './types';
+import { markBootStage, reportBootFailure } from './utils/boot';
 import { DEFAULT_WORKSPACE_ID, getLastUsedWorkspaceId, setLastUsedWorkspaceId, loadWorkspacePrefs, registerWorkspaceColors } from './utils/workspace';
 import './App.css';
 
@@ -201,15 +202,29 @@ function App() {
   // This also guarantees the UI has a real workspace object for first-time
   // users (the server creates ws-1 on boot; we just need to fetch it).
   useEffect(() => {
-    if (isReadonly) return;
+    if (isReadonly) {
+      markBootStage('workspace-initialization-skipped', 'public-share');
+      return;
+    }
     let cancelled = false;
+    markBootStage('workspace-initialization-start');
     (async () => {
       try {
         const res = await fetch('/api/v1/workspace/list');
-        if (!res.ok) return;
-        const data = await res.json();
+        const rawBody = await res.text();
+        if (!res.ok) {
+          const status = `${res.status}${res.statusText ? ` ${res.statusText}` : ''}`;
+          throw new Error(`GET /api/v1/workspace/list returned HTTP ${status}${rawBody ? `\n${rawBody}` : ''}`);
+        }
+        let data: { workspaces?: WorkspaceInfo[] };
+        try {
+          data = JSON.parse(rawBody) as { workspaces?: WorkspaceInfo[] };
+        } catch (error) {
+          throw new Error(`GET /api/v1/workspace/list returned invalid JSON\n${rawBody}`, { cause: error });
+        }
         const list: WorkspaceInfo[] = data?.workspaces || [];
-        if (cancelled || list.length === 0) return;
+        if (cancelled) return;
+        if (list.length === 0) throw new Error('GET /api/v1/workspace/list returned an empty workspace list');
 
         registerWorkspaceColors(list);
 
@@ -238,8 +253,13 @@ function App() {
         setCurrentWorkspace(found);
         localStorage.setItem(`workspace_${found.id}`, JSON.stringify(found));
         setLastUsedWorkspaceId(found.id);
-      } catch {
-        /* ignore */
+      } catch (error) {
+        const detail = error instanceof Error ? error.stack || error.message : String(error);
+        markBootStage('workspace-initialization-failed', detail);
+        reportBootFailure('WORKSPACE_INITIALIZATION_ERROR', detail);
+        console.error('[App] workspace initialization failed', error);
+      } finally {
+        markBootStage('workspace-initialization-finished');
       }
     })();
     return () => { cancelled = true; };

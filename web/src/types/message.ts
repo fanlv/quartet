@@ -10,6 +10,8 @@ export interface BaseMessage {
   clientMessageId?: string;
   pending?: boolean;
   failed?: boolean;
+  deliveryStatus?: 'sending' | 'sent' | 'failed';
+  sendError?: string;
 }
 
 export interface UserMessage extends BaseMessage {

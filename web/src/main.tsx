@@ -4,19 +4,11 @@ import './i18n'
 import './index.css'
 import App from './App.tsx'
 import { AuthGate } from './components/AuthGate'
+import { BootComplete } from './components/BootComplete'
+import { markBootStage, reportBootFailure } from './utils/boot'
 import { installFrontendLogForwarder } from './utils/frontend-log'
 
-// ?clear=1 self-rescue: mobile users hitting a white-screen state can append
-// the query to wipe local persistence without digging through Chrome's
-// settings menu. We do this BEFORE anything else so a corrupt storage entry
-// can't crash the rest of boot before the cleanup runs.
-if (typeof window !== 'undefined' && /[?&]clear=1\b/.test(window.location.search)) {
-  try { localStorage.clear() } catch { /* ignore */ }
-  try { sessionStorage.clear() } catch { /* ignore */ }
-  const url = new URL(window.location.href)
-  url.searchParams.delete('clear')
-  window.location.replace(url.toString())
-}
+markBootStage('main-module-executing')
 
 /* ── iOS / iPad Chrome viewport fixes ─────────────────────────────────
  * On iOS Safari & Chrome, the virtual keyboard does NOT shrink the
@@ -134,58 +126,11 @@ function setupViewportFixes() {
 }
 setupViewportFixes()
 
-// Visible boot-error overlay. White-screen reports on mobile Chrome are hard
-// to diagnose without remote DevTools — this paints any uncaught error or
-// rejected promise straight onto the page so the user can read it without a
-// console.
+// The HTML bootstrap already owns window.error, unhandledrejection, the
+// startup timeout, and the recovery UI. The main bundle only needs to bridge
+// fatal React console errors into that bootstrap. Keeping the bootstrap in
+// index.html means this path still works when this module never loads.
 function installBootErrorOverlay() {
-  const show = (label: string, detail: string) => {
-    let host = document.getElementById('boot-error-overlay') as HTMLDivElement | null
-    if (!host) {
-      host = document.createElement('div')
-      host.id = 'boot-error-overlay'
-      host.style.cssText = [
-        'position:fixed', 'inset:0', 'z-index:2147483647',
-        'background:#fff', 'color:#b00020',
-        'font:12px/1.5 -apple-system,Menlo,monospace',
-        'padding:16px', 'overflow:auto', 'white-space:pre-wrap',
-        'word-break:break-all', '-webkit-user-select:text', 'user-select:text',
-      ].join(';')
-      document.body.appendChild(host)
-      const reloadBtn = document.createElement('button')
-      reloadBtn.textContent = 'Reload'
-      reloadBtn.style.cssText = 'margin:8px 8px 16px 0;padding:8px 12px;font-size:13px'
-      reloadBtn.onclick = () => {
-        location.reload()
-      }
-      host.appendChild(reloadBtn)
-      const btn = document.createElement('button')
-      btn.textContent = 'Clear localStorage & reload'
-      btn.style.cssText = 'margin:8px 0 16px;padding:8px 12px;font-size:13px'
-      btn.onclick = () => {
-        try { localStorage.clear() } catch { /* ignore */ }
-        try { sessionStorage.clear() } catch { /* ignore */ }
-        location.reload()
-      }
-      host.appendChild(btn)
-    }
-    const block = document.createElement('div')
-    block.style.cssText = 'margin-bottom:12px;padding-top:12px;border-top:1px solid #eee'
-    block.textContent = `[${label}] ${detail}`
-    host.appendChild(block)
-  }
-  window.addEventListener('error', (e) => {
-    // "ResizeObserver loop completed with undelivered notifications" is a
-    // benign, self-recovering browser notice (commonly emitted by React Flow's
-    // canvas resize observation). It is NOT a crash — never paint the fatal
-    // overlay for it, or the Graph canvas becomes unusable after a resize.
-    if (isBenignResizeObserverError(e.message)) return
-    show('error', `${e.message}\n${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack || ''}`)
-  })
-  window.addEventListener('unhandledrejection', (e) => {
-    const r = e.reason
-    show('unhandledrejection', r?.stack || r?.message || String(r))
-  })
   // React in dev does not rethrow render errors to window.onerror; it logs
   // them to console.error. Intercept that so a render-time crash inside
   // <App /> still paints to the overlay instead of leaving a white screen.
@@ -209,7 +154,7 @@ function installBootErrorOverlay() {
           if (typeof a === 'string') return a
           try { return JSON.stringify(a) } catch { return String(a) }
         }).join(' ')
-        show('console.error', text)
+        reportBootFailure('REACT_RENDER_ERROR', text)
       }
     } catch { /* never let the overlay path break console */ }
     origConsoleError(...args)
@@ -283,8 +228,10 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   return originalFetch(input, { ...init, headers })
 }) as typeof window.fetch
 
+markBootStage('react-render-start')
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <BootComplete />
     <AuthGate>
       <App />
     </AuthGate>

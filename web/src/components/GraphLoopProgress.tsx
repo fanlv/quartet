@@ -14,7 +14,6 @@ import type { TFunction } from 'i18next';
 import type {
   GraphConfig,
   GraphEdgeState,
-  GraphEvent,
   GraphInstanceState,
   GraphNode,
   GraphNodeConfig,
@@ -25,7 +24,6 @@ import type {
   GraphValidationError,
 } from '../types';
 import type { AgentInfo } from './ChatPage';
-import { SSEClient } from '../utils/sse-client';
 import { GraphCanvas, type GraphCanvasFocus } from './graph/GraphCanvas';
 import { GraphInspector } from './graph/GraphInspector';
 import {
@@ -82,12 +80,18 @@ function mintId(prefix: string, taken: Set<string>): string {
 interface GraphLoopProgressProps {
   jobId: string | null;
   runId: string | null;
+  // Authoritative snapshots produced by useJobChat's single page-level Graph
+  // SSE subscription. GraphLoopProgress also reports snapshots fetched by its
+  // own actions/initial load back to the page so Resume can re-open that same
+  // subscription without creating a component-local stream.
+  snapshot?: GraphRunStatusResponse | null;
+  streamError?: string | null;
+  onSnapshot?: (snapshot: GraphRunStatusResponse) => void;
   readOnly?: boolean;
-  // Present only in public share mode. When set, the read-only run status /
-  // events are fetched from /api/v1/public/* with this token instead of the
-  // auth-gated /api/v1/* routes, so a shared graph job can surface its node
-  // sessions. Action/version routes are never reachable here (all gated by
-  // !readOnly), so they keep using the auth-only path.
+  // Present only in public share mode. When set, the read-only run status is
+  // fetched from /api/v1/public/* with this token instead of the auth-gated
+  // /api/v1/* route. Action/version routes are never reachable here (all gated
+  // by !readOnly), so they keep using the auth-only path.
   shareToken?: string;
   // Agent list for the inline inspector's Agent/model selectors.
   agents?: AgentInfo[];
@@ -110,8 +114,9 @@ const EDITABLE_STATUSES = new Set<GraphRunStatus>([
   'awaitingInput',
 ]);
 
-// LIVE = run is actively scheduling and still producing events → keep an SSE
-// tail open. RESUMABLE mirrors the backend's isResumableStatus (run_control.go),
+// LIVE = run is actively scheduling and still producing events → the page-level
+// owner keeps its SSE tail open. RESUMABLE mirrors the backend's
+// isResumableStatus (run_control.go),
 // which INCLUDES 'recovering': a crash-recovered run is a static, resumable
 // terminal — it does not auto-continue and emits no new events, so it is NOT
 // live (no SSE tail, no replay) and instead shows a Resume action. Keeping these
@@ -178,7 +183,7 @@ function statusLabel(t: TFunction, status?: GraphRunStatus): string {
   }
 }
 
-export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents = [], canEdit }: GraphLoopProgressProps) {
+export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnapshot, readOnly, shareToken, agents = [], canEdit }: GraphLoopProgressProps) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   // On phones the control panel (expand / edit / step-stop / stop / resume)
@@ -209,10 +214,8 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
   const [focus, setFocus] = useState<GraphCanvasFocus>({ token: 0 });
   const [savedEditFingerprint, setSavedEditFingerprint] = useState('');
   const [saving, setSaving] = useState(false);
-  const sseRef = useRef<SSEClient | null>(null);
   const bindingRef = useRef(`${jobId || ''}:${runId || ''}`);
 
-  const isLive = !!run?.status && LIVE_STATUSES.has(run.status);
   const canStepStop = !readOnly && run?.status === 'running';
   // A pending step-stop (not yet settled) can be cancelled, releasing
   // the held dispatch frontier back to running — mirrors Loop's "keep running".
@@ -224,11 +227,11 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
   const canContinue = !readOnly && run?.status === 'awaitingInput';
   const canEditRun = !!canEdit && !readOnly && !!run?.status && EDITABLE_STATUSES.has(run.status);
 
-  // Build the run status / events URL. In public share mode the auth-gated
-  // /api/v1/* routes 403, so read-only fetches go to /api/v1/public/* with the
-  // shareToken + jobId query params the share-token middleware validates. Only
-  // used for the GET status fetch and the events SSE; mutating actions stay on
-  // /api/v1/* because they are gated behind !readOnly and never fire here.
+  // Build the run status URL. In public share mode the auth-gated /api/v1/*
+  // routes 403, so read-only fetches go to /api/v1/public/* with the shareToken
+  // + jobId query params the share-token middleware validates. Mutating actions
+  // stay on /api/v1/* because they are gated behind !readOnly and never fire
+  // here. Live events are owned by useJobChat at page level.
   const runApiUrl = useCallback((suffix: string) => {
     const id = encodeURIComponent(jobId || '');
     if (shareToken) {
@@ -252,6 +255,13 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
     toggleExpanded();
   }, [toggleExpanded]);
 
+  const applySnapshot = useCallback((data: GraphRunStatusResponse) => {
+    setRun(data.run || null);
+    setProgress(data.progress || data.run?.progress || null);
+    setInstances(data.instances || []);
+    setEdges(data.edges || []);
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!jobId) {
       setRun(null);
@@ -265,84 +275,26 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
       const res = await fetch(runApiUrl(''));
       if (!res.ok) throw new Error(await readGraphError(res, `GET /job/${jobId}/graph-run`));
       const data = await res.json() as GraphRunStatusResponse;
-      setRun(data.run || null);
-      setProgress(data.progress || data.run?.progress || null);
-      setInstances(data.instances || []);
-      setEdges(data.edges || []);
+      applySnapshot(data);
+      onSnapshot?.(data);
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [jobId, runApiUrl]);
+  }, [applySnapshot, jobId, onSnapshot, runApiUrl]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  useEffect(() => () => {
-    sseRef.current?.disconnect();
-    sseRef.current = null;
-  }, []);
-
   useEffect(() => {
-    sseRef.current?.disconnect();
-    sseRef.current = null;
-    if (!jobId || !isLive) return;
-
-    const client = new SSEClient();
-    sseRef.current = client;
-    let closed = false;
-    let lastInstanceRefreshAt = 0;
-    const throttledRefresh = () => {
-      const now = Date.now();
-      if (now - lastInstanceRefreshAt < 400) return;
-      lastInstanceRefreshAt = now;
-      void refresh();
-    };
-    void client.connectUntilReady({
-      url: runApiUrl('/events'),
-      // Resume from the buffer tail. The server's Last-Event-ID is now an
-      // in-memory buffer seq (not a file line count), so seeding it from a
-      // client-side counter is meaningless; the SSE client overwrites this with
-      // the server-sent `id:` (seq) for any subsequent reconnect.
-      initialLastEventId: '0',
-      onEvent: (raw) => {
-        const event = raw as unknown as GraphEvent;
-        // Events never carry a progress snapshot: progress + node status come
-        // exclusively from a (throttled) re-fetch of the run snapshot, so a
-        // replayed historical event can never rewind the live progress. The
-        // event's job here is only to decide *when* to re-fetch.
-        // progressUpdated/error re-fetch immediately (terminal transition +
-        // edges); instance/edge/loop lifecycle events re-fetch throttled.
-        if (event.type === 'progressUpdated' || event.type === 'error') {
-          if (event.type === 'error' && event.message) {
-            setError(event.error?.message || event.message);
-          }
-          void refresh();
-          return;
-        }
-        if (
-          event.type === 'instanceStarted' || event.type === 'instanceCompleted' ||
-          event.type === 'instanceFailed' || event.type === 'instanceSkipped' ||
-          event.type === 'edgeResolved' || event.type === 'loopIteration'
-        ) {
-          throttledRefresh();
-        }
-      },
-      onError: (err) => setError(err.message),
-      onResumePointGone: () => void refresh(),
-    }).catch((err) => {
-      if (!closed) setError(err instanceof Error ? err.message : String(err));
-    });
-
-    return () => {
-      closed = true;
-      client.disconnect();
-      if (sseRef.current === client) sseRef.current = null;
-    };
-  }, [isLive, refresh, jobId, runApiUrl]);
+    if (!snapshot) return;
+    // Ignore a late response from a previously-bound run after navigation.
+    if (runId && snapshot.run?.id && snapshot.run.id !== runId) return;
+    applySnapshot(snapshot);
+  }, [applySnapshot, runId, snapshot]);
 
   const doAction = useCallback(async (action: 'step-stop' | 'cancel-stop' | 'stop' | 'resume' | 'continue') => {
     if (!jobId) return;
@@ -358,7 +310,17 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
       const data = await res.json().catch(() => null) as { run?: GraphRun } | null;
       if (data?.run) {
         setRun(data.run);
-        setProgress(data.run.progress || progress);
+        const nextProgress = data.run.progress || progress;
+        setProgress(nextProgress);
+        // Publish the action response before the follow-up GET. In particular,
+        // Resume must flip the page back to live immediately so useJobChat can
+        // open the one shared SSE even if the reconciliation GET is delayed.
+        onSnapshot?.({
+          run: data.run,
+          progress: nextProgress || undefined,
+          instances,
+          edges,
+        });
       }
       await refresh();
     } catch (err) {
@@ -366,7 +328,7 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
     } finally {
       setActionPending(null);
     }
-  }, [progress, refresh, jobId]);
+  }, [edges, instances, jobId, onSnapshot, progress, refresh]);
 
   const percent = useMemo(() => {
     if (!progress) return 0;
@@ -659,7 +621,12 @@ export function GraphLoopProgress({ jobId, runId, readOnly, shareToken, agents =
     [editEdges, editNodes, editSnapshot],
   );
 
-  const lastError = run?.lastError?.message || progress?.lastError || error;
+  const lastError = Array.from(new Set([
+    run?.lastError?.message,
+    progress?.lastError,
+    error,
+    streamError,
+  ].filter((message): message is string => !!message))).join('\n');
   const doneText = progress
     ? t('graph.loop.done', { count: progress.completedCount, total: progress.totalCount })
     : t('graph.progress.none');

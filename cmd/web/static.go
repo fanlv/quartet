@@ -14,6 +14,11 @@ import (
 
 const defaultStaticDir = "static"
 
+const (
+	staticRevalidateCacheControl = "no-cache, must-revalidate"
+	staticImmutableCacheControl  = "public, max-age=31536000, immutable"
+)
+
 // staticDir returns the directory served as the web UI root. Default "static"
 // (relative to the process working directory, i.e. the repo root), overridable
 // via QUARTET_STATIC_DIR.
@@ -51,6 +56,7 @@ func registerStaticFallback(h *server.Hertz) {
 		}
 
 		if fp, ok := resolveStaticFile(root, reqPath); ok {
+			setStaticCacheHeaders(c, reqPath)
 			c.File(fp)
 			return
 		}
@@ -62,8 +68,22 @@ func registerStaticFallback(h *server.Hertz) {
 			httputil.InternalError(c, "web UI not built: missing "+indexPath+" (run `make web` to build the front-end into "+root+")")
 			return
 		}
+		setStaticCacheHeaders(c, "/index.html")
 		c.File(indexPath)
 	})
+}
+
+// setStaticCacheHeaders prevents a cached HTML shell from referencing assets
+// from a different deployment while allowing Vite's content-hashed assets to
+// stay cached indefinitely. Hertz may gzip c.File responses, so every static
+// response also varies on Accept-Encoding for intermediary caches.
+func setStaticCacheHeaders(c *app.RequestContext, reqPath string) {
+	cacheControl := staticRevalidateCacheControl
+	if strings.HasPrefix(reqPath, "/assets/") {
+		cacheControl = staticImmutableCacheControl
+	}
+	c.Header("Cache-Control", cacheControl)
+	c.Response.Header.Add("Vary", "Accept-Encoding")
 }
 
 // resolveStaticFile maps a request path to a real regular file under root,

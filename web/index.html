@@ -5,9 +5,341 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Deep Agent</title>
+    <style>
+      #boot-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: #f7f7f5;
+        color: #1f2328;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      #boot-screen[hidden] {
+        display: none;
+      }
+
+      .boot-card {
+        box-sizing: border-box;
+        width: min(100%, 560px);
+        padding: 28px;
+        border: 1px solid #d8d8d4;
+        border-radius: 14px;
+        background: #fff;
+      }
+
+      .boot-brand {
+        margin: 0 0 14px;
+        color: #666b73;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+
+      .boot-title {
+        margin: 0;
+        font-size: 22px;
+        line-height: 1.3;
+      }
+
+      .boot-message {
+        margin: 10px 0 0;
+        color: #656a72;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .boot-progress {
+        width: 100%;
+        height: 3px;
+        margin-top: 22px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e8e8e4;
+      }
+
+      .boot-progress::after {
+        display: block;
+        width: 38%;
+        height: 100%;
+        border-radius: inherit;
+        background: #30343b;
+        content: "";
+        animation: boot-progress 1.2s ease-in-out infinite;
+      }
+
+      .boot-error .boot-title {
+        color: #a11a2b;
+      }
+
+      .boot-error .boot-progress {
+        display: none;
+      }
+
+      .boot-actions {
+        display: none;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
+
+      .boot-error .boot-actions {
+        display: flex;
+      }
+
+      .boot-button {
+        min-height: 38px;
+        padding: 0 14px;
+        border: 1px solid #c9c9c4;
+        border-radius: 8px;
+        background: #fff;
+        color: #25292f;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .boot-button-primary {
+        border-color: #30343b;
+        background: #30343b;
+        color: #fff;
+      }
+
+      .boot-details {
+        display: none;
+        max-height: 42vh;
+        margin: 20px 0 0;
+        padding: 14px;
+        overflow: auto;
+        border: 1px solid #ead2d6;
+        border-radius: 8px;
+        background: #fff8f8;
+        color: #711523;
+        font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+        user-select: text;
+      }
+
+      .boot-error .boot-details {
+        display: block;
+      }
+
+      @keyframes boot-progress {
+        from { transform: translateX(-110%); }
+        to { transform: translateX(290%); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .boot-progress::after { animation: none; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot-screen" role="status" aria-live="polite">
+      <div class="boot-card">
+        <p class="boot-brand">Deep Agent</p>
+        <h1 class="boot-title" id="boot-title">Starting application…</h1>
+        <p class="boot-message" id="boot-message">Loading the application and checking the server connection.</p>
+        <div class="boot-progress" aria-hidden="true"></div>
+        <div class="boot-actions">
+          <button class="boot-button boot-button-primary" id="boot-reload" type="button">Reload</button>
+          <button class="boot-button" id="boot-clear-cache" type="button">Clear app cache &amp; reload</button>
+        </div>
+        <pre class="boot-details" id="boot-details"></pre>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var BOOT_TIMEOUT_MS = 10000;
+        var AUTH_TOKEN_KEY = 'quartet.x_auth_token';
+        var APP_STORAGE_KEYS = {
+          'quartet-language': true,
+          'last_used_workspace_id': true,
+          'home_hide_scheduled': true,
+          'home_filter_workspace_id': true,
+          'last_agent_type': true
+        };
+        var APP_STORAGE_PREFIXES = [
+          'workspace_',
+          'workspacePrefs_',
+          'agentUsage_',
+          'agentVersion_',
+          'quartet:sent_history:'
+        ];
+        var diagnosticId = Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+        var stages = [];
+        var failures = [];
+        var failureSignatures = {};
+        var completed = false;
+        var timer = 0;
+
+        function isAppStorageKey(key) {
+          if (key === AUTH_TOKEN_KEY) return false;
+          if (APP_STORAGE_KEYS[key]) return true;
+          for (var i = 0; i < APP_STORAGE_PREFIXES.length; i += 1) {
+            if (key.indexOf(APP_STORAGE_PREFIXES[i]) === 0) return true;
+          }
+          return false;
+        }
+
+        function clearStorageArea(storage) {
+          var keys = [];
+          try {
+            for (var i = 0; i < storage.length; i += 1) {
+              var key = storage.key(i);
+              if (key && isAppStorageKey(key)) keys.push(key);
+            }
+            for (var j = 0; j < keys.length; j += 1) storage.removeItem(keys[j]);
+          } catch (error) {
+            failures.push('Storage cleanup failed: ' + formatValue(error));
+          }
+        }
+
+        function clearAppCache() {
+          try { clearStorageArea(window.localStorage); } catch (error) {
+            failures.push('localStorage is unavailable: ' + formatValue(error));
+          }
+          try { clearStorageArea(window.sessionStorage); } catch (error) {
+            failures.push('sessionStorage is unavailable: ' + formatValue(error));
+          }
+        }
+
+        function withoutClearParam() {
+          var url = new URL(window.location.href);
+          url.searchParams.delete('clear');
+          return url.toString();
+        }
+
+        function formatValue(value) {
+          if (value == null) return String(value);
+          if (value instanceof Error) return value.stack || (value.name + ': ' + value.message);
+          if (typeof value === 'string') return value;
+          try { return JSON.stringify(value); } catch (_) { return String(value); }
+        }
+
+        function stage(name, detail) {
+          var entry = Math.round(performance.now()) + 'ms  ' + name;
+          if (detail) entry += '  ' + detail;
+          stages.push(entry);
+          if (stages.length > 40) stages.shift();
+        }
+
+        function ensureScreen() {
+          var screen = document.getElementById('boot-screen');
+          if (screen) return screen;
+          screen = document.createElement('div');
+          screen.id = 'boot-screen';
+          screen.innerHTML = '<div class="boot-card"><p class="boot-brand">Deep Agent</p><h1 class="boot-title" id="boot-title"></h1><p class="boot-message" id="boot-message"></p><div class="boot-actions"><button class="boot-button boot-button-primary" id="boot-reload" type="button">Reload</button><button class="boot-button" id="boot-clear-cache" type="button">Clear app cache &amp; reload</button></div><pre class="boot-details" id="boot-details"></pre></div>';
+          document.body.appendChild(screen);
+          bindActions();
+          return screen;
+        }
+
+        function diagnostics() {
+          var resources = [];
+          try {
+            resources = performance.getEntriesByType('resource').map(function (entry) {
+              return entry.name + ' | ' + Math.round(entry.duration) + 'ms | transfer=' + (entry.transferSize || 0);
+            });
+          } catch (_) { /* keep the rest of the diagnostics */ }
+
+          return failures.join('\n\n') +
+            '\n\nDiagnostic ID: ' + diagnosticId +
+            '\nURL: ' + window.location.href +
+            '\nReady state: ' + document.readyState +
+            '\nOnline: ' + navigator.onLine +
+            '\nUser agent: ' + navigator.userAgent +
+            '\n\nBoot stages:\n' + (stages.join('\n') || '(none)') +
+            '\n\nCompleted resources:\n' + (resources.join('\n') || '(none)');
+        }
+
+        function fail(label, detail) {
+          var text = '[' + label + '] ' + formatValue(detail);
+          if (!failureSignatures[text]) {
+            failureSignatures[text] = true;
+            failures.push(text);
+          }
+          var screen = ensureScreen();
+          screen.hidden = false;
+          screen.classList.add('boot-error');
+          screen.setAttribute('role', 'alert');
+          var title = document.getElementById('boot-title');
+          var message = document.getElementById('boot-message');
+          var details = document.getElementById('boot-details');
+          if (title) title.textContent = completed ? 'Application error' : 'Application failed to start';
+          if (message) message.textContent = 'Reload the page, or clear only Deep Agent cache data and try again. Your access token will be kept.';
+          if (details) details.textContent = diagnostics();
+        }
+
+        function complete() {
+          if (completed) return;
+          completed = true;
+          stage('react-mounted');
+          window.clearTimeout(timer);
+          var screen = document.getElementById('boot-screen');
+          if (screen) screen.hidden = true;
+        }
+
+        function bindActions() {
+          var reload = document.getElementById('boot-reload');
+          var clear = document.getElementById('boot-clear-cache');
+          if (reload) reload.onclick = function () { window.location.reload(); };
+          if (clear) clear.onclick = function () {
+            clearAppCache();
+            window.location.replace(withoutClearParam());
+          };
+        }
+
+        window.__quartetBoot = {
+          stage: stage,
+          fail: fail,
+          complete: complete,
+          clearAppCache: clearAppCache,
+          diagnosticId: diagnosticId
+        };
+
+        bindActions();
+        stage('html-boot-script-ready');
+
+        window.addEventListener('error', function (event) {
+          var target = event.target;
+          if (target && target !== window) {
+            var isScript = target.tagName === 'SCRIPT';
+            var isStylesheet = target.tagName === 'LINK' && String(target.rel).toLowerCase() === 'stylesheet';
+            if (isScript || isStylesheet) {
+              fail('RESOURCE_LOAD_ERROR', 'Failed to load ' + (target.src || target.href || target.tagName));
+            }
+            return;
+          }
+          if (event.message && event.message.indexOf('ResizeObserver loop') !== -1) return;
+          fail('WINDOW_ERROR', (event.message || 'Unknown error') + '\n' +
+            (event.filename || '') + ':' + (event.lineno || 0) + ':' + (event.colno || 0) + '\n' +
+            formatValue(event.error || ''));
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (event) {
+          fail('UNHANDLED_REJECTION', formatValue(event.reason));
+        });
+
+        timer = window.setTimeout(function () {
+          fail('BOOT_TIMEOUT', 'React did not mount within ' + BOOT_TIMEOUT_MS + 'ms. The main module may still be pending or its execution may be blocked.');
+        }, BOOT_TIMEOUT_MS);
+
+        if (/[?&]clear=1\b/.test(window.location.search)) {
+          clearAppCache();
+          window.location.replace(withoutClearParam());
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

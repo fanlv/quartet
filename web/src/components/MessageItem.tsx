@@ -191,9 +191,21 @@ function extractFileName(target: string): string {
 }
 
 function UserMessageContent({ message }: { message: UserMessage }) {
+  const { t } = useTranslation();
   const userMsg = message as UserMessage;
   const imageUrls = userMsg.imageUrls;
   const timeStr = formatMessageTime(message.createdAt);
+  // `pending` tracks optimistic-message reconciliation and can outlive the
+  // HTTP request. deliveryStatus is the user-facing transport acknowledgement.
+  // Fall back to the legacy flags for messages created by an older UI bundle.
+  const isSending = userMsg.deliveryStatus === 'sending'
+    || (!userMsg.deliveryStatus && !!userMsg.pending && !userMsg.failed);
+  const isSendFailed = userMsg.deliveryStatus === 'failed' || !!userMsg.failed;
+  const sendStatusText = isSending
+    ? t('chat.messageSending')
+    : userMsg.sendError
+      ? t('chat.messageSendFailedDetail', { error: userMsg.sendError })
+      : t('chat.messageSendFailed');
   return (
     <div className="message-item user-message" data-testid="message-item" data-message-id={message.id} data-message-role="user" data-session-id={message.sessionId || ''}>
       <div className="message-content">
@@ -217,6 +229,18 @@ function UserMessageContent({ message }: { message: UserMessage }) {
             </div>
           </div>
         </div>
+        {(isSending || isSendFailed) && (
+          <div
+            className={`user-send-status${isSendFailed ? ' failed' : ''}`}
+            role={isSendFailed ? 'alert' : 'status'}
+            aria-live={isSendFailed ? 'assertive' : 'polite'}
+          >
+            {isSending
+              ? <span className="user-send-spinner" aria-hidden="true" />
+              : <span className="user-send-failed-icon" aria-hidden="true">!</span>}
+            <span>{sendStatusText}</span>
+          </div>
+        )}
       </div>
     </div>
   );
