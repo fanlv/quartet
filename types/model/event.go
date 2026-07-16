@@ -176,6 +176,37 @@ type CustomEvent struct {
 	Value any    `json:"value"`
 }
 
+// Agent phase custom event — a transient, non-persisted progress hint
+// published while an agent run is in the "silent" preparation window
+// (before the first message/thought/tool event reaches the UI). The
+// frontend maps these phases to the loading-indicator label so the user
+// sees what the agent is doing instead of a fixed "thinking..." string.
+// Delivered via PublishTransient: it never enters the event buffer and
+// vanishes on page refresh, matching its ephemeral "current status"
+// semantics.
+const CustomNameAgentPhase = "agent_phase"
+
+const (
+	// AgentPhaseStarting — a new ACP subprocess is being launched and the
+	// session initialized (cold start; skipped when reusing a cached agent).
+	AgentPhaseStarting = "starting"
+	// AgentPhaseReconnecting — the subprocess died (OOM / crash / idle reap)
+	// and is being relaunched, restoring the session.
+	AgentPhaseReconnecting = "reconnecting"
+	// AgentPhaseLoadingHistory — a fresh session is replaying prior on-disk
+	// history as a text prefix before the new prompt.
+	AgentPhaseLoadingHistory = "loading_history"
+	// AgentPhaseThinking — the prompt has been submitted; waiting for the
+	// model's first token (TTFT). Maps to the default "thinking" label.
+	AgentPhaseThinking = "thinking"
+)
+
+// AgentPhaseValue is the payload of a CustomNameAgentPhase event.
+type AgentPhaseValue struct {
+	Phase  string `json:"phase"`
+	Detail string `json:"detail,omitempty"`
+}
+
 // CommandSystemMessageEvent carries a slash-command execution result for the
 // Web chat page. Includes the rendered message text plus the structured
 // Action so the frontend can additionally apply state changes (e.g. switch

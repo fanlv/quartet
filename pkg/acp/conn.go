@@ -302,7 +302,22 @@ func NewTrackedConn(ctx context.Context, agentType, workdir string) (*Conn, erro
 		return nil, errConnPoolClosing
 	}
 
-	createCtx, createCancel := context.WithTimeout(context.WithoutCancel(ctx), connCreateTimeout)
+	// Detach direct caller cancellation because tracked connections are often
+	// built inside a shared singleflight: one waiter going away must not abort
+	// creation for every other waiter. Preserve an earlier caller deadline,
+	// though, so a recovery chain with a finite total budget cannot accidentally
+	// start a brand-new 60s handshake after most of that budget is already gone.
+	createTimeout := connCreateTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, context.DeadlineExceeded
+		}
+		if remaining < createTimeout {
+			createTimeout = remaining
+		}
+	}
+	createCtx, createCancel := context.WithTimeout(context.WithoutCancel(ctx), createTimeout)
 	defer createCancel()
 
 	conn, err := NewConn(createCtx, agentType, workdir)
@@ -318,16 +333,14 @@ func NewTrackedConn(ctx context.Context, agentType, workdir string) (*Conn, erro
 
 // NewProbeConn creates a short-lived Conn for capability probing.
 //
-// Unlike NewTrackedConn it does NOT detach from the caller's context via
-// context.WithoutCancel. A probe deliberately sets a tight deadline (see
+// Unlike NewTrackedConn it does NOT detach from the caller's cancellation
+// signal. A probe deliberately sets a tight deadline (see
 // services/agent/probe.acpProbeTimeout) that must bound BOTH subprocess
 // startup + initialize handshake AND the throwaway session/new that follows,
 // so an agent that is installed but not logged in — and therefore never
 // answers session/new — can't wedge the probe or the /agent/list request that
-// triggered it. NewTrackedConn's WithoutCancel silently widens that 30s
-// deadline back to connCreateTimeout (60s), which is exactly the behavior a
-// probe must avoid; here we honor the caller's deadline and only fall back to
-// connCreateTimeout when none was set.
+// triggered it. NewTrackedConn preserves an earlier deadline but deliberately
+// ignores direct cancellation for shared creation; a probe must honor both.
 //
 // The returned Conn is not registered for idle reaping: probe callers Close it
 // immediately after reading its session info.

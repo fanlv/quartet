@@ -5,8 +5,12 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/repository"
+	"github.com/fanlv/quartet/services/agent/chatctx"
 	"github.com/fanlv/quartet/services/agent/internal/sessioncache"
+	"github.com/fanlv/quartet/services/agent/round"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -43,6 +47,10 @@ type ACPService interface {
 	GetOrCreate(ctx context.Context, store SessionStore, wsID, jobID, sessionID, agentType, workdir string) (*Lease, error)
 	Get(wsID, jobID, sessionID string) (*Lease, bool)
 	Delete(wsID, jobID, sessionID string)
+	// PersistPendingMessages records user input when agent construction fails
+	// before ACPAgent.Run gets a chance to call ChatContextManager.BeginRun.
+	// Messages already tagged as pre-persisted are not appended twice.
+	PersistPendingMessages(ctx context.Context, store SessionStore, wsID, jobID, sessionID string, messages []*schema.Message) error
 
 	// SetModel / SetMode / SetThoughtLevel apply a live config switch on the
 	// session's ACP agent and return the refreshed selector lists. They
@@ -144,6 +152,23 @@ func (s *acpService) Get(wsID, jobID, sessionID string) (*Lease, bool) {
 
 func (s *acpService) Delete(wsID, jobID, sessionID string) {
 	s.cache.Delete(agentCacheKey(wsID, jobID, sessionID))
+}
+
+func (s *acpService) PersistPendingMessages(ctx context.Context, store SessionStore, wsID, jobID, sessionID string, messages []*schema.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	repo, err := repository.NewChatContextRepo(wsID, jobID, sessionID)
+	if err != nil {
+		return fmt.Errorf("create chat context repo: %w", err)
+	}
+	ctxMgr := chatctx.New(repo, store, sessionID)
+	persistCtx, cancel := round.PersistContext(ctx)
+	defer cancel()
+	if _, err := ctxMgr.BeginRun(persistCtx, messages...); err != nil {
+		return fmt.Errorf("persist pending ACP user messages: %w", err)
+	}
+	return nil
 }
 
 func (s *acpService) SetModel(ctx context.Context, store SessionStore, wsID, jobID, sessionID, agentType, workdir, modelID string) (*model.ACPConfigState, error) {

@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"sort"
@@ -15,7 +16,107 @@ import (
 
 // StopRun hard-stops a running GraphRun.
 func (s *serviceImpl) StopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error) {
-	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlHardStop, reason: orDefault(reason, "hard stopped by user")})
+	reason = orDefault(reason, "hard stopped by user")
+	run, err := s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlHardStop, reason: reason})
+	if err == nil {
+		return run, nil
+	}
+	if !errors.Is(err, ErrGraphRunNotRunning) {
+		return nil, err
+	}
+	// No live scheduler holds this run in this process. If it is still persisted
+	// in an in-flight status it is an orphan — the scheduler died (crash/restart)
+	// without writing a terminal status, so the run looks "运行中" forever and a
+	// plain stop 409s. Force it to stopped (resumable) and reconcile the bound
+	// Job instead of surfacing ErrGraphRunNotRunning to the user.
+	forced, ferr := s.forceTerminalNoScheduler(ctx, runID, model.GraphRunStatusStopped, reason, "")
+	if ferr != nil {
+		return nil, ferr
+	}
+	if forced == nil {
+		// Not in-flight — there is genuinely no running scheduler to signal.
+		return nil, err
+	}
+	return forced, nil
+}
+
+// ReconcileInterruptedRun repairs a run orphaned by a crash/restart, moving an
+// in-flight run to `recovering` (resumable) with its running instances marked
+// interrupted and the bound Job set non-running. No-op for settled runs.
+func (s *serviceImpl) ReconcileInterruptedRun(ctx context.Context, runID string) error {
+	_, err := s.forceTerminalNoScheduler(ctx, runID, model.GraphRunStatusRecovering,
+		"startup recovery", "interrupted: process restarted while running")
+	return err
+}
+
+// forceTerminalNoScheduler repairs a run that has no live scheduler in this
+// process but is still persisted in a scheduler-bound in-flight status
+// (running/stepStopping/pending). Still-running instances are marked
+// interrupted — so a later resume re-runs them (isResettableStatus) and the
+// progress no longer reports phantom running nodes — the run is moved to
+// `target`, and the bound Job is reconciled to a non-running status via the
+// persistent job sink. Returns (nil, nil) when the run is not scheduler-bound
+// in-flight (nothing to repair). `progressErr` is recorded as the run's
+// interruption reason (empty clears it).
+func (s *serviceImpl) forceTerminalNoScheduler(ctx context.Context, runID string, target model.GraphRunStatus, reason, progressErr string) (*model.GraphRun, error) {
+	run, err := s.runRepo.GetRun(ctx, runID)
+	if err != nil {
+		return nil, graphRunLoadError(runID, err)
+	}
+	if !isSchedulerlessInFlight(run.Status) {
+		return nil, nil
+	}
+	finishedAt := time.Now().UnixMilli()
+	if insts, ierr := s.runRepo.GetInstances(ctx, runID); ierr == nil {
+		changed := false
+		for k, st := range insts {
+			if st.Status == model.GraphInstanceStatusRunning {
+				st.Status = model.GraphInstanceStatusInterrupted
+				insts[k] = st
+				changed = true
+			}
+		}
+		if changed {
+			if serr := s.runRepo.SaveInstances(ctx, runID, insts); serr != nil {
+				logger.Warnf(ctx, "[graph] reconcile orphan: save instances failed: runId=%s err=%v", runID, serr)
+			} else {
+				updateRunProgress(run, insts)
+			}
+		}
+	} else {
+		logger.Warnf(ctx, "[graph] reconcile orphan: load instances failed: runId=%s err=%v", runID, ierr)
+	}
+	prior := run.Status
+	run.Status = target
+	run.FinishedAt = finishedAt
+	run.UpdatedAt = time.Now()
+	if run.Progress != nil {
+		run.Progress.LastError = progressErr
+	}
+	if err := s.runRepo.SaveRun(ctx, run); err != nil {
+		return nil, err
+	}
+	logger.Infof(ctx, "[graph] reconciled schedulerless run: runId=%s jobId=%s priorStatus=%s newStatus=%s reason=%s",
+		runID, run.JobID, prior, target, reason)
+	if s.jobSink != nil && run.JobID != "" {
+		if err := s.jobSink.SetGraphRunState(ctx, run.JobID, runID, model.JobStatusStopped, run.StartedAt, finishedAt); err != nil {
+			logger.Warnf(ctx, "[graph] reconcile orphan: set job state failed: jobId=%s runId=%s err=%v", run.JobID, runID, err)
+		}
+	}
+	return run, nil
+}
+
+// isSchedulerlessInFlight reports whether a persisted status implies a live
+// scheduler that, absent from this process, marks the run as an orphan needing
+// reconcile. Recovering/awaitingInput and the terminal states already have no
+// scheduler by design and are left untouched.
+func isSchedulerlessInFlight(st model.GraphRunStatus) bool {
+	switch st {
+	case model.GraphRunStatusRunning, model.GraphRunStatusStepStopping, model.GraphRunStatusPending:
+		return true
+	default:
+		return false
+	}
 }
 
 // StepStopRun freezes the current ready batch and stops after it.

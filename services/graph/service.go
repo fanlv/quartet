@@ -142,6 +142,18 @@ type Service interface {
 	// hook script (settings.GraphEndHookScript). Read at hook time so a mid-run
 	// edit takes effect; nil (or returning "") disables the "default" End hook.
 	SetEndHookScriptProvider(fn func() string)
+	// SetJobStateSink wires the persistent Job state sink used by the
+	// orphan-reconcile paths (StopRun's no-scheduler fallback and
+	// ReconcileInterruptedRun) that run without a live scheduler. Set once at
+	// startup, before serving.
+	SetJobStateSink(jobs JobStateSink)
+	// ReconcileInterruptedRun repairs a run left in an in-flight status by a
+	// crash/restart: no live scheduler can exist for it after boot, so its
+	// still-running instances are marked interrupted and the run is moved to
+	// `recovering` (a static, resumable state) with the bound Job set to a
+	// non-running status. No-op for runs already in a settled status. Called
+	// once per graph job at startup.
+	ReconcileInterruptedRun(ctx context.Context, runID string) error
 }
 
 // controlSignalKind enumerates the run-control intents delivered to the
@@ -200,6 +212,13 @@ type serviceImpl struct {
 	// at startup via SetEndHookScriptProvider (before any run); read at hook
 	// time. nil → no "default" End hook.
 	endHookScriptFn func() string
+
+	// jobSink is the persistent Job state sink used by the orphan-reconcile
+	// paths (StopRun's no-scheduler fallback and ReconcileInterruptedRun) that
+	// must write the bound Job's status without a live scheduler carrying a
+	// per-run sink. Set once at startup via SetJobStateSink. nil disables the
+	// job-side reconcile (the GraphRun status is still repaired).
+	jobSink JobStateSink
 }
 
 type Runner interface {
@@ -433,6 +452,14 @@ func (s *serviceImpl) SetUsageRecorder(r usagestats.Recorder) {
 // no locking against runs.
 func (s *serviceImpl) SetEndHookScriptProvider(fn func() string) {
 	s.endHookScriptFn = fn
+}
+
+// SetJobStateSink wires the persistent Job state sink used by orphan-reconcile
+// paths (StopRun fallback, ReconcileInterruptedRun) that run without a live
+// scheduler. Called once at startup before any run launches, so it needs no
+// locking against runs.
+func (s *serviceImpl) SetJobStateSink(jobs JobStateSink) {
+	s.jobSink = jobs
 }
 
 func (s *serviceImpl) CreateWorkflow(ctx context.Context, req *model.CreateGraphWorkflowRequest) (*model.GraphWorkflow, error) {

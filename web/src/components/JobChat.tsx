@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useJobChat } from '../hooks/useJobChat';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { MessageList } from './MessageList';
+import { phaseLabel } from '../utils/chatPhase';
 import { ChatInput } from './ChatInput';
 import { LoopProgress } from './LoopProgress';
 import { GraphLoopProgress } from './GraphLoopProgress';
@@ -161,6 +162,7 @@ export function JobChat(props: JobChatProps) {
     messages,
     isLoading,
     isLoadingHistory,
+    activePhase,
     error,
     sessionModelId,
     sessionType,
@@ -1711,6 +1713,7 @@ export function JobChat(props: JobChatProps) {
           <MessageList
             messages={messages}
             isLoading={isLoading || initialDispatchPending}
+            loadingLabel={phaseLabel(activePhase)}
             onSendMessage={isReadonly ? undefined : handleSendMessage}
             agentIconUrl={selectedAgent?.icon_url}
             agentDisplayName={selectedAgent?.display_name}

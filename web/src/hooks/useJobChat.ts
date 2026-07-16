@@ -23,9 +23,31 @@ import {
 import { SSEClient } from '../utils/sse-client';
 import { mergeMessages } from '../utils/mergeMessages';
 import { translateGraphEvent } from '../utils/translateGraphEvent';
+import { backendPhaseKind, type ChatPhase } from '../utils/chatPhase';
 import { useConnectionStatus } from '../contexts/ConnectionStatus';
 import { isKnownCommand } from '../utils/commands';
 import i18n from '../i18n';
+
+// deriveStreamingPhase reads the current streaming phase off the LAST
+// message — O(1), so it runs inline on render with no useMemo. A tail
+// message that is still streaming (not Finished) tells us what the agent
+// is doing right now: a live tool call, a reasoning segment, or the reply
+// body. Returns null when the tail is the user turn or an already-finished
+// bubble (the caller falls back to the backend preparation phase, then to
+// the default label). This is also what rebuilds the phase after a page
+// refresh, since messages are restored from the snapshot + SSE resume.
+function deriveStreamingPhase(messages: Message[]): ChatPhase | null {
+  const last = messages[messages.length - 1];
+  if (!last || last.status === MessageStatusEnum.Finished) return null;
+  if (last.role === MessageRoleEnum.TOOL) {
+    const name = (last as ToolMessage).toolCallName;
+    return { kind: 'tool', detail: name || undefined };
+  }
+  if (last.role === MessageRoleEnum.ASSISTANT) {
+    return { kind: (last as AssistantMessage).isThinking ? 'reasoning' : 'replying' };
+  }
+  return null;
+}
 
 // showCommandToast displays a transient toast for slash-command feedback.
 // Kept local here so the command branch in the SSE handler has somewhere to
@@ -383,6 +405,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const [messages, setMessages] = useState<Message[]>(() => initialUserMessage ? [initialUserMessage] : []);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  // Backend preparation-phase hint (subprocess launch / reconnect /
+  // history replay / waiting for the first token). Set ONLY from
+  // agent_phase custom events and reset at each round start. The streaming
+  // phases (reasoning / replying / tool) are derived from the message list
+  // (see activePhase below), so the handlers stay free of per-phase
+  // bookkeeping. Delivered via a transient event that does not replay on
+  // refresh — fine: the derived streaming phase plus the default
+  // "AI 正在思考..." fallback rebuild the visible state after a reload.
+  const [backendPhase, setBackendPhase] = useState<ChatPhase | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [totalTokens, setTotalTokens] = useState(0);
   const [sessionWorkdir, setSessionWorkdir] = useState<string | null>(null);
@@ -537,6 +568,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const sessionMetaMapRef = useRef<Map<string, { modelId: string | null; type: string | null; acpMode: string | null; acpThoughtLevel: string | null }>>(new Map());
 
   const [eventsReady, setEventsReady] = useState(false);
+  const eventsReadyRef = useRef(false);
+  const eventSseRef = useRef<SSEClient | null>(null);
+  const eventStreamReadyWaitersRef = useRef<Set<(error?: Error) => void>>(new Set());
   // Gate the SSE auto-connect effect on the existing-job hydration effect
   // having seeded lastEventSeqRef.current from the snapshot. Without this
   // gate the two effects race on first mount: the SSE effect fires with an
@@ -554,7 +588,65 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // to re-fire and establish a fresh SSE subscription for the new run.
   const [sseReconnectSeq, setSseReconnectSeq] = useState(0);
 
-  const eventSseRef = useRef<SSEClient | null>(null);
+  const settleEventStreamReadyWaiters = useCallback((error?: Error) => {
+    const waiters = [...eventStreamReadyWaitersRef.current];
+    eventStreamReadyWaitersRef.current.clear();
+    for (const waiter of waiters) waiter(error);
+  }, []);
+
+  const markEventStreamReady = useCallback((ready: boolean) => {
+    eventsReadyRef.current = ready;
+    setEventsReady(ready);
+    if (ready) settleEventStreamReadyWaiters();
+  }, [settleEventStreamReadyWaiters]);
+
+  const waitForEventStreamReady = useCallback((timeoutMs = 15_000): Promise<void> => {
+    const current = eventSseRef.current;
+    if (eventsReadyRef.current && current && !current.isDisconnected()) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const settle = (error?: Error) => {
+        window.clearTimeout(timeoutID);
+        eventStreamReadyWaitersRef.current.delete(settle);
+        if (error) reject(error);
+        else resolve();
+      };
+      eventStreamReadyWaitersRef.current.add(settle);
+      const timeoutID = window.setTimeout(() => {
+        settle(new Error(`event stream was not ready within ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      // Close the small race between the initial readiness check and adding
+      // the waiter: connectUntilReady may have resolved in that interval.
+      const latest = eventSseRef.current;
+      if (eventsReadyRef.current && latest && !latest.isDisconnected()) settle();
+    });
+  }, []);
+
+  const ensureEventStreamReady = useCallback(async (action: string): Promise<void> => {
+    const current = eventSseRef.current;
+    if (eventsReadyRef.current && current && !current.isDisconnected()) return;
+
+    // The previous terminal event intentionally closes SSE. Surface that
+    // real preparation step immediately while React establishes a fresh
+    // subscription, then do not launch the backend run until the server has
+    // registered its reader. Otherwise unbuffered agent_phase events can be
+    // emitted into the disconnect window and disappear.
+    setBackendPhase({ kind: 'reconnecting' });
+    if (!current || current.isDisconnected()) {
+      setSseReconnectSeq((seq) => seq + 1);
+    }
+
+    try {
+      await waitForEventStreamReady();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`${action}: ${detail}`);
+    }
+  }, [waitForEventStreamReady]);
+
   const historyLoadedRef = useRef(false);
   // Resume sequence handed back by the snapshot endpoint (job.lastEventSeq).
   // Updated whenever syncJobState fetches the snapshot and consumed by the
@@ -641,7 +733,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setLoopSessions([]);
     applyActiveSessionSelection(null, true);
     setEndedSessionIds(new Set());
-    setEventsReady(false);
+    settleEventStreamReadyWaiters(new Error('event stream changed before it became ready'));
+    markEventStreamReady(false);
+    setBackendPhase(null);
     // For an existing job the snapshot fetch is what populates
     // lastEventSeqRef.current; the SSE effect must wait for it. For the
     // new-chat flow (no existingJobId) the buffer is brand new so seq=0
@@ -661,7 +755,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setJobStartedAt(undefined);
     setJobFinishedAt(undefined);
     setInteractiveAccumulatedMs(0);
-  }, [existingJobId, initialUserMessage, applyActiveSessionSelection, setLoopSessions]);
+  }, [existingJobId, initialUserMessage, applyActiveSessionSelection, markEventStreamReady, setLoopSessions, settleEventStreamReadyWaiters]);
 
   const handleEventRef = useRef<(event: AgentEvent) => void>(() => {});
   // Ref to syncJobState so handleEvent can call it without a dependency cycle
@@ -812,6 +906,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     switch (event.type) {
       // Job-level events
       case EventTypeEnum.JOB_STARTED:
+        // New round starting: drop any stale preparation-phase hint.
+        setBackendPhase(null);
         // When replaying history events on refresh, don't reset a terminal status
         // that was already set from the job API response.
         setLoopStatus((prev) => {
@@ -901,6 +997,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         // reconnect cycle (connect → idle timeout → server close → reconnect).
         console.info('[useJobChat] JOB_COMPLETED: disconnecting SSE (terminal state)');
         eventSseRef.current?.disconnect();
+        markEventStreamReady(false);
         break;
       }
 
@@ -945,6 +1042,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         // Job is terminal — disconnect SSE to stop the infinite reconnect cycle.
         console.info('[useJobChat] JOB_STOPPED: disconnecting SSE (terminal state)');
         eventSseRef.current?.disconnect();
+        markEventStreamReady(false);
         break;
       }
 
@@ -986,6 +1084,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         // Job is terminal — disconnect SSE to stop the infinite reconnect cycle.
         console.info('[useJobChat] JOB_FAILED: disconnecting SSE (terminal state)');
         eventSseRef.current?.disconnect();
+        markEventStreamReady(false);
         break;
       }
 
@@ -1471,6 +1570,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         break;
 
       case EventTypeEnum.CUSTOM:
+        if (event.name === 'agent_phase') {
+          // Preparation-window hint from the ACP agent (transient). Streaming
+          // phases are derived from the message list, so only the backend
+          // preparation phase is stored here.
+          const v = event.value as { phase?: string; detail?: string } | null;
+          const kind = backendPhaseKind(v?.phase);
+          setBackendPhase(kind ? { kind, detail: v?.detail } : null);
+          break;
+        }
         if (event.name === 'token_usage') {
           const usage = event.value as { totalTokens?: number };
           if (usage?.totalTokens) setTotalTokens(usage.totalTokens);
@@ -1532,7 +1640,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       default:
         break;
     }
-  }, [applyActiveSessionSelection, applyCommandEvent, finalizeInFlightMessages, setLoopSessions, updateServerClock]);
+  }, [applyActiveSessionSelection, applyCommandEvent, finalizeInFlightMessages, markEventStreamReady, setLoopSessions, updateServerClock]);
 
   // Keep ref in sync so the SSE effect always uses the latest handler
   handleEventRef.current = handleEvent;
@@ -1684,15 +1792,30 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       const isTerminal = status === 'completed' || status === 'stopped' || status === 'failed';
 
       if (isTerminal) {
-        setIsLoading(false);
+        const hasPendingRunStart = eventStreamReadyWaitersRef.current.size > 0;
+        // For graph jobs "running" is owned by the graph run status snapshot
+        // (applyGraphRunStatusSnapshot / GraphLoopProgress), NOT job.status — the
+        // two can differ (a live/orphaned graph run whose bound job.status lags
+        // or was written by an interactive discussion turn). Letting a terminal
+        // job.status force the spinner off here is exactly what desynced the
+        // composer from a "运行中" GraphLoopProgress, so leave isLoading to the
+        // graph snapshot for graph jobs. A send/start/continue waiting for SSE
+        // readiness is also already loading; this snapshot describes the prior
+        // terminal run and must not flash the composer back to idle.
+        if (job.mode !== 'graph' && !hasPendingRunStart) {
+          setIsLoading(false);
+        }
         // Job is terminal — disconnect SSE to prevent infinite reconnect loops.
         // This covers Case B: client reconnects after the terminal event was
         // already sent (page refresh, mobile background recovery, network flap).
         // Case A (client online when terminal event arrives) is handled in
         // handleEvent's JOB_COMPLETED/STOPPED/FAILED branches.
-        if (eventSseRef.current && !eventSseRef.current.isDisconnected()) {
-          console.info(`[JobEvents] syncJobState: disconnecting SSE (job terminal, status=${status}, jobId=${id})`);
-          eventSseRef.current.disconnect();
+        if (!hasPendingRunStart) {
+          if (eventSseRef.current && !eventSseRef.current.isDisconnected()) {
+            console.info(`[JobEvents] syncJobState: disconnecting SSE (job terminal, status=${status}, jobId=${id})`);
+            eventSseRef.current.disconnect();
+          }
+          markEventStreamReady(false);
         }
         // Finalize any in-flight assistant/tool messages that were left in
         // Started/Processing state because the real-time terminal SSE event
@@ -1984,7 +2107,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       console.warn('[SSE reconnect] failed to sync job state:', err);
       throw err;
     }
-  }, [apiUrl, finalizeInFlightMessages, loadHistory, setLoopSessions, getServerNowEstimate, seedServerClockFromResponse]);
+  }, [apiUrl, finalizeInFlightMessages, loadHistory, markEventStreamReady, setLoopSessions, getServerNowEstimate, seedServerClockFromResponse]);
 
   // Keep syncJobStateRef in sync so handleEvent can call it.
   syncJobStateRef.current = syncJobState;
@@ -2003,6 +2126,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     // request goes out with an empty Last-Event-ID, the server parses
     // it as startSeq=0, and any GC'd buffer responds 410 immediately.
     if (!snapshotReady) return;
+    markEventStreamReady(false);
 
     let cancelled = false;
     const currentJobId = jobId;
@@ -2058,8 +2182,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       if (backoff === undefined) {
         // Retry budget exhausted. Surface the server's original error so
         // the user sees exactly what the server said.
-        console.error(`[JobEvents] resume-point recovery exhausted after ${currentAttempt + 1} attempts: ${errMsg}`);
-        setError(errMsg || 'SSE resume point gone');
+        const message = errMsg || 'SSE resume point gone';
+        const error = new Error(message);
+        console.error(`[JobEvents] resume-point recovery exhausted after ${currentAttempt + 1} attempts: ${message}`);
+        setError(message);
+        settleEventStreamReadyWaiters(error);
         return;
       }
       console.warn(`[JobEvents] resume point gone (attempt ${currentAttempt + 1}); retrying in ${backoff}ms: ${errMsg}`);
@@ -2235,9 +2362,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       // the per-job buffer and keeps pinning minCursor — a slow leak that
       // accumulates one phantom reader per 410 fallback.
       eventSseRef.current?.disconnect();
+      markEventStreamReady(false);
 
       const client = new SSEClient();
       eventSseRef.current = client;
+      let connectionRejected = false;
 
       console.debug(`[JobEvents][TRACE-SEQ0] connectUntilReady jobId=${jobId} attempt=${attempt} initialLastEventId=${JSON.stringify(lastEventSeqRef.current)}`);
 
@@ -2248,27 +2377,37 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         onError: (err) => {
           if (cancelled) return;
           if (isIgnorableNetworkError(err)) return;
-          setError(err.message || String(err));
+          connectionRejected = true;
+          const error = err instanceof Error ? err : new Error(String(err));
+          setError(error.message);
+          settleEventStreamReadyWaiters(error);
         },
         onDisconnect: () => {
+          connectionRejected = true;
+          markEventStreamReady(false);
           reportDisconnect();
         },
         onReconnect: () => {
+          const hasPendingRunStart = eventStreamReadyWaitersRef.current.size > 0;
+          markEventStreamReady(true);
           reportReconnect();
           // Only sync metadata (title, status, progress, lastEventSeq).
           // SSE resumes from lastEventId so no events are lost; full
           // message reload would race with live SSE events and cause
           // visual duplication of old messages.
-          console.debug(`[JobEvents] onReconnect: syncing metadata for jobId=${currentJobId}`);
-          void syncJobState(currentJobId, true).catch((err) => {
-            console.warn('[onReconnect] syncJobState failed:', err);
-          });
+          if (!hasPendingRunStart) {
+            console.debug(`[JobEvents] onReconnect: syncing metadata for jobId=${currentJobId}`);
+            void syncJobState(currentJobId, true).catch((err) => {
+              console.warn('[onReconnect] syncJobState failed:', err);
+            });
+          }
         },
         onResumePointGone: (errorMessage) => {
           // The buffer GC'd past our Last-Event-ID. Schedule another
           // attempt (snapshot + fresh client) up to the retry budget;
           // after that, surface the server's original error to the user.
           if (cancelled) return;
+          connectionRejected = true;
           resumeGoneErrorRef.current = errorMessage || 'HTTP 410';
           console.debug(`[JobEvents][TRACE-SEQ0] resume-gone (410) jobId=${currentJobId} attempt=${attempt} lastEventSeqRef=${JSON.stringify(lastEventSeqRef.current)} serverMsg=${JSON.stringify(errorMessage)}`);
           scheduleNextOrSurface(attempt, errorMessage);
@@ -2279,18 +2418,33 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         // a stale `then` from a client that was already replaced by a
         // retry must not flip the flags back.
         if (eventSseRef.current !== client) return;
-        setEventsReady(true);
+        // connectUntilReady also resolves after its 410/auth handlers return.
+        // Those paths did not register a live reader and must not release a
+        // pending send before the scheduled recovery attempt succeeds.
+        if (connectionRejected) return;
+        const hasPendingRunStart = eventStreamReadyWaitersRef.current.size > 0;
+        markEventStreamReady(true);
         // Sync metadata after SSE connects. Message reload is always skipped
         // here: on attempt 0 the hydration effect already loaded messages,
         // and on attempt > 0 reloadMessagesFromDisk handled it. Allowing
         // syncJobState to reload messages for terminal jobs would cause a
         // redundant second full reload.
-        void syncJobState(currentJobId, true, true).catch((err) => {
-          console.warn('[post-connect] syncJobState failed:', err);
-        });
+        // When a send/start/continue call is waiting for this connection, the
+        // pre-connect snapshot still describes the previous terminal run.
+        // A second sync here could observe that stale terminal state and close
+        // the reader again in the tiny gap before the POST flips the job to
+        // running, recreating the exact phase-event loss this handshake fixes.
+        if (!hasPendingRunStart) {
+          void syncJobState(currentJobId, true, true).catch((err) => {
+            console.warn('[post-connect] syncJobState failed:', err);
+          });
+        }
       }).catch((err) => {
         if (!cancelled) {
-          console.error('[JobEvents] connect failed:', err);
+          const error = err instanceof Error ? err : new Error(String(err));
+          console.error('[JobEvents] connect failed:', error);
+          setError(error.message);
+          settleEventStreamReadyWaiters(error);
         }
       });
     };
@@ -2299,7 +2453,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
     return () => {
       cancelled = true;
-      setEventsReady(false);
+      markEventStreamReady(false);
       window.clearInterval(watchdog);
       if (retryTimer) clearTimeout(retryTimer);
       if (cancelIdlePrefetch) cancelIdlePrefetch();
@@ -2309,7 +2463,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       eventSseRef.current?.disconnect();
       eventSseRef.current = null;
     };
-  }, [jobId, jobNotFound, snapshotReady, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistory]);
+  }, [jobId, jobNotFound, snapshotReady, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistory, markEventStreamReady, settleEventStreamReadyWaiters]);
 
   // Graph mode has one page-level stream. It feeds agent deltas into the chat,
   // reconciles node sessions, and publishes the same authoritative run snapshot
@@ -2592,6 +2746,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       next[optimisticIndex] = userMessage;
       return next;
     });
+    setBackendPhase(null);
     setIsLoading(true);
     setError(null);
     // Accumulate previous turn's duration before resetting (interactive mode).
@@ -2605,15 +2760,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setJobStartedAt(undefined);
     setJobFinishedAt(undefined);
 
-    // If SSE was disconnected by a prior terminal event (JOB_COMPLETED /
-    // STOPPED / FAILED), bump the reconnect seq to re-establish the SSE
-    // subscription before the new run starts emitting events.
-    if (!eventSseRef.current || eventSseRef.current.isDisconnected()) {
-      console.info('[sendMessage] SSE disconnected, triggering reconnect for new run');
-      setSseReconnectSeq((s) => s + 1);
-    }
-
     try {
+      await ensureEventStreamReady('send message');
+
       const payload: Record<string, unknown> = {
         messages: [{
           id: userMessageId,
@@ -2685,7 +2834,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
       setError(errorMessage);
     }
-  }, [jobId, isPublic, clearPendingCommandWatchdog, applyCommandEvent, reportDisconnect]);
+  }, [jobId, isPublic, clearPendingCommandWatchdog, applyCommandEvent, ensureEventStreamReady, reportDisconnect]);
 
   // Cleanup watchdog on unmount.
   useEffect(() => {
@@ -2739,6 +2888,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // Start loop execution
   const startLoop = useCallback(async () => {
     if (!jobId || isPublic) return;
+    setBackendPhase(null);
     setIsLoading(true);
     setError(null);
     shouldResetOnJobStartRef.current = true;
@@ -2751,13 +2901,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setJobStartedAt(undefined);
     setJobFinishedAt(undefined);
 
-    // Re-establish SSE if it was torn down by a prior terminal event.
-    if (!eventSseRef.current || eventSseRef.current.isDisconnected()) {
-      console.info('[startLoop] SSE disconnected, triggering reconnect for new run');
-      setSseReconnectSeq((s) => s + 1);
-    }
-
     try {
+      await ensureEventStreamReady('start loop');
       const response = await fetch(`/api/v1/job/${jobId}/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2771,10 +2916,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       setError(err instanceof Error ? err.message : 'Failed to start loop');
       setIsLoading(false);
     }
-  }, [jobId, isPublic]);
+  }, [ensureEventStreamReady, jobId, isPublic]);
 
   const continueLoop = useCallback(async () => {
     if (!jobId || isPublic) return;
+    setBackendPhase(null);
     setIsLoading(true);
     setError(null);
     // A fresh run: drop any stale graceful-stop request from the prior run so
@@ -2790,13 +2936,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setJobStartedAt(undefined);
     setJobFinishedAt(undefined);
 
-    // Re-establish SSE if it was torn down by a prior terminal event.
-    if (!eventSseRef.current || eventSseRef.current.isDisconnected()) {
-      console.info('[continueLoop] SSE disconnected, triggering reconnect for new run');
-      setSseReconnectSeq((s) => s + 1);
-    }
-
     try {
+      await ensureEventStreamReady('continue loop');
       const response = await fetch(`/api/v1/job/${jobId}/continue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2820,7 +2961,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       setError(err instanceof Error ? err.message : 'Failed to continue loop');
       setIsLoading(false);
     }
-  }, [jobId, isPublic]);
+  }, [ensureEventStreamReady, jobId, isPublic]);
 
   // Stop loop execution. graceful=true lets the current step finish and stops
   // at the next step boundary (resume preserved); the default hard stop cancels
@@ -3553,6 +3694,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     return out;
   }, [messages]);
 
+  // Loading-indicator phase. The streaming phase (derived from the tail
+  // message) takes precedence over the backend preparation hint; when
+  // neither applies, MessageList falls back to the default "AI 正在思考..."
+  // label. O(1) render-time compute — no useMemo needed.
+  const activePhase = deriveStreamingPhase(dedupedMessages) ?? backendPhase;
+
   // Compute filtered messages for the active session. Memoised so SSE
   // deltas (which land as new `messages` arrays every few hundred ms)
   // don't force downstream consumers to re-filter the full history on
@@ -3572,6 +3719,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     allMessages: dedupedMessages,
     isLoading,
     isLoadingHistory,
+    activePhase,
     error,
     jobNotFound,
     totalTokens,

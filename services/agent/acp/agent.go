@@ -29,6 +29,12 @@ import (
 // path (services/agent/eino/runner.go).
 const tokenUsageMinInterval = 1 * time.Second
 
+// coldRestoreAttemptTimeout prevents a persisted ACP session from consuming
+// the entire agent-construction budget. A healthy local restore normally
+// returns in well under a second; once this bound is crossed the adapter is
+// treated as wedged and the native session/resume error is returned directly.
+const coldRestoreAttemptTimeout = 10 * time.Second
+
 // SessionStore is the narrow session.Service surface the ACP agent needs
 // for loading/writing session metadata. Declared here (rather than
 // importing services/session directly) to keep the ACP package decoupled
@@ -112,8 +118,8 @@ type ACPAgent struct {
 
 	// needReplay is set whenever the subprocess session was freshly
 	// minted while quartet's messages.jsonl already held prior
-	// turns — cold-start drift, per-Run drift, BeginRun truncate, or
-	// LoadSession failure on an existing id. A fresh ACP session holds
+	// turns — a brand-new session with pre-persisted input, per-Run drift,
+	// or BeginRun truncate. A fresh ACP session holds
 	// zero conversation memory, so the next Run must prepend the
 	// prior history (summary + messages) as a text context block
 	// ahead of the user's current turn; otherwise the model answers
@@ -183,7 +189,7 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 	// Close the subprocess connection on any setup error below; otherwise
 	// the tracked Conn would sit orphaned until the idle reaper gets to it.
 	defer func() {
-		if retErr != nil {
+		if retErr != nil && conn != nil {
 			conn.Close()
 		}
 	}()
@@ -196,7 +202,6 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 		// and orphan the previous ACP session id.
 		return nil, fmt.Errorf("load persisted ACP session id failed: %w", err)
 	}
-
 	chatContextRepo, err := repository.NewChatContextRepo(wsID, jobID, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chat context repo: %w", err)
@@ -206,62 +211,47 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 
 	// Detect cross-path drift at cold start: if messages.jsonl has moved
 	// since the last ACP Run ended, the subprocess's view stored under
-	// existingACPSession no longer matches disk. Discard the old id and
-	// let the NewSession branch below mint a fresh one. Fingerprint
-	// failure is fatal here: we cannot decide drift vs. no-drift without
-	// reading disk, and silently treating failure as the zero
-	// fingerprint would masquerade an I/O error as "empty history" and
-	// force a spurious subprocess reset.
+	// existingACPSession no longer matches disk. Resume-only recovery cannot
+	// reconcile that divergence, so surface it instead of silently replacing
+	// the ACP session. Fingerprint failure is likewise fatal: we cannot decide
+	// drift vs. no-drift without reading disk.
 	currentFingerprint, err := ctxMgr.MessagesFingerprint(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("compute messages fingerprint for drift check failed: %w", err)
 	}
 	if existingACPSession != "" && !persistedFingerprint.Equal(currentFingerprint) {
-		logger.Warnf(ctx, "[acp] cross-path drift detected on cold start: persisted=(count=%d hash=%s) current=(count=%d hash=%s) acpSession=%s — discarding stale id",
+		return nil, fmt.Errorf("ACP session state differs from messages.jsonl; automatic session replacement is disabled: persisted=(count=%d hash=%s) current=(count=%d hash=%s) acpSession=%s",
 			persistedFingerprint.Count, persistedFingerprint.Hash,
 			currentFingerprint.Count, currentFingerprint.Hash,
 			existingACPSession)
-		existingACPSession = ""
 	}
 
 	var acpSessionID pkgacp.SessionID
 	// thoughtLevelConfigID is captured from whichever session response we
-	// end up using (resume / load / new) so UpdateACPThoughtLevel can later
+	// end up using (resume / new) so UpdateACPThoughtLevel can later
 	// target the right config option. thought_level has no dedicated RPC.
 	var thoughtLevelConfigID string
-	// createdFreshSession tracks whether we ended up calling NewSession
-	// (either because no persisted id existed, drift discarded it, or
-	// LoadSession failed on the existing id). In all three paths the
-	// subprocess holds zero conversation memory, so if messages.jsonl
-	// is non-empty the next Run must replay that history as a text
-	// prefix.
+	// createdFreshSession is true only when this quartet session has no
+	// persisted ACP id yet and therefore legitimately starts with NewSession.
+	// If input was pre-persisted before that first start, the next Run replays
+	// the on-disk prefix once.
 	createdFreshSession := false
 	if existingACPSession != "" {
 		acpSessionID = pkgacp.SessionID(existingACPSession)
-		// Prefer session/resume (no history replay) over session/load
-		// when the agent supports it, mirroring reconnectIfNeeded. On
-		// cold start the per-Run stream handler is not installed yet, so
-		// load-time replay events are usually dropped — but resume avoids
-		// emitting them at all, which is cleaner and removes any reliance
-		// on that timing. Fall back to LoadSession if resume is
-		// unavailable or fails.
-		restored := false
-		if conn.SupportsResume() {
-			if sessResp, err := conn.ResumeSession(ctx, existingACPSession, workdir); err != nil {
-				logger.Warnf(ctx, "[acp] ResumeSession failed on cold start, falling back to LoadSession: acpSession=%s err=%v", existingACPSession, err)
-			} else {
-				thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
-				restored = true
-			}
+		// Persisted sessions are restored exclusively through ACP's native
+		// session/resume capability. Do not fall back to session/load or mint a
+		// replacement session: either the adapter resumes the exact session, or
+		// the real resume error is returned to the caller.
+		if !conn.SupportsResume() {
+			return nil, fmt.Errorf("ACP agent does not support session/resume for persisted session %s", existingACPSession)
 		}
-		if !restored {
-			if sessResp, err := conn.LoadSession(ctx, existingACPSession, workdir); err != nil {
-				logger.Errorf(ctx, "[acp] LoadSession failed, creating new: acpSession=%s err=%v", existingACPSession, err)
-				existingACPSession = ""
-			} else {
-				thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
-			}
+		resumeCtx, resumeCancel := context.WithTimeout(ctx, coldRestoreAttemptTimeout)
+		sessResp, resumeErr := conn.ResumeSession(resumeCtx, existingACPSession, workdir)
+		resumeCancel()
+		if resumeErr != nil {
+			return nil, fmt.Errorf("resume persisted ACP session %s: %w", existingACPSession, resumeErr)
 		}
+		thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
 	}
 
 	if existingACPSession == "" {
@@ -277,15 +267,9 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 		// current disk snapshot. Persist both id and fingerprint
 		// atomically so the next restart sees a consistent pair.
 		//
-		// fail-fast on persist error: if this is a "replacement" session
-		// (cold-start drift discarded the old id, or LoadSession failed
-		// on it) the old ACPSessionID is still on disk. Continuing in
-		// memory with the new id while disk holds the old one + new
-		// fingerprint would, after a restart, route the next Run to
-		// LoadSession(stale id) — which silently diverges or fails to
-		// load history. Refusing to construct the agent surfaces the
-		// underlying disk problem to the caller and lets the next
-		// agent build retry from a consistent point.
+		// Fail fast on persist error: continuing in memory with a session id
+		// that was not recorded on disk would make the next cold start unable
+		// to resume the exact ACP session that owns this conversation.
 		if err := savePersistedACPState(ctx, store, sessionID, sessResp.SessionID, currentFingerprint); err != nil {
 			return nil, fmt.Errorf("persist acp session state: %w", err)
 		}
@@ -447,22 +431,16 @@ func (a *ACPAgent) snapshotTransport() (*pkgacp.Conn, pkgacp.SessionID) {
 
 // reconnectIfNeeded checks whether the underlying ACP subprocess is still
 // alive. If the process was killed (idle reaper, OOM, crash), it
-// transparently creates a new connection and session so the caller's Run()
-// succeeds without returning "write |1: file already closed".
+// transparently creates a new connection and resumes the same ACP session so
+// the caller's Run() succeeds without returning "write |1: file already closed".
 //
-// Recovery strategy mirrors the cold-start path in NewACPAgent: try to
-// LoadSession on the new connection first (preserves subprocess-side
-// history without a replay round-trip), and if that fails, fall back to
-// NewSession + needReplay so the next Run rebuilds context from
-// messages.jsonl. Without the fallback, a single subprocess restart
-// where the prior session can no longer be loaded (idle reap that wiped
-// session state, OOM mid-write, persisted id not recognised by a newer
-// ACP server) would permanently break this agent — every subsequent
-// Run would re-enter reconnectIfNeeded, hit the same LoadSession
-// failure, and return the same error to the user. Recovery here brings
-// it in line with cold-start: conversation continuity is recovered via
-// disk replay rather than subprocess-side memory.
-func (a *ACPAgent) reconnectIfNeeded(ctx context.Context) error {
+// Recovery uses ACP's native session/resume exclusively. The persisted ACP
+// session is the source of truth: reconnect never falls back to session/load
+// or creates a replacement session from messages.jsonl.
+func (a *ACPAgent) reconnectIfNeeded(ctx context.Context, report PhaseReporter) error {
+	if report == nil {
+		report = func(string, string) {}
+	}
 	oldConn, oldSession := a.snapshotTransport()
 	if oldConn != nil && oldConn.IsAlive() {
 		return nil
@@ -492,97 +470,30 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context) error {
 			a.agentType, a.workdir, oldSession, deadPid, stderrTail)
 	}
 
+	report(model.AgentPhaseReconnecting, "")
 	conn, err := pkgacp.NewTrackedConn(ctx, a.agentType, a.workdir)
 	if err != nil {
 		return fmt.Errorf("reconnect: get connection failed: %w", err)
 	}
 
-	var (
-		newSessionID         pkgacp.SessionID
-		freshSession         bool
-		freshFingerprint     repository.MessagesFingerprint
-		thoughtLevelConfigID string
-	)
-	if oldSession != "" {
-		// Prefer session/resume when the agent supports it: unlike
-		// session/load, resume restores the subprocess-side context
-		// WITHOUT replaying conversation history via session/update.
-		// Load-time replay events are structurally identical to freshly
-		// generated output (the protocol carries no isReplay flag), so a
-		// LoadSession reconnect re-streams every prior turn into this
-		// Run's stream handler, which re-persists and re-pushes them —
-		// the duplicate-message bug. Resume sidesteps that entirely.
-		if conn.SupportsResume() {
-			sessResp, resumeErr := conn.ResumeSession(ctx, string(oldSession), a.workdir)
-			if resumeErr == nil {
-				newSessionID = pkgacp.SessionID(sessResp.SessionID)
-				thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
-				logger.Infof(ctx, "[acp] reconnected via ResumeSession (no replay): acpSession=%s newPid=%d", sessResp.SessionID, conn.Pid())
-			} else {
-				// Resume was advertised but failed (subprocess lost the
-				// session, transient error, etc.). Fall through to
-				// LoadSession below rather than straight to fresh+replay:
-				// LoadSession can still restore subprocess-side context
-				// from a persisted session, preserving continuity.
-				logger.Warnf(ctx, "[acp] ResumeSession failed, falling back to LoadSession: oldAcpSession=%s err=%v", oldSession, resumeErr)
-			}
-		}
-
-		if newSessionID == "" {
-			sessResp, loadErr := conn.LoadSession(ctx, string(oldSession), a.workdir)
-			if loadErr == nil {
-				newSessionID = pkgacp.SessionID(sessResp.SessionID)
-				thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
-				logger.Infof(ctx, "[acp] reconnected via LoadSession: acpSession=%s newPid=%d", sessResp.SessionID, conn.Pid())
-			} else {
-				// Old subprocess session is no longer loadable (idle reap
-				// wiped it, server schema changed, etc.). Fall through to
-				// NewSession + replay so the user's conversation continues
-				// rather than failing every subsequent Run with the same
-				// error. logged at WARN because the reload was expected to
-				// work; INFO would hide it from operators investigating
-				// "why did this conversation reset".
-				logger.Warnf(ctx, "[acp] reconnect LoadSession failed, falling back to fresh session + replay: oldAcpSession=%s err=%v", oldSession, loadErr)
-			}
-		}
+	if oldSession == "" {
+		conn.Close()
+		return fmt.Errorf("reconnect: no ACP session id available for session/resume")
 	}
-
-	if newSessionID == "" {
-		// Fresh-session fallback: compute fingerprint BEFORE NewSession
-		// so the persisted sync baseline matches the disk state the new
-		// session was minted against. Fingerprint compute can fail on
-		// disk I/O issues; better to abort here than persist a
-		// fabricated zero, which would suppress every subsequent drift
-		// check.
-		fp, fpErr := a.ctxManager.MessagesFingerprint(ctx)
-		if fpErr != nil {
-			conn.Close()
-			return fmt.Errorf("reconnect: messages fingerprint for fresh session failed: %w", fpErr)
-		}
-		freshFingerprint = fp
-
-		sessResp, newErr := conn.NewSession(ctx, a.workdir)
-		if newErr != nil {
-			conn.Close()
-			return fmt.Errorf("reconnect: create fresh session failed: %w", newErr)
-		}
-		newSessionID = pkgacp.SessionID(sessResp.SessionID)
-		thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
-		freshSession = true
-
-		// Persist (id, fingerprint) atomically so a restart between here
-		// and the next Run sees a consistent pair. Failing to persist
-		// is fatal: if disk still holds the OLD id but memory has the
-		// NEW one, the next restart would route to LoadSession on the
-		// stale id and either fail or silently diverge.
-		if a.sessionStore != nil && a.sessionID != "" {
-			if saveErr := savePersistedACPState(ctx, a.sessionStore, a.sessionID, sessResp.SessionID, fp); saveErr != nil {
-				conn.Close()
-				return fmt.Errorf("reconnect: persist fresh acp session state failed: %w", saveErr)
-			}
-		}
-		logger.Infof(ctx, "[acp] reconnected via fresh session + replay: acpSession=%s newPid=%d syncedCount=%d syncedHash=%s", sessResp.SessionID, conn.Pid(), fp.Count, fp.Hash)
+	if !conn.SupportsResume() {
+		conn.Close()
+		return fmt.Errorf("reconnect: ACP agent does not support session/resume for persisted session %s", oldSession)
 	}
+	resumeCtx, resumeCancel := context.WithTimeout(ctx, coldRestoreAttemptTimeout)
+	sessResp, resumeErr := conn.ResumeSession(resumeCtx, string(oldSession), a.workdir)
+	resumeCancel()
+	if resumeErr != nil {
+		conn.Close()
+		return fmt.Errorf("reconnect: resume ACP session %s: %w", oldSession, resumeErr)
+	}
+	newSessionID := pkgacp.SessionID(sessResp.SessionID)
+	thoughtLevelConfigID := thoughtLevelConfigIDFromSession(sessResp)
+	logger.Infof(ctx, "[acp] reconnected via ResumeSession: acpSession=%s newPid=%d", sessResp.SessionID, conn.Pid())
 
 	a.mu.Lock()
 	a.conn = conn
@@ -593,15 +504,6 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context) error {
 	a.thoughtLevelConfigID = thoughtLevelConfigID
 	a.mu.Unlock()
 
-	if freshSession {
-		a.storeFingerprint(freshFingerprint)
-		// Replay only when there is prior history to inject. An empty
-		// disk means the fresh session can run as a brand-new
-		// conversation — no replay prefix needed.
-		if freshFingerprint.Count > 0 {
-			a.needReplay.Store(true)
-		}
-	}
 	return nil
 }
 
@@ -632,8 +534,7 @@ func tailStderr(s string, n int) string {
 // Failure to persist the new id is surfaced as an error so the caller
 // does not continue prompting a subprocess session whose id is not
 // reflected on disk — on next agent reload, loadPersistedACPState
-// would return the stale id and LoadSession would silently diverge
-// again.
+// would return the stale id and session/resume would target the wrong state.
 func (a *ACPAgent) resetACPSession(ctx context.Context) error {
 	conn, oldSession := a.snapshotTransport()
 	if conn == nil {
@@ -703,11 +604,23 @@ func (a *ACPAgent) resetACPSession(ctx context.Context) error {
 	return nil
 }
 
+// PhaseReporter is an optional progress callback invoked during the
+// "silent" preparation window of a Run (subprocess launch, reconnect,
+// history replay, waiting for the first token). The handler layer wires
+// it to a transient agent_phase event so the UI can show a specific
+// loading label. Always non-nil inside Run (nil callers are replaced with
+// a no-op), so call sites need not nil-check.
+type PhaseReporter func(phase, detail string)
+
 // Run sends user messages to the ACP agent and streams events via handler.
 // jobID is threaded into the round builder's log label so WARN lines
 // ([round] eager flush superseded / drop terminal ...) can be traced back
 // to the concrete loop job, not just the session pair.
-func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, jobID string) (retErr error) {
+func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, jobID string, report PhaseReporter) (retErr error) {
+	if report == nil {
+		report = func(string, string) {}
+	}
+
 	a.running.Add(1)
 	defer a.running.Add(-1)
 
@@ -772,7 +685,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 		a.mu.Unlock()
 	}()
 
-	if err := a.reconnectIfNeeded(runCtx); err != nil {
+	if err := a.reconnectIfNeeded(runCtx, report); err != nil {
 		return err
 	}
 
@@ -791,7 +704,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 
 	conn, acpSession := a.snapshotTransport()
 	if conn == nil || !conn.TryAcquireUse() {
-		if err := a.reconnectIfNeeded(runCtx); err != nil {
+		if err := a.reconnectIfNeeded(runCtx, report); err != nil {
 			return err
 		}
 		conn, acpSession = a.snapshotTransport()
@@ -882,6 +795,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 	// Trim the just-appended user turn from the loaded tail so the
 	// replay block holds only prior context.
 	if a.needReplay.Load() {
+		report(model.AgentPhaseLoadingHistory, "")
 		historyMsgs, err := a.ctxManager.LoadMessagesForLLM(runCtx)
 		if err != nil {
 			return fmt.Errorf("load history for replay failed: %w", err)
@@ -1036,6 +950,10 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 	// even got to CancelActivePrompt — any update arriving during that
 	// window (old prompt's tail chunks / late tool terminals) would be
 	// dispatched to the new builder and corrupt its first round.
+	// Prompt submitted from here on: waiting for the slot (a prior turn on
+	// the shared subprocess) and then for the model's first token. Both read
+	// to the user as "thinking", so report it before acquiring the slot.
+	report(model.AgentPhaseThinking, "")
 	slot, err := conn.AcquirePromptSlot(runCtx, acpSession)
 	if err != nil {
 		return err

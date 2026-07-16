@@ -159,8 +159,11 @@ type terminalStatusResolution struct {
 //
 // Resolution order (interactive sends only — loop runs always take the
 // natural target path):
-//  1. A stored prior terminal status (Completed/Failed/Stopped) recorded
-//     by SendMessage             → restore it; leave Resume untouched.
+//  1. A stored prior status recorded by SendMessage → restore it; leave Resume
+//     untouched. For non-graph jobs this only fires for a terminal prior
+//     (Completed/Failed/Stopped); for graph jobs it fires for ANY prior, because
+//     a graph job's status is owned by the graph run lifecycle and an
+//     interactive discussion turn must never write it.
 //  2. job.Resume != nil (paused loop)
 //     → JobStatusStopped so Continue still works;
 //     leave Resume untouched.
@@ -172,7 +175,7 @@ func (s *serviceImpl) applyTerminalStatusLocked(job *model.Job, isLoopRun bool, 
 		resumePresentAtFinish: job.Resume != nil,
 	}
 	if !isLoopRun {
-		if prior, ok := s.consumeInteractivePriorStatusLocked(job.ID); ok && isTerminalJobStatus(prior) {
+		if prior, ok := s.consumeInteractivePriorStatusLocked(job.ID); ok && (isTerminalJobStatus(prior) || job.Mode == model.JobModeGraph) {
 			job.Status = prior
 			resolution.priorStatus = prior
 			resolution.restoredPriorStatus = true

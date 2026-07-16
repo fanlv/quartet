@@ -7,6 +7,8 @@ import './MessageList.css';
 interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
+  /** Label for the loading indicator; falls back to "AI 正在思考..." when absent. */
+  loadingLabel?: string;
   onSendMessage?: (message: string, imageUrls?: string[]) => void;
   agentIconUrl?: string;
   agentDisplayName?: string;
@@ -21,6 +23,7 @@ interface MessageListProps {
 export function MessageList({
   messages,
   isLoading,
+  loadingLabel,
   onSendMessage,
   agentIconUrl,
   agentDisplayName,
@@ -111,7 +114,7 @@ export function MessageList({
                 <span />
                 <span />
               </div>
-              <span>AI 正在思考...</span>
+              <span>{loadingLabel ?? 'AI 正在思考...'}</span>
             </div>
           )}
         </>

@@ -258,7 +258,14 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	// the new send's outcome drive the next status (success → Completed,
 	// failure → Failed). Only preserve Stopped when there's a Resume (a
 	// paused loop where Continue should still work).
-	if shouldPreservePriorStatus(priorStatus, priorResume) {
+	//
+	// A graph job is the exception: its status is owned by the graph run
+	// lifecycle (SetGraphRunState), so an interactive discussion turn in one of
+	// its node sessions must be status-neutral — always remember the prior
+	// status so the terminal path restores it instead of promoting the parked
+	// run to Completed (which would desync job.status from the still-running /
+	// parked GraphRun).
+	if job.Mode == model.JobModeGraph || shouldPreservePriorStatus(priorStatus, priorResume) {
 		s.setInteractivePriorStatus(job.ID, priorStatus)
 	}
 

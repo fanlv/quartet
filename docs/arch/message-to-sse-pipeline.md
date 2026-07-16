@@ -17,6 +17,7 @@
 | SSE **推送**（当前设计 / 恢复语义 / 慢客户端） | [sse-event-buffer-design.md](./sse-event-buffer-design.md) |
 | SSE 推送**演进背景**（旧链路问题与重构方向） | [sse-event-buffer-history.md](./sse-event-buffer-history.md) |
 | **Graph 运行**的存储与实时流差异 | [graph-run-message-storage-and-live-flow.md](./graph-run-message-storage-and-live-flow.md) |
+| **ACP 分支**特有链路（session 初始化 / 子进程握手 / prompt 发送 / 事件翻译） | [acp-agent-message-flow.md](./acp-agent-message-flow.md) |
 
 ---
 

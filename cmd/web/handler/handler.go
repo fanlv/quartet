@@ -250,6 +250,14 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		return s.GraphEndHookScript
 	})
 
+	// A graph run's scheduler goroutine does not survive a process restart, so on
+	// boot any run still persisted as in-flight is an orphan. Wire the persistent
+	// job-state sink and reconcile those runs to `recovering` (resumable) so they
+	// show a Resume affordance instead of a phantom "运行中", and so an interactive
+	// chat into a finished node session cannot collide with a dead scheduler.
+	gs.SetJobStateSink(js)
+	reconcileInterruptedGraphRuns(ctx, gs, js)
+
 	// Session services are created on demand via getOrCreateSessionService
 	// (and recreated on miss via reloadSessionByID). Preloading every job's
 	// session.Service at startup would force a full scan of every job's
@@ -285,6 +293,26 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 // Called after NewHandler to wire up the scheduler with the handler's job creation logic.
 func (h *Handler) SetScheduler(scheduler *schedule.Scheduler) {
 	h.scheduler = scheduler
+}
+
+// reconcileInterruptedGraphRuns repairs graph runs orphaned by a crash/restart.
+// Called once at startup after the job service has loaded all jobs: a graph run's
+// scheduler goroutine cannot survive a restart, so any run still persisted as
+// in-flight is reconciled to `recovering` (resumable) with its bound Job set to a
+// non-running status. Per-run repairs are logged by the graph service; this only
+// drives the scan over the loaded graph jobs.
+func reconcileInterruptedGraphRuns(ctx context.Context, gs graph.Service, js job.Service) {
+	scanned := 0
+	for _, j := range js.List() {
+		if j.Mode != model.JobModeGraph || j.GraphRunID == "" {
+			continue
+		}
+		scanned++
+		if err := gs.ReconcileInterruptedRun(ctx, j.GraphRunID); err != nil {
+			logger.Warnf(ctx, "[graph] startup reconcile failed: jobId=%s runId=%s err=%v", j.ID, j.GraphRunID, err)
+		}
+	}
+	logger.Infof(ctx, "[graph] startup reconcile scan done: graphJobs=%d", scanned)
 }
 
 // GetScheduleService returns the handler's schedule service for reuse by the scheduler.
