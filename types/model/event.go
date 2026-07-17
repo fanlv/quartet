@@ -193,9 +193,6 @@ const (
 	// AgentPhaseReconnecting — the subprocess died (OOM / crash / idle reap)
 	// and is being relaunched, restoring the session.
 	AgentPhaseReconnecting = "reconnecting"
-	// AgentPhaseLoadingHistory — a fresh session is replaying prior on-disk
-	// history as a text prefix before the new prompt.
-	AgentPhaseLoadingHistory = "loading_history"
 	// AgentPhaseThinking — the prompt has been submitted; waiting for the
 	// model's first token (TTFT). Maps to the default "thinking" label.
 	AgentPhaseThinking = "thinking"

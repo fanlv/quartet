@@ -67,20 +67,20 @@
 
 1. **启动子进程连接**（`pkg/acp` `NewConn` / `NewTrackedConn`）：校验 agentType 在白名单 → 启动子进程、注入子进程标记与配置的额外 env → 建 stdio 传输（缓冲上限提高以容纳大 tool result）→ 发 `initialize` 握手（ClientInfo="quartet"），读取子进程能力 `LoadSession` / `Resume`。连接注册进全局池，有创建超时与空闲回收（默认 30 分钟）。
 2. **读持久化状态**：从 SessionStore 取上次的 ACP session id 与消息指纹 `{Count, Hash}`。
-3. **冷启动漂移检测**：磁盘 `messages.jsonl` 当前指纹与持久化指纹不一致（说明 eino Run / 摘要压缩 / 外部编辑改过磁盘），丢弃旧 ACP session id。
-4. **恢复 / 新建 acpSession**：有旧 id 优先 `ResumeSession`（无历史 replay），失败退回 `LoadSession`；无旧 id 或加载失败则 `NewSession` 并持久化新 id + 指纹。
-5. 组装 `ACPAgent`（持有 conn、acpSession、chatctx 上下文管理器、round.Builder、串行运行信号量）。全新 session 但磁盘已有历史时标记 `needReplay`，下一轮把历史作为文本前缀重放。
+3. **冷启动漂移检测**：磁盘 `messages.jsonl` 当前指纹与持久化指纹不一致（说明 eino Run / 摘要压缩 / 外部编辑改过磁盘）时记录告警，随后照常恢复持久化的 ACP session（子进程 session 是上下文的事实来源），恢复成功后把同步基线重对齐到当前磁盘快照。
+4. **恢复 / 新建 acpSession**：有旧 id 优先 `ResumeSession`，不支持 resume 则 `LoadSession`，失败则报错；无旧 id 才 `NewSession` 并持久化新 id + 指纹。恢复只依赖 ACP 原生的 session/resume 与 session/load，不再新建替代 session、也不把磁盘历史作为文本前缀重放。
+5. 组装 `ACPAgent`（持有 conn、acpSession、chatctx 上下文管理器、round.Builder、串行运行信号量）。
 
-> 两个「session id」不同层：quartet 级 `sessionID`（缓存 key）与子进程级 `acpSession`（ACP 协议 id，可被 reset / reconnect 更换）。
+> 两个「session id」不同层：quartet 级 `sessionID`（缓存 key）与子进程级 `acpSession`（ACP 协议 id，可被 restore / reconnect 重新恢复）。
 
 ### ④ 单轮 prompt 运行
 
 `agent.Run`（`services/agent/acp/agent.go`）：
 
-1. 抢占并取消上一轮 Run → 用信号量串行化 → `reconnectIfNeeded`（子进程死亡时透明重连：Resume → Load → NewSession + replay）。
+1. 抢占并取消上一轮 Run → 用信号量串行化 → `reconnectIfNeeded`（子进程死亡时透明重连：优先 session/resume，不支持则 session/load）。上一轮被取消过（session 可能被 cancel 污染）时，先经 session/resume 或 session/load 重恢复 session 再发 prompt。
 2. 提取 prompt 文本（ACP 目前只支持纯文本，带附件报错）。
-3. **每轮都做漂移检测**（因实例复用，不能只在初始化查），不一致则重置 ACP session。
-4. `BeginRun` 持久化用户消息；`needReplay` 时用历史拼接 replay 前缀；应用 model / mode / thoughtLevel。
+3. **每轮都做漂移检测**（因实例复用，不能只在初始化查）：磁盘指纹与同步基线不一致时记录告警并把基线对齐到当前磁盘——活着的子进程 session 自身是自洽的上下文事实来源，无需重置。
+4. `BeginRun` 持久化用户消息；若改写 messages.jsonl 丢弃了孤儿尾，则经 `restoreACPSession` 用 session/resume 或 session/load 重恢复子进程 session；应用 model / mode / thoughtLevel。
 5. **接线顺序（关键）**：`AcquirePromptSlot`（先取消连接上正在进行的 prompt 并等信号量）→ `SetStreamHandler`（把 round.Builder 注册为该 session 的流处理器）→ `SendPrompt`，即调 ACP 的 `session/prompt` 方法，阻塞到本轮结束。这个先取槽后装 handler 的顺序，避免旧 prompt 的残余事件路由到新 handler。
 
 ### ⑤ 事件两跳翻译 → agui

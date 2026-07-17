@@ -69,7 +69,7 @@ func NewACPService() ACPService {
 	// Preserve the old Infof on reuse so ops can still correlate a
 	// follow-up Run with the specific acpSession it attached to. Uses
 	// the locked SessionID() getter — reading a.acpSession directly
-	// would race with the writers in reconnectIfNeeded / resetACPSession.
+	// would race with the writers in reconnectIfNeeded / restoreACPSession.
 	cache = cache.WithReuseLog(func(key string, a *ACPAgent) {
 		logger.Infof(context.Background(),
 			"[ACPService] reuse ACP agent, key=%s acpSession=%s",

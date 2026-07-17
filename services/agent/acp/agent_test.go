@@ -95,10 +95,9 @@ func newACPAgentForBaselineTest(repo repository.ChatContextRepo, store SessionSt
 
 // When persistErr is non-nil, the sync baseline MUST NOT advance —
 // messages.jsonl is missing rounds the subprocess already saw, so
-// recording "we are in sync" would hide that gap from the next Run's
-// drift check and let the subprocess and disk diverge silently. Setting
-// needReplay forces the next Run to rebuild context from disk.
-func TestUpdateSyncBaseline_PersistErr_LeavesBaselineAndForcesReplay(t *testing.T) {
+// recording "we are in sync" would hide that gap. Leaving the baseline
+// stale lets the next Run's drift check observe and re-align it.
+func TestUpdateSyncBaseline_PersistErr_LeavesBaseline(t *testing.T) {
 	repo := &stubRepo{count: 5, hash: "hash-after"} // disk has 5 msgs after the failed Run
 	store := &stubSessionStore{}
 	prior := repository.MessagesFingerprint{Count: 2, Hash: "hash-before"} // baseline before the Run
@@ -108,9 +107,6 @@ func TestUpdateSyncBaseline_PersistErr_LeavesBaselineAndForcesReplay(t *testing.
 
 	if got := a.loadFingerprint(); got != prior {
 		t.Errorf("baseline must stay at prior on persistErr, got %+v want %+v (advancing it would mask drift on the next Run)", got, prior)
-	}
-	if !a.needReplay.Load() {
-		t.Error("needReplay must be set on persistErr so the next Run rebuilds context from disk")
 	}
 	if writes := store.writes(); len(writes) != 0 {
 		t.Errorf("session store must not be written on persistErr, got writes=%v", writes)
@@ -131,20 +127,16 @@ func TestUpdateSyncBaseline_Success_AdvancesBaselineAndPersists(t *testing.T) {
 	if got := a.loadFingerprint(); got != want {
 		t.Errorf("baseline should advance to current disk fingerprint, got %+v want %+v", got, want)
 	}
-	if a.needReplay.Load() {
-		t.Error("needReplay must NOT be set on success — that would force a redundant replay on the next Run")
-	}
 	writes := store.writes()
 	if len(writes) != 1 || writes[0] != want {
 		t.Errorf("expected one persist of %+v, got %v", want, writes)
 	}
 }
 
-// Fingerprint failure: leave baseline untouched (no fabricated zero,
-// which would force a spurious reset on every subsequent Run) and do
-// NOT trigger needReplay (the data on disk is consistent — only the
-// observation failed).
-func TestUpdateSyncBaseline_CountErr_KeepsBaselineNoReplay(t *testing.T) {
+// Fingerprint failure: leave baseline untouched — overwriting it with a
+// fabricated zero would make the next Run's drift check flag a spurious
+// divergence on every subsequent Run until the I/O issue clears.
+func TestUpdateSyncBaseline_CountErr_KeepsBaseline(t *testing.T) {
 	repo := &stubRepo{countErr: errors.New("disk read failed")}
 	store := &stubSessionStore{}
 	prior := repository.MessagesFingerprint{Count: 4, Hash: "hash-prior"}
@@ -154,9 +146,6 @@ func TestUpdateSyncBaseline_CountErr_KeepsBaselineNoReplay(t *testing.T) {
 
 	if got := a.loadFingerprint(); got != prior {
 		t.Errorf("baseline must stay at previous value on fingerprint error, got %+v want %+v", got, prior)
-	}
-	if a.needReplay.Load() {
-		t.Error("needReplay must NOT be set on fingerprint failure alone — disk is consistent, only the read observation failed")
 	}
 	if writes := store.writes(); len(writes) != 0 {
 		t.Errorf("session store must not be written when fingerprint failed, got %v", writes)
