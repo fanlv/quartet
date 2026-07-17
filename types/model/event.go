@@ -18,10 +18,10 @@ const (
 	// in the Finished state (Placeholder), unlike TOOL_CALL_RESULT /
 	// TOOL_CALL_END which are gated against late updates.
 	EventTypeToolCallStitched EventType = "TOOL_CALL_STITCHED"
-	EventTypeCustom             EventType = "CUSTOM"
-	EventTypeRunStarted         EventType = "RUN_STARTED"
-	EventTypeRunFinished        EventType = "RUN_FINISHED"
-	EventTypeRunError           EventType = "RUN_ERROR"
+	EventTypeCustom           EventType = "CUSTOM"
+	EventTypeRunStarted       EventType = "RUN_STARTED"
+	EventTypeRunFinished      EventType = "RUN_FINISHED"
+	EventTypeRunError         EventType = "RUN_ERROR"
 
 	// Job-level events
 	EventTypeJobStarted         EventType = "JOB_STARTED"
@@ -52,9 +52,9 @@ const (
 type ToolCallStatus string
 
 const (
-	ToolCallStatusProcessing  ToolCallStatus = "Processing"
-	ToolCallStatusSuccess     ToolCallStatus = "Success"
-	ToolCallStatusError       ToolCallStatus = "Error"
+	ToolCallStatusProcessing ToolCallStatus = "Processing"
+	ToolCallStatusSuccess    ToolCallStatus = "Success"
+	ToolCallStatusError      ToolCallStatus = "Error"
 	// ToolCallStatusPlaceholder marks the bubble as interrupted /
 	// superseded — the surrounding run ended before the tool ever
 	// produced a real terminal status. Visually distinct from Error
@@ -133,6 +133,7 @@ type ToolCallArgsEvent struct {
 	ToolCallName    string         `json:"toolCallName,omitempty"`
 	ParentMessageID string         `json:"parentMessageId,omitempty"`
 	Delta           string         `json:"delta"`
+	Replace         bool           `json:"replace,omitempty"`
 	ToolCallStatus  ToolCallStatus `json:"toolCallStatus,omitempty"`
 }
 

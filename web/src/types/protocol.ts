@@ -139,6 +139,7 @@ export interface ToolCallArgsEvent extends BaseEvent {
   toolCallName?: string;
   parentMessageId?: string;
   delta: string;
+  replace?: boolean;
   toolCallStatus?: ToolCallStatusEnum;
 }
 

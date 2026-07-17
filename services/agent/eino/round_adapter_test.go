@@ -51,6 +51,10 @@ func (h *fakeStreamHandler) OnToolCallUpdate(id, content string, status agentstr
 	h.events = append(h.events, fmt.Sprintf("update:%s:%s:%s", id, content, term))
 }
 
+func (h *fakeStreamHandler) OnToolCallArgsSnapshot(id, args string) {
+	h.events = append(h.events, fmt.Sprintf("snapshot:%s:%s", id, args))
+}
+
 func (h *fakeStreamHandler) OnTokenUsage(totalTokens int) {
 	h.events = append(h.events, fmt.Sprintf("usage:%d", totalTokens))
 }

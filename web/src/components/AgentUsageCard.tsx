@@ -13,6 +13,7 @@ import {
   type CodexUsage,
   type ClaudeUsage,
   type AntigravityUsage,
+  type KimiUsage,
   type UsageWindow,
 } from '../utils/agentUsage';
 import './AgentUsageCard.css';
@@ -217,6 +218,9 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
   const [antigravity, setAntigravity] = useState<AntigravityUsage | null>(
     () => (getCachedUsage('antigravity') as AntigravityUsage | null) ?? null,
   );
+  const [kimi, setKimi] = useState<KimiUsage | null>(
+    () => (getCachedUsage('kimi') as KimiUsage | null) ?? null,
+  );
 
   const load = useCallback((p: AgentUsageProvider) => {
     let cancelled = false;
@@ -227,7 +231,8 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
         setCachedUsage(p, data);
         if (p === 'codex') setCodex(data.codex ?? null);
         else if (p === 'claude') setClaude(data.claude ?? null);
-        else setAntigravity(data.antigravity ?? null);
+        else if (p === 'antigravity') setAntigravity(data.antigravity ?? null);
+        else setKimi(data.kimi ?? null);
       })
       .catch(() => {
         // Swallow: keep the last successful data on screen (if any) and never
@@ -249,7 +254,14 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
       time: formatResetAt(w, withDate),
     })}`;
 
-  const current = provider === 'codex' ? codex : provider === 'claude' ? claude : antigravity;
+  const current =
+    provider === 'codex'
+      ? codex
+      : provider === 'claude'
+        ? claude
+        : provider === 'antigravity'
+          ? antigravity
+          : kimi;
 
   return (
     <div className="agent-usage-inline" data-testid="agent-usage-card" data-provider={provider}>
@@ -363,6 +375,40 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
                 />
               )}
             </span>
+          )}
+        </>
+      ) : provider === 'kimi' && kimi ? (
+        <>
+          {kimi.version && <span className="usage-inline-ver">{kimi.version}</span>}
+          {[kimi.weekly, kimi.five_hour].map((window, index) => {
+            if (!window) return null;
+            const label = formatWindowLabel(window.limit_window_seconds);
+            return (
+              <UsageRing
+                key={index}
+                percent={window.used_percent}
+                label={label}
+                title={ringTitle(label, window)}
+              />
+            );
+          })}
+          {kimi.total && (
+            <UsageRing
+              percent={kimi.total.used_percent}
+              label="Σ"
+              title={
+                <>
+                  <span className="usage-tip-line usage-tip-head">
+                    {t('agentUsage.kimiTotal')} {Math.round(kimi.total.used_percent)}%
+                  </span>
+                  {kimi.parallel_limit ? (
+                    <span className="usage-tip-line">
+                      {t('agentUsage.kimiParallel', { count: kimi.parallel_limit })}
+                    </span>
+                  ) : null}
+                </>
+              }
+            />
           )}
         </>
       ) : null}

@@ -69,6 +69,8 @@
     "creditExpiry": "{{time}} 过期",
     "today": "今日消费",
     "total": "累计消费",
+    "kimiTotal": "累计额度",
+    "kimiParallel": "并发上限 {{count}}",
     "loading": "正在获取额度…",
     "refresh": "刷新",
     "day": "天",

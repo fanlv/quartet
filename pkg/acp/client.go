@@ -163,12 +163,22 @@ func (c *sdkClient) handleSessionUpdate(ctx context.Context, params acp.SessionN
 		return
 	}
 	if tc, ok := u.AsToolCall(); ok {
-		h.OnToolCall(string(tc.ToolCallID), tc.Title)
+		id := string(tc.ToolCallID)
+		h.OnToolCall(id, tc.Title)
+		input := extractToolCallInput(tc.RawInput)
+		if input == "" && isActiveToolCallStatus(tc.Status) {
+			// Kimi lazy-creates a pending tool call before rawInput can be
+			// parsed and mirrors the cumulative argument text in content.
+			// ToolCall content is a snapshot too, so forward it as replace.
+			input = extractToolCallContent(tc.Content)
+		}
+		if input != "" {
+			h.OnToolCallArgsSnapshot(id, input)
+		}
 		return
 	}
 	if tcu, ok := u.AsToolCallUpdate(); ok {
 		id := string(tcu.ToolCallID)
-		content := extractToolCallContent(tcu.Content)
 		status := agentstream.ToolCallStatusInProgress
 		if s := tcu.Status; s != nil {
 			switch *s {
@@ -182,6 +192,23 @@ func (c *sdkClient) handleSessionUpdate(ctx context.Context, params acp.SessionN
 				status = agentstream.ToolCallStatusInProgress
 			}
 		}
+		// ACP rawInput is a complete replacement value, not a token delta.
+		// While Kimi is still composing a call rawInput is unavailable, so it
+		// mirrors the cumulative argument text in the replacement content
+		// collection. Use that only for non-terminal input updates; terminal
+		// content is the tool result.
+		input := extractToolCallInput(tcu.RawInput)
+		if input == "" && !status.IsTerminal() {
+			input = extractToolCallContent(tcu.Content)
+		}
+		if input != "" {
+			h.OnToolCallArgsSnapshot(id, input)
+		}
+		if !status.IsTerminal() {
+			return
+		}
+
+		content := extractToolCallContent(tcu.Content)
 		// Log terminal tool call updates at Debug level to help trace delivery
 		// latency (the builder's "late terminal stitch" uses these timestamps).
 		if status == agentstream.ToolCallStatusCompleted || status == agentstream.ToolCallStatusFailed {
@@ -240,6 +267,21 @@ func logUnknownSessionUpdate(ctx context.Context, u *acp.SessionUpdate) {
 		return
 	}
 	logger.Warnf(ctx, "[ACP] unknown session update: %s", json.String(*u))
+}
+
+func extractToolCallInput(raw []byte) string {
+	input := strings.TrimSpace(string(raw))
+	if input == "" || input == "null" {
+		return ""
+	}
+	return input
+}
+
+func isActiveToolCallStatus(status *acp.ToolCallStatus) bool {
+	if status == nil {
+		return false
+	}
+	return *status == acp.ToolCallStatusPending || *status == acp.ToolCallStatusInProgress
 }
 
 func extractToolCallContent(contents []acp.ToolCallContent) string {

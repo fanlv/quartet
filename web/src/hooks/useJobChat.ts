@@ -1479,7 +1479,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             if (i !== idx) return msg;
             if (msg.status === MessageStatusEnum.Finished) return msg;
             const toolMsg = msg as ToolMessage;
-            return { ...toolMsg, toolCallArgs: toolMsg.toolCallArgs + event.delta, toolCallStatus: event.toolCallStatus || toolMsg.toolCallStatus };
+            return {
+              ...toolMsg,
+              toolCallArgs: event.replace ? event.delta : toolMsg.toolCallArgs + event.delta,
+              toolCallStatus: event.toolCallStatus || toolMsg.toolCallStatus,
+            };
           });
         });
         break;

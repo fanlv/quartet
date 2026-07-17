@@ -38,11 +38,14 @@ func (s ToolCallStatus) IsTerminal() bool {
 //   - OnThoughtChunk: append a reasoning/thought text fragment. Same
 //     round-boundary semantics as OnMessageChunk.
 //   - OnToolCall: declare a new tool call with id+title. Subsequent
-//     OnToolCallUpdate calls with the same id carry argument deltas and the
-//     terminal result.
+//     OnToolCallUpdate / OnToolCallArgsSnapshot calls with the same id carry
+//     arguments and the terminal result.
 //   - OnToolCallUpdate: either an argument delta (non-terminal, content is
 //     an incremental args chunk) or the terminal result (terminal, content
 //     is the final result text). The distinction is carried by status.
+//   - OnToolCallArgsSnapshot: replace the tool call's accumulated arguments
+//     with a full snapshot. ACP rawInput updates use replacement semantics,
+//     unlike the token deltas produced by the eino adapter.
 //   - OnTokenUsage: cumulative token count reported by the underlying
 //     provider (optional).
 type StreamHandler interface {
@@ -50,5 +53,6 @@ type StreamHandler interface {
 	OnThoughtChunk(text string)
 	OnToolCall(id, title string)
 	OnToolCallUpdate(id, content string, status ToolCallStatus)
+	OnToolCallArgsSnapshot(id, args string)
 	OnTokenUsage(totalTokens int)
 }

@@ -23,6 +23,9 @@ type Service interface {
 	// AntigravityUsage returns the Antigravity (agy) plan quota + agy CLI
 	// version, read from the local agy language-server RPC.
 	AntigravityUsage(ctx context.Context) (*model.AntigravityUsage, error)
+	// KimiUsage returns the Kimi Code plan quota + kimi CLI version, read from
+	// the kimi usages endpoint with the local kimi CLI's OAuth credentials.
+	KimiUsage(ctx context.Context) (*model.KimiUsage, error)
 	// AgentVersion returns the installed CLI version of a known ACP agent,
 	// resolved from its serve command. Used by agents that have no quota view.
 	AgentVersion(ctx context.Context, command string) (string, error)

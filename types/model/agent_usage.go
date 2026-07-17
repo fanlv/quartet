@@ -1,13 +1,15 @@
 package model
 
 // AgentUsageResponse is the envelope for GET /api/v1/agent/usage. Exactly one
-// of Codex / Claude / Antigravity is populated, matching the requested Type.
+// of Codex / Claude / Antigravity / Kimi is populated, matching the requested
+// Type.
 type AgentUsageResponse struct {
 	Code        int               `json:"code"`
-	Type        string            `json:"type"` // "codex" | "claude" | "antigravity"
+	Type        string            `json:"type"` // "codex" | "claude" | "antigravity" | "kimi"
 	Codex       *CodexUsage       `json:"codex,omitempty"`
 	Claude      *ClaudeUsage      `json:"claude,omitempty"`
 	Antigravity *AntigravityUsage `json:"antigravity,omitempty"`
+	Kimi        *KimiUsage        `json:"kimi,omitempty"`
 }
 
 // UsageWindow is one rate-limit window. LimitWindowSeconds is the source of
@@ -27,7 +29,7 @@ type CodexUsage struct {
 	Version         string       `json:"version,omitempty"` // bundled codex CLI version, e.g. "v0.144.0"
 	PrimaryWindow   *UsageWindow `json:"primary_window,omitempty"`
 	SecondaryWindow *UsageWindow `json:"secondary_window,omitempty"`
-	ResetCredits    int          `json:"reset_credits"`              // count of available rate-limit reset credits
+	ResetCredits    int          `json:"reset_credits"` // count of available rate-limit reset credits
 	// ResetCreditExpiries lists the expiry (unix seconds) of each available reset
 	// credit, ascending. Sourced from the rate-limit-reset-credits endpoint;
 	// empty when that supplementary call fails.
@@ -64,4 +66,17 @@ type AntigravityUsage struct {
 	Claude5h     *UsageWindow `json:"claude_5h,omitempty"`     // Claude/GPT group, 5-hour (bucketId 3p-5h)
 	GeminiWeekly *UsageWindow `json:"gemini_weekly,omitempty"` // Gemini group, 7-day  (bucketId gemini-weekly)
 	Gemini5h     *UsageWindow `json:"gemini_5h,omitempty"`     // Gemini group, 5-hour (bucketId gemini-5h)
+}
+
+// KimiUsage is the Kimi Code plan snapshot from the kimi coding usages
+// endpoint: the kimi CLI version plus the three quota windows. Weekly and
+// FiveHour are rate-limit windows with a reset time; Total is the cumulative
+// quota pool (e.g. purchased credits) and has no reset. A window is nil when
+// the API does not report a usable limit for it.
+type KimiUsage struct {
+	Version       string       `json:"version,omitempty"`        // kimi CLI version, e.g. "v0.1.0"
+	ParallelLimit int64        `json:"parallel_limit,omitempty"` // max concurrent sessions
+	Weekly        *UsageWindow `json:"weekly,omitempty"`         // 7-day quota (the API's "usage" field)
+	FiveHour      *UsageWindow `json:"five_hour,omitempty"`      // 5-hour quota (limits[0].detail)
+	Total         *UsageWindow `json:"total,omitempty"`          // cumulative quota (totalQuota), no reset
 }

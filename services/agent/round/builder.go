@@ -1043,14 +1043,19 @@ func (b *Builder) OnToolCall(id, title string) {
 	b.logHandlerErr("OnToolCallStart", h.OnToolCallStart(id, title))
 }
 
-// OnToolCallUpdate either appends argument deltas (non-terminal status)
-// or records the final tool result (terminal status). When the result
+// OnToolCallUpdate appends argument deltas for non-terminal updates and
+// records the final tool result for terminal updates. ACP full argument
+// snapshots enter through OnToolCallArgsSnapshot instead. When the result
 // count catches up with the tool-call count, the round is flushed.
 func (b *Builder) OnToolCallUpdate(id, content string, status agentstream.ToolCallStatus) {
+	if !status.IsTerminal() {
+		b.onToolCallArgs(id, content, false)
+		return
+	}
+
 	var (
 		emitResult       bool
 		emitEnd          bool
-		emitArgs         bool
 		resultForHandler string
 		success          bool
 		toolFinishedAt   int64
@@ -1205,14 +1210,6 @@ func (b *Builder) OnToolCallUpdate(id, content string, status agentstream.ToolCa
 			// complete and can be flushed. No placeholder is needed.
 			flushMsgs, flushFn = b.flushCurrentRoundDeferredLocked(ReasonInterrupted)
 		}
-	} else if content != "" {
-		emitArgs = true
-		for i := range b.accToolCalls {
-			if b.accToolCalls[i].ID == id {
-				b.accToolCalls[i].Function.Arguments += content
-				break
-			}
-		}
 	}
 	b.mu.Unlock()
 
@@ -1225,9 +1222,6 @@ func (b *Builder) OnToolCallUpdate(id, content string, status agentstream.ToolCa
 		b.invokeFlush("toolCallTerminal", flushFn, flushMsgs)
 	}
 
-	if emitArgs {
-		b.logHandlerErr("OnToolCallArgs", h.OnToolCallArgs(id, content))
-	}
 	if emitResult {
 		pinBoundaryTimestamp(h, toolFinishedAt)
 		b.logHandlerErr("OnToolCallResult", h.OnToolCallResult(id, resultForHandler, success))
@@ -1236,6 +1230,40 @@ func (b *Builder) OnToolCallUpdate(id, content string, status agentstream.ToolCa
 		pinBoundaryTimestamp(h, toolFinishedAt)
 		b.logHandlerErr("OnToolCallEnd", h.OnToolCallEnd(id, success))
 	}
+}
+
+// OnToolCallArgsSnapshot replaces the arguments accumulated for a tool call.
+// ACP rawInput and replacement content collections use snapshot semantics;
+// they must never be concatenated like model token deltas.
+func (b *Builder) OnToolCallArgsSnapshot(id, args string) {
+	b.onToolCallArgs(id, args, true)
+}
+
+func (b *Builder) onToolCallArgs(id, args string, replace bool) {
+	if args == "" && !replace {
+		return
+	}
+
+	b.mu.Lock()
+	h := b.handler
+	if h == nil {
+		b.mu.Unlock()
+		return
+	}
+	for i := range b.accToolCalls {
+		if b.accToolCalls[i].ID != id {
+			continue
+		}
+		if replace {
+			b.accToolCalls[i].Function.Arguments = args
+		} else {
+			b.accToolCalls[i].Function.Arguments += args
+		}
+		break
+	}
+	b.mu.Unlock()
+
+	b.logHandlerErr("OnToolCallArgs", h.OnToolCallArgs(id, args, replace))
 }
 
 // handleLateTerminalStitchLocked rewrites a placeholdered tool result back

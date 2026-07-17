@@ -40,7 +40,19 @@ export interface AntigravityUsage {
   gemini_5h?: UsageWindow; // Gemini group, 5-hour
 }
 
-export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity';
+// Kimi Code plan snapshot: the kimi CLI version plus the three quota windows.
+// weekly / five_hour are rate-limit windows with a reset time; total is the
+// cumulative quota pool with no reset. A window is absent when the API doesn't
+// report a usable limit for it.
+export interface KimiUsage {
+  version?: string; // e.g. "v0.1.0"
+  parallel_limit?: number; // max concurrent sessions
+  weekly?: UsageWindow; // 7-day quota
+  five_hour?: UsageWindow; // 5-hour quota
+  total?: UsageWindow; // cumulative quota, no reset
+}
+
+export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity' | 'kimi';
 
 // agentUsageProvider maps a selected agent to a usage provider, or null when
 // the agent has no quota view (eino, etc.). ACP agent `type` is the full serve
@@ -54,12 +66,18 @@ export function agentUsageProvider(
   if (s.includes('antigravity')) return 'antigravity';
   if (s.includes('codex')) return 'codex';
   if (s.includes('claude')) return 'claude';
+  if (s.includes('kimi')) return 'kimi';
   return null;
 }
 
-export async function fetchAgentUsage(
-  provider: AgentUsageProvider,
-): Promise<{ codex?: CodexUsage; claude?: ClaudeUsage; antigravity?: AntigravityUsage }> {
+export interface AgentUsagePayload {
+  codex?: CodexUsage;
+  claude?: ClaudeUsage;
+  antigravity?: AntigravityUsage;
+  kimi?: KimiUsage;
+}
+
+export async function fetchAgentUsage(provider: AgentUsageProvider): Promise<AgentUsagePayload> {
   // `cache: 'no-store'` is required: this quota reading changes continuously
   // (Codex windows especially), so a browser/intermediary HTTP-cache hit
   // would serve an old snapshot and — since the result is re-written to the
@@ -72,7 +90,7 @@ export async function fetchAgentUsage(
       `get agent usage failed (status ${res.status})`;
     throw new Error(msg);
   }
-  return { codex: data.codex, claude: data.claude, antigravity: data.antigravity };
+  return { codex: data.codex, claude: data.claude, antigravity: data.antigravity, kimi: data.kimi };
 }
 
 // fetchAgentVersion returns the installed CLI version of a known ACP agent
@@ -106,7 +124,7 @@ function cacheKey(provider: AgentUsageProvider): string {
 
 export function getCachedUsage(
   provider: AgentUsageProvider,
-): CodexUsage | ClaudeUsage | AntigravityUsage | null {
+): CodexUsage | ClaudeUsage | AntigravityUsage | KimiUsage | null {
   try {
     const raw = localStorage.getItem(cacheKey(provider));
     if (!raw) return null;
@@ -117,12 +135,8 @@ export function getCachedUsage(
   }
 }
 
-export function setCachedUsage(
-  provider: AgentUsageProvider,
-  data: { codex?: CodexUsage; claude?: ClaudeUsage; antigravity?: AntigravityUsage },
-): void {
-  const value =
-    provider === 'codex' ? data.codex : provider === 'claude' ? data.claude : data.antigravity;
+export function setCachedUsage(provider: AgentUsageProvider, data: AgentUsagePayload): void {
+  const value = data[provider];
   try {
     if (value) localStorage.setItem(cacheKey(provider), JSON.stringify(value));
     else localStorage.removeItem(cacheKey(provider));

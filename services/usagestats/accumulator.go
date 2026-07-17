@@ -105,6 +105,21 @@ func (a *Accumulator) OnToolCallArgsDelta(id, delta string) {
 	pt.argsBuf.WriteString(delta)
 }
 
+// OnToolCallArgsSnapshot replaces the arguments collected for a pending tool.
+// ACP reports rawInput as a complete value, so appending repeated snapshots
+// would inflate token usage and prevent command-name resolution.
+func (a *Accumulator) OnToolCallArgsSnapshot(id, args string) {
+	if id == "" || a.pendingTools == nil {
+		return
+	}
+	pt, ok := a.pendingTools[id]
+	if !ok {
+		return
+	}
+	pt.argsBuf.Reset()
+	pt.argsBuf.WriteString(args)
+}
+
 // OnToolCallEnd marks one tool call as completed: increments the global
 // toolcall count, attributes the duration to the parsed command name, and
 // adds the (name + args) tokenize estimate to the toolCall token bucket.

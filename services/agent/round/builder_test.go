@@ -46,14 +46,14 @@ type stubHandler struct {
 func (h *stubHandler) setNextID(id string)   { h.nextID = id }
 func (h *stubHandler) LastMessageID() string { return h.lastID }
 
-func (h *stubHandler) OnMessageStart() error                { h.lastID = h.nextID; return nil }
-func (h *stubHandler) OnMessageDelta(string) error          { return nil }
-func (h *stubHandler) OnMessageEnd() error                  { h.messageEnds++; return nil }
-func (h *stubHandler) OnThoughtStart() error                { h.lastID = h.nextID; return nil }
-func (h *stubHandler) OnThoughtDelta(string) error          { return nil }
-func (h *stubHandler) OnThoughtEnd() error                  { h.thoughtEnds++; return nil }
-func (h *stubHandler) OnToolCallStart(string, string) error { return nil }
-func (h *stubHandler) OnToolCallArgs(string, string) error  { return nil }
+func (h *stubHandler) OnMessageStart() error                     { h.lastID = h.nextID; return nil }
+func (h *stubHandler) OnMessageDelta(string) error               { return nil }
+func (h *stubHandler) OnMessageEnd() error                       { h.messageEnds++; return nil }
+func (h *stubHandler) OnThoughtStart() error                     { h.lastID = h.nextID; return nil }
+func (h *stubHandler) OnThoughtDelta(string) error               { return nil }
+func (h *stubHandler) OnThoughtEnd() error                       { h.thoughtEnds++; return nil }
+func (h *stubHandler) OnToolCallStart(string, string) error      { return nil }
+func (h *stubHandler) OnToolCallArgs(string, string, bool) error { return nil }
 func (h *stubHandler) OnToolCallResult(id, content string, success bool) error {
 	if h.toolResultContent == nil {
 		h.toolResultContent = map[string]string{}

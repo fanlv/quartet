@@ -1286,15 +1286,20 @@ func (h *graphEventHandler) OnToolCallStart(id, name string) error {
 	}, now)
 	return nil
 }
-func (h *graphEventHandler) OnToolCallArgs(id, args string) error {
+func (h *graphEventHandler) OnToolCallArgs(id, args string, replace bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.usage != nil {
-		h.usage.OnToolCallArgsDelta(id, args)
+		if replace {
+			h.usage.OnToolCallArgsSnapshot(id, args)
+		} else {
+			h.usage.OnToolCallArgsDelta(id, args)
+		}
 	}
 	h.appendEventLocked(model.GraphEventTypeAgentToolArgs, args, map[string]string{
 		"toolCallId": id,
 		"delta":      args,
+		"replace":    strconv.FormatBool(replace),
 		"status":     string(model.ToolCallStatusProcessing),
 	}, time.Now().UnixMilli())
 	return nil

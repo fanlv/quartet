@@ -22,7 +22,10 @@ type ThoughtHandler interface {
 
 type ToolCallHandler interface {
 	OnToolCallStart(id, name string) error
-	OnToolCallArgs(id, args string) error
+	// OnToolCallArgs delivers either an incremental argument fragment or a
+	// complete argument snapshot. replace=true means consumers must replace
+	// the arguments collected for this tool call instead of appending args.
+	OnToolCallArgs(id, args string, replace bool) error
 	// OnToolCallResult delivers the tool call's terminal content. success
 	// is false when the tool reported a failure status; the content passed
 	// here matches what is written to disk (failed results carry the

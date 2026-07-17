@@ -69,6 +69,8 @@
     "creditExpiry": "expires {{time}}",
     "today": "Today",
     "total": "Total",
+    "kimiTotal": "Total quota",
+    "kimiParallel": "Parallel limit {{count}}",
     "loading": "Fetching usage…",
     "refresh": "Refresh",
     "day": "d",

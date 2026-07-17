@@ -117,6 +117,7 @@ export function translateGraphEvent(ev: GraphEvent): AgentEvent | null {
         type: EventTypeEnum.TOOL_CALL_ARGS,
         toolCallId: p.toolCallId ?? '',
         delta: p.delta ?? '',
+        replace: p.replace === 'true',
         toolCallStatus: mapToolStatus(p.status),
       } as ToolCallArgsEvent;
 

@@ -42,8 +42,15 @@ func (h *Handler) AgentUsage(ctx context.Context, c *app.RequestContext) {
 			return
 		}
 		c.JSON(http.StatusOK, model.AgentUsageResponse{Code: 0, Type: typ, Antigravity: u})
+	case "kimi":
+		u, err := h.usageService.KimiUsage(ctx)
+		if err != nil {
+			httputil.InternalErrorLog(ctx, c, "[agent.usage] kimi", err)
+			return
+		}
+		c.JSON(http.StatusOK, model.AgentUsageResponse{Code: 0, Type: typ, Kimi: u})
 	default:
-		httputil.BadRequest(c, fmt.Sprintf("invalid type %q (want codex|claude|antigravity)", typ))
+		httputil.BadRequest(c, fmt.Sprintf("invalid type %q (want codex|claude|antigravity|kimi)", typ))
 	}
 }
 

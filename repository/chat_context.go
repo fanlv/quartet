@@ -122,6 +122,56 @@ func isNotFoundError(err error) bool {
 	return errors.Is(err, os.ErrNotExist)
 }
 
+// maxPersistedToolCallArgs caps how large a single tool call's Arguments
+// blob may be when persisted to messages.jsonl. A degenerate model turn
+// (e.g. a Write call whose content recursively nests itself) can produce
+// tens of MB of arguments; persisting that verbatim makes the history
+// endpoint return multi-MB payloads and stalls page load on reload.
+const maxPersistedToolCallArgs = 256 * 1024
+
+// toolCallArgsPreviewLen is how many leading bytes of the original
+// arguments are kept inside the truncation marker for debugging.
+const toolCallArgsPreviewLen = 4 * 1024
+
+// truncatedToolCallArgsMarker replaces an oversized Arguments payload. It
+// keeps Arguments valid JSON so history consumers (frontend renderer,
+// LLM context rebuild) can still parse it.
+type truncatedToolCallArgsMarker struct {
+	Truncated     bool   `json:"__quartet_truncated__"`
+	OriginalBytes int    `json:"originalBytes"`
+	Preview       string `json:"preview"`
+}
+
+// sanitizeMessageForPersist truncates oversized tool call arguments in
+// place before the message is written to messages.jsonl. Mutating the
+// in-memory copy is intentional: anything holding the same pointer
+// (session caches, later LLM rounds) then agrees with what is on disk.
+func sanitizeMessageForPersist(msg *schema.Message) {
+	if msg == nil {
+		return
+	}
+	for i := range msg.ToolCalls {
+		args := msg.ToolCalls[i].Function.Arguments
+		if len(args) <= maxPersistedToolCallArgs {
+			continue
+		}
+		preview := args
+		if len(preview) > toolCallArgsPreviewLen {
+			preview = preview[:toolCallArgsPreviewLen]
+		}
+		markerBytes, err := json.Marshal(truncatedToolCallArgsMarker{
+			Truncated:     true,
+			OriginalBytes: len(args),
+			Preview:       preview,
+		})
+		if err != nil {
+			continue
+		}
+		logger.Warnf(context.Background(), "[chatContextRepo] truncate oversized tool call arguments (tool=%s id=%s bytes=%d)", msg.ToolCalls[i].Function.Name, msg.ToolCalls[i].ID, len(args))
+		msg.ToolCalls[i].Function.Arguments = string(markerBytes)
+	}
+}
+
 type chatContextRepo struct {
 	sandbox    fileserver.Storage
 	sessionDir string // {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}/sessions/{sessionID}/
@@ -367,6 +417,7 @@ func (r *chatContextRepo) appendMessagesLocked(msgs []*schema.Message) error {
 	filePath := path.MessagesFilePath(r.sessionDir)
 	JSONStrings := make([]string, 0, len(msgs))
 	for _, msg := range msgs {
+		sanitizeMessageForPersist(msg)
 		jsonBytes, err := json.Marshal(msg)
 		if err != nil {
 			return fmt.Errorf("marshal message failed: %w", err)
@@ -402,6 +453,7 @@ func (r *chatContextRepo) replaceMessagesLocked(msgs []*schema.Message) error {
 	filePath := path.MessagesFilePath(r.sessionDir)
 	jsonStrings := make([]string, 0, len(msgs))
 	for _, msg := range msgs {
+		sanitizeMessageForPersist(msg)
 		jsonBytes, err := json.Marshal(msg)
 		if err != nil {
 			return fmt.Errorf("marshal message failed: %w", err)

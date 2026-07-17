@@ -256,14 +256,19 @@ func (h *loopEventHandler) OnToolCallStart(id, name string) error {
 	return nil
 }
 
-func (h *loopEventHandler) OnToolCallArgs(id, args string) error {
+func (h *loopEventHandler) OnToolCallArgs(id, args string, replace bool) error {
 	if h.usage != nil {
-		h.usage.OnToolCallArgsDelta(id, args)
+		if replace {
+			h.usage.OnToolCallArgsSnapshot(id, args)
+		} else {
+			h.usage.OnToolCallArgsDelta(id, args)
+		}
 	}
 	h.publisher.Publish(h.jobID, &model.ToolCallArgsEvent{
 		BaseEvent:      h.baseEvent(model.EventTypeToolCallArgs),
 		ToolCallID:     id,
 		Delta:          args,
+		Replace:        replace,
 		ToolCallStatus: model.ToolCallStatusProcessing,
 	})
 	return nil
