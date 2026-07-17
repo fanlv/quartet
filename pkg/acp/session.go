@@ -42,6 +42,37 @@ type SessionResponse struct {
 	Modes         *acp.SessionModeState
 }
 
+// PromptStopReason is the terminal state returned by an ACP agent for one
+// prompt turn. Keep the SDK value behind this package boundary so service
+// layers do not need to import the protocol SDK directly.
+type PromptStopReason string
+
+const (
+	PromptStopReasonEndTurn         PromptStopReason = "end_turn"
+	PromptStopReasonMaxTokens       PromptStopReason = "max_tokens"
+	PromptStopReasonMaxTurnRequests PromptStopReason = "max_turn_requests"
+	PromptStopReasonRefusal         PromptStopReason = "refusal"
+	PromptStopReasonCancelled       PromptStopReason = "cancelled"
+)
+
+// PromptUsage is the optional per-turn usage carried by PromptResponse.
+// It is retained so incomplete-turn errors can expose the full termination
+// context instead of collapsing every non-success response into nil.
+type PromptUsage struct {
+	InputTokens       int64
+	OutputTokens      int64
+	TotalTokens       int64
+	CachedReadTokens  *int64
+	CachedWriteTokens *int64
+	ThoughtTokens     *int64
+}
+
+// PromptResult is the stable prompt completion view exposed by pkg/acp.
+type PromptResult struct {
+	StopReason PromptStopReason
+	Usage      *PromptUsage
+}
+
 // SessionConfigSelect is a stable view of a select option in ConfigOptions,
 // avoiding SDK types leaking into higher service layers.
 type SessionConfigSelect struct {
@@ -303,14 +334,27 @@ func (s *PromptSlot) Release() {
 }
 
 // SendPrompt sends the prompt text on the held slot and blocks until the
-// agent finishes the turn. Must be called after AcquirePromptSlot and before
-// Release.
-func (s *PromptSlot) SendPrompt(ctx context.Context, text string) error {
-	_, err := s.conn.conn.Prompt(ctx, acp.PromptRequest{
+// agent finishes the turn. The terminal response is returned to the caller:
+// a successful JSON-RPC exchange can still represent an incomplete turn
+// (cancelled, max_tokens, refusal, and so on). Must be called after
+// AcquirePromptSlot and before Release.
+func (s *PromptSlot) SendPrompt(ctx context.Context, text string) (PromptResult, error) {
+	resp, err := s.conn.conn.Prompt(ctx, acp.PromptRequest{
 		SessionID: s.sid,
 		Prompt:    []acp.ContentBlock{acp.NewContentBlockText(acp.TextContent{Text: text})},
 	})
-	return err
+	result := PromptResult{StopReason: PromptStopReason(resp.StopReason)}
+	if resp.Usage != nil {
+		result.Usage = &PromptUsage{
+			InputTokens:       resp.Usage.InputTokens,
+			OutputTokens:      resp.Usage.OutputTokens,
+			TotalTokens:       resp.Usage.TotalTokens,
+			CachedReadTokens:  resp.Usage.CachedReadTokens,
+			CachedWriteTokens: resp.Usage.CachedWriteTokens,
+			ThoughtTokens:     resp.Usage.ThoughtTokens,
+		}
+	}
+	return result, err
 }
 
 // CancelSession sends a Cancel notification for the specified session.

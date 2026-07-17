@@ -2548,7 +2548,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       // earlier one, so a freshly-started node's session — and the user message
       // it just sent — becomes the visible conversation the instant the node
       // starts, instead of only when the run ends. Mirrors loop-mode
-      // follow-latest and the hydration path's running-instance preference.
+      // follow-latest and the hydration path's latest-entry default.
       // entries are sorted by startedAt, so the last is the most recently
       // started node that has a session. Backend now sets displaySessionId at
       // dispatch (eager session visibility), so this fires mid-run, not just at
@@ -3526,10 +3526,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                 if (job.status !== 'running') {
                   setEndedSessionIds(new Set(entries.map((e) => e.sessionId)));
                 }
-                const runningInst = graphInstances.find((i) => i.status === 'running' && i.sessionId);
                 const activeSid = initialSessionId && entries.some((e) => e.sessionId === initialSessionId)
                   ? initialSessionId
-                  : (runningInst?.sessionId ?? entries[entries.length - 1].sessionId);
+                  : entries[entries.length - 1].sessionId;
                 applyActiveSessionSelection(activeSid, activeSid === getLastLoopSessionId(entries));
 
                 const activeMessages = await loadHistory(activeSid, activeSid);

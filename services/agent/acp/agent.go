@@ -1014,7 +1014,8 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 	// Send the prompt on the held slot. Serialization across sessions on
 	// this subprocess and active-session tracking are the slot's job; we
 	// just send the text and wait for the turn to finish.
-	if err := slot.SendPrompt(runCtx, prompt); err != nil {
+	promptResult, err := slot.SendPrompt(runCtx, prompt)
+	if err != nil {
 		if runCtx.Err() != nil {
 			return runCtx.Err()
 		}
@@ -1057,19 +1058,44 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 		}
 		return fmt.Errorf("acp prompt failed: %w", err)
 	}
-	// Diagnostic: detect empty responses early. If the subprocess returned
-	// successfully but the builder received zero stream events, the session
-	// is likely in a broken state. Log at WARN so operators notice without
-	// needing DEBUG, and so the next occurrence of "run completed with no
-	// output" can be traced directly.
-	if !a.builder.HasAccumulatedContent() {
-		logger.Warnf(runCtx, "[acp] prompt returned successfully but builder has no content: sessionId=%s acpSession=%s — subprocess may have returned empty response", a.sessionID, acpSession)
-	}
-
 	if runCtx.Err() != nil {
 		return runCtx.Err()
 	}
+
+	// A completed JSON-RPC request is not necessarily a completed model turn.
+	// ACP reports cancellation, token/turn limits, and refusal in StopReason;
+	// treating those responses as nil used to let graph nodes advance with a
+	// truncated assistant message. Persisted partial output is retained by the
+	// deferred CollectMessages call, while the returned error keeps the job / graph
+	// node out of the success path.
+	if promptResult.StopReason != pkgacp.PromptStopReasonEndTurn {
+		promptErr := a.incompletePromptError(promptResult)
+		logger.Errorf(runCtx, "[acp] prompt did not complete normally: type=%s sessionId=%s acpSession=%s err=%v",
+			a.agentType, a.sessionID, acpSession, promptErr)
+		return promptErr
+	}
+
+	// An end_turn with no assistant/tool stream is also not a usable success.
+	// This commonly means the subprocess session is wedged after an upstream
+	// interruption. Do not silently mark the workflow node complete.
+	if !a.builder.HasAccumulatedContent() {
+		promptErr := fmt.Errorf("ACP backend (%s) returned stopReason=%q but produced no assistant or tool output; the subprocess session may be in an incomplete state",
+			a.agentType, promptResult.StopReason)
+		logger.Errorf(runCtx, "[acp] prompt completed without output: type=%s sessionId=%s acpSession=%s err=%v",
+			a.agentType, a.sessionID, acpSession, promptErr)
+		return promptErr
+	}
 	return nil
+}
+
+func (a *ACPAgent) incompletePromptError(result pkgacp.PromptResult) error {
+	usage := "unavailable"
+	if result.Usage != nil {
+		usage = fmt.Sprintf("inputTokens=%d outputTokens=%d totalTokens=%d",
+			result.Usage.InputTokens, result.Usage.OutputTokens, result.Usage.TotalTokens)
+	}
+	return fmt.Errorf("ACP backend (%s) stopped before normal completion: stopReason=%q usage={%s}; partial assistant output, if any, was preserved",
+		a.agentType, result.StopReason, usage)
 }
 
 // stopAndFlushTimeout caps how long StopAndFlush will wait for Run's
