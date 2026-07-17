@@ -403,6 +403,7 @@ func (h *Handler) JobGraphRunEvents(ctx context.Context, c *app.RequestContext) 
 
 	connID := uuid.NewString()[:8]
 	startSeq := graphParseLastEventSeq(string(c.GetHeader("Last-Event-ID")))
+	freshSubscriber := startSeq == 0
 
 	// A fresh subscriber (no Last-Event-ID → startSeq=0) means "start at the
 	// buffer tail". The buffer's GC advances headSeq freely while no reader is
@@ -413,7 +414,7 @@ func (h *Handler) JobGraphRunEvents(ctx context.Context, c *app.RequestContext) 
 	// current SnapshotSeq so the new reader cursors at the tail. Only for live
 	// runs: the disk-replay path below uses startSeq as a line offset where 0
 	// correctly means "replay from the first event".
-	if startSeq == 0 {
+	if freshSubscriber {
 		if freshSeq, ok := h.graphService.RunEventSnapshotSeq(runID); ok {
 			startSeq = freshSeq
 		}
@@ -425,12 +426,15 @@ func (h *Handler) JobGraphRunEvents(ctx context.Context, c *app.RequestContext) 
 	// persisted structural events. ErrSeqGone (resume point GC'd) maps to 410
 	// so the client reconciles from the run snapshot.
 	reader, live, err := h.graphService.SubscribeRunEvents(runID, startSeq)
-	if errors.Is(err, graphsvc.ErrSeqGone) && startSeq > 0 {
-		// Snapshot/subscribe race: GC advanced headSeq between the client's
-		// status fetch and this subscribe. Retry once from the buffer's
-		// current tail.
+	if errors.Is(err, graphsvc.ErrSeqGone) && freshSubscriber {
+		// A fresh subscriber is followed by an authoritative status reconcile,
+		// so resolving a SnapshotSeq/Subscribe GC race at the new tail cannot
+		// hide state. A resumed subscriber is different: skipping its missing
+		// range would silently lose events, so it must receive 410 below and
+		// let the client reconcile before creating a fresh subscription.
 		if freshSeq, ok := h.graphService.RunEventSnapshotSeq(runID); ok {
-			logger.Infof(ctx, "[graph-sse] subscribe race hit, retrying: connId=%s runId=%s originalSeq=%d freshSeq=%d", connID, runID, startSeq, freshSeq)
+			logger.Infof(ctx, "[graph-sse] fresh subscribe race hit, retrying: connId=%s runId=%s originalSeq=%d freshSeq=%d", connID, runID, startSeq, freshSeq)
+			startSeq = freshSeq
 			reader, live, err = h.graphService.SubscribeRunEvents(runID, freshSeq)
 		}
 	}

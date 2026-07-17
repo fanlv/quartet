@@ -161,7 +161,8 @@
     },
     "stop": {
       "gracefulRequested": "将在当前步骤完成后停止",
-      "gracefulCancelled": "已取消停止，循环继续运行"
+      "gracefulCancelled": "已取消停止，循环继续运行",
+      "timeout": "停止请求超时——请求可能在网络中被阻塞，请检查连接后重试"
     },
     "template": {
       "label": "模板",
@@ -1067,6 +1068,7 @@
       "cancelStop": "继续运行",
       "stopTitle": "硬停止",
       "stop": "停止",
+      "actionTimeout": "操作请求超时——请求可能在网络中被阻塞，请重试",
       "resumeTitle": "继续 Graph 运行",
       "resume": "继续",
       "continueTitle": "结束讨论并继续执行工作流",

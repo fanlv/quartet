@@ -127,6 +127,15 @@ const EDITABLE_STATUSES = new Set<GraphRunStatus>([
 // terminal (no SSE tail, like a resumable) but it gets its own「讨论完成」continue
 // action rather than the generic Resume — so canContinue handles it separately.
 const LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'stepStopping']);
+
+// Same rationale as useJobChat's STOP_REQUEST_TIMEOUT_MS: on an HTTP/1.1
+// connection pool saturated by long-lived SSE streams, a tiny POST can queue
+// indefinitely — bound it and surface the failure instead of looking dead.
+const ACTION_REQUEST_TIMEOUT_MS = 15_000;
+
+function isActionRequestTimeout(err: unknown): boolean {
+  return err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError');
+}
 const RESUMABLE_STATUSES = new Set<GraphRunStatus>(['failed', 'stepStopped', 'stopped', 'timedOut', 'recovering']);
 
 function makeValidationLabel(err: GraphValidationError): string {
@@ -272,18 +281,18 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
     }
     setLoading(true);
     try {
-      const res = await fetch(runApiUrl(''));
+      const res = await fetch(runApiUrl(''), { signal: AbortSignal.timeout(ACTION_REQUEST_TIMEOUT_MS) });
       if (!res.ok) throw new Error(await readGraphError(res, `GET /job/${jobId}/graph-run`));
       const data = await res.json() as GraphRunStatusResponse;
       applySnapshot(data);
       onSnapshot?.(data);
       setError('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(isActionRequestTimeout(err) ? t('graph.loop.actionTimeout') : err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [applySnapshot, jobId, onSnapshot, runApiUrl]);
+  }, [applySnapshot, jobId, onSnapshot, runApiUrl, t]);
 
   useEffect(() => {
     void refresh();
@@ -305,6 +314,7 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
+        signal: AbortSignal.timeout(ACTION_REQUEST_TIMEOUT_MS),
       });
       if (!res.ok) throw new Error(await readGraphError(res, `POST /job/${jobId}/graph-run/${action}`));
       const data = await res.json().catch(() => null) as { run?: GraphRun } | null;
@@ -324,11 +334,11 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
       }
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(isActionRequestTimeout(err) ? t('graph.loop.actionTimeout') : err instanceof Error ? err.message : String(err));
     } finally {
       setActionPending(null);
     }
-  }, [edges, instances, jobId, onSnapshot, progress, refresh]);
+  }, [edges, instances, jobId, onSnapshot, progress, refresh, t]);
 
   const percent = useMemo(() => {
     if (!progress) return 0;

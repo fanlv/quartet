@@ -21,6 +21,7 @@ import {
   type GraphEvent,
 } from '../types';
 import { SSEClient } from '../utils/sse-client';
+import { GraphSSEClient } from '../utils/graph-sse-client';
 import { mergeMessages } from '../utils/mergeMessages';
 import { translateGraphEvent } from '../utils/translateGraphEvent';
 import { backendPhaseKind, type ChatPhase } from '../utils/chatPhase';
@@ -331,6 +332,21 @@ function graphSessionEntries(
 // (stops the loading spinner) and relies on the snapshot reconcile.
 const GRAPH_LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'stepStopping']);
 
+// A stop request is tiny and the backend answers in milliseconds; the long
+// timeout only bounds the pathological case — behind an HTTP/1.1 hop a
+// connection pool saturated by long-lived SSE streams can queue the POST
+// indefinitely, which previously left the click looking dead with no error.
+const STOP_REQUEST_TIMEOUT_MS = 15_000;
+
+function isRequestTimeout(err: unknown): boolean {
+  return err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError');
+}
+
+function stopRequestErrorMessage(err: unknown, fallback: string): string {
+  if (isRequestTimeout(err)) return i18n.t('loop.stop.timeout');
+  return err instanceof Error ? err.message : fallback;
+}
+
 export interface QueuedMessage {
   id: string;
   content: string;
@@ -510,6 +526,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       setIsLoading(GRAPH_LIVE_STATUSES.has(snapshot.run.status));
     }
   }, []);
+  const graphRunStatus = graphRunStatusSnapshot?.run?.status;
+  // True while the bound graph run is actively scheduling (pending/running/
+  // stepStopping). Distinct from isLoading: an interactive discussion turn on
+  // a non-live run also flips isLoading, but only a live run owns the graph
+  // event stream. While graphRunLive, the job-events SSE is not subscribed —
+  // one long-lived stream per page instead of two, which matters on HTTP/1.1
+  // where each stream holds a scarce per-origin connection slot.
+  const graphRunLive = !!isGraph && !!graphRunStatus && GRAPH_LIVE_STATUSES.has(graphRunStatus);
   const [loopProgress, setLoopProgress] = useState<JobProgress | null>(null);
   const [loopStatus, setLoopStatus] = useState<'idle' | 'running' | 'completed' | 'stopped' | 'failed'>('idle');
   // True once a graceful "stop after step" has been requested but the loop has
@@ -2130,6 +2154,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     // request goes out with an empty Last-Event-ID, the server parses
     // it as startSeq=0, and any GC'd buffer responds 410 immediately.
     if (!snapshotReady) return;
+    // While a graph run is live, this page subscribes only the graph-run
+    // event stream (see the graph SSE effect below) — one long-lived stream
+    // per page instead of two. On HTTP/1.1 each SSE stream holds one of the
+    // browser's ~6 per-origin connections, and enough open pages starve
+    // ordinary POSTs (like stop) in the socket pool. The job stream carries
+    // nothing a live run needs: interactive discussion events only matter
+    // once the run leaves a live state, which flips graphRunLive off and
+    // re-subscribes here.
+    if (isGraph && graphRunLive) return;
     markEventStreamReady(false);
 
     let cancelled = false;
@@ -2467,18 +2500,23 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       eventSseRef.current?.disconnect();
       eventSseRef.current = null;
     };
-  }, [jobId, jobNotFound, snapshotReady, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistory, markEventStreamReady, settleEventStreamReadyWaiters]);
+  }, [jobId, jobNotFound, snapshotReady, isGraph, graphRunLive, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistory, markEventStreamReady, settleEventStreamReadyWaiters]);
 
   // Graph mode has one page-level stream. It feeds agent deltas into the chat,
   // reconciles node sessions, and publishes the same authoritative run snapshot
   // to GraphLoopProgress. Keeping all three consumers behind this one owner
   // avoids opening a second /graph-run/events connection from the progress
   // component (which exhausted HTTP/1.1 connection slots across two tabs).
-  const graphSseRef = useRef<SSEClient | null>(null);
+  const graphSseRef = useRef<GraphSSEClient | null>(null);
   useEffect(() => {
     graphSseRef.current?.disconnect();
     graphSseRef.current = null;
-    if (!isGraph || !graphRunId || !jobId || !isLoading) return;
+    // Only a live run produces graph events; interactive discussion turns on
+    // a non-live run (awaitingInput/terminal) flow over the job-events stream
+    // instead, which the effect above re-subscribes as soon as graphRunLive
+    // flips off. Using graphRunLive (not isLoading) as the gate also keeps the
+    // subscription stable across boolean-equal status changes.
+    if (!isGraph || !graphRunId || !jobId || !graphRunLive) return;
 
     let cancelled = false;
     let lastInstanceRefreshAt = 0;
@@ -2488,23 +2526,22 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     const reconcile = async () => {
       if (cancelled) return;
       const seq = ++reconcileSeq;
-      let instances: GraphInstanceState[] = [];
-      let archivedInstances: Record<string, GraphInstanceState> | undefined;
+      let data: GraphRunStatusResponse;
       try {
         const res = await fetch(apiUrl(`/job/${encodeURIComponent(jobId)}/graph-run`));
         if (!res.ok) {
           throw new Error(await readHTTPError(res, `GET /job/${jobId}/graph-run`));
         }
-        const data = (await res.json()) as GraphRunStatusResponse;
-        applyGraphRunStatusSnapshot(data);
-        instances = data.instances || [];
-        archivedInstances = data.run?.archivedInstances;
+        data = (await res.json()) as GraphRunStatusResponse;
       } catch (err) {
-        setGraphStreamError(err instanceof Error ? err.message : String(err));
-        console.error(`[graph-sse] reconcile fetch failed for job ${jobId} run ${graphRunId}:`, err);
-        return;
+        const error = err instanceof Error ? err : new Error(String(err));
+        console.error(`[graph-sse] reconcile fetch failed for job ${jobId} run ${graphRunId}:`, error);
+        throw error;
       }
       if (cancelled || seq !== reconcileSeq) return;
+      applyGraphRunStatusSnapshot(data);
+      const instances = data.instances || [];
+      const archivedInstances = data.run?.archivedInstances;
       const entries = graphSessionEntries(instances, archivedInstances);
       if (entries.length > 0) setLoopSessions(entries);
       // Follow the latest-started node's session while the user hasn't pinned an
@@ -2551,8 +2588,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       // GraphLoopProgress and terminal transitions observed on this stream.
     };
 
-    const client = new SSEClient();
-    graphSseRef.current = client;
+    const runReconcile = () => {
+      void reconcile().catch((err) => {
+        setGraphStreamError(err instanceof Error ? err.message : String(err));
+      });
+    };
+
     // Throttle reconciliation so bursts of graph events don't hammer the
     // run-status endpoint. Keep a trailing refresh: an Agent node emits
     // `instanceStarted` before its session is opened, then another
@@ -2568,14 +2609,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           trailingRefreshTimer = null;
         }
         lastInstanceRefreshAt = now;
-        void reconcile();
+        runReconcile();
         return;
       }
       if (trailingRefreshTimer) return;
       trailingRefreshTimer = setTimeout(() => {
         trailingRefreshTimer = null;
         lastInstanceRefreshAt = Date.now();
-        void reconcile();
+        runReconcile();
       }, waitMs);
     };
     const throttledReconcile = () => {
@@ -2584,9 +2625,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     const immediateReconcile = () => {
       scheduleReconcile(true);
     };
-    void client.connectUntilReady({
+
+    const client = new GraphSSEClient({
       url: apiUrl(`/job/${encodeURIComponent(jobId)}/graph-run/events`),
-      initialLastEventId: '0',
+      onReconcile: () => reconcile(),
+      onError: (err) => setGraphStreamError(err.message || String(err)),
       onEvent: (raw) => {
         const evt = raw as unknown as GraphEvent;
         const t = evt.type;
@@ -2623,14 +2666,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         }
         handleEventRef.current(translated);
       },
-      onError: (err) => setGraphStreamError(err.message || String(err)),
-      onResumePointGone: (errorMessage) => {
-        setGraphStreamError(errorMessage);
-        void reconcile();
-      },
-    }).catch((err) => {
-      setGraphStreamError(err instanceof Error ? err.message : String(err));
     });
+    graphSseRef.current = client;
+    client.connect();
 
     return () => {
       cancelled = true;
@@ -2641,7 +2679,33 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       client.disconnect();
       if (graphSseRef.current === client) graphSseRef.current = null;
     };
-  }, [isGraph, graphRunId, jobId, isLoading, apiUrl, loadHistory, setLoopSessions, applyActiveSessionSelection, applyGraphRunStatusSnapshot]);
+  }, [isGraph, graphRunId, jobId, graphRunLive, apiUrl, loadHistory, setLoopSessions, applyActiveSessionSelection, applyGraphRunStatusSnapshot]);
+
+  // While the job-events SSE is gated off (live graph run), the job title —
+  // generated a few seconds after the run starts — has no event channel. Poll
+  // it once on bind and once shortly after; the terminal syncJobState pass
+  // (via the re-subscribed job stream) covers everything later. Deliberately
+  // does NOT reuse syncJobState here: for a live run job.status can be a
+  // stale-terminal leftover from a previous discussion turn, and
+  // syncJobState's terminal path would finalize the streaming bubbles as
+  // interrupted.
+  const graphMetaSyncedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isGraph || !jobId || !graphRunLive || !graphRunId) return;
+    if (graphMetaSyncedRef.current === graphRunId) return;
+    graphMetaSyncedRef.current = graphRunId;
+    const syncMeta = () =>
+      fetch(apiUrl(`/job/${encodeURIComponent(jobId)}`))
+        .then(async (res) => {
+          if (!res.ok) throw new Error(await readHTTPError(res, `GET /job/${jobId}`));
+          const job = await res.json();
+          if (job.title) setJobTitle(job.title);
+        })
+        .catch((err) => console.warn('[useJobChat] graph metadata sync failed:', err));
+    void syncMeta();
+    const timer = setTimeout(() => { void syncMeta(); }, 10_000);
+    return () => clearTimeout(timer);
+  }, [isGraph, jobId, graphRunId, graphRunLive, apiUrl]);
 
   // Send interactive message.
   //
@@ -2978,6 +3042,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ graceful }),
+        signal: AbortSignal.timeout(STOP_REQUEST_TIMEOUT_MS),
       });
       if (!response.ok) {
         throw new Error(await readHTTPError(response));
@@ -2997,7 +3062,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
     } catch (err) {
       console.error('[stopLoop] error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to stop loop');
+      setError(stopRequestErrorMessage(err, 'Failed to stop loop'));
     }
   }, [jobId]);
 
@@ -3011,6 +3076,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ graceful: true, cancel: true }),
+        signal: AbortSignal.timeout(STOP_REQUEST_TIMEOUT_MS),
       });
       if (!response.ok) {
         throw new Error(await readHTTPError(response));
@@ -3019,7 +3085,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       showCommandToast(i18n.t('loop.stop.gracefulCancelled'));
     } catch (err) {
       console.error('[cancelStop] error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to cancel stop');
+      setError(stopRequestErrorMessage(err, 'Failed to cancel stop'));
     }
   }, [jobId]);
 
@@ -3054,18 +3120,29 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const stopGeneration = useCallback(async () => {
     if (isLoop) {
       await stopLoop();
-    } else {
-      if (jobId) {
-        try {
-          await fetch(`/api/v1/job/${jobId}/stop`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          });
-        } catch (err) {
-          console.error('[stopGeneration] error:', err);
-        }
-      }
+      return;
+    }
+    if (!jobId) {
+      // No job on the backend yet — the in-flight state is purely local.
       setIsLoading(false);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/v1/job/${jobId}/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(STOP_REQUEST_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        throw new Error(await readHTTPError(response));
+      }
+      // Only drop the loading state once the backend has actually accepted the
+      // stop — clearing it after a swallowed failure used to leave a "stopped"
+      // UI over a still-running job.
+      setIsLoading(false);
+    } catch (err) {
+      console.error('[stopGeneration] error:', err);
+      setError(stopRequestErrorMessage(err, 'Failed to stop'));
     }
   }, [isLoop, stopLoop, jobId]);
 

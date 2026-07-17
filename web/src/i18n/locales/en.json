@@ -164,7 +164,8 @@
     },
     "stop": {
       "gracefulRequested": "Will stop after the current step finishes",
-      "gracefulCancelled": "Stop cancelled, the loop keeps running"
+      "gracefulCancelled": "Stop cancelled, the loop keeps running",
+      "timeout": "Stop request timed out — it may be stuck on the network. Check the connection and try again."
     },
     "template": {
       "label": "Template",
@@ -1077,6 +1078,7 @@
       "cancelStop": "Keep running",
       "stopTitle": "Hard stop",
       "stop": "Stop",
+      "actionTimeout": "Action request timed out — it may be stuck on the network; please try again.",
       "resumeTitle": "Resume graph run",
       "resume": "Resume",
       "continueTitle": "Finish the discussion and continue the workflow",

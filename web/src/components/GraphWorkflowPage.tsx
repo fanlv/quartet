@@ -38,7 +38,7 @@ import type {
   GraphWorkflowWarning,
 } from '../types';
 import type { AgentInfo } from './ChatPage';
-import { SSEClient } from '../utils/sse-client';
+import { GraphSSEClient } from '../utils/graph-sse-client';
 import { useIsMobile } from '../hooks/useIsMobile';
 import {
   clearNestConstraint,
@@ -696,7 +696,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   // as a new GraphRun version via the bound Job. Only enterable while the
   // selected run is editable (in-flight or resumable, never naturally completed).
   const [editingRun, setEditingRun] = useState(false);
-  const graphEventClientRef = useRef<SSEClient | null>(null);
+  const graphEventClientRef = useRef<GraphSSEClient | null>(null);
   // One-shot consumption of the ?graphEditJob=<id> deep-link (from Chat page's
   // GraphLoop "Edit"): open that job's run directly in run-version edit mode.
   const editRunIntentRef = useRef<string | null>(
@@ -704,6 +704,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   );
   const workflowLoadSeqRef = useRef(0);
   const runLoadSeqRef = useRef(0);
+  const runStatusRefreshSeqRef = useRef(0);
   const validationSeqRef = useRef(0);
   const saveSeqRef = useRef(0);
   const runVersionSaveSeqRef = useRef(0);
@@ -1019,12 +1020,20 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   );
 
   // ---- Run status / SSE ----
-  const refreshJobRunStatus = useCallback(async (jobId: string, guardSeq?: number): Promise<GraphRunStatusResponse | null> => {
+  const refreshJobRunStatus = useCallback(async (
+    jobId: string,
+    guardSeq?: number,
+    errorContext?: string,
+  ): Promise<GraphRunStatusResponse | null> => {
+    const refreshSeq = ++runStatusRefreshSeqRef.current;
     try {
       const res = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run`);
       if (!res.ok) throw new Error(await readError(res));
       const data = (await res.json()) as GraphRunStatusResponse;
-      if (guardSeq !== undefined && guardSeq !== runLoadSeqRef.current) return null;
+      if (
+        refreshSeq !== runStatusRefreshSeqRef.current ||
+        (guardSeq !== undefined && guardSeq !== runLoadSeqRef.current)
+      ) return null;
       if (data.run) setSelectedRun(data.run);
       setRunProgress(data.progress || data.run?.progress);
       const instances = data.instances || (data.progress?.instances ? Object.values(data.progress.instances) : []);
@@ -1033,7 +1042,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setRunMessage('');
       return data;
     } catch (err) {
-      setRunMessage(err instanceof Error ? err.message : String(err));
+      if (
+        refreshSeq !== runStatusRefreshSeqRef.current ||
+        (guardSeq !== undefined && guardSeq !== runLoadSeqRef.current)
+      ) return null;
+      const detail = err instanceof Error ? err.message : String(err);
+      setRunMessage(errorContext ? `${errorContext}; Snapshot reload failed: ${detail}` : detail);
       return null;
     }
   }, []);
@@ -1075,6 +1089,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
 
   const exitRunView = useCallback(() => {
     runLoadSeqRef.current += 1;
+    runStatusRefreshSeqRef.current += 1;
     graphEventClientRef.current?.disconnect();
     graphEventClientRef.current = null;
     setViewingRun(false);
@@ -1088,8 +1103,6 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     graphEventClientRef.current = null;
     if (!selectedRun?.id || !isGraphRunLive(selectedRun.status)) return;
 
-    const client = new SSEClient();
-    graphEventClientRef.current = client;
     const runSeq = runLoadSeqRef.current;
     let lastInstanceRefreshAt = 0;
     const throttledRefresh = () => {
@@ -1098,49 +1111,49 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       lastInstanceRefreshAt = now;
       void refreshJobRunStatus(selectedRun.jobId, runSeq);
     };
-    void client
-      .connectUntilReady({
-        url: `/api/v1/job/${encodeURIComponent(selectedRun.jobId)}/graph-run/events`,
-        // Resume from the buffer tail; the server's Last-Event-ID is now an
-        // in-memory buffer seq, not a file line count. The SSE client overwrites
-        // this with the server-sent `id:` (seq) on any subsequent reconnect.
-        initialLastEventId: '0',
-        onEvent: (event) => {
-          const graphEvent = event as unknown as GraphEvent;
-          // Events never carry a progress snapshot: progress + node status come
-          // exclusively from a (throttled) re-fetch of the run snapshot, so a
-          // replayed historical event can never rewind the live progress. The
-          // event only decides *when* to re-fetch. progressUpdated/error refetch
-          // immediately for terminal transitions and edge state; instance/edge/
-          // loop lifecycle events refetch throttled.
-          if (graphEvent.type === 'progressUpdated' || graphEvent.type === 'error') {
-            if (graphEvent.type === 'error' && graphEvent.message) {
-              setRunMessage(graphEvent.error?.message || graphEvent.message);
-            }
-            void refreshJobRunStatus(selectedRun.jobId, runSeq);
-            return;
+    const client = new GraphSSEClient({
+      url: `/api/v1/job/${encodeURIComponent(selectedRun.jobId)}/graph-run/events`,
+      onReconcile: async (_reason, resumeError) => {
+        await refreshJobRunStatus(
+          selectedRun.jobId,
+          runSeq,
+          resumeError ? `Resume point expired: ${resumeError}` : undefined,
+        );
+      },
+      onError: (err) => setRunMessage(err.message),
+      onEvent: (event) => {
+        const graphEvent = event as unknown as GraphEvent;
+        // Events never carry a progress snapshot: progress + node status come
+        // exclusively from a (throttled) re-fetch of the run snapshot, so a
+        // replayed historical event can never rewind the live progress. The
+        // event only decides *when* to re-fetch. progressUpdated/error refetch
+        // immediately for terminal transitions and edge state; instance/edge/
+        // loop lifecycle events refetch throttled.
+        if (graphEvent.type === 'progressUpdated' || graphEvent.type === 'error') {
+          if (graphEvent.type === 'error' && graphEvent.message) {
+            setRunMessage(graphEvent.error?.message || graphEvent.message);
           }
-          if (
-            graphEvent.type === 'instanceStarted' || graphEvent.type === 'instanceCompleted' ||
-            graphEvent.type === 'instanceFailed' || graphEvent.type === 'instanceSkipped' ||
-            graphEvent.type === 'edgeResolved' || graphEvent.type === 'loopIteration'
-          ) {
-            throttledRefresh();
-          }
-          // A live Prompt hook fires while the run is still running and the SSE
-          // is connected — refetch hook results so the panel updates promptly.
-          // (The End hook is handled by the terminal-transition effect below,
-          // because it can land after this stream is torn down.)
-          if (graphEvent.type === 'hookCompleted' || graphEvent.type === 'hookFailed') {
-            void refreshHookResults(selectedRun.jobId, runSeq);
-          }
-        },
-        onError: (err) => setRunMessage(err.message),
-        onResumePointGone: () => {
           void refreshJobRunStatus(selectedRun.jobId, runSeq);
-        },
-      })
-      .catch((err) => setRunMessage(err instanceof Error ? err.message : String(err)));
+          return;
+        }
+        if (
+          graphEvent.type === 'instanceStarted' || graphEvent.type === 'instanceCompleted' ||
+          graphEvent.type === 'instanceFailed' || graphEvent.type === 'instanceSkipped' ||
+          graphEvent.type === 'edgeResolved' || graphEvent.type === 'loopIteration'
+        ) {
+          throttledRefresh();
+        }
+        // A live Prompt hook fires while the run is still running and the SSE
+        // is connected — refetch hook results so the panel updates promptly.
+        // (The End hook is handled by the terminal-transition effect below,
+        // because it can land after this stream is torn down.)
+        if (graphEvent.type === 'hookCompleted' || graphEvent.type === 'hookFailed') {
+          void refreshHookResults(selectedRun.jobId, runSeq);
+        }
+      },
+    });
+    graphEventClientRef.current = client;
+    client.connect();
 
     return () => {
       client.disconnect();
