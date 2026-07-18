@@ -186,6 +186,7 @@ export function GraphInspector({
     ? agents.find((a) => a.type === node.config?.agentType)
     : undefined;
   const availableModels = selectedAgent?.models?.availableModels || [];
+  const availableModes = selectedAgent?.modes?.availableModes || [];
 
   const isAgentNodeType = node?.type === 'prompt' || node?.type === 'clarify';
   const linkAgentType = node?.config?.agentType || '';
@@ -714,10 +715,29 @@ export function GraphInspector({
               </select>
             </div>
           )}
-          {(availableThoughtLevels.length > 0 || thoughtLevelLinking || thoughtLevelLinkError) && (
+          {availableModes.length > 1 && (
+            <div className="gi-field">
+              <label>{t('graph.inspector.mode')}</label>
+              <select
+                aria-label={t('graph.inspector.mode')}
+                value={cfg.acpMode || ''}
+                disabled={readOnly}
+                onChange={(e) => setCfg({ acpMode: e.target.value || undefined })}
+              >
+                <option value="">{t('graph.inspector.modeDefault')}</option>
+                {availableModes.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name || m.id}
+                  </option>
+                ))}
+              </select>
+              <div className="gi-desc">{t('graph.inspector.modeDesc')}</div>
+            </div>
+          )}
+          {(availableThoughtLevels.length > 1 || thoughtLevelLinking || thoughtLevelLinkError) && (
             <div className="gi-field">
               <label>{t('graph.inspector.thoughtLevel')}</label>
-              {availableThoughtLevels.length > 0 && (
+              {availableThoughtLevels.length > 1 && (
                 <select
                   aria-label={t('graph.inspector.thoughtLevel')}
                   value={cfg.acpThoughtLevel || ''}
