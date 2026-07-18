@@ -80,6 +80,13 @@ type ACPAgent struct {
 	// through SetSessionConfigOption keyed by this id. Empty when the agent
 	// does not advertise a thought_level option.
 	thoughtLevelConfigID string
+	// modeConfigID is the ACP config option id (e.g. "mode") discovered from
+	// the session's ConfigOptions. It is the fallback path for setMode on
+	// backends that reject the dedicated session/set_mode RPC (antigravity-acp
+	// returns JSON-RPC -32601): mode is then applied through
+	// SetSessionConfigOption keyed by this id. Empty when the agent advertises
+	// no mode config option, in which case the fallback is disabled.
+	modeConfigID string
 
 	// Stored for reconnection when the underlying process dies.
 	agentType string
@@ -164,6 +171,20 @@ func thoughtLevelConfigIDFromSession(resp *pkgacp.SessionResponse) string {
 	return ""
 }
 
+// modeConfigIDFromSession returns the mode config option id (e.g. "mode")
+// advertised by the session response, or "" when the agent exposes no mode
+// config option. Used only as the setMode fallback for backends that reject
+// session/set_mode; agents implementing that RPC ignore this id.
+func modeConfigIDFromSession(resp *pkgacp.SessionResponse) string {
+	if resp == nil {
+		return ""
+	}
+	if sel := resp.ModeConfigSelect(); sel != nil {
+		return sel.ConfigID
+	}
+	return ""
+}
+
 // NewACPAgent starts an ACP agent subprocess (via pkg/acp), creates or
 // reloads the ACP session for this quartet session, and prepares the
 // chat context manager so Run() can stream events.
@@ -221,10 +242,12 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 	}
 
 	var acpSessionID pkgacp.SessionID
-	// thoughtLevelConfigID is captured from whichever session response we
-	// end up using (resume / new) so UpdateACPThoughtLevel can later
-	// target the right config option. thought_level has no dedicated RPC.
-	var thoughtLevelConfigID string
+	// thoughtLevelConfigID / modeConfigID are captured from whichever session
+	// response we end up using (resume / new) so UpdateACPThoughtLevel and the
+	// setMode config-option fallback can later target the right config option.
+	// Neither thought_level nor (on some backends) mode has a usable dedicated
+	// RPC.
+	var thoughtLevelConfigID, modeConfigID string
 	if existingACPSession != "" {
 		acpSessionID = pkgacp.SessionID(existingACPSession)
 		restoreCtx, restoreCancel := context.WithTimeout(ctx, coldRestoreAttemptTimeout)
@@ -249,6 +272,7 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 		}
 		restoreCancel()
 		thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
+		modeConfigID = modeConfigIDFromSession(sessResp)
 		if drifted {
 			// The restore kept the subprocess's own conversation as the
 			// source of truth; disk moved outside ACP Runs since the last
@@ -272,6 +296,7 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 		}
 		acpSessionID = pkgacp.SessionID(sessResp.SessionID)
 		thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
+		modeConfigID = modeConfigIDFromSession(sessResp)
 
 		// Freshly-minted subprocess session: its "synced point" is the
 		// current disk snapshot. Persist both id and fingerprint
@@ -295,6 +320,7 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 		agentType:            agentType,
 		workdir:              workdir,
 		thoughtLevelConfigID: thoughtLevelConfigID,
+		modeConfigID:         modeConfigID,
 		sessionStore:         store,
 		sessionID:            sessionID,
 		runSem:               make(chan struct{}, 1),
@@ -503,6 +529,7 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context, report PhaseReporter) 
 	}
 	newSessionID := pkgacp.SessionID(sessResp.SessionID)
 	thoughtLevelConfigID := thoughtLevelConfigIDFromSession(sessResp)
+	modeConfigID := modeConfigIDFromSession(sessResp)
 	logger.Infof(ctx, "[acp] reconnected via %s: acpSession=%s newPid=%d", restoreMethod, sessResp.SessionID, conn.Pid())
 
 	a.mu.Lock()
@@ -512,6 +539,7 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context, report PhaseReporter) 
 	a.currentMode = ""
 	a.currentThoughtLevel = ""
 	a.thoughtLevelConfigID = thoughtLevelConfigID
+	a.modeConfigID = modeConfigID
 	a.mu.Unlock()
 
 	return nil
@@ -584,6 +612,7 @@ func (a *ACPAgent) restoreACPSession(ctx context.Context) error {
 	}
 	restoredSession := pkgacp.SessionID(sessResp.SessionID)
 	thoughtLevelConfigID := thoughtLevelConfigIDFromSession(sessResp)
+	modeConfigID := modeConfigIDFromSession(sessResp)
 
 	if a.sessionStore != nil && a.sessionID != "" {
 		if err := savePersistedACPState(ctx, a.sessionStore, a.sessionID, sessResp.SessionID, fp); err != nil {
@@ -597,6 +626,7 @@ func (a *ACPAgent) restoreACPSession(ctx context.Context) error {
 	a.currentMode = ""
 	a.currentThoughtLevel = ""
 	a.thoughtLevelConfigID = thoughtLevelConfigID
+	a.modeConfigID = modeConfigID
 	a.mu.Unlock()
 	a.storeFingerprint(fp)
 	logger.Infof(ctx, "[acp] restored subprocess session via %s: sessionId=%s old=%s restored=%s syncedCount=%d syncedHash=%s", restoreMethod, a.sessionID, oldSession, restoredSession, fp.Count, fp.Hash)
@@ -1075,6 +1105,20 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 		return promptErr
 	}
 
+	// An end_turn is not successful while a declared tool call is still
+	// waiting for a terminal completed / failed update. Some ACP adapters
+	// return end_turn as soon as their subprocess exits even when the final
+	// tool status was lost in transit. Treating the mere tool declaration as
+	// accumulated content would otherwise persist an "interrupted"
+	// placeholder and mark the enclosing job completed.
+	if pending := a.builder.PendingToolCallIDs(); len(pending) > 0 {
+		promptErr := fmt.Errorf("ACP backend (%s) returned stopReason=%q with unfinished tool call(s): %s; partial output was preserved",
+			a.agentType, promptResult.StopReason, strings.Join(pending, ", "))
+		logger.Errorf(runCtx, "[acp] prompt completed with unfinished tools: type=%s sessionId=%s acpSession=%s err=%v",
+			a.agentType, a.sessionID, acpSession, promptErr)
+		return promptErr
+	}
+
 	// An end_turn with no assistant/tool stream is also not a usable success.
 	// This commonly means the subprocess session is wedged after an upstream
 	// interruption. Do not silently mark the workflow node complete.
@@ -1338,6 +1382,14 @@ func (a *ACPAgent) setModel(ctx context.Context, modelID string) (*pkgacp.Sessio
 	a.currentModelID = modelID
 	a.thoughtLevelConfigID = newThoughtLevelConfigID
 	a.currentThoughtLevel = ""
+	// The relinked response usually re-advertises the mode config option too;
+	// refresh the cached id so the setMode fallback keeps working. Unlike
+	// thought_level, mode is a session-level option that does not vanish with
+	// the model, so only overwrite when the response actually carries one —
+	// never clobber a previously-discovered id with "".
+	if newModeConfigID := modeConfigIDFromSession(resp); newModeConfigID != "" {
+		a.modeConfigID = newModeConfigID
+	}
 	a.mu.Unlock()
 	logger.Debugf(ctx, "[acp] set model: acpSession=%s model=%s prev=%s thoughtLevelConfigID=%s", acpSession, modelID, old, newThoughtLevelConfigID)
 	return resp, nil
@@ -1348,21 +1400,19 @@ func (a *ACPAgent) setModel(ctx context.Context, modelID string) (*pkgacp.Sessio
 // caller does not run under a mode different from what the user
 // requested. Mode affects tool availability and assistant behavior, so
 // "log-and-continue" would produce a silent semantic mismatch.
-// Exception: antigravity-acp does not implement session/set_mode, so
-// failures are logged and skipped for that agent type.
+// Exception: antigravity-acp does not implement session/set_mode. setMode
+// already falls back to the mode config option for it (see setMode /
+// pkgacp.SetSessionMode); only if that fallback ALSO fails do we log and skip
+// for that agent type rather than failing the whole Run.
 func (a *ACPAgent) UpdateACPMode(ctx context.Context, mode string) error {
 	a.mu.RLock()
 	skip := mode == a.currentMode
-	agentType := a.agentType
 	a.mu.RUnlock()
 	if skip {
 		return nil
 	}
 	_, err := a.setMode(ctx, mode)
-	if err != nil && agentType == "antigravity-acp" {
-		logger.Warnf(ctx, "[acp] set mode skipped for antigravity-acp: %v", err)
-		return nil
-	}
+
 	return err
 }
 
@@ -1381,12 +1431,16 @@ func (a *ACPAgent) setMode(ctx context.Context, mode string) (*pkgacp.SessionRes
 	a.mu.RLock()
 	conn := a.conn
 	acpSession := a.acpSession
+	modeConfigID := a.modeConfigID
 	a.mu.RUnlock()
 
 	if conn == nil {
 		return nil, fmt.Errorf("set mode: no active conn")
 	}
-	resp, err := conn.SetSessionMode(ctx, acpSession, mode)
+	// modeConfigID drives the fallback for backends that reject the dedicated
+	// session/set_mode RPC (antigravity-acp): SetSessionMode retries through the
+	// mode config option keyed by this id. Empty id => no fallback.
+	resp, err := conn.SetSessionMode(ctx, acpSession, mode, modeConfigID)
 	if err != nil {
 		return nil, fmt.Errorf("set mode failed: acpSession=%s mode=%s: %w", acpSession, mode, err)
 	}

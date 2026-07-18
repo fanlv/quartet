@@ -1093,10 +1093,16 @@ func (sc *scheduler) decideIfElse(ctx context.Context, scope *scopeRun, node mod
 		return
 	}
 
+	// Persist the passthrough session on the instance (§3 会话血缘): If-Else does
+	// not touch sessions, but resume rebuilds a target's contribs from the SOURCE
+	// instance's persisted SessionID (resumeSourceContrib). Without this, an
+	// `inherit` Agent whose active upstream is an If-Else loses its inflow session
+	// across a stop/resume and fails with "no upstream session to inherit".
 	sc.instances[keyStr] = model.GraphInstanceState{
 		Key: key, NodeID: node.ID, NodeTitle: node.Title, NodeType: node.Type,
 		Status: model.GraphInstanceStatusSucceeded, Version: sc.run.CurrentVersion,
 		VisibleVariables: visible, VariableWriters: cloneStringMap(writers), StartedAt: now, FinishedAt: now,
+		SessionID: inflowSession,
 	}
 	sc.varsByKey[keyStr] = cloneStringMap(visible)
 	sc.writersByKey[keyStr] = cloneStringMap(writers)

@@ -305,8 +305,43 @@ func (sc *scheduler) resumeSourceContrib(srcKey model.GraphInstanceKey) (map[str
 	if srcState, ok := sc.instances[srcKeyStr]; ok {
 		srcWriters = inferWritersFromState(srcState, srcWriters)
 		srcSession = srcState.SessionID
+		if srcSession == "" && srcState.NodeType == model.GraphNodeTypeIfElse {
+			// Runs persisted before If-Else recorded its passthrough SessionID
+			// (decideIfElse) have "" on the instance. Back-walk the If-Else's own
+			// resolved-active in-edge chain to recover the session it forwarded,
+			// so an `inherit` target downstream of it can still resume.
+			srcSession = sc.resumeIfElsePassthroughSession(srcKey)
+		}
 	}
 	return srcVars, srcWriters, srcSession
+}
+
+// resumeIfElsePassthroughSession walks back along resolved-active in-edges
+// through If-Else passthrough nodes to recover the session the node at `key`
+// forwarded at run time. Only If-Else instances are traversed (any other node
+// either persists its own SessionID or legitimately has none). The graph is a
+// DAG within a scope, so the recursion terminates.
+func (sc *scheduler) resumeIfElsePassthroughSession(key model.GraphInstanceKey) string {
+	keyStr := instanceKeyString(key)
+	for _, es := range sc.edges {
+		if es.Status != model.GraphEdgeStatusActive || instanceKeyString(es.TargetInstanceKey) != keyStr {
+			continue
+		}
+		srcStr := instanceKeyString(es.SourceInstanceKey)
+		st, ok := sc.instances[srcStr]
+		if !ok {
+			continue
+		}
+		if st.SessionID != "" {
+			return st.SessionID
+		}
+		if st.NodeType == model.GraphNodeTypeIfElse {
+			if s := sc.resumeIfElsePassthroughSession(es.SourceInstanceKey); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
 }
 
 // loopEntrySnapshot returns the round-entry snapshot/session for an edge whose

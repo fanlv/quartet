@@ -362,20 +362,43 @@ func (c *Conn) CancelSession(ctx context.Context, sessionID SessionID) error {
 	return c.conn.SessionCancel(ctx, acp.CancelNotification{SessionID: sessionID})
 }
 
-// SetSessionMode switches the active mode for the session. The mode RPC
-// response carries no ConfigOptions, so the returned SessionResponse has an
-// empty ConfigOptions list — callers get a confirmation that the switch
-// succeeded but no refreshed option lists to propagate.
-func (c *Conn) SetSessionMode(ctx context.Context, sessionID SessionID, mode string) (*SessionResponse, error) {
+// SetSessionMode switches the active mode for the session.
+//
+// The preferred path is the dedicated session/set_mode RPC, whose response
+// carries no ConfigOptions — so on that path the returned SessionResponse has
+// an empty ConfigOptions list (confirmation only, no refreshed option lists).
+//
+// Some ACP backends (notably antigravity-acp) do not implement session/set_mode
+// and instead expose the mode as a generic config option. When session/set_mode
+// is rejected as an unknown method (JSON-RPC -32601) and modeConfigID is
+// non-empty, the switch is retried through SetSessionConfigOption keyed by that
+// id; that path returns the full, freshly-linked ConfigOptions list. Pass
+// modeConfigID="" to disable the fallback (any set_mode failure surfaces as-is).
+func (c *Conn) SetSessionMode(ctx context.Context, sessionID SessionID, mode, modeConfigID string) (*SessionResponse, error) {
 	resp, err := c.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
 		SessionID: sessionID,
 		ModeID:    acp.SessionModeID(mode),
 	})
 	if err != nil {
+		if isMethodNotFound(err) && modeConfigID != "" {
+			logger.Infof(ctx, "[ACP] session/set_mode unsupported; setting mode via config option: configID=%s mode=%s", modeConfigID, mode)
+			return c.SetSessionConfigOption(ctx, sessionID, modeConfigID, mode)
+		}
 		return nil, err
 	}
 	logger.Debugf(ctx, "[ACP] SetSessionMode mode=%s resp=%s", mode, json.String(resp))
 	return &SessionResponse{SessionID: string(sessionID)}, nil
+}
+
+// isMethodNotFound reports whether err is a JSON-RPC "method not found"
+// (-32601) response. Used to distinguish "this backend does not implement the
+// RPC at all" (retry via a fallback) from a genuine call failure.
+func isMethodNotFound(err error) bool {
+	var rpcErr *acp.RPCError
+	if errors.As(err, &rpcErr) {
+		return rpcErr.Code == int(acp.ErrorCodeMethodNotFound)
+	}
+	return false
 }
 
 // SetSessionModel switches the active model for the session. The dedicated
@@ -405,10 +428,18 @@ func (c *Conn) SetSessionModel(ctx context.Context, sessionID SessionID, modelID
 // SetSessionThoughtLevel switches the active thought_level for the session.
 // thought_level has no dedicated RPC, so it always goes through the generic
 // SetSessionConfigOption API keyed by the config option id (e.g.
-// "reasoning_effort") discovered from the session's ConfigOptions. Like
-// SetSessionModel, the response carries the full ConfigOptions list and is
-// returned for selector refresh.
+// "reasoning_effort") discovered from the session's ConfigOptions.
 func (c *Conn) SetSessionThoughtLevel(ctx context.Context, sessionID SessionID, configID, value string) (*SessionResponse, error) {
+	return c.SetSessionConfigOption(ctx, sessionID, configID, value)
+}
+
+// SetSessionConfigOption sets an arbitrary session config option by id. It is
+// the single generic path for options that have no dedicated RPC — currently
+// thought_level (e.g. "reasoning_effort") and mode on backends that reject
+// session/set_mode (see SetSessionMode). The response carries the full,
+// freshly-linked ConfigOptions list, returned so callers can refresh selectors
+// that changed as a side effect.
+func (c *Conn) SetSessionConfigOption(ctx context.Context, sessionID SessionID, configID, value string) (*SessionResponse, error) {
 	cid := acp.SessionConfigID(configID)
 	val := acp.SessionConfigValueID(value)
 	resp, err := c.conn.SetSessionConfigOption(ctx, acp.NewSetSessionConfigOptionRequestValueID(acp.SetSessionConfigOptionRequestValueID{
@@ -419,7 +450,7 @@ func (c *Conn) SetSessionThoughtLevel(ctx context.Context, sessionID SessionID, 
 	if err != nil {
 		return nil, err
 	}
-	logger.Debugf(ctx, "[ACP] SetSessionThoughtLevel configID=%s value=%s resp=%s", configID, value, json.String(resp))
+	logger.Debugf(ctx, "[ACP] SetSessionConfigOption configID=%s value=%s resp=%s", configID, value, json.String(resp))
 	return &SessionResponse{
 		SessionID:     string(sessionID),
 		ConfigOptions: resp.ConfigOptions,
