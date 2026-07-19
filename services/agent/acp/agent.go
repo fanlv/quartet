@@ -30,10 +30,12 @@ import (
 const tokenUsageMinInterval = 1 * time.Second
 
 // coldRestoreAttemptTimeout prevents a persisted ACP session from consuming
-// the entire agent-construction budget. A healthy local resume/load normally
-// returns in well under a second; once this bound is crossed the adapter is
+// the entire agent-construction budget. Resume/load is not purely local:
+// adapters like claude-agent-acp issue a network request to the model
+// endpoint while restoring a session, and a cold serverless gateway can
+// take well over 10s to answer. Once this bound is crossed the adapter is
 // treated as wedged and the native restore error is returned directly.
-const coldRestoreAttemptTimeout = 10 * time.Second
+const coldRestoreAttemptTimeout = 60 * time.Second
 
 // SessionStore is the narrow session.Service surface the ACP agent needs
 // for loading/writing session metadata. Declared here (rather than

@@ -2346,14 +2346,20 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       //     buffer GC'd while we were disconnected. Without this we'd
       //     reconnect with the same stale seq and hit 410 again.
       //
-      // Pass metadataOnly=true on attempt 0 because the hydration effect
-      // already loaded messages; we only need the fresh lastEventSeq here.
-      // On retries (attempt > 0), reloadMessagesFromDisk handles messages
-      // separately below, so we also pass forceSkipMessages=true to prevent
-      // syncJobState from doing a redundant message reload (which otherwise
-      // happens for terminal jobs due to the metadataOnly && !isTerminal rule).
+      // This reconnect-time syncJobState only needs to refresh lastEventSeq
+      // before (re)opening the stream — it must NEVER reload messages:
+      //   - attempt 0: the hydration effect already loaded messages.
+      //   - attempt > 0: reloadMessagesFromDisk (below) handles messages.
+      // Always pass forceSkipMessages=true. metadataOnly alone is NOT enough:
+      // the `metadataOnly && !isTerminal` rule still reloads for a *terminal*
+      // job, so a reply to a completed job (SSE was torn down on JOB_COMPLETED,
+      // then reconnected here) would merge disk history into the still in-memory
+      // live stream and duplicate any message whose streaming ID differs from
+      // the persisted (round-collapsed) ID — a plain assistant bubble has no
+      // semantic dedup, only id-based. This is the exact race JOB_COMPLETED's
+      // own syncJobState call already guards against with forceSkipMessages=true.
       try {
-        await syncJobState(currentJobId, true, attempt > 0);
+        await syncJobState(currentJobId, true, true);
       } catch (err) {
         if (cancelled) return;
         if (attempt === 0) {

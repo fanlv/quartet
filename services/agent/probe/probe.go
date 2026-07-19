@@ -106,7 +106,7 @@ var KnownACPAgents = []ACPAgentDef{
 	{"kiro-cli", "kiro-cli acp", "Kiro", "https://avatars.githubusercontent.com/u/207925904"},
 	{"opencode", "opencode acp", "OpenCode", "https://avatars.githubusercontent.com/in/1549082"},
 	{"kilocode", "npx -y @kilocode/cli acp", "KiloCode", "https://avatars.githubusercontent.com/u/201822503"},
-	{"qwen", "qwen --acp", "Qwen", "https://avatars.githubusercontent.com/u/141221163"},
+	{Bin: "qoderclicn", Command: "qoderclicn --acp", DisplayName: "QCode", IconURL: "https://avatars.githubusercontent.com/u/141221163"},
 }
 
 // InitAllowedAgentCommands pushes KnownACPAgents' command strings to
