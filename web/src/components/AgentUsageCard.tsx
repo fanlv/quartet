@@ -14,6 +14,7 @@ import {
   type ClaudeUsage,
   type AntigravityUsage,
   type KimiUsage,
+  type QoderUsage,
   type UsageWindow,
 } from '../utils/agentUsage';
 import './AgentUsageCard.css';
@@ -31,6 +32,23 @@ function pctClass(pct: number): string {
   if (pct >= 80) return 'pct-hi';
   if (pct >= 50) return 'pct-mid';
   return 'pct-lo';
+}
+
+// Credit counts come back as floats (300.0); show whole numbers cleanly and keep
+// at most one decimal for fractional pools.
+function formatCredits(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+// Turn a snake_case API plan id (e.g. "personal_professional_trial") into a
+// human-friendly Title Case label for the tooltip.
+function prettifyPlan(plan?: string): string {
+  if (!plan) return '';
+  return plan
+    .split('_')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }
 
 /** Tiny circular progress icon for a usage window. The arc fills to
@@ -131,6 +149,65 @@ function UsageRing({
   );
 }
 
+/** Wraps arbitrary content with the same hover/click-to-pin portaled tooltip
+ *  the usage rings use, so non-ring content (e.g. the QoderCN credits meter)
+ *  can carry a rich multi-line tooltip without duplicating the positioning
+ *  logic. The tooltip reuses the `.usage-ring-tip` style. */
+function HoverTip({ tip, children }: { tip: ReactNode; children: ReactNode }) {
+  const [hover, setHover] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [pos, setPos] = useState({ left: 0, top: 0 });
+  const ref = useRef<HTMLSpanElement>(null);
+  const visible = hover || pinned;
+
+  const updatePos = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    setPos({ left: box.left + box.width / 2, top: box.top - 6 });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!visible) return;
+    updatePos();
+    const onMove = () => updatePos();
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+  }, [visible, updatePos]);
+
+  useEffect(() => {
+    if (!pinned) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setPinned(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [pinned]);
+
+  return (
+    <span
+      ref={ref}
+      className="usage-tip-anchor"
+      onClick={() => setPinned((v) => !v)}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      {children}
+      {visible &&
+        createPortal(
+          <span className="usage-ring-tip" role="tooltip" style={{ left: pos.left, top: pos.top }}>
+            {tip}
+          </span>,
+          document.body,
+        )}
+    </span>
+  );
+}
+
 /** Small refresh button shared by the quota card and the version chip. */
 function RefreshButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
   const { t } = useTranslation();
@@ -221,6 +298,9 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
   const [kimi, setKimi] = useState<KimiUsage | null>(
     () => (getCachedUsage('kimi') as KimiUsage | null) ?? null,
   );
+  const [qoder, setQoder] = useState<QoderUsage | null>(
+    () => (getCachedUsage('qoder') as QoderUsage | null) ?? null,
+  );
 
   const load = useCallback((p: AgentUsageProvider) => {
     let cancelled = false;
@@ -232,7 +312,8 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
         if (p === 'codex') setCodex(data.codex ?? null);
         else if (p === 'claude') setClaude(data.claude ?? null);
         else if (p === 'antigravity') setAntigravity(data.antigravity ?? null);
-        else setKimi(data.kimi ?? null);
+        else if (p === 'kimi') setKimi(data.kimi ?? null);
+        else if (p === 'qoder') setQoder(data.qoder ?? null);
       })
       .catch(() => {
         // Swallow: keep the last successful data on screen (if any) and never
@@ -261,7 +342,9 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
         ? claude
         : provider === 'antigravity'
           ? antigravity
-          : kimi;
+          : provider === 'qoder'
+            ? qoder
+            : kimi;
 
   return (
     <div className="agent-usage-inline" data-testid="agent-usage-card" data-provider={provider}>
@@ -376,6 +459,56 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
               )}
             </span>
           )}
+        </>
+      ) : provider === 'qoder' && qoder ? (
+        <>
+          {qoder.version && <span className="usage-inline-ver">{qoder.version}</span>}
+          <HoverTip
+            tip={
+              <>
+                <span className="usage-tip-line usage-tip-head">
+                  {t('agentUsage.qoderUsed', { used: formatCredits(qoder.used), total: formatCredits(qoder.total) })}
+                </span>
+                {prettifyPlan(qoder.plan_type) && (
+                  <span className="usage-tip-line">{prettifyPlan(qoder.plan_type)}</span>
+                )}
+                {qoder.expires_at ? (
+                  <span className="usage-tip-line">
+                    {t('agentUsage.qoderExpires', { time: formatExpiry(qoder.expires_at) })}
+                  </span>
+                ) : null}
+                {qoder.quota_exceeded && (
+                  <span className="usage-tip-line">{t('agentUsage.qoderExceeded')}</span>
+                )}
+              </>
+            }
+          >
+            <span className="usage-inline-metric usage-qoder">
+              <svg
+                className="usage-metric-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v10M15 9.3c0-1.3-1.3-2-3-2s-3 .7-3 2c0 2.6 6 1.6 6 4.2 0 1.3-1.3 2-3 2s-3-.7-3-2" />
+              </svg>
+              <b className={qoder.quota_exceeded ? 'pct-hi' : pctClass(qoder.used_percent)}>
+                {formatCredits(qoder.used)}
+              </b>
+              <span className="usage-qoder-total">/ {formatCredits(qoder.total)}</span>
+              <span className="usage-qoder-bar" aria-hidden="true">
+                <span
+                  className={`usage-qoder-fill ${qoder.quota_exceeded ? 'pct-hi' : pctClass(qoder.used_percent)}`}
+                  style={{ width: `${Math.max(0, Math.min(100, qoder.used_percent))}%` }}
+                />
+              </span>
+            </span>
+          </HoverTip>
         </>
       ) : provider === 'kimi' && kimi ? (
         <>

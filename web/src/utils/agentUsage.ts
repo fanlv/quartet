@@ -52,7 +52,21 @@ export interface KimiUsage {
   total?: UsageWindow; // cumulative quota, no reset
 }
 
-export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity' | 'kimi';
+// QoderCN credits quota snapshot: a single cumulative credits pool (no
+// rate-limit window reset). The pool expires wholesale at expires_at.
+export interface QoderUsage {
+  version?: string; // e.g. "v1.0.48"
+  plan_type?: string; // e.g. "personal_professional_trial"
+  unit?: string; // always "credits"
+  total: number;
+  used: number;
+  remaining: number;
+  used_percent: number; // 0–100
+  expires_at?: number; // unix seconds
+  quota_exceeded: boolean;
+}
+
+export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity' | 'kimi' | 'qoder';
 
 // agentUsageProvider maps a selected agent to a usage provider, or null when
 // the agent has no quota view (eino, etc.). ACP agent `type` is the full serve
@@ -66,6 +80,7 @@ export function agentUsageProvider(
   if (s.includes('antigravity')) return 'antigravity';
   if (s.includes('codex')) return 'codex';
   if (s.includes('claude')) return 'claude';
+  if (s.includes('qoder') || s.includes('qcode')) return 'qoder';
   if (s.includes('kimi')) return 'kimi';
   return null;
 }
@@ -75,6 +90,7 @@ export interface AgentUsagePayload {
   claude?: ClaudeUsage;
   antigravity?: AntigravityUsage;
   kimi?: KimiUsage;
+  qoder?: QoderUsage;
 }
 
 export async function fetchAgentUsage(provider: AgentUsageProvider): Promise<AgentUsagePayload> {
@@ -90,7 +106,7 @@ export async function fetchAgentUsage(provider: AgentUsageProvider): Promise<Age
       `get agent usage failed (status ${res.status})`;
     throw new Error(msg);
   }
-  return { codex: data.codex, claude: data.claude, antigravity: data.antigravity, kimi: data.kimi };
+  return { codex: data.codex, claude: data.claude, antigravity: data.antigravity, kimi: data.kimi, qoder: data.qoder };
 }
 
 // fetchAgentVersion returns the installed CLI version of a known ACP agent
@@ -124,7 +140,7 @@ function cacheKey(provider: AgentUsageProvider): string {
 
 export function getCachedUsage(
   provider: AgentUsageProvider,
-): CodexUsage | ClaudeUsage | AntigravityUsage | KimiUsage | null {
+): CodexUsage | ClaudeUsage | AntigravityUsage | KimiUsage | QoderUsage | null {
   try {
     const raw = localStorage.getItem(cacheKey(provider));
     if (!raw) return null;

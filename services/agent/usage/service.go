@@ -26,6 +26,9 @@ type Service interface {
 	// KimiUsage returns the Kimi Code plan quota + kimi CLI version, read from
 	// the kimi usages endpoint with the local kimi CLI's OAuth credentials.
 	KimiUsage(ctx context.Context) (*model.KimiUsage, error)
+	// QoderUsage returns the QoderCN credits quota + qoderclicn CLI version,
+	// read from the openapi quota endpoint with the local CLI's decrypted token.
+	QoderUsage(ctx context.Context) (*model.QoderUsage, error)
 	// AgentVersion returns the installed CLI version of a known ACP agent,
 	// resolved from its serve command. Used by agents that have no quota view.
 	AgentVersion(ctx context.Context, command string) (string, error)

@@ -119,6 +119,55 @@
   letter-spacing: 0;
 }
 
+/* Inline-flex wrapper that gives arbitrary content (e.g. the QoderCN credits
+ * meter) the same hover/click tooltip behaviour the rings have. */
+.agent-usage-inline .usage-tip-anchor {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  min-width: 0;
+}
+
+/* QoderCN credits meter: coin icon + used/total numbers + a slim progress bar.
+ * Reads at a glance (no hover needed) unlike a bare number inside a ring. */
+.agent-usage-inline .usage-qoder {
+  gap: 4px;
+}
+
+.agent-usage-inline .usage-qoder-total {
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-usage-inline .usage-qoder-bar {
+  position: relative;
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: #e2e8f0;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.agent-usage-inline .usage-qoder-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 2px;
+  transition: width 0.35s ease;
+}
+
+.agent-usage-inline .usage-qoder-fill.pct-lo {
+  background: #16a34a;
+}
+.agent-usage-inline .usage-qoder-fill.pct-mid {
+  background: #d97706;
+}
+.agent-usage-inline .usage-qoder-fill.pct-hi {
+  background: #dc2626;
+}
+
 .agent-usage-inline .usage-ring.pct-lo .usage-ring-arc {
   stroke: #16a34a;
 }

@@ -1,15 +1,16 @@
 package model
 
 // AgentUsageResponse is the envelope for GET /api/v1/agent/usage. Exactly one
-// of Codex / Claude / Antigravity / Kimi is populated, matching the requested
-// Type.
+// of Codex / Claude / Antigravity / Kimi / Qoder is populated, matching the
+// requested Type.
 type AgentUsageResponse struct {
 	Code        int               `json:"code"`
-	Type        string            `json:"type"` // "codex" | "claude" | "antigravity" | "kimi"
+	Type        string            `json:"type"` // "codex" | "claude" | "antigravity" | "kimi" | "qoder"
 	Codex       *CodexUsage       `json:"codex,omitempty"`
 	Claude      *ClaudeUsage      `json:"claude,omitempty"`
 	Antigravity *AntigravityUsage `json:"antigravity,omitempty"`
 	Kimi        *KimiUsage        `json:"kimi,omitempty"`
+	Qoder       *QoderUsage       `json:"qoder,omitempty"`
 }
 
 // UsageWindow is one rate-limit window. LimitWindowSeconds is the source of
@@ -79,4 +80,20 @@ type KimiUsage struct {
 	Weekly        *UsageWindow `json:"weekly,omitempty"`         // 7-day quota (the API's "usage" field)
 	FiveHour      *UsageWindow `json:"five_hour,omitempty"`      // 5-hour quota (limits[0].detail)
 	Total         *UsageWindow `json:"total,omitempty"`          // cumulative quota (totalQuota), no reset
+}
+
+// QoderUsage is the QoderCN credits quota snapshot from the openapi quota
+// endpoint. Credits are a single cumulative pool (no rate-limit window reset);
+// the pool expires wholesale at ExpiresAt (unix ms from the API, stored here as
+// unix seconds). UsedPercent mirrors the API's totalUsagePercentage (0–100).
+type QoderUsage struct {
+	Version      string  `json:"version,omitempty"`       // qoderclicn CLI version, e.g. "v1.0.48"
+	PlanType     string  `json:"plan_type,omitempty"`     // API userType, e.g. "personal_professional_trial"
+	Unit         string  `json:"unit,omitempty"`          // quota unit, always "credits"
+	Total        float64 `json:"total"`                   // total credits in the pool
+	Used         float64 `json:"used"`                    // credits consumed
+	Remaining    float64 `json:"remaining"`               // credits left
+	UsedPercent  float64 `json:"used_percent"`            // 0–100
+	ExpiresAt    int64   `json:"expires_at,omitempty"`    // unix seconds when the plan/quota expires
+	QuotaExceeded bool   `json:"quota_exceeded"`          // true when the pool is exhausted
 }
