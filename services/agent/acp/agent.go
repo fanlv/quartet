@@ -29,14 +29,6 @@ import (
 // path (services/agent/eino/runner.go).
 const tokenUsageMinInterval = 1 * time.Second
 
-// coldRestoreAttemptTimeout prevents a persisted ACP session from consuming
-// the entire agent-construction budget. Resume/load is not purely local:
-// adapters like claude-agent-acp issue a network request to the model
-// endpoint while restoring a session, and a cold serverless gateway can
-// take well over 10s to answer. Once this bound is crossed the adapter is
-// treated as wedged and the native restore error is returned directly.
-const coldRestoreAttemptTimeout = 60 * time.Second
-
 // SessionStore is the narrow session.Service surface the ACP agent needs
 // for loading/writing session metadata. Declared here (rather than
 // importing services/session directly) to keep the ACP package decoupled
@@ -252,12 +244,13 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 	var thoughtLevelConfigID, modeConfigID string
 	if existingACPSession != "" {
 		acpSessionID = pkgacp.SessionID(existingACPSession)
-		restoreCtx, restoreCancel := context.WithTimeout(ctx, coldRestoreAttemptTimeout)
 		var sessResp *pkgacp.SessionResponse
+		// Detach from the caller's deadline (e.g. sessioncache createTimeout)
+		// so that a slow resume/load is not killed by an upstream timeout.
+		resumeCtx := context.WithoutCancel(ctx)
 		if conn.SupportsResume() {
-			sessResp, err = conn.ResumeSession(restoreCtx, existingACPSession, workdir)
+			sessResp, err = conn.ResumeSession(resumeCtx, existingACPSession, workdir)
 			if err != nil {
-				restoreCancel()
 				return nil, fmt.Errorf("resume persisted ACP session %s: %w", existingACPSession, err)
 			}
 		} else {
@@ -266,13 +259,11 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 			// only restores subprocess context and cannot be persisted as new
 			// output.
 			logger.Infof(ctx, "[acp] session/resume unsupported; loading persisted session: acpSession=%s", existingACPSession)
-			sessResp, err = conn.LoadSession(restoreCtx, existingACPSession, workdir)
+			sessResp, err = conn.LoadSession(resumeCtx, existingACPSession, workdir)
 			if err != nil {
-				restoreCancel()
 				return nil, fmt.Errorf("load persisted ACP session %s: %w", existingACPSession, err)
 			}
 		}
-		restoreCancel()
 		thoughtLevelConfigID = thoughtLevelConfigIDFromSession(sessResp)
 		modeConfigID = modeConfigIDFromSession(sessResp)
 		if drifted {
@@ -507,7 +498,6 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context, report PhaseReporter) 
 		conn.Close()
 		return fmt.Errorf("reconnect: no ACP session id available for restore")
 	}
-	restoreCtx, restoreCancel := context.WithTimeout(ctx, coldRestoreAttemptTimeout)
 	var (
 		sessResp      *pkgacp.SessionResponse
 		restoreErr    error
@@ -515,16 +505,15 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context, report PhaseReporter) 
 	)
 	if conn.SupportsResume() {
 		restoreMethod = "session/resume"
-		sessResp, restoreErr = conn.ResumeSession(restoreCtx, string(oldSession), a.workdir)
+		sessResp, restoreErr = conn.ResumeSession(ctx, string(oldSession), a.workdir)
 	} else {
 		// This is a brand-new Conn and has no stream handler yet, so the
 		// history notifications emitted by session/load are intentionally
 		// ignored instead of reaching the active round builder.
 		restoreMethod = "session/load"
 		logger.Infof(ctx, "[acp] reconnect: session/resume unsupported; loading persisted session: acpSession=%s", oldSession)
-		sessResp, restoreErr = conn.LoadSession(restoreCtx, string(oldSession), a.workdir)
+		sessResp, restoreErr = conn.LoadSession(ctx, string(oldSession), a.workdir)
 	}
-	restoreCancel()
 	if restoreErr != nil {
 		conn.Close()
 		return fmt.Errorf("reconnect: %s ACP session %s failed: %w", restoreMethod, oldSession, restoreErr)
@@ -590,7 +579,6 @@ func (a *ACPAgent) restoreACPSession(ctx context.Context) error {
 		return fmt.Errorf("compute messages fingerprint for sync point failed: %w", err)
 	}
 
-	restoreCtx, restoreCancel := context.WithTimeout(ctx, coldRestoreAttemptTimeout)
 	var (
 		sessResp      *pkgacp.SessionResponse
 		restoreErr    error
@@ -598,7 +586,7 @@ func (a *ACPAgent) restoreACPSession(ctx context.Context) error {
 	)
 	if conn.SupportsResume() {
 		restoreMethod = "session/resume"
-		sessResp, restoreErr = conn.ResumeSession(restoreCtx, string(oldSession), a.workdir)
+		sessResp, restoreErr = conn.ResumeSession(ctx, string(oldSession), a.workdir)
 	} else {
 		// Call sites run before this Run installs its stream handler (and the
 		// previous Run's handler was cleared during its cleanup), so the
@@ -606,9 +594,8 @@ func (a *ACPAgent) restoreACPSession(ctx context.Context) error {
 		// of reaching the round builder — same as the cold-start load path.
 		restoreMethod = "session/load"
 		logger.Infof(ctx, "[acp] restore: session/resume unsupported; loading persisted session: acpSession=%s", oldSession)
-		sessResp, restoreErr = conn.LoadSession(restoreCtx, string(oldSession), a.workdir)
+		sessResp, restoreErr = conn.LoadSession(ctx, string(oldSession), a.workdir)
 	}
-	restoreCancel()
 	if restoreErr != nil {
 		return fmt.Errorf("restore: %s ACP session %s failed: %w", restoreMethod, oldSession, restoreErr)
 	}

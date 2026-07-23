@@ -717,20 +717,30 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command, preferredModelID 
 
 	if preferredModelID != "" && preferredModelID != defaultModelID {
 		if !modelAvailable(models, preferredModelID) {
-			return nil, fmt.Errorf("set model %q failed: model is not available for agent %s", preferredModelID, command)
+			// The preferred model comes from a cache entry written by an
+			// earlier probe; an agent upgrade can rename or drop model IDs
+			// (e.g. antigravity-acp switched from display names to ID values).
+			// Failing here would discard the freshly probed lists and keep the
+			// cache stale forever — every later refresh retries the same dead
+			// value and the selector never recovers. Keep the fresh lists so
+			// the cache heals; the caller re-checks the requested selection
+			// against the refreshed cache and reports it back to the user.
+			logger.Warnf(ctx, "[probe] preferred model %q is no longer available for agent %s (default=%q); keeping freshly probed lists",
+				preferredModelID, command, defaultModelID)
+		} else {
+			linkedResp, setErr := acpConn.SetSessionModel(ctx, pkgacp.SessionID(sessResp.SessionID), preferredModelID)
+			if setErr != nil {
+				err = fmt.Errorf("set model %q failed: %w", preferredModelID, setErr)
+				recordProbeFailure(ctx, command, err)
+				return nil, err
+			}
+			if linkedModels := modelsFromSessionResponse(linkedResp); linkedModels != nil {
+				models = linkedModels
+			} else if models != nil {
+				models.CurrentModelId = preferredModelID
+			}
+			thoughtLevelsByModel[preferredModelID] = thoughtLevelsFromSessionResponse(linkedResp)
 		}
-		linkedResp, setErr := acpConn.SetSessionModel(ctx, pkgacp.SessionID(sessResp.SessionID), preferredModelID)
-		if setErr != nil {
-			err = fmt.Errorf("set model %q failed: %w", preferredModelID, setErr)
-			recordProbeFailure(ctx, command, err)
-			return nil, err
-		}
-		if linkedModels := modelsFromSessionResponse(linkedResp); linkedModels != nil {
-			models = linkedModels
-		} else if models != nil {
-			models.CurrentModelId = preferredModelID
-		}
-		thoughtLevelsByModel[preferredModelID] = thoughtLevelsFromSessionResponse(linkedResp)
 	}
 
 	// Preserve the historical initial-mode policy, but only when creating the
