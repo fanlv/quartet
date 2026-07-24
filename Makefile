@@ -126,8 +126,16 @@ run-frontend:
 			touch node_modules; \
 		fi; \
 	)
-	@if [ -f "$(CERTS_DIR)/cert.pem" ] && [ -f "$(CERTS_DIR)/key.pem" ] && [ "$$(id -u)" != "0" ]; then \
-		cd web && sudo npm run dev; \
+	# With certs present the dev server binds :443, which needs sudo. Run it with
+	# VITE_CACHE_DIR pointing outside node_modules so the root-owned vite dep cache
+	# never lands in web/node_modules (a root-owned cache makes the next plain-user
+	# `npm ci` in build-frontend fail with EACCES on rmdir).
+	@certs_sudo=0; \
+	if [ -f "$(CERTS_DIR)/cert.pem" ] && [ -f "$(CERTS_DIR)/key.pem" ] && [ "$$(id -u)" != "0" ]; then \
+		certs_sudo=1; \
+	fi; \
+	if [ "$$certs_sudo" = "1" ]; then \
+		cd web && sudo env VITE_CACHE_DIR="/tmp/quartet-vite-dev-cache-$$(id -un)" npm run dev; \
 	else \
 		cd web && npm run dev; \
 	fi

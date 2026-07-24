@@ -212,8 +212,26 @@
 .header-nav {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 8px;
   flex-shrink: 0;
+}
+
+/* Restart is a page action, not a shared tool — set it off from the tool
+   cluster with a hairline divider so the toolbar reads as two groups. */
+.header-restart-btn {
+  position: relative;
+  margin-right: 12px;
+}
+
+.header-restart-btn::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 18px;
+  background: var(--border-strong);
 }
 
 .header-joblist {
@@ -363,9 +381,9 @@
 }
 
 .header-restart-btn.restarting {
-  color: #2563eb;
-  border-color: #bfdbfe;
-  background: #eff6ff;
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .header-restart-btn.restarting svg {
@@ -393,9 +411,9 @@
 }
 
 .header-filebrowser-btn.active {
-  background: #e8f0fe;
-  border-color: #93b4f5;
-  color: #1a73e8;
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .header-more {

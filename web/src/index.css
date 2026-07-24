@@ -18,6 +18,68 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* ── Design tokens ──────────────────────────────────────────────
+     Single source of truth for color. Prefer these over hardcoded
+     hex in component CSS. Named by purpose, never by hue, so a dark
+     theme (see [data-theme="dark"] below) can override them wholesale.
+     One accent only — a restrained product blue, NOT indigo #6366f1. */
+
+  /* Surfaces & neutrals */
+  --bg: #f3f6fa;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --fg: #1e293b;          /* primary text */
+  --muted: #64748b;       /* secondary text — 4.5:1 on white */
+  --muted-2: #8a94a3;     /* tertiary text — still ≥4.5:1 on white */
+  --faint: #cbd5e1;       /* decorative only, never for text */
+  --border: rgba(15, 23, 42, 0.09);
+  --border-strong: #cbd5e1;
+
+  /* Accent (one, used at most twice per screen) */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(37, 99, 235, 0.10);   /* tinted fills / active rows */
+  --accent-ring: rgba(37, 99, 235, 0.16);   /* focus ring */
+
+  /* Status */
+  --success: #16a34a;
+  --danger: #ef4444;
+  --warn: #f59e0b;
+  --info: #0369a1;
+}
+
+/* Opt-in dark theme. Tokens are defined; flip it on with
+   document.documentElement.dataset.theme = 'dark'. Not wired to
+   prefers-color-scheme yet because component CSS still holds many
+   hardcoded hex — enabling it globally before that migration would
+   leave un-tokenized surfaces light. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  color: #e6ebf2;
+  background-color: #0f141b;
+
+  --bg: #0f141b;
+  --surface: #171d26;
+  --surface-2: #1e2632;
+  --fg: #e6ebf2;
+  --muted: #9aa7b8;
+  --muted-2: #7d8a9c;
+  --faint: #3a4453;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: #3a4453;
+
+  --accent: #5b9bff;
+  --accent-hover: #7cb0ff;
+  --accent-fg: #0f141b;
+  --accent-soft: rgba(91, 155, 255, 0.14);
+  --accent-ring: rgba(91, 155, 255, 0.22);
+
+  --success: #34d399;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --info: #38bdf8;
 }
 
 input,
