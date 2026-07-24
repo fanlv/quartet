@@ -491,7 +491,15 @@ const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceNa
       <span className={`home-job-history-row-status-icon ${job.status}`}>{getJobStatusIcon(job.status)}</span>
       <span className="home-job-history-row-title" title={title}>{titleDisplay}</span>
       <div className="home-job-history-row-meta">
-        {job.scheduleId && <span className="home-job-history-row-sched" title="定时任务触发">⏰</span>}
+        {job.scheduleId && (
+          <span className="home-job-history-row-sched" title="定时任务触发" aria-label="定时任务触发">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="13" r="8" />
+              <path d="M12 9v4l2.5 2.5" />
+              <path d="M5 3 2 6M22 6l-3-3" />
+            </svg>
+          </span>
+        )}
         {workspaceName && (
           <span
             className="home-job-history-row-ws"
@@ -1488,7 +1496,12 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
             {userAvatarUrl ? (
               <img src={userAvatarUrl} alt="" className="header-user-avatar" referrerPolicy="no-referrer" />
             ) : (
-              '🤖'
+              <svg className="header-logo-mark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="4" y="8" width="16" height="12" rx="3" />
+                <path d="M12 4v4" />
+                <circle cx="12" cy="3" r="1" />
+                <path d="M9.5 13h.01M14.5 13h.01" />
+              </svg>
             )}
             {' '}<span className="header-logo-text">{workspaceTitle || 'Quartet'}</span>
             {localizedBuildTime.full && (
@@ -1572,8 +1585,11 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
             </svg>
           </button>
           {onOpenSettings && (
-            <button className="header-settings-btn" onClick={onOpenSettings} title="设置" data-testid="settings-open-button">
-              ⚙️
+            <button className="header-settings-btn" onClick={onOpenSettings} title="设置" aria-label="设置" data-testid="settings-open-button">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
             </button>
           )}
         </nav>
