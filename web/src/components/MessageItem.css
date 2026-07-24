@@ -853,6 +853,76 @@
   color: #6e7781;
 }
 
+/* Field-based parameter view */
+.tool-params {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tool-param-field {
+  min-width: 0;
+}
+
+.tool-param-field.inline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tool-param-key {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Menlo', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0550ae;
+  flex-shrink: 0;
+}
+
+.tool-param-field.block .tool-param-key {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.tool-param-value {
+  color: #374151;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.tool-param-str {
+  color: #0a3069;
+}
+
+.tool-param-null {
+  color: #6e7781;
+  font-style: italic;
+}
+
+.tool-param-block-value {
+  background: #fafafa;
+  color: #374151;
+  padding: 12px 14px;
+  border-radius: 6px;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Menlo', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+  max-height: 420px;
+  max-width: 100%;
+  border: 1px solid #e5e7eb;
+  box-sizing: border-box;
+}
+
+
 /* Content type badge */
 .tool-content-type-badge {
   display: inline-block;
@@ -1026,6 +1096,13 @@
     max-height: 50vh;
     max-height: 50dvh;
     overflow-y: auto;
+  }
+
+  .tool-param-block-value {
+    font-size: 12px;
+    padding: 10px 12px;
+    max-height: 50vh;
+    max-height: 50dvh;
   }
 
   .tool-call-header {

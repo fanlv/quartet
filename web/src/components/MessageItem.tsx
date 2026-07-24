@@ -647,6 +647,119 @@ function renderJsonHighlighted(obj: object): React.ReactNode[] {
   return nodes;
 }
 
+// While a tool call is still streaming, `toolCallArgs` is an unterminated JSON
+// fragment (an open string, a half-written object). `JSON.parse` throws on it
+// and the UI used to fall back to dumping the raw escaped string — the giant
+// one-line blob with literal `\n`. Best-effort close the open string and any
+// unbalanced brackets so we can still parse it into a structured object mid
+// stream. Rare tails we can't repair (a bare key with no colon yet) just fail
+// to parse and fall back to the raw string, same as before.
+function completePartialJson(raw: string): string {
+  const closers: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') closers.push('}');
+    else if (ch === '[') closers.push(']');
+    else if (ch === '}' || ch === ']') closers.pop();
+  }
+  let s = raw;
+  if (escaped) s = s.slice(0, -1); // dangling backslash would escape our closing quote
+  if (inString) s += '"';
+  s = s.replace(/\s+$/, '');
+  if (s.endsWith(',')) s = s.slice(0, -1); // JSON forbids trailing commas
+  if (s.endsWith(':')) s += 'null'; // key with no value yet
+  for (let i = closers.length - 1; i >= 0; i--) s += closers[i];
+  return s;
+}
+
+// Parse tool-call args tolerantly. Returns the parsed value plus whether it
+// came from a partial (still-streaming) fragment, so callers can decide how
+// much to trust it. Non-object results (a bare string being streamed) stay as
+// the raw string — the field view only kicks in for objects.
+function parseToolArgs(raw: string | undefined | null): { value: string | object | null; partial: boolean } {
+  if (!raw) return { value: null, partial: false };
+  try {
+    return { value: JSON.parse(raw), partial: false };
+  } catch {
+    // fall through to partial repair
+  }
+  try {
+    const val = JSON.parse(completePartialJson(raw));
+    if (val && typeof val === 'object') return { value: val, partial: true };
+  } catch {
+    // give up, show the raw fragment
+  }
+  return { value: raw, partial: true };
+}
+
+// A string value renders as a multi-line block (rather than inline) when it
+// carries real structure worth its own row: embedded newlines, or just long
+// enough that inlining would wrap awkwardly.
+const PARAM_BLOCK_MIN_LEN = 80;
+function isBlockString(val: string): boolean {
+  return val.includes('\n') || val.length > PARAM_BLOCK_MIN_LEN;
+}
+
+function renderScalarValue(val: unknown): React.ReactNode {
+  if (val === null) return <span className="tool-param-null">null</span>;
+  if (typeof val === 'boolean') return <span className="json-boolean">{String(val)}</span>;
+  if (typeof val === 'number') return <span className="json-number">{String(val)}</span>;
+  return <span className="tool-param-str">{String(val)}</span>;
+}
+
+function ToolParamField({ name, value }: { name: string; value: unknown }) {
+  // Multi-line / long string → labelled block with real newlines (the actual
+  // string value, not JSON-escaped), so Write.content, Edit diffs and multi
+  // line shell commands read like the text they are.
+  if (typeof value === 'string' && isBlockString(value)) {
+    return (
+      <div className="tool-param-field block">
+        <div className="tool-param-key">{name}</div>
+        <pre className="tool-param-block-value">{value}</pre>
+      </div>
+    );
+  }
+  // Nested object / array → compact JSON with the existing highlighter.
+  if (value !== null && typeof value === 'object') {
+    return (
+      <div className="tool-param-field block">
+        <div className="tool-param-key">{name}</div>
+        <pre className="tool-param-block-value tool-json-code">{renderJsonHighlighted(value as object)}</pre>
+      </div>
+    );
+  }
+  // Short scalar → single inline row.
+  return (
+    <div className="tool-param-field inline">
+      <span className="tool-param-key">{name}</span>
+      <span className="tool-param-value">{renderScalarValue(value)}</span>
+    </div>
+  );
+}
+
+function ToolParamsView({ args }: { args: object }) {
+  const entries = Object.entries(args);
+  if (entries.length === 0) {
+    return <pre className="tool-param-block-value">{'{}'}</pre>;
+  }
+  return (
+    <div className="tool-params">
+      {entries.map(([key, val]) => (
+        <ToolParamField key={key} name={key} value={val} />
+      ))}
+    </div>
+  );
+}
+
 function ToolMessageContent({ message }: { message: ToolMessage }) {
   const isCompleted = message.toolCallStatus !== ToolCallStatusEnum.Processing;
   const [isExpanded, setIsExpanded] = useState(!isCompleted);
@@ -687,14 +800,9 @@ function ToolMessageContent({ message }: { message: ToolMessage }) {
     [ToolCallStatusEnum.Placeholder]: 'placeholder',
   };
 
-  let parsedArgs: string | object | null = null;
   let parsedResult: string | object | null = null;
 
-  try {
-    parsedArgs = message.toolCallArgs ? JSON.parse(message.toolCallArgs) : null;
-  } catch {
-    parsedArgs = message.toolCallArgs;
-  }
+  const { value: parsedArgs } = parseToolArgs(message.toolCallArgs);
 
   try {
     parsedResult = message.content ? JSON.parse(message.content) : null;
@@ -794,7 +902,7 @@ function ToolMessageContent({ message }: { message: ToolMessage }) {
                   </div>
                   <div className="tool-code-wrapper">
                     {argsIsJson ? (
-                      <pre className="tool-code tool-json-code">{renderJsonHighlighted(parsedArgs as object)}</pre>
+                      <ToolParamsView args={parsedArgs as object} />
                     ) : (
                       <pre className="tool-code">{argsStr}</pre>
                     )}
