@@ -5,11 +5,12 @@ import { useTranslation } from 'react-i18next';
 import { AgentInfo } from './ChatPage';
 import { AgentUsageCard } from './AgentUsageCard';
 import { FileMention, FileResult } from './FileMention';
+import { SlashFloater, SkillBackdrop } from './SlashCompletion';
+import { slashCompletionKeyDown, useSlashCompletion } from '../utils/slashCompletion';
 import { copyToClipboard } from '../utils/clipboard';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { usePendingImages } from '../hooks/usePendingImages';
 import { workspaceColor } from '../utils/workspace';
-import { ALL_COMMAND_NAMES } from '../utils/commands';
 import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl } from '../utils/url';
 import { splitFavoriteModels } from '../utils/agentPrefs';
@@ -272,13 +273,22 @@ export function ChatInput({
 
   const [mentionState, setMentionState] = useState<{ keyword: string; start: number } | null>(null);
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
-  // Slash-command completion state (chat page only). Appears when the
-  // textarea value starts with "/" and has no space yet — matches available
-  // command names by prefix. Keyboard: ArrowUp/Down, Enter/Tab to complete,
-  // Esc to cancel. Plain list, no args — once the user types a space the
-  // floater disappears.
-  const [slashMatches, setSlashMatches] = useState<string[]>([]);
-  const [slashActiveIdx, setSlashActiveIdx] = useState(0);
+  // Slash ("/") completion: grouped floater of built-in commands + installed
+  // skills (chat page only). Shared implementation with the home-page input —
+  // see SlashCompletion.tsx.
+  const {
+    slashPrefix,
+    slashItems,
+    slashActiveIdx,
+    setSlashActiveIdx,
+    updateSlash,
+    applySlashItem,
+    closeSlash,
+    skillNameSet,
+    imeComposing,
+    compositionHandlers,
+  } = useSlashCompletion({ setInput, textareaRef });
+  const backdropRef = useRef<HTMLDivElement>(null);
   // Workspace switcher (chat page). Opens a dropdown anchored to the
   // Workspace tag in the footer. Only rendered when the parent supplies a
   // switchableWorkspaces list + onSwitchWorkspace callback.
@@ -337,7 +347,8 @@ export function ChatInput({
     setShowThoughtLevelDropdown(false);
     setHistoryOpen(false);
     setMentionState(null);
-  }, [interactionDisabled]);
+    closeSlash();
+  }, [interactionDisabled, closeSlash]);
 
   useEffect(() => {
     // When switching job/workspace, load the corresponding history.
@@ -419,6 +430,7 @@ export function ChatInput({
     setPickedImageUrls([]);
     clearImages();
     setMentionState(null);
+    closeSlash();
     historyCursorRef.current = null;
     historyDraftRef.current = null;
   };
@@ -436,7 +448,7 @@ export function ChatInput({
   const handleRemovePickedImage = useCallback((url: string) => {
     if (interactionDisabled) return;
     setPickedImageUrls((prev) => prev.filter((u) => u !== url));
-  }, [interactionDisabled]);
+  }, [interactionDisabled, setPickedImageUrls]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     if (interactionDisabled) return;
@@ -489,50 +501,18 @@ export function ChatInput({
       setMentionActiveIndex(0);
     }
 
-    // Command completion (chat page): if the value is `/xxx` with no space,
-    // show a list of commands matching the prefix. Aliases collapsed into
-    // their canonical name.
-    if (!mention && val.startsWith('/') && !val.includes(' ')) {
-      const prefix = val.toLowerCase();
-      const matches = ALL_COMMAND_NAMES.filter((c) => c.startsWith(prefix));
-      setSlashMatches(matches);
-      setSlashActiveIdx(0);
-    } else {
-      setSlashMatches([]);
-    }
+    // Slash completion (chat page): if the value is `/xxx` with no space,
+    // show built-in commands + installed skills matching the prefix.
+    updateSlash(val, !!mention);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (interactionDisabled) return;
     // Ignore Enter during IME composition (CJK input methods)
     if (isImeComposing(e)) return;
-    // Command completion navigation takes priority over plain Enter.
-    if (slashMatches.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSlashActiveIdx((i) => (i + 1) % slashMatches.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSlashActiveIdx((i) => (i - 1 + slashMatches.length) % slashMatches.length);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setSlashMatches([]);
-        return;
-      }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey)) {
-        e.preventDefault();
-        const pick = slashMatches[slashActiveIdx] ?? slashMatches[0];
-        if (pick) {
-          setInput(pick + ' ');
-          setSlashMatches([]);
-          requestAnimationFrame(() => textareaRef.current?.focus());
-        }
-        return;
-      }
+    // Slash completion navigation takes priority over plain Enter.
+    if (slashCompletionKeyDown(e, slashItems, slashActiveIdx, setSlashActiveIdx, applySlashItem, closeSlash)) {
+      return;
     }
     // If mention popup is open, handle navigation keys
     if (mentionState) {
@@ -565,7 +545,7 @@ export function ChatInput({
 
     // Local sent-message history navigation (like common chat apps):
     // ArrowUp at beginning loads previous; ArrowDown restores draft.
-    if (slashMatches.length === 0 && !mentionState && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+    if (slashPrefix == null && !mentionState && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
       const textarea = e.currentTarget;
       const selStart = textarea.selectionStart ?? 0;
       const selEnd = textarea.selectionEnd ?? 0;
@@ -772,48 +752,40 @@ export function ChatInput({
             ))}
           </div>
         )}
-        {slashMatches.length > 0 && (
-          <div className="chat-slash-floater">
-            {slashMatches.map((c, i) => (
-              <div
-                key={c}
-                className={`chat-slash-item ${i === slashActiveIdx ? 'active' : ''}`}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setInput(c + ' ');
-                  setSlashMatches([]);
-                  requestAnimationFrame(() => textareaRef.current?.focus());
-                }}
-              >
-                <span className="chat-slash-item-name">{c}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <textarea
-          ref={textareaRef}
-          className="chat-input"
-          data-testid="chat-input"
-          value={input}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          onBlur={() => {
-            // On iOS Chrome, force scroll reset after keyboard dismiss
-            // to prevent residual viewport offset
-            const resetScroll = () => {
-              window.scrollTo(0, 0);
-              document.body.scrollTop = 0;
-              document.documentElement.scrollTop = 0;
-            };
-            resetScroll();
-            setTimeout(resetScroll, 50);
-            setTimeout(resetScroll, 150);
-          }}
-          placeholder={placeholder}
-          disabled={composerLocked}
-          rows={1}
-        />
+        <SlashFloater items={slashItems} activeIdx={slashActiveIdx} onPick={applySlashItem} onActiveIdxChange={setSlashActiveIdx} />
+        <div className={`chat-input-editor${imeComposing ? ' composing' : ''}`}>
+          <SkillBackdrop input={input} skillNameSet={skillNameSet} backdropRef={backdropRef} />
+          <textarea
+            ref={textareaRef}
+            className="chat-input"
+            data-testid="chat-input"
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            {...compositionHandlers}
+            onScroll={(e) => {
+              if (backdropRef.current) {
+                backdropRef.current.scrollTop = e.currentTarget.scrollTop;
+              }
+            }}
+            onBlur={() => {
+              // On iOS Chrome, force scroll reset after keyboard dismiss
+              // to prevent residual viewport offset
+              const resetScroll = () => {
+                window.scrollTo(0, 0);
+                document.body.scrollTop = 0;
+                document.documentElement.scrollTop = 0;
+              };
+              resetScroll();
+              setTimeout(resetScroll, 50);
+              setTimeout(resetScroll, 150);
+            }}
+            placeholder={placeholder}
+            disabled={composerLocked}
+            rows={1}
+          />
+        </div>
         <input
           ref={fileInputRef}
           type="file"

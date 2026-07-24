@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatInput } from './ChatInput'
+import { __resetSkillsCacheForTest } from '../utils/skills'
 
 const PLACEHOLDER = 'Type a message'
 
@@ -108,8 +109,43 @@ describe('ChatInput keyboard behavior', () => {
     await user.keyboard('{Enter}')
 
     expect(textarea).toHaveValue('/ws ')
+    expect(textarea.selectionStart).toBe('/ws '.length)
     expect(screen.queryByText('/workspace')).toBeNull()
     expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('lists skills in the slash floater, inserts the picked skill, and highlights it', async () => {
+    __resetSkillsCacheForTest()
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/v1/skills/list')) {
+        return {
+          json: async () => ({
+            code: 0,
+            skills: [{ name: 'pptx', path: '/root/.agents/skills/pptx', scope: 'global', agents: [] }],
+          }),
+        } as Response
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }))
+    const user = userEvent.setup()
+    const { textarea, onSend } = renderChatInput()
+
+    await user.type(textarea, '/p')
+    // Skill row shows basic info (name + path) once the list arrives.
+    expect(await screen.findByText('/pptx')).toBeTruthy()
+    expect(screen.getByText('/root/.agents/skills/pptx')).toBeTruthy()
+
+    await user.keyboard('{Enter}')
+
+    expect(textarea).toHaveValue('/pptx ')
+    expect(textarea.selectionStart).toBe('/pptx '.length)
+    expect(screen.queryByText('/root/.agents/skills/pptx')).toBeNull()
+    expect(onSend).not.toHaveBeenCalled()
+    // Selected skill renders as a chip in the highlight backdrop.
+    const chip = document.querySelector('.chat-skill-chip')
+    expect(chip).toBeTruthy()
+    expect(chip?.textContent).toBe('/pptx')
   })
 
   it('recalls sent-message history with ArrowUp and restores with ArrowDown', async () => {

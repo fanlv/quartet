@@ -84,6 +84,8 @@
     "placeholder": "有什么可以帮你的？",
     "favoriteModels": "收藏",
     "otherModels": "其他",
+    "slashCommands": "命令",
+    "slashSkills": "Skills",
     "cancelQueue": "取消排队",
     "uploadImage": "上传图片",
     "stopGeneration": "停止生成",

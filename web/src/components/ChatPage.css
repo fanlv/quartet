@@ -196,6 +196,8 @@
 }
 
 .home-input {
+  /* See .chat-input for why block + full width are explicit. */
+  display: block;
   width: 100%;
   border: none;
   background: transparent;
@@ -208,6 +210,23 @@
   padding: 16px 18px;
   font-family: inherit;
   box-sizing: border-box;
+  /* Text is painted by .chat-input-backdrop (skill chips, see SlashCompletion);
+     the textarea itself only shows the caret and selection. */
+  color: transparent;
+  caret-color: #1f2937;
+  position: relative;
+  z-index: 1;
+}
+
+/* Home-page metrics for the shared highlight backdrop (base styles live in
+   ChatInput.css's .chat-input-backdrop); must mirror .home-input exactly. */
+.home-input-backdrop {
+  padding: 16px 18px;
+  font-size: 15px;
+}
+
+.chat-input-editor:has(.home-input:disabled) .chat-input-backdrop {
+  opacity: 0.6;
 }
 
 .home-input::placeholder {
@@ -1497,6 +1516,11 @@
   }
 
   .home-input {
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+
+  .home-input-backdrop {
     padding: 12px 14px;
     font-size: 14px;
   }

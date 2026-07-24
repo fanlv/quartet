@@ -84,6 +84,8 @@
     "placeholder": "What can I help you?",
     "favoriteModels": "Favorites",
     "otherModels": "Others",
+    "slashCommands": "Commands",
+    "slashSkills": "Skills",
     "cancelQueue": "Cancel queue",
     "uploadImage": "Upload image",
     "stopGeneration": "Stop generation",

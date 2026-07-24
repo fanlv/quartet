@@ -32,6 +32,13 @@
 
 .chat-input {
   flex: 1;
+  /* Inside .chat-input-editor (a plain div) the textarea is no longer
+     blockified by a flex parent: force block + full width, otherwise it
+     falls back to inline-block with the UA default cols=20 width and the
+     text wraps far earlier than the backdrop — misplacing the caret and
+     shrinking the clickable area. */
+  display: block;
+  width: 100%;
   border: none;
   background: transparent;
   font-size: 14px;
@@ -43,6 +50,60 @@
   padding: 14px 16px;
   font-family: inherit;
   scrollbar-width: none;
+  /* Text is painted by .chat-input-backdrop (which adds skill chips); the
+     textarea itself only shows the caret and selection. */
+  color: transparent;
+  caret-color: #1f2937;
+  position: relative;
+  z-index: 1;
+}
+
+/* Editor = highlight backdrop + transparent-text textarea, stacked. The
+   backdrop must mirror the textarea's exact text metrics (padding, font,
+   wrapping) so chips sit precisely under the real characters. */
+.chat-input-editor {
+  position: relative;
+}
+
+.chat-input-backdrop {
+  position: absolute;
+  inset: 0;
+  padding: 14px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  font-family: inherit;
+  color: #1f2937;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.chat-input-editor:has(.chat-input:disabled) .chat-input-backdrop {
+  opacity: 0.6;
+}
+
+/* While an IME composition is active the textarea holds un-committed text
+   that the backdrop cannot mirror — swap painting back to the textarea
+   (chip styling returns once the composition commits). */
+.chat-input-editor.composing .chat-input,
+.chat-input-editor.composing .home-input {
+  color: #1f2937;
+}
+
+.chat-input-editor.composing .chat-input-backdrop {
+  visibility: hidden;
+}
+
+/* Skill name token inside the input, e.g. /pptx. Purely visual: background
+   only, no padding/font change, so it never shifts the textarea's text. */
+.chat-skill-chip {
+  background: rgba(249, 115, 22, 0.14);
+  color: #c2410c;
+  border-radius: 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .chat-input::-webkit-scrollbar {
@@ -723,6 +784,10 @@
     font-size: 14px;
   }
 
+  .chat-input-backdrop {
+    padding: 10px 14px;
+  }
+
   .chat-input-wrapper {
     border-radius: 10px;
   }
@@ -742,6 +807,10 @@
   .chat-input {
     padding: 10px 12px;
     font-size: 14px;
+  }
+
+  .chat-input-backdrop {
+    padding: 10px 12px;
   }
 
   .chat-input::placeholder {
@@ -920,7 +989,7 @@
   }
 }
 
-/* Slash-command completion floater (chat page). */
+/* Slash completion floater (chat page): grouped built-in commands + skills. */
 .chat-slash-floater {
   position: absolute;
   bottom: calc(100% + 4px);
@@ -930,16 +999,62 @@
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0,0,0,.08);
   padding: 4px;
-  min-width: 160px;
+  min-width: 240px;
+  max-width: 420px;
+  max-height: 320px;
+  overflow-y: auto;
   z-index: 80;
+}
+.chat-slash-group {
+  padding: 6px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .chat-slash-item {
   padding: 6px 10px;
   border-radius: 6px;
   cursor: pointer;
+  color: #374151;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.chat-slash-item-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.chat-slash-item-name {
   font-size: 13px;
   font-family: ui-monospace, monospace;
-  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-slash-item-scope {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.chat-slash-item-scope.chat-slash-scope-project {
+  background: #ecfdf5;
+  color: #047857;
+}
+.chat-slash-item-desc {
+  font-size: 11px;
+  color: #9ca3af;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chat-slash-item:hover,
 .chat-slash-item.active {

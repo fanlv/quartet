@@ -74,6 +74,8 @@ import { DirPicker } from './DirPicker';
 import { LoopConfigPanel } from './LoopConfigPanel';
 import { FlowNode, LoopConfig, ScheduleInfo } from '../types';
 import { FileMention, FileResult } from './FileMention';
+import { SlashFloater, SkillBackdrop } from './SlashCompletion';
+import { slashCompletionKeyDown, useSlashCompletion } from '../utils/slashCompletion';
 import { FileBrowser } from './FileBrowser';
 import { ScheduleEditModal } from './ScheduleEditModal';
 import { cronToHuman } from './CronInput';
@@ -739,6 +741,22 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   const [mentionState, setMentionState] = useState<{ keyword: string; start: number } | null>(null);
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
 
+  // Slash ("/") completion on the home page: skills only (built-in commands
+  // like /workspace operate on an existing chat), plus the skill-name chip
+  // highlight backdrop. Shared with ChatInput — see SlashCompletion.tsx.
+  const {
+    slashPrefix,
+    slashItems,
+    slashActiveIdx,
+    setSlashActiveIdx,
+    updateSlash,
+    applySlashItem,
+    closeSlash,
+    skillNameSet,
+    imeComposing,
+    compositionHandlers,
+  } = useSlashCompletion({ setInput, textareaRef, includeCommands: false });
+  const backdropRef = useRef<HTMLDivElement>(null);
   const handleImageSelect = useCallback(async (files: FileList | null) => {
     await addImages(files);
   }, [addImages]);
@@ -1226,6 +1244,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     setInput('');
     setPickedImageUrls([]);
     clearImages();
+    closeSlash();
     historyCursorRef.current = null;
     historyDraftRef.current = null;
   };
@@ -1262,11 +1281,17 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     const match = before.match(/@([^\s@]*)$/);
     setMentionState(match ? { keyword: match[1], start: before.length - match[0].length } : null);
     if (match) setMentionActiveIndex(0);
+    // Slash completion (home page): `/xxx` with no space lists commands + skills.
+    updateSlash(val, !!match);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Ignore Enter during IME composition (CJK input methods)
     if (isImeComposing(e)) return;
+    // Slash completion navigation takes priority over plain Enter.
+    if (slashCompletionKeyDown(e, slashItems, slashActiveIdx, setSlashActiveIdx, applySlashItem, closeSlash)) {
+      return;
+    }
     if (mentionState) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionActiveIndex(i => i + 1); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionActiveIndex(i => Math.max(0, i - 1)); return; }
@@ -1281,7 +1306,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
 
     // Local sent-message history navigation (home page):
     // ArrowUp when empty recalls previous; ArrowDown restores draft.
-    if (!mentionState && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+    if (slashPrefix == null && !mentionState && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
       const textarea = e.currentTarget;
       const selStart = textarea.selectionStart ?? 0;
       const selEnd = textarea.selectionEnd ?? 0;
@@ -1910,29 +1935,44 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
               ))}
             </div>
           )}
-          <textarea
-            ref={textareaRef}
-            className="home-input"
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            onBlur={() => {
-              // On iOS Chrome, force scroll reset after keyboard dismiss
-              // to prevent residual viewport offset
-              const resetScroll = () => {
-                window.scrollTo(0, 0);
-                document.body.scrollTop = 0;
-                document.documentElement.scrollTop = 0;
-              };
-              resetScroll();
-              setTimeout(resetScroll, 50);
-              setTimeout(resetScroll, 150);
-            }}
-            placeholder="Ask anything (Press Shift + Enter for a new line)"
-            disabled={isInitializing || !jobEnable || !connected}
-            rows={1}
-          />
+          <SlashFloater items={slashItems} activeIdx={slashActiveIdx} onPick={applySlashItem} onActiveIdxChange={setSlashActiveIdx} />
+          <div className={`chat-input-editor${imeComposing ? ' composing' : ''}`}>
+            <SkillBackdrop
+              input={input}
+              skillNameSet={skillNameSet}
+              className="home-input-backdrop"
+              backdropRef={backdropRef}
+            />
+            <textarea
+              ref={textareaRef}
+              className="home-input"
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              {...compositionHandlers}
+              onScroll={(e) => {
+                if (backdropRef.current) {
+                  backdropRef.current.scrollTop = e.currentTarget.scrollTop;
+                }
+              }}
+              onBlur={() => {
+                // On iOS Chrome, force scroll reset after keyboard dismiss
+                // to prevent residual viewport offset
+                const resetScroll = () => {
+                  window.scrollTo(0, 0);
+                  document.body.scrollTop = 0;
+                  document.documentElement.scrollTop = 0;
+                };
+                resetScroll();
+                setTimeout(resetScroll, 50);
+                setTimeout(resetScroll, 150);
+              }}
+              placeholder="Ask anything (Press Shift + Enter for a new line)"
+              disabled={isInitializing || !jobEnable || !connected}
+              rows={1}
+            />
+          </div>
           <input
             ref={fileInputRef}
             type="file"
