@@ -10,7 +10,6 @@ import (
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/agui"
-	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 	"github.com/fanlv/quartet/types/msgextra"
 )
@@ -254,13 +253,4 @@ func (r *jobRunnerImpl) ResolveModelSnapshot(_ context.Context, modelID string) 
 		return "", false
 	}
 	return modelID, true
-}
-
-// ResolveSystemPrompt captures the resolved (placeholder-expanded) system prompt
-// at this instant for GraphRun snapshot capture.
-func (r *jobRunnerImpl) ResolveSystemPrompt(ctx context.Context) (string, error) {
-	if r.h.promptService == nil {
-		return "", nil
-	}
-	return r.h.promptService.ResolvePrompt(ctx, consts.KeySystemPrompt)
 }

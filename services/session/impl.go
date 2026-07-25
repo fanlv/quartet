@@ -30,10 +30,9 @@ func (m *serviceImpl) load() error {
 	return nil
 }
 
-func (m *serviceImpl) New(modelID string, systemPrompt string, agentType, workdir string) (*model.Session, error) {
+func (m *serviceImpl) New(modelID string, agentType, workdir string) (*model.Session, error) {
 	s := model.NewSession()
 	s.ModelID = modelID
-	s.SystemPrompt = systemPrompt
 	s.Type = agentType
 	s.Workdir = workdir
 	if err := m.repo.Save(s.ID, s); err != nil {

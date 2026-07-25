@@ -219,7 +219,6 @@ export interface GraphAgentSnapshot {
   modelId?: string;
   acpMode?: string;
   acpThoughtLevel?: string;
-  systemPrompt?: string;
 }
 
 export interface GraphRunSnapshot {

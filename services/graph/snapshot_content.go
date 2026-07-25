@@ -16,20 +16,14 @@ import (
 //     form (the ACP model identifier itself). Deduplicated across nodes
 //     sharing a model.
 //   - AgentSnapshots: keyed by node ID, the node's AgentType/ModelID/ACPMode/
-//     ACPThoughtLevel plus the resolved (global) system prompt.
+//     ACPThoughtLevel.
 //
-// A missing model or prompt-resolution error never blocks run start — the
-// snapshot degrades to whatever resolved, and the gap is logged. src may be nil
-// (no snapshot capture), in which case both maps come back nil.
+// A missing model never blocks run start — the snapshot degrades to whatever
+// resolved, and the gap is logged. src may be nil (no snapshot capture), in
+// which case both maps come back nil.
 func buildSnapshotContent(ctx context.Context, cfg model.GraphConfig, src Runner) (map[string]string, map[string]model.GraphAgentSnapshot) {
 	if src == nil {
 		return nil, nil
-	}
-
-	systemPrompt, err := src.ResolveSystemPrompt(ctx)
-	if err != nil {
-		logger.Warnf(ctx, "[graph] resolve system prompt for snapshot failed (degraded snapshot): %v", err)
-		systemPrompt = ""
 	}
 
 	models := map[string]string{}
@@ -43,7 +37,6 @@ func buildSnapshotContent(ctx context.Context, cfg model.GraphConfig, src Runner
 			ModelID:         n.Config.ModelID,
 			ACPMode:         n.Config.ACPMode,
 			ACPThoughtLevel: n.Config.ACPThoughtLevel,
-			SystemPrompt:    systemPrompt,
 		}
 		if n.Config.ModelID == "" {
 			continue

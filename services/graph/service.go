@@ -232,10 +232,6 @@ type Runner interface {
 	// ok=false when modelID is empty — the caller treats this as a degraded
 	// (best-effort) snapshot rather than a start failure.
 	ResolveModelSnapshot(ctx context.Context, modelID string) (string, bool)
-	// ResolveSystemPrompt returns the resolved (placeholder-expanded) system
-	// prompt content at this instant, captured into Agent snapshots so a replay
-	// uses the prompt the run actually executed against.
-	ResolveSystemPrompt(ctx context.Context) (string, error)
 }
 
 // ShellSessionRecorder is an optional capability a Runner may implement to give

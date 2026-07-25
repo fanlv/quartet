@@ -40,8 +40,6 @@ func (stubSnapshotSource) ResolveModelSnapshot(context.Context, string) (string,
 	return "", false
 }
 
-func (stubSnapshotSource) ResolveSystemPrompt(context.Context) (string, error) { return "", nil }
-
 type stubGraphJobSink struct {
 	updates chan graphJobUpdate
 }

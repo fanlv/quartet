@@ -9,12 +9,11 @@ import (
 	"github.com/fanlv/quartet/types/model"
 )
 
-// snapshotRunner is a stubGraphRunner that resolves a fixed model table and a
-// fixed system prompt, so a test can assert StartRun freezes referenced
-// Agent/model content into the run snapshot.
+// snapshotRunner is a stubGraphRunner that resolves a fixed model table, so a
+// test can assert StartRun freezes referenced Agent/model content into the run
+// snapshot.
 type snapshotRunner struct {
-	models       map[string]string
-	systemPrompt string
+	models map[string]string
 }
 
 func (snapshotRunner) InitSession(context.Context, string, *model.SessionOverrides) (string, error) {
@@ -30,10 +29,6 @@ func (snapshotRunner) SessionModelID(string) string { return "" }
 func (r snapshotRunner) ResolveModelSnapshot(_ context.Context, modelID string) (string, bool) {
 	inst, ok := r.models[modelID]
 	return inst, ok
-}
-
-func (r snapshotRunner) ResolveSystemPrompt(context.Context) (string, error) {
-	return r.systemPrompt, nil
 }
 
 func promptNodeWithModel(id, modelID, agentType string) model.GraphNode {
@@ -69,8 +64,7 @@ func TestStartRunCapturesSnapshotContent(t *testing.T) {
 		},
 	}
 	runner := snapshotRunner{
-		models:       map[string]string{"10": "model-ten"},
-		systemPrompt: "SYS-PROMPT",
+		models: map[string]string{"10": "model-ten"},
 	}
 	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1", Config: &cfg}, runner, nil)
 	if err != nil {
@@ -97,7 +91,7 @@ func TestStartRunCapturesSnapshotContent(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing agent snapshot for node %q", id)
 		}
-		if ag.SystemPrompt != "SYS-PROMPT" || ag.ModelID != "10" || ag.AgentType != "eino" {
+		if ag.ModelID != "10" || ag.AgentType != "eino" {
 			t.Fatalf("agent snapshot %q wrong: %+v", id, ag)
 		}
 	}
@@ -129,7 +123,7 @@ func TestStartRunDegradedSnapshotDoesNotBlock(t *testing.T) {
 		},
 		Edges: []model.GraphEdge{edge("s_a", "s", "a"), edge("a_e", "a", "e")},
 	}
-	runner := snapshotRunner{models: map[string]string{}, systemPrompt: "P"}
+	runner := snapshotRunner{models: map[string]string{}}
 	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1", Config: &cfg}, runner, nil)
 	if err != nil {
 		t.Fatalf("StartRun must not fail on missing model: %v", err)

@@ -5,7 +5,6 @@ import './PromptSettings.css';
 const API_BASE = '/api/v1/prompt';
 
 type TabKey =
-  | 'system_prompt'
   | 'group_chat_prompt'
   | 'SOUL'
   | 'USER'
@@ -52,13 +51,6 @@ const TAB_GROUPS: TabGroup[] = [
     titleKey: 'settings.prompt.groups.conversation',
     tabs: [
       {
-        key: 'system_prompt',
-        labelKey: 'settings.prompt.tabs.systemPrompt',
-        icon: '💬',
-        titleKey: 'settings.prompt.titles.systemPrompt',
-        placeholderKey: 'settings.prompt.placeholders.systemPrompt',
-      },
-      {
         key: 'group_chat_prompt',
         labelKey: 'settings.prompt.tabs.groupChatPrompt',
         icon: '👥',
@@ -99,7 +91,7 @@ const ALL_TABS: TabDef[] = TAB_GROUPS.flatMap((g) => g.tabs);
 
 export function PromptSettings() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<TabKey>('system_prompt');
+  const [activeTab, setActiveTab] = useState<TabKey>('group_chat_prompt');
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -210,11 +202,6 @@ export function PromptSettings() {
   // Render description / file path as structured info, not just a sentence.
   const renderInfo = () => {
     switch (activeTab) {
-      case 'system_prompt':
-        return {
-          desc: t('settings.prompt.descriptions.systemPrompt'),
-          path: null,
-        };
       case 'group_chat_prompt':
         return {
           desc: t('settings.prompt.descriptions.groupChatPrompt'),

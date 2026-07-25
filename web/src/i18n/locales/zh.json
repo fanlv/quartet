@@ -500,28 +500,24 @@
         "memory": "记忆体系"
       },
       "tabs": {
-        "systemPrompt": "系统提示词",
         "groupChatPrompt": "群聊 Prompt",
         "soul": "SOUL.md",
         "user": "USER.md",
         "memory": "MEMORY.md"
       },
       "placeholders": {
-        "systemPrompt": "输入系统提示词...",
         "groupChatPrompt": "输入群聊 Prompt，可使用 {{ChatID}} {{SenderID}} {{Content}}...",
         "soul": "输入 SOUL.md 内容（Sophia 的灵魂设定）...",
         "user": "输入 USER.md 内容（主人信息）...",
         "memory": "输入 MEMORY.md 内容（长期记忆）..."
       },
       "titles": {
-        "systemPrompt": "系统提示词",
         "groupChatPrompt": "群聊 Prompt",
         "soul": "SOUL.md",
         "user": "USER.md",
         "memory": "MEMORY.md"
       },
       "descriptions": {
-        "systemPrompt": "默认的系统提示词，将应用于所有新对话，支持引用 {{SOUL.MD}} / {{USER.MD}} / {{MEMORY.MD}}。",
         "groupChatPrompt": "配置 IM 群聊场景使用的 Prompt，支持消息变量，也支持引用 {{SOUL.MD}} / {{USER.MD}} / {{MEMORY.MD}}。",
         "soul": "灵魂设定，定义人格、行为风格与使命。",
         "user": "个人信息与偏好",

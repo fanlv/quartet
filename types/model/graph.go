@@ -220,7 +220,6 @@ type GraphAgentSnapshot struct {
 	ModelID         string `json:"modelId,omitempty"`
 	ACPMode         string `json:"acpMode,omitempty"`
 	ACPThoughtLevel string `json:"acpThoughtLevel,omitempty"`
-	SystemPrompt    string `json:"systemPrompt,omitempty"`
 }
 
 type GraphRunVersion struct {

@@ -1,7 +1,6 @@
 package consts
 
 const (
-	KeySystemPrompt    = "system_prompt"
 	KeyGroupChatPrompt = "group_chat_prompt"
 )
 

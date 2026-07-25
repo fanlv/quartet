@@ -16,7 +16,6 @@ type Session struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 	Deleted      bool      `json:"deleted,omitempty"`
 	ModelID      string    `json:"model_id,omitempty"`
-	SystemPrompt string    `json:"system_prompt,omitempty"`
 	Type         string    `json:"type,omitempty"`         // ACP agent type (serve command key)
 	Workdir      string    `json:"workdir,omitempty"`      // working directory for ACP agents
 	JobID        string    `json:"job_id,omitempty"`       // associated job

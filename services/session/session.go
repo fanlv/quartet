@@ -7,7 +7,7 @@ import (
 )
 
 type Service interface {
-	New(modelID string, systemPrompt string, agentType, workdir string) (*model.Session, error)
+	New(modelID string, agentType, workdir string) (*model.Session, error)
 	// Get returns the session pointer for sid. Callers MUST treat the returned
 	// *model.Session as read-only. Metadata updates must go through one of the
 	// Update* methods; mutating the pointer directly races with concurrent
