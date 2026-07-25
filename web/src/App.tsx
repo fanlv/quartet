@@ -803,7 +803,7 @@ function App() {
             return;
           }
           // 3. Fall back workdir to the workspace workdir if the current Job
-          //    didn't carry one (e.g. Eino agent jobs).
+          //    didn't carry one.
           if (!inheritedWorkdir) {
             const saved = localStorage.getItem(`workspace_${targetWsId}`);
             if (saved) {

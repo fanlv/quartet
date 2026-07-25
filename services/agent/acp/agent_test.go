@@ -40,11 +40,6 @@ func (r *stubRepo) ReplaceMessages(context.Context, []*schema.Message) error { r
 func (r *stubRepo) ReplacePlaceholderToolResult(context.Context, string, *schema.Message) (bool, error) {
 	return false, nil
 }
-func (r *stubRepo) LoadSummaryMessage(context.Context) (*repository.SummaryMessage, error) {
-	return nil, nil
-}
-func (r *stubRepo) SaveSummaryMessage(context.Context, *repository.SummaryMessage) error { return nil }
-func (r *stubRepo) ClearSummaryMessage(context.Context) error                            { return nil }
 func (r *stubRepo) WithLock(context.Context, func(repository.LockedRepo) error) error    { return nil }
 
 // stubSessionStore captures sync-fingerprint writes so tests can assert

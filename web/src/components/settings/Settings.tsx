@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GeneralSettings } from './GeneralSettings';
 import { TokenSettings } from './TokenSettings';
-import { ModelSettings } from './ModelSettings';
+import { EinoSettings } from './EinoSettings';
 import { PromptSettings } from './PromptSettings';
 import { SkillSettings } from './SkillSettings';
 import { ACPSettings } from './ACPSettings';
@@ -14,7 +14,7 @@ import { LogsSettings } from './LogsSettings';
 import './Settings.css';
 import './WeChatSettings.css';
 
-type SettingsTab = 'general' | 'workspace' | 'token' | 'model' | 'prompt' | 'skill' | 'acp' | 'agentDefaults' | 'lark' | 'wechat' | 'logs';
+type SettingsTab = 'general' | 'workspace' | 'token' | 'eino' | 'prompt' | 'skill' | 'acp' | 'agentDefaults' | 'lark' | 'wechat' | 'logs';
 
 interface SettingsProps {
   onClose: () => void;
@@ -25,7 +25,7 @@ const tabDefs: { key: SettingsTab; labelKey: string; icon: string }[] = [
   { key: 'general', labelKey: 'settings.tabs.general', icon: '⚙️' },
   { key: 'workspace', labelKey: 'settings.tabs.workspace', icon: '🗂️' },
   { key: 'token', labelKey: 'settings.tabs.token', icon: '🔑' },
-  { key: 'model', labelKey: 'settings.tabs.model', icon: '🤖' },
+  { key: 'eino', labelKey: 'settings.tabs.eino', icon: '🤖' },
   { key: 'prompt', labelKey: 'settings.tabs.prompt', icon: '📝' },
   { key: 'skill', labelKey: 'settings.tabs.skill', icon: '🧩' },
   { key: 'acp', labelKey: 'settings.tabs.acp', icon: '🔌' },
@@ -115,8 +115,8 @@ export function Settings({ onClose, onSettingsChanged }: SettingsProps) {
         return <WorkspacesSettings />;
       case 'token':
         return <TokenSettings />;
-      case 'model':
-        return <ModelSettings />;
+      case 'eino':
+        return <EinoSettings />;
       case 'prompt':
         return <PromptSettings />;
       case 'skill':

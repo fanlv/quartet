@@ -22,8 +22,8 @@ import (
 // — the callback has already persisted everything. Otherwise persist is
 // invoked inline with the drained buffer.
 //
-// label identifies the agent path in warning logs (e.g. "eino jobId=…",
-// "acp acpSession=…"). FlushPending is typically called from a cleanup path
+// label identifies the agent path in warning logs (e.g. "acp
+// acpSession=…"). FlushPending is typically called from a cleanup path
 // that has no live ctx (external Cancel()), so log fallback uses
 // context.Background(); callers with a live ctx can log around it.
 func FlushPending(b *Builder, persist func([]*schema.Message) error, label string) {

@@ -44,16 +44,9 @@ type ChatContextRepo interface {
 	//
 	// Returns stitched=true iff a matching placeholder row was found and
 	// replaced. Returns stitched=false (no error) when the placeholder is
-	// gone — e.g. summary compaction already folded it into a summary row.
+	// gone — e.g. a concurrent orphan-tail truncate already cut the row.
 	// Errors surface I/O failures only.
 	ReplacePlaceholderToolResult(ctx context.Context, toolCallID string, real *schema.Message) (bool, error)
-	// LoadSummaryMessage loads the summary message from the file.
-	LoadSummaryMessage(ctx context.Context) (*SummaryMessage, error)
-	// SaveSummaryMessage saves the summary message to the file.
-	SaveSummaryMessage(ctx context.Context, msg *SummaryMessage) error
-	// ClearSummaryMessage removes the persisted summary so that
-	// LoadSummaryMessage returns nil on subsequent calls.
-	ClearSummaryMessage(ctx context.Context) error
 	// WithLock acquires the per-session write lock and runs fn with a
 	// LockedRepo handle whose methods bypass the per-call locking. Used
 	// by callers that need a multi-step compound operation (e.g.
@@ -103,18 +96,8 @@ func (f MessagesFingerprint) Equal(other MessagesFingerprint) bool {
 // the full WithLock body — fn is the natural cancellation boundary.
 type LockedRepo interface {
 	LoadAllMessages(ctx context.Context) ([]*schema.Message, error)
-	LoadSummaryMessage(ctx context.Context) (*SummaryMessage, error)
 	AppendMessages(ctx context.Context, msgs []*schema.Message) error
 	ReplaceMessages(ctx context.Context, msgs []*schema.Message) error
-}
-
-// SummaryMessage represents a summarized conversation with an index
-// indicating how many original messages were summarized.
-type SummaryMessage struct {
-	// Index is the number of original messages that have been summarized.
-	Index int `json:"index"`
-	// Message is the summary content.
-	Message *schema.Message `json:"message"`
 }
 
 // isNotFoundError returns true if the error indicates a missing file/path.
@@ -182,7 +165,7 @@ type chatContextRepo struct {
 // Concurrency: every method serialises against other ChatContextRepo
 // instances pointed at the same sessionDir via the process-wide lock
 // registry in session_locks.go. Per-instance mutexes can't help here
-// because eino / acp / shell-persist / web-reload each construct their
+// because acp / shell-persist / web-reload each construct their
 // own instance for the same session.
 func NewChatContextRepo(wsID, jobID, sessionID string) (ChatContextRepo, error) {
 	sessionDir := path.LocalSessionDirInWorkspaceJob(wsID, jobID, sessionID)
@@ -220,12 +203,6 @@ func (v *lockedRepoView) LoadAllMessages(ctx context.Context) ([]*schema.Message
 		return nil, err
 	}
 	return v.r.loadAllMessagesLocked()
-}
-func (v *lockedRepoView) LoadSummaryMessage(ctx context.Context) (*SummaryMessage, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return v.r.loadSummaryMessageLocked()
 }
 func (v *lockedRepoView) AppendMessages(ctx context.Context, msgs []*schema.Message) error {
 	if err := ctx.Err(); err != nil {
@@ -331,8 +308,8 @@ func (r *chatContextRepo) CountMessage(ctx context.Context) (int, error) {
 // per-session read lock. Count semantics match CountMessage (well-formed
 // rows only); hash is FNV-64 over the on-disk bytes so any mutation
 // trips it — including in-place row rewrites by
-// ReplacePlaceholderToolResult, hand edits via summary.json, and
-// transient corruption mid-write. Done under the read lock so a
+// ReplacePlaceholderToolResult, hand edits, and transient corruption
+// mid-write. Done under the read lock so a
 // concurrent AppendMessages / ReplaceMessages cannot tear the read.
 func (r *chatContextRepo) MessagesFingerprint(ctx context.Context) (MessagesFingerprint, error) {
 	mu := sessionFileLock(r.sessionDir)
@@ -477,7 +454,7 @@ func (r *chatContextRepo) replaceMessagesLocked(msgs []*schema.Message) error {
 // toolCallID AND whose Extra[KeyPlaceholderToolResult] is true, and
 // rewrites that row with `real`. Non-placeholder rows (real results or
 // unrelated rows) are left alone even if ToolCallID happens to match, so
-// this is safe to call even after summary compaction moved things around.
+// this is safe to call even after later writes have moved rows around.
 //
 // The rewrite is atomic: it reuses the same tempfile + rename path as
 // ReplaceMessages, and the read+write pair runs under the per-session
@@ -603,90 +580,4 @@ func (r *chatContextRepo) ensureMetaDir() error {
 	return r.sandbox.MkDir(&model.MkDirRequest{
 		Path: dir,
 	})
-}
-
-// LoadSummaryMessage reads summary from {sessionDir}/.meta/summary.json
-func (r *chatContextRepo) LoadSummaryMessage(ctx context.Context) (*SummaryMessage, error) {
-	mu := sessionFileLock(r.sessionDir)
-	if err := mu.RLock(ctx); err != nil {
-		return nil, err
-	}
-	defer mu.RUnlock()
-	return r.loadSummaryMessageLocked()
-}
-
-func (r *chatContextRepo) loadSummaryMessageLocked() (*SummaryMessage, error) {
-	filePath := path.SummaryFilePath(r.sessionDir)
-
-	result, err := r.sandbox.FileRead(&model.FileReadRequest{
-		File: filePath,
-	})
-	if err != nil {
-		if isNotFoundError(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read summary file failed: %w", err)
-	}
-
-	if result.Content == "" {
-		return nil, nil
-	}
-
-	var msg SummaryMessage
-	if err := json.Unmarshal([]byte(result.Content), &msg); err != nil {
-		return nil, fmt.Errorf("unmarshal summary message failed: %w", err)
-	}
-
-	return &msg, nil
-}
-
-// SaveSummaryMessage writes summary to {sessionDir}/.meta/summary.json
-func (r *chatContextRepo) SaveSummaryMessage(ctx context.Context, msg *SummaryMessage) error {
-	if msg == nil {
-		return nil
-	}
-
-	// Serialise against Append / Replace / ClearSummary so a summary write
-	// can't interleave with a chat-log rewrite of the same session.
-	mu := sessionFileLock(r.sessionDir)
-	if err := mu.Lock(ctx); err != nil {
-		return err
-	}
-	defer mu.Unlock()
-
-	if err := r.ensureMetaDir(); err != nil {
-		return fmt.Errorf("ensure quartet dir failed: %w", err)
-	}
-
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("marshal summary message failed: %w", err)
-	}
-
-	filePath := path.SummaryFilePath(r.sessionDir)
-	if err := AtomicWriteFile(filePath, data, 0644); err != nil {
-		return fmt.Errorf("write summary file failed: %w", err)
-	}
-
-	return nil
-}
-
-// ClearSummaryMessage deletes the summary file so that subsequent loads return nil.
-func (r *chatContextRepo) ClearSummaryMessage(ctx context.Context) error {
-	mu := sessionFileLock(r.sessionDir)
-	if err := mu.Lock(ctx); err != nil {
-		return err
-	}
-	defer mu.Unlock()
-
-	filePath := path.SummaryFilePath(r.sessionDir)
-	err := r.sandbox.FileDelete(&model.FileDeleteRequest{
-		Path: filePath,
-	})
-	if err != nil {
-		// Note: os.RemoveAll (used by the local sandbox) returns nil for
-		// non-existent paths, so this branch only fires on real I/O errors.
-		return fmt.Errorf("delete summary file failed: %w", err)
-	}
-	return nil
 }

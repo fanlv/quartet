@@ -5,11 +5,6 @@ const (
 	KeyGroupChatPrompt = "group_chat_prompt"
 )
 
-// Agent types
-const (
-	AgentTypeEino = "eino"
-)
-
 // Default values
 const (
 	DefaultSessionTitle    = "New Chat"

@@ -1090,7 +1090,7 @@ func cloneGraphRun(in *model.GraphRun) *model.GraphRun {
 	out := *in
 	out.BaseSnapshot.Config = cloneGraphConfig(in.BaseSnapshot.Config)
 	if in.BaseSnapshot.ModelSnapshots != nil {
-		out.BaseSnapshot.ModelSnapshots = make(map[string]model.ModelInstance, len(in.BaseSnapshot.ModelSnapshots))
+		out.BaseSnapshot.ModelSnapshots = make(map[string]string, len(in.BaseSnapshot.ModelSnapshots))
 		for k, v := range in.BaseSnapshot.ModelSnapshots {
 			out.BaseSnapshot.ModelSnapshots[k] = v
 		}

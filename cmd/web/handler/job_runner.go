@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
@@ -23,6 +22,12 @@ type jobRunnerImpl struct {
 	workdir string
 	wsID    string
 }
+
+// shellSessionType marks a display-only Shell node transcript session. It is a
+// non-agent marker: RunIteration never runs against it and it never matches a
+// live ACP agent selector on the frontend, so history still loads/renders
+// through the standard session path.
+const shellSessionType = "shell"
 
 var _ job.JobRunner = (*jobRunnerImpl)(nil)
 
@@ -86,12 +91,7 @@ func (r *jobRunnerImpl) RunIteration(ctx context.Context, sessionID string, mess
 		r.h.tryUpdateSessionTitleFromUserContent(ctx, s, messages[0].Content)
 	}
 
-	switch s.Type {
-	case consts.AgentTypeEino:
-		return r.h.runEinoInternal(ctx, s, messages, handler)
-	default:
-		return r.h.runACPInternal(ctx, s, messages, handler)
-	}
+	return r.h.runACPInternal(ctx, s, messages, handler)
 }
 
 // BeginShellSession mints a fresh session for a Graph Shell node and appends the
@@ -104,8 +104,9 @@ func (r *jobRunnerImpl) RunIteration(ctx context.Context, sessionID string, mess
 // never used as a §3 会话血缘 lineage parent. Returns the new session id.
 func (r *jobRunnerImpl) BeginShellSession(ctx context.Context, jobID, script string, startedAt int64) (string, error) {
 	// Shell sessions are plain transcripts with no live agent behind them; type
-	// them as eino so history loads/renders through the standard session path.
-	s, err := r.h.createSession(ctx, "", consts.AgentTypeEino, r.workdir, r.wsID, jobID)
+	// them with a dedicated marker so history loads/renders through the standard
+	// session path without matching any live ACP agent selector on the frontend.
+	s, err := r.h.createSession(ctx, "", shellSessionType, r.workdir, r.wsID, jobID)
 	if err != nil {
 		return "", err
 	}
@@ -189,9 +190,8 @@ func errSessionNotFound(sessionID string) error {
 
 // SessionLastAssistantMessage reads the latest assistant reply of a session for
 // the Clarify node's「讨论结论」capture (§ 交互澄清结点). It scans the persisted
-// transcript from the tail and returns the first non-empty assistant message,
-// skipping summary markers (a compressed-context summary is not the user-facing
-// 结论). ok=false means the session has no assistant turn yet (a clarify node
+// transcript from the tail and returns the first non-empty assistant message.
+// ok=false means the session has no assistant turn yet (a clarify node
 // opened with no initial prompt that the user continued without a reply). The
 // content is trimmed so a downstream {{...}} reference sees no leading/trailing
 // whitespace.
@@ -210,9 +210,6 @@ func (r *jobRunnerImpl) SessionLastAssistantMessage(ctx context.Context, jobID, 
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
 		if m == nil || m.Role != schema.Assistant {
-			continue
-		}
-		if v, ok := m.Extra[msgextra.KeyIsSummary].(bool); ok && v {
 			continue
 		}
 		content := strings.TrimSpace(m.Content)
@@ -246,23 +243,17 @@ func (e *sessionNotFoundError) Error() string {
 	return "session not found: " + e.sessionID
 }
 
-// ResolveModelSnapshot resolves a string modelID to its current ModelInstance
-// content for GraphRun snapshot capture. ok=false when the id is empty/invalid
-// or no live model resolves — the graph service treats that as a degraded
-// (best-effort) snapshot rather than a hard failure.
-func (r *jobRunnerImpl) ResolveModelSnapshot(ctx context.Context, modelID string) (model.ModelInstance, bool) {
-	if modelID == "" || r.h.modelConfig == nil {
-		return model.ModelInstance{}, false
+// ResolveModelSnapshot returns a display name for modelID to freeze into a
+// GraphRun snapshot. The numeric eino model-config store is gone; a graph
+// node's ModelID is now the ACP model identifier, which is already display-
+// ready, so it is snapshotted as-is. ok=false only when modelID is empty — the
+// graph service treats that as a degraded (best-effort) snapshot rather than a
+// hard failure.
+func (r *jobRunnerImpl) ResolveModelSnapshot(_ context.Context, modelID string) (string, bool) {
+	if modelID == "" {
+		return "", false
 	}
-	id, err := strconv.ParseInt(modelID, 10, 64)
-	if err != nil {
-		return model.ModelInstance{}, false
-	}
-	inst, err := r.h.modelConfig.GetModelByID(ctx, id)
-	if err != nil || inst == nil {
-		return model.ModelInstance{}, false
-	}
-	return *inst, true
+	return modelID, true
 }
 
 // ResolveSystemPrompt captures the resolved (placeholder-expanded) system prompt

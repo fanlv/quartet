@@ -92,6 +92,7 @@ const grokIconDataURI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3d
 
 // KnownACPAgents lists all known ACP agents.
 var KnownACPAgents = []ACPAgentDef{
+	{"eino-cli", "eino-cli acp", "Eino", "https://avatars.githubusercontent.com/u/79236453"},
 	{Bin: "traex", Command: "traex acp serve", DisplayName: "TraeCLI", IconURL: "https://avatars.githubusercontent.com/u/192691831"},
 	// {Bin: "grok", Command: "grok agent stdio", DisplayName: "Grok", IconURL: grokIconDataURI},
 	{"openclaw", "openclaw acp", "OpenClaw", "🦞"},
@@ -1011,20 +1012,4 @@ func matchesWholeWord(s, word string) bool {
 
 func isAlnum(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
-}
-
-// ---------------------------------------------------------------------------
-// Eino workspace directory
-// ---------------------------------------------------------------------------
-
-// EinoWorkdir returns the local home dir used as the eino workspace.
-// Previously this fetched the remote sandbox's workspace via HTTP; now that
-// the eino agent writes to the local filesystem, we just resolve $HOME.
-func EinoWorkdir() string {
-	home, err := fileserver.UserHomeDir()
-	if err != nil {
-		logger.Errorf(context.Background(), "[probe] UserHomeDir failed: %v", err)
-		return ""
-	}
-	return home
 }

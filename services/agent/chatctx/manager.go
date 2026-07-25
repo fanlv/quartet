@@ -56,66 +56,15 @@ func (m *ChatContextManager) MessagesFingerprint(ctx context.Context) (repositor
 	return fp, nil
 }
 
-func (m *ChatContextManager) LoadMessagesForLLM(ctx context.Context) ([]*schema.Message, error) {
-	// summary.json is optional context compression — a read error (corrupt
-	// JSON, transient I/O) must not block the whole Run. Degrade to
-	// "no summary" and log, matching truncateOrphanedTail and the web
-	// history handler. The write side remains the source of truth; a
-	// transient read error hiding the rest of the conversation would be a
-	// worse failure mode than sending the uncompressed tail to the LLM.
-	summary, err := m.repo.LoadSummaryMessage(ctx)
-	if err != nil {
-		logger.Warnf(ctx, "[ChatContextManager] load summary for LLM failed, degrading to no summary: %v", err)
-		summary = nil
-	}
-
-	allMsgs, err := m.repo.LoadAllMessages(ctx)
+// LoadAllMessages returns the full on-disk mirror history for this session.
+// The mirror is rebuilt from ACP events; any history compression happens
+// inside the agent subprocess and is invisible to this read path.
+func (m *ChatContextManager) LoadAllMessages(ctx context.Context) ([]*schema.Message, error) {
+	msgs, err := m.repo.LoadAllMessages(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load all messages failed: %w", err)
 	}
-
-	if summary == nil || summary.Message == nil {
-		return allMsgs, nil
-	}
-
-	// Clamp summary.Index into [0, len(allMsgs)]. The two anomalies we
-	// defend against here mirror the invariants enforced on the write
-	// side (truncateOrphanedTail, manager.go:195-211):
-	//   - idx < 0: impossible under a well-formed summary; guards
-	//     against data corruption / hand-edits. Without this clamp the
-	//     allMsgs[idx:] slice below would panic.
-	//   - idx > len(allMsgs): summary claims to cover messages that
-	//     don't exist on disk. Triggers: partial crash between
-	//     summary.json write and messages.jsonl flush, unparseable JSONL
-	//     lines skipped by LoadAllMessages, or an out-of-order restore.
-	//     The LLM will only see the summary (no tail) and the anomaly
-	//     is logged at error level so it is observable in ops.
-	idx := summary.Index
-	if idx < 0 {
-		logger.Errorf(ctx, "[ChatContextManager] ANOMALY: summary.index=%d is negative, clamping to 0", idx)
-		idx = 0
-	}
-	if idx > len(allMsgs) {
-		logger.Errorf(ctx, "[ChatContextManager] ANOMALY: summary.index=%d exceeds len(msgs)=%d; LLM will see summary-only tail. Investigate summary.json / messages.jsonl consistency.", idx, len(allMsgs))
-		idx = len(allMsgs)
-	}
-
-	var result []*schema.Message
-	// Mark the summary message so downstream middlewares (specifically
-	// summarization's Finalize) can reliably tell "originalMessages[i]
-	// is the old summary we injected" without depending on a second
-	// LoadSummaryMessage read succeeding. summary.Message is always a
-	// fresh unmarshal from summary.json (repo guarantees), so mutating
-	// Extra here does not pollute any shared cache.
-	if summary.Message.Extra == nil {
-		summary.Message.Extra = make(map[string]any)
-	}
-	summary.Message.Extra[msgextra.KeyIsSummary] = true
-	result = append(result, summary.Message)
-	result = append(result, allMsgs[idx:]...)
-
-	logger.Debugf(ctx, "load messages for llm, summary index=%d, msg count=%d", idx, len(result))
-	return result, nil
+	return msgs, nil
 }
 
 func (m *ChatContextManager) AppendMessages(ctx context.Context, msgs ...*schema.Message) error {
@@ -129,9 +78,9 @@ func (m *ChatContextManager) AppendMessages(ctx context.Context, msgs ...*schema
 // ReplacePlaceholderToolResult swaps a previously-persisted placeholder
 // tool_result (written by the round builder on an eager superseded flush)
 // with the real terminal result that arrived late. Logs at debug on
-// success, info when the placeholder is gone (summary compaction), and
-// error on I/O failure. Callers typically pair this with an in-memory
-// fix-up of the builder's completedMessages so a subsequent
+// success, info when the placeholder is gone (already stitched or cut by
+// a truncate), and error on I/O failure. Callers typically pair this with
+// an in-memory fix-up of the builder's completedMessages so a subsequent
 // CollectMessages sees the real result too.
 func (m *ChatContextManager) ReplacePlaceholderToolResult(ctx context.Context, toolCallID string, real *schema.Message) (bool, error) {
 	stitched, err := m.repo.ReplacePlaceholderToolResult(ctx, toolCallID, real)
@@ -140,7 +89,7 @@ func (m *ChatContextManager) ReplacePlaceholderToolResult(ctx context.Context, t
 		return false, err
 	}
 	if !stitched {
-		logger.Infof(ctx, "[ChatContextManager] stitch placeholder tool_result: nothing to replace (summary compaction or already-stitched): toolCallID=%s", toolCallID)
+		logger.Infof(ctx, "[ChatContextManager] stitch placeholder tool_result: nothing to replace (already stitched or truncated away): toolCallID=%s", toolCallID)
 		return false, nil
 	}
 	logger.Debugf(ctx, "[ChatContextManager] stitched placeholder tool_result with real content: toolCallID=%s", toolCallID)
@@ -148,11 +97,10 @@ func (m *ChatContextManager) ReplacePlaceholderToolResult(ctx context.Context, t
 }
 
 // BeginRun is the shared "user message entry" hook for every agent path
-// (eino / acp / future). It performs three disk operations before handing
+// (acp / shell-persist / future). It performs three disk operations before handing
 // control back to the caller:
 //
-//  1. Scans messages.jsonl from summary.index (or 0 if summary missing)
-//     forward and truncates the earliest orphan round — any assistant
+//  1. Scans messages.jsonl in full and truncates the earliest orphan round — any assistant
 //     message whose ToolCalls contain ids without a matching role=tool
 //     result (real or placeholder). Truncation is atomic via
 //     repo.ReplaceMessages (write-to-temp + rename). No-op when the tail
@@ -174,7 +122,7 @@ func (m *ChatContextManager) ReplacePlaceholderToolResult(ctx context.Context, t
 // once disk history diverges from the subprocess's view of the
 // conversation, continuing to prompt the old session would feed the
 // model an inconsistent tail. Callers that don't own a subprocess
-// session (eino) can ignore the flag.
+// session can ignore the flag.
 //
 // This is intentionally kept in manager.go (not in each path's Run) so
 // the invariant "append user message only after orphan tail is gone"
@@ -192,7 +140,7 @@ func (m *ChatContextManager) ReplacePlaceholderToolResult(ctx context.Context, t
 //
 // Concurrency: truncate+append run inside repo.WithLock so independent
 // ChatContextRepo instances pointed at the same session directory
-// (eino / acp / shell-persist) cannot interleave a write between the
+// (acp / shell-persist) cannot interleave a write between the
 // two steps and corrupt history. The lock is owned by the repository
 // layer (repository/session_locks.go) so every write entry-point on
 // the same sessionDir shares it, regardless of which package built
@@ -261,11 +209,10 @@ func (m *ChatContextManager) touchSessionMeta(ctx context.Context) {
 	}
 }
 
-// truncateOrphanedTailLocked scans the tail of messages.jsonl starting
-// from summary.index and removes any trailing segment that begins with
-// an assistant message whose ToolCalls are not fully paired with
-// role=tool results. If nothing orphaned is found, the file is
-// untouched.
+// truncateOrphanedTailLocked scans messages.jsonl in full and removes
+// any trailing segment that begins with an assistant message whose
+// ToolCalls are not fully paired with role=tool results. If nothing
+// orphaned is found, the file is untouched.
 //
 // Must be called with the per-session write lock already held — the
 // caller passes a LockedRepo handle obtained from
@@ -293,33 +240,6 @@ func (m *ChatContextManager) truncateOrphanedTailLocked(ctx context.Context, tx 
 		return false, nil
 	}
 
-	startIdx := 0
-	summary, err := tx.LoadSummaryMessage(ctx)
-	if err != nil {
-		// summary.json is optional; if we can't read it, degrade to a
-		// full-file scan rather than skipping the tail-scrub.
-		logger.Warnf(ctx, "[ChatContextManager] load summary for orphan scan failed, scanning full file: %v", err)
-	} else if summary != nil {
-		startIdx = summary.Index
-	}
-	if startIdx < 0 {
-		startIdx = 0
-	}
-	if startIdx > len(msgs) {
-		// summary.index ahead of the actual on-disk message count is
-		// always anomalous — a well-formed summary can only cover
-		// messages that exist. Triggers: corrupt summary.json, a write
-		// that advanced index before appending the corresponding
-		// messages, or an earlier JSONL crash that left unparseable
-		// lines so LoadAllMessages returned fewer records than when
-		// summary was last saved. Silently clamping to len(msgs) turns
-		// the orphan scan into a no-op and lets a real tail leak into
-		// the next Run's prompt. Fall back to a full-file scan and log
-		// so the anomaly is observable.
-		logger.Errorf(ctx, "[ChatContextManager] ANOMALY: summary.index=%d exceeds len(msgs)=%d, falling back to full-file orphan scan", startIdx, len(msgs))
-		startIdx = 0
-	}
-
 	// Walk the scan window forward, collecting for each assistant the
 	// set of tool_call_ids still missing a matching role=tool entry.
 	// Record the position of the earliest unresolved assistant. As soon
@@ -341,7 +261,7 @@ func (m *ChatContextManager) truncateOrphanedTailLocked(ctx context.Context, tx 
 	var pendings []*pending
 	byID := make(map[string]*pending)
 
-	for i := startIdx; i < len(msgs); i++ {
+	for i := 0; i < len(msgs); i++ {
 		m := msgs[i]
 		if m == nil {
 			continue
@@ -416,7 +336,7 @@ func (m *ChatContextManager) truncateOrphanedTailLocked(ctx context.Context, tx 
 
 	kept := msgs[:cutPos]
 	cutCount := len(msgs) - cutPos
-	logger.Warnf(ctx, "[ChatContextManager] truncate orphaned tail: startIdx=%d cutPos=%d dropped=%d", startIdx, cutPos, cutCount)
+	logger.Warnf(ctx, "[ChatContextManager] truncate orphaned tail: cutPos=%d dropped=%d", cutPos, cutCount)
 
 	// ReplaceMessages writes via AtomicWriteFile (temp + rename + fsync),
 	// so the on-disk file either stays at the pre-truncate state or

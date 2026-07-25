@@ -13,7 +13,7 @@ import (
 // fixed system prompt, so a test can assert StartRun freezes referenced
 // Agent/model content into the run snapshot.
 type snapshotRunner struct {
-	models       map[string]model.ModelInstance
+	models       map[string]string
 	systemPrompt string
 }
 
@@ -27,7 +27,7 @@ func (snapshotRunner) RunIteration(context.Context, string, []*schema.Message, a
 
 func (snapshotRunner) SessionModelID(string) string { return "" }
 
-func (r snapshotRunner) ResolveModelSnapshot(_ context.Context, modelID string) (model.ModelInstance, bool) {
+func (r snapshotRunner) ResolveModelSnapshot(_ context.Context, modelID string) (string, bool) {
 	inst, ok := r.models[modelID]
 	return inst, ok
 }
@@ -69,7 +69,7 @@ func TestStartRunCapturesSnapshotContent(t *testing.T) {
 		},
 	}
 	runner := snapshotRunner{
-		models:       map[string]model.ModelInstance{"10": {ID: 10, DisplayName: "model-ten"}},
+		models:       map[string]string{"10": "model-ten"},
 		systemPrompt: "SYS-PROMPT",
 	}
 	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1", Config: &cfg}, runner, nil)
@@ -86,7 +86,7 @@ func TestStartRunCapturesSnapshotContent(t *testing.T) {
 	if len(base.ModelSnapshots) != 1 {
 		t.Fatalf("expected 1 deduped model snapshot, got %d: %+v", len(base.ModelSnapshots), base.ModelSnapshots)
 	}
-	if got := base.ModelSnapshots["10"].DisplayName; got != "model-ten" {
+	if got := base.ModelSnapshots["10"]; got != "model-ten" {
 		t.Fatalf("model snapshot content wrong: %q", got)
 	}
 	if len(base.AgentSnapshots) != 2 {
@@ -105,7 +105,7 @@ func TestStartRunCapturesSnapshotContent(t *testing.T) {
 	if len(status.Run.Versions) != 1 || status.Run.Versions[0].Version != 1 {
 		t.Fatalf("expected single baseline version, got %+v", status.Run.Versions)
 	}
-	if status.Run.Versions[0].ModelSnapshots["10"].DisplayName != "model-ten" {
+	if status.Run.Versions[0].ModelSnapshots["10"] != "model-ten" {
 		t.Fatalf("baseline version missing model content: %+v", status.Run.Versions[0].ModelSnapshots)
 	}
 }
@@ -129,7 +129,7 @@ func TestStartRunDegradedSnapshotDoesNotBlock(t *testing.T) {
 		},
 		Edges: []model.GraphEdge{edge("s_a", "s", "a"), edge("a_e", "a", "e")},
 	}
-	runner := snapshotRunner{models: map[string]model.ModelInstance{}, systemPrompt: "P"}
+	runner := snapshotRunner{models: map[string]string{}, systemPrompt: "P"}
 	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-1", Config: &cfg}, runner, nil)
 	if err != nil {
 		t.Fatalf("StartRun must not fail on missing model: %v", err)

@@ -1,11 +1,11 @@
 // Package sessioncache is the single implementation of the
-// "per-session agent cache" pattern used by the eino and acp paths.
+// "per-session agent cache" pattern used by the acp path.
 //
-// Both paths need: a bounded map of sessionID -> agent, singleflight
+// The cache needs: a bounded map of sessionID -> agent, singleflight
 // deduplication on create, last-access LRU eviction that skips running
 // entries, and release-on-delete / release-on-evict semantics. Keeping
-// two copies of this logic (services/agent/acp/manager.go and
-// services/agent/eino/manager.go before this refactor) made the concurrency-
+// two copies of this logic (one per agent path, before the paths
+// converged) made the concurrency-
 // sensitive invariants drift between paths — any fix to the create-race
 // double-check, the evict-skip rule, or the close-on-race cleanup had
 // to be threaded through both files. This package collapses both.
@@ -48,7 +48,7 @@ import (
 
 // ErrCapacityExceeded is returned by GetOrCreate when the cache is at
 // capacity and no idle entry (non-running, no outstanding leases) is
-// available for eviction. Matches the error surfaced by the old acp/eino
+// available for eviction. Matches the error surfaced by the old per-path
 // managers so existing callers (tests, UI error paths) keep working.
 var ErrCapacityExceeded = errors.New("session cache capacity exceeded")
 
@@ -460,7 +460,7 @@ func (c *Cache[T]) List() []T {
 }
 
 // EnvInt reads an integer env var with a default fallback. Exposed so
-// the acp / eino managers can share capacity-parsing instead of each
+// the acp manager can share capacity-parsing instead of
 // re-implementing it. Treats empty / non-numeric / non-positive as def.
 func EnvInt(key string, def int) int {
 	raw := os.Getenv(key)

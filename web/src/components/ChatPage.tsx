@@ -86,7 +86,6 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { usePendingImages } from '../hooks/usePendingImages';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { workspaceColor, loadWorkspacePrefs, registerWorkspaceColors } from '../utils/workspace';
-import { fetchModelOptions, type ModelOption } from '../utils/models';
 import { relinkACPThoughtLevels, setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
 import { fetchAgentPrefs, splitFavoriteModels, resolveAgentDefaults, applyDefaultsToAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { formatStatsDuration } from '../utils/statsFormat';
@@ -276,23 +275,21 @@ async function fetchUserSettings(): Promise<{ avatarUrl: string; username: strin
   return { avatarUrl: '', username: 'User' };
 }
 
-async function fetchAgentList(): Promise<{ agents: AgentInfo[]; workdir: string; einoWorkdir: string; sandboxUnavailable: boolean; jobEnable: boolean }> {
+async function fetchAgentList(): Promise<{ agents: AgentInfo[]; workdir: string; jobEnable: boolean }> {
   try {
     const res = await fetch('/api/v1/agent/list');
     const data = await res.json().catch(() => null);
     if (!data || data.code !== 0 || !data.agent_list) {
-      return { agents: [], workdir: '', einoWorkdir: '', sandboxUnavailable: false, jobEnable: false };
+      return { agents: [], workdir: '', jobEnable: false };
     }
     return {
       agents: data.agent_list as AgentInfo[],
       workdir: data.workdir || '',
-      einoWorkdir: data.eino_workdir || '',
-      sandboxUnavailable: !!data.sandbox_unavailable,
       jobEnable: !!data.job_enable,
     };
   } catch (err) {
     console.error('Failed to fetch agent list:', err);
-    return { agents: [], workdir: '', einoWorkdir: '', sandboxUnavailable: false, jobEnable: false };
+    return { agents: [], workdir: '', jobEnable: false };
   }
 }
 
@@ -542,11 +539,9 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [acpConfigError, setAcpConfigError] = useState<string | null>(null);
   const [agentPrefs, setAgentPrefs] = useState<AgentPrefsMap>({});
-  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [workdir, setWorkdir] = useState('');
   const [showDirPicker, setShowDirPicker] = useState(false);
   const [showLoopConfig, setShowLoopConfig] = useState(false);
-  const [sandboxUnavailable, setSandboxUnavailable] = useState(false);
   const [jobEnable, setJobEnable] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -719,7 +714,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   const [jobHistoryExpanded, setJobHistoryExpanded] = useState(true);
   const [schedulesExpanded, setSchedulesExpanded] = useState(!isMobile);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
-  const currentLang = (i18n.resolvedLanguage || i18n.language || 'en').startsWith('zh') ? 'zh' : 'en';
 
   useEffect(() => {
     const el = loadMoreSentinelRef.current;
@@ -787,14 +781,9 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   }, [refreshKey]);
 
   useEffect(() => {
-    fetchModelOptions(currentLang).then(setModelOptions).catch(() => setModelOptions([]));
-  }, [refreshKey, currentLang]);
-
-  useEffect(() => {
     let cancelled = false;
-    void Promise.all([fetchAgentList(), fetchAgentPrefs()]).then(([{ agents: list, workdir: wd, sandboxUnavailable: su, jobEnable: je }, prefsMap]) => {
+    void Promise.all([fetchAgentList(), fetchAgentPrefs()]).then(([{ agents: list, workdir: wd, jobEnable: je }, prefsMap]) => {
       if (cancelled) return;
-      setSandboxUnavailable(su);
       setJobEnable(je);
       setAgentPrefs(prefsMap);
       setAcpConfigError(null);
@@ -815,16 +804,13 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
         const prefs = loadWorkspacePrefs(workspaceId);
         const savedType = localStorage.getItem('last_agent_type');
 
-        const isEinoBlocked = (t: string) => su && t === 'eino';
         const pickIdx = (t: string | undefined | null) => {
           if (!t) return -1;
-          const i = list.findIndex((a) => a.type === t);
-          return i >= 0 && !isEinoBlocked(list[i].type) ? i : -1;
+          return list.findIndex((a) => a.type === t);
         };
 
         let idx = pickIdx(prefs.defaultAgent);
         if (idx < 0) idx = pickIdx(savedType);
-        if (idx < 0) idx = su ? list.findIndex((a) => a.type !== 'eino') : 0;
         if (idx < 0) idx = 0;
 
         // Resolve the picked agent's starting model/mode/thought_level via the
@@ -841,7 +827,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
         const selectedModelId = selected.models?.currentModelId;
         setAgents(nextList);
         setSelectedIndex(idx);
-        if (selected.type !== 'eino' && selectedModelId) {
+        if (selectedModelId) {
           void relinkACPThoughtLevels(selected.type, selectedModelId).then((state) => {
             if (cancelled) return;
             let thoughtLevels = state;
@@ -955,7 +941,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   };
 
   const selectedAgent = agents[selectedIndex] ?? null;
-  const isSelectedEinoDisabled = sandboxUnavailable && selectedAgent?.type === 'eino';
 
   // Switch to an agent and apply its per-agent defaults (model/mode/thought).
   // Manual switch uses per-agent defaults only (no workspace-model override) so
@@ -976,7 +961,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     });
     setAgents((prev) => prev.map((a, i) => i === idx ? selected : a));
     const selectedModelId = selected.models?.currentModelId;
-    if (selected.type === 'eino' || !selectedModelId) return;
+    if (!selectedModelId) return;
 
     setAcpConfigError(null);
     void relinkACPThoughtLevels(selected.type, selectedModelId).then((state) => {
@@ -1011,25 +996,11 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
     return map;
   }, [agents]);
 
-  // Fallback map for numeric modelIds that appear on older jobs — the Job's
-  // modelId is the numeric row id from ModelSettings, not an agent-advertised
-  // modelId. Only consulted when modelLabelMap misses.
-  const modelSettingLabelMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const opt of modelOptions) {
-      map.set(String(opt.model.id), opt.model.display_name);
-    }
-    return map;
-  }, [modelOptions]);
-
   const getJobModelLabel = useCallback((job: JobInfo): string | null => {
     if (!job.modelId) return null;
-    let label = modelLabelMap.get(job.modelId);
-    if (!label && /^\d+$/.test(job.modelId)) {
-      label = modelSettingLabelMap.get(job.modelId);
-    }
+    const label = modelLabelMap.get(job.modelId);
     return (label ?? job.modelId).replace(/\s*\([^)]*\)\s*$/, '');
-  }, [modelLabelMap, modelSettingLabelMap]);
+  }, [modelLabelMap]);
 
   const jobsByDay = useMemo(() => {
     // Group by dayKey using a Map so jobs sharing a date collapse into a
@@ -1215,7 +1186,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   const handleSubmit = () => {
     const hasContent = input.trim() || pendingImages.length > 0 || pickedImageUrls.length > 0;
     const allUploaded = pendingImages.every((img) => img.uploadedPath && !img.uploading);
-    if (!hasContent || isInitializing || !selectedAgent || isSelectedEinoDisabled || !jobEnable) return;
+    if (!hasContent || isInitializing || !selectedAgent || !jobEnable) return;
     if (pendingImages.length > 0 && !allUploaded) return;
 
     const uploadedImageUrls = pendingImages
@@ -2006,18 +1977,15 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                         <div className="model-dropdown-empty">No agents available</div>
                       ) : (
                         agents.map((agent, idx) => {
-                          const isEinoDisabled = sandboxUnavailable && agent.type === 'eino';
                           return (
                           <div
                             key={`${agent.type}-${agent.model_id}`}
-                            className={`model-dropdown-item ${idx === selectedIndex ? 'active' : ''} ${isEinoDisabled ? 'disabled' : ''}`}
+                            className={`model-dropdown-item ${idx === selectedIndex ? 'active' : ''}`}
                             onClick={() => {
-                              if (isEinoDisabled) return;
                               selectAgentAt(idx);
                               localStorage.setItem('last_agent_type', agent.type);
                               setShowDropdown(false);
                             }}
-                            title={isEinoDisabled ? 'Sandbox unavailable' : undefined}
                           >
                             {agent.icon_url ? (
                               isImageUrl(agent.icon_url)
@@ -2028,7 +1996,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                             )}
                             <div className="model-dropdown-info">
                               <span className="model-dropdown-name">{agent.display_name}</span>
-                              {isEinoDisabled && <span className="model-dropdown-provider">{agent.type} (sandbox unavailable)</span>}
                             </div>
                             {idx === selectedIndex && (
                               <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -2048,18 +2015,15 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                     <div className="model-dropdown-empty">No agents available</div>
                   ) : (
                     agents.map((agent, idx) => {
-                      const isEinoDisabled = sandboxUnavailable && agent.type === 'eino';
                       return (
                       <div
                         key={`${agent.type}-${agent.model_id}`}
-                        className={`model-dropdown-item ${idx === selectedIndex ? 'active' : ''} ${isEinoDisabled ? 'disabled' : ''}`}
+                        className={`model-dropdown-item ${idx === selectedIndex ? 'active' : ''}`}
                         onClick={() => {
-                          if (isEinoDisabled) return;
                           selectAgentAt(idx);
                           localStorage.setItem('last_agent_type', agent.type);
                           setShowDropdown(false);
                         }}
-                        title={isEinoDisabled ? 'Sandbox unavailable' : undefined}
                       >
                         {agent.icon_url ? (
                           isImageUrl(agent.icon_url)
@@ -2070,7 +2034,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                         )}
                         <div className="model-dropdown-info">
                           <span className="model-dropdown-name">{agent.display_name}</span>
-                          {isEinoDisabled && <span className="model-dropdown-provider">{agent.type} (sandbox unavailable)</span>}
                         </div>
                         {idx === selectedIndex && (
                           <svg className="model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -2336,7 +2299,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
               <button
                 className="chat-btn loop-btn"
                 onClick={() => setShowLoopConfig(true)}
-                disabled={isInitializing || !selectedAgent || isSelectedEinoDisabled || !jobEnable || !connected}
+                disabled={isInitializing || !selectedAgent || !jobEnable || !connected}
                 title="Loop Task"
                 data-testid="loop-config-open-button"
               >
@@ -2350,7 +2313,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
               <button
                 className="chat-btn send-btn"
                 onClick={handleSubmit}
-                disabled={(!input.trim() && pendingImages.length === 0 && pickedImageUrls.length === 0) || isInitializing || !selectedAgent || isSelectedEinoDisabled || !jobEnable || !connected || pendingImages.some((img) => img.uploading)}
+                disabled={(!input.trim() && pendingImages.length === 0 && pickedImageUrls.length === 0) || isInitializing || !selectedAgent || !jobEnable || !connected || pendingImages.some((img) => img.uploading)}
               >
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M22 2L11 13" />
@@ -2366,7 +2329,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
               title={
                 canSwitchWorkspaceInFooter
                   ? '切换工作空间'
-                  : `${workspaceTitle || workspaceId || ''} : ${selectedAgent.type === 'eino' ? (workspaceWorkdir || workdir) : workdir}`
+                  : `${workspaceTitle || workspaceId || ''} : ${workdir}`
               }
               onClick={canSwitchWorkspaceInFooter ? () => setWsSwitchOpen((v) => !v) : undefined}
             >
@@ -2380,15 +2343,15 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
               <span className="workdir-icon">🗂️</span>
               <span className="workdir-label">Workspace({workspaceTitle || workspaceId || '—'}) :</span>
               <code
-                className={`workdir-path${!canSwitchWorkspaceInFooter && selectedAgent.type !== 'eino' && jobEnable ? ' clickable' : ''}`}
+                className={`workdir-path${!canSwitchWorkspaceInFooter && jobEnable ? ' clickable' : ''}`}
                 onClick={
-                  !canSwitchWorkspaceInFooter && selectedAgent.type !== 'eino' && jobEnable
+                  !canSwitchWorkspaceInFooter && jobEnable
                     ? (e) => { e.stopPropagation(); handleSelectDir(); }
                     : undefined
                 }
-                style={!canSwitchWorkspaceInFooter && selectedAgent.type !== 'eino' && jobEnable ? { cursor: 'pointer' } : undefined}
+                style={!canSwitchWorkspaceInFooter && jobEnable ? { cursor: 'pointer' } : undefined}
               >
-                {selectedAgent.type === 'eino' ? (workspaceWorkdir || workdir || '—') : (workdir || '—')}
+                {workdir || '—'}
               </code>
               {canSwitchWorkspaceInFooter && (
                 <span className="workdir-switch-caret" aria-hidden>
@@ -2397,7 +2360,7 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                   </svg>
                 </span>
               )}
-              <button className="workdir-copy" onClick={(e) => { e.stopPropagation(); copyToClipboard(selectedAgent.type === 'eino' ? (workspaceWorkdir || workdir) : workdir); }} title="Copy path">
+              <button className="workdir-copy" onClick={(e) => { e.stopPropagation(); copyToClipboard(workdir); }} title="Copy path">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
                   <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />

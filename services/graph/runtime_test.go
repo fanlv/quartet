@@ -36,8 +36,8 @@ func (stubGraphRunner) SessionModelID(string) string { return "" }
 // test runner that does not exercise snapshot capture.
 type stubSnapshotSource struct{}
 
-func (stubSnapshotSource) ResolveModelSnapshot(context.Context, string) (model.ModelInstance, bool) {
-	return model.ModelInstance{}, false
+func (stubSnapshotSource) ResolveModelSnapshot(context.Context, string) (string, bool) {
+	return "", false
 }
 
 func (stubSnapshotSource) ResolveSystemPrompt(context.Context) (string, error) { return "", nil }

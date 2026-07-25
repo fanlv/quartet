@@ -1,13 +1,13 @@
 # 消息拉取
 
-最后更新：2026-07-13
+最后更新：2026-07-25
 
 本文描述前端如何通过 REST 拉取历史消息，以及如何把「拉取到的历史」和「SSE 实时推送」合并成一份有序、无重复的列表。落盘见 [message-storage.md](./message-storage.md)；实时推送见 [sse-event-buffer-design.md](./sse-event-buffer-design.md)。
 
 ## 一句话结论
 
 - 拉取分两个接口：`GET /job/:jobId`（快照 + `lastEventSeq`，**不含正文**）+ `GET /sessions/:sid/messages`（该 session 全量历史，**无分页**）。
-- 历史接口返回的不是原始全量，而是**与 LLM 下一轮所见对齐的投影**（summary 头 + 尾部）。
+- 历史接口按磁盘镜像（`.meta/messages.jsonl`）**原样返回全量**；历史压缩只发生在 agent 子进程内部，不改写 quartet 侧的镜像。
 - 历史结构（粗粒度整条消息）与 SSE 事件结构（细粒度流式）**不同**，靠后端打的**稳定 `msg_id` / `thought_msg_id`** 让两条链共享 ID，前端据此合并去重。
 - 懒加载在 **session 粒度**，不是消息粒度。
 
@@ -16,18 +16,18 @@
 | 接口 | Handler | 返回 |
 |------|---------|------|
 | `GET /api/v1/job/:jobId` | `JobGet`（`job.go:249`） | Job 元数据平铺 + `lastEventSeq`（SSE 续点），**无消息正文**，响应头 `Cache-Control: no-store` |
-| `GET /api/v1/sessions/:sessionId/messages` | `GetSessionMessages`（`session.go:18`） | 该 session 的历史消息投影（`GetMessagesResponse`） |
+| `GET /api/v1/sessions/:sessionId/messages` | `GetSessionMessages`（`session.go:18`） | 该 session 的历史消息（`GetMessagesResponse`） |
 | `GET /api/v1/job/:jobId`（列表 `JobList`） | `job.go:153` | Job 列表，`cursor` + `limit` 游标分页 + 弱 ETag 304（**仅列表分页，消息不分页**） |
 
 前端流程（`web/src/hooks/useJobChat.ts`）：先打 `/job/:jobId` 拿 `sessionIds` 与 `lastEventSeq`，再对每个 session 打 `/sessions/:sid/messages`，最后以 `lastEventSeq` 作为初始 `Last-Event-ID` 订阅 SSE。
 
-## 历史投影：与 LLM 对齐
+## 历史返回：镜像全量
 
 `GetSessionMessages`（`session.go:18`）**没有分页参数**（无 limit/offset/cursor），一次返回该 session 全部消息，顺序即磁盘 `messages.jsonl` 的追加序（= 时间序）。
 
-返回的是投影而非原始全量（`session.go:48` 起）：存在摘要时返回 `[summary.Message] + allMessages[summary.Index:]`（摘要头 + 尾部），无摘要时退化为全量。这样刷新后看到的历史 = 模型下一轮真正引用的上下文。
+ACP 时代 `messages.jsonl` 是从 agent 事件重建的**镜像**（与 claude 等一致），历史压缩在 agent 子进程内部完成、不回写镜像，因此接口不再做「summary 头 + 尾部」的投影，直接按镜像全量返回。eino 时代的 session 级 `summary.json` 投影已随 eino 子进程化一并删除。
 
-消息 ID 规则（`session.go` 内）：优先用 `Extra[msg_id]` 的稳定 ID；否则用 `sessionId:msg_<下标>`；摘要头用 `sessionId:summary`。带 `thought_msg_id` 且有 reasoning 的 assistant 消息，会在读时**额外拆出一条独立的思考条目**（用 `thought_msg_id` 作 ID），让思考气泡在历史里也有独立 ID，能与 SSE 的思考气泡对齐。
+消息 ID 规则（`session.go` 内）：优先用 `Extra[msg_id]` 的稳定 ID；否则用 `sessionId:msg_<下标>`。带 `thought_msg_id` 且有 reasoning 的 assistant 消息，会在读时**额外拆出一条独立的思考条目**（用 `thought_msg_id` 作 ID），让思考气泡在历史里也有独立 ID，能与 SSE 的思考气泡对齐。
 
 ## 历史结构 vs 事件结构
 

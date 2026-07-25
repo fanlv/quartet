@@ -47,7 +47,7 @@ func PersistContext(parent context.Context) (context.Context, context.CancelFunc
 }
 
 // PersistErr accumulates the first persistence error observed across a
-// Run's onFlush / onStitch callbacks. Both eino and acp paths used to
+// Run's onFlush / onStitch callbacks. Multiple agent backends used to
 // hand-roll this exact pattern (mutex-guarded "first error wins",
 // surfaced to retErr only AFTER the final flush has had a chance to
 // fail too); centralising it stops the "is the CapturePersistErrTo

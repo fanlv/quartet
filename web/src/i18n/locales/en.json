@@ -425,7 +425,7 @@
       "general": "General",
       "workspace": "Workspaces",
       "token": "Token",
-      "model": "Models",
+      "eino": "Eino",
       "prompt": "Prompts",
       "skill": "Skills",
       "acp": "ACP",
@@ -471,49 +471,36 @@
       "gateContinue": "Continue"
     },
     "model": {
-      "sectionTitle": "Model List",
-      "providerCount": "{{count}} provider(s)",
       "addModel": "+ Add Model",
-      "configuredCount": "{{count}} model(s) configured",
       "noModels": "No models configured",
       "confirmDelete": "Confirm delete this model? This cannot be undone",
       "deleteFailed": "Delete failed",
       "createFailed": "Create failed",
-      "addModelTitle": "Add {{provider}} Model",
       "displayName": "Display Name",
       "modelName": "Model Name",
       "apiKey": "API Key",
       "baseUrl": "Base URL",
       "baseUrlPlaceholder": "Optional",
-      "enableBase64Url": "Enable Base64 URL",
       "thinkingMode": "Thinking Mode",
-      "region": "Region",
-      "regionPlaceholder": "Optional, e.g.: cn-beijing",
-      "useAzure": "Use Azure OpenAI",
-      "apiVersion": "API Version",
-      "apiVersionPlaceholder": "Optional, e.g.: 2024-06-01",
-      "backend": "Backend",
-      "backendDefault": "Default (Gemini API)",
-      "project": "Project",
-      "projectPlaceholder": "Optional, GCP project ID",
-      "location": "Location",
-      "locationPlaceholder": "Optional, e.g.: us-central1",
       "fillRequired": "Please fill in display name and model name",
       "fillApiKey": "Please fill in API Key",
       "notConfigured": "Not configured",
       "model": "Model",
       "thinkingModeLabel": "Thinking:",
-      "azure": "Azure",
       "loadModelListFailed": "Failed to load model list",
-      "status": {
-        "enabled": "Enabled",
-        "disabled": "Disabled"
-      },
       "placeholders": {
         "displayName": "e.g.: {{example}}",
         "model": "e.g.: {{example}}",
         "apiKey": "Secret key"
       }
+    },
+    "eino": {
+      "modelSectionTitle": "eino Models",
+      "modelSectionDesc": "Models available to the standalone eino-cli agent, stored in eino-cli's own config.",
+      "modelClass": "Provider",
+      "systemPromptTitle": "eino System Prompt",
+      "systemPromptDesc": "System prompt used by the standalone eino-cli agent.",
+      "systemPromptPlaceholder": "Enter system prompt..."
     },
     "prompt": {
       "groups": {

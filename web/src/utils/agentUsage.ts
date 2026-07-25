@@ -69,7 +69,7 @@ export interface QoderUsage {
 export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity' | 'kimi' | 'qoder';
 
 // agentUsageProvider maps a selected agent to a usage provider, or null when
-// the agent has no quota view (eino, etc.). ACP agent `type` is the full serve
+// the agent has no quota view. ACP agent `type` is the full serve
 // command (e.g. "codex-acp", "antigravity-acp"), so match on the command and
 // display name together.
 export function agentUsageProvider(

@@ -1,11 +1,11 @@
 // Package agentstream defines the protocol-neutral streaming event contract
-// shared by every agent path (acp, eino adk, and future integrations). Each
+// shared by every agent path (acp today; future integrations). Each
 // path's event source translates its native events into StreamHandler method
 // calls; services/agent/round.Builder implements StreamHandler to aggregate
 // chunks into rounds and forward UI events via types/agui.EventHandler.
 //
 // This package depends only on eino/schema (message model) and has no
-// awareness of acp, eino adk, or agui.
+// awareness of acp or agui.
 package agentstream
 
 // ToolCallStatus mirrors the subset of tool-call status values that the
@@ -44,8 +44,8 @@ func (s ToolCallStatus) IsTerminal() bool {
 //     an incremental args chunk) or the terminal result (terminal, content
 //     is the final result text). The distinction is carried by status.
 //   - OnToolCallArgsSnapshot: replace the tool call's accumulated arguments
-//     with a full snapshot. ACP rawInput updates use replacement semantics,
-//     unlike the token deltas produced by the eino adapter.
+//     with a full snapshot. ACP rawInput updates use replacement semantics
+//     rather than incremental deltas.
 //   - OnTokenUsage: cumulative token count reported by the underlying
 //     provider (optional).
 type StreamHandler interface {

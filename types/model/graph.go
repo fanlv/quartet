@@ -210,7 +210,7 @@ type GraphRunSnapshot struct {
 	WorkflowID     string                        `json:"workflowId,omitempty"`
 	WorkflowName   string                        `json:"workflowName,omitempty"`
 	Config         GraphConfig                   `json:"config"`
-	ModelSnapshots map[string]ModelInstance      `json:"modelSnapshots,omitempty"`
+	ModelSnapshots map[string]string             `json:"modelSnapshots,omitempty"`
 	AgentSnapshots map[string]GraphAgentSnapshot `json:"agentSnapshots,omitempty"`
 	CapturedAt     int64                         `json:"capturedAt"`
 }
@@ -226,7 +226,7 @@ type GraphAgentSnapshot struct {
 type GraphRunVersion struct {
 	Version        int                           `json:"version"`
 	Config         GraphConfig                   `json:"config"`
-	ModelSnapshots map[string]ModelInstance      `json:"modelSnapshots,omitempty"`
+	ModelSnapshots map[string]string             `json:"modelSnapshots,omitempty"`
 	AgentSnapshots map[string]GraphAgentSnapshot `json:"agentSnapshots,omitempty"`
 	Reason         string                        `json:"reason,omitempty"`
 	CreatedAt      int64                         `json:"createdAt"`

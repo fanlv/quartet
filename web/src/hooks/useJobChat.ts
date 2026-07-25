@@ -1712,7 +1712,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             // Separate thought entry emitted by the history API when thought_msg_id is present.
             converted.push({ id: msg.id, role: MessageRoleEnum.ASSISTANT, content: '', createdAt: msg.startedAt || now, status: MessageStatusEnum.Finished, thinkingContent: msg.reasoningContent || '', isThinking: false, isShellOutput: false, sessionId: tagSessionId, finishedAt: msg.finishedAt || undefined, thinkingFinishedAt: msg.thoughtFinishedAt || undefined });
           } else {
-            converted.push({ id: msg.id, role: MessageRoleEnum.ASSISTANT, content: msg.content, createdAt: msg.startedAt || now, status: MessageStatusEnum.Finished, thinkingContent: msg.reasoningContent || '', isThinking: false, isShellOutput: msg.isShellOutput || false, isSummary: msg.isSummary || false, sessionId: tagSessionId, finishedAt: msg.finishedAt || undefined, thinkingFinishedAt: msg.thoughtFinishedAt || undefined });
+            converted.push({ id: msg.id, role: MessageRoleEnum.ASSISTANT, content: msg.content, createdAt: msg.startedAt || now, status: MessageStatusEnum.Finished, thinkingContent: msg.reasoningContent || '', isThinking: false, isShellOutput: msg.isShellOutput || false, sessionId: tagSessionId, finishedAt: msg.finishedAt || undefined, thinkingFinishedAt: msg.thoughtFinishedAt || undefined });
           }
           if (msg.toolCalls) {
             // Legacy history may not carry per-tool `startedAt`. In that case,

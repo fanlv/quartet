@@ -210,8 +210,6 @@ github.com/eapache/go-resiliency v1.2.0/go.mod h1:kFI+JgMyC7bLPUVY133qvEBtVayf5m
 github.com/eapache/go-xerial-snappy v0.0.0-20180814174437-776d5712da21/go.mod h1:+020luEh2TKB4/GOp8oxxtq0Daoen/Cii55CzbTV6DU=
 github.com/eapache/queue v1.1.0/go.mod h1:6eCeP0CKFpHLu8blIFXhExK/dRa7WDZfr6jVFPTqq+I=
 github.com/edsrzf/mmap-go v1.0.0/go.mod h1:YO35OhQPt3KJa3ryjFM5Bs14WD66h8eGKpfaBNrHW5M=
-github.com/eino-contrib/acp v0.0.3-0.20260603093805-d91302f55821 h1:kIqGKa+YWObfqIFC4wvq5aq6y8TlkJKT8F37KS1GBR8=
-github.com/eino-contrib/acp v0.0.3-0.20260603093805-d91302f55821/go.mod h1:tXIZVWtmxOg28DmazjYxXT3DdtnBVQvUzqMBXppHoyo=
 github.com/eino-contrib/acp v0.0.4-0.20260629091845-cd16b45fb1ef h1:qNX7CvFAmMOtl4gbLTG2IWmevF/d49v5dHD59orGQ5Y=
 github.com/eino-contrib/acp v0.0.4-0.20260629091845-cd16b45fb1ef/go.mod h1:tXIZVWtmxOg28DmazjYxXT3DdtnBVQvUzqMBXppHoyo=
 github.com/eino-contrib/jsonschema v1.0.3 h1:2Kfsm1xlMV0ssY2nuxshS4AwbLFuqmPmzIjLVJ1Fsp0=

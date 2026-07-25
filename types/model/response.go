@@ -37,13 +37,6 @@ type HistoryMessage struct {
 	// user last saw on-screen before the run was interrupted.
 	Placeholder       bool   `json:"placeholder,omitempty"`
 	PlaceholderReason string `json:"placeholderReason,omitempty"`
-	// IsSummary marks the first entry as the summary projection that
-	// replaces the pre-summary history. The read side (history API)
-	// returns summary + messages[summary.index:] to mirror
-	// LoadMessagesForLLM's semantics, so the UI sees the same
-	// conversation the LLM sees on the next turn rather than raw
-	// pre-compression history that the model no longer references.
-	IsSummary bool `json:"isSummary,omitempty"`
 	// Duration tracking timestamps (unix millis)
 	StartedAt         int64 `json:"startedAt,omitempty"`
 	FinishedAt        int64 `json:"finishedAt,omitempty"`
@@ -157,12 +150,10 @@ type ACPConfigState struct {
 }
 
 type AgentListResponse struct {
-	Code               int         `json:"code"`
-	AgentList          []AgentInfo `json:"agent_list"`
-	Workdir            string      `json:"workdir"`
-	EinoWorkdir        string      `json:"eino_workdir"`
-	SandboxUnavailable bool        `json:"sandbox_unavailable"`
-	JobEnable          bool        `json:"job_enable"`
+	Code      int         `json:"code"`
+	AgentList []AgentInfo `json:"agent_list"`
+	Workdir   string      `json:"workdir"`
+	JobEnable bool        `json:"job_enable"`
 }
 
 type CreateJobResponse struct {

@@ -225,12 +225,13 @@ type Runner interface {
 	InitSession(ctx context.Context, jobID string, overrides *model.SessionOverrides) (sessionID string, err error)
 	RunIteration(ctx context.Context, sessionID string, messages []*schema.Message, handler agui.EventHandler) error
 	SessionModelID(sessionID string) string
-	// ResolveModelSnapshot returns the current content of the model config bound
-	// to modelID (string form), so a GraphRun can freeze it into its snapshot and
-	// replay immune to later global model-config edits. ok=false when modelID is
-	// empty or no live model resolves — the caller treats this as a degraded
+	// ResolveModelSnapshot returns the display form of the model bound to
+	// modelID, so a GraphRun can freeze it into its snapshot. The numeric eino
+	// model-config store is gone; a graph node's ModelID is now the ACP model
+	// identifier, which is already display-ready and snapshotted as-is.
+	// ok=false when modelID is empty — the caller treats this as a degraded
 	// (best-effort) snapshot rather than a start failure.
-	ResolveModelSnapshot(ctx context.Context, modelID string) (model.ModelInstance, bool)
+	ResolveModelSnapshot(ctx context.Context, modelID string) (string, bool)
 	// ResolveSystemPrompt returns the resolved (placeholder-expanded) system
 	// prompt content at this instant, captured into Agent snapshots so a replay
 	// uses the prompt the run actually executed against.

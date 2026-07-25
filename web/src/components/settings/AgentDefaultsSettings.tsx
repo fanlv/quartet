@@ -31,11 +31,8 @@ export function AgentDefaultsSettings() {
       const agentData = await agentRes.json();
       const settingsData = await settingsRes.json();
 
-      // Only ACP agents carry availableModels/modes/thoughtLevels; eino is
-      // flattened per-model and has no mode/thought_level — excluded by design.
-      const acpAgents: AgentInfo[] = (agentData.agent_list || []).filter(
-        (a: AgentInfo) => a.type !== 'eino',
-      );
+      // Only ACP agents carry availableModels/modes/thoughtLevels.
+      const acpAgents: AgentInfo[] = agentData.agent_list || [];
       setAgents(acpAgents);
 
       const saved: AgentPrefsMap =

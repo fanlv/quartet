@@ -55,17 +55,6 @@ const (
 	// this flag to distinguish placeholders from real tool results.
 	KeyPlaceholderToolResult = "placeholder_tool_result"
 
-	// KeyIsSummary marks an assistant message as the compressed summary
-	// injected by LoadMessagesForLLM at read time. It is set purely as
-	// an in-memory read-time signal (not persisted to summary.json) so
-	// downstream middlewares can detect "this slot in originalMessages
-	// is the old summary, not a real persisted round" without re-reading
-	// summary.json. Required by the summarization middleware's Finalize
-	// to compute the correct new summary.index regardless of transient
-	// read failures between the LoadMessagesForLLM call and the Finalize
-	// callback.
-	KeyIsSummary = "is_summary"
-
 	// KeyStartedAt is the Unix-millis timestamp when the message/tool-call
 	// started (OnMessageStart / OnThoughtStart / OnToolCallStart).
 	KeyStartedAt = "started_at"

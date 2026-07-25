@@ -356,9 +356,9 @@ func (h *Handler) cancelJobSessions(ctx context.Context, job *model.Job) error {
 
 	// The session service may be missing (idle eviction or never loaded
 	// because the job has been quiet since startup). Look it up best-effort:
-	// even with a nil sessionSVC we can still flush the in-memory eino /
-	// ACP agent leases that are keyed by (wsId, jobId, sessionId), so the
-	// cancel path is still useful.
+	// even with a nil sessionSVC we can still flush the in-memory ACP agent
+	// leases that are keyed by (wsId, jobId, sessionId), so the cancel path
+	// is still useful.
 	h.sessionMu.RLock()
 	entry, ok := h.sessionServices[job.ID]
 	h.sessionMu.RUnlock()
@@ -369,12 +369,6 @@ func (h *Handler) cancelJobSessions(ctx context.Context, job *model.Job) error {
 
 	logger.Debugf(ctx, "[job] stop sessions: jobId=%s sessions=%d sessionSvcLoaded=%v", job.ID, len(job.SessionIDs), sessionSVC != nil)
 	for _, sid := range job.SessionIDs {
-		if lease, ok := h.agentService.Get(job.WorkspaceID, job.ID, sid); ok {
-			logger.Debugf(ctx, "[job] stop+flush eino: jobId=%s session=%s", job.ID, sid)
-			lease.Value.StopAndFlush()
-			lease.Release()
-		}
-
 		// ACP agent lease is keyed independently of the session service —
 		// look it up directly so an evicted/unloaded session service does
 		// not cause the lease to leak.

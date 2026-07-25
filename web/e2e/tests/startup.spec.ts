@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import { expect, test, type APIRequestContext, type Page } from '../fixtures/test'
 import {
+  e2eAgentType,
   e2eAuthToken,
   e2eBackendURL,
   e2eCleanupWorkspaceID,
@@ -11,6 +12,7 @@ import {
   e2eLegacyFirstModelID,
   e2eLegacyFirstModelJobID,
   e2eLegacyRoundsJobID,
+  e2eModelID,
   e2ePersistWarningJobID,
   e2eShellAWSSecretAccessKey,
   e2eShellOpenAIAPIKey,
@@ -27,17 +29,17 @@ import {
 // agent's wording is not deterministic.
 //
 // The primary chat-link coverage runs against an ACP agent discovered at
-// runtime from the backend's own probe list (GET /api/v1/agent/list). The user
-// primarily uses the ACP path, and ACP needs no models.json — the subprocess
-// carries its own login state in $HOME. If no ACP agent is installed the chat
-// spec skips itself rather than failing.
+// runtime from the backend's own probe list (GET /api/v1/agent/list). ACP
+// needs no quartet-side model config — the subprocess carries its own login
+// state (eino-cli reads its isolated EINO_HOME, other agents use $HOME). If
+// no ACP agent is installed the chat spec skips itself rather than failing.
 //
 // Fault links that a real agent cannot trigger (HTTP send failure, SSE auth
 // rejection, resume 410 recovery, event-buffer GC) are covered at the
 // component layer (web/src/utils/sse-client.test.ts) and in Go unit tests
 // (services/job/event_buffer_test.go), not here.
 
-const MODEL_ID = process.env.QUARTET_E2E_MODEL_ID || '1000001'
+const MODEL_ID = e2eModelID
 
 type E2ERunInfo = {
   localMemory: string
@@ -172,7 +174,7 @@ async function createInteractiveJob(request: APIRequestContext, workspaceId = 'w
   const headers = { 'X-AGENT-AUTH': e2eAuthToken }
   const res = await request.post('/api/v1/job/create', {
     headers,
-    data: { agentType: 'eino', modelId: MODEL_ID, workspaceId, mode: 'interactive' },
+    data: { agentType: e2eAgentType, modelId: MODEL_ID, workspaceId, mode: 'interactive' },
   })
   expect(res.ok(), `job create failed: ${res.status()} ${await res.text()}`).toBeTruthy()
   const created = await res.json()
@@ -189,7 +191,7 @@ async function createLoopJob(request: APIRequestContext, workspaceId = 'ws-1', t
   const res = await request.post('/api/v1/job/create', {
     headers,
     data: {
-      agentType: 'eino',
+      agentType: e2eAgentType,
       modelId: MODEL_ID,
       workspaceId,
       mode: 'loop',
@@ -222,7 +224,7 @@ async function createLoopJobWithFlow(request: APIRequestContext, flow: E2EFlowNo
   const res = await request.post('/api/v1/job/create', {
     headers,
     data: {
-      agentType: 'eino',
+      agentType: e2eAgentType,
       modelId: MODEL_ID,
       workspaceId,
       mode: 'loop',
@@ -256,7 +258,7 @@ async function createShellLoopJob(request: APIRequestContext, script: string, wo
   const res = await request.post('/api/v1/job/create', {
     headers,
     data: {
-      agentType: 'eino',
+      agentType: e2eAgentType,
       modelId: MODEL_ID,
       workspaceId,
       mode: 'loop',

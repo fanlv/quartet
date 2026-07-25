@@ -222,7 +222,7 @@ func New() *Builder { return &Builder{} }
 // Reset clears all accumulators and installs the active handler + onFlush
 // for a new Run. onStitch is also cleared — production callers that care
 // about late-terminal stitch must call SetStitcher after Reset (the ACP
-// and Eino runners do). Safe to call between Runs on the same Builder.
+// runner does). Safe to call between Runs on the same Builder.
 func (b *Builder) Reset(h agui.EventHandler, onFlush func([]*schema.Message)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

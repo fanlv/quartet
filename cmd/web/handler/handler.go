@@ -15,10 +15,10 @@ import (
 	"github.com/fanlv/quartet/pkg/sandbox"
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/agent/acp"
-	"github.com/fanlv/quartet/services/agent/eino"
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/services/agent/usage"
 	"github.com/fanlv/quartet/services/config"
+	"github.com/fanlv/quartet/services/einocli"
 	"github.com/fanlv/quartet/services/graph"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/prompt"
@@ -100,9 +100,7 @@ type Handler struct {
 	titleFailCount   atomic.Int32 // consecutive title-generation failures across all jobs (circuit breaker)
 	titleOpenSince   atomic.Int64 // unix seconds when circuit opened; 0 means closed
 	titleProbing     atomic.Bool  // CAS guard: only one goroutine may probe during half-open state
-	agentService     eino.Service
 	acpAgentService  acp.ACPService
-	modelConfig      config.ModelConfigService
 	settingsService  config.SettingsService
 	promptService    prompt.Service
 	templateService  template.Service
@@ -116,6 +114,7 @@ type Handler struct {
 	usageStats       usagestats.Service
 	usageService     usage.Service
 	acpProbeCache    *probe.CacheService
+	einoCLI          *einocli.Service
 
 	// imGateway is shared across all IM platforms. It is initialized lazily
 	// by ensureIMGateway so each StartLarkListener / StartWeiXinListener can
@@ -198,11 +197,6 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		return nil, err
 	}
 
-	mc, err := config.NewModelConfigService(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	schSvc, err := schedule.NewService()
 	if err != nil {
 		return nil, err
@@ -216,9 +210,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 	h := &Handler{
 		rootCtx:          ctx,
 		sessionServices:  make(map[string]*sessionEntry),
-		agentService:     eino.NewService(),
 		acpAgentService:  acp.NewACPService(),
-		modelConfig:      mc,
 		settingsService:  ss,
 		promptService:    ps,
 		templateService:  ts,
@@ -231,6 +223,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		usageStats:       usagestats.NewService(ctx),
 		usageService:     usage.NewService(ss),
 		acpProbeCache:    acpProbeCache,
+		einoCLI:          einocli.NewService(),
 	}
 
 	// Wire usage-stats sink into the job service so every step finalize
@@ -600,10 +593,6 @@ func (h *Handler) cleanupSessions(wsID, jobID string, sessionIDs []string) {
 			wsID, jobID, err)
 	}
 	for _, sid := range sessionIDs {
-		if lease, ok := h.agentService.Get(wsID, jobID, sid); ok {
-			lease.Value.StopAndFlush()
-			lease.Release()
-		}
 		if lease, ok := h.acpAgentService.Get(wsID, jobID, sid); ok {
 			lease.Value.StopAndFlush()
 			lease.Release()
@@ -611,7 +600,6 @@ func (h *Handler) cleanupSessions(wsID, jobID string, sessionIDs []string) {
 		if ss != nil {
 			ss.Delete(sid)
 		}
-		h.agentService.Delete(wsID, jobID, sid)
 		h.acpAgentService.Delete(wsID, jobID, sid)
 	}
 }
@@ -642,7 +630,7 @@ func jobAllSessionIDs(j *model.Job) []string {
 	return all
 }
 
-// releaseJobAgents releases agent resources (eino/ACP in-memory objects) for a
+// releaseJobAgents releases agent resources (ACP in-memory objects) for a
 // completed loop job. Unlike cleanupSessions, this does NOT delete session
 // metadata — it only frees the in-memory agent instances that hold model
 // connections and sandbox references, so they can be garbage collected.
@@ -651,7 +639,6 @@ func jobAllSessionIDs(j *model.Job) []string {
 // receive interactive messages; the idle eviction will clean them up later.
 func (h *Handler) releaseJobAgents(j *model.Job) {
 	for _, sid := range j.SessionIDs {
-		h.agentService.Delete(j.WorkspaceID, j.ID, sid)
 		h.acpAgentService.Delete(j.WorkspaceID, j.ID, sid)
 	}
 

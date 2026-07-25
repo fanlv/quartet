@@ -12,26 +12,20 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
-	"github.com/fanlv/quartet/pkg/modelbuilder"
 	"github.com/fanlv/quartet/services/agent/probe"
-	"github.com/fanlv/quartet/types/consts"
 )
 
-// generateText runs the configured agent (eino model or external CLI) over the
-// supplied messages and returns the resulting text. It powers one-shot
-// generation flows like job-title summarisation and IM auto-replies, where the
-// caller wants a single string back rather than a streaming session.
+// generateText runs the configured agent's headless CLI over the supplied
+// messages and returns the resulting text. It powers one-shot generation flows
+// like job-title summarisation and IM auto-replies, where the caller wants a
+// single string back rather than a streaming session.
 func (h *Handler) generateText(ctx context.Context, agentType, modelID string, messages []*schema.Message) (string, error) {
 	logger.Debugf(ctx, "[generateText] enter: agentType=%s modelID=%s msgCount=%d", agentType, modelID, len(messages))
-	if agentType == consts.AgentTypeEino {
-		logger.Debugf(ctx, "[generateText] routing to eino model: modelID=%s", modelID)
-		return h.generateTextWithModel(ctx, modelID, messages)
-	}
 
-	// Non-eino agent: resolve the headless one-shot binary. agentType is the
-	// ACP *serve* command (e.g. "gemini --acp"); it cannot be exec'd with
-	// "-p <prompt>" because that boots the ACP JSON-RPC server instead of
-	// running a one-shot. KnownACPAgents records the matching plain CLI bin.
+	// Resolve the headless one-shot binary. agentType is the ACP *serve*
+	// command (e.g. "gemini --acp"); it cannot be exec'd with "-p <prompt>"
+	// because that boots the ACP JSON-RPC server instead of running a one-shot.
+	// KnownACPAgents records the matching plain CLI bin.
 	bin, ok := probe.HeadlessBin(agentType)
 	if !ok {
 		// Unknown / custom command: fall back to its first token as the bin
@@ -47,33 +41,6 @@ func (h *Handler) generateText(ctx context.Context, agentType, modelID string, m
 		logger.Debugf(ctx, "[generateText] routing to headless CLI: agentType=%q bin=%s", agentType, bin)
 	}
 	return generateTextWithCLI(ctx, messages, bin)
-}
-
-func (h *Handler) generateTextWithModel(ctx context.Context, modelID string, messages []*schema.Message) (string, error) {
-	logger.Debugf(ctx, "[generateTextWithModel] resolving model config: modelID=%s", modelID)
-	modelCfg, err := h.resolveModelCfg(ctx, modelID)
-	if err != nil {
-		return "", fmt.Errorf("resolve model config: %w", err)
-	}
-
-	logger.Debugf(ctx, "[generateTextWithModel] building model: modelID=%s", modelID)
-	chatModel, err := modelbuilder.BuildModel(ctx, modelCfg)
-	if err != nil {
-		return "", fmt.Errorf("build model failed: %w", err)
-	}
-
-	logger.Debugf(ctx, "[generateTextWithModel] calling Generate: modelID=%s", modelID)
-	start := time.Now()
-	resp, err := chatModel.Generate(ctx, messages)
-	if err != nil {
-		return "", fmt.Errorf("generate failed: %w", err)
-	}
-	if resp == nil || resp.Content == "" {
-		return "", fmt.Errorf("generate failed: empty response")
-	}
-
-	logger.Infof(ctx, "[generateTextWithModel] success: modelID=%s elapsed=%s contentLen=%d", modelID, time.Since(start).Round(time.Millisecond), len(resp.Content))
-	return resp.Content, nil
 }
 
 // generateTextWithCLI executes an external CLI agent in headless print mode

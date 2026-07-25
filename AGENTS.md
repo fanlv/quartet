@@ -15,6 +15,8 @@ This file documents the current architecture and development conventions for thi
 ```bash
 make build-all     # go build ./...
 make build-web     # Build web backend binary to bin/quartet-web
+make build-eino-cli# Build the standalone eino-cli ACP agent and install it onto $PATH
+                   #   (required for agent probe and the settings eino tab to work)
 make test          # Run Go build, frontend component tests, and Playwright E2E
 make test-web      # Run frontend component tests (cd web && npm test)
 make e2e           # Run frontend Playwright E2E tests
@@ -87,35 +89,36 @@ Go tests: `go test ./...`
 ### 顶层入口
 
 - `cmd/web` — Web 后端入口，承担 HTTP 路由注册、中间件、请求编排和服务装配。
+- `cmd/eino-cli` — 独立 eino-cli 二进制的入口；eino 能力全部抽出为该 ACP agent，quartet 只经 ACP 接入。
+- `einocli/` — eino-cli 的全部实现（推理循环、中间件链、上下文组装、会话管理、多模态还原、local sandbox fork、自管配置），与 quartet 后端零 import 依赖，按"日后可整体抽到独立仓库"设计。
 - `web/` — 前端单页应用，提供聊天、工作区、文件浏览、设置、统计、调度、脚本、IM 配置等用户界面。
 
 ### 类型与路径
 
-- `types/model` — Job、Session、Schedule、Script、ModelConfig、IM、Workspace、FlowNode、事件等共享 Request/Response 与领域结构体。
+- `types/model` — Job、Session、Schedule、Script、IM、Workspace、FlowNode、事件等共享 Request/Response 与领域结构体。
 - `types/path` — 数据目录与文件路径的统一拼接规则。
 - `types/agentstream`、`types/agui` — Agent 流式与 AGUI 协议的事件结构定义。
 - `types/msgextra`、`types/consts` — 消息扩展字段与全局常量。
 
 ### 数据持久化（repository）
 
-- `repository/` — 基于本地文件的存储层，负责 settings、jobs、sessions、templates、schedules、prompts、workspace、IM 映射、IM 消息、用户输入、模型配置、聊天上下文、最近目录等数据的读写，以及原子写入、损坏处理、ID 生成等基础能力。
+- `repository/` — 基于本地文件的存储层，负责 settings、jobs、sessions、templates、schedules、prompts、workspace、IM 映射、IM 消息、用户输入、聊天上下文、最近目录等数据的读写，以及原子写入、损坏处理、ID 生成等基础能力。
 
 ### 业务服务（services）
 
-- `services/agent/acp` — 通过 ACP 协议接入的外部 Agent 进程的会话、运行与回放管理。
-- `services/agent/eino` — 基于 Eino 框架的内置 Quartet 运行器与会话管理。
+- `services/agent/acp` — 通过 ACP 协议接入的外部 Agent 进程（含 eino-cli）的会话、运行与回放管理；是 quartet 唯一的 agent 接入路径。
 - `services/agent/chatctx` — Agent 聊天上下文的组装与维护。
-- `services/agent/middlewares` — Agent 调用链路上的中间件，覆盖 AGENTS.md 加载、计划任务、上下文归约/总结、工具包装、Sandbox 后端等能力。
 - `services/agent/round` — 单轮 Agent 交互的构建、刷新与生命周期管理。
 - `services/agent/probe` — Agent 运行环境探测与 npx 自愈。
 - `services/agent/internal/sessioncache` — Agent 会话缓存等内部复用能力。
+- `services/einocli` — 设置页 eino tab 的后端编排：exec `eino-cli models` / `eino-cli systemprompt` 子命令读写 eino-cli 自管配置（密钥不出 eino-cli 进程）。
 - `services/job` — Job 执行核心，覆盖普通运行、循环、步骤、Shell、状态、存储、事件分发等执行模式。
 - `services/schedule` — 定时任务的注册、调度与执行。
 - `services/prompt` — Prompt 模板的组装与渲染。
 - `services/template` — Job/会话模板的业务封装。
 - `services/session` — 会话级业务逻辑封装。
 - `services/workspace` — 工作目录与最近目录管理。
-- `services/config` — 全局 settings 与模型配置的业务接口。
+- `services/config` — 全局 settings 的业务接口。
 - `services/command` — 系统命令执行的统一封装。
 - `services/runtime` — 运行时控制（如重启）。
 - `services/usagestats` — Token 与工具调用等用量统计的记录、累积与读取。
@@ -126,7 +129,6 @@ Go tests: `go test ./...`
 - `pkg/messaging/lark` — 飞书 IM 接入，包括消息监听、回复、图片处理与 WS 运行时。
 - `pkg/messaging/wechat` — 微信 IM 接入，包括 ilink 客户端、CDN、登录、媒体与回复。
 - `pkg/messaging/media` — IM 媒体缓存等通用能力。
-- `pkg/modelbuilder` — 各家 LLM（OpenAI、Claude、Gemini、DeepSeek、Qwen、Ark、Ollama）的统一构建器。
 - `pkg/sandbox` — 沙箱（compose、模板、管理、回收与恢复）能力。
 - `pkg/fileserver` — 工作区与静态资源的文件服务。
 - `pkg/tokenizer` — Token 计数。

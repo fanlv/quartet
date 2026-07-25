@@ -179,8 +179,8 @@ interface ChatInputProps {
   workspaceTitle?: string;
   workspaceId?: string;
   /** Path to render in the footer tag. Lets callers show the workspace
-   *  path even when `workdir` points at an internal runtime location
-   *  (e.g. the Eino sandbox). Falls back to `workdir` when omitted. */
+   *  path even when `workdir` points at an internal runtime location.
+   *  Falls back to `workdir` when omitted. */
   displayWorkdir?: string;
   /** Available workspaces for the in-tag switcher. When provided along with
    *  `onSwitchWorkspace`, the Workspace tag becomes a clickable dropdown

@@ -74,15 +74,15 @@ type skipConfig struct {
 
 var httpLogCfg = httpLogConfig{
 	skipExactPaths: map[string]struct{}{
-		"/api/v1/config/model/list": {},
-		"/api/v1/agent/list":        {},
-		"/api/v1/job/list":          {},
-		"/api/v1/serve-file":        {},
-		"/api/v1/file-exists":       {},
-		"/api/v1/schedule/list":     {},
-		"/api/v1/logs/list":         {},
-		"/api/v1/logs/frontend":     {},
-		"/api/v1/stats/usage":       {},
+		"/api/v1/config/eino/model/list": {},
+		"/api/v1/agent/list":             {},
+		"/api/v1/job/list":               {},
+		"/api/v1/serve-file":             {},
+		"/api/v1/file-exists":            {},
+		"/api/v1/schedule/list":          {},
+		"/api/v1/logs/list":              {},
+		"/api/v1/logs/frontend":          {},
+		"/api/v1/stats/usage":            {},
 	},
 	skipConfigs: []*skipConfig{
 		{prefix: "/api/v1/sessions/", suffix: "/messages"},

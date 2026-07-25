@@ -33,12 +33,6 @@ const (
 	// messagesFile is the filename for chat messages
 	messagesFile = "messages.jsonl"
 
-	// summaryFile is the filename for summary message
-	summaryFile = "summary.json"
-
-	// modelsFile is the filename for model configurations
-	modelsFile = "models.json"
-
 	// settingsFile is the filename for general settings
 	settingsFile = "settings.json"
 
@@ -65,18 +59,6 @@ const (
 	graphRunEventsFile    = "events.jsonl"
 )
 
-// SessionTasksDir returns {sessionDir}/.tasks/.
-// Sibling to .meta; owned by the plan_task middleware (eino path only).
-func SessionTasksDir(sessionDir string) string {
-	return filepath.Join(sessionDir, ".tasks")
-}
-
-// SessionReductionDir returns {sessionDir}/reduction/.
-// Sibling to .meta; owned by the reduction middleware (eino path only).
-func SessionReductionDir(sessionDir string) string {
-	return filepath.Join(sessionDir, "reduction")
-}
-
 // MetaDir returns {sessionDir}/.meta/.
 func MetaDir(sessionDir string) string {
 	return filepath.Join(sessionDir, metaDir)
@@ -90,11 +72,6 @@ func MetaFilePath(sessionDir string) string {
 // MessagesFilePath returns the messages.jsonl file path within a session directory
 func MessagesFilePath(sessionDir string) string {
 	return filepath.Join(sessionDir, metaDir, messagesFile)
-}
-
-// SummaryFilePath returns the summary.json file path within a session directory
-func SummaryFilePath(sessionDir string) string {
-	return filepath.Join(sessionDir, metaDir, summaryFile)
 }
 
 // LocalMemoryDir returns {LOCAL_MEMORY}/, the stable Memory root configured by
@@ -174,15 +151,6 @@ func QuartetTmpDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, tmpDir), nil
-}
-
-// ModelsConfigFile returns the persistent models.json path.
-func ModelsConfigFile() (string, error) {
-	dir, err := QuartetDataDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, modelsFile), nil
 }
 
 // SettingsConfigFile returns the persistent settings.json path.

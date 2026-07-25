@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -31,10 +31,16 @@ export const e2eBackendURL = backendURL
 // default run needs NO model credentials — the ACP subprocess carries its own
 // login state in $HOME.
 //
-// Seeding an Eino model is OPTIONAL: only when QUARTET_E2E_MODEL_API_KEY is
-// supplied do we write an isolated models.json so an Eino chat link can also
+// Seeding an eino-cli model is OPTIONAL: only when QUARTET_E2E_MODEL_API_KEY
+// is supplied do we build eino-cli onto the backend's PATH and write an
+// isolated model catalog (EINO_HOME) so the eino-cli chat/title link can also
 // be exercised. Without it the run still boots and the ACP + link-agnostic
-// specs run normally.
+// specs run normally against whatever ACP agents the machine has installed.
+//
+// e2eAgentType is the ACP serve command of the in-repo eino-cli agent — the
+// value Session.Type carries for it. Job-record fixtures use it as a
+// realistic stand-in agent type.
+export const e2eAgentType = 'eino-cli acp'
 export const e2eModelClass = process.env.QUARTET_E2E_MODEL_CLASS || 'ark'
 export const e2eModelID = process.env.QUARTET_E2E_MODEL_ID || '1000001'
 const e2eModelDisplayName = process.env.QUARTET_E2E_MODEL_DISPLAY_NAME || 'Quartet E2E Model'
@@ -212,52 +218,54 @@ function prepareLocalMemory(localMemory: string) {
   }, null, 2)}\n`)
 }
 
-// seedAgentConfig writes settings.json (always) and, when Eino credentials
-// are supplied, an isolated model into the temp LOCAL_MEMORY models.json.
+// seedAgentConfig writes settings.json (always) and, when E2E model
+// credentials are supplied, an isolated model into the eino-cli model catalog
+// (einoHome/models.json — eino-cli's own store, not quartet's).
 //
 //   - settings.json always carries the E2E username + default IM workspace.
-//   - When QUARTET_E2E_MODEL_API_KEY (and _MODEL_NAME) are set, an Eino model
-//     is seeded and title/message agents point at it, enabling Eino chat
-//     coverage.
-//   - Otherwise an empty models list is seeded: the default run relies on an installed
+//   - When QUARTET_E2E_MODEL_API_KEY (and _MODEL_NAME) are set, an eino-cli
+//     model is seeded and title/message agents point at it (`eino-cli acp`),
+//     enabling the headless `eino-cli -p` title link.
+//   - Otherwise the eino-cli catalog stays empty: the default run relies on an installed
 //     ACP agent (discovered at runtime) for chat-link coverage. The ACP
 //     subprocess uses its own login state in $HOME, so the run must NOT fail
-//     for lack of Eino credentials.
-function seedAgentConfig(localMemory: string) {
+//     for lack of eino-cli model credentials.
+function seedAgentConfig(localMemory: string, einoHome: string) {
   const settings: Record<string, unknown> = {
     username: 'Quartet E2E',
     avatar_url: '',
     im_workspace_id: 'ws-1',
   }
 
-  const models: { models: Array<Record<string, unknown>> } = { models: [] }
   if (e2eModelAPIKey) {
     if (!e2eModelName) {
       throw new Error(
         'QUARTET_E2E_MODEL_API_KEY was set but QUARTET_E2E_MODEL_NAME (the ' +
-          'upstream model identifier) was empty — cannot seed an Eino model. ' +
+          'upstream model identifier) was empty — cannot seed an eino-cli model. ' +
           'Set both, or unset the API key to run the default ACP-only flow.',
       )
     }
     const now = Date.now()
-    models.models.push({
-      id: Number(e2eModelID),
-      model_class: e2eModelClass,
-      display_name: e2eModelDisplayName,
-      connection: {
-        api_key: e2eModelAPIKey,
-        base_url: e2eModelBaseURL || undefined,
-        model: e2eModelName,
+    const models = [
+      {
+        id: e2eModelID,
+        model_class: e2eModelClass,
+        display_name: e2eModelDisplayName,
+        connection: {
+          api_key: e2eModelAPIKey,
+          base_url: e2eModelBaseURL || undefined,
+          model: e2eModelName,
+        },
+        created_at: now,
+        updated_at: now,
       },
-      status: 1,
-      created_at: now,
-      updated_at: now,
-    })
-    settings.title_agent = { agent_type: 'eino', model_id: e2eModelID }
-    settings.message_agent = { agent_type: 'eino', model_id: e2eModelID }
+    ]
+    fs.mkdirSync(einoHome, { recursive: true })
+    fs.writeFileSync(path.join(einoHome, 'models.json'), `${JSON.stringify(models, null, 2)}\n`, { mode: 0o600 })
+    settings.title_agent = { agent_type: e2eAgentType, model_id: e2eModelID }
+    settings.message_agent = { agent_type: e2eAgentType, model_id: e2eModelID }
   }
 
-  fs.writeFileSync(path.join(localMemory, 'quartet', 'data', 'models.json'), `${JSON.stringify(models, null, 2)}\n`)
   fs.writeFileSync(path.join(localMemory, 'quartet', 'data', 'settings.json'), `${JSON.stringify(settings, null, 2)}\n`)
 }
 
@@ -295,7 +303,7 @@ function seedLegacyFirstModelIDFixture(localMemory: string) {
       updated_at: now,
       deleted: session.deleted || undefined,
       model_id: session.model_id,
-      type: 'eino',
+      type: e2eAgentType,
       job_id: jobID,
       workspace_id: 'ws-1',
     }, null, 2)}\n`)
@@ -484,8 +492,30 @@ async function globalSetup() {
   fs.mkdirSync(goCache, { recursive: true })
   fs.mkdirSync(viteCache, { recursive: true })
   fs.mkdirSync(certsDir, { recursive: true })
+
+  // Build the in-repo eino-cli and put it on the backend's PATH ONLY when E2E
+  // model credentials are supplied (seedAgentConfig then also seeds its model
+  // catalog). eino-cli tops the probe list, so without a seeded model it would
+  // become the homepage default agent and every chat would fail with
+  // "no model configured"; without credentials the run must fall back to an
+  // installed ACP agent, exactly like a machine without eino-cli. EINO_HOME
+  // points at an isolated per-run dir so eino-cli's own store (model catalog,
+  // sessions) never touches the developer's real ~/.eino.
+  const einoOnPath = Boolean(e2eModelAPIKey)
+  const einoBinDir = path.join(runDir, 'eino-bin')
+  const einoHome = path.join(runDir, 'eino-home')
+  fs.mkdirSync(einoHome, { recursive: true })
+  if (einoOnPath) {
+    fs.mkdirSync(einoBinDir, { recursive: true })
+    execFileSync('go', ['build', '-o', path.join(einoBinDir, 'eino-cli'), './cmd/eino-cli'], {
+      cwd: repoRoot,
+      env: { ...process.env, GOCACHE: goCache, GOTMPDIR: goTmp },
+      stdio: 'inherit',
+    })
+  }
+
   prepareLocalMemory(localMemory)
-  seedAgentConfig(localMemory)
+  seedAgentConfig(localMemory, einoHome)
   seedLegacyFirstModelIDFixture(localMemory)
   seedInterruptedRunningJobFixture(localMemory)
   seedLegacyRoundsOnlyJobFixture(localMemory)
@@ -516,6 +546,11 @@ async function globalSetup() {
         LOCAL_MEMORY: localMemory,
         GOCACHE: goCache,
         GOTMPDIR: goTmp,
+        // In-repo eino-cli on PATH (probe discovery) + isolated eino-cli home —
+        // only when E2E model credentials seeded its catalog (see above).
+        ...(einoOnPath
+          ? { PATH: `${einoBinDir}${path.delimiter}${process.env.PATH || ''}`, EINO_HOME: einoHome }
+          : {}),
         // Shell env sanitization E2E fixtures. These are intentionally fake
         // values so the shell-output assertions never expose developer secrets.
         OPENAI_API_KEY: e2eShellOpenAIAPIKey,

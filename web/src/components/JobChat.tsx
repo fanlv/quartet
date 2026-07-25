@@ -15,7 +15,6 @@ import { FileBrowser } from './FileBrowser';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
 import { AgentInfo } from './ChatPage';
 import { LoopConfig, MessageRoleEnum, MessageStatusEnum, type UserMessage } from '../types';
-import { useConnectionStatus } from '../contexts/ConnectionStatus';
 import { ServerClockProvider } from '../contexts/ServerClock';
 import { VirtualList } from './VirtualList';
 import { registerWorkspaceColors } from '../utils/workspace';
@@ -95,7 +94,6 @@ const JOB_ROW_HEIGHT = 36;
 
 export function JobChat(props: JobChatProps) {
   const { existingJobId, initialMessage, initialImageUrls, initialWorkdir, initialLoopConfig, initialSessionId, initialModelId, initialAgentType, initialAcpMode, initialAcpThoughtLevel, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
-  const { connected } = useConnectionStatus();
   const { t } = useTranslation();
 
   // Read the workspace title from the cross-page cache populated by App.tsx
@@ -132,7 +130,6 @@ export function JobChat(props: JobChatProps) {
     return () => window.removeEventListener('quartet:workspace-updated', onUpdated);
   }, [workspaceId]);
   const workspaceTitle = workspaceMeta.title;
-  const workspaceWorkdir = workspaceMeta.workdir;
 
   // The home page already has the complete user message before this page
   // mounts. Seed it into chat state immediately instead of making the bubble
@@ -221,7 +218,6 @@ export function JobChat(props: JobChatProps) {
   const [hasUserSelectedThoughtLevel, setHasUserSelectedThoughtLevel] = useState(false);
   const [acpConfigError, setAcpConfigError] = useState<string | null>(null);
   const [initialAgentRefreshPending, setInitialAgentRefreshPending] = useState(false);
-  const [allowEinoSelection, setAllowEinoSelection] = useState<boolean | null>(null);
   const [jobEnable, setJobEnable] = useState(false);
   const [loopSidebarOpen, setLoopSidebarOpen] = useState(false);
   // Loop config editor (edit an existing job's LoopConfig in place).
@@ -382,10 +378,10 @@ export function JobChat(props: JobChatProps) {
       let finalList = list;
       if (initialModelId || initialAcpMode || initialAcpThoughtLevel) {
         finalList = list.map((agent) => {
-          // Identify the target agent by type when a specific non-eino ACP
-          // agent is known (model id can collide across ACP agents); otherwise
-          // fall back to model id.
-          const isTarget = (initialAgentType && initialAgentType !== 'eino')
+          // Identify the target agent by type when a specific ACP agent is
+          // known (model id can collide across ACP agents); otherwise fall back
+          // to model id.
+          const isTarget = initialAgentType
             ? agent.type === initialAgentType
             : (initialModelId
               ? agent.model_id === initialModelId || agent.models?.availableModels.some((m) => m.modelId === initialModelId)
@@ -407,13 +403,13 @@ export function JobChat(props: JobChatProps) {
 
       let selectedIdx = 0;
       if (finalList.length > 0) {
-        // Type first for non-eino ACP agents (unique identifier); model id may
-        // collide across ACP agents. Fall back to model id for eino / no type.
-        if (initialAgentType && initialAgentType !== 'eino') {
+        // Match by type first for ACP agents (unique identifier); model id may
+        // collide across ACP agents. Fall back to model id when no type.
+        if (initialAgentType) {
           const idx = finalList.findIndex((a) => a.type === initialAgentType);
           if (idx >= 0) selectedIdx = idx;
         }
-        if ((!initialAgentType || initialAgentType === 'eino') && initialModelId) {
+        if (!initialAgentType && initialModelId) {
           const idx = finalList.findIndex((a) => a.model_id === initialModelId || a.models?.availableModels.some((m) => m.modelId === initialModelId));
           if (idx >= 0) selectedIdx = idx;
         }
@@ -423,7 +419,7 @@ export function JobChat(props: JobChatProps) {
         setAgents(finalList);
         setJobEnable(je);
         setSelectedAgentIndex(selectedIdx);
-        if (!isReadonly && selected.type !== 'eino' && selectedModelId) {
+        if (!isReadonly && selectedModelId) {
           const refreshKey = `${selected.type}::${selectedModelId}`;
           refreshedAgentModelsRef.current.add(refreshKey);
           setInitialAgentRefreshPending(true);
@@ -536,15 +532,14 @@ export function JobChat(props: JobChatProps) {
     // identifier — and multiple ACP agents can expose the SAME model id
     // (e.g. both codex and traex advertise `gpt-5.5`), so a model-id match
     // first would pick whichever happens to be listed earlier. Match by type
-    // first for non-eino agents.
-    if (sessionType && sessionType !== 'eino') {
+    // first.
+    if (sessionType) {
       const idx = agents.findIndex((a) => a.type === sessionType);
       if (idx >= 0) { setSelectedAgentIndex(idx); matched = true; }
     }
 
-    // `eino` is too generic (all eino agents share type === 'eino'), so for
-    // eino — or when type is unavailable — fall back to model id, which is the
-    // stable per-agent identifier within eino.
+    // When type is unavailable, fall back to model id, the stable per-agent
+    // identifier.
     if (!matched && sessionModelId) {
       const idx = agents.findIndex((a) => a.model_id === sessionModelId || a.models?.availableModels.some((m) => m.modelId === sessionModelId));
       if (idx >= 0) setSelectedAgentIndex(idx);
@@ -571,8 +566,8 @@ export function JobChat(props: JobChatProps) {
   // it becomes selected so ChatInput never combines a restored model with the
   // probe cache's thought-level list from another model.
   useEffect(() => {
-    if (isReadonly || !selectedAgent || selectedAgent.type === 'eino') return;
-    if (sessionType && sessionType !== 'eino' && selectedAgent.type !== sessionType) return;
+    if (isReadonly || !selectedAgent) return;
+    if (sessionType && selectedAgent.type !== sessionType) return;
 
     const modelId = !hasUserSelected && sessionModelId
       ? sessionModelId
@@ -634,10 +629,9 @@ export function JobChat(props: JobChatProps) {
     // Match by type first: for ACP agents `type` is the unique identifier,
     // and multiple ACP agents may share one model id (e.g. codex + traex both
     // expose `gpt-5.5`), so matching model id first would resolve the wrong
-    // agent's icon/name. Fall back to model id for eino (where all agents
-    // share type === 'eino') or when type is unavailable.
+    // agent's icon/name. Fall back to model id when type is unavailable.
     let matched: AgentInfo | undefined;
-    if (meta.type && meta.type !== 'eino') {
+    if (meta.type) {
       matched = agents.find((a) => a.type === meta.type);
     }
     if (!matched && meta.modelId) {
@@ -648,11 +642,6 @@ export function JobChat(props: JobChatProps) {
     }
     return { iconUrl: selectedAgent?.icon_url, displayName: selectedAgent?.display_name };
   }, [agents, selectedAgent, getSessionMeta]);
-
-  const einoAgents = agents.filter((agent) => agent.type === 'eino');
-  const selectedEinoIndex = selectedAgent
-    ? einoAgents.findIndex((agent) => agent.model_id === selectedAgent.model_id && agent.type === selectedAgent.type)
-    : -1;
 
   // applyACPConfig pushes a live-config switch to the backend and merges the
   // refreshed selector lists back into the selected agent. When a session is
@@ -759,34 +748,6 @@ export function JobChat(props: JobChatProps) {
     });
   }, [agents, selectedAgentIndex, applyACPConfig]);
 
-  // Lock selector behavior once when entering chat page:
-  // only sessions that start with an eino agent can switch among eino agents.
-  useEffect(() => {
-    if (allowEinoSelection !== null) return;
-    if (isLoadingHistory) return;
-    if (agents.length === 0) return;
-
-    let entryType: string | null = null;
-    if (sessionModelId) {
-      const matched = agents.find((a) => a.model_id === sessionModelId || a.models?.availableModels.some((m) => m.modelId === sessionModelId));
-      entryType = matched?.type ?? null;
-    }
-    if (!entryType && sessionType) {
-      entryType = sessionType;
-    }
-    if (!entryType) {
-      entryType = selectedAgent?.type ?? null;
-    }
-
-    if (entryType) {
-      setAllowEinoSelection(entryType === 'eino');
-    }
-  }, [allowEinoSelection, isLoadingHistory, agents, sessionModelId, sessionType, selectedAgent]);
-
-  const chatInputAgents = allowEinoSelection ? einoAgents : agents;
-  const chatInputSelectedAgentIndex = allowEinoSelection
-    ? (selectedEinoIndex >= 0 ? selectedEinoIndex : 0)
-    : selectedAgentIndex;
   const latestLoopSessionId = loopSessions.length > 0 ? loopSessions[loopSessions.length - 1].sessionId : null;
   const shouldFollowMessageListBottom = (!isLoop && !isGraph) || !activeSessionId || activeSessionId === latestLoopSessionId;
   const messageListScrollContextKey = (isLoop || isGraph)
@@ -1735,7 +1696,14 @@ export function JobChat(props: JobChatProps) {
             onSend={handleSendMessage}
             onStop={isReadonly ? undefined : stopGeneration}
             isLoading={isLoading}
-            disabled={initialDispatchPending || ((isLoop || isGraph) && !(activeSessionId && endedSessionIds.has(activeSessionId))) || !connected}
+            // NOTE: deliberately NOT disabled on transient SSE disconnect
+            // (!connected). A DOM-disabled textarea blurs itself (killing any
+            // in-progress IME composition) and silently eats clicks until the
+            // health poll / SSE retry flips connected back — the user just sees
+            // "click does nothing". The send path already waits for the event
+            // stream (ensureEventStreamReady, 15s timeout) and surfaces errors,
+            // so the composer stays editable and only the run is gated.
+            disabled={initialDispatchPending || ((isLoop || isGraph) && !(activeSessionId && endedSessionIds.has(activeSessionId)))}
             readOnly={!!isReadonly}
             placeholder={isGraph && !(activeSessionId && endedSessionIds.has(activeSessionId)) ? 'Graph workflow run' : isReadonly ? 'Read-only mode' : undefined}
             localHistoryKey={`${workspaceId || 'default'}`}
@@ -1752,28 +1720,17 @@ export function JobChat(props: JobChatProps) {
               loopAggregateDuration?.runningStartedAts ??
               (interactiveAccumulatedMs > 0 && isLoading && roundStartedAt ? [roundStartedAt] : undefined)
             }
-            agents={chatInputAgents}
-            selectedAgentIndex={chatInputSelectedAgentIndex}
+            agents={agents}
+            selectedAgentIndex={selectedAgentIndex}
             workdir={workdir}
             workspaceTitle={workspaceTitle}
             workspaceId={workspaceId}
-            displayWorkdir={selectedAgent?.type === 'eino' ? (workspaceWorkdir || workdir) : workdir}
             switchableWorkspaces={isReadonly ? undefined : allWorkspaces}
             onSwitchWorkspace={isReadonly ? undefined : onSwitchWorkspaceChat}
             jobEnable={jobEnable}
             queuedMessages={isReadonly ? undefined : queuedMessages}
             onCancelQueuedMessage={isReadonly ? undefined : cancelQueuedMessage}
             canQueueWhileRunning={!isLoop && !isGraph && !isReadonly}
-            onSelectAgent={allowEinoSelection ? (idx) => {
-              const agent = einoAgents[idx];
-              if (!agent) return;
-
-              const originIdx = agents.findIndex((a) => a.model_id === agent.model_id && a.type === agent.type);
-              if (originIdx < 0) return;
-
-              setHasUserSelected(true);
-              setSelectedAgentIndex(originIdx);
-            } : undefined}
             onSelectModel={selectedAgent?.models ? handleSelectModel : undefined}
             onSelectMode={selectedAgent?.modes ? handleSelectMode : undefined}
             onSelectThoughtLevel={selectedAgent?.thoughtLevels ? handleSelectThoughtLevel : undefined}

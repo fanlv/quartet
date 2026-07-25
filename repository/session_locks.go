@@ -6,14 +6,14 @@ import (
 )
 
 // sessionFileLocks is a process-wide registry of per-session ctxRWMutexes
-// guarding reads and writes against the on-disk chat-context files
-// (messages.jsonl, summary.json) for each session directory.
+// guarding reads and writes against the on-disk chat-context file
+// (messages.jsonl) for each session directory.
 //
 // Why this lives at the repository layer (not on the chatContextRepo
 // instance):
 //
 // Multiple ChatContextRepo instances are routinely created for the same
-// session — eino, acp, shell-persist, web reload handlers each call
+// session — acp, shell-persist, web reload handlers each call
 // NewChatContextRepo independently. Per-instance mutexes can't serialise
 // writes across those instances, so a read-modify-write rewrite (e.g.
 // ReplacePlaceholderToolResult, BeginRun's truncate) on one instance

@@ -127,8 +127,7 @@ func (s *acpService) GetOrCreate(ctx context.Context, store SessionStore, wsID, 
 	}
 	// A concurrent caller could have lost the rebuild race and won the
 	// singleflight create — re-check the resulting agent and rebuild once
-	// if the inputs still don't match. Mirrors the eino service's
-	// fingerprint re-check in services/agent/eino/manager.go.
+	// if the inputs still don't match.
 	if lease.Value.RequiresRebuild(agentType, workdir) && !lease.Value.IsRunning() {
 		logger.Infof(ctx, "[ACPService] rebuild required after create, retrying once: key=%s type=%s workdir=%s", key, agentType, workdir)
 		lease.Release()

@@ -208,18 +208,9 @@ export interface GraphRun {
 }
 
 // Per-node model snapshot captured at run start / version edit (mirrors
-// model.ModelInstance). The frontend does not drive model construction from
-// these, so connection details are kept loosely typed; the identifying fields
-// are spelled out so snapshot inspection has real shape instead of `unknown`.
-export interface GraphModelSnapshot {
-  id?: number;
-  model_class?: string;
-  display_name?: string;
-  thinking_type?: string;
-  enable_base64_url?: boolean;
-  status?: number;
-  [key: string]: unknown;
-}
+// model.GraphRunSnapshot.ModelSnapshots, map[string]string): keyed by the
+// node's ModelID, the value is the model's display form — the ACP model
+// identifier itself, already display-ready and snapshotted as-is.
 
 // Per-node agent snapshot captured at run start / version edit (mirrors
 // model.GraphAgentSnapshot).
@@ -235,7 +226,7 @@ export interface GraphRunSnapshot {
   workflowId?: string;
   workflowName?: string;
   config: GraphConfig;
-  modelSnapshots?: Record<string, GraphModelSnapshot>;
+  modelSnapshots?: Record<string, string>;
   agentSnapshots?: Record<string, GraphAgentSnapshot>;
   capturedAt: number;
 }
@@ -243,7 +234,7 @@ export interface GraphRunSnapshot {
 export interface GraphRunVersion {
   version: number;
   config: GraphConfig;
-  modelSnapshots?: Record<string, GraphModelSnapshot>;
+  modelSnapshots?: Record<string, string>;
   agentSnapshots?: Record<string, GraphAgentSnapshot>;
   reason?: string;
   createdAt: number;

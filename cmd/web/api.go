@@ -57,10 +57,17 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	prompt.POST("/save", h.SavePrompt)
 
 	config := api.Group("/config")
-	model := config.Group("/model")
-	model.GET("/list", h.GetModelList)
-	model.POST("/create", h.CreateModel)
-	model.POST("/delete", h.DeleteModel)
+
+	// eino tab: model catalog + system prompt owned by the standalone
+	// eino-cli binary; these handlers only exec `eino-cli ...` and pass JSON
+	// through (secrets never touch quartet storage).
+	einoCfg := config.Group("/eino")
+	einoModel := einoCfg.Group("/model")
+	einoModel.GET("/list", h.GetEinoModelList)
+	einoModel.POST("/create", h.CreateEinoModel)
+	einoModel.DELETE("/:modelId", h.DeleteEinoModel)
+	einoCfg.GET("/system-prompt", h.GetEinoSystemPrompt)
+	einoCfg.POST("/system-prompt", h.SaveEinoSystemPrompt)
 
 	settings := config.Group("/settings")
 	settings.GET("/get", h.GetSettings)

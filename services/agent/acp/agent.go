@@ -25,8 +25,7 @@ import (
 // as a fallback when the ACP subprocess does not emit usage_update during a
 // turn. Each recompute reloads the full history and tokenises it, so on long
 // turns doing it per flush would approach O(history * flushCount); debounce
-// so the UI still gets a live count without redundant work. Mirrors the eino
-// path (services/agent/eino/runner.go).
+// so the UI still gets a live count without redundant work.
 const tokenUsageMinInterval = 1 * time.Second
 
 // SessionStore is the narrow session.Service surface the ACP agent needs
@@ -99,8 +98,8 @@ type ACPAgent struct {
 	// subprocess session was (re)created for an untouched session).
 	// Used at the start of the next Run to detect cross-path drift: if
 	// the current disk fingerprint differs, something outside this ACP
-	// session wrote to disk (eino Run, summary compression, late tool
-	// stitch via ReplacePlaceholderToolResult, external edit) and the
+	// session wrote to disk (late tool stitch via
+	// ReplacePlaceholderToolResult, external edit) and the
 	// subprocess's internal conversation no longer matches. Persisted
 	// as Session.ACPLastSyncedMessageCount + ACPLastSyncedMessageHash so
 	// drift is detectable even across server restarts.
@@ -214,7 +213,7 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 
 	// Detect cross-path drift at cold start: if messages.jsonl has moved
 	// since the last ACP Run ended (pre-persisted input from a failed Run,
-	// an intervening eino Run, external edit), the subprocess's persisted
+	// an external edit, a concurrent writer), the subprocess's persisted
 	// session no longer mirrors disk. That is NOT fatal: the ACP session
 	// is the source of truth for conversation context, and session/resume
 	// (or session/load) restores it as-is — no replacement session is
@@ -735,11 +734,10 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 
 	prompt := extractTextFromMessages(userMessages)
 	if prompt == "" {
-		// Asymmetry guard with the eino path: hasEffectiveUserInput in
-		// services/agent/eino/runner.go admits image/audio/video/file-only
-		// turns as valid input, but ACP backends today only consume the
-		// flattened text prompt produced by extractTextFromMessages. A bare
-		// "empty prompt" error there is misleading — the user did supply
+		// ACP backends today only consume the flattened text prompt
+		// produced by extractTextFromMessages; attachment-only turns
+		// (image/audio/video/file) cannot be forwarded. A bare "empty
+		// prompt" error there is misleading — the user did supply
 		// content, it just isn't a shape this agent can forward. Return a
 		// targeted error so the UI / logs make the capability gap obvious
 		// instead of looking like an empty-message bug.
@@ -750,8 +748,8 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 	}
 
 	// Cross-path drift check: if messages.jsonl has moved since this agent
-	// last flushed a Run, another path wrote to disk in between (an
-	// intervening eino Run, summary compression, late tool stitch via
+	// last flushed a Run, another writer touched the disk file in between
+	// (a concurrent session writer, late tool stitch via
 	// ReplacePlaceholderToolResult, external edit). The live subprocess
 	// session is still self-consistent — it is the source of truth for
 	// conversation context — so there is nothing to restore or replay:
@@ -766,8 +764,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 	//
 	// Hash mismatch with same count catches the cases CountMessage
 	// alone missed: ReplacePlaceholderToolResult rewrites a row in
-	// place, hand edits that swap content for equal-length content,
-	// summary rewrites that keep the row count stable.
+	// place, and hand edits that swap content for equal-length content.
 	currentFingerprint, err := a.ctxManager.MessagesFingerprint(runCtx)
 	if err != nil {
 		return fmt.Errorf("compute messages fingerprint for drift check failed: %w", err)
@@ -865,8 +862,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 	// for the whole turn. When the subprocess has not reported usage, reload
 	// the on-disk history and tokenise it so the UI still gets a live (if
 	// estimated) count. Debounced via tokenUsageMinInterval, with a forced
-	// recompute at Run end (see the deferred close-out below). Mirrors the
-	// eino path (services/agent/eino/runner.go).
+	// recompute at Run end (see the deferred close-out below).
 	var (
 		lastTokenUsageAt time.Time
 		lastTokenUsageMu sync.Mutex
@@ -887,7 +883,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 
 		reloadCtx, reloadCancel := round.PersistContext(ctx)
 		defer reloadCancel()
-		reloaded, err := ctxMgr.LoadMessagesForLLM(reloadCtx)
+		reloaded, err := ctxMgr.LoadAllMessages(reloadCtx)
 		if err != nil {
 			// Best-effort: a reload may race a concurrent truncation, so
 			// skip and rely on the forced recompute at Run end. Debug so a
@@ -963,10 +959,9 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 	// exit path — normal return, prompt error, or runCtx cancellation.
 	// Declared AFTER ClearOnFlush so LIFO order executes this first,
 	// while onFlush is still installed: the final half-complete round
-	// reaches disk via the callback rather than being dropped. Mirrors
-	// the eino path's defer in services/agent/eino/runner.go so both
-	// agent types emit OnMessageEnd / OnThoughtEnd / OnToolCallEnd on
-	// cancel — without this, the UI stays stuck on "streaming" state
+	// reaches disk via the callback rather than being dropped. All
+	// agent types must emit OnMessageEnd / OnThoughtEnd / OnToolCallEnd
+	// on cancel — without this, the UI stays stuck on "streaming" state
 	// after the user hits stop. Reason depends on why the loop exited:
 	//   - runCtx cancelled → ReasonCanceled (user interrupt / shutdown)
 	//   - otherwise        → ReasonInterrupted (prompt error or late
@@ -1026,7 +1021,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 		// but the handler (SSE / job-runner closure) is per-Run; leaving
 		// it installed between Runs keeps the closure alive until the
 		// next Reset and would route any late callback to a stale
-		// handler. Mirrors the eino path's defer in runner.go.
+		// handler.
 		a.builder.ClearHandler()
 	}()
 
@@ -1145,8 +1140,7 @@ const stopAndFlushTimeout = 12 * time.Second
 // builder's accumulators, but the Run was still active and could push
 // new stream events into the just-cleared builder. Late tool terminals
 // arriving after the eager superseded flush would never reach disk —
-// only the canceled placeholder would. Mirrors the eino path's
-// StopAndFlush in services/agent/eino/quartet.go.
+// only the canceled placeholder would.
 //
 // New order:
 //  1. Cancel runCtx (and notify the ACP subprocess of cancel) so the
@@ -1169,7 +1163,7 @@ func (a *ACPAgent) StopAndFlush() {
 // FlushPendingMessages flushes any accumulated in-memory messages from the
 // current LLM round to persistent storage. This should be called before
 // Cancel() to ensure in-flight messages are not lost. Delegates to
-// round.FlushPending so cleanup semantics stay identical to the eino path.
+// round.FlushPending, the shared cleanup path.
 // The persist call is wrapped in round.PersistContext so the canonical
 // persist deadline applies — see round.PersistTimeout for the scope of
 // what that deadline currently covers (lock-wait yes, blocking file I/O
@@ -1255,9 +1249,8 @@ func (a *ACPAgent) Cancel() {
 // concurrent Close from cleanupSessions can race the deferred block:
 // late terminal events arrive after RemoveSession and get dropped, the
 // final round's Placeholder ends never reach the UI, and the persisted
-// sync count baseline can lag the on-disk messages.jsonl. Mirrors the
-// eino path's Close (services/agent/eino/quartet.go:308) so both
-// agents have the same shutdown ordering.
+// sync count baseline can lag the on-disk messages.jsonl. All agents
+// share this shutdown ordering.
 func (a *ACPAgent) Close() {
 	a.Cancel()
 	a.waitForRunExit(5 * time.Second)
@@ -1573,7 +1566,7 @@ func extractTextFromMessages(messages []*schema.Message) string {
 // messages carries a non-text part (image / audio / video / file). Used
 // alongside extractTextFromMessages so the ACP Run can distinguish an
 // "empty user input" turn (genuine bug) from an "attachment-only" turn
-// (capability gap with the eino path) and surface the right error.
+// (capability gap, not a bug) and surface the right error.
 func userMessagesHaveAttachment(messages []*schema.Message) bool {
 	for _, m := range messages {
 		if m == nil {

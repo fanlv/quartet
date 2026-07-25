@@ -28,8 +28,7 @@ type AgentConfig struct {
 
 // AgentPrefs holds per-ACP-agent-type UI preferences edited in the
 // "Agent Defaults" settings tab. The map is keyed by agent type (= the ACP
-// serve command, e.g. "claude"). eino is never keyed here: it is flattened
-// into one agent entry per model and has no mode/thought_level concept.
+// serve command, e.g. "claude").
 //
 //   - FavoriteModelIDs pins models to the top of the model dropdown.
 //   - DefaultModelID / DefaultMode / DefaultThoughtLevel are applied when the

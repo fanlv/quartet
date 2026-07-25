@@ -417,7 +417,7 @@
       "general": "系统设置",
       "workspace": "工作空间",
       "token": "Token",
-      "model": "模型管理",
+      "eino": "Eino 配置",
       "prompt": "Prompt 设置",
       "skill": "技能管理",
       "acp": "ACP 配置",
@@ -463,49 +463,36 @@
       "gateContinue": "继续"
     },
     "model": {
-      "sectionTitle": "模型列表",
-      "providerCount": "共 {{count}} 个提供商",
       "addModel": "+ 添加模型",
-      "configuredCount": "已配置 {{count}} 个模型",
       "noModels": "暂无配置的模型",
       "confirmDelete": "确认删除该模型？删除后不可恢复",
       "deleteFailed": "删除失败",
       "createFailed": "创建失败",
-      "addModelTitle": "添加 {{provider}} 模型",
       "displayName": "显示名称",
       "modelName": "模型名称",
       "apiKey": "API Key",
       "baseUrl": "Base URL",
       "baseUrlPlaceholder": "选填",
-      "enableBase64Url": "启用 Base64 URL",
       "thinkingMode": "思考模式",
-      "region": "Region",
-      "regionPlaceholder": "选填，例如：cn-beijing",
-      "useAzure": "使用 Azure OpenAI",
-      "apiVersion": "API Version",
-      "apiVersionPlaceholder": "选填，例如：2024-06-01",
-      "backend": "Backend",
-      "backendDefault": "默认 (Gemini API)",
-      "project": "Project",
-      "projectPlaceholder": "选填，GCP 项目 ID",
-      "location": "Location",
-      "locationPlaceholder": "选填，例如：us-central1",
       "fillRequired": "请填写显示名称和模型名称",
       "fillApiKey": "请填写 API Key",
       "notConfigured": "未配置",
       "model": "模型",
       "thinkingModeLabel": "思考模式:",
-      "azure": "Azure",
       "loadModelListFailed": "加载模型列表失败",
-      "status": {
-        "enabled": "启用",
-        "disabled": "禁用"
-      },
       "placeholders": {
         "displayName": "例如：{{example}}",
         "model": "例如：{{example}}",
         "apiKey": "密钥"
       }
+    },
+    "eino": {
+      "modelSectionTitle": "Eino 模型列表",
+      "modelSectionDesc": "配置独立 eino-cli Agent 可用的模型，保存在 eino-cli 自己的配置中。",
+      "modelClass": "模型提供方",
+      "systemPromptTitle": "Eino 系统提示词",
+      "systemPromptDesc": "独立 eino-cli Agent 使用的系统提示词。",
+      "systemPromptPlaceholder": "输入系统提示词..."
     },
     "prompt": {
       "groups": {

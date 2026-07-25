@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -229,12 +228,11 @@ func (h *Handler) enrichWorkspaceRows(rows []usagestats.WorkspaceAggregate) []st
 	return out
 }
 
-// enrichModelRows resolves the display name for each model id via the
-// configured model registry. Unknown ids fall back to the raw id string;
-// the empty bucket (the "couldn't attribute" pile) is surfaced with the
-// special id "(unknown)" so the UI can render it as a labelled row
-// rather than a silent gap. We log resolution failures at debug level
-// only — usage stats must never block on registry hiccups.
+// enrichModelRows fills in the display name for each model id. Recorded ids
+// are ACP model identifiers, which are already display-ready; the empty
+// bucket (the "couldn't attribute" pile) is surfaced with the special id
+// "(unknown model)" so the UI can render it as a labelled row rather than a
+// silent gap.
 func (h *Handler) enrichModelRows(ctx context.Context, rows []usagestats.ModelAggregate) []statsModelRow {
 	if len(rows) == 0 {
 		return []statsModelRow{}
@@ -245,10 +243,10 @@ func (h *Handler) enrichModelRows(ctx context.Context, rows []usagestats.ModelAg
 			ModelID:       row.ModelID,
 			SectionTotals: row.SectionTotals,
 		}
-		entry.ModelID, entry.ModelName = h.resolveStatsModelName(ctx, row.ModelID)
-		if entry.ModelName == "" {
-			entry.ModelName = entry.ModelID
+		if entry.ModelID == "" {
+			entry.ModelID = unknownModelID
 		}
+		entry.ModelName = entry.ModelID
 		out = append(out, entry)
 	}
 	return out
@@ -271,7 +269,10 @@ func (h *Handler) enrichDailyRows(ctx context.Context, rows []usagestats.DailyAg
 			for rawID, totals := range row.Models {
 				name, ok := nameCache[rawID]
 				if !ok {
-					_, name = h.resolveStatsModelName(ctx, rawID)
+					name = rawID
+					if name == "" {
+						name = unknownModelID
+					}
 					nameCache[rawID] = name
 				}
 				modelID := rawID
@@ -290,23 +291,6 @@ func (h *Handler) enrichDailyRows(ctx context.Context, rows []usagestats.DailyAg
 		out = append(out, entry)
 	}
 	return out
-}
-
-func (h *Handler) resolveStatsModelName(ctx context.Context, rawID string) (string, string) {
-	if rawID == "" || rawID == unknownModelID {
-		return unknownModelID, unknownModelID
-	}
-	name := rawID
-	if h.modelConfig != nil {
-		if id, err := strconv.ParseInt(rawID, 10, 64); err == nil {
-			if inst, err := h.modelConfig.GetModelByID(ctx, id); err == nil && inst != nil && inst.DisplayName != "" {
-				name = inst.DisplayName
-			} else if err != nil {
-				logger.Debugf(ctx, "[stats] resolve model %s failed: %v", rawID, err)
-			}
-		}
-	}
-	return rawID, name
 }
 
 func ensureToolRows(rows []usagestats.ToolAggregate) []usagestats.ToolAggregate {

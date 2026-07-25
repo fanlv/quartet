@@ -3,16 +3,12 @@ package handler
 import (
 	"context"
 	"fmt"
-	"mime"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/fanlv/quartet/pkg/fileserver"
-	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/strutil"
@@ -21,16 +17,14 @@ import (
 	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 	"github.com/fanlv/quartet/types/msgextra"
-	typepath "github.com/fanlv/quartet/types/path"
 	"github.com/google/uuid"
 )
 
 func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
-	// Capture the server-received timestamp BEFORE any synchronous work
-	// (prepareJobSend in particular reads + base64-encodes images for eino
-	// multi-content messages). The user_input repo routes by this value;
-	// sampling it after the slow path would occasionally flip the entry
-	// into the wrong daily file near a midnight boundary.
+	// Capture the server-received timestamp BEFORE any synchronous work in
+	// prepareJobSend. The user_input repo routes by this value; sampling it
+	// after the slow path would occasionally flip the entry into the wrong
+	// daily file near a midnight boundary.
 	receivedAt := time.Now()
 
 	jobID := c.Param("jobId")
@@ -244,8 +238,7 @@ func (h *Handler) prepareJobMessage(j *model.Job, req *model.JobMessageRequest) 
 		return nil, err
 	}
 
-	isEino := req.AgentType == consts.AgentTypeEino
-	if !isEino && opts.SessionID != "" {
+	if opts.SessionID != "" {
 		h.maybeUpdateSessionACPFields(opts.SessionID, req.ACPMode, req.ACPThoughtLevel)
 	}
 
@@ -258,41 +251,29 @@ func (h *Handler) prepareJobMessage(j *model.Job, req *model.JobMessageRequest) 
 
 // prepareInteractiveRun handles interactive mode: build messages, resolve session, update model.
 //
-// Side effect: when the eino multi-content path silently drops images that
-// fail validation / read (wrong dir, symlink check, I/O error), we rewrite
-// req.Messages[i].ImageUrls to the accepted subset so downstream callers
-// (notably user_input logging) record only what the system actually took
-// in. Without this, the user_input stream would show image URLs that never
-// reached the agent.
+// All agents (ACP CLIs, including eino-cli) take image inputs as an
+// `![image](<abs path>)` text tag prepended to the message content, so the
+// image URLs are always preserved verbatim for downstream records (user_input,
+// etc.) — nothing is dropped here.
 func (h *Handler) prepareInteractiveRun(j *model.Job, req *model.JobMessageRequest) (*job.SendMessageOptions, error) {
-	isEino := req.AgentType == consts.AgentTypeEino
 	nowMs := time.Now().UnixMilli()
 	msgs := make([]*schema.Message, 0, len(req.Messages))
 	for i := range req.Messages {
 		m := &req.Messages[i]
 		content := m.Content
-		imageUrls := m.ImageUrls
-		var msg *schema.Message
-		if isEino && len(imageUrls) > 0 {
-			var accepted []string
-			msg, accepted = h.buildMultiContentMessage(content, imageUrls)
-			m.ImageUrls = accepted
-		} else {
-			if len(imageUrls) > 0 {
-				var prefix string
-				for _, u := range imageUrls {
-					prefix += fmt.Sprintf("![image](%s)\n", u)
-				}
-				content = prefix + content
+		if len(m.ImageUrls) > 0 {
+			var prefix string
+			for _, u := range m.ImageUrls {
+				prefix += fmt.Sprintf("![image](%s)\n", u)
 			}
-			msg = schema.UserMessage(content)
+			content = prefix + content
 		}
-		msgs = append(msgs, msg)
+		msgs = append(msgs, schema.UserMessage(content))
 	}
 
 	// Stamp user messages with a receive timestamp and a stable msg_id so
 	// that history reload can display timestamps and produce stable IDs
-	// (avoiding duplicate bubbles when summary projection shifts indices).
+	// (avoiding duplicate bubbles when a reload re-indexes messages).
 	for i, msg := range msgs {
 		if msg.Extra == nil {
 			msg.Extra = map[string]any{}
@@ -343,81 +324,6 @@ func (h *Handler) prepareInteractiveRun(j *model.Job, req *model.JobMessageReque
 		opts.SessionID = sessionID
 	}
 	return opts, nil
-}
-
-// buildMultiContentMessage builds an eino multi-content user message from the
-// given text and image URLs. Returns the message plus the subset of image URLs
-// that passed validation and were successfully read — images that fail any
-// check are silently dropped here, and callers use the returned slice to keep
-// downstream records (user_input, etc.) consistent with what was actually sent.
-func (h *Handler) buildMultiContentMessage(content string, imageUrls []string) (*schema.Message, []string) {
-	var parts []schema.MessageInputPart
-	accepted := make([]string, 0, len(imageUrls))
-
-	uploadsDir, uploadsErr := typepath.UploadsDir()
-	sb := fileserver.GetFileManager()
-
-	for _, u := range imageUrls {
-		// Validate that the file is within the uploads directory to prevent arbitrary file read.
-		if uploadsErr != nil {
-			logger.Errorf(nil, "[upload] uploads dir not configured, skipping image %s", u)
-			continue
-		}
-		// Resolve symlinks so a symlink inside uploadsDir pointing outside cannot bypass the check.
-		realPathResult, err := sb.FileEvalSymlinks(&fsmodel.FileEvalSymlinksRequest{Path: filepath.Clean(u)})
-		if err != nil {
-			logger.Errorf(nil, "[upload] resolve path failed: path=%s err=%v", u, err)
-			continue
-		}
-		realPath := realPathResult.ResolvedPath
-		realUploadsDirResult, err := sb.FileEvalSymlinks(&fsmodel.FileEvalSymlinksRequest{Path: filepath.Clean(uploadsDir)})
-		if err != nil {
-			logger.Errorf(nil, "[upload] resolve uploads dir failed: %v", err)
-			continue
-		}
-		realUploadsDir := realUploadsDirResult.ResolvedPath
-		if !strings.HasPrefix(realPath, realUploadsDir+string(filepath.Separator)) {
-			logger.Errorf(nil, "[upload] image path outside uploads dir, skipping: %s", u)
-			continue
-		}
-
-		result, err := sb.FileRead(&fsmodel.FileReadRequest{File: realPath, Base64: true})
-		if err != nil {
-			logger.Errorf(nil, "[upload] read image failed: path=%s err=%v", u, err)
-			continue
-		}
-		encoded := result.Content
-		mimeType := mime.TypeByExtension(filepath.Ext(u))
-		if mimeType == "" {
-			mimeType = "image/png"
-		}
-		localPath := u
-		parts = append(parts, schema.MessageInputPart{
-			Type: schema.ChatMessagePartTypeImageURL,
-			Image: &schema.MessageInputImage{
-				MessagePartCommon: schema.MessagePartCommon{
-					Base64Data: &encoded,
-					MIMEType:   mimeType,
-					Extra: map[string]any{
-						msgextra.KeyLocalPath: localPath,
-					},
-				},
-			},
-		})
-		accepted = append(accepted, u)
-	}
-
-	if content != "" {
-		parts = append(parts, schema.MessageInputPart{
-			Type: schema.ChatMessagePartTypeText,
-			Text: content,
-		})
-	}
-
-	return &schema.Message{
-		Role:                  schema.User,
-		UserInputMultiContent: parts,
-	}, accepted
 }
 
 // resolveSessionID returns the session ID from the request (after validating it

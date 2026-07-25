@@ -43,7 +43,6 @@ export function ACPSettings() {
       const settingsData = await settingsRes.json();
 
       const acpAgents: AgentOption[] = (agentData.agent_list || [])
-        .filter((a: { type: string }) => a.type !== 'eino')
         .map((a: { type: string; env_key?: string; display_name: string }) => ({
           type: a.type,
           env_key: a.env_key || a.type,

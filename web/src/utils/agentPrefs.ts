@@ -1,7 +1,7 @@
 import type { AgentInfo, ModelInfoACP } from '../components/ChatPage';
 
 // AgentPrefs mirrors repository.AgentPrefs (Go). Per-ACP-agent-type favorites
-// + defaults, keyed by agent type in the parent map. eino never appears here.
+// + defaults, keyed by agent type in the parent map.
 export interface AgentPrefs {
   favorite_model_ids?: string[];
   default_model_id?: string;

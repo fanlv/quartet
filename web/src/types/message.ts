@@ -28,12 +28,6 @@ export interface AssistantMessage extends BaseMessage {
   thinkingContent?: string;
   isThinking?: boolean;
   isShellOutput?: boolean;
-  // isSummary marks the first assistant entry on history reload when
-  // the server has a summary for this session — the bubble renders
-  // the compressed summary text rather than an original assistant
-  // turn, signalling to the user that the pre-summary history is no
-  // longer in the LLM context.
-  isSummary?: boolean;
   /** Timestamp when the assistant bubble finished (TEXT_MESSAGE_END). */
   finishedAt?: number;
   /** Timestamp when deep thinking ended (first non-thinking delta or isThinking flip). */

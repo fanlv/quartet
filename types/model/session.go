@@ -17,7 +17,7 @@ type Session struct {
 	Deleted      bool      `json:"deleted,omitempty"`
 	ModelID      string    `json:"model_id,omitempty"`
 	SystemPrompt string    `json:"system_prompt,omitempty"`
-	Type         string    `json:"type,omitempty"`         // "eino" or "acp cli command"
+	Type         string    `json:"type,omitempty"`         // ACP agent type (serve command key)
 	Workdir      string    `json:"workdir,omitempty"`      // working directory for ACP agents
 	JobID        string    `json:"job_id,omitempty"`       // associated job
 	WorkspaceID  string    `json:"workspace_id,omitempty"` // associated workspace
@@ -31,8 +31,8 @@ type Session struct {
 	// state of messages.jsonl at the end of the most recent ACP Run on
 	// this session. Used by the ACP agent to detect cross-path drift —
 	// if either field disagrees with the on-disk fingerprint at the
-	// start of a new Run (e.g. eino wrote between two ACP Runs, or a
-	// late ReplacePlaceholderToolResult rewrote a row in place), the
+	// start of a new Run (e.g. a late ReplacePlaceholderToolResult rewrote
+	// a row in place), the
 	// subprocess's internal conversation state no longer matches disk
 	// and the ACPSessionID is replaced with a fresh one rather than
 	// continuing to prompt a stale view.

@@ -12,15 +12,16 @@ import (
 // (§4 GraphRun 启动保存基线快照). It walks the Agent-class nodes (Prompt and
 // Clarify) and captures:
 //
-//   - ModelSnapshots: keyed by the node's string ModelID, the current
-//     ModelInstance content. Deduplicated across nodes sharing a model.
+//   - ModelSnapshots: keyed by the node's string ModelID, the model's display
+//     form (the ACP model identifier itself). Deduplicated across nodes
+//     sharing a model.
 //   - AgentSnapshots: keyed by node ID, the node's AgentType/ModelID/ACPMode/
 //     ACPThoughtLevel plus the resolved (global) system prompt.
 //
 // A missing model or prompt-resolution error never blocks run start — the
 // snapshot degrades to whatever resolved, and the gap is logged. src may be nil
 // (no snapshot capture), in which case both maps come back nil.
-func buildSnapshotContent(ctx context.Context, cfg model.GraphConfig, src Runner) (map[string]model.ModelInstance, map[string]model.GraphAgentSnapshot) {
+func buildSnapshotContent(ctx context.Context, cfg model.GraphConfig, src Runner) (map[string]string, map[string]model.GraphAgentSnapshot) {
 	if src == nil {
 		return nil, nil
 	}
@@ -31,7 +32,7 @@ func buildSnapshotContent(ctx context.Context, cfg model.GraphConfig, src Runner
 		systemPrompt = ""
 	}
 
-	models := map[string]model.ModelInstance{}
+	models := map[string]string{}
 	agents := map[string]model.GraphAgentSnapshot{}
 	for _, n := range cfg.Nodes {
 		if !isAgent(n.Type) {

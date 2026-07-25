@@ -45,41 +45,13 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 		return
 	}
 
-	// Align history projection with LoadMessagesForLLM (summary + tail)
-	// so reload shows what the next LLM turn will see, not the raw
-	// pre-compression history the model no longer references. When no
-	// summary exists yet, tail == all messages and this degrades to the
-	// previous behaviour.
-	allMessages, err := ctxMgr.LoadAllMessages(ctx)
+	// messages.jsonl is a mirror rebuilt from ACP events (same as claude
+	// etc.), so history is projected verbatim — compression, if any,
+	// happens inside the agent subprocess and never rewrites the mirror.
+	chatMessages, err := ctxMgr.LoadAllMessages(ctx)
 	if err != nil {
 		httputil.InternalError(c, err.Error())
 		return
-	}
-
-	summary, err := ctxMgr.LoadSummaryMessage(ctx)
-	if err != nil {
-		// Read-side degradation: treat summary.json read failure as
-		// "no summary" rather than breaking the whole history fetch.
-		// Write side is the source of truth; a transient read error
-		// should not hide the rest of the conversation.
-		summary = nil
-	}
-
-	var chatMessages []*schema.Message
-	summaryOffset := 0
-	if summary != nil && summary.Message != nil {
-		chatMessages = append(chatMessages, summary.Message)
-		summaryOffset = 1
-		idx := summary.Index
-		if idx < 0 {
-			idx = 0
-		}
-		if idx > len(allMessages) {
-			idx = len(allMessages)
-		}
-		chatMessages = append(chatMessages, allMessages[idx:]...)
-	} else {
-		chatMessages = allMessages
 	}
 
 	messages := make([]model.HistoryMessage, 0, len(chatMessages))
@@ -92,7 +64,7 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 		content := msg.Content
 		var imageUrls []string
 
-		// Extract text content and image URLs from UserInputMultiContent (eino multimodal messages)
+		// Extract text content and image URLs from UserInputMultiContent (multimodal user input)
 		if len(msg.UserInputMultiContent) > 0 {
 			var textParts []string
 			for _, part := range msg.UserInputMultiContent {
@@ -128,15 +100,6 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 			Content:          content,
 			ReasoningContent: msg.ReasoningContent,
 			ImageUrls:        imageUrls,
-		}
-
-		// Mark the summary head so the frontend can render it with a
-		// distinct bubble ("这里之前的对话已被压缩") rather than as an
-		// ordinary assistant turn. Summary lives at index 0 iff the
-		// projection above inserted one.
-		if summaryOffset == 1 && i == 0 {
-			historyMsg.IsSummary = true
-			historyMsg.ID = fmt.Sprintf("%s:summary", sessionID)
 		}
 
 		// Prefer the stable SSE message ID stored during persistence so that

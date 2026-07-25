@@ -1,4 +1,4 @@
-.PHONY: build build-all build-acp build-cli build-web build-frontend test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
+.PHONY: build build-all build-acp build-cli build-eino-cli build-web build-frontend test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
 
 CERTS_DIR := $(CURDIR)/certs
 # Serving model, derived ONCE at parse time so every target below
@@ -76,6 +76,25 @@ build-acp:
 build-cli:
 	@mkdir -p bin
 	go build -o bin/quartet-cli ./cmd/cli
+
+# build-eino-cli builds the standalone eino-cli ACP agent and installs it to
+# INSTALL_BIN_DIR (must be on $PATH) so the backend's probe can discover it via
+# exec.LookPath("eino-cli").
+build-eino-cli:
+	@mkdir -p bin
+	@echo "==> Building bin/eino-cli"
+	go build -o bin/eino-cli ./cmd/eino-cli
+	@echo "==> Installing eino-cli to $(INSTALL_BIN_DIR)"
+	@mkdir -p "$(INSTALL_BIN_DIR)"
+	@cp bin/eino-cli "$(INSTALL_BIN_DIR)/eino-cli"
+	@installed="$$(cd "$(INSTALL_BIN_DIR)" && pwd)/eino-cli"; \
+	found="$$(command -v eino-cli 2>/dev/null || true)"; \
+	printf '[ok] eino-cli installed: %s\n' "$$installed"; \
+	if test "$$found" = "$$installed"; then \
+		printf '  PATH resolves to installed eino-cli\n'; \
+	else \
+		printf 'warning: %s is installed but eino-cli is not resolvable on PATH (found=%q); add %s to PATH\n' "$$installed" "$$found" "$$(cd "$(INSTALL_BIN_DIR)" && pwd)" >&2; \
+	fi
 
 build-web:
 	@mkdir -p bin

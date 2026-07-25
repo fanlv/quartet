@@ -72,5 +72,12 @@ certs/
 # CLI binaries
 /cli
 /quartet-workflow
+/eino-cli
 
 feature-2026-07-12-memory-directory-reorganization.md
+
+# Local scratch (tickets, notes) — not tracked
+.scratch/
+
+# Playwright test artifacts
+web/test-results/

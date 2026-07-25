@@ -19,13 +19,8 @@ type fakeRepo struct {
 	// WithLock takes the same mu so chatctx.BeginRun's lock-then-mutate
 	// flow stays atomic across instances, mirroring the production
 	// repository's session-keyed lock.
-	mu      sync.Mutex
-	msgs    []*schema.Message
-	summary *repository.SummaryMessage
-	// summaryErr, if set, is returned from LoadSummaryMessage to simulate a
-	// read failure on summary.json (distinct from "summary file absent",
-	// which is summary==nil + summaryErr==nil).
-	summaryErr error
+	mu   sync.Mutex
+	msgs []*schema.Message
 	// replaceErr, if set, is returned from ReplaceMessages to simulate an
 	// atomic-rewrite failure (disk full, EACCES on temp file, etc.).
 	// BeginRun must NOT silently append the user message when the
@@ -86,23 +81,6 @@ func (r *fakeRepo) ReplacePlaceholderToolResult(_ context.Context, toolCallID st
 	}
 	return false, nil
 }
-func (r *fakeRepo) LoadSummaryMessage(context.Context) (*repository.SummaryMessage, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.loadSummaryMessageLocked()
-}
-func (r *fakeRepo) SaveSummaryMessage(_ context.Context, msg *repository.SummaryMessage) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.summary = msg
-	return nil
-}
-func (r *fakeRepo) ClearSummaryMessage(context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.summary = nil
-	return nil
-}
 
 // WithLock holds mu for the duration of fn so the LockedRepo handle's
 // methods see a consistent view. Production behaviour is identical.
@@ -114,12 +92,6 @@ func (r *fakeRepo) WithLock(_ context.Context, fn func(tx repository.LockedRepo)
 
 func (r *fakeRepo) loadAllMessagesLocked() ([]*schema.Message, error) {
 	return r.msgs, nil
-}
-func (r *fakeRepo) loadSummaryMessageLocked() (*repository.SummaryMessage, error) {
-	if r.summaryErr != nil {
-		return nil, r.summaryErr
-	}
-	return r.summary, nil
 }
 func (r *fakeRepo) appendMessagesLocked(msgs []*schema.Message) error {
 	r.msgs = append(r.msgs, msgs...)
@@ -143,9 +115,6 @@ type fakeLockedRepo struct{ r *fakeRepo }
 
 func (v *fakeLockedRepo) LoadAllMessages(context.Context) ([]*schema.Message, error) {
 	return v.r.loadAllMessagesLocked()
-}
-func (v *fakeLockedRepo) LoadSummaryMessage(context.Context) (*repository.SummaryMessage, error) {
-	return v.r.loadSummaryMessageLocked()
 }
 func (v *fakeLockedRepo) AppendMessages(_ context.Context, msgs []*schema.Message) error {
 	return v.r.appendMessagesLocked(msgs)
@@ -268,35 +237,9 @@ func TestBeginRun_PreservesPlaceholderAsPaired(t *testing.T) {
 	}
 }
 
-// TestBeginRun_SummaryBoundsTailScan: summary.index defines the scan
-// lower bound — messages before summary.index are not scanned (they
-// are "under" the summary) so the assistant at index 0 (before summary
-// index 2) is NOT considered orphan even if unpaired.
-func TestBeginRun_SummaryBoundsTailScan(t *testing.T) {
-	// jsonl: [assistant(tc-Y orphan), user, user, assistant(tc-X), tool(tc-X)]
-	// summary.index = 3: scan only starts at msgs[3] onwards.
-	repo := &fakeRepo{
-		msgs: []*schema.Message{
-			assistantWithToolCalls("pre-summary orphan", "tc-Y"),
-			schema.UserMessage("u1"),
-			schema.UserMessage("u2"),
-			assistantWithToolCalls("post-summary", "tc-X"),
-			toolResult("tc-X", "X done"),
-		},
-		summary: &repository.SummaryMessage{Index: 3, Message: schema.AssistantMessage("summarised", nil)},
-	}
-	m := &ChatContextManager{repo: repo}
-	if _, err := m.BeginRun(context.Background(), schema.UserMessage("next")); err != nil {
-		t.Fatalf("BeginRun error: %v", err)
-	}
-	if len(repo.replacedSnapshots) != 0 {
-		t.Fatalf("scan is bounded by summary.index, pre-summary orphans must be ignored; got %d truncates", len(repo.replacedSnapshots))
-	}
-}
-
 // TestBeginRun_ShellOutputNotTruncated: shell-executor output sits at the
 // tail as role=assistant WITHOUT ToolCalls — the orphan scan must short
-// circuit on ToolCalls==nil (manager.go:165) and leave the shell row
+// circuit on ToolCalls==nil and leave the shell row
 // untouched. Regression guard for "tail rewrite eating shell history".
 func TestBeginRun_ShellOutputNotTruncated(t *testing.T) {
 	repo := &fakeRepo{
@@ -320,67 +263,6 @@ func TestBeginRun_ShellOutputNotTruncated(t *testing.T) {
 	}
 	if len(repo.msgs) != 6 || repo.msgs[5].Role != schema.User || repo.msgs[5].Content != "next" {
 		t.Fatalf("expected shell rows preserved + new user appended, got %d msgs last=%+v", len(repo.msgs), repo.msgs[len(repo.msgs)-1])
-	}
-}
-
-// TestLoadMessagesForLLM_SummaryReadErrorDegradesToAllMessages pins down
-// the "summary.json read failure must not block Run" invariant. When the
-// summary file is corrupt (not merely absent), LoadMessagesForLLM must
-// log-and-degrade to returning the raw message history, matching the
-// behaviour of truncateOrphanedTail and the web history handler. The
-// alternative — returning error and blocking the whole Run — makes a
-// cosmetic compression artefact into a hard availability failure.
-func TestLoadMessagesForLLM_SummaryReadErrorDegradesToAllMessages(t *testing.T) {
-	repo := &fakeRepo{
-		msgs: []*schema.Message{
-			schema.UserMessage("u1"),
-			schema.AssistantMessage("a1", nil),
-		},
-		summaryErr: errors.New("simulated corrupt summary.json"),
-	}
-	m := &ChatContextManager{repo: repo}
-
-	msgs, err := m.LoadMessagesForLLM(context.Background())
-	if err != nil {
-		t.Fatalf("LoadMessagesForLLM must not bubble summary read failure: got err=%v", err)
-	}
-	if len(msgs) != 2 {
-		t.Fatalf("expected degradation to full history (2 msgs), got %d", len(msgs))
-	}
-	if msgs[0].Role != schema.User || msgs[1].Role != schema.Assistant {
-		t.Fatalf("degraded history order lost, got %+v", msgs)
-	}
-}
-
-// TestBeginRun_SummaryLoadErrorFallsBackToFullScan: when the repo returns
-// an error from LoadSummaryMessage (summary.json read failure), the scan
-// must degrade to a full-file scan (startIdx=0) rather than skipping the
-// tail-scrub. This pins down the fallback branch at manager.go:131-136 that
-// the summary==nil path does not exercise.
-func TestBeginRun_SummaryLoadErrorFallsBackToFullScan(t *testing.T) {
-	// Orphan at msgs[0] — under any "bounded by summary.index" scan it
-	// would be ignored, but with summary-load failure we fall back to
-	// full scan and the orphan gets truncated.
-	repo := &fakeRepo{
-		msgs: []*schema.Message{
-			schema.UserMessage("hi"),
-			assistantWithToolCalls("orphan", "tc-A"), // tc-A never gets a tool result
-		},
-		summaryErr: errors.New("simulated summary read failure"),
-	}
-	m := &ChatContextManager{repo: repo}
-	if _, err := m.BeginRun(context.Background(), schema.UserMessage("next")); err != nil {
-		t.Fatalf("BeginRun error: %v", err)
-	}
-	if len(repo.replacedSnapshots) != 1 {
-		t.Fatalf("summary read failure must still drive full-scan truncate, got %d", len(repo.replacedSnapshots))
-	}
-	snap := repo.replacedSnapshots[0]
-	if len(snap) != 1 || snap[0].Role != schema.User {
-		t.Fatalf("expected orphan+tail truncated to just [user(hi)], got %+v", snap)
-	}
-	if len(repo.msgs) != 2 || repo.msgs[1].Content != "next" {
-		t.Fatalf("expected final = [user(hi), user(next)], got %+v", repo.msgs)
 	}
 }
 
@@ -423,7 +305,7 @@ func TestBeginRun_TruncateFailureDoesNotAppendUser(t *testing.T) {
 // disk — e.g. due to a bug in a new writer path — the orphan-scan
 // must still cut from the earliest orphan (the safe choice; anything
 // after an orphan is suspect), and the anomaly must be visible in
-// logs so it is not silently swallowed. See manager.go:229-236.
+// logs so it is not silently swallowed.
 func TestBeginRun_MidOrphanWithCompleteTailTruncatesAll(t *testing.T) {
 	// Layout: [user, assistant(tc-A orphan), assistant(tc-B), tool(tc-B)]
 	//                 ^ earliest orphan           ^ complete round AFTER orphan
@@ -455,141 +337,6 @@ func TestBeginRun_MidOrphanWithCompleteTailTruncatesAll(t *testing.T) {
 	}
 }
 
-// TestBeginRun_SummaryIndexBeyondLenFallsBackToFullScan: when summary.index
-// points past the end of messages.jsonl (anomaly: corrupt summary.json, a
-// crash that left half-written JSONL lines so LoadAllMessages returns fewer
-// records than when summary was saved, or an out-of-order write), the scan
-// must degrade to a full-file scan rather than silently no-op. The old
-// clamp-to-len behaviour turned the orphan scan into nothing and let the
-// real tail leak into the next Run.
-func TestBeginRun_SummaryIndexBeyondLenFallsBackToFullScan(t *testing.T) {
-	// Orphan at msgs[0]; summary.index=99 is nonsense relative to len=2.
-	repo := &fakeRepo{
-		msgs: []*schema.Message{
-			schema.UserMessage("hi"),
-			assistantWithToolCalls("orphan", "tc-A"), // tc-A never gets a tool result
-		},
-		summary: &repository.SummaryMessage{Index: 99, Message: schema.AssistantMessage("summarised", nil)},
-	}
-	m := &ChatContextManager{repo: repo}
-	if _, err := m.BeginRun(context.Background(), schema.UserMessage("next")); err != nil {
-		t.Fatalf("BeginRun error: %v", err)
-	}
-	if len(repo.replacedSnapshots) != 1 {
-		t.Fatalf("summary.index>len must fall back to full-file scan + truncate, got %d snapshots", len(repo.replacedSnapshots))
-	}
-	snap := repo.replacedSnapshots[0]
-	if len(snap) != 1 || snap[0].Role != schema.User {
-		t.Fatalf("expected orphan truncated to just [user(hi)], got %+v", snap)
-	}
-	if len(repo.msgs) != 2 || repo.msgs[1].Content != "next" {
-		t.Fatalf("expected final = [user(hi), user(next)], got %+v", repo.msgs)
-	}
-}
-
-// TestLoadMessagesForLLM_NegativeIndexClamped pins down the lower-bound
-// guard for summary.Index. A corrupt summary.json with a negative index
-// used to crash the whole Run with a slice-bounds panic at manager.go:69.
-// The guard now clamps to 0 and returns summary + full tail, matching
-// the write-side clamp in truncateOrphanedTail.
-func TestLoadMessagesForLLM_NegativeIndexClamped(t *testing.T) {
-	repo := &fakeRepo{
-		msgs: []*schema.Message{
-			schema.UserMessage("u1"),
-			schema.AssistantMessage("a1", nil),
-		},
-		summary: &repository.SummaryMessage{Index: -5, Message: schema.AssistantMessage("summarised", nil)},
-	}
-	m := &ChatContextManager{repo: repo}
-
-	msgs, err := m.LoadMessagesForLLM(context.Background())
-	if err != nil {
-		t.Fatalf("LoadMessagesForLLM must not error on negative index: got %v", err)
-	}
-	// Expect summary + full tail (the clamp to 0 means no messages are
-	// skipped from allMsgs).
-	if len(msgs) != 3 {
-		t.Fatalf("expected summary + 2 tail msgs, got %d", len(msgs))
-	}
-	if msgs[0].Content != "summarised" {
-		t.Fatalf("expected first msg to be summary, got %+v", msgs[0])
-	}
-}
-
-// TestLoadMessagesForLLM_IndexBeyondLenClamped pins down the upper-bound
-// guard. A summary.index past len(allMsgs) now clamps to len(allMsgs)
-// (returning summary with empty tail) and logs at error level. Silently
-// running the append with no clamp would have worked fine here, but the
-// error-level log keeps the anomaly observable in ops — matching the
-// write-side ANOMALY log in truncateOrphanedTail.
-func TestLoadMessagesForLLM_IndexBeyondLenClamped(t *testing.T) {
-	repo := &fakeRepo{
-		msgs: []*schema.Message{
-			schema.UserMessage("u1"),
-			schema.AssistantMessage("a1", nil),
-		},
-		summary: &repository.SummaryMessage{Index: 99, Message: schema.AssistantMessage("summarised", nil)},
-	}
-	m := &ChatContextManager{repo: repo}
-
-	msgs, err := m.LoadMessagesForLLM(context.Background())
-	if err != nil {
-		t.Fatalf("LoadMessagesForLLM must not error on out-of-bounds index: got %v", err)
-	}
-	// Expect only the summary (no tail because the clamp lands at
-	// len(allMsgs)).
-	if len(msgs) != 1 {
-		t.Fatalf("expected summary-only result when index>len, got %d msgs: %+v", len(msgs), msgs)
-	}
-	if msgs[0].Content != "summarised" {
-		t.Fatalf("expected summary as sole msg, got %+v", msgs[0])
-	}
-}
-
-// TestLoadMessagesForLLM_InjectedSummaryMarker pins down the contract
-// with the summarization middleware: LoadMessagesForLLM must tag the
-// injected summary with msgextra.KeyIsSummary so Finalize can tell
-// "originalMessages contains the old summary" from the message itself,
-// without a second summary.json read. Without this marker the
-// Finalize path would re-read summary.json to infer "first vs
-// subsequent summarization", and any transient read failure between
-// the two reads would leave summary.index off by one.
-func TestLoadMessagesForLLM_InjectedSummaryMarker(t *testing.T) {
-	repo := &fakeRepo{
-		msgs: []*schema.Message{
-			schema.UserMessage("u1"),
-			schema.AssistantMessage("a1", nil),
-		},
-		summary: &repository.SummaryMessage{Index: 0, Message: schema.AssistantMessage("summarised", nil)},
-	}
-	m := &ChatContextManager{repo: repo}
-
-	msgs, err := m.LoadMessagesForLLM(context.Background())
-	if err != nil {
-		t.Fatalf("LoadMessagesForLLM error: %v", err)
-	}
-	if len(msgs) == 0 {
-		t.Fatalf("expected non-empty result with summary injected")
-	}
-	first := msgs[0]
-	if first.Extra == nil {
-		t.Fatalf("summary message must carry Extra with the summary marker, got nil")
-	}
-	v, ok := first.Extra[msgextra.KeyIsSummary].(bool)
-	if !ok || !v {
-		t.Fatalf("summary message must be marked with %s=true, got Extra=%+v", msgextra.KeyIsSummary, first.Extra)
-	}
-	// Tail messages must NOT carry the marker.
-	for i, tail := range msgs[1:] {
-		if tail.Extra == nil {
-			continue
-		}
-		if v, ok := tail.Extra[msgextra.KeyIsSummary].(bool); ok && v {
-			t.Fatalf("tail msg[%d] unexpectedly marked as summary: %+v", i, tail)
-		}
-	}
-}
-
 // TestBeginRun_ConcurrentSameSessionSerialises verifies that two
 // managers bound to the same sessionID and the same underlying repo
 // serialise their truncate+append halves. Without the per-session lock
@@ -609,7 +356,7 @@ func TestBeginRun_ConcurrentSameSessionSerialises(t *testing.T) {
 		go func(gID int) {
 			defer wg.Done()
 			// Each goroutine constructs its own manager to mimic the
-			// eino/acp cross-path layout where both paths build fresh
+			// acp cross-path layout where multiple paths build fresh
 			// ChatContextManager instances against the same sessionID.
 			m := &ChatContextManager{repo: repo, sessionID: sessionID}
 			for range msgsPerG {
