@@ -624,7 +624,9 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const [edges, setEdges] = useState<QuartetFlowEdge[]>(() => configToFlow(initialConfig).edges);
   const [meta, setMeta] = useState<ConfigMeta>(() => metaFromConfig(initialConfig));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(true);
+  // Mobile starts with the bottom drawer collapsed so the whole canvas stays
+  // visible on load; selecting a node auto-opens it (see the effect below).
+  const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(() => !isMobile);
   // Mobile-only: the workflow library is an off-canvas left drawer (it would
   // otherwise collapse to a sliver in the stacked layout). Desktop ignores this.
   const [libraryOpen, setLibraryOpen] = useState(false);

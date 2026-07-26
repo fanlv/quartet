@@ -162,14 +162,17 @@ function CanvasInner({
     // the backend serializes for workflows created without a canvas (e.g. via
     // the CLI). Restoring it would scale every node to nothing and blank the
     // canvas, so treat it like "no viewport" and fall back to fitView.
-    if (viewport && viewport.zoom > 0) {
+    // Mobile also skips the saved viewport: it was usually panned/zoomed on a
+    // wide desktop screen and frames the wrong area on a phone — fit the whole
+    // graph instead so the canvas never opens on empty space.
+    if (viewport && viewport.zoom > 0 && !isMobile) {
       void rf.setViewport(viewport, { duration: 0 });
       return;
     }
     if (nodes.length > 0) {
       void rf.fitView({ ...DEFAULT_FIT_VIEW_OPTIONS, duration: 0 });
     }
-  }, [nodes.length, rf, viewportResetKey]);
+  }, [isMobile, nodes.length, rf, viewportResetKey]);
 
   // Overlay run status + validation error flags onto node/edge visuals without
   // mutating the structural state owned by the page.

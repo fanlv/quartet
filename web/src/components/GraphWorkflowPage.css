@@ -634,9 +634,12 @@
     flex: 0 0 auto;
   }
 
-  /* "⋯" overflow menu holding validate/reset/delete/save-as. */
+  /* "⋯" overflow menu holding validate/reset/delete/save-as. The wrapper must
+     become a real box (the base rule is display:contents) or the absolutely
+     positioned menu would anchor to a higher container. */
   .graph-editor-actions > .graph-actions-overflow {
     flex: 0 0 auto;
+    display: block;
     position: relative;
   }
 

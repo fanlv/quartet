@@ -588,7 +588,12 @@ test('graph mobile: inspector bottom drawer can collapse and reopens on node sel
   const inspector = page.getByTestId('graph-inspector')
   const toggle = page.getByTestId('graph-inspector-drawer-toggle')
 
+  // The drawer starts collapsed on mobile so the canvas stays fully visible.
   await expect(inspector).toBeVisible()
+  await expect(inspector).toHaveClass(/drawer-collapsed/)
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+  await toggle.click()
   await expect(inspector).toHaveClass(/drawer-open/)
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
 
@@ -600,4 +605,30 @@ test('graph mobile: inspector bottom drawer can collapse and reopens on node sel
   await expect(inspector).toHaveClass(/drawer-open/)
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   await expect(toggle).toContainText('Shell')
+})
+
+test('graph mobile: maximized inspector drawer keeps its restore control reachable', async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openGraphCanvas(page, request, 'mobile')
+
+  const inspector = page.getByTestId('graph-inspector')
+  const toggle = page.getByTestId('graph-inspector-drawer-toggle')
+  const expand = page.getByTestId('graph-inspector-drawer-expand')
+
+  await toggle.click()
+  await expect(inspector).toHaveClass(/drawer-open/)
+
+  // Maximize, then restore. These clicks double as a regression check for the
+  // drawer bar sliding under the sticky page header while maximized: if the
+  // header covered it, Playwright's actionability check would fail the click.
+  await expand.click()
+  await expect(inspector).toHaveClass(/drawer-full/)
+  await expect(expand).toHaveAttribute('aria-pressed', 'true')
+
+  await expand.click()
+  await expect(inspector).not.toHaveClass(/drawer-full/)
+  await expect(expand).toHaveAttribute('aria-pressed', 'false')
+
+  await toggle.click()
+  await expect(inspector).toHaveClass(/drawer-collapsed/)
 })

@@ -518,10 +518,13 @@
     box-shadow: 0 -8px 22px rgba(0, 0, 0, 0.3);
   }
 
-  /* Expanded drawer: near-full visible viewport (keyboard-aware via --gi-vv-height),
-     for editing long prompts on a phone. */
+  /* Expanded drawer: near-full visible viewport (keyboard-aware via
+     --gi-vv-height), for editing long prompts on a phone. Leaves ~56px at the
+     top so the site's sticky banner never covers the drawer handle — the
+     drawer lives inside `.graph-editor` (z-index 2), so it can never out-stack
+     the banner (z-index 500) no matter how high its own z-index goes. */
   .graph-inspector.drawer-full {
-    max-height: calc(var(--gi-vv-height, 100dvh) - 8px);
+    max-height: calc(var(--gi-vv-height, 100dvh) - 56px);
   }
 
   .gi-drawer-bar {
