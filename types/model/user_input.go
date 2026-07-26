@@ -17,11 +17,9 @@ const (
 )
 
 // UserInput kind values. Entries without an explicit kind (older rows) are
-// implicitly "message"; loop_start is the structured "user clicked Start Loop"
-// record (see docs/feature-2026-05-07-loop-start-logging.md).
+// implicitly "message".
 const (
-	UserInputKindMessage   = "message"
-	UserInputKindLoopStart = "loop_start"
+	UserInputKindMessage = "message"
 )
 
 // UserInput is the narrow-spec "真实用户输入" record persisted to
@@ -44,13 +42,9 @@ type UserInput struct {
 	ImageUrls []string `json:"imageUrls,omitempty"`
 
 	// Kind distinguishes entry shapes in the single flat stream. Empty means
-	// "message" for backward compatibility with entries written before
-	// loop_start existed.
+	// "message" for backward compatibility with entries written before the
+	// kind field existed.
 	Kind string `json:"kind,omitempty"`
-
-	// LoopConfig is the snapshot captured when the user successfully started a
-	// Loop. Only populated when Kind == UserInputKindLoopStart.
-	LoopConfig *LoopConfig `json:"loopConfig,omitempty"`
 }
 
 // NewIMUserInput builds a UserInput for an IM-sourced message. jobID and
@@ -91,27 +85,5 @@ func NewWebUserInput(receivedAt time.Time, messageID, jobID, workspaceID, conten
 		WorkspaceID: workspaceID,
 		Content:     content,
 		ImageUrls:   imageUrls,
-	}
-}
-
-// NewLoopStartUserInput builds a UserInput that records a successful "Start
-// Loop" action from Web. The full LoopConfig snapshot is embedded verbatim so
-// offline readers can replay the exact plan the user committed to
-// (docs/feature-2026-05-07-loop-start-logging.md §3.1/§3.4). content is a
-// human-readable summary; the structured truth lives in LoopConfig.
-//
-// receivedAt must be sampled at the handler entry point before any work that
-// could cross a midnight boundary.
-func NewLoopStartUserInput(receivedAt time.Time, messageID, jobID, workspaceID, content string, loopConfig *LoopConfig) *UserInput {
-	return &UserInput{
-		MessageID:   messageID,
-		ReceivedAt:  receivedAt.UnixMilli(),
-		Source:      UserInputSourceWeb,
-		Platform:    UserInputPlatformWeb,
-		JobID:       jobID,
-		WorkspaceID: workspaceID,
-		Content:     content,
-		Kind:        UserInputKindLoopStart,
-		LoopConfig:  loopConfig,
 	}
 }

@@ -127,14 +127,6 @@ export interface LoopConfig {
   rounds?: LoopRound[];
 }
 
-export interface LoopTemplate {
-  id: string;
-  name: string;
-  config: LoopConfig;
-  createdAt: string;
-  updatedAt?: string;
-}
-
 export interface JobInfo {
   id: string;
   title: string;

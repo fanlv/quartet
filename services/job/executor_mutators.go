@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -18,7 +17,7 @@ import (
 //     back into memory under s.mu — and only when the in-memory pointer has
 //     not been swapped out by a concurrent reload.
 //
-// A targeted mutator must never replace a runLoop-owned field (Status,
+// A targeted mutator must never replace a run-owned field (Status,
 // Progress, LoopConfig as a whole, Resume, SessionIDs); see the ownership
 // model on serviceImpl.
 //
@@ -82,7 +81,7 @@ func (s *serviceImpl) updateJobField(jobID string, mutate, mirror func(j *model.
 // the change. Disk is written BEFORE the in-memory mutation so a failing
 // repo.Save does not leave memory and disk diverged. Serialized by persist
 // shard so a concurrent full-job save cannot overwrite the flag with a stale
-// snapshot. Callers should still wait for runLoop to exit before cleaning up
+// snapshot. Callers should still wait for the run to exit before cleaning up
 // on-disk artefacts.
 func (s *serviceImpl) MarkDeleted(jobID string) error {
 	set := func(j *model.Job) { j.Deleted = true }
@@ -92,7 +91,6 @@ func (s *serviceImpl) MarkDeleted(jobID string) error {
 func (s *serviceImpl) UpdateTitle(jobID string, title string) error {
 	apply := func(j *model.Job) {
 		j.Title = title
-		upsertLoopVariables(j, map[string]string{consts.VarJobTitle: title})
 	}
 	return s.updateJobField(jobID, apply, apply)
 }
@@ -313,9 +311,10 @@ func (s *serviceImpl) ClearGraphRunLinkage(_ context.Context, jobID, graphRunID 
 // emit OnJobDone (the scheduler releases the slot on the failed trigger; firing
 // the done callback would double-release).
 //
-// It reuses failJob — the same terminal path runLoop uses — so status flip,
-// persistence and the terminal SSE event all stay consistent. isLoopRun=false
-// guarantees failJob skips notifyJobDone; a Graph Job carries no Resume and no
+// It reuses failJob — the same terminal path interactive runs use — so status flip,
+// persistence and the terminal SSE event all stay consistent. failJob never emits
+// notifyJobDone (graph runs fire it via SetGraphRunState; FailGraphJob must not);
+// a Graph Job carries no Resume and no
 // interactive prior status, so applyTerminalStatusLocked writes Failed directly.
 func (s *serviceImpl) FailGraphJob(ctx context.Context, jobID, message string) error {
 	s.mu.Lock()
@@ -341,7 +340,7 @@ func (s *serviceImpl) FailGraphJob(ctx context.Context, jobID, message string) e
 
 	// failJob re-acquires s.mu and persists via saveJobWithRetry (which takes
 	// the per-job persist shard), so it must be called without holding s.mu.
-	s.failJob(ctx, job, message, false, false)
+	s.failJob(ctx, job, message)
 	return nil
 }
 

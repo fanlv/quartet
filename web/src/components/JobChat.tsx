@@ -8,13 +8,12 @@ import { phaseLabel } from '../utils/chatPhase';
 import { ChatInput } from './ChatInput';
 import { LoopProgress } from './LoopProgress';
 import { GraphLoopProgress } from './GraphLoopProgress';
-import { LoopConfigPanel } from './LoopConfigPanel';
 import { LoopSessionSidebar } from './LoopSessionSidebar';
 import { StepOutline } from './StepOutline';
 import { FileBrowser } from './FileBrowser';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
 import { AgentInfo } from './ChatPage';
-import { LoopConfig, MessageRoleEnum, MessageStatusEnum, type UserMessage } from '../types';
+import { MessageRoleEnum, MessageStatusEnum, type UserMessage } from '../types';
 import { ServerClockProvider } from '../contexts/ServerClock';
 import { VirtualList } from './VirtualList';
 import { registerWorkspaceColors } from '../utils/workspace';
@@ -49,7 +48,6 @@ interface JobChatProps {
   initialMessage?: string | null;
   initialImageUrls?: string[];
   initialWorkdir?: string;
-  initialLoopConfig?: LoopConfig;
   initialSessionId?: string;
   initialModelId?: string;
   initialAgentType?: string;
@@ -93,7 +91,7 @@ interface JobInfo {
 const JOB_ROW_HEIGHT = 36;
 
 export function JobChat(props: JobChatProps) {
-  const { existingJobId, initialMessage, initialImageUrls, initialWorkdir, initialLoopConfig, initialSessionId, initialModelId, initialAgentType, initialAcpMode, initialAcpThoughtLevel, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
+  const { existingJobId, initialMessage, initialImageUrls, initialWorkdir, initialSessionId, initialModelId, initialAgentType, initialAcpMode, initialAcpThoughtLevel, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
   const { t } = useTranslation();
 
   // Read the workspace title from the cross-page cache populated by App.tsx
@@ -178,10 +176,7 @@ export function JobChat(props: JobChatProps) {
     applyGraphRunStatusSnapshot,
     loopProgress,
     loopStatus,
-    stopPending,
     loopFlow,
-    loopVariables,
-    loopDisabledVars,
     loopSessions,
     activeSessionId,
     setActiveSessionId,
@@ -191,11 +186,6 @@ export function JobChat(props: JobChatProps) {
     queueMessage,
     cancelQueuedMessage,
     queuedMessages,
-    startLoop,
-    continueLoop,
-    stopLoop,
-    cancelStop,
-    updateLoopConfig,
     stopGeneration,
     clearMessages,
     eventsReady,
@@ -220,9 +210,6 @@ export function JobChat(props: JobChatProps) {
   const [initialAgentRefreshPending, setInitialAgentRefreshPending] = useState(false);
   const [jobEnable, setJobEnable] = useState(false);
   const [loopSidebarOpen, setLoopSidebarOpen] = useState(false);
-  // Loop config editor (edit an existing job's LoopConfig in place).
-  const [loopEditorOpen, setLoopEditorOpen] = useState(false);
-  const [loopEditError, setLoopEditError] = useState('');
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const [agentsEditorOpen, setAgentsEditorOpen] = useState(false);
   const [jobListOpen, setJobListOpen] = useState(false);
@@ -780,7 +767,6 @@ export function JobChat(props: JobChatProps) {
   const effectiveModelId = hasUserSelected
     ? agentEffectiveModelId
     : sessionModelId ?? agentEffectiveModelId;
-  const canContinueLoop = true;
 
   const handleSendMessage = useCallback(
     (content: string, imageUrls?: string[]) => {
@@ -803,19 +789,12 @@ export function JobChat(props: JobChatProps) {
     [sendMessage, queueMessage, isLoading, effectiveModelId, isLoop, isGraph, activeSessionId, selectedAgent]
   );
 
-  // Send initial message or start loop — only after SSE connection is ready
+  // Send initial message — only after SSE connection is ready
   useEffect(() => {
     if (initialMessageSent.current) return;
     if (!eventsReady) return;
     if (initialAgentRefreshPending) return;
     if (isLoadingHistory || error) return;
-
-    // Loop mode: auto-start
-    if (initialLoopConfig && jobId) {
-      initialMessageSent.current = true;
-      startLoop();
-      return;
-    }
 
     // Interactive mode: send first message (wait for agents to load so agentType is available).
     // bypassCommand=true: the home page builds a Job then hands off to us —
@@ -831,7 +810,7 @@ export function JobChat(props: JobChatProps) {
         console.error('Failed to send initial message:', err);
       }).finally(() => setInitialDispatchPending(false));
     }
-  }, [effectiveModelId, error, eventsReady, initialAgentRefreshPending, initialMessage, initialImageUrls, initialLoopConfig, initialUserMessage, isLoadingHistory, jobId, sendMessage, startLoop, selectedAgent]);
+  }, [effectiveModelId, error, eventsReady, initialAgentRefreshPending, initialMessage, initialImageUrls, initialUserMessage, isLoadingHistory, sendMessage, selectedAgent]);
 
   const handleNewChat = () => {
     clearMessages();
@@ -1569,17 +1548,12 @@ export function JobChat(props: JobChatProps) {
         </div>
       )}
 
-      {/* Loop progress bar */}
+      {/* Loop progress bar (read-only archive of historical loop jobs) */}
       {isLoop && loopProgress && (
         <LoopProgress
           progress={loopProgress}
           status={loopStatus}
-          flow={loopFlow ?? initialLoopConfig?.flow ?? undefined}
-          onStop={isReadonly ? undefined : stopLoop}
-          stopPending={stopPending}
-          onCancelStop={isReadonly ? undefined : cancelStop}
-          onContinue={!isReadonly && canContinueLoop ? continueLoop : undefined}
-          onEdit={isReadonly ? undefined : () => { setLoopEditError(''); setLoopEditorOpen(true); }}
+          flow={loopFlow ?? undefined}
           error={error ?? undefined}
         />
       )}
@@ -1595,39 +1569,6 @@ export function JobChat(props: JobChatProps) {
           shareToken={shareToken}
           agents={agents}
           canEdit={!isReadonly}
-        />
-      )}
-
-      {isLoop && loopEditorOpen && (
-        <LoopConfigPanel
-          agents={agents}
-          initialConfig={{
-            flow: loopFlow ?? initialLoopConfig?.flow ?? [],
-            // Prefer variables hydrated from the fetched job (loopVariables) so a
-            // job opened from the list / after refresh shows its saved variables.
-            // `undefined` means "not hydrated yet" and may fall back to the
-            // brand-new-loop initial config; `{}` means "saved empty" and must
-            // not resurrect stale initial variables after deleting the last one.
-            ...(loopVariables !== undefined
-              ? { variables: loopVariables, disabledVars: loopDisabledVars ?? [] }
-              : initialLoopConfig?.variables
-                ? { variables: initialLoopConfig.variables, disabledVars: initialLoopConfig.disabledVars ?? [] }
-                : {}),
-          }}
-          runningLock={loopStatus === 'running'}
-          saveError={loopEditError}
-          onSave={async (config) => {
-            try {
-              await updateLoopConfig(config);
-              setLoopEditorOpen(false);
-              setLoopEditError('');
-            } catch (err) {
-              setLoopEditError(err instanceof Error ? err.message : String(err));
-              throw err;
-            }
-          }}
-          onConfirm={() => { /* unused in edit mode */ }}
-          onCancel={() => { setLoopEditorOpen(false); setLoopEditError(''); }}
         />
       )}
 

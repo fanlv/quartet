@@ -24,13 +24,10 @@ const (
 	EventTypeRunError         EventType = "RUN_ERROR"
 
 	// Job-level events
-	EventTypeJobStarted         EventType = "JOB_STARTED"
-	EventTypeJobCompleted       EventType = "JOB_COMPLETED"
-	EventTypeJobStopped         EventType = "JOB_STOPPED"
-	EventTypeJobFailed          EventType = "JOB_FAILED"
-	EventTypeIterationStarted   EventType = "ITERATION_STARTED"
-	EventTypeIterationCompleted EventType = "ITERATION_COMPLETED"
-	EventTypeIterationFailed    EventType = "ITERATION_FAILED"
+	EventTypeJobStarted   EventType = "JOB_STARTED"
+	EventTypeJobCompleted EventType = "JOB_COMPLETED"
+	EventTypeJobStopped   EventType = "JOB_STOPPED"
+	EventTypeJobFailed    EventType = "JOB_FAILED"
 
 	// Command feedback — pushed by the chat-page message handler after a
 	// slash command (e.g. /help, /ws N) runs successfully. Transient: not
@@ -71,9 +68,7 @@ type BaseEvent struct {
 	Timestamp int64          `json:"timestamp"`
 	External  map[string]any `json:"external,omitempty"`
 
-	// Loop context (only set in loop mode)
 	JobID string `json:"jobId,omitempty"`
-	Path  []int  `json:"path,omitempty"`
 }
 
 type RunStartedEvent struct {

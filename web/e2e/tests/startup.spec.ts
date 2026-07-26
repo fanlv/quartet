@@ -11,7 +11,6 @@ import {
   e2eInterruptedRunningJobID,
   e2eLegacyFirstModelID,
   e2eLegacyFirstModelJobID,
-  e2eLegacyRoundsJobID,
   e2eModelID,
   e2ePersistWarningJobID,
   e2eShellAWSSecretAccessKey,
@@ -177,39 +176,6 @@ async function createInteractiveJob(request: APIRequestContext, workspaceId = 'w
     data: { agentType: e2eAgentType, modelId: MODEL_ID, workspaceId, mode: 'interactive' },
   })
   expect(res.ok(), `job create failed: ${res.status()} ${await res.text()}`).toBeTruthy()
-  const created = await res.json()
-  expect(created.jobId).toMatch(/^job-/)
-  if (title) {
-    const titleRes = await request.put(`/api/v1/job/${created.jobId}/title`, { headers, data: { title } })
-    expect(titleRes.ok()).toBeTruthy()
-  }
-  return { jobId: created.jobId as string, headers }
-}
-
-async function createLoopJob(request: APIRequestContext, workspaceId = 'ws-1', title?: string) {
-  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
-  const res = await request.post('/api/v1/job/create', {
-    headers,
-    data: {
-      agentType: e2eAgentType,
-      modelId: MODEL_ID,
-      workspaceId,
-      mode: 'loop',
-      loopConfig: {
-        flow: [
-          {
-            id: 'e2e-persist-warning-step',
-            type: 'step',
-            message: 'E2E persisted warning snapshot step',
-            repeatCount: 1,
-            roundMode: 'beforeRound',
-            roundType: 'prompt',
-          },
-        ],
-      },
-    },
-  })
-  expect(res.ok(), `loop job create failed: ${res.status()} ${await res.text()}`).toBeTruthy()
   const created = await res.json()
   expect(created.jobId).toMatch(/^job-/)
   if (title) {
@@ -515,31 +481,6 @@ test('startup load reconciles interrupted running jobs and persists the repair',
   const persisted = JSON.parse(raw)
   expect(persisted.status).toBe('failed')
   expect(persisted.progress?.lastError).toBe('interrupted: process restarted while running')
-})
-
-test('legacy rounds-only loop config starts by migrating to flow once', async ({ request }) => {
-  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
-
-  const beforeStart = await getJobSnapshot(request, e2eLegacyRoundsJobID, headers)
-  expect(beforeStart.status).toBe('pending')
-  expect(beforeStart.loopConfig?.flow || []).toEqual([])
-  expect(beforeStart.loopConfig?.rounds?.[0]?.message).toContain('legacy-rounds-migrated-e2e')
-
-  const startRes = await request.post(`/api/v1/job/${e2eLegacyRoundsJobID}/start`, { headers })
-  expect(startRes.ok(), `legacy rounds start failed: ${startRes.status()} ${await startRes.text()}`).toBeTruthy()
-  await waitForJobStatus(request, e2eLegacyRoundsJobID, headers, 'completed')
-
-  const completed = await getJobSnapshot(request, e2eLegacyRoundsJobID, headers)
-  expect(completed.loopConfig?.flow?.length).toBe(1)
-  expect(completed.loopConfig?.flow?.[0]?.type).toBe('group')
-  expect(completed.loopConfig?.flow?.[0]?.children?.[0]?.roundType).toBe('shell')
-  expect(completed.progress?.totalSteps).toBe(1)
-  expect(completed.progress?.completedCount).toBe(1)
-  expect(completed.progress?.failedCount || 0).toBe(0)
-  expect(completed.progress?.results?.[0]?.content).toContain('legacy-rounds-migrated-e2e')
-
-  const transcript = await getAssistantTranscript(request, completed.sessionIds, headers)
-  expect(transcript).toContain('legacy-rounds-migrated-e2e')
 })
 
 test('startup load preserves persistence warnings without promoting them to LastError', async ({ page, request }) => {
@@ -921,49 +862,6 @@ test('SSE terminal completion event timestamp matches the persisted job Finished
   expect(completedSnapshot.progress?.failedCount || 0).toBe(0)
   expect(completedSnapshot.progress?.results?.[0]?.success).toBe(true)
   expect(completedSnapshot.progress?.results?.[0]?.content).toContain('terminal-timestamp-complete-e2e-after')
-})
-
-test('loop progress renders persistence warnings separately from last error', async ({ page, request }) => {
-  const job = await createLoopJob(request, 'ws-1', 'E2E Persist Warning Loop')
-  const persistWarnings = [
-    'persist failed after record_iteration_result: injected e2e disk warning',
-    'persist failed after attach_session: injected e2e follow-up warning',
-  ]
-
-  await page.route(`**/api/v1/job/${job.jobId}`, async (route) => {
-    const response = await route.fetch()
-    const snapshot = await response.json()
-    await route.fulfill({
-      status: response.status(),
-      contentType: 'application/json',
-      body: JSON.stringify({
-        ...snapshot,
-        status: 'failed',
-        lastRunOutcome: 'failed',
-        progress: {
-          ...(snapshot.progress || {}),
-          totalSteps: 1,
-          completedCount: 0,
-          failedCount: 1,
-          currentPath: [0, 0],
-          lastError: 'iteration failed before warning was recorded',
-          persistWarnings,
-        },
-      }),
-    })
-  })
-
-  await openAppWithAuth(page, `/?workspaceId=ws-1&jobId=${encodeURIComponent(job.jobId)}`)
-
-  await expect(page.getByTestId('job-chat')).toHaveAttribute('data-job-mode', 'loop')
-  await expect(page.getByTestId('loop-progress')).toBeVisible()
-  await expect(page.getByTestId('loop-progress-error')).toContainText('iteration failed before warning was recorded')
-
-  const warningBox = page.getByTestId('loop-progress-persist-warning')
-  await expect(warningBox).toBeVisible()
-  await expect(warningBox).toContainText('Persistence warnings')
-  await expect(warningBox).toContainText(persistWarnings[0])
-  await expect(warningBox).toContainText(persistWarnings[1])
 })
 
 test('shell step env sanitization matches default passthrough and filtering rules', async ({ request }) => {
@@ -1608,47 +1506,6 @@ async function waitForScheduleStatus(request: APIRequestContext, scheduleId: str
     return schedule.lastStatus as string
   }, { timeout: 30_000 }).toBe(expected)
 }
-
-test('template save rejects an invalid loop config with 400 and full error', async ({ request }) => {
-  // Empty flow is structurally invalid; the backend must reject it rather than
-  // silently persisting a broken template that only fails later at run time.
-  const res = await request.post('/api/v1/template/save', {
-    headers: templateHeaders,
-    data: { name: `E2E Invalid Template ${Date.now()}`, config: { flow: [] } },
-  })
-  expect(res.status(), `expected 400, got ${res.status()}: ${await res.text()}`).toBe(400)
-  const body = await res.json()
-  // Errors are surfaced in full (AGENTS.md) — the message must carry the real
-  // validation reason, not a generic stand-in.
-  expect(String(body.msg)).toContain('flow')
-
-  // And it must not have leaked into the list.
-  const listRes = await request.get('/api/v1/template/list', { headers: templateHeaders })
-  expect(listRes.ok()).toBeTruthy()
-  const list = await listRes.json()
-  const names = (list.templates as Array<{ name: string }>).map((t) => t.name)
-  expect(names.some((n) => n.startsWith('E2E Invalid Template'))).toBeFalsy()
-})
-
-test('template update rejects an invalid loop config with 400', async ({ request }) => {
-  const name = `E2E Update Validate ${Date.now()}`
-  const saveRes = await saveTemplate(request, name, validShellFlow('update-validate'))
-  expect(saveRes.ok(), `save failed: ${saveRes.status()} ${await saveRes.text()}`).toBeTruthy()
-  const saved = await saveRes.json()
-  const id = saved.template.id as string
-
-  const updateRes = await request.put(`/api/v1/template/${id}`, {
-    headers: templateHeaders,
-    data: { name, config: { flow: [] } },
-  })
-  expect(updateRes.status(), `expected 400, got ${updateRes.status()}: ${await updateRes.text()}`).toBe(400)
-
-  // The original config must survive a rejected update.
-  const getRes = await request.get('/api/v1/template/list', { headers: templateHeaders })
-  const list = await getRes.json()
-  const found = (list.templates as Array<{ id: string; config: { flow?: unknown[] } }>).find((t) => t.id === id)
-  expect(found?.config.flow?.length).toBe(1)
-})
 
 test('template save always allocates a fresh id and never overwrites an existing template', async ({ request }) => {
   const first = await saveTemplate(request, `E2E NoOverwrite A ${Date.now()}`, validShellFlow('first'))

@@ -162,10 +162,10 @@ type CreateJobResponse struct {
 }
 
 // JobSummary is the compact DTO used by the job list endpoint. It deliberately
-// excludes the LoopConfig tree and Progress.Results array (which can each be
-// hundreds of KB for long-running loop jobs) so the list stays cheap to
-// serialize and transfer. Callers that need those fields must hit the detail
-// endpoint (GET /api/v1/job/:jobId) which returns the full Job.
+// excludes the job's large nested payloads (config trees, per-step result
+// arrays, which can each be hundreds of KB on long-lived jobs) so the list
+// stays cheap to serialize and transfer. Callers that need those fields must
+// hit the detail endpoint (GET /api/v1/job/:jobId) which returns the full Job.
 type JobSummary struct {
 	ID           string    `json:"id"`
 	Title        string    `json:"title"`

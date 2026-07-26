@@ -13,10 +13,10 @@ import (
 // Persistence helpers shared by the run lifecycle and best-effort save sites.
 //
 // saveJobWithRetry is the canonical "snapshot under s.mu, save outside it,
-// surface the error" path. Recovery-critical callers (Start / Continue /
-// SendMessage / terminal status writes) propagate the error to roll back
-// in-memory state. Best-effort callers (resume cursor updates, attach_session,
-// variable extraction) pair the call with recordPersistWarning so a failure
+// surface the error" path. Recovery-critical callers (SendMessage /
+// terminal status writes) propagate the error to roll back in-memory state.
+// Best-effort callers (attach_session and similar metadata updates) pair the
+// call with recordPersistWarning so a failure
 // leaves a visible breadcrumb on the job instead of vanishing into the log.
 
 // saveJobWithRetry persists a job and returns the error so callers that
@@ -36,10 +36,9 @@ func (s *serviceImpl) saveJobWithRetry(ctx context.Context, job *model.Job, acti
 
 // saveJobWithRetryUnderPersistLock is saveJobWithRetry's body, minus the
 // persist-shard acquisition. Callers that already hold persistLock(job.ID) —
-// the lifecycle transitions (Start / Continue / SendMessage) that must keep the
-// whole check→flip→persist sequence mutually exclusive with ReplaceLoopConfig —
-// call this directly; the persist shard is NOT reentrant, so calling
-// saveJobWithRetry while holding it would deadlock.
+// lifecycle transitions that must keep their check→flip→persist sequence
+// serialized call this directly; the persist shard is NOT reentrant, so
+// calling saveJobWithRetry while holding it would deadlock.
 func (s *serviceImpl) saveJobWithRetryUnderPersistLock(ctx context.Context, job *model.Job, action string) error {
 	s.mu.Lock()
 	job.UpdatedAt = time.Now()

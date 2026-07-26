@@ -11,8 +11,7 @@ import type { AssistantMessage, Message, ToolMessage } from '../types/message';
  * thought_msg_id momentarily diverge (e.g. a history refetch races a still
  * in-flight round before the id is durably stored), id-based dedup misses
  * them and the thought renders twice. Semantic dedup by sessionId +
- * thinkingContent is the same fallback already used for synthetic loop-user
- * messages.
+ * thinkingContent covers that case.
  */
 function isPureThoughtBubble(m: Message): m is AssistantMessage {
   if (m.role !== MessageRoleEnum.ASSISTANT) return false;
@@ -40,9 +39,8 @@ export interface MergeOptions {
  * 1. For each incoming message, prefer the existing version if it has
  *    longer content (streaming deltas still accumulating).
  * 2. Existing-only messages (not in incoming set) are kept unless they
- *    are duplicates: optimistic user messages, synthetic loop-user messages
- *    now covered by history, or (optionally) tool messages with matching
- *    toolCallId.
+ *    are duplicates: optimistic user messages, or (optionally) tool
+ *    messages with matching toolCallId.
  *
  * Returns [...merged_incoming, ...filtered_existing_only].
  *
@@ -85,13 +83,6 @@ export function mergeMessages(
     }
   }
 
-  const historyUserKeys = new Set<string>();
-  for (const hm of incoming) {
-    if (hm.role === MessageRoleEnum.USER && hm.sessionId) {
-      historyUserKeys.add(`${hm.sessionId}\x00${hm.content}`);
-    }
-  }
-
   // Build a set of (sessionId, thinkingContent) for pure thought bubbles
   // present in history, so a live thought bubble whose id no longer matches
   // its persisted thought_msg_id is dropped in favour of the history version.
@@ -119,10 +110,6 @@ export function mergeMessages(
     // Without this check, a freshly-sent message (not yet persisted by the
     // backend) would be dropped during a syncJobState reload race.
     if (m.role === MessageRoleEnum.USER && m.clientMessageId && incomingClientMessageIds.has(m.clientMessageId)) return false;
-    // Drop synthetic loop user messages whose confirmed version now exists in history
-    if (m.role === MessageRoleEnum.USER && m.id.startsWith('loop-user-') && m.sessionId) {
-      if (historyUserKeys.has(`${m.sessionId}\x00${m.content}`)) return false;
-    }
     // Drop a live thought bubble whose equivalent (same sessionId +
     // thinkingContent) already exists in history under a different id.
     if (m.sessionId && isPureThoughtBubble(m)) {

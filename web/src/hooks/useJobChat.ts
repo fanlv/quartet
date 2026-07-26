@@ -12,7 +12,6 @@ import {
   ToolCallStatusEnum,
   JobProgress,
   FlowNode,
-  LoopConfig,
   type GraphInstanceState,
   type GraphInstanceStatus,
   type GraphInstanceKey,
@@ -27,7 +26,6 @@ import { translateGraphEvent } from '../utils/translateGraphEvent';
 import { backendPhaseKind, type ChatPhase } from '../utils/chatPhase';
 import { useConnectionStatus } from '../contexts/ConnectionStatus';
 import { isKnownCommand } from '../utils/commands';
-import i18n from '../i18n';
 
 // deriveStreamingPhase reads the current streaming phase off the LAST
 // message — O(1), so it runs inline on render with no useMemo. A tail
@@ -67,38 +65,6 @@ function showCommandToast(text: string) {
     toast.classList.remove('show');
     setTimeout(() => toast.remove(), 300);
   }, 2800);
-}
-
-// Strip runtime builtin variables from a loop variable map, leaving only the
-// user-defined entries. The server injects builtins like _job_id / _current_time
-// into the persisted map during execution; surfacing them as editable rows would
-// be confusing and round-tripping them back risks clobbering server state.
-//
-// Always returns a concrete map: a null/undefined input (the backend omits an
-// empty `variables` map via `omitempty`) maps to `{}` — "hydrated, no user
-// variables" — NOT undefined. Callers invoke this only once the job's loopConfig
-// is confirmed hydrated, so the result always carries hydrated semantics. The
-// `loopVariables` state stays `undefined` only at its initial pre-hydration
-// value; JobChat treats that lone `undefined` as "not hydrated yet" and only
-// then falls back to initialLoopConfig variables. Returning `undefined` here
-// would let an omitted (saved-empty) map resurrect stale initial variables.
-const builtinLoopVars = new Set([
-  '_job_id',
-  '_job_title',
-  '_job_workdir',
-  '_workspace_id',
-  '_current_time',
-  '_current_path',
-  '_last_assistant_msg',
-]);
-
-function userLoopVariables(vars: Record<string, string> | undefined | null): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (vars == null) return out;
-  for (const [k, v] of Object.entries(vars)) {
-    if (!builtinLoopVars.has(k)) out[k] = v;
-  }
-  return out;
 }
 
 function isIgnorableNetworkError(err: unknown): boolean {
@@ -338,12 +304,7 @@ const GRAPH_LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'step
 // indefinitely, which previously left the click looking dead with no error.
 const STOP_REQUEST_TIMEOUT_MS = 15_000;
 
-function isRequestTimeout(err: unknown): boolean {
-  return err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError');
-}
-
 function stopRequestErrorMessage(err: unknown, fallback: string): string {
-  if (isRequestTimeout(err)) return i18n.t('loop.stop.timeout');
   return err instanceof Error ? err.message : fallback;
 }
 
@@ -536,25 +497,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const graphRunLive = !!isGraph && !!graphRunStatus && GRAPH_LIVE_STATUSES.has(graphRunStatus);
   const [loopProgress, setLoopProgress] = useState<JobProgress | null>(null);
   const [loopStatus, setLoopStatus] = useState<'idle' | 'running' | 'completed' | 'stopped' | 'failed'>('idle');
-  // True once a graceful "stop after step" has been requested but the loop has
-  // not yet reached the step boundary where it stops. Drives the "keep running"
-  // affordance. The button only renders while status === 'running', so a stale
-  // value is naturally masked once the loop stops; it is reset on job switch and
-  // on Continue (a fresh run) to be safe.
-  const [stopPending, setStopPending] = useState(false);
   // Flow tree of the current loop job, used by the progress UI to derive the
-  // per-session / per-step position. Hydrated when the job is fetched or when
-  // a fresh loop is started from initialLoopConfig.
+  // per-session / per-step position. Hydrated when the job is fetched.
   const [loopFlow, setLoopFlow] = useState<FlowNode[] | null>(null);
-
-  // User-defined loop variables of the current job, hydrated alongside loopFlow
-  // so the editor can show and round-trip them. `undefined` means the job has
-  // not hydrated yet; `{}` means it has no user variables and must override any
-  // stale initialLoopConfig fallback.
-  const [loopVariables, setLoopVariables] = useState<Record<string, string> | undefined>(undefined);
-  // Disabled (toggled-off) user-variable keys, hydrated alongside loopVariables
-  // so reopening the editor on a saved job shows the saved enable/disable state.
-  const [loopDisabledVars, setLoopDisabledVars] = useState<string[] | undefined>(undefined);
 
   // Job-level timing for total duration display
   const [jobStartedAt, setJobStartedAt] = useState<number | undefined>(undefined);
@@ -607,7 +552,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // brand new (headSeq=0, nextSeq=0) so Subscribe(0) is legal and the gate
   // opens immediately on mount.
   const [snapshotReady, setSnapshotReady] = useState(false);
-  // Bumped by sendMessage / startLoop / continueLoop when SSE has been
+  // Bumped by sendMessage when SSE has been
   // disconnected (terminal event cleanup). Forces the auto-connect useEffect
   // to re-fire and establish a fresh SSE subscription for the new run.
   const [sseReconnectSeq, setSseReconnectSeq] = useState(0);
@@ -749,11 +694,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setIsGraph(false);
     setGraphRunId(null);
     setLoopFlow(null);
-    setLoopVariables(undefined);
-    setLoopDisabledVars(undefined);
     setLoopProgress(null);
     setLoopStatus('idle');
-    setStopPending(false);
     setLoopSessions([]);
     applyActiveSessionSelection(null, true);
     setEndedSessionIds(new Set());
@@ -785,9 +727,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // Ref to syncJobState so handleEvent can call it without a dependency cycle
   // (syncJobState is defined after handleEvent). Updated alongside handleEventRef.
   const syncJobStateRef = useRef<(id: string, metadataOnly?: boolean, forceSkipMessages?: boolean) => Promise<void>>(() => Promise.resolve());
-  // Distinguish "start loop execution" from "interactive send in loop mode".
-  // Backend currently emits JOB_* events for both flows.
-  const shouldResetOnJobStartRef = useRef(false);
   // Track whether a loop is actively running (set on JOB_STARTED, cleared on JOB_COMPLETED/STOPPED/FAILED).
   const loopRunningRef = useRef(false);
 
@@ -953,12 +892,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             failedCount: 0,
           };
         });
-        if (shouldResetOnJobStartRef.current) {
-          setLoopSessions([]);
-          setEndedSessionIds(new Set());
-          applyActiveSessionSelection(null, true);
-          shouldResetOnJobStartRef.current = false;
-        }
         break;
 
       case EventTypeEnum.JOB_COMPLETED: {
@@ -977,7 +910,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setLoopStatus('completed');
         }
         loopRunningRef.current = false;
-        setStopPending(false);
         setJobFinishedAt(event.timestamp || Date.now());
         setLoopProgress(event.progress);
         setIsLoading(false);
@@ -1031,7 +963,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setLoopStatus('stopped');
         }
         loopRunningRef.current = false;
-        setStopPending(false);
         setJobFinishedAt(event.timestamp || Date.now());
         setLoopProgress(event.progress);
         setIsLoading(false);
@@ -1076,7 +1007,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setLoopStatus('failed');
         }
         loopRunningRef.current = false;
-        setStopPending(false);
         setJobFinishedAt(event.timestamp || Date.now());
         if (event.progress) setLoopProgress(event.progress);
         setError(event.message);
@@ -1187,30 +1117,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                 : m
             )
           );
-        }
-
-        // Insert synthetic user message only for loop execution.
-        if (!isInteractiveSend && isLoopRef.current && event.message) {
-          // A loop session can contain multiple auto-sent user turns. Use runId
-          // when available so later turns in the same session do not collide with
-          // the first synthetic message.
-          const userMsgId = `loop-user-${event.runId || `${iterSessionId}-${path.join('-')}-${event.timestamp}`}`;
-          const userMsg: Message = {
-            id: userMsgId,
-            role: MessageRoleEnum.USER,
-            content: event.message,
-            createdAt: event.timestamp,
-            status: MessageStatusEnum.Finished,
-            sessionId: iterSessionId,
-          };
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === userMsgId)) return prev;
-            // History IDs differ from the synthetic ID. Deduplicate by the same
-            // session + content instead of session only, otherwise later auto
-            // turns in the same loop session are incorrectly suppressed.
-            if (prev.some((m) => m.role === MessageRoleEnum.USER && m.sessionId === iterSessionId && m.content === event.message)) return prev;
-            return [...prev, userMsg];
-          });
         }
         break;
       }
@@ -1652,13 +1558,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             );
           }
         }
-        if (event.name === 'graceful_stop_pending') {
-          // Another tab requested or cancelled a "stop after step", or the loop
-          // consumed the request at a step boundary. Sync the local pending
-          // state so this tab's stop buttons match. Runtime-only — not persisted.
-          const payload = event.value as { pending?: boolean } | null;
-          setStopPending(!!payload?.pending);
-        }
         break;
 
       case EventTypeEnum.COMMAND_SYSTEM_MESSAGE:
@@ -1804,8 +1703,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
       if (Array.isArray(job?.loopConfig?.flow)) {
         setLoopFlow(job.loopConfig.flow);
-        setLoopVariables(userLoopVariables(job.loopConfig.variables));
-        setLoopDisabledVars(job.loopConfig.disabledVars || []);
       }
 
       // Hydrate round timing so the badge persists across reconnects.
@@ -2010,21 +1907,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           }
           if (job.progress) {
             setLoopProgress(job.progress);
-            // Restore the runtime-only graceful-stop pending state from the
-            // snapshot. syncJobState is the authoritative recovery path for SSE
-            // reconnect / watchdog / pre-connect snapshot, and graceful_stop_pending
-            // is a transient (unbuffered) event that may not replay after a
-            // reconnect — so the snapshot is the only reliable source. Without
-            // this, a missed pending=true left the "Keep running" affordance
-            // hidden, and a missed pending=false left a stale "stop after step".
-            setStopPending(status === 'running' && !!job.progress.gracefulStopPending);
         }
       } else if (job.mode === 'graph') {
         setIsLoop(false);
         isLoopRef.current = false;
         setIsGraph(true);
         setGraphRunId(typeof job.graphRunId === 'string' && job.graphRunId ? job.graphRunId : null);
-        setStopPending(false);
       } else {
         setIsGraph(false);
         setGraphRunId(null);
@@ -2960,175 +2848,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     });
   }, [isLoading, isLoop, queuedMessages, sendMessage]);
 
-  // Start loop execution
-  const startLoop = useCallback(async () => {
-    if (!jobId || isPublic) return;
-    setBackendPhase(null);
-    setIsLoading(true);
-    setError(null);
-    shouldResetOnJobStartRef.current = true;
-    // Accumulate previous turn's duration before resetting.
-    if (jobStartedAtRef.current != null && jobFinishedAtRef.current != null) {
-      setInteractiveAccumulatedMs((prev) => prev + (jobFinishedAtRef.current! - jobStartedAtRef.current!));
-    }
-    // Fresh run: clear any round timestamps left over from a previous run
-    // so the footer "total duration" badge anchors to the new JOB_STARTED.
-    setJobStartedAt(undefined);
-    setJobFinishedAt(undefined);
-
-    try {
-      await ensureEventStreamReady('start loop');
-      const response = await fetch(`/api/v1/job/${jobId}/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (!response.ok) {
-        throw new Error(await readHTTPError(response));
-      }
-    } catch (err) {
-      console.error('[startLoop] error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to start loop');
-      setIsLoading(false);
-    }
-  }, [ensureEventStreamReady, jobId, isPublic]);
-
-  const continueLoop = useCallback(async () => {
-    if (!jobId || isPublic) return;
-    setBackendPhase(null);
-    setIsLoading(true);
-    setError(null);
-    // A fresh run: drop any stale graceful-stop request from the prior run so
-    // the new run doesn't start showing "keep running".
-    setStopPending(false);
-    // Accumulate previous turn's duration before resetting.
-    if (jobStartedAtRef.current != null && jobFinishedAtRef.current != null) {
-      setInteractiveAccumulatedMs((prev) => prev + (jobFinishedAtRef.current! - jobStartedAtRef.current!));
-    }
-    // Continue starts a fresh run: clear the prior run's round timestamps
-    // so the footer "total duration" badge anchors to the new JOB_STARTED
-    // instead of carrying over the previous run's start time.
-    setJobStartedAt(undefined);
-    setJobFinishedAt(undefined);
-
-    try {
-      await ensureEventStreamReady('continue loop');
-      const response = await fetch(`/api/v1/job/${jobId}/continue`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (!response.ok) {
-        throw new Error(await readHTTPError(response));
-      }
-      const data = await response.json().catch(() => null);
-      // The backend accepted the continue and a new run is launching. Flip to
-      // running immediately so the stop buttons enable without waiting for the
-      // SSE JOB_STARTED round-trip (which previously left the UI stuck showing
-      // the prior "stopped" state with only Continue available).
-      loopRunningRef.current = true;
-      setLoopStatus('running');
-      if (data?.progress) {
-        setLoopProgress(data.progress);
-      }
-    } catch (err) {
-      console.error('[continueLoop] error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to continue loop');
-      setIsLoading(false);
-    }
-  }, [ensureEventStreamReady, jobId, isPublic]);
-
-  // Stop loop execution. graceful=true lets the current step finish and stops
-  // at the next step boundary (resume preserved); the default hard stop cancels
-  // the in-flight step immediately. A successful graceful request flips
-  // stopPending so the UI can offer "keep running" until the loop actually stops.
-  const stopLoop = useCallback(async (graceful = false) => {
-    if (!jobId) return;
-    try {
-      const response = await fetch(`/api/v1/job/${jobId}/stop`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ graceful }),
-        signal: AbortSignal.timeout(STOP_REQUEST_TIMEOUT_MS),
-      });
-      if (!response.ok) {
-        throw new Error(await readHTTPError(response));
-      }
-      if (graceful) {
-        const data = await response.json().catch(() => null);
-        if (data?.status === 'stopping') {
-          setStopPending(true);
-          showCommandToast(i18n.t('loop.stop.gracefulRequested'));
-        }
-      } else {
-        // A hard stop never reaches a graceful step boundary, so the backend
-        // won't emit graceful_stop_pending=false. Clear the local flag here so
-        // an escalation from "stop after step" to "stop now" drops the
-        // "keep running" affordance immediately.
-        setStopPending(false);
-      }
-    } catch (err) {
-      console.error('[stopLoop] error:', err);
-      setError(stopRequestErrorMessage(err, 'Failed to stop loop'));
-    }
-  }, [jobId]);
-
-  // Cancel a pending graceful stop so the loop keeps running. Only meaningful
-  // while stopPending is true (the request has not yet been consumed at a step
-  // boundary). Clears stopPending optimistically on success.
-  const cancelStop = useCallback(async () => {
-    if (!jobId) return;
-    try {
-      const response = await fetch(`/api/v1/job/${jobId}/stop`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ graceful: true, cancel: true }),
-        signal: AbortSignal.timeout(STOP_REQUEST_TIMEOUT_MS),
-      });
-      if (!response.ok) {
-        throw new Error(await readHTTPError(response));
-      }
-      setStopPending(false);
-      showCommandToast(i18n.t('loop.stop.gracefulCancelled'));
-    } catch (err) {
-      console.error('[cancelStop] error:', err);
-      setError(stopRequestErrorMessage(err, 'Failed to cancel stop'));
-    }
-  }, [jobId]);
-
-  // Edit a loop job's LoopConfig. The backend applies it as a full replacement
-  // when the job is not running, or as a per-step field update when running
-  // (rejecting structure changes with 409). Rethrows on failure so the editor
-  // can keep its panel open and surface the message.
-  const updateLoopConfig = useCallback(async (config: LoopConfig) => {
-    if (!jobId || isPublic) return;
-    const response = await fetch(`/api/v1/job/${jobId}/loop-config`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ loopConfig: config }),
-    });
-    if (!response.ok) {
-      throw new Error(await readHTTPError(response, `PUT /job/${jobId}/loop-config`));
-    }
-    const data = await response.json().catch(() => null);
-    // Reflect the edit locally: the flow drives both the progress session/step
-    // plan and (for a stopped job) a subsequent Continue. Variables hydrate the
-    // editor on its next open so the saved set is shown rather than an empty list.
-    if (config.flow) {
-      setLoopFlow(config.flow);
-    }
-    setLoopVariables(userLoopVariables(config.variables));
-    setLoopDisabledVars(config.disabledVars || []);
-    if (data?.progress) {
-      setLoopProgress(data.progress);
-    }
-  }, [jobId, isPublic]);
-
   const stopGeneration = useCallback(async () => {
-    if (isLoop) {
-      await stopLoop();
-      return;
-    }
     if (!jobId) {
       // No job on the backend yet — the in-flight state is purely local.
       setIsLoading(false);
@@ -3151,7 +2871,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       console.error('[stopGeneration] error:', err);
       setError(stopRequestErrorMessage(err, 'Failed to stop'));
     }
-  }, [isLoop, stopLoop, jobId]);
+  }, [jobId]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -3207,8 +2927,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         if (job.shareToken) setJobShareTokenState(job.shareToken);
         if (Array.isArray(job?.loopConfig?.flow)) {
           setLoopFlow(job.loopConfig.flow);
-          setLoopVariables(userLoopVariables(job.loopConfig.variables));
-          setLoopDisabledVars(job.loopConfig.disabledVars || []);
         }
         // Hydrate base job metadata on refresh, especially for loop mode where
         // history is loaded with tagged session ids and won't set these fields.
@@ -3233,11 +2951,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setGraphRunId(null);
           if (job.progress) {
             setLoopProgress(job.progress);
-            // Restore the runtime-only graceful-stop pending state from the
-            // snapshot so a refresh / second tab shows the "keep running"
-            // affordance. Only meaningful while running; a terminal job never
-            // has a pending stop.
-            setStopPending(job.status === 'running' && !!job.progress.gracefulStopPending);
             const deriveExtraSessionStatus = (status: string): LoopSessionEntry['status'] => {
               if (status === 'running') return 'running';
               if (status === 'failed') return 'failed';
@@ -3501,7 +3214,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setIsGraph(true);
           const runId = typeof job.graphRunId === 'string' && job.graphRunId ? job.graphRunId : null;
           setGraphRunId(runId);
-          setStopPending(false);
           // Drive the session-sidebar header status off the Job status, the same
           // way loop mode maps it (graph control lives in GraphLoopProgress).
           setLoopStatus(job.status === 'running' ? 'running' : job.status === 'completed' ? 'completed' : job.status === 'stopped' ? 'stopped' : job.status === 'failed' ? 'failed' : 'idle');
@@ -3587,11 +3299,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
               setMessages((prev) => {
                 if (prev.length === 0) return allMsgs;
                 // Reuse mergeMessages so this path gets the same id-based and
-                // semantic dedup (optimistic user messages, loop-user
-                // messages, and pure thought bubbles whose live id diverged
-                // from the persisted thought_msg_id) as every other history
-                // merge. A hand-rolled id-only filter here would miss thought
-                // bubbles and reintroduce duplicate thinking bubbles.
+                // semantic dedup (optimistic user messages and pure thought
+                // bubbles whose live id diverged from the persisted
+                // thought_msg_id) as every other history merge. A hand-rolled
+                // id-only filter here would miss thought bubbles and
+                // reintroduce duplicate thinking bubbles.
                 return mergeMessages(prev, allMsgs, { deduplicateToolCallIds: true });
               });
             }
@@ -3833,10 +3545,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     applyGraphRunStatusSnapshot,
     loopProgress,
     loopStatus,
-    stopPending,
     loopFlow,
-    loopVariables,
-    loopDisabledVars,
     loopSessions,
     activeSessionId,
     setActiveSessionId,
@@ -3850,11 +3559,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     cancelQueuedMessage,
     clearQueuedMessages,
     queuedMessages,
-    startLoop,
-    continueLoop,
-    stopLoop,
-    cancelStop,
-    updateLoopConfig,
     stopGeneration,
     clearMessages,
     eventsReady,

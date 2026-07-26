@@ -302,7 +302,7 @@ func (h *Handler) prepareInteractiveRun(j *model.Job, req *model.JobMessageReque
 		return nil, err
 	}
 
-	// Agent type is effectively a session-level choice: runLoop ultimately uses
+	// Agent type is effectively a session-level choice: the run ultimately uses
 	// session.Type (see jobRunnerImpl.RunIteration -> runACPInternal).
 	//
 	// If the caller did not explicitly pin a sessionId and the job has an existing

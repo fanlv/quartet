@@ -25,7 +25,6 @@ import (
 	"github.com/fanlv/quartet/services/prompt"
 	"github.com/fanlv/quartet/services/schedule"
 	"github.com/fanlv/quartet/services/session"
-	"github.com/fanlv/quartet/services/template"
 	"github.com/fanlv/quartet/services/usagestats"
 	"github.com/fanlv/quartet/services/workspace"
 	"github.com/fanlv/quartet/types/consts"
@@ -104,7 +103,6 @@ type Handler struct {
 	acpAgentService  acp.ACPService
 	settingsService  config.SettingsService
 	promptService    prompt.Service
-	templateService  template.Service
 	graphService     graph.Service
 	jobService       job.Service
 	recentDirsRepo   repository.RecentDirsRepo
@@ -184,11 +182,6 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		return nil, err
 	}
 
-	ts, err := template.NewService()
-	if err != nil {
-		return nil, err
-	}
-
 	gs, err := graph.NewService()
 	if err != nil {
 		return nil, err
@@ -215,7 +208,6 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		acpAgentService:  acp.NewACPService(),
 		settingsService:  ss,
 		promptService:    ps,
-		templateService:  ts,
 		graphService:     gs,
 		jobService:       js,
 		recentDirsRepo:   rdr,
@@ -273,7 +265,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 			h.scheduler.MarkDone(h.rootCtx, j.ScheduleID, j.ID, j.Status)
 		}
 
-		// Release agent resources for loop jobs that finished/stopped/failed
+		// Release agent resources for finished/stopped/failed jobs
 		// to prevent unbounded memory growth from accumulated sessions.
 		h.releaseJobAgents(j)
 	})
@@ -607,8 +599,8 @@ func (h *Handler) cleanupSessions(wsID, jobID string, sessionIDs []string) {
 	}
 }
 
-// jobAllSessionIDs returns every session owned by a job — its loop/interactive
-// SessionIDs plus its graph node GraphSessionIDs — de-duplicated. Used by the
+// jobAllSessionIDs returns every session owned by a job — its SessionIDs
+// plus its graph node GraphSessionIDs — de-duplicated. Used by the
 // delete paths so a graph job's node sessions are torn down too and never leak.
 func jobAllSessionIDs(j *model.Job) []string {
 	if len(j.GraphSessionIDs) == 0 {
@@ -634,23 +626,14 @@ func jobAllSessionIDs(j *model.Job) []string {
 }
 
 // releaseJobAgents releases agent resources (ACP in-memory objects) for a
-// completed loop job. Unlike cleanupSessions, this does NOT delete session
+// finished job. Unlike cleanupSessions, this does NOT delete session
 // metadata — it only frees the in-memory agent instances that hold model
 // connections and sandbox references, so they can be garbage collected.
-// For completed loop jobs, also removes the session service entry.
-// Stopped/failed loop jobs keep their session service because they can still
-// receive interactive messages; the idle eviction will clean them up later.
+// The session service entry is kept: finished jobs can still receive
+// interactive messages; the idle eviction will clean it up later.
 func (h *Handler) releaseJobAgents(j *model.Job) {
 	for _, sid := range j.SessionIDs {
 		h.acpAgentService.Delete(j.WorkspaceID, j.ID, sid)
-	}
-
-	// Only evict session service for completed loop jobs. Stopped/failed jobs
-	// may still receive interactive messages that need the session service.
-	if j.Mode == model.JobModeLoop && j.Status == model.JobStatusCompleted {
-		h.sessionMu.Lock()
-		delete(h.sessionServices, j.ID)
-		h.sessionMu.Unlock()
 	}
 }
 
@@ -668,8 +651,8 @@ func (h *Handler) getSessionByID(sessionID string) (*model.Session, session.Serv
 }
 
 // lookupSessionService returns the session.Service that owns sessionID,
-// reloading from disk when the service entry was evicted (idle timeout or
-// completed loop). Metadata update paths should prefer this over
+// reloading from disk when the service entry was evicted (idle timeout).
+// Metadata update paths should prefer this over
 // getSessionByID so eviction does not cause silent no-ops on title / model /
 // ACP-mode updates.
 func (h *Handler) lookupSessionService(sessionID string) (session.Service, bool) {
@@ -698,10 +681,10 @@ func (h *Handler) lookupSession(sessionID string) (*model.Session, bool) {
 // reloadSessionByID finds a session by scanning all jobs for the given session ID,
 // then reloads the session service from disk via getOrCreateSessionService.
 // This handles the case where the session service was evicted from memory
-// (e.g., idle timeout or loop-job completion).
+// (e.g., idle timeout).
 func (h *Handler) reloadSessionByID(sessionID string) (*model.Session, bool) {
-	// Find the job that owns this session. Scan both SessionIDs (loop/
-	// interactive) and GraphSessionIDs (graph node sessions) so an interactive
+	// Find the job that owns this session. Scan both SessionIDs and
+	// GraphSessionIDs (graph node sessions) so an interactive
 	// message targeting a finished graph node's session can reload it from disk
 	// after the session service was evicted.
 	for _, j := range h.jobService.List() {
@@ -723,7 +706,7 @@ func (h *Handler) reloadSessionByID(sessionID string) (*model.Session, bool) {
 }
 
 // sessionBelongsToJob reports whether sessionID is owned by job j, checking
-// both its loop/interactive SessionIDs and its graph node GraphSessionIDs.
+// both its SessionIDs and its graph node GraphSessionIDs.
 func sessionBelongsToJob(j *model.Job, sessionID string) bool {
 	for _, sid := range j.SessionIDs {
 		if sid == sessionID {

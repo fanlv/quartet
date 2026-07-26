@@ -59,7 +59,7 @@ const sseKeepAliveInterval = 10 * time.Second
 // idle (no new events) after the job enters a terminal state (completed /
 // stopped / failed). After this window, the server proactively closes the
 // connection to reclaim goroutine + fd resources. The client can reconnect
-// if a new run starts (via Continue / SendMessage / Start).
+// if a new run starts (via SendMessage).
 const sseTerminalIdleTimeout = 5 * time.Minute
 
 // jobErrMappings maps job service sentinel errors to HTTP status codes.
@@ -69,182 +69,7 @@ var jobErrMappings = []httputil.ErrorMapping{
 	{Err: job.ErrJobRunning, Status: http.StatusConflict},
 	{Err: job.ErrJobNotRunning, Status: http.StatusConflict},
 	{Err: job.ErrJobNotRunnable, Status: http.StatusBadRequest},
-	{Err: job.ErrNoLoopConfig, Status: http.StatusBadRequest},
-	{Err: job.ErrNoResumable, Status: http.StatusBadRequest},
 	{Err: job.ErrEmptyMessage, Status: http.StatusBadRequest},
-	{Err: job.ErrLoopConfigInvalid, Status: http.StatusBadRequest},
-	{Err: job.ErrGracefulStopUnsupported, Status: http.StatusConflict},
-	{Err: job.ErrLoopStructureChanged, Status: http.StatusConflict},
-	{Err: job.ErrLoopVariablesChanged, Status: http.StatusConflict},
-}
-
-func (h *Handler) JobStart(ctx context.Context, c *app.RequestContext) {
-	// Capture the server-received timestamp BEFORE any work so the loop_start
-	// entry lands in the correct daily file even if Start takes long enough to
-	// cross a midnight boundary (mirrors job_message.go's receivedAt capture).
-	receivedAt := time.Now()
-
-	jobID := c.Param("jobId")
-	if jobID == "" {
-		httputil.BadRequest(c, "jobId is required")
-		return
-	}
-
-	j, ok := h.jobService.Get(jobID)
-	if !ok {
-		httputil.NotFound(c, "job not found")
-		return
-	}
-
-	if j.LoopConfig == nil {
-		httputil.BadRequest(c, "loopConfig is required to start a job")
-		return
-	}
-
-	if j.Status == model.JobStatusRunning {
-		httputil.BadRequest(c, "job is running, stop it first")
-		return
-	}
-
-	oldSessionIDs := j.SessionIDs
-
-	runner := newJobRunner(h, j)
-
-	// Start first (acquires lock and sets status=Running) so that concurrent
-	// requests are blocked before we perform the destructive session cleanup.
-	if err := h.jobService.Start(ctx, j.ID, runner); err != nil {
-		logger.Errorf(ctx, "[job] start failed: jobId=%s err=%v", j.ID, err)
-		httputil.MapError(c, err, jobErrMappings)
-		return
-	}
-
-	// Narrow-spec "真实用户输入" stream (docs/feature-2026-05-07-loop-start-logging.md):
-	// record the successful Start as a loop_start entry with the full LoopConfig
-	// snapshot. Failed Starts are intentionally not logged (§3.3). Append errors
-	// never block the main flow — they only reach the error log.
-	if h.userInputRepo != nil {
-		stepCount := model.CountFlowNodes(j.LoopConfig.Flow)
-		varCount := len(j.LoopConfig.Variables)
-		summary := fmt.Sprintf("Start Loop: %s (%d nodes, %d vars)", j.Title, stepCount, varCount)
-		input := model.NewLoopStartUserInput(receivedAt, uuid.NewString(), j.ID, j.WorkspaceID, summary, j.LoopConfig)
-		if err := h.userInputRepo.Append(ctx, input); err != nil {
-			logger.Errorf(ctx, "[user_input] append loop_start failed: jobId=%s err=%v", j.ID, err)
-		}
-	}
-
-	// Clean up old sessions/agents after Start succeeds to avoid resource leaks.
-	h.cleanupSessions(j.WorkspaceID, j.ID, oldSessionIDs)
-
-	c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "started"})
-}
-
-func (h *Handler) JobContinue(ctx context.Context, c *app.RequestContext) {
-	jobID := c.Param("jobId")
-	if jobID == "" {
-		httputil.BadRequest(c, "jobId is required")
-		return
-	}
-
-	j, ok := h.jobService.Get(jobID)
-	if !ok {
-		httputil.NotFound(c, "job not found")
-		return
-	}
-
-	if j.LoopConfig == nil {
-		httputil.BadRequest(c, "loopConfig is required to continue a job")
-		return
-	}
-	if j.Status != model.JobStatusStopped && j.Status != model.JobStatusFailed {
-		httputil.BadRequest(c, "job must be stopped or failed before continue")
-		return
-	}
-	runner := newJobRunner(h, j)
-
-	if err := h.jobService.Continue(ctx, j.ID, runner); err != nil {
-		logger.Errorf(ctx, "[job] continue failed: jobId=%s err=%v", j.ID, err)
-		httputil.MapError(c, err, jobErrMappings)
-		return
-	}
-
-	resp := map[string]any{"status": "continued"}
-	// Re-fetch after Continue to get the updated progress (results may have
-	// been filtered and counts adjusted by the service layer).
-	if updated, ok := h.jobService.Get(j.ID); ok && updated.Progress != nil {
-		resp["progress"] = updated.Progress
-	}
-	c.JSON(http.StatusOK, resp)
-}
-
-// JobUpdateLoopConfig edits a loop job's LoopConfig. The behaviour depends on
-// whether the job is currently running:
-//
-//   - NOT running: the whole flow is replaced (full structure edit). Progress
-//     bookkeeping (denominator, resume cursor, recorded results) is reconciled
-//     against the new flow so a subsequent Continue resumes from a valid spot.
-//   - running: only per-step fields (prompt/model/agent/mode) may change; a
-//     structure change is rejected with 409 so the running loop's flow snapshot
-//     is never restructured underneath it. The edit takes effect for steps that
-//     have not started yet.
-//
-// The client always sends the full LoopConfig; the server decides how to apply
-// it based on status.
-func (h *Handler) JobUpdateLoopConfig(ctx context.Context, c *app.RequestContext) {
-	jobID := c.Param("jobId")
-	if jobID == "" {
-		httputil.BadRequest(c, "jobId is required")
-		return
-	}
-
-	var req model.UpdateLoopConfigRequest
-	if err := c.BindJSON(&req); err != nil {
-		logger.Warnf(ctx, "[job] update loop config: parse request failed: jobId=%s err=%v", jobID, err)
-		httputil.BadRequest(c, fmt.Sprintf("invalid request body: %v", err))
-		return
-	}
-	if req.LoopConfig == nil {
-		httputil.BadRequest(c, "loopConfig is required")
-		return
-	}
-
-	j, ok := h.jobService.Get(jobID)
-	if !ok {
-		httputil.NotFound(c, "job not found")
-		return
-	}
-	if j.Mode != model.JobModeLoop {
-		httputil.BadRequest(c, "job is not a loop job")
-		return
-	}
-
-	if j.Status == model.JobStatusRunning {
-		err := h.jobService.UpdateRunningStepFields(ctx, j.ID, req.LoopConfig)
-		// The status snapshot can go stale: the loop may have finished between
-		// Get and the service call. UpdateRunningStepFields re-checks under the
-		// lock and reports ErrJobNotRunning in that case — fall through to the
-		// non-running path (a full ReplaceLoopConfig) instead of failing.
-		if err != nil && !errors.Is(err, job.ErrJobNotRunning) {
-			logger.Warnf(ctx, "[job] update running loop config failed: jobId=%s err=%v", j.ID, err)
-			httputil.MapError(c, err, jobErrMappings)
-			return
-		}
-		if err == nil {
-			resp := map[string]any{"status": "updated"}
-			if updated, ok := h.jobService.Get(j.ID); ok && updated.Progress != nil {
-				resp["progress"] = updated.Progress
-			}
-			c.JSON(http.StatusOK, resp)
-			return
-		}
-	}
-
-	progress, err := h.jobService.ReplaceLoopConfig(ctx, j.ID, req.LoopConfig)
-	if err != nil {
-		logger.Warnf(ctx, "[job] replace loop config failed: jobId=%s err=%v", j.ID, err)
-		httputil.MapError(c, err, jobErrMappings)
-		return
-	}
-	c.JSON(http.StatusOK, map[string]any{"status": "updated", "progress": progress})
 }
 
 func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
@@ -290,42 +115,6 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
-	// Optional { "graceful": true } body switches from a hard Stop (cancel the
-	// context, interrupt the in-flight step, re-run it on Continue) to a
-	// graceful stop (let the current step finish, then stop at the next step
-	// boundary with resume preserved). The graceful request returns immediately
-	// — the loop stops at its own pace at the next boundary, so there is no
-	// goroutine to wait on. { "graceful": true, "cancel": true } instead drops a
-	// pending graceful-stop request so the loop keeps running. Empty body
-	// defaults to hard stop; malformed non-empty JSON is rejected so a broken
-	// graceful request cannot silently become hard stop.
-	var req struct {
-		Graceful bool `json:"graceful"`
-		Cancel   bool `json:"cancel"`
-	}
-	if len(c.Request.Body()) > 0 {
-		if err := c.BindJSON(&req); err != nil {
-			logger.Warnf(ctx, "[job] stop: parse request failed: jobId=%s err=%v", jobID, err)
-			httputil.BadRequest(c, fmt.Sprintf("invalid request body: %v", err))
-			return
-		}
-	}
-
-	if req.Graceful {
-		if !h.jobService.IsGracefulStopSupported(j.ID) {
-			httputil.MapError(c, job.ErrGracefulStopUnsupported, jobErrMappings)
-			return
-		}
-		if req.Cancel {
-			h.jobService.CancelGracefulStop(j.ID)
-			c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "running"})
-			return
-		}
-		h.jobService.RequestGracefulStop(j.ID)
-		c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopping"})
-		return
-	}
-
 	if err := h.stopAndWait(ctx, j); err != nil {
 		logger.Errorf(ctx, "[job] stop failed: jobId=%s err=%v", jobID, err)
 	}
@@ -344,7 +133,7 @@ func (h *Handler) stopAndWait(ctx context.Context, job *model.Job) error {
 
 func (h *Handler) cancelJobSessions(ctx context.Context, job *model.Job) error {
 	// Re-fetch the job after Stop so we get the final list of session IDs,
-	// including any that runLoop may have appended between the caller's
+	// including any that the run may have appended between the caller's
 	// Get and the Stop call above.
 	if updated, ok := h.jobService.Get(job.ID); ok {
 		job = updated
@@ -560,10 +349,10 @@ func (h *Handler) JobEvents(ctx context.Context, c *app.RequestContext) {
 	// let the client resume via Last-Event-ID, instead of retrying.
 	//
 	// The loop does NOT exit on terminal events (JOB_COMPLETED / STOPPED
-	// / FAILED). SendMessage and Continue reuse the same buffer, so new
+	// / FAILED). SendMessage reuses the same buffer, so new
 	// events for the next run land on this reader without a reconnect.
 	// The connection only exits on:
-	//   - ReadClosed: buffer was reset (Start) or closed (Delete)
+	//   - ReadClosed: buffer was closed (Delete)
 	//   - write failure: client disconnected or TCP wedged
 	//   - terminal idle timeout: no new events for sseTerminalIdleTimeout
 	//     after job enters terminal state

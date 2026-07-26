@@ -223,6 +223,11 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
   const [focus, setFocus] = useState<GraphCanvasFocus>({ token: 0 });
   const [savedEditFingerprint, setSavedEditFingerprint] = useState('');
   const [saving, setSaving] = useState(false);
+  // On mobile the inspector is a fixed bottom drawer; without a drawerOpen prop
+  // it would stay fully expanded and cover the canvas with no way to collapse
+  // it. Track state locally so the drawer toggle is wired and taps on the
+  // canvas can auto-reveal it.
+  const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(() => !isMobile);
   const bindingRef = useRef(`${jobId || ''}:${runId || ''}`);
 
   const canStepStop = !readOnly && run?.status === 'running';
@@ -421,6 +426,28 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
     return editNodes.find((n) => n.id === selectedNodeId)?.data.graphNode ?? null;
   }, [editNodes, selectedNodeId]);
 
+  // Mobile tap-to-add target: when the selected node is a loop (or sits inside
+  // one), palette clicks add the new node into that loop — touch has no HTML5
+  // drag & drop, so this is the only way to populate a loop on a phone.
+  const addIntoLoopId = useMemo(() => {
+    if (!isMobile || !selectedNodeId) return null;
+    const selected = editNodes.find((n) => n.id === selectedNodeId);
+    if (!selected) return null;
+    if (selected.data.kind === 'loop') return selected.id;
+    if (selected.parentId) {
+      const parent = editNodes.find((n) => n.id === selected.parentId);
+      if (parent?.data.kind === 'loop') return parent.id;
+    }
+    return null;
+  }, [editNodes, isMobile, selectedNodeId]);
+
+  // On mobile the inspector is a bottom drawer; opening the workflow for edit
+  // or tapping a node should surface it so the config fields are actually
+  // reachable. Desktop keeps the panel permanently visible.
+  useEffect(() => {
+    if (isMobile && editing && selectedNodeId) setInspectorDrawerOpen(true);
+  }, [editing, isMobile, selectedNodeId]);
+
   // Enter in-place editing: seed editable nodes/edges from the run's effective
   // version snapshot. Unfrozen structure can be repaired; the backend still
   // enforces the exact run-version edit rules when saving.
@@ -437,8 +464,11 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
     setSavedEditFingerprint(stableStringify(initialConfig));
     setEditing(true);
     setExpanded(true);
+    // Start with the drawer collapsed on mobile so the freshly-loaded canvas
+    // is visible; tapping a node auto-opens it via the effect above.
+    setInspectorDrawerOpen(!isMobile);
     setError('');
-  }, [canEditRun, run]);
+  }, [canEditRun, isMobile, run]);
 
   const discardEdit = useCallback(() => {
     setEditing(false);
@@ -448,8 +478,9 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
     setSelectedNodeId(null);
     setValidationErrors([]);
     setSavedEditFingerprint('');
+    setInspectorDrawerOpen(!isMobile);
     setError('');
-  }, []);
+  }, [isMobile]);
 
   const cancelEdit = useCallback(() => {
     if (editDirty && !window.confirm(t('graph.messages.discardUnsavedConfirm'))) return;
@@ -778,6 +809,8 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
                 edges={editEdges}
                 readOnly={false}
                 showMiniMap={false}
+                isMobile={isMobile}
+                addIntoLoopId={addIntoLoopId}
                 runStatusByNodeId={miniRunStatus}
                 errorNodeIds={validationErrorNodeIds}
                 errorEdgeIds={validationErrorEdgeIds}
@@ -785,7 +818,10 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
                 onNodesChange={onEditNodesChange}
                 onEdgesChange={onEditEdgesChange}
                 onConnect={onEditConnect}
-                onNodeClick={(id) => setSelectedNodeId(id)}
+                onNodeClick={(id) => {
+                  setSelectedNodeId(id);
+                  if (isMobile) setInspectorDrawerOpen(true);
+                }}
                 onPaneClick={() => setSelectedNodeId(null)}
                 onAddNode={onAddEditNode}
                 onReparent={onEditReparent}
@@ -798,6 +834,8 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
                 agents={agents}
                 frozenNodeIds={frozenNodeIds}
                 lockRunConfig
+                drawerOpen={!isMobile || inspectorDrawerOpen}
+                onDrawerToggle={() => setInspectorDrawerOpen((open) => !open)}
                 onUpdateNode={onUpdateNode}
                 onUpdateNodeConfig={onUpdateNodeConfig}
                 onDeleteNode={onDeleteEditNode}

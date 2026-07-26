@@ -58,13 +58,6 @@ describe('mergeMessages', () => {
     expect(mergeMessages([optimistic], [olderHistory])).toEqual([olderHistory, optimistic]);
   });
 
-  it('drops synthetic loop user messages once matching session/content history exists', () => {
-    const synthetic = baseMessage('loop-user-1', MessageRoleEnum.USER, 'loop prompt', { sessionId: 'session-1' });
-    const confirmed = baseMessage('history-1', MessageRoleEnum.USER, 'loop prompt', { sessionId: 'session-1' });
-
-    expect(mergeMessages([synthetic], [confirmed])).toEqual([confirmed]);
-  });
-
   it('optionally deduplicates existing tool messages by tool call id', () => {
     const existingTool = toolMessage('tool-live', 'tool-call-1', 'live result');
     const incomingTool = toolMessage('tool-history', 'tool-call-1', 'history result');

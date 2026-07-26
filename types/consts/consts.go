@@ -44,15 +44,8 @@ const (
 	ErrorCodeAgent = "AGENT_ERROR"
 )
 
-// Builtin loop/job variable keys
+// Builtin variable keys shared with the graph workflow engine.
 const (
-	VarJobID       = "_job_id"
-	VarJobTitle    = "_job_title"
-	VarJobWorkdir  = "_job_workdir"
-	VarWorkspaceID = "_workspace_id"
-
-	// Per-round dynamic builtin variables (injected before each step execution)
-	VarCurrentTime      = "_current_time"
-	VarCurrentPath      = "_current_path"
-	VarLastAssistantMsg = "_last_assistant_msg"
+	// VarCurrentTime is injected per loop iteration by graph loopvars.
+	VarCurrentTime = "_current_time"
 )

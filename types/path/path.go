@@ -190,16 +190,6 @@ func PromptsDir() (string, error) {
 	return filepath.Join(dir, "prompts"), nil
 }
 
-// TemplatesDir returns {LOCAL_MEMORY}/quartet/config/templates/, the
-// human-maintained template directory.
-func TemplatesDir() (string, error) {
-	dir, err := QuartetConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "templates"), nil
-}
-
 // GraphWorkflowsDir returns {LOCAL_MEMORY}/quartet/config/graph-workflows/.
 // Holds one JSON file per GraphWorkflow config (the editable/saved workflow
 // definitions). GraphRun runtime artifacts (snapshots, instance/edge state)

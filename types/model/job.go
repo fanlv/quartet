@@ -27,12 +27,13 @@ const (
 	JobModeGraph       JobMode = "graph"
 )
 
-// Job represents a single execution unit (interactive chat or loop workflow).
+// Job represents a single execution unit (interactive chat, graph run, or
+// historical loop archive).
 //
 // # Field ownership model
 //
 // The in-memory *Job pointer is shared between the handler goroutine and the
-// runLoop goroutine. To prevent data races, fields are split by ownership
+// run goroutine. To prevent data races, fields are split by ownership
 // and ALL access MUST be protected by service.mu:
 //
 // Immutable after creation (safe to read without lock):
@@ -43,7 +44,7 @@ const (
 //
 //	Title, Mode, Workdir, ShareToken, Deleted, PinnedAt, UpdatedAt
 //
-// RunLoop-owned (written by runLoop):
+// Run-owned (written by the run goroutine):
 //
 //	Status, StartedAt, FinishedAt, LoopConfig, GraphRunID, Progress, Resume,
 //	SessionIDs
@@ -51,10 +52,6 @@ const (
 // Service-owned denormalized cache (written by targeted service mutator only):
 //
 //	FirstModelID
-//
-// Note: LoopConfig.Variables may also be written by handler-side methods
-// (e.g. UpdateTitle syncs VarJobTitle) under service.mu. This is safe because
-// it's a targeted key update on the internal pointer, not a full-struct merge.
 type Job struct {
 	// --- Immutable after creation ---
 	ID        string    `json:"id"`
@@ -74,7 +71,7 @@ type Job struct {
 	ScheduleID     string `json:"scheduleId,omitempty"`
 	TimeoutMinutes int    `json:"timeoutMinutes,omitempty"`
 
-	// --- RunLoop-owned ---
+	// --- Run-owned ---
 	Status     JobStatus   `json:"status"`
 	StartedAt  int64       `json:"startedAt,omitempty"`  // unix ms; set when execution begins
 	FinishedAt int64       `json:"finishedAt,omitempty"` // unix ms; set when terminal state reached
@@ -82,8 +79,8 @@ type Job struct {
 	GraphRunID string      `json:"graphRunId,omitempty"`
 	SessionIDs []string    `json:"sessionIds"`
 	// GraphSessionIDs lists the sessions opened by Agent nodes of this job's
-	// graph run, kept separate from SessionIDs so they never pollute the loop/
-	// interactive "linear iteration" semantics of SessionIDs (e.g. the
+	// graph run, kept separate from SessionIDs so they never pollute the
+	// linear chat/archive semantics of SessionIDs (e.g. the
 	// "last entry is the active session" assumption in resolveSessionID, or
 	// SessionCount = len(SessionIDs)). It exists purely as an authorization
 	// whitelist: an interactive message may target any session in here so a
@@ -94,8 +91,8 @@ type Job struct {
 	Progress        *JobProgress `json:"progress,omitempty"`
 	Resume          *JobResume   `json:"resume,omitempty"`
 
-	// LastRunOutcome records the actual outcome of the most recent run
-	// (loop iteration or interactive send). For interactive sends on an
+	// LastRunOutcome records the actual outcome of the most recent interactive
+	// send. For interactive sends on an
 	// already-terminal job, job.Status is the restored prior status while
 	// LastRunOutcome reflects what actually happened in the send. Frontends
 	// that recover from a missed terminal SSE event should use this field
@@ -123,13 +120,7 @@ type RoundType string
 const (
 	RoundTypePrompt RoundType = "prompt"
 	RoundTypeShell  RoundType = "shell"
-	// RoundTypeEvaluator is a prompt step whose output is interpreted as a loop
-	// stop signal: the user's evaluation prompt gets a fixed output protocol
-	// appended before sending, and the turn's final assistant text is parsed — a
-	// case-insensitive, whitespace-agnostic suffix match on LOOP_DECISION:STOP
-	// breaks the enclosing group
-	// (equivalent to a Shell STOP_LOOP). It reuses the entire prompt-step
-	// execution / progress / resume / usage path; only those two points differ.
+	// RoundTypeEvaluator is retained for historical loop archives.
 	RoundTypeEvaluator RoundType = "evaluator"
 )
 
@@ -141,8 +132,8 @@ const (
 	FlowNodeTypeGroup FlowNodeType = "group"
 )
 
-// FlowNode is a recursive tree node representing either a concrete execution
-// step (prompt or shell) or a group container that iterates its children.
+// FlowNode is a historical loop tree node retained for job.json
+// deserialization and read-only rendering.
 type FlowNode struct {
 	ID    string       `json:"id"`
 	Type  FlowNodeType `json:"type"`
@@ -154,7 +145,7 @@ type FlowNode struct {
 	RoundMode   RoundMode `json:"roundMode,omitempty"`
 	RoundType   RoundType `json:"roundType,omitempty"`
 
-	// Per-step agent/model overrides (only used when RoundMode != RoundModeNone)
+	// Historical per-step agent/model overrides.
 	AgentType       string `json:"agentType,omitempty"`
 	StepModelID     string `json:"modelId,omitempty"`
 	ACPMode         string `json:"acpMode,omitempty"`
@@ -165,7 +156,7 @@ type FlowNode struct {
 	Children       []FlowNode `json:"children,omitempty"`
 }
 
-// SessionOverrides carries optional per-step agent/model overrides for session creation.
+// SessionOverrides carries optional agent/model overrides for session creation.
 // Zero/empty values mean "use job-level defaults".
 type SessionOverrides struct {
 	AgentType       string
@@ -174,10 +165,10 @@ type SessionOverrides struct {
 	ACPThoughtLevel string
 }
 
-// LoopConfig defines the execution plan for a loop job.
-// The canonical field is Flow (recursive tree). The legacy fields IterationCount
-// and Rounds are kept for backward-compatible deserialization of old jobs/templates;
-// call MigrateLoopConfig to normalize them into Flow before execution.
+// LoopConfig is retained for backward-compatible deserialization of historical
+// loop jobs and for read-only variable replacement when rendering old messages.
+// The canonical field was Flow (recursive tree). The legacy fields
+// IterationCount and Rounds are kept for old job.json payloads.
 // When adding new slice/map/pointer fields, update Job.DeepCopy accordingly.
 type LoopConfig struct {
 	Flow      []FlowNode        `json:"flow,omitempty"`
@@ -186,10 +177,10 @@ type LoopConfig struct {
 	// DisabledVars lists user-defined variable keys that are toggled off. A
 	// disabled variable keeps its entry in Variables (so the value is preserved
 	// across toggles) but renders to an empty string during {{key}} substitution.
-	// Runtime builtins (_job_id, _current_time, …) are never listed here.
+	// Runtime builtins from historical loop jobs were never listed here.
 	DisabledVars []string `json:"disabledVars,omitempty"`
 
-	// Deprecated: legacy flat format, kept for migration only.
+	// Deprecated: legacy flat format, kept for deserialization only.
 	IterationCount int         `json:"iterationCount,omitempty"`
 	Rounds         []LoopRound `json:"rounds,omitempty"`
 }
@@ -202,64 +193,40 @@ type LoopRound struct {
 	RoundType   RoundType `json:"roundType,omitempty"`
 }
 
-// JobProgress tracks loop execution state persisted on a Job.
+// JobProgress tracks persisted run/archive state on a Job. Several fields are
+// retained only so historical loop job.json files stay readable.
 // When adding new slice/map/pointer fields, update Job.DeepCopy accordingly.
 type JobProgress struct {
 	TotalSteps  int   `json:"totalSteps"`
 	CurrentPath []int `json:"currentPath,omitempty"`
-	// CurrentStartedAt is the unix-ms timestamp of the currently running
-	// iteration. It is persisted with CurrentPath before ITERATION_STARTED is
-	// published so a page opened long after the start can render live duration
-	// from the real step boundary instead of guessing from accumulated results.
+	// CurrentStartedAt is the unix-ms timestamp recorded by historical loop
+	// jobs for the currently running iteration.
 	CurrentStartedAt int64             `json:"currentStartedAt,omitempty"`
 	CompletedCount   int               `json:"completedCount"`
 	FailedCount      int               `json:"failedCount"`
 	Results          []IterationResult `json:"results,omitempty"`
-	// LastError is the most recent failure reason — either from an iteration
-	// failure (captured alongside IterationResult.Error) or a job-level
-	// failure (panic / failJob). Persisted so refreshes still surface it.
+	// LastError is the most recent failure reason. Persisted so refreshes still
+	// surface it.
 	LastError string `json:"lastError,omitempty"`
 	// PersistWarnings records best-effort persistence failures without clobbering
 	// LastError. Persistence warnings describe disk/state divergence, while
 	// LastError remains reserved for the user-visible run failure reason.
 	PersistWarnings []string `json:"persistWarnings,omitempty"`
 
-	// GroupActualIterations maps a group's dot-joined path (e.g. "0.0") to the
-	// number of rounds it actually ran when it stopped early via stepStopLoop
-	// (evaluator STOP or Shell STOP_LOOP) before reaching its iterationCount
-	// cap. The frontend uses this to recompute the session/step plan denominator
-	// so the progress text and bar reflect the real run instead of the static
-	// cap. Mirrors the in-memory TotalSteps backfill (executor_loop.go) — like
-	// that backfill it is only a display aid, not used for resume.
+	// GroupActualIterations maps a historical loop group's dot-joined path
+	// (e.g. "0.0") to the number of rounds it actually ran.
 	GroupActualIterations map[string]int `json:"groupActualIterations,omitempty"`
-	// GroupActualLeafCounts maps the same group path to the exact number of leaf
-	// steps that actually executed inside the group when it stopped early. This is
-	// more precise than GroupActualIterations: it also captures sibling leaves that
-	// were skipped after STOP within the final actual iteration, allowing the UI
-	// session/step plan to trim the group to the same denominator as the backend.
-	// The count is the group's CONSUMED slot prefix: leaves that ran plus leaves
-	// skipped for an empty rendered prompt (SkippedPaths) — the UI keeps that
-	// prefix, then filters the skipped leaves out of it.
+	// GroupActualLeafCounts maps the same historical loop group path to the
+	// exact number of leaf steps that actually executed inside the group.
 	GroupActualLeafCounts map[string]int `json:"groupActualLeafCounts,omitempty"`
 
-	// SkippedPaths records the leaf slots (dot-joined full step paths, e.g.
-	// "0.1.2.0" — iteration and repeat indices included) whose prompt rendered
-	// to an empty string and were therefore skipped without running: no
-	// session, no round events, no IterationResult. Each skipped slot also
-	// decremented TotalSteps exactly once — the set is the idempotency guard
-	// for that deduction and the UI's input for filtering skipped leaves out
-	// of the session plan. Persisted with the job so refresh / Continue /
-	// restart all see the same shrunken plan; never recomputed from current
-	// variable values (they may have changed since the skip).
+	// SkippedPaths records historical loop leaf slots (dot-joined full step
+	// paths, e.g. "0.1.2.0") whose prompt rendered to an empty string.
 	SkippedPaths map[string]bool `json:"skippedPaths,omitempty"`
 
-	// GracefulStopPending reports that a "stop after step" was requested and
-	// not yet consumed at a step boundary. It is a runtime-only view field:
-	// the authoritative state lives in the service's in-memory gracefulStops
-	// map (it cannot survive a process restart, where the request itself is
-	// also lost), so it is synthesized onto the snapshot returned by Get and
-	// broadcast via a transient SSE event — never written to disk. This lets a
-	// page refresh / second tab still show the pending "keep running" affordance.
+	// GracefulStopPending is kept only for historical JobProgress JSON
+	// compatibility. The old Loop graceful-stop API no longer writes or
+	// synthesizes this field.
 	GracefulStopPending bool `json:"gracefulStopPending,omitempty"`
 }
 
@@ -398,29 +365,4 @@ func newJobID() string {
 	var buf [4]byte
 	rand.Read(buf[:])
 	return fmt.Sprintf("job-%s-%06d-%s", t.Format("20060102-150405"), t.Nanosecond()/1000, hex.EncodeToString(buf[:]))
-}
-
-// BackfillFlowDefaults fills empty agent/model fields on step FlowNodes with
-// the provided defaults. This is used when task-level or request-level
-// defaults should be inherited by steps that don't specify their own.
-func BackfillFlowDefaults(nodes []FlowNode, agentType string, modelID, acpMode, acpThoughtLevel string) {
-	for i := range nodes {
-		switch nodes[i].Type {
-		case FlowNodeTypeStep:
-			if nodes[i].AgentType == "" {
-				nodes[i].AgentType = agentType
-			}
-			if nodes[i].StepModelID == "" {
-				nodes[i].StepModelID = modelID
-			}
-			if nodes[i].ACPMode == "" {
-				nodes[i].ACPMode = acpMode
-			}
-			if nodes[i].ACPThoughtLevel == "" {
-				nodes[i].ACPThoughtLevel = acpThoughtLevel
-			}
-		case FlowNodeTypeGroup:
-			BackfillFlowDefaults(nodes[i].Children, agentType, modelID, acpMode, acpThoughtLevel)
-		}
-	}
 }

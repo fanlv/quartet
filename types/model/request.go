@@ -19,22 +19,13 @@ type SavePromptRequest struct {
 }
 
 type CreateJobRequest struct {
-	ModelID         string      `json:"modelId"`
-	AgentType       string      `json:"agentType"`
-	ACPMode         string      `json:"acpMode,omitempty"`
-	ACPThoughtLevel string      `json:"acpThoughtLevel,omitempty"`
-	Mode            JobMode     `json:"mode,omitempty"`
-	Workdir         string      `json:"workdir,omitempty"`
-	WorkspaceID     string      `json:"workspaceId"`
-	LoopConfig      *LoopConfig `json:"loopConfig,omitempty"`
-}
-
-// UpdateLoopConfigRequest carries a loop job's full LoopConfig for editing.
-// The client always sends the complete config; the server applies it as a full
-// replacement when the job is not running, or as a per-step field update when
-// it is running (rejecting structure changes). See JobUpdateLoopConfig.
-type UpdateLoopConfigRequest struct {
-	LoopConfig *LoopConfig `json:"loopConfig"`
+	ModelID         string  `json:"modelId"`
+	AgentType       string  `json:"agentType"`
+	ACPMode         string  `json:"acpMode,omitempty"`
+	ACPThoughtLevel string  `json:"acpThoughtLevel,omitempty"`
+	Mode            JobMode `json:"mode,omitempty"`
+	Workdir         string  `json:"workdir,omitempty"`
+	WorkspaceID     string  `json:"workspaceId"`
 }
 
 type JobMessageRequest struct {

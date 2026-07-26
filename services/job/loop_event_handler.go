@@ -11,51 +11,33 @@ import (
 	"github.com/google/uuid"
 )
 
-// maxShellAccumulatedContent caps the in-memory accumulation of shell stdout
-// in `content` to bound the worst-case footprint of a single shell step
-// (one user-supplied script can produce GB of output, e.g. a verbose build
-// or a recursive find). Aligned with maxStderrSize (10 MB) so stdout and
-// stderr share the same bound. SSE deltas are always published live and are
-// not affected; only AccumulatedContent() — used for the persisted
-// IterationResult.Content and the chat-history assistant message — is
-// truncated, with a trailing marker so the cause is obvious on reload.
-const maxShellAccumulatedContent = 10 << 20
-
 // loopEventHandler implements agui.EventHandler and forwards agent events
-// to the Job's SSE subscribers with loop context (jobID, path).
+// to the Job's SSE subscribers (stamped with jobID/sessionID/runID).
 // It is intentionally not goroutine-safe: a single agent runner callback stream
-// must invoke its methods sequentially for one step/turn.
+// must invoke its methods sequentially for one turn.
 type loopEventHandler struct {
-	// ctx is the loop/iteration context captured at construction. It is
+	// ctx is the run context captured at construction. It is
 	// passed to logger.*f calls and usage accumulator methods so that:
-	//   - log entries inherit the loop's source attribution
+	//   - log entries inherit the run's source attribution
 	//   - any future I/O inside usage.On* (e.g. remote tokenizer) honours
-	//     iteration cancellation
-	// The handler's lifetime is one step/turn, identical to the ctx the
+	//     run cancellation
+	// The handler's lifetime is one turn, identical to the ctx the
 	// caller threads into RunIteration, so storing it here is safe.
 	ctx context.Context
 
 	jobID     string
 	sessionID string
-	path      []int
 	publisher eventPublisher
 
-	tokens    int
-	runID     string
-	msgID     string
-	shellMode bool            // when true, TextMessage events carry isShellOutput external
-	content   strings.Builder // accumulates assistant message content
-
-	// contentTruncated is set the first time a shell-mode delta would push
-	// `content` past maxShellAccumulatedContent. Once set, further deltas
-	// are dropped from `content` (SSE delivery is unaffected) so a runaway
-	// shell script can't OOM the process via the accumulator.
-	contentTruncated bool
+	tokens  int
+	runID   string
+	msgID   string
+	content strings.Builder // accumulates assistant message content
 
 	// currentMessageBuf is reset on every OnMessageStart / OnThoughtStart
 	// and consumed (tokenize + record) on the matching End. It exists in
 	// addition to `content` so per-message token attribution is precise
-	// without disturbing the step-level AccumulatedContent buffer.
+	// without disturbing the turn-level AccumulatedContent buffer.
 	currentMessageBuf strings.Builder
 
 	// nextBoundaryTs, when non-zero, is consumed by the next call to
@@ -64,10 +46,9 @@ type loopEventHandler struct {
 	// the SSE event carries the same instant that was written to disk.
 	nextBoundaryTs int64
 
-	// usage accumulates per-step usage statistics (counts, tokens, per-
-	// tool durations). Snapshot()'d at step finalize and handed to the
-	// Recorder. Lifetime: same as the loopEventHandler (one per step /
-	// turn).
+	// usage accumulates per-turn usage statistics (counts, tokens, per-
+	// tool durations). Snapshot()'d at turn finalize and handed to the
+	// Recorder. Lifetime: same as the loopEventHandler (one per turn).
 	usage *usagestats.Accumulator
 }
 
@@ -79,12 +60,11 @@ type eventPublisher interface {
 var _ agui.EventHandler = (*loopEventHandler)(nil)
 var _ agui.BoundaryTimestampSetter = (*loopEventHandler)(nil)
 
-func newLoopEventHandler(ctx context.Context, jobID, sessionID string, path []int, publisher eventPublisher) *loopEventHandler {
+func newLoopEventHandler(ctx context.Context, jobID, sessionID string, publisher eventPublisher) *loopEventHandler {
 	return &loopEventHandler{
 		ctx:       ctx,
 		jobID:     jobID,
 		sessionID: sessionID,
-		path:      path,
 		publisher: publisher,
 		runID:     uuid.New().String(),
 		usage:     usagestats.NewAccumulator(),
@@ -110,10 +90,6 @@ func (h *loopEventHandler) baseEvent(eventType model.EventType) model.BaseEvent 
 		RunID:     h.runID,
 		Timestamp: ts,
 		JobID:     h.jobID,
-		Path:      h.path,
-	}
-	if h.shellMode {
-		be.External = map[string]any{"isShellOutput": true}
 	}
 	return be
 }
@@ -142,15 +118,9 @@ func (h *loopEventHandler) OnMessageDelta(content string) error {
 
 func (h *loopEventHandler) publishTextDelta(content string, isThinking, appendToContent bool) {
 	if appendToContent {
-		h.appendAccumulatedContent(content)
+		h.content.WriteString(content)
 	}
-	// In shell mode, currentMessageBuf would feed the assistant-text
-	// tokenizer at OnMessageEnd. Shell stdout isn't an LLM response, so
-	// tokenizing it has no business meaning AND would force a second full
-	// copy of the (potentially huge) output through the tokenizer. Skip it.
-	if !h.shellMode {
-		h.currentMessageBuf.WriteString(content)
-	}
+	h.currentMessageBuf.WriteString(content)
 	event := model.TextMessageContentEvent{
 		BaseEvent: h.baseEvent(model.EventTypeTextMessageContent),
 		MessageID: h.msgID,
@@ -159,34 +129,6 @@ func (h *loopEventHandler) publishTextDelta(content string, isThinking, appendTo
 	}
 	h.markThinking(&event.BaseEvent, isThinking)
 	h.publisher.Publish(h.jobID, &event)
-}
-
-// appendAccumulatedContent writes to h.content with a 10 MB cap in shell
-// mode. Once the cap is hit, a single trailing marker is appended and
-// further writes are dropped (SSE delivery still streams the live deltas,
-// so the user keeps seeing real-time output). Non-shell paths are
-// unbounded — assistant LLM output is naturally bounded by model limits.
-func (h *loopEventHandler) appendAccumulatedContent(content string) {
-	if !h.shellMode {
-		h.content.WriteString(content)
-		return
-	}
-	if h.contentTruncated {
-		return
-	}
-	remaining := maxShellAccumulatedContent - h.content.Len()
-	if remaining <= 0 {
-		h.contentTruncated = true
-		h.content.WriteString("\n... stdout truncated (exceeded 10MB) ...\n")
-		return
-	}
-	if len(content) <= remaining {
-		h.content.WriteString(content)
-		return
-	}
-	h.content.WriteString(content[:remaining])
-	h.content.WriteString("\n... stdout truncated (exceeded 10MB) ...\n")
-	h.contentTruncated = true
 }
 
 func (h *loopEventHandler) OnMessageEnd() error {
@@ -370,11 +312,11 @@ func (h *loopEventHandler) OnError(err error) {
 	// User-initiated stop / cancel / timeout is expected control flow, not a system error.
 	// The upstream executor handles terminal transitions; suppress duplicate error events here.
 	if ctxErr := h.ctx.Err(); ctxErr != nil {
-		logger.Debugf(h.ctx, "[loopEventHandler] context done, suppressing error event: jobId=%s sessionId=%s path=%v ctxErr=%v err=%v",
-			h.jobID, h.sessionID, h.path, ctxErr, err)
+		logger.Debugf(h.ctx, "[loopEventHandler] context done, suppressing error event: jobId=%s sessionId=%s ctxErr=%v err=%v",
+			h.jobID, h.sessionID, ctxErr, err)
 		return
 	}
-	logger.Errorf(h.ctx, "[loopEventHandler] error: jobId=%s sessionId=%s path=%v err=%v", h.jobID, h.sessionID, h.path, err)
+	logger.Errorf(h.ctx, "[loopEventHandler] error: jobId=%s sessionId=%s err=%v", h.jobID, h.sessionID, err)
 	h.publisher.Publish(h.jobID, &model.RunErrorEvent{
 		BaseEvent: h.baseEvent(model.EventTypeRunError),
 		Message:   err.Error(),

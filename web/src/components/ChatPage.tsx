@@ -71,8 +71,7 @@ function toImagePreviewUrl(path: string): string {
   return url;
 }
 import { DirPicker } from './DirPicker';
-import { LoopConfigPanel } from './LoopConfigPanel';
-import { FlowNode, LoopConfig, ScheduleInfo } from '../types';
+import { ScheduleInfo } from '../types';
 import { FileMention, FileResult } from './FileMention';
 import { SlashFloater, SkillBackdrop } from './SlashCompletion';
 import { slashCompletionKeyDown, useSlashCompletion } from '../utils/slashCompletion';
@@ -225,28 +224,8 @@ async function uploadImage(file: File): Promise<string> {
   return data.path as string;
 }
 
-// Walk the flow tree (depth-first) and return the first step node that has an
-// explicit agentType override. Loop mode uses this to pick the job's
-// "primary" agent — the flow is what actually runs, so the job's top-level
-// agentType/modelId should mirror it instead of the ChatPage dropdown.
-function findFirstStepAgent(flow?: FlowNode[]): { agentType: string; modelId?: string; acpMode?: string; acpThoughtLevel?: string } | null {
-  if (!flow) return null;
-  for (const node of flow) {
-    if (node.type === 'step') {
-      if (node.agentType) {
-        return { agentType: node.agentType, modelId: node.modelId, acpMode: node.acpMode, acpThoughtLevel: node.acpThoughtLevel };
-      }
-    } else if (node.type === 'group') {
-      const child = findFirstStepAgent(node.children);
-      if (child) return child;
-    }
-  }
-  return null;
-}
-
 interface ChatPageProps {
   onStartChat: (message: string, modelId: string, type: string, workdir?: string, imageUrls?: string[], acpMode?: string, acpThoughtLevel?: string) => void;
-  onStartLoop: (loopConfig: LoopConfig, modelId: string, type: string, workdir?: string, acpMode?: string, workspaceId?: string, acpThoughtLevel?: string) => void;
   isInitializing?: boolean;
   refreshKey?: number;
   workspaceWorkdir?: string;
@@ -532,7 +511,7 @@ const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceNa
   );
 });
 
-export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey, workspaceWorkdir, workspaceId, workspaceTitle, onSelectWorkspace, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph }: ChatPageProps) {
+export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWorkdir, workspaceId, workspaceTitle, onSelectWorkspace, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph }: ChatPageProps) {
   const { connected, buildTime } = useConnectionStatus();
   const { t, i18n } = useTranslation();
   const [input, setInput] = useState('');
@@ -541,7 +520,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
   const [agentPrefs, setAgentPrefs] = useState<AgentPrefsMap>({});
   const [workdir, setWorkdir] = useState('');
   const [showDirPicker, setShowDirPicker] = useState(false);
-  const [showLoopConfig, setShowLoopConfig] = useState(false);
   const [jobEnable, setJobEnable] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -1370,27 +1348,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
         handleSubmit();
       }
     }
-  };
-
-  const handleLoopConfirm = (config: LoopConfig, overrideWorkdir?: string, selectedWorkspaceId?: string) => {
-    if (!selectedAgent) return;
-    setShowLoopConfig(false);
-    // Prefer the flow's first step agent — that's the one the loop will run
-    // with, and what JobChat should display. Fall back to the ChatPage
-    // selection only when the flow leaves the agent unset (pure scripts or
-    // relying on job-level defaults).
-    const flowAgent = findFirstStepAgent(config.flow);
-    const agentType = flowAgent?.agentType || selectedAgent.type;
-    const modelId = flowAgent
-      ? (flowAgent.modelId || '')
-      : (selectedAgent.models?.currentModelId || selectedAgent.model_id);
-    const acpMode = flowAgent
-      ? flowAgent.acpMode
-      : selectedAgent.modes?.currentModeId;
-    const acpThoughtLevel = flowAgent
-      ? flowAgent.acpThoughtLevel
-      : selectedAgent.thoughtLevels?.currentThoughtLevelId;
-    onStartLoop(config, modelId, agentType, overrideWorkdir || workdir || undefined, acpMode, selectedWorkspaceId, acpThoughtLevel);
   };
 
   const handleRestartWeb = async () => {
@@ -2297,20 +2254,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
                 })()}
               </div>
               <button
-                className="chat-btn loop-btn"
-                onClick={() => setShowLoopConfig(true)}
-                disabled={isInitializing || !selectedAgent || !jobEnable || !connected}
-                title="Loop Task"
-                data-testid="loop-config-open-button"
-              >
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M17 1l4 4-4 4" />
-                  <path d="M3 11V9a4 4 0 014-4h14" />
-                  <path d="M7 23l-4-4 4-4" />
-                  <path d="M21 13v2a4 4 0 01-4 4H3" />
-                </svg>
-              </button>
-              <button
                 className="chat-btn send-btn"
                 onClick={handleSubmit}
                 disabled={(!input.trim() && pendingImages.length === 0 && pickedImageUrls.length === 0) || isInitializing || !selectedAgent || !jobEnable || !connected || pendingImages.some((img) => img.uploading)}
@@ -2415,16 +2358,6 @@ export function ChatPage({ onStartChat, onStartLoop, isInitializing, refreshKey,
           basePath={workspaceWorkdir}
           onConfirm={handleDirConfirm}
           onCancel={() => setShowDirPicker(false)}
-        />
-      )}
-
-      {showLoopConfig && (
-        <LoopConfigPanel
-          onConfirm={handleLoopConfirm}
-          onCancel={() => setShowLoopConfig(false)}
-          agents={agents}
-          workspaces={allWorkspaces}
-          currentWorkspaceId={workspaceId}
         />
       )}
 

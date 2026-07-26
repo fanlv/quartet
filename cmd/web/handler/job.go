@@ -19,7 +19,6 @@ import (
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/logger"
-	"github.com/fanlv/quartet/pkg/strutil"
 	jobsvc "github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/model"
 )
@@ -67,21 +66,8 @@ func (h *Handler) createJob(ctx context.Context, req *model.CreateJobRequest) (*
 	if req.Mode == "" {
 		req.Mode = model.JobModeInteractive
 	}
-	if req.Mode != model.JobModeInteractive && req.Mode != model.JobModeLoop {
-		return nil, fmt.Errorf("mode must be interactive or loop")
-	}
-	if req.Mode == model.JobModeLoop {
-		if req.LoopConfig == nil {
-			return nil, fmt.Errorf("loopConfig is required")
-		}
-		// Backfill request-level defaults BEFORE validating: ValidateFlow
-		// requires AgentType on session-creating steps, which may only be
-		// satisfied after req.AgentType is inherited onto steps that omit
-		// their own. NormalizeAndValidateLoopConfig fixes that order.
-		defaults := model.FlowDefaults{AgentType: req.AgentType, ModelID: req.ModelID, ACPMode: req.ACPMode, ACPThoughtLevel: req.ACPThoughtLevel}
-		if err := model.NormalizeAndValidateLoopConfig(req.LoopConfig, defaults); err != nil {
-			return nil, err
-		}
+	if req.Mode != model.JobModeInteractive {
+		return nil, fmt.Errorf("mode must be interactive")
 	}
 
 	if req.WorkspaceID == "" {
@@ -114,23 +100,6 @@ func (h *Handler) createJob(ctx context.Context, req *model.CreateJobRequest) (*
 
 	job := model.NewJob(req.Workdir, req.WorkspaceID)
 	job.Mode = req.Mode
-	job.LoopConfig = req.LoopConfig
-
-	var firstMessage string
-	if req.LoopConfig != nil {
-		firstMessage = model.FindFlowTitle(req.LoopConfig.Flow)
-		if firstMessage == "" {
-			for _, r := range req.LoopConfig.Rounds {
-				if r.Message != "" {
-					firstMessage = r.Message
-					break
-				}
-			}
-		}
-	}
-	if firstMessage != "" {
-		job.Title = strutil.TruncateRunes(firstMessage, 30)
-	}
 
 	if err := h.jobService.Create(job); err != nil {
 		return nil, fmt.Errorf("%w: %v", errJobPersistFailed, err)
@@ -140,11 +109,6 @@ func (h *Handler) createJob(ctx context.Context, req *model.CreateJobRequest) (*
 		if err := h.recentDirsRepo.Add(ctx, req.Workdir); err != nil {
 			logger.Warnf(ctx, "[job] save recent dir failed: dir=%s err=%v", req.Workdir, err)
 		}
-	}
-
-	if firstMessage != "" {
-		userMessage := replaceJobTitleVariables(firstMessage, job.LoopConfig)
-		h.asyncUpdateJobTitle(ctx, job.ID, userMessage)
 	}
 
 	return job, nil
@@ -300,17 +264,17 @@ func (h *Handler) JobDelete(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Mark as deleted first to prevent concurrent SendMessage/Start/Continue
-	// from launching new runLoops while we are cleaning up. MarkDeleted
+	// Mark as deleted first to prevent concurrent SendMessage
+	// from launching new runs while we are cleaning up. MarkDeleted
 	// runs under the service's internal lock so a concurrent Save() can't
 	// overwrite the flag with a stale snapshot.
 	if err := h.jobService.MarkDeleted(jobID); err != nil {
 		logger.Errorf(ctx, "[job] delete: mark deleted failed: jobId=%s err=%v", jobID, err)
 	}
 
-	// Stop and wait for runLoop to fully exit so no new sessions
+	// Stop and wait for the run to fully exit so no new sessions
 	// can be created during cleanup. Always call stopAndWait unconditionally
-	// because a concurrent Start/SendMessage may have set the job to running
+	// because a concurrent SendMessage may have set the job to running
 	// after our Get() returned.
 	if err := h.stopAndWait(ctx, job); err != nil {
 		logger.Errorf(ctx, "[job] delete: stopAndWait failed: jobId=%s err=%v", jobID, err)

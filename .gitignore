@@ -81,3 +81,5 @@ feature-2026-07-12-memory-directory-reorganization.md
 
 # Playwright test artifacts
 web/test-results/
+
+eino-cli

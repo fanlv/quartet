@@ -3,7 +3,6 @@ package job
 import (
 	"context"
 	"errors"
-	"os/exec"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/fileserver"
@@ -93,48 +92,10 @@ type Service interface {
 	// a no-op if the Job is already terminal.
 	FailGraphJob(ctx context.Context, jobID, message string) error
 
-	// ReplaceLoopConfig swaps a non-running loop job's whole LoopConfig (full
-	// structure edit). It recomputes the progress denominator and reconciles
-	// Resume / CurrentPath / Results against the new flow so a subsequent
-	// Continue resumes from a valid position. Returns ErrJobRunning if the job
-	// is currently running (use UpdateRunningStepFields for that case). The
-	// returned JobProgress lets the caller refresh the client immediately.
-	ReplaceLoopConfig(ctx context.Context, jobID string, cfg *model.LoopConfig) (*model.JobProgress, error)
-	// UpdateRunningStepFields applies the per-step editable fields (message,
-	// agentType, modelId, acpMode) from cfg.Flow onto a RUNNING job's live flow,
-	// in place. It first verifies the structure is identical (same node tree by
-	// id/type/round settings/children order) and returns ErrLoopStructureChanged
-	// when it differs — running jobs may only edit fields, not structure. It also
-	// rejects variable changes with ErrLoopVariablesChanged: variables are
-	// substituted live during execution and cannot be edited mid-run. The change
-	// takes effect for steps that have not started yet (and, for model/agent/mode,
-	// only steps that create a fresh session).
-	UpdateRunningStepFields(ctx context.Context, jobID string, cfg *model.LoopConfig) error
-
-	// Start launches the job's LoopConfig execution. Resets progress.
-	Start(ctx context.Context, jobID string, runner JobRunner) error
-	// Continue resumes a stopped loop job from its saved cursor.
-	Continue(ctx context.Context, jobID string, runner JobRunner) error
 	// SendMessage sends a message to an existing job session. Appends to progress.
 	SendMessage(ctx context.Context, jobID string, runner JobRunner, opts *SendMessageOptions) error
 	Stop(jobID string)
-	// RequestGracefulStop asks a running loop job to stop at the next step
-	// boundary: the in-flight step runs to completion and resume is preserved,
-	// so Continue resumes cleanly from the next step. Unlike Stop it does not
-	// cancel the context or interrupt the current step. Self-enforcing no-op
-	// unless the job has an active loop run that can consume the request
-	// (IsGracefulStopSupported), so it never leaves a stale flag behind; the
-	// request is also cleared when the run relaunches.
-	RequestGracefulStop(jobID string)
-	// CancelGracefulStop drops a pending graceful-stop request so the loop keeps
-	// running. No-op if no request is pending. Only meaningful before the request
-	// is consumed at the next step boundary; once consumed the loop has already
-	// stopped and the user must Continue instead.
-	CancelGracefulStop(jobID string)
-	// IsGracefulStopSupported reports whether the current active run can consume
-	// a graceful-stop request. Loop runs can; interactive SendMessage runs cannot.
-	IsGracefulStopSupported(jobID string) bool
-	// StopAndWait cancels a running job and blocks until its runLoop goroutine exits.
+	// StopAndWait cancels a running job and blocks until its run goroutine exits.
 	StopAndWait(jobID string)
 	// StopAll cancels all running jobs and waits for their goroutines to exit.
 	// Used during graceful shutdown.
@@ -165,7 +126,7 @@ type Service interface {
 	// exists for jobID yet (e.g. job has not published anything).
 	BufferStats(jobID string) BufferStats
 
-	// SetOnJobDone registers a callback invoked when a loop job finishes (completed/failed/stopped).
+	// SetOnJobDone registers a callback invoked when a job finishes (completed/failed/stopped).
 	SetOnJobDone(fn func(job *model.Job))
 
 	// SetUsageRecorder wires the optional usage-stats sink. Every step
@@ -202,54 +163,22 @@ func NewService(wsSvc workspace.Service) (Service, error) {
 	}
 
 	s := &serviceImpl{
-		jobs:                    make(map[string]*model.Job),
-		repos:                   make(map[string]repository.JobRepo),
-		newJobRepo:              repository.NewJobRepo,
-		newSessionRepo:          repository.NewSessionRepo,
-		wsSvc:                   wsSvc,
-		fileManager:             fileserver.GetFileManager(),
-		shellCommandFactory:     exec.Command,
-		bus:                     newBusOwner(),
-		cancels:                 make(map[string]*cancelEntry),
-		dones:                   make(map[string]chan struct{}),
-		interactivePriorStatus:  make(map[string]model.JobStatus),
-		listVersions:            newListVersionTracker(),
-		notifiedJobs:            make(map[string]struct{}),
-		runStates:               make(map[string]*loopRunState),
-		loopTransientRetryDelay: defaultLoopTransientRetryDelay,
-		loopRateLimitBaseDelay:  defaultLoopRateLimitBaseDelay,
-		clock:                   realClock{},
+		jobs:                   make(map[string]*model.Job),
+		repos:                  make(map[string]repository.JobRepo),
+		newJobRepo:             repository.NewJobRepo,
+		newSessionRepo:         repository.NewSessionRepo,
+		wsSvc:                  wsSvc,
+		fileManager:            fileserver.GetFileManager(),
+		bus:                    newBusOwner(),
+		cancels:                make(map[string]*cancelEntry),
+		dones:                  make(map[string]chan struct{}),
+		interactivePriorStatus: make(map[string]model.JobStatus),
+		listVersions:           newListVersionTracker(),
+		notifiedJobs:           make(map[string]struct{}),
+		clock:                  realClock{},
 	}
 
 	s.load()
 
-	// Clean up temp files from previous runs that may have been interrupted.
-	// This can touch every workspace workdir, so keep it off the startup path:
-	// stale temp files only affect disk usage and should not delay service
-	// availability on slow filesystems.
-	workdirs := workspaceWorkdirs(wsSvc)
-	go cleanupResidualTempFiles(s.fileManager, workdirs)
-
 	return s, nil
-}
-
-// workspaceWorkdirs returns the workdirs of all non-deleted workspaces so
-// startup cleanup can scan for orphaned shell/control files left behind by
-// SIGKILLed or OOM-killed steps.
-func workspaceWorkdirs(wsSvc workspace.Service) []string {
-	if wsSvc == nil {
-		return nil
-	}
-	all := wsSvc.List()
-	if len(all) == 0 {
-		return nil
-	}
-	dirs := make([]string, 0, len(all))
-	for _, ws := range all {
-		if ws == nil || ws.Workdir == "" {
-			continue
-		}
-		dirs = append(dirs, ws.Workdir)
-	}
-	return dirs
 }

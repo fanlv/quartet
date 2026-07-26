@@ -9,7 +9,7 @@ import (
 	"github.com/fanlv/quartet/types/model"
 )
 
-func (s *serviceImpl) publishRunOutcome(jobID, sessionID string, path []int, runID string, err error, terminalAt int64) {
+func (s *serviceImpl) publishRunOutcome(jobID, sessionID string, runID string, err error, terminalAt int64) {
 	if terminalAt <= 0 {
 		terminalAt = s.nowMillis()
 	}
@@ -21,7 +21,6 @@ func (s *serviceImpl) publishRunOutcome(jobID, sessionID string, path []int, run
 			BaseEvent: model.BaseEvent{
 				Type: model.EventTypeRunFinished, JobID: jobID,
 				SessionID: sessionID, RunID: runID,
-				Path:      path,
 				Timestamp: terminalAt,
 			},
 		})
@@ -32,7 +31,6 @@ func (s *serviceImpl) publishRunOutcome(jobID, sessionID string, path []int, run
 		BaseEvent: model.BaseEvent{
 			Type: model.EventTypeRunError, JobID: jobID,
 			SessionID: sessionID, RunID: runID,
-			Path:      path,
 			Timestamp: terminalAt,
 		},
 		Message: err.Error(),
@@ -40,51 +38,28 @@ func (s *serviceImpl) publishRunOutcome(jobID, sessionID string, path []int, run
 	})
 }
 
-func (s *serviceImpl) recordIterationResult(ctx context.Context, job *model.Job, result *model.IterationResult) {
-	s.appendAndSaveResult(ctx, job, *result, nil, false)
-	s.publishIterationEvent(job.ID, result)
-}
-
-// recordIterationAndAdvanceResume records the iteration result AND advances
-// the resume pointer in a single persist. Used by the loop success path so
-// per-step persists drop from 2 saves (record + advance_resume) to 1.
-func (s *serviceImpl) recordIterationAndAdvanceResume(ctx context.Context, job *model.Job, result *model.IterationResult, nextResume *model.JobResume) {
-	s.appendAndSaveResult(ctx, job, *result, nextResume, true)
-	s.publishIterationEvent(job.ID, result)
-}
-
-func (s *serviceImpl) finishJob(ctx context.Context, job *model.Job, isLoopRun bool) {
+func (s *serviceImpl) finishJob(ctx context.Context, job *model.Job) {
 	s.mu.Lock()
-	resolution := s.applyTerminalStatusLocked(job, isLoopRun, model.JobStatusCompleted, true)
+	resolution := s.applyTerminalStatusLocked(job, model.JobStatusCompleted, true)
 	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeCompleted, s.nowMillis)
 	s.mu.Unlock()
 	// Publish the terminal event that matches the final status; runOutcome
-	// records that *this* run (loop or interactive send) actually
+	// records that *this* run (the interactive send) actually
 	// completed successfully, regardless of whether finalStatus is a
 	// restored prior status.
 	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, jobRunActionFinish, "", model.RunOutcomeCompleted)
-	logLifecycleTerminal(ctx, job.ID, jobRunActionFinish, jobRunSource(isLoopRun), finalStatus, model.RunOutcomeCompleted, resolution, "")
-	if isLoopRun && finalStatus == model.JobStatusCompleted {
-		s.notifyJobDone(job)
-	}
-}
-
-func jobRunSource(isLoopRun bool) string {
-	if isLoopRun {
-		return jobRunSourceLoop
-	}
-	return jobRunSourceInteractive
+	logLifecycleTerminal(ctx, job.ID, jobRunActionFinish, finalStatus, model.RunOutcomeCompleted, resolution, "")
 }
 
 func (s *serviceImpl) clearCancel(jobID string, entry *cancelEntry) {
 	// Always release the context resources owned by this run. CancelFunc is
 	// idempotent, so this is safe if Stop / StopAll already cancelled it. Keep
 	// the map deletion guarded by entry identity so an old run cannot remove a
-	// newer run's cancel registered by a rapid Stop+Continue.
+	// newer run's cancel registered by a rapid Stop+SendMessage.
 	entry.cancel()
 
 	s.cancelMu.Lock()
-	// Only remove if the map still points to our entry; a rapid Stop+Continue
+	// Only remove if the map still points to our entry; a rapid Stop+SendMessage
 	// can register a new run's cancel before the old run's deferred cleanup runs.
 	if s.cancels[jobID] == entry {
 		delete(s.cancels, jobID)
@@ -92,38 +67,24 @@ func (s *serviceImpl) clearCancel(jobID string, entry *cancelEntry) {
 	s.cancelMu.Unlock()
 }
 
-func (s *serviceImpl) progressCounts(job *model.Job) (completedCount int, failedCount int, totalSteps int) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return job.Progress.CompletedCount, job.Progress.FailedCount, job.Progress.TotalSteps
-}
-
-func (s *serviceImpl) stopJob(ctx context.Context, job *model.Job, isLoopRun bool) {
+func (s *serviceImpl) stopJob(ctx context.Context, job *model.Job) {
 	s.mu.Lock()
-	resolution := s.applyTerminalStatusLocked(job, isLoopRun, model.JobStatusStopped, false)
+	resolution := s.applyTerminalStatusLocked(job, model.JobStatusStopped, false)
 	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeStopped, s.nowMillis)
 	s.mu.Unlock()
 	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, jobRunActionStop, "", model.RunOutcomeStopped)
-	logLifecycleTerminal(ctx, job.ID, jobRunActionStop, jobRunSource(isLoopRun), finalStatus, model.RunOutcomeStopped, resolution, "")
-	if isLoopRun {
-		s.notifyJobDone(job)
-	}
+	logLifecycleTerminal(ctx, job.ID, jobRunActionStop, finalStatus, model.RunOutcomeStopped, resolution, "")
 }
 
 // failJob marks a job as failed and publishes the matching terminal event.
 //
-// preserveResume controls whether job.Resume is kept when the failure is
-// recorded as JobStatusFailed. Loop-run failures coming from a known
-// step (shell exit, agent iteration error) should pass true so that the
-// user can Continue from the failing path; unrecoverable failures
-// (panics, structural errors) should pass false so we don't leave a
-// stale resume pointer behind. Interactive-run callers can pass either
-// — applyTerminalStatusLocked overrides the status before Resume is
-// cleared, so preserveResume has no effect for interactive runs that hit
-// the prior-status / paused-loop branches.
-func (s *serviceImpl) failJob(ctx context.Context, job *model.Job, message string, isLoopRun bool, preserveResume bool) {
+// The failure is recorded with Resume cleared: interactive runs never carry a
+// resumable cursor, and the prior-status / paused-run branches of
+// applyTerminalStatusLocked return before Resume would be touched, so
+// historical (legacy loop) Resume data survives an interactive failure.
+func (s *serviceImpl) failJob(ctx context.Context, job *model.Job, message string) {
 	s.mu.Lock()
-	resolution := s.applyTerminalStatusLocked(job, isLoopRun, model.JobStatusFailed, !preserveResume)
+	resolution := s.applyTerminalStatusLocked(job, model.JobStatusFailed, true)
 	// Defensive: ensure Progress is non-nil before recording LastError.
 	// A panic-recovery caller would otherwise re-panic here, leaving the
 	// Job stuck in Running until the next process load() reset.
@@ -139,10 +100,7 @@ func (s *serviceImpl) failJob(ctx context.Context, job *model.Job, message strin
 	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeFailed, s.nowMillis)
 	s.mu.Unlock()
 	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, jobRunActionFail, message, model.RunOutcomeFailed)
-	logLifecycleTerminal(ctx, job.ID, jobRunActionFail, jobRunSource(isLoopRun), finalStatus, model.RunOutcomeFailed, resolution, message)
-	if isLoopRun && finalStatus == model.JobStatusFailed {
-		s.notifyJobDone(job)
-	}
+	logLifecycleTerminal(ctx, job.ID, jobRunActionFail, finalStatus, model.RunOutcomeFailed, resolution, message)
 }
 
 type terminalStatusResolution struct {
@@ -157,36 +115,33 @@ type terminalStatusResolution struct {
 // applyTerminalStatusLocked decides and writes the final job.Status for a
 // terminal transition. Caller MUST hold s.mu.
 //
-// Resolution order (interactive sends only — loop runs always take the
-// natural target path):
+// Resolution order:
 //  1. A stored prior status recorded by SendMessage → restore it; leave Resume
 //     untouched. For non-graph jobs this only fires for a terminal prior
 //     (Completed/Failed/Stopped); for graph jobs it fires for ANY prior, because
 //     a graph job's status is owned by the graph run lifecycle and an
 //     interactive discussion turn must never write it.
-//  2. job.Resume != nil (paused loop)
-//     → JobStatusStopped so Continue still works;
+//  2. job.Resume != nil (paused run, legacy loop job)
+//     → JobStatusStopped;
 //     leave Resume untouched.
 //  3. otherwise                  → targetStatus, clearing Resume iff clearResume.
-func (s *serviceImpl) applyTerminalStatusLocked(job *model.Job, isLoopRun bool, targetStatus model.JobStatus, clearResume bool) terminalStatusResolution {
+func (s *serviceImpl) applyTerminalStatusLocked(job *model.Job, targetStatus model.JobStatus, clearResume bool) terminalStatusResolution {
 	resolution := terminalStatusResolution{
 		targetStatus:          targetStatus,
 		statusReason:          "target_status",
 		resumePresentAtFinish: job.Resume != nil,
 	}
-	if !isLoopRun {
-		if prior, ok := s.consumeInteractivePriorStatusLocked(job.ID); ok && (isTerminalJobStatus(prior) || job.Mode == model.JobModeGraph) {
-			job.Status = prior
-			resolution.priorStatus = prior
-			resolution.restoredPriorStatus = true
-			resolution.statusReason = "restored_prior_status"
-			return resolution
-		}
-		if job.Resume != nil {
-			job.Status = model.JobStatusStopped
-			resolution.statusReason = "resume_present"
-			return resolution
-		}
+	if prior, ok := s.consumeInteractivePriorStatusLocked(job.ID); ok && (isTerminalJobStatus(prior) || job.Mode == model.JobModeGraph) {
+		job.Status = prior
+		resolution.priorStatus = prior
+		resolution.restoredPriorStatus = true
+		resolution.statusReason = "restored_prior_status"
+		return resolution
+	}
+	if job.Resume != nil {
+		job.Status = model.JobStatusStopped
+		resolution.statusReason = "resume_present"
+		return resolution
 	}
 	job.Status = targetStatus
 	if clearResume {
@@ -196,44 +151,32 @@ func (s *serviceImpl) applyTerminalStatusLocked(job *model.Job, isLoopRun bool, 
 	return resolution
 }
 
-func logLifecycleTerminal(ctx context.Context, jobID, action, source string, finalStatus model.JobStatus, runOutcome model.RunOutcome, resolution terminalStatusResolution, message string) {
+func logLifecycleTerminal(ctx context.Context, jobID, action string, finalStatus model.JobStatus, runOutcome model.RunOutcome, resolution terminalStatusResolution, message string) {
 	verb := lifecycleActionVerb(action)
-	// Failed/stopped runs stay at INFO for operator triage; successful
-	// completions from scheduled (loop) tasks are demoted to DEBUG to
-	// reduce log noise from high-frequency cron runs. Interactive job
-	// completions remain at INFO so operators can always correlate the
-	// "run starting" / "run finished" pair without switching to DEBUG.
-	logFn := logger.Debugf
-	if finalStatus == model.JobStatusFailed || finalStatus == model.JobStatusStopped || message != "" || source == jobRunSourceInteractive {
-		logFn = logger.Infof
-	}
+	// Interactive run terminals stay at INFO so operators can always correlate
+	// the "run starting" / "run finished" pair without switching to DEBUG.
 	if message != "" {
-		logFn(ctx, "[job.lifecycle] run %s: jobId=%s action=%s source=%s targetStatus=%s finalStatus=%s runOutcome=%s statusReason=%s priorStatus=%s restoredPriorStatus=%t resumePresentAtFinish=%t resumeCleared=%t err=%q",
-			verb, jobID, action, source, resolution.targetStatus, finalStatus, runOutcome, resolution.statusReason, statusLogValue(resolution.priorStatus), resolution.restoredPriorStatus, resolution.resumePresentAtFinish, resolution.resumeCleared, message)
+		logger.Infof(ctx, "[job.lifecycle] run %s: jobId=%s action=%s targetStatus=%s finalStatus=%s runOutcome=%s statusReason=%s priorStatus=%s restoredPriorStatus=%t resumePresentAtFinish=%t resumeCleared=%t err=%q",
+			verb, jobID, action, resolution.targetStatus, finalStatus, runOutcome, resolution.statusReason, statusLogValue(resolution.priorStatus), resolution.restoredPriorStatus, resolution.resumePresentAtFinish, resolution.resumeCleared, message)
 		return
 	}
-	logFn(ctx, "[job.lifecycle] run %s: jobId=%s action=%s source=%s targetStatus=%s finalStatus=%s runOutcome=%s statusReason=%s priorStatus=%s restoredPriorStatus=%t resumePresentAtFinish=%t resumeCleared=%t",
-		verb, jobID, action, source, resolution.targetStatus, finalStatus, runOutcome, resolution.statusReason, statusLogValue(resolution.priorStatus), resolution.restoredPriorStatus, resolution.resumePresentAtFinish, resolution.resumeCleared)
+	logger.Infof(ctx, "[job.lifecycle] run %s: jobId=%s action=%s targetStatus=%s finalStatus=%s runOutcome=%s statusReason=%s priorStatus=%s restoredPriorStatus=%t resumePresentAtFinish=%t resumeCleared=%t",
+		verb, jobID, action, resolution.targetStatus, finalStatus, runOutcome, resolution.statusReason, statusLogValue(resolution.priorStatus), resolution.restoredPriorStatus, resolution.resumePresentAtFinish, resolution.resumeCleared)
 }
 
 // lifecycleStartContext carries the snapshot needed to emit the run-start
 // counterpart to logLifecycleTerminal. Captured under s.mu in the caller so
 // the log line reflects the exact state that the goroutine is about to run on.
 type lifecycleStartContext struct {
-	action         string // "start" / "continue" / "send_message"
-	source         string // "loop" / "interactive"
-	totalSteps     int
-	completedCount int
-	failedCount    int
-	hasResume      bool
-	priorStatus    model.JobStatus // empty for loop runs; set for send_message
-	scheduleID     string
-	timeoutMinutes int
+	action      string // "send_message"
+	hasResume   bool
+	priorStatus model.JobStatus
+	scheduleID  string
 }
 
 // logLifecycleStart emits the symmetric "run starting" line so operators
-// can correlate every terminal log with the originating Start / Continue /
-// SendMessage call. Scheduled-task runs are logged at DEBUG to reduce noise;
+// can correlate every terminal log with the originating SendMessage call.
+// Scheduled-task runs are logged at DEBUG to reduce noise;
 // manual/interactive runs stay at INFO.
 func logLifecycleStart(ctx context.Context, jobID string, sc lifecycleStartContext) {
 	scheduleID := sc.scheduleID
@@ -244,8 +187,8 @@ func logLifecycleStart(ctx context.Context, jobID string, sc lifecycleStartConte
 	if sc.scheduleID != "" {
 		logFn = logger.Debugf
 	}
-	logFn(ctx, "[job.lifecycle] run starting: jobId=%s action=%s source=%s totalSteps=%d completed=%d failed=%d hasResume=%t priorStatus=%s scheduleId=%s timeoutMin=%d",
-		jobID, sc.action, sc.source, sc.totalSteps, sc.completedCount, sc.failedCount, sc.hasResume, statusLogValue(sc.priorStatus), scheduleID, sc.timeoutMinutes)
+	logFn(ctx, "[job.lifecycle] run starting: jobId=%s action=%s hasResume=%t priorStatus=%s scheduleId=%s",
+		jobID, sc.action, sc.hasResume, statusLogValue(sc.priorStatus), scheduleID)
 }
 
 func lifecycleActionVerb(action string) string {
@@ -273,7 +216,6 @@ func statusLogValue(status model.JobStatus) model.JobStatus {
 // (and stamps FinishedAt as a side effect when missing); persistAndPublishTerminal
 // consumes it without touching s.mu.
 type terminalSnapshot struct {
-	progress    *model.JobProgress
 	terminalAt  int64
 	finalStatus model.JobStatus
 }
@@ -296,14 +238,12 @@ func captureTerminalSnapshotLocked(job *model.Job, runOutcome model.RunOutcome, 
 	// can finalize in-flight UI correctly even when job.Status is a restored
 	// prior status (interactive sends on already-terminal jobs).
 	job.LastRunOutcome = runOutcome
-	progressSnap := *job.Progress
 	terminalAt := job.FinishedAt
 	if terminalAt <= 0 {
 		terminalAt = nowMillis()
 		job.FinishedAt = terminalAt
 	}
 	return terminalSnapshot{
-		progress:    &progressSnap,
 		terminalAt:  terminalAt,
 		finalStatus: job.Status,
 	}
@@ -316,16 +256,11 @@ func (s *serviceImpl) persistAndPublishTerminal(ctx context.Context, job *model.
 	// job.LastRunOutcome was already stamped under s.mu by
 	// captureTerminalSnapshotLocked — don't write it here (this runs after the
 	// lock is released and would race the locked readers).
-	progressCopy := snap.progress
 	if err := s.saveJobWithRetry(ctx, job, action); err != nil {
 		// Record the persistence failure on progress so a subsequent refresh
 		// (when save eventually succeeds or during recovery) at least shows why
 		// disk diverged from the event stream.
 		if s.recordTerminalPersistError(job, err) {
-			s.mu.RLock()
-			refreshed := *job.Progress
-			progressCopy = &refreshed
-			s.mu.RUnlock()
 			// Best-effort second persistence pass after stamping the breadcrumb.
 			// The live terminal event is still published below so an fs hiccup does
 			// not strand the UI in Running forever, but a transient first failure can
@@ -333,7 +268,7 @@ func (s *serviceImpl) persistAndPublishTerminal(ctx context.Context, job *model.
 			_ = s.saveJobWithRetry(ctx, job, action+"_persist_error")
 		}
 	}
-	s.publishTerminalEvent(job.ID, snap.finalStatus, failMessage, progressCopy, runOutcome, snap.terminalAt)
+	s.publishTerminalEvent(job.ID, snap.finalStatus, failMessage, runOutcome, snap.terminalAt)
 	return snap.finalStatus
 }
 
@@ -362,12 +297,11 @@ func (s *serviceImpl) recordTerminalPersistError(job *model.Job, err error) bool
 
 // publishTerminalEvent publishes the SSE event matching a job's final
 // status. runOutcome carries the actual outcome of the run that just
-// ended — for loop runs this equals the final status, but for
-// interactive sends on an already-terminal job the final status is the
-// restored prior status, while runOutcome reflects what actually
+// ended — for interactive sends on an already-terminal job the final status
+// is the restored prior status, while runOutcome reflects what actually
 // happened in this send. Frontends that finalise in-flight UI state
 // (tool bubbles, streaming bubbles) should key off runOutcome.
-func (s *serviceImpl) publishTerminalEvent(jobID string, status model.JobStatus, failMessage string, progress *model.JobProgress, runOutcome model.RunOutcome, terminalAt int64) {
+func (s *serviceImpl) publishTerminalEvent(jobID string, status model.JobStatus, failMessage string, runOutcome model.RunOutcome, terminalAt int64) {
 	base := func(t model.EventType) model.BaseEvent {
 		return model.BaseEvent{Type: t, JobID: jobID, Timestamp: terminalAt}
 	}
@@ -375,41 +309,34 @@ func (s *serviceImpl) publishTerminalEvent(jobID string, status model.JobStatus,
 	case model.JobStatusCompleted:
 		s.Publish(jobID, &model.JobCompletedEvent{
 			BaseEvent:  base(model.EventTypeJobCompleted),
-			Progress:   progress,
 			RunOutcome: runOutcome,
 		})
 	case model.JobStatusFailed:
 		s.Publish(jobID, &model.JobFailedEvent{
 			BaseEvent:  base(model.EventTypeJobFailed),
 			Message:    failMessage,
-			Progress:   progress,
 			RunOutcome: runOutcome,
 		})
 	default:
 		s.Publish(jobID, &model.JobStoppedEvent{
 			BaseEvent:  base(model.EventTypeJobStopped),
-			Progress:   progress,
 			RunOutcome: runOutcome,
 		})
 	}
 }
 
-// closePanicRoundIfOpen publishes RUN_ERROR + ITERATION_FAILED to close
-// any in-flight buffer round when a panic interrupts a run before
-// executeRepeat / executeShellRepeat could publish their own closing
-// pair. Without this pair the round stays closed=false; once Continue
-// flips terminal off via ResumeGC, gcLocked's `r.closed && minCursor >=
-// r.endSeq` predicate is never satisfied and the round's A-class chunks
-// leak forever. It also lets the buffer clear openRoundID, so the next
-// run's first event is not mis-attributed to the orphan round.
+// closePanicRoundIfOpen publishes RUN_ERROR to close any in-flight buffer
+// round when a panic interrupts a run before executeRepeat could publish its
+// own closing event. Without it the round stays closed=false; once the next
+// SendMessage flips terminal off via ResumeGC, gcLocked's `r.closed &&
+// minCursor >= r.endSeq` predicate is never satisfied and the round's
+// A-class chunks leak forever. It also lets the buffer clear openRoundID, so
+// the next run's first event is not mis-attributed to the orphan round.
 //
-// Panic recovery doesn't have direct access to the in-flight step's runID
-// or path, so we use Progress.CurrentPath (set by persistIterationStart at
-// the top of executeRepeat) and the most recent SessionIDs entry as
-// best-effort attribution. Callers must NOT also touch Progress.Results
-// from the panic path — interactive runs never write Progress.Results,
-// and loop runs would produce a duplicate failure entry on the next
-// Continue. publish only.
+// Panic recovery doesn't have direct access to the in-flight run's runID, so
+// it uses the most recent SessionIDs entry as best-effort attribution.
+// Callers must NOT also touch Progress.Results from the panic path —
+// interactive runs never write Progress.Results. publish only.
 func (s *serviceImpl) closePanicRoundIfOpen(job *model.Job, panicErr error) {
 	buf := s.bus.get(job.ID)
 	if buf == nil || !buf.HasOpenRound() {
@@ -417,95 +344,11 @@ func (s *serviceImpl) closePanicRoundIfOpen(job *model.Job, panicErr error) {
 	}
 
 	s.mu.RLock()
-	var path []int
-	if job.Progress != nil {
-		path = model.CopyPath(job.Progress.CurrentPath)
-	}
 	sessionID := ""
 	if n := len(job.SessionIDs); n > 0 {
 		sessionID = job.SessionIDs[n-1]
 	}
 	s.mu.RUnlock()
 
-	terminalAt := s.nowMillis()
-	s.publishRunOutcome(job.ID, sessionID, path, "", panicErr, terminalAt)
-	s.publishIterationEvent(job.ID, &model.IterationResult{
-		Path:      path,
-		SessionID: sessionID,
-		Success:   false,
-		Error:     panicErr.Error(),
-	})
-}
-
-// persistIterationStart records the iteration path on job.Progress.CurrentPath
-// and persists job.json BEFORE the caller publishes IterationStarted.
-// Required by the §1.4 write-order contract: B-class state must reach disk
-// before its event is published, so a client that refreshes job.json
-// immediately after seeing IterationStarted reads a state at least as fresh
-// as the event stream — never the previous round's path.
-func (s *serviceImpl) persistIterationStart(ctx context.Context, job *model.Job, path []int) int64 {
-	startedAt := s.nowMillis()
-	s.mu.Lock()
-	job.Progress.CurrentPath = model.CopyPath(path)
-	job.Progress.CurrentStartedAt = startedAt
-	s.mu.Unlock()
-	if err := s.saveJobWithRetry(ctx, job, jobPersistActionIterationStarted); err != nil {
-		s.recordPersistWarning(ctx, job, jobPersistActionIterationStarted, err)
-	}
-	return startedAt
-}
-
-// appendAndSaveResult appends an iteration result to the job progress under lock,
-// clears old Content fields to free memory, updates counts, optionally advances
-// the resume pointer, and persists in a single save.
-//
-// When advanceResume is true, job.Resume is replaced with nextResume (a nil
-// nextResume clears it — used when the just-recorded step was the final one in
-// the flow). When advanceResume is false, job.Resume is left untouched and
-// nextResume is ignored.
-func (s *serviceImpl) appendAndSaveResult(ctx context.Context, job *model.Job, result model.IterationResult, nextResume *model.JobResume, advanceResume bool) {
-	s.mu.Lock()
-	// Clear Content from previous in-memory results to free string memory.
-	for i := range job.Progress.Results {
-		job.Progress.Results[i].Content = ""
-	}
-	job.Progress.Results = append(job.Progress.Results, result)
-	if result.Success {
-		job.Progress.CompletedCount++
-	} else {
-		job.Progress.FailedCount++
-		if result.Error != "" {
-			job.Progress.LastError = result.Error
-		}
-	}
-	job.Progress.CurrentPath = model.CopyPath(result.Path)
-	if advanceResume {
-		job.Resume = copyResume(nextResume)
-	}
-	s.mu.Unlock()
-	action := jobPersistActionRecordIterationResult
-	if advanceResume {
-		action = jobPersistActionRecordAndAdvanceResume
-	}
-	if err := s.saveJobWithRetry(ctx, job, action); err != nil {
-		s.recordPersistWarning(ctx, job, action, err)
-	}
-}
-
-// publishIterationEvent publishes the appropriate completed/failed event.
-func (s *serviceImpl) publishIterationEvent(jobID string, result *model.IterationResult) {
-	eventType := model.EventTypeIterationFailed
-	if result.Success {
-		eventType = model.EventTypeIterationCompleted
-	}
-	baseEvent := model.BaseEvent{
-		Type: eventType, JobID: jobID,
-		SessionID: result.SessionID, Path: result.Path,
-		Timestamp: s.nowMillis(),
-	}
-	if result.Success {
-		s.Publish(jobID, &model.IterationCompletedEvent{BaseEvent: baseEvent, Result: result})
-	} else {
-		s.Publish(jobID, &model.IterationFailedEvent{BaseEvent: baseEvent, Result: result})
-	}
+	s.publishRunOutcome(job.ID, sessionID, "", panicErr, s.nowMillis())
 }

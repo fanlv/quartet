@@ -101,13 +101,6 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	skills.POST("/update", h.SkillUpdate)
 	skills.GET("/find", h.SkillFind)
 
-	// Template routes
-	tmpl := api.Group("/template")
-	tmpl.POST("/save", h.SaveTemplate)
-	tmpl.PUT("/:templateId", h.UpdateTemplate)
-	tmpl.GET("/list", h.ListTemplates)
-	tmpl.DELETE("/:templateId", h.DeleteTemplate)
-
 	// Graph workflow config routes (config management only; runtime execution
 	// is owned by a separate module). These config routes stay auth-only; the
 	// read-only run status/events for a *shared* graph job are exposed under
@@ -129,9 +122,6 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	jobGroup.DELETE("/:jobId", h.JobDelete)
 	jobGroup.PUT("/:jobId/title", h.JobUpdateTitle)
 	jobGroup.PUT("/:jobId/pin", h.JobUpdatePin)
-	jobGroup.PUT("/:jobId/loop-config", h.JobUpdateLoopConfig)
-	jobGroup.POST("/:jobId/start", h.JobStart)
-	jobGroup.POST("/:jobId/continue", h.JobContinue)
 	jobGroup.POST("/:jobId/message", h.JobMessage)
 	jobGroup.POST("/:jobId/stop", h.JobStop)
 	jobGroup.GET("/:jobId/events", h.JobEvents)

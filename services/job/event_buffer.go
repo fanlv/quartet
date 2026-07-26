@@ -17,7 +17,7 @@ import (
 var ErrSeqGone = errors.New("event buffer: requested sequence has been garbage-collected")
 
 // roundInfo tracks one A-class round's boundaries. A round is open from
-// IterationStarted to IterationCompleted / IterationFailed; while open, all
+// RUN_STARTED to RUN_FINISHED / RUN_ERROR; while open, all
 // non-boundary events published belong to it.
 type roundInfo struct {
 	id       string
@@ -33,7 +33,7 @@ type bufferedEvent struct {
 	classB   bool
 	// roundID is the round this event belongs to. Empty for events
 	// published outside any round (e.g. JOB_STARTED before the first
-	// iteration, or JOB_COMPLETED after the last iteration closed).
+	// round, or JOB_COMPLETED after the last round closed).
 	roundID  string
 	released bool
 }
@@ -138,9 +138,8 @@ func (b *jobEventBuffer) appendClassified(event any, cls eventClassification) ui
 
 	roundID := b.openRoundID
 	if cls.isRoundStart {
-		// Use the seq itself as the round id for uniqueness; iteration
-		// events carry their path so the id doesn't need to be human-
-		// readable.
+		// Use the seq itself as the round id for uniqueness; the id doesn't
+		// need to be human-readable.
 		roundID = roundIDFor(seq)
 		b.openRoundID = roundID
 		b.rounds[roundID] = &roundInfo{id: roundID, startSeq: seq}
@@ -164,7 +163,7 @@ func (b *jobEventBuffer) appendClassified(event any, cls eventClassification) ui
 		b.openRoundID = ""
 		// Note: warnedAt10k/warnedAt25k are intentionally NOT reset here.
 		// They guard per-buffer-lifetime warnings to avoid log spam in
-		// multi-round loop jobs where each round produces 10k+ events.
+		// multi-round jobs where each round produces 10k+ events.
 	}
 	if cls.isTerminal {
 		b.terminal = true
@@ -208,12 +207,14 @@ func classifyEvent(event any) eventClassification {
 	case *model.ToolCallStitchedEvent:
 		return eventClassification{typ: ev.Type, known: true}
 
-	// Round boundaries.
-	case *model.IterationStartedEvent:
+	// Round boundaries: an interactive run opens a round at RUN_STARTED and
+	// closes it at RUN_FINISHED / RUN_ERROR. The boundary events themselves
+	// are B-class (their truth is in job.json / session meta).
+	case *model.RunStartedEvent:
 		return eventClassification{typ: ev.Type, known: true, classB: true, isRoundStart: true}
-	case *model.IterationCompletedEvent:
+	case *model.RunFinishedEvent:
 		return eventClassification{typ: ev.Type, known: true, classB: true, isRoundEnd: true}
-	case *model.IterationFailedEvent:
+	case *model.RunErrorEvent:
 		return eventClassification{typ: ev.Type, known: true, classB: true, isRoundEnd: true}
 
 	// B-class — state deltas with their truth in job.json or session meta.
@@ -225,12 +226,6 @@ func classifyEvent(event any) eventClassification {
 		return eventClassification{typ: ev.Type, known: true, classB: true, isTerminal: true}
 	case *model.JobFailedEvent:
 		return eventClassification{typ: ev.Type, known: true, classB: true, isTerminal: true}
-	case *model.RunStartedEvent:
-		return eventClassification{typ: ev.Type, known: true, classB: true}
-	case *model.RunFinishedEvent:
-		return eventClassification{typ: ev.Type, known: true, classB: true}
-	case *model.RunErrorEvent:
-		return eventClassification{typ: ev.Type, known: true, classB: true}
 	case *model.CustomEvent:
 		// CustomEvent currently only carries token_usage and
 		// job_title_updated. Treat as B-class either way; both have
@@ -286,12 +281,12 @@ func (b *jobEventBuffer) MarkTerminal() {
 	b.mu.Unlock()
 }
 
-// HasOpenRound reports whether a round is currently open (an
-// IterationStarted has been published without a matching
-// IterationCompleted/Failed yet). Used by panic-recovery defers to decide
-// whether they need to publish a synthetic round-close pair before the
-// terminal event — without that pair the round stays closed=false and its
-// A-class chunks never become reclaimable once Continue resumes GC.
+// HasOpenRound reports whether a round is currently open (a RUN_STARTED has
+// been published without a matching RUN_FINISHED/RUN_ERROR yet). Used by
+// panic-recovery defers to decide whether they need to publish a synthetic
+// round-close event before the terminal event — without it the round stays
+// closed=false and its A-class chunks never become reclaimable once the next
+// SendMessage resumes GC.
 func (b *jobEventBuffer) HasOpenRound() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -299,8 +294,8 @@ func (b *jobEventBuffer) HasOpenRound() bool {
 }
 
 // ResumeGC flips a previously terminal buffer back into "GC active" mode.
-// Continue and SendMessage on a job that has reached a terminal status
-// reuse the same buffer (only Start calls resetForRun); without resuming
+// SendMessage on a job that has reached a terminal status
+// reuses the same buffer; without resuming
 // GC, the previous run's MarkTerminal would keep gcLocked short-circuited
 // for the entire lifetime of the new run, causing unbounded growth.
 //
@@ -320,19 +315,6 @@ func (b *jobEventBuffer) ResumeGC() {
 			gcSuspensionTimeout, b.jobID, b.headSeq, b.nextSeq)
 	}
 	b.mu.Unlock()
-}
-
-// IsFresh reports whether the buffer has never been published to and is
-// not in a terminal/closed state. Used by resetForRun to skip the
-// close+recreate path when the existing buffer's sequence space is
-// already fresh — recreating it would needlessly evict any SSE
-// subscriber that attached during the gap between job creation and
-// Start (the FE opens SSE before POSTing /start), surfacing as a
-// spurious "服务器断开" banner flash on every loop entry.
-func (b *jobEventBuffer) IsFresh() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.nextSeq == 0 && !b.closed && !b.terminal
 }
 
 // Close releases the entire buffer and wakes all readers. Called when the
@@ -457,7 +439,8 @@ func (b *jobEventBuffer) statsLocked() BufferStats {
 // Valid range is [headSeq, nextSeq]:
 //   - startSeq < headSeq: the next event has already been GC'd
 //   - startSeq > nextSeq: the cursor belongs to a different buffer epoch
-//     (typical after resetForRun on Job restart). Without this guard the
+//     (typical when the job was deleted and its buffer recreated). Without
+//     this guard the
 //     reader would block forever waiting for a seq that this buffer will
 //     never reach, while silently skipping events 1..startSeq of the
 //     fresh run when nextSeq finally catches up.

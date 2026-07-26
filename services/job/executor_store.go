@@ -15,25 +15,15 @@ import (
 )
 
 const (
-	jobRunActionStart            = "start"
-	jobRunActionContinue         = "continue"
 	jobRunActionSendMessage      = "send_message"
 	jobRunActionSendMessageStart = "send_message_start"
 	jobRunActionFinish           = "finish"
 	jobRunActionStop             = "stop"
 	jobRunActionFail             = "fail"
 
-	jobRunSourceLoop        = "loop"
 	jobRunSourceInteractive = "interactive"
 
-	jobPersistActionIterationStarted       = "iteration_started"
-	jobPersistActionRecordIterationResult  = "record_iteration_result"
-	jobPersistActionRecordAndAdvanceResume = "record_and_advance_resume"
-	jobPersistActionGroupEarlyExit         = "group_early_exit"
-	jobPersistActionSkipEmptyPrompt        = "skip_empty_prompt"
-	jobPersistActionAttachSession          = "attach_session"
-	jobPersistActionExtractSetVarsShell    = "extract_set_vars_shell"
-	jobPersistActionPersistShellMessages   = "persist_shell_messages"
+	jobPersistActionAttachSession = "attach_session"
 )
 
 type clock interface {
@@ -57,30 +47,25 @@ func (s *serviceImpl) nowMillis() int64 {
 // execution lifecycle, SSE pub/sub, and cancellation tracking.
 //
 // The implementation is split by responsibility across CRUD/mutators,
-// persistence, lifecycle/run resources, stop/recovery handling, loop traversal,
-// shell execution, variable management, usage recording, and SSE event buffering
+// persistence, lifecycle/run resources, stop/recovery handling, run execution,
+// usage recording, and SSE event buffering
 // files. Keep this comment at the responsibility level: concrete filenames move
 // during refactors and quickly become stale.
 //
 // # Field ownership model
 //
 // The internal *model.Job pointer stored in s.jobs is shared between the
-// handler goroutine (via targeted mutators) and the runLoop goroutine. To
+// handler goroutine (via targeted mutators) and the run goroutine. To
 // avoid data races, fields are split by ownership:
 //
 //   - Handler-owned (mutated by targeted methods): Title, Mode, Workdir, ShareToken, Deleted
-//   - RunLoop-owned: Status, StartedAt, FinishedAt, LoopConfig, Progress, Resume, SessionIDs
+//   - Run-owned: Status, StartedAt, FinishedAt, LoopConfig, Progress, Resume, SessionIDs
 //   - Service-owned denormalized cache (targeted mutator only): FirstModelID
 //
 // All reads and writes of job fields MUST hold s.mu. Targeted mutators
 // (UpdateTitle, EnsureShareToken, ClearShareToken, SetFirstModelID,
 // MarkDeleted) only touch their named field plus UpdatedAt, so they
-// cannot race with runLoop-owned writes on the same pointer.
-//
-// Note: LoopConfig.Variables may also be written by handler-side methods
-// (e.g. UpdateTitle syncs VarJobTitle) as a targeted key update under s.mu.
-// This is safe and intentional — the ownership rule prevents wholesale
-// replacement of LoopConfig from a stale snapshot, not individual key updates.
+// cannot race with run-owned writes on the same pointer.
 //
 // # Invariants
 //
@@ -97,10 +82,10 @@ func (s *serviceImpl) nowMillis() int64 {
 //   - persistence paths take the per-job persist shard first, then s.mu, so
 //     disk writes preserve the same order as the in-memory snapshots they
 //     persist.
-//   - run launch paths (Start / Continue / SendMessage) take the persist shard,
+//   - run launch paths (SendMessage) take the persist shard,
 //     then s.mu, then the short-lived run-resource locks used by
-//     prepareRunResources (notifiedJobsMu, runStateMu, cancelMu, doneMu). This
-//     keeps Status=running and the cancel/done/run-state registrations atomic
+//     prepareRunResources (notifiedJobsMu, cancelMu, doneMu). This
+//     keeps Status=running and the cancel/done registrations atomic
 //     from observers' perspective. Code holding any of those resource locks
 //     must never call back into s.mu.
 //
@@ -127,12 +112,10 @@ type serviceImpl struct {
 	wsSvc          workspace.Service
 	fileManager    fileserver.FileManager
 
-	shellCommandFactory shellCommandFactory
-
 	// pub/sub: per-job append-only event buffer + cursor readers. Owns its
 	// own mutex graph internally; serviceImpl exposes Publish / Subscribe /
-	// PublishTransient as thin proxies and routes resetForRun / remove from
-	// the lifecycle paths (Start / Delete) directly.
+	// PublishTransient as thin proxies and routes buffer removal from
+	// the lifecycle paths (Delete) directly.
 	bus *busOwner
 
 	// stop control: jobID -> cancel entry. The entry identity is used during
@@ -140,14 +123,14 @@ type serviceImpl struct {
 	cancels  map[string]*cancelEntry
 	cancelMu sync.Mutex
 
-	// runLoop tracking: jobID -> done channel (closed when runLoop exits)
+	// run tracking: jobID -> done channel (closed when the run goroutine exits)
 	dones  map[string]chan struct{}
 	doneMu sync.Mutex
 
 	// Tracks the job status prior to an interactive SendMessage flipping it to
 	// Running. When the interactive run terminates (stop/finish/fail), the
 	// prior terminal state is restored so an ad-hoc message cannot regress a
-	// Completed/Failed/Stopped loop into a different state.
+	// Completed/Failed/Stopped job into a different state.
 	//
 	// Protected by s.mu — the consume path is reached from
 	// applyTerminalStatusLocked which already holds s.mu, and folding this
@@ -155,33 +138,16 @@ type serviceImpl struct {
 	// "must NEVER be nested" invariant on this struct otherwise forbids.
 	interactivePriorStatus map[string]model.JobStatus
 
-	// optional callback when a loop job finishes
+	// optional callback when a job finishes
 	onJobDone   func(job *model.Job)
 	onJobDoneMu sync.RWMutex
 
 	// Tracks job IDs that have already fired notifyJobDone so a duplicate
 	// trigger (stopJob → finishJob race, or an external state-transition bug)
 	// cannot emit two `[scheduler] done:` lines / two MarkDone calls for the
-	// same run. Cleared in Create so a re-launched jobID (e.g. Continue after
-	// Stopped) can fire again.
+	// same run. Cleared on relaunch so a re-launched jobID can fire again.
 	notifiedJobs   map[string]struct{}
 	notifiedJobsMu sync.Mutex
-
-	// runStates tracks per-job loop-run state behind a single mutex so the
-	// "is there an active loop run?" check and the "mark a graceful stop
-	// pending" write are one atomic step. Splitting these across two mutexes
-	// (the previous loopRunsMu + gracefulStopsMu) left a window where
-	// RequestGracefulStop could observe an active run, the run could then exit
-	// and clear its (still-empty) pending flag, and the request would write a
-	// pending flag onto a job with no active run left to consume it — a stale
-	// flag that Get would keep synthesizing onto the terminal snapshot.
-	//
-	// An entry exists only while a loop run is active (markLoopRun on launch,
-	// clearLoopRun on exit). The gracefulPending flag is meaningful only on an
-	// existing entry; clearing the entry necessarily clears any pending flag,
-	// so a non-active job can never carry one.
-	runStates  map[string]*loopRunState
-	runStateMu sync.Mutex
 
 	// listVersions owns the monotonic per-workspace list counters used for
 	// conditional GET ETags. Keep this state behind a small component so the
@@ -189,16 +155,11 @@ type serviceImpl struct {
 	listVersions *listVersionTracker
 
 	// usageRecorder is the optional usage-stats sink. When set, every
-	// completed step (interactive round / loop iteration / shell step)
-	// submits a Snapshot with timings, counts and tokens. Nil means
+	// completed interactive round submits a Snapshot with timings, counts
+	// and tokens. Nil means
 	// stats are simply not recorded — the executor never depends on it
 	// returning anything.
 	usageRecorder usagestats.Recorder
-
-	// Retry delays are instance-scoped so tests can speed up one service without
-	// mutating package globals and blocking parallel test execution.
-	loopTransientRetryDelay time.Duration
-	loopRateLimitBaseDelay  time.Duration
 
 	// clock is instance-scoped so run/event millisecond timestamps can be
 	// deterministic in focused tests without mutating package globals.
@@ -284,9 +245,9 @@ func isTerminalJobStatus(s model.JobStatus) bool {
 
 // shouldPreservePriorStatus reports whether a job's pre-SendMessage status
 // should be restored after the interactive run ends. Completed/Failed are
-// loop terminal outcomes that ad-hoc messages must not regress. Stopped is
-// only worth preserving when the job has a Resume (a paused loop where
-// Continue should still work) — a Stopped chat job (Resume==nil) should
+// terminal outcomes that ad-hoc messages must not regress. Stopped is
+// only worth preserving when the job has a Resume (a paused run, legacy
+// loop jobs) — a Stopped chat job (Resume==nil) should
 // instead be promoted by the new send's outcome.
 func shouldPreservePriorStatus(s model.JobStatus, resume *model.JobResume) bool {
 	if !isTerminalJobStatus(s) {
@@ -306,7 +267,7 @@ func (s *serviceImpl) SetOnJobDone(fn func(job *model.Job)) {
 
 func (s *serviceImpl) notifyJobDone(job *model.Job) {
 	// Idempotency: finishJob/stopJob/failJob each call notifyJobDone, and the
-	// runLoop defer is guarded against calling >1 of them in a single run —
+	// run defer is guarded against calling >1 of them in a single run —
 	// but a state-transition race (e.g. a step stopJob during an in-flight
 	// finishJob, or a zombie second backend process sharing the log file)
 	// has produced duplicate `[scheduler] done:` entries in the past. Dedup
@@ -330,9 +291,9 @@ func (s *serviceImpl) notifyJobDone(job *model.Job) {
 	if fn != nil {
 		// Hand the callback a deep copy so it can read fields like Status /
 		// Progress without acquiring s.mu. The shared internal pointer is
-		// still being mutated by the runLoop goroutine that called us
+		// still being mutated by the run goroutine that called us
 		// (terminal Status was written under lock and unlocked just before
-		// notifyJobDone fired) and may race with a concurrent Start /
+		// notifyJobDone fired) and may race with a concurrent
 		// SendMessage that flips it back to Running.
 		s.mu.RLock()
 		cp := job.DeepCopy()
@@ -342,7 +303,7 @@ func (s *serviceImpl) notifyJobDone(job *model.Job) {
 }
 
 // clearJobDoneNotified removes the dedup flag so a fresh launch of the same
-// jobID (Continue after Stopped, Start after previous terminal) can fire the
+// jobID (SendMessage after a previous terminal run) can fire the
 // OnJobDone callback again.
 func (s *serviceImpl) clearJobDoneNotified(jobID string) {
 	s.notifiedJobsMu.Lock()
@@ -429,12 +390,9 @@ func (s *serviceImpl) reconcileLoadedJob(ctx context.Context, repo repository.Jo
 		}
 	}
 	// Clear Content from older loaded results to save memory.
-	// Preserve the LAST result's Content so injectPerRoundVars can
-	// populate _last_assistant_msg after a process restart + Continue
-	// — otherwise the variable resolves to empty AND the next save
-	// overwrites disk with the empty value, permanently losing the
-	// data. Mirrors the in-memory invariant maintained by
-	// appendAndSaveResult (only the latest result keeps Content).
+	// Preserve the LAST result's Content so the job detail view can still
+	// render the final recorded result after a process restart (historical
+	// loop jobs may carry many results; only the latest keeps Content).
 	if n := len(j.Progress.Results); n > 1 {
 		for i := 0; i < n-1; i++ {
 			j.Progress.Results[i].Content = ""
@@ -482,21 +440,20 @@ func (s *serviceImpl) store(jobID string, job *model.Job) {
 	s.jobs[jobID] = job
 }
 
-// jobRunStateSnapshot captures the runLoop-owned subset of fields used to roll
-// back a fail-fast persist failure in Start / Continue / SendMessage. Handler-
+// jobRunStateSnapshot captures the run-owned subset of fields used to roll
+// back a fail-fast persist failure in SendMessage. Handler-
 // owned fields are intentionally excluded so a concurrent targeted update
 // (e.g. UpdateTitle) is not clobbered by the rollback.
 type jobRunStateSnapshot struct {
 	Status     model.JobStatus
 	StartedAt  int64
 	FinishedAt int64
-	LoopConfig *model.LoopConfig
 	SessionIDs []string
 	Progress   *model.JobProgress
 	Resume     *model.JobResume
 }
 
-// snapshotRunStateLocked captures the runLoop-owned fields that may be
+// snapshotRunStateLocked captures the run-owned fields that may be
 // mutated before a recovery-critical save. Caller must hold s.mu.
 func snapshotRunStateLocked(job *model.Job) jobRunStateSnapshot {
 	cp := job.DeepCopy()
@@ -504,27 +461,25 @@ func snapshotRunStateLocked(job *model.Job) jobRunStateSnapshot {
 		Status:     cp.Status,
 		StartedAt:  cp.StartedAt,
 		FinishedAt: cp.FinishedAt,
-		LoopConfig: cp.LoopConfig,
 		SessionIDs: cp.SessionIDs,
 		Progress:   cp.Progress,
 		Resume:     cp.Resume,
 	}
 }
 
-// restoreRunStateLocked restores runLoop-owned fields from a snapshot. Caller
+// restoreRunStateLocked restores run-owned fields from a snapshot. Caller
 // must hold s.mu.
 func restoreRunStateLocked(job *model.Job, snap jobRunStateSnapshot) {
 	job.Status = snap.Status
 	job.StartedAt = snap.StartedAt
 	job.FinishedAt = snap.FinishedAt
-	job.LoopConfig = snap.LoopConfig
 	job.SessionIDs = snap.SessionIDs
 	job.Progress = snap.Progress
 	job.Resume = snap.Resume
 }
 
-// restoreRunStateAfterPersistFailure rolls back only runLoop-owned fields after
-// a fail-fast start/continue/send save fails. Handler-owned fields are left
+// restoreRunStateAfterPersistFailure rolls back only run-owned fields after
+// a fail-fast send save fails. Handler-owned fields are left
 // untouched so a concurrent targeted update (e.g. title edit) is not clobbered.
 func (s *serviceImpl) restoreRunStateAfterPersistFailure(ctx context.Context, job *model.Job, snap jobRunStateSnapshot, action string, err error) {
 	s.mu.Lock()

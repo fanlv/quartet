@@ -19,7 +19,7 @@ import (
 var ErrGraphWorkflowVersionConflict = errors.New("graph workflow version conflict")
 
 // GraphWorkflowRepo persists editable/saved Graph workflow configs, one JSON
-// file per workflow keyed by ID. Mirrors TemplateRepo's file-per-entity layout.
+// file per workflow keyed by ID.
 type GraphWorkflowRepo interface {
 	Save(ctx context.Context, wf *model.GraphWorkflow) error
 	Get(ctx context.Context, id string) (*model.GraphWorkflow, error)

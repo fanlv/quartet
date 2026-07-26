@@ -26,42 +26,6 @@ func (r stubRunner) SessionModelID(sessionID string) string {
 	return ""
 }
 
-type retrySequenceRunner struct {
-	errs     []error
-	calls    int
-	messages [][]*schema.Message
-}
-
-func (r *retrySequenceRunner) InitSession(ctx context.Context, jobID string, overrides *model.SessionOverrides) (string, error) {
-	return "retry-session", nil
-}
-
-func (r *retrySequenceRunner) RunIteration(ctx context.Context, sessionID string, messages []*schema.Message, handler agui.EventHandler) error {
-	r.calls++
-	r.messages = append(r.messages, messages)
-	idx := r.calls - 1
-	if idx < len(r.errs) {
-		return r.errs[idx]
-	}
-	return nil
-}
-
-func (r *retrySequenceRunner) SessionModelID(sessionID string) string {
-	return "retry-model"
-}
-
-func withFastRetryDelays(t *testing.T, s *serviceImpl) {
-	t.Helper()
-	oldTransientDelay := s.loopTransientRetryDelay
-	oldRateLimitBaseDelay := s.loopRateLimitBaseDelay
-	s.loopTransientRetryDelay = time.Millisecond
-	s.loopRateLimitBaseDelay = time.Millisecond
-	t.Cleanup(func() {
-		s.loopTransientRetryDelay = oldTransientDelay
-		s.loopRateLimitBaseDelay = oldRateLimitBaseDelay
-	})
-}
-
 func TestTransientNetworkErrorEOFMatchingIsPrecise(t *testing.T) {
 	if !isTransientNetworkError(io.EOF) {
 		t.Fatal("io.EOF should be transient")
@@ -96,41 +60,6 @@ func TestRateLimitErrorMatchesCommon429Shapes(t *testing.T) {
 	}
 }
 
-func TestExtractSetVars(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-		want    map[string]string
-	}{
-		{"empty", "", nil},
-		{"no match", "hello world", nil},
-		{"single var", "prefix <<SET_VAR:foo=bar>> suffix", map[string]string{"foo": "bar"}},
-		{"multiple vars", "<<SET_VAR:a=1>> <<SET_VAR:b=2>>", map[string]string{"a": "1", "b": "2"}},
-		{"var with spaces in value", "<<SET_VAR:key=hello world>>", map[string]string{"key": "hello world"}},
-		{"duplicate key last wins", "<<SET_VAR:x=old>> <<SET_VAR:x=new>>", map[string]string{"x": "new"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractSetVars(tt.content)
-			if tt.want == nil {
-				if got != nil {
-					t.Errorf("expected nil, got %v", got)
-				}
-				return
-			}
-			if len(got) != len(tt.want) {
-				t.Errorf("length mismatch: got %v, want %v", got, tt.want)
-				return
-			}
-			for k, v := range tt.want {
-				if got[k] != v {
-					t.Errorf("key %q: got %q, want %q", k, got[k], v)
-				}
-			}
-		})
-	}
-}
-
 func TestIsInterruptedRun(t *testing.T) {
 	if isInterruptedRun(nil) {
 		t.Error("nil error should not be interrupted")
@@ -140,19 +69,6 @@ func TestIsInterruptedRun(t *testing.T) {
 	}
 	if !isInterruptedRun(context.DeadlineExceeded) {
 		t.Error("context.DeadlineExceeded should be interrupted")
-	}
-}
-
-func TestBuildProgress(t *testing.T) {
-	cfg := &model.LoopConfig{
-		Flow: []model.FlowNode{
-			{Type: model.FlowNodeTypeStep, RepeatCount: 3},
-			{Type: model.FlowNodeTypeStep, RepeatCount: 2},
-		},
-	}
-	p := buildProgress(cfg)
-	if p.TotalSteps != 5 {
-		t.Errorf("expected 5 total steps, got %d", p.TotalSteps)
 	}
 }
 
@@ -166,11 +82,7 @@ func TestRunStartedTimestampInteractiveUsesJobStartedAt(t *testing.T) {
 	defer reader.Close()
 
 	job := &model.Job{ID: jobID, StartedAt: 123456789, Progress: &model.JobProgress{}}
-	node := model.FlowNode{Type: model.FlowNodeTypeStep, Message: "hi", RepeatCount: 1}
-	res := s.executeRepeat(context.Background(), job, stubRunner{}, node, []int{0}, "sess", nil, false /* isLoopRun */, nil)
-	if res != stepCompleted {
-		t.Fatalf("executeRepeat result=%v, want %v", res, stepCompleted)
-	}
+	s.executeRepeat(context.Background(), job, stubRunner{}, "hi", "sess", nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -193,101 +105,25 @@ func TestRunStartedTimestampInteractiveUsesJobStartedAt(t *testing.T) {
 	}
 }
 
-func TestLoopRunRetriesTransientFailureEndToEnd(t *testing.T) {
-	jobID := "job-transient-retry"
-	s := newStateTestService()
-	withFastRetryDelays(t, s)
-	reader, err := s.Subscribe(jobID, 0)
-	if err != nil {
-		t.Fatalf("subscribe: %v", err)
-	}
-	defer reader.Close()
-
-	runner := &retrySequenceRunner{errs: []error{io.EOF, nil}}
-	job := &model.Job{ID: jobID, StartedAt: 1, LoopConfig: &model.LoopConfig{}, Progress: &model.JobProgress{TotalSteps: 1}}
-	node := model.FlowNode{Type: model.FlowNodeTypeStep, Message: "hello {{name}}", RepeatCount: 1}
-	job.LoopConfig.Variables = map[string]string{"name": "retry"}
-	nextResume := &model.JobResume{NextPath: []int{1, 0}, SessionID: "next"}
-
-	res := s.executeRepeat(context.Background(), job, runner, node, []int{0, 0}, "sess", nil, true /* isLoopRun */, nextResume)
-	if res != stepCompleted {
-		t.Fatalf("executeRepeat result=%v, want stepCompleted", res)
-	}
-	if runner.calls != 2 {
-		t.Fatalf("RunIteration calls=%d, want 2", runner.calls)
-	}
-	if len(runner.messages) != 2 || runner.messages[0][0].Content != "hello retry" || runner.messages[1][0].Content != "hello retry" {
-		t.Fatalf("retry messages=%+v, want substituted message on every attempt", runner.messages)
-	}
-	if job.Progress.CompletedCount != 1 || job.Progress.FailedCount != 0 {
-		t.Fatalf("progress completed=%d failed=%d, want 1/0", job.Progress.CompletedCount, job.Progress.FailedCount)
-	}
-	if job.Resume == nil || !model.EqualPaths(job.Resume.NextPath, nextResume.NextPath) || job.Resume.SessionID != nextResume.SessionID {
-		t.Fatalf("resume=%+v, want %+v", job.Resume, nextResume)
-	}
-
-	var sawCompleted bool
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	for !sawCompleted {
-		entries, ok := reader.Read(ctx, 16)
-		if !ok {
-			t.Fatal("timeout waiting for iteration completed event")
-		}
-		for _, entry := range entries {
-			if completed, ok := entry.Event.(*model.IterationCompletedEvent); ok {
-				sawCompleted = true
-				if !model.EqualPaths(completed.Path, []int{0, 0}) {
-					t.Fatalf("completed path=%v, want [0 0]", completed.Path)
-				}
-			}
-			if entry.Seq > 0 {
-				reader.Ack(entry.Seq)
-			}
-		}
-	}
-}
-
-func TestLoopRunRetriesRateLimitFailureEndToEnd(t *testing.T) {
-	jobID := "job-rate-limit-retry"
-	s := newStateTestService()
-	withFastRetryDelays(t, s)
-	runner := &retrySequenceRunner{errs: []error{errors.New("StatusCode: 429 retry_after: 0"), errors.New("HTTP 429"), nil}}
-	job := &model.Job{ID: jobID, StartedAt: 1, LoopConfig: &model.LoopConfig{}, Progress: &model.JobProgress{TotalSteps: 1}}
-	node := model.FlowNode{Type: model.FlowNodeTypeStep, Message: "rate limit", RepeatCount: 1}
-
-	res := s.executeRepeat(context.Background(), job, runner, node, []int{0, 0}, "sess", nil, true /* isLoopRun */, nil)
-	if res != stepCompleted {
-		t.Fatalf("executeRepeat result=%v, want stepCompleted", res)
-	}
-	if runner.calls != 3 {
-		t.Fatalf("RunIteration calls=%d, want 3", runner.calls)
-	}
-	if job.Progress.CompletedCount != 1 || job.Progress.FailedCount != 0 {
-		t.Fatalf("progress completed=%d failed=%d, want 1/0", job.Progress.CompletedCount, job.Progress.FailedCount)
-	}
-}
-
-// TestInteractiveRunPublishesIterationEnd asserts the round opened by
-// ITERATION_STARTED on an interactive (`SendMessage`) run is closed by
-// ITERATION_COMPLETED on success / ITERATION_FAILED on error. Without
-// this, the buffer's openRoundID stays non-empty, SnapshotSeq returns
-// (round_start - 1), and reconnecting clients re-receive the round's
-// chunks even though messages.jsonl already covers them.
-func TestInteractiveRunPublishesIterationEnd(t *testing.T) {
+// TestInteractiveRunPublishesRunEnd asserts the round opened by RUN_STARTED
+// on an interactive (`SendMessage`) run is closed by RUN_FINISHED on success /
+// RUN_ERROR on error. Without this, the buffer's openRoundID stays non-empty,
+// SnapshotSeq returns (round_start - 1), and reconnecting clients re-receive
+// the round's chunks even though messages.jsonl already covers them.
+func TestInteractiveRunPublishesRunEnd(t *testing.T) {
 	tests := []struct {
 		name       string
 		runner     JobRunner
 		wantClosed bool // round must be closed (openRoundID == "")
-		wantOK     bool // ITERATION_COMPLETED if true, else ITERATION_FAILED
+		wantOK     bool // RUN_FINISHED if true, else RUN_ERROR
 	}{
-		{name: "success closes round with ITERATION_COMPLETED", runner: stubRunner{}, wantClosed: true, wantOK: true},
-		{name: "failure closes round with ITERATION_FAILED", runner: errStubRunner{}, wantClosed: true, wantOK: false},
+		{name: "success closes round with RUN_FINISHED", runner: stubRunner{}, wantClosed: true, wantOK: true},
+		{name: "failure closes round with RUN_ERROR", runner: errStubRunner{}, wantClosed: true, wantOK: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			jobID := "job-iter-end-" + tt.name
+			jobID := "job-run-end-" + tt.name
 			s := newStateTestService()
 			reader, err := s.Subscribe(jobID, 0)
 			if err != nil {
@@ -296,13 +132,12 @@ func TestInteractiveRunPublishesIterationEnd(t *testing.T) {
 			defer reader.Close()
 
 			job := &model.Job{ID: jobID, StartedAt: 1, Progress: &model.JobProgress{}}
-			node := model.FlowNode{Type: model.FlowNodeTypeStep, Message: "hi", RepeatCount: 1}
-			s.executeRepeat(context.Background(), job, tt.runner, node, []int{0}, "sess", nil, false /* isLoopRun */, nil)
+			s.executeRepeat(context.Background(), job, tt.runner, "hi", "sess", nil)
 
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 
-			var sawCompleted, sawFailed bool
+			var sawFinished, sawError bool
 		drain:
 			for {
 				entries, ok := reader.Read(ctx, 16)
@@ -311,25 +146,25 @@ func TestInteractiveRunPublishesIterationEnd(t *testing.T) {
 				}
 				for _, entry := range entries {
 					switch entry.Event.(type) {
-					case *model.IterationCompletedEvent:
-						sawCompleted = true
-					case *model.IterationFailedEvent:
-						sawFailed = true
+					case *model.RunFinishedEvent:
+						sawFinished = true
+					case *model.RunErrorEvent:
+						sawError = true
 					}
 					if entry.Seq > 0 {
 						reader.Ack(entry.Seq)
 					}
 				}
-				if sawCompleted || sawFailed {
+				if sawFinished || sawError {
 					break drain
 				}
 			}
 
-			if tt.wantOK && !sawCompleted {
-				t.Fatalf("expected ITERATION_COMPLETED, got completed=%v failed=%v", sawCompleted, sawFailed)
+			if tt.wantOK && !sawFinished {
+				t.Fatalf("expected RUN_FINISHED, got finished=%v error=%v", sawFinished, sawError)
 			}
-			if !tt.wantOK && !sawFailed {
-				t.Fatalf("expected ITERATION_FAILED, got completed=%v failed=%v", sawCompleted, sawFailed)
+			if !tt.wantOK && !sawError {
+				t.Fatalf("expected RUN_ERROR, got finished=%v error=%v", sawFinished, sawError)
 			}
 
 			// Buffer-level check: the round must be closed so SnapshotSeq
@@ -342,7 +177,7 @@ func TestInteractiveRunPublishesIterationEnd(t *testing.T) {
 			openRound := buf.openRoundID
 			buf.mu.Unlock()
 			if tt.wantClosed && openRound != "" {
-				t.Fatalf("expected openRoundID empty after iteration end, got %q", openRound)
+				t.Fatalf("expected openRoundID empty after run end, got %q", openRound)
 			}
 		})
 	}
@@ -368,9 +203,8 @@ func (e errStubError) Error() string { return string(e) }
 
 // cancelStubRunner returns context.Canceled, mirroring an iteration that was
 // interrupted by Stop / a parent cancel mid-flight. Used to assert that the
-// interrupted path still closes the buffer round (see Issue 1+2 in the
-// 2026-05-14 audit: without this, ResumeGC on Continue can never reclaim the
-// orphan round's A-class chunks).
+// interrupted path still closes the buffer round: without this, ResumeGC on
+// the next SendMessage can never reclaim the orphan round's A-class chunks.
 type cancelStubRunner struct{}
 
 func (r cancelStubRunner) InitSession(ctx context.Context, jobID string, overrides *model.SessionOverrides) (string, error) {
@@ -383,12 +217,12 @@ func (r cancelStubRunner) RunIteration(ctx context.Context, sessionID string, me
 
 func (r cancelStubRunner) SessionModelID(sessionID string) string { return "" }
 
-// TestInterruptedRunClosesBufferRound asserts that an interrupted iteration
+// TestInterruptedRunClosesBufferRound asserts that an interrupted run
 // (RunIteration returns context.Canceled / DeadlineExceeded) still publishes
-// a run-end event + ITERATION_FAILED so the buffer's openRoundID is cleared.
-// Before the fix, executeRepeat's isInterruptedRun branch returned early,
-// leaving openRoundID set — Continue's ResumeGC then failed to reclaim the
-// orphan round forever (round.closed stayed false, gc condition never met).
+// a run-end event so the buffer's openRoundID is cleared. Before the fix,
+// executeRepeat's isInterruptedRun branch returned early, leaving openRoundID
+// set — the next run's ResumeGC then failed to reclaim the orphan round
+// forever (round.closed stayed false, gc condition never met).
 //
 // User-initiated stop (context.Canceled) closes the round via RUN_FINISHED
 // (not RUN_ERROR) so the frontend doesn't show a spurious error toast — see
@@ -403,16 +237,12 @@ func TestInterruptedRunClosesBufferRound(t *testing.T) {
 	defer reader.Close()
 
 	job := &model.Job{ID: jobID, StartedAt: 1, Progress: &model.JobProgress{}}
-	node := model.FlowNode{Type: model.FlowNodeTypeStep, Message: "hi", RepeatCount: 1}
-	res := s.executeRepeat(context.Background(), job, cancelStubRunner{}, node, []int{0}, "sess", nil, false /* isLoopRun */, nil)
-	if res != stepAborted {
-		t.Fatalf("executeRepeat result=%v, want stepAborted", res)
-	}
+	s.executeRepeat(context.Background(), job, cancelStubRunner{}, "hi", "sess", nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	var sawRunEnd, sawIterFailed bool
+	var sawRunEnd bool
 drain:
 	for {
 		entries, ok := reader.Read(ctx, 16)
@@ -423,23 +253,18 @@ drain:
 			switch entry.Event.(type) {
 			case *model.RunErrorEvent, *model.RunFinishedEvent:
 				sawRunEnd = true
-			case *model.IterationFailedEvent:
-				sawIterFailed = true
 			}
 			if entry.Seq > 0 {
 				reader.Ack(entry.Seq)
 			}
 		}
-		if sawRunEnd && sawIterFailed {
+		if sawRunEnd {
 			break drain
 		}
 	}
 
 	if !sawRunEnd {
 		t.Fatal("expected a run-end event (RUN_FINISHED/RUN_ERROR) after interrupted run")
-	}
-	if !sawIterFailed {
-		t.Fatal("expected ITERATION_FAILED after interrupted run")
 	}
 
 	buf := s.bus.get(jobID)
@@ -454,11 +279,12 @@ drain:
 	}
 }
 
-// TestInterruptedThenContinueReclaimsOrphanRound is the end-to-end regression
-// for Issue 1: after an interrupted run + MarkTerminal + ResumeGC + a fresh
-// round, the original round's A-class chunks must reclaim once cursors cross.
-// Before the fix the orphan round had closed=false and survived forever.
-func TestInterruptedThenContinueReclaimsOrphanRound(t *testing.T) {
+// TestInterruptedThenSendReclaimsOrphanRound is the end-to-end regression
+// for the orphan-round leak: after an interrupted run + MarkTerminal +
+// ResumeGC + a fresh round, the original round's A-class chunks must reclaim
+// once cursors cross. Before the fix the orphan round had closed=false and
+// survived forever.
+func TestInterruptedThenSendReclaimsOrphanRound(t *testing.T) {
 	jobID := "job-interrupt-continue"
 	s := newStateTestService()
 	reader, err := s.Subscribe(jobID, 0)
@@ -468,16 +294,13 @@ func TestInterruptedThenContinueReclaimsOrphanRound(t *testing.T) {
 	defer reader.Close()
 
 	job := &model.Job{ID: jobID, StartedAt: 1, Progress: &model.JobProgress{}}
-	node := model.FlowNode{Type: model.FlowNodeTypeStep, Message: "hi", RepeatCount: 1}
 
-	// Run #1: interrupted. Publishes IterationStarted, RunStarted, RunError,
-	// IterationFailed.
-	if res := s.executeRepeat(context.Background(), job, cancelStubRunner{}, node, []int{0}, "sess", nil, false, nil); res != stepAborted {
-		t.Fatalf("run #1 result=%v, want stepAborted", res)
-	}
+	// Run #1: interrupted. Publishes RunStarted + RunFinished (cancel is not
+	// an error — see publishRunOutcome).
+	s.executeRepeat(context.Background(), job, cancelStubRunner{}, "hi", "sess", nil)
 
 	// Simulate the terminal transition (Stop → JOB_STOPPED → MarkTerminal),
-	// then Continue (ResumeGC + new run).
+	// then the next SendMessage (ResumeGC + new run).
 	buf := s.bus.get(jobID)
 	if buf == nil {
 		t.Fatal("buffer missing")
@@ -485,10 +308,8 @@ func TestInterruptedThenContinueReclaimsOrphanRound(t *testing.T) {
 	buf.MarkTerminal()
 	buf.ResumeGC()
 
-	// Run #2: succeeds. Different path so it's a separate iteration.
-	if res := s.executeRepeat(context.Background(), job, stubRunner{}, node, []int{1}, "sess", nil, false, nil); res != stepCompleted {
-		t.Fatalf("run #2 result=%v, want stepCompleted", res)
-	}
+	// Run #2: succeeds.
+	s.executeRepeat(context.Background(), job, stubRunner{}, "hi", "sess", nil)
 
 	// Drain everything and ack so the cursor crosses both rounds' end events.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

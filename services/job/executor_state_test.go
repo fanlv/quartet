@@ -56,18 +56,15 @@ func (r *stubJobRepo) LoadAll() ([]*model.Job, error)          { return nil, nil
 
 func newStateTestService() *serviceImpl {
 	return &serviceImpl{
-		jobs:                    make(map[string]*model.Job),
-		repos:                   map[string]repository.JobRepo{"": &stubJobRepo{}},
-		fileManager:             fileserver.GetFileManager(),
-		bus:                     newBusOwner(),
-		cancels:                 make(map[string]*cancelEntry),
-		dones:                   make(map[string]chan struct{}),
-		interactivePriorStatus:  make(map[string]model.JobStatus),
-		listVersions:            newListVersionTracker(),
-		notifiedJobs:            make(map[string]struct{}),
-		runStates:               make(map[string]*loopRunState),
-		loopTransientRetryDelay: defaultLoopTransientRetryDelay,
-		loopRateLimitBaseDelay:  defaultLoopRateLimitBaseDelay,
+		jobs:                   make(map[string]*model.Job),
+		repos:                  map[string]repository.JobRepo{"": &stubJobRepo{}},
+		fileManager:            fileserver.GetFileManager(),
+		bus:                    newBusOwner(),
+		cancels:                make(map[string]*cancelEntry),
+		dones:                  make(map[string]chan struct{}),
+		interactivePriorStatus: make(map[string]model.JobStatus),
+		listVersions:           newListVersionTracker(),
+		notifiedJobs:           make(map[string]struct{}),
 	}
 }
 
@@ -80,21 +77,21 @@ func TestTerminalEventsReusePersistedFinishedAt(t *testing.T) {
 		{
 			name: "finish",
 			run: func(s *serviceImpl, job *model.Job) {
-				s.finishJob(context.Background(), job, false)
+				s.finishJob(context.Background(), job)
 			},
 			wantEvent: model.EventTypeJobCompleted,
 		},
 		{
 			name: "stop",
 			run: func(s *serviceImpl, job *model.Job) {
-				s.stopJob(context.Background(), job, false)
+				s.stopJob(context.Background(), job)
 			},
 			wantEvent: model.EventTypeJobStopped,
 		},
 		{
 			name: "fail",
 			run: func(s *serviceImpl, job *model.Job) {
-				s.failJob(context.Background(), job, "boom", false, false)
+				s.failJob(context.Background(), job, "boom")
 			},
 			wantEvent: model.EventTypeJobFailed,
 		},
@@ -147,7 +144,7 @@ func TestPublishRunOutcomeUsesProvidedTerminalTimestamp(t *testing.T) {
 	const terminalAt int64 = 123456789
 
 	finishEvent := captureSinglePublish(t, svc, "job-finish", func() {
-		svc.publishRunOutcome("job-finish", "session-1", []int{0}, "run-1", nil, terminalAt)
+		svc.publishRunOutcome("job-finish", "session-1", "run-1", nil, terminalAt)
 	})
 	finish, ok := finishEvent.(*model.RunFinishedEvent)
 	if !ok {
@@ -161,7 +158,7 @@ func TestPublishRunOutcomeUsesProvidedTerminalTimestamp(t *testing.T) {
 	// the frontend can report it. context.Canceled is deliberately excluded
 	// here — see the canceled case below.
 	errorEvent := captureSinglePublish(t, svc, "job-error", func() {
-		svc.publishRunOutcome("job-error", "session-1", []int{0}, "run-2", errors.New("boom"), terminalAt)
+		svc.publishRunOutcome("job-error", "session-1", "run-2", errors.New("boom"), terminalAt)
 	})
 	errEvent, ok := errorEvent.(*model.RunErrorEvent)
 	if !ok {
@@ -174,7 +171,7 @@ func TestPublishRunOutcomeUsesProvidedTerminalTimestamp(t *testing.T) {
 	// User-initiated stop (context.Canceled) is NOT an error: publishRunOutcome
 	// emits RUN_FINISHED so the frontend doesn't show a spurious error toast.
 	canceledEvent := captureSinglePublish(t, svc, "job-canceled", func() {
-		svc.publishRunOutcome("job-canceled", "session-1", []int{0}, "run-3", context.Canceled, terminalAt)
+		svc.publishRunOutcome("job-canceled", "session-1", "run-3", context.Canceled, terminalAt)
 	})
 	canceledFinish, ok := canceledEvent.(*model.RunFinishedEvent)
 	if !ok {
@@ -212,7 +209,7 @@ func TestFinishJobReusesPrepopulatedFinishedAt(t *testing.T) {
 	job := &model.Job{ID: "job-prepopulated", WorkspaceID: "", FinishedAt: 987654321, Progress: &model.JobProgress{}}
 
 	ev := captureTerminalEvent(t, svc, job.ID, func() {
-		svc.finishJob(context.Background(), job, false)
+		svc.finishJob(context.Background(), job)
 	})
 
 	if job.FinishedAt != 987654321 {
@@ -253,11 +250,11 @@ func TestClosePanicRoundIfOpen_ClosesAndAllowsReclaim(t *testing.T) {
 	defer reader.Close()
 
 	// Open a round and emit one in-flight chunk (mirrors executeRepeat
-	// publishing IterationStarted + a streaming text delta).
-	svc.Publish(job.ID, &model.IterationStartedEvent{
+	// publishing RUN_STARTED + a streaming text delta).
+	svc.Publish(job.ID, &model.RunStartedEvent{
 		BaseEvent: model.BaseEvent{
-			Type: model.EventTypeIterationStarted, JobID: job.ID,
-			Path: []int{0, 0}, Timestamp: svc.nowMillis(),
+			Type: model.EventTypeRunStarted, JobID: job.ID,
+			Timestamp: svc.nowMillis(),
 		},
 	})
 	svc.Publish(job.ID, &model.TextMessageContentEvent{
@@ -271,7 +268,7 @@ func TestClosePanicRoundIfOpen_ClosesAndAllowsReclaim(t *testing.T) {
 		t.Fatalf("expected open round before panic recovery (buf=%v)", buf)
 	}
 
-	// Simulate runLoop / runInteractive's recover() path.
+	// Simulate runInteractive's recover() path.
 	svc.closePanicRoundIfOpen(job, errors.New("simulated panic"))
 
 	if buf.HasOpenRound() {
@@ -314,7 +311,7 @@ func TestClosePanicRoundIfOpen_ClosesAndAllowsReclaim(t *testing.T) {
 		}
 	}
 
-	// Mirror Continue / SendMessage on a terminal job: ResumeGC re-enables
+	// Mirror SendMessage on a terminal job: ResumeGC re-enables
 	// reclamation that MarkTerminal disabled when JobFailed went through.
 	svc.bus.resumeGC(job.ID)
 	// Trigger another GC pass after the flag flipped.
@@ -339,9 +336,9 @@ func TestClosePanicRoundIfOpen_ClosesAndAllowsReclaim(t *testing.T) {
 }
 
 // TestClosePanicRoundIfOpen_NoOpWhenNoRound guards the early-return branch:
-// if the buffer has no open round (recovery hit before any IterationStarted,
-// or after a normal close), the helper must not synthesise a stray pair of
-// RUN_ERROR / ITERATION_FAILED events that no consumer expects.
+// if the buffer has no open round (recovery hit before any RUN_STARTED,
+// or after a normal close), the helper must not synthesise a stray
+// RUN_ERROR event that no consumer expects.
 func TestClosePanicRoundIfOpen_NoOpWhenNoRound(t *testing.T) {
 	svc := newStateTestService()
 	job := &model.Job{

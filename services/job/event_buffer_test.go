@@ -11,16 +11,15 @@ import (
 )
 
 // helper: build a publish-classified event for tests.
-func iterStarted(jobID string) *model.IterationStartedEvent {
-	return &model.IterationStartedEvent{
-		BaseEvent: model.BaseEvent{Type: model.EventTypeIterationStarted, JobID: jobID},
+func runStarted(jobID string) *model.RunStartedEvent {
+	return &model.RunStartedEvent{
+		BaseEvent: model.BaseEvent{Type: model.EventTypeRunStarted, JobID: jobID},
 	}
 }
 
-func iterCompleted(jobID string) *model.IterationCompletedEvent {
-	return &model.IterationCompletedEvent{
-		BaseEvent: model.BaseEvent{Type: model.EventTypeIterationCompleted, JobID: jobID},
-		Result:    &model.IterationResult{},
+func runFinished(jobID string) *model.RunFinishedEvent {
+	return &model.RunFinishedEvent{
+		BaseEvent: model.BaseEvent{Type: model.EventTypeRunFinished, JobID: jobID},
 	}
 }
 
@@ -43,9 +42,9 @@ func TestBuffer_PublishAssignsMonotonicSeq(t *testing.T) {
 	b := newJobEventBuffer("job-1")
 	defer b.Close()
 
-	s1 := b.Publish(iterStarted("job-1"))
+	s1 := b.Publish(runStarted("job-1"))
 	s2 := b.Publish(textDelta("job-1", "m1"))
-	s3 := b.Publish(iterCompleted("job-1"))
+	s3 := b.Publish(runFinished("job-1"))
 	if s1 != 1 || s2 != 2 || s3 != 3 {
 		t.Fatalf("expected seqs 1,2,3 got %d,%d,%d", s1, s2, s3)
 	}
@@ -63,8 +62,8 @@ func TestBuffer_SubscribeFromTailDeliversNewEvents(t *testing.T) {
 
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		b.Publish(iterStarted("job-1"))
-		b.Publish(iterCompleted("job-1"))
+		b.Publish(runStarted("job-1"))
+		b.Publish(runFinished("job-1"))
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -86,9 +85,9 @@ func TestBuffer_SubscribeMidStreamGetsLaterEventsOnly(t *testing.T) {
 	// outside any round (this includes a completed round's surrounding
 	// state events) will GC; but a fresh subscriber starting at the
 	// current tail (snapshotSeq) should not see anything yet.
-	b.Publish(iterStarted("job-1"))
+	b.Publish(runStarted("job-1"))
 	b.Publish(textDelta("job-1", "m1"))
-	b.Publish(iterCompleted("job-1"))
+	b.Publish(runFinished("job-1"))
 
 	tail := b.SnapshotSeq()
 	r, err := b.Subscribe(tail)
@@ -100,7 +99,7 @@ func TestBuffer_SubscribeMidStreamGetsLaterEventsOnly(t *testing.T) {
 	// New event after the snapshot — reader should receive only this.
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		b.Publish(iterStarted("job-1"))
+		b.Publish(runStarted("job-1"))
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -114,7 +113,7 @@ func TestBuffer_SnapshotSeqInsideRoundReturnsRoundStartMinus1(t *testing.T) {
 	b := newJobEventBuffer("job-1")
 	defer b.Close()
 
-	b.Publish(iterStarted("job-1")) // seq=1, round_start=1
+	b.Publish(runStarted("job-1")) // seq=1, round_start=1
 	b.Publish(textDelta("job-1", "m1"))
 
 	want := uint64(0) // round_start - 1
@@ -123,7 +122,7 @@ func TestBuffer_SnapshotSeqInsideRoundReturnsRoundStartMinus1(t *testing.T) {
 	}
 
 	// Close the round → SnapshotSeq should now return tail.
-	b.Publish(iterCompleted("job-1"))
+	b.Publish(runFinished("job-1"))
 	if got := b.SnapshotSeq(); got != 3 {
 		t.Fatalf("expected tail seq=3, got %d", got)
 	}
@@ -140,9 +139,9 @@ func TestBuffer_GCReclaimsClosedRoundWhenCursorAdvances(t *testing.T) {
 	defer r.Close()
 
 	// Publish a complete round.
-	b.Publish(iterStarted("job-1"))
+	b.Publish(runStarted("job-1"))
 	b.Publish(textDelta("job-1", "m1"))
-	b.Publish(iterCompleted("job-1"))
+	b.Publish(runFinished("job-1"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -198,9 +197,9 @@ func TestBuffer_SlowReaderHoldsGCBack(t *testing.T) {
 	}
 	defer slow.Close()
 
-	b.Publish(iterStarted("job-1"))
+	b.Publish(runStarted("job-1"))
 	b.Publish(textDelta("job-1", "m1"))
-	b.Publish(iterCompleted("job-1"))
+	b.Publish(runFinished("job-1"))
 
 	// Slow reader hasn't acked yet — buffer must keep all events.
 	b.mu.Lock()
@@ -235,9 +234,9 @@ func TestBuffer_TerminalDisablesGC(t *testing.T) {
 	}
 	defer r.Close()
 
-	b.Publish(iterStarted("job-1"))
+	b.Publish(runStarted("job-1"))
 	b.Publish(textDelta("job-1", "m1"))
-	b.Publish(iterCompleted("job-1"))
+	b.Publish(runFinished("job-1"))
 	b.MarkTerminal()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -254,7 +253,7 @@ func TestBuffer_TerminalDisablesGC(t *testing.T) {
 	}
 }
 
-// TestBuffer_ResumeGCReenablesReclaim covers the Continue / SendMessage
+// TestBuffer_ResumeGCReenablesReclaim covers the SendMessage
 // path: a job that hit a terminal status had MarkTerminal called, and
 // the same buffer is reused for the new run. Without ResumeGC, gcLocked
 // would short-circuit forever and the buffer would grow unbounded.
@@ -263,12 +262,12 @@ func TestBuffer_ResumeGCReenablesReclaim(t *testing.T) {
 	defer b.Close()
 
 	// Round 1 publishes and terminates (mirrors a finished interactive run).
-	b.Publish(iterStarted("job-1"))
+	b.Publish(runStarted("job-1"))
 	b.Publish(textDelta("job-1", "m1"))
-	b.Publish(iterCompleted("job-1"))
+	b.Publish(runFinished("job-1"))
 	b.MarkTerminal()
 
-	// Resume — like Continue / SendMessage on a terminal job.
+	// Resume — like SendMessage on a terminal job.
 	b.ResumeGC()
 
 	// New subscriber attaches at the tail (no in-flight round → tail = 3).
@@ -280,9 +279,9 @@ func TestBuffer_ResumeGCReenablesReclaim(t *testing.T) {
 
 	// Round 2 — chunks for the new run should be reclaimable once the
 	// reader has acked round_end.
-	b.Publish(iterStarted("job-1"))
+	b.Publish(runStarted("job-1"))
 	b.Publish(textDelta("job-1", "m2"))
-	b.Publish(iterCompleted("job-1"))
+	b.Publish(runFinished("job-1"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -312,9 +311,9 @@ func TestBuffer_ResumeGCNoReaderRace(t *testing.T) {
 	defer b.Close()
 
 	// Simulate a completed prior run: publish events and mark terminal.
-	b.Publish(iterStarted("job-race"))
+	b.Publish(runStarted("job-race"))
 	b.Publish(textDelta("job-race", "hello"))
-	lastSeq := b.Publish(iterCompleted("job-race"))
+	lastSeq := b.Publish(runFinished("job-race"))
 	b.MarkTerminal()
 
 	// Client was subscribed but disconnected (no active readers).
@@ -324,7 +323,7 @@ func TestBuffer_ResumeGCNoReaderRace(t *testing.T) {
 	b.ResumeGC()
 
 	// Publish new events (like publishJobStarted would).
-	b.Publish(iterStarted("job-race"))
+	b.Publish(runStarted("job-race"))
 	b.Publish(textDelta("job-race", "world"))
 
 	// The client reconnects with its old Last-Event-ID.
@@ -345,9 +344,9 @@ func TestBuffer_SubscribeStaleSeqReturnsErrSeqGone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
-	b.Publish(iterStarted("job-1"))
+	b.Publish(runStarted("job-1"))
 	b.Publish(textDelta("job-1", "m1"))
-	b.Publish(iterCompleted("job-1"))
+	b.Publish(runFinished("job-1"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -375,7 +374,7 @@ func TestBuffer_SubscribeStaleSeqReturnsErrSeqGone(t *testing.T) {
 }
 
 // TestBuffer_SubscribeFutureSeqReturnsErrSeqGone covers the buffer-epoch
-// boundary: after resetForRun creates a fresh buffer, a client reconnecting
+// boundary: after the buffer is recreated (job deleted), a client reconnecting
 // with a Last-Event-ID from the previous epoch must see 410, not silently
 // block until the new run catches up. Without this guard the reader would
 // wait for nextSeq > startSeq and then skip events 1..startSeq of the
@@ -392,8 +391,8 @@ func TestBuffer_SubscribeFutureSeqReturnsErrSeqGone(t *testing.T) {
 
 	// After publishing 2 events nextSeq=2; startSeq=3 is still in the
 	// future and must 410.
-	b.Publish(iterStarted("job-1"))
-	b.Publish(iterCompleted("job-1"))
+	b.Publish(runStarted("job-1"))
+	b.Publish(runFinished("job-1"))
 	if _, err := b.Subscribe(3); !errors.Is(err, ErrSeqGone) {
 		t.Fatalf("expected ErrSeqGone for startSeq=3 (nextSeq=2), got %v", err)
 	}
@@ -404,106 +403,6 @@ func TestBuffer_SubscribeFutureSeqReturnsErrSeqGone(t *testing.T) {
 		t.Fatalf("subscribe at tail should succeed, got %v", err)
 	}
 	r.Close()
-}
-
-// TestBusOwner_ResetForRunRejectsStaleEpochSeq reproduces the end-to-end
-// bug fixed in Subscribe's [headSeq, nextSeq] range check: after a Job is
-// restarted (resetForRun), a reconnect carrying a Last-Event-ID from the
-// previous epoch must surface as ErrSeqGone — letting the SSE handler
-// return 410 and the client fall back to the snapshot path. Without the
-// fix the new buffer accepts the stale cursor and the reader silently
-// blocks until the new run's nextSeq overtakes it, dropping events
-// 1..staleSeq invisibly.
-func TestBusOwner_ResetForRunRejectsStaleEpochSeq(t *testing.T) {
-	bus := newBusOwner()
-
-	// First epoch: publish 5 events so a client could plausibly hold seq=5.
-	first := bus.getOrCreate("job-1")
-	for i := 0; i < 5; i++ {
-		first.Publish(tokenUsage("job-1"))
-	}
-	if got := first.Stats().NextSeq; got != 5 {
-		t.Fatalf("first epoch NextSeq=%d, want 5", got)
-	}
-
-	// Job restart: fresh buffer, fresh sequence space.
-	bus.resetForRun("job-1")
-	second := bus.get("job-1")
-	if second == nil || second == first {
-		t.Fatalf("resetForRun must replace the buffer (first=%p second=%p)", first, second)
-	}
-	if got := second.Stats().NextSeq; got != 0 {
-		t.Fatalf("new epoch NextSeq=%d, want 0", got)
-	}
-
-	// Client reconnects with the prior epoch's Last-Event-ID. Must 410.
-	if _, err := second.Subscribe(5); !errors.Is(err, ErrSeqGone) {
-		t.Fatalf("expected ErrSeqGone for stale epoch seq=5 on fresh buffer, got %v", err)
-	}
-
-	// After the snapshot fallback, the client subscribes at the new tail
-	// (seq=0). Subsequent publishes must be delivered with the new
-	// sequence space starting at 1.
-	r, err := second.Subscribe(0)
-	if err != nil {
-		t.Fatalf("subscribe at new tail: %v", err)
-	}
-	defer r.Close()
-
-	go func() {
-		time.Sleep(10 * time.Millisecond)
-		second.Publish(iterStarted("job-1"))
-		second.Publish(iterCompleted("job-1"))
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	got := drainReader(t, ctx, r, 2)
-	if got[0].Seq != 1 || got[1].Seq != 2 {
-		t.Fatalf("expected new-epoch seqs 1,2 got %d,%d", got[0].Seq, got[1].Seq)
-	}
-}
-
-// TestBusOwner_ResetForRunReusesFreshBuffer covers the first-Start race:
-// the FE opens SSE on the lazily-created buffer before issuing
-// POST /job/:id/start, so by the time Start calls resetForRun a
-// subscriber is already attached. resetForRun must NOT close the buffer
-// when it has never published an event — closing would evict the reader,
-// the SSE handler would return without [DONE], and the client would
-// surface a spurious "服务器断开" banner. See
-// docs/feature-2026-05-14-sse-snapshot-subscribe-race-fix.md.
-func TestBusOwner_ResetForRunReusesFreshBuffer(t *testing.T) {
-	bus := newBusOwner()
-
-	// Mimic the FE: open SSE before /start. getOrCreate lazily builds the
-	// buffer, Subscribe attaches a reader.
-	first := bus.getOrCreate("job-1")
-	r, err := first.Subscribe(0)
-	if err != nil {
-		t.Fatalf("subscribe: %v", err)
-	}
-	defer r.Close()
-
-	// /start fires resetForRun on a never-published buffer. Must NOT
-	// recreate; the existing buffer's seq space is already fresh.
-	bus.resetForRun("job-1")
-	second := bus.get("job-1")
-	if second != first {
-		t.Fatalf("resetForRun must reuse fresh buffer (first=%p second=%p)", first, second)
-	}
-
-	// Reader must still be live: the next Publish has to reach it without
-	// the reader needing to reconnect.
-	go func() {
-		time.Sleep(10 * time.Millisecond)
-		first.Publish(iterStarted("job-1"))
-	}()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	got := drainReader(t, ctx, r, 1)
-	if len(got) != 1 || got[0].Seq != 1 {
-		t.Fatalf("expected first event to land on the surviving reader, got %+v", got)
-	}
 }
 
 func TestBuffer_PublishTransientDoesNotEnterBuffer(t *testing.T) {
@@ -565,7 +464,7 @@ func TestBuffer_ReadWithTimeout(t *testing.T) {
 		}
 		defer r.Close()
 
-		b.Publish(iterStarted("job-1"))
+		b.Publish(runStarted("job-1"))
 		entries, status := r.ReadWithTimeout(context.Background(), time.Second, 10)
 		if status != ReadOK {
 			t.Fatalf("status: got %v want ReadOK", status)
@@ -592,7 +491,7 @@ func TestBuffer_ReadWithTimeout(t *testing.T) {
 			t.Fatalf("entries: got %v want nil", entries)
 		}
 
-		b.Publish(iterStarted("job-1"))
+		b.Publish(runStarted("job-1"))
 		entries, status = r.ReadWithTimeout(context.Background(), time.Second, 10)
 		if status != ReadOK || len(entries) != 1 {
 			t.Fatalf("after publish: status=%v entries=%d", status, len(entries))
@@ -692,9 +591,9 @@ func TestBuffer_GCGapDoesNotBusyLoop(t *testing.T) {
 		t.Fatalf("subscribe: %v", err)
 	}
 
-	b.Publish(iterStarted("job-1"))     // seq=1
+	b.Publish(runStarted("job-1"))     // seq=1
 	b.Publish(textDelta("job-1", "m1")) // seq=2
-	b.Publish(iterCompleted("job-1"))   // seq=3, closes round
+	b.Publish(runFinished("job-1"))   // seq=3, closes round
 
 	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Second)
 	defer cancel1()

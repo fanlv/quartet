@@ -20,8 +20,8 @@ import (
 
 func (s *serviceImpl) Create(job *model.Job) error {
 	// Establish the "Progress is never nil in s.jobs" invariant at the only
-	// other entry point besides load(). Subsequent code paths (Start,
-	// Continue, SendMessage, recordIterationResult, ...) can then dereference
+	// other entry point besides load(). Subsequent code paths (SendMessage,
+	// finishJob, ...) can then dereference
 	// Progress without a per-call nil guard. Done on the input pointer first
 	// so the caller's local reference also sees the same shape we serialise
 	// to disk and store in s.jobs.
@@ -54,13 +54,6 @@ func (s *serviceImpl) Get(jobID string) (*model.Job, bool) {
 	}
 	cp := j.DeepCopy()
 	s.mu.RUnlock()
-	// Synthesize the runtime-only graceful-stop pending flag onto the snapshot
-	// so a refresh / second tab can restore the "stop after step" affordance.
-	// It is never persisted (see JobProgress.GracefulStopPending) — read it
-	// from the live map at snapshot time instead.
-	if cp.Progress != nil {
-		cp.Progress.GracefulStopPending = s.isGracefulStopPending(jobID)
-	}
 	return cp, true
 }
 
@@ -291,13 +284,13 @@ func (s *serviceImpl) ListByWorkspacePaged(wsID, cursor string, limit int, exclu
 }
 
 func (s *serviceImpl) Delete(jobID string) {
-	// Defensive: ensure any in-flight runLoop has exited before tearing down
+	// Defensive: ensure any in-flight run has exited before tearing down
 	// memory and disk state. Without this, a tail-end saveJobWithRetry inside
 	// finishJob / stopJob / failJob would recreate the job directory we are
 	// about to FileDelete, leaving a half-resurrected ghost on disk and
 	// leaking the goroutine. StopAndWait is idempotent — when no run is
 	// active it returns immediately. Callers SHOULD still MarkDeleted before
-	// calling Delete (so concurrent Start / Continue / SendMessage are
+	// calling Delete (so concurrent SendMessage calls are
 	// rejected during teardown), but a forgotten MarkDeleted no longer
 	// produces a goroutine leak or file resurrection.
 	s.StopAndWait(jobID)

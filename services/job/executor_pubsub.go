@@ -60,46 +60,12 @@ func (b *busOwner) remove(jobID string) {
 }
 
 // resumeGC re-enables GC on a buffer that was previously marked terminal.
-// Continue and SendMessage on a terminal job reuse the same buffer (only
-// Start calls resetForRun); without resuming GC the prior run's
-// MarkTerminal would keep gcLocked short-circuited for the entire new run.
+// SendMessage on a terminal job reuses the same buffer; without resuming GC
+// the prior run's MarkTerminal would keep gcLocked short-circuited for the
+// entire new run.
 func (b *busOwner) resumeGC(jobID string) {
 	if buf := b.get(jobID); buf != nil {
 		buf.ResumeGC()
-	}
-}
-
-// resetForRun closes and recreates the buffer when a job is (re)started.
-// New runs deserve a fresh sequence space and a fresh in-flight tail —
-// stale events from the previous run would only confuse late-arriving
-// subscribers using a Last-Event-ID from the prior run. The new buffer
-// uses ErrSeqGone to reject stale cursors that belong to the prior epoch
-// (see jobEventBuffer.Subscribe).
-//
-// Fresh buffers are reused as-is. The first Start after job creation
-// races with the FE: JobChat opens SSE on the lazily-created buffer
-// before issuing POST /job/:id/start, so by the time we get here a
-// subscriber is already attached. Closing the buffer would evict that
-// reader, the SSE handler would return without [DONE], and the client's
-// readStream would surface as `done:true` → `onDisconnect` → the
-// "服务器断开，正在重连..." banner flash. Since a never-published
-// buffer's seq space is already fresh, there's nothing to wipe — keep
-// the existing buffer and skip the eviction.
-func (b *busOwner) resetForRun(jobID string) {
-	b.mu.Lock()
-	old := b.buffers[jobID]
-	if old != nil && old.IsFresh() {
-		b.mu.Unlock()
-		return
-	}
-	b.buffers[jobID] = newJobEventBuffer(jobID)
-	b.mu.Unlock()
-	// Close synchronously: it only flips a flag, broadcasts, and nils the
-	// slice — fast enough to run inline. Async closure made the wake-up
-	// timing of blocked readers nondeterministic and was inconsistent with
-	// the synchronous close path used by remove().
-	if old != nil {
-		old.Close()
 	}
 }
 

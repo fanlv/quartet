@@ -9,12 +9,12 @@ import (
 )
 
 // recoverRunPanic must be registered directly with defer so recover can observe
-// the panic. It runs before the normal lifecycle defer in runLoop/runInteractive.
-func (s *serviceImpl) recoverRunPanic(ctx context.Context, job *model.Job, source string, isLoopRun bool) {
+// the panic. It runs before the normal lifecycle defer in runInteractive.
+func (s *serviceImpl) recoverRunPanic(ctx context.Context, job *model.Job, source string) {
 	if r := recover(); r != nil {
 		panicErr := newRunPanicError(r)
 		logger.Errorf(ctx, "[%s] panic: jobId=%s err=%v\n%s", source, job.ID, r, string(debug.Stack()))
 		s.closePanicRoundIfOpen(job, panicErr)
-		s.failJob(ctx, job, panicErr.Error(), isLoopRun, false)
+		s.failJob(ctx, job, panicErr.Error())
 	}
 }

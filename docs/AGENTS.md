@@ -8,6 +8,5 @@
 * 文档在不丢失细节的情况下，尽量保持简洁，不要长篇大论。
 
 <!-- https://raw.githubusercontent.com/snarktank/ralph/refs/heads/main/skills/prd/SKILL.md -->
-其他的规范以 .claude/skills/prd/SKILL.md 为准。
-@../.claude/skills/prd/SKILL.md
+其他的规范以 @./PRD.md 为准。
 

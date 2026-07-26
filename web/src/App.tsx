@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { JobChat, ChatPage, GraphWorkflowPage, Settings } from './components';
 import { StatsPage } from './components/stats/StatsPage';
 import { ConnectionStatusProvider } from './contexts/ConnectionStatus';
-import { LoopConfig } from './types';
 import { markBootStage, reportBootFailure } from './utils/boot';
 import { prefetchSkills } from './utils/skills';
 import { DEFAULT_WORKSPACE_ID, getLastUsedWorkspaceId, setLastUsedWorkspaceId, loadWorkspacePrefs, registerWorkspaceColors } from './utils/workspace';
@@ -119,7 +118,6 @@ function App() {
   const [showStats, setShowStats] = useState(() => getStatsOpenFromUrl());
   const [showGraph, setShowGraph] = useState(() => getGraphOpenFromUrl());
   const graphDirtyRef = useRef(false);
-  const [initialLoopConfig, setInitialLoopConfig] = useState<LoopConfig | undefined>();
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
   const [missingJobNoticeId, setMissingJobNoticeId] = useState<string | null>(null);
 
@@ -169,7 +167,6 @@ function App() {
         setInitialModelId(undefined);
         setInitialAgentType(undefined);
         setInitialAcpMode(undefined);
-        setInitialLoopConfig(undefined);
       }
       if (!wsId) {
         setCurrentWorkspace(undefined);
@@ -289,9 +286,6 @@ function App() {
         modelId: effectiveModel,
         agentType: effectiveType,
         mode: 'interactive',
-        loopConfig: {
-          flow: [{ id: `fn-${Date.now()}-1`, type: 'step', message: message.trim(), repeatCount: 1, roundMode: 'none' }],
-        },
       };
       if (workdir) body.workdir = workdir;
       // Fallback to the default workspace when currentWorkspace hasn't been
@@ -324,68 +318,11 @@ function App() {
       setInitialAgentType(type);
       setInitialAcpMode(acpMode);
       setInitialAcpThoughtLevel(acpThoughtLevel);
-      setInitialLoopConfig(undefined);
       setShowChat(true);
     } catch (err) {
       console.error('Failed to create job:', err);
       const msg = err instanceof Error ? err.message : String(err);
       alert(`Failed to start chat: ${msg}`);
-    } finally {
-      setIsInitializing(false);
-    }
-  }, [currentWorkspace]);
-
-  // Loop chat: create job with loopConfig then navigate
-  const handleStartLoop = useCallback(async (loopConfig: LoopConfig, modelId: string, type: string, workdir?: string, acpMode?: string, workspaceId?: string, acpThoughtLevel?: string) => {
-    setMissingJobNoticeId(null);
-    setIsInitializing(true);
-    try {
-      const body: Record<string, unknown> = { modelId, agentType: type, mode: 'loop', loopConfig };
-      if (workdir) body.workdir = workdir;
-      // The loop panel carries its own workspace selection; honor it so the
-      // chosen workdir and workspaceId always belong to the same workspace.
-      // Falling back to the page-level current workspace would let a quartet
-      // workdir be submitted under an ACP workspaceId and trip the server's
-      // containment check.
-      body.workspaceId = workspaceId ?? currentWorkspace?.id ?? DEFAULT_WORKSPACE_ID;
-      if (acpMode) body.acpMode = acpMode;
-      if (acpThoughtLevel) body.acpThoughtLevel = acpThoughtLevel;
-
-      const response = await fetch('/api/v1/job/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) {
-        const errData = await response.json().catch(() => null);
-        throw new Error(errData?.error || `HTTP ${response.status}`);
-      }
-      const data = await response.json();
-      const jobId = data.jobId;
-
-      // If the loop panel selected a different workspace than the page-level
-      // one, switch the page to it so the URL, sidebar and JobChat all reflect
-      // the workspace the job actually runs in.
-      if (workspaceId && workspaceId !== currentWorkspace?.id) {
-        setCurrentWorkspace({ id: workspaceId, title: '', description: '', workdir: workdir ?? '' });
-        updateUrlWithWorkspaceId(workspaceId);
-      }
-
-      updateUrlWithJobId(jobId);
-      setCurrentJobId(jobId);
-      setInitialMessage(null);
-      setInitialImageUrls(undefined);
-      setInitialWorkdir(workdir);
-      setInitialModelId(modelId);
-      setInitialAgentType(type);
-      setInitialAcpMode(acpMode);
-      setInitialAcpThoughtLevel(acpThoughtLevel);
-      setInitialLoopConfig(loopConfig);
-      setShowChat(true);
-    } catch (err) {
-      console.error('Failed to create loop job:', err);
-      const msg = err instanceof Error ? err.message : String(err);
-      alert(`Failed to start loop: ${msg}`);
     } finally {
       setIsInitializing(false);
     }
@@ -399,9 +336,6 @@ function App() {
         modelId,
         agentType,
         mode: 'interactive',
-        loopConfig: {
-          flow: [{ id: `fn-${Date.now()}-2`, type: 'step', message: '', repeatCount: 1, roundMode: 'none' }],
-        },
       };
       if (workdir) body.workdir = workdir;
       body.workspaceId = currentWorkspace?.id ?? DEFAULT_WORKSPACE_ID;
@@ -426,7 +360,6 @@ function App() {
       setInitialModelId(modelId);
       setInitialAgentType(agentType);
       setInitialAcpMode(undefined);
-      setInitialLoopConfig(undefined);
       setShowChat(true);
     } catch (err) {
       console.error('Failed to create new chat:', err);
@@ -450,7 +383,6 @@ function App() {
     setInitialModelId(undefined);
     setInitialAgentType(undefined);
     setInitialAcpMode(undefined);
-    setInitialLoopConfig(undefined);
     setShowChat(false);
   }, []);
 
@@ -489,7 +421,6 @@ function App() {
     setInitialModelId(undefined);
     setInitialAgentType(undefined);
     setInitialAcpMode(undefined);
-    setInitialLoopConfig(undefined);
     setInitialSessionId(undefined);
     setShowChat(true);
   }, [currentWorkspace]);
@@ -523,7 +454,6 @@ function App() {
     setInitialModelId(undefined);
     setInitialAgentType(undefined);
     setInitialAcpMode(undefined);
-    setInitialLoopConfig(undefined);
     setShowChat(false);
     setMissingJobNoticeId(staleJobId);
   }, []);
@@ -598,9 +528,6 @@ function App() {
       agentType,
       mode: 'interactive',
       workspaceId: ws.id,
-      loopConfig: {
-        flow: [{ id: `fn-${Date.now()}-ws`, type: 'step', message: '', repeatCount: 1, roundMode: 'none' }],
-      },
     };
     if (ws.workdir) body.workdir = ws.workdir;
     if (acpMode) body.acpMode = acpMode;
@@ -642,7 +569,6 @@ function App() {
         setInitialModelId(undefined);
         setInitialAgentType(undefined);
         setInitialAcpMode(undefined);
-        setInitialLoopConfig(undefined);
         setInitialSessionId(undefined);
       } else {
         // Fallback: land on the workspace home (no Job).
@@ -746,7 +672,6 @@ function App() {
           setInitialModelId(undefined);
           setInitialAgentType(undefined);
           setInitialAcpMode(undefined);
-          setInitialLoopConfig(undefined);
           setInitialSessionId(undefined);
         } else if (action.type === 'new_job') {
           // Immediately create a new Job in the current workspace, inheriting
@@ -766,10 +691,10 @@ function App() {
               const jobRes = await fetch(`/api/v1/job/${encodeURIComponent(currentJobId)}`);
               if (jobRes.ok) {
                 const j = await jobRes.json();
-                // agentType lives on loopConfig.flow[0] (first step). First
-                // session's modelId is denormalized onto job.firstModelId.
-                const flow0 = j?.loopConfig?.flow?.[0];
-                if (flow0?.agentType) inheritedAgent = flow0.agentType;
+                // The first session's modelId is denormalized onto
+                // job.firstModelId. The Job payload has no agentType field,
+                // so the agent falls back to workspace prefs → system
+                // message_agent below.
                 if (j?.firstModelId) inheritedModel = j.firstModelId;
                 if (j?.workdir) inheritedWorkdir = j.workdir;
               }
@@ -820,9 +745,6 @@ function App() {
             agentType: inheritedAgent,
             mode: 'interactive',
             workspaceId: targetWsId,
-            loopConfig: {
-              flow: [{ id: `fn-${Date.now()}-new`, type: 'step', message: '', repeatCount: 1, roundMode: 'none' }],
-            },
           };
           if (inheritedWorkdir) body.workdir = inheritedWorkdir;
           if (inheritedAcpMode) body.acpMode = inheritedAcpMode;
@@ -850,7 +772,6 @@ function App() {
             setInitialModelId(undefined);
             setInitialAgentType(undefined);
             setInitialAcpMode(undefined);
-            setInitialLoopConfig(undefined);
             setInitialSessionId(undefined);
           } catch (err) {
             notifyError('创建新对话失败：网络错误。', err);
@@ -958,14 +879,13 @@ function App() {
   const handleGraphDirtyChange = useCallback((dirty: boolean) => {
     graphDirtyRef.current = dirty;
   }, []);
-  // Jump into the Chat page for a freshly-started Graph run's bound Job, exactly
-  // like handleStartLoop does for loop jobs. The job already exists (the backend
-  // creates it on /graph/run/start), so we only flip views + URL here.
+  // Jump into the Chat page for a freshly-started Graph run's bound Job. The
+  // job already exists (the backend creates it on /graph/run/start), so we
+  // only flip views + URL here.
   const handleGraphRunStarted = useCallback((jobId: string) => {
     setMissingJobNoticeId(null);
     setShowGraph(false);
     setShowStats(false);
-    setInitialLoopConfig(undefined);
     setInitialMessage(null);
     setInitialImageUrls(undefined);
     setInitialSessionId(undefined);
@@ -996,7 +916,6 @@ function App() {
     setInitialModelId(undefined);
     setInitialAgentType(undefined);
     setInitialAcpMode(undefined);
-    setInitialLoopConfig(undefined);
     setShowChat(false);
     handleCloseStats();
   }, [handleSelectWorkspace, handleCloseStats]);
@@ -1080,7 +999,6 @@ function App() {
             initialMessage={initialMessage}
             initialImageUrls={initialImageUrls}
             initialWorkdir={initialWorkdir}
-            initialLoopConfig={initialLoopConfig}
             initialSessionId={initialSessionId}
             initialModelId={initialModelId}
             initialAgentType={initialAgentType}
@@ -1104,7 +1022,6 @@ function App() {
         <div className="app-main">
           <ChatPage
             onStartChat={handleStartChat}
-            onStartLoop={handleStartLoop}
             isInitializing={isInitializing}
             refreshKey={homeRefreshKey}
             workspaceWorkdir={currentWorkspace?.workdir}

@@ -203,8 +203,8 @@ func (h *Handler) WorkspaceDelete(ctx context.Context, c *app.RequestContext) {
 	}
 
 	// Cascade-delete all jobs belonging to this workspace.
-	// Mark all jobs as deleted first to prevent concurrent Start/SendMessage
-	// from launching new runLoops while we are cleaning up. Use MarkDeleted
+	// Mark all jobs as deleted first to prevent concurrent SendMessage
+	// from launching new runs while we are cleaning up. Use MarkDeleted
 	// rather than Save on a stale snapshot — Save merges Deleted from the
 	// caller's copy, so a concurrent Save holding an older (Deleted=false)
 	// snapshot would silently revert the flag.
@@ -219,7 +219,7 @@ func (h *Handler) WorkspaceDelete(ctx context.Context, c *app.RequestContext) {
 		// Always stop-and-wait: StopAndWait is idempotent for non-running jobs
 		// (cancel map miss → done=nil → returns immediately), and running-status
 		// observed from the list snapshot can be stale. Unconditional call also
-		// means we always re-fetch below to pick up any SessionIDs that runLoop
+		// means we always re-fetch below to pick up any SessionIDs that the run
 		// appended between the snapshot and the stop.
 		if err := h.stopAndWait(ctx, job); err != nil {
 			logger.Errorf(ctx, "[WorkspaceDelete] stopAndWait error: %v, jobId=%s", err, job.ID)

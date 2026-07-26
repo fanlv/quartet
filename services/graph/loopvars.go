@@ -61,8 +61,7 @@ func loopIterationVars(scope *scopeRun) map[string]string {
 // _current_time builtin (always). Like the loop vars, _current_time is computed
 // on the fly and NEVER written into a persisted snapshot — so it stays out of
 // round-end accumulated snapshots and join merges, and a resume recomputes it
-// from scratch. It mirrors the Loop engine's per-round _current_time injection
-// (services/job/executor_vars.go injectPerRoundVars).
+// from scratch.
 //
 // The timestamp is stamped once here. On the execution path the result is
 // captured on the ready item at enqueue time and reused for both the display
