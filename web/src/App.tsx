@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { JobChat, ChatPage, GraphWorkflowPage, Settings } from './components';
 import { StatsPage } from './components/stats/StatsPage';
 import { ConnectionStatusProvider } from './contexts/ConnectionStatus';
-import { ConnectionBanner } from './components/ConnectionBanner';
 import { LoopConfig } from './types';
 import { markBootStage, reportBootFailure } from './utils/boot';
+import { prefetchSkills } from './utils/skills';
 import { DEFAULT_WORKSPACE_ID, getLastUsedWorkspaceId, setLastUsedWorkspaceId, loadWorkspacePrefs, registerWorkspaceColors } from './utils/workspace';
 import './App.css';
 
@@ -122,6 +122,10 @@ function App() {
   const [initialLoopConfig, setInitialLoopConfig] = useState<LoopConfig | undefined>();
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
   const [missingJobNoticeId, setMissingJobNoticeId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isReadonly) prefetchSkills();
+  }, [isReadonly]);
 
   // Workspace state. On first load:
   //   1. Try URL `?workspaceId=...`.
@@ -1018,7 +1022,6 @@ function App() {
     return (
       <ConnectionStatusProvider>
       <div className="app-layout">
-        <ConnectionBanner />
         <div className="app-main">
           <JobChat
             key={currentJobId}
@@ -1036,7 +1039,6 @@ function App() {
   return (
     <ConnectionStatusProvider>
     <div className="app-layout">
-      <ConnectionBanner />
       {missingJobNoticeId && (
         <div className="app-missing-job-notice" data-testid="job-missing-notice" role="status">
           <span>{t('app.jobMissingNotice', { jobId: missingJobNoticeId })}</span>

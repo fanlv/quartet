@@ -381,6 +381,21 @@
   justify-content: flex-end;
 }
 
+/* Secondary actions (validate/reset/delete/save-as) are wrapped for the mobile
+   overflow menu. On desktop both wrappers are display:contents so the buttons
+   lay out inline exactly as before; only the "⋯" trigger stays hidden. */
+.graph-actions-overflow {
+  display: contents;
+}
+
+.graph-actions-menu {
+  display: contents;
+}
+
+.graph-actions-more {
+  display: none;
+}
+
 .graph-form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
@@ -604,8 +619,61 @@
     flex: 1 1 auto;
   }
 
+  .graph-editor-actions button {
+    min-height: 40px;
+  }
+
+  /* Low-frequency on phones: hide the description input to keep the header
+     short; the name input stays editable in the main row. */
+  .graph-desc-input {
+    display: none;
+  }
+
+  /* The view toggle shares the actions row instead of taking a full row. */
   .graph-view-toggle {
-    flex: 1 1 100%;
+    flex: 0 0 auto;
+  }
+
+  /* "⋯" overflow menu holding validate/reset/delete/save-as. */
+  .graph-editor-actions > .graph-actions-overflow {
+    flex: 0 0 auto;
+    position: relative;
+  }
+
+  .graph-actions-more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    font-size: 18px;
+    line-height: 1;
+    letter-spacing: 1px;
+  }
+
+  .graph-actions-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 1000;
+    min-width: 180px;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08), 0 12px 32px rgba(15, 23, 42, 0.1);
+  }
+
+  .graph-actions-menu.open {
+    display: flex;
+  }
+
+  .graph-actions-menu .graph-secondary-btn,
+  .graph-actions-menu .graph-danger-btn {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .graph-event-row {

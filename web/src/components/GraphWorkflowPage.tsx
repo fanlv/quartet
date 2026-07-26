@@ -676,6 +676,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const [workspaceListError, setWorkspaceListError] = useState('');
   const wsDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Secondary editor actions (validate/reset/delete/save-as) live in an
+  // overflow menu on narrow screens; on desktop the wrapper is display:contents
+  // and the menu trigger stays hidden, so the layout is unchanged.
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
+
   // Run view / replay state.
   const [selectedRun, setSelectedRun] = useState<GraphRun | null>(null);
   const [viewingRun, setViewingRun] = useState(false);
@@ -741,6 +747,20 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     if (!selectedNodeId) return null;
     return nodes.find((n) => n.id === selectedNodeId)?.data.graphNode ?? null;
   }, [nodes, selectedNodeId]);
+  // Mobile tap-to-add target: when the selected node is a loop (or sits inside
+  // one), palette clicks add the new node into that loop — touch has no HTML5
+  // drag & drop, so this is the only way to populate a loop on a phone.
+  const addIntoLoopId = useMemo(() => {
+    if (!isMobile || !selectedNodeId) return null;
+    const selected = nodes.find((n) => n.id === selectedNodeId);
+    if (!selected) return null;
+    if (selected.data.kind === 'loop') return selected.id;
+    if (selected.parentId) {
+      const parent = nodes.find((n) => n.id === selected.parentId);
+      if (parent?.data.kind === 'loop') return parent.id;
+    }
+    return null;
+  }, [isMobile, nodes, selectedNodeId]);
   const canDeleteSelectedNode = useCallback(
     (node: GraphNode): boolean => {
       const flowNode = nodes.find((n) => n.id === node.id);
@@ -1010,6 +1030,18 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [wsDropdownOpen]);
+
+  // Same outside-click close for the mobile actions overflow menu.
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (actionsMenuRef.current && !actionsMenuRef.current.contains(e.target as Node)) {
+        setActionsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [actionsMenuOpen]);
 
   useEffect(
     () => () => {
@@ -2290,24 +2322,38 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                 )
               ) : (
                 <>
-                  <button className="graph-secondary-btn" data-testid="graph-validate" onClick={() => void validate()} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
-                    <GraphButtonIcon name="check" />
-                    {t('graph.editor.validate')}
-                  </button>
-                  <button className="graph-secondary-btn" data-testid="graph-reset" onClick={resetChanges} disabled={editingLocked || viewMode === 'json' || !dirty}>
-                    <GraphButtonIcon name="reset" />
-                    {t('graph.editor.reset')}
-                  </button>
-                  {selectedWorkflow && (
-                    <button className="graph-danger-btn" onClick={() => { if (guardDiscard()) setDeleteTarget(selectedWorkflow); }} disabled={editingLocked}>
-                      <GraphButtonIcon name="trash" />
-                      {t('graph.editor.delete')}
+                  <div className="graph-actions-overflow" ref={actionsMenuRef}>
+                    <button
+                      type="button"
+                      className="graph-secondary-btn graph-actions-more"
+                      data-testid="graph-actions-more"
+                      aria-label={t('graph.editor.moreActions')}
+                      aria-expanded={actionsMenuOpen}
+                      onClick={() => setActionsMenuOpen((v) => !v)}
+                    >
+                      ⋯
                     </button>
-                  )}
-                  <button className="graph-secondary-btn" data-testid="graph-save-as-new" onClick={() => void save('create')} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
-                    <GraphButtonIcon name="copy" />
-                    {t('graph.editor.saveAsNew')}
-                  </button>
+                    <div className={`graph-actions-menu${actionsMenuOpen ? ' open' : ''}`}>
+                      <button className="graph-secondary-btn" data-testid="graph-validate" onClick={() => { setActionsMenuOpen(false); void validate(); }} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
+                        <GraphButtonIcon name="check" />
+                        {t('graph.editor.validate')}
+                      </button>
+                      <button className="graph-secondary-btn" data-testid="graph-reset" onClick={() => { setActionsMenuOpen(false); resetChanges(); }} disabled={editingLocked || viewMode === 'json' || !dirty}>
+                        <GraphButtonIcon name="reset" />
+                        {t('graph.editor.reset')}
+                      </button>
+                      {selectedWorkflow && (
+                        <button className="graph-danger-btn" onClick={() => { setActionsMenuOpen(false); if (guardDiscard()) setDeleteTarget(selectedWorkflow); }} disabled={editingLocked}>
+                          <GraphButtonIcon name="trash" />
+                          {t('graph.editor.delete')}
+                        </button>
+                      )}
+                      <button className="graph-secondary-btn" data-testid="graph-save-as-new" onClick={() => { setActionsMenuOpen(false); void save('create'); }} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
+                        <GraphButtonIcon name="copy" />
+                        {t('graph.editor.saveAsNew')}
+                      </button>
+                    </div>
+                  </div>
                   <button className="graph-primary-btn" data-testid="graph-save" onClick={() => void save(selectedWorkflow ? 'update' : 'create')} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                     <GraphButtonIcon name="save" />
                     {selectedWorkflow ? t('graph.editor.save') : t('graph.editor.create')}
@@ -2351,6 +2397,8 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   readOnly={(viewingRun && !editingRun) || editingLocked}
                   allowNodeDrag={editingRun && !editingLocked}
                   showMiniMap={!isMobile}
+                  isMobile={isMobile}
+                  addIntoLoopId={addIntoLoopId}
                   runStatusByNodeId={viewingRun ? replayRunStatus : undefined}
                   edgeStatusById={viewingRun && !editingRun ? replayEdgeStatus : undefined}
                   errorNodeIds={viewingRun && !editingRun ? undefined : errorNodeIds}

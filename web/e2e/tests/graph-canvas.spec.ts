@@ -96,7 +96,9 @@ async function openGraphCanvas(page: Page, request: APIRequestContext, name = 'c
   await expect(page.getByTestId('auth-gate')).toHaveCount(0)
   // The default config (start -> Shell -> end) renders on the canvas at mount.
   await expect(page.getByTestId('graph-node-start')).toBeVisible()
-  await expect(page.getByTestId('graph-validate')).toBeVisible()
+  // graph-save stays visible on both layouts; secondary actions (validate etc.)
+  // collapse into the "⋯" overflow menu on narrow (mobile) viewports.
+  await expect(page.getByTestId('graph-save')).toBeVisible()
   return workspace
 }
 
@@ -573,6 +575,15 @@ test('graph run: version edit rejects changing a succeeded node config (backend 
 test('graph mobile: inspector bottom drawer can collapse and reopens on node selection', async ({ page, request }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await openGraphCanvas(page, request, 'mobile')
+
+  // Secondary actions collapse into the "⋯" overflow menu on mobile: hidden
+  // until opened, visible inside the menu, hidden again after it closes.
+  const validate = page.getByTestId('graph-validate')
+  await expect(validate).toBeHidden()
+  await page.getByTestId('graph-actions-more').click()
+  await expect(validate).toBeVisible()
+  await page.getByTestId('graph-actions-more').click()
+  await expect(validate).toBeHidden()
 
   const inspector = page.getByTestId('graph-inspector')
   const toggle = page.getByTestId('graph-inspector-drawer-toggle')

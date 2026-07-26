@@ -975,7 +975,8 @@
       "editingRunVersion": "编辑运行版本中",
       "applyToCanvas": "应用到画布",
       "jsonDraft": "JSON 草稿未应用",
-      "jsonConfigAria": "Graph 工作流 JSON 配置"
+      "jsonConfigAria": "Graph 工作流 JSON 配置",
+      "moreActions": "更多"
     },
     "defaultName": "新建 Graph 工作流",
     "nodeTitle": {
@@ -1108,6 +1109,8 @@
     },
     "inspector": {
       "nodeConfig": "结点配置",
+      "expand": "展开",
+      "collapse": "还原",
       "globalConfig": "全局配置",
       "varsAndRunConfig": "变量与运行配置",
       "selectNodeHint": "选择一个结点查看 / 编辑配置",

@@ -64,6 +64,12 @@ interface GraphCanvasProps {
   // caller can keep its node state in sync.
   allowNodeDrag?: boolean;
   showMiniMap?: boolean;
+  isMobile?: boolean;
+  // Mobile tap-to-add target: when set (a loop node is selected, or the selected
+  // node sits inside a loop), palette clicks add business nodes into this loop
+  // container. Touch has no HTML5 drag & drop, so without this there is no way
+  // to add a node into a loop on a phone. Desktop ignores it.
+  addIntoLoopId?: string | null;
   runStatusByNodeId?: Record<string, GraphInstanceStatus>;
   edgeStatusById?: Record<string, 'pending' | 'active' | 'pruned'>;
   errorNodeIds?: Set<string>;
@@ -108,6 +114,8 @@ function CanvasInner({
   readOnly,
   allowNodeDrag,
   showMiniMap = true,
+  isMobile = false,
+  addIntoLoopId = null,
   runStatusByNodeId,
   edgeStatusById,
   errorNodeIds,
@@ -374,22 +382,34 @@ function CanvasInner({
     [nodes, onReparent, readOnly, rf],
   );
 
-  // Click-to-add: always drop the node at the top level near the viewport
-  // center. It deliberately does NOT auto-nest into a loop container that
-  // happens to overlap the center — that made click-add land inside a loop
+  // Click-to-add: on desktop it always drops the node at the top level near the
+  // viewport center. It deliberately does NOT auto-nest into a loop container
+  // that happens to overlap the center — that made click-add land inside a loop
   // unexpectedly, and (with the old extent clamp) the node could not be dragged
-  // back out. To put a node inside a loop, drag it from the palette into the
-  // loop box instead.
+  // back out. On mobile (no HTML5 drag & drop) the selected loop — via
+  // addIntoLoopId — is the explicit tap-to-add target instead, so a loop can
+  // still be populated from the palette on a phone.
   const handlePaletteClick = useCallback(
     (type: GraphNodeType) => {
       if (readOnly) return;
+      if (isMobile && addIntoLoopId && type !== 'loop' && type !== 'start' && type !== 'end') {
+        const container = nodes.find((n) => n.id === addIntoLoopId);
+        if (container) {
+          // Child positions are relative to the container; stack the new node
+          // below the last child (or just under the container header when empty).
+          const children = nodes.filter((n) => n.parentId === container.id);
+          const bottom = children.reduce((max, n) => Math.max(max, n.position.y), 0);
+          onAddNode(type, { x: 24, y: children.length > 0 ? bottom + 96 : 56 }, container.id);
+          return;
+        }
+      }
       const rect = wrapRef.current?.getBoundingClientRect();
       const center = rect
         ? rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
         : { x: 200, y: 160 };
       onAddNode(type, center, null);
     },
-    [onAddNode, rf, readOnly],
+    [addIntoLoopId, isMobile, nodes, onAddNode, rf, readOnly],
   );
 
   const toggleTapConnect = useCallback(() => {

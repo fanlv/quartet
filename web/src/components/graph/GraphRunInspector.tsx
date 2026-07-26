@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { GraphHookResult, GraphInstanceState, GraphNode } from '../../types/graph';
@@ -35,7 +36,10 @@ function OutputBlock({ label, text, defaultOpen }: { label: string; text: string
 // itself) and fall back to the editor node.
 export function GraphRunInspector({ node, instance, hookResult, drawerOpen = true, onDrawerToggle }: GraphRunInspectorProps) {
   const { t } = useTranslation();
-  const asideClassName = `graph-inspector ${drawerOpen ? 'drawer-open' : 'drawer-collapsed'}`;
+  // Same mobile bottom-drawer expand/collapse as GraphInspector; desktop hides
+  // the button and ignores this state.
+  const [drawerFull, setDrawerFull] = useState(false);
+  const asideClassName = `graph-inspector ${drawerOpen ? 'drawer-open' : 'drawer-collapsed'}${drawerFull ? ' drawer-full' : ''}`;
 
   // Derive node identity from the most reliable source available. In run-view the
   // editor `node` may be stale or absent (the canvas is driven by the run's replay
@@ -46,23 +50,51 @@ export function GraphRunInspector({ node, instance, hookResult, drawerOpen = tru
   const k = nodeType ? kindOf(nodeType) : null;
 
   const DrawerHeader = (
-    <button
-      type="button"
-      className="gi-drawer-handle"
-      data-testid="graph-run-inspector-drawer-toggle"
-      aria-expanded={drawerOpen}
-      onClick={onDrawerToggle}
-      disabled={!onDrawerToggle}
-    >
-      <span className="gi-drawer-grip" aria-hidden="true" />
-      <span className="gi-drawer-title">
-        <span>{t('graph.runInspector.title')}</span>
-        <small>{nodeTitle}</small>
-      </span>
-      <span className="gi-drawer-chevron" aria-hidden="true">
-        {drawerOpen ? '⌄' : '⌃'}
-      </span>
-    </button>
+    <div className="gi-drawer-bar">
+      <button
+        type="button"
+        className="gi-drawer-handle"
+        data-testid="graph-run-inspector-drawer-toggle"
+        aria-expanded={drawerOpen}
+        onClick={onDrawerToggle}
+        disabled={!onDrawerToggle}
+      >
+        <span className="gi-drawer-grip" aria-hidden="true" />
+        <span className="gi-drawer-title">
+          <span>{t('graph.runInspector.title')}</span>
+          <small>{nodeTitle}</small>
+        </span>
+        <span className="gi-drawer-chevron" aria-hidden="true">
+          {drawerOpen ? '⌄' : '⌃'}
+        </span>
+      </button>
+      <button
+        type="button"
+        className="gi-drawer-expand"
+        data-testid="graph-run-inspector-drawer-expand"
+        aria-label={drawerFull ? t('graph.inspector.collapse') : t('graph.inspector.expand')}
+        aria-pressed={drawerFull}
+        title={drawerFull ? t('graph.inspector.collapse') : t('graph.inspector.expand')}
+        onClick={() => {
+          if (!drawerOpen) {
+            setDrawerFull(true);
+            onDrawerToggle?.();
+          } else {
+            setDrawerFull((v) => !v);
+          }
+        }}
+      >
+        {drawerFull ? (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+          </svg>
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+          </svg>
+        )}
+      </button>
+    </div>
   );
 
   if (!node && !instance && !hookResult) {

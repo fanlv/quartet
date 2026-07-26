@@ -20,6 +20,17 @@
   display: none;
 }
 
+/* Mobile drawer header row wrapper: no box of its own on desktop (the handle
+   is hidden there anyway); becomes a flex bar in the mobile media query. */
+.gi-drawer-bar {
+  display: contents;
+}
+
+/* Half ↔ near-full drawer toggle; only shown in the mobile media query. */
+.gi-drawer-expand {
+  display: none;
+}
+
 .graph-inspector h3 {
   font-size: 11px;
   text-transform: uppercase;
@@ -505,6 +516,43 @@
   .graph-inspector.drawer-collapsed {
     transform: translateY(calc(100% - var(--gi-drawer-peek)));
     box-shadow: 0 -8px 22px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Expanded drawer: near-full visible viewport (keyboard-aware via --gi-vv-height),
+     for editing long prompts on a phone. */
+  .graph-inspector.drawer-full {
+    max-height: calc(var(--gi-vv-height, 100dvh) - 8px);
+  }
+
+  .gi-drawer-bar {
+    display: flex;
+    align-items: stretch;
+    background: var(--graph-panel, #161b22);
+    border-bottom: 1px solid var(--graph-border, #2d3643);
+  }
+
+  .gi-drawer-bar .gi-drawer-handle {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    border-bottom: none;
+  }
+
+  .gi-drawer-expand {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    flex-shrink: 0;
+    border: none;
+    border-left: 1px solid var(--graph-border, #2d3643);
+    background: transparent;
+    color: var(--graph-text-dim, #8b949e);
+    cursor: pointer;
+  }
+
+  .gi-drawer-expand:active {
+    color: var(--graph-text, #e6edf3);
+    background: rgba(255, 255, 255, 0.04);
   }
 
   .gi-drawer-handle {

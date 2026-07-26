@@ -2434,6 +2434,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           const hasPendingRunStart = eventStreamReadyWaitersRef.current.size > 0;
           markEventStreamReady(true);
           reportReconnect();
+          setError(null);
           // Only sync metadata (title, status, progress, lastEventSeq).
           // SSE resumes from lastEventId so no events are lost; full
           // message reload would race with live SSE events and cause

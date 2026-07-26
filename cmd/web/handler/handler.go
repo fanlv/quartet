@@ -19,6 +19,7 @@ import (
 	"github.com/fanlv/quartet/services/agent/usage"
 	"github.com/fanlv/quartet/services/config"
 	"github.com/fanlv/quartet/services/einocli"
+	"github.com/fanlv/quartet/services/skills"
 	"github.com/fanlv/quartet/services/graph"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/prompt"
@@ -115,6 +116,7 @@ type Handler struct {
 	usageService     usage.Service
 	acpProbeCache    *probe.CacheService
 	einoCLI          *einocli.Service
+	skillsService    *skills.Service
 
 	// imGateway is shared across all IM platforms. It is initialized lazily
 	// by ensureIMGateway so each StartLarkListener / StartWeiXinListener can
@@ -224,6 +226,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		usageService:     usage.NewService(ss),
 		acpProbeCache:    acpProbeCache,
 		einoCLI:          einocli.NewService(),
+		skillsService:    skills.NewService(ctx),
 	}
 
 	// Wire usage-stats sink into the job service so every step finalize

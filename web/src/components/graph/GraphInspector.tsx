@@ -182,6 +182,11 @@ export function GraphInspector({
   // into that variable's value.
   const [pickerVar, setPickerVar] = useState<string | null>(null);
 
+  // Mobile bottom drawer: half-height by default, expandable to near-full
+  // viewport so long prompts stay editable. Desktop hides the expand button
+  // and ignores this state.
+  const [drawerFull, setDrawerFull] = useState(false);
+
   const selectedAgent = node?.config?.agentType
     ? agents.find((a) => a.type === node.config?.agentType)
     : undefined;
@@ -341,25 +346,53 @@ export function GraphInspector({
   const fieldAria = (label: string) => label.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
   const inspectorTitle = node ? t('graph.inspector.nodeConfig') : t('graph.inspector.globalConfig');
   const inspectorSubtitle = node ? (node.title || node.id) : t('graph.inspector.varsAndRunConfig');
-  const asideClassName = `graph-inspector ${drawerOpen ? 'drawer-open' : 'drawer-collapsed'}`;
+  const asideClassName = `graph-inspector ${drawerOpen ? 'drawer-open' : 'drawer-collapsed'}${drawerFull ? ' drawer-full' : ''}`;
   const DrawerHeader = (
-    <button
-      type="button"
-      className="gi-drawer-handle"
-      data-testid="graph-inspector-drawer-toggle"
-      aria-expanded={drawerOpen}
-      onClick={onDrawerToggle}
-      disabled={!onDrawerToggle}
-    >
-      <span className="gi-drawer-grip" aria-hidden="true" />
-      <span className="gi-drawer-title">
-        <span>{inspectorTitle}</span>
-        <small>{inspectorSubtitle}</small>
-      </span>
-      <span className="gi-drawer-chevron" aria-hidden="true">
-        {drawerOpen ? '⌄' : '⌃'}
-      </span>
-    </button>
+    <div className="gi-drawer-bar">
+      <button
+        type="button"
+        className="gi-drawer-handle"
+        data-testid="graph-inspector-drawer-toggle"
+        aria-expanded={drawerOpen}
+        onClick={onDrawerToggle}
+        disabled={!onDrawerToggle}
+      >
+        <span className="gi-drawer-grip" aria-hidden="true" />
+        <span className="gi-drawer-title">
+          <span>{inspectorTitle}</span>
+          <small>{inspectorSubtitle}</small>
+        </span>
+        <span className="gi-drawer-chevron" aria-hidden="true">
+          {drawerOpen ? '⌄' : '⌃'}
+        </span>
+      </button>
+      <button
+        type="button"
+        className="gi-drawer-expand"
+        data-testid="graph-inspector-drawer-expand"
+        aria-label={drawerFull ? t('graph.inspector.collapse') : t('graph.inspector.expand')}
+        aria-pressed={drawerFull}
+        title={drawerFull ? t('graph.inspector.collapse') : t('graph.inspector.expand')}
+        onClick={() => {
+          if (!drawerOpen) {
+            setDrawerFull(true);
+            onDrawerToggle?.();
+          } else {
+            setDrawerFull((v) => !v);
+          }
+        }}
+      >
+        {drawerFull ? (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+          </svg>
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+          </svg>
+        )}
+      </button>
+    </div>
   );
 
   const GlobalPanel = (

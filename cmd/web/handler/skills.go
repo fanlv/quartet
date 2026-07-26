@@ -3,7 +3,6 @@ package handler
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"regexp"
@@ -16,49 +15,14 @@ import (
 	"github.com/fanlv/quartet/pkg/httputil"
 )
 
-// SkillInfo represents a single installed skill.
-type SkillInfo struct {
-	Name   string   `json:"name"`
-	Path   string   `json:"path"`
-	Scope  string   `json:"scope"`
-	Agents []string `json:"agents"`
-}
-
-// SkillList returns installed skills (project or global).
+// SkillList returns installed skills (project or global) from cache.
 func (h *Handler) SkillList(ctx context.Context, c *app.RequestContext) {
 	global := string(c.Query("global")) == "true"
-
-	args := []string{"skills", "ls", "--json"}
-	if global {
-		args = append(args, "-g")
-	}
-
-	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(cmdCtx, "npx", args...)
-	cmd.Env = os.Environ()
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		httputil.InternalError(c, "failed to list skills: "+stripAnsi(stderr.String()))
-		return
-	}
-
-	var skills []SkillInfo
-	if err := json.Unmarshal(stdout.Bytes(), &skills); err != nil {
-		c.JSON(200, map[string]any{
-			"code":   0,
-			"skills": []any{},
-		})
-		return
-	}
-
+	skills, ready := h.skillsService.List(global)
 	c.JSON(200, map[string]any{
 		"code":   0,
 		"skills": skills,
+		"ready":  ready,
 	})
 }
 
@@ -121,6 +85,8 @@ func (h *Handler) SkillAdd(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	h.skillsService.Invalidate()
+
 	c.JSON(http.StatusOK, map[string]any{
 		"code":   0,
 		"output": stripAnsi(stdout.String()),
@@ -168,6 +134,8 @@ func (h *Handler) SkillRemove(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	h.skillsService.Invalidate()
+
 	c.JSON(http.StatusOK, map[string]any{
 		"code":   0,
 		"output": stripAnsi(stdout.String()),
@@ -212,6 +180,8 @@ func (h *Handler) SkillUpdate(ctx context.Context, c *app.RequestContext) {
 		})
 		return
 	}
+
+	h.skillsService.Invalidate()
 
 	c.JSON(http.StatusOK, map[string]any{
 		"code":   0,

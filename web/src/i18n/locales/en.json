@@ -985,7 +985,8 @@
       "editingRunVersion": "Editing run version",
       "applyToCanvas": "Apply to canvas",
       "jsonDraft": "Unapplied JSON draft",
-      "jsonConfigAria": "Graph workflow JSON configuration"
+      "jsonConfigAria": "Graph workflow JSON configuration",
+      "moreActions": "More"
     },
     "defaultName": "New graph workflow",
     "nodeTitle": {
@@ -1118,6 +1119,8 @@
     },
     "inspector": {
       "nodeConfig": "Node config",
+      "expand": "Expand",
+      "collapse": "Restore",
       "globalConfig": "Global config",
       "varsAndRunConfig": "Variables & run config",
       "selectNodeHint": "Select a node to view / edit its config",

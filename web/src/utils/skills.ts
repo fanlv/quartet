@@ -10,41 +10,70 @@ export interface SkillInfo {
   agents: string[];
 }
 
+interface SkillScopeResult {
+  skills: SkillInfo[];
+  ready: boolean;
+}
+
 let cachedSkills: SkillInfo[] | null = null;
 let inflight: Promise<SkillInfo[]> | null = null;
 
-async function fetchScope(global: boolean): Promise<SkillInfo[]> {
+const READY_RETRY_DELAY_MS = 400;
+const READY_RETRY_ATTEMPTS = 25;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function fetchScope(global: boolean): Promise<SkillScopeResult> {
   try {
-    const res = await fetch(`/api/v1/skills/list?global=${global}`);
+    const res = await fetch(`/api/v1/skills/list?global=${global}`, { cache: 'no-store' });
     const data = await res.json();
     if (data?.code === 0 && Array.isArray(data.skills)) {
-      return data.skills as SkillInfo[];
+      return {
+        skills: data.skills as SkillInfo[],
+        // Old backends do not return `ready`; treat that as ready.
+        ready: data.ready !== false,
+      };
     }
   } catch {
-    // Network/parse failures must never break typing — treat as "no skills".
+    // Network/parse failures must never break typing; preserve the old
+    // behavior and treat them as a completed empty list.
   }
-  return [];
+  return { skills: [], ready: true };
 }
 
 export function fetchSkills(): Promise<SkillInfo[]> {
   if (cachedSkills) return Promise.resolve(cachedSkills);
   if (inflight) return inflight;
   inflight = (async () => {
-    const [projectSkills, globalSkills] = await Promise.all([
-      fetchScope(false),
-      fetchScope(true),
-    ]);
-    // Dedupe by name; project scope wins over global on conflicts.
-    const byName = new Map<string, SkillInfo>();
-    for (const s of [...globalSkills, ...projectSkills]) {
-      if (s && typeof s.name === 'string') byName.set(s.name, s);
+    for (let attempt = 0; attempt < READY_RETRY_ATTEMPTS; attempt++) {
+      const [project, global] = await Promise.all([
+        fetchScope(false),
+        fetchScope(true),
+      ]);
+      if (project.ready && global.ready) {
+        // Dedupe by name; project scope wins over global on conflicts.
+        const byName = new Map<string, SkillInfo>();
+        for (const s of [...global.skills, ...project.skills]) {
+          if (s && typeof s.name === 'string') byName.set(s.name, s);
+        }
+        cachedSkills = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+        return cachedSkills;
+      }
+      await sleep(READY_RETRY_DELAY_MS);
     }
-    cachedSkills = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
-    return cachedSkills;
+    throw new Error('skill list cache is not ready');
   })().finally(() => {
     inflight = null;
   });
   return inflight;
+}
+
+export function prefetchSkills(): void {
+  void fetchSkills().catch(() => {
+    // Best-effort warmup; interactive "/" completion will retry on demand.
+  });
 }
 
 /** Test hook: drop the module-level cache so each test re-fetches. */
