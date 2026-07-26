@@ -41,6 +41,7 @@ import {
 } from './graph/graphFlowAdapter';
 import { createEditorNode, filterNodeRemoveChanges, markEditableNodes } from './graph/editorModel';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { locateGraphSessionProgress } from '../utils/graphSessionProgress';
 import './GraphLoopProgress.css';
 
 // The embedded mini canvas visualizes run state. Outside edit mode structural
@@ -354,7 +355,21 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
   // Mini read-only canvas inputs derived from the run we already fetch: the
   // executed config (versioned snapshot), per-node run status, edge resolution
   // state and failed nodes for the error outline.
-  const miniFlow = useMemo(() => (run ? configToFlow(runConfigSnapshot(run)) : { nodes: [], edges: [] }), [run]);
+  //
+  // The topology is immutable for a given (run, version): a mid-run version edit
+  // bumps run.currentVersion, and version snapshots are append-only. During a
+  // live run `run` is a brand-new object on every ~400ms status reconcile, so
+  // keying this on the whole `run` would rebuild the entire node/edge flow twice
+  // a second (expensive on a large graph, and it also reset the drag positions
+  // of the read-only canvas below). Key on id + version instead so the flow is
+  // built once per version.
+  const flowRunId = run?.id;
+  const flowRunVersion = run?.currentVersion;
+  const miniFlow = useMemo(
+    () => (run ? configToFlow(runConfigSnapshot(run)) : { nodes: [], edges: [] }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [flowRunId, flowRunVersion],
+  );
   // The canvas is read-only for structural edits but nodes can be dragged for
   // layout. Keep a local node copy so drag positions persist; reseed it whenever
   // the underlying run config changes (new run / new version snapshot).
@@ -668,9 +683,9 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
     error,
     streamError,
   ].filter((message): message is string => !!message))).join('\n');
-  const doneText = progress
-    ? t('graph.loop.done', { count: progress.completedCount, total: progress.totalCount })
-    : t('graph.progress.none');
+  const sessionProgress = run
+    ? locateGraphSessionProgress(runConfigSnapshot(run), instances, run.status)
+    : null;
 
   if (!jobId || !runId) {
     return (
@@ -691,10 +706,21 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
         <div className="graph-loop-title">
           <span className={`graph-loop-status status-${run?.status || 'loading'}`}>{loading ? t('graph.status.loading') : statusLabel(t, run?.status)}</span>
           <span className="graph-loop-info">
-            <span className="graph-loop-done">{doneText}</span>
-            <span>{t('graph.loop.running', { count: progress?.runningCount ?? 0 })}</span>
-            <span>{t('graph.loop.failed', { count: progress?.failedCount ?? 0 })}</span>
-            <span>{t('graph.loop.skipped', { count: progress?.skippedCount ?? 0 })}</span>
+            {sessionProgress ? (
+              <>
+                <span className="graph-loop-session" data-testid="graph-loop-session">
+                  {t('graph.loop.session', {
+                    current: sessionProgress.sessionNumber,
+                    total: sessionProgress.totalSessions,
+                  })}
+                </span>
+                <span className="graph-loop-step" data-testid="graph-loop-step">
+                  {t('graph.loop.step', { current: sessionProgress.stepNumber })}
+                </span>
+              </>
+            ) : (
+              <span className="graph-loop-progress-empty">{t('graph.progress.none')}</span>
+            )}
           </span>
         </div>
         {/* On phones the action panel is hidden by default; this toggle shows /

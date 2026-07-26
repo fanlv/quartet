@@ -484,8 +484,17 @@ test('graph run: edit a failed run in place and save a new version', async ({ pa
   await expect(page.getByTestId('graph-run-editing-badge')).toBeVisible({ timeout: 10_000 })
   await expect(page.getByTestId('graph-save-run-version')).toBeVisible()
 
-  // Save the run version (the loaded snapshot is valid) -> PUT returns 200 and
-  // the run advances to a new version that future instances would use.
+  // Repair the failed shell before saving. Unchanged snapshots are intentionally
+  // treated as no-ops and covered separately by review test #63.
+  const repaired = failingShellConfig(workspace)
+  repaired.nodes[1] = {
+    ...repaired.nodes[1],
+    config: { script: 'echo repaired-run-version' },
+  }
+  await applyJsonConfig(page, repaired)
+
+  // Save the edited run version -> PUT returns 200 and the run advances to a
+  // new version that future instances would use.
   const [versionResp] = await Promise.all([
     page.waitForResponse(
       (r) => r.url().includes(`/api/v1/job/${jobId}/graph-run/version`) && r.request().method() === 'PUT',

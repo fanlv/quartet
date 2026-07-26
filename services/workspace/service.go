@@ -47,6 +47,10 @@ type Service interface {
 	// freshly created workspace (sandbox UserHomeDir → $HOME → sandbox TempDir).
 	// Used by the new-workspace UI to prefill the path picker.
 	DefaultWorkdir() string
+	// GitBranch returns the checked-out git branch name for dir, or "" when dir
+	// is not inside a git repository or is on a detached HEAD. Used by the
+	// composer's workspace tag to surface the current branch next to the path.
+	GitBranch(dir string) string
 	// RegenerateAllColors assigns a fresh random color to every non-deleted
 	// workspace and persists the change. Returns the updated list in the same
 	// order as List().
@@ -719,6 +723,77 @@ func (s *serviceImpl) TrustedFileWorkspaceRoots() []string {
 // workdir picker with a consistent default.
 func (s *serviceImpl) DefaultWorkdir() string {
 	return resolveDefaultWorkdir()
+}
+
+// GitBranch returns the current git branch for dir. It resolves the repository
+// by walking up from dir, understands the ".git file" indirection used by
+// linked worktrees and submodules, and returns "" when no repository is found
+// or HEAD is detached. Pure filesystem reads — no git process is spawned.
+func (s *serviceImpl) GitBranch(dir string) string {
+	if dir == "" || !filepath.IsAbs(dir) {
+		return ""
+	}
+	return resolveGitBranch(dir)
+}
+
+// resolveGitBranch walks up from startDir looking for a git directory and
+// returns the checked-out branch name, or "" when none is found.
+func resolveGitBranch(startDir string) string {
+	dir := filepath.Clean(startDir)
+	for {
+		gitPath := filepath.Join(dir, ".git")
+		if info, err := os.Stat(gitPath); err == nil {
+			gitDir := gitPath
+			if !info.IsDir() {
+				// ".git" is a file (linked worktree / submodule); it points at
+				// the real git directory via a "gitdir: <path>" line.
+				gitDir = readGitdirPointer(gitPath, dir)
+			}
+			if gitDir != "" {
+				return branchFromHead(filepath.Join(gitDir, "HEAD"))
+			}
+			return ""
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// readGitdirPointer parses the "gitdir: <path>" pointer stored in a ".git"
+// file and returns the absolute git directory it references (resolving
+// relative pointers against baseDir).
+func readGitdirPointer(gitFile, baseDir string) string {
+	data, err := os.ReadFile(gitFile)
+	if err != nil {
+		return ""
+	}
+	line := strings.TrimSpace(string(data))
+	target := strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
+	if target == "" || target == line {
+		return ""
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(baseDir, target)
+	}
+	return target
+}
+
+// branchFromHead reads a git HEAD file and returns the branch name it points
+// at. A detached HEAD (raw commit hash, with no "ref:" line) yields "".
+func branchFromHead(headPath string) string {
+	data, err := os.ReadFile(headPath)
+	if err != nil {
+		return ""
+	}
+	line := strings.TrimSpace(string(data))
+	ref := strings.TrimSpace(strings.TrimPrefix(line, "ref:"))
+	if ref == "" || ref == line {
+		return ""
+	}
+	return strings.TrimPrefix(ref, "refs/heads/")
 }
 
 // resolveDefaultWorkdir picks a writable directory for the default workspace,

@@ -455,6 +455,31 @@
   font-style: italic;
 }
 
+.workdir-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  max-width: 45%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.workdir-branch svg {
+  flex-shrink: 0;
+}
+
+.workdir-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workdir-input {
   flex: 1;
   min-width: 0;

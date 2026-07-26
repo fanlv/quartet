@@ -806,6 +806,8 @@
       "continueTitle": "结束讨论并继续执行工作流",
       "continue": "讨论完成",
       "awaitingInputHint": "正在等待你。请在澄清结点的会话里讨论、完善方案，完成后点「讨论完成」继续执行工作流。",
+      "session": "Session {{current}} / {{total}}",
+      "step": "Step {{current}}",
       "done": "完成 {{count}} / {{total}}",
       "running": "运行中 {{count}}",
       "failed": "失败 {{count}}",

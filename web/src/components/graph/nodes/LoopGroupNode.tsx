@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import type { QuartetFlowNode } from '../graphFlowAdapter';
@@ -7,7 +8,7 @@ import type { QuartetFlowNode } from '../graphFlowAdapter';
 const LOOP_MIN_WIDTH = 280;
 const LOOP_MIN_HEIGHT = 180;
 
-export function LoopGroupNode({ data, selected }: NodeProps<QuartetFlowNode>) {
+function LoopGroupNodeImpl({ data, selected }: NodeProps<QuartetFlowNode>) {
   const { t } = useTranslation();
   const { graphNode, runStatus, hasError, editable } = data;
   const cfg = graphNode.config;
@@ -59,3 +60,19 @@ export function LoopGroupNode({ data, selected }: NodeProps<QuartetFlowNode>) {
     </div>
   );
 }
+
+// Memoized for the same reason as QuartetNode: skip re-rendering unchanged loop
+// containers across the frequent live-run status reconciles. LoopGroupNode also
+// reads `editable` (it gates the NodeResizer), and `selected` drives the
+// resizer's visibility, so both are part of the comparison.
+function loopNodePropsEqual(a: NodeProps<QuartetFlowNode>, b: NodeProps<QuartetFlowNode>): boolean {
+  return (
+    a.selected === b.selected &&
+    a.data.graphNode === b.data.graphNode &&
+    a.data.runStatus === b.data.runStatus &&
+    a.data.hasError === b.data.hasError &&
+    a.data.editable === b.data.editable
+  );
+}
+
+export const LoopGroupNode = memo(LoopGroupNodeImpl, loopNodePropsEqual);

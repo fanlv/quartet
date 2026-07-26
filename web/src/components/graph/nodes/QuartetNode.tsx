@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -64,7 +65,7 @@ function bodyContent(t: TFunction, kind: string, cfg: GraphNodeConfig | undefine
   }
 }
 
-export function QuartetNode({ data, selected }: NodeProps<QuartetFlowNode>) {
+function QuartetNodeImpl({ data, selected }: NodeProps<QuartetFlowNode>) {
   const { t } = useTranslation();
   const { kind, graphNode, runStatus, hasError } = data;
   const cfg = graphNode.config;
@@ -157,3 +158,25 @@ export function QuartetNode({ data, selected }: NodeProps<QuartetFlowNode>) {
     </div>
   );
 }
+
+// React Flow rebuilds the nodes array (and each node's `data` object) on every
+// live-run status reconcile — roughly twice a second — even though only a few
+// nodes actually change. Without memoization that re-runs each node's
+// translation + {{var}} extraction + JSX for the whole graph, which is what
+// pegs the main thread and freezes the page on a large workflow (e.g. 72 nodes)
+// on a phone. The comparator below bails out unless something this node renders
+// actually changed: its selection, the GraphNode it wraps (kept referentially
+// stable per version by the page — a config edit produces a new object), or the
+// injected run-status / error flags. `data.editable` is intentionally ignored
+// (QuartetNode does not read it; only LoopGroupNode does).
+function quartetNodePropsEqual(a: NodeProps<QuartetFlowNode>, b: NodeProps<QuartetFlowNode>): boolean {
+  return (
+    a.selected === b.selected &&
+    a.data.graphNode === b.data.graphNode &&
+    a.data.kind === b.data.kind &&
+    a.data.runStatus === b.data.runStatus &&
+    a.data.hasError === b.data.hasError
+  );
+}
+
+export const QuartetNode = memo(QuartetNodeImpl, quartetNodePropsEqual);

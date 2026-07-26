@@ -34,9 +34,22 @@
   color: #475569;
 }
 
-.graph-loop-done {
-  font-weight: 650;
-  color: #263348;
+.graph-loop-session,
+.graph-loop-step {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.graph-loop-step {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.graph-loop-progress-empty {
+  color: #64748b;
 }
 
 .graph-loop-status {

@@ -43,6 +43,8 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	api.GET("/serve-file", h.ServeFile)
 	api.GET("/file-exists", h.FileExists)
 	api.GET("/search-files", h.SearchFiles)
+	// Current git branch for a directory (composer workspace tag).
+	api.GET("/git-branch", h.GitBranch)
 
 	api.POST("/upload-file", h.UploadFile)
 

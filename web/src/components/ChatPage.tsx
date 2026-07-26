@@ -82,6 +82,7 @@ import { AgentsLocalEditor } from './AgentsLocalEditor';
 import { AgentUsageCard } from './AgentUsageCard';
 import { copyToClipboard } from '../utils/clipboard';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { useGitBranch } from '../hooks/useGitBranch';
 import { usePendingImages } from '../hooks/usePendingImages';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { workspaceColor, loadWorkspacePrefs, registerWorkspaceColors } from '../utils/workspace';
@@ -653,6 +654,8 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [wsSwitchOpen]);
   const canSwitchWorkspaceInFooter = !!(onSelectWorkspace && allWorkspaces.length > 0);
+  // Current git branch of the home compose workdir, shown in the workspace tag.
+  const gitBranch = useGitBranch(workdir, true);
 
   const wsNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -2296,6 +2299,18 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
               >
                 {workdir || '—'}
               </code>
+              {gitBranch && (
+                <span className="workdir-branch" title={`git: ${gitBranch}`}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <circle cx="6" cy="6" r="2.5" />
+                    <circle cx="6" cy="18" r="2.5" />
+                    <circle cx="18" cy="7" r="2.5" />
+                    <path d="M6 8.5v7" />
+                    <path d="M18 9.5c0 3-3 3.5-6 4.5" />
+                  </svg>
+                  <span className="workdir-branch-name">{gitBranch}</span>
+                </span>
+              )}
               {canSwitchWorkspaceInFooter && (
                 <span className="workdir-switch-caret" aria-hidden>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

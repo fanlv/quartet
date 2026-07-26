@@ -811,6 +811,8 @@
       "continueTitle": "Finish the discussion and continue the workflow",
       "continue": "Discussion done",
       "awaitingInputHint": "Waiting for you. Discuss and refine the plan in the clarify node's session, then click \"Discussion done\" to continue the workflow.",
+      "session": "Session {{current}} / {{total}}",
+      "step": "Step {{current}}",
       "done": "{{count}} / {{total}} done",
       "running": "{{count}} running",
       "failed": "{{count}} failed",

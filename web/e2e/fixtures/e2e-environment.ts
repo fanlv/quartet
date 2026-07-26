@@ -6,18 +6,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const e2eAuthToken = process.env.QUARTET_E2E_AUTH_TOKEN || 'quartet-e2e-token'
-export const e2eShellOpenAIAPIKey = 'quartet-e2e-openai-passthrough'
-export const e2eShellAWSSecretAccessKey = 'quartet-e2e-filtered-aws-secret'
-export const e2eShellStaleControl = 'quartet-e2e-stale-control'
 export const e2eLegacyFirstModelJobID = 'job-e2e-legacy-first-model'
 export const e2eLegacyFirstModelID = 'e2e-legacy-first-model'
-export const e2eLegacyRoundsJobID = 'job-e2e-legacy-rounds-only'
 export const e2eInterruptedRunningJobID = 'job-e2e-interrupted-running'
 export const e2ePersistWarningJobID = 'job-e2e-persist-warning-without-last-error'
-export const e2eCleanupWorkspaceID = 'ws-e2e-startup-cleanup'
-export const e2eStaleShellTempName = '.quartet-shell-e2e-stale.sh'
-export const e2eStaleControlTempName = '.quartet-ctrl-e2e-stale.txt'
-export const e2eFreshShellTempName = '.quartet-shell-e2e-fresh.sh'
 
 const backendPort = Number(process.env.QUARTET_E2E_BACKEND_PORT || 18090)
 const frontendPort = Number(process.env.VITE_E2E_PORT || 5174)
@@ -340,39 +332,6 @@ function seedInterruptedRunningJobFixture(localMemory: string) {
   }, null, 2)}\n`)
 }
 
-function seedLegacyRoundsOnlyJobFixture(localMemory: string) {
-  const now = new Date().toISOString()
-  const workdir = path.join(localMemory, 'e2e-legacy-rounds-workdir')
-  const jobMetaDir = path.join(localMemory, 'quartet', 'data', 'workspaces', 'ws-1', 'jobs', e2eLegacyRoundsJobID, '.meta')
-  fs.mkdirSync(workdir, { recursive: true })
-  fs.mkdirSync(jobMetaDir, { recursive: true })
-  fs.writeFileSync(path.join(jobMetaDir, 'job.json'), `${JSON.stringify({
-    id: e2eLegacyRoundsJobID,
-    title: 'E2E Legacy Rounds Only Loop',
-    createdAt: now,
-    updatedAt: now,
-    mode: 'loop',
-    workspaceId: 'ws-1',
-    workdir,
-    status: 'pending',
-    sessionIds: [],
-    loopConfig: {
-      iterationCount: 1,
-      rounds: [
-        {
-          message: 'echo "legacy-rounds-migrated-e2e"',
-          repeatCount: 1,
-          roundMode: 'beforeRound',
-          roundType: 'shell',
-        },
-      ],
-    },
-    // Deliberately omit flow and keep a non-nil zero progress so startup load
-    // preserves the legacy shape; Start must do the migration before execution.
-    progress: { totalSteps: 0, completedCount: 0, failedCount: 0 },
-  }, null, 2)}\n`)
-}
-
 function seedPersistWarningJobFixture(localMemory: string) {
   const now = new Date().toISOString()
   const warning = 'persist failed after iteration_started: injected e2e disk warning'
@@ -417,34 +376,6 @@ function seedPersistWarningJobFixture(localMemory: string) {
       // from the user-visible run failure reason.
     },
   }, null, 2)}\n`)
-}
-
-function seedStartupCleanupFixture(localMemory: string) {
-  const now = new Date()
-  const workdir = path.join(localMemory, 'e2e-startup-cleanup-workdir')
-  const workspaceMetaDir = path.join(localMemory, 'quartet', 'data', 'workspaces', e2eCleanupWorkspaceID, '.meta')
-  fs.mkdirSync(workdir, { recursive: true })
-  fs.mkdirSync(workspaceMetaDir, { recursive: true })
-
-  fs.writeFileSync(path.join(workspaceMetaDir, 'workspace.json'), `${JSON.stringify({
-    id: e2eCleanupWorkspaceID,
-    title: 'E2E Startup Cleanup Workspace',
-    description: 'Workspace seeded to verify async shell temp cleanup on backend startup',
-    workdir,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-  }, null, 2)}\n`)
-
-  const staleShell = path.join(workdir, e2eStaleShellTempName)
-  const staleControl = path.join(workdir, e2eStaleControlTempName)
-  const freshShell = path.join(workdir, e2eFreshShellTempName)
-  fs.writeFileSync(staleShell, 'stale shell temp should be cleaned\n')
-  fs.writeFileSync(staleControl, 'stale control temp should be cleaned\n')
-  fs.writeFileSync(freshShell, 'fresh shell temp should remain\n')
-
-  const staleTime = new Date(Date.now() - 7 * 60 * 60 * 1000)
-  fs.utimesSync(staleShell, staleTime, staleTime)
-  fs.utimesSync(staleControl, staleTime, staleTime)
 }
 
 function lastRunPassed() {
@@ -518,9 +449,7 @@ async function globalSetup() {
   seedAgentConfig(localMemory, einoHome)
   seedLegacyFirstModelIDFixture(localMemory)
   seedInterruptedRunningJobFixture(localMemory)
-  seedLegacyRoundsOnlyJobFixture(localMemory)
   seedPersistWarningJobFixture(localMemory)
-  seedStartupCleanupFixture(localMemory)
 
   fs.writeFileSync(path.join(runDir, 'env.json'), `${JSON.stringify({
     backendURL,
@@ -551,11 +480,6 @@ async function globalSetup() {
         ...(einoOnPath
           ? { PATH: `${einoBinDir}${path.delimiter}${process.env.PATH || ''}`, EINO_HOME: einoHome }
           : {}),
-        // Shell env sanitization E2E fixtures. These are intentionally fake
-        // values so the shell-output assertions never expose developer secrets.
-        OPENAI_API_KEY: e2eShellOpenAIAPIKey,
-        AWS_SECRET_ACCESS_KEY: e2eShellAWSSecretAccessKey,
-        QUARTET_CONTROL: e2eShellStaleControl,
         X_AGENT_AUTH: e2eAuthToken,
         QUARTET_LISTEN_ADDR: `127.0.0.1:${backendPort}`,
         // The repository may contain production certs. E2E always exercises

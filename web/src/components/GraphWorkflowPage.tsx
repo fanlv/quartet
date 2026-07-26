@@ -632,6 +632,10 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [focus, setFocus] = useState<GraphCanvasFocus>({ token: 0 });
   const [loadedConfig, setLoadedConfig] = useState<GraphConfig>(initialConfig);
+  // Last persisted/default document snapshot. `loadedConfig` is the structural
+  // base for the current canvas and therefore also changes after applying a JSON
+  // draft; reset must instead restore this stable saved snapshot.
+  const [savedConfig, setSavedConfig] = useState<GraphConfig>(initialConfig);
   const [viewportResetKey, setViewportResetKey] = useState(0);
   const [savedFingerprint, setSavedFingerprint] = useState(() =>
     fingerprint({ name: i18n.t('graph.defaultName'), description: '', config: initialConfig }),
@@ -1234,6 +1238,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         setDescription(data.workflow.description || '');
         const loaded = canonicalWorkflowConfig(data.workflow);
         loadConfigIntoCanvas(loaded);
+        setSavedConfig(loaded);
         setSavedFingerprint(fingerprint({
           name: data.workflow.name,
           description: data.workflow.description || '',
@@ -1264,6 +1269,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     setMessage('');
     setLibraryOpen(false);
     loadConfigIntoCanvas(config);
+    setSavedConfig(config);
     setSavedFingerprint(fingerprint({ name: t('graph.defaultName'), description: '', config }));
   }, [exitRunView, loadConfigIntoCanvas, t, workspaceId, workspaceWorkdir]);
 
@@ -1273,7 +1279,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setName(saved.name);
       setDescription(saved.description || '');
       setSelectedWorkflowUpdatedAt(saved.updatedAt);
-      const config = loadedConfig;
+      const config = savedConfig;
       loadConfigIntoCanvas(config);
       setSavedFingerprint(fingerprint({
         name: saved.name,
@@ -1285,7 +1291,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     }
     startNew();
     setMessage(t('graph.messages.resetToDefault'));
-  }, [loadConfigIntoCanvas, loadedConfig, selectedId, startNew, t]);
+  }, [loadConfigIntoCanvas, savedConfig, selectedId, startNew, t]);
 
   const validateConfigValue = useCallback(async (config: GraphConfig): Promise<boolean> => {
     const seq = validationSeqRef.current + 1;
@@ -1384,6 +1390,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
           description: data.workflow.description || '',
           config: data.workflow.config,
         }));
+        setSavedConfig(data.workflow.config);
         const currentAfterSave = fingerprint({ name: trimmedName, description, config: buildConfigRef.current() });
         if (currentAfterSave === requestFingerprint) {
           setName(data.workflow.name);
@@ -1956,10 +1963,16 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   // In pure replay (viewingRun && !editingRun) the canvas is driven directly by
   // the run snapshot. Once editing, the editable nodes/edges state (seeded by
   // enterRunEdit) is the source of truth so user changes are captured.
+  //
+  // The replay topology is immutable for a given (run, version); a live run's
+  // status reconcile replaces `selectedRun` with a fresh object every ~400ms, so
+  // keying on the whole object would rebuild all nodes/edges twice a second on a
+  // large graph. Key on id + version so the flow is built once per version.
   const replayFlow = useMemo(() => {
     if (!viewingRun || editingRun || !selectedRun) return null;
     return configToFlow(runConfigSnapshot(selectedRun));
-  }, [editingRun, selectedRun, viewingRun]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingRun, viewingRun, selectedRun?.id, selectedRun?.currentVersion]);
   const replayRunStatus = useMemo(() => runStatusByNode(runInstances), [runInstances]);
   // Edge active/pruned/done overlay for replay, mirroring GraphLoopProgress's
   // mini-canvas. Only meaningful while viewing a run (runEdges is reset on exit).
@@ -2066,7 +2079,15 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     [clearValidationState, commitHistory],
   );
 
-  const canvasNodes = viewingRun && replayFlow ? markEditableNodes(replayFlow.nodes) : nodes;
+  // In replay the canvas shows the run's frozen topology (replayFlow); otherwise
+  // it shows the live editable nodes. markEditableNodes mints new node objects,
+  // so memoize it on replayFlow (rebuilt only per run version) to keep node
+  // identity stable across the frequent live-run status reconciles.
+  const replayCanvasNodes = useMemo(
+    () => (replayFlow ? markEditableNodes(replayFlow.nodes) : null),
+    [replayFlow],
+  );
+  const canvasNodes = viewingRun && replayCanvasNodes ? replayCanvasNodes : nodes;
   const canvasEdges = viewingRun && replayFlow ? replayFlow.edges : edges;
 
   return (

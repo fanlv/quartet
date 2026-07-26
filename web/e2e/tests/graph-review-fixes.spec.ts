@@ -54,13 +54,13 @@ import { e2eAuthToken } from '../fixtures/e2e-environment'
 //   #43 JSON draft state badge and textarea keyboard focus are visible
 //   #44 condition builder controls expose reliable accessible names
 //   #45 undo/redo clears stale validation errors
-//   #46 workflow library filters by workspace and shows workflow workspace
+//   #46 workflow library is global and shows each workflow workspace
 //   #47 run/start workspace/workdir request errors return 400
 //   #48 frozen run-version nodes keep display title editable
 //   #49 schedule modal shows full save / trigger errors
 //   #50 new unsaved workflow shows Draft, not Saved
 //   #51 main canvas can add/delete extra start/end while preserving the last controls
-//   #52 mounted Graph page refreshes workflow list when workspace changes
+//   #52 mounted Graph page updates workspace context while its global list stays visible
 //   #53 run/start without workflowId and config returns 400 without creating a Job
 //   #54 cross-workspace save keeps the open workflow in update/delete mode
 //   #55 graph-run control action reason is honored
@@ -201,6 +201,9 @@ async function startReplayBackend(runInfo: E2ERunInfo, port: number): Promise<Ch
       GOTMPDIR: runInfo.goTmp,
       X_AGENT_AUTH: e2eAuthToken,
       QUARTET_LISTEN_ADDR: `127.0.0.1:${port}`,
+      // The repository may contain production certs. This replay subprocess is
+      // always contacted over loopback HTTP, just like the primary E2E backend.
+      QUARTET_CERTS_DIR: path.join(process.env.QUARTET_E2E_RUN_DIR || '.', 'certs-empty'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -724,7 +727,10 @@ test('graph review #4b: dirty saved workflow run prompts and executes the unsave
   expect(startResp.ok(), `run start failed: ${startResp.status()} ${await startResp.text()}`).toBeTruthy()
   const run = (await startResp.json()).run
   expect(run?.workflowId).toBe(wf.id)
-  const shell = (run?.baseSnapshot?.config?.nodes ?? []).find((n: { id?: string }) => n.id === 'shell')
+  const effectiveConfig = (run?.versions ?? []).find(
+    (version: { version?: number }) => version.version === run?.currentVersion,
+  )?.config ?? run?.baseSnapshot?.config
+  const shell = (effectiveConfig?.nodes ?? []).find((n: { id?: string }) => n.id === 'shell')
   expect(shell?.config?.script).toBe('echo unsaved-snapshot-ran')
 
   const persistedWf = await request.get(`/api/v1/graph/workflow/${encodeURIComponent(wf.id)}`, { headers: AUTH_HEADERS })
@@ -1231,7 +1237,7 @@ test('graph review #51: canvas manages multiple main start/end nodes without del
   await expect(page.locator('[data-testid^="graph-node-end-"]')).toHaveCount(2)
 })
 
-test('graph review #52: mounted Graph page reloads workflow list when workspace changes', async ({ page, request }) => {
+test('graph review #52: mounted Graph page updates workspace context while keeping the global workflow list', async ({ page, request }) => {
   const workspaceA = await createGraphWorkspace(request, 'mounted-switch-a')
   const workspaceB = await createGraphWorkspace(request, 'mounted-switch-b')
   const workflowA = await createWorkflow(request, workspaceA, `e2e-mounted-switch-a-${Date.now()}`)
@@ -1243,7 +1249,7 @@ test('graph review #52: mounted Graph page reloads workflow list when workspace 
   }, e2eAuthToken)
   await page.goto(`/?workspaceId=${workspaceA.workspaceId}&view=graph`)
   await expect(page.getByTestId(`graph-workflow-row-${workflowA.id}`)).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByTestId(`graph-workflow-row-${workflowB.id}`)).toHaveCount(0)
+  await expect(page.getByTestId(`graph-workflow-row-${workflowB.id}`)).toBeVisible()
 
   await page.evaluate((workspaceId) => {
     const url = new URL(window.location.href)
@@ -1254,7 +1260,7 @@ test('graph review #52: mounted Graph page reloads workflow list when workspace 
   }, workspaceB.workspaceId)
 
   await expect(page.getByTestId(`graph-workflow-row-${workflowB.id}`)).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByTestId(`graph-workflow-row-${workflowA.id}`)).toHaveCount(0)
+  await expect(page.getByTestId(`graph-workflow-row-${workflowA.id}`)).toBeVisible()
   await expect(page.locator('.graph-kicker')).toHaveText(`E2E GraphFix mounted-switch-b`)
 })
 
@@ -2060,11 +2066,21 @@ test('graph review #26: workflowId-only run/start creates the Job in the workflo
     data: { workflowId: workflow.id },
   })
   expect(start.ok(), `run start failed: ${start.status()} ${await start.text()}`).toBeTruthy()
-  const run = (await start.json()).run as { jobId: string; workflowId: string; workspaceId: string; baseSnapshot?: { config?: GraphConfig } }
+  const run = (await start.json()).run as {
+    jobId: string
+    workflowId: string
+    workspaceId: string
+    currentVersion: number
+    versions?: Array<{ version: number; config: GraphConfig }>
+    baseSnapshot?: { config?: GraphConfig }
+  }
   expect(run.workflowId).toBe(workflow.id)
   expect(run.workspaceId).toBe(workspace.workspaceId)
-  expect(run.baseSnapshot?.config?.workspaceId).toBe(workspace.workspaceId)
-  expect(run.baseSnapshot?.config?.workdir).toBe(workspace.workdir)
+  const effectiveConfig =
+    run.versions?.find((version) => version.version === run.currentVersion)?.config ??
+    run.baseSnapshot?.config
+  expect(effectiveConfig?.workspaceId).toBe(workspace.workspaceId)
+  expect(effectiveConfig?.workdir).toBe(workspace.workdir)
 
   await waitForRunStatus(request, run.jobId, ['completed', 'failed', 'timedOut'])
   expect(await countGraphJobs(request, workspace.workspaceId)).toBe(beforeWorkflow + 1)

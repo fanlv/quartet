@@ -42,6 +42,21 @@ func (h *Handler) WorkspaceCreate(ctx context.Context, c *app.RequestContext) {
 	c.JSON(http.StatusOK, toWorkspaceInfo(ws))
 }
 
+// GitBranch reports the current git branch for a directory so the composer's
+// workspace tag can show it next to the path. Returns an empty branch string
+// when the directory is not inside a git repository (or HEAD is detached).
+func (h *Handler) GitBranch(ctx context.Context, c *app.RequestContext) {
+	dir := strings.TrimSpace(string(c.Query("path")))
+	if dir == "" {
+		httputil.BadRequest(c, "path is required")
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{
+		"code":   0,
+		"branch": h.workspaceService.GitBranch(dir),
+	})
+}
+
 // WorkspaceDefaultWorkdir returns the path the new-workspace dialog should
 // prefill into its workdir picker. Mirrors the same fallback chain
 // EnsureDefault uses (sandbox UserHomeDir → $HOME → sandbox TempDir) so the

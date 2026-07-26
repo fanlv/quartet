@@ -175,7 +175,11 @@ function CanvasInner({
   }, [isMobile, nodes.length, rf, viewportResetKey]);
 
   // Overlay run status + validation error flags onto node/edge visuals without
-  // mutating the structural state owned by the page.
+  // mutating the structural state owned by the page. The per-node object is
+  // rebuilt on every render, but each custom node component is memoized (see
+  // QuartetNode / LoopGroupNode) and bails out when its own visible inputs are
+  // unchanged, so a live-run status reconcile only re-renders the nodes that
+  // actually changed rather than all of them.
   const displayNodes = useMemo(
     () =>
       nodes.map((n) => ({
