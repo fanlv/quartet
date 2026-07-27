@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	acp "github.com/eino-contrib/acp"
 	acptransport "github.com/eino-contrib/acp/transport"
@@ -26,6 +27,32 @@ func IsBenignCloseErr(err error) bool {
 	}
 	return errors.Is(err, acptransport.ErrTransportClosed) ||
 		errors.Is(err, acptransport.ErrConnClosed)
+}
+
+// IsSessionAlreadyLoaded reports whether err is an ACP agent's rejection of a
+// session/resume|load issued for a session that is still loaded in the live
+// subprocess. Some agents implement resume/load as a cold-restore-only
+// operation (valid on a fresh connection / after a process restart) and answer
+// with a JSON-RPC error whose payload says the session is "already loaded" when
+// the target is still resident in memory. On a live connection that rejection
+// is benign: it confirms the session is present and ready to prompt, so the
+// caller can keep using the existing session id instead of treating it as a
+// restore failure.
+func IsSessionAlreadyLoaded(err error) bool {
+	if err == nil {
+		return false
+	}
+	const marker = "already loaded"
+	var rpcErr *acp.RPCError
+	if errors.As(err, &rpcErr) {
+		if strings.Contains(strings.ToLower(string(rpcErr.Data)), marker) ||
+			strings.Contains(strings.ToLower(rpcErr.Message), marker) {
+			return true
+		}
+	}
+	// The RPCError string is preserved through pkg/acp's fmt.Errorf wrapping,
+	// so match it even if the typed error was flattened somewhere upstream.
+	return strings.Contains(strings.ToLower(err.Error()), marker)
 }
 
 // SessionID aliases the SDK session id so callers can store it without

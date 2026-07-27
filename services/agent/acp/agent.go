@@ -564,6 +564,12 @@ func tailStderr(s string, n int) string {
 // subprocess session whose id / sync point is not reflected on disk — on the
 // next agent reload, loadPersistedACPState would otherwise return a stale
 // pair and the drift check would flag the divergence again.
+//
+// Because this runs against a LIVE connection, the subprocess still has the
+// session loaded; some agents implement session/resume|load as cold-restore
+// only and reject it with "already loaded". That rejection is treated as a
+// benign no-op (the session is present and ready) — the existing id and its
+// applied config are kept and only the sync baseline is re-aligned.
 func (a *ACPAgent) restoreACPSession(ctx context.Context) error {
 	conn, oldSession := a.snapshotTransport()
 	if conn == nil {
@@ -596,6 +602,28 @@ func (a *ACPAgent) restoreACPSession(ctx context.Context) error {
 		sessResp, restoreErr = conn.LoadSession(ctx, string(oldSession), a.workdir)
 	}
 	if restoreErr != nil {
+		if pkgacp.IsSessionAlreadyLoaded(restoreErr) {
+			// restoreACPSession only ever runs against a LIVE connection (both
+			// call sites reach it after reconnectIfNeeded), so the subprocess
+			// still holds this session in memory. session/resume|load is a
+			// cold-restore operation and some agents reject it with "already
+			// loaded" when the target is still resident — that rejection means
+			// the session is present and ready to prompt, not that the restore
+			// failed. Keep the existing session id and the config already
+			// applied to it, and only re-align the sync baseline so the drift
+			// check does not refire on the disk rewrite that triggered this
+			// restore. Baseline persist is best-effort: a failure only makes
+			// the (harmless) restore run again next time, exactly like the
+			// cross-path drift re-align in Run.
+			a.storeFingerprint(fp)
+			if a.sessionStore != nil && a.sessionID != "" {
+				if err := savePersistedACPSyncFingerprint(ctx, a.sessionStore, a.sessionID, fp); err != nil {
+					logger.Warnf(ctx, "[acp] persist re-aligned sync fingerprint after already-loaded restore failed: sessionId=%s err=%v", a.sessionID, err)
+				}
+			}
+			logger.Infof(ctx, "[acp] restore: %s reports session already loaded on live conn; kept in place: sessionId=%s acpSession=%s syncedCount=%d syncedHash=%s", restoreMethod, a.sessionID, oldSession, fp.Count, fp.Hash)
+			return nil
+		}
 		return fmt.Errorf("restore: %s ACP session %s failed: %w", restoreMethod, oldSession, restoreErr)
 	}
 	restoredSession := pkgacp.SessionID(sessResp.SessionID)
