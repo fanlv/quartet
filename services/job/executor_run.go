@@ -64,6 +64,7 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	job.Status = model.JobStatusRunning
 	job.StartedAt = s.nowMillis()
 	job.FinishedAt = 0
+	job.LastRunOutcome = ""
 	startCtx := lifecycleStartContext{
 		action:      jobRunActionSendMessage,
 		hasResume:   priorResume != nil,

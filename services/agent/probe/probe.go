@@ -94,7 +94,7 @@ const grokIconDataURI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3d
 var KnownACPAgents = []ACPAgentDef{
 	{"eino-cli", "eino-cli acp", "Eino", "https://avatars.githubusercontent.com/u/79236453"},
 	{Bin: "traex", Command: "traex acp serve", DisplayName: "TraeCLI", IconURL: "https://avatars.githubusercontent.com/u/192691831"},
-	// {Bin: "grok", Command: "grok agent stdio", DisplayName: "Grok", IconURL: grokIconDataURI},
+	{Bin: "grok", Command: "grok --no-auto-update agent stdio", DisplayName: "Grok", IconURL: grokIconDataURI},
 	{"openclaw", "openclaw acp", "OpenClaw", "🦞"},
 	{"claude", "claude-agent-acp", "Claude", "https://avatars.githubusercontent.com/u/81847"},
 	{"gemini", "gemini --acp", "Gemini", "https://avatars.githubusercontent.com/u/161781182"},

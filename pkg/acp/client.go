@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	stdjson "encoding/json"
 	"strings"
 	"sync"
 	"time"
@@ -39,12 +40,24 @@ type sdkClient struct {
 }
 
 var _ acp.Client = (*sdkClient)(nil)
+var _ acp.ExtNotificationHandler = (*sdkClient)(nil)
 
 func newSDKClient() *sdkClient {
 	return &sdkClient{
 		autoApprove: true,
 		handlers:    make(map[acp.SessionID]*registeredHandler),
 	}
+}
+
+// HandleExtNotification accepts vendor-specific push notifications outside
+// the standard ACP surface. Grok emits _x.ai/* state updates even when the
+// client only uses standard session methods.
+func (c *sdkClient) HandleExtNotification(ctx context.Context, method string, _ stdjson.RawMessage) error {
+	if c.onActivity != nil {
+		c.onActivity()
+	}
+	logger.Debugf(ctx, "[ACP] ignored extension notification: method=%s", method)
+	return nil
 }
 
 // SetStreamHandler installs the handler for the given session and returns
