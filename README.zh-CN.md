@@ -93,6 +93,25 @@ Graph Workflow 将可重复的工作从一段超长 Prompt，变成可视化、�
 Graph Workflow 适合多 Agent 代码审查、规划/实现/验证流水线、带人工审批的调研任务、重复
 批处理，以及其他比单轮对话更需要控制力和可观察性的任务。
 
+### Code Review 示例
+
+[`docs/demo/review-demo.json`](./docs/demo/review-demo.json) 提供了一个可复用的多 Agent
+代码审查工作流。流程会在两个主审 Agent 之间轮换，要求当前 Agent 逐项复核审查结果，可选
+调用另一个 Agent 进行对抗验证，再复用原会话修复确认的问题。外层与内层循环会重复执行审查、
+验证和修复，直到结果逐步收敛。
+
+该示例是可移植的 Graph 配置，不包含本机工作区 ID 或个人绝对路径。运行前需要选择自己的
+工作区，按需设置 `Code`、`Doc`、`MultiWorker`、`AgentCheck` 和 `Notice` 变量，并根据
+本机可用的 ACP Agent 调整各节点的 Agent 与模型配置。也可以通过下面的命令校验配置，并将
+它添加到 Agent 管理的工作流库：
+
+```bash
+quartet-cli workflow validate --config-file docs/demo/review-demo.json
+quartet-cli workflow create --name "Code Review" \
+  --description "多 Agent 迭代审查、验证与修复" \
+  --config-file docs/demo/review-demo.json
+```
+
 ## 定时任务
 
 定时任务使用标准五段 Cron 表达式自动运行已经保存的 Graph Workflow。定时任务只保存

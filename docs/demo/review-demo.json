@@ -1,0 +1,301 @@
+{
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "title": "开始",
+      "config": {},
+      "layout": {
+        "x": -3118.8711476284557,
+        "y": 1673.7064374392303
+      }
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "title": "结束",
+      "config": {},
+      "layout": {
+        "x": -462.75223487757205,
+        "y": 1665.1184825700318
+      }
+    },
+    {
+      "id": "loop-1",
+      "type": "loop",
+      "config": {
+        "loopMode": "fixed",
+        "fixedCount": 5,
+        "maxIterations": 100
+      },
+      "layout": {
+        "x": -2824.4485070824053,
+        "y": 1421.5203763866743,
+        "width": 1970,
+        "height": 582
+      }
+    },
+    {
+      "id": "loop-6",
+      "type": "loop",
+      "parentId": "loop-1",
+      "config": {
+        "loopMode": "fixed",
+        "fixedCount": 2,
+        "untilCondition": "{{no_bug}} == \"1\""
+      },
+      "layout": {
+        "x": 97.09655091314607,
+        "y": 41.79690267477031,
+        "width": 1774,
+        "height": 510
+      }
+    },
+    {
+      "id": "start-2",
+      "type": "start",
+      "parentId": "loop-1",
+      "config": {},
+      "layout": {
+        "x": 0,
+        "y": 278
+      }
+    },
+    {
+      "id": "end-3",
+      "type": "end",
+      "parentId": "loop-1",
+      "config": {},
+      "layout": {
+        "x": 1908,
+        "y": 278
+      }
+    },
+    {
+      "id": "start-7",
+      "type": "start",
+      "parentId": "loop-6",
+      "config": {},
+      "layout": {
+        "x": 0,
+        "y": 242
+      }
+    },
+    {
+      "id": "end-8",
+      "type": "end",
+      "parentId": "loop-6",
+      "config": {},
+      "layout": {
+        "x": 1712,
+        "y": 242
+      }
+    },
+    {
+      "id": "prompt-9",
+      "type": "prompt",
+      "title": "Claude",
+      "parentId": "loop-6",
+      "config": {
+        "prompt": "你现在是一名资深 Golang 架构师、后端技术负责人和代码重构专家。你的任务不是只做表面代码检查，而是站在“可维护性、可扩展性、稳定性、性能、团队协作、工程规范、长期演进”的角度，对当前项目 Go 项目代码进行系统性 Review，并给出可落地的重构方案，必要时直接输出重构后的代码。\n\n请严格按照以下流程执行：\n\n# 你的角色定位\n你需要以以下身份工作：\n1. Golang 资深架构师\n2. 微服务/单体后端系统设计专家\n3. 代码质量审查专家\n4. 性能优化专家\n5. 工程规范与项目重构顾问\n\n# 你的核心目标\n对项目进行：\n- 代码质量 Review\n- 架构合理性分析\n- 模块职责梳理\n- 重复代码识别\n- 错误处理规范检查\n- 并发安全分析\n- 性能瓶颈识别\n- 可测试性分析\n- 可维护性评估\n- 重构方案设计\n- 输出重构后的关键代码\n\n# Review 维度\n请重点从以下维度审查：\n\n## 1. 项目架构设计\n- 项目目录结构是否清晰\n- 分层是否合理\n- 模块边界是否明确\n- 是否存在职责混乱、耦合过高的问题\n- 是否符合 Go 项目的工程实践\n- 是否存在过度设计或设计不足\n\n## 2. 代码质量\n- 命名是否清晰、统一、语义化\n- 函数是否过长、职责是否单一\n- 是否存在重复代码\n- 是否存在魔法值、硬编码\n- 注释是否准确、有意义\n- 可读性是否良好\n- 是否符合 idiomatic Go 风格\n- go 的 Package 是否暴露了，不用暴露的方法。\n\n## 3. 错误处理\n- error 是否被正确处理和向上传递\n- 是否存在吞错、忽略错误、错误信息不完整的问题\n- 是否适合使用 errors.Wrap / fmt.Errorf(\"%w\") / sentinel error / custom error\n- 错误日志是否合理\n- 是否区分业务错误、系统错误、参数错误\n\n## 4. 并发与安全\n- goroutine 使用是否合理，是否使用 safa.go\n- channel 使用是否安全\n- 是否存在竞态条件、死锁、资源泄漏\n- context 传递是否规范\n- 锁的使用是否合理\n- 是否存在共享变量并发访问风险\n\n## 5. 性能与资源使用\n- 是否有不必要的内存分配\n- 是否存在低效循环、重复 IO、重复序列化\n- SQL / RPC / 外部调用是否可能存在性能瓶颈\n- 缓存策略是否合理\n- 是否存在明显的 N+1 问题\n- 是否存在阻塞点\n\n## 6. 可测试性与工程化\n- 是否易于编写单元测试\n- 接口抽象是否合理\n- 是否利于 mock\n- 是否存在难以测试的强耦合代码\n- 日志、配置、依赖注入是否规范\n- 是否适合集成 CI/CD、lint、race、benchmark\n\n## 7. 业务抽象与扩展性\n- 业务逻辑是否和基础设施耦合\n- 是否便于未来新增功能\n- 是否便于替换存储、中间件、第三方服务\n- 是否具备良好的演进空间\n\n# 输出要求\n请按照以下固定格式输出：\n\n每个问题都必须包含：\n1. 问题标题\n2. 问题位置（文件名 / 模块名 / 函数名）\n3. 问题描述\n4. 修改建议\n\n\n{{Notice}}\n\nreview {{Doc}} 对应的功能和代码。\n\n查看  {{Code}} 的项目代码、目录结构，然后按上述格式进行 Review , 先不要修改代码， 输出 review 的 issue List 。\n",
+        "agentType": "traex acp serve",
+        "modelId": "c_o_new_thinking",
+        "acpMode": "bypass_permissions",
+        "acpThoughtLevel": "high",
+        "sessionStrategy": "new"
+      },
+      "layout": {
+        "x": 351.56845547677165,
+        "y": 259.24125571743525
+      }
+    },
+    {
+      "id": "prompt-16",
+      "type": "prompt",
+      "title": "Double Check",
+      "parentId": "loop-6",
+      "config": {
+        "prompt": "你从新 double check 一下上面输出的每一个问题，确认是不是真的是问题。重新输出真的是问题的 issue list。",
+        "sessionStrategy": "inherit",
+        "lastAssistantAlias": "issues"
+      },
+      "layout": {
+        "x": 629.7214983793865,
+        "y": 181.96339799273687
+      }
+    },
+    {
+      "id": "prompt-20",
+      "type": "prompt",
+      "title": "多 Agent 验证",
+      "parentId": "loop-6",
+      "config": {
+        "prompt": "{{issues}} \n---\n确认上面其他 Agent 描述的问题是不是真的是问题。重新输出你觉得真的是问题的 issue list。\n\n{{Notice}}",
+        "agentType": "npx @agentclientprotocol/codex-acp",
+        "modelId": "gpt-5.5",
+        "acpThoughtLevel": "xhigh",
+        "sessionStrategy": "new"
+      },
+      "layout": {
+        "x": 1164.8319115694164,
+        "y": 170.14334558217206
+      }
+    },
+    {
+      "id": "ifElse-21",
+      "type": "ifElse",
+      "title": "对抗验证",
+      "parentId": "loop-6",
+      "config": {
+        "condition": "{{AgentCheck}} == \"1\""
+      },
+      "layout": {
+        "x": 879.0809964127782,
+        "y": 185.0358765490895
+      }
+    },
+    {
+      "id": "prompt-27",
+      "type": "prompt",
+      "title": "修复确认问题",
+      "parentId": "loop-6",
+      "config": {
+        "prompt": "如果是真的问题，你帮更新下方案文档，修复所有相关问题。",
+        "sessionStrategy": "inherit",
+        "lastAssistantAlias": "fix_list"
+      },
+      "layout": {
+        "x": 1426.2367518973865,
+        "y": 347.7202483569911
+      }
+    },
+    {
+      "id": "prompt-10",
+      "type": "prompt",
+      "title": "GPT",
+      "parentId": "loop-6",
+      "config": {
+        "prompt": "你现在是一名资深 Golang 架构师、后端技术负责人和代码重构专家。你的任务不是只做表面代码检查，而是站在“可维护性、可扩展性、稳定性、性能、团队协作、工程规范、长期演进”的角度，对当前项目 Go 项目代码进行系统性 Review，并给出可落地的重构方案，必要时直接输出重构后的代码。\n\n请严格按照以下流程执行：\n\n# 你的角色定位\n你需要以以下身份工作：\n1. Golang 资深架构师\n2. 微服务/单体后端系统设计专家\n3. 代码质量审查专家\n4. 性能优化专家\n5. 工程规范与项目重构顾问\n\n# 你的核心目标\n对项目进行：\n- 代码质量 Review\n- 架构合理性分析\n- 模块职责梳理\n- 重复代码识别\n- 错误处理规范检查\n- 并发安全分析\n- 性能瓶颈识别\n- 可测试性分析\n- 可维护性评估\n- 重构方案设计\n- 输出重构后的关键代码\n\n# Review 维度\n请重点从以下维度审查：\n\n## 1. 项目架构设计\n- 项目目录结构是否清晰\n- 分层是否合理\n- 模块边界是否明确\n- 是否存在职责混乱、耦合过高的问题\n- 是否符合 Go 项目的工程实践\n- 是否存在过度设计或设计不足\n\n## 2. 代码质量\n- 命名是否清晰、统一、语义化\n- 函数是否过长、职责是否单一\n- 是否存在重复代码\n- 是否存在魔法值、硬编码\n- 注释是否准确、有意义\n- 可读性是否良好\n- 是否符合 idiomatic Go 风格\n- go 的 Package 是否暴露了，不用暴露的方法。\n\n## 3. 错误处理\n- error 是否被正确处理和向上传递\n- 是否存在吞错、忽略错误、错误信息不完整的问题\n- 是否适合使用 errors.Wrap / fmt.Errorf(\"%w\") / sentinel error / custom error\n- 错误日志是否合理\n- 是否区分业务错误、系统错误、参数错误\n\n## 4. 并发与安全\n- goroutine 使用是否合理，是否使用 safa.go\n- channel 使用是否安全\n- 是否存在竞态条件、死锁、资源泄漏\n- context 传递是否规范\n- 锁的使用是否合理\n- 是否存在共享变量并发访问风险\n\n## 5. 性能与资源使用\n- 是否有不必要的内存分配\n- 是否存在低效循环、重复 IO、重复序列化\n- SQL / RPC / 外部调用是否可能存在性能瓶颈\n- 缓存策略是否合理\n- 是否存在明显的 N+1 问题\n- 是否存在阻塞点\n\n## 6. 可测试性与工程化\n- 是否易于编写单元测试\n- 接口抽象是否合理\n- 是否利于 mock\n- 是否存在难以测试的强耦合代码\n- 日志、配置、依赖注入是否规范\n- 是否适合集成 CI/CD、lint、race、benchmark\n\n## 7. 业务抽象与扩展性\n- 业务逻辑是否和基础设施耦合\n- 是否便于未来新增功能\n- 是否便于替换存储、中间件、第三方服务\n- 是否具备良好的演进空间\n\n# 输出要求\n请按照以下固定格式输出：\n\n每个问题都必须包含：\n1. 问题标题\n2. 问题位置（文件名 / 模块名 / 函数名）\n3. 问题描述\n4. 修改建议\n\n\n{{Notice}}\n\nreview {{Doc}} 对应的功能和代码。\n\n查看  {{Code}} 的项目代码、目录结构，然后按上述格式进行 Review , 先不要修改代码， 输出 review 的 issue List 。\n",
+        "agentType": "claude-agent-acp",
+        "modelId": "opus[1m]",
+        "acpMode": "dontAsk",
+        "acpThoughtLevel": "max",
+        "sessionStrategy": "new"
+      },
+      "layout": {
+        "x": 353.45583980637366,
+        "y": 79.24877653901058
+      }
+    },
+    {
+      "id": "ifElse-4",
+      "type": "ifElse",
+      "title": "多 Agent？",
+      "parentId": "loop-6",
+      "config": {
+        "condition": "{{MultiWorker}} == \"1\" 且 {{QUARTET_LOOP_INDEX}} 是偶数"
+      },
+      "layout": {
+        "x": 98.40326488442315,
+        "y": 172.40448688072206
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-start-loop-1-4",
+      "sourceNodeId": "start",
+      "targetNodeId": "loop-1"
+    },
+    {
+      "id": "edge-start-2-loop-6-10",
+      "sourceNodeId": "start-2",
+      "targetNodeId": "loop-6"
+    },
+    {
+      "id": "edge-prompt-9-prompt-16-18",
+      "sourceNodeId": "prompt-9",
+      "targetNodeId": "prompt-16"
+    },
+    {
+      "id": "edge-prompt-16-ifElse-21-22",
+      "sourceNodeId": "prompt-16",
+      "targetNodeId": "ifElse-21"
+    },
+    {
+      "id": "edge-ifElse-21-prompt-20-24",
+      "sourceNodeId": "ifElse-21",
+      "targetNodeId": "prompt-20",
+      "sourcePort": "yes"
+    },
+    {
+      "id": "edge-ifElse-21-prompt-27-32",
+      "sourceNodeId": "ifElse-21",
+      "targetNodeId": "prompt-27",
+      "sourcePort": "no"
+    },
+    {
+      "id": "edge-prompt-20-prompt-27-34",
+      "sourceNodeId": "prompt-20",
+      "targetNodeId": "prompt-27"
+    },
+    {
+      "id": "edge-loop-1-end-38",
+      "sourceNodeId": "loop-1",
+      "targetNodeId": "end"
+    },
+    {
+      "id": "edge-start-7-ifElse-4-5",
+      "sourceNodeId": "start-7",
+      "targetNodeId": "ifElse-4"
+    },
+    {
+      "id": "edge-ifElse-4-prompt-9-7",
+      "sourceNodeId": "ifElse-4",
+      "targetNodeId": "prompt-9",
+      "sourcePort": "no"
+    },
+    {
+      "id": "edge-ifElse-4-prompt-10-11",
+      "sourceNodeId": "ifElse-4",
+      "targetNodeId": "prompt-10",
+      "sourcePort": "yes"
+    },
+    {
+      "id": "edge-prompt-10-prompt-16-13",
+      "sourceNodeId": "prompt-10",
+      "targetNodeId": "prompt-16"
+    },
+    {
+      "id": "edge-loop-6-end-3-13",
+      "sourceNodeId": "loop-6",
+      "targetNodeId": "end-3"
+    },
+    {
+      "id": "edge-prompt-27-end-8-40",
+      "sourceNodeId": "prompt-27",
+      "targetNodeId": "end-8"
+    }
+  ],
+  "variables": {
+    "Code": ".",
+    "Doc": "",
+    "AgentCheck": "0",
+    "Info": "",
+    "MultiWorker": "1",
+    "Notice": " "
+  },
+  "disabledVars": [
+    "Notice"
+  ],
+  "canvas": {
+    "viewport": {
+      "x": 2351.36335126217,
+      "y": -1075.9938794018065,
+      "zoom": 0.8582904650840485
+    }
+  },
+  "runConfig": {
+    "concurrencyLimit": 8
+  }
+}

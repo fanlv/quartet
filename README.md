@@ -118,6 +118,29 @@ This makes Graph Workflows suitable for multi-agent code review, plan/implement/
 verify pipelines, research with approval gates, repeated batch processing, and
 other tasks that need more control and visibility than a single chat session.
 
+### Code review demo
+
+[`docs/demo/review-demo.json`](./docs/demo/review-demo.json) is a reusable
+multi-agent code review workflow. It alternates between two primary reviewers,
+asks the selected reviewer to double-check every finding, optionally sends the
+surviving issue list to another agent for adversarial verification, and then
+uses the inherited session to fix confirmed problems. Nested loops repeat the
+review and repair cycle so the result can converge over multiple passes.
+
+The demo is a portable graph config and does not contain a machine-specific
+workspace ID or absolute path. Before running it, select your own workspace,
+adjust the `Code`, `Doc`, `MultiWorker`, `AgentCheck`, and `Notice` variables,
+and update the agent and model settings to match the ACP agents available on
+your machine. You can also validate and add it to the agent-managed workflow
+library with:
+
+```bash
+quartet-cli workflow validate --config-file docs/demo/review-demo.json
+quartet-cli workflow create --name "Code Review" \
+  --description "Iterative multi-agent review, verification, and repair" \
+  --config-file docs/demo/review-demo.json
+```
+
 ## Scheduled Tasks
 
 Scheduled Tasks run saved Graph Workflows automatically from standard
