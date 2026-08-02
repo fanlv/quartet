@@ -169,10 +169,30 @@ Quartet includes the source for **Eino**, a standalone ACP agent that can be
 configured with Ark, OpenAI-compatible, Claude, DeepSeek, Gemini, Ollama, and
 Qwen model providers.
 
-It can also discover supported external ACP CLIs, including TraeCLI, Claude
-Code, Codex, Gemini CLI, Cursor, GitHub Copilot, Kimi, OpenCode, Grok,
-Antigravity, Kiro, and others. External tools, accounts, subscriptions, and
-authentication remain managed by their respective vendors.
+Quartet currently discovers the following ACP CLIs from the `PATH` of the
+backend process:
+
+| Agent | Required CLI | ACP command used by Quartet | ACP setup |
+|---|---|---|---|
+| Eino | `eino-cli` | `eino-cli acp` | Build and install from this repository with `make build-eino-cli` |
+| TraeCLI | `traex` | `traex acp serve` | Provided by the CLI |
+| Grok | `grok` | `grok --no-auto-update agent stdio` | Provided by the CLI |
+| OpenClaw | `openclaw` | `openclaw acp` | Provided by the CLI |
+| Claude Code | `claude` | `claude-agent-acp` | **Requires the separate `@agentclientprotocol/claude-agent-acp` package** |
+| Gemini CLI | `gemini` | `gemini --acp` | Provided by the CLI |
+| Antigravity | `agy` | `antigravity-acp` | Requires the separate `antigravity-acp` package and Bun |
+| Cursor | `cursor-agent` | `cursor-agent acp` | Provided by the CLI |
+| GitHub Copilot | `copilot` | `copilot --acp --stdio` | Provided by the CLI |
+| Droid | `droid` | `droid exec --output-format acp` | Provided by the CLI |
+| Kimi | `kimi` | `kimi acp` | Provided by the CLI |
+| Codex | `codex` | `codex-acp` | **Requires the separate `@agentclientprotocol/codex-acp` package** |
+| Kiro | `kiro-cli` | `kiro-cli acp` | Provided by the CLI |
+| OpenCode | `opencode` | `opencode acp` | Provided by the CLI |
+| KiloCode | `kilocode` | `npx -y @kilocode/cli acp` | Requires Node.js and `npx` |
+| QCode | `qoderclicn` | `qoderclicn --acp` | Provided by the CLI |
+
+External tools, accounts, subscriptions, and authentication remain managed by
+their respective vendors.
 
 You only need one working agent to start chatting. Unsupported or unavailable
 agents are skipped without preventing the rest of the application from loading.
@@ -231,6 +251,18 @@ message. Agent-specific environment variables and defaults can be managed from
 Install and authenticate external agents with their official tooling, then
 ensure both the agent CLI and its ACP adapter are available on the same `PATH`
 used to start Quartet. Restart the backend after changing `PATH`.
+
+Claude Code and Codex do not expose the ACP commands used by Quartet through
+their main CLI packages alone. After installing the `claude` or `codex` CLI,
+install the corresponding ACP adapter separately:
+
+```bash
+npm install -g @agentclientprotocol/claude-agent-acp@0.58.1
+npm install -g @agentclientprotocol/codex-acp
+```
+
+Quartet requires both `claude` and `claude-agent-acp` for Claude Code, and both
+`codex` and `codex-acp` for Codex, to resolve from the backend's `PATH`.
 
 For convenience, the repository includes:
 

@@ -133,9 +133,28 @@ quartet-cli workflow create --name "Code Review" \
 Quartet 仓库内置 **Eino** 的源码。Eino 是一个独立 ACP Agent，可配置 Ark、OpenAI
 兼容接口、Claude、DeepSeek、Gemini、Ollama 和 Qwen 等模型提供方。
 
-Quartet 也能发现已安装的外部 ACP CLI，包括 TraeCLI、Claude Code、Codex、Gemini CLI、
-Cursor、GitHub Copilot、Kimi、OpenCode、Grok、Antigravity、Kiro 等。外部工具的账号、
-订阅和认证仍由对应厂商的工具自行管理。
+Quartet 当前会从后端进程的 `PATH` 中发现以下 ACP CLI：
+
+| Agent | 必需的 CLI | Quartet 使用的 ACP 命令 | ACP 接入方式 |
+|---|---|---|---|
+| Eino | `eino-cli` | `eino-cli acp` | 在本仓库执行 `make build-eino-cli` 构建并安装 |
+| TraeCLI | `traex` | `traex acp serve` | CLI 内置 |
+| Grok | `grok` | `grok --no-auto-update agent stdio` | CLI 内置 |
+| OpenClaw | `openclaw` | `openclaw acp` | CLI 内置 |
+| Claude Code | `claude` | `claude-agent-acp` | **需要额外安装 `@agentclientprotocol/claude-agent-acp` 包** |
+| Gemini CLI | `gemini` | `gemini --acp` | CLI 内置 |
+| Antigravity | `agy` | `antigravity-acp` | 需要额外安装 `antigravity-acp` 包和 Bun |
+| Cursor | `cursor-agent` | `cursor-agent acp` | CLI 内置 |
+| GitHub Copilot | `copilot` | `copilot --acp --stdio` | CLI 内置 |
+| Droid | `droid` | `droid exec --output-format acp` | CLI 内置 |
+| Kimi | `kimi` | `kimi acp` | CLI 内置 |
+| Codex | `codex` | `codex-acp` | **需要额外安装 `@agentclientprotocol/codex-acp` 包** |
+| Kiro | `kiro-cli` | `kiro-cli acp` | CLI 内置 |
+| OpenCode | `opencode` | `opencode acp` | CLI 内置 |
+| KiloCode | `kilocode` | `npx -y @kilocode/cli acp` | 需要 Node.js 和 `npx` |
+| QCode | `qoderclicn` | `qoderclicn --acp` | CLI 内置 |
+
+外部工具的账号、订阅和认证仍由对应厂商的工具自行管理。
 
 只要有一个可用 Agent 就能开始对话。某个 Agent 不可用或探测失败时，Quartet 会跳过它，
 不会阻塞应用其余部分的加载。
@@ -189,6 +208,17 @@ http://127.0.0.1:8090
 
 请使用外部 Agent 的官方工具完成安装和登录，并确保 Agent CLI 及其 ACP 适配器都位于
 启动 Quartet 时使用的同一个 `PATH` 中。修改 `PATH` 后需要重启后端。
+
+Claude Code 和 Codex 的主 CLI 包本身不提供 Quartet 使用的 ACP 命令。安装 `claude` 或
+`codex` CLI 后，还需要分别安装对应的 ACP 适配器：
+
+```bash
+npm install -g @agentclientprotocol/claude-agent-acp@0.58.1
+npm install -g @agentclientprotocol/codex-acp
+```
+
+Claude Code 要求后端的 `PATH` 中同时能找到 `claude` 和 `claude-agent-acp`；Codex 要求
+同时能找到 `codex` 和 `codex-acp`。
 
 仓库提供了一个便捷命令：
 
