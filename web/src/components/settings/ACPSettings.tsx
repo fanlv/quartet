@@ -15,9 +15,8 @@ interface AgentOption {
 }
 
 const DEFAULT_ENV_VARS: EnvVar[] = [
-  { key: 'http_proxy', value: 'http://bj-rd-proxy.byted.org:3128', enabled: false },
-  { key: 'https_proxy', value: 'http://bj-rd-proxy.byted.org:3128', enabled: false },
-  { key: 'no_proxy', value: 'code.byted.org', enabled: false },
+  { key: 'http_proxy', value: 'http://127.0.0.1:8890', enabled: false },
+  { key: 'https_proxy', value: 'http://127.0.0.1:8890', enabled: false },
 ];
 
 export function ACPSettings() {

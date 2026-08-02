@@ -151,8 +151,8 @@
     { "id": "edge-prompt-27-end-8-1", "sourceNodeId": "prompt-27", "targetNodeId": "end-8" }
   ],
   "variables": {
-    "Code": "/data00/home/fanlv/eino",
-    "Doc": "/home/fanlv/memory/knowledge/ai-and-agents/eino/tech_doc/agent_teams/docs",
+    "Code": "/demo/code",
+    "Doc": "/demo/docs",
     "AgentCheck": "1",
     "Info": "",
     "MultiWorker": "0",
@@ -162,5 +162,5 @@
   "disabledVars": ["Notice", "Info"],
   "runConfig": { "concurrencyLimit": 8 },
   "workspaceId": "ws-20260327-213844-310967",
-  "workdir": "/home/fanlv/eino"
+  "workdir": "/demo/code"
 }

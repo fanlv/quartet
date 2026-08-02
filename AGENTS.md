@@ -138,5 +138,5 @@ Go tests: `go test ./...`
 
 - `docs/` — 架构与功能设计文档。
 - 就在 main 分支开发，不要在其他分支开发。
-- agent-browser --session deepagent-bubble --headers '{"x-agent-auth":"5ecea0c4f0fe45eb43870cb9881d970a"}' open --enable react-devtools 'https://devbox.fanlv.fun/?workspaceId=ws-1' 可以查看页面。
+- agent-browser --session deepagent-bubble --headers "{\"x-agent-auth\":\"${X_AGENT_AUTH%%,*}\"}" open --enable react-devtools 'https://devbox.fanlv.fun/?workspaceId=ws-1' 可以查看页面。`X_AGENT_AUTH` 使用逗号分隔多个值，此命令取第一个。
 - ACP 工具并发错误后未 reset session 这个不要 reset session ，reset session 会丢失所有上下文。

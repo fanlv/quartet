@@ -72,9 +72,8 @@ func (s *serviceImpl) ClaudeUsage(ctx context.Context) (*model.ClaudeUsage, erro
 		base = claudeDefaultBase
 	}
 
-	// Direct client (no proxy): the usage host is in no_proxy and reachable
-	// without the byted proxy. Explicitly disable proxy so a global http_proxy
-	// in the process env can't misroute it. Force IPv6 because the sinf IPv4
+	// Direct client (no proxy): explicitly disable proxy so a global proxy
+	// setting in the process env can't misroute it. Force IPv6 because the sinf IPv4
 	// load-balancer path intermittently stalls during the TLS handshake.
 	dialer := &net.Dialer{}
 	client := &http.Client{

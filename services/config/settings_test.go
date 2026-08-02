@@ -50,7 +50,7 @@ func TestGetACPEnvVarsUsesStableAndCommandKeys(t *testing.T) {
 				{Key: "all_proxy", Value: "http://disabled", Enabled: false},
 			},
 			"codex-acp": {
-				{Key: "no_proxy", Value: "code.byted.org", Enabled: true},
+				{Key: "no_proxy", Value: "example.com", Enabled: true},
 			},
 		},
 	}}
@@ -61,7 +61,7 @@ func TestGetACPEnvVarsUsesStableAndCommandKeys(t *testing.T) {
 	got := svc.GetACPEnvVars("codex-acp")
 	want := map[string]string{
 		"http_proxy": "http://stable",
-		"no_proxy":   "code.byted.org",
+		"no_proxy":   "example.com",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("GetACPEnvVars() = %v, want %v", got, want)
