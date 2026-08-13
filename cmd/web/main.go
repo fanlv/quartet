@@ -264,6 +264,18 @@ func main() {
 	s := newServer(lc)
 	registerRoutes(s, h)
 
+	// When TLS is active on the public address, additionally serve plaintext
+	// HTTP on loopback so local tooling (quartet-cli, workflow shell scripts)
+	// can reach the API without TLS/cert juggling. Exposure matches the
+	// no-certs mode exactly: loopback only, on a single-user machine (see
+	// AGENTS.md). Without this, the cert deployment leaves local clients no
+	// working address: 443 needs a valid hostname/cert, and 8090 is dark.
+	var local *server.Hertz
+	if lc.tlsCfg != nil {
+		local = newServer(listenConfig{addr: defaultHTTPAddr})
+		registerRoutes(local, h)
+	}
+
 	// Pre-bind probe: reserve the TCP port BEFORE starting any background
 	// worker (scheduler, ACP reaper, IM listeners) so a duplicate-process
 	// launch fails fast with a clear error instead of silently running its
@@ -330,6 +342,34 @@ func main() {
 		logger.Infof(ctx, "[security] %s is set; API access requires a matching token", consts.EnvKeyAgentAuth)
 	}
 
+	// Start the loopback plaintext companion listener (constructed above).
+	// Non-fatal: if 127.0.0.1:8090 is unavailable the public TLS server keeps
+	// working and only local tooling loses its shortcut — log loudly instead
+	// of failing startup.
+	if local != nil {
+		localErr := make(chan error, 1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					localErr <- fmt.Errorf("local HTTP server panic: %v\n%s", r, debug.Stack())
+				}
+			}()
+			localErr <- local.Engine.Run()
+		}()
+		if err := waitForListenReady(ctx, defaultHTTPAddr, 5*time.Second, localErr); err != nil {
+			logger.Errorf(ctx, "local loopback HTTP listener on %s unavailable: %v (quartet-cli and local scripts cannot reach the API without it)", defaultHTTPAddr, err)
+		} else {
+			logger.Infof(ctx, "Local loopback HTTP listener is running on http://%s (for quartet-cli / local scripts)", defaultHTTPAddr)
+		}
+		// Surface a mid-run exit of the local listener. During normal shutdown
+		// ctx is already cancelled, so the expected Run() return stays quiet.
+		go func() {
+			if err := <-localErr; err != nil && ctx.Err() == nil {
+				logger.Errorf(ctx, "local loopback HTTP server exited: %v", err)
+			}
+		}()
+	}
+
 	// Start the idle reaper to periodically close unused ACP connections,
 	// preventing unbounded subprocess memory growth.
 	stopReaper := acpagent.StartIdleReaper()
@@ -369,6 +409,11 @@ func main() {
 	defer httpShutdownCancel()
 	if err := s.Shutdown(httpShutdownCtx); err != nil {
 		logger.Errorf(ctx, "Server shutdown error: %v", err)
+	}
+	if local != nil {
+		if err := local.Shutdown(httpShutdownCtx); err != nil {
+			logger.Errorf(ctx, "Local loopback server shutdown error: %v", err)
+		}
 	}
 
 	// Stop all running jobs so their goroutines can save final state and exit cleanly.

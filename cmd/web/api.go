@@ -86,6 +86,8 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	wx.POST("/pending/dismiss", h.WeChatPendingDismiss)
 	wx.POST("/admin/add", h.WeChatAdminAdd)
 	wx.POST("/admin/remove", h.WeChatAdminRemove)
+	// Proactive push (scheduled jobs / scripts) — not reply-driven.
+	wx.POST("/send", h.WeChatSend)
 
 	// Log viewer routes.
 	logs := api.Group("/logs")

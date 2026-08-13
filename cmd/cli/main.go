@@ -1,10 +1,12 @@
 // Command quartet-cli is the umbrella CLI for driving a Quartet backend from a
-// model or a shell. It is organized into command groups; the first group is
-// `workflow`, which manages graph workflows in the "agent" library
-// (create / list / get / update / delete / validate). Future capabilities are
-// added as new groups alongside it.
+// model or a shell. It is organized into command groups:
 //
 //	quartet-cli workflow <create|list|get|update|delete|validate> [flags]
+//	quartet-cli wechat send [--user <id>]... [--file <path>]
+//
+//   - workflow manages graph workflows in the "agent" library.
+//   - wechat send pushes a proactive WeChat message through the backend
+//     (POST /api/v1/wechat/send), used by scheduled-job prompts and scripts.
 //
 // Library boundary for the workflow group (enforced client-side, see
 // commands.go):
@@ -15,7 +17,8 @@
 //
 // Connection:
 //   - Base URL: $QUARTET_BASE_URL (default http://127.0.0.1:8090)
-//   - Auth: $X_AGENT_AUTH, sent as the X-AGENT-AUTH header when non-empty.
+//   - Auth: $X_AGENT_AUTH; when it holds a comma-separated list, the first
+//     token is sent as the X-AGENT-AUTH header.
 //
 // Per the repo convention, every error is printed in full — nothing is hidden.
 package main
@@ -34,13 +37,14 @@ Usage:
 
 Groups:
   workflow   Manage graph workflows in the agent library
+  wechat     WeChat helpers (send proactive messages via the backend)
 
 Run "quartet-cli <group> -h" for a group's commands, or
 "quartet-cli workflow <command> -h" for command-specific flags.
 
 Environment:
   QUARTET_BASE_URL   Backend base URL (default http://127.0.0.1:8090)
-  X_AGENT_AUTH       Auth token; sent as the X-AGENT-AUTH header when set
+  X_AGENT_AUTH       Auth token(s); comma-separated list → first token sent as the X-AGENT-AUTH header
 `
 
 func main() {
@@ -56,6 +60,8 @@ func main() {
 	switch group {
 	case "workflow", "wf":
 		err = runWorkflowGroup(args)
+	case "wechat", "wx":
+		err = runWeChatGroup(args)
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return

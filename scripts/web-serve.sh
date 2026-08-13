@@ -12,6 +12,11 @@
 #     is already bound to the port,
 #   - waits until it is accepting connections, and prints the access URL.
 #
+# Note: when TLS is active on :443 the backend ADDITIONALLY serves a
+# loopback-only plaintext listener on 127.0.0.1:8090 (for quartet-cli and
+# local scripts). That companion port is managed by the backend itself, not
+# by this script.
+#
 # The backend is always launched with cwd = repo root because it resolves
 # static/ and certs/ relative to the working directory.
 #

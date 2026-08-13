@@ -497,6 +497,14 @@ func WeChatSyncBufFile(botID string) string {
 	return filepath.Join(WeChatAccountsDir(), safeExternalID(botID)+".sync.json")
 }
 
+// WeChatUserTokensFile returns
+// {LOCAL_MEMORY}/quartet/data/wechat/accounts/user_tokens.json. It persists the
+// fromUserID → latest ContextToken map so proactive sends (Replier.SendText)
+// keep working across backend restarts.
+func WeChatUserTokensFile() string {
+	return filepath.Join(WeChatAccountsDir(), "user_tokens.json")
+}
+
 // SandboxComposeStateDir returns
 // {LOCAL_MEMORY}/var/quartet/state/sandbox/compose/, the durable compose state
 // directory.

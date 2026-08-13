@@ -200,6 +200,11 @@ func (h *Handler) WeChatLogout(ctx context.Context, c *app.RequestContext) {
 		httputil.InternalError(c, "删除凭证失败")
 		return
 	}
+	// The persisted ContextTokens are scoped to the removed credentials'
+	// conversations — drop them so proactive sends don't use stale tokens.
+	if err := wechatlisten.RemoveUserTokens(); err != nil {
+		logger.Warnf(ctx, "[wechat] remove user tokens failed: %v", err)
+	}
 	if req.ILinkUserID != "" {
 		if err := h.settingsService.RemoveWeChatAdminID(req.ILinkUserID); err != nil {
 			logger.Warnf(ctx, "[wechat] remove admin id failed: %v", err)

@@ -31,9 +31,22 @@ func newClient() *client {
 	}
 	return &client{
 		baseURL: base,
-		token:   os.Getenv(consts.EnvKeyAgentAuth),
+		token:   firstAuthToken(os.Getenv(consts.EnvKeyAgentAuth)),
 		http:    &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// firstAuthToken picks the first non-empty token from the comma-separated
+// X_AGENT_AUTH value. The backend accepts any single token from the list but
+// compares against the WHOLE header value, so sending the raw joined string
+// would never match (same convention as agent-browser's `${X_AGENT_AUTH%%,*}`).
+func firstAuthToken(raw string) string {
+	for _, t := range strings.Split(raw, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 // do issues a request and returns the raw body. A non-2xx status is turned into
@@ -119,6 +132,14 @@ func (c *client) validateConfig(ctx context.Context, req *model.ValidateGraphWor
 		return nil, err
 	}
 	return decode[model.GraphValidationResponse](raw)
+}
+
+func (c *client) sendWeChat(ctx context.Context, req *model.WeChatSendMessageRequest) (*model.WeChatSendMessageResponse, error) {
+	raw, err := c.do(ctx, http.MethodPost, "/api/v1/wechat/send", req)
+	if err != nil {
+		return nil, err
+	}
+	return decode[model.WeChatSendMessageResponse](raw)
 }
 
 // decode unmarshals a JSON body into T, wrapping parse errors with the raw body

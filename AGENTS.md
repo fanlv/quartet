@@ -24,7 +24,8 @@ make run-backend   # Run web backend only (go run ./cmd/web)
 make run-frontend  # Dev-only vite dev server (npm run dev; 5173 or 443 with certs). NOT used by `make web`.
 make web           # Build frontend into static/, build backend, then start/restart the backend as the SINGLE
                    #   web service: it serves the built UI and, when certs/ holds cert.pem+key.pem, terminates
-                   #   HTTPS on :443 (else plain HTTP on 127.0.0.1:8090). Detached; survives caller exit.
+                   #   HTTPS on :443 plus a loopback-only plaintext companion on 127.0.0.1:8090
+                   #   (else plain HTTP on 127.0.0.1:8090 only). Detached; survives caller exit.
 make run           # Alias for make web
 make web-stop      # Stop the backend web service and orphan quartet-web processes
 make backend-stop  # Stop backend only; watchdog untouched
@@ -57,7 +58,7 @@ Go tests: `go test ./...`
 
 - Logging: use `pkg/logger` (`logger.Infof/Warnf/Errorf/...`). Avoid `log.Printf`, `fmt.Printf`, etc.
 - Tests: during development, do not add unit tests unless explicitly requested.
-- Default backend startup requires `LOCAL_MEMORY`; the web server binds to `127.0.0.1:8090` (plain HTTP) by default, or `0.0.0.0:443` (HTTPS, serving the built UI same-origin) when `certs/` holds `cert.pem`+`key.pem`. `QUARTET_LISTEN_ADDR` overrides the address but not the TLS decision; the served UI dir defaults to `static/` (`QUARTET_STATIC_DIR`) and the cert dir to `certs/` (`QUARTET_CERTS_DIR`).
+- Default backend startup requires `LOCAL_MEMORY`; the web server binds to `127.0.0.1:8090` (plain HTTP) by default, or `0.0.0.0:443` (HTTPS, serving the built UI same-origin) when `certs/` holds `cert.pem`+`key.pem`. When TLS is active on :443, the backend additionally serves a loopback-only plaintext listener on `127.0.0.1:8090` so local tooling (quartet-cli, workflow shell scripts) can reach the API without TLS handling. `QUARTET_LISTEN_ADDR` overrides the address but not the TLS decision; the served UI dir defaults to `static/` (`QUARTET_STATIC_DIR`) and the cert dir to `certs/` (`QUARTET_CERTS_DIR`).
 - Frontend requires Node `>=22.18.0 <23` and npm `>=10.9.0 <11`.
 
 ### Code Layering
@@ -126,7 +127,7 @@ Go tests: `go test ./...`
 
 - `pkg/acp` — ACP 协议客户端、子进程池与会话 IO 处理。
 - `pkg/messaging/lark` — 飞书 IM 接入，包括消息监听、回复、图片处理与 WS 运行时。
-- `pkg/messaging/wechat` — 微信 IM 接入，包括 ilink 客户端、CDN、登录、媒体与回复。
+- `pkg/messaging/wechat` — 微信 IM 接入，包括 ilink 客户端、CDN、登录、媒体、回复与主动推送（`Replier.SendText`，经 `POST /api/v1/wechat/send` 暴露给定时任务/脚本，ContextToken 持久化在 `data/wechat/accounts/user_tokens.json`）。
 - `pkg/messaging/media` — IM 媒体缓存等通用能力。
 - `pkg/sandbox` — 沙箱（compose、模板、管理、回收与恢复）能力。
 - `pkg/fileserver` — 工作区与静态资源的文件服务。

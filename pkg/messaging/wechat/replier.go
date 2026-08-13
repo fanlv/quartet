@@ -69,13 +69,21 @@ var _ messaging.MediaReplier = (*Replier)(nil)
 
 // NewReplier constructs a Replier that resolves credentials via the given
 // provider. The provider is called lazily so scan-to-login can wire in new
-// credentials without re-constructing the Replier.
+// credentials without re-constructing the Replier. The persisted user-token
+// map (see token_store.go) is loaded eagerly so proactive SendText calls
+// keep working across restarts.
 func NewReplier(credsProvider CredentialsProvider) *Replier {
-	return &Replier{
+	r := &Replier{
 		credsProvider: credsProvider,
 		clients:       make(map[string]*ilink.Client),
 		done:          make(chan struct{}),
 	}
+	for fromUserID, token := range loadUserTokens() {
+		if fromUserID != "" && token != "" {
+			r.userToken.Store(fromUserID, token)
+		}
+	}
+	return r
 }
 
 // RegisterIncoming records the metadata needed to reply to msg later. Called
@@ -96,6 +104,7 @@ func (r *Replier) RegisterIncoming(msg *ilink.WeixinMessage, botID string) {
 	r.msgMeta.Store(strconv.FormatInt(msg.MessageID, 10), meta)
 	if msg.ContextToken != "" {
 		r.userToken.Store(msg.FromUserID, msg.ContextToken)
+		r.persistUserTokens()
 	}
 
 	r.startGCOnce()
@@ -146,6 +155,7 @@ func (r *Replier) ReplyText(ctx context.Context, messageID, content string) erro
 	// typically returns the same token for an ongoing conversation).
 	if contextToken != "" {
 		r.userToken.Store(toUserID, contextToken)
+		r.persistUserTokens()
 	}
 	return nil
 }
@@ -178,6 +188,7 @@ func (r *Replier) ReplyMedia(ctx context.Context, messageID string, media messag
 
 	if contextToken != "" {
 		r.userToken.Store(toUserID, contextToken)
+		r.persistUserTokens()
 	}
 	return nil
 }
@@ -203,6 +214,25 @@ func (r *Replier) lookupUserToken(fromUserID string) (string, bool) {
 		return "", false
 	}
 	return v.(string), true
+}
+
+// persistUserTokens snapshots the userToken map to disk so proactive sends
+// (SendText) keep working after a backend restart. Best-effort: a failed
+// write only reverts to the pre-persistence behavior, so it logs and moves
+// on rather than failing the reply that triggered it.
+func (r *Replier) persistUserTokens() {
+	tokens := make(map[string]string)
+	r.userToken.Range(func(k, v any) bool {
+		key, kok := k.(string)
+		token, vok := v.(string)
+		if kok && vok && key != "" && token != "" {
+			tokens[key] = token
+		}
+		return true
+	})
+	if err := saveUserTokens(tokens); err != nil {
+		logger.Warn("[wechat/replier] persist user tokens failed: %v", err)
+	}
 }
 
 // clientFor returns the ilink.Client for the given bot ID. A non-empty botID
