@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -94,7 +95,7 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 	// 落盘发生在 prepareJobSend 成功之后，避免参数错误时留脏数据（文档 §3.5）。
 	runner, opts, err := h.prepareJobSend(ctx, j, &req)
 	if err != nil {
-		httputil.BadRequest(c, err.Error())
+		mapPrepareJobSendError(c, err)
 		return
 	}
 
@@ -128,6 +129,18 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 	}
 
 	c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "started"})
+}
+
+// mapPrepareJobSendError maps a prepareJobSend failure to an HTTP response.
+// Job-state sentinel rejections (running / deleted) reuse the lifecycle
+// mappings (409 / 404) so clients can distinguish "retry later" from a
+// malformed request; validation failures stay 400.
+func mapPrepareJobSendError(c *app.RequestContext, err error) {
+	if errors.Is(err, job.ErrJobRunning) || errors.Is(err, job.ErrJobDeleted) {
+		httputil.MapError(c, err, jobErrMappings)
+		return
+	}
+	httputil.BadRequest(c, err.Error())
 }
 
 // dispatchJobCommand runs a slash command in the context of an existing Job,
@@ -187,7 +200,21 @@ func (h *Handler) dispatchJobCommand(ctx context.Context, j *model.Job, cmd, arg
 // SendMessageOptions, applies any pending title update to the job (without
 // waiting for SendMessage to succeed), and returns a runner+opts ready to
 // hand to jobService.SendMessage.
+//
+// The job-state gate runs BEFORE any metadata side effects (title / session
+// model / ACP field updates below): SendMessage rejects running / deleted
+// jobs, and applying those updates for a request that is about to be
+// rejected leaks the failed send's selection into the next successful run.
+// The gate reads a Get() snapshot, so it is best-effort — SendMessage's
+// locked check stays authoritative for the residual TOCTOU window.
 func (h *Handler) prepareJobSend(ctx context.Context, j *model.Job, req *model.JobMessageRequest) (job.JobRunner, *job.SendMessageOptions, error) {
+	if j.Deleted {
+		return nil, nil, job.ErrJobDeleted
+	}
+	if j.Status == model.JobStatusRunning {
+		return nil, nil, job.ErrJobRunning
+	}
+
 	opts, err := h.prepareJobMessage(j, req)
 	if err != nil {
 		return nil, nil, err

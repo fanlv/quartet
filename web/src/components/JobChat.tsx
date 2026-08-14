@@ -24,7 +24,7 @@ import './JobChat.css';
 // Must match the backend limit in cmd/web/handler/job.go (jobTitleMaxLen).
 const JOB_TITLE_MAX_LEN = 200;
 
-async function fetchAgentList(shareToken?: string, jobId?: string): Promise<{ agents: AgentInfo[]; workdir: string; jobEnable: boolean }> {
+async function fetchAgentList(shareToken?: string, jobId?: string): Promise<{ agents: AgentInfo[]; workdir: string; jobEnable: boolean; error?: string }> {
   try {
     const url = new URL(shareToken ? '/api/v1/public/agent/list' : '/api/v1/agent/list', window.location.origin);
     if (shareToken) {
@@ -34,12 +34,24 @@ async function fetchAgentList(shareToken?: string, jobId?: string): Promise<{ ag
     const res = await fetch(url.pathname + url.search);
     const data = await res.json().catch(() => null);
     if (!data || data.code !== 0 || !data.agent_list) {
-      return { agents: [], workdir: '', jobEnable: false };
+      // Keep the server's message when there is one so the banner can show
+      // the real cause (auth failure, probe error, …) instead of a generic
+      // "empty list".
+      const detail = (data && typeof data.msg === 'string' && data.msg) || `HTTP ${res.status}`;
+      // The private route already passed agentAuthMiddleware, so a malformed
+      // business response does not revoke write access. Public shares remain
+      // read-only and intentionally report jobEnable=false.
+      return { agents: [], workdir: '', jobEnable: !shareToken, error: detail };
     }
     return { agents: data.agent_list as AgentInfo[], workdir: data.workdir || '', jobEnable: !!data.job_enable };
   } catch (err) {
     console.error('Failed to fetch agent list:', err);
-    return { agents: [], workdir: '', jobEnable: false };
+    return {
+      agents: [],
+      workdir: '',
+      jobEnable: !shareToken,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -293,6 +305,12 @@ export function JobChat(props: JobChatProps) {
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const initialMessageSent = useRef(false);
   const [initialDispatchPending, setInitialDispatchPending] = useState(!!initialMessage);
+  // Failure exit for the home-page first-message handoff: when the agent list
+  // can never yield a selected agent (fetch failed / no agents configured) the
+  // dispatch effect below can never run, so surface the cause and release the
+  // composer instead of leaving it disabled forever. Stored as an i18n key +
+  // params so the banner re-translates on language switch.
+  const [agentListError, setAgentListError] = useState<{ key: string; params?: Record<string, string> } | null>(null);
   const refreshedAgentModelsRef = useRef<Set<string>>(new Set());
   const jobListRef = useRef<HTMLDivElement | null>(null);
   const headerMoreRef = useRef<HTMLDivElement | null>(null);
@@ -357,9 +375,20 @@ export function JobChat(props: JobChatProps) {
 
   useEffect(() => {
     let cancelled = false;
-    void fetchAgentList(shareToken, existingJobId).then(({ agents: list, jobEnable: je }) => {
+    void fetchAgentList(shareToken, existingJobId).then(({ agents: list, jobEnable: je, error: listError }) => {
       if (cancelled) return;
       setInitialAgentRefreshPending(false);
+      // A pending first message from the home page can only be dispatched once
+      // an agent is selected. An empty list means the dispatch can never run —
+      // release the composer and surface the cause instead of spinning forever.
+      if (initialMessage && list.length === 0 && !initialMessageSent.current) {
+        setInitialDispatchPending(false);
+        setAgentListError(
+          listError
+            ? { key: 'chat.loadAgentsFailed', params: { error: listError } }
+            : { key: 'chat.noAgentsAvailable' }
+        );
+      }
       // Apply initial modelId/acpMode to the matching agent so the initial
       // message uses the model the user selected on the ChatPage.
       let finalList = list;
@@ -439,7 +468,7 @@ export function JobChat(props: JobChatProps) {
     return () => {
       cancelled = true;
     };
-  }, [existingJobId, shareToken, initialAgentType, initialModelId, initialAcpMode, initialAcpThoughtLevel, isReadonly]);
+  }, [existingJobId, shareToken, initialMessage, initialAgentType, initialModelId, initialAcpMode, initialAcpThoughtLevel, isReadonly]);
 
   useEffect(() => {
     if (sessionWorkdir) setWorkdir(sessionWorkdir);
@@ -771,9 +800,9 @@ export function JobChat(props: JobChatProps) {
   const handleSendMessage = useCallback(
     (content: string, imageUrls?: string[]) => {
       const targetSessionId = (isLoop || isGraph) ? activeSessionId : null;
-      // Interactive mode with a run already in flight → queue instead of sending.
-      // Loop mode never queues (input is disabled during loop runs anyway).
-      if (!isLoop && isLoading) {
+      // Only interactive mode queues. Graph discussion sends must keep their
+      // explicit node sessionId, which the generic queue does not retain.
+      if (!isLoop && !isGraph && isLoading) {
         queueMessage({
           content,
           imageUrls,
@@ -792,9 +821,18 @@ export function JobChat(props: JobChatProps) {
   // Send initial message — only after SSE connection is ready
   useEffect(() => {
     if (initialMessageSent.current) return;
+    // A hook-level error (SSE connect failure, history load failure, …) blocks
+    // the dispatch below and never clears itself. The error banner already
+    // shows the cause, so release the composer here instead of leaving it
+    // disabled forever; if the error later clears this effect re-runs and the
+    // dispatch can still proceed.
+    if (error) {
+      setInitialDispatchPending(false);
+      return;
+    }
     if (!eventsReady) return;
     if (initialAgentRefreshPending) return;
-    if (isLoadingHistory || error) return;
+    if (isLoadingHistory) return;
 
     // Interactive mode: send first message (wait for agents to load so agentType is available).
     // bypassCommand=true: the home page builds a Job then hands off to us —
@@ -1631,6 +1669,12 @@ export function JobChat(props: JobChatProps) {
             <div className="acp-config-error" data-testid="acp-config-error" role="alert">
               <span>{acpConfigError}</span>
               <button type="button" onClick={() => setAcpConfigError(null)} aria-label="dismiss">×</button>
+            </div>
+          )}
+          {agentListError && (
+            <div className="acp-config-error" data-testid="agent-list-error" role="alert">
+              <span>{t(agentListError.key, agentListError.params)}</span>
+              <button type="button" onClick={() => setAgentListError(null)} aria-label="dismiss">×</button>
             </div>
           )}
           <ChatInput

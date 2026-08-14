@@ -59,7 +59,12 @@ export function DirPicker({ initialPath, basePath, selectFile, title, onConfirm,
     return path === basePath || path.startsWith(normalizedBase);
   }, [basePath]);
 
+  // Monotonic request id: only the latest navigation's response may touch
+  // state, so a slow stale list-dir can't overwrite a newer location.
+  const requestSeqRef = useRef(0);
+
   const fetchDir = useCallback(async (path: string, preselectFile?: string) => {
+    const seq = ++requestSeqRef.current;
     // If basePath is set and the requested path is above it, clamp to basePath
     if (basePath && !isWithinBase(path)) {
       path = basePath;
@@ -80,6 +85,7 @@ export function DirPicker({ initialPath, basePath, selectFile, title, onConfirm,
         const params = query.toString() ? `?${query.toString()}` : '';
         const res = await fetch(`/api/v1/list-dir${params}`);
         const data = await res.json();
+        if (seq !== requestSeqRef.current) return;
         if (data.code === 0) {
           setCurrentPath(data.current);
           setParentPath(data.parent || '');
@@ -99,9 +105,9 @@ export function DirPicker({ initialPath, basePath, selectFile, title, onConfirm,
         return;
       }
     } catch {
-      setError('Network error');
+      if (seq === requestSeqRef.current) setError('Network error');
     } finally {
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
   }, [basePath, isWithinBase, selectFile]);
 

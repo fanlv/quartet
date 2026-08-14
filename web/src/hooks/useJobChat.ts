@@ -2062,9 +2062,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     let cancelIdlePrefetch: (() => void) | null = null;
 
     // Backoffs after attempt 0 / 1 / 2 fail. Total budget = 1 initial + 3
-    // retries. After all retries are exhausted we surface the server's
-    // original 410 message verbatim — no replacement, no truncation, per
-    // the project rule that errors must be shown to the user.
+    // retries. After all retries are exhausted we surface the original
+    // connection or 410 error verbatim, per the project rule that errors
+    // must be shown to the user.
     const RETRY_BACKOFFS_MS = [200, 1000, 3000];
 
     // Idle-watchdog: when the loop appears to be running (isLoading=true)
@@ -2101,21 +2101,22 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         });
     }, IDLE_WATCHDOG_INTERVAL_MS);
 
-    const scheduleNextOrSurface = (currentAttempt: number, errMsg: string) => {
+    const scheduleNextOrSurface = (currentAttempt: number, errMsg: string, reloadFromDisk = true) => {
       if (cancelled) return;
       const backoff = RETRY_BACKOFFS_MS[currentAttempt];
       if (backoff === undefined) {
-        // Retry budget exhausted. Surface the server's original error so
-        // the user sees exactly what the server said.
-        const message = errMsg || 'SSE resume point gone';
+        // Retry budget exhausted. Surface the original error so the user sees
+        // exactly what failed, whether it was a stale resume point or the
+        // initial transport connection.
+        const message = errMsg || 'SSE connection failed';
         const error = new Error(message);
-        console.error(`[JobEvents] resume-point recovery exhausted after ${currentAttempt + 1} attempts: ${message}`);
+        console.error(`[JobEvents] connection recovery exhausted after ${currentAttempt + 1} attempts: ${message}`);
         setError(message);
         settleEventStreamReadyWaiters(error);
         return;
       }
-      console.warn(`[JobEvents] resume point gone (attempt ${currentAttempt + 1}); retrying in ${backoff}ms: ${errMsg}`);
-      retryTimer = setTimeout(() => { void attemptConnect(currentAttempt + 1); }, backoff);
+      console.warn(`[JobEvents] connection failed (attempt ${currentAttempt + 1}); retrying in ${backoff}ms: ${errMsg}`);
+      retryTimer = setTimeout(() => { void attemptConnect(currentAttempt + 1, reloadFromDisk); }, backoff);
     };
 
     // Pull the authoritative session list off /job/:id, then re-fetch
@@ -2218,7 +2219,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       console.debug(`[JobEvents][TRACE-SEQ0] reload-from-disk done jobId=${currentJobId} sessions=${sessionIds.length} isLoop=${isLoopJob}`);
     };
 
-    const attemptConnect = async (attempt: number): Promise<void> => {
+    const attemptConnect = async (attempt: number, reloadFromDisk = false): Promise<void> => {
       if (cancelled) return;
 
       // Always re-fetch the snapshot before opening / re-opening the SSE
@@ -2255,26 +2256,25 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           // empty Last-Event-ID. The server's 410 path will recover us
           // (and that path counts against the retry budget below).
           console.warn('[JobEvents] pre-connect snapshot fetch failed; will let SSE recover via 410 path:', err);
-        } else {
+        } else if (reloadFromDisk) {
           // Subsequent attempts MUST have a fresh snapshot — without it
           // we'd retry with the same stale seq and 410 again.
           const originalError = resumeGoneErrorRef.current || 'HTTP 410';
           const snapshotError = err instanceof Error ? err.message : String(err);
           scheduleNextOrSurface(attempt, `Resume point expired: ${originalError}; Snapshot reload failed: ${snapshotError}`);
           return;
+        } else {
+          const snapshotError = err instanceof Error ? err.message : String(err);
+          scheduleNextOrSurface(attempt, snapshotError, false);
+          return;
         }
       }
       if (cancelled) return;
 
-      // attempt > 0 means we've taken a 410 (or a snapshot failure that the
-      // server-side 410 path could not recover from on its own). The buffer's
-      // GC contract guarantees any GC'd event is already persisted: closed
-      // rounds → messages.jsonl, B-class state → job.json. So the correct
-      // recovery is to rebuild the message list from disk before reconnecting,
-      // not just retry SSE with a fresher seq — the latter leaves a gap in
-      // the UI for any closed-round events that were buffered when we first
-      // loaded the page but have since been GC'd.
-      if (attempt > 0) {
+      // A retry after 410 rebuilds from disk because buffered events may have
+      // been GC'd. A plain initial transport failure has no such event gap and
+      // only needs a fresh SSE connection.
+      if (reloadFromDisk) {
         try {
           await reloadMessagesFromDisk(currentJobId);
           resumeGoneErrorRef.current = '';
@@ -2356,9 +2356,10 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         if (connectionRejected) return;
         const hasPendingRunStart = eventStreamReadyWaitersRef.current.size > 0;
         markEventStreamReady(true);
+        setError(null);
         // Sync metadata after SSE connects. Message reload is always skipped
-        // here: on attempt 0 the hydration effect already loaded messages,
-        // and on attempt > 0 reloadMessagesFromDisk handled it. Allowing
+        // here: on the initial/plain transport path hydration already loaded
+        // messages, and 410 recovery reloads them before reconnecting. Allowing
         // syncJobState to reload messages for terminal jobs would cause a
         // redundant second full reload.
         // When a send/start/continue call is waiting for this connection, the
@@ -2373,10 +2374,20 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         }
       }).catch((err) => {
         if (!cancelled) {
+          // A newer reconnect/effect may already have replaced this client.
+          // Its stale rejection must not disconnect or schedule work for the
+          // active subscription.
+          if (eventSseRef.current !== client) return;
           const error = err instanceof Error ? err : new Error(String(err));
           console.error('[JobEvents] connect failed:', error);
+          // connectUntilReady leaves its options/controller installed when the
+          // initial fetch rejects. Explicitly disconnect so sendMessage can
+          // recognize the dead client and force a new subscription.
+          client.disconnect();
+          markEventStreamReady(false);
           setError(error.message);
           settleEventStreamReadyWaiters(error);
+          scheduleNextOrSurface(attempt, error.message, false);
         }
       });
     };
@@ -2820,33 +2831,34 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setQueuedMessages([]);
   }, []);
 
-  // Mutex: while true, we've dispatched a queued send and are waiting for `isLoading`
-  // to flip true (job actually started). Prevents the effect from re-entering and
-  // flushing the whole queue in one microtask.
+  // Mutex: while true, a queued sendMessage promise is still unsettled.
+  // Prevents the effect from re-entering and flushing the whole queue at once.
   const queueDispatchingRef = useRef(false);
+  const [queueDispatchSeq, setQueueDispatchSeq] = useState(0);
 
   // Auto-send the next queued message when the current run becomes idle (interactive mode only).
   // Sends STRICTLY one-at-a-time: waits for `isLoading` to go false (job finished) before
   // firing the next item in the queue.
   useEffect(() => {
-    if (isLoop) return;
-    // A run is in progress — clear the dispatch lock and wait for it to finish.
-    if (isLoading) {
-      queueDispatchingRef.current = false;
-      return;
-    }
-    // Just dispatched a send; isLoading hasn't flipped true yet — don't re-enter.
+    if (isLoop || isGraph) return;
+    if (isLoading) return;
     if (queueDispatchingRef.current) return;
     if (queuedMessages.length === 0) return;
 
     queueDispatchingRef.current = true;
     const head = queuedMessages[0];
     setQueuedMessages((prev) => prev.slice(1));
-    sendMessage(head.content, head.modelId ?? null, null, head.imageUrls, head.acpMode, head.agentType, head.acpThoughtLevel).catch((err) => {
-      console.error('[queuedMessage] send failed:', err);
-      queueDispatchingRef.current = false;
-    });
-  }, [isLoading, isLoop, queuedMessages, sendMessage]);
+    void sendMessage(head.content, head.modelId ?? null, null, head.imageUrls, head.acpMode, head.agentType, head.acpThoughtLevel)
+      .catch((err) => {
+        console.error('[queuedMessage] send failed:', err);
+      })
+      .finally(() => {
+        queueDispatchingRef.current = false;
+        // Commands do not toggle isLoading, so explicitly re-run the drain
+        // after their fast-path promise settles.
+        setQueueDispatchSeq((seq) => seq + 1);
+      });
+  }, [isLoading, isLoop, isGraph, queuedMessages, sendMessage, queueDispatchSeq]);
 
   const stopGeneration = useCallback(async () => {
     if (!jobId) {

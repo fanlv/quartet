@@ -46,13 +46,17 @@ export function FileMention({ keyword, workdir, onSelect, onClose, activeIndex, 
   const [loading, setLoading] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Monotonic request id: only the latest keyword's response may touch state,
+  // so a slow stale search can't overwrite newer results or the loading flag.
+  const requestSeqRef = useRef(0);
 
-  const fetchFiles = useCallback(async (kw: string) => {
+  const fetchFiles = useCallback(async (kw: string, seq: number) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ keyword: kw, dir: workdir });
       const res = await fetch(`/api/v1/search-files?${params}`);
       const data = await res.json();
+      if (seq !== requestSeqRef.current) return;
       if (data.code === 0 && data.files) {
         setFiles(data.files);
         onActiveIndexChange(0);
@@ -60,16 +64,19 @@ export function FileMention({ keyword, workdir, onSelect, onClose, activeIndex, 
         setFiles([]);
       }
     } catch {
-      setFiles([]);
+      if (seq === requestSeqRef.current) setFiles([]);
     } finally {
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
   }, [workdir, onActiveIndexChange]);
 
   useEffect(() => {
+    // Invalidate the previous request as soon as the search inputs change,
+    // rather than waiting for the new request's debounce to expire.
+    const seq = ++requestSeqRef.current;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      fetchFiles(keyword);
+      fetchFiles(keyword, seq);
     }, 200);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);

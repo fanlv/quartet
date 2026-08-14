@@ -1120,6 +1120,8 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setRunInstances([]);
       setRunEdges([]);
       setHookResults({});
+      setViewMode('canvas');
+      setJsonText('');
       await refreshJobRunStatus(run.jobId, seq);
     },
     [refreshJobRunStatus],
@@ -1134,6 +1136,10 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     setEditingRun(false);
     setSelectedRun(null);
     setHookResults({});
+    // Run-scoped errors (SSE / snapshot reload / not-editable notices) belong to
+    // the run strip; without clearing, they would leak into the editor status
+    // area once viewingRun flips false.
+    setRunMessage('');
   }, []);
 
   useEffect(() => {
@@ -1238,6 +1244,11 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         setDescription(data.workflow.description || '');
         const loaded = canonicalWorkflowConfig(data.workflow);
         loadConfigIntoCanvas(loaded);
+        // The JSON draft belongs to the document it was seeded from: drop it
+        // when loading another workflow, or "Apply to canvas" would push the
+        // previous workflow's JSON into this one's canvas.
+        setViewMode('canvas');
+        setJsonText('');
         setSavedConfig(loaded);
         setSavedFingerprint(fingerprint({
           name: data.workflow.name,
@@ -1269,6 +1280,8 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     setMessage('');
     setLibraryOpen(false);
     loadConfigIntoCanvas(config);
+    setViewMode('canvas');
+    setJsonText('');
     setSavedConfig(config);
     setSavedFingerprint(fingerprint({ name: t('graph.defaultName'), description: '', config }));
   }, [exitRunView, loadConfigIntoCanvas, t, workspaceId, workspaceWorkdir]);
@@ -1281,6 +1294,8 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       setSelectedWorkflowUpdatedAt(saved.updatedAt);
       const config = savedConfig;
       loadConfigIntoCanvas(config);
+      setViewMode('canvas');
+      setJsonText('');
       setSavedFingerprint(fingerprint({
         name: saved.name,
         description: saved.description || '',
@@ -1500,6 +1515,8 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     setEditingRun(false);
     setErrors([]);
     setMessage('');
+    setViewMode('canvas');
+    setJsonText('');
     if (selectedRun) loadConfigIntoCanvas(runConfigSnapshot(selectedRun));
   }, [loadConfigIntoCanvas, selectedRun]);
 
@@ -2302,12 +2319,16 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
               />
             </div>
             <div className="graph-editor-actions">
+              {/* Read-only run replay locks the view toggle: the JSON view would
+                  seed from (and Apply into) the hidden editor document, not the
+                  run snapshot on screen. Run-version EDIT stays allowed — there
+                  the editor state IS the run's working copy. */}
               <div className="graph-view-toggle">
-                <button data-testid="graph-view-canvas" className={viewMode === 'canvas' ? 'active' : ''} onClick={() => switchView('canvas')} disabled={editingLocked}>
+                <button data-testid="graph-view-canvas" className={viewMode === 'canvas' ? 'active' : ''} onClick={() => switchView('canvas')} disabled={editingLocked || (viewingRun && !editingRun)}>
                   <GraphButtonIcon name="canvas" />
                   {t('graph.editor.canvas')}
                 </button>
-                <button data-testid="graph-view-json" className={viewMode === 'json' ? 'active' : ''} onClick={() => switchView('json')} disabled={editingLocked}>
+                <button data-testid="graph-view-json" className={viewMode === 'json' ? 'active' : ''} onClick={() => switchView('json')} disabled={editingLocked || (viewingRun && !editingRun)}>
                   <GraphButtonIcon name="json" />
                   {t('graph.editor.json')}
                 </button>
@@ -2319,7 +2340,8 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                       className="graph-primary-btn"
                       data-testid="graph-save-run-version"
                       onClick={() => void saveRunVersion()}
-                      disabled={editingLocked || !runVersionDirty}
+                      disabled={editingLocked || viewMode === 'json' || !runVersionDirty}
+                      title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}
                     >
                       <GraphButtonIcon name="save" />
                       {saving ? t('graph.editor.saving') : t('graph.editor.saveRunVersion')}
@@ -2405,7 +2427,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
               <div className="graph-json-pane">
                 <textarea spellCheck={false} data-testid="graph-json-textarea" aria-label={t('graph.editor.jsonConfigAria')} value={jsonText} onChange={(e) => setJsonText(e.target.value)} />
                 <div className="graph-json-actions">
-                  <button className="graph-primary-btn" data-testid="graph-json-apply" onClick={applyJson}>
+                  <button
+                    className="graph-primary-btn"
+                    data-testid="graph-json-apply"
+                    onClick={applyJson}
+                    disabled={viewingRun && !editingRun}
+                  >
                     <GraphButtonIcon name="apply" />
                     {t('graph.editor.applyToCanvas')}
                   </button>

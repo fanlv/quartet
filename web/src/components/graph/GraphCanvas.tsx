@@ -156,7 +156,17 @@ function CanvasInner({
     initialViewportRef.current = initialViewport;
   }, [initialViewport]);
 
+  // The initial camera (saved viewport, or a full-graph fit) is applied exactly
+  // ONCE per mounted canvas, on the first run where it can be computed. This
+  // effect also re-fires whenever nodes.length changes — re-fitting then would
+  // reset the user's pan/zoom on every node add/delete (notably in run-version
+  // editing, where initialViewport is intentionally undefined). Explicit
+  // re-fits are unaffected: callers bump viewportResetKey, which is part of the
+  // canvas key upstream and remounts this component with a fresh ref.
+  const viewportInitializedRef = useRef(false);
+
   useEffect(() => {
+    if (viewportInitializedRef.current) return;
     const viewport = initialViewportRef.current;
     // A zoom of 0 is not a real saved viewport — it is the Go zero value that
     // the backend serializes for workflows created without a canvas (e.g. via
@@ -166,10 +176,12 @@ function CanvasInner({
     // wide desktop screen and frames the wrong area on a phone — fit the whole
     // graph instead so the canvas never opens on empty space.
     if (viewport && viewport.zoom > 0 && !isMobile) {
+      viewportInitializedRef.current = true;
       void rf.setViewport(viewport, { duration: 0 });
       return;
     }
     if (nodes.length > 0) {
+      viewportInitializedRef.current = true;
       void rf.fitView({ ...DEFAULT_FIT_VIEW_OPTIONS, duration: 0 });
     }
   }, [isMobile, nodes.length, rf, viewportResetKey]);

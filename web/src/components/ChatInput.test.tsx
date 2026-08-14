@@ -148,6 +148,40 @@ describe('ChatInput keyboard behavior', () => {
     expect(chip?.textContent).toBe('/pptx')
   })
 
+  it('surfaces the upload error when sending is blocked by a failed image upload', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:mock-preview')
+    URL.revokeObjectURL = vi.fn()
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/v1/upload-file')) {
+        return { json: async () => ({ code: 1, msg: 'disk full' }) } as Response
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }))
+    const user = userEvent.setup()
+    const { textarea, onSend } = renderChatInput()
+
+    // Attach an image; the upload fails and the preview chip shows the error badge.
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['x'], 'pic.png', { type: 'image/png' })] },
+    })
+    expect(await screen.findByTitle('disk full')).toBeTruthy()
+
+    // The send button stays enabled (only `uploading` disables it), so the user clicks it…
+    await user.type(textarea, 'hello')
+    const sendButton = screen.getByTestId('chat-send-button')
+    expect(sendButton).toBeEnabled()
+    await user.click(sendButton)
+
+    // …the message must not go out with a broken attachment, and the user must be
+    // told why. Before the fix both assertions failed: the click was a silent no-op.
+    expect(onSend).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(document.querySelector('.copy-toast')?.textContent).toContain('disk full')
+    })
+  })
+
   it('recalls sent-message history with ArrowUp and restores with ArrowDown', async () => {
     writeHistory('chat-input-history', ['newest message', 'older message'])
     const { textarea, onSend } = renderChatInput({ localHistoryKey: 'chat-input-history' })

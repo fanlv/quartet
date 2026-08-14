@@ -8,7 +8,10 @@ export function ConnectionBanner() {
   const { t } = useTranslation();
   const { connected } = useConnectionStatus();
   const [showRecovered, setShowRecovered] = useState(false);
-  const [hasBeenDisconnected, setHasBeenDisconnected] = useState(false);
+  // Initialize from the mount-time state too: when the banner first renders
+  // while already offline, the user still saw the outage, so a later recovery
+  // deserves the same transient "restored" confirmation as a live transition.
+  const [hasBeenDisconnected, setHasBeenDisconnected] = useState(() => !connected);
   const [prevConnected, setPrevConnected] = useState(connected);
 
   // Detect the connected-edge during render (not in an effect) so we can

@@ -413,7 +413,13 @@ export function ChatInput({
     const allUploaded = pendingImages.every((img) => img.uploadedPath && !img.uploading);
     if (!hasContent || interactionDisabled) return;
     if (isLoading && !canQueue) return;
-    if (pendingImages.length > 0 && !allUploaded) return;
+    if (pendingImages.length > 0 && !allUploaded) {
+      const failedImage = pendingImages.find((img) => img.error);
+      if (failedImage) {
+        showToast(t('chat.imageUploadFailed', { error: failedImage.error }));
+      }
+      return;
+    }
 
     const uploadedImageUrls = pendingImages
       .map((img) => img.uploadedPath!)

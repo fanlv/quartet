@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/workspace"
@@ -147,7 +148,8 @@ var definitionsList = func() []Definition {
 // ResolveName normalizes a raw command name (including aliases) to a canonical
 // definition name. Returns empty string if no match — callers can then treat
 // the text as a regular message. Matching is case-insensitive.
-func ResolveName(raw string) string {	raw = strings.ToLower(strings.TrimSpace(raw))
+func ResolveName(raw string) string {
+	raw = strings.ToLower(strings.TrimSpace(raw))
 	if raw == "" {
 		return ""
 	}
@@ -171,11 +173,9 @@ func Parse(text string) (cmd, args string) {
 	if !strings.HasPrefix(text, "/") {
 		return "", ""
 	}
-	parts := strings.SplitN(text, " ", 2)
-	cmd = strings.ToLower(parts[0])
-	if len(parts) > 1 {
-		args = strings.TrimSpace(parts[1])
-	}
+	head, rest := splitHead(text)
+	cmd = strings.ToLower(head)
+	args = rest
 	return
 }
 
@@ -516,14 +516,25 @@ func text(s string) *Result {
 }
 
 func splitSub(args string) (sub, rest string) {
-	parts := strings.SplitN(strings.TrimSpace(args), " ", 2)
-	if len(parts) > 0 {
-		sub = strings.ToLower(strings.TrimSpace(parts[0]))
-	}
-	if len(parts) > 1 {
-		rest = strings.TrimSpace(parts[1])
-	}
+	head, tail := splitHead(strings.TrimSpace(args))
+	sub = strings.ToLower(head)
+	rest = tail
 	return
+}
+
+// splitHead splits s at the first Unicode whitespace rune, returning the head
+// token and the whitespace-trimmed remainder. The web client's command
+// detection splits on /\s+/ (see web/src/utils/commands.ts isKnownCommand), so
+// the backend must treat tabs, NBSP, etc. as separators too — otherwise e.g.
+// "/job\tlist" is a known command on the frontend (user bubble suppressed,
+// command result awaited) while the backend forwards it to the Agent as a
+// regular message.
+func splitHead(s string) (head, tail string) {
+	idx := strings.IndexFunc(s, unicode.IsSpace)
+	if idx < 0 {
+		return s, ""
+	}
+	return s[:idx], strings.TrimSpace(s[idx:])
 }
 
 func titleOr(s, fallback string) string {

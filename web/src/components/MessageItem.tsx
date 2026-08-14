@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
-import { Message, UserMessage, AssistantMessage, ToolMessage, SystemMessage, MessageRoleEnum, MessageStatusEnum, ToolCallStatusEnum } from '../types';
+import { Message, UserMessage, AssistantMessage, ToolMessage, SystemMessage, MessageRoleEnum, MessageStatusEnum, ToolCallStatusEnum, type CommandSystemMessageEvent } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
 import { detectLanguage, getLanguageLabel, tokenizeLine } from '../utils/syntaxHighlight';
 import { formatMessageTime } from '../utils/time';
@@ -1381,19 +1381,48 @@ const NUMBER_ROW_RE = /^(\*?)(\d+)\.\s+(.*)$/;
 const KV_ROW_RE = /^([^:：]+)[:：]\s*(.*)$/;
 
 function SystemCommandBubble({ message, jobId }: SystemCommandBubbleProps) {
+  const { t } = useTranslation();
   const source = message.commandSource || '';
   const content = message.content;
 
   const sendCommand = async (cmd: string) => {
     if (!jobId) return;
     try {
-      await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/message`, {
+      const response = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: [{ role: 'user', content: cmd }] }),
       });
+      const rawBody = await response.text().catch(() => '');
+      let body: Record<string, unknown> | null = null;
+      if (rawBody) {
+        try {
+          body = JSON.parse(rawBody) as Record<string, unknown>;
+        } catch {
+          body = null;
+        }
+      }
+      if (!response.ok) {
+        const detail =
+          (typeof body?.msg === 'string' && body.msg) ||
+          (typeof body?.error === 'string' && body.error) ||
+          (typeof body?.message === 'string' && body.message) ||
+          rawBody ||
+          `HTTP ${response.status}`;
+        throw new Error(`HTTP ${response.status}: ${detail}`);
+      }
+
+      const event = body?.event as CommandSystemMessageEvent | undefined;
+      if (event?.action?.type) {
+        window.dispatchEvent(new CustomEvent('quartet:command-action', { detail: event.action }));
+      }
+      if (event?.text) {
+        showToast(event.text);
+      }
     } catch (err) {
       console.error('[system-command-bubble] send failed:', err);
+      const detail = err instanceof Error ? err.message : String(err);
+      showToast(t('chat.commandSendFailed', { error: detail }));
     }
   };
 

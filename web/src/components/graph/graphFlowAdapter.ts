@@ -48,7 +48,7 @@ export function isLoopPort(node: { type: GraphNodeType; parentId?: string }): bo
 // Live (post-resize) size of a loop container node. NodeResizer writes the new
 // size to node.width/height; before any resize it lives in node.style. Mirrors
 // the precedence flowToConfig uses when persisting the container size.
-function loopNodeSize(node: QuartetFlowNode): { width: number; height: number } {
+export function loopNodeSize(node: QuartetFlowNode): { width: number; height: number } {
   const style = node.style as { width?: number | string; height?: number | string } | undefined;
   const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
   return {

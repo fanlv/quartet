@@ -1,5 +1,5 @@
 import type { QuartetFlowEdge, QuartetFlowNode } from './graphFlowAdapter';
-import { LOOP_DEFAULT_HEIGHT, LOOP_DEFAULT_WIDTH } from './graphFlowAdapter';
+import { loopNodeSize } from './graphFlowAdapter';
 
 // Layout geometry. The canvas flows left -> right (start on the left, end on the
 // right), so nodes are placed into columns ("layers") and stacked vertically
@@ -21,10 +21,10 @@ interface Box {
 // their current size so siblings don't overlap the box.
 function boxOf(node: QuartetFlowNode): Box {
   if (node.data?.kind === 'loop') {
-    const style = node.style as { width?: number | string; height?: number | string } | undefined;
-    const w = typeof style?.width === 'number' ? style.width : LOOP_DEFAULT_WIDTH;
-    const h = typeof style?.height === 'number' ? style.height : LOOP_DEFAULT_HEIGHT;
-    return { w, h };
+    // Same precedence as the canvas/persist paths: a NodeResizer resize lives
+    // on node.width/height (then measured), not on style.
+    const { width, height } = loopNodeSize(node);
+    return { w: width, h: height };
   }
   return { w: NODE_W, h: NODE_H };
 }

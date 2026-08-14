@@ -134,6 +134,7 @@ export function useJobList(options: UseJobListOptions = {}): UseJobListReturn {
   const nextCursorRef = useRef<string>('');
   const hasMoreRef = useRef(false);
   hasMoreRef.current = hasMore;
+  const loadMoreInFlightRef = useRef(false);
   // ETag of the first page only. Background polls always fetch the first page
   // (to pick up newly-created jobs at the top), and we only short-circuit when
   // that ETag hasn't changed.
@@ -317,11 +318,13 @@ export function useJobList(options: UseJobListOptions = {}): UseJobListReturn {
   }, [fetchPage]);
 
   const loadMore = useCallback(async () => {
-    if (!hasMoreRef.current || !nextCursorRef.current) return;
+    if (loadMoreInFlightRef.current || !hasMoreRef.current || !nextCursorRef.current) return;
+    loadMoreInFlightRef.current = true;
     setIsLoadingMore(true);
     try {
       await fetchPage(nextCursorRef.current, 'append');
     } finally {
+      loadMoreInFlightRef.current = false;
       setIsLoadingMore(false);
     }
   }, [fetchPage]);

@@ -81,12 +81,18 @@ export function VirtualList<T>({
       const target = e.currentTarget;
       setScrollTop(target.scrollTop);
 
-      if (onEndReached && !endFiredRef.current) {
-        const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-        if (distanceToBottom < endReachedThreshold) {
-          endFiredRef.current = true;
-          onEndReached();
-        }
+      if (!onEndReached) return;
+      const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+      if (distanceToBottom >= endReachedThreshold) {
+        // Left the bottom zone — re-arm. If the previous trigger's load
+        // failed silently (items.length never changed), scrolling back down
+        // must be able to retry; otherwise auto-load is dead until refresh.
+        endFiredRef.current = false;
+        return;
+      }
+      if (!endFiredRef.current) {
+        endFiredRef.current = true;
+        onEndReached();
       }
     },
     [onEndReached, endReachedThreshold]

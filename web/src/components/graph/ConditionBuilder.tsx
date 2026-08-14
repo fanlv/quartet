@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import {
   COND_OPS,
@@ -61,9 +61,20 @@ export function ConditionBuilder({
   const [simple, setSimple] = useState<SimpleCondition>(initialParsed ?? emptySimpleCondition());
   const [advancedText, setAdvancedText] = useState<string>(value);
 
+  // The condition string this component's state currently reflects: every local
+  // edit is echoed to the parent via onChange and comes straight back as the
+  // `value` prop. That echo must NOT re-derive mode/state — clearing a rule's
+  // variable serializes to an unparseable string, and an advanced-mode draft
+  // passes through parseable states; re-deriving on the echo would flip the
+  // editing mode out from under the user. Only a value change we did NOT emit
+  // ourselves (e.g. undo/redo, which keeps the same node key mounted) re-syncs.
+  const reflectedValueRef = useRef<string>(value);
+
   const listId = `cond-vars-${fieldId}`;
 
   useEffect(() => {
+    if (value === reflectedValueRef.current) return;
+    reflectedValueRef.current = value;
     const parsed = tryParseSimple(value);
     setAdvanced(value.trim() !== '' && parsed === null);
     setSimple(parsed ?? emptySimpleCondition());
@@ -71,8 +82,10 @@ export function ConditionBuilder({
   }, [value]);
 
   const commitSimple = (next: SimpleCondition) => {
+    const text = serializeCondition(next);
+    reflectedValueRef.current = text;
     setSimple(next);
-    onChange(serializeCondition(next));
+    onChange(text);
   };
 
   const updateRule = (index: number, patch: Partial<CondRule>) => {
@@ -91,6 +104,7 @@ export function ConditionBuilder({
   };
 
   const commitAdvanced = (text: string) => {
+    reflectedValueRef.current = text;
     setAdvancedText(text);
     onChange(text);
   };
@@ -101,12 +115,14 @@ export function ConditionBuilder({
   const switchToSimple = () => {
     const parsed = tryParseSimple(advancedText);
     if (!parsed) return;
+    reflectedValueRef.current = serializeCondition(parsed);
     setSimple(parsed);
     setAdvanced(false);
     onChange(serializeCondition(parsed));
   };
   const switchToAdvanced = () => {
     const text = serializeCondition(simple);
+    reflectedValueRef.current = text;
     setAdvancedText(text);
     setAdvanced(true);
     onChange(text);

@@ -60,8 +60,15 @@ type ACPService interface {
 	SetThoughtLevel(ctx context.Context, store SessionStore, wsID, jobID, sessionID, agentType, workdir, thoughtLevel string) (*model.ACPConfigState, error)
 }
 
+// newAgentFunc matches NewACPAgent's signature. It is a field on acpService
+// (rather than a direct call) so tests can substitute a fake instead of
+// spawning a real ACP subprocess — the same injection pattern as
+// serviceImpl.newJobRepo / newSessionRepo in services/job.
+type newAgentFunc func(ctx context.Context, store SessionStore, sessionID, agentType, workdir, jobID, wsID string) (*ACPAgent, error)
+
 type acpService struct {
-	cache *sessioncache.Cache[*ACPAgent]
+	cache    *sessioncache.Cache[*ACPAgent]
+	newAgent newAgentFunc
 }
 
 func NewACPService() ACPService {
@@ -75,7 +82,7 @@ func NewACPService() ACPService {
 			"[ACPService] reuse ACP agent, key=%s acpSession=%s",
 			key, a.SessionID())
 	})
-	return &acpService{cache: cache}
+	return &acpService{cache: cache, newAgent: NewACPAgent}
 }
 
 // agentCacheKey composes the cache key from the full identity tuple
@@ -115,25 +122,18 @@ func (s *acpService) GetOrCreate(ctx context.Context, store SessionStore, wsID, 
 		}
 	}
 
-	lease, err := s.cache.GetOrCreate(ctx, key, func(createCtx context.Context) (*ACPAgent, error) {
-		logger.Infof(createCtx, "[ACPService] create ACP agent, key=%s", key)
-		return NewACPAgent(createCtx, store, sessionID, agentType, workdir, jobID, wsID)
-	})
-	if err != nil {
-		if errors.Is(err, sessioncache.ErrCapacityExceeded) {
-			return nil, fmt.Errorf("%w", ErrACPAgentCapacityExceeded)
-		}
-		return nil, err
-	}
-	// A concurrent caller could have lost the rebuild race and won the
-	// singleflight create — re-check the resulting agent and rebuild once
-	// if the inputs still don't match.
-	if lease.Value.RequiresRebuild(agentType, workdir) && !lease.Value.IsRunning() {
-		logger.Infof(ctx, "[ACPService] rebuild required after create, retrying once: key=%s type=%s workdir=%s", key, agentType, workdir)
-		lease.Release()
-		s.cache.Delete(key)
+	// The singleflight inside cache.GetOrCreate shares ONE create across all
+	// concurrent waiters for the key, so the lease handed back may carry an
+	// agent built with a racing caller's agentType/workdir. Re-check the
+	// handed-out agent after EVERY create (including the rebuild retry) and
+	// never return one whose construction inputs don't match this call —
+	// Run() on such an agent would dispatch prompts to the wrong subprocess.
+	var lease *Lease
+	for attempt := 0; ; attempt++ {
+		var err error
 		lease, err = s.cache.GetOrCreate(ctx, key, func(createCtx context.Context) (*ACPAgent, error) {
-			return NewACPAgent(createCtx, store, sessionID, agentType, workdir, jobID, wsID)
+			logger.Infof(createCtx, "[ACPService] create ACP agent, key=%s", key)
+			return s.newAgent(createCtx, store, sessionID, agentType, workdir, jobID, wsID)
 		})
 		if err != nil {
 			if errors.Is(err, sessioncache.ErrCapacityExceeded) {
@@ -141,8 +141,29 @@ func (s *acpService) GetOrCreate(ctx context.Context, store SessionStore, wsID, 
 			}
 			return nil, err
 		}
+		if !lease.Value.RequiresRebuild(agentType, workdir) {
+			return lease, nil
+		}
+		if lease.Value.IsRunning() {
+			// Same contract as the pre-create check above: a mid-Run agent
+			// cannot be swapped out, and silently returning the stale agent
+			// would dispatch to the wrong subprocess.
+			logger.Warnf(ctx, "[ACPService] agent from shared create is mid-Run with mismatched inputs, refusing stale reuse: key=%s type=%s workdir=%s", key, agentType, workdir)
+			lease.Release()
+			return nil, ErrACPAgentBusyRebuildRequired
+		}
+		logger.Infof(ctx, "[ACPService] rebuild required after create (attempt=%d), rebuilding: key=%s type=%s workdir=%s", attempt, key, agentType, workdir)
+		// Drop our lease before deleting so the cache can close the stale
+		// entry promptly (Delete defers close until refs hit 0).
+		lease.Release()
+		s.cache.Delete(key)
+		if attempt >= 1 {
+			// Two creates in a row came back with mismatched inputs — the
+			// rebuild keeps losing the singleflight race. Fail loudly
+			// instead of looping forever or handing out a stale agent.
+			return nil, fmt.Errorf("acp agent rebuild did not converge: key=%s type=%s workdir=%s", key, agentType, workdir)
+		}
 	}
-	return lease, nil
 }
 
 func (s *acpService) Get(wsID, jobID, sessionID string) (*Lease, bool) {
