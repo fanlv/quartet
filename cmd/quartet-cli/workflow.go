@@ -30,7 +30,7 @@ func cmdCreate(args []string) error {
 	desc := fs.String("description", "", "workflow description")
 	workspace := fs.String("workspace", "", "workspace ID to bind (optional)")
 	configFile := fs.String("config-file", "", "path to GraphConfig JSON; reads stdin when omitted or '-'")
-	fs.Usage = usageFor(fs, "create --name <name> [--description <d>] [--workspace <id>] [--config-file <path>]",
+	fs.Usage = usageFor("workflow", fs, "create --name <name> [--description <d>] [--workspace <id>] [--config-file <path>]",
 		"Create a workflow in the agent library. The config JSON may be a bare GraphConfig or a {\"config\": {...}} wrapper.")
 	if err := parseFlagsNoArgs(fs, args); err != nil {
 		return err
@@ -67,7 +67,7 @@ func cmdList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	typeFilter := fs.String("type", string(agentType), "library filter: user | agent | all")
 	asJSON := fs.Bool("json", false, "print the raw summary list as JSON")
-	fs.Usage = usageFor(fs, "list [--type user|agent|all] [--json]",
+	fs.Usage = usageFor("workflow", fs, "list [--type user|agent|all] [--json]",
 		"List workflow summaries. Defaults to the agent library.")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -114,8 +114,8 @@ func cmdList(args []string) error {
 // cmdGet prints one workflow as full JSON. Read-only: any library type allowed.
 func cmdGet(args []string) error {
 	fs := flag.NewFlagSet("get", flag.ContinueOnError)
-	fs.Usage = usageFor(fs, "get <workflowId>", "Print a workflow as full JSON.")
-	id, err := parseIDAndFlags(fs, args)
+	fs.Usage = usageFor("workflow", fs, "get <workflowId>", "Print a workflow as full JSON.")
+	id, err := parseIDAndFlags(fs, args, "workflowId")
 	if err != nil {
 		return err
 	}
@@ -135,9 +135,9 @@ func cmdUpdate(args []string) error {
 	name := fs.String("name", "", "new name")
 	desc := fs.String("description", "", "new description")
 	configFile := fs.String("config-file", "", "path to new GraphConfig JSON; reads stdin when '-'")
-	fs.Usage = usageFor(fs, "update <workflowId> [--name <n>] [--description <d>] [--config-file <path>]",
+	fs.Usage = usageFor("workflow", fs, "update <workflowId> [--name <n>] [--description <d>] [--config-file <path>]",
 		"Update an agent-library workflow. Only the flags you pass are changed. Refuses non-agent workflows.")
-	id, err := parseIDAndFlags(fs, args)
+	id, err := parseIDAndFlags(fs, args, "workflowId")
 	if err != nil {
 		return err
 	}
@@ -188,8 +188,8 @@ func cmdUpdate(args []string) error {
 // cmdDelete deletes an agent-library workflow after the same boundary check.
 func cmdDelete(args []string) error {
 	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
-	fs.Usage = usageFor(fs, "delete <workflowId>", "Delete an agent-library workflow. Refuses non-agent workflows.")
-	id, err := parseIDAndFlags(fs, args)
+	fs.Usage = usageFor("workflow", fs, "delete <workflowId>", "Delete an agent-library workflow. Refuses non-agent workflows.")
+	id, err := parseIDAndFlags(fs, args, "workflowId")
 	if err != nil {
 		return err
 	}
@@ -215,7 +215,7 @@ func cmdDelete(args []string) error {
 func cmdValidate(args []string) error {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	configFile := fs.String("config-file", "", "path to GraphConfig JSON; reads stdin when omitted or '-'")
-	fs.Usage = usageFor(fs, "validate [--config-file <path>]",
+	fs.Usage = usageFor("workflow", fs, "validate [--config-file <path>]",
 		"Statically validate a GraphConfig. Exits non-zero when invalid.")
 	if err := parseFlagsNoArgs(fs, args); err != nil {
 		return err
@@ -237,6 +237,42 @@ func cmdValidate(args []string) error {
 	return fmt.Errorf("invalid config:\n%s", formatValidationErrors(resp.Errors))
 }
 
+// cmdRun launches a graph run for a saved workflow. Running is read-only with
+// respect to the workflow itself (it creates a new job), so the agent-library
+// boundary does not apply: both user and agent workflows may be launched.
+// Workspace and workdir default to whatever the workflow config binds, then
+// the backend's default workspace.
+func cmdRun(args []string) error {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	workspace := fs.String("workspace", "", "workspace ID to run in (default: the workflow's binding, else the default workspace)")
+	workdir := fs.String("workdir", "", "working directory override (default: the workflow's binding)")
+	fs.Usage = usageFor("workflow", fs, "run <workflowId> [--workspace <id>] [--workdir <dir>]",
+		"Start a graph run of a saved workflow. Prints the new runId/jobId as JSON.")
+	id, err := parseIDAndFlags(fs, args, "workflowId")
+	if err != nil {
+		return err
+	}
+
+	resp, err := newClient().startGraphRun(context.Background(), &model.StartGraphRunRequest{
+		WorkflowID:  id,
+		WorkspaceID: strings.TrimSpace(*workspace),
+		Workdir:     strings.TrimSpace(*workdir),
+	})
+	if err != nil {
+		return err
+	}
+	if resp.Run == nil {
+		return fmt.Errorf("backend returned no run for workflow %s", id)
+	}
+	fmt.Fprintf(os.Stderr, "started run %s (job %s, status=%s)\n", resp.Run.ID, resp.Run.JobID, resp.Run.Status)
+	return printJSON(map[string]string{
+		"runId":      resp.Run.ID,
+		"jobId":      resp.Run.JobID,
+		"workflowId": resp.Run.WorkflowID,
+		"status":     string(resp.Run.Status),
+	})
+}
+
 // ensureAgentOwned enforces the library boundary: the CLI may only modify or
 // delete workflows in the agent library.
 func ensureAgentOwned(wf *model.GraphWorkflow) error {
@@ -249,18 +285,19 @@ func ensureAgentOwned(wf *model.GraphWorkflow) error {
 	return nil
 }
 
-// parseIDAndFlags splits a single workflow-ID positional from flag arguments
-// and parses the flags into fs. Go's flag package stops parsing at the first
+// parseIDAndFlags splits a single positional ID from flag arguments and
+// parses the flags into fs. Go's flag package stops parsing at the first
 // non-flag token, so a natural `update <id> --name X` would leave `--name X`
 // unparsed. This separates the bare ID token from the flags so the ID may
-// appear before or after them.
+// appear before or after them. idName is the positional's display name used
+// in error messages (e.g. "workflowId").
 //
 // The scan is flag-value-aware: a non-boolean flag written in `--name` form
 // (no `=`) consumes the following token as its value, so that value is never
 // mistaken for the ID (the bug that a naive "first bare token" scan caused for
 // `--name X <id>`). Exactly one bare positional (the ID) is required; any extra
 // is surfaced as an error.
-func parseIDAndFlags(fs *flag.FlagSet, args []string) (string, error) {
+func parseIDAndFlags(fs *flag.FlagSet, args []string, idName string) (string, error) {
 	var id string
 	idSet := false
 	rest := make([]string, 0, len(args))
@@ -295,7 +332,7 @@ func parseIDAndFlags(fs *flag.FlagSet, args []string) (string, error) {
 		return "", fmt.Errorf("unexpected extra arguments: %s", strings.Join(fs.Args(), " "))
 	}
 	if strings.TrimSpace(id) == "" {
-		return "", fmt.Errorf("exactly one <workflowId> argument is required")
+		return "", fmt.Errorf("exactly one <%s> argument is required", idName)
 	}
 	return id, nil
 }
@@ -331,10 +368,11 @@ func setFlags(fs *flag.FlagSet) map[string]bool {
 }
 
 // usageFor builds a per-command usage function that prints a one-line synopsis,
-// a short description, and the flag defaults.
-func usageFor(fs *flag.FlagSet, synopsis, desc string) func() {
+// a short description, and the flag defaults. group is the command group the
+// synopsis belongs to (e.g. "workflow", "schedule").
+func usageFor(group string, fs *flag.FlagSet, synopsis, desc string) func() {
 	return func() {
-		fmt.Fprintf(os.Stderr, "Usage: quartet-cli workflow %s\n\n%s\n\nFlags:\n", synopsis, desc)
+		fmt.Fprintf(os.Stderr, "Usage: quartet-cli %s %s\n\n%s\n\nFlags:\n", group, synopsis, desc)
 		fs.PrintDefaults()
 	}
 }

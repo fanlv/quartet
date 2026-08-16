@@ -91,7 +91,7 @@ Go tests: `go test ./...`
 
 - `cmd/web` — Web 后端入口，承担 HTTP 路由注册、中间件、请求编排和服务装配。
 - `cmd/eino-cli` — 独立 eino-cli 二进制的入口；eino 能力全部抽出为该 ACP agent，quartet 只经 ACP 接入。
-- `cmd/quartet-cli` — quartet-cli 命令行工具的入口，通过后端 HTTP API 管理 graph workflow（agent 库）和发送微信主动消息。
+- `cmd/quartet-cli` — quartet-cli 命令行工具的入口，通过后端 HTTP API 管理 graph workflow（agent 库；含手动运行 run）、cron 定时任务（schedule 增删改查/启停/立即触发）、只读查询 workspace/job/agent，以及发送微信主动消息（wechat send / accounts）。
 - `einocli/` — eino-cli 的全部实现（推理循环、中间件链、上下文组装、会话管理、多模态还原、local sandbox fork、自管配置），与 quartet 后端零 import 依赖，按"日后可整体抽到独立仓库"设计。
 - `web/` — 前端单页应用，提供聊天、工作区、文件浏览、设置、统计、调度、脚本、IM 配置等用户界面。
 

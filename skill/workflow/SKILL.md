@@ -1,15 +1,26 @@
 ---
 name: quartet-workflow
-description: "管理 Quartet graph workflow（图工作流）：在「模型库（agent）」里新增、列出、查看、更新、删除、校验工作流。当用户要创建/编排一个 Quartet workflow、graph、DAG 流程，或要增删改查图工作流、定时任务流程时使用。本 skill 通过 CLI 调 Quartet 后端 HTTP API，内置了编写合法 workflow config（节点/边/变量/条件）的完整指南，以及「多 Agent 选择 / Double Check / 对抗验证」等推荐编排模式。"
+description: "管理 Quartet graph workflow（图工作流）：在「模型库（agent）」里新增、列出、查看、更新、删除、校验、手动运行（run）工作流。当用户要创建/编排一个 Quartet workflow、graph、DAG 流程，或增删改查、手动运行图工作流时使用。定时任务（cron/schedule）管理走 quartet-schedule skill，微信主动推送走 quartet-wechat skill。本 skill 通过 CLI 调 Quartet 后端 HTTP API，内置了编写合法 workflow config（节点/边/变量/条件）的完整指南，以及「多 Agent 选择 / Double Check / 对抗验证」等推荐编排模式。"
 metadata:
   requires:
     bins: ["quartet-cli"]
-  cliHelp: "quartet-cli workflow --help"
+  cliHelp: "quartet-cli --help"
 ---
 
 # quartet-workflow
 
-通过 CLI 管理 Quartet 的 graph workflow。CLI 是对后端 HTTP API 的薄封装，复用后端类型，能在本地构造请求、远端校验。
+通过 CLI 管理 Quartet 的 graph workflow 与定时任务。CLI 是对后端 HTTP API 的薄封装，复用后端类型，能在本地构造请求、远端校验。
+
+命令组一览（`quartet-cli <group> -h` 看子命令）：
+
+| 组 | 作用 |
+|---|---|
+| `workflow` | workflow 的增删改查、校验、**手动运行**（`run`） |
+| `schedule` | cron 定时任务的增删改查、启停、立即触发 |
+| `workspace` | 只读列出 workspace（给 create --workspace 提供 ID） |
+| `job` | 只读查看 job 列表/详情、停止运行中的 job |
+| `agent` | 只读列出已安装的 ACP agent 及其模型（编排 workflow 选 agentType 用） |
+| `wechat` | `send` 主动推送微信消息；`accounts` 列出已登录账号（发现 --user ID） |
 
 ## 库边界（重要）
 
@@ -37,24 +48,17 @@ bash <skill_dir>/build.sh   # 产出 <skill_dir>/bin/quartet-cli
 | 变量 | 说明 | 默认 |
 |---|---|---|
 | `QUARTET_BASE_URL` | 后端地址 | `http://127.0.0.1:8090` |
-| `X_AGENT_AUTH` | CLI 客户端要发送的**单个**鉴权 token，非空时原样作为 `X-AGENT-AUTH` 头发送 | 空 |
+| `X_AGENT_AUTH` | 鉴权 token，非空时作为 `X-AGENT-AUTH` 头发送 | 空 |
 
-鉴权规则必须区分**后端配置**和**CLI 请求头**：
+鉴权规则：
 - 后端进程的 `X_AGENT_AUTH` 可以是逗号分隔的 token 列表，例如 `tokenA,tokenB`；后端校验时会拆开，任意一个匹配即可。
-- CLI 读取自己环境里的 `X_AGENT_AUTH` 后，**不会拆逗号**，而是把整个字符串原样放进 `X-AGENT-AUTH` header。
-- 所以调用 CLI 时，`X_AGENT_AUTH` 必须是列表里的**一个 token**，不能是完整逗号列表。错误示例：`X_AGENT_AUTH=tokenA,tokenB qwf list`；正确示例：`X_AGENT_AUTH=tokenA qwf list`。
-- 如果当前 shell 里的 `X_AGENT_AUTH` 已经是逗号列表，不要改全局环境；在单条命令前临时覆盖即可：
-
-```bash
-QWF_TOKEN="$(printf '%s' "$X_AGENT_AUTH" | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/, "", $1); print $1}')"
-X_AGENT_AUTH="$QWF_TOKEN" qwf list --type agent
-```
+- CLI 读取自己环境里的 `X_AGENT_AUTH` 后**自动取第一个 token**发送（含空白修剪），所以直接把整段逗号列表赋给它也能正常工作。
 
 403 排查顺序：
 1. 先确认后端是否要求鉴权：`curl -s "$QUARTET_BASE_URL/api/v1/health"`，看 `authRequired`。
-2. 如果 `authRequired=true`，确认 CLI 这一侧发送的是**单个 token**，不是逗号列表。
+2. 如果 `authRequired=true`，确认当前 shell 的 `X_AGENT_AUTH` 已设置且非空。
 3. 如果浏览器已登录，可从 localStorage 取 `quartet.x_auth_token`，它就是可用于 CLI 的单个 token。
-4. 仍然 403 时，看后端日志里的 `tokenPrefix` 和 `tokenLen`；如果 `tokenLen` 接近整段逗号列表长度，说明 CLI 误发了完整列表。
+4. 仍然 403 时，看后端日志里的 `tokenPrefix` 和 `tokenLen` 比对发出去的是哪个 token。
 
 所有错误（含后端校验错误）都会**全量打印**到 stderr。结果 JSON 打印到 stdout。
 
@@ -115,6 +119,31 @@ qwf validate --config-file config.json
 cat config.json | qwf validate
 ```
 合法打印 `valid`（exit 0）；非法打印全部定位错误（exit 1）。**建议 create/update 前先 validate。**
+
+### run — 手动运行一次（任意库，不修改 workflow）
+
+```bash
+qwf run <workflowId> [--workspace <wsId>] [--workdir <dir>]
+```
+启动一个 graph run（等价于 UI 上的「运行」），创建一个新的 graph job 并开始执行。运行不改动 workflow 本身，所以 user / agent 库都能跑。`--workspace` / `--workdir` 省略时用 workflow 自己绑定的运行环境，再缺省落到默认 workspace。
+stdout 打印 `{"runId","jobId","workflowId","status"}`；之后用 `quartet-cli job get <jobId>` 查状态、`quartet-cli job stop <jobId>` 停止。
+
+---
+
+## 相关 skill
+
+- **定时任务**（cron 自动运行 workflow）：用 `quartet-cli schedule` 组管理（create/list/get/update/delete/toggle/run），详见 **quartet-schedule** skill。
+- **微信主动推送**（把运行结果发到微信）：`quartet-cli wechat send / accounts`，详见 **quartet-wechat** skill。
+
+## 其它只读/辅助命令
+
+```bash
+quartet-cli workspace list [--json]   # workspace ID/标题/工作目录；create workflow/schedule 的 --workspace 从这里取
+quartet-cli job list [--workspace <id>] [--limit N] [--json]   # job 摘要表：id status mode 创建时间 标题
+quartet-cli job get <jobId>           # 完整 job 快照 JSON（含 lastEventSeq）
+quartet-cli job stop <jobId>          # 停止运行中的 job（非 running 时幂等成功）
+quartet-cli agent list [--json]       # 已安装 ACP agent 及模型目录；编排 prompt 节点的 agentType 从这里取
+```
 
 ---
 

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -140,6 +142,138 @@ func (c *client) sendWeChat(ctx context.Context, req *model.WeChatSendMessageReq
 		return nil, err
 	}
 	return decode[model.WeChatSendMessageResponse](raw)
+}
+
+// get issues a GET with optional query parameters.
+func (c *client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	return c.do(ctx, http.MethodGet, path, nil)
+}
+
+func (c *client) startGraphRun(ctx context.Context, req *model.StartGraphRunRequest) (*model.GraphRunResponse, error) {
+	raw, err := c.do(ctx, http.MethodPost, "/api/v1/graph/run/start", req)
+	if err != nil {
+		return nil, err
+	}
+	return decode[model.GraphRunResponse](raw)
+}
+
+func (c *client) createSchedule(ctx context.Context, req *model.CreateScheduleRequest) (*model.CreateScheduleResponse, error) {
+	raw, err := c.do(ctx, http.MethodPost, "/api/v1/schedule/create", req)
+	if err != nil {
+		return nil, err
+	}
+	return decode[model.CreateScheduleResponse](raw)
+}
+
+func (c *client) listSchedules(ctx context.Context, workspaceID string) (*model.ListSchedulesResponse, error) {
+	q := url.Values{}
+	if workspaceID != "" {
+		q.Set("workspaceId", workspaceID)
+	}
+	raw, err := c.get(ctx, "/api/v1/schedule/list", q)
+	if err != nil {
+		return nil, err
+	}
+	return decode[model.ListSchedulesResponse](raw)
+}
+
+// getSchedule fetches one task. The backend returns a bare ScheduleInfo (no
+// envelope) for get / update / toggle.
+func (c *client) getSchedule(ctx context.Context, id string) (*model.ScheduleInfo, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/api/v1/schedule/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+	return decode[model.ScheduleInfo](raw)
+}
+
+func (c *client) updateSchedule(ctx context.Context, id string, req *model.UpdateScheduleRequest) (*model.ScheduleInfo, error) {
+	raw, err := c.do(ctx, http.MethodPut, "/api/v1/schedule/"+id, req)
+	if err != nil {
+		return nil, err
+	}
+	return decode[model.ScheduleInfo](raw)
+}
+
+func (c *client) deleteSchedule(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/api/v1/schedule/"+id, nil)
+	return err
+}
+
+func (c *client) toggleSchedule(ctx context.Context, id string) (*model.ScheduleInfo, error) {
+	raw, err := c.do(ctx, http.MethodPost, "/api/v1/schedule/"+id+"/toggle", nil)
+	if err != nil {
+		return nil, err
+	}
+	return decode[model.ScheduleInfo](raw)
+}
+
+// scheduleRunResponse is the backend's reply to POST /schedule/:id/run.
+type scheduleRunResponse struct {
+	Status string `json:"status"`
+	JobID  string `json:"jobId"`
+}
+
+func (c *client) runSchedule(ctx context.Context, id string) (*scheduleRunResponse, error) {
+	raw, err := c.do(ctx, http.MethodPost, "/api/v1/schedule/"+id+"/run", nil)
+	if err != nil {
+		return nil, err
+	}
+	return decode[scheduleRunResponse](raw)
+}
+
+func (c *client) listWorkspaces(ctx context.Context) (*model.ListWorkspacesResponse, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/api/v1/workspace/list", nil)
+	if err != nil {
+		return nil, err
+	}
+	return decode[model.ListWorkspacesResponse](raw)
+}
+
+func (c *client) listJobs(ctx context.Context, workspaceID string, limit int) (*model.ListJobsResponse, error) {
+	q := url.Values{}
+	if workspaceID != "" {
+		q.Set("workspaceId", workspaceID)
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	raw, err := c.get(ctx, "/api/v1/job/list", q)
+	if err != nil {
+		return nil, err
+	}
+	return decode[model.ListJobsResponse](raw)
+}
+
+// getJob returns the raw response body: the endpoint emits the Job fields
+// flattened at the root plus a lastEventSeq field (the SSE resume cursor), and
+// the CLI prints it verbatim rather than re-modeling the envelope.
+func (c *client) getJob(ctx context.Context, id string) ([]byte, error) {
+	return c.do(ctx, http.MethodGet, "/api/v1/job/"+id, nil)
+}
+
+func (c *client) stopJob(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodPost, "/api/v1/job/"+id+"/stop", nil)
+	return err
+}
+
+func (c *client) listAgents(ctx context.Context) (*model.AgentListResponse, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/api/v1/agent/list", nil)
+	if err != nil {
+		return nil, err
+	}
+	return decode[model.AgentListResponse](raw)
+}
+
+func (c *client) wechatAccounts(ctx context.Context) (*wechatAccountsResponse, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/api/v1/wechat/accounts", nil)
+	if err != nil {
+		return nil, err
+	}
+	return decode[wechatAccountsResponse](raw)
 }
 
 func (c *client) verifyWeChatOutbox(ctx context.Context) error {

@@ -1,19 +1,29 @@
 // Command quartet-cli is the umbrella CLI for driving a Quartet backend from a
 // model or a shell. It is organized into command groups:
 //
-//	quartet-cli workflow <create|list|get|update|delete|validate> [flags]
-//	quartet-cli wechat send [--user <id>]... [--file <path>]
+//		quartet-cli workflow <create|list|get|update|delete|validate|run> [flags]
+//		quartet-cli schedule <create|list|get|update|delete|toggle|run> [flags]
+//		quartet-cli workspace <list> [flags]
+//		quartet-cli job <list|get|stop> [flags]
+//		quartet-cli agent <list> [flags]
+//		quartet-cli wechat <send|accounts> [flags]
 //
-//   - workflow manages graph workflows in the "agent" library.
-//   - wechat send pushes a proactive WeChat message through the backend
-//     (POST /api/v1/wechat/send), used by scheduled-job prompts and scripts.
+//	  - workflow manages graph workflows in the "agent" library.
+//	  - schedule manages cron-scheduled graph-workflow runs.
+//	  - workspace lists workspaces (read-only; IDs feed workflow/schedule flags).
+//	  - job inspects and stops jobs (read-only list/get plus stop).
+//	  - agent lists the installed ACP agents (read-only).
+//	  - wechat send pushes a proactive WeChat message through the backend
+//	    (POST /api/v1/wechat/send), used by scheduled-job prompts and scripts;
+//	    wechat accounts lists the logged-in iLink accounts.
 //
 // Library boundary for the workflow group (enforced client-side, see
 // workflow.go):
 //   - create always tags the workflow as type=agent.
 //   - update / delete first GET the target and refuse unless its type is agent,
 //     so a model can never modify or remove a user-authored ("user") workflow.
-//   - get / list are read-only and work across both libraries.
+//   - get / list / run work across both libraries (run does not modify the
+//     workflow; it creates a job).
 //
 // Connection:
 //   - Base URL: $QUARTET_BASE_URL (default http://127.0.0.1:8090)
@@ -42,6 +52,10 @@ Usage:
 
 Groups:
   workflow   Manage graph workflows in the agent library
+  schedule   Manage cron-scheduled graph-workflow runs
+  workspace  List workspaces (read-only)
+  job        Inspect and stop jobs
+  agent      List installed ACP agents (read-only)
   wechat     WeChat helpers (send proactive messages via the backend)
 
 Run "quartet-cli <group> -h" for a group's commands, or
@@ -65,6 +79,14 @@ func main() {
 	switch group {
 	case "workflow", "wf":
 		err = runWorkflowGroup(args)
+	case "schedule", "sched":
+		err = runScheduleGroup(args)
+	case "workspace", "ws":
+		err = runWorkspaceGroup(args)
+	case "job":
+		err = runJobGroup(args)
+	case "agent":
+		err = runAgentGroup(args)
 	case "wechat", "wx":
 		err = runWeChatGroup(args)
 	case "-h", "--help", "help":
@@ -103,6 +125,7 @@ Commands:
   update     Update an agent-library workflow
   delete     Delete an agent-library workflow
   validate   Statically validate a workflow config (no persistence)
+  run        Start a graph run of a saved workflow
 
 Run "quartet-cli workflow <command> -h" for command-specific flags.
 `
@@ -128,6 +151,8 @@ func runWorkflowGroup(args []string) error {
 		return cmdDelete(rest)
 	case "validate":
 		return cmdValidate(rest)
+	case "run":
+		return cmdRun(rest)
 	case "-h", "--help", "help":
 		fmt.Print(workflowUsage)
 		return nil

@@ -19,8 +19,9 @@ Usage:
 
 Commands:
   send       Push a text message to WeChat user(s) through the backend
+  accounts   List the logged-in iLink account(s) (IDs for send --user)
 
-Run "quartet-cli wechat send -h" for command-specific flags.
+Run "quartet-cli wechat <command> -h" for command-specific flags.
 `
 
 // runWeChatGroup dispatches the `wechat` group's subcommands.
@@ -34,6 +35,8 @@ func runWeChatGroup(args []string) error {
 	switch cmd {
 	case "send":
 		return cmdWeChatSend(rest)
+	case "accounts":
+		return cmdWeChatAccounts(rest)
 	case "-h", "--help", "help":
 		fmt.Print(wechatUsage)
 		return nil
@@ -41,6 +44,47 @@ func runWeChatGroup(args []string) error {
 		fmt.Fprintf(os.Stderr, "unknown wechat command %q\n\n%s", cmd, wechatUsage)
 		return errUsage
 	}
+}
+
+// wechatAccount is one row of GET /api/v1/wechat/accounts.
+type wechatAccount struct {
+	ILinkBotID  string `json:"ilink_bot_id"`
+	ILinkUserID string `json:"ilink_user_id"`
+	Status      string `json:"status"`
+}
+
+// wechatAccountsResponse mirrors the backend's {accounts: [...]} reply.
+type wechatAccountsResponse struct {
+	Accounts []wechatAccount `json:"accounts"`
+}
+
+// cmdWeChatAccounts lists the logged-in iLink account(s). The ilink_user_id
+// values are what `wechat send --user` takes; without this command there is no
+// way to discover them from the CLI.
+func cmdWeChatAccounts(args []string) error {
+	fs := flag.NewFlagSet("accounts", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "print the raw list as JSON")
+	fs.Usage = usageFor("wechat", fs, "accounts [--json]",
+		"List the logged-in iLink account(s). The ilink_user_id column feeds wechat send --user.")
+	if err := parseFlagsNoArgs(fs, args); err != nil {
+		return err
+	}
+
+	resp, err := newClient().wechatAccounts(context.Background())
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return printJSON(resp.Accounts)
+	}
+	if len(resp.Accounts) == 0 {
+		fmt.Fprintln(os.Stderr, "no WeChat accounts logged in")
+		return nil
+	}
+	for _, a := range resp.Accounts {
+		fmt.Printf("%s\t%s\t%s\n", a.ILinkUserID, a.ILinkBotID, a.Status)
+	}
+	return nil
 }
 
 // stringList collects a repeated flag value (e.g. --user a --user b).

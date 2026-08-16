@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -62,6 +63,19 @@ func printJSON(v any) error {
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(v)
+}
+
+// printRawJSON writes an already-encoded JSON document to stdout, indented.
+// Used for responses the CLI passes through verbatim instead of re-modeling
+// (e.g. job get, whose envelope flattens Job fields next to lastEventSeq).
+func printRawJSON(raw []byte) error {
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, raw, "", "  "); err != nil {
+		return fmt.Errorf("pretty-print response JSON: %w (body: %s)", err, strings.TrimSpace(string(raw)))
+	}
+	buf.WriteByte('\n')
+	_, err := os.Stdout.Write(buf.Bytes())
+	return err
 }
 
 // formatValidationErrors renders located validation errors one per line, each
