@@ -143,8 +143,9 @@ func (l *Listener) IsExpired() bool {
 }
 
 // handleIncoming processes a single WeixinMessage from the monitor. It first
-// registers the message metadata with the replier (so ReplyText can find
-// the ContextToken later), then converts to messaging.Message and dispatches.
+// registers the message metadata with the replier (so ReplyText can find the
+// ContextToken later). A standalone "a" is a token-refresh control message and
+// stops there; all other messages are converted and dispatched.
 func (l *Listener) handleIncoming(ctx context.Context, client *ilink.Client, botID string, msg ilink.WeixinMessage) {
 	// User messages only — ignore bot echoes and generating-state updates.
 	if msg.MessageType != ilink.MessageTypeUser {
@@ -189,6 +190,11 @@ func (l *Listener) handleIncoming(ctx context.Context, client *ilink.Client, bot
 	// Register BEFORE dispatch so ReplyText called synchronously by the
 	// handler can still find the ContextToken.
 	l.replier.RegisterIncoming(&msg, botID)
+	if isContextTokenRefreshMessage(msg) {
+		logger.Debugf(ctx, "[wechat] context token refreshed without dispatch: msg=%d from=%s",
+			msg.MessageID, msg.FromUserID)
+		return
+	}
 
 	messageIDStr := strconv.FormatInt(msg.MessageID, 10)
 	receivedAt := time.Now()
@@ -213,6 +219,16 @@ func (l *Listener) handleIncoming(ctx context.Context, client *ilink.Client, bot
 		out.MessageID, out.SenderID, out.MessageType, len(out.Content))
 
 	l.handler.OnMessage(ctx, out)
+}
+
+func isContextTokenRefreshMessage(msg ilink.WeixinMessage) bool {
+	if len(msg.ItemList) != 1 {
+		return false
+	}
+	item := msg.ItemList[0]
+	return item.Type == ilink.ItemTypeText &&
+		item.TextItem != nil &&
+		strings.TrimSpace(item.TextItem.Text) == "a"
 }
 
 // extractContent pulls a display string out of the WeChat message item list.

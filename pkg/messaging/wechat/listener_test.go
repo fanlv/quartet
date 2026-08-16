@@ -363,6 +363,88 @@ func (h *countingHandler) OnMessage(context.Context, *messaging.Message) {
 	h.calls.Add(1)
 }
 
+func TestHandleIncoming_ContextTokenRefreshOnly(t *testing.T) {
+	t.Setenv("LOCAL_MEMORY", t.TempDir())
+	provider := func() []*ilink.Credentials {
+		return []*ilink.Credentials{{ILinkBotID: "@bot_1"}}
+	}
+	handler := &countingHandler{}
+	replier := NewReplier(provider)
+	t.Cleanup(replier.Close)
+	l := NewListener(handler, replier, provider)
+
+	l.handleIncoming(context.Background(), nil, "@bot_1", ilink.WeixinMessage{
+		MessageID:    42,
+		FromUserID:   "@alice_1",
+		MessageType:  ilink.MessageTypeUser,
+		MessageState: ilink.MessageStateFinish,
+		ContextToken: "ctx-refreshed",
+		ItemList: []ilink.MessageItem{
+			{Type: ilink.ItemTypeText, TextItem: &ilink.TextItem{Text: " \ta\n "}},
+		},
+	})
+
+	if got := handler.calls.Load(); got != 0 {
+		t.Fatalf("refresh control message: expected no dispatch, got %d", got)
+	}
+	if got, ok := replier.lookupUserToken("@alice_1"); !ok || got != "ctx-refreshed" {
+		t.Fatalf("refresh control message: in-memory token got (%q, %v)", got, ok)
+	}
+	if got := loadUserTokens("@bot_1")["@alice_1"]; got != "ctx-refreshed" {
+		t.Fatalf("refresh control message: persisted token got %q", got)
+	}
+}
+
+func TestHandleIncoming_ContextTokenRefreshRequiresStandaloneLowercaseA(t *testing.T) {
+	t.Setenv("LOCAL_MEMORY", t.TempDir())
+	provider := func() []*ilink.Credentials {
+		return []*ilink.Credentials{{ILinkBotID: "@bot_1"}}
+	}
+	handler := &countingHandler{}
+	replier := NewReplier(provider)
+	t.Cleanup(replier.Close)
+	l := NewListener(handler, replier, provider)
+
+	messages := []ilink.WeixinMessage{
+		{
+			MessageID:    1,
+			FromUserID:   "@alice_1",
+			MessageType:  ilink.MessageTypeUser,
+			MessageState: ilink.MessageStateFinish,
+			ItemList: []ilink.MessageItem{
+				{Type: ilink.ItemTypeText, TextItem: &ilink.TextItem{Text: "A"}},
+			},
+		},
+		{
+			MessageID:    2,
+			FromUserID:   "@alice_1",
+			MessageType:  ilink.MessageTypeUser,
+			MessageState: ilink.MessageStateFinish,
+			ItemList: []ilink.MessageItem{
+				{Type: ilink.ItemTypeText, TextItem: &ilink.TextItem{Text: "aa"}},
+			},
+		},
+		{
+			MessageID:    3,
+			FromUserID:   "@alice_1",
+			MessageType:  ilink.MessageTypeUser,
+			MessageState: ilink.MessageStateFinish,
+			ItemList: []ilink.MessageItem{
+				{Type: ilink.ItemTypeText, TextItem: &ilink.TextItem{Text: "a"}},
+				{Type: ilink.ItemTypeImage, ImageItem: &ilink.ImageItem{}},
+			},
+		},
+	}
+
+	for _, msg := range messages {
+		l.handleIncoming(context.Background(), nil, "@bot_1", msg)
+	}
+
+	if got := handler.calls.Load(); got != int32(len(messages)) {
+		t.Fatalf("non-control messages: expected %d dispatches, got %d", len(messages), got)
+	}
+}
+
 // TestHandleIncoming_DedupByMessageID: iLink re-emitting a finish-state
 // message (same message_id) must not trigger a second handler dispatch.
 // This matches weclaw's seenMsgs behaviour and guards against duplicate
