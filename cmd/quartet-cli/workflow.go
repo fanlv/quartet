@@ -14,6 +14,15 @@ import (
 // delete refuse to touch anything else.
 const agentType = model.GraphWorkflowTypeAgent
 
+// libTypeOrDefault normalizes a workflow's library type: workflows written
+// before the type tag existed carry an empty type and count as user-authored.
+func libTypeOrDefault(t model.GraphWorkflowType) model.GraphWorkflowType {
+	if t == "" {
+		return model.GraphWorkflowTypeUser
+	}
+	return t
+}
+
 // cmdCreate creates a new workflow, always tagged type=agent.
 func cmdCreate(args []string) error {
 	fs := flag.NewFlagSet("create", flag.ContinueOnError)
@@ -56,7 +65,7 @@ func cmdCreate(args []string) error {
 // cmdList lists workflows, filtered by library type (default agent).
 func cmdList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
-	typeFilter := fs.String("type", "agent", "library filter: user | agent | all")
+	typeFilter := fs.String("type", string(agentType), "library filter: user | agent | all")
 	asJSON := fs.Bool("json", false, "print the raw summary list as JSON")
 	fs.Usage = usageFor(fs, "list [--type user|agent|all] [--json]",
 		"List workflow summaries. Defaults to the agent library.")
@@ -77,11 +86,7 @@ func cmdList(args []string) error {
 
 	filtered := make([]model.GraphWorkflowSummary, 0, len(resp.Workflows))
 	for _, wf := range resp.Workflows {
-		libType := wf.Type
-		if libType == "" {
-			libType = model.GraphWorkflowTypeUser
-		}
-		if *typeFilter == "all" || string(libType) == *typeFilter {
+		if *typeFilter == "all" || string(libTypeOrDefault(wf.Type)) == *typeFilter {
 			filtered = append(filtered, wf)
 		}
 	}
@@ -101,11 +106,7 @@ func cmdList(args []string) error {
 		return nil
 	}
 	for _, wf := range filtered {
-		libType := wf.Type
-		if libType == "" {
-			libType = model.GraphWorkflowTypeUser
-		}
-		fmt.Printf("%s\t%s\t%s\tnodes=%d edges=%d\n", wf.ID, libType, wf.Name, wf.NodeCount, wf.EdgeCount)
+		fmt.Printf("%s\t%s\t%s\tnodes=%d edges=%d\n", wf.ID, libTypeOrDefault(wf.Type), wf.Name, wf.NodeCount, wf.EdgeCount)
 	}
 	return nil
 }
@@ -243,11 +244,7 @@ func ensureAgentOwned(wf *model.GraphWorkflow) error {
 		return fmt.Errorf("workflow not found")
 	}
 	if wf.Type != agentType {
-		libType := wf.Type
-		if libType == "" {
-			libType = model.GraphWorkflowTypeUser
-		}
-		return fmt.Errorf("refusing to modify workflow %s: it belongs to the %q library, not %q. The CLI may only change agent-library workflows", wf.ID, libType, agentType)
+		return fmt.Errorf("refusing to modify workflow %s: it belongs to the %q library, not %q. The CLI may only change agent-library workflows", wf.ID, libTypeOrDefault(wf.Type), agentType)
 	}
 	return nil
 }

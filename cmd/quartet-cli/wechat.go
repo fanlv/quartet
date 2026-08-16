@@ -27,7 +27,7 @@ Run "quartet-cli wechat send -h" for command-specific flags.
 func runWeChatGroup(args []string) error {
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, wechatUsage)
-		os.Exit(2)
+		return errUsage
 	}
 	cmd := args[0]
 	rest := args[1:]
@@ -39,8 +39,7 @@ func runWeChatGroup(args []string) error {
 		return nil
 	default:
 		fmt.Fprintf(os.Stderr, "unknown wechat command %q\n\n%s", cmd, wechatUsage)
-		os.Exit(2)
-		return nil
+		return errUsage
 	}
 }
 
@@ -118,7 +117,7 @@ func cmdWeChatSend(args []string) error {
 
 	lastDisplay := make(map[string]string, len(pending))
 	for len(pending) > 0 {
-		for taskID, prior := range pending {
+		for taskID := range pending {
 			statusResp, err := client.getWeChatOutbox(context.Background(), taskID)
 			if err != nil {
 				return err
@@ -139,10 +138,7 @@ func cmdWeChatSend(args []string) error {
 			}
 			if current.Status == model.WeChatOutboxStatusSent {
 				delete(pending, taskID)
-				continue
 			}
-			pending[taskID] = current
-			_ = prior
 		}
 		if len(pending) > 0 {
 			time.Sleep(5 * time.Second)

@@ -64,7 +64,7 @@ build:
 	@echo "Building acp..."
 	go build -o bin/quartet-acp ./cmd/acp
 	@echo "Building cli..."
-	go build -o bin/quartet-cli ./cmd/cli
+	go build -o bin/quartet-cli ./cmd/quartet-cli
 	@echo "Building web..."
 	go build -ldflags "$(WEB_LDFLAGS)" -o bin/quartet-web ./cmd/web
 	@echo "All binaries built to bin/"
@@ -75,7 +75,7 @@ build-acp:
 
 build-cli:
 	@mkdir -p bin
-	go build -o bin/quartet-cli ./cmd/cli
+	go build -o bin/quartet-cli ./cmd/quartet-cli
 
 # build-eino-cli builds the standalone eino-cli ACP agent and installs it to
 # INSTALL_BIN_DIR (must be on $PATH) so the backend's probe can discover it via
@@ -121,7 +121,7 @@ build-frontend:
 	echo "✅ Frontend built into static/"
 
 run-cli:
-	go run ./cmd/cli
+	go run ./cmd/quartet-cli
 
 run-backend:
 	go run ./cmd/web
@@ -356,7 +356,7 @@ install-skill-copy: install-skill-cli
 install-skill-cli:
 	@echo "==> Building $(QUARTET_CLI_BIN)"
 	@mkdir -p bin
-	@go build -o $(QUARTET_CLI_BIN) ./cmd/cli
+	@go build -o $(QUARTET_CLI_BIN) ./cmd/quartet-cli
 	@echo "==> Installing CLI to $(INSTALL_BIN_DIR)"
 	@mkdir -p "$(INSTALL_BIN_DIR)"
 	@cp "$(QUARTET_CLI_BIN)" "$(INSTALL_BIN_DIR)/quartet-cli"

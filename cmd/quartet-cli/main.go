@@ -9,7 +9,7 @@
 //     (POST /api/v1/wechat/send), used by scheduled-job prompts and scripts.
 //
 // Library boundary for the workflow group (enforced client-side, see
-// commands.go):
+// workflow.go):
 //   - create always tags the workflow as type=agent.
 //   - update / delete first GET the target and refuse unless its type is agent,
 //     so a model can never modify or remove a user-authored ("user") workflow.
@@ -29,6 +29,11 @@ import (
 	"fmt"
 	"os"
 )
+
+// errUsage marks a command-line usage problem (unknown/missing command). The
+// dispatcher prints the usage text itself; main only maps the error to the
+// conventional exit code 2, so os.Exit never appears below the dispatch layer.
+var errUsage = errors.New("usage error")
 
 const usage = `quartet-cli — command-line tools for a Quartet backend
 
@@ -76,6 +81,11 @@ func main() {
 		if errors.Is(err, flag.ErrHelp) {
 			return
 		}
+		// A usage problem (unknown/missing command) was already reported with
+		// its usage text; exit with the conventional usage-error code 2.
+		if errors.Is(err, errUsage) {
+			os.Exit(2)
+		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -101,7 +111,7 @@ Run "quartet-cli workflow <command> -h" for command-specific flags.
 func runWorkflowGroup(args []string) error {
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, workflowUsage)
-		os.Exit(2)
+		return errUsage
 	}
 	cmd := args[0]
 	rest := args[1:]
@@ -123,7 +133,6 @@ func runWorkflowGroup(args []string) error {
 		return nil
 	default:
 		fmt.Fprintf(os.Stderr, "unknown workflow command %q\n\n%s", cmd, workflowUsage)
-		os.Exit(2)
-		return nil
+		return errUsage
 	}
 }
