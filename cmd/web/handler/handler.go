@@ -19,13 +19,14 @@ import (
 	"github.com/fanlv/quartet/services/agent/usage"
 	"github.com/fanlv/quartet/services/config"
 	"github.com/fanlv/quartet/services/einocli"
-	"github.com/fanlv/quartet/services/skills"
 	"github.com/fanlv/quartet/services/graph"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/prompt"
 	"github.com/fanlv/quartet/services/schedule"
 	"github.com/fanlv/quartet/services/session"
+	"github.com/fanlv/quartet/services/skills"
 	"github.com/fanlv/quartet/services/usagestats"
+	"github.com/fanlv/quartet/services/wechatoutbox"
 	"github.com/fanlv/quartet/services/workspace"
 	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
@@ -115,6 +116,7 @@ type Handler struct {
 	acpProbeCache    *probe.CacheService
 	einoCLI          *einocli.Service
 	skillsService    *skills.Service
+	wechatOutbox     *wechatoutbox.Service
 
 	// imGateway is shared across all IM platforms. It is initialized lazily
 	// by ensureIMGateway so each StartLarkListener / StartWeiXinListener can
@@ -220,6 +222,19 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		einoCLI:          einocli.NewService(),
 		skillsService:    skills.NewService(ctx),
 	}
+	wechatOutbox, err := wechatoutbox.NewService(func() messaging.Replier {
+		h.imGatewayMu.RLock()
+		gateway := h.imGateway
+		h.imGatewayMu.RUnlock()
+		if gateway == nil {
+			return nil
+		}
+		return gateway.replier(messaging.PlatformWeChat)
+	})
+	if err != nil {
+		return nil, err
+	}
+	h.wechatOutbox = wechatOutbox
 
 	// Wire usage-stats sink into the job service so every step finalize
 	// position records counts, durations and tokens. Without this, the
@@ -352,11 +367,13 @@ func (h *Handler) ensureIMGateway(ctx context.Context) bool {
 // cmd/web/main.go; per-platform Start* helpers remain public so settings/
 // restart flows can target them individually.
 func (h *Handler) StartIMListeners(ctx context.Context) {
-	if !h.ensureIMGateway(ctx) {
-		return
+	if h.ensureIMGateway(ctx) {
+		h.startLarkListener(ctx)
+		h.startWeiXinListener(ctx)
 	}
-	h.startLarkListener(ctx)
-	h.startWeiXinListener(ctx)
+	if h.wechatOutbox != nil {
+		h.wechatOutbox.Start(ctx)
+	}
 }
 
 // StopIMListeners stops every IM platform listener that StartIMListeners

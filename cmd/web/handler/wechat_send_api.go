@@ -2,26 +2,23 @@ package handler
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"os"
 	"strings"
 
 	"github.com/fanlv/quartet/pkg/httputil"
-	"github.com/fanlv/quartet/pkg/logger"
-	"github.com/fanlv/quartet/pkg/messaging"
 	"github.com/fanlv/quartet/types/model"
 
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
-// WeChatSend handles POST /api/v1/wechat/send — the proactive WeChat push
-// entry point for scheduled jobs / scripts (as opposed to the reply path,
-// which is driven by an incoming message). Content is chunked with the same
-// UTF-8 safe splitter the reply path uses, then sent via Replier.SendText.
+// WeChatSend persists proactive messages into the durable outbox. A single
+// background worker owns chunking, rate limiting and retries; this request
+// never calls WeChat directly.
 //
 // Recipients default to the WeChat admin whitelist (settings.wechat_admin_ids)
-// when the request does not name explicit toUserIds. Per-recipient failures
-// are reported in full: any failure flips the status to 500 with every error
-// in the body, so callers (quartet-cli, workflow prompts) can surface them
-// verbatim.
+// when the request does not name explicit toUserIds.
 func (h *Handler) WeChatSend(ctx context.Context, c *app.RequestContext) {
 	var req model.WeChatSendMessageRequest
 	if err := c.BindJSON(&req); err != nil {
@@ -52,44 +49,54 @@ func (h *Handler) WeChatSend(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	if h.imGateway == nil {
-		httputil.InternalError(c, "IM 网关未初始化")
+	if h.wechatOutbox == nil {
+		httputil.InternalError(c, "微信发送队列未初始化")
 		return
 	}
-	r := h.imGateway.replier(messaging.PlatformWeChat)
-	if r == nil {
-		c.JSON(503, map[string]any{
-			"code":  1,
-			"error": "微信未登录或无可用凭证，请先在设置页扫码登录微信",
-		})
+	req.Content = content
+	results, err := h.wechatOutbox.Enqueue(ctx, &req, toUserIDs)
+	if err != nil {
+		httputil.InternalError(c, err.Error())
 		return
 	}
-
-	chunks := splitReplyContent(content, maxReplyChunkBytesForPlatform(messaging.PlatformWeChat))
-	results := make([]model.WeChatSendResult, 0, len(toUserIDs))
-	failed := false
-	for _, toUserID := range toUserIDs {
-		res := model.WeChatSendResult{ToUserID: toUserID}
-		for i, chunk := range chunks {
-			if err := r.SendText(ctx, toUserID, chunk); err != nil {
-				res.Error = err.Error()
-				logger.Errorf(ctx, "[wechat] proactive send failed: to=%s chunk=%d/%d err=%v", toUserID, i+1, len(chunks), err)
-				break
-			}
-			res.Chunks++
-		}
-		if res.Error != "" {
-			failed = true
-		}
-		results = append(results, res)
-	}
-
-	status := 200
-	if failed {
-		status = 500
-	}
-	c.JSON(status, map[string]any{
+	c.JSON(http.StatusAccepted, map[string]any{
 		"code":    0,
 		"results": results,
+	})
+}
+
+func (h *Handler) WeChatOutboxGet(ctx context.Context, c *app.RequestContext) {
+	taskID := strings.TrimSpace(c.Param("taskId"))
+	if taskID == "" {
+		httputil.BadRequest(c, "taskId 必填")
+		return
+	}
+	if h.wechatOutbox == nil {
+		httputil.InternalError(c, "微信发送队列未初始化")
+		return
+	}
+	result, err := h.wechatOutbox.GetResult(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			httputil.NotFound(c, "微信发送任务不存在: "+taskID)
+			return
+		}
+		httputil.InternalError(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{
+		"code":   0,
+		"result": result,
+	})
+}
+
+func (h *Handler) WeChatOutboxStatus(_ context.Context, c *app.RequestContext) {
+	if h.wechatOutbox == nil {
+		httputil.InternalError(c, "微信发送队列未初始化")
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{
+		"code":   0,
+		"status": "ok",
 	})
 }

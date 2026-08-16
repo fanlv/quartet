@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/fanlv/quartet/types/model"
 )
@@ -62,6 +63,8 @@ func cmdWeChatSend(args []string) error {
 	var users stringList
 	fs.Var(&users, "user", "iLink user ID to send to; repeatable. Default: the backend's WeChat admin whitelist")
 	file := fs.String("file", "-", `read message content from this file ("-" or empty means stdin)`)
+	idempotencyKey := fs.String("idempotency-key", "", "stable key used to reuse an existing durable outbox task")
+	wait := fs.Bool("wait", true, "wait until every durable outbox task reaches sent")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: quartet-cli wechat send [--user <id>]... [--file <path>]\n\nPush a WeChat message through the backend. Content is read from --file, or stdin when --file is omitted or '-'.\n\nFlags:\n")
 		fs.PrintDefaults()
@@ -84,25 +87,66 @@ func cmdWeChatSend(args []string) error {
 		return fmt.Errorf("message content is empty")
 	}
 
-	resp, err := newClient().sendWeChat(context.Background(), &model.WeChatSendMessageRequest{
-		Content:   string(content),
-		ToUserIDs: users,
+	client := newClient()
+	if err := client.verifyWeChatOutbox(context.Background()); err != nil {
+		return err
+	}
+	resp, err := client.sendWeChat(context.Background(), &model.WeChatSendMessageRequest{
+		Content:        string(content),
+		ToUserIDs:      users,
+		IdempotencyKey: strings.TrimSpace(*idempotencyKey),
 	})
 	if err != nil {
 		return err
 	}
 
-	failed := false
-	for _, r := range resp.Results {
-		if r.Error != "" {
-			fmt.Printf("%s\tFAILED\t%s\n", r.ToUserID, r.Error)
-			failed = true
-		} else {
-			fmt.Printf("%s\tsent (%d chunk(s))\n", r.ToUserID, r.Chunks)
+	if !*wait {
+		for _, result := range resp.Results {
+			fmt.Printf("%s\tqueued\ttask=%s (%d/%d chunk(s))\n",
+				result.ToUserID, result.TaskID, result.Chunks, result.TotalChunks)
 		}
+		return nil
 	}
-	if failed {
-		return fmt.Errorf("some recipients failed")
+
+	pending := make(map[string]model.WeChatSendResult, len(resp.Results))
+	for _, r := range resp.Results {
+		if r.TaskID == "" {
+			return fmt.Errorf("backend returned empty outbox task id for %s", r.ToUserID)
+		}
+		pending[r.TaskID] = r
+	}
+
+	lastDisplay := make(map[string]string, len(pending))
+	for len(pending) > 0 {
+		for taskID, prior := range pending {
+			statusResp, err := client.getWeChatOutbox(context.Background(), taskID)
+			if err != nil {
+				return err
+			}
+			if statusResp.Result == nil {
+				return fmt.Errorf("backend returned empty outbox result for task %s", taskID)
+			}
+			current := *statusResp.Result
+			display := fmt.Sprintf("%s %d/%d %s", current.Status, current.Chunks, current.TotalChunks, current.Error)
+			if lastDisplay[taskID] != display {
+				fmt.Printf("%s\t%s\ttask=%s (%d/%d chunk(s))",
+					current.ToUserID, current.Status, current.TaskID, current.Chunks, current.TotalChunks)
+				if current.Error != "" {
+					fmt.Printf("\t%s", current.Error)
+				}
+				fmt.Println()
+				lastDisplay[taskID] = display
+			}
+			if current.Status == model.WeChatOutboxStatusSent {
+				delete(pending, taskID)
+				continue
+			}
+			pending[taskID] = current
+			_ = prior
+		}
+		if len(pending) > 0 {
+			time.Sleep(5 * time.Second)
+		}
 	}
 	return nil
 }

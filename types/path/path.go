@@ -505,6 +505,21 @@ func WeChatUserTokensFile() string {
 	return filepath.Join(WeChatAccountsDir(), "user_tokens.json")
 }
 
+// WeChatOutboxDir returns the durable proactive-send queue directory. Each
+// task is a standalone JSON file so enqueue/progress updates are atomic and a
+// backend restart can resume from the last acknowledged chunk.
+func WeChatOutboxDir() string {
+	dir, err := QuartetDataDir()
+	if err != nil {
+		panic(fmt.Sprintf("cannot resolve wechat outbox dir: %v", err))
+	}
+	return filepath.Join(dir, "wechat", "outbox")
+}
+
+func WeChatOutboxTaskFile(taskID string) string {
+	return filepath.Join(WeChatOutboxDir(), safeExternalID(taskID)+".json")
+}
+
 // SandboxComposeStateDir returns
 // {LOCAL_MEMORY}/var/quartet/state/sandbox/compose/, the durable compose state
 // directory.

@@ -142,6 +142,22 @@ func (c *client) sendWeChat(ctx context.Context, req *model.WeChatSendMessageReq
 	return decode[model.WeChatSendMessageResponse](raw)
 }
 
+func (c *client) verifyWeChatOutbox(ctx context.Context) error {
+	_, err := c.do(ctx, http.MethodGet, "/api/v1/wechat/outbox/status", nil)
+	if err != nil {
+		return fmt.Errorf("backend does not expose the durable WeChat outbox; restart the updated quartet-web before sending: %w", err)
+	}
+	return nil
+}
+
+func (c *client) getWeChatOutbox(ctx context.Context, taskID string) (*model.WeChatOutboxResultResponse, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/api/v1/wechat/outbox/"+taskID, nil)
+	if err != nil {
+		return nil, err
+	}
+	return decode[model.WeChatOutboxResultResponse](raw)
+}
+
 // decode unmarshals a JSON body into T, wrapping parse errors with the raw body
 // so a malformed/unexpected response is visible.
 func decode[T any](raw []byte) (*T, error) {
