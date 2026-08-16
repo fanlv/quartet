@@ -12,7 +12,9 @@ import (
 // TestRegisterIncoming_PopulatesCaches: both msgMeta and userToken get
 // written on RegisterIncoming, and lookups return the expected values.
 func TestRegisterIncoming_PopulatesCaches(t *testing.T) {
-	r := NewReplier(func() []*ilink.Credentials { return nil })
+	r := NewReplier(func() []*ilink.Credentials {
+		return []*ilink.Credentials{{ILinkBotID: "@bot_1"}}
+	})
 	t.Cleanup(r.Close)
 
 	msg := &ilink.WeixinMessage{
@@ -111,7 +113,9 @@ func TestLookupMessageMeta_MissOnUnknownID(t *testing.T) {
 // TestConcurrentRegisterIncoming: hammer Register + lookup from multiple
 // goroutines — race detector catches any sync.Map misuse.
 func TestConcurrentRegisterIncoming(t *testing.T) {
-	r := NewReplier(func() []*ilink.Credentials { return nil })
+	r := NewReplier(func() []*ilink.Credentials {
+		return []*ilink.Credentials{{ILinkBotID: "@bot_1"}}
+	})
 	t.Cleanup(r.Close)
 
 	var wg sync.WaitGroup
@@ -156,17 +160,22 @@ func TestClientFor_DoesNotFallbackToPrimaryForUnknownBot(t *testing.T) {
 	}
 }
 
-func TestResetClients_ClearsReplyContextCaches(t *testing.T) {
-	r := NewReplier(func() []*ilink.Credentials { return nil })
+func TestRefreshCredentials_PreservesSameBotUserContext(t *testing.T) {
+	provider := func() []*ilink.Credentials {
+		return []*ilink.Credentials{{ILinkBotID: "@bot"}}
+	}
+	if err := saveUserTokens("@bot", map[string]string{"@u": "ctx"}); err != nil {
+		t.Fatalf("saveUserTokens: %v", err)
+	}
+	r := NewReplier(provider)
 	r.msgMeta.Store("msg-1", &msgMeta{FromUserID: "@u", ContextToken: "ctx", BotID: "@bot", ReceivedAt: time.Now()})
-	r.userToken.Store("@u", "ctx")
 
-	r.ResetClients()
+	r.RefreshCredentials()
 
 	if _, ok := r.msgMeta.Load("msg-1"); ok {
 		t.Fatal("expected msgMeta to be cleared")
 	}
-	if _, ok := r.userToken.Load("@u"); ok {
-		t.Fatal("expected userToken to be cleared")
+	if token, ok := r.lookupUserToken("@u"); !ok || token != "ctx" {
+		t.Fatalf("expected same-bot userToken to survive refresh, got (%q, %v)", token, ok)
 	}
 }

@@ -760,9 +760,174 @@ function ToolParamsView({ args }: { args: object }) {
   );
 }
 
+const LARGE_TOOL_PAYLOAD_THRESHOLD = 100_000;
+const TOOL_PAYLOAD_PREVIEW_CHARS = 32_000;
+
+function LargeToolPayload({
+  content,
+  label,
+}: {
+  content: string;
+  label: '参数' | '结果';
+}) {
+  const [showFull, setShowFull] = useState(false);
+  const visibleContent = showFull ? content : content.slice(0, TOOL_PAYLOAD_PREVIEW_CHARS);
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    copyToClipboard(content).then(() => {
+      showToast('复制成功');
+    }).catch(() => {
+      showToast('复制失败');
+    });
+  };
+
+  return (
+    <>
+      <div className="tool-large-payload-notice">
+        <span>
+          {showFull
+            ? `正在显示完整${label}（${content.length.toLocaleString()} 字符）`
+            : `${label}较大，预览前 ${visibleContent.length.toLocaleString()} / ${content.length.toLocaleString()} 字符`}
+        </span>
+        <button
+          type="button"
+          className="tool-large-payload-toggle"
+          onClick={() => setShowFull((value) => !value)}
+        >
+          {showFull ? '收起完整内容' : '显示完整内容'}
+        </button>
+      </div>
+      <div className="tool-code-wrapper result-wrapper">
+        <pre className="tool-code result-code">{visibleContent}</pre>
+        <button className="copy-btn" onClick={handleCopy} title={`复制完整${label}`}>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+        </button>
+      </div>
+    </>
+  );
+}
+
+function ToolMessageDetails({ message }: { message: ToolMessage }) {
+  const toolCallArgs = message.toolCallArgs || '';
+  const resultContent = message.content || '';
+  const argsAreLarge = toolCallArgs.length > LARGE_TOOL_PAYLOAD_THRESHOLD;
+  // Repository convention requires full error details. Error cards still
+  // start collapsed, but once opened they render the complete result.
+  const resultIsLarge = message.toolCallStatus !== ToolCallStatusEnum.Error
+    && resultContent.length > LARGE_TOOL_PAYLOAD_THRESHOLD;
+  const parsedArgs = argsAreLarge ? null : parseToolArgs(toolCallArgs).value;
+
+  let parsedResult: string | object | null = null;
+  if (!resultIsLarge) {
+    try {
+      parsedResult = resultContent ? JSON.parse(resultContent) : null;
+    } catch {
+      parsedResult = resultContent;
+    }
+  }
+
+  const handleCopy = (text: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    copyToClipboard(text).then(() => {
+      showToast('复制成功');
+    }).catch(() => {
+      showToast('复制失败');
+    });
+  };
+
+  const argsStr = parsedArgs
+    ? typeof parsedArgs === 'string'
+      ? parsedArgs
+      : JSON.stringify(parsedArgs, null, 2)
+    : '';
+  const resultStr = parsedResult
+    ? typeof parsedResult === 'string'
+      ? parsedResult
+      : JSON.stringify(parsedResult, null, 2)
+    : '';
+  const argsIsJson = parsedArgs !== null && typeof parsedArgs === 'object';
+  const resultIsJson = parsedResult !== null && typeof parsedResult === 'object';
+  const resultIsMarkdown = !resultIsJson
+    && typeof parsedResult === 'string'
+    && message.toolCallStatus !== ToolCallStatusEnum.Error
+    && looksLikeMarkdown(parsedResult);
+
+  return (
+    <>
+      {toolCallArgs && (
+        <div className="tool-section" data-testid="tool-call-parameters">
+          <div className="tool-section-title">
+            PARAMETERS
+            {argsIsJson && <span className="tool-content-type-badge json-badge">JSON</span>}
+          </div>
+          {argsAreLarge ? (
+            <LargeToolPayload content={toolCallArgs} label="参数" />
+          ) : (
+            <div className="tool-code-wrapper">
+              {argsIsJson ? (
+                <ToolParamsView args={parsedArgs as object} />
+              ) : (
+                <pre className="tool-code">{argsStr}</pre>
+              )}
+              <button className="copy-btn" onClick={(e) => handleCopy(argsStr, e)} title="复制">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {resultContent && (
+        <div className="tool-section" data-testid="tool-call-result">
+          <div className="tool-section-title">
+            RESULT
+            {resultIsJson && <span className="tool-content-type-badge json-badge">JSON</span>}
+            {resultIsMarkdown && <span className="tool-content-type-badge md-badge">MD</span>}
+          </div>
+          {resultIsLarge ? (
+            <LargeToolPayload content={resultContent} label="结果" />
+          ) : resultIsMarkdown ? (
+            <div className="tool-markdown-result">
+              <div className="markdown-content">{renderMarkdown(resultStr)}</div>
+              <button className="copy-btn" onClick={(e) => handleCopy(resultStr, e)} title="复制">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+              </button>
+            </div>
+          ) : (
+            <div className="tool-code-wrapper result-wrapper">
+              {resultIsJson ? (
+                <pre className="tool-code result-code tool-json-code">{renderJsonHighlighted(parsedResult as object)}</pre>
+              ) : (
+                <pre className="tool-code result-code">{resultStr}</pre>
+              )}
+              <button className="copy-btn" onClick={(e) => handleCopy(resultStr, e)} title="复制">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2 2v1"/>
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 function ToolMessageContent({ message }: { message: ToolMessage }) {
   const isCompleted = message.toolCallStatus !== ToolCallStatusEnum.Processing;
-  const [isExpanded, setIsExpanded] = useState(!isCompleted);
+  const payloadIsLarge = (message.toolCallArgs?.length ?? 0) > LARGE_TOOL_PAYLOAD_THRESHOLD
+    || (message.content?.length ?? 0) > LARGE_TOOL_PAYLOAD_THRESHOLD;
+  const [isExpanded, setIsExpanded] = useState(!isCompleted && !payloadIsLarge);
   // Auto-collapse on Processing → terminal transition via "derived state on
   // prop change" (see https://react.dev/reference/react/useState — updating
   // state during render). This replaces the old key-based remount trick
@@ -771,12 +936,26 @@ function ToolMessageContent({ message }: { message: ToolMessage }) {
   // caused the visible "3m → 300ms" jump on completion. Using a render-time
   // check instead of useEffect avoids an extra commit/re-render cycle.
   const [prevStatus, setPrevStatus] = useState(message.toolCallStatus);
+  const [previouslyLarge, setPreviouslyLarge] = useState(payloadIsLarge);
+  const becameTerminal = prevStatus === ToolCallStatusEnum.Processing
+    && message.toolCallStatus !== ToolCallStatusEnum.Processing;
+  const becameLarge = !previouslyLarge && payloadIsLarge;
   if (prevStatus !== message.toolCallStatus) {
     setPrevStatus(message.toolCallStatus);
-    if (prevStatus === ToolCallStatusEnum.Processing && message.toolCallStatus !== ToolCallStatusEnum.Processing) {
+    if (becameTerminal) {
       setIsExpanded(false);
     }
   }
+  if (previouslyLarge !== payloadIsLarge) {
+    setPreviouslyLarge(payloadIsLarge);
+    if (becameLarge) {
+      setIsExpanded(false);
+    }
+  }
+  // A terminal result can arrive as a single megabyte-sized event. The state
+  // updates above schedule the collapse, while this derived value prevents the
+  // current render from parsing and mounting that payload before React retries.
+  const detailsExpanded = isExpanded && !becameTerminal && !becameLarge;
   const toolName = sanitizeToolName(message.toolCallName);
   const shouldShowDuration = message.toolCallStatus === ToolCallStatusEnum.Processing || message.finishedAt != null;
 
@@ -800,41 +979,6 @@ function ToolMessageContent({ message }: { message: ToolMessage }) {
     [ToolCallStatusEnum.Placeholder]: 'placeholder',
   };
 
-  let parsedResult: string | object | null = null;
-
-  const { value: parsedArgs } = parseToolArgs(message.toolCallArgs);
-
-  try {
-    parsedResult = message.content ? JSON.parse(message.content) : null;
-  } catch {
-    parsedResult = message.content;
-  }
-
-  const handleCopy = (text: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    copyToClipboard(text).then(() => {
-      showToast('复制成功');
-    }).catch(() => {
-      showToast('复制失败');
-    });
-  };
-
-  const argsStr = parsedArgs
-    ? typeof parsedArgs === 'string'
-      ? parsedArgs
-      : JSON.stringify(parsedArgs, null, 2)
-    : '';
-
-  const resultStr = parsedResult
-    ? typeof parsedResult === 'string'
-      ? parsedResult
-      : JSON.stringify(parsedResult, null, 2)
-    : '';
-
-  const argsIsJson = parsedArgs !== null && typeof parsedArgs === 'object';
-  const resultIsJson = parsedResult !== null && typeof parsedResult === 'object';
-  const resultIsMarkdown = !resultIsJson && typeof parsedResult === 'string' && message.toolCallStatus !== ToolCallStatusEnum.Error && looksLikeMarkdown(parsedResult);
-
   return (
     <div
       className="message-item tool-message"
@@ -846,8 +990,8 @@ function ToolMessageContent({ message }: { message: ToolMessage }) {
       data-session-id={message.sessionId || ''}
     >
       <div className="message-content">
-        <div className={`tool-call-card ${isExpanded ? 'expanded' : 'collapsed'}`} data-testid="tool-call-block" data-expanded={isExpanded ? 'true' : 'false'}>
-          <div className="tool-call-header" onClick={() => setIsExpanded(!isExpanded)} data-testid="tool-call-header">
+        <div className={`tool-call-card ${detailsExpanded ? 'expanded' : 'collapsed'}`} data-testid="tool-call-block" data-expanded={detailsExpanded ? 'true' : 'false'}>
+          <div className="tool-call-header" onClick={() => setIsExpanded((value) => !value)} data-testid="tool-call-header">
             <span className="tool-icon">{getToolIcon(toolName)}</span>
             <span className="tool-name" data-testid="tool-call-name">{toolName || 'Tool'}</span>
             <DurationBadge
@@ -887,71 +1031,12 @@ function ToolMessageContent({ message }: { message: ToolMessage }) {
             </span>
             <span className="expand-icon">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points={isExpanded ? "18 15 12 9 6 15" : "6 9 12 15 18 9"} />
+                <polyline points={detailsExpanded ? "18 15 12 9 6 15" : "6 9 12 15 18 9"} />
               </svg>
             </span>
           </div>
 
-          {isExpanded && (
-            <>
-              {parsedArgs && (
-                <div className="tool-section" data-testid="tool-call-parameters">
-                  <div className="tool-section-title">
-                    PARAMETERS
-                    {argsIsJson && <span className="tool-content-type-badge json-badge">JSON</span>}
-                  </div>
-                  <div className="tool-code-wrapper">
-                    {argsIsJson ? (
-                      <ToolParamsView args={parsedArgs as object} />
-                    ) : (
-                      <pre className="tool-code">{argsStr}</pre>
-                    )}
-                    <button className="copy-btn" onClick={(e) => handleCopy(argsStr, e)} title="复制">
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {parsedResult && (
-                <div className="tool-section" data-testid="tool-call-result">
-                  <div className="tool-section-title">
-                    RESULT
-                    {resultIsJson && <span className="tool-content-type-badge json-badge">JSON</span>}
-                    {resultIsMarkdown && <span className="tool-content-type-badge md-badge">MD</span>}
-                  </div>
-                  {resultIsMarkdown ? (
-                    <div className="tool-markdown-result">
-                      <div className="markdown-content">{renderMarkdown(resultStr)}</div>
-                      <button className="copy-btn" onClick={(e) => handleCopy(resultStr, e)} title="复制">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                        </svg>
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="tool-code-wrapper result-wrapper">
-                      {resultIsJson ? (
-                        <pre className="tool-code result-code tool-json-code">{renderJsonHighlighted(parsedResult as object)}</pre>
-                      ) : (
-                        <pre className="tool-code result-code">{resultStr}</pre>
-                      )}
-                      <button className="copy-btn" onClick={(e) => handleCopy(resultStr, e)} title="复制">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                        </svg>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
+          {detailsExpanded && <ToolMessageDetails message={message} />}
 
           {message.toolCallStatus === ToolCallStatusEnum.Processing && (
             <div className="tool-loading">

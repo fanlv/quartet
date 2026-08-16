@@ -762,6 +762,33 @@
   letter-spacing: 0.5px;
 }
 
+.tool-large-payload-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: #4b5563;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.tool-large-payload-toggle {
+  flex-shrink: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  color: #374151;
+  padding: 5px 8px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tool-large-payload-toggle:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
 .tool-code-wrapper {
   position: relative;
   min-width: 0;

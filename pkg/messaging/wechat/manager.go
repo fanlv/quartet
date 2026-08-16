@@ -58,12 +58,11 @@ func (m *Manager) startLocked() {
 	if m.parentCtx == nil {
 		return
 	}
-	// Drop cached clients and per-session reply metadata before reading the
-	// latest credentials. This is important for logout too: after the account
-	// file is removed credsProvider returns empty, but old in-flight jobs may
-	// still finish later and attempt ReplyText(messageID). They must not reuse
-	// a stale client/context from the previous login session.
-	m.replier.ResetClients()
+	// Drop cached clients and per-message reply metadata before reading the
+	// latest credentials. Proactive-send ContextTokens survive a restart for
+	// the same bot and are reloaded from that bot's persisted partition when
+	// the account changes.
+	m.replier.RefreshCredentials()
 	creds := m.credsProvider()
 	if len(creds) == 0 {
 		logger.Info("[wechat] no credentials configured, skipping listener start")

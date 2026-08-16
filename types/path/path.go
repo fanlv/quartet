@@ -499,8 +499,8 @@ func WeChatSyncBufFile(botID string) string {
 
 // WeChatUserTokensFile returns
 // {LOCAL_MEMORY}/quartet/data/wechat/accounts/user_tokens.json. It persists the
-// fromUserID → latest ContextToken map so proactive sends (Replier.SendText)
-// keep working across backend restarts.
+// botID → fromUserID → latest ContextToken map so proactive sends
+// (Replier.SendText) keep working across backend restarts and account changes.
 func WeChatUserTokensFile() string {
 	return filepath.Join(WeChatAccountsDir(), "user_tokens.json")
 }

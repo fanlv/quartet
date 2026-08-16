@@ -54,7 +54,9 @@ type Replier struct {
 
 	// User-level fallback: fromUserID → latest ContextToken seen from that
 	// user. Never expires — one entry per distinct conversation partner.
-	userToken sync.Map
+	userTokenMu    sync.RWMutex
+	userTokenBotID string
+	userToken      sync.Map
 
 	// gcOnce guards the lazy GC goroutine start. In production one Replier
 	// lives for the whole process lifetime; Close() exists so tests (and
@@ -78,11 +80,7 @@ func NewReplier(credsProvider CredentialsProvider) *Replier {
 		clients:       make(map[string]*ilink.Client),
 		done:          make(chan struct{}),
 	}
-	for fromUserID, token := range loadUserTokens() {
-		if fromUserID != "" && token != "" {
-			r.userToken.Store(fromUserID, token)
-		}
-	}
+	r.ensureUserTokenBot(primaryBotID(credsProvider()))
 	return r
 }
 
@@ -94,6 +92,9 @@ func (r *Replier) RegisterIncoming(msg *ilink.WeixinMessage, botID string) {
 	if msg == nil || msg.MessageID == 0 || msg.FromUserID == "" {
 		return
 	}
+	if botID == "" || botID != primaryBotID(r.credsProvider()) {
+		return
+	}
 
 	meta := &msgMeta{
 		FromUserID:   msg.FromUserID,
@@ -103,8 +104,7 @@ func (r *Replier) RegisterIncoming(msg *ilink.WeixinMessage, botID string) {
 	}
 	r.msgMeta.Store(strconv.FormatInt(msg.MessageID, 10), meta)
 	if msg.ContextToken != "" {
-		r.userToken.Store(msg.FromUserID, msg.ContextToken)
-		r.persistUserTokens()
+		r.storeUserToken(botID, msg.FromUserID, msg.ContextToken)
 	}
 
 	r.startGCOnce()
@@ -154,8 +154,7 @@ func (r *Replier) ReplyText(ctx context.Context, messageID, content string) erro
 	// Refresh userToken cache with the latest context (though the server
 	// typically returns the same token for an ongoing conversation).
 	if contextToken != "" {
-		r.userToken.Store(toUserID, contextToken)
-		r.persistUserTokens()
+		r.storeUserToken(botID, toUserID, contextToken)
 	}
 	return nil
 }
@@ -187,8 +186,7 @@ func (r *Replier) ReplyMedia(ctx context.Context, messageID string, media messag
 	}
 
 	if contextToken != "" {
-		r.userToken.Store(toUserID, contextToken)
-		r.persistUserTokens()
+		r.storeUserToken(botID, toUserID, contextToken)
 	}
 	return nil
 }
@@ -209,6 +207,8 @@ func (r *Replier) lookupMessageMeta(messageID string) (string, string, string, b
 
 // lookupUserToken returns the latest ContextToken seen from fromUserID.
 func (r *Replier) lookupUserToken(fromUserID string) (string, bool) {
+	r.userTokenMu.RLock()
+	defer r.userTokenMu.RUnlock()
 	v, ok := r.userToken.Load(fromUserID)
 	if !ok {
 		return "", false
@@ -216,11 +216,22 @@ func (r *Replier) lookupUserToken(fromUserID string) (string, bool) {
 	return v.(string), true
 }
 
-// persistUserTokens snapshots the userToken map to disk so proactive sends
-// (SendText) keep working after a backend restart. Best-effort: a failed
-// write only reverts to the pre-persistence behavior, so it logs and moves
-// on rather than failing the reply that triggered it.
-func (r *Replier) persistUserTokens() {
+// storeUserToken updates one active bot conversation and snapshots that exact
+// partition before releasing the lock. A delayed message from a listener whose
+// credentials were replaced is ignored instead of switching the cache back to
+// the old account.
+func (r *Replier) storeUserToken(botID, userID, token string) {
+	if botID == "" || botID != primaryBotID(r.credsProvider()) {
+		return
+	}
+	r.ensureUserTokenBot(botID)
+
+	r.userTokenMu.Lock()
+	defer r.userTokenMu.Unlock()
+	if botID == "" || r.userTokenBotID != botID || botID != primaryBotID(r.credsProvider()) {
+		return
+	}
+	r.userToken.Store(userID, token)
 	tokens := make(map[string]string)
 	r.userToken.Range(func(k, v any) bool {
 		key, kok := k.(string)
@@ -230,7 +241,8 @@ func (r *Replier) persistUserTokens() {
 		}
 		return true
 	})
-	if err := saveUserTokens(tokens); err != nil {
+
+	if err := saveUserTokens(botID, tokens); err != nil {
 		logger.Warn("[wechat/replier] persist user tokens failed: %v", err)
 	}
 }
@@ -294,16 +306,38 @@ func (r *Replier) primaryClient() (*ilink.Client, error) {
 	return client, nil
 }
 
-// ResetClients drops cached ilink.Clients and per-session reply metadata so
-// the next ReplyText builds fresh clients from the current credentials. Called
-// from Manager.Restart() after login/logout so stale bot tokens and ContextToken
-// values are not reused by delayed agent replies from the previous session.
-func (r *Replier) ResetClients() {
+// RefreshCredentials drops cached clients and message-level reply metadata,
+// then aligns the proactive-send token cache with the currently configured bot.
+// Restarting the same account preserves its persisted user tokens; switching
+// accounts or logging out replaces them with the matching bot partition.
+func (r *Replier) RefreshCredentials() {
 	r.clientsMu.Lock()
-	defer r.clientsMu.Unlock()
 	r.clients = make(map[string]*ilink.Client)
+	r.clientsMu.Unlock()
+
 	clearSyncMap(&r.msgMeta)
+	r.ensureUserTokenBot(primaryBotID(r.credsProvider()))
+}
+
+func (r *Replier) ensureUserTokenBot(botID string) {
+	r.userTokenMu.Lock()
+	defer r.userTokenMu.Unlock()
+	if r.userTokenBotID == botID {
+		return
+	}
+	tokens := loadUserTokens(botID)
 	clearSyncMap(&r.userToken)
+	r.userTokenBotID = botID
+	for fromUserID, token := range tokens {
+		r.userToken.Store(fromUserID, token)
+	}
+}
+
+func primaryBotID(creds []*ilink.Credentials) string {
+	if len(creds) == 0 || creds[0] == nil {
+		return ""
+	}
+	return creds[0].ILinkBotID
 }
 
 func clearSyncMap(m *sync.Map) {
