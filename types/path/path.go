@@ -36,6 +36,10 @@ const (
 	// settingsFile is the filename for general settings
 	settingsFile = "settings.json"
 
+	// agentCatalogFile stores the durable custom-agent directory. Built-in
+	// entries remain code-owned and are merged by the catalog service.
+	agentCatalogFile = "agents.json"
+
 	// recentDirsFile is the filename for recent directory history
 	recentDirsFile = "recent-dirs.json"
 
@@ -160,6 +164,15 @@ func SettingsConfigFile() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, settingsFile), nil
+}
+
+// AgentCatalogFile returns the persistent custom-agent catalog path.
+func AgentCatalogFile() (string, error) {
+	dir, err := QuartetDataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, agentCatalogFile), nil
 }
 
 // RecentDirsFile returns the runtime recent-directory state file.

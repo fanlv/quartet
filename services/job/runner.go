@@ -27,3 +27,11 @@ type JobRunner interface {
 	// bucket" rather than fabricating an attribution.
 	SessionModelID(sessionID string) string
 }
+
+// PreparedExecutionReleaser is implemented by runners that acquire an external
+// execution-admission lease before SendMessage changes Job state. The job
+// service releases it on every asynchronous exit path; handlers release it when
+// SendMessage rejects before the goroutine starts.
+type PreparedExecutionReleaser interface {
+	ReleasePreparedExecution()
+}

@@ -1000,7 +1000,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         if (!res.ok) throw new Error(await readError(res));
         const data = await res.json().catch(() => null);
         if (data?.code === 0 && Array.isArray(data.agent_list)) {
-          setAgents(data.agent_list as AgentInfo[]);
+          setAgents((data.agent_list as AgentInfo[]).filter((agent) => agent.available !== false));
           setAgentListError('');
         } else {
           throw new Error(data?.msg || data?.error || t('graph.messages.agentListInvalid'));

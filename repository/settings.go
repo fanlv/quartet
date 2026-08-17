@@ -10,6 +10,7 @@ import (
 
 	"github.com/fanlv/quartet/pkg/fileserver"
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
+	"github.com/fanlv/quartet/types/model"
 	"github.com/fanlv/quartet/types/path"
 )
 
@@ -42,11 +43,21 @@ type AgentPrefs struct {
 }
 
 type Settings struct {
-	Username     string                      `json:"username"`
-	AvatarURL    string                      `json:"avatar_url"`
-	TitleAgent   *AgentConfig                `json:"title_agent,omitempty"`
-	MessageAgent *AgentConfig                `json:"message_agent,omitempty"`
-	ACPEnvVars   map[string][]ACPEnvVarEntry `json:"acp_env_vars,omitempty"`
+	Username  string `json:"username"`
+	AvatarURL string `json:"avatar_url"`
+
+	// Legacy role fields are read only by the one-time migration in
+	// services/config. New code must use the AgentID-based fields below.
+	TitleAgent   *AgentConfig `json:"title_agent,omitempty"`
+	MessageAgent *AgentConfig `json:"message_agent,omitempty"`
+
+	AgentRoleSettingsVersion int                         `json:"agent_role_settings_version,omitempty"`
+	TitleGenerationAgent     *model.AgentRoleConfig      `json:"title_generation_agent,omitempty"`
+	GroupReplyAgent          *model.AgentRoleConfig      `json:"group_reply_agent,omitempty"`
+	IMSessionAgent           *model.IMSessionAgentConfig `json:"im_session_agent,omitempty"`
+	AgentRoleMigrationErrors []string                    `json:"agent_role_migration_errors,omitempty"`
+	ACPEnvVars               map[string][]ACPEnvVarEntry `json:"acp_env_vars,omitempty"`
+	ACPEnvVersions           map[string]int64            `json:"acp_env_versions,omitempty"`
 	// AgentPrefs is per-ACP-agent-type favorite models + default
 	// model/mode/thought_level, keyed by agent type. Owned by the
 	// "Agent Defaults" settings tab.

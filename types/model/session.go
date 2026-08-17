@@ -10,18 +10,22 @@ import (
 )
 
 type Session struct {
-	ID           string    `json:"id"`
-	Title        string    `json:"title"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Deleted      bool      `json:"deleted,omitempty"`
-	ModelID      string    `json:"model_id,omitempty"`
-	Type         string    `json:"type,omitempty"`         // ACP agent type (serve command key)
-	Workdir      string    `json:"workdir,omitempty"`      // working directory for ACP agents
-	JobID        string    `json:"job_id,omitempty"`       // associated job
-	WorkspaceID  string    `json:"workspace_id,omitempty"` // associated workspace
-	ACPSessionID string    `json:"acp_session_id,omitempty"`
-	ACPMode      string    `json:"acp_mode,omitempty"`
+	ID              string                 `json:"id"`
+	Title           string                 `json:"title"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+	Deleted         bool                   `json:"deleted,omitempty"`
+	ModelID         string                 `json:"model_id,omitempty"`
+	Type            string                 `json:"type,omitempty"` // legacy ACP serve command / runtime key
+	AgentID         string                 `json:"agent_id,omitempty"`
+	AgentRevision   string                 `json:"agent_revision,omitempty"`
+	AgentRuntimeKey string                 `json:"agent_runtime_key,omitempty"`
+	AgentDefinition AgentRuntimeDefinition `json:"agent_definition,omitempty"`
+	Workdir         string                 `json:"workdir,omitempty"`      // working directory for ACP agents
+	JobID           string                 `json:"job_id,omitempty"`       // associated job
+	WorkspaceID     string                 `json:"workspace_id,omitempty"` // associated workspace
+	ACPSessionID    string                 `json:"acp_session_id,omitempty"`
+	ACPMode         string                 `json:"acp_mode,omitempty"`
 	// ACPThoughtLevel is the thought_level config selection (e.g. "high")
 	// last applied to the ACP subprocess session. Like ACPMode it is
 	// persisted so a Run re-applies it after reconnect / restart.

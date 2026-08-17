@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +20,9 @@ import (
 	"github.com/fanlv/quartet/pkg/fileserver"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/safe"
+	"github.com/fanlv/quartet/repository"
+	"github.com/fanlv/quartet/services/agent/catalog"
+	agentinstall "github.com/fanlv/quartet/services/agent/install"
 	"github.com/fanlv/quartet/services/agent/internal/acpstate"
 	"github.com/fanlv/quartet/types/model"
 	"golang.org/x/sync/singleflight"
@@ -48,9 +50,8 @@ const acpProbeFailureBackoff = 5 * time.Minute
 const acpProbeFailureLogEvery = 10
 
 // acpProbeConcurrencyEnv overrides the cap on simultaneous in-flight ACP
-// probes during a single refresh. KnownACPAgents currently lists 13
-// entries, every one of them potentially a node-based subprocess with a
-// slow cold-start; fan-out without a bound spikes CPU/memory/fd usage
+// probes during a single refresh. Every KnownACPAgents entry is potentially
+// a node-based subprocess with a slow cold-start; fan-out without a bound spikes CPU/memory/fd usage
 // on a developer laptop right when AgentList is also rendering. The
 // default below trades a small refresh-completion delay for steady
 // resource usage.
@@ -58,8 +59,8 @@ const acpProbeConcurrencyEnv = "QUARTET_ACP_PROBE_CONCURRENCY"
 
 // defaultACPProbeConcurrency caps how many probes run in parallel when
 // the env var is unset or invalid. 4 is small enough to keep load
-// predictable on a single-user laptop yet large enough that a 13-agent
-// install still completes in well under the 30s per-probe timeout.
+// predictable on a single-user laptop yet large enough that a full-catalog
+// refresh still completes in well under the 30s per-probe timeout.
 const defaultACPProbeConcurrency = 4
 
 // acpProbeConcurrency reads acpProbeConcurrencyEnv and falls back to
@@ -78,63 +79,75 @@ func acpProbeConcurrency() int {
 	return v
 }
 
-// ACPAgentDef describes a known ACP agent binary.
-type ACPAgentDef struct {
-	Bin         string // binary looked up in $PATH
-	Command     string // full command stored in AgentInfo.Type
-	DisplayName string
-	IconURL     string
+type ACPAgentDef = catalog.BuiltinAgent
+
+// KnownACPAgents is the compatibility view used by existing probe, install and
+// usage call sites. The authoritative append-only declaration is in catalog.
+var KnownACPAgents = catalog.BuiltinSnapshot()
+
+// validateCatalog panics on programming errors in KnownACPAgents: AgentID and
+// Command must be declared and globally unique. Called once at startup from
+// InitAllowedAgentCommands.
+func validateCatalog() {
+	if err := catalog.ValidateBuiltins(); err != nil {
+		panic(err)
+	}
 }
 
-// grokIconDataURI is the grok logo (brand orange) as an inline SVG data
-// URI, so the icon renders without an external network fetch.
-const grokIconDataURI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNSIgaGVpZ2h0PSIzMyIgdmlld0JveD0iMCAwIDM1IDMzIiBmaWxsPSJub25lIj48cGF0aCBkPSJNMTMuMjM3MSAyMS4wNDA3TDI0LjMxODYgMTIuODUwNkMyNC44NjE5IDEyLjQ0OTEgMjUuNjM4NCAxMi42MDU3IDI1Ljg5NzMgMTMuMjI5NEMyNy4yNTk3IDE2LjUxODUgMjYuNjUxIDIwLjQ3MTIgMjMuOTQwMyAyMy4xODUxQzIxLjIyOTcgMjUuODk4OSAxNy40NTgxIDI2LjQ5NDEgMTQuMDEwOCAyNS4xMzg2TDEwLjI0NDkgMjYuODg0M0MxNS42NDYzIDMwLjU4MDYgMjIuMjA1MyAyOS42NjY1IDI2LjMwNCAyNS41NjAxQzI5LjU1NTEgMjIuMzA1MSAzMC41NjIgMTcuODY4MyAyOS42MjA1IDEzLjg2NzNMMjkuNjI5IDEzLjg3NThDMjguMjYzNyA3Ljk5ODA5IDI5Ljk2NDcgNS42NDg3MSAzMy40NDkgMC44NDQ1NzZDMzMuNTMxNCAwLjczMDY2NyAzMy42MTM5IDAuNjE2NzU3IDMzLjY5NjQgMC41TDI5LjExMTMgNS4wOTA1NVY1LjA3NjMxTDEzLjIzNDMgMjEuMDQzNiIgZmlsbD0iIzAwMDAwMCIvPjxwYXRoIGQ9Ik0xMC45NTAzIDIzLjAzMTNDNy4wNzM0MyAxOS4zMjM1IDcuNzQxODUgMTMuNTg1MyAxMS4wNDk4IDEwLjI3NjNDMTMuNDk1OSA3LjgyNzIyIDE3LjUwMzYgNi44Mjc2NyAyMS4wMDIxIDguMjk3MUwyNC43NTk1IDYuNTU5OThDMjQuMDgyNiA2LjA3MDE3IDIzLjIxNSA1LjU0MzM0IDIyLjIxOTUgNS4xNzMxM0MxNy43MTk4IDMuMzE5MjYgMTIuMzMyNiA0LjI0MTkyIDguNjc0NzkgNy45MDEyNkM1LjE1NjM1IDExLjQyMzkgNC4wNDk5IDE2Ljg0MDMgNS45NDk5MiAyMS40NjIyQzcuMzY5MjQgMjQuOTE2NSA1LjA0MjU3IDI3LjM1OTggMi42OTg4NCAyOS44MjZDMS44NjgyOSAzMC43MDAyIDEuMDM0OSAzMS41NzQ1IDAuMzYzNjQgMzIuNUwxMC45NDc0IDIzLjAzNDEiIGZpbGw9IiMwMDAwMDAiLz48L3N2Zz4K"
-
-// KnownACPAgents lists all known ACP agents.
-var KnownACPAgents = []ACPAgentDef{
-	{"eino-cli", "eino-cli acp", "Eino", "https://avatars.githubusercontent.com/u/79236453"},
-	{Bin: "traex", Command: "traex acp serve", DisplayName: "TraeCLI", IconURL: "https://avatars.githubusercontent.com/u/192691831"},
-	{Bin: "grok", Command: "grok --no-auto-update agent stdio", DisplayName: "Grok", IconURL: grokIconDataURI},
-	{"openclaw", "openclaw acp", "OpenClaw", "🦞"},
-	{"claude", "claude-agent-acp", "Claude", "https://avatars.githubusercontent.com/u/81847"},
-	{"gemini", "gemini --acp", "Gemini", "https://avatars.githubusercontent.com/u/161781182"},
-	{"agy", "antigravity-acp", "Antigravity", "https://avatars.githubusercontent.com/u/242056456"},
-	{"cursor-agent", "cursor-agent acp", "Cursor", "https://avatars.githubusercontent.com/u/126759922"},
-	{"copilot", "copilot --acp --stdio", "Copilot", "🧑‍✈️"},
-	{"droid", "droid exec --output-format acp", "Droid", "https://avatars.githubusercontent.com/u/131064358"},
-	{"kimi", "kimi acp", "Kimi", "https://avatars.githubusercontent.com/u/129152888"},
-	{"codex", "codex-acp", "Codex", "https://avatars.githubusercontent.com/u/14957082"},
-	{"kiro-cli", "kiro-cli acp", "Kiro", "https://avatars.githubusercontent.com/u/207925904"},
-	{"opencode", "opencode acp", "OpenCode", "https://avatars.githubusercontent.com/in/1549082"},
-	{"kilocode", "npx -y @kilocode/cli acp", "KiloCode", "https://avatars.githubusercontent.com/u/201822503"},
-	{Bin: "qoderclicn", Command: "qoderclicn --acp", DisplayName: "QCode", IconURL: "https://avatars.githubusercontent.com/u/141221163"},
-}
-
-// InitAllowedAgentCommands pushes KnownACPAgents' command strings to
-// pkg/acp's execution allowlist. Must be called once at startup
-// (cmd/web/main.go) before any ACP subprocess is launched — NewConn
-// rejects commands that are not registered.
+// InitAllowedAgentCommands registers only the current runtime revision of each
+// installed, active built-in Agent. Historical revisions are retained in the
+// catalog and registered on demand when a session or GraphRun uses them.
 //
 // Made explicit (rather than an init()) so startup ordering is visible
 // in the entrypoint and tests wanting to exercise a subset of commands
 // can call pkgacp.RegisterAllowedAgentCommands directly without import
 // ordering tricks.
 func InitAllowedAgentCommands() {
-	commands := make([]string, 0, len(KnownACPAgents))
+	validateCatalog()
+	checker := agentinstall.Checker{}
 	for _, a := range KnownACPAgents {
-		commands = append(commands, a.Command)
+		if a.Deprecated {
+			continue
+		}
+		installed := checker.Check(agentinstall.Definition{
+			Bin:        a.Bin,
+			ACPProgram: a.ACPProgram,
+		})
+		if !installed.Installed {
+			continue
+		}
+		binding := catalog.BindingForBuiltin(a)
+		runtimeDefinition := pkgacp.RuntimeDefinition{
+			Program: binding.Definition.ACPProgram,
+			Args:    binding.Definition.ACPArgs,
+			EnvKey:  a.AgentID,
+		}
+		if err := pkgacp.RegisterAgentRuntime(binding.RuntimeKey, runtimeDefinition); err != nil {
+			panic(err)
+		}
 	}
-	pkgacp.RegisterAllowedAgentCommands(commands)
 }
 
-// InstalledACPAgents returns the subset of KnownACPAgents whose binary is in $PATH.
+// FindACPAgentByID returns the catalog entry with the given AgentID.
+func FindACPAgentByID(agentID string) (ACPAgentDef, bool) {
+	return catalog.FindBuiltinByID(agentID)
+}
+
+// InstalledACPAgents returns the subset of KnownACPAgents whose plain CLI Bin
+// and ACP startup program are both executable by the backend process.
+// Deprecated entries never participate.
 func InstalledACPAgents() []ACPAgentDef {
+	checker := agentinstall.Checker{}
 	var installed []ACPAgentDef
 	for _, a := range KnownACPAgents {
-		if _, err := exec.LookPath(a.Bin); err == nil {
-			if !serveCommandAvailable(a) {
-				continue
-			}
+		if a.Deprecated {
+			continue
+		}
+		status := checker.Check(agentinstall.Definition{
+			Bin:        a.Bin,
+			ACPProgram: a.ACPProgram,
+		})
+		if status.Installed {
 			installed = append(installed, a)
 		}
 	}
@@ -153,33 +166,18 @@ func InstalledACPAgents() []ACPAgentDef {
 // exactly what KnownACPAgents already records as Bin. The second return
 // value reports whether command was a recognised ACP agent.
 func HeadlessBin(command string) (string, bool) {
-	for _, a := range KnownACPAgents {
-		if a.Command == command {
-			return a.Bin, true
-		}
+	a, ok := catalog.ResolveBuiltin(command)
+	if !ok {
+		return "", false
 	}
-	return "", false
+	return a.Bin, true
 }
 
-func serveCommandAvailable(a ACPAgentDef) bool {
-	parts := strings.Fields(a.Command)
-	if len(parts) == 0 {
-		return false
-	}
-	serveBin := parts[0]
-	if serveBin == a.Bin {
-		return true
-	}
-	_, err := exec.LookPath(serveBin)
-	return err == nil
-}
-
-// ACPAgentEnvKey returns the stable settings key for an ACP agent. Runtime
-// AgentInfo.Type intentionally remains the serve command, but settings such as
-// ACP env vars should not be invalidated when that command changes.
+// ACPAgentEnvKey returns the stable AgentID used by current settings. Legacy
+// EnvKey/Bin/command aliases remain lookup-only migration identifiers.
 func ACPAgentEnvKey(commandOrKey string) string {
-	if a, ok := findACPAgentByCommandOrEnvKey(commandOrKey); ok {
-		return a.Bin
+	if a, ok := catalog.ResolveBuiltin(commandOrKey); ok {
+		return a.AgentID
 	}
 	return commandOrKey
 }
@@ -188,39 +186,49 @@ func ACPAgentEnvKey(commandOrKey string) string {
 // may hold env vars for this agent. New writes should use ACPAgentEnvKey; reads
 // use this list to migrate older command-keyed settings.
 func ACPAgentEnvLookupKeys(commandOrKey string) []string {
-	a, ok := findACPAgentByCommandOrEnvKey(commandOrKey)
+	a, ok := catalog.ResolveBuiltin(commandOrKey)
 	if !ok {
 		if commandOrKey == "" {
 			return nil
 		}
 		return []string{commandOrKey}
 	}
-	return uniqueNonEmptyStrings([]string{a.Bin, a.Command})
+	keys := []string{a.EnvKey, a.Bin, a.Command}
+	for _, identifier := range a.HistoricalIdentifiers {
+		keys = append(keys, identifier.Value)
+	}
+	return uniqueNonEmptyStrings(keys)
 }
 
 // ACPAgentEnvKeyPriority reports the stable env key and precedence for a saved
 // settings key. Higher priority wins when normalizing duplicates.
 func ACPAgentEnvKeyPriority(savedKey string) (string, int) {
-	a, ok := findACPAgentByCommandOrEnvKey(savedKey)
+	a, ok := catalog.ResolveBuiltin(savedKey)
 	if !ok {
 		return savedKey, 3
 	}
 	switch savedKey {
+	case a.AgentID:
+		return a.AgentID, 4
+	case a.EnvKey:
+		return a.AgentID, 3
 	case a.Bin:
-		return a.Bin, 3
+		return a.AgentID, 3
 	case a.Command:
-		return a.Bin, 2
+		return a.AgentID, 2
 	}
-	return a.Bin, 0
-}
-
-func findACPAgentByCommandOrEnvKey(commandOrKey string) (ACPAgentDef, bool) {
-	for _, a := range KnownACPAgents {
-		if commandOrKey == a.Bin || commandOrKey == a.Command {
-			return a, true
+	for _, identifier := range a.HistoricalIdentifiers {
+		if savedKey != identifier.Value {
+			continue
+		}
+		switch identifier.Kind {
+		case catalog.IdentifierKindBin, catalog.IdentifierKindEnvKey:
+			return a.AgentID, 1
+		case catalog.IdentifierKindACPCommand:
+			return a.AgentID, 0
 		}
 	}
-	return ACPAgentDef{}, false
+	return a.AgentID, 0
 }
 
 func uniqueNonEmptyStrings(in []string) []string {
@@ -259,14 +267,171 @@ type acpProbeFailureState struct {
 }
 
 var (
-	acpSessionCache   = make(map[string]*acpSessionInfoCache)
-	acpSessionCacheMu sync.RWMutex
-	acpRefreshing     atomic.Bool
-	acpProbeGroup     singleflight.Group
+	acpSessionCache      = make(map[string]*acpSessionInfoCache)
+	acpSessionCacheMu    sync.RWMutex
+	acpValidationCache   = make(map[string]model.ACPProbeCacheEntry)
+	acpValidationCacheMu sync.RWMutex
+	acpRefreshing        atomic.Bool
+	acpProbeGroup        singleflight.Group
 
 	acpProbeFailures   = make(map[string]*acpProbeFailureState)
 	acpProbeFailuresMu sync.Mutex
 )
+
+func agentEnvVersion(agentID string) int64 {
+	repo, err := repository.NewSettingsRepo()
+	if err != nil {
+		return 0
+	}
+	settings, err := repo.Get()
+	if err != nil || settings == nil {
+		return 0
+	}
+	return settings.ACPEnvVersions[agentID]
+}
+
+func CachedAgentValidation(agentID, revision string, envVersion int64) (model.ACPProbeCacheEntry, bool) {
+	key := catalog.RuntimeKey(agentID, revision)
+	acpValidationCacheMu.RLock()
+	entry, ok := acpValidationCache[key]
+	acpValidationCacheMu.RUnlock()
+	if !ok || entry.Revision != revision || entry.EnvVersion != envVersion {
+		return entry, false
+	}
+	entry.Models = cloneSessionModelState(entry.Models)
+	entry.Modes = cloneSessionModeState(entry.Modes)
+	entry.ThoughtLevels = cloneSessionThoughtLevelState(entry.ThoughtLevels)
+	return entry, true
+}
+
+func ValidateBinding(
+	ctx context.Context,
+	binding model.AgentRuntimeBinding,
+	envVersion int64,
+	env []pkgacp.EnvVar,
+) (model.ACPProbeCacheEntry, error) {
+	if err := pkgacp.RegisterAgentRuntime(binding.RuntimeKey, pkgacp.RuntimeDefinition{
+		Program: binding.Definition.ACPProgram,
+		Args:    binding.Definition.ACPArgs,
+		EnvKey:  binding.AgentID,
+	}); err != nil {
+		return model.ACPProbeCacheEntry{}, err
+	}
+	markValidationRefreshing(binding, envVersion)
+	entry, err := validateBindingWithEnvironment(ctx, binding, envVersion, env, false)
+	StoreValidation(entry)
+	return entry, err
+}
+
+func markValidationRefreshing(binding model.AgentRuntimeBinding, envVersion int64) {
+	acpValidationCacheMu.Lock()
+	previous := acpValidationCache[binding.RuntimeKey]
+	if previous.AgentID != binding.AgentID ||
+		previous.Revision != binding.Revision ||
+		previous.EnvVersion != envVersion {
+		previous = model.ACPProbeCacheEntry{}
+	}
+	previous.AgentID = binding.AgentID
+	previous.Revision = binding.Revision
+	previous.RuntimeKey = binding.RuntimeKey
+	previous.EnvVersion = envVersion
+	previous.Refreshing = true
+	acpValidationCache[binding.RuntimeKey] = previous
+	acpValidationCacheMu.Unlock()
+}
+
+func ValidateBindingCandidate(
+	ctx context.Context,
+	binding model.AgentRuntimeBinding,
+	envVersion int64,
+	env []pkgacp.EnvVar,
+) (model.ACPProbeCacheEntry, error) {
+	return validateBindingWithEnvironment(ctx, binding, envVersion, env, true)
+}
+
+func validateBindingWithEnvironment(
+	ctx context.Context,
+	binding model.AgentRuntimeBinding,
+	envVersion int64,
+	env []pkgacp.EnvVar,
+	overrideEnv bool,
+) (model.ACPProbeCacheEntry, error) {
+	probeKey := binding.RuntimeKey
+	if overrideEnv {
+		probeKey += "#candidate"
+	}
+	if err := pkgacp.RegisterAgentRuntime(probeKey, pkgacp.RuntimeDefinition{
+		Program:     binding.Definition.ACPProgram,
+		Args:        binding.Definition.ACPArgs,
+		EnvKey:      binding.AgentID,
+		Env:         env,
+		OverrideEnv: overrideEnv,
+	}); err != nil {
+		return model.ACPProbeCacheEntry{}, err
+	}
+	if overrideEnv {
+		defer func() {
+			pkgacp.UnregisterAgentRuntime(probeKey)
+			acpSessionCacheMu.Lock()
+			delete(acpSessionCache, probeKey)
+			acpSessionCacheMu.Unlock()
+			acpProbeFailuresMu.Lock()
+			delete(acpProbeFailures, probeKey)
+			acpProbeFailuresMu.Unlock()
+		}()
+	}
+
+	fresh, err := refreshACPSessionCacheEntry(ctx, probeKey, "")
+	entry := model.ACPProbeCacheEntry{
+		AgentID:     binding.AgentID,
+		Revision:    binding.Revision,
+		RuntimeKey:  binding.RuntimeKey,
+		EnvVersion:  envVersion,
+		Success:     err == nil,
+		RefreshedAt: time.Now().UnixMilli(),
+	}
+	if err != nil {
+		entry.Error = err.Error()
+	} else {
+		entry.Models = cloneSessionModelState(fresh.models)
+		entry.Modes = cloneSessionModeState(fresh.modes)
+		entry.ThoughtLevels = cloneSessionThoughtLevelState(
+			fresh.thoughtLevelsByModel[currentModelID(fresh.models)],
+		)
+	}
+	return entry, err
+}
+
+func StoreValidation(entry model.ACPProbeCacheEntry) {
+	if entry.RuntimeKey == "" {
+		return
+	}
+	if entry.AgentID != "" && agentEnvVersion(entry.AgentID) != entry.EnvVersion {
+		return
+	}
+	acpValidationCacheMu.Lock()
+	if current, exists := acpValidationCache[entry.RuntimeKey]; exists &&
+		current.EnvVersion > entry.EnvVersion {
+		acpValidationCacheMu.Unlock()
+		return
+	}
+	acpValidationCache[entry.RuntimeKey] = entry
+	acpValidationCacheMu.Unlock()
+	if entry.Success {
+		modelID := currentModelID(entry.Models)
+		thoughtLevels := make(map[string]*model.SessionThoughtLevelState)
+		if modelID != "" {
+			thoughtLevels[modelID] = cloneSessionThoughtLevelState(entry.ThoughtLevels)
+		}
+		acpSessionCacheMu.Lock()
+		acpSessionCache[entry.RuntimeKey] = &acpSessionInfoCache{
+			models:               cloneSessionModelState(entry.Models),
+			modes:                cloneSessionModeState(entry.Modes),
+			thoughtLevelsByModel: thoughtLevels,
+		}
+		acpSessionCacheMu.Unlock()
+	}
+}
 
 // recentlyFailed reports whether the given command failed within the
 // backoff window and the caller should skip re-probing it. Returns the
@@ -413,6 +578,30 @@ func CacheACPConfigState(
 			}
 		}
 	}
+	mirrorValidationSelectorStateLocked(command, entry)
+}
+
+func mirrorValidationSelectorStateLocked(runtimeKey string, cached *acpSessionInfoCache) {
+	if cached == nil {
+		return
+	}
+	acpValidationCacheMu.Lock()
+	entry, ok := acpValidationCache[runtimeKey]
+	if ok {
+		modelID := currentModelID(cached.models)
+		entry.Models = cloneSessionModelState(cached.models)
+		entry.Modes = cloneSessionModeState(cached.modes)
+		entry.ThoughtLevels = cloneSessionThoughtLevelState(cached.thoughtLevelsByModel[modelID])
+		acpValidationCache[runtimeKey] = entry
+	}
+	acpValidationCacheMu.Unlock()
+}
+
+func mirrorValidationSelectorState(runtimeKey string) {
+	acpSessionCacheMu.RLock()
+	cached := cloneACPSessionInfoCache(acpSessionCache[runtimeKey])
+	acpSessionCacheMu.RUnlock()
+	mirrorValidationSelectorStateLocked(runtimeKey, cached)
 }
 
 func cloneACPSessionInfoCache(in *acpSessionInfoCache) *acpSessionInfoCache {
@@ -567,13 +756,26 @@ type PreviewSelection struct {
 // only an uncached agent/model pair performs a synchronous ACP probe. Because
 // each target updates only its own cached selection, refreshing a model-linked
 // thought-level list can never reset the cached mode.
-func PreviewSetConfig(ctx context.Context, command string, sel PreviewSelection) (*model.ACPConfigState, error) {
+func PreviewSetConfig(
+	ctx context.Context,
+	command string,
+	sel PreviewSelection,
+	asyncDone func(),
+) (*model.ACPConfigState, error) {
+	ownsDone := true
+	defer func() {
+		if ownsDone && asyncDone != nil {
+			asyncDone()
+		}
+	}()
 	state, cached, err := applyCachedPreviewSelection(command, sel)
 	if err != nil {
 		return nil, err
 	}
 	if cached {
-		refreshACPModelCacheAsync(ctx, command, selectedPreviewModel(command, sel.Model))
+		mirrorValidationSelectorState(command)
+		refreshACPModelCacheAsync(ctx, command, selectedPreviewModel(command, sel.Model), asyncDone)
+		ownsDone = false
 		return state, nil
 	}
 
@@ -587,6 +789,7 @@ func PreviewSetConfig(ctx context.Context, command string, sel PreviewSelection)
 	if !cached {
 		return nil, fmt.Errorf("ACP selector cache is still missing after synchronous probe: cmd=%s model=%s target=%s", command, sel.Model, sel.Target)
 	}
+	mirrorValidationSelectorState(command)
 	return state, nil
 }
 
@@ -663,9 +866,12 @@ func selectedPreviewModel(command, requestedModelID string) string {
 	return ""
 }
 
-func refreshACPModelCacheAsync(ctx context.Context, command, modelID string) {
+func refreshACPModelCacheAsync(ctx context.Context, command, modelID string, done func()) {
 	bgCtx := context.WithoutCancel(ctx)
 	safe.Go(bgCtx, func() {
+		if done != nil {
+			defer done()
+		}
 		if cooling, wait := recentlyFailed(command); cooling {
 			logger.Debugf(bgCtx, "[probe] skip ACP model refresh in cooldown: cmd=%s model=%s waitRemaining=%s", command, modelID, wait.Truncate(time.Second))
 			return
@@ -917,7 +1123,9 @@ func refreshACPSessionCache(ctx context.Context) {
 	// override QUARTET_ACP_PROBE_CONCURRENCY without re-importing.
 	probeSlots := make(chan struct{}, acpProbeConcurrency())
 	for _, target := range targets {
-		command := target.Command
+		binding := catalog.BindingForBuiltin(target)
+		command := binding.RuntimeKey
+		envVersion := agentEnvVersion(target.AgentID)
 		acpSessionCacheMu.RLock()
 		prev := acpSessionCache[command]
 		preferredModelID := ""
@@ -955,7 +1163,7 @@ func refreshACPSessionCache(ctx context.Context) {
 				return
 			}
 			defer func() { <-probeSlots }()
-			if _, err := refreshACPSessionCacheEntry(ctx, command, preferredModelID); err != nil {
+			if _, err := ValidateBinding(ctx, binding, envVersion, nil); err != nil {
 				logger.Debugf(ctx, "[probe] refresh ACP cache entry failed: cmd=%s model=%s err=%v", command, preferredModelID, err)
 			}
 		})
@@ -965,20 +1173,11 @@ func refreshACPSessionCache(ctx context.Context) {
 		logger.Debugf(ctx, "[probe] refresh complete: probed=%d skippedCooldown=%d", len(targets)-skippedCooldown, skippedCooldown)
 	}
 
-	// Drop entries for commands that are no longer installed without replacing
-	// the whole map; replacing it would race explicit model/mode selections made
-	// while this background refresh was in flight.
-	installed := make(map[string]struct{}, len(targets))
-	for _, target := range targets {
-		installed[target.Command] = struct{}{}
-	}
-	acpSessionCacheMu.Lock()
-	for command := range acpSessionCache {
-		if _, ok := installed[command]; !ok {
-			delete(acpSessionCache, command)
-		}
-	}
-	acpSessionCacheMu.Unlock()
+	// This refresh owns only the current built-in targets. Custom Agents and
+	// retained historical revisions share acpSessionCache, so pruning every key
+	// absent from targets would discard their selector state after each list
+	// refresh. Environment changes, revision pruning and Agent deletion perform
+	// their own scoped invalidation.
 }
 
 // PickDefaultModeID selects a default mode from the available modes list,

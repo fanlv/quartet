@@ -11,6 +11,7 @@ import (
 
 	pkgacp "github.com/fanlv/quartet/pkg/acp"
 	svcacp "github.com/fanlv/quartet/services/agent/acp"
+	"github.com/fanlv/quartet/services/agent/catalog"
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/types/agentstream"
 )
@@ -116,7 +117,7 @@ func main() {
 func grokACPCommand() (string, bool) {
 	for _, agent := range probe.KnownACPAgents {
 		if agent.Bin == "grok" {
-			return agent.Command, true
+			return catalog.BindingForBuiltin(agent).RuntimeKey, true
 		}
 	}
 	return "", false

@@ -239,6 +239,9 @@ func (h *Handler) JobGet(ctx context.Context, c *app.RequestContext) {
 		Job:          job,
 		LastEventSeq: lastSeq,
 	}
+	if _, isPublic := getPublicJob(c); isPublic {
+		envelope.Agents = h.resolvePublicAgents(ctx, h.collectJobAgentRefs(ctx, job))
+	}
 	c.JSON(http.StatusOK, envelope)
 }
 
@@ -248,7 +251,53 @@ func (h *Handler) JobGet(ctx context.Context, c *app.RequestContext) {
 // root) while adding lastEventSeq alongside.
 type jobGetEnvelope struct {
 	*model.Job
-	LastEventSeq uint64 `json:"lastEventSeq"`
+	LastEventSeq uint64                            `json:"lastEventSeq"`
+	Agents       map[string]model.AgentDisplayInfo `json:"agents,omitempty"`
+}
+
+func (h *Handler) collectJobAgentRefs(ctx context.Context, job *model.Job) []string {
+	if job == nil {
+		return nil
+	}
+	var refs []string
+	seen := make(map[string]bool)
+	for _, sessionID := range jobAllSessionIDs(job) {
+		session, ok := h.lookupSession(sessionID)
+		if !ok || session == nil {
+			continue
+		}
+		ref := session.AgentID
+		if ref == "" {
+			ref = session.Type
+		}
+		if ref != "" && !seen[ref] {
+			seen[ref] = true
+			refs = append(refs, ref)
+		}
+	}
+	if job.GraphRunID != "" {
+		if status, err := h.graphService.GetRunStatus(ctx, job.GraphRunID); err == nil && status.Run != nil {
+			addSnapshot := func(snapshot model.GraphAgentSnapshot) {
+				ref := snapshot.AgentID
+				if ref == "" {
+					ref = snapshot.AgentType
+				}
+				if ref != "" && !seen[ref] {
+					seen[ref] = true
+					refs = append(refs, ref)
+				}
+			}
+			for _, snapshot := range status.Run.BaseSnapshot.AgentSnapshots {
+				addSnapshot(snapshot)
+			}
+			for _, version := range status.Run.Versions {
+				for _, snapshot := range version.AgentSnapshots {
+					addSnapshot(snapshot)
+				}
+			}
+		}
+	}
+	return refs
 }
 
 func (h *Handler) JobDelete(ctx context.Context, c *app.RequestContext) {

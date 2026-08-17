@@ -6,6 +6,8 @@
     "close": "关闭",
     "delete": "删除",
     "edit": "编辑",
+    "add": "添加",
+    "restore": "恢复",
     "loading": "加载中...",
     "retry": "重试",
     "saveSuccess": "保存成功",
@@ -30,7 +32,8 @@
     "copySuccess": "复制成功",
     "copyFailed": "复制失败",
     "copyPath": "复制路径",
-    "copyContent": "复制内容"
+    "copyContent": "复制内容",
+    "none": "无"
   },
   "app": {
     "jobMissingNotice": "Job {{jobId}} 不存在或已被删除。已清理失效 URL，并返回工作空间首页。"
@@ -124,7 +127,11 @@
       "agents": "AGENTS.md",
       "files": "文件浏览器",
       "settings": "设置"
-    }
+    },
+    "unknownAgent": "未知 Agent",
+    "agentDeletedName": "{{name}}（已删除）",
+    "agentDeletedHint": "该会话使用的 Agent 已被删除，无法继续执行。",
+    "agentUnknownHint": "无法解析该会话使用的 Agent，无法继续执行。"
   },
   "connection": {
     "restored": "连接已恢复",
@@ -167,11 +174,76 @@
       "eino": "Eino 配置",
       "prompt": "Prompt 设置",
       "skill": "技能管理",
-      "acp": "ACP 配置",
-      "agentDefaults": "Agent 默认",
+      "agents": "Agent 管理",
       "lark": "Lark 配置",
       "wechat": "微信配置",
       "logs": "日志"
+    },
+    "agents": {
+      "description": "以下为尚未安装的内置 Agent。自动安装只执行下方展示的预置流程；流程结束后会重新执行安装判定，并运行一次完整的 ACP 验证。",
+      "deleteConfirm": "确定删除 {{name}}？历史引用将保留为只读。",
+      "forceDeleteConfirm": "确定强制删除 {{name}}？使用它的运行中任务会先被停止。",
+      "forceDelete": "强制删除",
+      "deleteProgress": "正在停止阻止任务并清理 Agent 配置...",
+      "deleteSuccess": "Agent 已删除。历史引用已保留为只读。",
+      "deleteResult": "删除结果",
+      "stopSucceeded": "已停止",
+      "revisions": "运行定义修订",
+      "revalidate": "重新验证",
+      "uninstall": "卸载",
+      "uninstalling": "卸载中…",
+      "lastValidation": "最近验证",
+      "source": {
+        "builtin": "内置",
+        "custom": "自定义"
+      },
+      "status": {
+        "not_installed": "未安装",
+        "pending_validation": "待验证",
+        "validating": "验证中",
+        "unavailable": "已安装但不可用",
+        "available": "可用",
+        "deleting": "删除中",
+        "deleted": "已删除",
+        "deprecated": "已弃用",
+        "refreshing": "刷新中"
+      },
+      "form": {
+        "displayName": "显示名称",
+        "iconUrl": "图标 URL",
+        "bin": "CLI 可执行程序",
+        "acpProgram": "ACP 启动程序",
+        "arguments": "ACP 参数（每行一个）",
+        "environment": "首次验证环境变量"
+      },
+      "deleteImpact": {
+        "cleared": "将清理设置：{{value}}",
+        "workflows": "保留的 GraphWorkflow：{{value}}",
+        "schedules": "保留的 Schedule：{{value}}",
+        "jobs": "保留的 Job：{{value}}",
+        "sessions": "保留的 Session：{{value}}",
+        "blocking": "阻止删除的 Job：{{value}}"
+      },
+      "empty": "所有内置 Agent 均已安装。",
+      "launchDefinition": "ACP 启动定义",
+      "installCommands": "安装流程",
+      "method": {
+        "npm": "npm 全局包",
+        "script": "官方安装脚本",
+        "manual": "手动安装"
+      },
+      "result": {
+        "success": "安装并验证成功，该 Agent 已可用。",
+        "validationFailed": "安装成功，但 ACP 验证失败（已安装但不可用）。",
+        "failed": "安装失败。",
+        "uninstallSuccess": "卸载成功，该 Agent 已从 PATH 移除。",
+        "uninstallFailed": "卸载失败，请查看下方完整输出。",
+        "details": "完整输出",
+        "exitCode": "退出码",
+        "timedOut": "已超时",
+        "recheck": "安装复检",
+        "validation": "ACP 验证"
+      }
     },
     "general": {
       "sectionTitle": "用户配置",
@@ -183,10 +255,10 @@
       "avatar": "头像链接",
       "avatarPlaceholder": "https://example.com/avatar.png",
       "avatarDesc": "用户头像的图片链接，留空则使用默认头像",
-      "builtinModel": "内置模型",
-      "builtinModelDesc": "用于自动生成对话标题等内置功能，选择 Agent 后自动使用对应模型，留空则不启用",
-      "messageModel": "消息模型",
-      "messageModelDesc": "收到 IM 消息后自动调用该 Agent 生成回复，留空则不启用",
+      "agentRoles": "Agent 角色配置",
+      "titleGenerationAgent": "标题生成 Agent",
+      "groupReplyAgent": "群聊回复 Agent",
+      "imSessionAgent": "IM 会话 Agent",
       "graphEndHookScript": "图工作流终点默认 Hook（Shell）",
       "graphEndHookScriptPlaceholder": "# 例如：工作流跑完发个飞书通知\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE 已完成\"",
       "graphEndHookScriptDesc": "图工作流到达「使用全局默认脚本」的终点结点时执行的默认副作用脚本。输出会被忽略，失败只打日志。可用环境变量：$QUARTET_JOB_TITLE、$QUARTET_JOB_ID、$QUARTET_RUN_ID、$QUARTET_NODE_ID、$QUARTET_NODE_TITLE、$QUARTET_NODE_TYPE、$QUARTET_LAST_ASSISTANT。"
@@ -333,6 +405,14 @@
         "orSearch": "或搜索技能",
         "searchPlaceholder": "搜索关键词，例如: react, typescript",
         "installs": "installs"
+      }
+    },
+    "agentManagement": {
+      "tabs": {
+        "catalog": "目录与安装",
+        "env": "环境变量",
+        "defaults": "默认配置",
+        "roles": "角色配置"
       }
     },
     "acp": {
@@ -797,6 +877,8 @@
       "collapse": "收起",
       "editTitle": "编辑运行版本",
       "edit": "编辑",
+      "updateAgentRevisionTitle": "在新的运行版本中使用所选 Agent 结点的当前运行修订",
+      "updateAgentRevision": "更新 Agent",
       "editConfigHint": "编辑运行版本中 — 已冻结结点保留已执行配置，未冻结结点和连线可在继续运行前修复。",
       "stepStopTitle": "当前就绪批次完成后停止",
       "stepStop": "步骤后停止",

@@ -118,6 +118,16 @@ export function saveWorkspacePrefs(wsId: string, prefs: WorkspacePrefs) {
   }
 }
 
+export function migrateWorkspaceAgentPref(wsId: string, resolve: (value: string) => string | undefined): WorkspacePrefs {
+  const current = loadWorkspacePrefs(wsId);
+  if (!current.defaultAgent) return current;
+  const migrated = resolve(current.defaultAgent);
+  if (migrated === current.defaultAgent) return current;
+  const next = { ...current, defaultAgent: migrated };
+  saveWorkspacePrefs(wsId, next);
+  return next;
+}
+
 // Session key: track the most recently used workspace so first-open can
 // restore it. Keyed per workspace so multi-workspace switching in one session
 // keeps all entries.

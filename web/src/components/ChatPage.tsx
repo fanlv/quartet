@@ -85,9 +85,9 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { useGitBranch } from '../hooks/useGitBranch';
 import { usePendingImages } from '../hooks/usePendingImages';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
-import { workspaceColor, loadWorkspacePrefs, registerWorkspaceColors } from '../utils/workspace';
+import { workspaceColor, loadWorkspacePrefs, migrateWorkspaceAgentPref, registerWorkspaceColors } from '../utils/workspace';
 import { relinkACPThoughtLevels, setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
-import { fetchAgentPrefs, splitFavoriteModels, resolveAgentDefaults, applyDefaultsToAgent, type AgentPrefsMap } from '../utils/agentPrefs';
+import { fetchAgentPrefs, splitFavoriteModels, resolveAgentDefaults, applyDefaultsToAgent, prefsForAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { formatStatsDuration } from '../utils/statsFormat';
 import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl } from '../utils/url';
@@ -127,10 +127,17 @@ export interface SessionThoughtLevelState {
 }
 
 export interface AgentInfo {
+  agent_id: string;
+  revision?: string;
   type: string;
   model_id: string;
   display_name: string;
   icon_url: string;
+  availability?: string;
+  available: boolean;
+  refreshing?: boolean;
+  error?: string;
+  capabilities?: string[];
   models?: SessionModelState;
   modes?: SessionModeState;
   thoughtLevels?: SessionThoughtLevelState;
@@ -263,13 +270,55 @@ async function fetchAgentList(): Promise<{ agents: AgentInfo[]; workdir: string;
       return { agents: [], workdir: '', jobEnable: false };
     }
     return {
-      agents: data.agent_list as AgentInfo[],
+      agents: (data.agent_list as AgentInfo[]).filter((agent) => agent.available !== false),
       workdir: data.workdir || '',
       jobEnable: !!data.job_enable,
     };
   } catch (err) {
     console.error('Failed to fetch agent list:', err);
     return { agents: [], workdir: '', jobEnable: false };
+  }
+}
+
+async function migrateStoredAgentReferences(workspaceId?: string): Promise<void> {
+  try {
+    const [listRes, catalogRes] = await Promise.all([
+      fetch('/api/v1/agent/list'),
+      fetch('/api/v1/agent/catalog'),
+    ]);
+    const [listData, catalogData] = await Promise.all([listRes.json(), catalogRes.json()]);
+    const active = Array.isArray(listData?.agent_list) ? listData.agent_list as AgentInfo[] : [];
+    const items = Array.isArray(catalogData?.agents) ? catalogData.agents as Array<{
+      agent_id: string;
+      definition?: { bin?: string; acp_program?: string; acp_args?: string[] };
+      historical_identifiers?: Array<{ value?: string }>;
+    }> : [];
+    const byIdentifier = new Map<string, string>();
+    for (const agent of active) {
+      byIdentifier.set(agent.agent_id, agent.agent_id);
+      byIdentifier.set(agent.type, agent.agent_id);
+    }
+    for (const item of items) {
+      byIdentifier.set(item.agent_id, item.agent_id);
+      if (item.definition?.bin) byIdentifier.set(item.definition.bin, item.agent_id);
+      if (item.definition?.acp_program) {
+        const command = [item.definition.acp_program, ...(item.definition.acp_args || [])].join(' ');
+        byIdentifier.set(command, item.agent_id);
+      }
+      for (const historical of item.historical_identifiers || []) {
+        if (historical.value) byIdentifier.set(historical.value, item.agent_id);
+      }
+    }
+    const resolve = (value: string) => byIdentifier.get(value);
+    const last = localStorage.getItem('last_agent_type');
+    if (last) {
+      const migrated = resolve(last);
+      if (migrated) localStorage.setItem('last_agent_type', migrated);
+      else localStorage.removeItem('last_agent_type');
+    }
+    if (workspaceId) migrateWorkspaceAgentPref(workspaceId, resolve);
+  } catch (err) {
+    console.warn('[agent-migration] stored reference migration failed:', err);
   }
 }
 
@@ -763,7 +812,9 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([fetchAgentList(), fetchAgentPrefs()]).then(([{ agents: list, workdir: wd, jobEnable: je }, prefsMap]) => {
+    void migrateStoredAgentReferences(workspaceId)
+      .then(() => Promise.all([fetchAgentList(), fetchAgentPrefs()]))
+      .then(([{ agents: list, workdir: wd, jobEnable: je }, prefsMap]) => {
       if (cancelled) return;
       setJobEnable(je);
       setAgentPrefs(prefsMap);
@@ -801,7 +852,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         // — per-agent choice is reset each mount by design.
         const nextList = list.map((a, i) => {
           if (i !== idx) return a;
-          const resolved = resolveAgentDefaults(a, prefsMap[a.type], { workspaceDefaultModel: prefs.defaultModel });
+          const resolved = resolveAgentDefaults(a, prefsForAgent(prefsMap, a), { workspaceDefaultModel: prefs.defaultModel });
           return applyDefaultsToAgent(a, resolved);
         });
         const selected = nextList[idx];
@@ -812,7 +863,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
           void relinkACPThoughtLevels(selected.type, selectedModelId).then((state) => {
             if (cancelled) return;
             let thoughtLevels = state;
-            const preferred = prefsMap[selected.type]?.default_thought_level;
+            const preferred = prefsForAgent(prefsMap, selected)?.default_thought_level;
             if (preferred && thoughtLevels.availableThoughtLevels.some((level) => level.id === preferred)) {
               thoughtLevels = { ...thoughtLevels, currentThoughtLevelId: preferred };
             }
@@ -831,7 +882,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
       } else {
         setAgents(list);
       }
-    });
+      });
     return () => {
       cancelled = true;
     };
@@ -932,7 +983,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     setSelectedIndex(idx);
     const agent = agents[idx];
     if (!agent) return;
-    const resolved = resolveAgentDefaults(agent, agentPrefs[agent.type]);
+    const resolved = resolveAgentDefaults(agent, prefsForAgent(agentPrefs, agent));
     // Switching Agent type must not reset that Agent's cached mode. Mode is
     // independent from the model-linked thought-level refresh and changes only
     // through the explicit mode selector.
@@ -947,7 +998,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     setAcpConfigError(null);
     void relinkACPThoughtLevels(selected.type, selectedModelId).then((state) => {
       let thoughtLevels = state;
-      const preferred = agentPrefs[selected.type]?.default_thought_level;
+      const preferred = prefsForAgent(agentPrefs, selected)?.default_thought_level;
       if (preferred && state.availableThoughtLevels.some((level) => level.id === preferred)) {
         thoughtLevels = { ...state, currentThoughtLevelId: preferred };
       }
@@ -1408,7 +1459,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
 
   const renderHomeModelItems = () => {
     const all = selectedAgent?.models?.availableModels ?? [];
-    const { favorites, rest } = splitFavoriteModels(all, agentPrefs[selectedAgent?.type ?? '']?.favorite_model_ids);
+    const { favorites, rest } = splitFavoriteModels(all, prefsForAgent(agentPrefs, selectedAgent)?.favorite_model_ids);
     if (favorites.length === 0) {
       return all.map(renderHomeModelItem);
     }

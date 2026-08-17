@@ -26,6 +26,14 @@ import (
 // terminal status (Completed/Failed/Stopped) is restored when the interactive
 // run ends so an ad-hoc message never regresses it.
 func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobRunner, opts *SendMessageOptions) error {
+	asyncStarted := false
+	if prepared, ok := runner.(PreparedExecutionReleaser); ok {
+		defer func() {
+			if !asyncStarted {
+				prepared.ReleasePreparedExecution()
+			}
+		}()
+	}
 	// Validate before modifying any state to avoid leaving the job in Running
 	// status if validation fails.
 	if len(opts.getMessages()) == 0 {
@@ -110,6 +118,7 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 		defer s.cleanupDone(job.ID, res.done)
 		s.runInteractive(res.ctx, job, runner, opts, res.entry)
 	})
+	asyncStarted = true
 	return nil
 }
 
@@ -118,6 +127,9 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 // and the prior terminal status (if any) is restored by the deferred
 // finish/stop/fail path.
 func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner JobRunner, opts *SendMessageOptions, cancelEntry *cancelEntry) {
+	if prepared, ok := runner.(PreparedExecutionReleaser); ok {
+		defer prepared.ReleasePreparedExecution()
+	}
 	defer s.clearCancel(job.ID, cancelEntry)
 	defer func() {
 		// Read Status under the lock — failJob / stopJob may have already

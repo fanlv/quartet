@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/fanlv/quartet/pkg/logger"
@@ -230,6 +231,29 @@ func (s *serviceImpl) relaunchResumableRun(ctx context.Context, run *model.Graph
 	if err != nil {
 		return nil, fmt.Errorf("load variables failed: %w", err)
 	}
+	originalRun := cloneGraphRun(run)
+	originalInstances := maps.Clone(instances)
+	originalEdges := maps.Clone(edges)
+	originalVars := maps.Clone(vars)
+	restoreOriginal := func(cause error) error {
+		var restoreErrors []error
+		if err := s.runRepo.SaveInstances(ctx, runID, originalInstances); err != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("restore instances failed: %w", err))
+		}
+		if err := s.runRepo.SaveEdges(ctx, runID, originalEdges); err != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("restore edges failed: %w", err))
+		}
+		if err := s.runRepo.SaveVariables(ctx, runID, originalVars); err != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("restore variables failed: %w", err))
+		}
+		if err := s.runRepo.SaveRun(ctx, originalRun); err != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("restore run failed: %w", err))
+		}
+		if len(restoreErrors) == 0 {
+			return cause
+		}
+		return errors.Join(append([]error{cause}, restoreErrors...)...)
+	}
 
 	cfg := effectiveConfig(run)
 	var loopState map[string]model.GraphLoopState
@@ -238,6 +262,18 @@ func (s *serviceImpl) relaunchResumableRun(ctx context.Context, run *model.Graph
 	}
 	rb := newResumeBuilder(cfg, instances, edges, vars, loopState)
 	rb.resetResettable()
+	releaseAgentLeases, err := validateResumableAgentBindings(
+		ctx,
+		run,
+		rb.instances,
+		rb.archived,
+		rb.resetVersion,
+		runner,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseAgentLeases()
 
 	// Preserve the sessions of instances the reset removed so the Chat sidebar
 	// keeps listing prior-attempt conversations across the resume. A re-run that
@@ -249,15 +285,21 @@ func (s *serviceImpl) relaunchResumableRun(ctx context.Context, run *model.Graph
 		}
 		maps.Copy(run.ArchivedInstances, rb.archived)
 	}
+	if len(rb.resetVersion) > 0 {
+		if run.RetryInstanceVersions == nil {
+			run.RetryInstanceVersions = map[string]int{}
+		}
+		maps.Copy(run.RetryInstanceVersions, rb.resetVersion)
+	}
 
 	if err := s.runRepo.SaveInstances(ctx, runID, rb.instances); err != nil {
-		return nil, err
+		return nil, restoreOriginal(err)
 	}
 	if err := s.runRepo.SaveEdges(ctx, runID, rb.edges); err != nil {
-		return nil, err
+		return nil, restoreOriginal(err)
 	}
 	if err := s.runRepo.SaveVariables(ctx, runID, rb.vars); err != nil {
-		return nil, err
+		return nil, restoreOriginal(err)
 	}
 	// Clear the frozen batch / step flags so a fresh scheduler does not re-freeze.
 	if run.Resume != nil {
@@ -270,11 +312,278 @@ func (s *serviceImpl) relaunchResumableRun(ctx context.Context, run *model.Graph
 	}
 	run.UpdatedAt = time.Now()
 	if err := s.runRepo.SaveRun(ctx, run); err != nil {
-		return nil, err
+		return nil, restoreOriginal(err)
+	}
+	if jobs != nil {
+		if err := jobs.SetGraphRunState(ctx, run.JobID, run.ID, model.JobStatusRunning, run.StartedAt, 0); err != nil {
+			return nil, restoreOriginal(fmt.Errorf("set GraphRun Job state before resume failed: %w", err))
+		}
 	}
 
+	releaseAgentLeases()
+	releaseAgentLeases = func() {}
 	go s.runGraph(context.Background(), runID, runner, jobs, true)
 	return run, nil
+}
+
+func validateResumableAgentBindings(
+	ctx context.Context,
+	run *model.GraphRun,
+	surviving map[string]model.GraphInstanceState,
+	archived map[string]model.GraphInstanceState,
+	retryVersions map[string]int,
+	runner Runner,
+) (func(), error) {
+	releaseAll := func() {}
+	bindingResolver, hasBindingResolver := runner.(AgentBindingLeaseResolver)
+	sessionResolver, hasSessionResolver := runner.(AgentSessionLeaseResolver)
+	legacyResolver, hasLegacyResolver := runner.(LegacyAgentBindingResolver)
+	if !hasBindingResolver && !hasSessionResolver {
+		return releaseAll, nil
+	}
+	cfg := effectiveConfig(run)
+
+	var releases []func()
+	releaseAll = func() {
+		for index := len(releases) - 1; index >= 0; index-- {
+			if releases[index] != nil {
+				releases[index]()
+			}
+		}
+	}
+	validatedBindings := make(map[string]bool)
+	validatedSessions := make(map[string]bool)
+	validateBinding := func(binding *model.AgentRuntimeBinding, nodeID string) error {
+		if binding == nil || validatedBindings[binding.RuntimeKey] || !hasBindingResolver {
+			return nil
+		}
+		release, err := bindingResolver.ValidateAgentBindingWithLease(ctx, *binding)
+		if err != nil {
+			return fmt.Errorf(
+				"Graph node %q AgentID %q revision %q cannot resume: %w",
+				nodeID,
+				binding.AgentID,
+				binding.Revision,
+				err,
+			)
+		}
+		validatedBindings[binding.RuntimeKey] = true
+		releases = append(releases, release)
+		return nil
+	}
+	validateSession := func(sessionID, nodeID string) error {
+		if sessionID == "" || validatedSessions[sessionID] || !hasSessionResolver {
+			return nil
+		}
+		release, err := sessionResolver.ValidateSessionAgentWithLease(ctx, sessionID)
+		if err != nil {
+			return fmt.Errorf("Graph node %q session %q cannot resume: %w", nodeID, sessionID, err)
+		}
+		validatedSessions[sessionID] = true
+		releases = append(releases, release)
+		return nil
+	}
+
+	inheritedSources := possibleInheritedSessionSources(cfg, surviving, retryVersions)
+	for _, state := range surviving {
+		if state.SessionID != "" && inheritedSources[state.NodeID] {
+			if err := validateSession(state.SessionID, state.NodeID); err != nil {
+				releaseAll()
+				return func() {}, err
+			}
+		}
+	}
+	for _, state := range archived {
+		sessionID := firstNonEmpty(state.SessionID, state.DisplaySessionID)
+		if sessionID != "" &&
+			state.NodeType == model.GraphNodeTypePrompt &&
+			state.Status == model.GraphInstanceStatusInterrupted {
+			if err := validateSession(sessionID, state.NodeID); err != nil {
+				releaseAll()
+				return func() {}, err
+			}
+		}
+	}
+	for _, node := range cfg.Nodes {
+		if !isAgent(node.Type) || node.Config.SessionStrategy == model.GraphSessionStrategyInherit {
+			continue
+		}
+		versions := map[int]bool{}
+		for key, version := range retryVersions {
+			if version > 0 && retryInstanceNodeID(key) == node.ID {
+				versions[version] = true
+			}
+		}
+		if shouldValidateCurrentNodeVersion(node, cfg, surviving, retryVersions) {
+			versions[run.CurrentVersion] = true
+		}
+		for version := range versions {
+			binding := agentBindingForNodeVersion(run, node.ID, version)
+			if binding == nil && hasLegacyResolver {
+				legacy, err := legacyResolver.ResolveLegacyAgentBinding(ctx, node.Config.AgentType)
+				if err != nil {
+					releaseAll()
+					return func() {}, fmt.Errorf(
+						"Graph node %q Agent %q cannot resume version %d: %w",
+						node.ID,
+						node.Config.AgentType,
+						version,
+						err,
+					)
+				}
+				binding = legacy
+			}
+			if binding == nil {
+				releaseAll()
+				return func() {}, fmt.Errorf(
+					"Graph node %q Agent %q cannot resume version %d: runtime binding is missing",
+					node.ID,
+					node.Config.AgentType,
+					version,
+				)
+			}
+			if err := validateBinding(binding, node.ID); err != nil {
+				releaseAll()
+				return func() {}, err
+			}
+		}
+	}
+	return releaseAll, nil
+}
+
+func possibleInheritedSessionSources(
+	cfg model.GraphConfig,
+	surviving map[string]model.GraphInstanceState,
+	retryVersions map[string]int,
+) map[string]bool {
+	nodes := make(map[string]model.GraphNode, len(cfg.Nodes))
+	reverse := make(map[string][]string)
+	var pending []string
+	for _, node := range cfg.Nodes {
+		nodes[node.ID] = node
+		if isAgent(node.Type) &&
+			node.Config.SessionStrategy == model.GraphSessionStrategyInherit &&
+			nodeMayExecuteOnResume(node, cfg, surviving, retryVersions) {
+			pending = append(pending, node.ID)
+		}
+	}
+	for _, edge := range cfg.Edges {
+		reverse[edge.TargetNodeID] = append(reverse[edge.TargetNodeID], edge.SourceNodeID)
+	}
+	result := make(map[string]bool)
+	seen := make(map[string]bool)
+	for len(pending) > 0 {
+		nodeID := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if seen[nodeID] {
+			continue
+		}
+		seen[nodeID] = true
+		node := nodes[nodeID]
+		if node.ParentID != "" && node.Type == model.GraphNodeTypeStart {
+			pending = append(pending, node.ParentID)
+		}
+		for _, sourceID := range reverse[nodeID] {
+			result[sourceID] = true
+			pending = append(pending, sourceID)
+		}
+	}
+	return result
+}
+
+func shouldValidateCurrentNodeVersion(
+	node model.GraphNode,
+	cfg model.GraphConfig,
+	surviving map[string]model.GraphInstanceState,
+	retryVersions map[string]int,
+) bool {
+	if !nodeMayExecuteOnResume(node, cfg, surviving, retryVersions) {
+		return false
+	}
+	return node.ParentID != "" || !nodeHasRetryVersion(node.ID, retryVersions)
+}
+
+func nodeMayExecuteOnResume(
+	node model.GraphNode,
+	cfg model.GraphConfig,
+	surviving map[string]model.GraphInstanceState,
+	retryVersions map[string]int,
+) bool {
+	hasRetry := nodeHasRetryVersion(node.ID, retryVersions)
+	if node.ParentID == "" {
+		if hasRetry {
+			return true
+		}
+		for _, state := range surviving {
+			if state.NodeID == node.ID {
+				return false
+			}
+		}
+		return true
+	}
+	nodes := make(map[string]model.GraphNode, len(cfg.Nodes))
+	for _, candidate := range cfg.Nodes {
+		nodes[candidate.ID] = candidate
+	}
+	for parentID := node.ParentID; parentID != ""; parentID = nodes[parentID].ParentID {
+		completed := false
+		for _, state := range surviving {
+			if state.NodeID == parentID &&
+				(state.Status == model.GraphInstanceStatusSucceeded ||
+					state.Status == model.GraphInstanceStatusSkipped) {
+				completed = true
+				break
+			}
+		}
+		if !completed {
+			return true
+		}
+	}
+	return false
+}
+
+func nodeHasRetryVersion(nodeID string, retryVersions map[string]int) bool {
+	for key := range retryVersions {
+		if retryInstanceNodeID(key) == nodeID {
+			return true
+		}
+	}
+	return false
+}
+
+func retryInstanceNodeID(key string) string {
+	if slash := strings.LastIndex(key, "/"); slash >= 0 {
+		return key[slash+1:]
+	}
+	return key
+}
+
+func agentBindingForNodeVersion(run *model.GraphRun, nodeID string, targetVersion int) *model.AgentRuntimeBinding {
+	if run == nil {
+		return nil
+	}
+	for _, candidate := range run.Versions {
+		if candidate.Version != targetVersion {
+			continue
+		}
+		if binding := bindingFromGraphSnapshot(candidate.AgentSnapshots[nodeID]); binding != nil {
+			return binding
+		}
+	}
+	return bindingFromGraphSnapshot(run.BaseSnapshot.AgentSnapshots[nodeID])
+}
+
+func bindingFromGraphSnapshot(snapshot model.GraphAgentSnapshot) *model.AgentRuntimeBinding {
+	if snapshot.AgentID == "" || snapshot.Revision == "" ||
+		snapshot.RuntimeKey == "" || snapshot.Definition.ACPProgram == "" {
+		return nil
+	}
+	return &model.AgentRuntimeBinding{
+		AgentID:    snapshot.AgentID,
+		Revision:   snapshot.Revision,
+		RuntimeKey: snapshot.RuntimeKey,
+		Definition: snapshot.Definition,
+	}
 }
 
 // DeleteRun deletes a non-in-flight GraphRun and clears the bound Job linkage.

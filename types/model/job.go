@@ -58,13 +58,14 @@ type Job struct {
 	CreatedAt time.Time `json:"createdAt"`
 
 	// --- Handler-owned ---
-	Title      string    `json:"title"`
-	UpdatedAt  time.Time `json:"updatedAt"`
-	Deleted    bool      `json:"deleted,omitempty"`
-	PinnedAt   int64     `json:"pinnedAt,omitempty"` // unix ms; 0 means not pinned
-	Mode       JobMode   `json:"mode"`
-	Workdir    string    `json:"workdir,omitempty"`
-	ShareToken string    `json:"shareToken,omitempty"`
+	Title                string    `json:"title"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+	Deleted              bool      `json:"deleted,omitempty"`
+	PinnedAt             int64     `json:"pinnedAt,omitempty"` // unix ms; 0 means not pinned
+	Mode                 JobMode   `json:"mode"`
+	Workdir              string    `json:"workdir,omitempty"`
+	ShareToken           string    `json:"shareToken,omitempty"`
+	TitleGenerationError string    `json:"titleGenerationError,omitempty"`
 
 	// --- Immutable after creation ---
 	WorkspaceID    string `json:"workspaceId"`
@@ -160,6 +161,7 @@ type FlowNode struct {
 // Zero/empty values mean "use job-level defaults".
 type SessionOverrides struct {
 	AgentType       string
+	AgentBinding    *AgentRuntimeBinding
 	ModelID         string
 	ACPMode         string
 	ACPThoughtLevel string

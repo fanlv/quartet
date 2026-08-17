@@ -12,6 +12,7 @@ import type {
   GraphSessionStrategy,
 } from '../../types/graph';
 import { kindOf, labelOf } from './nodes/kinds';
+import { useAgentDisplay } from '../../utils/agentDisplay';
 import { ConditionBuilder } from './ConditionBuilder';
 import { DirPicker } from '../DirPicker';
 import './GraphInspector.css';
@@ -190,6 +191,20 @@ export function GraphInspector({
   const selectedAgent = node?.config?.agentType
     ? agents.find((a) => a.type === node.config?.agentType)
     : undefined;
+  // A node referencing an Agent that left the current list (deleted custom
+  // Agent, renamed/legacy identifier) resolves its display info from the
+  // retained catalog records so the selector still shows a meaningful name
+  // instead of a blank value. GraphInspector only renders in private pages,
+  // so the resolve endpoint is always reachable here.
+  const unresolvedAgentType = node?.config?.agentType && !selectedAgent ? node.config.agentType : null;
+  const unresolvedAgentDisplay = useAgentDisplay(unresolvedAgentType, true);
+  const unresolvedAgentLabel = unresolvedAgentDisplay
+    ? unresolvedAgentDisplay.deleted
+      ? t('chat.agentDeletedName', { name: unresolvedAgentDisplay.displayName })
+      : unresolvedAgentDisplay.displayName
+    : unresolvedAgentDisplay === null
+      ? t('chat.unknownAgent')
+      : unresolvedAgentType || '';
   const availableModels = selectedAgent?.models?.availableModels || [];
   const availableModes = selectedAgent?.modes?.availableModes || [];
 
@@ -729,6 +744,9 @@ export function GraphInspector({
                   {a.display_name}
                 </option>
               ))}
+              {unresolvedAgentType && (
+                <option value={unresolvedAgentType}>{unresolvedAgentLabel}</option>
+              )}
             </select>
           </div>
           {availableModels.length > 0 && (

@@ -13,19 +13,25 @@ import (
 	"github.com/fanlv/quartet/einocli/runtime"
 )
 
-// RunHeadlessPrint runs a single one-shot prompt against the default model
-// (first catalog entry) and writes the assistant's text to stdout. It powers
-// quartet's headless CLI path (`eino-cli -p <prompt>`) used by one-shot text
-// flows like job-title generation and IM auto-reply: same agent runtime, no
-// ACP transport, and no persisted session (history lands in a temp dir that
-// is removed on exit).
-func RunHeadlessPrint(ctx context.Context, prompt string, stdout io.Writer) error {
+// RunHeadlessPrint runs a single one-shot prompt and writes the assistant's
+// text to stdout. It powers quartet's headless CLI path (`eino-cli -p <prompt>`)
+// used by one-shot text flows like job-title generation and IM auto-reply:
+// same agent runtime, no ACP transport, and no persisted session (history lands
+// in a temp dir that is removed on exit).
+//
+// modelID selects the catalog model; an empty modelID falls back to the default
+// (first catalog entry). thought overrides the model's thinking_type when
+// non-empty (auto|enable|disable), matching the ACP thought_level selector.
+func RunHeadlessPrint(ctx context.Context, prompt, modelID, thought string, stdout io.Writer) error {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return fmt.Errorf("empty prompt")
 	}
 
-	modelID := defaultModelID()
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		modelID = defaultModelID()
+	}
 	if modelID == "" {
 		return fmt.Errorf("no model configured; run `eino-cli models add` first")
 	}
@@ -48,7 +54,7 @@ func RunHeadlessPrint(ctx context.Context, prompt string, stdout io.Writer) erro
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	rt, err := runtime.New(ctx, cwd, m.ToModelConfig(""),
+	rt, err := runtime.New(ctx, cwd, m.ToModelConfig(thought),
 		runtime.WithSessionID("headless-print"),
 		runtime.WithSessionDir(dir),
 		runtime.WithSystemPrompt(systemPrompt),

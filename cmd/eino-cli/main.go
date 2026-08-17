@@ -25,7 +25,9 @@ const usageText = `usage: eino-cli <command> [args]
 
 commands:
   acp                                       serve ACP over stdio (blocks)
-  -p <prompt>                               headless one-shot print: run one prompt against the default model, print the reply text
+  -p <prompt> [--model <id>] [--thought <auto|enable|disable>]
+                                            headless one-shot print: run one prompt and print the reply text
+                                            (--model defaults to the first catalog model; --thought overrides thinking_type)
   models list                               list configured models (API keys masked)
   models add [--json '<json>']              add/update a model; reads JSON from stdin without --json
   models delete [--id <id> | <id>]          delete a model
@@ -89,13 +91,15 @@ func runACP(args []string) error {
 func runPrint(args []string) error {
 	fs := flag.NewFlagSet("print", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	modelFlag := fs.String("model", "", "catalog model id (defaults to the first configured model)")
+	thoughtFlag := fs.String("thought", "", "thinking override: auto|enable|disable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
 		return fmt.Errorf("-p requires exactly one positional <prompt>")
 	}
-	return app.RunHeadlessPrint(context.Background(), fs.Arg(0), os.Stdout)
+	return app.RunHeadlessPrint(context.Background(), fs.Arg(0), *modelFlag, *thoughtFlag, os.Stdout)
 }
 
 func runModels(args []string) error {

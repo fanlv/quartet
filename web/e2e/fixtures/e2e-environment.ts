@@ -254,8 +254,10 @@ function seedAgentConfig(localMemory: string, einoHome: string) {
     ]
     fs.mkdirSync(einoHome, { recursive: true })
     fs.writeFileSync(path.join(einoHome, 'models.json'), `${JSON.stringify(models, null, 2)}\n`, { mode: 0o600 })
-    settings.title_agent = { agent_type: e2eAgentType, model_id: e2eModelID }
-    settings.message_agent = { agent_type: e2eAgentType, model_id: e2eModelID }
+    settings.agent_role_settings_version = 1
+    settings.title_generation_agent = { agent_id: 'eino-cli' }
+    settings.group_reply_agent = { agent_id: 'eino-cli' }
+    settings.im_session_agent = { agent_id: 'eino-cli', model_id: e2eModelID }
   }
 
   fs.writeFileSync(path.join(localMemory, 'quartet', 'data', 'settings.json'), `${JSON.stringify(settings, null, 2)}\n`)
@@ -489,6 +491,8 @@ async function globalSetup() {
       logDir,
     })
     processes.push(backend)
+    // ACP discovery refreshes asynchronously, so an empty isolated cache must
+    // not delay backend health readiness.
     await waitForHTTP(`${backendURL}/api/v1/health`, 30_000, processes)
 
     const frontend = startProcess({

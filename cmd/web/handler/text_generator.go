@@ -12,46 +12,96 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
-	"github.com/fanlv/quartet/services/agent/probe"
+	"github.com/fanlv/quartet/types/model"
 )
 
 // generateText runs the configured agent's headless CLI over the supplied
 // messages and returns the resulting text. It powers one-shot generation flows
 // like job-title summarisation and IM auto-replies, where the caller wants a
 // single string back rather than a streaming session.
-func (h *Handler) generateText(ctx context.Context, agentType, modelID string, messages []*schema.Message) (string, error) {
-	logger.Debugf(ctx, "[generateText] enter: agentType=%s modelID=%s msgCount=%d", agentType, modelID, len(messages))
+//
+// modelID/thoughtLevel are eino-cli specific overrides plumbed from the role
+// config: they are forwarded as `--model`/`--thought` only when the resolved
+// binary is eino-cli, so other headless CLIs (which don't accept those flags)
+// keep their existing invocation.
+func (h *Handler) generateText(ctx context.Context, agentID, modelID, thoughtLevel string, messages []*schema.Message) (string, error) {
+	logger.Debugf(ctx, "[generateText] enter: agentId=%s msgCount=%d", agentID, len(messages))
 
-	// Resolve the headless one-shot binary. agentType is the ACP *serve*
-	// command (e.g. "gemini --acp"); it cannot be exec'd with "-p <prompt>"
-	// because that boots the ACP JSON-RPC server instead of running a one-shot.
-	// KnownACPAgents records the matching plain CLI bin.
-	bin, ok := probe.HeadlessBin(agentType)
-	if !ok {
-		// Unknown / custom command: fall back to its first token as the bin
-		// so user-supplied CLIs that support `-p` still work, but log loudly
-		// since this is not a recognised ACP agent.
-		fields := strings.Fields(agentType)
-		if len(fields) == 0 {
-			return "", fmt.Errorf("invalid agentType: %q (empty after trim)", agentType)
-		}
-		bin = fields[0]
-		logger.Warnf(ctx, "[generateText] unknown agentType %q, falling back to headless bin=%s -p", agentType, bin)
-	} else {
-		logger.Debugf(ctx, "[generateText] routing to headless CLI: agentType=%q bin=%s", agentType, bin)
+	resolved, found, err := h.agentCatalog.Resolve(ctx, agentID)
+	if err != nil {
+		return "", fmt.Errorf("resolve one-shot AgentID %q failed: %w", agentID, err)
 	}
-	return generateTextWithCLI(ctx, messages, bin)
+	if !found {
+		return "", fmt.Errorf("resolve one-shot AgentID %q failed: Agent does not exist", agentID)
+	}
+	if resolved.Deprecated {
+		return "", fmt.Errorf("one-shot AgentID %q is deprecated", resolved.AgentID)
+	}
+	if resolved.Lifecycle != "active" {
+		return "", fmt.Errorf("one-shot AgentID %q lifecycle is %q, want active", resolved.AgentID, resolved.Lifecycle)
+	}
+	if !resolved.SupportsHeadlessPrint {
+		return "", fmt.Errorf("one-shot AgentID %q does not declare bin -p prompt support", resolved.AgentID)
+	}
+	binding := model.AgentRuntimeBinding{
+		AgentID:    resolved.AgentID,
+		Revision:   resolved.Revision,
+		RuntimeKey: resolved.RuntimeKey,
+		Definition: resolved.Definition,
+	}
+	releaseExecution, ok := h.agentExecutions.acquireExecution(binding.AgentID)
+	if !ok {
+		return "", fmt.Errorf("one-shot AgentID %q cannot execute: Agent deletion is in progress", binding.AgentID)
+	}
+	defer releaseExecution()
+	if err := h.ensureBindingAvailable(ctx, binding); err != nil {
+		return "", err
+	}
+	// --model/--thought are eino-cli's headless flags; only forward them when the
+	// resolved binary is eino-cli. Other CLIs get the plain `bin -p prompt` form.
+	if resolved.Bin != einoHeadlessBin {
+		modelID, thoughtLevel = "", ""
+	}
+	logger.Debugf(ctx, "[generateText] routing to headless CLI: agentId=%q bin=%s modelId=%q thought=%q", resolved.AgentID, resolved.Bin, modelID, thoughtLevel)
+	return generateTextWithCLI(ctx, messages, resolved.Bin, modelID, thoughtLevel, h.settingsService.GetACPEnvVars(resolved.AgentID))
 }
+
+// einoHeadlessBin is the binary name whose `-p` headless mode accepts the
+// --model/--thought flags (see cmd/eino-cli/main.go runPrint).
+const einoHeadlessBin = "eino-cli"
 
 // generateTextWithCLI executes an external CLI agent in headless print mode
 // to generate text. bin is the agent's plain CLI binary (e.g. "gemini",
 // "claude"); the prompt is passed via "-p". This is intentionally NOT the
 // agent's ACP serve command, which speaks JSON-RPC over stdio and would
 // exit non-zero if invoked this way.
-func generateTextWithCLI(ctx context.Context, messages []*schema.Message, bin string) (string, error) {
+//
+// modelID/thoughtLevel, when non-empty, are appended as --model/--thought
+// BEFORE the positional prompt (Go's flag parser stops at the first
+// positional). Callers must only pass them for binaries that accept them.
+func generateTextWithCLI(ctx context.Context, messages []*schema.Message, bin, modelID, thoughtLevel string, configuredEnv map[string]string) (string, error) {
 	prompt := messagesToPrompt(messages)
-	cmd := exec.CommandContext(ctx, bin, "-p", prompt)
+	args := []string{"-p"}
+	if modelID != "" {
+		args = append(args, "--model", modelID)
+	}
+	if thoughtLevel != "" {
+		args = append(args, "--thought", thoughtLevel)
+	}
+	args = append(args, prompt)
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = os.Environ()
+	for key, value := range configuredEnv {
+		prefix := key + "="
+		filtered := cmd.Env[:0]
+		for _, entry := range cmd.Env {
+			if !strings.HasPrefix(entry, prefix) {
+				filtered = append(filtered, entry)
+			}
+		}
+		cmd.Env = filtered
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 
 	logger.Infof(ctx, "[cliGenerate] generating: bin=%s promptLen=%d", bin, len(prompt))
 
@@ -71,14 +121,8 @@ func generateTextWithCLI(ctx context.Context, messages []*schema.Message, bin st
 		elapsed := time.Since(start).Round(time.Millisecond)
 		stderrOut := strings.TrimSpace(stripAnsiRaw(stderr.String()))
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			// Include stderr tail so operators can see whether the CLI was
-			// stuck during init, model call, or something else entirely.
-			hint := stderrOut
-			if len(hint) > 512 {
-				hint = hint[len(hint)-512:]
-			}
-			if hint != "" {
-				return "", fmt.Errorf("run %q aborted after %s: %w (stderr tail: %s)", bin, elapsed, ctxErr, hint)
+			if stderrOut != "" {
+				return "", fmt.Errorf("run %q aborted after %s: %w (stderr: %s)", bin, elapsed, ctxErr, stderrOut)
 			}
 			return "", fmt.Errorf("run %q aborted after %s: %w", bin, elapsed, ctxErr)
 		}

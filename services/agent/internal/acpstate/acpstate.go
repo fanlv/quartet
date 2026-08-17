@@ -29,7 +29,24 @@ func Models(resp *pkgacp.SessionResponse) *model.SessionModelState {
 			Name:        o.Name,
 		})
 	}
+	normalizeCurrentModel(ms)
 	return ms
+}
+
+func normalizeCurrentModel(ms *model.SessionModelState) {
+	if ms == nil {
+		return
+	}
+	if len(ms.AvailableModels) == 0 {
+		ms.CurrentModelId = ""
+		return
+	}
+	for _, available := range ms.AvailableModels {
+		if available.ModelId == ms.CurrentModelId {
+			return
+		}
+	}
+	ms.CurrentModelId = ms.AvailableModels[0].ModelId
 }
 
 // Modes extracts the mode selector list from an ACP session response. It

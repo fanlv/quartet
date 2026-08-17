@@ -94,6 +94,7 @@
 
 .graph-minimap {
   background: var(--graph-panel) !important;
+  pointer-events: none;
 }
 
 .graph-connect-bar {

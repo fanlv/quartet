@@ -749,7 +749,7 @@ function CanvasInner({
         >
           <Background gap={18} color="#2d3643" />
           <Controls showInteractive={false} />
-          {showMiniMap && <MiniMap pannable zoomable className="graph-minimap" />}
+          {showMiniMap && <MiniMap className="graph-minimap" />}
         </ReactFlow>
       </div>
     </div>

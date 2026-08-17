@@ -1,0 +1,506 @@
+.agent-install {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-directory-toolbar,
+.agent-directory-title,
+.agent-directory-meta,
+.agent-directory-actions {
+  display: flex;
+  align-items: center;
+}
+
+.agent-directory-toolbar {
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.agent-directory-list {
+  border-top: 1px solid #e5e5e5;
+}
+
+.agent-directory-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.agent-directory-main {
+  min-width: 0;
+}
+
+.agent-directory-title {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.agent-directory-title code,
+.agent-directory-meta {
+  color: #777;
+  font-size: 11px;
+}
+
+.agent-directory-meta {
+  gap: 10px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.agent-directory-error {
+  margin: 6px 0 0;
+  color: #b42318;
+  font: inherit;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-directory-revisions {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #666;
+}
+
+.agent-directory-revisions summary {
+  cursor: pointer;
+}
+
+.agent-directory-revision {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.agent-directory-revision code {
+  padding: 1px 5px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+.agent-directory-actions {
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.agent-custom-form {
+  padding-top: 12px;
+  border-top: 1px solid #e5e5e5;
+}
+
+.agent-custom-checkbox {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .agent-directory-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .agent-directory-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+.agent-install-desc {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.5;
+}
+
+.agent-install-loading,
+.agent-install-empty {
+  padding: 24px 0;
+  text-align: center;
+  color: #888;
+  font-size: 13px;
+}
+
+.agent-install-load-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  font-size: 13px;
+  color: #c00;
+  background: #fff5f5;
+  border: 1px solid #f5c2c2;
+  border-radius: 8px;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.agent-install-retry {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.agent-install-card {
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+}
+
+.agent-install-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-install-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.agent-install-icon-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.agent-install-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-install-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #222;
+}
+
+.agent-install-method {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f0f0f0;
+  color: #555;
+  white-space: nowrap;
+}
+
+.agent-install-method.method-npm {
+  background: #e8f0fe;
+  color: #1a56db;
+}
+
+.agent-install-method.method-script {
+  background: #e6f7ee;
+  color: #18794e;
+}
+
+.agent-install-method.method-manual {
+  background: #fdf0e5;
+  color: #b45309;
+}
+
+.agent-install-btn {
+  flex-shrink: 0;
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #0066ff;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.agent-install-btn:hover:not(:disabled) {
+  background: #0052cc;
+}
+
+.agent-install-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.agent-install-card-body {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-install-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.agent-install-label {
+  flex-shrink: 0;
+  width: 96px;
+  color: #888;
+}
+
+.agent-install-row code {
+  font-size: 12px;
+  color: #333;
+  background: #f6f6f6;
+  padding: 1px 6px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+.agent-install-commands {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agent-install-instructions {
+  font-size: 12px;
+  color: #555;
+  line-height: 1.6;
+  background: #fafafa;
+  border: 1px dashed #e0e0e0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+}
+
+.agent-install-request-error {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #c00;
+  background: #fff5f5;
+  border: 1px solid #f5c2c2;
+  border-radius: 6px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.agent-install-result {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  border: 1px solid;
+}
+
+.agent-install-result.success {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.agent-install-result.failure {
+  background: #fff5f5;
+  border-color: #f5c2c2;
+  color: #b91c1c;
+}
+
+.agent-install-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.agent-install-result-dismiss {
+  border: none;
+  background: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+  padding: 0 4px;
+}
+
+.agent-install-result-dismiss:hover {
+  opacity: 1;
+}
+
+.agent-install-result-details {
+  margin-top: 6px;
+  font-weight: 400;
+  color: #444;
+}
+
+.agent-install-result-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #666;
+  user-select: none;
+}
+
+.agent-install-step {
+  margin-top: 8px;
+}
+
+.agent-install-step-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.agent-install-step-title code {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 6px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+.agent-install-step-meta {
+  color: #888;
+  font-size: 11px;
+}
+
+.agent-install-output {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.agent-install-output.error {
+  background: #2d1b1b;
+  color: #f0a8a8;
+}
+
+/* Unified card list */
+.agent-install-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-install-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.agent-install-method.method-custom {
+  background: #f0edfe;
+  color: #6d28d9;
+}
+
+.agent-install-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: #888;
+}
+
+.agent-install-rev {
+  font-size: 11px;
+  color: #666;
+  background: #f6f6f6;
+  padding: 1px 6px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+.agent-status {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f0f0f0;
+  color: #555;
+  white-space: nowrap;
+}
+
+.agent-status.agent-status-available {
+  background: #e6f7ee;
+  color: #18794e;
+}
+
+.agent-status.agent-status-not_installed {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.agent-status.agent-status-unavailable,
+.agent-status.agent-status-deprecated {
+  background: #fdeaea;
+  color: #b42318;
+}
+
+.agent-status.agent-status-pending_validation,
+.agent-status.agent-status-validating,
+.agent-status.agent-status-deleting {
+  background: #fdf0e5;
+  color: #b45309;
+}
+
+.agent-status.agent-status-deleted {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+/* Add/edit custom agent modal */
+.agent-custom-form-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.agent-custom-form-modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow: auto;
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px 20px 20px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+.agent-custom-form-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+
+.agent-custom-form-modal .agent-custom-form {
+  border-top: none;
+  padding-top: 8px;
+}

@@ -141,6 +141,79 @@ func TestUpdateRunVersionInFlightAppliesToFutureNode(t *testing.T) {
 	}
 }
 
+func TestUpdateRunVersionKeepsAlreadyQueuedLoopInstanceVersion(t *testing.T) {
+	uniqueMemoryRoot(t)
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	cfg := model.GraphConfig{
+		Workdir: t.TempDir(),
+		RunConfig: model.GraphRunConfig{
+			ConcurrencyLimit: 1,
+		},
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			{
+				ID: "loop", Type: model.GraphNodeTypeLoop,
+				Config: model.GraphNodeConfig{LoopMode: model.GraphLoopModeFixed, FixedCount: 1},
+			},
+			{ID: "ls", ParentID: "loop", Type: model.GraphNodeTypeStart},
+			{
+				ID: "a", ParentID: "loop", Type: model.GraphNodeTypePrompt,
+				Config: model.GraphNodeConfig{Prompt: "do a", AgentType: "tester"},
+			},
+			{
+				ID: "b", ParentID: "loop", Type: model.GraphNodeTypePrompt,
+				Config: model.GraphNodeConfig{Prompt: "do b", AgentType: "tester"},
+			},
+			{ID: "le", ParentID: "loop", Type: model.GraphNodeTypeEnd},
+			node("e", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{
+			edge("s_loop", "s", "loop"),
+			{ID: "ls_a", SourceNodeID: "ls", TargetNodeID: "a"},
+			{ID: "ls_b", SourceNodeID: "ls", TargetNodeID: "b"},
+			{ID: "a_le", SourceNodeID: "a", TargetNodeID: "le"},
+			{ID: "b_le", SourceNodeID: "b", TargetNodeID: "le"},
+			edge("loop_e", "loop", "e"),
+		},
+	}
+	runner := newRecordingPromptRunner()
+	releaseA := runner.blockOn("do a")
+	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-loop-ready", Config: &cfg}, runner, nil)
+	if err != nil {
+		t.Fatalf("StartRun failed: %v", err)
+	}
+	waitRunningCount(t, svc, run.ID, 2)
+
+	edited := setPrompt(cfg, "b", "do b v2")
+	updated, err := svc.UpdateRunVersion(
+		context.Background(),
+		run.ID,
+		&model.UpdateGraphRunVersionRequest{Config: edited, Reason: "edit queued loop node"},
+		stubGraphRunner{},
+	)
+	if err != nil {
+		t.Fatalf("UpdateRunVersion failed: %v", err)
+	}
+	if updated.CurrentVersion != 2 {
+		t.Fatalf("current version = %d, want 2", updated.CurrentVersion)
+	}
+	close(releaseA)
+	got := waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusCompleted)
+	bInst, ok := instByNode(got, "b")
+	if !ok {
+		t.Fatalf("missing loop instance for b")
+	}
+	if bInst.Version != 1 {
+		t.Fatalf("already queued loop instance b switched to version %d, want 1", bInst.Version)
+	}
+	if !runner.sawContent("do b") || runner.sawContent("do b v2") {
+		t.Fatalf("already queued b must use v1 prompt; seen=%v", runner.seen)
+	}
+}
+
 func TestUpdateRunVersionInFlightVariablesApplyToFutureNode(t *testing.T) {
 	uniqueMemoryRoot(t)
 	svc, err := NewService()

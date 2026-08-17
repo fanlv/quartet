@@ -1,14 +1,24 @@
 package acp
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 )
+
+type RuntimeDefinition struct {
+	Program     string
+	Args        []string
+	EnvKey      string
+	Env         []EnvVar
+	OverrideEnv bool
+}
 
 // allowedAgentCommands is the set of allowed ACP agent commands.
 // Populated at startup via RegisterAllowedAgentCommands.
 var (
 	allowedAgentCommands   = make(map[string]bool)
+	allowedAgentRuntimes   = make(map[string]RuntimeDefinition)
 	allowedAgentCommandsMu sync.RWMutex
 )
 
@@ -20,6 +30,44 @@ func RegisterAllowedAgentCommands(commands []string) {
 	for _, cmd := range commands {
 		allowedAgentCommands[cmd] = true
 	}
+}
+
+func RegisterAgentRuntime(key string, definition RuntimeDefinition) error {
+	key = strings.TrimSpace(key)
+	definition.Program = strings.TrimSpace(definition.Program)
+	if key == "" || definition.Program == "" {
+		return fmt.Errorf("register ACP runtime failed: key and program are required")
+	}
+	allowedAgentCommandsMu.Lock()
+	allowedAgentRuntimes[key] = RuntimeDefinition{
+		Program:     definition.Program,
+		Args:        append([]string(nil), definition.Args...),
+		EnvKey:      definition.EnvKey,
+		Env:         append([]EnvVar(nil), definition.Env...),
+		OverrideEnv: definition.OverrideEnv,
+	}
+	allowedAgentCommands[key] = true
+	allowedAgentCommandsMu.Unlock()
+	return nil
+}
+
+func UnregisterAgentRuntime(key string) {
+	allowedAgentCommandsMu.Lock()
+	delete(allowedAgentRuntimes, key)
+	delete(allowedAgentCommands, key)
+	allowedAgentCommandsMu.Unlock()
+}
+
+func AgentRuntime(key string) (RuntimeDefinition, bool) {
+	allowedAgentCommandsMu.RLock()
+	defer allowedAgentCommandsMu.RUnlock()
+	definition, ok := allowedAgentRuntimes[key]
+	if !ok {
+		return RuntimeDefinition{}, false
+	}
+	definition.Args = append([]string(nil), definition.Args...)
+	definition.Env = append([]EnvVar(nil), definition.Env...)
+	return definition, true
 }
 
 // IsAllowedAgentCommand checks whether the given agentType is in the whitelist.
@@ -40,9 +88,10 @@ func AllowedAgentCommands() []string {
 	return cmds
 }
 
-// orphanCleanupKeywords returns distinctive tokens from registered commands
-// (skipping generic ones like "npx" / "node") so the orphan-cleanup scanner
-// can match against /proc/<pid>/cmdline.
+// orphanCleanupKeywords returns distinctive tokens from registered runtime
+// programs/args and compatibility commands so the orphan-cleanup scanner can
+// match against /proc/<pid>/cmdline even when execution is allowed only through
+// a stable runtime key.
 func orphanCleanupKeywords() map[string]bool {
 	// genericTokens are argv tokens that are too common across ACP agents or
 	// unrelated system processes to safely identify a Quartet-owned subprocess.
@@ -58,11 +107,22 @@ func orphanCleanupKeywords() map[string]bool {
 	defer allowedAgentCommandsMu.RUnlock()
 
 	keywords := make(map[string]bool)
-	for cmd := range allowedAgentCommands {
-		for _, token := range strings.Fields(cmd) {
-			if !genericTokens[token] {
-				keywords[token] = true
+	addTokens := func(values ...string) {
+		for _, value := range values {
+			for _, token := range strings.Fields(value) {
+				if !genericTokens[token] {
+					keywords[token] = true
+				}
 			}
+		}
+	}
+	for cmd := range allowedAgentCommands {
+		addTokens(cmd)
+	}
+	for _, runtimeDefinition := range allowedAgentRuntimes {
+		addTokens(runtimeDefinition.Program)
+		for _, arg := range runtimeDefinition.Args {
+			addTokens(arg)
 		}
 	}
 	return keywords

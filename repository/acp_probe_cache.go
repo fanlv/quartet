@@ -52,7 +52,12 @@ func (r *fileACPProbeCacheRepo) Load(ctx context.Context) (*model.ACPProbeCacheS
 		return nil, fmt.Errorf("unmarshal ACP probe cache %q failed: %w", r.filePath, err)
 	}
 	if snapshot.Version != model.ACPProbeCacheVersion {
-		return nil, fmt.Errorf("unsupported ACP probe cache version in %q: got=%d want=%d", r.filePath, snapshot.Version, model.ACPProbeCacheVersion)
+		// Probe cache is disposable. A schema change must not prevent quartet
+		// from starting; old command-keyed entries are intentionally rebuilt.
+		return &model.ACPProbeCacheSnapshot{
+			Version: model.ACPProbeCacheVersion,
+			Entries: make(map[string]model.ACPProbeCacheEntry),
+		}, nil
 	}
 	if snapshot.Entries == nil {
 		snapshot.Entries = make(map[string]model.ACPProbeCacheEntry)

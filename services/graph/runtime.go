@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,7 +83,11 @@ func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequ
 		return nil, fmt.Errorf("jobId is required")
 	}
 	now := time.Now()
-	models, agents := buildSnapshotContent(ctx, cfg, runner)
+	models, agents, releaseAgentLeases, err := buildSnapshotContent(ctx, cfg, runner, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseAgentLeases()
 	run := &model.GraphRun{
 		ID:          model.NewGraphRunID(),
 		WorkflowID:  "",
@@ -269,6 +274,9 @@ func (s *serviceImpl) ListReplayEvents(ctx context.Context, runID string, startL
 func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGraphRunRequest) (*model.GraphWorkflow, model.GraphConfig, error) {
 	if req.Config != nil {
 		cfg := cloneGraphConfig(*req.Config)
+		if _, err := s.normalizeWorkflowAgentReferences(ctx, &cfg); err != nil {
+			return nil, model.GraphConfig{}, err
+		}
 		cfg.WorkspaceID = firstNonEmpty(req.WorkspaceID, cfg.WorkspaceID)
 		cfg.Workdir = firstNonEmpty(req.Workdir, cfg.Workdir)
 		// The frontend launches a saved workflow by sending BOTH its workflowId
@@ -278,7 +286,7 @@ func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGr
 		// supplied it is part of the contract; a deleted/corrupt workflow must be
 		// surfaced instead of silently creating an untraceable ad-hoc run.
 		if id := strings.TrimSpace(req.WorkflowID); id != "" {
-			wf, err := s.repo.Get(ctx, id)
+			wf, err := s.GetWorkflow(ctx, id)
 			if errors.Is(err, os.ErrNotExist) {
 				return nil, model.GraphConfig{}, ErrWorkflowNotFound
 			}
@@ -302,7 +310,7 @@ func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGr
 	if strings.TrimSpace(req.WorkflowID) == "" {
 		return nil, model.GraphConfig{}, fmt.Errorf("%w: workflowId or config is required", ErrWorkflowBadRequest)
 	}
-	wf, err := s.repo.Get(ctx, req.WorkflowID)
+	wf, err := s.GetWorkflow(ctx, req.WorkflowID)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, model.GraphConfig{}, ErrWorkflowNotFound
 	}
@@ -370,6 +378,22 @@ type nodeOutcome struct {
 // session visibility) instead of only after the agent replies. It is nil-safe
 // and unused by Shell nodes (their display session is minted at enqueue time).
 func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, key model.GraphInstanceKey, vars map[string]string, disabled map[string]struct{}, runner Runner, inflowSession string, loopVars map[string]string, notify func(sessionID string)) (nodeOutcome, error) {
+	agentBinding := agentBindingForVersion(run, key, node.ID)
+	if agentBinding == nil && isAgent(node.Type) &&
+		node.Config.SessionStrategy != model.GraphSessionStrategyInherit {
+		if resolver, ok := runner.(LegacyAgentBindingResolver); ok {
+			var err error
+			agentBinding, err = resolver.ResolveLegacyAgentBinding(ctx, node.Config.AgentType)
+			if err != nil {
+				return nodeOutcome{}, fmt.Errorf(
+					"Graph node %q cannot restore Agent %q: %w",
+					node.ID,
+					node.Config.AgentType,
+					err,
+				)
+			}
+		}
+	}
 	switch node.Type {
 	case model.GraphNodeTypeShell:
 		return s.runShellWithRetries(ctx, run, node, vars, disabled, loopVars)
@@ -379,6 +403,7 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 		prompt = substituteVariables(prompt, mergeLoopVars(vars, loopVars), disabled)
 		overrides := &model.SessionOverrides{
 			AgentType:       node.Config.AgentType,
+			AgentBinding:    agentBinding,
 			ModelID:         node.Config.ModelID,
 			ACPMode:         node.Config.ACPMode,
 			ACPThoughtLevel: node.Config.ACPThoughtLevel,
@@ -452,6 +477,7 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 func (s *serviceImpl) executeClarifyNode(ctx context.Context, run *model.GraphRun, node model.GraphNode, key model.GraphInstanceKey, vars map[string]string, disabled map[string]struct{}, runner Runner, inflowSession string, loopVars map[string]string, notify func(sessionID string)) (nodeOutcome, error) {
 	overrides := &model.SessionOverrides{
 		AgentType:       node.Config.AgentType,
+		AgentBinding:    agentBindingForVersion(run, key, node.ID),
 		ModelID:         node.Config.ModelID,
 		ACPMode:         node.Config.ACPMode,
 		ACPThoughtLevel: node.Config.ACPThoughtLevel,
@@ -500,6 +526,55 @@ func (s *serviceImpl) executeClarifyNode(ctx context.Context, run *model.GraphRu
 		produced = parsed.Variables
 	}
 	return nodeOutcome{output: output, produced: produced, sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, nil
+}
+
+func agentBindingForVersion(run *model.GraphRun, key model.GraphInstanceKey, nodeID string) *model.AgentRuntimeBinding {
+	if run == nil {
+		return nil
+	}
+	version := executionVersionForInstance(run, key)
+	for _, candidate := range run.Versions {
+		if candidate.Version != version {
+			continue
+		}
+		snapshot, ok := candidate.AgentSnapshots[nodeID]
+		if !ok || snapshot.AgentID == "" || snapshot.Revision == "" ||
+			snapshot.RuntimeKey == "" || snapshot.Definition.ACPProgram == "" {
+			return nil
+		}
+		return &model.AgentRuntimeBinding{
+			AgentID:    snapshot.AgentID,
+			Revision:   snapshot.Revision,
+			RuntimeKey: snapshot.RuntimeKey,
+			Definition: snapshot.Definition,
+		}
+	}
+	snapshot, ok := run.BaseSnapshot.AgentSnapshots[nodeID]
+	if !ok || snapshot.AgentID == "" || snapshot.Revision == "" ||
+		snapshot.RuntimeKey == "" || snapshot.Definition.ACPProgram == "" {
+		return nil
+	}
+	return &model.AgentRuntimeBinding{
+		AgentID:    snapshot.AgentID,
+		Revision:   snapshot.Revision,
+		RuntimeKey: snapshot.RuntimeKey,
+		Definition: snapshot.Definition,
+	}
+}
+
+func executionVersionForInstance(run *model.GraphRun, key model.GraphInstanceKey) int {
+	if run == nil {
+		return 0
+	}
+	version := run.CurrentVersion
+	keyString := instanceKeyString(key)
+	if retryVersion := run.RetryInstanceVersions[keyString]; retryVersion > 0 {
+		version = retryVersion
+	}
+	if state, ok := run.ArchivedInstances[keyString]; ok && state.Version > 0 {
+		version = state.Version
+	}
+	return version
 }
 
 // resumeCarrySession returns the session a Prompt node should reuse when a hard
@@ -1088,6 +1163,30 @@ func cloneGraphRun(in *model.GraphRun) *model.GraphRun {
 		return nil
 	}
 	out := *in
+	if in.Progress != nil {
+		progress := *in.Progress
+		progress.CurrentKeys = append([]model.GraphInstanceKey(nil), in.Progress.CurrentKeys...)
+		if in.Progress.Instances != nil {
+			progress.Instances = maps.Clone(in.Progress.Instances)
+		}
+		out.Progress = &progress
+	}
+	if in.Resume != nil {
+		resume := *in.Resume
+		resume.ReadyKeys = append([]model.GraphInstanceKey(nil), in.Resume.ReadyKeys...)
+		resume.EdgeStates = maps.Clone(in.Resume.EdgeStates)
+		resume.LoopState = maps.Clone(in.Resume.LoopState)
+		resume.VariablesByKey = maps.Clone(in.Resume.VariablesByKey)
+		resume.SessionLineageByKey = maps.Clone(in.Resume.SessionLineageByKey)
+		if in.Resume.FrozenBatch != nil {
+			batch := *in.Resume.FrozenBatch
+			batch.Members = maps.Clone(in.Resume.FrozenBatch.Members)
+			resume.FrozenBatch = &batch
+		}
+		out.Resume = &resume
+	}
+	out.ArchivedInstances = maps.Clone(in.ArchivedInstances)
+	out.RetryInstanceVersions = maps.Clone(in.RetryInstanceVersions)
 	out.BaseSnapshot.Config = cloneGraphConfig(in.BaseSnapshot.Config)
 	if in.BaseSnapshot.ModelSnapshots != nil {
 		out.BaseSnapshot.ModelSnapshots = make(map[string]string, len(in.BaseSnapshot.ModelSnapshots))

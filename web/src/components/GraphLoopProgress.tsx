@@ -42,6 +42,12 @@ import {
 import { createEditorNode, filterNodeRemoveChanges, markEditableNodes } from './graph/editorModel';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { locateGraphSessionProgress } from '../utils/graphSessionProgress';
+import {
+  ensureAgentDisplays,
+  peekAgentDisplay,
+  primeAgentDisplays,
+  useAgentDisplayVersion,
+} from '../utils/agentDisplay';
 import './GraphLoopProgress.css';
 
 // The embedded mini canvas visualizes run state. Outside edit mode structural
@@ -99,6 +105,11 @@ interface GraphLoopProgressProps {
   // When true the "Edit" button enters in-place run-version editing on this same
   // canvas (config-only; no navigation to the full Graph Workflows page).
   canEdit?: boolean;
+  // Set when the active session's Agent was deleted or no longer resolves:
+  // execution entries (resume / continue) are disabled with this hint.
+  executionBlocked?: boolean;
+  executionBlockedHint?: string;
+  getSessionAgentReference?: (sessionId: string) => string | null;
 }
 
 // Statuses in which a run accepts a mid-run version edit (in-flight or
@@ -193,7 +204,7 @@ function statusLabel(t: TFunction, status?: GraphRunStatus): string {
   }
 }
 
-export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnapshot, readOnly, shareToken, agents = [], canEdit }: GraphLoopProgressProps) {
+export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnapshot, readOnly, shareToken, agents = [], canEdit, executionBlocked, executionBlockedHint, getSessionAgentReference }: GraphLoopProgressProps) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   // On phones the control panel (expand / edit / step-stop / stop / resume)
@@ -230,16 +241,115 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
   // canvas can auto-reveal it.
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(() => !isMobile);
   const bindingRef = useRef(`${jobId || ''}:${runId || ''}`);
+  useAgentDisplayVersion();
+
+  const graphAgentReferences = useMemo(() => {
+    if (!run) return [];
+    const config = runConfigSnapshot(run);
+    const nodesById = new Map(config.nodes.map((node) => [node.id, node]));
+    const statesByNode = new Map<string, GraphInstanceState[]>();
+    for (const state of instances) {
+      const states = statesByNode.get(state.nodeId) || [];
+      states.push(state);
+      statesByNode.set(state.nodeId, states);
+    }
+    const nodeMayExecute = (node: GraphNode) => {
+      if (!node.parentId) {
+        const states = statesByNode.get(node.id) || [];
+        if (states.length === 0) return true;
+        return states.some((state) =>
+          state.status === 'pending' ||
+          state.status === 'running' ||
+          state.status === 'failed' ||
+          state.status === 'interrupted'
+        );
+      }
+      for (let parentId = node.parentId; parentId;) {
+        const parentStates = statesByNode.get(parentId) || [];
+        const parentCompleted = parentStates.some(
+          (state) => state.status === 'succeeded' || state.status === 'skipped',
+        );
+        if (!parentCompleted) return true;
+        parentId = nodesById.get(parentId)?.parentId || '';
+      }
+      return false;
+    };
+    const refs = new Set<string>();
+    for (const node of config.nodes) {
+      if ((node.type !== 'prompt' && node.type !== 'clarify') || !nodeMayExecute(node)) {
+        continue;
+      }
+      if (node.config?.sessionStrategy === 'inherit') continue;
+      const ref = node.config?.agentType?.trim();
+      if (ref) refs.add(ref);
+    }
+    if (getSessionAgentReference) {
+      const reverse = new Map<string, string[]>();
+      for (const edge of config.edges) {
+        const sources = reverse.get(edge.targetNodeId) || [];
+        sources.push(edge.sourceNodeId);
+        reverse.set(edge.targetNodeId, sources);
+      }
+      const inheritedSources = new Set<string>();
+      const pending = config.nodes
+        .filter((node) =>
+          (node.type === 'prompt' || node.type === 'clarify') &&
+          node.config?.sessionStrategy === 'inherit' &&
+          nodeMayExecute(node)
+        )
+        .map((node) => node.id);
+      const seen = new Set<string>();
+      while (pending.length > 0) {
+        const nodeId = pending.pop()!;
+        if (seen.has(nodeId)) continue;
+        seen.add(nodeId);
+        for (const sourceId of reverse.get(nodeId) || []) {
+          inheritedSources.add(sourceId);
+          pending.push(sourceId);
+        }
+      }
+      const relevantStates = [
+        ...instances,
+        ...Object.values(run.archivedInstances || {}),
+      ];
+      for (const state of relevantStates) {
+        const reusedInterruptedPrompt =
+          state.nodeType === 'prompt' && state.status === 'interrupted';
+        if (!inheritedSources.has(state.nodeId) && !reusedInterruptedPrompt) continue;
+        const sessionId = state.sessionId || state.displaySessionId;
+        const ref = sessionId ? getSessionAgentReference(sessionId)?.trim() : '';
+        if (ref) refs.add(ref);
+      }
+    }
+    return [...refs];
+  }, [getSessionAgentReference, instances, run]);
+  useEffect(() => {
+    if (!readOnly) ensureAgentDisplays(graphAgentReferences);
+  }, [graphAgentReferences, readOnly]);
+  const graphAgentBlock = (() => {
+    const listed = new Set(agents.map((agent) => agent.type));
+    for (const ref of graphAgentReferences) {
+      if (listed.has(ref)) continue;
+      const info = peekAgentDisplay(ref);
+      if (info === null) return t('chat.agentUnknownHint');
+      if (info?.deleted) return t('chat.agentDeletedHint');
+    }
+    return '';
+  })();
+  const effectiveExecutionBlocked = Boolean(executionBlocked || graphAgentBlock);
+  const effectiveExecutionBlockedHint = executionBlockedHint || graphAgentBlock;
 
   const canStepStop = !readOnly && run?.status === 'running';
   // A pending step-stop (not yet settled) can be cancelled, releasing
   // the held dispatch frontier back to running — mirrors Loop's "keep running".
   const canCancelStop = !readOnly && run?.status === 'stepStopping';
   const canStop = !readOnly && !!run?.status && LIVE_STATUSES.has(run.status);
-  const canResume = !readOnly && !!run?.status && RESUMABLE_STATUSES.has(run.status);
+  // Resume / continue are execution entries: a session whose Agent was deleted
+  // or no longer resolves cannot run, so they stay greyed out with the hint.
+  const canResume = !readOnly && !effectiveExecutionBlocked && !!run?.status && RESUMABLE_STATUSES.has(run.status);
   // A run parked at「等待人工」(§ 交互澄清结点) shows a dedicated「讨论完成」continue
   // action that finalizes the clarify node(s) and resumes the DAG.
-  const canContinue = !readOnly && run?.status === 'awaitingInput';
+  const canContinue = !readOnly && !effectiveExecutionBlocked && run?.status === 'awaitingInput';
   const canEditRun = !!canEdit && !readOnly && !!run?.status && EDITABLE_STATUSES.has(run.status);
 
   // Build the run status URL. In public share mode the auth-gated /api/v1/*
@@ -271,11 +381,15 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
   }, [toggleExpanded]);
 
   const applySnapshot = useCallback((data: GraphRunStatusResponse) => {
+    // In share mode the public payload's agents map is the only display
+    // source for historical agent references; prime the shared cache here so
+    // every consumer (chat header, node inspector) sees it.
+    if (shareToken) primeAgentDisplays(data.agents);
     setRun(data.run || null);
     setProgress(data.progress || data.run?.progress || null);
     setInstances(data.instances || []);
     setEdges(data.edges || []);
-  }, []);
+  }, [shareToken]);
 
   const refresh = useCallback(async () => {
     if (!jobId) {
@@ -669,6 +783,34 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
     }
   }, [discardEdit, editEdges, editNodes, editSnapshot, refresh, jobId, t]);
 
+  const updateSelectedAgentRevision = useCallback(async () => {
+    if (!jobId || !editSnapshot || !selectedGraphNode) return;
+    const config = flowToConfig(editNodes, editEdges, editSnapshot);
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run/version`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          config,
+          updateAgentRevisionNodeIds: [selectedGraphNode.id],
+          reason: 'update Agent runtime revision',
+        }),
+      });
+      if (!res.ok) {
+        const detail = await readGraphErrorDetail(res, `PUT /job/${jobId}/graph-run/version`);
+        throw new Error(detail.message);
+      }
+      discardEdit();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }, [discardEdit, editEdges, editNodes, editSnapshot, jobId, refresh, selectedGraphNode]);
+
   // The inspector needs both run-level values and the live edited topology for
   // condition variable suggestions (upstream outputs, loop body outputs, loop
   // iteration vars).
@@ -752,6 +894,18 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
                 <GraphActionIcon type="save" />
                 <span>{saving ? t('graph.editor.saving') : t('graph.editor.saveRunVersion')}</span>
               </button>
+              {selectedGraphNode && (selectedGraphNode.type === 'prompt' || selectedGraphNode.type === 'clarify') && !frozenNodeIds.has(selectedGraphNode.id) && (
+                <button
+                  type="button"
+                  className="graph-loop-action"
+                  onClick={() => void updateSelectedAgentRevision()}
+                  disabled={saving}
+                  title={t('graph.loop.updateAgentRevisionTitle')}
+                >
+                  <GraphActionIcon type="refresh" />
+                  <span>{t('graph.loop.updateAgentRevision')}</span>
+                </button>
+              )}
               <button
                 type="button"
                 className="graph-loop-action"
@@ -802,7 +956,15 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
                   <span>{t('graph.loop.continue')}</span>
                 </button>
               )}
-              <button type="button" className="graph-loop-action primary" onClick={() => void doAction('resume')} disabled={!canResume || !!actionPending} title={t('graph.loop.resumeTitle')}>
+              {!canContinue && !readOnly && effectiveExecutionBlocked && run?.status === 'awaitingInput' && (
+                // Blocked continue: keep the button visible but greyed out,
+                // with the reason as its tooltip.
+                <button type="button" className="graph-loop-action primary" disabled title={effectiveExecutionBlockedHint || t('graph.loop.continueTitle')}>
+                  <GraphActionIcon type="continue" />
+                  <span>{t('graph.loop.continue')}</span>
+                </button>
+              )}
+              <button type="button" className="graph-loop-action primary" onClick={() => void doAction('resume')} disabled={!canResume || !!actionPending} title={effectiveExecutionBlocked && effectiveExecutionBlockedHint && run?.status && RESUMABLE_STATUSES.has(run.status) ? effectiveExecutionBlockedHint : t('graph.loop.resumeTitle')}>
                 <GraphActionIcon type="resume" />
                 <span>{t('graph.loop.resume')}</span>
               </button>
@@ -940,7 +1102,7 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
   );
 }
 
-function GraphActionIcon({ type }: { type: 'edit' | 'stepStop' | 'stop' | 'resume' | 'keepRunning' | 'expand' | 'collapse' | 'save' | 'cancel' | 'continue' | 'controls' }) {
+function GraphActionIcon({ type }: { type: 'edit' | 'stepStop' | 'stop' | 'resume' | 'keepRunning' | 'expand' | 'collapse' | 'save' | 'cancel' | 'continue' | 'controls' | 'refresh' }) {
   if (type === 'controls') {
     // Sliders / control-panel glyph for the mobile actions toggle.
     return <svg viewBox="0 0 24 24"><path d="M4 6h10" /><path d="M18 6h2" /><circle cx="16" cy="6" r="2" /><path d="M4 12h4" /><path d="M12 12h8" /><circle cx="10" cy="12" r="2" /><path d="M4 18h10" /><path d="M18 18h2" /><circle cx="16" cy="18" r="2" /></svg>;

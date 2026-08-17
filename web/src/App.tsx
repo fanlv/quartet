@@ -463,8 +463,8 @@ function App() {
   // dropdown. Empty Job = sessionCount === 0 (an existing job becomes non-empty
   // as soon as the first message creates a session).
   //
-  // New-job agent/model resolution: workspace-level prefs (localStorage) →
-  // system-level message_agent. Workdir comes from the target workspace.
+  // New-job agent/model resolution uses workspace-level preferences.
+  // Workdir comes from the target workspace.
   //
   // Returns the target jobId when we successfully land on a Job (reused or
   // created), or null on failure. On null the caller falls back to dropping
@@ -494,32 +494,16 @@ function App() {
       console.error('[reuseOrCreateJob] list failed:', err);
     }
 
-    // 2. No empty Job — create one. Pick agent/model via the two-tier default:
-    //    workspace-level prefs → system-level message_agent fallback.
+    // 2. No empty Job — create one from workspace-level preferences.
     let agentType = '';
     let modelId = '';
-    let acpMode = '';
-    let acpThoughtLevel = '';
+    const acpMode = '';
+    const acpThoughtLevel = '';
     const prefs = loadWorkspacePrefs(ws.id);
     if (prefs.defaultAgent) agentType = prefs.defaultAgent;
     if (prefs.defaultModel) modelId = prefs.defaultModel;
     if (!agentType) {
-      try {
-        const settingsRes = await fetch('/api/v1/config/settings/get');
-        if (settingsRes.ok) {
-          const settingsData = await settingsRes.json();
-          const ma = settingsData?.settings?.message_agent;
-          if (ma?.agent_type) agentType = ma.agent_type;
-          if (!modelId && ma?.model_id) modelId = ma.model_id;
-          if (ma?.acp_mode) acpMode = ma.acp_mode;
-          if (ma?.acp_thought_level) acpThoughtLevel = ma.acp_thought_level;
-        }
-      } catch (err) {
-        console.error('[reuseOrCreateJob] settings failed:', err);
-      }
-    }
-    if (!agentType) {
-      console.error('[reuseOrCreateJob] no agent_type available; configure system message_agent or workspace default');
+      console.error('[reuseOrCreateJob] no agent_type available; configure a workspace default');
       return null;
     }
 
@@ -693,8 +677,7 @@ function App() {
                 const j = await jobRes.json();
                 // The first session's modelId is denormalized onto
                 // job.firstModelId. The Job payload has no agentType field,
-                // so the agent falls back to workspace prefs → system
-                // message_agent below.
+                // so the agent falls back to workspace preferences below.
                 if (j?.firstModelId) inheritedModel = j.firstModelId;
                 if (j?.workdir) inheritedWorkdir = j.workdir;
               }
@@ -702,31 +685,15 @@ function App() {
               console.error('[command-action] new_job: read current job failed:', err);
             }
           }
-          // 2. Fall back to workspace-level prefs → system-level message_agent
-          //    if the current Job didn't surface an agent (e.g. /new from a
-          //    fresh empty Job that never ran).
+          // 2. Fall back to workspace-level preferences if the current Job
+          //    didn't surface an agent (e.g. /new from a fresh empty Job).
           if (!inheritedAgent) {
             const prefs = loadWorkspacePrefs(targetWsId);
             if (prefs.defaultAgent) inheritedAgent = prefs.defaultAgent;
             if (!inheritedModel && prefs.defaultModel) inheritedModel = prefs.defaultModel;
           }
-          let inheritedAcpMode = '';
-          let inheritedAcpThoughtLevel = '';
-          if (!inheritedAgent) {
-            try {
-              const settingsRes = await fetch('/api/v1/config/settings/get');
-              if (settingsRes.ok) {
-                const settingsData = await settingsRes.json();
-                const ma = settingsData?.settings?.message_agent;
-                if (ma?.agent_type) inheritedAgent = ma.agent_type;
-                if (!inheritedModel && ma?.model_id) inheritedModel = ma.model_id;
-                if (ma?.acp_mode) inheritedAcpMode = ma.acp_mode;
-                if (ma?.acp_thought_level) inheritedAcpThoughtLevel = ma.acp_thought_level;
-              }
-            } catch (err) {
-              console.error('[command-action] new_job: read settings failed:', err);
-            }
-          }
+          const inheritedAcpMode = '';
+          const inheritedAcpThoughtLevel = '';
           if (!inheritedAgent) {
             notifyError('创建新对话失败：未配置默认 Agent（请在设置或工作空间偏好中选择默认 Agent）。');
             return;

@@ -58,34 +58,44 @@ func (h *Handler) setACPConfigForSession(ctx context.Context, req *model.SetACPC
 	if err != nil {
 		return nil, fmt.Errorf("get session service: %w", err)
 	}
+	releaseExecution, err := h.acquireSessionExecution(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseExecution()
+	binding, err := h.ensureSessionAgentBinding(ctx, ss, s)
+	if err != nil {
+		return nil, err
+	}
+	runtimeKey := binding.RuntimeKey
 
 	switch req.Target {
 	case model.ACPConfigTargetModel:
-		state, err := h.acpAgentService.SetModel(ctx, ss, s.WorkspaceID, s.JobID, s.ID, s.Type, s.Workdir, req.Model)
+		state, err := h.acpAgentService.SetModel(ctx, ss, s.WorkspaceID, s.JobID, s.ID, runtimeKey, s.Workdir, req.Model)
 		if err != nil {
 			return nil, err
 		}
-		probe.CacheACPConfigState(s.Type, req.Target, req.Model, s.ACPMode, s.ACPThoughtLevel, state)
+		probe.CacheACPConfigState(runtimeKey, req.Target, req.Model, s.ACPMode, s.ACPThoughtLevel, state)
 		if err := ss.UpdateModelID(s.ID, req.Model); err != nil {
 			logger.Errorf(ctx, "[acp.config] persist model failed: sessionId=%s err=%v", s.ID, err)
 		}
 		return state, nil
 	case model.ACPConfigTargetMode:
-		state, err := h.acpAgentService.SetMode(ctx, ss, s.WorkspaceID, s.JobID, s.ID, s.Type, s.Workdir, req.Mode)
+		state, err := h.acpAgentService.SetMode(ctx, ss, s.WorkspaceID, s.JobID, s.ID, runtimeKey, s.Workdir, req.Mode)
 		if err != nil {
 			return nil, err
 		}
-		probe.CacheACPConfigState(s.Type, req.Target, s.ModelID, req.Mode, s.ACPThoughtLevel, state)
+		probe.CacheACPConfigState(runtimeKey, req.Target, s.ModelID, req.Mode, s.ACPThoughtLevel, state)
 		if err := ss.UpdateACPMode(s.ID, req.Mode); err != nil {
 			logger.Errorf(ctx, "[acp.config] persist mode failed: sessionId=%s err=%v", s.ID, err)
 		}
 		return state, nil
 	case model.ACPConfigTargetThoughtLevel:
-		state, err := h.acpAgentService.SetThoughtLevel(ctx, ss, s.WorkspaceID, s.JobID, s.ID, s.Type, s.Workdir, req.ThoughtLevel)
+		state, err := h.acpAgentService.SetThoughtLevel(ctx, ss, s.WorkspaceID, s.JobID, s.ID, runtimeKey, s.Workdir, req.ThoughtLevel)
 		if err != nil {
 			return nil, err
 		}
-		probe.CacheACPConfigState(s.Type, req.Target, s.ModelID, s.ACPMode, req.ThoughtLevel, state)
+		probe.CacheACPConfigState(runtimeKey, req.Target, s.ModelID, s.ACPMode, req.ThoughtLevel, state)
 		if err := ss.UpdateACPThoughtLevel(s.ID, req.ThoughtLevel); err != nil {
 			logger.Errorf(ctx, "[acp.config] persist thought_level failed: sessionId=%s err=%v", s.ID, err)
 		}
@@ -100,6 +110,40 @@ func (h *Handler) setACPConfigPreview(ctx context.Context, req *model.SetACPConf
 	if req.AgentType == "" {
 		return nil, fmt.Errorf("agentType is required for a session-less config switch")
 	}
+	resolved, found, err := h.agentCatalog.Resolve(ctx, req.AgentType)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Agent %q for config preview failed: %w", req.AgentType, err)
+	}
+	if !found {
+		return nil, fmt.Errorf("resolve Agent %q for config preview failed: Agent does not exist", req.AgentType)
+	}
+	if resolved.Deprecated || resolved.Lifecycle != model.AgentLifecycleActive {
+		return nil, fmt.Errorf(
+			"AgentID %q revision %q cannot preview ACP config: deprecated=%t lifecycle=%q",
+			resolved.AgentID,
+			resolved.Revision,
+			resolved.Deprecated,
+			resolved.Lifecycle,
+		)
+	}
+	releaseExecution, acquired := h.agentExecutions.acquireExecution(resolved.AgentID)
+	if !acquired {
+		return nil, fmt.Errorf(
+			"AgentID %q revision %q cannot preview ACP config: Agent deletion is in progress",
+			resolved.AgentID,
+			resolved.Revision,
+		)
+	}
+	binding := model.AgentRuntimeBinding{
+		AgentID:    resolved.AgentID,
+		Revision:   resolved.Revision,
+		RuntimeKey: resolved.RuntimeKey,
+		Definition: resolved.Definition,
+	}
+	if err := h.ensureBindingAvailable(ctx, binding); err != nil {
+		releaseExecution()
+		return nil, err
+	}
 	sel := probe.PreviewSelection{
 		Model:        req.Model,
 		Mode:         req.Mode,
@@ -113,5 +157,5 @@ func (h *Handler) setACPConfigPreview(ctx context.Context, req *model.SetACPConf
 	case model.ACPConfigTargetThoughtLevel:
 		sel.Target = probe.PreviewTargetThoughtLevel
 	}
-	return probe.PreviewSetConfig(ctx, req.AgentType, sel)
+	return probe.PreviewSetConfig(ctx, binding.RuntimeKey, sel, releaseExecution)
 }

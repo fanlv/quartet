@@ -32,17 +32,23 @@ export function AgentDefaultsSettings() {
       const settingsData = await settingsRes.json();
 
       // Only ACP agents carry availableModels/modes/thoughtLevels.
-      const acpAgents: AgentInfo[] = agentData.agent_list || [];
+      const acpAgents: AgentInfo[] = (agentData.agent_list || [])
+        .filter((agent: AgentInfo) => agent.available !== false);
       setAgents(acpAgents);
 
       const saved: AgentPrefsMap =
         settingsData.code === 0 && settingsData.settings?.agent_prefs
           ? settingsData.settings.agent_prefs
           : {};
-      setPrefMap(saved);
+      const byAgentID: AgentPrefsMap = {};
+      for (const agent of acpAgents) {
+        const pref = saved[agent.agent_id] || saved[agent.type];
+        if (pref) byAgentID[agent.agent_id] = pref;
+      }
+      setPrefMap(byAgentID);
 
       if (acpAgents.length > 0) {
-        setActiveAgent(acpAgents[0].type);
+        setActiveAgent(acpAgents[0].agent_id);
       }
     } catch (err) {
       console.error('Failed to load agent defaults:', err);
@@ -51,12 +57,17 @@ export function AgentDefaultsSettings() {
     }
   };
 
-  const currentAgent = agents.find((a) => a.type === activeAgent);
+  const currentAgent = agents.find((a) => a.agent_id === activeAgent);
   const currentPref = prefMap[activeAgent] || emptyPref;
   const availableModels = currentAgent?.models?.availableModels || [];
   const availableModes = currentAgent?.modes?.availableModes || [];
   const agentModelId = currentAgent?.models?.currentModelId || '';
-  const defaultModelId = currentPref.default_model_id || agentModelId;
+  const hasModel = (modelId?: string) => !!modelId && availableModels.some((m) => m.modelId === modelId);
+  const defaultModelId = hasModel(currentPref.default_model_id)
+    ? currentPref.default_model_id!
+    : hasModel(agentModelId)
+      ? agentModelId
+      : availableModels[0]?.modelId || '';
   const {
     state: thoughtLevelState,
     loading: thoughtLevelLinking,
@@ -71,7 +82,7 @@ export function AgentDefaultsSettings() {
 
   useEffect(() => {
     if (!currentAgent || !thoughtLevelState) return;
-    const agentType = currentAgent.type;
+    const agentType = currentAgent.agent_id;
     setPrefMap((prev) => {
       const pref = prev[agentType];
       if (!pref?.default_thought_level) return prev;
@@ -103,41 +114,27 @@ export function AgentDefaultsSettings() {
     setSaving(true);
     setMessage(null);
 
-    // Drop entries with neither favorites nor any default so settings.json
-    // stays clean.
-    const agentPrefs: AgentPrefsMap = {};
-    for (const [type, pref] of Object.entries(prefMap)) {
-      const favs = (pref.favorite_model_ids || []).filter(Boolean);
-      const hasContent =
-        favs.length > 0 || pref.default_model_id || pref.default_mode || pref.default_thought_level;
-      if (!hasContent) continue;
-      agentPrefs[type] = {
-        favorite_model_ids: favs.length > 0 ? favs : undefined,
-        default_model_id: pref.default_model_id || undefined,
-        default_mode: pref.default_mode || undefined,
-        default_thought_level: pref.default_thought_level || undefined,
-      };
-    }
-
     try {
-      const settingsRes = await fetch('/api/v1/config/settings/get');
-      const settingsData = await settingsRes.json();
-      const currentSettings = settingsData.code === 0 && settingsData.settings ? settingsData.settings : {};
-
-      const res = await fetch('/api/v1/config/settings/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...currentSettings, agent_prefs: agentPrefs }),
-      });
-      const data = await res.json();
-      if (data.code === 0) {
-        invalidateAgentPrefs();
-        setMessage({ type: 'success', text: t('common.saveSuccess') });
-      } else {
-        setMessage({ type: 'error', text: data.msg || t('common.saveFailed') });
+      const failures: string[] = [];
+      for (const agent of agents) {
+        const pref = prefMap[agent.agent_id] || emptyPref;
+        const res = await fetch(`/api/v1/config/settings/agent/${encodeURIComponent(agent.agent_id)}/prefs`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefs: pref }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || data?.code !== 0) {
+          failures.push(data?.msg || `${agent.display_name}: HTTP ${res.status}`);
+        }
       }
-    } catch {
-      setMessage({ type: 'error', text: t('common.saveFailed') });
+      if (failures.length > 0) {
+        throw new Error(failures.join('\n'));
+      }
+      invalidateAgentPrefs();
+      setMessage({ type: 'success', text: t('common.saveSuccess') });
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) });
     } finally {
       setSaving(false);
     }
@@ -169,9 +166,9 @@ export function AgentDefaultsSettings() {
         <div className="acp-agent-tabs">
           {agents.map((agent) => (
             <div
-              key={agent.type}
-              className={`acp-agent-tab ${activeAgent === agent.type ? 'active' : ''}`}
-              onClick={() => setActiveAgent(agent.type)}
+              key={agent.agent_id}
+              className={`acp-agent-tab ${activeAgent === agent.agent_id ? 'active' : ''}`}
+              onClick={() => setActiveAgent(agent.agent_id)}
             >
               {agent.display_name}
             </div>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
@@ -17,9 +18,11 @@ import (
 // jobRunnerImpl implements job.JobRunner using Handler's internal methods.
 // It handles both interactive (single message) and loop (preconfigured) modes.
 type jobRunnerImpl struct {
-	h       *Handler
-	workdir string
-	wsID    string
+	h                        *Handler
+	workdir                  string
+	wsID                     string
+	preparedExecutionOnce    sync.Once
+	preparedExecutionRelease func()
 }
 
 // shellSessionType marks a display-only Shell node transcript session. It is a
@@ -39,20 +42,34 @@ func newJobRunner(h *Handler, j *model.Job) *jobRunnerImpl {
 	}
 }
 
+func (r *jobRunnerImpl) holdPreparedExecution(release func()) {
+	r.preparedExecutionRelease = release
+}
+
+func (r *jobRunnerImpl) ReleasePreparedExecution() {
+	if r == nil || r.preparedExecutionRelease == nil {
+		return
+	}
+	r.preparedExecutionOnce.Do(r.preparedExecutionRelease)
+}
+
 func (r *jobRunnerImpl) InitSession(ctx context.Context, jobID string, overrides *model.SessionOverrides) (string, error) {
 	var agentType string
 	var modelID string
 	var acpMode string
 	var acpThoughtLevel string
+	var agentBinding *model.AgentRuntimeBinding
 	if overrides != nil {
 		agentType = overrides.AgentType
+		agentBinding = overrides.AgentBinding
 		modelID = overrides.ModelID
 		acpMode = overrides.ACPMode
 		acpThoughtLevel = overrides.ACPThoughtLevel
 	}
 
-	s, err := r.h.createSession(ctx, modelID, agentType, r.workdir, r.wsID, jobID)
+	s, err := r.h.createSessionWithBinding(ctx, modelID, agentType, r.workdir, r.wsID, jobID, agentBinding)
 	if err != nil {
+		r.ReleasePreparedExecution()
 		return "", err
 	}
 	if acpMode != "" || acpThoughtLevel != "" {
@@ -74,6 +91,7 @@ func (r *jobRunnerImpl) InitSession(ctx context.Context, jobID string, overrides
 }
 
 func (r *jobRunnerImpl) RunIteration(ctx context.Context, sessionID string, messages []*schema.Message, handler agui.EventHandler) error {
+	defer r.ReleasePreparedExecution()
 	s, _, ok := r.h.getSessionByID(sessionID)
 	if !ok {
 		if reloaded, rok := r.h.reloadSessionByID(sessionID); rok {
@@ -253,4 +271,158 @@ func (r *jobRunnerImpl) ResolveModelSnapshot(_ context.Context, modelID string) 
 		return "", false
 	}
 	return modelID, true
+}
+
+func (r *jobRunnerImpl) ResolveAgentSnapshot(ctx context.Context, identifier string) (model.GraphAgentSnapshot, error) {
+	snapshot, release, err := r.ResolveAgentSnapshotWithLease(ctx, identifier)
+	if release != nil {
+		release()
+	}
+	return snapshot, err
+}
+
+func (r *jobRunnerImpl) ResolveAgentSnapshotWithLease(
+	ctx context.Context,
+	identifier string,
+) (model.GraphAgentSnapshot, func(), error) {
+	resolved, found, err := r.h.agentCatalog.Resolve(ctx, identifier)
+	if err != nil {
+		return model.GraphAgentSnapshot{}, nil, fmt.Errorf("resolve Agent %q failed: %w", identifier, err)
+	}
+	if !found {
+		return model.GraphAgentSnapshot{}, nil, fmt.Errorf("resolve Agent %q failed: Agent does not exist", identifier)
+	}
+	if resolved.Deprecated || resolved.Lifecycle != model.AgentLifecycleActive {
+		return model.GraphAgentSnapshot{}, nil, fmt.Errorf(
+			"AgentID %q is not available for a new GraphRun: deprecated=%t lifecycle=%s",
+			resolved.AgentID,
+			resolved.Deprecated,
+			resolved.Lifecycle,
+		)
+	}
+	release, acquired := r.h.agentExecutions.acquireExecution(resolved.AgentID)
+	if !acquired {
+		return model.GraphAgentSnapshot{}, nil, fmt.Errorf(
+			"AgentID %q cannot be snapshotted for a new GraphRun: Agent deletion is in progress",
+			resolved.AgentID,
+		)
+	}
+	binding := model.AgentRuntimeBinding{
+		AgentID:    resolved.AgentID,
+		Revision:   resolved.Revision,
+		RuntimeKey: resolved.RuntimeKey,
+		Definition: resolved.Definition,
+	}
+	if err := r.h.ensureBindingAvailable(ctx, binding); err != nil {
+		release()
+		return model.GraphAgentSnapshot{}, nil, err
+	}
+	return model.GraphAgentSnapshot{
+		AgentID:    resolved.AgentID,
+		Revision:   resolved.Revision,
+		RuntimeKey: resolved.RuntimeKey,
+		Definition: resolved.Definition,
+	}, release, nil
+}
+
+func (r *jobRunnerImpl) ValidateAgentBindingWithLease(
+	ctx context.Context,
+	binding model.AgentRuntimeBinding,
+) (func(), error) {
+	entry, found, err := r.h.agentCatalog.Find(ctx, binding.AgentID)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"validate AgentID %q revision %q for Graph execution failed: %w",
+			binding.AgentID,
+			binding.Revision,
+			err,
+		)
+	}
+	if !found {
+		return nil, fmt.Errorf(
+			"AgentID %q revision %q cannot execute Graph: Agent does not exist",
+			binding.AgentID,
+			binding.Revision,
+		)
+	}
+	if entry.Source == model.AgentCatalogSourceBuiltin &&
+		entry.Builtin != nil && entry.Builtin.Deprecated {
+		return nil, fmt.Errorf(
+			"AgentID %q revision %q cannot execute Graph: Agent is deprecated",
+			binding.AgentID,
+			binding.Revision,
+		)
+	}
+	if entry.Source == model.AgentCatalogSourceCustom &&
+		(entry.Custom == nil || entry.Custom.Lifecycle != model.AgentLifecycleActive) {
+		lifecycle := model.AgentLifecycle("")
+		if entry.Custom != nil {
+			lifecycle = entry.Custom.Lifecycle
+		}
+		return nil, fmt.Errorf(
+			"AgentID %q revision %q cannot execute Graph: lifecycle=%q",
+			binding.AgentID,
+			binding.Revision,
+			lifecycle,
+		)
+	}
+	release, acquired := r.h.agentExecutions.acquireExecution(binding.AgentID)
+	if !acquired {
+		return nil, fmt.Errorf(
+			"AgentID %q revision %q cannot execute Graph: Agent deletion is in progress",
+			binding.AgentID,
+			binding.Revision,
+		)
+	}
+	if err := r.h.ensureBindingAvailable(ctx, binding); err != nil {
+		release()
+		return nil, err
+	}
+	return release, nil
+}
+
+func (r *jobRunnerImpl) ValidateSessionAgentWithLease(
+	ctx context.Context,
+	sessionID string,
+) (func(), error) {
+	session, ok := r.h.lookupSession(sessionID)
+	if !ok {
+		return nil, fmt.Errorf("Graph session %q does not exist", sessionID)
+	}
+	var (
+		binding model.AgentRuntimeBinding
+		found   bool
+		err     error
+	)
+	if session.AgentID != "" && session.AgentRevision != "" {
+		binding, found, err = r.h.agentCatalog.ResolveBinding(
+			ctx,
+			session.AgentID,
+			session.AgentRevision,
+		)
+	} else {
+		binding, found, err = r.h.agentCatalog.ResolveLegacyBinding(ctx, session.Type)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("resolve Graph session %q Agent binding failed: %w", sessionID, err)
+	}
+	if !found {
+		return nil, fmt.Errorf(
+			"Graph session %q Agent reference %q does not exist",
+			sessionID,
+			firstNonEmptyString(session.AgentID, session.Type),
+		)
+	}
+	return r.ValidateAgentBindingWithLease(ctx, binding)
+}
+
+func (r *jobRunnerImpl) ResolveLegacyAgentBinding(ctx context.Context, identifier string) (*model.AgentRuntimeBinding, error) {
+	binding, found, err := r.h.agentCatalog.ResolveLegacyBinding(ctx, identifier)
+	if err != nil {
+		return nil, fmt.Errorf("resolve legacy Agent %q failed: %w", identifier, err)
+	}
+	if !found {
+		return nil, fmt.Errorf("resolve legacy Agent %q failed: Agent does not exist", identifier)
+	}
+	return &binding, nil
 }

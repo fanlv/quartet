@@ -39,6 +39,12 @@ func cloneSettingsForTest(s *repository.Settings) *repository.Settings {
 			clone.ACPEnvVars[k] = append([]repository.ACPEnvVarEntry(nil), v...)
 		}
 	}
+	if s.ACPEnvVersions != nil {
+		clone.ACPEnvVersions = make(map[string]int64, len(s.ACPEnvVersions))
+		for k, v := range s.ACPEnvVersions {
+			clone.ACPEnvVersions[k] = v
+		}
+	}
 	return &clone
 }
 
@@ -68,15 +74,19 @@ func TestGetACPEnvVarsUsesStableAndCommandKeys(t *testing.T) {
 	}
 }
 
-func TestSaveSettingsNormalizesACPEnvVarsToStableKeys(t *testing.T) {
-	repo := &fakeSettingsRepo{}
-	svc := &settingsServiceImpl{repo: repo}
-
-	err := svc.SaveSettings(&repository.Settings{
+func TestSaveSettingsPreservesOwnedACPEnvVars(t *testing.T) {
+	repo := &fakeSettingsRepo{settings: repository.Settings{
 		ACPEnvVars: map[string][]repository.ACPEnvVarEntry{
 			"claude": {
 				{Key: "https_proxy", Value: "http://stable", Enabled: true},
 			},
+		},
+	}}
+	svc := &settingsServiceImpl{repo: repo}
+
+	err := svc.SaveSettings(&repository.Settings{
+		Username: "updated",
+		ACPEnvVars: map[string][]repository.ACPEnvVarEntry{
 			"claude-agent-acp": {
 				{Key: "https_proxy", Value: "http://command", Enabled: true},
 			},
@@ -90,8 +100,8 @@ func TestSaveSettingsNormalizesACPEnvVarsToStableKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSettings() error = %v", err)
 	}
-	if _, ok := got.ACPEnvVars["claude-agent-acp"]; ok {
-		t.Fatalf("claude-agent-acp command key should have been normalized to bin key: %v", got.ACPEnvVars)
+	if got.Username != "updated" {
+		t.Fatalf("Username = %q, want updated", got.Username)
 	}
 	want := map[string][]repository.ACPEnvVarEntry{
 		"claude": {
@@ -100,6 +110,36 @@ func TestSaveSettingsNormalizesACPEnvVarsToStableKeys(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.ACPEnvVars, want) {
 		t.Fatalf("ACPEnvVars = %v, want %v", got.ACPEnvVars, want)
+	}
+}
+
+func TestSaveACPEnvVarsOnlyChangesVersionWhenEntriesChange(t *testing.T) {
+	entries := []repository.ACPEnvVarEntry{{
+		Key: "https_proxy", Value: "http://proxy", Enabled: true,
+	}}
+	repo := &fakeSettingsRepo{settings: repository.Settings{
+		ACPEnvVars:     map[string][]repository.ACPEnvVarEntry{"codex": entries},
+		ACPEnvVersions: map[string]int64{"codex": 7},
+	}}
+	svc := &settingsServiceImpl{repo: repo}
+
+	version, changed, err := svc.SaveACPEnvVars("codex", entries)
+	if err != nil {
+		t.Fatalf("SaveACPEnvVars unchanged failed: %v", err)
+	}
+	if changed || version != 7 {
+		t.Fatalf("unchanged save = version %d changed %t, want version 7 changed false", version, changed)
+	}
+
+	updated := []repository.ACPEnvVarEntry{{
+		Key: "https_proxy", Value: "http://new-proxy", Enabled: true,
+	}}
+	version, changed, err = svc.SaveACPEnvVars("codex", updated)
+	if err != nil {
+		t.Fatalf("SaveACPEnvVars changed failed: %v", err)
+	}
+	if !changed || version != 8 {
+		t.Fatalf("changed save = version %d changed %t, want version 8 changed true", version, changed)
 	}
 }
 

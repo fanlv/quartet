@@ -189,15 +189,14 @@ func userErrorf(format string, args ...any) error {
 	return &userError{msg: fmt.Sprintf(format, args...)}
 }
 
-// userReplyText returns a user-visible message for err. If err (or anything
-// in its Unwrap chain) is a *userError, that message is returned; otherwise
-// a short generic message is used. Callers MUST log the full err separately.
+// userReplyText returns the complete error. Quartet is a single-user
+// local/sandbox application and its error contract requires the full failure,
+// including wrapped repository and ACP details, to reach the user.
 func userReplyText(err error) string {
-	var ue *userError
-	if errors.As(err, &ue) {
-		return ue.msg
+	if err == nil {
+		return ""
 	}
-	return "处理消息失败，请稍后再试"
+	return err.Error()
 }
 
 // newIMGateway constructs an imGateway wired to the given Handler. Repliers
@@ -631,8 +630,23 @@ func (g *imGateway) enqueueRouteToJob(ctx context.Context, msg *messaging.Messag
 
 func (g *imGateway) buildQueuedJobTask(ctx context.Context, msg *messaging.Message) (*imQueuedJobTask, error) {
 	_, msgAgent := g.h.settingsService.GetIMConfig()
-	if msgAgent == nil || msgAgent.AgentType == "" {
-		return nil, userErrorf("未配置消息 Agent，请在设置中配置")
+	if msgAgent == nil || msgAgent.AgentID == "" {
+		return nil, userErrorf("未配置 IM 会话 Agent，请在设置中配置")
+	}
+	resolved, found, err := g.h.agentCatalog.Resolve(ctx, msgAgent.AgentID)
+	if err != nil {
+		return nil, fmt.Errorf("解析 IM 会话 AgentID %q 失败: %w", msgAgent.AgentID, err)
+	}
+	if !found {
+		return nil, userErrorf("IM 会话 AgentID %q 不存在", msgAgent.AgentID)
+	}
+	if resolved.Deprecated || resolved.Lifecycle != model.AgentLifecycleActive {
+		return nil, userErrorf(
+			"IM 会话 AgentID %q 当前不可执行: deprecated=%t lifecycle=%s",
+			msgAgent.AgentID,
+			resolved.Deprecated,
+			resolved.Lifecycle,
+		)
 	}
 
 	mapping, err := g.mappingRepo.Get(string(msg.Platform), msg.ChatID)
@@ -640,12 +654,12 @@ func (g *imGateway) buildQueuedJobTask(ctx context.Context, msg *messaging.Messa
 		return nil, fmt.Errorf("load mapping failed: %w", err)
 	}
 
-	j, wsID, err := g.resolveJob(ctx, msg, mapping, msgAgent)
+	j, wsID, err := g.resolveJob(ctx, msg, mapping, msgAgent, resolved.AgentID)
 	if err != nil {
 		return nil, fmt.Errorf("无法处理消息: %w", err)
 	}
-	logger.Debugf(ctx, "[im] resolve job: chat=%s jobId=%s agent=%s model=%s mode=%s thought_level=%s",
-		msg.ChatID, j.ID, msgAgent.AgentType, msgAgent.ModelID, msgAgent.ACPMode, msgAgent.ACPThoughtLevel)
+	logger.Debugf(ctx, "[im] resolve job: chat=%s jobId=%s agentId=%s revision=%s model=%s mode=%s thought_level=%s",
+		msg.ChatID, j.ID, msgAgent.AgentID, resolved.Revision, msgAgent.ModelID, msgAgent.ACPMode, msgAgent.ACPThoughtLevel)
 
 	if err := g.saveJobMapping(ctx, msg, mapping, wsID, j.ID); err != nil {
 		logger.Errorf(ctx, "[im] save chat->job mapping failed: chat=%s jobId=%s err=%v", msg.ChatID, j.ID, err)
@@ -658,7 +672,7 @@ func (g *imGateway) buildQueuedJobTask(ctx context.Context, msg *messaging.Messa
 				Role:    "user",
 				Content: msg.Content,
 			}},
-			AgentType:       msgAgent.AgentType,
+			AgentType:       resolved.AgentID,
 			ModelID:         msgAgent.ModelID,
 			ACPMode:         msgAgent.ACPMode,
 			ACPThoughtLevel: msgAgent.ACPThoughtLevel,
@@ -843,6 +857,14 @@ func (g *imGateway) sendQueuedJobMessage(ctx context.Context, task *imQueuedJobT
 	if err != nil {
 		return fmt.Errorf("无法发送消息: %w", err)
 	}
+	sendStarted := false
+	defer func() {
+		if !sendStarted {
+			if prepared, ok := runner.(jobsvc.PreparedExecutionReleaser); ok {
+				prepared.ReleasePreparedExecution()
+			}
+		}
+	}()
 
 	// Subscribe before SendMessage to avoid missing early events. Use
 	// SnapshotSeq for the start point — the job is non-Running here, so
@@ -860,6 +882,7 @@ func (g *imGateway) sendQueuedJobMessage(ctx context.Context, task *imQueuedJobT
 	if err := g.h.jobService.SendMessage(ctx, j.ID, runner, opts); err != nil {
 		return err
 	}
+	sendStarted = true
 
 	reply := g.collectReply(ctx, reader)
 	if reply == "" {
@@ -1216,26 +1239,20 @@ func appendBeforeJobLine(text, line string) string {
 }
 
 func (g *imGateway) handleGroupChat(ctx context.Context, msg *messaging.Message) {
-	_, msgAgent := g.h.settingsService.GetIMConfig()
-	if msgAgent == nil || msgAgent.AgentType == "" {
-		g.replyToMessage(ctx, msg.Platform, msg.MessageID, "生成回复失败: 未配置消息 Agent，请在设置中配置。")
-		return
-	}
-
-	if msgAgent.ModelID == "" {
-		g.replyToMessage(ctx, msg.Platform, msg.MessageID, "生成回复失败: 未配置模型，请在设置中配置。")
+	replyAgent := g.h.settingsService.GetGroupReplyAgent()
+	if replyAgent == nil || replyAgent.AgentID == "" {
+		g.replyToMessage(ctx, msg.Platform, msg.MessageID, "生成回复失败: 未配置群聊回复 Agent，请在设置中配置。")
 		return
 	}
 
 	prompt, err := g.h.promptService.ResolvePrompt(ctx, consts.KeyGroupChatPrompt)
 	if err != nil {
 		logger.Errorf(ctx, "[im] group chat: load prompt failed: %v", err)
-		g.replyToMessage(ctx, msg.Platform, msg.MessageID, "生成回复失败: 加载群聊 prompt 失败")
+		g.replyToMessage(ctx, msg.Platform, msg.MessageID, "生成回复失败: 加载群聊 prompt 失败: "+err.Error())
 		return
 	}
 	prompt = renderIMPrompt(prompt, msg)
 
-	modelID := msgAgent.ModelID
 	messages := []*schema.Message{
 		schema.SystemMessage(prompt),
 		schema.UserMessage(msg.Content),
@@ -1243,10 +1260,10 @@ func (g *imGateway) handleGroupChat(ctx context.Context, msg *messaging.Message)
 
 	logger.Debugf(ctx, "[im] group chat prompt len=%d", len(prompt))
 
-	reply, err := g.h.generateText(ctx, msgAgent.AgentType, modelID, messages)
+	reply, err := g.h.generateText(ctx, replyAgent.AgentID, replyAgent.ModelID, replyAgent.ACPThoughtLevel, messages)
 	if err != nil {
 		logger.Errorf(ctx, "[im] group chat: generate reply failed: chat=%s err=%v", msg.ChatID, err)
-		g.replyToMessage(ctx, msg.Platform, msg.MessageID, "生成回复失败: "+userReplyText(err))
+		g.replyToMessage(ctx, msg.Platform, msg.MessageID, "生成回复失败: "+err.Error())
 		return
 	}
 
@@ -1313,7 +1330,13 @@ func (g *imGateway) routeToJob(ctx context.Context, msg *messaging.Message) {
 
 // resolveJob returns the live Job bound to this chat, creating a new one via
 // the shared createJob helper when no existing job is associated.
-func (g *imGateway) resolveJob(ctx context.Context, msg *messaging.Message, mapping *repository.IMJobMapping, msgAgent *repository.AgentConfig) (*model.Job, string, error) {
+func (g *imGateway) resolveJob(
+	ctx context.Context,
+	msg *messaging.Message,
+	mapping *repository.IMJobMapping,
+	msgAgent *model.IMSessionAgentConfig,
+	agentCommand string,
+) (*model.Job, string, error) {
 	if mapping != nil && mapping.JobID != "" {
 		if j, ok := g.h.jobService.Get(mapping.JobID); ok {
 			return j, mapping.WorkspaceID, nil
@@ -1331,7 +1354,7 @@ func (g *imGateway) resolveJob(ctx context.Context, msg *messaging.Message, mapp
 	}
 
 	req := &model.CreateJobRequest{
-		AgentType:       msgAgent.AgentType,
+		AgentType:       agentCommand,
 		ModelID:         msgAgent.ModelID,
 		ACPMode:         msgAgent.ACPMode,
 		ACPThoughtLevel: msgAgent.ACPThoughtLevel,

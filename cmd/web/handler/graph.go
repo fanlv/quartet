@@ -298,7 +298,7 @@ func (h *Handler) resolveJobGraphRun(ctx context.Context, c *app.RequestContext)
 }
 
 func (h *Handler) GetJobGraphRunStatus(ctx context.Context, c *app.RequestContext) {
-	_, runID, ok := h.resolveJobGraphRun(ctx, c)
+	j, runID, ok := h.resolveJobGraphRun(ctx, c)
 	if !ok {
 		return
 	}
@@ -308,6 +308,12 @@ func (h *Handler) GetJobGraphRunStatus(ctx context.Context, c *app.RequestContex
 			{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},
 		})
 		return
+	}
+	// Public share responses carry the minimal display projection of every
+	// Agent the run references. Collect before slimming — slimGraphRunStatus
+	// strips the agent snapshots from the payload.
+	if _, isPublic := getPublicJob(c); isPublic {
+		resp.Agents = h.resolvePublicAgents(ctx, h.collectGraphRunAgentRefs(resp, j))
 	}
 	c.JSON(http.StatusOK, slimGraphRunStatus(resp))
 }

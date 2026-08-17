@@ -25,6 +25,15 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 
 	agent := api.Group("/agent")
 	agent.GET("/list", h.AgentList)
+	// Complete management catalog: append-only built-ins followed by persisted
+	// custom entries, with structured ACP startup definitions and capabilities.
+	agent.GET("/catalog", h.AgentCatalog)
+	agent.GET("/catalog/deleted", h.DeletedAgentCatalog)
+	agent.GET("/catalog/:agentId", h.AgentCatalogDetail)
+	// Batch display-info resolution for historical Agent references (old
+	// session serve commands, graph node snapshots). Used by the chat view to
+	// render agents that were renamed or deleted since the history was made.
+	agent.POST("/display-info/resolve", h.AgentDisplayInfoResolve)
 	// Live subscription / quota info for the Codex / Claude ACP agents,
 	// shown on the Home page. Refetched on every agent-type switch.
 	agent.GET("/usage", h.AgentUsage)
@@ -35,6 +44,19 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// refreshed selector lists back. Body carries an optional sessionId (live
 	// session switch) or agentType (Home session-less preview).
 	agent.POST("/config", h.SetACPConfig)
+	// Built-in agent installation: candidates are the not-installed,
+	// not-deprecated catalog entries; install only accepts an AgentID and
+	// executes the catalog's preset flow, then rechecks installation and
+	// runs a full ACP validation.
+	agent.GET("/install/candidates", h.AgentInstallCandidates)
+	agent.POST("/install", h.AgentInstall)
+	agent.POST("/:agentId/uninstall", h.AgentUninstall)
+	agent.POST("/custom", h.CreateCustomAgent)
+	agent.PUT("/custom/:agentId", h.UpdateCustomAgent)
+	agent.POST("/custom/:agentId/restore", h.RestoreCustomAgent)
+	agent.POST("/:agentId/revalidate", h.RevalidateAgent)
+	agent.GET("/custom/:agentId/delete-impact", h.CustomAgentDeleteImpact)
+	agent.POST("/custom/:agentId/delete", h.DeleteCustomAgent)
 
 	api.GET("/list-dir", h.ListDir)
 	api.POST("/mkdir", h.MkDir)
@@ -74,6 +96,14 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	settings := config.Group("/settings")
 	settings.GET("/get", h.GetSettings)
 	settings.POST("/save", h.SaveSettings)
+	settings.GET("/title-generation-agent", h.GetTitleGenerationAgent)
+	settings.PUT("/title-generation-agent", h.SaveTitleGenerationAgent)
+	settings.GET("/group-reply-agent", h.GetGroupReplyAgent)
+	settings.PUT("/group-reply-agent", h.SaveGroupReplyAgent)
+	settings.GET("/im-session-agent", h.GetIMSessionAgent)
+	settings.PUT("/im-session-agent", h.SaveIMSessionAgent)
+	settings.PUT("/agent/:agentId/env", h.SaveAgentEnvVars)
+	settings.PUT("/agent/:agentId/prefs", h.SaveAgentPrefs)
 
 	// WeChat (iLink) routes — scan-to-login, account management, and
 	// first-contact approval. See cmd/web/handler/wechat_login_api.go.
@@ -178,7 +208,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 
 	// Public read-only routes (no auth, validated by shareToken)
 	pub := s.Group("/api/v1/public", shareTokenMiddleware(h.GetJobService()))
-	pub.GET("/agent/list", h.AgentList)
+	pub.GET("/agent/list", h.PublicAgentList)
 	pub.GET("/job/:jobId", h.JobGet)
 	pub.GET("/job/:jobId/events", h.JobEvents)
 	pub.GET("/sessions/:sessionId/messages", h.PublicGetSessionMessages)

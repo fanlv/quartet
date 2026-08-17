@@ -1,7 +1,7 @@
 import type { AgentInfo, ModelInfoACP } from '../components/ChatPage';
 
-// AgentPrefs mirrors repository.AgentPrefs (Go). Per-ACP-agent-type favorites
-// + defaults, keyed by agent type in the parent map.
+// AgentPrefs mirrors repository.AgentPrefs (Go). Current entries are keyed by
+// stable AgentID; command/type keys are read only as a migration fallback.
 export interface AgentPrefs {
   favorite_model_ids?: string[];
   default_model_id?: string;
@@ -21,6 +21,11 @@ let inflight: Promise<AgentPrefsMap> | null = null;
 export function invalidateAgentPrefs(): void {
   cache = null;
   inflight = null;
+}
+
+export function prefsForAgent(map: AgentPrefsMap, agent?: AgentInfo | null): AgentPrefs | undefined {
+  if (!agent) return undefined;
+  return map[agent.agent_id] || map[agent.type];
 }
 
 export async function fetchAgentPrefs(force = false): Promise<AgentPrefsMap> {

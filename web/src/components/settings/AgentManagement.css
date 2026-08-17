@@ -1,0 +1,30 @@
+.agent-management-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #e5e5e5;
+  margin-bottom: 20px;
+}
+
+.agent-management-tab {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.agent-management-tab:hover {
+  color: #333;
+}
+
+.agent-management-tab.active {
+  color: #0066ff;
+  border-bottom-color: #0066ff;
+}
+
+.agent-management-content {
+  min-height: 0;
+}

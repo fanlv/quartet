@@ -215,8 +215,26 @@ func (h *Handler) prepareJobSend(ctx context.Context, j *model.Job, req *model.J
 		return nil, nil, job.ErrJobRunning
 	}
 
+	agentID, revision, err := h.resolveInteractiveExecutionTarget(ctx, j, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	runner := newJobRunner(h, j)
+	if agentID != "" {
+		releaseExecution, acquired := h.agentExecutions.acquireExecution(agentID)
+		if !acquired {
+			return nil, nil, fmt.Errorf(
+				"AgentID %q revision %q cannot start an interactive run: Agent deletion is in progress",
+				agentID,
+				revision,
+			)
+		}
+		runner.holdPreparedExecution(releaseExecution)
+	}
+
 	opts, err := h.prepareJobMessage(j, req)
 	if err != nil {
+		runner.ReleasePreparedExecution()
 		return nil, nil, err
 	}
 
@@ -227,7 +245,134 @@ func (h *Handler) prepareJobSend(ctx context.Context, j *model.Job, req *model.J
 		}
 	}
 
-	return newJobRunner(h, j), opts, nil
+	return runner, opts, nil
+}
+
+func (h *Handler) resolveInteractiveExecutionTarget(
+	ctx context.Context,
+	j *model.Job,
+	req *model.JobMessageRequest,
+) (string, string, error) {
+	sessionID, err := h.resolveSessionID(j, req.SessionID)
+	if err != nil {
+		return "", "", err
+	}
+	if sessionID != "" {
+		session, ok := h.lookupSession(sessionID)
+		if !ok {
+			return "", "", fmt.Errorf("session %s was not found", sessionID)
+		}
+		if req.AgentType != "" && !h.sameAgentReference(ctx, session, req.AgentType) {
+			if req.SessionID != "" {
+				return "", "", fmt.Errorf(
+					"session %s agentType=%s does not match request agentType=%s",
+					sessionID,
+					session.Type,
+					req.AgentType,
+				)
+			}
+			sessionID = ""
+		} else {
+			var (
+				binding    model.AgentRuntimeBinding
+				found      bool
+				resolveErr error
+			)
+			if session.AgentID != "" && session.AgentRevision != "" {
+				binding, found, resolveErr = h.agentCatalog.ResolveBinding(
+					ctx,
+					session.AgentID,
+					session.AgentRevision,
+				)
+			} else {
+				binding, found, resolveErr = h.agentCatalog.ResolveLegacyBinding(ctx, session.Type)
+			}
+			if resolveErr != nil {
+				return "", "", resolveErr
+			}
+			if !found {
+				return "", "", fmt.Errorf(
+					"session %s Agent reference %q does not exist",
+					sessionID,
+					firstNonEmptyString(session.AgentID, session.Type),
+				)
+			}
+			if err := h.validateInteractiveExecutionAgent(ctx, binding.AgentID, binding.Revision); err != nil {
+				return "", "", err
+			}
+			return binding.AgentID, binding.Revision, nil
+		}
+	}
+	if sessionID == "" && req.AgentType == "" {
+		return "", "", nil
+	}
+	resolved, found, resolveErr := h.agentCatalog.Resolve(ctx, req.AgentType)
+	if resolveErr != nil {
+		return "", "", fmt.Errorf("resolve Agent %q before interactive run failed: %w", req.AgentType, resolveErr)
+	}
+	if !found {
+		return "", "", fmt.Errorf("resolve Agent %q before interactive run failed: Agent does not exist", req.AgentType)
+	}
+	if resolved.Deprecated || resolved.Lifecycle != model.AgentLifecycleActive {
+		return "", "", fmt.Errorf(
+			"AgentID %q revision %q cannot start an interactive run: deprecated=%t lifecycle=%q",
+			resolved.AgentID,
+			resolved.Revision,
+			resolved.Deprecated,
+			resolved.Lifecycle,
+		)
+	}
+	return resolved.AgentID, resolved.Revision, nil
+}
+
+func (h *Handler) validateInteractiveExecutionAgent(ctx context.Context, agentID, revision string) error {
+	entry, found, err := h.agentCatalog.Find(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf(
+			"validate AgentID %q revision %q before interactive run failed: %w",
+			agentID,
+			revision,
+			err,
+		)
+	}
+	if !found {
+		return fmt.Errorf(
+			"AgentID %q revision %q cannot start an interactive run: Agent does not exist",
+			agentID,
+			revision,
+		)
+	}
+	if entry.Source == model.AgentCatalogSourceBuiltin &&
+		entry.Builtin != nil && entry.Builtin.Deprecated {
+		return fmt.Errorf(
+			"AgentID %q revision %q cannot start an interactive run: Agent is deprecated",
+			agentID,
+			revision,
+		)
+	}
+	if entry.Source == model.AgentCatalogSourceCustom &&
+		(entry.Custom == nil || entry.Custom.Lifecycle != model.AgentLifecycleActive) {
+		lifecycle := model.AgentLifecycle("")
+		if entry.Custom != nil {
+			lifecycle = entry.Custom.Lifecycle
+		}
+		return fmt.Errorf(
+			"AgentID %q revision %q cannot start an interactive run: lifecycle=%q",
+			agentID,
+			revision,
+			lifecycle,
+		)
+	}
+	return nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // planJobTitleUpdate computes a pending title for the job if needed and
@@ -338,7 +483,7 @@ func (h *Handler) prepareInteractiveRun(j *model.Job, req *model.JobMessageReque
 	// sessionID with a mismatched underlying process.
 	if sessionID != "" && req.AgentType != "" {
 		s, ok := h.lookupSession(sessionID)
-		if ok && s.Type != "" && s.Type != req.AgentType {
+		if ok && s.Type != "" && !h.sameAgentReference(context.Background(), s, req.AgentType) {
 			if req.SessionID != "" {
 				return nil, fmt.Errorf("session %s agentType=%s does not match request agentType=%s", sessionID, s.Type, req.AgentType)
 			}
@@ -351,6 +496,21 @@ func (h *Handler) prepareInteractiveRun(j *model.Job, req *model.JobMessageReque
 		opts.SessionID = sessionID
 	}
 	return opts, nil
+}
+
+func (h *Handler) sameAgentReference(ctx context.Context, session *model.Session, requested string) bool {
+	if session == nil {
+		return false
+	}
+	if session.AgentID != "" {
+		resolved, found, err := h.agentCatalog.Resolve(ctx, requested)
+		return err == nil && found && resolved.AgentID == session.AgentID
+	}
+	existing, existingFound, existingErr := h.agentCatalog.Resolve(ctx, session.Type)
+	requestedAgent, requestedFound, requestedErr := h.agentCatalog.Resolve(ctx, requested)
+	return existingErr == nil && requestedErr == nil &&
+		existingFound && requestedFound &&
+		existing.AgentID == requestedAgent.AgentID
 }
 
 // resolveSessionID returns the session ID from the request (after validating it

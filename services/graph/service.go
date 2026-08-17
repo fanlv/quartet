@@ -15,6 +15,7 @@ import (
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/repository"
+	"github.com/fanlv/quartet/services/agent/catalog"
 	jobsvc "github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/usagestats"
 	workspacesvc "github.com/fanlv/quartet/services/workspace"
@@ -191,6 +192,7 @@ type runControl struct {
 type serviceImpl struct {
 	repo                    repository.GraphWorkflowRepo
 	runRepo                 repository.GraphRunRepo
+	agentCatalog            *catalog.Service
 	transientRetryDelay     time.Duration
 	rateLimitRetryBaseDelay time.Duration
 
@@ -232,6 +234,30 @@ type Runner interface {
 	// ok=false when modelID is empty — the caller treats this as a degraded
 	// (best-effort) snapshot rather than a start failure.
 	ResolveModelSnapshot(ctx context.Context, modelID string) (string, bool)
+}
+
+type AgentSnapshotResolver interface {
+	ResolveAgentSnapshot(ctx context.Context, identifier string) (model.GraphAgentSnapshot, error)
+}
+
+// AgentSnapshotLeaseResolver extends AgentSnapshotResolver for runtimes that
+// must hold an execution admission lease from snapshot resolution until the
+// GraphRun has been durably bound to its Job. The release callback must be
+// called on every success and failure path.
+type AgentSnapshotLeaseResolver interface {
+	ResolveAgentSnapshotWithLease(ctx context.Context, identifier string) (model.GraphAgentSnapshot, func(), error)
+}
+
+type AgentBindingLeaseResolver interface {
+	ValidateAgentBindingWithLease(ctx context.Context, binding model.AgentRuntimeBinding) (func(), error)
+}
+
+type AgentSessionLeaseResolver interface {
+	ValidateSessionAgentWithLease(ctx context.Context, sessionID string) (func(), error)
+}
+
+type LegacyAgentBindingResolver interface {
+	ResolveLegacyAgentBinding(ctx context.Context, identifier string) (*model.AgentRuntimeBinding, error)
 }
 
 // ShellSessionRecorder is an optional capability a Runner may implement to give
@@ -318,14 +344,23 @@ func NewService() (Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init graph run repo failed: %w", err)
 	}
-	return &serviceImpl{
+	agentCatalog, err := catalog.NewService()
+	if err != nil {
+		return nil, fmt.Errorf("init Agent catalog for graph workflow migration failed: %w", err)
+	}
+	service := &serviceImpl{
 		repo:                    repo,
 		runRepo:                 runRepo,
+		agentCatalog:            agentCatalog,
 		transientRetryDelay:     defaultGraphTransientRetryDelay,
 		rateLimitRetryBaseDelay: defaultGraphRateLimitRetryBaseDelay,
 		runControls:             map[string]*runControl{},
 		eventBufs:               map[string]*graphEventBuffer{},
-	}, nil
+	}
+	if err := service.migrateWorkflowAgentReferences(context.Background()); err != nil {
+		return nil, err
+	}
+	return service, nil
 }
 
 // registerControl creates and stores a control handle for a run and returns a
@@ -438,6 +473,128 @@ func (s *serviceImpl) ValidateConfig(_ context.Context, cfg *model.GraphConfig) 
 	return validateConfig(cfg)
 }
 
+func (s *serviceImpl) migrateWorkflowAgentReferences(ctx context.Context) error {
+	workflows, warnings, err := s.repo.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list GraphWorkflows for AgentID migration failed: %w", err)
+	}
+	for _, warning := range warnings {
+		logger.Warnf(
+			ctx,
+			"[graph] skip unreadable GraphWorkflow during AgentID migration: file=%s err=%s",
+			warning.File,
+			warning.Error,
+		)
+	}
+	for _, workflow := range workflows {
+		if workflow == nil {
+			continue
+		}
+		if _, err := s.normalizeLoadedWorkflow(ctx, workflow); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *serviceImpl) normalizeLoadedWorkflow(
+	ctx context.Context,
+	workflow *model.GraphWorkflow,
+) (*model.GraphWorkflow, error) {
+	if workflow == nil {
+		return nil, nil
+	}
+	changed, err := s.normalizeWorkflowAgentReferences(ctx, &workflow.Config)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"normalize GraphWorkflow %q Agent references failed: %w",
+			workflow.ID,
+			err,
+		)
+	}
+	if !changed {
+		return workflow, nil
+	}
+	expectedUpdatedAt := workflow.UpdatedAt
+	if err := s.repo.UpdateIfUnchanged(ctx, workflow.ID, workflow, &expectedUpdatedAt); err != nil {
+		if errors.Is(err, repository.ErrGraphWorkflowVersionConflict) {
+			// Another editor won the race. Reload and normalize its newer value;
+			// one retry is sufficient because a second conflict means live edits
+			// are still happening and a later read will retry without overwriting.
+			current, loadErr := s.repo.Get(ctx, workflow.ID)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			changed, normalizeErr := s.normalizeWorkflowAgentReferences(ctx, &current.Config)
+			if normalizeErr != nil {
+				return nil, normalizeErr
+			}
+			if !changed {
+				return current, nil
+			}
+			currentExpected := current.UpdatedAt
+			if retryErr := s.repo.UpdateIfUnchanged(
+				ctx,
+				current.ID,
+				current,
+				&currentExpected,
+			); retryErr != nil {
+				if errors.Is(retryErr, repository.ErrGraphWorkflowVersionConflict) {
+					logger.Warnf(
+						ctx,
+						"[graph] defer concurrent GraphWorkflow AgentID migration: workflowId=%s",
+						workflow.ID,
+					)
+					return current, nil
+				}
+				return nil, retryErr
+			}
+			return current, nil
+		}
+		return nil, fmt.Errorf(
+			"persist GraphWorkflow %q AgentID migration failed: %w",
+			workflow.ID,
+			err,
+		)
+	}
+	return workflow, nil
+}
+
+func (s *serviceImpl) normalizeWorkflowAgentReferences(
+	ctx context.Context,
+	config *model.GraphConfig,
+) (bool, error) {
+	if config == nil || s.agentCatalog == nil {
+		return false, nil
+	}
+	changed := false
+	for index := range config.Nodes {
+		node := &config.Nodes[index]
+		if !isAgent(node.Type) {
+			continue
+		}
+		identifier := strings.TrimSpace(node.Config.AgentType)
+		if identifier == "" {
+			continue
+		}
+		resolved, found, err := s.agentCatalog.Resolve(ctx, identifier)
+		if err != nil {
+			return false, fmt.Errorf(
+				"resolve Graph node %q Agent reference %q failed: %w",
+				node.ID,
+				identifier,
+				err,
+			)
+		}
+		if !found || resolved.AgentID == identifier {
+			continue
+		}
+		node.Config.AgentType = resolved.AgentID
+		changed = true
+	}
+	return changed, nil
+}
+
 func (s *serviceImpl) SetUsageRecorder(r usagestats.Recorder) {
 	s.usageMu.Lock()
 	s.usageRecorder = r
@@ -480,6 +637,9 @@ func (s *serviceImpl) CreateWorkflow(ctx context.Context, req *model.CreateGraph
 	}
 	now := time.Now()
 	config := req.Config
+	if _, err := s.normalizeWorkflowAgentReferences(ctx, &config); err != nil {
+		return nil, err
+	}
 	workspaceID := firstNonEmpty(req.WorkspaceID, config.WorkspaceID)
 	config.WorkspaceID = workspaceID
 	wf := &model.GraphWorkflow{
@@ -513,11 +673,26 @@ func (s *serviceImpl) GetWorkflow(ctx context.Context, id string) (*model.GraphW
 	if wf.Deleted {
 		return nil, ErrWorkflowNotFound
 	}
+	wf, err = s.normalizeLoadedWorkflow(ctx, wf)
+	if err != nil {
+		return nil, fmt.Errorf("migrate graph workflow %s Agent references failed: %w", id, err)
+	}
 	return wf, nil
 }
 
 func (s *serviceImpl) ListWorkflows(ctx context.Context) ([]*model.GraphWorkflow, []model.GraphWorkflowWarning, error) {
-	return s.repo.List(ctx)
+	workflows, warnings, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, warnings, err
+	}
+	for index, workflow := range workflows {
+		normalized, normalizeErr := s.normalizeLoadedWorkflow(ctx, workflow)
+		if normalizeErr != nil {
+			return nil, warnings, normalizeErr
+		}
+		workflows[index] = normalized
+	}
+	return workflows, warnings, nil
 }
 
 func (s *serviceImpl) UpdateWorkflow(ctx context.Context, id string, req *model.UpdateGraphWorkflowRequest) (*model.GraphWorkflow, error) {
@@ -553,6 +728,9 @@ func (s *serviceImpl) UpdateWorkflow(ctx context.Context, id string, req *model.
 			return nil, &ValidationError{Errors: errs}
 		}
 		config := *req.Config
+		if _, err := s.normalizeWorkflowAgentReferences(ctx, &config); err != nil {
+			return nil, err
+		}
 		config.WorkspaceID = workspaceID
 		wf.Config = config
 	}

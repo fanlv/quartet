@@ -46,18 +46,19 @@ func loadEnvFromSettings(agentType string) []pkgacp.EnvVar {
 	}
 	type envValue struct {
 		value    string
+		enabled  bool
 		priority int
 	}
 	envMap := make(map[string]envValue)
 	for _, key := range probe.ACPAgentEnvLookupKeys(agentType) {
 		_, priority := probe.ACPAgentEnvKeyPriority(key)
 		for _, e := range settings.ACPEnvVars[key] {
-			if !e.Enabled || e.Key == "" {
+			if e.Key == "" {
 				continue
 			}
 			current, ok := envMap[e.Key]
 			if !ok || priority > current.priority {
-				envMap[e.Key] = envValue{value: e.Value, priority: priority}
+				envMap[e.Key] = envValue{value: e.Value, enabled: e.Enabled, priority: priority}
 			}
 		}
 	}
@@ -66,6 +67,9 @@ func loadEnvFromSettings(agentType string) []pkgacp.EnvVar {
 	}
 	out := make([]pkgacp.EnvVar, 0, len(envMap))
 	for key, value := range envMap {
+		if !value.enabled {
+			continue
+		}
 		out = append(out, pkgacp.EnvVar{Key: key, Value: value.value})
 	}
 	return out

@@ -17,7 +17,8 @@ import { MessageRoleEnum, MessageStatusEnum, type UserMessage } from '../types';
 import { ServerClockProvider } from '../contexts/ServerClock';
 import { VirtualList } from './VirtualList';
 import { registerWorkspaceColors } from '../utils/workspace';
-import { fetchAgentPrefs, type AgentPrefsMap } from '../utils/agentPrefs';
+import { ensureAgentDisplays, invalidateAgentDisplays, peekAgentDisplay, useAgentDisplayVersion } from '../utils/agentDisplay';
+import { fetchAgentPrefs, prefsForAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { relinkACPThoughtLevels, setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
 import './JobChat.css';
 
@@ -43,7 +44,10 @@ async function fetchAgentList(shareToken?: string, jobId?: string): Promise<{ ag
       // read-only and intentionally report jobEnable=false.
       return { agents: [], workdir: '', jobEnable: !shareToken, error: detail };
     }
-    return { agents: data.agent_list as AgentInfo[], workdir: data.workdir || '', jobEnable: !!data.job_enable };
+    const list = (data.agent_list as AgentInfo[])
+      .map((agent) => shareToken && !agent.type ? { ...agent, type: agent.agent_id, available: true } : agent)
+      .filter((agent) => shareToken || agent.available !== false);
+    return { agents: list, workdir: data.workdir || '', jobEnable: !!data.job_enable };
   } catch (err) {
     console.error('Failed to fetch agent list:', err);
     return {
@@ -171,6 +175,8 @@ export function JobChat(props: JobChatProps) {
     isLoadingHistory,
     activePhase,
     error,
+    titleGenerationError,
+    clearTitleGenerationError,
     sessionModelId,
     sessionType,
     sessionACPMode,
@@ -634,30 +640,104 @@ export function JobChat(props: JobChatProps) {
   ]);
 
   // Resolve agent icon/name for a specific session. Falls back to selectedAgent.
-  const resolveAgentForSession = useCallback((sessionId?: string): { iconUrl?: string; displayName?: string } => {
-    if (!sessionId || agents.length === 0) {
+  //
+  // History must keep rendering after an Agent is renamed or deleted, so when
+  // the current agent list cannot resolve the session's reference (type /
+  // legacy serve command) we consult the retained catalog records through the
+  // agentDisplay cache: deleted custom Agents render with a「（已删除）」
+  // suffix and unresolvable references render as「未知 Agent」. In share mode
+  // the cache is primed by the public responses' agents maps; privately the
+  // batch resolve endpoint fills it (see the effect below).
+  const resolveAgentForSession = useCallback((sessionId?: string): { iconUrl?: string; displayName?: string; deleted?: boolean; unknown?: boolean } => {
+    const meta = sessionId ? getSessionMeta(sessionId) : null;
+    // The main session's messages carry no sessionId; its reference is the
+    // active session type reported by the history response.
+    const ref = meta?.type || (!sessionId ? sessionType : null);
+    if (ref) {
+      const matched = agents.find((a) => a.type === ref);
+      if (matched) {
+        return { iconUrl: matched.icon_url, displayName: matched.display_name };
+      }
+      const info = peekAgentDisplay(ref);
+      if (info) {
+        return {
+          iconUrl: info.iconUrl || undefined,
+          displayName: info.deleted ? t('chat.agentDeletedName', { name: info.displayName }) : info.displayName,
+          deleted: info.deleted,
+        };
+      }
+      if (info === null) {
+        return { displayName: t('chat.unknownAgent'), unknown: true };
+      }
+      // Resolution still in flight: fall through to the selectedAgent
+      // fallback until the cache notifies.
       return { iconUrl: selectedAgent?.icon_url, displayName: selectedAgent?.display_name };
     }
-    const meta = getSessionMeta(sessionId);
-    if (!meta) {
-      return { iconUrl: selectedAgent?.icon_url, displayName: selectedAgent?.display_name };
-    }
-    // Match by type first: for ACP agents `type` is the unique identifier,
-    // and multiple ACP agents may share one model id (e.g. codex + traex both
-    // expose `gpt-5.5`), so matching model id first would resolve the wrong
-    // agent's icon/name. Fall back to model id when type is unavailable.
-    let matched: AgentInfo | undefined;
-    if (meta.type) {
-      matched = agents.find((a) => a.type === meta.type);
-    }
-    if (!matched && meta.modelId) {
-      matched = agents.find((a) => a.model_id === meta.modelId || a.models?.availableModels.some((m) => m.modelId === meta.modelId));
-    }
-    if (matched) {
-      return { iconUrl: matched.icon_url, displayName: matched.display_name };
+    // No type recorded (very old sessions): keep the historical model-id
+    // matching, then the selectedAgent fallback.
+    if (meta?.modelId) {
+      const matched = agents.find((a) => a.model_id === meta.modelId || a.models?.availableModels.some((m) => m.modelId === meta.modelId));
+      if (matched) {
+        return { iconUrl: matched.icon_url, displayName: matched.display_name };
+      }
     }
     return { iconUrl: selectedAgent?.icon_url, displayName: selectedAgent?.display_name };
-  }, [agents, selectedAgent, getSessionMeta]);
+  }, [agents, selectedAgent, getSessionMeta, sessionType, t]);
+
+  // Re-render when an async agent display resolution lands so the callbacks
+  // above pick up the fresh cache.
+  useAgentDisplayVersion();
+
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const agentID = (event as CustomEvent<{ agentId?: string }>).detail?.agentId;
+      invalidateAgentDisplays(agentID ? [agentID] : undefined);
+      const refs: Array<string | null> = [sessionType];
+      if (activeSessionId) refs.push(getSessionMeta(activeSessionId)?.type || null);
+      ensureAgentDisplays(refs, true);
+    };
+    window.addEventListener('quartet:agent-catalog-changed', refresh);
+    return () => window.removeEventListener('quartet:agent-catalog-changed', refresh);
+  }, [activeSessionId, getSessionMeta, sessionType]);
+
+  // Schedule resolution for every historical Agent reference visible on this
+  // page that the current agent list cannot resolve. Share mode never calls
+  // the private endpoint — its cache is primed by the public payloads.
+  useEffect(() => {
+    if (shareToken) return;
+    const listed = new Set(agents.map((a) => a.type));
+    const refs: Array<string | null> = [];
+    if (sessionType && !listed.has(sessionType)) refs.push(sessionType);
+    for (const message of messages) {
+      if (!message.sessionId) continue;
+      const type = getSessionMeta(message.sessionId)?.type;
+      if (type && !listed.has(type)) refs.push(type);
+    }
+    if (activeSessionId) {
+      const type = getSessionMeta(activeSessionId)?.type;
+      if (type && !listed.has(type)) refs.push(type);
+    }
+    ensureAgentDisplays(refs, true);
+  }, [shareToken, agents, sessionType, messages, activeSessionId, getSessionMeta]);
+
+  // Execution entries for a session whose Agent was deleted — or can no
+  // longer be resolved at all — are disabled up front: such a run can only
+  // fail with the full error, so the composer and the graph resume/continue
+  // actions are greyed out with an explanatory hint instead. Share pages are
+  // read-only already.
+  const activeAgentBlock: 'deleted' | 'unknown' | null = (() => {
+    if (shareToken) return null;
+    const meta = activeSessionId ? getSessionMeta(activeSessionId) : null;
+    const ref = meta?.type || sessionType;
+    if (!ref || agents.some((a) => a.type === ref)) return null;
+    const info = peekAgentDisplay(ref);
+    if (info === undefined) return null; // resolution in flight — do not block yet
+    if (info === null) return 'unknown';
+    return info.deleted ? 'deleted' : null;
+  })();
+  const activeAgentBlockHint = activeAgentBlock
+    ? t(activeAgentBlock === 'deleted' ? 'chat.agentDeletedHint' : 'chat.agentUnknownHint')
+    : undefined;
 
   // applyACPConfig pushes a live-config switch to the backend and merges the
   // refreshed selector lists back into the selected agent. When a session is
@@ -1585,6 +1665,12 @@ export function JobChat(props: JobChatProps) {
           <button onClick={() => { window.location.href = '/'; }}>Back</button>
         </div>
       )}
+      {titleGenerationError && (
+        <div className="acp-config-error" data-testid="title-generation-error" role="alert">
+          <span>{titleGenerationError}</span>
+          <button type="button" onClick={clearTitleGenerationError} aria-label="dismiss">×</button>
+        </div>
+      )}
 
       {/* Loop progress bar (read-only archive of historical loop jobs) */}
       {isLoop && loopProgress && (
@@ -1607,6 +1693,9 @@ export function JobChat(props: JobChatProps) {
           shareToken={shareToken}
           agents={agents}
           canEdit={!isReadonly}
+          executionBlocked={!!activeAgentBlock}
+          executionBlockedHint={activeAgentBlockHint}
+          getSessionAgentReference={(sessionId) => getSessionMeta(sessionId)?.type || null}
         />
       )}
 
@@ -1688,9 +1777,12 @@ export function JobChat(props: JobChatProps) {
             // "click does nothing". The send path already waits for the event
             // stream (ensureEventStreamReady, 15s timeout) and surfaces errors,
             // so the composer stays editable and only the run is gated.
-            disabled={initialDispatchPending || ((isLoop || isGraph) && !(activeSessionId && endedSessionIds.has(activeSessionId)))}
+            //
+            // activeAgentBlock DOES disable the composer: a session whose Agent
+            // was deleted (or no longer resolves) cannot execute anymore.
+            disabled={initialDispatchPending || !!activeAgentBlock || ((isLoop || isGraph) && !(activeSessionId && endedSessionIds.has(activeSessionId)))}
             readOnly={!!isReadonly}
-            placeholder={isGraph && !(activeSessionId && endedSessionIds.has(activeSessionId)) ? 'Graph workflow run' : isReadonly ? 'Read-only mode' : undefined}
+            placeholder={activeAgentBlockHint ?? (isGraph && !(activeSessionId && endedSessionIds.has(activeSessionId)) ? 'Graph workflow run' : isReadonly ? 'Read-only mode' : undefined)}
             localHistoryKey={`${workspaceId || 'default'}`}
             totalTokens={totalTokens}
             roundStartedAt={interactiveAccumulatedMs > 0 ? undefined : roundStartedAt}
@@ -1719,7 +1811,7 @@ export function JobChat(props: JobChatProps) {
             onSelectModel={selectedAgent?.models ? handleSelectModel : undefined}
             onSelectMode={selectedAgent?.modes ? handleSelectMode : undefined}
             onSelectThoughtLevel={selectedAgent?.thoughtLevels ? handleSelectThoughtLevel : undefined}
-            favoriteModelIds={selectedAgent ? agentPrefs[selectedAgent.type]?.favorite_model_ids : undefined}
+            favoriteModelIds={prefsForAgent(agentPrefs, selectedAgent)?.favorite_model_ids}
             overrideModelId={hasUserSelected ? undefined : sessionModelId}
             overrideModeId={hasUserSelectedMode ? undefined : sessionACPMode}
             overrideThoughtLevelId={hasUserSelectedThoughtLevel ? undefined : sessionACPThoughtLevel}

@@ -266,7 +266,6 @@ func (sc *scheduler) applyVersionUpdate(ctx context.Context, sig controlSignal) 
 	sc.disabled = disabledNameSet(sc.cfg.DisabledVars)
 	sc.index()
 	sc.refreshActiveLoopsAfterVersion()
-	sc.remapReadyToLatestVersion(ctx)
 	sc.persist(ctx)
 	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeLog, nil, "", "",
 		fmt.Sprintf("graph run version updated: version=%d", sc.run.CurrentVersion), nil)
@@ -282,29 +281,6 @@ func (sc *scheduler) sendVersionUpdateResult(sig controlSignal, result versionUp
 	select {
 	case sig.versionResp <- result:
 	default:
-	}
-}
-
-func (sc *scheduler) remapReadyToLatestVersion(ctx context.Context) {
-	for i := range sc.ready {
-		node, ok := sc.nodesByID[sc.ready[i].node.ID]
-		if !ok || node.Type != sc.ready[i].node.Type || node.ParentID != sc.ready[i].node.ParentID {
-			continue
-		}
-		sc.ready[i].node = node
-		sc.ready[i].outEdges = cloneGraphEdges(sc.outEdges[node.ID])
-		sc.ready[i].run = cloneGraphRun(sc.run)
-		sc.ready[i].runConfig = sc.cfg.RunConfig
-		sc.ready[i].disabled = cloneStringSet(sc.disabled)
-		keyStr := instanceKeyString(sc.ready[i].key)
-		st, ok := sc.instances[keyStr]
-		if !ok || st.Status != model.GraphInstanceStatusRunning {
-			continue
-		}
-		st.NodeTitle = node.Title
-		st.NodeType = node.Type
-		st.Version = sc.run.CurrentVersion
-		sc.instances[keyStr] = st
 	}
 }
 
@@ -1185,7 +1161,7 @@ func (sc *scheduler) enqueue(ctx context.Context, scope *scopeRun, node model.Gr
 	loopVars := runtimeVars(scope)
 	state := model.GraphInstanceState{
 		Key: key, NodeID: node.ID, NodeTitle: node.Title, NodeType: node.Type,
-		Status: model.GraphInstanceStatusRunning, Version: sc.run.CurrentVersion,
+		Status: model.GraphInstanceStatusRunning, Version: executionVersionForInstance(sc.run, key),
 		VisibleVariables: cloneStringMap(visible), VariableWriters: cloneStringMap(writers), StartedAt: startedAt,
 	}
 	// Graph Shell 默认新开一个 session: mint the Shell node's display session and

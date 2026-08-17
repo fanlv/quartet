@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
@@ -47,6 +48,8 @@ type ACPService interface {
 	GetOrCreate(ctx context.Context, store SessionStore, wsID, jobID, sessionID, agentType, workdir string) (*Lease, error)
 	Get(wsID, jobID, sessionID string) (*Lease, bool)
 	Delete(wsID, jobID, sessionID string)
+	DeleteByAgent(agentID string) int
+	DeleteByAgentIdentifiers(identifiers []string) int
 	// PersistPendingMessages records user input when agent construction fails
 	// before ACPAgent.Run gets a chance to call ChatContextManager.BeginRun.
 	// Messages already tagged as pre-persisted are not appended twice.
@@ -172,6 +175,40 @@ func (s *acpService) Get(wsID, jobID, sessionID string) (*Lease, bool) {
 
 func (s *acpService) Delete(wsID, jobID, sessionID string) {
 	s.cache.Delete(agentCacheKey(wsID, jobID, sessionID))
+}
+
+func (s *acpService) DeleteByAgent(agentID string) int {
+	return s.DeleteByAgentIdentifiers([]string{agentID})
+}
+
+func (s *acpService) DeleteByAgentIdentifiers(identifiers []string) int {
+	exact := make(map[string]bool, len(identifiers))
+	var prefixes []string
+	for _, identifier := range identifiers {
+		identifier = strings.TrimSpace(identifier)
+		if identifier == "" {
+			continue
+		}
+		exact[identifier] = true
+		prefixes = append(prefixes, identifier+"@")
+	}
+	if len(exact) == 0 {
+		return 0
+	}
+	return s.cache.DeleteWhere(func(_ string, agent *ACPAgent) bool {
+		if agent == nil {
+			return false
+		}
+		if exact[agent.agentType] {
+			return true
+		}
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(agent.agentType, prefix) {
+				return true
+			}
+		}
+		return false
+	})
 }
 
 func (s *acpService) PersistPendingMessages(ctx context.Context, store SessionStore, wsID, jobID, sessionID string, messages []*schema.Message) error {

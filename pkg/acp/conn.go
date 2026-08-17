@@ -360,18 +360,41 @@ func NewProbeConn(ctx context.Context, agentType, workdir string) (*Conn, error)
 // handshake. Caller is responsible for tracking the returned Conn for idle
 // reaping if desired; most callers should use NewTrackedConn instead.
 func NewConn(ctx context.Context, agentType, workdir string) (*Conn, error) {
-	parts := strings.Fields(agentType)
-	if len(parts) == 0 {
+	if strings.TrimSpace(agentType) == "" {
 		return nil, fmt.Errorf("agentType is empty")
 	}
 	if !IsAllowedAgentCommand(agentType) {
 		return nil, fmt.Errorf("agentType %q is not in the allowed list; allowed commands: %v", agentType, AllowedAgentCommands())
 	}
-	cmd := exec.Command(parts[0], parts[1:]...)
+	program := ""
+	var args []string
+	envKey := agentType
+	var runtimeEnv []EnvVar
+	overrideEnv := false
+	if runtimeDefinition, ok := AgentRuntime(agentType); ok {
+		program = runtimeDefinition.Program
+		args = runtimeDefinition.Args
+		runtimeEnv = runtimeDefinition.Env
+		overrideEnv = runtimeDefinition.OverrideEnv
+		if runtimeDefinition.EnvKey != "" {
+			envKey = runtimeDefinition.EnvKey
+		}
+	} else {
+		// Compatibility path for legacy sessions. New Agent bindings always use
+		// RegisterAgentRuntime and preserve argv boundaries end to end.
+		parts := strings.Fields(agentType)
+		program = parts[0]
+		args = parts[1:]
+	}
+	cmd := exec.Command(program, args...)
 	cmd.Env = append(os.Environ(), ACPChildMarkerEnv+"="+ACPChildMarkerValue)
 	cmd.SysProcAttr = sysProcAttr()
 
-	if extras := resolveExtraEnv(agentType); len(extras) > 0 {
+	extras := runtimeEnv
+	if !overrideEnv {
+		extras = resolveExtraEnv(envKey)
+	}
+	if len(extras) > 0 {
 		var count int
 		for _, e := range extras {
 			if e.Key == "" {

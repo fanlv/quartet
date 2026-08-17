@@ -443,6 +443,31 @@ func (c *Cache[T]) Delete(sessionID string) {
 	}
 }
 
+// DeleteWhere atomically detaches every entry accepted by match. Outstanding
+// leases keep their value alive until Release; idle entries close immediately.
+func (c *Cache[T]) DeleteWhere(match func(key string, value T) bool) int {
+	if match == nil {
+		return 0
+	}
+	var detached []*entryBox[T]
+	c.mu.Lock()
+	for key, box := range c.entries {
+		if box == nil || !match(key, box.v) {
+			continue
+		}
+		delete(c.entries, key)
+		box.detached.Store(true)
+		detached = append(detached, box)
+	}
+	c.mu.Unlock()
+	for _, box := range detached {
+		if box.refs.Load() == 0 {
+			box.closeNow()
+		}
+	}
+	return len(detached)
+}
+
 // List snapshots the current values. Callers get a new slice they can
 // iterate without holding the cache lock. List is informational —
 // callers MUST NOT retain the returned values past the call, since no

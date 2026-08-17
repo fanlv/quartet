@@ -208,7 +208,7 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 
 	tokens := tokenizer.MessagesTokenCounter(ctx, chatMessages)
 
-	c.JSON(http.StatusOK, model.GetMessagesResponse{
+	resp := model.GetMessagesResponse{
 		ModelID:         s.ModelID,
 		Type:            s.Type,
 		Messages:        messages,
@@ -216,7 +216,14 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 		Workdir:         s.Workdir,
 		ACPMode:         s.ACPMode,
 		ACPThoughtLevel: s.ACPThoughtLevel,
-	})
+	}
+	// Public share responses carry the minimal display projection of the
+	// Agent this session references so the read-only share page can render
+	// renamed / deleted Agents without any catalog access of its own.
+	if _, isPublic := getPublicJob(c); isPublic {
+		resp.Agents = h.resolvePublicAgents(ctx, []string{s.Type})
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // toInt64 extracts an int64 from a value that may be stored as float64

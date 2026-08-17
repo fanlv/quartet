@@ -204,6 +204,11 @@ type GraphRun struct {
 	// instant a run is resumed. Keyed by instance-key string; accumulates across
 	// resumes. Live instances always take precedence when a key reappears.
 	ArchivedInstances map[string]GraphInstanceState `json:"archivedInstances,omitempty"`
+	// RetryInstanceVersions preserves the execution version selected before an
+	// instance was reset for retry/resume, including failures that happened
+	// before a session was created. The next dispatch uses the same version so
+	// an Agent revision cannot change silently during recovery.
+	RetryInstanceVersions map[string]int `json:"retryInstanceVersions,omitempty"`
 }
 
 type GraphRunSnapshot struct {
@@ -216,10 +221,14 @@ type GraphRunSnapshot struct {
 }
 
 type GraphAgentSnapshot struct {
-	AgentType       string `json:"agentType"`
-	ModelID         string `json:"modelId,omitempty"`
-	ACPMode         string `json:"acpMode,omitempty"`
-	ACPThoughtLevel string `json:"acpThoughtLevel,omitempty"`
+	AgentType       string                 `json:"agentType"`
+	AgentID         string                 `json:"agentId,omitempty"`
+	Revision        string                 `json:"revision,omitempty"`
+	RuntimeKey      string                 `json:"runtimeKey,omitempty"`
+	Definition      AgentRuntimeDefinition `json:"definition,omitempty"`
+	ModelID         string                 `json:"modelId,omitempty"`
+	ACPMode         string                 `json:"acpMode,omitempty"`
+	ACPThoughtLevel string                 `json:"acpThoughtLevel,omitempty"`
 }
 
 type GraphRunVersion struct {
@@ -473,8 +482,9 @@ type StartGraphRunRequest struct {
 }
 
 type UpdateGraphRunVersionRequest struct {
-	Config GraphConfig `json:"config"`
-	Reason string      `json:"reason,omitempty"`
+	Config                     GraphConfig `json:"config"`
+	Reason                     string      `json:"reason,omitempty"`
+	UpdateAgentRevisionNodeIDs []string    `json:"updateAgentRevisionNodeIds,omitempty"`
 }
 
 type GraphRunActionRequest struct {
@@ -536,6 +546,12 @@ type GraphRunStatusResponse struct {
 	// per-session message history carry those). Lets GetRunStatus stop
 	// serialising the whole event log into the status payload.
 	EventCount int `json:"eventCount,omitempty"`
+	// Agents carries the minimal display projection of the Agents this run
+	// actually references (node snapshots across all versions, plus the main
+	// session when cheap to reach), keyed by the reference string held by the
+	// run. Populated only on public share responses; private clients resolve
+	// display info through the agent display-info endpoint.
+	Agents map[string]AgentDisplayInfo `json:"agents,omitempty"`
 }
 
 type GraphRunEventsResponse struct {

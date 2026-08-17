@@ -55,11 +55,20 @@ type resumeBuilder struct {
 	// so the caller can preserve them on the run for the Chat session sidebar
 	// (their conversation transcript still exists on disk). Keyed by instance-key
 	// string. See model.GraphRun.ArchivedInstances.
-	archived map[string]model.GraphInstanceState
+	archived     map[string]model.GraphInstanceState
+	resetVersion map[string]int
 }
 
 func newResumeBuilder(cfg model.GraphConfig, instances map[string]model.GraphInstanceState, edges map[string]model.GraphEdgeState, vars map[string]map[string]string, loopState map[string]model.GraphLoopState) *resumeBuilder {
-	return &resumeBuilder{cfg: cfg, instances: instances, edges: edges, vars: vars, loopState: loopState, archived: map[string]model.GraphInstanceState{}}
+	return &resumeBuilder{
+		cfg:          cfg,
+		instances:    instances,
+		edges:        edges,
+		vars:         vars,
+		loopState:    loopState,
+		archived:     map[string]model.GraphInstanceState{},
+		resetVersion: map[string]int{},
+	}
 }
 
 // isResettableStatus reports whether an instance state is a reset start (its
@@ -82,11 +91,16 @@ func isResettableStatus(st model.GraphInstanceStatus) bool {
 func (rb *resumeBuilder) resetResettable() {
 	reset := rb.computeResetSet()
 	for keyStr := range reset {
-		// Preserve a removed instance's session for the Chat sidebar before
-		// dropping it: its conversation transcript outlives the reset, and the
-		// sidebar derives its list from live instances alone.
-		if inst, ok := rb.instances[keyStr]; ok && (inst.SessionID != "" || inst.DisplaySessionID != "") {
-			rb.archived[keyStr] = inst
+		if inst, ok := rb.instances[keyStr]; ok {
+			if inst.Version > 0 {
+				rb.resetVersion[keyStr] = inst.Version
+			}
+			// Preserve a removed instance's session for the Chat sidebar before
+			// dropping it: its conversation transcript outlives the reset, and the
+			// sidebar derives its list from live instances alone.
+			if inst.SessionID != "" || inst.DisplaySessionID != "" {
+				rb.archived[keyStr] = inst
+			}
 		}
 		delete(rb.instances, keyStr)
 		delete(rb.vars, keyStr)

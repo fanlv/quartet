@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
@@ -21,23 +22,83 @@ import (
 // A missing model never blocks run start — the snapshot degrades to whatever
 // resolved, and the gap is logged. src may be nil (no snapshot capture), in
 // which case both maps come back nil.
-func buildSnapshotContent(ctx context.Context, cfg model.GraphConfig, src Runner) (map[string]string, map[string]model.GraphAgentSnapshot) {
+func buildSnapshotContent(
+	ctx context.Context,
+	cfg model.GraphConfig,
+	src Runner,
+	inheritedAgents map[string]model.GraphAgentSnapshot,
+) (map[string]string, map[string]model.GraphAgentSnapshot, func(), error) {
 	if src == nil {
-		return nil, nil
+		return nil, nil, func() {}, nil
 	}
 
 	models := map[string]string{}
 	agents := map[string]model.GraphAgentSnapshot{}
+	var releases []func()
+	releaseAll := func() {
+		for index := len(releases) - 1; index >= 0; index-- {
+			if releases[index] != nil {
+				releases[index]()
+			}
+		}
+	}
 	for _, n := range cfg.Nodes {
 		if !isAgent(n.Type) {
 			continue
 		}
-		agents[n.ID] = model.GraphAgentSnapshot{
+		if n.Config.SessionStrategy == model.GraphSessionStrategyInherit {
+			// An inherited node executes against the upstream session's existing
+			// Agent binding. Its own hidden Agent/model fields are irrelevant and
+			// must not be resolved into a new runtime snapshot.
+			continue
+		}
+		snapshot := model.GraphAgentSnapshot{
 			AgentType:       n.Config.AgentType,
 			ModelID:         n.Config.ModelID,
 			ACPMode:         n.Config.ACPMode,
 			ACPThoughtLevel: n.Config.ACPThoughtLevel,
 		}
+		if inherited, ok := inheritedAgents[n.ID]; ok {
+			inherited.AgentType = n.Config.AgentType
+			inherited.ModelID = n.Config.ModelID
+			inherited.ACPMode = n.Config.ACPMode
+			inherited.ACPThoughtLevel = n.Config.ACPThoughtLevel
+			snapshot = inherited
+		} else if resolver, ok := src.(AgentSnapshotLeaseResolver); ok {
+			resolved, release, err := resolver.ResolveAgentSnapshotWithLease(ctx, n.Config.AgentType)
+			if err != nil {
+				releaseAll()
+				return nil, nil, func() {}, fmt.Errorf(
+					"Graph node %q Agent %q is unavailable: %w",
+					n.ID,
+					n.Config.AgentType,
+					err,
+				)
+			}
+			releases = append(releases, release)
+			resolved.AgentType = n.Config.AgentType
+			resolved.ModelID = n.Config.ModelID
+			resolved.ACPMode = n.Config.ACPMode
+			resolved.ACPThoughtLevel = n.Config.ACPThoughtLevel
+			snapshot = resolved
+		} else if resolver, ok := src.(AgentSnapshotResolver); ok {
+			resolved, err := resolver.ResolveAgentSnapshot(ctx, n.Config.AgentType)
+			if err != nil {
+				releaseAll()
+				return nil, nil, func() {}, fmt.Errorf(
+					"Graph node %q Agent %q is unavailable: %w",
+					n.ID,
+					n.Config.AgentType,
+					err,
+				)
+			}
+			resolved.AgentType = n.Config.AgentType
+			resolved.ModelID = n.Config.ModelID
+			resolved.ACPMode = n.Config.ACPMode
+			resolved.ACPThoughtLevel = n.Config.ACPThoughtLevel
+			snapshot = resolved
+		}
+		agents[n.ID] = snapshot
 		if n.Config.ModelID == "" {
 			continue
 		}
@@ -58,5 +119,5 @@ func buildSnapshotContent(ctx context.Context, cfg model.GraphConfig, src Runner
 	if len(agents) == 0 {
 		agents = nil
 	}
-	return models, agents
+	return models, agents, releaseAll, nil
 }

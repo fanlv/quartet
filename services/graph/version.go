@@ -159,7 +159,11 @@ func (s *serviceImpl) appendRunVersion(ctx context.Context, run *model.GraphRun,
 		return nil, fmt.Errorf("request is required")
 	}
 	newCfg := cloneGraphConfig(req.Config)
-	if graphConfigNoOpEqual(effectiveConfig(run), newCfg) {
+	if _, err := s.normalizeWorkflowAgentReferences(ctx, &newCfg); err != nil {
+		return nil, err
+	}
+	updateRevisionNodes := stringSet(req.UpdateAgentRevisionNodeIDs)
+	if graphConfigNoOpEqual(effectiveConfig(run), newCfg) && len(updateRevisionNodes) == 0 {
 		return run, nil
 	}
 
@@ -178,8 +182,54 @@ func (s *serviceImpl) appendRunVersion(ctx context.Context, run *model.GraphRun,
 	if len(verrs) > 0 {
 		return nil, &ValidationError{Errors: verrs}
 	}
+	if len(updateRevisionNodes) > 0 {
+		nextNodes := nodesByID(newCfg)
+		for nodeID := range updateRevisionNodes {
+			node, exists := nextNodes[nodeID]
+			if !exists || !isAgent(node.Type) {
+				return nil, fmt.Errorf(
+					"update Agent revision failed: node %q does not exist or is not an Agent node",
+					nodeID,
+				)
+			}
+			for key, state := range instances {
+				if state.NodeID == nodeID {
+					return nil, fmt.Errorf(
+						"update Agent revision failed: node %q instance %q already selected execution version %d with status %s",
+						nodeID,
+						key,
+						state.Version,
+						state.Status,
+					)
+				}
+			}
+		}
+	}
 
-	models, agents := buildSnapshotContent(ctx, newCfg, src)
+	previousSnapshots := effectiveAgentSnapshots(run)
+	oldNodes := nodesByID(effectiveConfig(run))
+	nextNodes := nodesByID(newCfg)
+	inheritedAgents := make(map[string]model.GraphAgentSnapshot)
+	for nodeID, previous := range previousSnapshots {
+		oldNode, oldExists := oldNodes[nodeID]
+		newNode, newExists := nextNodes[nodeID]
+		if !oldExists || !newExists ||
+			oldNode.Config.AgentType != newNode.Config.AgentType ||
+			updateRevisionNodes[nodeID] {
+			continue
+		}
+		inheritedAgents[nodeID] = previous
+	}
+	models, agents, releaseAgentLeases, err := buildSnapshotContent(
+		ctx,
+		newCfg,
+		src,
+		inheritedAgents,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseAgentLeases()
 	now := time.Now()
 	newVersion := run.CurrentVersion + 1
 	run.Versions = append(run.Versions, model.GraphRunVersion{
@@ -196,6 +246,28 @@ func (s *serviceImpl) appendRunVersion(ctx context.Context, run *model.GraphRun,
 		return nil, err
 	}
 	return run, nil
+}
+
+func effectiveAgentSnapshots(run *model.GraphRun) map[string]model.GraphAgentSnapshot {
+	if run == nil {
+		return nil
+	}
+	for _, version := range run.Versions {
+		if version.Version == run.CurrentVersion {
+			return version.AgentSnapshots
+		}
+	}
+	return run.BaseSnapshot.AgentSnapshots
+}
+
+func stringSet(values []string) map[string]bool {
+	result := make(map[string]bool, len(values))
+	for _, value := range values {
+		if value != "" {
+			result[value] = true
+		}
+	}
+	return result
 }
 
 func graphConfigNoOpEqual(a, b model.GraphConfig) bool {

@@ -13,6 +13,7 @@ import (
 	"github.com/fanlv/quartet/pkg/messaging"
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/config"
+	"github.com/fanlv/quartet/types/model"
 )
 
 // --- test doubles ---------------------------------------------------------
@@ -34,14 +35,32 @@ func (f *fakeSettings) GetSettings() (*repository.Settings, error) {
 	return &repository.Settings{}, nil
 }
 func (f *fakeSettings) SaveSettings(*repository.Settings) error { return nil }
-func (f *fakeSettings) GetACPEnvVars(string) map[string]string  { return nil }
-func (f *fakeSettings) GetLarkConfig() (string, string)         { return "", "" }
+func (f *fakeSettings) SaveTitleGenerationAgent(*model.AgentRoleConfig) error { return nil }
+func (f *fakeSettings) SaveGroupReplyAgent(*model.AgentRoleConfig) error       { return nil }
+func (f *fakeSettings) SaveIMSessionAgent(*model.IMSessionAgentConfig) error {
+	return nil
+}
+func (f *fakeSettings) SaveACPEnvVars(string, []repository.ACPEnvVarEntry) (int64, bool, error) {
+	return 0, false, nil
+}
+func (f *fakeSettings) StageACPEnvVars(string, []repository.ACPEnvVarEntry) (int64, error) {
+	return 0, nil
+}
+func (f *fakeSettings) RestoreACPEnvState(string, int64, []repository.ACPEnvVarEntry, int64) error {
+	return nil
+}
+func (f *fakeSettings) SaveAgentPrefs(string, repository.AgentPrefs) error { return nil }
+func (f *fakeSettings) ClearAgentSettings(string) error                    { return nil }
+func (f *fakeSettings) GetACPEnvVars(string) map[string]string             { return nil }
+func (f *fakeSettings) GetACPEnvVersion(string) int64                      { return 0 }
+func (f *fakeSettings) GetLarkConfig() (string, string)                    { return "", "" }
 func (f *fakeSettings) GetLarkIMSenderIDs() (string, string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.larkAdmin, f.larkSophia
 }
-func (f *fakeSettings) GetIMConfig() (string, *repository.AgentConfig) { return "", nil }
+func (f *fakeSettings) GetIMConfig() (string, *model.IMSessionAgentConfig) { return "", nil }
+func (f *fakeSettings) GetGroupReplyAgent() *model.AgentRoleConfig         { return nil }
 func (f *fakeSettings) GetWeChatAdminIDs() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()

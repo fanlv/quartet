@@ -160,9 +160,9 @@ func (h *Handler) asyncUpdateJobTitleWith(ctx context.Context, jobID string, use
 			logger.Errorf(ctx, "[title] get settings failed in goroutine: jobId=%s err=%v", jobID, settingsErr)
 			return
 		}
-		if settings.TitleAgent != nil {
-			logger.Debugf(ctx, "[title] using agent: jobId=%s agentType=%s modelID=%s timeout=%s maxRetries=%d",
-				jobID, settings.TitleAgent.AgentType, settings.TitleAgent.ModelID, titleGenerationTimeout, maxRetries)
+		if settings.TitleGenerationAgent != nil {
+			logger.Debugf(ctx, "[title] using agent: jobId=%s agentId=%s timeout=%s maxRetries=%d",
+				jobID, settings.TitleGenerationAgent.AgentID, titleGenerationTimeout, maxRetries)
 		} else {
 			logger.Infof(ctx, "[title] no title agent configured, skipping: jobId=%s", jobID)
 			return
@@ -205,6 +205,11 @@ func (h *Handler) asyncUpdateJobTitleWith(ctx context.Context, jobID string, use
 		}
 		logger.Errorf(ctx, "[title] retries exhausted: jobId=%s attempts=%d totalElapsed=%s consecutiveFailures=%d lastErr=%v",
 			jobID, totalAttempts, time.Since(startAll).Round(time.Second), newFail, lastErr)
+		if lastErr != nil {
+			if err := h.recordTitleGenerationError(jobID, lastErr.Error()); err != nil {
+				logger.Errorf(ctx, "[title] persist final error failed: jobId=%s err=%v", jobID, err)
+			}
+		}
 
 		// Fallback so the user doesn't end up with an empty title.
 		if ctx.Err() != nil {
@@ -236,25 +241,25 @@ func (h *Handler) doUpdateJobTitle(ctx context.Context, jobID string, userMessag
 		return fmt.Errorf("get settings failed: %w", err)
 	}
 
-	titleAgent := settings.TitleAgent
-	if titleAgent == nil || titleAgent.AgentType == "" {
+	titleAgent := settings.TitleGenerationAgent
+	if titleAgent == nil || titleAgent.AgentID == "" {
 		logger.Infof(ctx, "[title] no title agent configured, returning nil: jobId=%s", jobID)
 		return nil
 	}
 
-	logger.Debugf(ctx, "[title] creating timeout ctx: jobId=%s agentType=%s modelID=%s timeout=%s", jobID, titleAgent.AgentType, titleAgent.ModelID, titleGenerationTimeout)
+	logger.Debugf(ctx, "[title] creating timeout ctx: jobId=%s agentId=%s timeout=%s", jobID, titleAgent.AgentID, titleGenerationTimeout)
 
 	ctx, cancel := context.WithTimeout(ctx, titleGenerationTimeout)
 	defer cancel()
 
-	logger.Debugf(ctx, "[title] calling generateText: jobId=%s agentType=%s modelID=%s", jobID, titleAgent.AgentType, titleAgent.ModelID)
+	logger.Debugf(ctx, "[title] calling generateText: jobId=%s agentId=%s", jobID, titleAgent.AgentID)
 	start := time.Now()
-	title, err := h.generateText(ctx, titleAgent.AgentType, titleAgent.ModelID, []*schema.Message{
+	title, err := h.generateText(ctx, titleAgent.AgentID, titleAgent.ModelID, titleAgent.ACPThoughtLevel, []*schema.Message{
 		schema.SystemMessage(systemPrompt),
 		schema.UserMessage(userMessage),
 	})
 	if err != nil {
-		return fmt.Errorf("generate title failed (agent=%s model=%s elapsed=%s): %w", titleAgent.AgentType, titleAgent.ModelID, time.Since(start).Round(time.Millisecond), err)
+		return fmt.Errorf("generate title failed (agentId=%s elapsed=%s): %w", titleAgent.AgentID, time.Since(start).Round(time.Millisecond), err)
 	}
 
 	logger.Infof(ctx, "[title] generated: jobId=%s title=%q", jobID, title)
@@ -263,8 +268,39 @@ func (h *Handler) doUpdateJobTitle(ctx context.Context, jobID string, userMessag
 		logger.Warnf(ctx, "[title] apply job title failed: jobId=%s err=%v", jobID, err)
 		return err
 	}
+	if err := h.jobService.UpdateTitleGenerationError(jobID, ""); err != nil {
+		logger.Warnf(ctx, "[title] clear persisted error failed: jobId=%s err=%v", jobID, err)
+	} else {
+		h.jobService.Publish(jobID, &model.CustomEvent{
+			BaseEvent: model.BaseEvent{
+				Type:      model.EventTypeCustom,
+				JobID:     jobID,
+				Timestamp: time.Now().UnixMilli(),
+			},
+			Name:  "job_title_generation_error_cleared",
+			Value: map[string]any{},
+		})
+	}
 
 	logger.Infof(ctx, "[title] applied: jobId=%s title=%q", jobID, title)
+	return nil
+}
+
+func (h *Handler) recordTitleGenerationError(jobID, message string) error {
+	if err := h.jobService.UpdateTitleGenerationError(jobID, message); err != nil {
+		return err
+	}
+	h.jobService.Publish(jobID, &model.CustomEvent{
+		BaseEvent: model.BaseEvent{
+			Type:      model.EventTypeCustom,
+			JobID:     jobID,
+			Timestamp: time.Now().UnixMilli(),
+		},
+		Name: "job_title_generation_failed",
+		Value: map[string]any{
+			"error": message,
+		},
+	})
 	return nil
 }
 

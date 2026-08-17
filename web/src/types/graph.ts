@@ -1,3 +1,5 @@
+import type { AgentDisplayInfo } from '../utils/agentDisplay';
+
 export type GraphNodeType = 'start' | 'end' | 'shell' | 'prompt' | 'clarify' | 'ifElse' | 'loop';
 export type GraphEdgePort = 'default' | 'yes' | 'no';
 export type GraphSessionStrategy = 'new' | 'inherit';
@@ -370,6 +372,10 @@ export interface GraphRunStatusResponse {
   instances?: GraphInstanceState[];
   edges?: GraphEdgeState[];
   eventCount?: number;
+  // Minimal display info of the Agents this run references, keyed by the
+  // reference string (node agentType / session type). Public share responses
+  // only; private clients use the agent display-info resolve endpoint.
+  agents?: Record<string, AgentDisplayInfo>;
 }
 
 // GraphHookResult is one node hook's execution result (§ 节点 Hook), surfaced in

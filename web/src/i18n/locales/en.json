@@ -6,6 +6,8 @@
     "close": "Close",
     "delete": "Delete",
     "edit": "Edit",
+    "add": "Add",
+    "restore": "Restore",
     "loading": "Loading...",
     "retry": "Retry",
     "saveSuccess": "Saved successfully",
@@ -30,7 +32,8 @@
     "copySuccess": "Copied",
     "copyFailed": "Copy failed",
     "copyPath": "Copy path",
-    "copyContent": "Copy content"
+    "copyContent": "Copy content",
+    "none": "None"
   },
   "app": {
     "jobMissingNotice": "Job {{jobId}} does not exist or has been deleted. Cleared the stale URL and returned to the workspace home."
@@ -125,7 +128,11 @@
       "agents": "AGENTS.md",
       "files": "File browser",
       "settings": "Settings"
-    }
+    },
+    "unknownAgent": "Unknown Agent",
+    "agentDeletedName": "{{name}} (Deleted)",
+    "agentDeletedHint": "The agent used by this session has been deleted and can no longer run.",
+    "agentUnknownHint": "The agent used by this session could not be resolved and can no longer run."
   },
   "connection": {
     "restored": "Connection restored",
@@ -170,11 +177,76 @@
       "eino": "Eino",
       "prompt": "Prompts",
       "skill": "Skills",
-      "acp": "ACP",
-      "agentDefaults": "Agent Defaults",
+      "agents": "Agents",
       "lark": "Lark",
       "wechat": "WeChat",
       "logs": "Logs"
+    },
+    "agents": {
+      "description": "Built-in agents that are not installed yet. Automatic installation only runs the preset flow shown below; after the steps finish, installation is re-checked and a full ACP validation runs.",
+      "deleteConfirm": "Delete {{name}}? Historical references will remain read-only.",
+      "forceDeleteConfirm": "Force delete {{name}}? Running jobs that use it will be stopped first.",
+      "forceDelete": "Force delete",
+      "deleteProgress": "Stopping blocking jobs and cleaning Agent settings...",
+      "deleteSuccess": "Agent deleted. Historical references remain read-only.",
+      "deleteResult": "Deletion result",
+      "stopSucceeded": "Stopped",
+      "revisions": "Runtime revisions",
+      "revalidate": "Revalidate",
+      "uninstall": "Uninstall",
+      "uninstalling": "Uninstalling…",
+      "lastValidation": "Last validation",
+      "source": {
+        "builtin": "Built-in",
+        "custom": "Custom"
+      },
+      "status": {
+        "not_installed": "Not installed",
+        "pending_validation": "Pending validation",
+        "validating": "Validating",
+        "unavailable": "Installed but unavailable",
+        "available": "Available",
+        "deleting": "Deleting",
+        "deleted": "Deleted",
+        "deprecated": "Deprecated",
+        "refreshing": "Refreshing"
+      },
+      "form": {
+        "displayName": "Display name",
+        "iconUrl": "Icon URL",
+        "bin": "CLI executable",
+        "acpProgram": "ACP startup program",
+        "arguments": "ACP arguments (one per line)",
+        "environment": "Initial validation environment"
+      },
+      "deleteImpact": {
+        "cleared": "Settings to clear: {{value}}",
+        "workflows": "Retained GraphWorkflows: {{value}}",
+        "schedules": "Retained Schedules: {{value}}",
+        "jobs": "Retained Jobs: {{value}}",
+        "sessions": "Retained Sessions: {{value}}",
+        "blocking": "Jobs blocking deletion: {{value}}"
+      },
+      "empty": "All built-in agents are installed.",
+      "launchDefinition": "ACP launch",
+      "installCommands": "Install flow",
+      "method": {
+        "npm": "npm package",
+        "script": "Official script",
+        "manual": "Manual"
+      },
+      "result": {
+        "success": "Installed and validated — the agent is now available.",
+        "validationFailed": "Installed, but ACP validation failed (installed but unavailable).",
+        "failed": "Installation failed.",
+        "uninstallSuccess": "Uninstalled — the agent was removed from PATH.",
+        "uninstallFailed": "Uninstall failed — see the full output below.",
+        "details": "Full output",
+        "exitCode": "exit code",
+        "timedOut": "timed out",
+        "recheck": "Installation re-check",
+        "validation": "ACP validation"
+      }
     },
     "general": {
       "sectionTitle": "User Settings",
@@ -186,10 +258,10 @@
       "avatar": "Avatar URL",
       "avatarPlaceholder": "https://example.com/avatar.png",
       "avatarDesc": "Image URL for user avatar, leave empty for default",
-      "builtinModel": "Built-in Model",
-      "builtinModelDesc": "Used for auto-generating conversation titles and other built-in features. Select an Agent to use its model. Leave empty to disable",
-      "messageModel": "Message Model",
-      "messageModelDesc": "Automatically calls this Agent to generate replies when IM messages are received. Leave empty to disable",
+      "agentRoles": "Agent Roles",
+      "titleGenerationAgent": "Title Generation Agent",
+      "groupReplyAgent": "Group Reply Agent",
+      "imSessionAgent": "IM Session Agent",
       "graphEndHookScript": "Graph end-node default hook (Shell)",
       "graphEndHookScriptPlaceholder": "# e.g. send a Lark message when a workflow finishes\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE finished\"",
       "graphEndHookScriptDesc": "The default side-effect shell script run when a graph workflow reaches an end node set to \"Use global default script\". Its output is ignored and a failure only logs. Available env vars: $QUARTET_JOB_TITLE, $QUARTET_JOB_ID, $QUARTET_RUN_ID, $QUARTET_NODE_ID, $QUARTET_NODE_TITLE, $QUARTET_NODE_TYPE, $QUARTET_LAST_ASSISTANT."
@@ -336,6 +408,14 @@
         "orSearch": "or search skills",
         "searchPlaceholder": "Search keywords, e.g.: react, typescript",
         "installs": "installs"
+      }
+    },
+    "agentManagement": {
+      "tabs": {
+        "catalog": "Catalog & Install",
+        "env": "Environment",
+        "defaults": "Defaults",
+        "roles": "Roles"
       }
     },
     "acp": {
@@ -802,6 +882,8 @@
       "collapse": "Collapse",
       "editTitle": "Edit run version",
       "edit": "Edit",
+      "updateAgentRevisionTitle": "Use the selected Agent node's current runtime revision in a new run version",
+      "updateAgentRevision": "Update Agent",
       "editConfigHint": "Editing run version — frozen nodes keep their executed config, while unfrozen nodes and edges can be repaired before resume.",
       "stepStopTitle": "Stop after current ready batch",
       "stepStop": "Step Stop",

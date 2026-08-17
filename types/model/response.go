@@ -58,6 +58,31 @@ type GetMessagesResponse struct {
 	Workdir         string           `json:"workdir,omitempty"`
 	ACPMode         string           `json:"acpMode,omitempty"`
 	ACPThoughtLevel string           `json:"acpThoughtLevel,omitempty"`
+	// Agents carries the minimal display projection of the Agents this
+	// session actually references, keyed by the reference string held by the
+	// session (Type). Populated only on public share responses; private
+	// clients resolve display info through the agent display-info endpoint.
+	Agents map[string]AgentDisplayInfo `json:"agents,omitempty"`
+}
+
+// AgentDisplayInfo is the minimal display projection of an Agent record,
+// resolved on demand for historical references (session serve commands,
+// graph node snapshot agent types) so old jobs keep rendering after the
+// Agent was renamed or deleted. It deliberately excludes runtime
+// definitions, revisions, install data and availability errors.
+type AgentDisplayInfo struct {
+	AgentID     string `json:"agentId"`
+	DisplayName string `json:"displayName"`
+	IconURL     string `json:"iconUrl"`
+	Deleted     bool   `json:"deleted"`
+}
+
+type ResolveAgentDisplayInfoRequest struct {
+	IDs []string `json:"ids"`
+}
+
+type ResolveAgentDisplayInfoResponse struct {
+	Agents map[string]AgentDisplayInfo `json:"agents"`
 }
 
 type GetPromptResponse struct {
@@ -73,11 +98,18 @@ type SavePromptResponse struct {
 }
 
 type AgentInfo struct {
+	AgentID       string                    `json:"agent_id"`
+	Revision      string                    `json:"revision,omitempty"`
 	Type          string                    `json:"type"`
 	EnvKey        string                    `json:"env_key,omitempty"`
 	ModelID       string                    `json:"model_id"`
 	DisplayName   string                    `json:"display_name"`
 	IconURL       string                    `json:"icon_url"`
+	Availability  string                    `json:"availability,omitempty"`
+	Available     bool                      `json:"available"`
+	Refreshing    bool                      `json:"refreshing,omitempty"`
+	Error         string                    `json:"error,omitempty"`
+	Capabilities  []string                  `json:"capabilities,omitempty"`
 	Models        *SessionModelState        `json:"models,omitempty"`
 	Modes         *SessionModeState         `json:"modes,omitempty"`
 	ThoughtLevels *SessionThoughtLevelState `json:"thoughtLevels,omitempty"`
@@ -120,10 +152,20 @@ type ACPThoughtLevel struct {
 	Name        string  `json:"name"`
 }
 
-const ACPProbeCacheVersion = 1
+const ACPProbeCacheVersion = 2
 
-// ACPProbeCacheEntry is the persisted selector state for one ACP command.
+// ACPProbeCacheEntry is the persisted validation and selector state for one
+// stable AgentID. Revision and EnvVersion make stale results unusable without
+// deleting the diagnostic record.
 type ACPProbeCacheEntry struct {
+	AgentID       string                    `json:"agent_id"`
+	Revision      string                    `json:"revision"`
+	RuntimeKey    string                    `json:"runtime_key"`
+	EnvVersion    int64                     `json:"env_version"`
+	Success       bool                      `json:"success"`
+	Error         string                    `json:"error,omitempty"`
+	Refreshing    bool                      `json:"refreshing,omitempty"`
+	RefreshedAt   int64                     `json:"refreshed_at,omitempty"`
 	Models        *SessionModelState        `json:"models,omitempty"`
 	Modes         *SessionModeState         `json:"modes,omitempty"`
 	ThoughtLevels *SessionThoughtLevelState `json:"thoughtLevels,omitempty"`
@@ -154,6 +196,20 @@ type AgentListResponse struct {
 	AgentList []AgentInfo `json:"agent_list"`
 	Workdir   string      `json:"workdir"`
 	JobEnable bool        `json:"job_enable"`
+}
+
+type PublicAgentInfo struct {
+	AgentID       string                    `json:"agent_id"`
+	DisplayName   string                    `json:"display_name"`
+	IconURL       string                    `json:"icon_url"`
+	Models        *SessionModelState        `json:"models,omitempty"`
+	Modes         *SessionModeState         `json:"modes,omitempty"`
+	ThoughtLevels *SessionThoughtLevelState `json:"thoughtLevels,omitempty"`
+}
+
+type PublicAgentListResponse struct {
+	Code      int               `json:"code"`
+	AgentList []PublicAgentInfo `json:"agent_list"`
 }
 
 type CreateJobResponse struct {

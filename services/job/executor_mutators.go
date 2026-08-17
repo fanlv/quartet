@@ -95,6 +95,13 @@ func (s *serviceImpl) UpdateTitle(jobID string, title string) error {
 	return s.updateJobField(jobID, apply, apply)
 }
 
+func (s *serviceImpl) UpdateTitleGenerationError(jobID string, message string) error {
+	apply := func(j *model.Job) {
+		j.TitleGenerationError = message
+	}
+	return s.updateJobField(jobID, apply, apply)
+}
+
 func (s *serviceImpl) UpdatePinned(jobID string, pinned bool) (int64, error) {
 	pinnedAt := int64(0)
 	if pinned {

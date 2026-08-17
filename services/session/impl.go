@@ -30,17 +30,51 @@ func (m *serviceImpl) load() error {
 	return nil
 }
 
-func (m *serviceImpl) New(modelID string, agentType, workdir string) (*model.Session, error) {
+func (m *serviceImpl) New(modelID string, agentType, workdir string, binding *model.AgentRuntimeBinding) (*model.Session, error) {
 	s := model.NewSession()
 	s.ModelID = modelID
 	s.Type = agentType
 	s.Workdir = workdir
+	if binding != nil {
+		applyAgentBinding(s, *binding)
+	}
 	if err := m.repo.Save(s.ID, s); err != nil {
 		return nil, err
 	}
 
 	m.store(s.ID, s)
 	return s, nil
+}
+
+func (m *serviceImpl) UpdateAgentBinding(sid string, binding model.AgentRuntimeBinding) error {
+	cp, ok := m.snapshot(sid)
+	if !ok {
+		return nil
+	}
+	if cp.AgentID == binding.AgentID &&
+		cp.AgentRevision == binding.Revision &&
+		cp.AgentRuntimeKey == binding.RuntimeKey {
+		return nil
+	}
+	now := time.Now()
+	applyAgentBinding(&cp, binding)
+	cp.UpdatedAt = now
+	if err := m.repo.Save(cp.ID, &cp); err != nil {
+		return err
+	}
+	m.commit(sid, func(s *model.Session) {
+		applyAgentBinding(s, binding)
+		s.UpdatedAt = now
+	})
+	return nil
+}
+
+func applyAgentBinding(session *model.Session, binding model.AgentRuntimeBinding) {
+	session.AgentID = binding.AgentID
+	session.AgentRevision = binding.Revision
+	session.AgentRuntimeKey = binding.RuntimeKey
+	session.AgentDefinition = binding.Definition
+	session.AgentDefinition.ACPArgs = append([]string(nil), binding.Definition.ACPArgs...)
 }
 
 func (m *serviceImpl) store(sid string, s *model.Session) {

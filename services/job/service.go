@@ -50,6 +50,7 @@ type Service interface {
 	MarkDeleted(jobID string) error
 	// UpdateTitle updates only the title of a job, avoiding stale-copy overwrites.
 	UpdateTitle(jobID string, title string) error
+	UpdateTitleGenerationError(jobID string, message string) error
 	// UpdatePinned updates only the pinned state of a job. Pinned jobs float to
 	// the top of list endpoints, ordered by the time they were pinned.
 	UpdatePinned(jobID string, pinned bool) (pinnedAt int64, err error)

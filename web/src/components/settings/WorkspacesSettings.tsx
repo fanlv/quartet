@@ -23,8 +23,10 @@ interface WorkspaceItem {
 }
 
 interface AgentInfo {
+  agent_id: string;
   type: string;
   display_name: string;
+  available: boolean;
   models?: { availableModels: Array<{ modelId: string; name: string }>; currentModelId: string };
 }
 
@@ -64,7 +66,7 @@ export function WorkspacesSettings() {
     void refresh();
     fetch('/api/v1/agent/list')
       .then((r) => r.json())
-      .then((d) => setAgents(d?.agent_list || []))
+      .then((d) => setAgents((d?.agent_list || []).filter((agent: AgentInfo) => agent.available !== false)))
       .catch(() => setAgents([]));
   }, [refresh]);
 

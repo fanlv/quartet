@@ -32,6 +32,10 @@ describe('GeneralSettings i18n behavior', () => {
         },
       }),
       '/api/v1/agent/list': jsonResponse({ agent_list: [] }),
+      '/api/v1/agent/catalog': jsonResponse({ code: 0, agents: [] }),
+      '/api/v1/config/settings/title-generation-agent': jsonResponse({ code: 0, config: null }),
+      '/api/v1/config/settings/group-reply-agent': jsonResponse({ code: 0, config: null }),
+      '/api/v1/config/settings/im-session-agent': jsonResponse({ code: 0, config: null }),
     })
 
     render(<GeneralSettings />)

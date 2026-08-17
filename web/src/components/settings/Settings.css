@@ -208,6 +208,14 @@
   margin-bottom: 6px;
 }
 
+/* Selectors share a row instead of each stretching to 100% and wrapping;
+   flex-wrap still drops them to the next line on narrow widths. */
+.settings-agent-selectors .settings-input {
+  width: auto;
+  flex: 1 1 160px;
+  min-width: 140px;
+}
+
 .settings-model-selector {
   position: relative;
 }

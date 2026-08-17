@@ -9,6 +9,7 @@ interface EnvVar {
 }
 
 interface AgentOption {
+  agent_id: string;
   type: string;
   env_key?: string;
   display_name: string;
@@ -42,7 +43,8 @@ export function ACPSettings() {
       const settingsData = await settingsRes.json();
 
       const acpAgents: AgentOption[] = (agentData.agent_list || [])
-        .map((a: { type: string; env_key?: string; display_name: string }) => ({
+        .map((a: { agent_id: string; type: string; env_key?: string; display_name: string }) => ({
+          agent_id: a.agent_id,
           type: a.type,
           env_key: a.env_key || a.type,
           display_name: a.display_name,
@@ -76,7 +78,7 @@ export function ACPSettings() {
             value: v.value,
             enabled: v.enabled,
           }));
-          acpAgents.push({ type: agentType, display_name: agentType });
+          acpAgents.push({ agent_id: agentType, type: agentType, display_name: agentType });
         }
       }
 
@@ -123,34 +125,38 @@ export function ACPSettings() {
     setSaving(true);
     setMessage(null);
 
-    const acpEnvVars: Record<string, Array<{ key: string; value: string; enabled: boolean }>> = {};
-    for (const [agentType, vars] of Object.entries(envMap)) {
-      const list = vars
+    try {
+      const active = agents.find((agent) => (agent.env_key || agent.type) === activeAgent);
+      if (!active) throw new Error(`Agent ${activeAgent} is not available`);
+      const entries = getEnvVars()
         .filter((env) => env.key.trim())
         .map((env) => ({ key: env.key.trim(), value: env.value, enabled: env.enabled }));
-      if (list.length > 0) {
-        acpEnvVars[agentType] = list;
-      }
-    }
-
-    try {
-      const settingsRes = await fetch('/api/v1/config/settings/get');
-      const settingsData = await settingsRes.json();
-      const currentSettings = settingsData.code === 0 && settingsData.settings ? settingsData.settings : {};
-
-      const res = await fetch('/api/v1/config/settings/save', {
-        method: 'POST',
+      const res = await fetch(`/api/v1/config/settings/agent/${encodeURIComponent(active.agent_id)}/env`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...currentSettings, acp_env_vars: acpEnvVars }),
+        body: JSON.stringify({ entries }),
       });
-      const data = await res.json();
-      if (data.code === 0) {
-        setMessage({ type: 'success', text: t('common.saveSuccess') });
-      } else {
-        setMessage({ type: 'error', text: data.msg || t('common.saveFailed') });
+      const raw = await res.text();
+      let data: { code?: number; msg?: string; error?: string; warning?: string } = {};
+      if (raw) {
+        try {
+          data = JSON.parse(raw) as typeof data;
+        } catch (err) {
+          throw new Error(`HTTP ${res.status}: invalid JSON response: ${String(err)}\n${raw}`);
+        }
       }
-    } catch {
-      setMessage({ type: 'error', text: t('common.saveFailed') });
+      if (res.ok && data.code === 0) {
+        setMessage({
+          type: data.warning ? 'error' : 'success',
+          text: data.warning
+            ? `${t('common.saveSuccess')}\n${String(data.warning)}`
+            : t('common.saveSuccess'),
+        });
+      } else {
+        throw new Error(data.msg || data.error || `HTTP ${res.status}: ${raw || res.statusText}`);
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) });
     } finally {
       setSaving(false);
     }

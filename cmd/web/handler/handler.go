@@ -15,6 +15,7 @@ import (
 	"github.com/fanlv/quartet/pkg/sandbox"
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/agent/acp"
+	"github.com/fanlv/quartet/services/agent/catalog"
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/services/agent/usage"
 	"github.com/fanlv/quartet/services/config"
@@ -102,6 +103,8 @@ type Handler struct {
 	titleOpenSince   atomic.Int64 // unix seconds when circuit opened; 0 means closed
 	titleProbing     atomic.Bool  // CAS guard: only one goroutine may probe during half-open state
 	acpAgentService  acp.ACPService
+	agentCatalog     *catalog.Service
+	agentExecutions  *agentExecutionGate
 	settingsService  config.SettingsService
 	promptService    prompt.Service
 	graphService     graph.Service
@@ -204,10 +207,17 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		return nil, err
 	}
 
+	agentCatalog, err := catalog.NewService()
+	if err != nil {
+		return nil, err
+	}
+
 	h := &Handler{
 		rootCtx:          ctx,
 		sessionServices:  make(map[string]*sessionEntry),
 		acpAgentService:  acp.NewACPService(),
+		agentCatalog:     agentCatalog,
+		agentExecutions:  newAgentExecutionGate(),
 		settingsService:  ss,
 		promptService:    ps,
 		graphService:     gs,
@@ -269,10 +279,18 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 	// Functionality does not depend on the cache being warm — the lookup
 	// path scans jobService.List() / job.SessionIDs to locate the owner job
 	// and reloads the service from disk on first access.
+	if err := h.reconcileOrphanedAgentSettings(ctx); err != nil {
+		return nil, err
+	}
 
 	if err := h.acpProbeCache.Warmup(ctx); err != nil {
 		return nil, err
 	}
+	h.reconcileDeletingAgents(ctx)
+	if err := h.pruneUnreferencedAgentRevisions(ctx); err != nil {
+		logger.Warnf(ctx, "[agent.catalog] skip custom revision pruning: %v", err)
+	}
+	h.refreshCustomAgentValidations(ctx)
 
 	// Register job completion callback to update schedule status and release resources.
 	js.SetOnJobDone(func(j *model.Job) {

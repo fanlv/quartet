@@ -22,6 +22,7 @@ import {
 import { SSEClient } from '../utils/sse-client';
 import { GraphSSEClient } from '../utils/graph-sse-client';
 import { mergeMessages } from '../utils/mergeMessages';
+import { markAgentDisplayUnknown, primeAgentDisplays } from '../utils/agentDisplay';
 import { translateGraphEvent } from '../utils/translateGraphEvent';
 import { backendPhaseKind, type ChatPhase } from '../utils/chatPhase';
 import { useConnectionStatus } from '../contexts/ConnectionStatus';
@@ -392,6 +393,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // "AI 正在思考..." fallback rebuild the visible state after a reload.
   const [backendPhase, setBackendPhase] = useState<ChatPhase | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [titleGenerationError, setTitleGenerationError] = useState<string | null>(null);
   const [totalTokens, setTotalTokens] = useState(0);
   const [sessionWorkdir, setSessionWorkdir] = useState<string | null>(null);
   const [sessionModelId, setSessionModelId] = useState<string | null>(null);
@@ -1522,6 +1524,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           const nextTitle = typeof payload === 'string' ? payload : payload?.title;
           if (nextTitle) setJobTitle(nextTitle);
         }
+        if (event.name === 'job_title_generation_failed') {
+          const payload = event.value as { error?: string } | string | null;
+          const nextError = typeof payload === 'string' ? payload : payload?.error;
+          if (nextError) setTitleGenerationError(nextError);
+        }
+        if (event.name === 'job_title_generation_error_cleared') {
+          setTitleGenerationError(null);
+        }
         if (event.name === 'progress_total_updated') {
           // The backend recomputed the total-steps denominator: a group broke
           // early via stepStopLoop (evaluator STOP or Shell STOP_LOOP), or a
@@ -1580,6 +1590,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         throw new Error(`Failed to load history for session ${sid} (HTTP ${response.status})`);
       }
       const data = await response.json();
+
+      // Public share responses carry the minimal display info of the Agent
+      // this session references. Prime the shared display cache with it (the
+      // share page never calls the private resolve endpoint); a referenced
+      // Agent missing from the map is unresolvable — rendered as unknown.
+      if (isPublic) {
+        primeAgentDisplays(data.agents);
+        if (data.type && !data.agents?.[data.type]) markAgentDisplayUnknown(data.type, true);
+      }
 
       // Always store per-session metadata for loop sessions
       const metaKey = tagSessionId || sid;
@@ -1660,7 +1679,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
 
       return converted;
-  }, [apiUrl]);
+  }, [apiUrl, isPublic]);
 
   // Re-sync job state after SSE reconnect to recover from missed events.
   // When called during the initial connection (historyLoadedRef is still false),
@@ -1701,6 +1720,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       if (job.title) {
         setJobTitle(job.title);
       }
+      setTitleGenerationError(
+        typeof job.titleGenerationError === 'string' && job.titleGenerationError
+          ? job.titleGenerationError
+          : null,
+      );
       if (Array.isArray(job?.loopConfig?.flow)) {
         setLoopFlow(job.loopConfig.flow);
       }
@@ -2439,6 +2463,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           throw new Error(await readHTTPError(res, `GET /job/${jobId}/graph-run`));
         }
         data = (await res.json()) as GraphRunStatusResponse;
+        // Share pages resolve historical agent display exclusively from the
+        // public payloads' agents maps (see loadHistory).
+        if (isPublic) primeAgentDisplays(data.agents);
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         console.error(`[graph-sse] reconcile fetch failed for job ${jobId} run ${graphRunId}:`, error);
@@ -2585,7 +2612,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       client.disconnect();
       if (graphSseRef.current === client) graphSseRef.current = null;
     };
-  }, [isGraph, graphRunId, jobId, graphRunLive, apiUrl, loadHistory, setLoopSessions, applyActiveSessionSelection, applyGraphRunStatusSnapshot]);
+  }, [isGraph, graphRunId, jobId, graphRunLive, apiUrl, isPublic, loadHistory, setLoopSessions, applyActiveSessionSelection, applyGraphRunStatusSnapshot]);
 
   // While the job-events SSE is gated off (live graph run), the job title —
   // generated a few seconds after the run starts — has no event channel. Poll
@@ -3532,6 +3559,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     isLoadingHistory,
     activePhase,
     error,
+    titleGenerationError,
+    clearTitleGenerationError: () => setTitleGenerationError(null),
     jobNotFound,
     totalTokens,
     roundStartedAt: jobStartedAt,
