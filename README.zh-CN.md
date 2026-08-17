@@ -142,7 +142,6 @@ Quartet 当前会从后端进程的 `PATH` 中发现以下 ACP CLI：
 | Grok | `grok` | `grok --no-auto-update agent stdio` | CLI 内置 |
 | OpenClaw | `openclaw` | `openclaw acp` | CLI 内置 |
 | Claude Code | `claude` | `claude-agent-acp` | **需要额外安装 `@agentclientprotocol/claude-agent-acp` 包** |
-| Gemini CLI | `gemini` | `gemini --acp` | CLI 内置 |
 | Antigravity | `agy` | `antigravity-acp` | 需要额外安装 `antigravity-acp` 包和 Bun |
 | Cursor | `cursor-agent` | `cursor-agent acp` | CLI 内置 |
 | GitHub Copilot | `copilot` | `copilot --acp --stdio` | CLI 内置 |

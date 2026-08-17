@@ -71,7 +71,7 @@ func (h *Handler) generateText(ctx context.Context, agentID, modelID, thoughtLev
 const einoHeadlessBin = "eino-cli"
 
 // generateTextWithCLI executes an external CLI agent in headless print mode
-// to generate text. bin is the agent's plain CLI binary (e.g. "gemini",
+// to generate text. bin is the agent's plain CLI binary (e.g. "grok",
 // "claude"); the prompt is passed via "-p". This is intentionally NOT the
 // agent's ACP serve command, which speaks JSON-RPC over stdio and would
 // exit non-zero if invoked this way.

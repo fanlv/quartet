@@ -345,7 +345,7 @@ function Inspector({ node, onChange, onDelete, vars, setVars }) {
       {kind === 'prompt' && <>
         <div className="field"><label>Agent</label>
           <select value={cfg.agent||'claude'} onChange={e => setCfg({ agent: e.target.value })}>
-            {['claude','codex','gemini','traex'].map(a => <option key={a}>{a}</option>)}
+            {['claude','codex','traex'].map(a => <option key={a}>{a}</option>)}
           </select></div>
         <div className="field"><label>Prompt</label>
           <textarea value={cfg.prompt||''} placeholder="给 Agent 的指令..." onChange={e => setCfg({ prompt: e.target.value })} />

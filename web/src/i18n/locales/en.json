@@ -183,7 +183,7 @@
       "logs": "Logs"
     },
     "agents": {
-      "description": "Built-in agents that are not installed yet. Automatic installation only runs the preset flow shown below; after the steps finish, installation is re-checked and a full ACP validation runs.",
+      "description": "Manage built-in and custom agents. Installation only runs the preset flow shown on each card. “Check availability” starts a temporary agent and checks its ACP connection without sending a message, reinstalling, or upgrading it.",
       "deleteConfirm": "Delete {{name}}? Historical references will remain read-only.",
       "forceDeleteConfirm": "Force delete {{name}}? Running jobs that use it will be stopped first.",
       "forceDelete": "Force delete",
@@ -192,10 +192,21 @@
       "deleteResult": "Deletion result",
       "stopSucceeded": "Stopped",
       "revisions": "Runtime revisions",
-      "revalidate": "Revalidate",
+      "checkAvailability": "Check availability",
+      "checkAvailabilityFor": "Check whether {{name}} is available",
+      "checkingAvailability": "Checking…",
+      "checkAvailabilityHint": "Start a temporary agent and check its ACP connection without sending a message, reinstalling, or upgrading",
+      "checkInProgress": "Starting a temporary agent and checking its ACP connection. This can take up to 30 seconds…",
+      "checkSucceeded": "The agent starts and connects successfully.",
+      "checkStatus": {
+        "checking": "Checking agent availability",
+        "success": "Check passed",
+        "warning": "Check passed, but the result was not saved",
+        "error": "Check failed"
+      },
       "uninstall": "Uninstall",
       "uninstalling": "Uninstalling…",
-      "lastValidation": "Last validation",
+      "lastValidation": "Last checked",
       "source": {
         "builtin": "Built-in",
         "custom": "Custom"

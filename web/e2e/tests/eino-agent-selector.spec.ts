@@ -3,7 +3,7 @@ import { e2eAuthToken } from '../fixtures/e2e-environment'
 
 // E2E coverage for the refactor's core selector regression (spec user story
 // 1): eino-cli must appear as ONE ordinary agent entry in the agent selector
-// — exactly like claude/gemini — never one row per configured model.
+// — exactly like other ACP agents — never one row per configured model.
 //
 // Requires the credentials run (QUARTET_E2E_MODEL_API_KEY): only then does
 // globalSetup put eino-cli on the backend's PATH and seed its isolated

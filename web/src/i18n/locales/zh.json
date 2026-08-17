@@ -180,7 +180,7 @@
       "logs": "日志"
     },
     "agents": {
-      "description": "以下为尚未安装的内置 Agent。自动安装只执行下方展示的预置流程；流程结束后会重新执行安装判定，并运行一次完整的 ACP 验证。",
+      "description": "管理内置和自定义 Agent。安装只执行卡片中展示的预置流程；“检查可用性”会启动临时 Agent 检查 ACP 连接，不会发送消息、重新安装或升级。",
       "deleteConfirm": "确定删除 {{name}}？历史引用将保留为只读。",
       "forceDeleteConfirm": "确定强制删除 {{name}}？使用它的运行中任务会先被停止。",
       "forceDelete": "强制删除",
@@ -189,10 +189,21 @@
       "deleteResult": "删除结果",
       "stopSucceeded": "已停止",
       "revisions": "运行定义修订",
-      "revalidate": "重新验证",
+      "checkAvailability": "检查可用性",
+      "checkAvailabilityFor": "检查 {{name}} 是否可用",
+      "checkingAvailability": "检查中…",
+      "checkAvailabilityHint": "启动临时 Agent 并检查 ACP 连接；不会发送消息、重新安装或升级",
+      "checkInProgress": "正在启动临时 Agent 并检查 ACP 连接，最长约 30 秒…",
+      "checkSucceeded": "Agent 可以正常启动并连接。",
+      "checkStatus": {
+        "checking": "正在检查 Agent 可用性",
+        "success": "检查通过",
+        "warning": "检查通过，但结果保存失败",
+        "error": "检查未通过"
+      },
       "uninstall": "卸载",
       "uninstalling": "卸载中…",
-      "lastValidation": "最近验证",
+      "lastValidation": "上次检查",
       "source": {
         "builtin": "内置",
         "custom": "自定义"

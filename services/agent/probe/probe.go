@@ -155,9 +155,9 @@ func InstalledACPAgents() []ACPAgentDef {
 }
 
 // HeadlessBin maps an ACP agent's *serve* command (the string stored in
-// AgentInfo.Type, e.g. "gemini --acp" or "claude-agent-acp")
+// AgentInfo.Type, e.g. "qoderclicn --acp" or "claude-agent-acp")
 // to the binary used to run that same tool in *headless one-shot* mode
-// (e.g. "gemini", "claude").
+// (e.g. "qoderclicn", "claude").
 //
 // This distinction matters: an ACP serve command speaks JSON-RPC over
 // stdio and cannot be invoked as `<cmd> -p <prompt>`; doing so just boots

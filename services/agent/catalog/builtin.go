@@ -21,7 +21,7 @@ type HistoricalIdentifier struct {
 	Value string
 }
 
-// BuiltinAgent is one append-only built-in catalog entry. ACPProgram and
+// BuiltinAgent is one built-in catalog entry. ACPProgram and
 // ACPArgs are authoritative; Command remains the current legacy serialization
 // consumed by runtime paths that have not moved to structured argv yet.
 type BuiltinAgent struct {
@@ -60,8 +60,7 @@ func (a BuiltinAgent) MigrationIdentifiers() []string {
 
 const grokIconURL = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNSIgaGVpZ2h0PSIzMyIgdmlld0JveD0iMCAwIDM1IDMzIiBmaWxsPSJub25lIj48cGF0aCBkPSJNMTMuMjM3MSAyMS4wNDA3TDI0LjMxODYgMTIuODUwNkMyNC44NjE5IDEyLjQ0OTEgMjUuNjM4NCAxMi42MDU3IDI1Ljg5NzMgMTMuMjI5NEMyNy4yNTk3IDE2LjUxODUgMjYuNjUxIDIwLjQ3MTIgMjMuOTQwMyAyMy4xODUxQzIxLjIyOTcgMjUuODk4OSAxNy40NTgxIDI2LjQ5NDEgMTQuMDEwOCAyNS4xMzg2TDEwLjI0NDkgMjYuODg0M0MxNS42NDYzIDMwLjU4MDYgMjIuMjA1MyAyOS42NjY1IDI2LjMwNCAyNS41NjAxQzI5LjU1NTEgMjIuMzA1MSAzMC41NjIgMTcuODY4MyAyOS42MjA1IDEzLjg2NzNMMjkuNjI5IDEzLjg3NThDMjguMjYzNyA3Ljk5ODA5IDI5Ljk2NDcgNS42NDg3MSAzMy40NDkgMC44NDQ1NzZDMzMuNTMxNCAwLjczMDY2NyAzMy42MTM5IDAuNjE2NzU3IDMzLjY5NjQgMC41TDI5LjExMTMgNS4wOTA1NVY1LjA3NjMxTDEzLjIzNDMgMjEuMDQzNiIgZmlsbD0iIzAwMDAwMCIvPjxwYXRoIGQ9Ik0xMC45NTAzIDIzLjAzMTNDNy4wNzM0MyAxOS4zMjM1IDcuNzQxODUgMTMuNTg1MyAxMS4wNDk4IDEwLjI3NjNDMTMuNDk1OSA3LjgyNzIyIDE3LjUwMzYgNi44Mjc2NyAyMS4wMDIxIDguMjk3MUwyNC43NTk1IDYuNTU5OThDMjQuMDgyNiA2LjA3MDE3IDIzLjIxNSA1LjU0MzM0IDIyLjIxOTUgNS4xNzMxM0MxNy43MTk4IDMuMzE5MjYgMTIuMzMyNiA0LjI0MTkyIDguNjc0NzkgNy45MDEyNkM1LjE1NjM1IDExLjQyMzkgNC4wNDk5IDE2Ljg0MDMgNS45NDk5MiAyMS40NjIyQzcuMzY5MjQgMjQuOTE2NSA1LjA0MjU3IDI3LjM1OTggMi42OTg4NCAyOS44MjZDMS44NjgyOSAzMC43MDAyIDEuMDM0OSAzMS41NzQ1IDAuMzYzNjQgMzIuNUwxMC45NDc0IDIzLjAzNDEiIGZpbGw9IiMwMDAwMDAiLz48L3N2Zz4K"
 
-// builtinAgents is append-only. Retire entries by setting Deprecated so
-// historical identifiers and display metadata remain resolvable.
+// builtinAgents defines the agents currently supported by the built-in catalog.
 var builtinAgents = []BuiltinAgent{
 	{
 		AgentID: "eino-cli", Bin: "eino-cli", ACPProgram: "eino-cli", ACPArgs: []string{"acp"}, Command: "eino-cli acp", EnvKey: "eino-cli",
@@ -99,11 +98,6 @@ var builtinAgents = []BuiltinAgent{
 			agentinstall.NPMStep("@anthropic-ai/claude-code"),
 			agentinstall.NPMStep("@zed-industries/claude-agent-acp"),
 		}},
-	},
-	{
-		AgentID: "gemini", Bin: "gemini", ACPProgram: "gemini", ACPArgs: []string{"--acp"}, Command: "gemini --acp", EnvKey: "gemini",
-		DisplayName: "Gemini", IconURL: "https://avatars.githubusercontent.com/u/161781182", SupportsHeadlessPrint: false,
-		Install: agentinstall.InstallSpec{Method: agentinstall.InstallMethodNPM, Steps: []agentinstall.InstallStep{agentinstall.NPMStep("@google/gemini-cli")}},
 	},
 	{
 		AgentID: "agy", Bin: "agy", ACPProgram: "antigravity-acp", Command: "antigravity-acp", EnvKey: "agy",

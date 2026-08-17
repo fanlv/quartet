@@ -60,7 +60,7 @@ func NewService() (*Service, error) {
 	return service, nil
 }
 
-// Builtins returns the append-only built-in entries in selector order.
+// Builtins returns the supported built-in entries in selector order.
 func (s *Service) Builtins() []BuiltinAgent {
 	return BuiltinSnapshot()
 }

@@ -87,6 +87,11 @@ interface DeleteResult {
   impact: DeleteImpact;
 }
 
+interface ValidationFeedback {
+  status: 'checking' | 'success' | 'warning' | 'error';
+  message: string;
+}
+
 const emptyCustomForm: CustomFormState = {
   displayName: '',
   iconUrl: '',
@@ -139,9 +144,10 @@ export function AgentInstallSettings() {
   const [managementMessage, setManagementMessage] = useState('');
   const [deleteResult, setDeleteResult] = useState<DeleteResult | null>(null);
   const [revisionMap, setRevisionMap] = useState<Record<string, Array<{ revision: string; definition: RuntimeDefinition }>>>({});
+  const [validationFeedback, setValidationFeedback] = useState<Record<string, ValidationFeedback>>({});
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setLoadError('');
     try {
       const responses = await Promise.all([
@@ -162,7 +168,7 @@ export function AgentInstallSettings() {
     } catch (err) {
       setLoadError(String(err));
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, []);
 
@@ -242,18 +248,35 @@ export function AgentInstallSettings() {
   const revalidate = async (agent: CatalogAgent) => {
     setManagementPending(agent.agent_id);
     setManagementMessage('');
+    setValidationFeedback((current) => ({
+      ...current,
+      [agent.agent_id]: {
+        status: 'checking',
+        message: t('settings.agents.checkInProgress'),
+      },
+    }));
     try {
       const data = await readResponse(await fetch(`/api/v1/agent/${encodeURIComponent(agent.agent_id)}/revalidate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       }));
-      if (typeof data.warning === 'string' && data.warning) {
-        setManagementMessage(data.warning);
-      }
-      await loadData();
+      await loadData(false);
+      const warning = typeof data.warning === 'string' ? data.warning : '';
+      setValidationFeedback((current) => ({
+        ...current,
+        [agent.agent_id]: {
+          status: warning ? 'warning' : 'success',
+          message: warning || t('settings.agents.checkSucceeded'),
+        },
+      }));
     } catch (err) {
-      setManagementMessage(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      await loadData(false);
+      setValidationFeedback((current) => ({
+        ...current,
+        [agent.agent_id]: { status: 'error', message },
+      }));
     } finally {
       setManagementPending('');
     }
@@ -451,7 +474,7 @@ export function AgentInstallSettings() {
     return (
       <div className="agent-install-load-error">
         <span>{t('common.loadFailed')}: {loadError}</span>
-        <button className="agent-install-retry" onClick={loadData}>{t('common.retry')}</button>
+        <button className="agent-install-retry" onClick={() => void loadData()}>{t('common.retry')}</button>
       </div>
     );
   }
@@ -514,6 +537,8 @@ export function AgentInstallSettings() {
             .filter(Boolean)
             .join(' ');
           const busy = installBusy?.id === agent.agent_id;
+          const checkFeedback = validationFeedback[agent.agent_id];
+          const checking = checkFeedback?.status === 'checking';
           const showManual = agent.source === 'builtin' && !agent.deprecated
             && !agent.installed && !agent.auto_installable && !!agent.install_instructions;
           return (
@@ -553,8 +578,16 @@ export function AgentInstallSettings() {
                     </button>
                   )}
                   {agent.lifecycle !== 'deleted' && !agent.deprecated && agent.installed && (
-                    <button className="settings-btn settings-btn-secondary" disabled={managementPending !== ''} onClick={() => void revalidate(agent)}>
-                      {t('settings.agents.revalidate')}
+                    <button
+                      className="settings-btn settings-btn-secondary agent-check-btn"
+                      disabled={managementPending !== ''}
+                      onClick={() => void revalidate(agent)}
+                      title={t('settings.agents.checkAvailabilityHint')}
+                      aria-label={t('settings.agents.checkAvailabilityFor', { name: agent.display_name })}
+                      aria-describedby={checkFeedback ? `agent-check-feedback-${agent.agent_id}` : undefined}
+                    >
+                      {checking && <span className="agent-check-spinner" aria-hidden="true" />}
+                      {t(checking ? 'settings.agents.checkingAvailability' : 'settings.agents.checkAvailability')}
                     </button>
                   )}
                   {agent.source === 'custom' && agent.lifecycle === 'active' && (
@@ -582,6 +615,31 @@ export function AgentInstallSettings() {
                   )}
                 </div>
               </div>
+
+              {checkFeedback && (
+                <div
+                  id={`agent-check-feedback-${agent.agent_id}`}
+                  className={`agent-check-feedback ${checkFeedback.status}`}
+                  role={checkFeedback.status === 'error' ? 'alert' : 'status'}
+                  aria-live={checkFeedback.status === 'error' ? 'assertive' : 'polite'}
+                >
+                  <span className="agent-check-feedback-icon" aria-hidden="true">
+                    {checkFeedback.status === 'checking'
+                      ? <span className="agent-check-spinner" />
+                      : checkFeedback.status === 'success'
+                        ? '✓'
+                        : checkFeedback.status === 'warning'
+                          ? '!'
+                          : '×'}
+                  </span>
+                  <div className="agent-check-feedback-content">
+                    <strong>
+                      {t(`settings.agents.checkStatus.${checkFeedback.status}`)}
+                    </strong>
+                    <pre>{checkFeedback.message}</pre>
+                  </div>
+                </div>
+              )}
 
               <div className="agent-install-card-body">
                 <div className="agent-install-meta">
@@ -613,14 +671,14 @@ export function AgentInstallSettings() {
                 {(agent.availability_error || agent.delete_error) && (
                   <pre className="agent-directory-error">{agent.availability_error || agent.delete_error}</pre>
                 )}
-                {agent.availability === 'not_installed' && agent.last_validation_status && (
+                {agent.last_validation_status && agent.last_validation_at ? (
                   <div className="agent-install-meta">
                     <span>
                       {t('settings.agents.lastValidation')}: {t(`settings.agents.status.${agent.last_validation_status}`)}
                     </span>
-                    {agent.last_validation_at ? <span>{new Date(agent.last_validation_at).toLocaleString()}</span> : null}
+                    <span>{new Date(agent.last_validation_at).toLocaleString()}</span>
                   </div>
-                )}
+                ) : null}
                 {agent.availability === 'not_installed' && agent.last_validation_error && (
                   <pre className="agent-directory-error">{agent.last_validation_error}</pre>
                 )}

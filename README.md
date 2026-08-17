@@ -179,7 +179,6 @@ backend process:
 | Grok | `grok` | `grok --no-auto-update agent stdio` | Provided by the CLI |
 | OpenClaw | `openclaw` | `openclaw acp` | Provided by the CLI |
 | Claude Code | `claude` | `claude-agent-acp` | **Requires the separate `@agentclientprotocol/claude-agent-acp` package** |
-| Gemini CLI | `gemini` | `gemini --acp` | Provided by the CLI |
 | Antigravity | `agy` | `antigravity-acp` | Requires the separate `antigravity-acp` package and Bun |
 | Cursor | `cursor-agent` | `cursor-agent acp` | Provided by the CLI |
 | GitHub Copilot | `copilot` | `copilot --acp --stdio` | Provided by the CLI |
@@ -409,4 +408,3 @@ you changed.
 ## License
 
 Quartet is licensed under the [Apache License 2.0](LICENSE).
-

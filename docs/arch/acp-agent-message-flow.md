@@ -53,7 +53,7 @@
 
 `jobService.SendMessage`（`services/job/executor_run.go`）置 `Status=Running`、持久化 job，异步 `runInteractive` → `executeRepeat` → `JobRunner.RunIteration`。
 
-**判定 ACP 还是 eino 的唯一依据是 `session.Type`**（`cmd/web/handler/job_runner.go` `RunIteration`）：等于 `consts.AgentTypeEino`（`"eino"`）走内置 runner，其它一律走 `runACPInternal`。session 的 `Type` 就是创建时传入的 `agentType`；ACP agent 的 `agentType` 是它的 **serve 命令字符串**（如 `claude-agent-acp` / `codex-acp` / `gemini --acp`，来自 agent 列表探测）。
+**判定 ACP 还是 eino 的唯一依据是 `session.Type`**（`cmd/web/handler/job_runner.go` `RunIteration`）：等于 `consts.AgentTypeEino`（`"eino"`）走内置 runner，其它一律走 `runACPInternal`。session 的 `Type` 就是创建时传入的 `agentType`；ACP agent 的 `agentType` 是它的 **serve 命令字符串**（如 `claude-agent-acp` / `codex-acp`，来自 agent 列表探测）。
 
 ### ③ ACP session 初始化 ⭐
 

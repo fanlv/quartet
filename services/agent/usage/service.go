@@ -80,7 +80,7 @@ func (s *serviceImpl) AgentVersion(ctx context.Context, command string) (string,
 // binVersion runs `<bin> --version` and returns the first semver found in
 // stdout, prefixed with "v" (e.g. "v1.17.18"), or "" on any failure. `--version`
 // is the near-universal convention across the known agent CLIs — traex, opencode,
-// codex, claude, grok, gemini, qwen, ... all print a semver to stdout for it.
+// codex, claude, grok, qoder, ... all print a semver to stdout for it.
 // Reads stdout only so a warning printed to stderr can't false-match a version.
 func (s *serviceImpl) binVersion(ctx context.Context, bin string) string {
 	if bin == "" {

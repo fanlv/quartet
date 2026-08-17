@@ -552,7 +552,7 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
 }
 
 /** Version-only chip for known ACP agents that have no quota view (traex,
- *  opencode, gemini, cursor, droid, qwen, ...). The version is fetched from the
+ *  opencode, cursor, droid, qwen, ...). The version is fetched from the
  *  backend (`<bin> --version`) and cached per agent command so switching agents
  *  shows the last-probed version instantly while a fresh probe runs.
  *

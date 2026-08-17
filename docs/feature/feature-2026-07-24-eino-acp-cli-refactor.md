@@ -9,7 +9,7 @@
 当前 quartet 有两套 agent runtime，靠会话类型是否为 eino 做分流：
 
 - **eino 分支**（in-process）：内置 ADK 推理循环，直接在同进程里跑，工具走本机 sandbox，历史直接读写本地 `messages.jsonl`（磁盘即事实来源，每轮重新装载）。其运行时、中间件、聊天上下文组装、会话管理等代码全部长在 quartet 后端内，且直接依赖 quartet 的存储、路径、沙箱等包。
-- **acp 分支**（subprocess）：把外部 CLI（claude / gemini / codex …）当子进程，走 ACP 协议（stdio JSON-RPC）。子进程自管上下文，quartet 的 `messages.jsonl` 只是镜像，靠指纹漂移检测 + resume/load 对齐。
+- **acp 分支**（subprocess）：把外部 CLI（claude / codex …）当子进程，走 ACP 协议（stdio JSON-RPC）。子进程自管上下文，quartet 的 `messages.jsonl` 只是镜像，靠指纹漂移检测 + resume/load 对齐。
 
 两条分支在协议中立事件层汇流，再经统一的事件构建与 SSE 通道推到前端，前端已经分不出是哪种 agent。
 
@@ -19,7 +19,7 @@
 
 - 把 quartet 内所有 eino 相关功能——推理循环、中间件链、聊天上下文组装、会话管理、多模态输入、历史压缩——整体抽出，编译成独立二进制 `eino-cli`：入口在 `cmd/eino-cli`，其余全部实现集中在统一目录；与 quartet 后端代码**零依赖**；结构按“日后可整体抽到独立仓库”设计。
 - `eino-cli` **完整适配 ACP 公共协议**（建会话 / 加载 / 恢复 / 提问 / 取消 / 配置项等标准能力），可被任意 ACP client 驱动。
-- quartet 与 agent 的对接**只保留 ACP 一条通道**：不扩展 `pkg/acp`、不引入私有协议、不再保留 eino 运行时（adk/编排）依赖——`eino/schema` 消息类型作为共享消息表示继续被存储与 ACP 链路使用；`eino-cli` 与 claude/gemini 走**完全相同**的接入、缓存、事件、存储链路。
+- quartet 与 agent 的对接**只保留 ACP 一条通道**：不扩展 `pkg/acp`、不引入私有协议、不再保留 eino 运行时（adk/编排）依赖——`eino/schema` 消息类型作为共享消息表示继续被存储与 ACP 链路使用；`eino-cli` 与其他 ACP agent 走**完全相同**的接入、缓存、事件、存储链路。
 - `eino-cli` 自管配置（模型目录、密钥、系统提示词），自存会话（`~/.eino/`）；quartet 设置页新增 eino 配置 tab，经后端 exec `eino-cli models` / `eino-cli systemprompt` 子命令（JSON）读写。
 - quartet 后端**不再保留单独的 eino 路径**：in-process 运行时、eino 专属上下文组装、agent type 分流、handler 与 agent 列表特判、前端 eino 分支全部移除。quartet 对 eino 的唯一认知是“一个叫 eino-cli 的 ACP agent”。
 - 多模态（图片）与切换**同阶段交付**：不改 quartet 发送通道，由 eino-cli 解析 prompt 中的图片标签、还原为 content block；**音视频暂不支持**。
@@ -39,7 +39,7 @@
 
 - 入口 `cmd/eino-cli`，其余全部实现集中在统一目录；**不 import quartet 后端的任何包**——现存对 quartet 存储 / 路径等包的依赖以 **fork（复制一份指向 `~/.eino/` 的独立实现）** 处理，quartet 后端保留各原件：`chatctx` + `ChatContextRepo` 的存储形状、中间件链、`round` 在 eino 侧各 fork 一份（`round` fork 用于 eino-cli 自持久化 `~/.eino/` 会话；quartet 侧 messages.jsonl 镜像仍由现有 ACP 层负责，见 §4.2）；local sandbox 不 fork `pkg/sandbox` 代码，直接基于同款 sandbox SDK。整体结构按“日后可原样抽到独立仓库”设计。
 - **完整适配 ACP 公共协议**，无私有扩展；与 claude 等外部 agent 在 quartet 侧无任何差别待遇。
-- **自管配置体系**：模型目录、密钥、系统提示词自读自管；提供 `eino-cli models {add|list|delete}` 与 `eino-cli systemprompt {get|set}` 子命令（JSON 输出）供 quartet 设置页 eino tab 经后端 exec 对接；另实现 `-p` headless 一次性输出，供 quartet 标题/IM 等文本生成的通用 headless 通道使用（与 claude/gemini 的 `-p` 一致，非 eino 专属通道）。
+- **自管配置体系**：模型目录、密钥、系统提示词自读自管；提供 `eino-cli models {add|list|delete}` 与 `eino-cli systemprompt {get|set}` 子命令（JSON 输出）供 quartet 设置页 eino tab 经后端 exec 对接；另实现 `-p` headless 一次性输出，供 quartet 标题/IM 等文本生成的通用 headless 通道使用（与其他支持 headless 输出的 agent CLI 一致，非 eino 专属通道）。
 - **自存会话**：`~/.eino/` 持久化；自实现 ACP 的建会话 / 加载 / 恢复 / 提问 / 取消 / 配置项能力。
 - **多模态还原**：解析 prompt 中的图片标签，加载为 content block 输入模型。
 - **自带 local sandbox**：与 `pkg/sandbox` local 后端基于同一 sandbox SDK（不 fork `pkg/sandbox` 代码本身），工具经其 MCP tool server 在主机进程内执行、直接读写主机文件系统；container/compose 与回收恢复等能力不搬迁，未来需要时单独设计。

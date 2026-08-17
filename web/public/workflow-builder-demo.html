@@ -444,7 +444,7 @@ function renderInspector() {
     fields += `
       <div class="field"><label>Agent</label>
         <select id="f-agent">
-          ${['claude','codex','gemini','traex'].map(a=>`<option ${n.cfg.agent===a?'selected':''}>${a}</option>`).join('')}
+          ${['claude','codex','traex'].map(a=>`<option ${n.cfg.agent===a?'selected':''}>${a}</option>`).join('')}
         </select></div>
       <div class="field"><label>Prompt</label>
         <textarea id="f-prompt" placeholder="给 Agent 的指令...">${escapeHtml(n.cfg.prompt||'')}</textarea>

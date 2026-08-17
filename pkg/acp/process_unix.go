@@ -51,7 +51,7 @@ func (c *Conn) terminate() {
 // Matching has three stages:
 //
 //  1. Cheap filter — allowlist keyword appears as a substring of
-//     /proc/<pid>/cmdline. Keywords like "openclaw", "gemini", "kimi" are
+//     /proc/<pid>/cmdline. Keywords like "openclaw", "droid", "kimi" are
 //     specific enough to look distinctive but can still collide with
 //     unrelated processes (e.g. /etc/sysop/mongoosev3-agent/plugin/
 //     openclaw-collector/openclaw-collector or an ssh session running a
