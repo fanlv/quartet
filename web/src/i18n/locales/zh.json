@@ -241,6 +241,7 @@
       "method": {
         "npm": "npm 全局包",
         "script": "官方安装脚本",
+        "project": "项目构建安装",
         "manual": "手动安装"
       },
       "result": {

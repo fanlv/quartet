@@ -58,6 +58,7 @@ func runStep(ctx context.Context, step InstallStep, timeout time.Duration) StepR
 	defer cancel()
 
 	cmd := exec.CommandContext(stepCtx, step.Program, step.Args...)
+	cmd.Dir = step.Dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

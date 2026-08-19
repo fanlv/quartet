@@ -66,8 +66,9 @@ var builtinAgents = []BuiltinAgent{
 		AgentID: "eino-cli", Bin: "eino-cli", ACPProgram: "eino-cli", ACPArgs: []string{"acp"}, Command: "eino-cli acp", EnvKey: "eino-cli",
 		DisplayName: "Eino", IconURL: "https://avatars.githubusercontent.com/u/79236453", SupportsHeadlessPrint: true,
 		Install: agentinstall.InstallSpec{
-			Method:       agentinstall.InstallMethodManual,
-			Instructions: "eino-cli 由本项目自带构建安装：在仓库根目录执行 `make build-eino-cli`，构建完成后会自动安装到 PATH。",
+			Method:       agentinstall.InstallMethodProject,
+			Steps:        []agentinstall.InstallStep{agentinstall.ProjectMakeStep("build-eino-cli")},
+			Instructions: "eino-cli 由本项目自带构建安装：点击安装会在仓库根目录执行 `make build-eino-cli`，构建完成后会自动安装到 PATH。",
 		},
 	},
 	{

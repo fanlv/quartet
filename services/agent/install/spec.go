@@ -9,6 +9,8 @@ const (
 	// InstallMethodScript installs via an official install script (at least one
 	// step pipes a script into a shell).
 	InstallMethodScript InstallMethod = "script"
+	// InstallMethodProject installs from this repository's own build tooling.
+	InstallMethodProject InstallMethod = "project"
 	// InstallMethodManual has no automatic flow; only manual instructions are
 	// shown (used for installs requiring interaction, auth, or a project
 	// toolchain).
@@ -21,6 +23,7 @@ const (
 type InstallStep struct {
 	Program string
 	Args    []string
+	Dir     string
 	Display string
 }
 
@@ -102,5 +105,16 @@ func ScriptStep(url, shell string) InstallStep {
 		Program: shell,
 		Args:    []string{"-c", command},
 		Display: command,
+	}
+}
+
+// ProjectMakeStep builds a repository-local install step that runs make from
+// the backend process working directory.
+func ProjectMakeStep(target string) InstallStep {
+	return InstallStep{
+		Program: "make",
+		Args:    []string{target},
+		Dir:     ".",
+		Display: "make " + target,
 	}
 }

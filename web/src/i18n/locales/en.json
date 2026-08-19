@@ -244,6 +244,7 @@
       "method": {
         "npm": "npm package",
         "script": "Official script",
+        "project": "Project build",
         "manual": "Manual"
       },
       "result": {
