@@ -31,9 +31,13 @@ const [nodeVersion, npmVersion, nodeBin, npmBin] = process.argv.slice(2);
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 
 function parseVersion(version) {
-  const match = String(version).trim().replace(/^v/, '').match(/^(\d+)\.(\d+)\.(\d+)/);
+  const match = String(version).trim().replace(/^v/, '').match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
   if (!match) return null;
-  return match.slice(1).map((part) => Number(part));
+  return [
+    Number(match[1]),
+    Number(match[2] || 0),
+    Number(match[3] || 0),
+  ];
 }
 
 function compareVersions(left, right) {
