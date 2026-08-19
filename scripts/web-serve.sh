@@ -141,7 +141,8 @@ if [ "$PORT" = "443" ]; then
     echo "  Web UI:  ${PROTO}://<your-domain>/     (backend bound on 0.0.0.0:443)"
     echo "           ${PROTO}://localhost/          (local access)"
 else
-    echo "  Web UI:  ${PROTO}://localhost:${PORT}/"
+    echo "  Web UI:  ${PROTO}://localhost:${PORT}/       (local access)"
+    echo "           ${PROTO}://<your-lan-ip>:${PORT}/  (LAN access)"
 fi
 echo "================================================"
 echo ""

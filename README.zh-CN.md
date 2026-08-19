@@ -253,15 +253,14 @@ OpenCode 和 Bun 等 npm 包。如果你已经自行管理这些全局工具，�
 | `QUARTET_STATIC_DIR` | 否 | 构建后的前端目录，默认为 `static` |
 | `QUARTET_CERTS_DIR` | 否 | 存放 `cert.pem` 和 `key.pem` 的目录，默认为 `certs` |
 
-没有证书时，Quartet 默认通过 HTTP 监听 `127.0.0.1:8090`。证书目录中同时存在
+没有证书时，Quartet 默认通过 HTTP 监听 `0.0.0.0:8090`。证书目录中同时存在
 `cert.pem` 和 `key.pem` 时，会启用 HTTPS，并默认监听 `0.0.0.0:443`。
 
-未设置 `X_AGENT_AUTH` 时 API 不要求认证，这只适用于默认的本机回环地址场景。通过局域网地址、
-容器端口、隧道或公网域名暴露服务前，请设置强 Token：
+未设置 `X_AGENT_AUTH` 时 API 不要求认证。通过局域网地址、容器端口、隧道或公网域名使用服务前，
+请设置强 Token：
 
 ```bash
 export X_AGENT_AUTH="$(openssl rand -hex 32)"
-export QUARTET_LISTEN_ADDR="0.0.0.0:8090"
 make web
 ```
 

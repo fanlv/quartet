@@ -29,10 +29,11 @@ import (
 )
 
 const (
-	// defaultHTTPAddr is the plaintext default: loopback only, so a
-	// misconfigured machine cannot accidentally expose the file-read/write/shell
-	// APIs to the network when no TLS certs are present.
-	defaultHTTPAddr = "127.0.0.1:8090"
+	// defaultHTTPAddr is the plaintext default when no TLS certs are present.
+	defaultHTTPAddr = "0.0.0.0:8090"
+	// localHTTPAddr stays loopback-only for the TLS companion listener used by
+	// quartet-cli and local scripts.
+	localHTTPAddr = "127.0.0.1:8090"
 	// defaultHTTPSAddr is the default when TLS certs are present. It binds all
 	// interfaces so the UI is reachable by domain (matching the previous vite
 	// front-end behaviour on 443).
@@ -86,7 +87,7 @@ func certsDir() string {
 // resolveListen decides the final bind address and whether to enable TLS.
 //
 //   - certs present → load them and default the address to 0.0.0.0:443
-//   - certs absent  → plaintext, default address 127.0.0.1:8090
+//   - certs absent  → plaintext, default address 0.0.0.0:8090
 //
 // TLS is coupled ONLY to cert existence: QUARTET_LISTEN_ADDR overrides the
 // default address but never the TLS decision, so a custom address still gets
@@ -266,13 +267,12 @@ func main() {
 
 	// When TLS is active on the public address, additionally serve plaintext
 	// HTTP on loopback so local tooling (quartet-cli, workflow shell scripts)
-	// can reach the API without TLS/cert juggling. Exposure matches the
-	// no-certs mode exactly: loopback only, on a single-user machine (see
-	// AGENTS.md). Without this, the cert deployment leaves local clients no
-	// working address: 443 needs a valid hostname/cert, and 8090 is dark.
+	// can reach the API without TLS/cert juggling. Without this, the cert
+	// deployment leaves local clients no working address: 443 needs a valid
+	// hostname/cert, and 8090 is dark.
 	var local *server.Hertz
 	if lc.tlsCfg != nil {
-		local = newServer(listenConfig{addr: defaultHTTPAddr})
+		local = newServer(listenConfig{addr: localHTTPAddr})
 		registerRoutes(local, h)
 	}
 
@@ -356,10 +356,10 @@ func main() {
 			}()
 			localErr <- local.Engine.Run()
 		}()
-		if err := waitForListenReady(ctx, defaultHTTPAddr, 5*time.Second, localErr); err != nil {
-			logger.Errorf(ctx, "local loopback HTTP listener on %s unavailable: %v (quartet-cli and local scripts cannot reach the API without it)", defaultHTTPAddr, err)
+		if err := waitForListenReady(ctx, localHTTPAddr, 5*time.Second, localErr); err != nil {
+			logger.Errorf(ctx, "local loopback HTTP listener on %s unavailable: %v (quartet-cli and local scripts cannot reach the API without it)", localHTTPAddr, err)
 		} else {
-			logger.Infof(ctx, "Local loopback HTTP listener is running on http://%s (for quartet-cli / local scripts)", defaultHTTPAddr)
+			logger.Infof(ctx, "Local loopback HTTP listener is running on http://%s (for quartet-cli / local scripts)", localHTTPAddr)
 		}
 		// Surface a mid-run exit of the local listener. During normal shutdown
 		// ctx is already cancelled, so the expected Run() return stays quiet.

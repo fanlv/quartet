@@ -6,7 +6,7 @@ CERTS_DIR := $(CURDIR)/certs
 # privilege:
 #   certs present -> backend serves HTTPS on all interfaces at :443 (reachable
 #                    by domain); binding 443 as non-root needs sudo.
-#   no certs      -> plaintext HTTP on loopback :8090.
+#   no certs      -> plaintext HTTP on all interfaces at :8090.
 # Known blind spot: an explicit QUARTET_LISTEN_ADDR at runtime is NOT reflected
 # in these scripts (single-user local use; documented in the feature notes).
 HAS_CERTS := $(shell [ -f "$(CERTS_DIR)/cert.pem" ] && [ -f "$(CERTS_DIR)/key.pem" ] && echo 1)

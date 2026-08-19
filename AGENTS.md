@@ -25,7 +25,7 @@ make run-frontend  # Dev-only vite dev server (npm run dev; 5173 or 443 with cer
 make web           # Build frontend into static/, build backend, then start/restart the backend as the SINGLE
                    #   web service: it serves the built UI and, when certs/ holds cert.pem+key.pem, terminates
                    #   HTTPS on :443 plus a loopback-only plaintext companion on 127.0.0.1:8090
-                   #   (else plain HTTP on 127.0.0.1:8090 only). Detached; survives caller exit.
+                   #   (else plain HTTP on 0.0.0.0:8090). Detached; survives caller exit.
 make run           # Alias for make web
 make web-stop      # Stop the backend web service and orphan quartet-web processes
 make backend-stop  # Stop backend only; watchdog untouched
@@ -58,7 +58,7 @@ Go tests: `go test ./...`
 
 - Logging: use `pkg/logger` (`logger.Infof/Warnf/Errorf/...`). Avoid `log.Printf`, `fmt.Printf`, etc.
 - Tests: during development, do not add unit tests unless explicitly requested.
-- Default backend startup requires `LOCAL_MEMORY`; the web server binds to `127.0.0.1:8090` (plain HTTP) by default, or `0.0.0.0:443` (HTTPS, serving the built UI same-origin) when `certs/` holds `cert.pem`+`key.pem`. When TLS is active on :443, the backend additionally serves a loopback-only plaintext listener on `127.0.0.1:8090` so local tooling (quartet-cli, workflow shell scripts) can reach the API without TLS handling. `QUARTET_LISTEN_ADDR` overrides the address but not the TLS decision; the served UI dir defaults to `static/` (`QUARTET_STATIC_DIR`) and the cert dir to `certs/` (`QUARTET_CERTS_DIR`).
+- Default backend startup requires `LOCAL_MEMORY`; the web server binds to `0.0.0.0:8090` (plain HTTP) by default, or `0.0.0.0:443` (HTTPS, serving the built UI same-origin) when `certs/` holds `cert.pem`+`key.pem`. When TLS is active on :443, the backend additionally serves a loopback-only plaintext listener on `127.0.0.1:8090` so local tooling (quartet-cli, workflow shell scripts) can reach the API without TLS handling. `QUARTET_LISTEN_ADDR` overrides the address but not the TLS decision; the served UI dir defaults to `static/` (`QUARTET_STATIC_DIR`) and the cert dir to `certs/` (`QUARTET_CERTS_DIR`).
 - Frontend requires Node `>=22.18.0 <23` and npm `>=10.9.0 <11`.
 
 ### Code Layering

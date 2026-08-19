@@ -297,17 +297,15 @@ target before running it if you already manage these tools globally.
 | `QUARTET_STATIC_DIR` | No | Built frontend directory; defaults to `static` |
 | `QUARTET_CERTS_DIR` | No | Directory containing `cert.pem` and `key.pem`; defaults to `certs` |
 
-Without certificates, Quartet binds to `127.0.0.1:8090` over HTTP. When both
+Without certificates, Quartet binds to `0.0.0.0:8090` over HTTP. When both
 `cert.pem` and `key.pem` exist in the certificate directory, it enables HTTPS
 and defaults to `0.0.0.0:443`.
 
-The API is open when `X_AGENT_AUTH` is unset, which is intended only for the
-default loopback setup. Set a strong token before exposing Quartet through a
-LAN address, container port, tunnel, or public domain:
+The API is open when `X_AGENT_AUTH` is unset. Set a strong token before using
+Quartet on a LAN, container port, tunnel, or public domain:
 
 ```bash
 export X_AGENT_AUTH="$(openssl rand -hex 32)"
-export QUARTET_LISTEN_ADDR="0.0.0.0:8090"
 make web
 ```
 
