@@ -26,6 +26,8 @@ WATCHDOG_LOG := /tmp/quartet-watchdog.log
 WATCHDOG_PID := /tmp/quartet-watchdog.pid
 STOP_PROCESS_TREE := $(CURDIR)/scripts/stop-process-tree.sh
 WATCHDOG := $(CURDIR)/scripts/watchdog.sh
+FRONTEND_ENV_CHECK := $(CURDIR)/scripts/frontend-env-check.sh
+FRONTEND_DEPS := $(CURDIR)/scripts/frontend-deps.sh
 BUILD_TIME ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 GIT_DIRTY ?= $(shell if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then echo true; else echo false; fi)
@@ -53,10 +55,14 @@ test: build-all test-web e2e
 
 test-web:
 	@echo "Running web component tests..."
+	@bash "$(FRONTEND_ENV_CHECK)" "$(CURDIR)/web"
+	@bash "$(FRONTEND_DEPS)" "$(CURDIR)/web"
 	@cd web && npm test
 
 e2e:
 	@echo "Running web E2E tests..."
+	@bash "$(FRONTEND_ENV_CHECK)" "$(CURDIR)/web"
+	@bash "$(FRONTEND_DEPS)" "$(CURDIR)/web"
 	@cd web && npm run test:e2e
 
 build:
@@ -107,16 +113,9 @@ build-web:
 # web/vite.config.ts).
 build-frontend:
 	@echo "🎨 Building frontend into static/ ..."; \
+	bash "$(FRONTEND_ENV_CHECK)" "$(CURDIR)/web" || exit 1; \
+	bash "$(FRONTEND_DEPS)" "$(CURDIR)/web" || exit 1; \
 	cd web || exit 1; \
-	if [ ! -d node_modules ] || [ ! -x node_modules/.bin/vite ]; then \
-		echo "📦 Installing frontend dependencies..."; \
-		if [ -f package-lock.json ]; then npm ci || npm install || exit 1; else npm install || exit 1; fi; \
-		touch node_modules; \
-	elif [ package.json -nt node_modules ] || { [ -f package-lock.json ] && [ package-lock.json -nt node_modules ]; }; then \
-		echo "📦 Syncing frontend dependencies..."; \
-		if [ -f package-lock.json ]; then npm ci || npm install || exit 1; else npm install || exit 1; fi; \
-		touch node_modules; \
-	fi; \
 	npm run build || { echo "❌ Frontend build failed"; exit 1; }; \
 	echo "✅ Frontend built into static/"
 
@@ -127,24 +126,8 @@ run-backend:
 	go run ./cmd/web
 
 run-frontend:
-	@cd web && ( \
-		_need_install=0; \
-		if [ ! -d node_modules ] || [ ! -x node_modules/.bin/vite ]; then \
-			_need_install=1; \
-			echo "📦 node_modules missing, installing frontend dependencies..."; \
-		elif [ package.json -nt node_modules ] || { [ -f package-lock.json ] && [ package-lock.json -nt node_modules ]; }; then \
-			_need_install=1; \
-			echo "📦 package.json/lock changed, syncing frontend dependencies..."; \
-		fi; \
-		if [ "$$_need_install" = "1" ]; then \
-			if [ -f package-lock.json ]; then \
-				npm ci || npm install || exit 1; \
-			else \
-				npm install || exit 1; \
-			fi; \
-			touch node_modules; \
-		fi; \
-	)
+	@bash "$(FRONTEND_ENV_CHECK)" "$(CURDIR)/web"
+	@bash "$(FRONTEND_DEPS)" "$(CURDIR)/web"
 	# With certs present the dev server binds :443, which needs sudo. Run it with
 	# VITE_CACHE_DIR pointing outside node_modules so the root-owned vite dep cache
 	# never lands in web/node_modules (a root-owned cache makes the next plain-user
