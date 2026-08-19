@@ -69,8 +69,8 @@ function satisfies(version, range) {
 }
 
 const checks = [
-  ['Node.js', nodeVersion, pkg.engines && pkg.engines.node, nodeBin, 'nvm install 22.18.0 && nvm use 22.18.0'],
-  ['npm', npmVersion, pkg.engines && pkg.engines.npm, npmBin, 'npm install -g npm@10.9.3'],
+  ['Node.js', nodeVersion, pkg.engines && pkg.engines.node, nodeBin, 'install/use Node 22.18.x (for Homebrew: brew install node@22 && export PATH="/opt/homebrew/opt/node@22/bin:$PATH")'],
+  ['npm', npmVersion, pkg.engines && pkg.engines.npm, npmBin, 'install/use npm >=10.9.0 <11 (for npm: npm install -g npm@10.9.3)'],
 ];
 
 let ok = true;
