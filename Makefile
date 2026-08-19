@@ -1,4 +1,4 @@
-.PHONY: build build-all build-acp build-cli build-eino-cli build-web build-frontend test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
+.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
 
 CERTS_DIR := $(CURDIR)/certs
 # Serving model, derived ONCE at parse time so every target below
@@ -45,6 +45,44 @@ SKILLS_CLI ?= npx --yes skills
 SKILL_AGENTS ?= claude-code codex opencode trae trae-cn
 SKILL_AGENT_FLAGS = $(foreach agent,$(SKILL_AGENTS),--agent "$(agent)")
 SKILL_COPY_FLAG ?=
+
+help:
+	@printf 'Usage: make <target>\n\n'
+	@printf 'Build targets:\n'
+	@printf '  %-24s %s\n' 'build' 'Build acp, cli, and web binaries into bin/'
+	@printf '  %-24s %s\n' 'build-all' 'Run go build ./...'
+	@printf '  %-24s %s\n' 'build-acp' 'Build bin/quartet-acp'
+	@printf '  %-24s %s\n' 'build-cli' 'Build bin/quartet-cli'
+	@printf '  %-24s %s\n' 'build-eino-cli' 'Build eino-cli and install it to INSTALL_BIN_DIR'
+	@printf '  %-24s %s\n' 'build-web' 'Build bin/quartet-web'
+	@printf '  %-24s %s\n\n' 'build-frontend' 'Build frontend SPA into static/'
+	@printf 'Test targets:\n'
+	@printf '  %-24s %s\n' 'test' 'Run Go build, frontend tests, and Playwright E2E'
+	@printf '  %-24s %s\n' 'test-web' 'Run frontend component tests'
+	@printf '  %-24s %s\n\n' 'e2e' 'Run frontend Playwright E2E tests'
+	@printf 'Run/service targets:\n'
+	@printf '  %-24s %s\n' 'run' 'Alias for web'
+	@printf '  %-24s %s\n' 'run-cli' 'Run quartet-cli with go run'
+	@printf '  %-24s %s\n' 'run-backend' 'Run web backend with go run'
+	@printf '  %-24s %s\n' 'run-frontend' 'Run Vite dev server'
+	@printf '  %-24s %s\n' 'web' 'Build frontend/backend and start or restart web service'
+	@printf '  %-24s %s\n' 'web-status' 'Show backend and watchdog status'
+	@printf '  %-24s %s\n' 'web-logs' 'Follow backend log'
+	@printf '  %-24s %s\n' 'web-stop' 'Stop backend web service and orphan quartet-web processes'
+	@printf '  %-24s %s\n' 'backend-stop' 'Stop backend only; watchdog untouched'
+	@printf '  %-24s %s\n' 'web-watch' 'Start detached backend watchdog'
+	@printf '  %-24s %s\n' 'web-watch-stop' 'Stop backend watchdog'
+	@printf '  %-24s %s\n\n' 'web-watch-logs' 'Follow watchdog log'
+	@printf 'Install targets:\n'
+	@printf '  %-24s %s\n' 'install-acp-deps' 'Install or upgrade ACP agent dependencies'
+	@printf '  %-24s %s\n' 'install-skill' 'Build/install quartet-cli and register the skill'
+	@printf '  %-24s %s\n' 'install-skill-copy' 'Install skill files by copying instead of symlinking'
+	@printf '  %-24s %s\n' 'install-skill-cli' 'Build and install quartet-cli to INSTALL_BIN_DIR'
+	@printf '  %-24s %s\n' 'install-skill-run' 'Register the skill directory with the skills CLI'
+	@printf '  %-24s %s\n' 'install-skill-all' 'Install the skill for every known skills CLI agent'
+	@printf '  %-24s %s\n\n' 'install-skill-list' 'List skills under SKILL_SOURCE without installing'
+	@printf 'Cleanup targets:\n'
+	@printf '  %-24s %s\n' 'clean' 'Remove bin/'
 
 build-all:
 	@echo "Building all applications..."
