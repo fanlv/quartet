@@ -15,6 +15,10 @@ interface SkillFindResult {
   url: string;
 }
 
+interface ProjectToolsInstallResult {
+  output: string;
+}
+
 type ScopeTab = 'project' | 'global';
 
 const API_BASE = '/api/v1/skills';
@@ -45,6 +49,13 @@ export function SkillSettings() {
   const [checkOutput, setCheckOutput] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
+
+  // Current project quartet-cli + bundled skills installation state
+  const [projectInstalling, setProjectInstalling] = useState(false);
+  const [projectInstallOutput, setProjectInstallOutput] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   // Operation result message
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -261,6 +272,38 @@ export function SkillSettings() {
     }
   };
 
+  const handleInstallProjectTools = async () => {
+    try {
+      setProjectInstalling(true);
+      setProjectInstallOutput(null);
+      const resp = await fetch(`${API_BASE}/install-project-tools`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const raw = await resp.text();
+      let data: { code?: number; msg?: string; result?: ProjectToolsInstallResult };
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        throw new Error(raw || t('settings.skill.projectInstallFailed'));
+      }
+      if (!resp.ok || data.code !== 0) {
+        throw new Error(data.msg || raw || t('settings.skill.projectInstallFailed'));
+      }
+
+      const output = data.result?.output || t('settings.skill.projectInstallSuccess');
+      setProjectInstallOutput({ type: 'success', text: output });
+      setMessage({ type: 'success', text: t('settings.skill.projectInstallSuccess') });
+      loadSkills();
+    } catch (err) {
+      const fullError = err instanceof Error ? err.message : t('settings.skill.projectInstallFailed');
+      setProjectInstallOutput({ type: 'error', text: fullError });
+      setMessage({ type: 'error', text: t('settings.skill.projectInstallFailed') });
+    } finally {
+      setProjectInstalling(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="skill-settings">
@@ -311,9 +354,19 @@ export function SkillSettings() {
           </div>
           <div className="skill-header-actions">
             <button
+              className="settings-btn skill-project-install-btn"
+              onClick={handleInstallProjectTools}
+              disabled={projectInstalling || checking || updating}
+              title={t('settings.skill.projectInstallHint')}
+            >
+              {projectInstalling
+                ? t('settings.skill.projectInstalling')
+                : t('settings.skill.installProjectTools')}
+            </button>
+            <button
               className="settings-btn settings-btn-secondary"
               onClick={handleCheck}
-              disabled={checking}
+              disabled={checking || projectInstalling}
             >
               {checking ? t('settings.skill.checking') : t('settings.skill.checkUpdate')}
             </button>
@@ -324,11 +377,31 @@ export function SkillSettings() {
                 setAddGlobal(scope === 'global');
                 setAddAgents([...DEFAULT_AGENTS]);
               }}
+              disabled={projectInstalling}
             >
               {t('settings.skill.installSkill')}
             </button>
           </div>
         </div>
+
+        {projectInstallOutput && (
+          <div
+            className={`skill-project-output skill-project-output-${projectInstallOutput.type}`}
+            role={projectInstallOutput.type === 'error' ? 'alert' : 'status'}
+          >
+            <div className="skill-check-header">
+              <span>{t('settings.skill.projectInstallResult')}</span>
+              <button
+                className="skill-check-close"
+                onClick={() => setProjectInstallOutput(null)}
+                aria-label={t('common.close')}
+              >
+                x
+              </button>
+            </div>
+            <pre className="skill-check-content">{projectInstallOutput.text}</pre>
+          </div>
+        )}
 
         <div className="skill-filter">
           <input

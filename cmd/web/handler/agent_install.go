@@ -72,6 +72,7 @@ func (h *Handler) AgentInstall(ctx context.Context, c *app.RequestContext) {
 		}
 		return
 	}
+	h.agentVersions.Invalidate()
 	c.JSON(http.StatusOK, model.AgentInstallResponse{Code: 0, Result: result})
 }
 
@@ -99,5 +100,6 @@ func (h *Handler) AgentUninstall(ctx context.Context, c *app.RequestContext) {
 		}
 		return
 	}
+	h.agentVersions.Invalidate()
 	c.JSON(http.StatusOK, model.AgentInstallResponse{Code: 0, Result: result})
 }

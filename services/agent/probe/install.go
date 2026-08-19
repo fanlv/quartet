@@ -22,6 +22,7 @@ var (
 	ErrUnknownAgentID    = errors.New("unknown built-in agent id")
 	ErrAgentDeprecated   = errors.New("built-in agent is deprecated")
 	ErrManualInstallOnly = errors.New("built-in agent only supports manual installation")
+	ErrAgentNotInstalled = errors.New("built-in agent is not installed")
 	ErrNotUninstallable  = errors.New("built-in agent does not support automatic uninstall")
 )
 
@@ -43,6 +44,18 @@ func ValidateAgent(ctx context.Context, binding model.AgentRuntimeBinding, envVe
 // error. Errors are reserved for requests that cannot start an install at
 // all (unknown/deprecated/manual-only agent, another install in flight).
 func (s *CacheService) InstallBuiltinAgent(ctx context.Context, agentID string) (*model.AgentInstallResult, error) {
+	return s.runBuiltinAgentInstall(ctx, agentID, false)
+}
+
+// UpgradeBuiltinAgent re-runs the catalog-declared install steps for an
+// installed built-in Agent, then rechecks and validates the resulting ACP
+// runtime. The client still supplies only AgentID; commands remain entirely
+// controlled by the built-in catalog.
+func (s *CacheService) UpgradeBuiltinAgent(ctx context.Context, agentID string) (*model.AgentInstallResult, error) {
+	return s.runBuiltinAgentInstall(ctx, agentID, true)
+}
+
+func (s *CacheService) runBuiltinAgentInstall(ctx context.Context, agentID string, upgrade bool) (*model.AgentInstallResult, error) {
 	def, ok := FindACPAgentByID(agentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownAgentID, agentID)
@@ -57,10 +70,15 @@ func (s *CacheService) InstallBuiltinAgent(ctx context.Context, agentID string) 
 	checker := agentinstall.Checker{}
 	definition := agentinstall.Definition{Bin: def.Bin, ACPProgram: def.ACPProgram}
 	result := &model.AgentInstallResult{AgentID: agentID}
+	precheck := checker.Check(definition)
+	if upgrade && !precheck.Installed {
+		return nil, fmt.Errorf("%w: %q (%s): %s", ErrAgentNotInstalled, agentID, def.DisplayName, precheck.Error)
+	}
 
-	// Already-installed entries skip execution and go straight to
-	// revalidation, which also covers the "installed but never probed" case.
-	if pre := checker.Check(definition); !pre.Installed {
+	// A regular install skips execution when the Agent is already present and
+	// goes straight to revalidation. An explicit upgrade always re-runs the
+	// catalog-controlled steps.
+	if upgrade || !precheck.Installed {
 		steps, err := agentinstall.RunSteps(ctx, def.Install.Steps, installStepTimeout)
 		if err != nil {
 			return nil, err
@@ -84,6 +102,19 @@ func (s *CacheService) InstallBuiltinAgent(ctx context.Context, agentID string) 
 	result.Installed = recheck.Installed
 	if !recheck.Installed {
 		result.InstallError = recheck.Error
+		return result, nil
+	}
+	for _, step := range result.Steps {
+		if step.ExitCode == 0 && !step.TimedOut && step.Error == "" {
+			continue
+		}
+		result.InstallError = fmt.Sprintf(
+			"preset install step failed: %s (exit_code=%d timed_out=%t error=%s)",
+			step.Display,
+			step.ExitCode,
+			step.TimedOut,
+			step.Error,
+		)
 		return result, nil
 	}
 

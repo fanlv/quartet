@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
+.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
 
 CERTS_DIR := $(CURDIR)/certs
 # Serving model, derived ONCE at parse time so every target below
@@ -43,6 +43,7 @@ SKILL_NAME ?= quartet-workflow
 SKILL_SOURCE ?= $(CURDIR)/skill
 SKILLS_CLI ?= npx --yes skills
 SKILL_AGENTS ?= claude-code codex opencode trae trae-cn
+PROJECT_SKILL_NAMES := quartet-workflow quartet-schedule quartet-wechat
 SKILL_AGENT_FLAGS = $(foreach agent,$(SKILL_AGENTS),--agent "$(agent)")
 SKILL_COPY_FLAG ?=
 
@@ -75,6 +76,7 @@ help:
 	@printf '  %-24s %s\n\n' 'web-watch-logs' 'Follow watchdog log'
 	@printf 'Install targets:\n'
 	@printf '  %-24s %s\n' 'install-acp-deps' 'Install or upgrade ACP agent dependencies'
+	@printf '  %-24s %s\n' 'install-project-tools' 'Install quartet-cli and every skill shipped by this project'
 	@printf '  %-24s %s\n' 'install-skill' 'Build/install quartet-cli and register the skill'
 	@printf '  %-24s %s\n' 'install-skill-copy' 'Install skill files by copying instead of symlinking'
 	@printf '  %-24s %s\n' 'install-skill-cli' 'Build and install quartet-cli to INSTALL_BIN_DIR'
@@ -365,6 +367,25 @@ install-acp-deps:
 # SKILL_AGENTS / INSTALL_BIN_DIR / SKILLS_CLI / SKILL_SOURCE as needed.
 install-skill: install-skill-cli
 	@$(MAKE) --no-print-directory install-skill-run
+
+# install-project-tools is the one-click setup used by the Web skill settings
+# page. It builds/installs quartet-cli, installs every skill currently shipped
+# under SKILL_SOURCE for every supported agent, then verifies the known Quartet
+# skills are visible in the global skill list.
+install-project-tools: install-skill-cli
+	@printf '==> Installing all Quartet project skills\n'
+	@log="$$(mktemp "$${TMPDIR:-/tmp}/quartet-project-skills-add.XXXXXX")"; \
+	if $(SKILLS_CLI) add "$(SKILL_SOURCE)" -g --all --full-depth >"$$log" 2>&1; then \
+		cat "$$log"; \
+		rm -f "$$log"; \
+	else \
+		status=$$?; \
+		printf 'error: project skills install failed; full log follows:\n' >&2; \
+		sed 's/^/  /' "$$log" >&2; \
+		rm -f "$$log"; \
+		exit "$$status"; \
+	fi
+	@$(SKILLS_CLI) ls -g --json | python3 -c "import json, sys; expected = set(sys.argv[1:]); items = json.load(sys.stdin); installed = {item.get('name') for item in items}; missing = sorted(expected - installed); sys.exit('error: missing installed project skills: {}'.format(', '.join(missing))) if missing else None; print('[ok] Project skills installed: {}'.format(', '.join(sorted(expected))))" $(PROJECT_SKILL_NAMES)
 
 # install-skill-copy installs the skill files by copying them (--copy) instead
 # of symlinking, after installing the CLI.

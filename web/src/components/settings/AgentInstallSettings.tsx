@@ -21,6 +21,24 @@ interface InstallResult {
   validation?: { ok: boolean; error?: string };
 }
 
+type InstallAction = 'install' | 'upgrade' | 'uninstall';
+
+interface AgentVersionComponent {
+  name: string;
+  kind: 'npm' | 'binary';
+  current_version?: string;
+  latest_version?: string;
+  update_available: boolean;
+  error?: string;
+}
+
+interface AgentVersionInfo {
+  agent_id: string;
+  components: AgentVersionComponent[];
+  update_available: boolean;
+  upgrade_supported: boolean;
+}
+
 interface RuntimeDefinition {
   bin: string;
   acp_program: string;
@@ -122,10 +140,10 @@ async function readResponse(res: Response): Promise<Record<string, unknown>> {
   return data;
 }
 
-// AgentInstallSettings lists built-in agents that are not installed yet and
-// runs their preset install flow. The backend only accepts an agent_id and
-// executes catalog-declared commands; the full step output, recheck and
-// validation result are shown verbatim (collapsed by default).
+// AgentInstallSettings manages the full Agent catalog, checks installed
+// component versions and runs catalog-controlled install/upgrade flows. The
+// backend only accepts an agent_id; complete step output, recheck and
+// validation results remain visible in the UI.
 export function AgentInstallSettings() {
   const { t } = useTranslation();
   const [catalog, setCatalog] = useState<CatalogAgent[]>([]);
@@ -134,10 +152,10 @@ export function AgentInstallSettings() {
   // Which agent is currently running an install or uninstall flow. The backend
   // serializes both under one lock, so all install/uninstall buttons disable
   // while any one runs.
-  const [installBusy, setInstallBusy] = useState<{ id: string; action: 'install' | 'uninstall' } | null>(null);
+  const [installBusy, setInstallBusy] = useState<{ id: string; action: InstallAction } | null>(null);
   // Results survive the catalog refresh so the user can still inspect the full
   // step output after the card's button state flips.
-  const [results, setResults] = useState<Record<string, { action: 'install' | 'uninstall'; result: InstallResult }>>({});
+  const [results, setResults] = useState<Record<string, { action: InstallAction; result: InstallResult }>>({});
   const [requestErrors, setRequestErrors] = useState<Record<string, string>>({});
   const [form, setForm] = useState<CustomFormState | null>(null);
   const [managementPending, setManagementPending] = useState('');
@@ -145,6 +163,10 @@ export function AgentInstallSettings() {
   const [deleteResult, setDeleteResult] = useState<DeleteResult | null>(null);
   const [revisionMap, setRevisionMap] = useState<Record<string, Array<{ revision: string; definition: RuntimeDefinition }>>>({});
   const [validationFeedback, setValidationFeedback] = useState<Record<string, ValidationFeedback>>({});
+  const [versions, setVersions] = useState<Record<string, AgentVersionInfo>>({});
+  const [versionChecking, setVersionChecking] = useState(false);
+  const [versionError, setVersionError] = useState('');
+  const [versionsCheckedAt, setVersionsCheckedAt] = useState<number | null>(null);
 
   const loadData = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -172,9 +194,26 @@ export function AgentInstallSettings() {
     }
   }, []);
 
+  const loadVersions = useCallback(async (force = false) => {
+    setVersionChecking(true);
+    setVersionError('');
+    try {
+      const query = force ? '?force=1' : '';
+      const data = await readResponse(await fetch(`/api/v1/agent/versions${query}`));
+      const items = Array.isArray(data.agents) ? data.agents as AgentVersionInfo[] : [];
+      setVersions(Object.fromEntries(items.map((item) => [item.agent_id, item])));
+      setVersionsCheckedAt(typeof data.checked_at === 'number' ? data.checked_at : Date.now());
+    } catch (err) {
+      setVersionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setVersionChecking(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadData();
-  }, [loadData]);
+    void loadVersions();
+  }, [loadData, loadVersions]);
 
   const openCustomForm = (agent?: CatalogAgent, restore = false) => {
     setManagementMessage('');
@@ -238,6 +277,7 @@ export function AgentInstallSettings() {
         detail: { agentId: form.agentId },
       }));
       await loadData();
+      await loadVersions(true);
     } catch (err) {
       setManagementMessage(err instanceof Error ? err.message : String(err));
     } finally {
@@ -353,6 +393,7 @@ export function AgentInstallSettings() {
         }
       }
       await loadData();
+      await loadVersions(true);
     } catch (err) {
       setManagementMessage(err instanceof Error ? err.message : String(err));
       await loadData();
@@ -373,8 +414,40 @@ export function AgentInstallSettings() {
       const result = data.result as InstallResult;
       setResults((prev) => ({ ...prev, [agentId]: { action: 'install', result } }));
       await loadData();
+      await loadVersions(true);
     } catch (err) {
       setRequestErrors((prev) => ({ ...prev, [agentId]: String(err) }));
+    } finally {
+      setInstallBusy(null);
+    }
+  };
+
+  const upgrade = async (agent: CatalogAgent) => {
+    const version = versions[agent.agent_id];
+    if (!version?.update_available || !version.upgrade_supported) return;
+    const changes = version.components
+      .filter((component) => component.update_available)
+      .map((component) => `${component.name}: ${component.current_version || t('settings.agents.version.notInstalled')} → ${component.latest_version || '?'}`)
+      .join('\n');
+    if (!window.confirm(t('settings.agents.version.upgradeConfirm', {
+      name: agent.display_name,
+      changes,
+    }))) return;
+
+    setInstallBusy({ id: agent.agent_id, action: 'upgrade' });
+    setRequestErrors((prev) => ({ ...prev, [agent.agent_id]: '' }));
+    try {
+      const data = await readResponse(await fetch(`/api/v1/agent/${encodeURIComponent(agent.agent_id)}/upgrade`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }));
+      const result = data.result as InstallResult;
+      setResults((prev) => ({ ...prev, [agent.agent_id]: { action: 'upgrade', result } }));
+      await loadData();
+      await loadVersions(true);
+    } catch (err) {
+      setRequestErrors((prev) => ({ ...prev, [agent.agent_id]: String(err) }));
     } finally {
       setInstallBusy(null);
     }
@@ -392,6 +465,7 @@ export function AgentInstallSettings() {
       const result = data.result as InstallResult;
       setResults((prev) => ({ ...prev, [agentId]: { action: 'uninstall', result } }));
       await loadData();
+      await loadVersions(true);
     } catch (err) {
       setRequestErrors((prev) => ({ ...prev, [agentId]: String(err) }));
     } finally {
@@ -414,12 +488,19 @@ export function AgentInstallSettings() {
       <span className="agent-install-icon agent-install-icon-emoji">{icon}</span>
     );
 
-  const renderResult = (agentId: string, action: 'install' | 'uninstall', result: InstallResult) => {
+  const renderResult = (agentId: string, action: InstallAction, result: InstallResult) => {
+    const stepsSucceeded = result.steps.every((step) => step.exit_code === 0 && !step.error && !step.timed_out);
     const ok = action === 'uninstall'
-      ? !result.installed && result.steps.every((step) => step.exit_code === 0 && !step.error && !step.timed_out)
-      : result.installed && result.validation?.ok;
+      ? !result.installed && stepsSucceeded
+      : result.installed && stepsSucceeded && result.validation?.ok;
     const summaryKey = action === 'uninstall'
       ? (ok ? 'settings.agents.result.uninstallSuccess' : 'settings.agents.result.uninstallFailed')
+      : action === 'upgrade'
+        ? ok
+          ? 'settings.agents.result.upgradeSuccess'
+          : result.installed && stepsSucceeded
+            ? 'settings.agents.result.upgradeValidationFailed'
+            : 'settings.agents.result.upgradeFailed'
       : ok
         ? 'settings.agents.result.success'
         : result.installed
@@ -467,6 +548,50 @@ export function AgentInstallSettings() {
     );
   };
 
+  const renderVersionInfo = (agent: CatalogAgent, info?: AgentVersionInfo) => {
+    if (!agent.installed) return null;
+    if (!info) {
+      return versionChecking ? (
+        <div className="agent-version-panel checking">
+          <span className="agent-check-spinner" aria-hidden="true" />
+          <span>{t('settings.agents.version.checking')}</span>
+        </div>
+      ) : null;
+    }
+    const hasKnownLatest = info.components.some((component) => !!component.latest_version);
+    const status = info.update_available ? 'update' : hasKnownLatest ? 'current' : 'local';
+    return (
+      <div className={`agent-version-panel ${status}`}>
+        <div className="agent-version-panel-head">
+          <strong>{t(`settings.agents.version.status.${status}`)}</strong>
+          {versionsCheckedAt && (
+            <span>{t('settings.agents.version.checkedAt', { value: new Date(versionsCheckedAt).toLocaleString() })}</span>
+          )}
+        </div>
+        <div className="agent-version-components">
+          {info.components.map((component) => (
+            <div key={`${component.kind}-${component.name}`} className="agent-version-component">
+              <div className="agent-version-component-main">
+                <code>{component.name}</code>
+                <span className="agent-version-kind">{component.kind}</span>
+                <span>
+                  {component.current_version || t('settings.agents.version.notInstalled')}
+                  {component.update_available && component.latest_version
+                    ? ` → ${component.latest_version}`
+                    : ''}
+                </span>
+                {component.update_available && (
+                  <span className="agent-version-update-badge">{t('settings.agents.version.updateAvailable')}</span>
+                )}
+              </div>
+              {component.error && <pre className="agent-version-component-error">{component.error}</pre>}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return <div className="agent-install-loading">{t('common.loading')}</div>;
   }
@@ -486,11 +611,34 @@ export function AgentInstallSettings() {
       {Object.entries(results).map(([agentId, entry]) => renderResult(agentId, entry.action, entry.result))}
 
       <div className="agent-directory-toolbar">
-        <strong>{t('settings.tabs.agents')}</strong>
-        <button className="settings-btn settings-btn-primary" onClick={() => openCustomForm()}>
-          {t('common.add')}
-        </button>
+        <div className="agent-directory-toolbar-title">
+          <strong>{t('settings.tabs.agents')}</strong>
+          {Object.values(versions).filter((version) => version.update_available).length > 0 && (
+            <span className="agent-version-count">
+              {t('settings.agents.version.agentUpdateCount', {
+                count: Object.values(versions).filter((version) => version.update_available).length,
+              })}
+            </span>
+          )}
+        </div>
+        <div className="agent-directory-toolbar-actions">
+          <button
+            className="settings-btn settings-btn-secondary agent-version-check-btn"
+            disabled={versionChecking || installBusy !== null}
+            onClick={() => void loadVersions(true)}
+          >
+            {versionChecking && <span className="agent-check-spinner" aria-hidden="true" />}
+            {t(versionChecking ? 'settings.agents.version.checking' : 'settings.agents.version.check')}
+          </button>
+          <button className="settings-btn settings-btn-primary" onClick={() => openCustomForm()}>
+            {t('common.add')}
+          </button>
+        </div>
       </div>
+
+      {versionError && (
+        <pre className="agent-install-request-error">{versionError}</pre>
+      )}
 
       {managementMessage && (
         <pre className="agent-install-request-error">{managementMessage}</pre>
@@ -539,6 +687,7 @@ export function AgentInstallSettings() {
           const busy = installBusy?.id === agent.agent_id;
           const checkFeedback = validationFeedback[agent.agent_id];
           const checking = checkFeedback?.status === 'checking';
+          const versionInfo = versions[agent.agent_id];
           const showManual = agent.source === 'builtin' && !agent.deprecated
             && !agent.installed && !agent.auto_installable && !!agent.install_instructions;
           return (
@@ -565,6 +714,19 @@ export function AgentInstallSettings() {
                       data-testid="agent-install-button"
                     >
                       {busy && installBusy?.action === 'install' ? t('common.installing') : t('common.install')}
+                    </button>
+                  )}
+                  {agent.source === 'builtin' && !agent.deprecated && agent.installed
+                    && versionInfo?.update_available && versionInfo.upgrade_supported && (
+                    <button
+                      className="settings-btn agent-upgrade-btn"
+                      disabled={installBusy !== null}
+                      onClick={() => void upgrade(agent)}
+                      data-testid="agent-upgrade-button"
+                    >
+                      {busy && installBusy?.action === 'upgrade'
+                        ? t('settings.agents.version.upgrading')
+                        : t('settings.agents.version.upgrade')}
                     </button>
                   )}
                   {agent.source === 'builtin' && !agent.deprecated && agent.installed && agent.auto_uninstallable && (
@@ -640,6 +802,8 @@ export function AgentInstallSettings() {
                   </div>
                 </div>
               )}
+
+              {renderVersionInfo(agent, versionInfo)}
 
               <div className="agent-install-card-body">
                 <div className="agent-install-meta">

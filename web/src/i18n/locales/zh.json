@@ -180,7 +180,7 @@
       "logs": "日志"
     },
     "agents": {
-      "description": "管理内置和自定义 Agent。安装只执行卡片中展示的预置流程；“检查可用性”会启动临时 Agent 检查 ACP 连接，不会发送消息、重新安装或升级。",
+      "description": "管理内置和自定义 Agent，并检查本地组件版本。安装和升级只执行卡片中展示的预置流程；“检查可用性”会启动临时 Agent 检查 ACP 连接，不会发送消息、重新安装或升级。",
       "deleteConfirm": "确定删除 {{name}}？历史引用将保留为只读。",
       "forceDeleteConfirm": "确定强制删除 {{name}}？使用它的运行中任务会先被停止。",
       "forceDelete": "强制删除",
@@ -204,6 +204,22 @@
       "uninstall": "卸载",
       "uninstalling": "卸载中…",
       "lastValidation": "上次检查",
+      "version": {
+        "check": "检查更新",
+        "checking": "正在检查版本…",
+        "agentUpdateCount": "{{count}} 个 Agent 可升级",
+        "checkedAt": "检查于 {{value}}",
+        "notInstalled": "未安装",
+        "updateAvailable": "可升级",
+        "upgrade": "升级",
+        "upgrading": "升级中…",
+        "upgradeConfirm": "确定升级 {{name}}？将执行该 Agent 的预置安装流程：\n\n{{changes}}\n\n现有连接不会被重置；新版本会在之后新建连接时使用。",
+        "status": {
+          "update": "发现可用更新",
+          "current": "已是最新版本",
+          "local": "已检测本地版本，暂无远端版本来源"
+        }
+      },
       "source": {
         "builtin": "内置",
         "custom": "自定义"
@@ -248,6 +264,9 @@
         "success": "安装并验证成功，该 Agent 已可用。",
         "validationFailed": "安装成功，但 ACP 验证失败（已安装但不可用）。",
         "failed": "安装失败。",
+        "upgradeSuccess": "升级并验证成功，新建连接将使用新版本。",
+        "upgradeValidationFailed": "升级步骤完成，但 ACP 验证失败。",
+        "upgradeFailed": "升级失败，请查看下方完整输出。",
         "uninstallSuccess": "卸载成功，该 Agent 已从 PATH 移除。",
         "uninstallFailed": "卸载失败，请查看下方完整输出。",
         "details": "完整输出",
@@ -390,6 +409,12 @@
       "scopeGlobal": "全局级",
       "checkUpdate": "检查更新",
       "checking": "检查中...",
+      "installProjectTools": "安装 CLI + 项目技能",
+      "projectInstalling": "正在安装项目工具...",
+      "projectInstallHint": "构建并安装当前项目的 quartet-cli，同时安装项目内全部技能",
+      "projectInstallResult": "项目工具安装结果",
+      "projectInstallSuccess": "quartet-cli 和项目技能安装完成",
+      "projectInstallFailed": "quartet-cli 和项目技能安装失败",
       "installSkill": "+ 安装技能",
       "searchPlaceholder": "搜索已安装的技能...",
       "updateCheckResult": "更新检查结果",

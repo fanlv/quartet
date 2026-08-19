@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/types/model"
 )
 
 type SkillInfo struct {
@@ -28,10 +32,11 @@ type scopeCache struct {
 }
 
 type Service struct {
-	ctx     context.Context
-	project scopeCache
-	global  scopeCache
-	ttl     time.Duration
+	ctx            context.Context
+	project        scopeCache
+	global         scopeCache
+	ttl            time.Duration
+	projectInstall sync.Mutex
 }
 
 func NewService(ctx context.Context) *Service {
@@ -71,6 +76,108 @@ func (s *Service) Invalidate() {
 
 	s.refreshAsync(false)
 	s.refreshAsync(true)
+}
+
+// InstallProjectTools builds and installs quartet-cli, then installs every
+// skill shipped by this Quartet checkout for all agents supported by the
+// skills CLI. Only the repository-owned Make target can be executed; callers
+// cannot supply commands or paths.
+func (s *Service) InstallProjectTools(ctx context.Context) (*model.ProjectToolsInstallResult, error) {
+	if !s.projectInstall.TryLock() {
+		return nil, fmt.Errorf("Quartet CLI and project skills installation is already in progress")
+	}
+	defer s.projectInstall.Unlock()
+
+	repoRoot, err := s.repositoryRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	const command = "make install-project-tools"
+	logger.Infof(ctx, "[skills] starting project tools install from %s", repoRoot)
+	started := time.Now()
+	cmdCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, "make", "install-project-tools")
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "FORCE_COLOR=0")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+	result := &model.ProjectToolsInstallResult{
+		Command:    command,
+		Output:     s.commandOutput(stdout.String(), stderr.String()),
+		ExitCode:   -1,
+		DurationMs: time.Since(started).Milliseconds(),
+	}
+	if cmd.ProcessState != nil {
+		result.ExitCode = cmd.ProcessState.ExitCode()
+	}
+	if runErr != nil {
+		cause := runErr
+		if cmdCtx.Err() != nil {
+			cause = cmdCtx.Err()
+		}
+		return result, fmt.Errorf("%s failed (exit code %d, duration %d ms): %v\n%s", command, result.ExitCode, result.DurationMs, cause, result.Output)
+	}
+
+	s.Invalidate()
+	logger.Infof(ctx, "[skills] project tools install completed in %d ms", result.DurationMs)
+	return result, nil
+}
+
+func (s *Service) commandOutput(stdout, stderr string) string {
+	parts := make([]string, 0, 2)
+	if text := strings.TrimSpace(stdout); text != "" {
+		parts = append(parts, text)
+	}
+	if text := strings.TrimSpace(stderr); text != "" {
+		parts = append(parts, "stderr:\n"+text)
+	}
+	if len(parts) == 0 {
+		return "Command completed without output."
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func (s *Service) repositoryRoot() (string, error) {
+	starts := make([]string, 0, 2)
+	if wd, err := os.Getwd(); err == nil {
+		starts = append(starts, wd)
+	}
+	if executable, err := os.Executable(); err == nil {
+		starts = append(starts, filepath.Dir(executable))
+	}
+
+	for _, start := range starts {
+		dir, err := filepath.Abs(start)
+		if err != nil {
+			continue
+		}
+		for {
+			if s.isQuartetRepositoryRoot(dir) {
+				return dir, nil
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+	return "", fmt.Errorf("cannot locate the Quartet repository root containing Makefile, cmd/quartet-cli, and skill")
+}
+
+func (s *Service) isQuartetRepositoryRoot(dir string) bool {
+	for _, relativePath := range []string{"Makefile", filepath.Join("cmd", "quartet-cli"), "skill"} {
+		if _, err := os.Stat(filepath.Join(dir, relativePath)); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) scope(global bool) *scopeCache {

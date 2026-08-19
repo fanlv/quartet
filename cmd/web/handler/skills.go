@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/fanlv/quartet/pkg/httputil"
+	"github.com/fanlv/quartet/types/model"
 )
 
 // SkillList returns installed skills (project or global) from cache.
@@ -24,6 +25,17 @@ func (h *Handler) SkillList(ctx context.Context, c *app.RequestContext) {
 		"skills": skills,
 		"ready":  ready,
 	})
+}
+
+// SkillInstallProjectTools installs the quartet-cli binary and every skill
+// shipped by the current Quartet checkout through the skills service.
+func (h *Handler) SkillInstallProjectTools(ctx context.Context, c *app.RequestContext) {
+	result, err := h.skillsService.InstallProjectTools(ctx)
+	if err != nil {
+		httputil.InternalErrorLog(ctx, c, "skills.install-project-tools", err)
+		return
+	}
+	c.JSON(http.StatusOK, model.ProjectToolsInstallResponse{Code: 0, Result: result})
 }
 
 // SkillAddRequest is the request body for adding a skill.

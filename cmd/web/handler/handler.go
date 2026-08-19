@@ -18,6 +18,7 @@ import (
 	"github.com/fanlv/quartet/services/agent/catalog"
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/services/agent/usage"
+	agentversion "github.com/fanlv/quartet/services/agent/versioncheck"
 	"github.com/fanlv/quartet/services/config"
 	"github.com/fanlv/quartet/services/einocli"
 	"github.com/fanlv/quartet/services/graph"
@@ -116,6 +117,7 @@ type Handler struct {
 	scheduler        *schedule.Scheduler
 	usageStats       usagestats.Service
 	usageService     usage.Service
+	agentVersions    *agentversion.Service
 	acpProbeCache    *probe.CacheService
 	einoCLI          *einocli.Service
 	skillsService    *skills.Service
@@ -228,6 +230,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		scheduleService:  schSvc,
 		usageStats:       usagestats.NewService(ctx),
 		usageService:     usage.NewService(ss),
+		agentVersions:    agentversion.NewService(agentCatalog),
 		acpProbeCache:    acpProbeCache,
 		einoCLI:          einocli.NewService(),
 		skillsService:    skills.NewService(ctx),

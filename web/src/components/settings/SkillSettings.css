@@ -70,6 +70,36 @@
   gap: 8px;
 }
 
+.skill-header-actions .settings-btn {
+  white-space: nowrap;
+}
+
+.skill-header-actions .settings-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.skill-header-actions .settings-btn:focus-visible {
+  outline: 2px solid rgba(0, 102, 255, 0.28);
+  outline-offset: 2px;
+}
+
+.skill-header-actions .settings-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.settings-btn.skill-project-install-btn {
+  color: #0057c7;
+  background: #edf5ff;
+  border: 1px solid #b8d4ff;
+}
+
+.settings-btn.skill-project-install-btn:hover:not(:disabled) {
+  color: #0047a6;
+  background: #dfeeff;
+  border-color: #8bbaff;
+}
+
 /* Scope tabs */
 .skill-scope-tabs {
   display: flex;
@@ -153,6 +183,24 @@
   border-radius: 10px;
   margin-bottom: 16px;
   overflow: hidden;
+}
+
+.skill-project-output {
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  background: #f0fdf4;
+}
+
+.skill-project-output-error {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.skill-project-output-error .skill-check-header {
+  color: #b91c1c;
+  border-bottom-color: #fecaca;
 }
 
 .skill-check-header {
@@ -443,11 +491,16 @@
 
   .skill-header-actions {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .skill-header-actions .settings-btn {
     flex: 1;
     text-align: center;
+  }
+
+  .skill-header-actions .skill-project-install-btn {
+    flex-basis: 100%;
   }
 
   .skill-card-header {

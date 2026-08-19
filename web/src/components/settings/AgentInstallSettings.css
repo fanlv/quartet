@@ -14,7 +14,37 @@
 
 .agent-directory-toolbar {
   justify-content: space-between;
+  gap: 12px;
   margin-top: 4px;
+}
+
+.agent-directory-toolbar-title,
+.agent-directory-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-directory-toolbar-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.agent-version-count {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.agent-version-check-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
 }
 
 .agent-directory-list {
@@ -104,6 +134,16 @@
 }
 
 @media (max-width: 680px) {
+  .agent-directory-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .agent-directory-toolbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
   .agent-directory-row {
     grid-template-columns: 28px minmax(0, 1fr);
   }
@@ -346,6 +386,93 @@
   gap: 6px;
 }
 
+.agent-version-panel {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+}
+
+.agent-version-panel.checking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-version-panel.update {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.agent-version-panel.current {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.agent-version-panel-head,
+.agent-version-component-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.agent-version-panel-head {
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.agent-version-panel-head > span {
+  color: inherit;
+  opacity: 0.72;
+  font-size: 11px;
+}
+
+.agent-version-components {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.agent-version-component code {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-version-kind,
+.agent-version-update-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.agent-version-kind {
+  color: #64748b;
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.agent-version-update-badge {
+  color: #92400e;
+  background: #fef3c7;
+  font-weight: 600;
+}
+
+.agent-version-component-error {
+  margin: 5px 0 0;
+  color: #b42318;
+  font: inherit;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .agent-install-row {
   display: flex;
   align-items: baseline;
@@ -508,6 +635,17 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   flex-shrink: 0;
+}
+
+.agent-upgrade-btn {
+  border-color: #d97706;
+  color: #92400e;
+  background: #fffbeb;
+}
+
+.agent-upgrade-btn:hover:not(:disabled) {
+  border-color: #b45309;
+  background: #fef3c7;
 }
 
 .agent-install-method.method-custom {

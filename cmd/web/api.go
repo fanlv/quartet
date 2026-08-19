@@ -40,6 +40,11 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// Installed CLI version of a known ACP agent, keyed by its serve command.
 	// Backs the composer usage strip for agents without a quota view.
 	agent.GET("/version", h.AgentVersion)
+	// Management-page version inventory and controlled built-in upgrade flow.
+	// Version checks are read-only and cached; upgrades execute only the preset
+	// catalog steps for the route's AgentID.
+	agent.GET("/versions", h.AgentVersionCheck)
+	agent.POST("/:agentId/upgrade", h.AgentUpgrade)
 	// ACP live-config switch: change model / mode / thought_level and get the
 	// refreshed selector lists back. Body carries an optional sessionId (live
 	// session switch) or agentType (Home session-less preview).
@@ -131,6 +136,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// Skill management routes
 	skills := api.Group("/skills")
 	skills.GET("/list", h.SkillList)
+	skills.POST("/install-project-tools", h.SkillInstallProjectTools)
 	skills.POST("/add", h.SkillAdd)
 	skills.POST("/remove", h.SkillRemove)
 	skills.GET("/check", h.SkillCheck)

@@ -183,7 +183,7 @@
       "logs": "Logs"
     },
     "agents": {
-      "description": "Manage built-in and custom agents. Installation only runs the preset flow shown on each card. “Check availability” starts a temporary agent and checks its ACP connection without sending a message, reinstalling, or upgrading it.",
+      "description": "Manage built-in and custom agents and check local component versions. Installation and upgrades only run the preset flow shown on each card. “Check availability” starts a temporary agent and checks its ACP connection without sending a message, reinstalling, or upgrading it.",
       "deleteConfirm": "Delete {{name}}? Historical references will remain read-only.",
       "forceDeleteConfirm": "Force delete {{name}}? Running jobs that use it will be stopped first.",
       "forceDelete": "Force delete",
@@ -207,6 +207,22 @@
       "uninstall": "Uninstall",
       "uninstalling": "Uninstalling…",
       "lastValidation": "Last checked",
+      "version": {
+        "check": "Check for updates",
+        "checking": "Checking versions…",
+        "agentUpdateCount": "{{count}} agent updates available",
+        "checkedAt": "Checked {{value}}",
+        "notInstalled": "not installed",
+        "updateAvailable": "Update available",
+        "upgrade": "Upgrade",
+        "upgrading": "Upgrading…",
+        "upgradeConfirm": "Upgrade {{name}} by running its preset installation flow?\n\n{{changes}}\n\nExisting connections will not be reset; newly created connections will use the new version.",
+        "status": {
+          "update": "Update available",
+          "current": "Up to date",
+          "local": "Local version detected; no remote version source is available"
+        }
+      },
       "source": {
         "builtin": "Built-in",
         "custom": "Custom"
@@ -251,6 +267,9 @@
         "success": "Installed and validated — the agent is now available.",
         "validationFailed": "Installed, but ACP validation failed (installed but unavailable).",
         "failed": "Installation failed.",
+        "upgradeSuccess": "Upgraded and validated. New connections will use the new version.",
+        "upgradeValidationFailed": "Upgrade steps completed, but ACP validation failed.",
+        "upgradeFailed": "Upgrade failed — see the full output below.",
         "uninstallSuccess": "Uninstalled — the agent was removed from PATH.",
         "uninstallFailed": "Uninstall failed — see the full output below.",
         "details": "Full output",
@@ -393,6 +412,12 @@
       "scopeGlobal": "Global",
       "checkUpdate": "Check Updates",
       "checking": "Checking...",
+      "installProjectTools": "Install CLI + Project Skills",
+      "projectInstalling": "Installing project tools...",
+      "projectInstallHint": "Build and install this project's quartet-cli and all bundled skills",
+      "projectInstallResult": "Project Tools Install Result",
+      "projectInstallSuccess": "quartet-cli and project skills installed",
+      "projectInstallFailed": "Failed to install quartet-cli and project skills",
       "installSkill": "+ Install Skill",
       "searchPlaceholder": "Search installed skills...",
       "updateCheckResult": "Update Check Results",

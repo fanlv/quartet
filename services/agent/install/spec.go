@@ -1,5 +1,7 @@
 package install
 
+import "strings"
+
 // InstallMethod classifies how a built-in agent's CLI is installed.
 type InstallMethod string
 
@@ -76,6 +78,59 @@ func (s InstallSpec) StepDisplays() []string {
 		displays = append(displays, step.Display)
 	}
 	return displays
+}
+
+// NPMPackages returns the package names managed by this install spec. Version
+// suffixes such as "pkg@1.2.3" and "@scope/pkg@latest" are stripped so the
+// names can be matched against npm's global list/outdated JSON output.
+func (s InstallSpec) NPMPackages() []string {
+	packages := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, step := range s.Steps {
+		pkg, ok := npmInstallPackage(step)
+		if !ok || seen[pkg] {
+			continue
+		}
+		seen[pkg] = true
+		packages = append(packages, pkg)
+	}
+	return packages
+}
+
+// HasNonNPMSteps reports whether this install spec manages anything outside
+// npm. Those agents also get a local `<bin> --version` probe because the npm
+// package list alone does not describe their complete installation.
+func (s InstallSpec) HasNonNPMSteps() bool {
+	for _, step := range s.Steps {
+		if _, ok := npmInstallPackage(step); !ok {
+			return true
+		}
+	}
+	return false
+}
+
+func npmInstallPackage(step InstallStep) (string, bool) {
+	if step.Program != "npm" || len(step.Args) != 3 || step.Args[0] != "install" || step.Args[1] != "-g" {
+		return "", false
+	}
+	spec := strings.TrimSpace(step.Args[2])
+	if spec == "" {
+		return "", false
+	}
+	if strings.HasPrefix(spec, "@") {
+		slash := strings.Index(spec, "/")
+		if slash < 0 {
+			return spec, true
+		}
+		if versionAt := strings.LastIndex(spec, "@"); versionAt > slash {
+			return spec[:versionAt], true
+		}
+		return spec, true
+	}
+	if versionAt := strings.LastIndex(spec, "@"); versionAt > 0 {
+		return spec[:versionAt], true
+	}
+	return spec, true
 }
 
 // NPMStep builds the single `npm install -g <pkg>` step for a package.
