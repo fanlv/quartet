@@ -151,6 +151,10 @@ quartet-cli agent list [--json]       # 已安装 ACP agent 及模型目录；�
 
 这是生成**合法 config** 的唯一依据，全部基于后端真实校验规则。保存时会做全量静态校验，任一不满足即失败。
 
+## 0. 默认超时策略
+
+新建 workflow 时，默认**不要**给任何节点设置超时时间：不要主动写 `config.timeoutSeconds`，也不要为了节点超时主动写 `runConfig.defaultNodeTimeoutSec`。只有当用户明确提出“设置超时”“最长运行 N 秒/分钟”“超过 N 就停止”等要求时，才按用户要求设置；若设置，优先只给被要求限制的节点设置 `config.timeoutSeconds`，需要全局节点默认超时时才用 `runConfig.defaultNodeTimeoutSec`。`0` 表示不限。
+
 ## 1. 顶层结构
 
 `create` 的请求体（`--config-file` 给的是其中的 config，或整个包装对象）：
@@ -192,7 +196,7 @@ quartet-cli agent list [--json]       # 已安装 ACP agent 及模型目录；�
 - `config.script`：Shell 脚本（实践上必给）。
 - `config.outputVariables`（可选）：输出变量名数组，每个须合法、非保留、本节点内不重名。
 - `config.lastAssistantAlias`（可选）：给本节点输出起别名（规则同上）。
-- `config.timeoutSeconds`（可选，整数 ≥0，0=不限）。
+- `config.timeoutSeconds`（可选，整数 ≥0，0=不限）：新建 workflow 时默认不写，除非用户明确要求给该节点设置超时。
 - Shell 用 `quartet_set "名" "值"` 写输出变量（§5）。
 
 ### prompt（Agent 节点）
@@ -200,7 +204,7 @@ quartet-cli agent list [--json]       # 已安装 ACP agent 及模型目录；�
 - `config.sessionStrategy`：`new`（默认）或 `inherit`。
 - `config.agentType`：**当 sessionStrategy 为 new（或空）时必填**；inherit 时可省（继承上游 Agent 会话）。
 - `config.modelId` / `acpMode` / `acpThoughtLevel`（可选）。
-- `outputVariables` / `lastAssistantAlias` / `timeoutSeconds`：同 shell。
+- `outputVariables` / `lastAssistantAlias` / `timeoutSeconds`：同 shell；`timeoutSeconds` 默认不写。
 - 输出变量靠模型输出 `QUARTET_OUTPUT:名=值`（§5）。
 
 ### clarify（澄清 Agent 节点，与用户讨论后续跑）
@@ -308,7 +312,7 @@ quartet-cli agent list [--json]       # 已安装 ACP agent 及模型目录；�
 | `defaultLoopMaxIters` | 0..1000（0=100） | 100 |
 | `instanceLimit` | ≥0 | 100000 |
 
-可整段省略，用默认值。
+可整段省略，用默认值。新建 workflow 时不要为了超时主动写 `defaultNodeTimeoutSec` 或 `jobTimeoutSec`；只有用户明确要求全局节点超时或整个 run 超时时才设置。
 
 ## 8. 示例
 
