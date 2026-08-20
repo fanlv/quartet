@@ -137,7 +137,7 @@ func (h *Handler) StatsUsage(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	report, err := h.getActiveWorkspaceUsage(from, to)
+	report, err := h.usageStats.GetUsage(from, to)
 	resp := statsResponse{
 		Range:  statsRange{From: report.From, To: report.To},
 		ByTool: ensureToolRows(report.ByTool),
@@ -160,7 +160,7 @@ func (h *Handler) StatsUsage(ctx context.Context, c *app.RequestContext) {
 		days := int(to.Sub(from).Hours()/24) + 1
 		prevTo := from.AddDate(0, 0, -1)
 		prevFrom := prevTo.AddDate(0, 0, -(days - 1))
-		if prevReport, prevErr := h.getActiveWorkspaceUsage(prevFrom, prevTo); prevErr == nil {
+		if prevReport, prevErr := h.usageStats.GetUsage(prevFrom, prevTo); prevErr == nil {
 			resp.Previous = kpiTotals(prevReport)
 		} else {
 			logger.Warnf(ctx, "[stats] compute previous period failed: %v", prevErr)
@@ -172,7 +172,8 @@ func (h *Handler) StatsUsage(ctx context.Context, c *app.RequestContext) {
 
 // kpiTotals folds a usage report down to the five headline metrics shown on
 // the overview cards. WorkspaceCount is the number of workspaces that had any
-// activity in the window (a row exists per active workspace).
+// activity in the window, including historical workspaces that no longer have
+// metadata on this machine.
 func kpiTotals(report usagestats.UsageReport) *statsKPITotals {
 	out := &statsKPITotals{WorkspaceCount: len(report.ByWorkspace)}
 	for _, ws := range report.ByWorkspace {
@@ -184,25 +185,10 @@ func kpiTotals(report usagestats.UsageReport) *statsKPITotals {
 	return out
 }
 
-func (h *Handler) getActiveWorkspaceUsage(from, to time.Time) (usagestats.UsageReport, error) {
-	if h.workspaceService == nil {
-		return h.usageStats.GetUsage(from, to)
-	}
-	workspaces := h.workspaceService.List()
-	ids := make([]string, 0, len(workspaces))
-	for _, ws := range workspaces {
-		if ws == nil || ws.ID == "" {
-			continue
-		}
-		ids = append(ids, ws.ID)
-	}
-	return h.usageStats.GetUsageForWorkspaces(from, to, ids)
-}
-
-// enrichWorkspaceRows attaches workspace names to each active workspace row.
-// Unknown / deleted workspace ids are skipped: the stats page should only show
-// current workspaces, and getActiveWorkspaceUsage already filters all aggregate
-// sections before accumulation when workspace metadata is available.
+// enrichWorkspaceRows attaches current workspace names when they are available.
+// Usage statistics are historical facts and may be viewed from another Memory
+// checkout where the operational workspace metadata is absent, so unknown or
+// deleted workspace ids must remain visible instead of being filtered out.
 func (h *Handler) enrichWorkspaceRows(rows []usagestats.WorkspaceAggregate) []statsWorkspaceRow {
 	if len(rows) == 0 {
 		return []statsWorkspaceRow{}
@@ -216,8 +202,6 @@ func (h *Handler) enrichWorkspaceRows(rows []usagestats.WorkspaceAggregate) []st
 		if h.workspaceService != nil {
 			if ws, ok := h.workspaceService.Get(row.WorkspaceID); ok && ws != nil {
 				entry.WorkspaceName = ws.Title
-			} else {
-				continue
 			}
 		}
 		if entry.WorkspaceName == "" {

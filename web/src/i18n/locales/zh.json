@@ -254,6 +254,24 @@
       "empty": "所有内置 Agent 均已安装。",
       "launchDefinition": "ACP 启动定义",
       "installCommands": "安装流程",
+      "request": {
+        "busyTitle": "已有安装任务正在运行",
+        "busyHint": "Quartet 同一时间只执行一个 Agent 安装、升级或卸载任务。请等待当前任务结束后再试。",
+        "errorTitle": "{{action}}未能开始",
+        "errorHint": "Quartet 未能启动这次{{action}}。完整错误信息如下。",
+        "retry": "再次尝试",
+        "progressHint": "正在执行卡片中展示的预置流程，请保持页面开启。",
+        "progress": {
+          "install": "正在安装 Agent",
+          "upgrade": "正在升级 Agent",
+          "uninstall": "正在卸载 Agent"
+        },
+        "action": {
+          "install": "安装",
+          "upgrade": "升级",
+          "uninstall": "卸载"
+        }
+      },
       "method": {
         "npm": "npm 全局包",
         "script": "官方安装脚本",

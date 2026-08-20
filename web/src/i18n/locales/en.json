@@ -257,6 +257,24 @@
       "empty": "All built-in agents are installed.",
       "launchDefinition": "ACP launch",
       "installCommands": "Install flow",
+      "request": {
+        "busyTitle": "Another install task is running",
+        "busyHint": "Quartet runs one agent install, upgrade, or uninstall task at a time. Wait for the current task to finish, then try again.",
+        "errorTitle": "Could not start {{action}}",
+        "errorHint": "Quartet could not start this {{action}}. The complete error is shown below.",
+        "retry": "Try again",
+        "progressHint": "Running the preset flow shown on this card. Keep this page open.",
+        "progress": {
+          "install": "Installing agent",
+          "upgrade": "Upgrading agent",
+          "uninstall": "Uninstalling agent"
+        },
+        "action": {
+          "install": "install",
+          "upgrade": "upgrade",
+          "uninstall": "uninstall"
+        }
+      },
       "method": {
         "npm": "npm package",
         "script": "Official script",

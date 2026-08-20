@@ -525,6 +525,126 @@
   word-break: break-all;
 }
 
+.agent-install-progress,
+.agent-install-request-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-install-progress {
+  color: #1e4f91;
+  background: #f3f7fc;
+  border-color: #c9d9ee;
+}
+
+.agent-install-progress > .agent-check-spinner {
+  margin-top: 2px;
+}
+
+.agent-install-progress div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.agent-install-progress strong,
+.agent-install-request-content strong {
+  font-weight: 600;
+}
+
+.agent-install-progress span:last-child {
+  color: #58708f;
+}
+
+.agent-install-request-feedback.busy {
+  color: #7c4b11;
+  background: #fffaf0;
+  border-color: #ead7b4;
+}
+
+.agent-install-request-feedback.error {
+  color: #9f2922;
+  background: #fff7f6;
+  border-color: #efc7c3;
+}
+
+.agent-install-request-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+  color: #fff;
+  background: #a8681a;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.agent-install-request-feedback.error .agent-install-request-icon {
+  background: #b83a32;
+}
+
+.agent-install-request-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.agent-install-request-content p {
+  margin: 1px 0 7px;
+  color: #745b3c;
+}
+
+.agent-install-request-feedback.error .agent-install-request-content p {
+  color: #805451;
+}
+
+.agent-install-request-content pre {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 5px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.62);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-install-request-actions {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 680px) {
+  .agent-install-request-feedback {
+    flex-wrap: wrap;
+  }
+
+  .agent-install-request-content {
+    width: calc(100% - 31px);
+  }
+
+  .agent-install-request-actions {
+    width: 100%;
+    justify-content: flex-end;
+    padding-left: 31px;
+  }
+}
+
 .agent-install-result {
   border-radius: 10px;
   padding: 10px 14px;

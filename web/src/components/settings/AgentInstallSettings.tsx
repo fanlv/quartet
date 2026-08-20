@@ -110,6 +110,22 @@ interface ValidationFeedback {
   message: string;
 }
 
+interface InstallRequestFailure {
+  action: InstallAction;
+  kind: 'busy' | 'error';
+  detail: string;
+}
+
+class ResponseError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ResponseError';
+    this.status = status;
+  }
+}
+
 const emptyCustomForm: CustomFormState = {
   displayName: '',
   iconUrl: '',
@@ -122,22 +138,30 @@ const emptyCustomForm: CustomFormState = {
 
 async function readResponse(res: Response): Promise<Record<string, unknown>> {
   const raw = await res.text().catch((err) => {
-    throw new Error(`HTTP ${res.status}: failed to read response: ${String(err)}`);
+    throw new ResponseError(res.status, `HTTP ${res.status}: failed to read response: ${String(err)}`);
   });
   let data: Record<string, unknown> | null = null;
   if (raw) {
     try {
       data = JSON.parse(raw) as Record<string, unknown>;
     } catch (err) {
-      throw new Error(`HTTP ${res.status}: invalid JSON response: ${String(err)}\n${raw}`);
+      throw new ResponseError(res.status, `HTTP ${res.status}: invalid JSON response: ${String(err)}\n${raw}`);
     }
   }
   if (!res.ok || data?.code !== 0) {
     const detail = [data?.msg, data?.message, data?.error]
       .find((value): value is string => typeof value === 'string' && value !== '');
-    throw new Error(detail || `HTTP ${res.status}${raw ? `\n${raw}` : ''}`);
+    throw new ResponseError(res.status, detail || `HTTP ${res.status}${raw ? `\n${raw}` : ''}`);
   }
   return data;
+}
+
+function toInstallRequestFailure(err: unknown, action: InstallAction): InstallRequestFailure {
+  return {
+    action,
+    kind: err instanceof ResponseError && err.status === 409 ? 'busy' : 'error',
+    detail: err instanceof Error ? err.message : String(err),
+  };
 }
 
 // AgentInstallSettings manages the full Agent catalog, checks installed
@@ -156,7 +180,7 @@ export function AgentInstallSettings() {
   // Results survive the catalog refresh so the user can still inspect the full
   // step output after the card's button state flips.
   const [results, setResults] = useState<Record<string, { action: InstallAction; result: InstallResult }>>({});
-  const [requestErrors, setRequestErrors] = useState<Record<string, string>>({});
+  const [requestErrors, setRequestErrors] = useState<Record<string, InstallRequestFailure | undefined>>({});
   const [form, setForm] = useState<CustomFormState | null>(null);
   const [managementPending, setManagementPending] = useState('');
   const [managementMessage, setManagementMessage] = useState('');
@@ -404,7 +428,7 @@ export function AgentInstallSettings() {
 
   const install = async (agentId: string) => {
     setInstallBusy({ id: agentId, action: 'install' });
-    setRequestErrors((prev) => ({ ...prev, [agentId]: '' }));
+    setRequestErrors((prev) => ({ ...prev, [agentId]: undefined }));
     try {
       const data = await readResponse(await fetch('/api/v1/agent/install', {
         method: 'POST',
@@ -416,26 +440,26 @@ export function AgentInstallSettings() {
       await loadData();
       await loadVersions(true);
     } catch (err) {
-      setRequestErrors((prev) => ({ ...prev, [agentId]: String(err) }));
+      setRequestErrors((prev) => ({ ...prev, [agentId]: toInstallRequestFailure(err, 'install') }));
     } finally {
       setInstallBusy(null);
     }
   };
 
-  const upgrade = async (agent: CatalogAgent) => {
+  const upgrade = async (agent: CatalogAgent, skipConfirm = false) => {
     const version = versions[agent.agent_id];
     if (!version?.update_available || !version.upgrade_supported) return;
     const changes = version.components
       .filter((component) => component.update_available)
       .map((component) => `${component.name}: ${component.current_version || t('settings.agents.version.notInstalled')} → ${component.latest_version || '?'}`)
       .join('\n');
-    if (!window.confirm(t('settings.agents.version.upgradeConfirm', {
+    if (!skipConfirm && !window.confirm(t('settings.agents.version.upgradeConfirm', {
       name: agent.display_name,
       changes,
     }))) return;
 
     setInstallBusy({ id: agent.agent_id, action: 'upgrade' });
-    setRequestErrors((prev) => ({ ...prev, [agent.agent_id]: '' }));
+    setRequestErrors((prev) => ({ ...prev, [agent.agent_id]: undefined }));
     try {
       const data = await readResponse(await fetch(`/api/v1/agent/${encodeURIComponent(agent.agent_id)}/upgrade`, {
         method: 'POST',
@@ -447,7 +471,7 @@ export function AgentInstallSettings() {
       await loadData();
       await loadVersions(true);
     } catch (err) {
-      setRequestErrors((prev) => ({ ...prev, [agent.agent_id]: String(err) }));
+      setRequestErrors((prev) => ({ ...prev, [agent.agent_id]: toInstallRequestFailure(err, 'upgrade') }));
     } finally {
       setInstallBusy(null);
     }
@@ -455,7 +479,7 @@ export function AgentInstallSettings() {
 
   const uninstall = async (agentId: string) => {
     setInstallBusy({ id: agentId, action: 'uninstall' });
-    setRequestErrors((prev) => ({ ...prev, [agentId]: '' }));
+    setRequestErrors((prev) => ({ ...prev, [agentId]: undefined }));
     try {
       const data = await readResponse(await fetch(`/api/v1/agent/${encodeURIComponent(agentId)}/uninstall`, {
         method: 'POST',
@@ -467,10 +491,26 @@ export function AgentInstallSettings() {
       await loadData();
       await loadVersions(true);
     } catch (err) {
-      setRequestErrors((prev) => ({ ...prev, [agentId]: String(err) }));
+      setRequestErrors((prev) => ({ ...prev, [agentId]: toInstallRequestFailure(err, 'uninstall') }));
     } finally {
       setInstallBusy(null);
     }
+  };
+
+  const retryInstallAction = (agent: CatalogAgent, action: InstallAction) => {
+    if (action === 'upgrade') {
+      void upgrade(agent, true);
+      return;
+    }
+    if (action === 'uninstall') {
+      void uninstall(agent.agent_id);
+      return;
+    }
+    void install(agent.agent_id);
+  };
+
+  const dismissRequestError = (agentId: string) => {
+    setRequestErrors((prev) => ({ ...prev, [agentId]: undefined }));
   };
 
   const dismissResult = (agentId: string) => {
@@ -685,6 +725,7 @@ export function AgentInstallSettings() {
             .filter(Boolean)
             .join(' ');
           const busy = installBusy?.id === agent.agent_id;
+          const requestError = requestErrors[agent.agent_id];
           const checkFeedback = validationFeedback[agent.agent_id];
           const checking = checkFeedback?.status === 'checking';
           const versionInfo = versions[agent.agent_id];
@@ -805,6 +846,16 @@ export function AgentInstallSettings() {
 
               {renderVersionInfo(agent, versionInfo)}
 
+              {busy && installBusy && (
+                <div className="agent-install-progress" role="status" aria-live="polite">
+                  <span className="agent-check-spinner" aria-hidden="true" />
+                  <div>
+                    <strong>{t(`settings.agents.request.progress.${installBusy.action}`)}</strong>
+                    <span>{t('settings.agents.request.progressHint')}</span>
+                  </div>
+                </div>
+              )}
+
               <div className="agent-install-card-body">
                 <div className="agent-install-meta">
                   <span className={`agent-status agent-status-${agent.availability}`}>
@@ -862,8 +913,42 @@ export function AgentInstallSettings() {
                 </details>
               </div>
 
-              {requestErrors[agent.agent_id] && (
-                <div className="agent-install-request-error">{requestErrors[agent.agent_id]}</div>
+              {requestError && (
+                <div
+                  className={`agent-install-request-feedback ${requestError.kind}`}
+                  role="alert"
+                  data-testid="agent-install-request-feedback"
+                >
+                  <span className="agent-install-request-icon" aria-hidden="true">
+                    {requestError.kind === 'busy' ? '…' : '×'}
+                  </span>
+                  <div className="agent-install-request-content">
+                    <strong>
+                      {t(`settings.agents.request.${requestError.kind}Title`)}
+                    </strong>
+                    <p>{t(`settings.agents.request.${requestError.kind}Hint`, {
+                      action: t(`settings.agents.request.action.${requestError.action}`),
+                    })}</p>
+                    <pre>{requestError.detail}</pre>
+                  </div>
+                  <div className="agent-install-request-actions">
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn-secondary"
+                      onClick={() => dismissRequestError(agent.agent_id)}
+                    >
+                      {t('common.close')}
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn-primary"
+                      disabled={installBusy !== null}
+                      onClick={() => retryInstallAction(agent, requestError.action)}
+                    >
+                      {t('settings.agents.request.retry')}
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           );
