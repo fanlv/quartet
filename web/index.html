@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>Deep Agent</title>
+    <title>Quartet</title>
     <style>
       #boot-screen {
         position: fixed;
@@ -146,7 +146,7 @@
     <div id="root"></div>
     <div id="boot-screen" role="status" aria-live="polite">
       <div class="boot-card">
-        <p class="boot-brand">Deep Agent</p>
+        <p class="boot-brand">Quartet</p>
         <h1 class="boot-title" id="boot-title">Starting application…</h1>
         <p class="boot-message" id="boot-message">Loading the application and checking the server connection.</p>
         <div class="boot-progress" aria-hidden="true"></div>
@@ -238,7 +238,7 @@
           if (screen) return screen;
           screen = document.createElement('div');
           screen.id = 'boot-screen';
-          screen.innerHTML = '<div class="boot-card"><p class="boot-brand">Deep Agent</p><h1 class="boot-title" id="boot-title"></h1><p class="boot-message" id="boot-message"></p><div class="boot-actions"><button class="boot-button boot-button-primary" id="boot-reload" type="button">Reload</button><button class="boot-button" id="boot-clear-cache" type="button">Clear app cache &amp; reload</button></div><pre class="boot-details" id="boot-details"></pre></div>';
+          screen.innerHTML = '<div class="boot-card"><p class="boot-brand">Quartet</p><h1 class="boot-title" id="boot-title"></h1><p class="boot-message" id="boot-message"></p><div class="boot-actions"><button class="boot-button boot-button-primary" id="boot-reload" type="button">Reload</button><button class="boot-button" id="boot-clear-cache" type="button">Clear app cache &amp; reload</button></div><pre class="boot-details" id="boot-details"></pre></div>';
           document.body.appendChild(screen);
           bindActions();
           return screen;
@@ -276,7 +276,7 @@
           var message = document.getElementById('boot-message');
           var details = document.getElementById('boot-details');
           if (title) title.textContent = completed ? 'Application error' : 'Application failed to start';
-          if (message) message.textContent = 'Reload the page, or clear only Deep Agent cache data and try again. Your access token will be kept.';
+          if (message) message.textContent = 'Reload the page, or clear only Quartet cache data and try again. Your access token will be kept.';
           if (details) details.textContent = diagnostics();
         }
 
