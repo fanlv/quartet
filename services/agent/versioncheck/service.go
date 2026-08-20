@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -68,6 +70,8 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 
 	infos := make([]model.AgentVersionInfo, 0, len(entries))
 	npmRefs := make(map[string][]componentRef)
+	publishedVersionRefs := make(map[string][]componentRef)
+	publishedURLRefs := make(map[string][]componentRef)
 	binaryTasks := make([]binaryTask, 0)
 	checker := agentinstall.Checker{}
 
@@ -77,6 +81,8 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 			definition       model.AgentRuntimeDefinition
 			packages         []string
 			probeBinary      bool
+			versionPackage   string
+			versionURL       string
 			upgradeSupported bool
 		)
 		switch entry.Source {
@@ -86,9 +92,13 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 			}
 			agentID = entry.Builtin.AgentID
 			definition = entry.Builtin.RuntimeDefinition()
-			packages = entry.Builtin.Install.NPMPackages()
-			probeBinary = len(packages) == 0 || entry.Builtin.Install.HasNonNPMSteps()
-			upgradeSupported = entry.Builtin.Install.AutoInstallable()
+			versionPackage = strings.TrimSpace(entry.Builtin.Install.VersionPackage)
+			versionURL = strings.TrimSpace(entry.Builtin.Install.VersionURL)
+			if versionPackage == "" {
+				packages = entry.Builtin.Install.NPMPackages()
+			}
+			probeBinary = versionPackage != "" || versionURL != "" || len(packages) == 0 || entry.Builtin.Install.HasNonNPMSteps()
+			upgradeSupported = entry.Builtin.Install.AutoUpgradeable()
 		case model.AgentCatalogSourceCustom:
 			if entry.Custom == nil || entry.Custom.Lifecycle != model.AgentLifecycleActive {
 				continue
@@ -130,6 +140,18 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 			binaryTasks = append(binaryTasks, binaryTask{
 				infoIndex: infoIndex, componentIndex: componentIndex, binary: definition.Bin,
 			})
+			if versionPackage != "" {
+				publishedVersionRefs[versionPackage] = append(
+					publishedVersionRefs[versionPackage],
+					componentRef{infoIndex: infoIndex, componentIndex: componentIndex},
+				)
+			}
+			if versionURL != "" {
+				publishedURLRefs[versionURL] = append(
+					publishedURLRefs[versionURL],
+					componentRef{infoIndex: infoIndex, componentIndex: componentIndex},
+				)
+			}
 		}
 	}
 
@@ -149,6 +171,30 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 	}
 
 	applyBinaryVersions(ctx, infos, binaryTasks)
+	for pkg, refs := range publishedVersionRefs {
+		latest, latestErr := inspectNPMLatest(ctx, pkg)
+		for _, ref := range refs {
+			component := &infos[ref.infoIndex].Components[ref.componentIndex]
+			if latestErr != nil {
+				component.Error = latestErr.Error()
+				continue
+			}
+			component.LatestVersion = latest
+			component.UpdateAvailable = semanticVersionLess(component.CurrentVersion, latest)
+		}
+	}
+	for versionURL, refs := range publishedURLRefs {
+		latest, latestErr := inspectLatestVersionURL(ctx, versionURL)
+		for _, ref := range refs {
+			component := &infos[ref.infoIndex].Components[ref.componentIndex]
+			if latestErr != nil {
+				component.Error = latestErr.Error()
+				continue
+			}
+			component.LatestVersion = latest
+			component.UpdateAvailable = semanticVersionLess(component.CurrentVersion, latest)
+		}
+	}
 	for infoIndex := range infos {
 		for _, component := range infos[infoIndex].Components {
 			if component.UpdateAvailable {
@@ -336,6 +382,37 @@ func inspectNPMLatest(ctx context.Context, pkg string) (string, error) {
 	var version string
 	if err := json.Unmarshal([]byte(stdout), &version); err != nil {
 		return "", fmt.Errorf("parse latest npm version for %q failed: %v\nstdout:\n%s\nstderr:\n%s", pkg, err, stdout, stderr)
+	}
+	return version, nil
+}
+
+func inspectLatestVersionURL(ctx context.Context, versionURL string) (string, error) {
+	requestCtx, cancel := context.WithTimeout(ctx, binaryTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, versionURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("build latest-version request for %q failed: %w", versionURL, err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch latest version from %q failed: %w", versionURL, err)
+	}
+	defer resp.Body.Close()
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr != nil {
+		return "", fmt.Errorf("read latest version from %q failed: %w", versionURL, readErr)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf(
+			"fetch latest version from %q failed: HTTP %d: %s",
+			versionURL,
+			resp.StatusCode,
+			strings.TrimSpace(string(body)),
+		)
+	}
+	version := strings.TrimSpace(string(body))
+	if _, ok := parseSemanticVersion(version); !ok {
+		return "", fmt.Errorf("latest version endpoint %q returned invalid semver %q", versionURL, version)
 	}
 	return version, nil
 }

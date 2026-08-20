@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-acp-deps install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
+.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
 
 CERTS_DIR := $(CURDIR)/certs
 # Serving model, derived ONCE at parse time so every target below
@@ -75,7 +75,6 @@ help:
 	@printf '  %-24s %s\n' 'web-watch-stop' 'Stop backend watchdog'
 	@printf '  %-24s %s\n\n' 'web-watch-logs' 'Follow watchdog log'
 	@printf 'Install targets:\n'
-	@printf '  %-24s %s\n' 'install-acp-deps' 'Install or upgrade ACP agent dependencies'
 	@printf '  %-24s %s\n' 'install-project-tools' 'Install quartet-cli and every skill shipped by this project'
 	@printf '  %-24s %s\n' 'install-skill' 'Build/install quartet-cli and register the skill'
 	@printf '  %-24s %s\n' 'install-skill-copy' 'Install skill files by copying instead of symlinking'
@@ -335,32 +334,6 @@ web-status:
 
 clean:
 	rm -rf bin
-
-# install-acp-deps installs (or upgrades) the npm packages required for
-# ACP agents: Claude Code, Codex, Antigravity, and OpenCode.
-#
-# --force is required because these bins (e.g. codex-acp) may already exist as
-# leftover symlinks from a differently-scoped package; without it npm aborts
-# with EEXIST, which — since this is a prerequisite of `web` — would block the
-# whole build/restart before it ever recompiles or bounces the backend.
-#
-# bun is installed before antigravity-acp on purpose: the antigravity-acp
-# package's postinstall runs `bun scripts/postinstall.ts` and its bin is a
-# TypeScript entrypoint executed via bun at runtime, so bun must already be on
-# PATH or both the install and every later invocation fail with `bun: not
-# found`. antigravity-acp is a thin ACP wrapper that shells out to the
-# standalone `agy` binary (installed out-of-band under ~/.local/bin); this
-# target only manages the npm side.
-install-acp-deps:
-	@echo "📦 Installing/upgrading ACP agent dependencies..."
-	@npm install -g @anthropic-ai/claude-code@latest
-	@npm install -g @openai/codex@latest
-	@npm install -g @agentclientprotocol/claude-agent-acp@0.58.1 || { echo "❌ Failed to install @agentclientprotocol/claude-agent-acp@0.58.1"; exit 1; }
-	@npm install -g @agentclientprotocol/codex-acp || { echo "❌ Failed to install @agentclientprotocol/codex-acp"; exit 1; }
-	@npm install -g --force bun@latest || { echo "❌ Failed to install bun (required by antigravity-acp)"; exit 1; }
-	@npm install -g --force antigravity-acp@latest || { echo "❌ Failed to install antigravity-acp"; exit 1; }
-	@npm install -g opencode-ai || { echo "❌ Failed to install opencode-ai"; exit 1; }
-	@echo "✅ ACP dependencies ready"
 
 # install-skill installs the quartet-workflow skill: first build+install its CLI
 # onto PATH, then register the skill directory with the `skills` CLI. Override

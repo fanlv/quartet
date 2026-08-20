@@ -212,22 +212,12 @@ Claude Code 和 Codex 的主 CLI 包本身不提供 Quartet 使用的 ACP 命令
 `codex` CLI 后，还需要分别安装对应的 ACP 适配器：
 
 ```bash
-npm install -g @agentclientprotocol/claude-agent-acp@0.58.1
+npm install -g @agentclientprotocol/claude-agent-acp
 npm install -g @agentclientprotocol/codex-acp
 ```
 
 Claude Code 要求后端的 `PATH` 中同时能找到 `claude` 和 `claude-agent-acp`；Codex 要求
 同时能找到 `codex` 和 `codex-acp`。
-
-仓库提供了一个便捷命令：
-
-```bash
-make install-acp-deps
-```
-
-该命令会全局安装或升级 Claude Code、Codex、对应的 ACP 适配器、Antigravity、
-OpenCode 和 Bun 等 npm 包。如果你已经自行管理这些全局工具，请在执行前先查看 Makefile
-中的目标内容。
 
 ## 服务命令
 

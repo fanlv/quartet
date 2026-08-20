@@ -256,22 +256,12 @@ their main CLI packages alone. After installing the `claude` or `codex` CLI,
 install the corresponding ACP adapter separately:
 
 ```bash
-npm install -g @agentclientprotocol/claude-agent-acp@0.58.1
+npm install -g @agentclientprotocol/claude-agent-acp
 npm install -g @agentclientprotocol/codex-acp
 ```
 
 Quartet requires both `claude` and `claude-agent-acp` for Claude Code, and both
 `codex` and `codex-acp` for Codex, to resolve from the backend's `PATH`.
-
-For convenience, the repository includes:
-
-```bash
-make install-acp-deps
-```
-
-This target installs or upgrades several global npm packages for Claude Code,
-Codex, their ACP adapters, Antigravity, OpenCode, and Bun. Review the Makefile
-target before running it if you already manage these tools globally.
 
 ## Service Commands
 

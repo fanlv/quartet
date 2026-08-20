@@ -82,7 +82,12 @@ var builtinAgents = []BuiltinAgent{
 	{
 		AgentID: "grok", Bin: "grok", ACPProgram: "grok", ACPArgs: []string{"--no-auto-update", "agent", "stdio"}, Command: "grok --no-auto-update agent stdio", EnvKey: "grok",
 		DisplayName: "Grok", IconURL: grokIconURL, SupportsHeadlessPrint: true,
-		Install: agentinstall.InstallSpec{Method: agentinstall.InstallMethodNPM, Steps: []agentinstall.InstallStep{agentinstall.NPMStep("@xai-official/grok")}},
+		Install: agentinstall.InstallSpec{
+			Method:       agentinstall.InstallMethodScript,
+			Steps:        []agentinstall.InstallStep{agentinstall.ScriptStep("https://x.ai/cli/install.sh", "bash")},
+			UpgradeSteps: []agentinstall.InstallStep{agentinstall.CommandStep("grok", "update")},
+			VersionURL:   "https://storage.googleapis.com/grok-build-public-artifacts/cli/stable",
+		},
 	},
 	{
 		AgentID: "openclaw", Bin: "openclaw", ACPProgram: "openclaw", ACPArgs: []string{"acp"}, Command: "openclaw acp", EnvKey: "openclaw",
@@ -97,7 +102,8 @@ var builtinAgents = []BuiltinAgent{
 		DisplayName: "Claude", IconURL: "https://avatars.githubusercontent.com/u/81847", SupportsHeadlessPrint: true,
 		Install: agentinstall.InstallSpec{Method: agentinstall.InstallMethodNPM, Steps: []agentinstall.InstallStep{
 			agentinstall.NPMStep("@anthropic-ai/claude-code"),
-			agentinstall.NPMStep("@zed-industries/claude-agent-acp"),
+			agentinstall.NPMUninstallStep("@zed-industries/claude-agent-acp"),
+			agentinstall.NPMStep("@agentclientprotocol/claude-agent-acp"),
 		}},
 	},
 	{
@@ -126,7 +132,12 @@ var builtinAgents = []BuiltinAgent{
 	{
 		AgentID: "kimi", Bin: "kimi", ACPProgram: "kimi", ACPArgs: []string{"acp"}, Command: "kimi acp", EnvKey: "kimi",
 		DisplayName: "Kimi", IconURL: "https://avatars.githubusercontent.com/u/129152888", SupportsHeadlessPrint: true,
-		Install: agentinstall.InstallSpec{Method: agentinstall.InstallMethodNPM, Steps: []agentinstall.InstallStep{agentinstall.NPMStep("@moonshot-ai/kimi-code")}},
+		Install: agentinstall.InstallSpec{
+			Method:         agentinstall.InstallMethodScript,
+			Steps:          []agentinstall.InstallStep{agentinstall.ScriptStep("https://code.kimi.com/kimi-code/install.sh", "bash")},
+			UpgradeSteps:   []agentinstall.InstallStep{agentinstall.ScriptStep("https://code.kimi.com/kimi-code/install.sh", "bash")},
+			VersionPackage: "@moonshot-ai/kimi-code",
+		},
 	},
 	{
 		AgentID: "codex", Bin: "codex", ACPProgram: "codex-acp", Command: "codex-acp", EnvKey: "codex",
@@ -137,7 +148,8 @@ var builtinAgents = []BuiltinAgent{
 		DisplayName: "Codex", IconURL: "https://avatars.githubusercontent.com/u/14957082", SupportsHeadlessPrint: false,
 		Install: agentinstall.InstallSpec{Method: agentinstall.InstallMethodNPM, Steps: []agentinstall.InstallStep{
 			agentinstall.NPMStep("@openai/codex"),
-			agentinstall.NPMStep("@zed-industries/codex-acp"),
+			agentinstall.NPMUninstallStep("@zed-industries/codex-acp"),
+			agentinstall.NPMStep("@agentclientprotocol/codex-acp"),
 		}},
 	},
 	{
@@ -166,7 +178,12 @@ var builtinAgents = []BuiltinAgent{
 			{Kind: IdentifierKindACPCommand, Value: "qwen --acp"},
 		},
 		DisplayName: "QCode", IconURL: "https://avatars.githubusercontent.com/u/141221163", SupportsHeadlessPrint: true,
-		Install: agentinstall.InstallSpec{Method: agentinstall.InstallMethodNPM, Steps: []agentinstall.InstallStep{agentinstall.NPMStep("@qodercn-ai/qoderclicn")}},
+		Install: agentinstall.InstallSpec{
+			Method:         agentinstall.InstallMethodNPM,
+			Steps:          []agentinstall.InstallStep{agentinstall.NPMStep("@qodercn-ai/qoderclicn")},
+			UpgradeSteps:   []agentinstall.InstallStep{agentinstall.CommandStep("qoderclicn", "update")},
+			VersionPackage: "@qodercn-ai/qoderclicn",
+		},
 	},
 }
 
@@ -239,6 +256,10 @@ func cloneBuiltin(agent BuiltinAgent) BuiltinAgent {
 	agent.Install.Steps = append([]agentinstall.InstallStep(nil), agent.Install.Steps...)
 	for index := range agent.Install.Steps {
 		agent.Install.Steps[index].Args = append([]string(nil), agent.Install.Steps[index].Args...)
+	}
+	agent.Install.UpgradeSteps = append([]agentinstall.InstallStep(nil), agent.Install.UpgradeSteps...)
+	for index := range agent.Install.UpgradeSteps {
+		agent.Install.UpgradeSteps[index].Args = append([]string(nil), agent.Install.UpgradeSteps[index].Args...)
 	}
 	return agent
 }

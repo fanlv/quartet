@@ -36,12 +36,35 @@ type InstallStep struct {
 type InstallSpec struct {
 	Method       InstallMethod
 	Steps        []InstallStep
+	UpgradeSteps []InstallStep
+	// VersionPackage is an npm package whose published version matches the
+	// executable release, even when the executable currently selected by PATH
+	// was installed by that CLI's native installer.
+	VersionPackage string
+	// VersionURL returns the latest executable version as a plain semver string.
+	// It is used for native installers whose release channel is not npm-backed.
+	VersionURL   string
 	Instructions string
 }
 
 // AutoInstallable reports whether this spec has an executable automatic flow.
 func (s InstallSpec) AutoInstallable() bool {
 	return len(s.Steps) > 0
+}
+
+// AutoUpgradeable reports whether an installed Agent has a controlled upgrade
+// flow. Entries without dedicated UpgradeSteps reuse their install steps.
+func (s InstallSpec) AutoUpgradeable() bool {
+	return len(s.UpgradeSteps) > 0 || len(s.Steps) > 0
+}
+
+// StepsForUpgrade returns the dedicated upgrade flow when one is declared, or
+// the install flow for package managers whose install command also upgrades.
+func (s InstallSpec) StepsForUpgrade() []InstallStep {
+	if len(s.UpgradeSteps) > 0 {
+		return s.UpgradeSteps
+	}
+	return s.Steps
 }
 
 // UninstallSteps returns the automatic uninstall flow, derived by reversing the
@@ -102,11 +125,18 @@ func (s InstallSpec) NPMPackages() []string {
 // package list alone does not describe their complete installation.
 func (s InstallSpec) HasNonNPMSteps() bool {
 	for _, step := range s.Steps {
-		if _, ok := npmInstallPackage(step); !ok {
+		if !isNPMManagementStep(step) {
 			return true
 		}
 	}
 	return false
+}
+
+func isNPMManagementStep(step InstallStep) bool {
+	if step.Program != "npm" || len(step.Args) != 3 || step.Args[1] != "-g" {
+		return false
+	}
+	return step.Args[0] == "install" || step.Args[0] == "uninstall"
 }
 
 func npmInstallPackage(step InstallStep) (string, bool) {
@@ -149,6 +179,16 @@ func NPMUninstallStep(pkg string) InstallStep {
 		Program: "npm",
 		Args:    []string{"uninstall", "-g", pkg},
 		Display: "npm uninstall -g " + pkg,
+	}
+}
+
+// CommandStep builds a shell-free command step used by CLIs with a native
+// updater, such as `grok update` and `qoderclicn update`.
+func CommandStep(program string, args ...string) InstallStep {
+	return InstallStep{
+		Program: program,
+		Args:    append([]string(nil), args...),
+		Display: strings.Join(append([]string{program}, args...), " "),
 	}
 }
 

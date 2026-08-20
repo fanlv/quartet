@@ -63,7 +63,7 @@ func (s *CacheService) runBuiltinAgentInstall(ctx context.Context, agentID strin
 	if def.Deprecated {
 		return nil, fmt.Errorf("%w: %q (%s)", ErrAgentDeprecated, agentID, def.DisplayName)
 	}
-	if !def.Install.AutoInstallable() {
+	if (!upgrade && !def.Install.AutoInstallable()) || (upgrade && !def.Install.AutoUpgradeable()) {
 		return nil, fmt.Errorf("%w: %q (%s): %s", ErrManualInstallOnly, agentID, def.DisplayName, def.Install.Instructions)
 	}
 
@@ -79,7 +79,11 @@ func (s *CacheService) runBuiltinAgentInstall(ctx context.Context, agentID strin
 	// goes straight to revalidation. An explicit upgrade always re-runs the
 	// catalog-controlled steps.
 	if upgrade || !precheck.Installed {
-		steps, err := agentinstall.RunSteps(ctx, def.Install.Steps, installStepTimeout)
+		stepsToRun := def.Install.Steps
+		if upgrade {
+			stepsToRun = def.Install.StepsForUpgrade()
+		}
+		steps, err := agentinstall.RunSteps(ctx, stepsToRun, installStepTimeout)
 		if err != nil {
 			return nil, err
 		}
