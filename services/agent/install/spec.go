@@ -82,7 +82,7 @@ func (s InstallSpec) UninstallSteps() []InstallStep {
 		if len(args) != 3 || args[0] != "install" {
 			continue
 		}
-		steps = append(steps, NPMUninstallStep(args[2]))
+		steps = append(steps, npmUninstallStep(args[2]))
 	}
 	return steps
 }
@@ -125,18 +125,11 @@ func (s InstallSpec) NPMPackages() []string {
 // package list alone does not describe their complete installation.
 func (s InstallSpec) HasNonNPMSteps() bool {
 	for _, step := range s.Steps {
-		if !isNPMManagementStep(step) {
+		if _, ok := npmInstallPackage(step); !ok {
 			return true
 		}
 	}
 	return false
-}
-
-func isNPMManagementStep(step InstallStep) bool {
-	if step.Program != "npm" || len(step.Args) != 3 || step.Args[1] != "-g" {
-		return false
-	}
-	return step.Args[0] == "install" || step.Args[0] == "uninstall"
 }
 
 func npmInstallPackage(step InstallStep) (string, bool) {
@@ -172,9 +165,11 @@ func NPMStep(pkg string) InstallStep {
 	}
 }
 
-// NPMUninstallStep builds the single `npm uninstall -g <pkg>` step for a
-// package.
-func NPMUninstallStep(pkg string) InstallStep {
+// npmUninstallStep builds the single `npm uninstall -g <pkg>` step used by
+// the generic uninstall flow. It is intentionally not part of the catalog's
+// public install-step builders: install and upgrade specs should only describe
+// the components they own, not historical package cleanup.
+func npmUninstallStep(pkg string) InstallStep {
 	return InstallStep{
 		Program: "npm",
 		Args:    []string{"uninstall", "-g", pkg},

@@ -2,6 +2,7 @@ package usagestats
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -118,10 +119,18 @@ type service struct {
 }
 
 // NewService constructs a usage-stats service with the default disk-backed
-// store and a 1s debounce.
-func NewService(rootCtx context.Context) Service {
+// store and a 1s debounce. Existing monthly files are copied from the former
+// ignored data directory before the service starts accepting reads or writes.
+func NewService(rootCtx context.Context) (Service, error) {
 	if rootCtx == nil {
 		rootCtx = context.Background()
+	}
+	migrated, err := migrateLegacyUsageStats()
+	if err != nil {
+		return nil, fmt.Errorf("initialize Git-managed usage statistics: %w", err)
+	}
+	if migrated > 0 {
+		logger.Infof(rootCtx, "[usagestats] copied %d legacy monthly file(s) into the Git-managed Memory location", migrated)
 	}
 	st := newStore()
 	s := &service{
@@ -136,7 +145,7 @@ func NewService(rootCtx context.Context) Service {
 		time.Sleep(st.debounce)
 		st.flushNow(s.rootCtx)
 	}
-	return s
+	return s, nil
 }
 
 // Record applies one step's stats into the in-memory month file and marks

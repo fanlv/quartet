@@ -4,10 +4,10 @@ import { e2eAuthToken } from '../fixtures/e2e-environment'
 
 // E2E coverage for the settings page's eino tab: the tab proxies
 // /api/v1/config/eino/* to `eino-cli models|systemprompt` subcommands exec'd
-// by the backend, with state living in eino-cli's own EINO_HOME store.
+// by the backend, with state living in the run's isolated Memory config store.
 //
 // The e2e environment only puts eino-cli on the backend's PATH (and seeds one
-// model into an isolated EINO_HOME) when QUARTET_E2E_MODEL_API_KEY is
+// model into an isolated LOCAL_MEMORY) when QUARTET_E2E_MODEL_API_KEY is
 // supplied — see e2e-environment.ts. So this spec runs in two modes:
 //
 //   - eino-cli unavailable (default run): the tab must surface the backend's
@@ -19,10 +19,8 @@ import { e2eAuthToken } from '../fixtures/e2e-environment'
 //
 // Availability is probed once via the tab's own API rather than env flags, so
 // the spec self-selects the right assertions. The CRUD test additionally
-// requires the ISOLATED seeded catalog (detected via the E2E display name):
-// on a developer machine with a real eino-cli install the default run probes
-// the real ~/.eino, where mutating models / the system prompt would touch
-// real user state — the CRUD test must stay a no-op there.
+// requires the seeded catalog (detected via the E2E display name) because its
+// assertions start from exactly one known model.
 
 let einoAvailable = false
 let einoSeeded = false
@@ -64,11 +62,11 @@ test('eino tab surfaces the backend error in full when eino-cli is unavailable',
 
 test('eino tab round-trips the model catalog and system prompt', async ({ page }) => {
   test.skip(!einoAvailable, 'eino-cli is not on PATH in this run (no QUARTET_E2E_MODEL_API_KEY)')
-  test.skip(einoAvailable && !einoSeeded, 'eino-cli resolved to a real user install; refusing to mutate a real ~/.eino catalog')
+  test.skip(einoAvailable && !einoSeeded, 'the isolated E2E model catalog was not seeded')
 
   await openEinoTab(page)
 
-  // Seeded catalog (one model written by globalSetup into EINO_HOME) lists.
+  // Seeded catalog (one model written into LOCAL_MEMORY by globalSetup) lists.
   const cards = page.getByTestId('eino-model-card')
   await expect(cards).toHaveCount(1)
   await expect(cards.first()).toContainText('Quartet E2E Model')

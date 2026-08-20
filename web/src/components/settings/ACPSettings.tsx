@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { readAPIResponse } from '../../utils/apiResponse';
 import './ACPSettings.css';
 
 interface EnvVar {
@@ -26,6 +27,7 @@ export function ACPSettings() {
   const [activeAgent, setActiveAgent] = useState('');
   const [envMap, setEnvMap] = useState<Record<string, EnvVar[]>>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -34,26 +36,38 @@ export function ACPSettings() {
   }, []);
 
   const loadData = async () => {
+    setLoading(true);
+    setLoadError('');
+    setMessage(null);
     try {
       const [agentRes, settingsRes] = await Promise.all([
         fetch('/api/v1/agent/list'),
         fetch('/api/v1/config/settings/get'),
       ]);
-      const agentData = await agentRes.json();
-      const settingsData = await settingsRes.json();
+      const [agentData, settingsData] = await Promise.all([
+        readAPIResponse(agentRes),
+        readAPIResponse(settingsRes),
+      ]);
 
-      const acpAgents: AgentOption[] = (agentData.agent_list || [])
-        .map((a: { agent_id: string; type: string; env_key?: string; display_name: string }) => ({
-          agent_id: a.agent_id,
-          type: a.type,
-          env_key: a.env_key || a.type,
-          display_name: a.display_name,
-        }));
+      if (!Array.isArray(agentData.agent_list)) {
+        throw new Error('agent list response is missing agent_list');
+      }
+      if (!settingsData.settings || typeof settingsData.settings !== 'object') {
+        throw new Error('settings response is missing settings');
+      }
+      const agentList = agentData.agent_list as Array<{ agent_id: string; type: string; env_key?: string; display_name: string }>;
+      const acpAgents: AgentOption[] = agentList.map((a) => ({
+        agent_id: a.agent_id,
+        type: a.type,
+        env_key: a.env_key || a.type,
+        display_name: a.display_name,
+      }));
       setAgents(acpAgents);
 
+      const settings = settingsData.settings as { acp_env_vars?: Record<string, EnvVar[]> };
       const savedVars: Record<string, Array<{ key: string; value: string; enabled: boolean }>> =
-        settingsData.code === 0 && settingsData.settings?.acp_env_vars
-          ? settingsData.settings.acp_env_vars
+        settings.acp_env_vars && typeof settings.acp_env_vars === 'object'
+          ? settings.acp_env_vars
           : {};
 
       const newEnvMap: Record<string, EnvVar[]> = {};
@@ -87,7 +101,10 @@ export function ACPSettings() {
         setActiveAgent(acpAgents[0].env_key || acpAgents[0].type);
       }
     } catch (err) {
-      console.error('Failed to load ACP settings:', err);
+      setAgents([]);
+      setActiveAgent('');
+      setEnvMap({});
+      setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -136,25 +153,12 @@ export function ACPSettings() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entries }),
       });
-      const raw = await res.text();
-      let data: { code?: number; msg?: string; error?: string; warning?: string } = {};
-      if (raw) {
-        try {
-          data = JSON.parse(raw) as typeof data;
-        } catch (err) {
-          throw new Error(`HTTP ${res.status}: invalid JSON response: ${String(err)}\n${raw}`);
-        }
-      }
-      if (res.ok && data.code === 0) {
-        setMessage({
-          type: data.warning ? 'error' : 'success',
-          text: data.warning
-            ? `${t('common.saveSuccess')}\n${String(data.warning)}`
-            : t('common.saveSuccess'),
-        });
-      } else {
-        throw new Error(data.msg || data.error || `HTTP ${res.status}: ${raw || res.statusText}`);
-      }
+      const data = await readAPIResponse(res);
+      const warning = typeof data.warning === 'string' ? data.warning : '';
+      setMessage({
+        type: warning ? 'error' : 'success',
+        text: warning ? `${t('common.saveSuccess')}\n${warning}` : t('common.saveSuccess'),
+      });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -164,6 +168,23 @@ export function ACPSettings() {
 
   if (loading) {
     return <div className="account-settings"><p>{t('common.loading')}</p></div>;
+  }
+
+  if (loadError) {
+    return (
+      <div className="account-settings" data-testid="acp-settings-load-error">
+        <section className="settings-section">
+          <div className="settings-message error" role="alert">
+            {t('common.loadFailed')}: {loadError}
+          </div>
+          <div className="settings-btn-group">
+            <button className="settings-btn settings-btn-secondary" onClick={() => void loadData()}>
+              {t('common.retry')}
+            </button>
+          </div>
+        </section>
+      </div>
+    );
   }
 
   if (agents.length === 0) {
@@ -255,6 +276,7 @@ export function ACPSettings() {
             className="settings-btn settings-btn-primary"
             onClick={handleSave}
             disabled={saving}
+            data-testid="acp-settings-save-button"
           >
             {saving ? t('common.saving') : t('common.save')}
           </button>

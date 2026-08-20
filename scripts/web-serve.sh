@@ -43,6 +43,32 @@ log() { echo "$*"; }
 # root-owned :443 process is visible from a non-root shell.
 _port_pid() { $SUDO lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | head -n1; }
 
+# Best-effort address that another device on the same network can use. Prefer
+# the source address selected by the default route, then fall back to the first
+# non-loopback/non-link-local IPv4 reported by the host.
+_lan_ipv4() {
+    local _ip="" _iface="" _candidate=""
+
+    if command -v ip >/dev/null 2>&1; then
+        _ip=$(ip -4 route get 1.1.1.1 2>/dev/null \
+            | awk '{ for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit } }')
+    elif command -v route >/dev/null 2>&1 && command -v ipconfig >/dev/null 2>&1; then
+        _iface=$(route -n get default 2>/dev/null | awk '/interface:/ { print $2; exit }')
+        [ -n "$_iface" ] && _ip=$(ipconfig getifaddr "$_iface" 2>/dev/null || true)
+    fi
+
+    if [ -z "$_ip" ] && command -v hostname >/dev/null 2>&1; then
+        for _candidate in $(hostname -I 2>/dev/null); do
+            case "$_candidate" in
+                127.*|169.254.*|*:* ) continue ;;
+                *.*.*.* ) _ip="$_candidate"; break ;;
+            esac
+        done
+    fi
+
+    printf '%s' "$_ip"
+}
+
 cd "$REPO" || { echo "FATAL: cd $REPO failed"; exit 1; }
 
 # --- migration cleanup: stop any leftover vite dev server for this repo ------
@@ -141,8 +167,13 @@ if [ "$PORT" = "443" ]; then
     echo "  Web UI:  ${PROTO}://<your-domain>/     (backend bound on 0.0.0.0:443)"
     echo "           ${PROTO}://localhost/          (local access)"
 else
+    lan_ip=$(_lan_ipv4)
     echo "  Web UI:  ${PROTO}://localhost:${PORT}/       (local access)"
-    echo "           ${PROTO}://<your-lan-ip>:${PORT}/  (LAN access)"
+    if [ -n "$lan_ip" ]; then
+        echo "           ${PROTO}://${lan_ip}:${PORT}/  (LAN access)"
+    else
+        echo "           ${PROTO}://<LAN-IP-unavailable>:${PORT}/  (LAN address not detected)"
+    fi
 fi
 echo "================================================"
 echo ""

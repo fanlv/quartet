@@ -293,8 +293,21 @@ func ScheduleStatesDir() (string, error) {
 	return filepath.Join(dir, "schedules"), nil
 }
 
-// UsageStatsDir returns {LOCAL_MEMORY}/quartet/data/usage-stats/.
+// UsageStatsDir returns {LOCAL_MEMORY}/quartet/usage-stats/. Usage statistics
+// live outside quartet/data so they remain visible to the Memory repository's
+// Git tracking rules.
 func UsageStatsDir() (string, error) {
+	dir, err := QuartetDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "usage-stats"), nil
+}
+
+// LegacyUsageStatsDir returns the former usage-statistics directory. It is
+// retained only so the usage service can copy existing monthly files into the
+// Git-managed location during startup.
+func LegacyUsageStatsDir() (string, error) {
 	dir, err := QuartetDataDir()
 	if err != nil {
 		return "", err
@@ -302,7 +315,7 @@ func UsageStatsDir() (string, error) {
 	return filepath.Join(dir, "usage-stats"), nil
 }
 
-// UsageStatsMonthFile returns {LOCAL_MEMORY}/quartet/data/usage-stats/YYYY-MM.json
+// UsageStatsMonthFile returns {LOCAL_MEMORY}/quartet/usage-stats/YYYY-MM.json
 // for the given time in the server's local timezone.
 func UsageStatsMonthFile(t time.Time) (string, error) {
 	dir, err := UsageStatsDir()

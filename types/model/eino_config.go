@@ -1,8 +1,8 @@
 package model
 
 // EinoModel is the quartet-side view of one model entry in eino-cli's own
-// catalog (~/.eino/models.json). The API key only ever appears masked here —
-// it is written to eino-cli at creation and never read back.
+// Git-managed Memory catalog. The API key only ever appears masked here — it
+// is written to eino-cli at creation and never read back.
 type EinoModel struct {
 	ID           string               `json:"id"`
 	ModelClass   string               `json:"model_class"`

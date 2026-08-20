@@ -1,8 +1,8 @@
-// Package config is eino-cli's self-managed configuration store. Everything
-// lives under Root() (~/.eino/ by default): the model catalog (models.json),
-// general config (config.json, currently just the system prompt), and
-// per-session state (sessions/). It has no dependency on quartet — the
-// quartet backend talks to it exclusively through `eino-cli models`
+// Package config is eino-cli's self-managed configuration store. When
+// LOCAL_MEMORY is available, the model catalog and general config live under
+// the Git-managed Memory repository at quartet/config/eino/. Session state
+// remains under Root() (~/.eino/ by default). The package has no dependency on
+// quartet — the quartet backend talks to it exclusively through `eino-cli`
 // subcommands.
 //
 // Files here hold API keys, so every write is atomic (temp + rename) with
@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,8 +25,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// Root returns the eino-cli home directory: $EINO_HOME if set, else
-// ~/.eino.
+// Root returns the eino-cli session-state directory: $EINO_HOME if set, else
+// ~/.eino. Model and system-prompt configuration use configRoot instead.
 func Root() string {
 	if v := os.Getenv("EINO_HOME"); v != "" {
 		return v
@@ -40,14 +41,24 @@ func Root() string {
 	return filepath.Join(home, ".eino")
 }
 
+// configRoot returns the Git-managed eino configuration directory when
+// quartet supplies LOCAL_MEMORY. Standalone eino-cli usage without
+// LOCAL_MEMORY keeps configuration alongside session state under Root().
+func configRoot() string {
+	if root := strings.TrimSpace(os.Getenv("LOCAL_MEMORY")); root != "" {
+		return filepath.Join(filepath.Clean(root), "quartet", "config", "eino")
+	}
+	return Root()
+}
+
 // SessionsDir returns the directory holding per-session state.
 func SessionsDir() string { return filepath.Join(Root(), "sessions") }
 
 // ModelsFile returns the model catalog file path.
-func ModelsFile() string { return filepath.Join(Root(), "models.json") }
+func ModelsFile() string { return filepath.Join(configRoot(), "models.json") }
 
 // ConfigFile returns the general config file path.
-func ConfigFile() string { return filepath.Join(Root(), "config.json") }
+func ConfigFile() string { return filepath.Join(configRoot(), "config.json") }
 
 // Model is one entry in the model catalog.
 type Model struct {
@@ -102,7 +113,11 @@ func validateModel(m *Model) error {
 // loadModelsLocked reads models.json. A missing file yields an empty list,
 // not an error. Caller must hold mu.
 func loadModelsLocked() ([]*Model, error) {
-	data, err := os.ReadFile(ModelsFile())
+	path := ModelsFile()
+	if err := migrateLegacyConfigFileLocked(path); err != nil {
+		return nil, fmt.Errorf("migrate models file failed: %w", err)
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -117,6 +132,33 @@ func loadModelsLocked() ([]*Model, error) {
 		return nil, fmt.Errorf("unmarshal models file failed: %w", err)
 	}
 	return models, nil
+}
+
+// migrateLegacyConfigFileLocked copies one config file from the former
+// Root()-based store when the Git-managed destination does not exist yet.
+// The source is deliberately retained so migration is recoverable.
+// Caller must hold mu.
+func migrateLegacyConfigFileLocked(destination string) error {
+	source := filepath.Join(Root(), filepath.Base(destination))
+	if filepath.Clean(source) == filepath.Clean(destination) {
+		return nil
+	}
+	if _, err := os.Stat(destination); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("stat destination %q failed: %w", destination, err)
+	}
+	data, err := os.ReadFile(source)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("read legacy config %q failed: %w", source, err)
+	}
+	if err := atomicWrite(destination, data); err != nil {
+		return fmt.Errorf("copy legacy config %q to %q failed: %w", source, destination, err)
+	}
+	return nil
 }
 
 // atomicWrite writes data to path atomically (temp file + rename) with 0600
@@ -253,7 +295,11 @@ type appConfig struct {
 }
 
 func loadConfigLocked() (*appConfig, error) {
-	data, err := os.ReadFile(ConfigFile())
+	path := ConfigFile()
+	if err := migrateLegacyConfigFileLocked(path); err != nil {
+		return nil, fmt.Errorf("migrate config file failed: %w", err)
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return &appConfig{}, nil

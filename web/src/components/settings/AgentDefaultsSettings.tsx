@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentInfo } from '../ChatPage';
 import type { AgentPrefs, AgentPrefsMap } from '../../utils/agentPrefs';
 import { invalidateAgentPrefs } from '../../utils/agentPrefs';
+import { readAPIResponse } from '../../utils/apiResponse';
 import { useACPThoughtLevels } from '../../hooks/useACPThoughtLevels';
 import './ACPSettings.css';
 import './AgentDefaultsSettings.css';
@@ -15,6 +16,9 @@ export function AgentDefaultsSettings() {
   const [activeAgent, setActiveAgent] = useState('');
   const [prefMap, setPrefMap] = useState<AgentPrefsMap>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [dirtyAgentIDs, setDirtyAgentIDs] = useState<Set<string>>(new Set());
+  const dirtyVersionsRef = useRef<Record<string, number>>({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -23,22 +27,34 @@ export function AgentDefaultsSettings() {
   }, []);
 
   const loadData = async () => {
+    setLoading(true);
+    setLoadError('');
+    setMessage(null);
     try {
       const [agentRes, settingsRes] = await Promise.all([
         fetch('/api/v1/agent/list'),
         fetch('/api/v1/config/settings/get'),
       ]);
-      const agentData = await agentRes.json();
-      const settingsData = await settingsRes.json();
+      const [agentData, settingsData] = await Promise.all([
+        readAPIResponse(agentRes),
+        readAPIResponse(settingsRes),
+      ]);
 
       // Only ACP agents carry availableModels/modes/thoughtLevels.
-      const acpAgents: AgentInfo[] = (agentData.agent_list || [])
-        .filter((agent: AgentInfo) => agent.available !== false);
+      if (!Array.isArray(agentData.agent_list)) {
+        throw new Error('agent list response is missing agent_list');
+      }
+      if (!settingsData.settings || typeof settingsData.settings !== 'object') {
+        throw new Error('settings response is missing settings');
+      }
+      const agentList = agentData.agent_list as AgentInfo[];
+      const acpAgents = agentList.filter((agent) => agent.available !== false);
       setAgents(acpAgents);
 
+      const settings = settingsData.settings as { agent_prefs?: AgentPrefsMap };
       const saved: AgentPrefsMap =
-        settingsData.code === 0 && settingsData.settings?.agent_prefs
-          ? settingsData.settings.agent_prefs
+        settings.agent_prefs && typeof settings.agent_prefs === 'object'
+          ? settings.agent_prefs
           : {};
       const byAgentID: AgentPrefsMap = {};
       for (const agent of acpAgents) {
@@ -46,12 +62,19 @@ export function AgentDefaultsSettings() {
         if (pref) byAgentID[agent.agent_id] = pref;
       }
       setPrefMap(byAgentID);
+      setDirtyAgentIDs(new Set());
+      dirtyVersionsRef.current = {};
 
       if (acpAgents.length > 0) {
         setActiveAgent(acpAgents[0].agent_id);
       }
     } catch (err) {
-      console.error('Failed to load agent defaults:', err);
+      setAgents([]);
+      setActiveAgent('');
+      setPrefMap({});
+      setDirtyAgentIDs(new Set());
+      dirtyVersionsRef.current = {};
+      setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -83,25 +106,30 @@ export function AgentDefaultsSettings() {
   useEffect(() => {
     if (!currentAgent || !thoughtLevelState) return;
     const agentType = currentAgent.agent_id;
-    setPrefMap((prev) => {
-      const pref = prev[agentType];
-      if (!pref?.default_thought_level) return prev;
+    const pref = prefMap[agentType];
+    if (!pref?.default_thought_level) return;
 
-      const selectedModelId = pref.default_model_id || agentModelId;
-      const stillAvailable = thoughtLevelState.availableThoughtLevels.some(
-        (level) => level.id === pref.default_thought_level,
-      );
-      if (selectedModelId !== defaultModelId || stillAvailable) return prev;
+    const selectedModelId = pref.default_model_id || agentModelId;
+    const stillAvailable = thoughtLevelState.availableThoughtLevels.some(
+      (level) => level.id === pref.default_thought_level,
+    );
+    if (selectedModelId !== defaultModelId || stillAvailable) return;
 
-      return {
-        ...prev,
-        [agentType]: { ...pref, default_thought_level: undefined },
-      };
-    });
-  }, [agentModelId, currentAgent, defaultModelId, thoughtLevelState]);
+    setPrefMap((prev) => ({
+      ...prev,
+      [agentType]: { ...prev[agentType], default_thought_level: undefined },
+    }));
+    markAgentDirty(agentType);
+  }, [agentModelId, currentAgent, defaultModelId, prefMap, thoughtLevelState]);
+
+  const markAgentDirty = (agentID: string) => {
+    dirtyVersionsRef.current[agentID] = (dirtyVersionsRef.current[agentID] || 0) + 1;
+    setDirtyAgentIDs((prev) => new Set(prev).add(agentID));
+  };
 
   const updatePref = (patch: Partial<AgentPrefs>) => {
     setPrefMap((prev) => ({ ...prev, [activeAgent]: { ...(prev[activeAgent] || {}), ...patch } }));
+    markAgentDirty(activeAgent);
   };
 
   const toggleFavorite = (modelId: string) => {
@@ -116,22 +144,35 @@ export function AgentDefaultsSettings() {
 
     try {
       const failures: string[] = [];
-      for (const agent of agents) {
+      const savedAgentVersions: Array<{ agentID: string; version: number }> = [];
+      for (const agent of agents.filter((candidate) => dirtyAgentIDs.has(candidate.agent_id))) {
+        const attemptedVersion = dirtyVersionsRef.current[agent.agent_id] || 0;
         const pref = prefMap[agent.agent_id] || emptyPref;
         const res = await fetch(`/api/v1/config/settings/agent/${encodeURIComponent(agent.agent_id)}/prefs`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prefs: pref }),
         });
-        const data = await res.json().catch(() => null);
-        if (!res.ok || data?.code !== 0) {
-          failures.push(data?.msg || `${agent.display_name}: HTTP ${res.status}`);
+        try {
+          await readAPIResponse(res);
+          savedAgentVersions.push({ agentID: agent.agent_id, version: attemptedVersion });
+        } catch (err) {
+          failures.push(`${agent.display_name}: ${err instanceof Error ? err.message : String(err)}`);
         }
+      }
+      if (savedAgentVersions.length > 0) {
+        setDirtyAgentIDs((prev) => {
+          const next = new Set(prev);
+          savedAgentVersions.forEach(({ agentID, version }) => {
+            if (dirtyVersionsRef.current[agentID] === version) next.delete(agentID);
+          });
+          return next;
+        });
+        invalidateAgentPrefs();
       }
       if (failures.length > 0) {
         throw new Error(failures.join('\n'));
       }
-      invalidateAgentPrefs();
       setMessage({ type: 'success', text: t('common.saveSuccess') });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) });
@@ -142,6 +183,23 @@ export function AgentDefaultsSettings() {
 
   if (loading) {
     return <div className="account-settings"><p>{t('common.loading')}</p></div>;
+  }
+
+  if (loadError) {
+    return (
+      <div className="account-settings" data-testid="agent-defaults-load-error">
+        <section className="settings-section">
+          <div className="settings-message error" role="alert">
+            {t('common.loadFailed')}: {loadError}
+          </div>
+          <div className="settings-btn-group">
+            <button className="settings-btn settings-btn-secondary" onClick={() => void loadData()}>
+              {t('common.retry')}
+            </button>
+          </div>
+        </section>
+      </div>
+    );
   }
 
   if (agents.length === 0) {
@@ -287,7 +345,7 @@ export function AgentDefaultsSettings() {
           <button
             className="settings-btn settings-btn-primary"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || dirtyAgentIDs.size === 0}
             data-testid="agent-defaults-save-button"
           >
             {saving ? t('common.saving') : t('common.save')}

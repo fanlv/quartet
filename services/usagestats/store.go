@@ -49,6 +49,80 @@ type store struct {
 
 const maxCachedMonths = 12
 
+// migrateLegacyUsageStats copies monthly files from the former ignored
+// quartet/data location into the Git-managed usage-stats directory. Existing
+// destination files always win, and source files are retained so an
+// interrupted rollout remains recoverable.
+func migrateLegacyUsageStats() (int, error) {
+	legacyDir, err := typepath.LegacyUsageStatsDir()
+	if err != nil {
+		return 0, err
+	}
+	destinationDir, err := typepath.UsageStatsDir()
+	if err != nil {
+		return 0, err
+	}
+	if filepath.Clean(legacyDir) == filepath.Clean(destinationDir) {
+		return 0, nil
+	}
+	entries, err := os.ReadDir(legacyDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("read legacy directory %q failed: %w", legacyDir, err)
+	}
+	if err := os.MkdirAll(destinationDir, 0o755); err != nil {
+		return 0, fmt.Errorf("create destination directory %q failed: %w", destinationDir, err)
+	}
+
+	copied := 0
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		if _, err := time.Parse("2006-01", entry.Name()[:len(entry.Name())-len(".json")]); err != nil {
+			continue
+		}
+		source := filepath.Join(legacyDir, entry.Name())
+		destination := filepath.Join(destinationDir, entry.Name())
+		if _, err := os.Stat(destination); err == nil {
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return copied, fmt.Errorf("stat destination %q failed: %w", destination, err)
+		}
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return copied, fmt.Errorf("read legacy month file %q failed: %w", source, err)
+		}
+		tmp, err := os.CreateTemp(destinationDir, ".usage-migration-*.tmp")
+		if err != nil {
+			return copied, fmt.Errorf("create migration temp file in %q failed: %w", destinationDir, err)
+		}
+		tmpName := tmp.Name()
+		if _, err := tmp.Write(data); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
+			return copied, fmt.Errorf("write migration temp file %q failed: %w", tmpName, err)
+		}
+		if err := tmp.Chmod(0o644); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
+			return copied, fmt.Errorf("chmod migration temp file %q failed: %w", tmpName, err)
+		}
+		if err := tmp.Close(); err != nil {
+			_ = os.Remove(tmpName)
+			return copied, fmt.Errorf("close migration temp file %q failed: %w", tmpName, err)
+		}
+		if err := os.Rename(tmpName, destination); err != nil {
+			_ = os.Remove(tmpName)
+			return copied, fmt.Errorf("rename migration temp file %q to %q failed: %w", tmpName, destination, err)
+		}
+		copied++
+	}
+	return copied, nil
+}
+
 func newStore() *store {
 	return &store{
 		months:   make(map[string]*MonthFile),

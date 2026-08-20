@@ -2,7 +2,8 @@
 // an ACP (Agent Client Protocol) server speaking JSON-RPC over stdio — stdout
 // is the protocol channel and carries NOTHING else; all logs go to stderr.
 // The remaining subcommands manage the model catalog and system prompt under
-// $EINO_HOME (~/.eino by default).
+// $LOCAL_MEMORY/quartet/config/eino when LOCAL_MEMORY is available, falling
+// back to $EINO_HOME (~/.eino by default) for standalone use.
 package main
 
 import (

@@ -23,6 +23,7 @@ require (
 	github.com/tiktoken-go/tokenizer v0.7.0
 	github.com/volcengine/volcengine-go-sdk v1.2.9
 	golang.org/x/sync v0.17.0
+	golang.org/x/sys v0.37.0
 	golang.org/x/time v0.6.0
 	google.golang.org/genai v1.36.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -118,7 +119,6 @@ require (
 	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792 // indirect
 	golang.org/x/net v0.46.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
-	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	google.golang.org/api v0.197.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect

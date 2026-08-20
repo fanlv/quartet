@@ -22,7 +22,8 @@ import {
 // The primary chat-link coverage runs against an ACP agent discovered at
 // runtime from the backend's own probe list (GET /api/v1/agent/list). ACP
 // needs no quartet-side model config — the subprocess carries its own login
-// state (eino-cli reads its isolated EINO_HOME, other agents use $HOME). If
+// state (eino-cli reads isolated LOCAL_MEMORY config and EINO_HOME sessions;
+// other agents use $HOME). If
 // no ACP agent is installed the chat spec skips itself rather than failing.
 //
 // Fault links that a real agent cannot trigger (HTTP send failure, SSE auth

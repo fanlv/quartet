@@ -214,6 +214,11 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		return nil, err
 	}
 
+	usageStats, err := usagestats.NewService(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	h := &Handler{
 		rootCtx:          ctx,
 		sessionServices:  make(map[string]*sessionEntry),
@@ -228,7 +233,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		userInputRepo:    repository.NewUserInputRepo(),
 		workspaceService: wss,
 		scheduleService:  schSvc,
-		usageStats:       usagestats.NewService(ctx),
+		usageStats:       usageStats,
 		usageService:     usage.NewService(ss),
 		agentVersions:    agentversion.NewService(agentCatalog),
 		acpProbeCache:    acpProbeCache,

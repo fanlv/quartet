@@ -48,7 +48,7 @@ func TestGetUsageSurfacesParseError(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("LOCAL_MEMORY", root)
 	now := time.Date(2026, 5, 9, 12, 0, 0, 0, time.Local)
-	dir := filepath.Join(root, "quartet", "data", "usage-stats")
+	dir := filepath.Join(root, "quartet", "usage-stats")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
@@ -56,7 +56,10 @@ func TestGetUsageSurfacesParseError(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	svc := NewService(nil)
+	svc, err := NewService(nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
 	if _, err := svc.GetUsage(now, now); err == nil {
 		t.Fatal("GetUsage() error = nil, want parse error")
 	}
@@ -71,7 +74,10 @@ func TestGetUsageSurfacesParseError(t *testing.T) {
 // shell-style snapshots and verify the aggregates line up.
 func TestRecorderRoundTrip(t *testing.T) {
 	t.Setenv("LOCAL_MEMORY", t.TempDir())
-	svc := NewService(nil)
+	svc, err := NewService(nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
 
 	now := time.Now()
 	for i := 0; i < 3; i++ {
@@ -140,7 +146,10 @@ func TestAccumulatorPendingToolDropsOnSnapshot(t *testing.T) {
 
 func TestModelAggregatesSurfaceUnattributedResidual(t *testing.T) {
 	t.Setenv("LOCAL_MEMORY", t.TempDir())
-	svc := NewService(nil)
+	svc, err := NewService(nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
 	now := time.Now()
 
 	svc.Record(Snapshot{

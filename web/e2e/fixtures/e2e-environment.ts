@@ -187,7 +187,7 @@ function prepareLocalMemory(localMemory: string) {
     'quartet/config/templates',
     'quartet/config/graph-workflows',
     'quartet/config/schedules',
-    'quartet/data/usage-stats',
+    'quartet/usage-stats',
     'quartet/data/workspaces',
     'quartet/data/im',
     'quartet/data/uploads/im-media',
@@ -212,7 +212,7 @@ function prepareLocalMemory(localMemory: string) {
 
 // seedAgentConfig writes settings.json (always) and, when E2E model
 // credentials are supplied, an isolated model into the eino-cli model catalog
-// (einoHome/models.json — eino-cli's own store, not quartet's).
+// under the Git-managed Memory config directory.
 //
 //   - settings.json always carries the E2E username + default IM workspace.
 //   - When QUARTET_E2E_MODEL_API_KEY (and _MODEL_NAME) are set, an eino-cli
@@ -222,7 +222,7 @@ function prepareLocalMemory(localMemory: string) {
 //     ACP agent (discovered at runtime) for chat-link coverage. The ACP
 //     subprocess uses its own login state in $HOME, so the run must NOT fail
 //     for lack of eino-cli model credentials.
-function seedAgentConfig(localMemory: string, einoHome: string) {
+function seedAgentConfig(localMemory: string) {
   const settings: Record<string, unknown> = {
     username: 'Quartet E2E',
     avatar_url: '',
@@ -252,8 +252,9 @@ function seedAgentConfig(localMemory: string, einoHome: string) {
         updated_at: now,
       },
     ]
-    fs.mkdirSync(einoHome, { recursive: true })
-    fs.writeFileSync(path.join(einoHome, 'models.json'), `${JSON.stringify(models, null, 2)}\n`, { mode: 0o600 })
+    const einoConfigDir = path.join(localMemory, 'quartet', 'config', 'eino')
+    fs.mkdirSync(einoConfigDir, { recursive: true })
+    fs.writeFileSync(path.join(einoConfigDir, 'models.json'), `${JSON.stringify(models, null, 2)}\n`, { mode: 0o600 })
     settings.agent_role_settings_version = 1
     settings.title_generation_agent = { agent_id: 'eino-cli' }
     settings.group_reply_agent = { agent_id: 'eino-cli' }
@@ -432,8 +433,8 @@ async function globalSetup() {
   // become the homepage default agent and every chat would fail with
   // "no model configured"; without credentials the run must fall back to an
   // installed ACP agent, exactly like a machine without eino-cli. EINO_HOME
-  // points at an isolated per-run dir so eino-cli's own store (model catalog,
-  // sessions) never touches the developer's real ~/.eino.
+  // points at an isolated per-run dir for session state; model configuration
+  // is isolated by LOCAL_MEMORY.
   const einoOnPath = Boolean(e2eModelAPIKey)
   const einoBinDir = path.join(runDir, 'eino-bin')
   const einoHome = path.join(runDir, 'eino-home')
@@ -448,7 +449,7 @@ async function globalSetup() {
   }
 
   prepareLocalMemory(localMemory)
-  seedAgentConfig(localMemory, einoHome)
+  seedAgentConfig(localMemory)
   seedLegacyFirstModelIDFixture(localMemory)
   seedInterruptedRunningJobFixture(localMemory)
   seedPersistWarningJobFixture(localMemory)

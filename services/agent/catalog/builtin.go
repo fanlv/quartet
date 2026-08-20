@@ -102,7 +102,6 @@ var builtinAgents = []BuiltinAgent{
 		DisplayName: "Claude", IconURL: "https://avatars.githubusercontent.com/u/81847", SupportsHeadlessPrint: true,
 		Install: agentinstall.InstallSpec{Method: agentinstall.InstallMethodNPM, Steps: []agentinstall.InstallStep{
 			agentinstall.NPMStep("@anthropic-ai/claude-code"),
-			agentinstall.NPMUninstallStep("@zed-industries/claude-agent-acp"),
 			agentinstall.NPMStep("@agentclientprotocol/claude-agent-acp"),
 		}},
 	},
@@ -148,7 +147,6 @@ var builtinAgents = []BuiltinAgent{
 		DisplayName: "Codex", IconURL: "https://avatars.githubusercontent.com/u/14957082", SupportsHeadlessPrint: false,
 		Install: agentinstall.InstallSpec{Method: agentinstall.InstallMethodNPM, Steps: []agentinstall.InstallStep{
 			agentinstall.NPMStep("@openai/codex"),
-			agentinstall.NPMUninstallStep("@zed-industries/codex-acp"),
 			agentinstall.NPMStep("@agentclientprotocol/codex-acp"),
 		}},
 	},

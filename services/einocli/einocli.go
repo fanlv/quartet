@@ -1,8 +1,9 @@
 // Package einocli wraps exec calls into the standalone eino-cli binary, which
 // owns the eino model catalog (including API keys) and the eino system prompt
-// under ~/.eino/. quartet never persists eino model configs itself — it only
-// shells out to `eino-cli models ...` / `eino-cli systemprompt ...` and passes
-// JSON through, so secrets never leave the eino-cli process's own storage.
+// under LOCAL_MEMORY/quartet/config/eino/. quartet never parses or persists
+// eino model configs itself — it only shells out to `eino-cli models ...` /
+// `eino-cli systemprompt ...` and passes JSON through, so secrets never leave
+// the eino-cli process's own storage.
 package einocli
 
 import (
