@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { JobChat, ChatPage, GraphWorkflowPage, Settings } from './components';
+import type { SettingsTab } from './components/settings/Settings';
 import { StatsPage } from './components/stats/StatsPage';
 import { ConnectionStatusProvider } from './contexts/ConnectionStatus';
 import { markBootStage, reportBootFailure } from './utils/boot';
@@ -115,6 +116,7 @@ function App() {
   const [initialAcpMode, setInitialAcpMode] = useState<string | undefined>();
   const [initialAcpThoughtLevel, setInitialAcpThoughtLevel] = useState<string | undefined>();
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('general');
   const [showStats, setShowStats] = useState(() => getStatsOpenFromUrl());
   const [showGraph, setShowGraph] = useState(() => getGraphOpenFromUrl());
   const graphDirtyRef = useRef(false);
@@ -819,8 +821,18 @@ function App() {
     };
   }, [currentWorkspace]);
 
-  const handleOpenSettings = useCallback(() => setShowSettings(true), []);
-  const handleCloseSettings = useCallback(() => setShowSettings(false), []);
+  const handleOpenSettings = useCallback(() => {
+    setSettingsInitialTab('general');
+    setShowSettings(true);
+  }, []);
+  const handleOpenAgentSettings = useCallback(() => {
+    setSettingsInitialTab('agents');
+    setShowSettings(true);
+  }, []);
+  const handleCloseSettings = useCallback(() => {
+    setShowSettings(false);
+    setHomeRefreshKey((key) => key + 1);
+  }, []);
   const handleOpenStats = useCallback(() => {
     setShowGraph(false);
     setShowStats(true);
@@ -997,12 +1009,19 @@ function App() {
             onSelectWorkspace={handleSelectWorkspace}
             onSelectJob={handleSelectJob}
             onOpenSettings={handleOpenSettings}
+            onOpenAgentSettings={handleOpenAgentSettings}
             onOpenStats={handleOpenStats}
             onOpenGraph={handleOpenGraph}
           />
         </div>
       )}
-      {showSettings && <Settings onClose={handleCloseSettings} onSettingsChanged={handleSettingsChanged} />}
+      {showSettings && (
+        <Settings
+          initialTab={settingsInitialTab}
+          onClose={handleCloseSettings}
+          onSettingsChanged={handleSettingsChanged}
+        />
+      )}
     </div>
     </ConnectionStatusProvider>
   );

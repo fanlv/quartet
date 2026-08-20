@@ -13,11 +13,12 @@ import { LogsSettings } from './LogsSettings';
 import './Settings.css';
 import './WeChatSettings.css';
 
-type SettingsTab = 'general' | 'workspace' | 'token' | 'eino' | 'prompt' | 'skill' | 'agents' | 'lark' | 'wechat' | 'logs';
+export type SettingsTab = 'general' | 'workspace' | 'token' | 'eino' | 'prompt' | 'skill' | 'agents' | 'lark' | 'wechat' | 'logs';
 
 interface SettingsProps {
   onClose: () => void;
   onSettingsChanged?: () => void;
+  initialTab?: SettingsTab;
 }
 
 const tabDefs: { key: SettingsTab; labelKey: string; icon: string }[] = [
@@ -33,9 +34,9 @@ const tabDefs: { key: SettingsTab; labelKey: string; icon: string }[] = [
   { key: 'logs', labelKey: 'settings.tabs.logs', icon: '📋' },
 ];
 
-export function Settings({ onClose, onSettingsChanged }: SettingsProps) {
+export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }: SettingsProps) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);

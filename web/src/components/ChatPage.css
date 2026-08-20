@@ -288,6 +288,52 @@
   color: #334155;
 }
 
+.home-agent-loading {
+  cursor: wait;
+}
+
+.model-tag.home-agent-empty-trigger {
+  max-width: none;
+  appearance: none;
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #9a4b12;
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.model-tag.home-agent-empty-trigger:hover {
+  border-color: #fdba74;
+  background: #ffedd5;
+  color: #7c2d12;
+  transform: translateY(-1px);
+}
+
+.model-tag.home-agent-empty-trigger:active {
+  transform: translateY(0);
+}
+
+.model-tag.home-agent-empty-trigger:focus-visible {
+  outline: 2px solid #f97316;
+  outline-offset: 2px;
+}
+
+.home-agent-empty-icon {
+  flex: 0 0 auto;
+}
+
+.home-agent-empty-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: 2px;
+  padding-left: 8px;
+  border-left: 1px solid #fed7aa;
+  color: #c2410c;
+  white-space: nowrap;
+}
+
 .model-tag-icon {
   width: 16px;
   height: 16px;
@@ -1580,6 +1626,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+  }
+
+  .model-tag.home-agent-empty-trigger {
+    max-width: 100%;
   }
 
   .model-dropdown {

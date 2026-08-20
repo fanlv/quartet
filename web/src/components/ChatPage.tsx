@@ -245,6 +245,7 @@ interface ChatPageProps {
   onSelectWorkspace?: (ws: { id: string; title: string; description: string; workdir: string; color?: string }) => void;
   onSelectJob?: (jobId: string, workspaceId?: string) => void;
   onOpenSettings?: () => void;
+  onOpenAgentSettings?: () => void;
   onOpenStats?: () => void;
   onOpenGraph?: () => void;
 }
@@ -561,11 +562,12 @@ const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceNa
   );
 });
 
-export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWorkdir, workspaceId, workspaceTitle, onSelectWorkspace, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph }: ChatPageProps) {
+export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWorkdir, workspaceId, workspaceTitle, onSelectWorkspace, onSelectJob, onOpenSettings, onOpenAgentSettings, onOpenStats, onOpenGraph }: ChatPageProps) {
   const { connected, buildTime } = useConnectionStatus();
   const { t, i18n } = useTranslation();
   const [input, setInput] = useState('');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [acpConfigError, setAcpConfigError] = useState<string | null>(null);
   const [agentPrefs, setAgentPrefs] = useState<AgentPrefsMap>({});
   const [workdir, setWorkdir] = useState('');
@@ -812,6 +814,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
 
   useEffect(() => {
     let cancelled = false;
+    setAgentsLoaded(false);
     void migrateStoredAgentReferences(workspaceId)
       .then(() => Promise.all([fetchAgentList(), fetchAgentPrefs()]))
       .then(([{ agents: list, workdir: wd, jobEnable: je }, prefsMap]) => {
@@ -882,6 +885,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
       } else {
         setAgents(list);
       }
+      setAgentsLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -1966,21 +1970,48 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
           <div className="home-input-footer">
             <div className="home-input-options">
               <div className="chat-model-selector" ref={dropdownRef}>
-              <div
-                className="model-tag"
-                onClick={() => setShowDropdown(!showDropdown)}
-              >
-                {selectedAgent?.icon_url && (
-                  isImageUrl(selectedAgent.icon_url)
-                    ? <img src={selectedAgent.icon_url} alt="" className="model-tag-icon" referrerPolicy="no-referrer" />
-                    : <span className="model-tag-emoji">{selectedAgent.icon_url}</span>
-                )}
-                <span>{selectedAgent ? selectedAgent.display_name : 'Select Agent'}</span>
-                <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
-              </div>
-              {showDropdown && (
+              {!agentsLoaded ? (
+                <div className="model-tag disabled home-agent-loading" aria-live="polite">
+                  <span>{t('home.loadingAgents')}</span>
+                </div>
+              ) : agents.length === 0 ? (
+                <button
+                  type="button"
+                  className="model-tag home-agent-empty-trigger"
+                  onClick={onOpenAgentSettings}
+                  title={t('home.agentSetupHint')}
+                  aria-label={t('home.agentSetupHint')}
+                  data-testid="install-agent-entry"
+                >
+                  <svg className="home-agent-empty-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 8v8M8 12h8" />
+                  </svg>
+                  <span>{t('home.agentSetupNeeded')}</span>
+                  <span className="home-agent-empty-action">
+                    {t('home.agentSetupAction')}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m9 18 6-6-6-6" />
+                    </svg>
+                  </span>
+                </button>
+              ) : (
+                <div
+                  className="model-tag"
+                  onClick={() => setShowDropdown(!showDropdown)}
+                >
+                  {selectedAgent?.icon_url && (
+                    isImageUrl(selectedAgent.icon_url)
+                      ? <img src={selectedAgent.icon_url} alt="" className="model-tag-icon" referrerPolicy="no-referrer" />
+                      : <span className="model-tag-emoji">{selectedAgent.icon_url}</span>
+                  )}
+                  <span>{selectedAgent ? selectedAgent.display_name : t('sidebar.selectAgent')}</span>
+                  <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </div>
+              )}
+              {showDropdown && agents.length > 0 && (
                 isMobile ? createPortal(
                   <div className="mobile-dropdown-overlay" onClick={() => setShowDropdown(false)}>
                     <div className="mobile-dropdown-sheet" onClick={e => e.stopPropagation()}>
