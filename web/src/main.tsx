@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import './i18n'
 import './index.css'
@@ -193,6 +193,10 @@ installBootErrorOverlay()
 // can show frontend issues alongside backend logs.
 installFrontendLogForwarder()
 
+const FilePreviewPage = lazy(() =>
+  import('./components/FilePreviewPage').then((module) => ({ default: module.FilePreviewPage })),
+)
+
 const AUTH_TOKEN_STORAGE_KEY = 'quartet.x_auth_token'
 const AUTH_HEADER_NAME = 'X-AGENT-AUTH'
 
@@ -229,11 +233,16 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 }) as typeof window.fetch
 
 markBootStage('react-render-start')
+const isFilePreviewRoute = new URLSearchParams(window.location.search).get('view') === 'file-preview'
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BootComplete />
     <AuthGate>
-      <App />
+      {isFilePreviewRoute ? (
+        <Suspense fallback={<div style={{ padding: 24 }}>正在加载文件预览…</div>}>
+          <FilePreviewPage />
+        </Suspense>
+      ) : <App />}
     </AuthGate>
   </StrictMode>,
 )

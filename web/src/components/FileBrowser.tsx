@@ -418,6 +418,15 @@ export function FileBrowser({ rootPath, jobId, onClose }: FileBrowserProps) {
     }).catch(() => showToast('复制失败'));
   };
 
+  const handleOpenStandalonePreview = () => {
+    if (!viewingFile) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', 'file-preview');
+    url.searchParams.set('path', viewingFile.path);
+    if (jobId) url.searchParams.set('jobId', jobId);
+    window.open(url.toString(), '_blank', 'noopener,noreferrer');
+  };
+
   const renderFileViewerContent = () => {
     if (!viewingFile) return null;
     if (viewingFile.loading) {
@@ -476,6 +485,11 @@ export function FileBrowser({ rootPath, jobId, onClose }: FileBrowserProps) {
         {viewingFile && viewingFile.size > 0 && <span className="file-viewer-size">{formatSize(viewingFile.size)}</span>}
       </div>
       <div className="file-viewer-header-right">
+        {viewingFile && !viewingFile.loading && !viewingFile.binary && !isImageFile(viewingFile.name) && (
+          <button className="file-viewer-header-btn" title="在新页面预览" aria-label="在新页面预览" onClick={handleOpenStandalonePreview}>
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
+          </button>
+        )}
         {!viewingFile?.binary && !isImageFile(viewingFile?.name || '') && (
           <button className="file-viewer-header-btn" title="复制内容" onClick={handleCopyContent}>
             {copiedContent ? (
