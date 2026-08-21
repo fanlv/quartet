@@ -4,5 +4,5 @@
 // trusted to return only real image URLs, so we only need to distinguish
 // URL-shaped input from an emoji or short string.
 export function isImageUrl(s: string): boolean {
-  return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:image/');
+  return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:image/') || s.startsWith('/api/v1/icon');
 }
