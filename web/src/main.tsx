@@ -234,15 +234,22 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 
 markBootStage('react-render-start')
 const isFilePreviewRoute = new URLSearchParams(window.location.search).get('view') === 'file-preview'
+const isPublicFilePreview = isFilePreviewRoute && new URLSearchParams(window.location.search).has('fileShareToken')
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BootComplete />
-    <AuthGate>
-      {isFilePreviewRoute ? (
-        <Suspense fallback={<div style={{ padding: 24 }}>正在加载文件预览…</div>}>
-          <FilePreviewPage />
-        </Suspense>
-      ) : <App />}
-    </AuthGate>
+    {isPublicFilePreview ? (
+      <Suspense fallback={<div style={{ padding: 24 }}>正在加载文件预览…</div>}>
+        <FilePreviewPage />
+      </Suspense>
+    ) : (
+      <AuthGate>
+        {isFilePreviewRoute ? (
+          <Suspense fallback={<div style={{ padding: 24 }}>正在加载文件预览…</div>}>
+            <FilePreviewPage />
+          </Suspense>
+        ) : <App />}
+      </AuthGate>
+    )}
   </StrictMode>,
 )

@@ -212,6 +212,12 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	jobGroup.POST("/:jobId/share", h.JobShare)
 	jobGroup.POST("/:jobId/unshare", h.JobUnshare)
 
+	// File share routes (auth required)
+	fileShare := api.Group("/file-share")
+	fileShare.POST("/create", h.FileShareCreate)
+	fileShare.POST("/delete", h.FileShareDelete)
+	fileShare.GET("/get", h.FileShareGet)
+
 	// Public read-only routes (no auth, validated by shareToken)
 	pub := s.Group("/api/v1/public", shareTokenMiddleware(h.GetJobService()))
 	pub.GET("/agent/list", h.PublicAgentList)
@@ -227,6 +233,11 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	pub.GET("/job/:jobId/graph-run", h.GetJobGraphRunStatus)
 	pub.GET("/job/:jobId/graph-run/events", h.JobGraphRunEvents)
 	pub.GET("/job/:jobId/graph-run/hooks", h.JobGraphRunHooks)
+
+	// Public file preview routes (no auth, validated by fileShareToken)
+	filePub := s.Group("/api/v1/public/file-preview")
+	filePub.GET("/read-file", h.PublicReadFile)
+	filePub.GET("/serve-file", h.PublicServeSharedFile)
 
 	// No-matching-route fallback: serve the front-end static build for non-API
 	// paths (with SPA index fallback) and a JSON 404 for unknown /api paths.

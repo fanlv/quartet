@@ -1,0 +1,66 @@
+/* Syntax highlighting tokens (Catppuccin Mocha palette) emitted by
+   tokenizeLine() in ./syntaxHighlight.ts. Imported from that module so any
+   consumer of the tokenizer gets the styles automatically. */
+.hl-keyword {
+  color: #cba6f7; /* mauve */
+  font-weight: 500;
+}
+
+.hl-string {
+  color: #a6e3a1; /* green */
+}
+
+.hl-comment {
+  color: #585b70; /* surface2 */
+  font-style: italic;
+}
+
+.hl-number {
+  color: #fab387; /* peach */
+}
+
+.hl-operator {
+  color: #89dceb; /* sky */
+}
+
+.hl-function {
+  color: #89b4fa; /* blue */
+}
+
+.hl-type {
+  color: #f9e2af; /* yellow */
+  font-weight: 500;
+}
+
+.hl-builtin {
+  color: #f38ba8; /* red */
+}
+
+.hl-punctuation {
+  color: #7f849c; /* overlay1 */
+}
+
+.hl-variable {
+  color: #f2cdcd; /* flamingo */
+}
+
+.hl-tag {
+  color: #f38ba8; /* red */
+}
+
+.hl-attribute {
+  color: #f9e2af; /* yellow */
+}
+
+.hl-property {
+  color: #89b4fa; /* blue */
+}
+
+.hl-decorator {
+  color: #cba6f7; /* mauve */
+  font-style: italic;
+}
+
+.hl-regexp {
+  color: #f38ba8; /* red */
+}

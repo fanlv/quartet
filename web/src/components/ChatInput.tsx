@@ -14,6 +14,7 @@ import { usePendingImages } from '../hooks/usePendingImages';
 import { workspaceColor } from '../utils/workspace';
 import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl } from '../utils/url';
+import { showToast } from '../utils/toast';
 import { splitFavoriteModels } from '../utils/agentPrefs';
 import { DurationBadge } from './DurationBadge';
 import './ChatInput.css';
@@ -106,20 +107,6 @@ function appendLocalSentMessage(storageKey: string, item: Omit<LocalSentMessage,
   const next = [nextItem, ...prev].slice(0, LOCAL_SENT_MESSAGE_LIMIT);
   writeLocalSentMessages(storageKey, next);
   return next;
-}
-
-function showToast(message: string) {
-  const existing = document.querySelector('.copy-toast');
-  if (existing) existing.remove();
-  const toast = document.createElement('div');
-  toast.className = 'copy-toast';
-  toast.textContent = message;
-  document.body.appendChild(toast);
-  setTimeout(() => toast.classList.add('show'), 10);
-  setTimeout(() => {
-    toast.classList.remove('show');
-    setTimeout(() => toast.remove(), 300);
-  }, 2000);
 }
 
 async function uploadImage(file: File): Promise<string> {

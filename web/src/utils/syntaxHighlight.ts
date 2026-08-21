@@ -2,6 +2,7 @@
  * Lightweight syntax highlighting engine for the file viewer.
  * Operates line-by-line using regex-based tokenization.
  */
+import './syntaxHighlight.css';
 
 export type TokenType =
   | 'keyword'

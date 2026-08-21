@@ -131,7 +131,37 @@ function buildReturnUrl(): string {
   return url.toString();
 }
 
-async function readFile(path: string, jobId: string, signal: AbortSignal): Promise<FilePreviewData> {
+// Public share links read through a token-scoped endpoint; everything else
+// goes through the shared authenticated reader.
+async function readPreviewFile(path: string, jobId: string, signal: AbortSignal): Promise<FilePreviewData> {
+  const params = new URLSearchParams(window.location.search);
+  const fileShareToken = params.get('fileShareToken');
+
+  if (fileShareToken) {
+    const endpoint = `/api/v1/public/file-preview/read-file?fileShareToken=${encodeURIComponent(fileShareToken)}`;
+    const response = await fetch(endpoint, { signal });
+    const rawBody = await response.text();
+    if (!response.ok) {
+      const status = `${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
+      throw new Error(`GET ${endpoint} returned HTTP ${status}${rawBody ? `\n${rawBody}` : ''}`);
+    }
+    let data: { code?: number; msg?: string; content?: string; size?: number; truncated?: boolean; binary?: boolean };
+    try {
+      data = JSON.parse(rawBody);
+    } catch (error) {
+      throw new Error(`GET ${endpoint} returned invalid JSON\n${rawBody}`, { cause: error });
+    }
+    if (data.code !== 0) {
+      throw new Error(`GET ${endpoint} returned code ${String(data.code)}${rawBody ? `\n${rawBody}` : ''}`);
+    }
+    return {
+      content: data.content ?? '',
+      size: data.size ?? 0,
+      truncated: !!data.truncated,
+      binary: !!data.binary,
+    };
+  }
+
   const endpoint = '/api/v1/read-file';
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -357,7 +387,12 @@ function MarkdownPreviewImage({ basePath, src, alt }: { basePath: string; src: s
     const controller = new AbortController();
     let objectUrl = '';
     const localPath = normalizeLocalPath(basePath, src);
-    void fetch(`/api/v1/serve-file?path=${encodeURIComponent(localPath)}`, { signal: controller.signal })
+    const params = new URLSearchParams(window.location.search);
+    const fileShareToken = params.get('fileShareToken');
+    const serveUrl = fileShareToken
+      ? `/api/v1/public/file-preview/serve-file?fileShareToken=${encodeURIComponent(fileShareToken)}&path=${encodeURIComponent(localPath)}`
+      : `/api/v1/serve-file?path=${encodeURIComponent(localPath)}`;
+    void fetch(serveUrl, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) {
           const detail = await response.text();
@@ -401,6 +436,8 @@ export function FilePreviewPage() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const path = params.get('path')?.trim() || '';
   const jobId = params.get('jobId')?.trim() || '';
+  const fileShareToken = params.get('fileShareToken') || '';
+  const isPublic = !!fileShareToken;
   const markdown = isMarkdownPath(path);
   const html = isHtmlPath(path);
   const renderedDocument = markdown || html;
@@ -410,6 +447,17 @@ export function FilePreviewPage() {
   const [showSource, setShowSource] = useState(!renderedDocument);
   const [wrapText, setWrapText] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [shareToken, setShareToken] = useState('');
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  useEffect(() => {
+    if (isPublic || !path) return;
+    void fetch(`/api/v1/file-share/get?path=${encodeURIComponent(path)}`)
+      .then((res) => res.json())
+      .then((data) => { if (data.shared) setShareToken(data.token); })
+      .catch(() => {});
+  }, [path, isPublic]);
 
   useEffect(() => {
     document.title = path ? `${fileNameFromPath(path)} · 文件预览` : '文件预览';
@@ -425,7 +473,7 @@ export function FilePreviewPage() {
     const controller = new AbortController();
     setLoading(true);
     setError('');
-    void readFile(path, jobId, controller.signal)
+    void readPreviewFile(path, jobId, controller.signal)
       .then((result) => setData(result))
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === 'AbortError') return;
@@ -449,6 +497,57 @@ export function FilePreviewPage() {
       setError(reason instanceof Error ? reason.stack || reason.message : String(reason));
     });
   }, [data]);
+
+  const handleShare = useCallback(async () => {
+    if (!path || isPublic) return;
+    setShareLoading(true);
+    try {
+      const res = await fetch('/api/v1/file-share/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const token = data.token;
+      setShareToken(token);
+      const url = new URL(window.location.href);
+      url.searchParams.set('fileShareToken', token);
+      url.searchParams.delete('jobId');
+      await copyToClipboard(url.toString());
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to share file:', err);
+    } finally {
+      setShareLoading(false);
+    }
+  }, [path, isPublic]);
+
+  const handleCopyShareLink = useCallback(async () => {
+    if (!shareToken) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('fileShareToken', shareToken);
+    url.searchParams.delete('jobId');
+    await copyToClipboard(url.toString());
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
+  }, [shareToken]);
+
+  const handleUnshare = useCallback(async () => {
+    if (!shareToken) return;
+    try {
+      const res = await fetch('/api/v1/file-share/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: shareToken }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setShareToken('');
+    } catch (err) {
+      console.error('Failed to unshare file:', err);
+    }
+  }, [shareToken]);
 
   const markdownComponents = useMemo<Components>(() => ({
     a: ({ href, children }) => {
@@ -499,7 +598,24 @@ export function FilePreviewPage() {
               {copied ? '已复制' : '复制内容'}
             </button>
           )}
-          <a className="file-preview-button file-preview-return" href={buildReturnUrl()}>返回 Quartet</a>
+          {!isPublic && data && !shareToken && (
+            <button type="button" className="file-preview-button" onClick={handleShare} disabled={shareLoading}>
+              {shareLoading ? '分享中…' : '分享'}
+            </button>
+          )}
+          {!isPublic && shareToken && (
+            <>
+              <button type="button" className="file-preview-button" onClick={handleCopyShareLink}>
+                {shareCopied ? '已复制' : '复制分享链接'}
+              </button>
+              <button type="button" className="file-preview-button" onClick={handleUnshare}>
+                取消分享
+              </button>
+            </>
+          )}
+          {!isPublic && (
+            <a className="file-preview-button file-preview-return" href={buildReturnUrl()}>返回 Quartet</a>
+          )}
         </div>
       </header>
 

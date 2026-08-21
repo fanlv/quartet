@@ -180,25 +180,6 @@
   color: #999;
 }
 
-/* File viewer */
-.filebrowser-viewer-image {
-  flex: 1;
-  overflow: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px;
-  background: #1e1e2e;
-}
-
-.filebrowser-viewer-image img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  border-radius: 4px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-}
-
 /* Desktop modal viewer */
 .fb-modal-overlay {
   position: fixed;
@@ -337,52 +318,6 @@
   .filebrowser-content.mobile-viewing .fb-viewer-modal-inline {
     flex: 1;
     min-height: 0;
-  }
-
-  /* Override file-viewer mobile overrides within the inline viewer */
-  .fb-viewer-modal-inline .file-viewer-header {
-    gap: 6px;
-    padding: 10px 12px;
-    min-height: 44px;
-  }
-
-  .fb-viewer-modal-inline .file-viewer-header-btn {
-    width: 36px;
-    height: 36px;
-  }
-
-  .fb-viewer-modal-inline .file-viewer-filename {
-    font-size: 12px;
-  }
-
-  .fb-viewer-modal-inline .file-viewer-line-number {
-    padding: 0 8px;
-    font-size: 11px;
-  }
-
-  .fb-viewer-modal-inline .file-viewer-line-content {
-    padding: 0 10px;
-    font-size: 12px;
-  }
-
-  .fb-viewer-modal-inline .file-viewer-code {
-    font-size: 12px;
-  }
-
-  .fb-viewer-modal-inline .file-viewer-footer {
-    padding: 6px 12px;
-  }
-
-  .fb-viewer-modal-inline .file-viewer-path {
-    font-size: 10px;
-  }
-
-  .fb-viewer-modal-inline .file-viewer-line-count {
-    font-size: 10px;
-  }
-
-  .filebrowser-viewer-image {
-    background: #1e1e2e;
   }
 }
 

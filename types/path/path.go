@@ -193,6 +193,15 @@ func ACPProbeCacheFile() (string, error) {
 	return filepath.Join(dir, acpProbeCacheFile), nil
 }
 
+// FileSharesFile returns {LOCAL_MEMORY}/quartet/data/file-shares.json.
+func FileSharesFile() (string, error) {
+	dir, err := QuartetDataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "file-shares.json"), nil
+}
+
 // PromptsDir returns {LOCAL_MEMORY}/quartet/config/prompts/, the
 // human-maintained prompt directory.
 func PromptsDir() (string, error) {
