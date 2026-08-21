@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,6 +60,9 @@ func (h *Handler) IconProxy(ctx context.Context, c *app.RequestContext) {
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
+	if transport := proxyTransport(); transport != nil {
+		client.Transport = transport
+	}
 	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if reqErr != nil {
 		logger.Warnf(ctx, "[icon-cache] bad request url=%s err=%v", url, reqErr)
@@ -107,4 +111,27 @@ func IconCacheURL(originalURL string) string {
 		return originalURL
 	}
 	return fmt.Sprintf("/api/v1/icon?url=%s", originalURL)
+}
+
+func proxyTransport() *http.Transport {
+	proxyURL := os.Getenv("HTTP_PROXY")
+	if proxyURL == "" {
+		proxyURL = os.Getenv("http_proxy")
+	}
+	if proxyURL == "" {
+		proxyURL = os.Getenv("HTTPS_PROXY")
+	}
+	if proxyURL == "" {
+		proxyURL = os.Getenv("https_proxy")
+	}
+	if proxyURL == "" {
+		return nil
+	}
+	parsed, err := url.Parse(proxyURL)
+	if err != nil {
+		return nil
+	}
+	return &http.Transport{
+		Proxy: http.ProxyURL(parsed),
+	}
 }

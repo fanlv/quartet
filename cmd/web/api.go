@@ -15,6 +15,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// but kept under /api/v1/* so it rides the frontend's existing /api
 	// proxy path without needing a second proxy rule.
 	s.GET("/api/v1/health", healthHandler)
+	s.GET("/api/v1/icon", h.IconProxy)
 
 	api := s.Group("/api/v1", agentAuthMiddleware())
 
@@ -22,8 +23,6 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// probing ACP agents. Used by the frontend AuthGate to avoid blocking on
 	// slow/unreachable agents during boot.
 	api.GET("/auth/verify", h.AuthVerify)
-
-	api.GET("/icon", h.IconProxy)
 
 	agent := api.Group("/agent")
 	agent.GET("/list", h.AgentList)
