@@ -24,7 +24,6 @@ func (h *Handler) AgentCatalog(ctx context.Context, c *app.RequestContext) {
 	checker := agentinstall.Checker{}
 	for index := range agents {
 		item := &agents[index]
-		item.IconURL = IconCacheURL(item.IconURL)
 		status := checker.Check(agentinstall.Definition{
 			Bin:        item.Definition.Bin,
 			ACPProgram: item.Definition.ACPProgram,
