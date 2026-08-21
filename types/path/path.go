@@ -157,6 +157,15 @@ func QuartetTmpDir() (string, error) {
 	return filepath.Join(dir, tmpDir), nil
 }
 
+// IconCacheDir returns {LOCAL_MEMORY}/var/quartet/cache/icons/.
+func IconCacheDir() (string, error) {
+	dir, err := QuartetCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "icons"), nil
+}
+
 // SettingsConfigFile returns the persistent settings.json path.
 func SettingsConfigFile() (string, error) {
 	dir, err := QuartetDataDir()

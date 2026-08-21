@@ -23,6 +23,8 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// slow/unreachable agents during boot.
 	api.GET("/auth/verify", h.AuthVerify)
 
+	api.GET("/icon", h.IconProxy)
+
 	agent := api.Group("/agent")
 	agent.GET("/list", h.AgentList)
 	// Complete management catalog: append-only built-ins followed by persisted

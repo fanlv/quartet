@@ -37,6 +37,10 @@ func (h *Handler) AgentDisplayInfoResolve(ctx context.Context, c *app.RequestCon
 		httputil.InternalErrorLog(ctx, c, "agent.display-info.resolve", err)
 		return
 	}
+	for id, info := range agents {
+		info.IconURL = IconCacheURL(info.IconURL)
+		agents[id] = info
+	}
 	c.JSON(http.StatusOK, model.ResolveAgentDisplayInfoResponse{Agents: agents})
 }
 

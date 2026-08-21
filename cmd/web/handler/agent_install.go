@@ -33,7 +33,7 @@ func (h *Handler) AgentInstallCandidates(ctx context.Context, c *app.RequestCont
 			ACPProgram:      a.ACPProgram,
 			Command:         a.Command,
 			DisplayName:     a.DisplayName,
-			IconURL:         a.IconURL,
+			IconURL:         IconCacheURL(a.IconURL),
 			InstallMethod:   string(a.Install.Method),
 			InstallCommands: a.Install.StepDisplays(),
 			Instructions:    a.Install.Instructions,
