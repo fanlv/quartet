@@ -1262,7 +1262,7 @@ function HighlightedLine({ line, lang }: { line: string; lang: string | null }) 
   );
 }
 
-function FileViewerModal({ file, onClose }: { file: ViewingFileState; onClose: () => void }) {
+function FileViewerModal({ file, jobId, onClose }: { file: ViewingFileState; jobId?: string; onClose: () => void }) {
   const lineNumbers = file.content ? file.content.split('\n') : [];
   const scrolledRef = useRef(false);
   const lang = detectLanguage(file.path);
@@ -1286,6 +1286,14 @@ function FileViewerModal({ file, onClose }: { file: ViewingFileState; onClose: (
     }).catch(() => showToast('复制失败'));
   };
 
+  const handleOpenStandalonePreview = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', 'file-preview');
+    url.searchParams.set('path', file.path);
+    if (jobId) url.searchParams.set('jobId', jobId);
+    window.open(url.toString(), '_blank', 'noopener,noreferrer');
+  };
+
   return createPortal(
     <>
       <div className="file-viewer-overlay" onClick={onClose} />
@@ -1302,6 +1310,11 @@ function FileViewerModal({ file, onClose }: { file: ViewingFileState; onClose: (
             {file.size > 0 && <span className="file-viewer-size">{formatFileSize(file.size)}</span>}
           </div>
           <div className="file-viewer-header-right">
+            {!file.loading && !file.error && !file.binary && (
+              <button className="file-viewer-header-btn" title="在新页面预览" aria-label="在新页面预览" onClick={handleOpenStandalonePreview}>
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
+              </button>
+            )}
             <button className="file-viewer-header-btn" title="复制内容" onClick={handleCopyContent}>
               {copiedContent ? (
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12" /></svg>
@@ -1442,7 +1455,7 @@ export const MessageItem = memo(function MessageItem({ message, agentIconUrl, ag
             return null;
         }
       })()}
-      {viewingFile && <FileViewerModal file={viewingFile} onClose={() => setViewingFile(null)} />}
+      {viewingFile && <FileViewerModal file={viewingFile} jobId={jobId} onClose={() => setViewingFile(null)} />}
     </FileViewerContext.Provider>
     </WorkdirContext.Provider>
     </ShareInfoContext.Provider>

@@ -256,15 +256,18 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Generate a Job title from the workflow config (the full JSON) for freshly
-	// launched runs, mirroring chat/loop Jobs. effectiveConfig is the complete
-	// workflow definition that actually executed (current version), and stays
-	// correct now that the base snapshot no longer stores the config.
+	// Generate a Job title for freshly launched runs, mirroring chat/loop Jobs.
+	// The LLM sees only the distilled Prompt-node prompts (in execution order),
+	// not the whole config JSON: layout/ID/edge noise dominated the old input and
+	// pushed the model toward vague, structural titles. effectiveConfig is the
+	// complete workflow definition that actually executed (current version), and
+	// stays correct now that the base snapshot no longer stores the config.
 	if freshJob && run != nil {
-		if cfgJSON, mErr := sonic.MarshalString(graphsvc.EffectiveConfig(run)); mErr == nil {
-			h.asyncUpdateGraphJobTitle(ctx, run.JobID, cfgJSON)
+		titleInput := graphsvc.BuildTitleInput(graphsvc.EffectiveConfig(run))
+		if titleInput.Summary == "" {
+			logger.Infof(ctx, "[graph] no prompt content for title, skipping: jobId=%s", run.JobID)
 		} else {
-			logger.Warnf(ctx, "[graph] marshal config for title failed: jobId=%s err=%v", run.JobID, mErr)
+			h.asyncUpdateGraphJobTitle(ctx, run.JobID, titleInput)
 		}
 	}
 

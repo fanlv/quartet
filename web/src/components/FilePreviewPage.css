@@ -200,7 +200,7 @@
 }
 
 .file-preview-document {
-  width: min(880px, calc(100% - 56px));
+  width: calc(100% - 160px);
   min-height: calc(100% - 96px);
   margin: 48px auto;
   padding: clamp(44px, 7vw, 86px) clamp(36px, 8vw, 92px) 96px;
@@ -317,6 +317,150 @@
   font-size: 13px;
 }
 
+.file-preview-mermaid {
+  position: relative;
+  min-height: 180px;
+  margin: 30px 0;
+  overflow: hidden;
+  border: 1px solid #dce3ec;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.file-preview-mermaid-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid #e4e9f0;
+  color: #667085;
+  background: #f6f8fb;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.file-preview-mermaid-zoom {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.file-preview-mermaid-zoom button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #536176;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.file-preview-mermaid-zoom button:hover:not(:disabled),
+.file-preview-mermaid-zoom button:focus-visible {
+  border-color: #cbd7e8;
+  color: #174da6;
+  background: #ffffff;
+}
+
+.file-preview-mermaid-zoom button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.18);
+  outline-offset: 1px;
+}
+
+.file-preview-mermaid-zoom button:disabled {
+  color: #aeb7c4;
+  cursor: default;
+}
+
+.file-preview-mermaid-zoom button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.file-preview-mermaid-zoom .file-preview-mermaid-percent {
+  width: 48px;
+}
+
+.file-preview-mermaid-canvas {
+  display: block;
+  min-height: 180px;
+  padding: 28px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.file-preview-mermaid-canvas svg {
+  display: block;
+  flex: 0 0 auto;
+  margin: 0 auto;
+}
+
+.file-preview-mermaid-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #667085;
+  background: #fbfcfe;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+  font-size: 13px;
+}
+
+.file-preview-mermaid-loading .file-preview-spinner {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+}
+
+.file-preview-mermaid-error {
+  margin: 30px 0;
+  padding: 18px;
+  border: 1px solid #f0b8bd;
+  border-left: 4px solid #dc2626;
+  border-radius: 7px;
+  color: #7f1d1d;
+  background: #fff5f6;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+  font-size: 13px;
+}
+
+.file-preview-mermaid-error strong { color: #991b1b; }
+
+.file-preview-mermaid-error pre {
+  max-height: 280px;
+  margin: 14px 0 0;
+  padding: 13px;
+  border: 1px solid #f2c5ca;
+  color: #7f1d1d;
+  background: #ffffff;
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.file-preview-mermaid-error details { margin-top: 12px; }
+.file-preview-mermaid-error summary { cursor: pointer; font-weight: 650; }
+
 .file-preview-table-wrap {
   margin: 26px 0;
   overflow-x: auto;
@@ -410,6 +554,19 @@
   overflow-wrap: anywhere;
 }
 
+.file-preview-stage.html-mode {
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.file-preview-html-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
+}
+
 .file-preview-state,
 .file-preview-error {
   width: min(720px, calc(100% - 40px));
@@ -489,6 +646,8 @@
   .file-preview-document h1 { margin-bottom: 30px; padding-bottom: 18px; }
   .file-preview-document h2 { margin-top: 42px; font-size: 23px; }
   .file-preview-document pre { margin-right: -12px; margin-left: -12px; border-radius: 6px; }
+  .file-preview-mermaid { margin-right: -12px; margin-left: -12px; }
+  .file-preview-mermaid-canvas { padding: 20px; }
   .file-preview-source { width: calc(100% - 20px); min-height: calc(100% - 24px); margin: 12px auto; }
   .file-preview-source pre { padding: 22px 18px 48px; font-size: 12px; }
 }

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Children, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -14,7 +15,10 @@ interface FilePreviewData {
   binary: boolean;
 }
 
+type MermaidAPI = typeof import('mermaid')['default'];
+
 const markdownExtensions = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.mdx']);
+const htmlExtensions = new Set(['.html', '.htm']);
 const externalUrlPattern = /^(?:https?:|mailto:|tel:|data:)/i;
 const externalResourceUrlPattern = /^(?:https?:|data:|blob:)/i;
 const markdownSanitizeSchema = {
@@ -24,6 +28,54 @@ const markdownSanitizeSchema = {
     p: [...(defaultSchema.attributes?.p || []), ['align', 'center', 'left', 'right']],
   },
 };
+let mermaidPromise: Promise<MermaidAPI> | null = null;
+const mermaidMinZoom = 0.25;
+const mermaidMaxZoom = 2;
+const mermaidZoomStep = 0.25;
+
+function loadMermaid(): Promise<MermaidAPI> {
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then(({ default: mermaid }) => {
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        suppressErrorRendering: true,
+        theme: 'base',
+        look: 'classic',
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif",
+        themeVariables: {
+          background: '#ffffff',
+          primaryColor: '#edf4ff',
+          primaryTextColor: '#172033',
+          primaryBorderColor: '#7ca5e8',
+          secondaryColor: '#f3f6fa',
+          secondaryTextColor: '#263247',
+          secondaryBorderColor: '#aebaca',
+          tertiaryColor: '#f8fafc',
+          tertiaryTextColor: '#263247',
+          tertiaryBorderColor: '#cbd5e1',
+          lineColor: '#65758b',
+          edgeLabelBackground: '#ffffff',
+          clusterBkg: '#f8fafc',
+          clusterBorder: '#cbd5e1',
+          noteBkgColor: '#fff7e7',
+          noteBorderColor: '#e5bd73',
+          noteTextColor: '#4a3a1f',
+        },
+        flowchart: {
+          curve: 'basis',
+          htmlLabels: false,
+          useMaxWidth: false,
+        },
+      });
+      return mermaid;
+    }).catch((error) => {
+      mermaidPromise = null;
+      throw error;
+    });
+  }
+  return mermaidPromise;
+}
 
 function fileNameFromPath(path: string): string {
   return path.split('/').filter(Boolean).pop() || path || '未命名文件';
@@ -37,6 +89,10 @@ function extensionFromPath(path: string): string {
 
 function isMarkdownPath(path: string): boolean {
   return markdownExtensions.has(extensionFromPath(path));
+}
+
+function isHtmlPath(path: string): boolean {
+  return htmlExtensions.has(extensionFromPath(path));
 }
 
 function formatSize(bytes: number): string {
@@ -116,6 +172,178 @@ function PreviewIcon() {
   );
 }
 
+function nodeText(node: ReactNode): string {
+  return Children.toArray(node).map((child) => {
+    if (typeof child === 'string' || typeof child === 'number') return String(child);
+    if (isValidElement<{ children?: ReactNode }>(child)) return nodeText(child.props.children);
+    return '';
+  }).join('');
+}
+
+function fullErrorDetail(error: unknown): string {
+  if (error instanceof Error) return error.stack || `${error.name}: ${error.message}`;
+  return String(error);
+}
+
+function MermaidDiagram({ source }: { source: string }) {
+  const reactId = useId();
+  const renderId = useMemo(() => `file-preview-mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`, [reactId]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [error, setError] = useState('');
+  const [naturalWidth, setNaturalWidth] = useState(0);
+  const [zoom, setZoom] = useState(1);
+
+  useEffect(() => {
+    let cancelled = false;
+    const container = containerRef.current;
+    setStatus('loading');
+    setError('');
+    setNaturalWidth(0);
+    setZoom(1);
+    if (container) container.replaceChildren();
+
+    void loadMermaid()
+      .then((mermaid) => mermaid.render(renderId, source))
+      .then(({ svg, bindFunctions }) => {
+        if (cancelled || !container) return;
+        container.innerHTML = svg;
+        const svgElement = container.querySelector('svg');
+        const naturalWidth = svgElement?.viewBox.baseVal.width;
+        if (svgElement && naturalWidth && Number.isFinite(naturalWidth)) {
+          svgElement.style.width = `${Math.ceil(naturalWidth)}px`;
+          svgElement.style.maxWidth = 'none';
+          svgElement.style.height = 'auto';
+          setNaturalWidth(Math.ceil(naturalWidth));
+        }
+        bindFunctions?.(container);
+        setStatus('ready');
+      })
+      .catch((reason: unknown) => {
+        if (cancelled) return;
+        const detail = fullErrorDetail(reason);
+        console.error('[FilePreview] Mermaid render failed', reason);
+        setError(detail);
+        setStatus('error');
+      });
+
+    return () => {
+      cancelled = true;
+      container?.replaceChildren();
+    };
+  }, [renderId, source]);
+
+  useEffect(() => {
+    const svgElement = containerRef.current?.querySelector('svg');
+    if (!svgElement || !naturalWidth) return;
+    svgElement.style.width = `${Math.round(naturalWidth * zoom)}px`;
+  }, [naturalWidth, zoom]);
+
+  const updateZoom = useCallback((nextZoom: number) => {
+    setZoom(Math.min(mermaidMaxZoom, Math.max(mermaidMinZoom, nextZoom)));
+  }, []);
+
+  const fitToWidth = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || !naturalWidth) return;
+    const style = window.getComputedStyle(container);
+    const horizontalPadding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+    const availableWidth = Math.max(1, container.clientWidth - horizontalPadding);
+    updateZoom(Math.min(1, availableWidth / naturalWidth));
+    container.scrollLeft = 0;
+  }, [naturalWidth, updateZoom]);
+
+  if (status === 'error') {
+    return (
+      <div className="file-preview-mermaid-error" role="alert">
+        <strong>Mermaid 图表渲染失败</strong>
+        <pre>{error}</pre>
+        <details>
+          <summary>查看 Mermaid 源文</summary>
+          <pre>{source}</pre>
+        </details>
+      </div>
+    );
+  }
+
+  return (
+    <figure className={`file-preview-mermaid ${status === 'loading' ? 'is-loading' : ''}`}>
+      {status === 'loading' && (
+        <div className="file-preview-mermaid-loading" role="status">
+          <span className="file-preview-spinner" />
+          <span>正在渲染图表…</span>
+        </div>
+      )}
+      {status === 'ready' && (
+        <figcaption className="file-preview-mermaid-toolbar">
+          <span>Mermaid</span>
+          <div className="file-preview-mermaid-zoom" role="group" aria-label="图表缩放">
+            <button
+              type="button"
+              title="缩小"
+              aria-label="缩小图表"
+              disabled={zoom <= mermaidMinZoom}
+              onClick={() => updateZoom(zoom - mermaidZoomStep)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+            </button>
+            <button
+              type="button"
+              className="file-preview-mermaid-percent"
+              title="重置为 100%"
+              aria-label={`当前缩放 ${Math.round(zoom * 100)}%，点击重置为 100%`}
+              onClick={() => updateZoom(1)}
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              type="button"
+              title="放大"
+              aria-label="放大图表"
+              disabled={zoom >= mermaidMaxZoom}
+              onClick={() => updateZoom(zoom + mermaidZoomStep)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            </button>
+            <button type="button" title="适应宽度" aria-label="图表适应宽度" onClick={fitToWidth}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 3-5 5 5 5M3 8h7M16 3l5 5-5 5M21 8h-7M8 21l-5-5 5-5M3 16h7M16 21l5-5-5-5M21 16h-7" /></svg>
+            </button>
+          </div>
+        </figcaption>
+      )}
+      <div
+        ref={containerRef}
+        className="file-preview-mermaid-canvas"
+        role="img"
+        aria-label="Mermaid 图表"
+      />
+    </figure>
+  );
+}
+
+function HtmlPreviewDocument({ content, title }: { content: string; title: string }) {
+  return (
+    <iframe
+      className="file-preview-html-frame"
+      title={`${title} HTML 预览`}
+      srcDoc={content}
+      sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads"
+      referrerPolicy="no-referrer"
+    />
+  );
+}
+
+function MarkdownPre({ children }: { children?: ReactNode }) {
+  const child = Children.toArray(children)[0];
+  if (isValidElement<{ className?: string; children?: ReactNode }>(child)) {
+    const className = child.props.className || '';
+    if (/\blanguage-mermaid\b/i.test(className)) {
+      return <MermaidDiagram source={nodeText(child.props.children).replace(/\n$/, '')} />;
+    }
+  }
+  return <pre>{children}</pre>;
+}
+
 function MarkdownPreviewImage({ basePath, src, alt }: { basePath: string; src: string; alt: string }) {
   const external = externalResourceUrlPattern.test(src);
   const [blobUrl, setBlobUrl] = useState('');
@@ -174,10 +402,12 @@ export function FilePreviewPage() {
   const path = params.get('path')?.trim() || '';
   const jobId = params.get('jobId')?.trim() || '';
   const markdown = isMarkdownPath(path);
+  const html = isHtmlPath(path);
+  const renderedDocument = markdown || html;
   const [data, setData] = useState<FilePreviewData | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(!!path);
-  const [showSource, setShowSource] = useState(!markdown);
+  const [showSource, setShowSource] = useState(!renderedDocument);
   const [wrapText, setWrapText] = useState(true);
   const [copied, setCopied] = useState(false);
 
@@ -208,7 +438,7 @@ export function FilePreviewPage() {
   }, [jobId, path]);
 
   const lineCount = data?.content ? data.content.split('\n').length : 0;
-  const typeLabel = markdown ? 'Markdown' : (extensionFromPath(path).slice(1).toUpperCase() || 'Text');
+  const typeLabel = markdown ? 'Markdown' : html ? 'HTML' : (extensionFromPath(path).slice(1).toUpperCase() || 'Text');
 
   const handleCopy = useCallback(() => {
     if (!data) return;
@@ -236,6 +466,7 @@ export function FilePreviewPage() {
     },
     table: ({ children }) => <div className="file-preview-table-wrap"><table>{children}</table></div>,
     code: ({ className, children }) => <code className={className}>{children}</code>,
+    pre: ({ children }) => <MarkdownPre>{children}</MarkdownPre>,
   }), [path]);
 
   return (
@@ -252,9 +483,9 @@ export function FilePreviewPage() {
         </div>
 
         <div className="file-preview-actions">
-          {markdown && data && !data.binary && (
+          {renderedDocument && data && !data.binary && (
             <div className="file-preview-segmented" role="group" aria-label="预览模式">
-              <button type="button" className={!showSource ? 'active' : ''} onClick={() => setShowSource(false)}>阅读</button>
+              <button type="button" className={!showSource ? 'active' : ''} onClick={() => setShowSource(false)}>{html ? '预览' : '阅读'}</button>
               <button type="button" className={showSource ? 'active' : ''} onClick={() => setShowSource(true)}>源文</button>
             </div>
           )}
@@ -278,7 +509,7 @@ export function FilePreviewPage() {
         </div>
       )}
 
-      <main className={`file-preview-stage ${showSource ? 'source-mode' : 'reading-mode'}`}>
+      <main className={`file-preview-stage ${showSource ? 'source-mode' : html ? 'html-mode' : 'reading-mode'}`}>
         {loading && (
           <div className="file-preview-state" role="status">
             <span className="file-preview-spinner" />
@@ -302,7 +533,7 @@ export function FilePreviewPage() {
           </div>
         )}
 
-        {!loading && data && !data.binary && !showSource && (
+        {!loading && data && !data.binary && !showSource && markdown && (
           <article className="file-preview-document">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -312,6 +543,10 @@ export function FilePreviewPage() {
               {data.content}
             </ReactMarkdown>
           </article>
+        )}
+
+        {!loading && data && !data.binary && !showSource && html && (
+          <HtmlPreviewDocument content={data.content} title={fileNameFromPath(path)} />
         )}
 
         {!loading && data && !data.binary && showSource && (
