@@ -49,6 +49,9 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .DS_Store
+DerivedData/
+*.xcuserstate
+xcuserdata/
 *.suo
 *.ntvs*
 *.njsproj

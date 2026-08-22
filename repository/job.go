@@ -26,6 +26,15 @@ type JobRepo interface {
 	LoadAll() ([]*model.Job, error)
 }
 
+type persistedJob struct {
+	*model.Job
+	ActiveClientMessageID   string                                `json:"activeClientMessageId,omitempty"`
+	ClientMessageReceipts   map[string]model.ClientMessageReceipt `json:"clientMessageReceipts,omitempty"`
+	CommandReceipts         map[string]model.CommandReceipt       `json:"commandReceipts,omitempty"`
+	CreationClientMessageID string                                `json:"creationClientMessageId,omitempty"`
+	CreationPayloadHash     string                                `json:"creationPayloadHash,omitempty"`
+}
+
 type jobRepo struct {
 	sandbox fileserver.FileManager
 	wsID    string
@@ -87,7 +96,7 @@ func (r *jobRepo) Save(jobID string, job *model.Job) error {
 		return fmt.Errorf("ensure job dir failed: %w", err)
 	}
 
-	data, err := json.Marshal(job)
+	data, err := marshalPersistedJob(job)
 	if err != nil {
 		return fmt.Errorf("marshal job failed: %w", err)
 	}
@@ -114,12 +123,36 @@ func (r *jobRepo) Load(jobID string) (*model.Job, error) {
 		return nil, fmt.Errorf("read job file failed: %w", err)
 	}
 
-	var job model.Job
-	if err := json.Unmarshal([]byte(result.Content), &job); err != nil {
+	job, err := unmarshalPersistedJob([]byte(result.Content))
+	if err != nil {
 		return nil, fmt.Errorf("unmarshal job failed: %w", err)
 	}
 
-	return &job, nil
+	return job, nil
+}
+
+func marshalPersistedJob(job *model.Job) ([]byte, error) {
+	return json.Marshal(persistedJob{
+		Job:                     job,
+		ActiveClientMessageID:   job.ActiveClientMessageID,
+		ClientMessageReceipts:   job.ClientMessageReceipts,
+		CommandReceipts:         job.CommandReceipts,
+		CreationClientMessageID: job.CreationClientMessageID,
+		CreationPayloadHash:     job.CreationPayloadHash,
+	})
+}
+
+func unmarshalPersistedJob(data []byte) (*model.Job, error) {
+	stored := persistedJob{Job: &model.Job{}}
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return nil, err
+	}
+	stored.Job.ActiveClientMessageID = stored.ActiveClientMessageID
+	stored.Job.ClientMessageReceipts = stored.ClientMessageReceipts
+	stored.Job.CommandReceipts = stored.CommandReceipts
+	stored.Job.CreationClientMessageID = stored.CreationClientMessageID
+	stored.Job.CreationPayloadHash = stored.CreationPayloadHash
+	return stored.Job, nil
 }
 
 // ListIDs lists subdirectories under {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/, returning those containing .meta/job.json.

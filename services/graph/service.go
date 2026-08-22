@@ -108,6 +108,11 @@ type Service interface {
 	// StopRun hard-stops a running GraphRun: in-flight instances are cancelled
 	// and marked interrupted, the run becomes "stopped" and stays resumable.
 	StopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error)
+	// StopRunAndWait is the lifecycle-safe hard-stop used before destructive
+	// follow-up work. It is idempotent for settled runs, repairs schedulerless
+	// in-flight runs, and for a live scheduler waits until all run persistence,
+	// Job sink updates, and asynchronous hooks have completed.
+	StopRunAndWait(ctx context.Context, runID, reason string) (*model.GraphRun, error)
 	// StepStopRun freezes the current ready batch and stops after its members
 	// reach a terminal state; the run becomes "stepStopped" and stays resumable.
 	StepStopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error)
@@ -181,12 +186,26 @@ type versionUpdateResult struct {
 	err error
 }
 
-// runControl is the per-run control handle: a buffered channel delivering
-// control intents into the scheduler goroutine, plus the cancel func for the
-// run's root context (used by hard stop).
+// runControl is the per-run control handle. done is closed only by the
+// scheduler generation that owns this handle, after its final persistence, Job
+// sink updates, and asynchronous hooks have all completed.
 type runControl struct {
 	controlCh chan controlSignal
 	cancel    context.CancelFunc
+	done      chan struct{}
+	doneOnce  sync.Once
+}
+
+// runLifecycle serializes every operation that can create, stop, mutate, or
+// delete a scheduler generation for one run ID. Repository calls deliberately
+// happen while this lock is held: the lock is per-run, and keeping the persisted
+// status check in the same critical section as control registration/deletion is
+// what removes the otherwise unavoidable check-then-act races.
+type runLifecycle struct {
+	opMu    sync.Mutex
+	mu      sync.Mutex
+	handle  *runControl
+	deleted bool
 }
 
 type serviceImpl struct {
@@ -196,8 +215,8 @@ type serviceImpl struct {
 	transientRetryDelay     time.Duration
 	rateLimitRetryBaseDelay time.Duration
 
-	controlMu   sync.Mutex
-	runControls map[string]*runControl
+	lifecycleMu sync.Mutex
+	lifecycles  map[string]*runLifecycle
 
 	// bufMu guards eventBufs, the per-run in-memory SSE event buffers. A live
 	// run publishes its streaming agent events (and a copy of structural
@@ -318,7 +337,7 @@ type SessionLastAssistantReader interface {
 }
 
 type JobStateSink interface {
-	SetGraphRunState(ctx context.Context, jobID, graphRunID string, status model.JobStatus, startedAt, finishedAt int64) error
+	SetGraphRunState(ctx context.Context, jobID, graphRunID string, status model.JobStatus, graphStatus model.GraphRunStatus, startedAt, finishedAt int64, graphSessionID string) error
 	// ClearGraphRunLinkage detaches a Job from a deleted GraphRun, but only if
 	// the Job is still bound to that exact run (it may have been re-bound to a
 	// newer run since).
@@ -354,7 +373,7 @@ func NewService() (Service, error) {
 		agentCatalog:            agentCatalog,
 		transientRetryDelay:     defaultGraphTransientRetryDelay,
 		rateLimitRetryBaseDelay: defaultGraphRateLimitRetryBaseDelay,
-		runControls:             map[string]*runControl{},
+		lifecycles:              map[string]*runLifecycle{},
 		eventBufs:               map[string]*graphEventBuffer{},
 	}
 	if err := service.migrateWorkflowAgentReferences(context.Background()); err != nil {
@@ -363,25 +382,86 @@ func NewService() (Service, error) {
 	return service, nil
 }
 
-// registerControl creates and stores a control handle for a run and returns a
-// child context cancellable via the handle. Called before launching runGraph.
-func (s *serviceImpl) registerControl(runID string, parent context.Context) (*runControl, context.Context) {
-	ctx, cancel := context.WithCancel(parent)
-	handle := &runControl{controlCh: make(chan controlSignal, 4), cancel: cancel}
-	s.controlMu.Lock()
-	s.runControls[runID] = handle
-	s.controlMu.Unlock()
-	return handle, ctx
+func (s *serviceImpl) lifecycle(runID string) *runLifecycle {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	lifecycle := s.lifecycles[runID]
+	if lifecycle == nil {
+		lifecycle = &runLifecycle{}
+		s.lifecycles[runID] = lifecycle
+	}
+	return lifecycle
 }
 
-// clearControl removes a run's control handle, but only if it is still the
-// handle passed in (a resume may have registered a fresh one). Idempotent.
-func (s *serviceImpl) clearControl(runID string, handle *runControl) {
-	s.controlMu.Lock()
-	if s.runControls[runID] == handle {
-		delete(s.runControls, runID)
+func newRunControl() (*runControl, context.Context) {
+	runCtx, cancel := context.WithCancel(context.Background())
+	return &runControl{
+		controlCh: make(chan controlSignal, 4),
+		cancel:    cancel,
+		done:      make(chan struct{}),
+	}, runCtx
+}
+
+// registerControl serializes scheduler generations for a run. A contender waits
+// for the current generation to finish, but the caller must re-read and validate
+// persisted state after registration; its earlier snapshot may have become stale
+// while it waited.
+func (s *serviceImpl) registerControl(waitCtx context.Context, runID string) (*runControl, context.Context, error) {
+	lifecycle := s.lifecycle(runID)
+	for {
+		if err := waitCtx.Err(); err != nil {
+			return nil, nil, err
+		}
+
+		lifecycle.mu.Lock()
+		if lifecycle.deleted {
+			lifecycle.mu.Unlock()
+			return nil, nil, ErrGraphRunNotFound
+		}
+		existing := lifecycle.handle
+		if existing == nil {
+			handle, runCtx := newRunControl()
+			lifecycle.handle = handle
+			lifecycle.mu.Unlock()
+			return handle, runCtx, nil
+		}
+		lifecycle.mu.Unlock()
+
+		select {
+		case <-existing.done:
+		case <-waitCtx.Done():
+			return nil, nil, waitCtx.Err()
+		}
 	}
-	s.controlMu.Unlock()
+}
+
+// completeControl releases one scheduler generation's control handle and closes
+// only that generation's done channel. Completion shares the lifecycle lock with
+// resume, stop, static writes, and deletion, so none can observe a half-retired
+// generation.
+func (s *serviceImpl) completeControl(runID string, handle *runControl, buf *graphEventBuffer) {
+	if handle == nil {
+		return
+	}
+	handle.cancel()
+	lifecycle := s.lifecycle(runID)
+	lifecycle.mu.Lock()
+	if lifecycle.handle == handle {
+		lifecycle.handle = nil
+		if buf != nil {
+			buf.MarkTerminal()
+		}
+	}
+	handle.doneOnce.Do(func() { close(handle.done) })
+	lifecycle.mu.Unlock()
+}
+
+func (s *serviceImpl) getControl(runID string) *runControl {
+	lifecycle := s.lifecycle(runID)
+	lifecycle.mu.Lock()
+	handle := lifecycle.handle
+	lifecycle.mu.Unlock()
+	return handle
 }
 
 // eventBuffer returns the run's in-memory event buffer, creating it on first
@@ -449,12 +529,17 @@ func (s *serviceImpl) RunEventSnapshotSeq(runID string) (uint64, bool) {
 // without blocking. Returns ErrGraphRunNotRunning if no scheduler is live and
 // ErrGraphRunControlBusy if the signal was not accepted.
 func (s *serviceImpl) sendControl(runID string, sig controlSignal) error {
-	s.controlMu.Lock()
-	handle := s.runControls[runID]
-	s.controlMu.Unlock()
+	handle := s.getControl(runID)
 	if handle == nil {
 		return ErrGraphRunNotRunning
 	}
+	return sendControlToHandle(handle, sig)
+}
+
+// sendControlToHandle sends to a previously captured scheduler generation. It
+// deliberately never closes controlCh: a sender racing scheduler completion can
+// safely enqueue and then observe handle.done without risking send-on-closed.
+func sendControlToHandle(handle *runControl, sig controlSignal) error {
 	select {
 	case handle.controlCh <- sig:
 		return nil

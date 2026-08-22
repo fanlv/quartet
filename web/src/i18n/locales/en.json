@@ -576,7 +576,7 @@
       "formWorkdirPlaceholder": "/path/to/workdir",
       "formDefaultAgent": "Default Agent (optional)",
       "formDefaultAgentOption": "— Use system default —",
-      "formDefaultAgentHint": "Saved in browser localStorage. IM side does not read this preference.",
+      "formDefaultAgentHint": "Saved with the workspace and shared by Web and iOS.",
       "formDefaultModel": "Default Model (optional)",
       "formDefaultModelOption": "— Use Agent default —"
     },

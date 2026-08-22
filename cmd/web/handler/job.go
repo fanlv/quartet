@@ -3,7 +3,9 @@ package handler
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -31,10 +33,12 @@ func (h *Handler) JobCreate(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	job, err := h.createJob(ctx, &req)
+	job, duplicate, err := h.createJobIdempotent(ctx, &req)
 	if err != nil {
 		logger.Errorf(ctx, "[job] create failed: type=%s err=%v", req.AgentType, err)
-		if errors.Is(err, errJobPersistFailed) {
+		if errors.Is(err, jobsvc.ErrClientMessageIDConflict) {
+			httputil.Conflict(c, err.Error())
+		} else if errors.Is(err, errJobPersistFailed) {
 			httputil.InternalError(c, err.Error())
 		} else {
 			httputil.BadRequest(c, err.Error())
@@ -47,7 +51,51 @@ func (h *Handler) JobCreate(ctx context.Context, c *app.RequestContext) {
 	c.JSON(http.StatusOK, model.CreateJobResponse{
 		JobID:     job.ID,
 		CreatedAt: job.CreatedAt.UnixMilli(),
+		Status:    map[bool]string{false: "created", true: "duplicate"}[duplicate],
 	})
+}
+
+func (h *Handler) createJobIdempotent(ctx context.Context, req *model.CreateJobRequest) (*model.Job, bool, error) {
+	job, err := h.buildJob(ctx, req)
+	if err != nil {
+		return nil, false, err
+	}
+	if req.ClientMessageID == "" {
+		if err := h.persistCreatedJob(ctx, job, req); err != nil {
+			return nil, false, err
+		}
+		return job, false, nil
+	}
+	payload := struct {
+		ModelID         string        `json:"modelId"`
+		AgentType       string        `json:"agentType"`
+		ACPMode         string        `json:"acpMode"`
+		ACPThoughtLevel string        `json:"acpThoughtLevel"`
+		Mode            model.JobMode `json:"mode"`
+		Workdir         string        `json:"workdir"`
+		WorkspaceID     string        `json:"workspaceId"`
+	}{req.ModelID, req.AgentType, req.ACPMode, req.ACPThoughtLevel, req.Mode, req.Workdir, req.WorkspaceID}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, false, fmt.Errorf("hash create job payload: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	job.ID = jobsvc.IdempotentJobID(req.ClientMessageID)
+	job.CreationClientMessageID = req.ClientMessageID
+	job.CreationPayloadHash = hex.EncodeToString(sum[:])
+	created, duplicate, err := h.jobService.CreateIdempotent(job)
+	if err != nil {
+		if errors.Is(err, jobsvc.ErrClientMessageIDConflict) {
+			return nil, false, err
+		}
+		return nil, false, fmt.Errorf("%w: %v", errJobPersistFailed, err)
+	}
+	if !duplicate && req.Workdir != "" && h.recentDirsRepo != nil {
+		if err := h.recentDirsRepo.Add(ctx, req.Workdir); err != nil {
+			logger.Warnf(ctx, "[job] save recent dir failed: dir=%s err=%v", req.Workdir, err)
+		}
+	}
+	return created, duplicate, nil
 }
 
 // errJobPersistFailed wraps errors from persisting a newly created job so
@@ -59,6 +107,17 @@ var errJobPersistFailed = errors.New("failed to persist job")
 // shared between the HTTP JobCreate handler and the IM gateway so both flows
 // produce identically configured jobs.
 func (h *Handler) createJob(ctx context.Context, req *model.CreateJobRequest) (*model.Job, error) {
+	job, err := h.buildJob(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.persistCreatedJob(ctx, job, req); err != nil {
+		return nil, err
+	}
+	return job, nil
+}
+
+func (h *Handler) buildJob(ctx context.Context, req *model.CreateJobRequest) (*model.Job, error) {
 	if req.AgentType == "" {
 		return nil, fmt.Errorf("agentType is required")
 	}
@@ -100,18 +159,24 @@ func (h *Handler) createJob(ctx context.Context, req *model.CreateJobRequest) (*
 
 	job := model.NewJob(req.Workdir, req.WorkspaceID)
 	job.Mode = req.Mode
+	job.InitialAgentID = req.AgentType
+	job.FirstModelID = req.ModelID
+	job.InitialACPMode = req.ACPMode
+	job.InitialACPThoughtLevel = req.ACPThoughtLevel
 
+	return job, nil
+}
+
+func (h *Handler) persistCreatedJob(ctx context.Context, job *model.Job, req *model.CreateJobRequest) error {
 	if err := h.jobService.Create(job); err != nil {
-		return nil, fmt.Errorf("%w: %v", errJobPersistFailed, err)
+		return fmt.Errorf("%w: %v", errJobPersistFailed, err)
 	}
-
-	if req.Workdir != "" {
+	if req.Workdir != "" && h.recentDirsRepo != nil {
 		if err := h.recentDirsRepo.Add(ctx, req.Workdir); err != nil {
 			logger.Warnf(ctx, "[job] save recent dir failed: dir=%s err=%v", req.Workdir, err)
 		}
 	}
-
-	return job, nil
+	return nil
 }
 
 func (h *Handler) JobList(ctx context.Context, c *app.RequestContext) {
@@ -319,31 +384,15 @@ func (h *Handler) JobDelete(ctx context.Context, c *app.RequestContext) {
 	// overwrite the flag with a stale snapshot.
 	if err := h.jobService.MarkDeleted(jobID); err != nil {
 		logger.Errorf(ctx, "[job] delete: mark deleted failed: jobId=%s err=%v", jobID, err)
+		httputil.InternalError(c, err.Error())
+		return
 	}
 
-	// Stop and wait for the run to fully exit so no new sessions
-	// can be created during cleanup. Always call stopAndWait unconditionally
-	// because a concurrent SendMessage may have set the job to running
-	// after our Get() returned.
-	if err := h.stopAndWait(ctx, job); err != nil {
-		logger.Errorf(ctx, "[job] delete: stopAndWait failed: jobId=%s err=%v", jobID, err)
+	if err := h.deleteMarkedJob(ctx, job); err != nil {
+		logger.Errorf(ctx, "[job] delete failed: jobId=%s err=%v", jobID, err)
+		httputil.InternalError(c, err.Error())
+		return
 	}
-
-	// Re-fetch after stop to get the final list of session IDs,
-	// including any that were created between the first Get and Stop.
-	if updated, ok := h.jobService.Get(jobID); ok {
-		job = updated
-	}
-
-	// Clean up associated sessions and agents
-	h.cleanupSessions(job.WorkspaceID, job.ID, jobAllSessionIDs(job))
-
-	h.jobService.Delete(jobID)
-
-	// Remove the session service for this job to free memory.
-	h.sessionMu.Lock()
-	delete(h.sessionServices, jobID)
-	h.sessionMu.Unlock()
 	c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "ok"})
 }
 

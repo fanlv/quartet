@@ -23,6 +23,7 @@ type jobRunnerImpl struct {
 	wsID                     string
 	preparedExecutionOnce    sync.Once
 	preparedExecutionRelease func()
+	prepareAccepted          func(context.Context, string) error
 }
 
 // shellSessionType marks a display-only Shell node transcript session. It is a
@@ -51,6 +52,13 @@ func (r *jobRunnerImpl) ReleasePreparedExecution() {
 		return
 	}
 	r.preparedExecutionOnce.Do(r.preparedExecutionRelease)
+}
+
+func (r *jobRunnerImpl) PrepareAcceptedMessage(ctx context.Context, jobID string) error {
+	if r == nil || r.prepareAccepted == nil {
+		return nil
+	}
+	return r.prepareAccepted(ctx, jobID)
 }
 
 func (r *jobRunnerImpl) InitSession(ctx context.Context, jobID string, overrides *model.SessionOverrides) (string, error) {

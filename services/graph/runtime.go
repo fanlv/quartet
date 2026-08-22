@@ -129,6 +129,27 @@ func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequ
 		VariablesByKey: map[string]map[string]string{},
 	}
 
+	// A new ID has no competing persisted generation, but it still participates
+	// in the same lifecycle discipline as resume/delete. Register its handle
+	// before the run becomes externally observable.
+	lifecycle := s.lifecycle(run.ID)
+	lifecycle.opMu.Lock()
+	defer lifecycle.opMu.Unlock()
+	lifecycle.mu.Lock()
+	if lifecycle.deleted {
+		lifecycle.mu.Unlock()
+		return nil, ErrGraphRunNotFound
+	}
+	handle, runCtx := newRunControl()
+	lifecycle.handle = handle
+	lifecycle.mu.Unlock()
+	launched := false
+	defer func() {
+		if !launched {
+			s.completeControl(run.ID, handle, nil)
+		}
+	}()
+
 	if err := s.runRepo.RegisterRun(ctx, run); err != nil {
 		return nil, err
 	}
@@ -137,7 +158,7 @@ func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequ
 		return nil, err
 	}
 	if jobs != nil {
-		if err := jobs.SetGraphRunState(ctx, jobID, run.ID, model.JobStatusPending, 0, 0); err != nil {
+		if err := jobs.SetGraphRunState(ctx, jobID, run.ID, model.JobStatusPending, model.GraphRunStatusPending, 0, 0, ""); err != nil {
 			s.cleanupUnboundRun(ctx, run.ID, err)
 			return nil, err
 		}
@@ -146,7 +167,8 @@ func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequ
 	logger.Infof(ctx, "[graph] run created: runId=%s jobId=%s workflowId=%s workspaceId=%s nodes=%d edges=%d concurrency=%d jobTimeoutSec=%d",
 		run.ID, run.JobID, run.WorkflowID, run.WorkspaceID, len(cfg.Nodes), len(cfg.Edges),
 		concurrencyLimit(cfg.RunConfig.ConcurrencyLimit), cfg.RunConfig.JobTimeoutSec)
-	go s.runGraph(context.Background(), run.ID, runner, jobs, false)
+	launched = true
+	go s.runGraph(runCtx, run.ID, runner, jobs, false, handle)
 	return run, nil
 }
 

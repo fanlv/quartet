@@ -243,10 +243,36 @@ func captureTerminalSnapshotLocked(job *model.Job, runOutcome model.RunOutcome, 
 		terminalAt = nowMillis()
 		job.FinishedAt = terminalAt
 	}
+	finishActiveClientMessageLocked(job, runOutcome, terminalAt)
 	return terminalSnapshot{
 		terminalAt:  terminalAt,
 		finalStatus: job.Status,
 	}
+}
+
+func finishActiveClientMessageLocked(job *model.Job, runOutcome model.RunOutcome, finishedAt int64) {
+	clientMessageID := job.ActiveClientMessageID
+	if clientMessageID == "" {
+		return
+	}
+	receipt, ok := job.ClientMessageReceipts[clientMessageID]
+	if !ok {
+		job.ActiveClientMessageID = ""
+		return
+	}
+	switch runOutcome {
+	case model.RunOutcomeCompleted:
+		receipt.State = model.ClientMessageStateCompleted
+	case model.RunOutcomeStopped:
+		receipt.State = model.ClientMessageStateStopped
+	case model.RunOutcomeFailed:
+		receipt.State = model.ClientMessageStateFailed
+	default:
+		return
+	}
+	receipt.FinishedAt = finishedAt
+	job.ClientMessageReceipts[clientMessageID] = receipt
+	job.ActiveClientMessageID = ""
 }
 
 // persistAndPublishTerminal finishes the shared terminal-transition postamble:

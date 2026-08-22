@@ -85,7 +85,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { useGitBranch } from '../hooks/useGitBranch';
 import { usePendingImages } from '../hooks/usePendingImages';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
-import { workspaceColor, loadWorkspacePrefs, migrateWorkspaceAgentPref, registerWorkspaceColors } from '../utils/workspace';
+import { workspaceColor, loadWorkspacePrefs, migrateWorkspacePrefsToServer, registerWorkspaceColors } from '../utils/workspace';
 import { relinkACPThoughtLevels, setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
 import { fetchAgentPrefs, splitFavoriteModels, resolveAgentDefaults, applyDefaultsToAgent, prefsForAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { formatStatsDuration } from '../utils/statsFormat';
@@ -283,11 +283,12 @@ async function fetchAgentList(): Promise<{ agents: AgentInfo[]; workdir: string;
 
 async function migrateStoredAgentReferences(workspaceId?: string): Promise<void> {
   try {
-    const [listRes, catalogRes] = await Promise.all([
+    const [listRes, catalogRes, workspaceRes] = await Promise.all([
       fetch('/api/v1/agent/list'),
       fetch('/api/v1/agent/catalog'),
+      fetch('/api/v1/workspace/list'),
     ]);
-    const [listData, catalogData] = await Promise.all([listRes.json(), catalogRes.json()]);
+    const [listData, catalogData, workspaceData] = await Promise.all([listRes.json(), catalogRes.json(), workspaceRes.json()]);
     const active = Array.isArray(listData?.agent_list) ? listData.agent_list as AgentInfo[] : [];
     const items = Array.isArray(catalogData?.agents) ? catalogData.agents as Array<{
       agent_id: string;
@@ -317,7 +318,14 @@ async function migrateStoredAgentReferences(workspaceId?: string): Promise<void>
       if (migrated) localStorage.setItem('last_agent_type', migrated);
       else localStorage.removeItem('last_agent_type');
     }
-    if (workspaceId) migrateWorkspaceAgentPref(workspaceId, resolve);
+    const workspaceIds = new Set<string>();
+    if (workspaceId) workspaceIds.add(workspaceId);
+    for (const workspace of Array.isArray(workspaceData?.workspaces) ? workspaceData.workspaces : []) {
+      if (typeof workspace?.id === 'string' && workspace.id) workspaceIds.add(workspace.id);
+    }
+    await Promise.all([...workspaceIds].map(async (id) => {
+      await migrateWorkspacePrefsToServer(id, resolve);
+    }));
   } catch (err) {
     console.warn('[agent-migration] stored reference migration failed:', err);
   }

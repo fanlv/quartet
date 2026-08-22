@@ -573,7 +573,7 @@
       "formWorkdirPlaceholder": "/path/to/workdir",
       "formDefaultAgent": "默认 Agent（可选）",
       "formDefaultAgentOption": "— 使用系统默认 —",
-      "formDefaultAgentHint": "保存在浏览器本地（localStorage）。IM 端不读取此偏好。",
+      "formDefaultAgentHint": "保存在工作空间中，Web 与 iOS 共用此偏好。",
       "formDefaultModel": "默认模型（可选）",
       "formDefaultModelOption": "— 使用 Agent 默认 —"
     },

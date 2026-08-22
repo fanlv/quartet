@@ -19,8 +19,12 @@ type SavePromptRequest struct {
 }
 
 type CreateJobRequest struct {
-	ModelID         string  `json:"modelId"`
-	AgentType       string  `json:"agentType"`
+	ModelID   string `json:"modelId"`
+	AgentType string `json:"agentType"`
+	// ClientMessageID makes Job creation retry-safe. For a /new command this
+	// is a command-action key derived from (source Job, command message ID), not
+	// the message-send key itself.
+	ClientMessageID string `json:"clientMessageId,omitempty"`
 	ACPMode         string  `json:"acpMode,omitempty"`
 	ACPThoughtLevel string  `json:"acpThoughtLevel,omitempty"`
 	Mode            JobMode `json:"mode,omitempty"`
@@ -80,15 +84,19 @@ type SetACPConfigResponse struct {
 }
 
 type CreateWorkspaceRequest struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Workdir     string `json:"workdir"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	Workdir      string `json:"workdir"`
+	DefaultAgent string `json:"defaultAgent,omitempty"`
+	DefaultModel string `json:"defaultModel,omitempty"`
 }
 
 type UpdateWorkspaceRequest struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Workdir     string `json:"workdir"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	Workdir      string `json:"workdir"`
+	DefaultAgent string `json:"defaultAgent,omitempty"`
+	DefaultModel string `json:"defaultModel,omitempty"`
 }
 
 type UpdateWorkspaceFavoriteRequest struct {

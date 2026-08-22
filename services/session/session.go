@@ -18,7 +18,10 @@ type Service interface {
 	// must not mutate fields on the pointer returned by Get.
 	SetInitFields(sid, jobID, wsID string) error
 	UpdateAgentBinding(sid string, binding model.AgentRuntimeBinding) error
-	Delete(sid string)
+	// Delete durably writes the deletion tombstone before removing the
+	// session from memory. A persistence failure leaves the session available
+	// for retry and is returned to the caller.
+	Delete(sid string) error
 	// UpdateModelID atomically sets ModelID on the in-memory session and
 	// persists the change. Handlers must never mutate Session fields on the
 	// pointer returned by Get(). Returns nil (not an error) when the session
@@ -55,6 +58,7 @@ func NewService(wsID, jobID string) (Service, error) {
 	m := &serviceImpl{
 		sessions: make(map[string]*model.Session),
 		repo:     repo,
+		persistKey: wsID + "/" + jobID,
 	}
 
 	if err := m.load(); err != nil {

@@ -2,7 +2,12 @@ package job
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 
+	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/safe"
 	"github.com/fanlv/quartet/types/model"
@@ -25,7 +30,11 @@ import (
 // Core rule: interactive messages never touch Resume, and any pre-existing
 // terminal status (Completed/Failed/Stopped) is restored when the interactive
 // run ends so an ad-hoc message never regresses it.
-func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobRunner, opts *SendMessageOptions) error {
+func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobRunner, opts *SendMessageOptions) (SendMessageResult, error) {
+	var result SendMessageResult
+	if runner == nil {
+		return result, fmt.Errorf("job runner is required")
+	}
 	asyncStarted := false
 	if prepared, ok := runner.(PreparedExecutionReleaser); ok {
 		defer func() {
@@ -37,7 +46,11 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	// Validate before modifying any state to avoid leaving the job in Running
 	// status if validation fails.
 	if len(opts.getMessages()) == 0 {
-		return ErrEmptyMessage
+		return result, ErrEmptyMessage
+	}
+	payloadHash, err := clientMessagePayloadHash(opts)
+	if err != nil {
+		return result, err
 	}
 
 	// Hold the persist shard across check→flip→persist so a concurrent
@@ -51,15 +64,29 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	job, ok := s.jobs[jobID]
 	if !ok {
 		s.mu.Unlock()
-		return ErrJobNotFound
+		return result, ErrJobNotFound
 	}
 	if job.Deleted {
 		s.mu.Unlock()
-		return ErrJobDeleted
+		return result, ErrJobDeleted
+	}
+	if opts.ClientMessageID != "" {
+		if _, exists := job.CommandReceipts[opts.ClientMessageID]; exists {
+			s.mu.Unlock()
+			return result, fmt.Errorf("%w: %q was used for a slash command", ErrClientMessageIDConflict, opts.ClientMessageID)
+		}
+		if receipt, exists := job.ClientMessageReceipts[opts.ClientMessageID]; exists {
+			if receipt.PayloadHash != payloadHash {
+				s.mu.Unlock()
+				return result, fmt.Errorf("%w: %q", ErrClientMessageIDConflict, opts.ClientMessageID)
+			}
+			s.mu.Unlock()
+			return duplicateSendMessageResult(opts.ClientMessageID, receipt), nil
+		}
 	}
 	if job.Status == model.JobStatusRunning {
 		s.mu.Unlock()
-		return ErrJobRunning
+		return result, ErrJobRunning
 	}
 
 	prevRunState := snapshotRunStateLocked(job)
@@ -73,6 +100,24 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	job.StartedAt = s.nowMillis()
 	job.FinishedAt = 0
 	job.LastRunOutcome = ""
+	if opts.ClientMessageID != "" {
+		if job.ClientMessageReceipts == nil {
+			job.ClientMessageReceipts = make(map[string]model.ClientMessageReceipt)
+		}
+		receipt := model.ClientMessageReceipt{
+			State:       model.ClientMessageStateProcessing,
+			PayloadHash: payloadHash,
+			AcceptedAt:  job.StartedAt,
+		}
+		job.ClientMessageReceipts[opts.ClientMessageID] = receipt
+		job.ActiveClientMessageID = opts.ClientMessageID
+		result = SendMessageResult{
+			Disposition: SendMessageStarted,
+			Receipt:     newMessageReceipt(opts.ClientMessageID, receipt),
+		}
+	} else {
+		result.Disposition = SendMessageStarted
+	}
 	startCtx := lifecycleStartContext{
 		action:      jobRunActionSendMessage,
 		hasResume:   priorResume != nil,
@@ -91,7 +136,7 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	if err := s.saveJobWithRetryUnderPersistLock(ctx, job, jobRunActionSendMessageStart); err != nil {
 		s.abortRunResources(job.ID, res)
 		s.restoreRunStateAfterPersistFailure(ctx, job, prevRunState, jobRunActionSendMessageStart, err)
-		return err
+		return SendMessageResult{}, err
 	}
 	// SendMessage reuses the existing buffer. If the job already reached a
 	// terminal status, MarkTerminal disabled GC; flip it back so the
@@ -119,7 +164,68 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 		s.runInteractive(res.ctx, job, runner, opts, res.entry)
 	})
 	asyncStarted = true
-	return nil
+	return result, nil
+}
+
+func clientMessagePayloadHash(opts *SendMessageOptions) (string, error) {
+	if opts == nil || opts.ClientMessageID == "" {
+		return "", nil
+	}
+	payload := struct {
+		SessionID       string                     `json:"sessionId,omitempty"`
+		Messages        []clientMessagePayloadPart `json:"messages"`
+		AgentType       string                     `json:"agentType,omitempty"`
+		ModelID         string                     `json:"modelId,omitempty"`
+		ACPMode         string                     `json:"acpMode,omitempty"`
+		ACPThoughtLevel string                     `json:"acpThoughtLevel,omitempty"`
+	}{
+		SessionID:       opts.IdempotencySessionID,
+		AgentType:       opts.AgentType,
+		ModelID:         opts.ModelID,
+		ACPMode:         opts.ACPMode,
+		ACPThoughtLevel: opts.ACPThoughtLevel,
+	}
+	for _, message := range opts.Messages {
+		if message == nil {
+			payload.Messages = append(payload.Messages, clientMessagePayloadPart{})
+			continue
+		}
+		payload.Messages = append(payload.Messages, clientMessagePayloadPart{
+			Role:                  message.Role,
+			Content:               message.Content,
+			MultiContent:          message.MultiContent,
+			UserInputMultiContent: message.UserInputMultiContent,
+		})
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("hash clientMessageId payload: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+type clientMessagePayloadPart struct {
+	Role                  schema.RoleType           `json:"role"`
+	Content               string                    `json:"content,omitempty"`
+	MultiContent          []schema.ChatMessagePart  `json:"multiContent,omitempty"`
+	UserInputMultiContent []schema.MessageInputPart `json:"userInputMultiContent,omitempty"`
+}
+
+func newMessageReceipt(clientMessageID string, receipt model.ClientMessageReceipt) MessageReceipt {
+	return MessageReceipt{
+		ClientMessageID: clientMessageID,
+		State:           receipt.State,
+		AcceptedAt:      receipt.AcceptedAt,
+		FinishedAt:      receipt.FinishedAt,
+	}
+}
+
+func duplicateSendMessageResult(clientMessageID string, receipt model.ClientMessageReceipt) SendMessageResult {
+	return SendMessageResult{
+		Disposition: SendMessageDuplicate,
+		Receipt:     newMessageReceipt(clientMessageID, receipt),
+	}
 }
 
 // runInteractive executes a single user-initiated message round against the
@@ -153,6 +259,13 @@ func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner
 	defer s.recoverRunPanic(ctx, job, jobRunSourceInteractive)
 
 	logger.Debugf(ctx, "[interactive] start: jobId=%s", job.ID)
+	if preparer, ok := runner.(AcceptedMessagePreparer); ok {
+		if err := preparer.PrepareAcceptedMessage(ctx, job.ID); err != nil {
+			logger.Errorf(ctx, "[interactive] prepare accepted message failed: jobId=%s err=%v", job.ID, err)
+			s.failJob(ctx, job, err.Error())
+			return
+		}
+	}
 
 	// Publish JOB_STARTED so other SSE subscribers (e.g. another tab watching
 	// this job) see the run re-enter Running. SendMessage already persisted

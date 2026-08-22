@@ -274,6 +274,8 @@ Quartet requires both `claude` and `claude-agent-acp` for Claude Code, and both
 | `make web-watch` | Start a detached watchdog that revives the backend if its port goes down |
 | `make web-watch-stop` | Stop the watchdog without stopping the backend |
 | `make build-frontend` | Rebuild the SPA into `static/` without restarting the backend |
+| `make build-ios` | Build the iOS app on macOS with Xcode |
+| `make test-ios` | Build the iOS app for Simulator without signing |
 
 ## Configuration
 
@@ -328,12 +330,14 @@ its local CLI.
 ```mermaid
 flowchart LR
     UI["React + Vite web app"]
+    IOS["SwiftUI iOS app"]
     API["Go + Hertz backend"]
     ACP["ACP agent processes"]
     DATA["Local file storage"]
     IM["Feishu / Lark and WeChat"]
 
     UI <-->|HTTP + SSE| API
+    IOS <-->|HTTP + SSE| API
     API <-->|ACP over stdio| ACP
     API <-->|atomic reads and writes| DATA
     IM <-->|messages and media| API
@@ -352,6 +356,7 @@ and event pipeline.
 | `types` | Shared domain and protocol types |
 | `pkg` | ACP, messaging, sandbox, logging, and common infrastructure |
 | `web` | React frontend |
+| `ios` | Native SwiftUI client for personal LAN use |
 | `skill/workflow` | CLI-driven workflow skill for coding agents |
 
 ## Workflow Skill
@@ -372,6 +377,7 @@ agent-managed library. User-authored workflows remain read-only to the CLI.
 ```bash
 make build-all       # Build all Go applications
 make build-frontend  # Type-check and build the React application
+make test-ios        # Build the iOS Simulator target on macOS without signing
 make test-web        # Run frontend component tests
 make e2e             # Run Playwright end-to-end tests
 make test            # Run Go build, frontend tests, and E2E tests

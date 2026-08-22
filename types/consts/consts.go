@@ -8,7 +8,7 @@ const (
 const (
 	DefaultSessionTitle    = "New Chat"
 	DefaultJobTitle        = "New Job"
-	ScheduleJobTitlePrefix = "[Scheduled] "
+	ScheduleJobTitlePrefix = "⏰ "
 )
 
 // Default workspace. Exactly one workspace with this fixed ID is guaranteed

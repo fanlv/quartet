@@ -206,6 +206,10 @@ type AgentPhaseValue struct {
 // workspace / reload job) on top of rendering the inline bubble.
 type CommandSystemMessageEvent struct {
 	BaseEvent
+	// ClientMessageID is the caller-provided idempotency key. It lets clients
+	// deduplicate the inline response and transient SSE copy without relying on
+	// command text or a short time window.
+	ClientMessageID string `json:"clientMessageId,omitempty"`
 	// Command is the canonical command name (e.g. "/help", "/ws").
 	Command string `json:"command"`
 	// Text is what the user sees.
@@ -225,7 +229,8 @@ type CommandSystemMessageEvent struct {
 // Kept separate so the types/model package stays free of the command service
 // dependency.
 type CommandAction struct {
-	Type        string `json:"type,omitempty"`
-	WorkspaceID string `json:"workspaceId,omitempty"`
-	JobID       string `json:"jobId,omitempty"`
+	Type            string `json:"type,omitempty"`
+	WorkspaceID     string `json:"workspaceId,omitempty"`
+	JobID           string `json:"jobId,omitempty"`
+	ClientMessageID string `json:"clientMessageId,omitempty"`
 }

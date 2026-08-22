@@ -3,10 +3,13 @@ package graph
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/cloudwego/eino/schema"
+	"github.com/fanlv/quartet/types/agui"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -18,7 +21,58 @@ type recordingSink struct {
 	attachedByJob map[string][]string
 }
 
-func (s *recordingSink) SetGraphRunState(context.Context, string, string, model.JobStatus, int64, int64) error {
+// lifecycleBlockingRunner exposes channel checkpoints for scheduler lifecycle
+// tests. It blocks until the scheduler cancels the node context and reports
+// both entry and exit without polling or sleeps.
+type lifecycleBlockingRunner struct {
+	stubSnapshotSource
+	started chan struct{}
+	exited  chan struct{}
+	once    sync.Once
+}
+
+func newLifecycleBlockingRunner() *lifecycleBlockingRunner {
+	return &lifecycleBlockingRunner{started: make(chan struct{}), exited: make(chan struct{})}
+}
+
+func (r *lifecycleBlockingRunner) InitSession(context.Context, string, *model.SessionOverrides) (string, error) {
+	return "session-lifecycle", nil
+}
+
+func (r *lifecycleBlockingRunner) RunIteration(ctx context.Context, _ string, _ []*schema.Message, _ agui.EventHandler) error {
+	r.once.Do(func() { close(r.started) })
+	<-ctx.Done()
+	close(r.exited)
+	return ctx.Err()
+}
+
+func (r *lifecycleBlockingRunner) SessionModelID(string) string { return "" }
+
+// stoppedGateSink holds the scheduler in its final Job stopped update. It lets
+// the test prove handle.done is not closed merely because run.json is terminal.
+type stoppedGateSink struct {
+	stoppedEntered chan struct{}
+	releaseStopped chan struct{}
+	once           sync.Once
+}
+
+func newStoppedGateSink() *stoppedGateSink {
+	return &stoppedGateSink{stoppedEntered: make(chan struct{}), releaseStopped: make(chan struct{})}
+}
+
+func (s *stoppedGateSink) SetGraphRunState(_ context.Context, _ string, _ string, status model.JobStatus, _ model.GraphRunStatus, _, _ int64, _ string) error {
+	if status == model.JobStatusStopped {
+		s.once.Do(func() { close(s.stoppedEntered) })
+		<-s.releaseStopped
+	}
+	return nil
+}
+
+func (*stoppedGateSink) ClearGraphRunLinkage(context.Context, string, string) error { return nil }
+func (*stoppedGateSink) AttachGraphSession(context.Context, string, string) error   { return nil }
+func (*stoppedGateSink) JobTitle(context.Context, string) string                    { return "" }
+
+func (s *recordingSink) SetGraphRunState(context.Context, string, string, model.JobStatus, model.GraphRunStatus, int64, int64, string) error {
 	return nil
 }
 
@@ -124,6 +178,149 @@ func TestHardStopInterruptsRunning(t *testing.T) {
 	}
 }
 
+func TestStopRunAndWaitJoinsSchedulerFinalJobUpdate(t *testing.T) {
+	uniqueMemoryRoot(t)
+	svcAPI, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	svc := svcAPI.(*serviceImpl)
+	runner := newLifecycleBlockingRunner()
+	sink := newStoppedGateSink()
+	cfg := model.GraphConfig{
+		Workdir: t.TempDir(),
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			promptNode("p"),
+			node("e", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{edge("s_p", "s", "p"), edge("p_e", "p", "e")},
+	}
+	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-join", Config: &cfg}, runner, sink)
+	if err != nil {
+		t.Fatalf("StartRun failed: %v", err)
+	}
+	<-runner.started
+
+	type stopResult struct {
+		run *model.GraphRun
+		err error
+	}
+	resultCh := make(chan stopResult, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		got, stopErr := svc.StopRunAndWait(ctx, run.ID, "join test")
+		resultCh <- stopResult{run: got, err: stopErr}
+	}()
+
+	<-runner.exited
+	<-sink.stoppedEntered
+	select {
+	case got := <-resultCh:
+		t.Fatalf("StopRunAndWait returned before final Job sink update completed: %+v", got)
+	default:
+	}
+	if svc.getControl(run.ID) == nil {
+		t.Fatal("control handle cleared before final Job sink update completed")
+	}
+
+	close(sink.releaseStopped)
+	got := <-resultCh
+	if got.err != nil {
+		t.Fatalf("StopRunAndWait failed: %v", got.err)
+	}
+	if got.run == nil || got.run.Status != model.GraphRunStatusStopped {
+		t.Fatalf("StopRunAndWait run = %+v, want stopped", got.run)
+	}
+	if svc.getControl(run.ID) != nil {
+		t.Fatal("control handle still registered after StopRunAndWait returned")
+	}
+}
+
+func TestStopRunAndWaitImmediatelyAfterStart(t *testing.T) {
+	uniqueMemoryRoot(t)
+	svcAPI, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	svc := svcAPI.(*serviceImpl)
+	cfg := model.GraphConfig{
+		Workdir: t.TempDir(),
+		Nodes: []model.GraphNode{
+			node("s", model.GraphNodeTypeStart),
+			promptNode("p"),
+			node("e", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{edge("s_p", "s", "p"), edge("p_e", "p", "e")},
+	}
+
+	for i := 0; i < 50; i++ {
+		runner := newLifecycleBlockingRunner()
+		run, startErr := svc.StartRun(context.Background(), &model.StartGraphRunRequest{
+			JobID:  fmt.Sprintf("job-immediate-%d", i),
+			Config: &cfg,
+		}, runner, nil)
+		if startErr != nil {
+			t.Fatalf("iteration %d: StartRun failed: %v", i, startErr)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		got, stopErr := svc.StopRunAndWait(ctx, run.ID, "immediate stop")
+		cancel()
+		if stopErr != nil {
+			t.Fatalf("iteration %d: StopRunAndWait failed: %v", i, stopErr)
+		}
+		if got.Status != model.GraphRunStatusStopped {
+			t.Fatalf("iteration %d: status = %s, want stopped", i, got.Status)
+		}
+		if svc.getControl(run.ID) != nil {
+			t.Fatalf("iteration %d: control handle still registered", i)
+		}
+	}
+}
+
+func TestDeleteRunFencesLateSchedulerRegistration(t *testing.T) {
+	uniqueMemoryRoot(t)
+	svcAPI, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	svc := svcAPI.(*serviceImpl)
+	cfg := linearShellCfg(t)
+	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{
+		JobID: "job-delete-fence", Config: &cfg,
+	}, stubGraphRunner{}, nil)
+	if err != nil {
+		t.Fatalf("StartRun failed: %v", err)
+	}
+	waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusCompleted)
+	// StopRunAndWait also joins the small post-terminal window before the
+	// scheduler closes its generation handle.
+	if _, err := svc.StopRunAndWait(context.Background(), run.ID, "delete"); err != nil {
+		t.Fatalf("StopRunAndWait failed: %v", err)
+	}
+	stale, err := svc.runRepo.GetRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("load stale run snapshot: %v", err)
+	}
+	if err := svc.DeleteRun(context.Background(), run.ID, nil); err != nil {
+		t.Fatalf("DeleteRun failed: %v", err)
+	}
+
+	// Model a ResumeRun request that resolved the terminal snapshot immediately
+	// before DeleteRun installed its fence. It must fail before writing any
+	// runtime files or launching a scheduler generation.
+	if _, err := svc.relaunchResumableRun(context.Background(), stale, stubGraphRunner{}, nil); !errors.Is(err, ErrGraphRunNotFound) {
+		t.Fatalf("late relaunch error = %v, want ErrGraphRunNotFound", err)
+	}
+	if svc.getControl(run.ID) != nil {
+		t.Fatal("late relaunch registered a scheduler after DeleteRun")
+	}
+	if _, err := svc.GetRunStatus(context.Background(), run.ID); !errors.Is(err, ErrGraphRunNotFound) {
+		t.Fatalf("deleted run was recreated: err=%v", err)
+	}
+}
+
 // TestStepStopFreezesBatch verifies step-stop runs the frozen batch to terminal
 // and holds downstream instances, settling to "stepStopped" with a persisted
 // frozen batch.
@@ -217,10 +414,9 @@ func TestDeleteRunRejectsInFlightAndUnlinksJob(t *testing.T) {
 	if err := svc.DeleteRun(context.Background(), run.ID, sink); !errors.Is(err, ErrGraphRunInFlight) {
 		t.Fatalf("DeleteRun on running run = %v, want ErrGraphRunInFlight", err)
 	}
-	if _, err := svc.StopRun(context.Background(), run.ID, ""); err != nil {
-		t.Fatalf("StopRun failed: %v", err)
+	if _, err := svc.StopRunAndWait(context.Background(), run.ID, ""); err != nil {
+		t.Fatalf("StopRunAndWait failed: %v", err)
 	}
-	waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusStopped)
 	if err := svc.DeleteRun(context.Background(), run.ID, sink); err != nil {
 		t.Fatalf("DeleteRun on stopped run failed: %v", err)
 	}

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { JobChat, ChatPage, GraphWorkflowPage, Settings } from './components';
+import type { CommandAction } from './types';
 import type { SettingsTab } from './components/settings/Settings';
 import { StatsPage } from './components/stats/StatsPage';
 import { ConnectionStatusProvider } from './contexts/ConnectionStatus';
@@ -14,6 +15,8 @@ interface WorkspaceInfo {
   title: string;
   description: string;
   workdir: string;
+  defaultAgent?: string;
+  defaultModel?: string;
   color?: string;
 }
 
@@ -591,7 +594,7 @@ function App() {
       try { alert(msg); } catch { /* ignore */ }
     };
     const handler = async (e: Event) => {
-      const action = (e as CustomEvent).detail as { type?: string; workspaceId?: string; jobId?: string } | null;
+      const action = (e as CustomEvent).detail as CommandAction | null;
       if (!action?.type) return;
       try {
         if (action.type === 'switch_workspace' && action.workspaceId) {
@@ -715,6 +718,7 @@ function App() {
             mode: 'interactive',
             workspaceId: targetWsId,
           };
+          if (action.clientMessageId) body.clientMessageId = action.clientMessageId;
           if (inheritedWorkdir) body.workdir = inheritedWorkdir;
           if (inheritedAcpMode) body.acpMode = inheritedAcpMode;
           if (inheritedAcpThoughtLevel) body.acpThoughtLevel = inheritedAcpThoughtLevel;

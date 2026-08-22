@@ -87,13 +87,13 @@ type KimiUsage struct {
 // the pool expires wholesale at ExpiresAt (unix ms from the API, stored here as
 // unix seconds). UsedPercent mirrors the API's totalUsagePercentage (0–100).
 type QoderUsage struct {
-	Version      string  `json:"version,omitempty"`       // qoderclicn CLI version, e.g. "v1.0.48"
-	PlanType     string  `json:"plan_type,omitempty"`     // API userType, e.g. "personal_professional_trial"
-	Unit         string  `json:"unit,omitempty"`          // quota unit, always "credits"
-	Total        float64 `json:"total"`                   // total credits in the pool
-	Used         float64 `json:"used"`                    // credits consumed
-	Remaining    float64 `json:"remaining"`               // credits left
-	UsedPercent  float64 `json:"used_percent"`            // 0–100
-	ExpiresAt    int64   `json:"expires_at,omitempty"`    // unix seconds when the plan/quota expires
-	QuotaExceeded bool   `json:"quota_exceeded"`          // true when the pool is exhausted
+	Version       string  `json:"version,omitempty"`    // qoderclicn CLI version, e.g. "v1.0.48"
+	PlanType      string  `json:"plan_type,omitempty"`  // API userType, e.g. "personal_professional_trial"
+	Unit          string  `json:"unit,omitempty"`       // quota unit, always "credits"
+	Total         float64 `json:"total"`                // total credits in the pool
+	Used          float64 `json:"used"`                 // credits consumed
+	Remaining     float64 `json:"remaining"`            // credits left
+	UsedPercent   float64 `json:"used_percent"`         // 0–100
+	ExpiresAt     int64   `json:"expires_at,omitempty"` // unix seconds when the plan/quota expires
+	QuotaExceeded bool    `json:"quota_exceeded"`       // true when the pool is exhausted
 }

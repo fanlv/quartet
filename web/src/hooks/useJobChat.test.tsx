@@ -8,6 +8,7 @@ const JOB_ID = 'job-1'
 interface PostedMessageBody {
   messages?: Array<{ content?: string }>
   sessionId?: string
+  clientMessageId?: string
 }
 
 interface MockApi {
@@ -15,7 +16,10 @@ interface MockApi {
   graphRun?: Record<string, unknown>
   failEvents: boolean
   eventsFetchCount: number
+  jobFetchCount: number
+  historyFetchCount: number
   postMessageBodies: PostedMessageBody[]
+  messageResponse?: Record<string, unknown>
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -55,6 +59,7 @@ function installFetchMock(api: MockApi) {
           event: { type: 'command_system_message', command: content, text: `${content} result`, present: 'inline' },
         })
       }
+      if (api.messageResponse) return jsonResponse(api.messageResponse)
       api.job = {
         ...api.job,
         status: 'running',
@@ -64,8 +69,14 @@ function installFetchMock(api: MockApi) {
     }
     if (url.includes(`/job/${JOB_ID}/stop`)) return jsonResponse({ code: 0 })
     if (url.includes(`/job/${JOB_ID}/graph-run`)) return jsonResponse(api.graphRun ?? {})
-    if (url.endsWith(`/api/v1/job/${JOB_ID}`)) return jsonResponse(api.job)
-    if (url.includes('/sessions/')) return jsonResponse({ messages: [] })
+    if (url.endsWith(`/api/v1/job/${JOB_ID}`)) {
+      api.jobFetchCount += 1
+      return jsonResponse(api.job)
+    }
+    if (url.includes('/sessions/')) {
+      api.historyFetchCount += 1
+      return jsonResponse({ messages: [] })
+    }
     throw new Error(`Unexpected fetch in test: ${method} ${url}`)
   }))
 }
@@ -97,7 +108,7 @@ function messageContents(api: MockApi): string[] {
 
 describe('useJobChat queued-message drain', () => {
   it('drains the whole queue in order even when a queued slash command takes the fast path', async () => {
-    const api: MockApi = { job: runningInteractiveJob(), failEvents: false, eventsFetchCount: 0, postMessageBodies: [] }
+    const api: MockApi = { job: runningInteractiveJob(), failEvents: false, eventsFetchCount: 0, jobFetchCount: 0, historyFetchCount: 0, postMessageBodies: [] }
     installFetchMock(api)
     const { result } = renderHook(() => useJobChat({ existingJobId: JOB_ID }))
 
@@ -125,9 +136,24 @@ describe('useJobChat queued-message drain', () => {
   })
 })
 
+describe('useJobChat slash command idempotency', () => {
+  it('sends a stable clientMessageId with a slash command', async () => {
+    const api: MockApi = { job: runningInteractiveJob(), failEvents: false, eventsFetchCount: 0, jobFetchCount: 0, historyFetchCount: 0, postMessageBodies: [] }
+    installFetchMock(api)
+    const { result } = renderHook(() => useJobChat({ existingJobId: JOB_ID }))
+
+    await waitFor(() => expect(result.current.eventsReady).toBe(true))
+    await act(async () => { await result.current.sendMessage('/help') })
+
+    expect(api.postMessageBodies).toHaveLength(1)
+    expect(api.postMessageBodies[0].clientMessageId).toEqual(expect.any(String))
+    expect(api.postMessageBodies[0].clientMessageId).not.toBe('')
+  })
+})
+
 describe('useJobChat initial SSE connect failure', () => {
   it('retries with the 410-aligned backoff budget and lets a later send force a fresh subscription', async () => {
-    const api: MockApi = { job: interactiveJob(), failEvents: true, eventsFetchCount: 0, postMessageBodies: [] }
+    const api: MockApi = { job: interactiveJob(), failEvents: true, eventsFetchCount: 0, jobFetchCount: 0, historyFetchCount: 0, postMessageBodies: [] }
     installFetchMock(api)
     const { result } = renderHook(() => useJobChat({ existingJobId: JOB_ID }))
 
@@ -144,6 +170,42 @@ describe('useJobChat initial SSE connect failure', () => {
     expect(result.current.eventsReady).toBe(true)
     expect(result.current.error).toBeNull()
   }, 15_000)
+})
+
+describe('useJobChat duplicate message receipts', () => {
+  it('settles a completed duplicate and reloads the job history without waiting for a new SSE event', async () => {
+    const api: MockApi = {
+      job: { ...runningInteractiveJob(), sessionIds: ['session-1'] },
+      failEvents: false,
+      eventsFetchCount: 0,
+      jobFetchCount: 0,
+      historyFetchCount: 0,
+      postMessageBodies: [],
+      messageResponse: { code: 0, status: 'duplicate', messageState: 'completed' },
+    }
+    installFetchMock(api)
+    const { result } = renderHook(() => useJobChat({ existingJobId: JOB_ID }))
+
+    await waitFor(() => expect(result.current.isLoadingHistory).toBe(false))
+    await waitFor(() => expect(result.current.eventsReady).toBe(true))
+    await waitFor(() => expect(api.jobFetchCount).toBeGreaterThanOrEqual(3))
+
+    // Ignore initial hydration/SSE reconciliation. The open mock SSE never
+    // emits a terminal event, so only the duplicate response can settle this send.
+    api.jobFetchCount = 0
+    api.historyFetchCount = 0
+    api.job = { ...interactiveJob(), sessionIds: ['session-1'] }
+
+    await act(async () => { await result.current.sendMessage('already completed') })
+
+    expect(api.jobFetchCount).toBeGreaterThan(0)
+    expect(api.historyFetchCount).toBeGreaterThan(0)
+    expect(result.current.isLoading).toBe(false)
+    expect(result.current.messages.find((message) => message.content === 'already completed')).toMatchObject({
+      pending: false,
+      deliveryStatus: 'sent',
+    })
+  })
 })
 
 describe('useJobChat graph jobs', () => {
@@ -178,6 +240,8 @@ describe('useJobChat graph jobs', () => {
       },
       failEvents: false,
       eventsFetchCount: 0,
+      jobFetchCount: 0,
+      historyFetchCount: 0,
       postMessageBodies: [],
     }
     installFetchMock(api)

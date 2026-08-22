@@ -427,11 +427,16 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // two delivery paths can both reach a tab that is SSE-connected.
   const applyCommandEvent = useCallback((event: CommandSystemMessageEvent): boolean => {
     const now = Date.now();
-    const sig = `${event.command}\u0000${event.present || ''}\u0000${event.text}`;
+    const sig = event.clientMessageId
+      ? `client:${event.clientMessageId}`
+      : `${event.command}\u0000${event.present || ''}\u0000${event.text}`;
     const seen = appliedCommandEventsRef.current;
-    // Drop entries older than the dedup window so the map can't grow unbounded.
+    // Client-keyed command entries must survive for this page lifetime: an
+    // unknown-result retry may return the persisted command event long after
+    // the original SSE copy. Legacy events without a client ID retain the
+    // short text-signature window.
     for (const [k, ts] of seen) {
-      if (now - ts > 10_000) seen.delete(k);
+      if (!k.startsWith('client:') && now - ts > 10_000) seen.delete(k);
     }
     if (seen.has(sig)) return false;
     seen.set(sig, now);
@@ -2675,13 +2680,19 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     const trimmed = content.trim();
     const hasImages = !!imageUrls && imageUrls.length > 0;
     if (!options?.bypassCommand && !hasImages && isKnownCommand(trimmed)) {
+      const commandClientMessageId = options?.optimisticMessageId
+        ?? crypto.randomUUID?.()
+        ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
       // Clear any previous pending watchdog before dispatching a new command.
       clearPendingCommandWatchdog();
       try {
         const res = await fetch(`/api/v1/job/${jobId}/message`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: [{ role: 'user', content: trimmed }] }),
+          body: JSON.stringify({
+            clientMessageId: commandClientMessageId,
+            messages: [{ role: 'user', content: trimmed }],
+          }),
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => null);
@@ -2796,11 +2807,37 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       // case the response carries `command_dispatched` (plus the inline
       // `event`); clean up the optimistic user bubble and render the result.
       const body = await response.json().catch(() => null);
-      if (body?.status === 'command_dispatched') {
+      if (body?.status === 'command_dispatched' || body?.status === 'command_duplicate') {
         setMessages((prev) => prev.filter((m) => m.id !== userMessageId));
         setIsLoading(false);
         const event = body?.event as CommandSystemMessageEvent | undefined;
         if (event && event.text) applyCommandEvent(event);
+      } else if (body?.status === 'duplicate') {
+        const messageState = typeof body?.messageState === 'string' ? body.messageState : '';
+        const stillProcessing = messageState === 'processing';
+        // This 200 acknowledges the original delivery; it did not start a new
+        // run. A processing receipt can keep following that original run's SSE,
+        // while a terminal/interrupted receipt must reconcile from disk because
+        // no fresh RUN_STARTED or terminal event will be emitted for the retry.
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === userMessageId
+              ? {
+                  ...msg,
+                  pending: stillProcessing,
+                  failed: messageState === 'interrupted',
+                  deliveryStatus: messageState === 'interrupted' ? 'failed' : 'sent',
+                  sendError: messageState === 'interrupted'
+                    ? '消息已被服务端接收，但处理因服务重启而中断；如需重新执行，请作为新消息发送。'
+                    : undefined,
+                }
+              : msg
+          )
+        );
+        if (!stillProcessing) {
+          setIsLoading(false);
+          await syncJobState(jobId);
+        }
       } else {
         // The HTTP response is the delivery acknowledgement: the backend has
         // accepted the message and started the run. Keep `pending` untouched
@@ -2835,7 +2872,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
       setError(errorMessage);
     }
-  }, [jobId, isPublic, clearPendingCommandWatchdog, applyCommandEvent, ensureEventStreamReady, reportDisconnect]);
+  }, [jobId, isPublic, clearPendingCommandWatchdog, applyCommandEvent, ensureEventStreamReady, reportDisconnect, syncJobState]);
 
   // Cleanup watchdog on unmount.
   useEffect(() => {

@@ -7,16 +7,18 @@ import (
 )
 
 type Workspace struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Workdir     string    `json:"workdir"`
-	Color       string    `json:"color,omitempty"`
-	Favorite    bool      `json:"favorite,omitempty"`
-	SortOrder   int       `json:"sortOrder,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	Deleted     bool      `json:"deleted,omitempty"`
+	ID           string    `json:"id"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	Workdir      string    `json:"workdir"`
+	DefaultAgent string    `json:"defaultAgent,omitempty"`
+	DefaultModel string    `json:"defaultModel,omitempty"`
+	Color        string    `json:"color,omitempty"`
+	Favorite     bool      `json:"favorite,omitempty"`
+	SortOrder    int       `json:"sortOrder,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	Deleted      bool      `json:"deleted,omitempty"`
 
 	// Sandbox records the last-known sandbox container binding for this
 	// workspace. Only populated once the workspace has been used in

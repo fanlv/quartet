@@ -65,6 +65,7 @@ func (s *serviceImpl) saveJobWithRetryUnderPersistLock(ctx context.Context, job 
 		return saveErr
 	}
 	s.bumpListVersion(cp.WorkspaceID)
+	s.recordJobObservation(cp, "")
 	return nil
 }
 

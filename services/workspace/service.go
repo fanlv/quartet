@@ -22,7 +22,8 @@ type Service interface {
 	Create(ws *model.Workspace) error
 	Get(id string) (*model.Workspace, bool)
 	List() []*model.Workspace
-	Update(id string, title, description, workdir string) (*model.Workspace, error)
+	Update(id string, title, description, workdir, defaultAgent, defaultModel string) (*model.Workspace, error)
+	ClearAgentDefaults(agentID string) error
 	SetFavorite(id string, favorite bool) (*model.Workspace, error)
 	Reorder(ids []string) error
 	SetSandboxRef(id string, ref *model.SandboxRef) error
@@ -227,7 +228,7 @@ func sortWorkspaceList(workspaces []*model.Workspace) {
 	})
 }
 
-func (s *serviceImpl) Update(id string, title, description, workdir string) (*model.Workspace, error) {
+func (s *serviceImpl) Update(id string, title, description, workdir, defaultAgent, defaultModel string) (*model.Workspace, error) {
 	mu := s.lockFor(id)
 	mu.Lock()
 	defer mu.Unlock()
@@ -251,6 +252,8 @@ func (s *serviceImpl) Update(id string, title, description, workdir string) (*mo
 	updated.Title = title
 	updated.Description = description
 	updated.Workdir = workdir
+	updated.DefaultAgent = defaultAgent
+	updated.DefaultModel = defaultModel
 	updated.UpdatedAt = time.Now()
 
 	if err := s.repo.Save(updated.ID, updated); err != nil {
@@ -266,15 +269,63 @@ func (s *serviceImpl) Update(id string, title, description, workdir string) (*mo
 	}
 	// In-place update: a pointer-replace here would clobber any field
 	// another goroutine legitimately changed while we were doing disk I/O
-	// (e.g. SetSandboxRef racing with Update). We only own the four fields
+	// (e.g. SetSandboxRef racing with Update). We only own the fields
 	// this call actually modifies; everything else is left untouched.
 	cur.Title = updated.Title
 	cur.Description = updated.Description
 	cur.Workdir = updated.Workdir
+	cur.DefaultAgent = updated.DefaultAgent
+	cur.DefaultModel = updated.DefaultModel
 	cur.UpdatedAt = updated.UpdatedAt
 	s.bumpRevisionLocked()
 	s.mu.Unlock()
 	return cloneWorkspace(updated), nil
+}
+
+// ClearAgentDefaults removes a deleted Agent from every workspace preference.
+// It only owns the two preference fields, so an unrelated stale/missing
+// workdir cannot block Agent deletion.
+func (s *serviceImpl) ClearAgentDefaults(agentID string) error {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil
+	}
+	for _, listed := range s.List() {
+		if listed.DefaultAgent != agentID {
+			continue
+		}
+		mu := s.lockFor(listed.ID)
+		mu.Lock()
+
+		s.mu.RLock()
+		current, ok := s.workspaces[listed.ID]
+		if !ok || current == nil || current.Deleted || current.DefaultAgent != agentID {
+			s.mu.RUnlock()
+			mu.Unlock()
+			continue
+		}
+		updated := cloneWorkspace(current)
+		s.mu.RUnlock()
+		updated.DefaultAgent = ""
+		updated.DefaultModel = ""
+		updated.UpdatedAt = time.Now()
+		if err := s.repo.Save(updated.ID, updated); err != nil {
+			mu.Unlock()
+			return fmt.Errorf("clear deleted Agent %s from workspace %s defaults: %w", agentID, listed.ID, err)
+		}
+
+		s.mu.Lock()
+		current, ok = s.workspaces[listed.ID]
+		if ok && current != nil && !current.Deleted && current.DefaultAgent == agentID {
+			current.DefaultAgent = ""
+			current.DefaultModel = ""
+			current.UpdatedAt = updated.UpdatedAt
+			s.bumpRevisionLocked()
+		}
+		s.mu.Unlock()
+		mu.Unlock()
+	}
+	return nil
 }
 
 func (s *serviceImpl) SetFavorite(id string, favorite bool) (*model.Workspace, error) {

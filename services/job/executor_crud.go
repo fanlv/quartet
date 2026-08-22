@@ -2,7 +2,11 @@ package job
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,7 +46,70 @@ func (s *serviceImpl) Create(job *model.Job) error {
 	}
 	s.store(cp.ID, cp)
 	s.bumpListVersion(cp.WorkspaceID)
+	s.recordJobObservation(cp, "")
 	return nil
+}
+
+func (s *serviceImpl) CreateIdempotent(job *model.Job) (*model.Job, bool, error) {
+	if job == nil {
+		return nil, false, fmt.Errorf("job is nil")
+	}
+	if job.CreationClientMessageID == "" {
+		if err := s.Create(job); err != nil {
+			return nil, false, err
+		}
+		return job.DeepCopy(), false, nil
+	}
+	ensureProgress(job)
+	if job.CreationPayloadHash == "" {
+		return nil, false, fmt.Errorf("creation payload hash is required for clientMessageId %q", job.CreationClientMessageID)
+	}
+
+	lock := s.persistLock(job.ID)
+	lock.Lock()
+	defer lock.Unlock()
+	s.mu.RLock()
+	existing, exists := s.jobs[job.ID]
+	if exists {
+		cp := existing.DeepCopy()
+		s.mu.RUnlock()
+		if cp.CreationClientMessageID != job.CreationClientMessageID || cp.CreationPayloadHash != job.CreationPayloadHash {
+			return nil, false, fmt.Errorf("%w: %q", ErrClientMessageIDConflict, job.CreationClientMessageID)
+		}
+		return cp, true, nil
+	}
+	s.mu.RUnlock()
+
+	cp := job.DeepCopy()
+	repo, err := s.getOrCreateRepo(cp.WorkspaceID)
+	if err != nil {
+		return nil, false, fmt.Errorf("get repo for workspace %s failed: %w", cp.WorkspaceID, err)
+	}
+	// A process restart may load the deterministic job ID after this service
+	// instance was constructed. Consult disk before creating so retries remain
+	// idempotent even across that boundary.
+	if persisted, loadErr := repo.Load(cp.ID); loadErr == nil {
+		if persisted != nil {
+			if persisted.CreationClientMessageID != cp.CreationClientMessageID || persisted.CreationPayloadHash != cp.CreationPayloadHash {
+				return nil, false, fmt.Errorf("%w: %q", ErrClientMessageIDConflict, cp.CreationClientMessageID)
+			}
+			s.store(cp.ID, persisted)
+			return persisted.DeepCopy(), true, nil
+		}
+	} else if !errors.Is(loadErr, os.ErrNotExist) {
+		return nil, false, fmt.Errorf("load idempotent job %s: %w", cp.ID, loadErr)
+	}
+	if err := repo.Save(cp.ID, cp); err != nil {
+		return nil, false, err
+	}
+	s.store(cp.ID, cp)
+	s.bumpListVersion(cp.WorkspaceID)
+	return cp.DeepCopy(), false, nil
+}
+
+func IdempotentJobID(clientMessageID string) string {
+	sum := sha256.Sum256([]byte(clientMessageID))
+	return "job-idem-" + hex.EncodeToString(sum[:16])
 }
 
 func (s *serviceImpl) Get(jobID string) (*model.Job, bool) {
@@ -55,6 +122,43 @@ func (s *serviceImpl) Get(jobID string) (*model.Job, bool) {
 	cp := j.DeepCopy()
 	s.mu.RUnlock()
 	return cp, true
+}
+
+func (s *serviceImpl) LookupMessage(jobID string, opts *SendMessageOptions) (MessageReceipt, bool, error) {
+	if opts == nil || opts.ClientMessageID == "" {
+		return MessageReceipt{}, false, nil
+	}
+	payloadHash, err := clientMessagePayloadHash(opts)
+	if err != nil {
+		return MessageReceipt{}, false, err
+	}
+	// Pair with SendMessage's claim persistence. Without this lock, a reader
+	// could observe the in-memory processing receipt before job.json commits,
+	// acknowledge the retry, and then watch the original save fail and roll the
+	// claim back. Returning only committed receipts keeps every 200 durable.
+	lock := s.persistLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	j, ok := s.jobs[jobID]
+	if !ok {
+		return MessageReceipt{}, false, ErrJobNotFound
+	}
+	if j.Deleted {
+		return MessageReceipt{}, false, ErrJobDeleted
+	}
+	if _, exists := j.CommandReceipts[opts.ClientMessageID]; exists {
+		return MessageReceipt{}, false, fmt.Errorf("%w: %q was used for a slash command", ErrClientMessageIDConflict, opts.ClientMessageID)
+	}
+	receipt, ok := j.ClientMessageReceipts[opts.ClientMessageID]
+	if !ok {
+		return MessageReceipt{}, false, nil
+	}
+	if receipt.PayloadHash != payloadHash {
+		return MessageReceipt{}, false, fmt.Errorf("%w: %q", ErrClientMessageIDConflict, opts.ClientMessageID)
+	}
+	return newMessageReceipt(opts.ClientMessageID, receipt), true, nil
 }
 
 func (s *serviceImpl) GetWithSnapshotSeq(jobID string) (*model.Job, uint64, bool) {
@@ -150,19 +254,22 @@ func compareJobSummaryAfterCursor(sum model.JobSummary, cur jobCursor) bool {
 // so the result is safe to return without further copying.
 func summarize(j *model.Job) model.JobSummary {
 	sum := model.JobSummary{
-		ID:           j.ID,
-		Title:        j.Title,
-		ModelID:      j.FirstModelID,
-		Status:       j.Status,
-		Mode:         j.Mode,
-		WorkspaceID:  j.WorkspaceID,
-		Workdir:      j.Workdir,
-		CreatedAt:    j.CreatedAt.UnixMilli(),
-		UpdatedAt:    j.UpdatedAt.UnixMilli(),
-		PinnedAt:     j.PinnedAt,
-		SessionCount: len(j.SessionIDs),
-		ScheduleID:   j.ScheduleID,
-		ShareToken:   j.ShareToken,
+		ID:              j.ID,
+		Title:           j.Title,
+		AgentID:         j.InitialAgentID,
+		ModelID:         j.FirstModelID,
+		ACPMode:         j.InitialACPMode,
+		ACPThoughtLevel: j.InitialACPThoughtLevel,
+		Status:          j.Status,
+		Mode:            j.Mode,
+		WorkspaceID:     j.WorkspaceID,
+		Workdir:         j.Workdir,
+		CreatedAt:       j.CreatedAt.UnixMilli(),
+		UpdatedAt:       j.UpdatedAt.UnixMilli(),
+		PinnedAt:        j.PinnedAt,
+		SessionCount:    len(j.SessionIDs),
+		ScheduleID:      j.ScheduleID,
+		ShareToken:      j.ShareToken,
 	}
 	return sum
 }

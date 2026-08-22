@@ -27,6 +27,40 @@ const (
 	JobModeGraph       JobMode = "graph"
 )
 
+// ClientMessageState records the durable disposition of one idempotent
+// interactive message submission. A processing receipt is written before the
+// Agent goroutine starts. Once written, the same clientMessageId is never
+// executed again; callers that intentionally retry a failed/stopped message
+// must submit it with a new ID.
+type ClientMessageState string
+
+const (
+	ClientMessageStateProcessing  ClientMessageState = "processing"
+	ClientMessageStateCompleted   ClientMessageState = "completed"
+	ClientMessageStateFailed      ClientMessageState = "failed"
+	ClientMessageStateStopped     ClientMessageState = "stopped"
+	ClientMessageStateInterrupted ClientMessageState = "interrupted"
+)
+
+// ClientMessageReceipt is the persistent idempotency record for a
+// clientMessageId. PayloadHash prevents one key from silently being reused for
+// a different logical request.
+type ClientMessageReceipt struct {
+	State       ClientMessageState `json:"state"`
+	PayloadHash string             `json:"payloadHash"`
+	AcceptedAt  int64              `json:"acceptedAt"`
+	FinishedAt  int64              `json:"finishedAt,omitempty"`
+}
+
+// CommandReceipt records a completed slash-command dispatch. Commands use a
+// separate receipt type because they execute synchronously and must never leave
+// an Agent-style processing receipt behind. Event is persisted so retries can
+// replay the original response without repeating side effects.
+type CommandReceipt struct {
+	PayloadHash string                     `json:"payloadHash"`
+	Event       *CommandSystemMessageEvent `json:"event"`
+}
+
 // Job represents a single execution unit (interactive chat, graph run, or
 // historical loop archive).
 //
@@ -38,7 +72,8 @@ const (
 //
 // Immutable after creation (safe to read without lock):
 //
-//	ID, WorkspaceID, CreatedAt, ScheduleID, TimeoutMinutes
+//	ID, WorkspaceID, CreatedAt, ScheduleID, TimeoutMinutes, InitialAgentID,
+//	InitialACPMode, InitialACPThoughtLevel
 //
 // Handler-owned (written by handler through targeted service mutators):
 //
@@ -49,9 +84,10 @@ const (
 //	Status, StartedAt, FinishedAt, LoopConfig, GraphRunID, Progress, Resume,
 //	SessionIDs
 //
-// Service-owned denormalized cache (written by targeted service mutator only):
+// Creation-initialized and service-maintained state:
 //
-//	FirstModelID
+//	FirstModelID, ActiveClientMessageID, ClientMessageReceipts, CommandReceipts,
+//	CreationClientMessageID, CreationPayloadHash
 type Job struct {
 	// --- Immutable after creation ---
 	ID        string    `json:"id"`
@@ -71,6 +107,13 @@ type Job struct {
 	WorkspaceID    string `json:"workspaceId"`
 	ScheduleID     string `json:"scheduleId,omitempty"`
 	TimeoutMinutes int    `json:"timeoutMinutes,omitempty"`
+	// Initial* preserves the configuration chosen when an interactive Job is
+	// created. A Job has no Session yet at that point, so session metadata cannot
+	// recover these values for list rendering or the first send after a client
+	// reload. Once a Session exists, its metadata remains authoritative.
+	InitialAgentID         string `json:"initialAgentId,omitempty"`
+	InitialACPMode         string `json:"initialAcpMode,omitempty"`
+	InitialACPThoughtLevel string `json:"initialAcpThoughtLevel,omitempty"`
 
 	// --- Run-owned ---
 	Status     JobStatus   `json:"status"`
@@ -100,8 +143,19 @@ type Job struct {
 	// instead of job.Status to finalize in-flight UI state.
 	LastRunOutcome RunOutcome `json:"lastRunOutcome,omitempty"`
 
-	// FirstModelID caches the ModelID of the first non-deleted session for
-	// JobInfo listing. Denormalized on the write path so JobList does not
+	// Idempotency metadata is persisted by repository.JobRepo but hidden from
+	// ordinary/public Job JSON responses. Message receipts provide durable
+	// at-most-once Agent execution; command receipts replay synchronous command
+	// results; creation fields make downstream actions such as /new retry-safe.
+	ActiveClientMessageID   string                          `json:"-"`
+	ClientMessageReceipts   map[string]ClientMessageReceipt `json:"-"`
+	CommandReceipts         map[string]CommandReceipt       `json:"-"`
+	CreationClientMessageID string                          `json:"-"`
+	CreationPayloadHash     string                          `json:"-"`
+
+	// FirstModelID initially records the model selected for an empty interactive
+	// Job, then represents the first non-deleted session's ModelID for listing.
+	// Denormalized on the write path so JobList does not
 	// need to open every session file (avoids an O(jobs * sessions) I/O hit
 	// on the list endpoint). An empty value means "not cached yet" — the
 	// lister may lazily fill it and persist.
@@ -342,6 +396,29 @@ func (j *Job) DeepCopy() *Job {
 		rCopy := *j.Resume
 		rCopy.NextPath = CopyPath(j.Resume.NextPath)
 		cp.Resume = &rCopy
+	}
+
+	// ClientMessageReceipts
+	if len(j.ClientMessageReceipts) > 0 {
+		cp.ClientMessageReceipts = make(map[string]ClientMessageReceipt, len(j.ClientMessageReceipts))
+		for id, receipt := range j.ClientMessageReceipts {
+			cp.ClientMessageReceipts[id] = receipt
+		}
+	}
+	if len(j.CommandReceipts) > 0 {
+		cp.CommandReceipts = make(map[string]CommandReceipt, len(j.CommandReceipts))
+		for id, receipt := range j.CommandReceipts {
+			copyReceipt := receipt
+			if receipt.Event != nil {
+				copyEvent := *receipt.Event
+				if receipt.Event.Action != nil {
+					copyAction := *receipt.Event.Action
+					copyEvent.Action = &copyAction
+				}
+				copyReceipt.Event = &copyEvent
+			}
+			cp.CommandReceipts[id] = copyReceipt
+		}
 	}
 
 	return &cp

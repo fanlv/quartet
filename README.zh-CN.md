@@ -230,6 +230,8 @@ Claude Code 要求后端的 `PATH` 中同时能找到 `claude` 和 `claude-agent
 | `make web-watch` | 启动独立 watchdog，在端口不可用时拉起后端 |
 | `make web-watch-stop` | 只停止 watchdog，不停止后端 |
 | `make build-frontend` | 将 SPA 重新构建到 `static/`，不重启后端 |
+| `make build-ios` | 在 macOS/Xcode 上构建 iOS 应用 |
+| `make test-ios` | 无签名构建 iOS Simulator 目标 |
 
 ## 配置
 
@@ -279,12 +281,14 @@ $LOCAL_MEMORY/
 ```mermaid
 flowchart LR
     UI["React + Vite 前端"]
+    IOS["SwiftUI iOS 客户端"]
     API["Go + Hertz 后端"]
     ACP["ACP Agent 子进程"]
     DATA["本地文件存储"]
     IM["飞书 / Lark 与微信"]
 
     UI <-->|HTTP + SSE| API
+    IOS <-->|HTTP + SSE| API
     API <-->|ACP stdio| ACP
     API <-->|原子读写| DATA
     IM <-->|消息与媒体| API
@@ -302,6 +306,7 @@ ACP 会话与事件链路接入。
 | `types` | 共享领域类型与协议类型 |
 | `pkg` | ACP、即时通讯、沙箱、日志和通用基础设施 |
 | `web` | React 前端 |
+| `ios` | 面向个人局域网使用的原生 SwiftUI 客户端 |
 | `skill/workflow` | 供编程 Agent 使用的 CLI 工作流 Skill |
 
 ## 工作流 Skill
@@ -321,6 +326,7 @@ make install-skill
 ```bash
 make build-all       # 构建所有 Go 应用
 make build-frontend  # 类型检查并构建 React 应用
+make test-ios        # 在 macOS 上无签名构建 iOS Simulator 目标
 make test-web        # 运行前端组件测试
 make e2e             # 运行 Playwright 端到端测试
 make test            # 运行 Go 构建、前端测试和端到端测试

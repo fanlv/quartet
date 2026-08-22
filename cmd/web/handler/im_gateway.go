@@ -3,6 +3,8 @@ package handler
 import (
 	"container/heap"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -674,11 +676,36 @@ func (g *imGateway) buildQueuedJobTask(ctx context.Context, msg *messaging.Messa
 			}},
 			AgentType:       resolved.AgentID,
 			ModelID:         msgAgent.ModelID,
+			ClientMessageID: imClientMessageID(msg),
 			ACPMode:         msgAgent.ACPMode,
 			ACPThoughtLevel: msgAgent.ACPThoughtLevel,
 		},
 		jobID: j.ID,
 	}, nil
+}
+
+// imClientMessageID namespaces a platform delivery ID by its source chat. IM
+// providers guarantee message IDs within their own scope, not across every
+// provider/chat Quartet can ingest. Hashing the length-prefixed tuple keeps the
+// persisted key compact and avoids separator ambiguity.
+func imClientMessageID(msg *messaging.Message) string {
+	return imSourceID("message", msg)
+}
+
+func imCreateJobClientMessageID(msg *messaging.Message) string {
+	return imSourceID("create-job", msg)
+}
+
+func imSourceID(kind string, msg *messaging.Message) string {
+	if msg == nil || msg.MessageID == "" {
+		return ""
+	}
+	h := sha256.New()
+	for _, part := range []string{kind, string(msg.Platform), msg.ChatID, msg.MessageID} {
+		fmt.Fprintf(h, "%d:", len(part))
+		_, _ = h.Write([]byte(part))
+	}
+	return "im-" + hex.EncodeToString(h.Sum(nil))
 }
 
 func (g *imGateway) saveJobMapping(ctx context.Context, msg *messaging.Message, mapping *repository.IMJobMapping, wsID, jobID string) error {
@@ -879,8 +906,12 @@ func (g *imGateway) sendQueuedJobMessage(ctx context.Context, task *imQueuedJobT
 	}
 	defer reader.Close()
 
-	if err := g.h.jobService.SendMessage(ctx, j.ID, runner, opts); err != nil {
+	result, err := g.h.jobService.SendMessage(ctx, j.ID, runner, opts)
+	if err != nil {
 		return err
+	}
+	if !result.Started() {
+		return nil
 	}
 	sendStarted = true
 
@@ -1361,9 +1392,10 @@ func (g *imGateway) resolveJob(
 		Mode:            model.JobModeInteractive,
 		Workdir:         ws.Workdir,
 		WorkspaceID:     wsID,
+		ClientMessageID: imCreateJobClientMessageID(msg),
 	}
 
-	j, err := g.h.createJob(ctx, req)
+	j, _, err := g.h.createJobIdempotent(ctx, req)
 	if err != nil {
 		return nil, "", fmt.Errorf("create job failed: %w", err)
 	}

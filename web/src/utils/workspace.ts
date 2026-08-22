@@ -7,8 +7,8 @@
 //   renders something reasonable.
 // - Default workspace detection: fixed ID "ws-1", no IsDefault flag in the data
 //   model.
-// - Per-workspace preferences (default agent / model): stored in localStorage;
-//   IM side does not read these.
+// - Per-workspace preferences (default agent / model): stored on the backend.
+//   A localStorage fallback is kept only long enough to migrate older Web data.
 
 export const DEFAULT_WORKSPACE_ID = 'ws-1';
 
@@ -53,11 +53,25 @@ export function workspaceColor(
 const colorRegistry = new Map<string, string>();
 
 export function registerWorkspaceColors(
-  items: Array<{ id?: string | null; color?: string | null }> | undefined | null,
+  items: Array<{
+    id?: string | null;
+    color?: string | null;
+    defaultAgent?: string | null;
+    defaultModel?: string | null;
+  }> | undefined | null,
 ) {
   if (!items) return;
   for (const w of items) {
-    if (w?.id && w.color) colorRegistry.set(w.id, w.color);
+    if (!w?.id) continue;
+    if (w.color) colorRegistry.set(w.id, w.color);
+    const supportsSharedPrefs = Object.prototype.hasOwnProperty.call(w, 'defaultAgent')
+      || Object.prototype.hasOwnProperty.call(w, 'defaultModel');
+    if (supportsSharedPrefs) {
+      serverPrefsRegistry.set(w.id, {
+        defaultAgent: w.defaultAgent || undefined,
+        defaultModel: w.defaultModel || undefined,
+      });
+    }
   }
 }
 
@@ -81,11 +95,13 @@ function hslToHex(h: number, s: number, l: number): string {
   return `#${f(0)}${f(8)}${f(4)}`;
 }
 
-// Per-workspace preferences (Web-only; IM side ignores these).
+// Per-workspace preferences shared by Web and native clients.
 export interface WorkspacePrefs {
   defaultAgent?: string;
   defaultModel?: string;
 }
+
+const serverPrefsRegistry = new Map<string, WorkspacePrefs>();
 
 function prefsKey(wsId: string): string {
   return `workspacePrefs_${wsId}`;
@@ -93,6 +109,8 @@ function prefsKey(wsId: string): string {
 
 export function loadWorkspacePrefs(wsId: string | undefined | null): WorkspacePrefs {
   if (!wsId) return {};
+  const serverPrefs = serverPrefsRegistry.get(wsId);
+  if (serverPrefsRegistry.has(wsId)) return serverPrefs || {};
   try {
     const raw = localStorage.getItem(prefsKey(wsId));
     if (!raw) return {};
@@ -118,14 +136,84 @@ export function saveWorkspacePrefs(wsId: string, prefs: WorkspacePrefs) {
   }
 }
 
-export function migrateWorkspaceAgentPref(wsId: string, resolve: (value: string) => string | undefined): WorkspacePrefs {
-  const current = loadWorkspacePrefs(wsId);
-  if (!current.defaultAgent) return current;
-  const migrated = resolve(current.defaultAgent);
-  if (migrated === current.defaultAgent) return current;
-  const next = { ...current, defaultAgent: migrated };
-  saveWorkspacePrefs(wsId, next);
-  return next;
+export function registerWorkspacePrefs(wsId: string, prefs: WorkspacePrefs) {
+  if (!wsId) return;
+  serverPrefsRegistry.set(wsId, {
+    defaultAgent: prefs.defaultAgent || undefined,
+    defaultModel: prefs.defaultModel || undefined,
+  });
+}
+
+// Move a legacy browser-local preference into the existing workspace update
+// endpoint. The server wins when it already has a shared value. Failed writes
+// keep localStorage intact so a later page load can retry without losing data.
+export async function migrateWorkspacePrefsToServer(
+  wsId: string,
+  resolveAgent?: (value: string) => string | undefined,
+): Promise<WorkspacePrefs> {
+  if (!wsId) return {};
+  let local: WorkspacePrefs = {};
+  try {
+    const raw = localStorage.getItem(prefsKey(wsId));
+    if (raw) {
+      const value = JSON.parse(raw);
+      const storedAgent = typeof value.defaultAgent === 'string' ? value.defaultAgent : undefined;
+      local = {
+        defaultAgent: storedAgent && resolveAgent ? (resolveAgent(storedAgent) || storedAgent) : storedAgent,
+        defaultModel: typeof value.defaultModel === 'string' ? value.defaultModel : undefined,
+      };
+    }
+  } catch { /* leave local empty */ }
+
+  const res = await fetch(`/api/v1/workspace/${encodeURIComponent(wsId)}`);
+  if (!res.ok) return local;
+  const workspace = await res.json();
+  const supportsSharedPrefs = Object.prototype.hasOwnProperty.call(workspace, 'defaultAgent')
+    || Object.prototype.hasOwnProperty.call(workspace, 'defaultModel');
+  if (!supportsSharedPrefs) return local;
+  const sharedRaw: WorkspacePrefs = {
+    defaultAgent: typeof workspace?.defaultAgent === 'string' && workspace.defaultAgent ? workspace.defaultAgent : undefined,
+    defaultModel: typeof workspace?.defaultModel === 'string' && workspace.defaultModel ? workspace.defaultModel : undefined,
+  };
+  const shared: WorkspacePrefs = {
+    ...sharedRaw,
+    defaultAgent: sharedRaw.defaultAgent && resolveAgent
+      ? (resolveAgent(sharedRaw.defaultAgent) || sharedRaw.defaultAgent)
+      : sharedRaw.defaultAgent,
+  };
+  const hasShared = !!(shared.defaultAgent || shared.defaultModel);
+  const source = hasShared ? shared : local;
+  const sharedAlreadyCanonical = shared.defaultAgent === sharedRaw.defaultAgent;
+  if ((hasShared && sharedAlreadyCanonical) || (!hasShared && !local.defaultAgent && !local.defaultModel)) {
+    registerWorkspacePrefs(wsId, source);
+    try { localStorage.removeItem(prefsKey(wsId)); } catch { /* ignore */ }
+    return source;
+  }
+
+  const update = await fetch(`/api/v1/workspace/${encodeURIComponent(wsId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: workspace.title || '',
+      description: workspace.description || '',
+      workdir: workspace.workdir || '',
+      defaultAgent: source.defaultAgent || '',
+      defaultModel: source.defaultModel || '',
+    }),
+  });
+  if (!update.ok) return local;
+  const saved = await update.json();
+  if (!Object.prototype.hasOwnProperty.call(saved, 'defaultAgent')
+    && !Object.prototype.hasOwnProperty.call(saved, 'defaultModel')) {
+    return local;
+  }
+  const migrated = {
+    defaultAgent: saved?.defaultAgent || source.defaultAgent,
+    defaultModel: saved?.defaultModel || source.defaultModel,
+  };
+  registerWorkspacePrefs(wsId, migrated);
+  try { localStorage.removeItem(prefsKey(wsId)); } catch { /* ignore */ }
+  return migrated;
 }
 
 // Session key: track the most recently used workspace so first-open can

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -13,6 +14,44 @@ type serviceImpl struct {
 	sessions map[string]*model.Session
 	mu       sync.RWMutex
 	repo     repository.SessionRepo
+	// persistKey identifies the on-disk session namespace shared by all
+	// serviceImpl instances for the same Job. See sessionPersistGate.
+	persistKey string
+}
+
+// sessionPersistState is shared process-wide, not per serviceImpl. A session
+// service may be evicted and recreated while an older reference is still in
+// use; a lock stored on either instance would therefore leave two writers for
+// the same metadata file unsynchronised. The stable ws/job/session key makes
+// every instance participate in the same ordering. Entries intentionally live
+// for the process lifetime: session IDs are unique and bounded at human scale,
+// while evicting a successful delete tombstone could re-open the resurrection
+// window for a stale service reference.
+type sessionPersistState struct {
+	mu      sync.Mutex
+	deleted bool
+}
+
+var sessionPersistStates sync.Map // map[string]*sessionPersistState
+
+func sessionPersistGate(key string) *sessionPersistState {
+	state, _ := sessionPersistStates.LoadOrStore(key, &sessionPersistState{})
+	return state.(*sessionPersistState)
+}
+
+// persistSessionKey includes sid because each session has an independent
+// metadata file. Empty persistKey is used only by package tests that inject a
+// repository directly; the repo pointer keeps those unrelated fixtures from
+// sharing a gate while still making repeated operations on one fixture meet.
+func (m *serviceImpl) persistSessionKey(sid string) string {
+	if m.persistKey != "" {
+		return m.persistKey + "/" + sid
+	}
+	return fmt.Sprintf("test:%p/%s", m.repo, sid)
+}
+
+func (m *serviceImpl) persistState(sid string) *sessionPersistState {
+	return sessionPersistGate(m.persistSessionKey(sid))
 }
 
 func (m *serviceImpl) load() error {
@@ -38,6 +77,14 @@ func (m *serviceImpl) New(modelID string, agentType, workdir string, binding *mo
 	if binding != nil {
 		applyAgentBinding(s, *binding)
 	}
+	state := m.persistState(s.ID)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		// IDs are generated uniquely, so this can only be reached by a stale
+		// in-process creator attempting to reuse an already-deleted ID.
+		return nil, fmt.Errorf("session %s was already deleted", s.ID)
+	}
 	if err := m.repo.Save(s.ID, s); err != nil {
 		return nil, err
 	}
@@ -47,6 +94,12 @@ func (m *serviceImpl) New(modelID string, agentType, workdir string, binding *mo
 }
 
 func (m *serviceImpl) UpdateAgentBinding(sid string, binding model.AgentRuntimeBinding) error {
+	state := m.persistState(sid)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		return nil
+	}
 	cp, ok := m.snapshot(sid)
 	if !ok {
 		return nil
@@ -90,15 +143,18 @@ func (m *serviceImpl) Get(sid string) (*model.Session, bool) {
 	return s, ok
 }
 
-func (m *serviceImpl) Delete(sid string) {
-	m.mu.RLock()
-	s, ok := m.sessions[sid]
-	if !ok {
-		m.mu.RUnlock()
-		return
+func (m *serviceImpl) Delete(sid string) error {
+	state := m.persistState(sid)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		return nil
 	}
-	cp := *s
-	m.mu.RUnlock()
+
+	cp, ok := m.snapshot(sid)
+	if !ok {
+		return nil
+	}
 
 	cp.Deleted = true
 	cp.UpdatedAt = time.Now()
@@ -110,7 +166,7 @@ func (m *serviceImpl) Delete(sid string) {
 		// "live" — on restart it would reappear and silently undo the
 		// user's delete intent.
 		logger.Error("[session.Delete] save deleted session %s failed: %v", cp.ID, err)
-		return
+		return err
 	}
 
 	m.mu.Lock()
@@ -119,6 +175,10 @@ func (m *serviceImpl) Delete(sid string) {
 		delete(m.sessions, sid)
 	}
 	m.mu.Unlock()
+	// Publish the monotonic deletion fence only after the tombstone is
+	// durable. On Save failure the session remains live and a retry is safe.
+	state.deleted = true
+	return nil
 }
 
 // commit applies a successfully-persisted set of field updates back to the
@@ -160,6 +220,12 @@ func (m *serviceImpl) snapshot(sid string) (model.Session, bool) {
 // onto the freshly-created session. Persists first, then commits the new
 // fields to memory only on Save success — see commit() for rationale.
 func (m *serviceImpl) SetInitFields(sid, jobID, wsID string) error {
+	state := m.persistState(sid)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		return nil
+	}
 	cp, ok := m.snapshot(sid)
 	if !ok {
 		return nil
@@ -184,6 +250,12 @@ func (m *serviceImpl) SetInitFields(sid, jobID, wsID string) error {
 // "needs change" delta and the next Run does not route through a model the
 // user did not actually choose. See commit() for the broader rationale.
 func (m *serviceImpl) UpdateModelID(sid, modelID string) error {
+	state := m.persistState(sid)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		return nil
+	}
 	cp, ok := m.snapshot(sid)
 	if !ok {
 		return nil
@@ -209,6 +281,12 @@ func (m *serviceImpl) UpdateModelID(sid, modelID string) error {
 // because subsequent Get() / loadPersistedACPState() consumers would
 // otherwise act on a value that the next process restart cannot reproduce.
 func (m *serviceImpl) UpdateACPMode(sid, acpMode string) error {
+	state := m.persistState(sid)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		return nil
+	}
 	cp, ok := m.snapshot(sid)
 	if !ok {
 		return nil
@@ -232,6 +310,12 @@ func (m *serviceImpl) UpdateACPMode(sid, acpMode string) error {
 // UpdateACPThoughtLevel is the thought_level counterpart to UpdateACPMode.
 // Same persist-then-commit ordering.
 func (m *serviceImpl) UpdateACPThoughtLevel(sid, acpThoughtLevel string) error {
+	state := m.persistState(sid)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		return nil
+	}
 	cp, ok := m.snapshot(sid)
 	if !ok {
 		return nil
@@ -253,6 +337,12 @@ func (m *serviceImpl) UpdateACPThoughtLevel(sid, acpThoughtLevel string) error {
 }
 
 func (m *serviceImpl) UpdateTitle(sid, title string) error {
+	state := m.persistState(sid)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		return nil
+	}
 	cp, ok := m.snapshot(sid)
 	if !ok {
 		return nil
@@ -281,6 +371,12 @@ func (m *serviceImpl) UpdateTitle(sid, title string) error {
 // made a follow-up Run replay against a baseline that vanished on
 // restart.
 func (m *serviceImpl) UpdateACPState(sid, acpSessionID string, fingerprint repository.MessagesFingerprint) error {
+	state := m.persistState(sid)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		return nil
+	}
 	cp, ok := m.snapshot(sid)
 	if !ok {
 		return nil
@@ -308,6 +404,12 @@ func (m *serviceImpl) UpdateACPState(sid, acpSessionID string, fingerprint repos
 }
 
 func (m *serviceImpl) UpdateACPSyncFingerprint(sid string, fingerprint repository.MessagesFingerprint) error {
+	state := m.persistState(sid)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		return nil
+	}
 	cp, ok := m.snapshot(sid)
 	if !ok {
 		return nil
@@ -332,6 +434,12 @@ func (m *serviceImpl) UpdateACPSyncFingerprint(sid string, fingerprint repositor
 }
 
 func (m *serviceImpl) Touch(sid string) error {
+	state := m.persistState(sid)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.deleted {
+		return nil
+	}
 	cp, ok := m.snapshot(sid)
 	if !ok {
 		return nil

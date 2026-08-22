@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -12,7 +14,9 @@ import (
 
 	"github.com/fanlv/quartet/pkg/messaging"
 	"github.com/fanlv/quartet/repository"
+	"github.com/fanlv/quartet/services/agent/catalog"
 	"github.com/fanlv/quartet/services/config"
+	jobsvc "github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -34,9 +38,9 @@ var _ config.SettingsService = (*fakeSettings)(nil)
 func (f *fakeSettings) GetSettings() (*repository.Settings, error) {
 	return &repository.Settings{}, nil
 }
-func (f *fakeSettings) SaveSettings(*repository.Settings) error { return nil }
+func (f *fakeSettings) SaveSettings(*repository.Settings) error               { return nil }
 func (f *fakeSettings) SaveTitleGenerationAgent(*model.AgentRoleConfig) error { return nil }
-func (f *fakeSettings) SaveGroupReplyAgent(*model.AgentRoleConfig) error       { return nil }
+func (f *fakeSettings) SaveGroupReplyAgent(*model.AgentRoleConfig) error      { return nil }
 func (f *fakeSettings) SaveIMSessionAgent(*model.IMSessionAgentConfig) error {
 	return nil
 }
@@ -131,6 +135,53 @@ func (r *fakeMediaReplier) ReplyMedia(_ context.Context, messageID string, media
 	return nil
 }
 
+type imTaskSettings struct {
+	config.SettingsService
+	workspaceID string
+	agent       *model.IMSessionAgentConfig
+}
+
+func (s *imTaskSettings) GetIMConfig() (string, *model.IMSessionAgentConfig) {
+	return s.workspaceID, s.agent
+}
+
+type imTaskMappingRepo struct {
+	mapping *repository.IMJobMapping
+}
+
+func (r *imTaskMappingRepo) Get(string, string) (*repository.IMJobMapping, error) {
+	return r.mapping, nil
+}
+
+func (r *imTaskMappingRepo) Save(*repository.IMJobMapping) error { return nil }
+
+type imTaskJobService struct {
+	jobsvc.Service
+	job         *model.Job
+	createdJobs int
+}
+
+func (s *imTaskJobService) CreateIdempotent(job *model.Job) (*model.Job, bool, error) {
+	if s.job != nil && s.job.ID == job.ID {
+		if s.job.CreationPayloadHash != job.CreationPayloadHash {
+			return nil, false, jobsvc.ErrClientMessageIDConflict
+		}
+		return s.job.DeepCopy(), true, nil
+	}
+	s.job = job.DeepCopy()
+	s.createdJobs++
+	return s.job.DeepCopy(), false, nil
+}
+
+func (s *imTaskJobService) UpdateTitle(string, string) error { return nil }
+
+func (s *imTaskJobService) Get(jobID string) (*model.Job, bool) {
+	if s.job == nil || s.job.ID != jobID {
+		return nil, false
+	}
+	return s.job, true
+}
+
 // --- tests ---------------------------------------------------------------
 
 func newTestGateway(t *testing.T, fs *fakeSettings) *imGateway {
@@ -141,6 +192,176 @@ func newTestGateway(t *testing.T, fs *fakeSettings) *imGateway {
 		repliers:       make(map[messaging.Platform]messaging.Replier),
 		jobQueues:      make(map[string]*imJobQueue),
 		chatDispatches: make(map[string]*imChatDispatcher),
+	}
+}
+
+func TestIMClientMessageIDStableAndSourceScoped(t *testing.T) {
+	base := &messaging.Message{
+		Platform:  messaging.PlatformLark,
+		ChatID:    "chat-1",
+		MessageID: "message-1",
+		Content:   "hello",
+	}
+	first := imClientMessageID(base)
+	if first == "" {
+		t.Fatal("stable IM clientMessageId is empty")
+	}
+	if createID := imCreateJobClientMessageID(base); createID == first {
+		t.Fatalf("message and create-job namespaces collided: %q", first)
+	}
+	redelivery := *base
+	redelivery.ParentID = "changed-parent"
+	redelivery.Content = "content decoded differently on redelivery"
+	redelivery.RawEvent = []byte(`{"delivery":2}`)
+	if got := imClientMessageID(&redelivery); got != first {
+		t.Fatalf("redelivery id=%q, want %q", got, first)
+	}
+
+	differentChat := *base
+	differentChat.ChatID = "chat-2"
+	if got := imClientMessageID(&differentChat); got == first {
+		t.Fatalf("different chat collided: %q", got)
+	}
+	differentPlatform := *base
+	differentPlatform.Platform = messaging.PlatformWeChat
+	if got := imClientMessageID(&differentPlatform); got == first {
+		t.Fatalf("different platform collided: %q", got)
+	}
+}
+
+func TestIMClientMessageIDLengthPrefixAvoidsSeparatorCollision(t *testing.T) {
+	left := &messaging.Message{
+		Platform:  messaging.Platform("lark"),
+		ChatID:    "chat:part",
+		MessageID: "message",
+	}
+	right := &messaging.Message{
+		Platform:  messaging.Platform("lark:chat"),
+		ChatID:    "part",
+		MessageID: "message",
+	}
+
+	// A plain separator join would encode both tuples as the same string.
+	if strings.Join([]string{string(left.Platform), left.ChatID, left.MessageID}, ":") !=
+		strings.Join([]string{string(right.Platform), right.ChatID, right.MessageID}, ":") {
+		t.Fatal("test fixture does not reproduce separator ambiguity")
+	}
+	if leftID, rightID := imClientMessageID(left), imClientMessageID(right); leftID == rightID {
+		t.Fatalf("ambiguous tuples collided: %q", leftID)
+	}
+}
+
+func TestIMClientMessageIDHasSafeFixedLengthFormat(t *testing.T) {
+	msg := &messaging.Message{
+		Platform:  messaging.Platform(strings.Repeat("platform:/? ", 100)),
+		ChatID:    strings.Repeat("聊天/with spaces?", 100),
+		MessageID: strings.Repeat("message:#%", 100),
+	}
+
+	got := imClientMessageID(msg)
+	if want := len("im-") + sha256.Size*2; len(got) != want {
+		t.Fatalf("clientMessageId length=%d, want %d: %q", len(got), want, got)
+	}
+	if !strings.HasPrefix(got, "im-") {
+		t.Fatalf("clientMessageId prefix is not safe namespace: %q", got)
+	}
+	if _, err := hex.DecodeString(strings.TrimPrefix(got, "im-")); err != nil {
+		t.Fatalf("clientMessageId payload is not lowercase-safe hex: %q: %v", got, err)
+	}
+	if got != strings.ToLower(got) {
+		t.Fatalf("clientMessageId contains uppercase characters: %q", got)
+	}
+}
+
+func TestIMClientMessageIDIgnoresDownloadedImagePath(t *testing.T) {
+	firstDelivery := &messaging.Message{
+		Platform:  messaging.PlatformLark,
+		ChatID:    "chat-image",
+		MessageID: "message-image",
+		Content:   "请看 ![image](/tmp/quartet/images/first.png)",
+	}
+	redelivery := *firstDelivery
+	redelivery.Content = "请看 ![image](/another/cache/root/second.png)"
+
+	if got, want := imClientMessageID(&redelivery), imClientMessageID(firstDelivery); got != want {
+		t.Fatalf("downloaded image path changed clientMessageId: got %q, want %q", got, want)
+	}
+}
+
+func TestBuildQueuedJobTaskWiresIMClientMessageID(t *testing.T) {
+	const (
+		workspaceID = "workspace-existing"
+		jobID       = "job-existing"
+	)
+	msg := &messaging.Message{
+		Platform:  messaging.PlatformWeChat,
+		ChatID:    "chat-existing",
+		MessageID: "message-existing",
+		Content:   "hello from IM",
+	}
+	mapping := &repository.IMJobMapping{
+		Platform:    string(msg.Platform),
+		ChatID:      msg.ChatID,
+		WorkspaceID: workspaceID,
+		JobID:       jobID,
+	}
+	g := &imGateway{
+		h: &Handler{
+			settingsService: &imTaskSettings{agent: &model.IMSessionAgentConfig{AgentID: "codex"}},
+			agentCatalog:    new(catalog.Service),
+			jobService:      &imTaskJobService{job: &model.Job{ID: jobID}},
+		},
+		mappingRepo: &imTaskMappingRepo{mapping: mapping},
+	}
+
+	task, err := g.buildQueuedJobTask(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("buildQueuedJobTask failed: %v", err)
+	}
+	if task == nil || task.req == nil {
+		t.Fatal("buildQueuedJobTask returned a nil task/request")
+	}
+	if got, want := task.req.ClientMessageID, imClientMessageID(msg); got != want {
+		t.Fatalf("request clientMessageId=%q, want %q", got, want)
+	}
+	if task.req.ClientMessageID == msg.MessageID {
+		t.Fatalf("request used raw provider message ID without source namespace: %q", task.req.ClientMessageID)
+	}
+}
+
+func TestResolveJobRedeliveryReusesIdempotentlyCreatedJob(t *testing.T) {
+	workdir := t.TempDir()
+	msg := &messaging.Message{Platform: messaging.PlatformLark, ChatID: "chat-new", MessageID: "message-new"}
+	jobs := &imTaskJobService{}
+	g := &imGateway{
+		h: &Handler{
+			workspaceService: &createJobWorkspaceService{workspace: &model.Workspace{ID: "ws-1", Workdir: workdir}},
+			jobService:       jobs,
+			recentDirsRepo:   createJobRecentDirsRepo{},
+			settingsService:  &imTaskSettings{workspaceID: "ws-1"},
+		},
+	}
+	config := &model.IMSessionAgentConfig{ModelID: "model-1"}
+
+	first, _, err := g.resolveJob(context.Background(), msg, nil, config, "codex")
+	if err != nil {
+		t.Fatalf("first resolveJob: %v", err)
+	}
+	second, _, err := g.resolveJob(context.Background(), msg, nil, config, "codex")
+	if err != nil {
+		t.Fatalf("redelivery resolveJob: %v", err)
+	}
+	if first.ID == "" || second.ID != first.ID {
+		t.Fatalf("redelivery jobs=(%q,%q), want same non-empty ID", first.ID, second.ID)
+	}
+	if jobs.createdJobs != 1 {
+		t.Fatalf("created jobs=%d, want 1", jobs.createdJobs)
+	}
+	if first.CreationClientMessageID != imCreateJobClientMessageID(msg) {
+		t.Fatalf("creation clientMessageId=%q, want %q", first.CreationClientMessageID, imCreateJobClientMessageID(msg))
+	}
+	if first.CreationClientMessageID == imClientMessageID(msg) {
+		t.Fatal("IM create and Agent message idempotency namespaces must differ")
 	}
 }
 

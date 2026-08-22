@@ -160,6 +160,34 @@ func TestServiceCreate_ValidatesWorkdir(t *testing.T) {
 	}
 }
 
+func TestServiceCreate_PersistsDefaultAgentAndModel(t *testing.T) {
+	root := t.TempDir()
+	repo := &fakeWorkspaceRepo{}
+	svc := &serviceImpl{workspaces: make(map[string]*model.Workspace), repo: repo}
+	ws := model.NewWorkspace("t", "d", filepath.Join(root, "workspaces", "ws-prefs"))
+	ws.DefaultAgent = "agent-a"
+	ws.DefaultModel = "model-a"
+
+	if err := svc.Create(ws); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got, ok := svc.Get(ws.ID)
+	if !ok {
+		t.Fatalf("created workspace not found")
+	}
+	if got.DefaultAgent != "agent-a" || got.DefaultModel != "model-a" {
+		t.Fatalf("Get() prefs = (%q, %q), want (agent-a, model-a)", got.DefaultAgent, got.DefaultModel)
+	}
+	stored := repo.stored[ws.ID]
+	if stored == nil {
+		t.Fatalf("workspace not saved")
+	}
+	if stored.DefaultAgent != "agent-a" || stored.DefaultModel != "model-a" {
+		t.Fatalf("stored prefs = (%q, %q), want (agent-a, model-a)", stored.DefaultAgent, stored.DefaultModel)
+	}
+}
+
 func TestServiceUpdate_ValidatesWorkdir(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("LOCAL_MEMORY", root)
@@ -181,11 +209,137 @@ func TestServiceUpdate_ValidatesWorkdir(t *testing.T) {
 	}
 
 	bad := "evil"
-	if _, err := svc.Update("ws-test", "t2", "d2", bad); err == nil {
+	if _, err := svc.Update("ws-test", "t2", "d2", bad, "", ""); err == nil {
 		t.Fatalf("Update(bad) unexpectedly succeeded")
 	}
 	if svc.workspaces["ws-test"].Workdir == bad {
 		t.Fatalf("bad workdir applied in memory")
+	}
+}
+
+func TestServiceUpdate_PersistsDefaultAgentAndModel(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	repo := &fakeWorkspaceRepo{}
+	svc := &serviceImpl{
+		workspaces: map[string]*model.Workspace{
+			"ws-test": {
+				ID:           "ws-test",
+				Title:        "test",
+				Workdir:      filepath.Join(root, "workspaces", "ws-test"),
+				DefaultAgent: "old-agent",
+				DefaultModel: "old-model",
+				CreatedAt:    now,
+				UpdatedAt:    now,
+			},
+		},
+		repo: repo,
+	}
+
+	got, err := svc.Update("ws-test", "t2", "d2", filepath.Join(root, "workspaces", "ws-test"), "agent-b", "model-b")
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if got.DefaultAgent != "agent-b" || got.DefaultModel != "model-b" {
+		t.Fatalf("Update() prefs = (%q, %q), want (agent-b, model-b)", got.DefaultAgent, got.DefaultModel)
+	}
+	inMemory := svc.workspaces["ws-test"]
+	if inMemory.DefaultAgent != "agent-b" || inMemory.DefaultModel != "model-b" {
+		t.Fatalf("in-memory prefs = (%q, %q), want (agent-b, model-b)", inMemory.DefaultAgent, inMemory.DefaultModel)
+	}
+	stored := repo.stored["ws-test"]
+	if stored == nil {
+		t.Fatalf("workspace not saved")
+	}
+	if stored.DefaultAgent != "agent-b" || stored.DefaultModel != "model-b" {
+		t.Fatalf("stored prefs = (%q, %q), want (agent-b, model-b)", stored.DefaultAgent, stored.DefaultModel)
+	}
+}
+
+func TestServiceUpdate_ClearsDefaultAgentAndModel(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	repo := &fakeWorkspaceRepo{}
+	svc := &serviceImpl{
+		workspaces: map[string]*model.Workspace{
+			"ws-test": {
+				ID:           "ws-test",
+				Title:        "test",
+				Workdir:      filepath.Join(root, "workspaces", "ws-test"),
+				DefaultAgent: "old-agent",
+				DefaultModel: "old-model",
+				CreatedAt:    now,
+				UpdatedAt:    now,
+			},
+		},
+		repo: repo,
+	}
+
+	got, err := svc.Update("ws-test", "t2", "d2", filepath.Join(root, "workspaces", "ws-test"), "", "")
+	if err != nil {
+		t.Fatalf("Update(clear) error = %v", err)
+	}
+	if got.DefaultAgent != "" || got.DefaultModel != "" {
+		t.Fatalf("Update(clear) prefs = (%q, %q), want empty", got.DefaultAgent, got.DefaultModel)
+	}
+	inMemory := svc.workspaces["ws-test"]
+	if inMemory.DefaultAgent != "" || inMemory.DefaultModel != "" {
+		t.Fatalf("in-memory prefs = (%q, %q), want empty", inMemory.DefaultAgent, inMemory.DefaultModel)
+	}
+	stored := repo.stored["ws-test"]
+	if stored == nil {
+		t.Fatalf("workspace not saved")
+	}
+	if stored.DefaultAgent != "" || stored.DefaultModel != "" {
+		t.Fatalf("stored prefs = (%q, %q), want empty", stored.DefaultAgent, stored.DefaultModel)
+	}
+}
+
+func TestClearAgentDefaults_PersistsAndKeepsUnrelatedDefaults(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	repo := &fakeWorkspaceRepo{}
+	svc := &serviceImpl{
+		workspaces: map[string]*model.Workspace{
+			"match": {
+				ID:           "match",
+				Workdir:      filepath.Join(root, "workspaces", "match"),
+				DefaultAgent: "agent-deleted",
+				DefaultModel: "model-deleted",
+				CreatedAt:    now,
+				UpdatedAt:    now,
+			},
+			"other": {
+				ID:           "other",
+				Workdir:      filepath.Join(root, "workspaces", "other"),
+				DefaultAgent: "agent-kept",
+				DefaultModel: "model-kept",
+				CreatedAt:    now,
+				UpdatedAt:    now,
+			},
+		},
+		repo: repo,
+	}
+
+	if err := svc.ClearAgentDefaults("agent-deleted"); err != nil {
+		t.Fatalf("ClearAgentDefaults() error = %v", err)
+	}
+
+	if got := svc.workspaces["match"]; got.DefaultAgent != "" || got.DefaultModel != "" {
+		t.Fatalf("matched prefs = (%q, %q), want empty", got.DefaultAgent, got.DefaultModel)
+	}
+	if got := svc.workspaces["other"]; got.DefaultAgent != "agent-kept" || got.DefaultModel != "model-kept" {
+		t.Fatalf("unrelated prefs = (%q, %q), want kept", got.DefaultAgent, got.DefaultModel)
+	}
+	stored := repo.stored["match"]
+	if stored == nil {
+		t.Fatalf("matched workspace not saved")
+	}
+	if stored.DefaultAgent != "" || stored.DefaultModel != "" {
+		t.Fatalf("stored matched prefs = (%q, %q), want empty", stored.DefaultAgent, stored.DefaultModel)
+	}
+	if _, saved := repo.stored["other"]; saved {
+		t.Fatalf("unrelated workspace was unexpectedly saved")
 	}
 }
 

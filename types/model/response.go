@@ -215,6 +215,7 @@ type PublicAgentListResponse struct {
 type CreateJobResponse struct {
 	JobID     string `json:"jobId"`
 	CreatedAt int64  `json:"createdAt"`
+	Status    string `json:"status,omitempty"`
 }
 
 // JobSummary is the compact DTO used by the job list endpoint. It deliberately
@@ -223,19 +224,22 @@ type CreateJobResponse struct {
 // stays cheap to serialize and transfer. Callers that need those fields must
 // hit the detail endpoint (GET /api/v1/job/:jobId) which returns the full Job.
 type JobSummary struct {
-	ID           string    `json:"id"`
-	Title        string    `json:"title"`
-	ModelID      string    `json:"modelId,omitempty"`
-	Status       JobStatus `json:"status"`
-	Mode         JobMode   `json:"mode"`
-	WorkspaceID  string    `json:"workspaceId,omitempty"`
-	Workdir      string    `json:"workdir,omitempty"`
-	CreatedAt    int64     `json:"createdAt"`
-	UpdatedAt    int64     `json:"updatedAt"`
-	PinnedAt     int64     `json:"pinnedAt,omitempty"`
-	SessionCount int       `json:"sessionCount"`
-	ScheduleID   string    `json:"scheduleId,omitempty"`
-	ShareToken   string    `json:"shareToken,omitempty"`
+	ID              string    `json:"id"`
+	Title           string    `json:"title"`
+	AgentID         string    `json:"agentId,omitempty"`
+	ModelID         string    `json:"modelId,omitempty"`
+	ACPMode         string    `json:"acpMode,omitempty"`
+	ACPThoughtLevel string    `json:"acpThoughtLevel,omitempty"`
+	Status          JobStatus `json:"status"`
+	Mode            JobMode   `json:"mode"`
+	WorkspaceID     string    `json:"workspaceId,omitempty"`
+	Workdir         string    `json:"workdir,omitempty"`
+	CreatedAt       int64     `json:"createdAt"`
+	UpdatedAt       int64     `json:"updatedAt"`
+	PinnedAt        int64     `json:"pinnedAt,omitempty"`
+	SessionCount    int       `json:"sessionCount"`
+	ScheduleID      string    `json:"scheduleId,omitempty"`
+	ShareToken      string    `json:"shareToken,omitempty"`
 }
 
 type ListJobsResponse struct {
@@ -260,15 +264,17 @@ type DailyStatsEntry struct {
 }
 
 type WorkspaceInfo struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Workdir     string `json:"workdir"`
-	Color       string `json:"color,omitempty"`
-	Favorite    bool   `json:"favorite"`
-	SortOrder   int    `json:"sortOrder"`
-	CreatedAt   int64  `json:"createdAt"`
-	UpdatedAt   int64  `json:"updatedAt"`
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	Workdir      string `json:"workdir"`
+	DefaultAgent string `json:"defaultAgent"`
+	DefaultModel string `json:"defaultModel"`
+	Color        string `json:"color,omitempty"`
+	Favorite     bool   `json:"favorite"`
+	SortOrder    int    `json:"sortOrder"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
 }
 
 type ListWorkspacesResponse struct {

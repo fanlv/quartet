@@ -1,12 +1,45 @@
 package model
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
 
+func TestJobInitialInteractiveConfigurationJSONRoundTrip(t *testing.T) {
+	want := &Job{
+		ID:                     "job-config",
+		InitialAgentID:         "claude",
+		FirstModelID:           "claude-sonnet",
+		InitialACPMode:         "plan",
+		InitialACPThoughtLevel: "high",
+	}
+	data, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal Job: %v", err)
+	}
+	var got Job
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal Job: %v", err)
+	}
+	if got.InitialAgentID != want.InitialAgentID ||
+		got.FirstModelID != want.FirstModelID ||
+		got.InitialACPMode != want.InitialACPMode ||
+		got.InitialACPThoughtLevel != want.InitialACPThoughtLevel {
+		t.Fatalf("interactive configuration changed during JSON round trip: got %+v want %+v", got, *want)
+	}
+
+	var legacy Job
+	if err := json.Unmarshal([]byte(`{"id":"legacy","sessionIds":[]}`), &legacy); err != nil {
+		t.Fatalf("unmarshal legacy Job: %v", err)
+	}
+	if legacy.InitialAgentID != "" || legacy.InitialACPMode != "" || legacy.InitialACPThoughtLevel != "" {
+		t.Fatalf("legacy Job should keep zero-value initial configuration: %+v", legacy)
+	}
+}
+
 func TestJobDeepCopyIsIndependent(t *testing.T) {
-	assertDeepCopyFieldsCovered(t, reflect.TypeOf(Job{}), []string{"LoopConfig", "SessionIDs", "GraphSessionIDs", "Progress", "Resume"})
+	assertDeepCopyFieldsCovered(t, reflect.TypeOf(Job{}), []string{"LoopConfig", "SessionIDs", "GraphSessionIDs", "Progress", "Resume", "ClientMessageReceipts", "CommandReceipts"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(LoopConfig{}), []string{"Flow", "Variables", "DisabledVars", "Rounds"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(FlowNode{}), []string{"Children"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(JobProgress{}), []string{"CurrentPath", "Results", "PersistWarnings", "GroupActualIterations", "GroupActualLeafCounts", "SkippedPaths"})
@@ -44,6 +77,20 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 			SkippedPaths:          map[string]bool{"0.0.1.0": true},
 		},
 		Resume: &JobResume{NextPath: []int{1, 0}, SessionID: "session-2"},
+		ClientMessageReceipts: map[string]ClientMessageReceipt{
+			"client-1": {State: ClientMessageStateCompleted, PayloadHash: "hash-1"},
+		},
+		CommandReceipts: map[string]CommandReceipt{
+			"command-1": {
+				PayloadHash: "command-hash-1",
+				Event: &CommandSystemMessageEvent{
+					Command: "/new",
+					Action:  &CommandAction{Type: "new_job", WorkspaceID: "ws-1"},
+				},
+			},
+		},
+		CreationClientMessageID: "create-client-1",
+		CreationPayloadHash:     "create-hash-1",
 	}
 
 	cp := orig.DeepCopy()
@@ -64,6 +111,13 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	cp.Progress.GroupActualLeafCounts["copy-only"] = 6
 	cp.Progress.SkippedPaths["copy-only"] = true
 	cp.Resume.NextPath[0] = 9
+	cp.ClientMessageReceipts["client-1"] = ClientMessageReceipt{State: ClientMessageStateFailed}
+	cp.ClientMessageReceipts["copy-only"] = ClientMessageReceipt{State: ClientMessageStateProcessing}
+	commandReceipt := cp.CommandReceipts["command-1"]
+	commandReceipt.Event.Text = "copy result"
+	commandReceipt.Event.Action.WorkspaceID = "copy-ws"
+	cp.CommandReceipts["command-1"] = commandReceipt
+	cp.CommandReceipts["copy-only"] = CommandReceipt{PayloadHash: "copy"}
 
 	if orig.SessionIDs[0] != "session-1" {
 		t.Fatalf("orig SessionIDs mutated via copy: got %q", orig.SessionIDs[0])
@@ -112,6 +166,24 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	}
 	if got := orig.Resume.NextPath[0]; got != 1 {
 		t.Fatalf("orig Resume.NextPath mutated via copy: got %d", got)
+	}
+	if got := orig.ClientMessageReceipts["client-1"].State; got != ClientMessageStateCompleted {
+		t.Fatalf("orig ClientMessageReceipts mutated via copy: got %q", got)
+	}
+	if _, ok := orig.ClientMessageReceipts["copy-only"]; ok {
+		t.Fatal("orig ClientMessageReceipts gained key added on copy")
+	}
+	if got := orig.CommandReceipts["command-1"].Event.Text; got != "" {
+		t.Fatalf("orig CommandReceipts event mutated via copy: got %q", got)
+	}
+	if got := orig.CommandReceipts["command-1"].Event.Action.WorkspaceID; got != "ws-1" {
+		t.Fatalf("orig CommandReceipts action mutated via copy: got %q", got)
+	}
+	if _, ok := orig.CommandReceipts["copy-only"]; ok {
+		t.Fatal("orig CommandReceipts gained key added on copy")
+	}
+	if cp.CreationClientMessageID != orig.CreationClientMessageID || cp.CreationPayloadHash != orig.CreationPayloadHash {
+		t.Fatalf("creation idempotency fields changed in copy: got (%q,%q), want (%q,%q)", cp.CreationClientMessageID, cp.CreationPayloadHash, orig.CreationClientMessageID, orig.CreationPayloadHash)
 	}
 
 	orig.SessionIDs[1] = "orig-session"

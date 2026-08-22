@@ -282,10 +282,12 @@ export interface CommandAction {
   type?: string;
   workspaceId?: string;
   jobId?: string;
+  clientMessageId?: string;
 }
 
 export interface CommandSystemMessageEvent extends BaseEvent {
   type: EventTypeEnum.COMMAND_SYSTEM_MESSAGE;
+  clientMessageId?: string;
   command: string;
   text: string;
   present?: string;

@@ -35,3 +35,10 @@ type JobRunner interface {
 type PreparedExecutionReleaser interface {
 	ReleasePreparedExecution()
 }
+
+// AcceptedMessagePreparer performs handler-owned metadata updates in the run
+// goroutine, only after SendMessage has durably won the idempotency claim and
+// before the Agent is invoked.
+type AcceptedMessagePreparer interface {
+	PrepareAcceptedMessage(ctx context.Context, jobID string) error
+}

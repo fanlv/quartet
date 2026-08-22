@@ -15,6 +15,10 @@ import (
 type Service interface {
 	// CRUD
 	Create(job *model.Job) error
+	// CreateIdempotent persists a client-created Job once and returns the
+	// original Job on retries. The key is scoped to a deterministic Job ID; a
+	// different creation payload for the same key is rejected.
+	CreateIdempotent(job *model.Job) (*model.Job, bool, error)
 	Get(jobID string) (*model.Job, bool)
 	// GetWithSnapshotSeq returns the job state together with the SSE
 	// resume sequence the snapshot endpoint should hand the client. It
@@ -39,6 +43,10 @@ type Service interface {
 	// BEFORE pagination, so hiding them cannot leave the first page empty
 	// when the workspace is dominated by scheduled-task Jobs.
 	ListByWorkspacePaged(wsID, cursor string, limit int, excludeScheduled bool) (summaries []model.JobSummary, nextCursor string, hasMore bool, version int64)
+	// ObserveJobs returns a global active snapshot plus lifecycle changes after
+	// an opaque process-epoch cursor. It is optimized for notification polling
+	// and does not inherit the user-facing list's pinned/updated pagination.
+	ObserveJobs(cursor string, limit int) (model.JobObservationResponse, error)
 	// WorkspaceListVersion returns the monotonic version for a workspace (or
 	// the global version when wsID is empty). Increments on any job mutation
 	// that would affect the listing. Used for ETag / If-None-Match handling.
@@ -71,7 +79,7 @@ type Service interface {
 	// history entry in sync without sharing Loop runtime state. Terminal graph
 	// statuses also emit the normal OnJobDone callback so scheduled graph runs
 	// release their scheduler concurrency slot and update their owning schedule.
-	SetGraphRunState(ctx context.Context, jobID, graphRunID string, status model.JobStatus, startedAt, finishedAt int64) error
+	SetGraphRunState(ctx context.Context, jobID, graphRunID string, status model.JobStatus, graphStatus model.GraphRunStatus, startedAt, finishedAt int64, graphSessionID string) error
 	// ClearGraphRunLinkage detaches a Job from a deleted GraphRun, but only if it
 	// is still bound to that exact run. Best-effort cleanup on GraphRun delete.
 	ClearGraphRunLinkage(ctx context.Context, jobID, graphRunID string) error
@@ -93,8 +101,17 @@ type Service interface {
 	// a no-op if the Job is already terminal.
 	FailGraphJob(ctx context.Context, jobID, message string) error
 
-	// SendMessage sends a message to an existing job session. Appends to progress.
-	SendMessage(ctx context.Context, jobID string, runner JobRunner, opts *SendMessageOptions) error
+	// LookupMessage returns the durable receipt for clientMessageID. It is a
+	// handler-side fast path only: SendMessage performs the authoritative
+	// atomic check-and-claim under the per-job persistence lock.
+	LookupMessage(jobID string, opts *SendMessageOptions) (MessageReceipt, bool, error)
+	// ExecuteCommand executes a synchronous slash command exactly once for a
+	// clientMessageId and durably stores its response for later retries.
+	ExecuteCommand(ctx context.Context, jobID, clientMessageID, payload string, execute func() *model.CommandSystemMessageEvent) (*model.CommandSystemMessageEvent, bool, error)
+	// SendMessage atomically accepts (or deduplicates) an interactive message.
+	// A Started result owns a newly launched Agent run; Duplicate means this
+	// clientMessageId was accepted previously and no new run was launched.
+	SendMessage(ctx context.Context, jobID string, runner JobRunner, opts *SendMessageOptions) (SendMessageResult, error)
 	Stop(jobID string)
 	// StopAndWait cancels a running job and blocks until its run goroutine exits.
 	StopAndWait(jobID string)
@@ -138,9 +155,13 @@ type Service interface {
 
 // SendMessageOptions provides parameters for sending a message to an existing session.
 type SendMessageOptions struct {
-	SessionID       string
-	ClientMessageID string
-	Messages        []*schema.Message
+	SessionID string
+	// IdempotencySessionID is the sessionId exactly as supplied by the client.
+	// SessionID may be resolved from the Job's latest session and can therefore
+	// change between an original delivery and a later retry.
+	IdempotencySessionID string
+	ClientMessageID      string
+	Messages             []*schema.Message
 
 	// Agent/model configuration for this message run.
 	AgentType string
@@ -148,6 +169,32 @@ type SendMessageOptions struct {
 	ACPMode   string
 
 	ACPThoughtLevel string
+}
+
+type SendMessageDisposition string
+
+const (
+	SendMessageStarted   SendMessageDisposition = "started"
+	SendMessageDuplicate SendMessageDisposition = "duplicate"
+)
+
+type SendMessageResult struct {
+	Disposition SendMessageDisposition
+	Receipt     MessageReceipt
+}
+
+// MessageReceipt is the service-facing projection of a persisted receipt.
+// The payload hash stays internal so callers cannot accidentally make business
+// decisions from an implementation detail.
+type MessageReceipt struct {
+	ClientMessageID string                   `json:"clientMessageId"`
+	State           model.ClientMessageState `json:"messageState"`
+	AcceptedAt      int64                    `json:"acceptedAt"`
+	FinishedAt      int64                    `json:"finishedAt,omitempty"`
+}
+
+func (r SendMessageResult) Started() bool {
+	return r.Disposition == SendMessageStarted
 }
 
 // getMessages returns the Messages if opts is non-nil, otherwise nil.

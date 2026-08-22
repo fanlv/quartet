@@ -149,28 +149,31 @@ const (
 )
 
 // runGraph is the DAG scheduler entry point, launched as a goroutine by
-// StartRun (resume=false) or ResumeRun (resume=true). It drives the run to a
-// terminal state and persists every state transition.
-func (s *serviceImpl) runGraph(ctx context.Context, runID string, runner Runner, jobs JobStateSink, resume bool) {
+// StartRun (resume=false) or ResumeRun/ContinueRun (resume=true). The caller has
+// already installed handle before launching, closing the start/stop race. It
+// drives the run to a terminal state and persists every state transition.
+func (s *serviceImpl) runGraph(ctx context.Context, runID string, runner Runner, jobs JobStateSink, resume bool, handle *runControl) {
+	var buf *graphEventBuffer
+	defer func() {
+		// completeControl closes handle.done. Every scheduler-owned write, Job
+		// update, and hook emission must therefore happen before this point.
+		s.completeControl(runID, handle, buf)
+	}()
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
 		logger.Errorf(ctx, "[graph] load run failed: runId=%s err=%v", runID, err)
 		return
 	}
 
-	handle, ctx := s.registerControl(runID, ctx)
-	defer s.clearControl(runID, handle)
-
 	// In-memory SSE event buffer for this run. Streaming agent events publish
 	// here only; structural events publish here and persist. On resume the run
 	// may reuse a buffer left terminal by a prior run in this process — flip GC
 	// back on so it doesn't stay frozen. MarkTerminal on exit keeps the tail
 	// available for late refreshes (the buffer is freed only on DeleteRun).
-	buf := s.eventBuffer(runID)
+	buf = s.eventBuffer(runID)
 	if resume {
 		buf.ResumeGC()
 	}
-	defer buf.MarkTerminal()
 
 	cfg := effectiveConfig(run)
 	if timeout := jobTimeout(cfg.RunConfig); timeout > 0 {
@@ -207,11 +210,10 @@ func (s *serviceImpl) runGraph(ctx context.Context, runID string, runner Runner,
 		run.ID, run.JobID, resume, len(sc.cfg.Nodes), len(sc.cfg.Edges),
 		concurrencyLimit(sc.cfg.RunConfig.ConcurrencyLimit), jobTimeout(sc.cfg.RunConfig))
 	sc.loop(ctx, resume)
-	// Join any in-flight node hooks before the run goroutine exits. Hooks are
-	// side-effects that never write run state, so the run is already persisted to
-	// its terminal status by now (loop() did that) — this wait only prevents a
-	// hook goroutine from outliving the run, it does NOT gate persistence. Placed
-	// here in runGraph (the goroutine entry) so it covers every loop() exit path.
+	// Join any in-flight node hooks before completing the run control. Hook result
+	// events persist from the hook goroutines, so handle.done must remain open
+	// until this wait finishes. Placed here in runGraph so it covers every loop()
+	// exit path.
 	sc.hookWG.Wait()
 }
 
@@ -364,7 +366,7 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 	sc.run.UpdatedAt = time.Now()
 	_ = sc.svc.runRepo.SaveRun(ctx, sc.run)
 	if sc.jobs != nil {
-		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusRunning, startedAt, 0)
+		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusRunning, model.GraphRunStatusRunning, startedAt, 0, "")
 	}
 	logger.Infof(ctx, "[graph] run started: runId=%s jobId=%s resume=%v startedAt=%d total=%d",
 		sc.run.ID, sc.run.JobID, resume, startedAt, sc.run.Progress.TotalCount)
@@ -394,8 +396,8 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 	sem := make(chan struct{}, limit)
 	resultCh := make(chan nodeResult, limit)
 	// sessionCh carries workers' early "session opened" signals (eager session
-	// visibility). Buffered like resultCh; workers send non-blocking so a signal
-	// arriving after cancelWorkers/drain is harmlessly dropped.
+	// visibility). Buffered like resultCh; workers send non-blocking, with each
+	// completion result retaining the session id as a shutdown-drain fallback.
 	sessionCh := make(chan sessionOpened, limit)
 	inFlight := 0
 	workerCtx, cancelWorkers := context.WithCancel(ctx)
@@ -404,7 +406,7 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 	for {
 		if ctx.Err() != nil {
 			cancelWorkers()
-			sc.drain(resultCh, &inFlight)
+			sc.drain(ctx, resultCh, sessionCh, &inFlight)
 			sc.finishForContextError(context.Background(), ctx.Err())
 			return
 		}
@@ -479,7 +481,7 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 				// resume) instead of re-running the whole loop from round 0.
 				sc.snapshotLoopState()
 				sc.interruptRunning(ctx, "cancelled after graph run failure")
-				sc.drain(resultCh, &inFlight)
+				sc.drain(ctx, resultCh, sessionCh, &inFlight)
 				sc.persist(ctx)
 				return
 			}
@@ -494,7 +496,7 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 				cancelWorkers()
 				sc.stopReason = orDefault(sig.reason, "hard stopped")
 				sc.interruptRunning(ctx, sc.stopReason)
-				sc.drain(resultCh, &inFlight)
+				sc.drain(ctx, resultCh, sessionCh, &inFlight)
 				sc.finishStopped(ctx)
 				return
 			}
@@ -509,7 +511,7 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 			sc.applyGracefulSignal(ctx, sig)
 		case <-ctx.Done():
 			cancelWorkers()
-			sc.drain(resultCh, &inFlight)
+			sc.drain(ctx, resultCh, sessionCh, &inFlight)
 			sc.finishForContextError(context.Background(), ctx.Err())
 			return
 		}
@@ -530,16 +532,43 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 		sc.run.ID, sc.run.JobID, sc.run.Progress.CompletedCount, sc.run.Progress.SkippedCount,
 		sc.run.Progress.FailedCount, sc.run.Progress.TotalCount, finishedAt-sc.run.StartedAt)
 	if sc.jobs != nil {
-		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusCompleted, sc.run.StartedAt, finishedAt)
+		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusCompleted, model.GraphRunStatusCompleted, sc.run.StartedAt, finishedAt, "")
 	}
 }
 
-// drain waits for any in-flight workers to observe cancellation and report back,
-// so no goroutine leaks after a failure short-circuits the loop.
-func (sc *scheduler) drain(resultCh <-chan nodeResult, inFlight *int) {
+// drain waits for every in-flight worker to report back, so no goroutine leaks
+// after cancellation short-circuits the loop. A worker may durably create an
+// Agent session after the scheduler has entered this path, so keep consuming
+// sessionOpened notifications while waiting. Each result is also a fallback for
+// a non-blocking notification that was dropped because sessionCh was full.
+func (sc *scheduler) drain(ctx context.Context, resultCh <-chan nodeResult, sessionCh <-chan sessionOpened, inFlight *int) {
+	// Job cleanup must retain sessions that finish opening after the run context
+	// is canceled (for example on timeout). Preserve values but remove the cancel
+	// signal for these bounded, scheduler-owned final writes.
+	drainCtx := context.WithoutCancel(ctx)
 	for *inFlight > 0 {
-		<-resultCh
-		*inFlight--
+		select {
+		case so := <-sessionCh:
+			sc.handleSessionOpened(drainCtx, so)
+		case res := <-resultCh:
+			(*inFlight)--
+			if isAgent(res.node.Type) {
+				sessionID := firstNonEmpty(res.outcome.sessionID, res.inflowSession)
+				sc.whitelistAgentSession(drainCtx, sessionID)
+			}
+		}
+	}
+
+	// The final result can win select even though its worker enqueued a session
+	// notification first (the channels are independent). Once all results have
+	// arrived no worker can send again, so empty the remaining finite buffer.
+	for {
+		select {
+		case so := <-sessionCh:
+			sc.handleSessionOpened(drainCtx, so)
+		default:
+			return
+		}
 	}
 }
 
@@ -572,11 +601,16 @@ func (sc *scheduler) interruptRunning(ctx context.Context, reason string) {
 // and re-publishes InstanceStarted, which the frontend already treats as a
 // reconcile trigger.
 //
-// Guarded to be idempotent and race-safe: it no-ops unless the instance is still
-// Running with an empty DisplaySessionID, so a signal that arrives after the
-// node already completed/failed (DisplaySessionID set by handleResult/
-// failInstance), was interrupted, or was rolled back (instance gone) is dropped.
+// Attaching to the Job whitelist is safe and necessary even if cancellation has
+// already made the instance terminal. The instance mutation itself remains
+// guarded: a late signal must never turn an interrupted/failed/completed state
+// back into a live one or otherwise rewrite its terminal snapshot.
 func (sc *scheduler) handleSessionOpened(ctx context.Context, so sessionOpened) {
+	if so.sessionID == "" {
+		return
+	}
+	sc.whitelistAgentSession(ctx, so.sessionID)
+
 	keyStr := instanceKeyString(so.key)
 	state, ok := sc.instances[keyStr]
 	if !ok || state.Status != model.GraphInstanceStatusRunning || state.DisplaySessionID != "" {
@@ -584,7 +618,6 @@ func (sc *scheduler) handleSessionOpened(ctx context.Context, so sessionOpened) 
 	}
 	state.DisplaySessionID = so.sessionID
 	sc.instances[keyStr] = state
-	sc.whitelistAgentSession(ctx, so.sessionID)
 	updateRunProgress(sc.run, sc.instances)
 	sc.persist(ctx)
 	sc.appendInstanceEvent(ctx, model.GraphEventTypeInstanceStarted, so.key, state.NodeID, "session opened", nil)
@@ -1221,7 +1254,7 @@ func (sc *scheduler) markFailed(ctx context.Context, finishedAt int64) {
 	sc.run.FinishedAt = finishedAt
 	sc.run.UpdatedAt = time.Now()
 	if sc.jobs != nil {
-		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusFailed, sc.run.StartedAt, finishedAt)
+		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusFailed, model.GraphRunStatusFailed, sc.run.StartedAt, finishedAt, "")
 	}
 	logger.Errorf(ctx, "[graph] run failed: runId=%s jobId=%s status=%s error=%v", sc.run.ID, sc.run.JobID, sc.run.Status, sc.run.LastError)
 }
@@ -1250,7 +1283,7 @@ func (sc *scheduler) finishForContextError(ctx context.Context, err error) {
 		sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeError, nil, "", "", rerr.Message, rerr)
 		logger.Errorf(ctx, "[graph] job timeout: runId=%s jobId=%s timeout=%s err=%v", sc.run.ID, sc.run.JobID, timeout, err)
 		if sc.jobs != nil {
-			_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusFailed, sc.run.StartedAt, finishedAt)
+			_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusFailed, model.GraphRunStatusTimedOut, sc.run.StartedAt, finishedAt, "")
 		}
 		return
 	}

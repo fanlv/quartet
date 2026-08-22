@@ -728,6 +728,11 @@ func (h *Handler) DeleteCustomAgent(ctx context.Context, c *app.RequestContext) 
 		httputil.InternalErrorLog(ctx, c, "agent.custom.clear-settings", err)
 		return
 	}
+	if err := h.workspaceService.ClearAgentDefaults(agentID); err != nil {
+		h.recordAgentDeleteError(ctx, agentID, err)
+		httputil.InternalErrorLog(ctx, c, "agent.custom.clear-workspace-defaults", err)
+		return
+	}
 	if err := h.acpProbeCache.InvalidateAgentAndPersist(ctx, agentID); err != nil {
 		h.recordAgentDeleteError(ctx, agentID, err)
 		httputil.InternalErrorLog(ctx, c, "agent.custom.persist-cleared-cache", err)
@@ -1012,6 +1017,11 @@ func (h *Handler) reconcileDeletingAgents(ctx context.Context) {
 		}
 		endDelete, _ := h.agentExecutions.beginDelete(agent.AgentID)
 		if err := h.settingsService.ClearAgentSettings(agent.AgentID); err != nil {
+			h.recordAgentDeleteError(ctx, agent.AgentID, err)
+			endDelete(true)
+			continue
+		}
+		if err := h.workspaceService.ClearAgentDefaults(agent.AgentID); err != nil {
 			h.recordAgentDeleteError(ctx, agent.AgentID, err)
 			endDelete(true)
 			continue

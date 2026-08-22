@@ -201,7 +201,7 @@ func (s *serviceImpl) AttachGraphSession(_ context.Context, jobID, sessionID str
 	return nil
 }
 
-func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID string, status model.JobStatus, startedAt, finishedAt int64) error {
+func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID string, status model.JobStatus, graphStatus model.GraphRunStatus, startedAt, finishedAt int64, graphSessionID string) error {
 	lock := s.persistLock(jobID)
 	lock.Lock()
 
@@ -256,6 +256,7 @@ func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID stri
 	s.mu.Unlock()
 
 	s.bumpListVersion(cp.WorkspaceID)
+	s.recordJobObservationWithGraphSession(cp, string(graphStatus), graphSessionID)
 	lock.Unlock()
 	if status == model.JobStatusPending || status == model.JobStatusRunning {
 		s.clearJobDoneNotified(jobID)

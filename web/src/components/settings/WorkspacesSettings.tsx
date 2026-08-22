@@ -5,6 +5,7 @@ import {
   DEFAULT_WORKSPACE_ID,
   isDefaultWorkspace,
   loadWorkspacePrefs,
+  registerWorkspacePrefs,
   registerWorkspaceColors,
   saveWorkspacePrefs,
   workspaceColor,
@@ -17,6 +18,8 @@ interface WorkspaceItem {
   title: string;
   description: string;
   workdir: string;
+  defaultAgent?: string;
+  defaultModel?: string;
   color?: string;
   favorite: boolean;
   sortOrder: number;
@@ -337,7 +340,13 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
     setSaving(true);
     setError('');
     try {
-      const body = { title: title.trim(), description: description.trim(), workdir: workdir.trim() };
+      const body = {
+        title: title.trim(),
+        description: description.trim(),
+        workdir: workdir.trim(),
+        defaultAgent: prefs.defaultAgent || '',
+        defaultModel: prefs.defaultModel || '',
+      };
       const url = mode === 'edit' ? `/api/v1/workspace/${initial!.id}` : '/api/v1/workspace/create';
       const method = mode === 'edit' ? 'PUT' : 'POST';
       const res = await fetch(url, {
@@ -352,13 +361,22 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
       const data = await res.json();
       const savedId = (data?.id as string | undefined) ?? initial?.id;
       if (savedId) {
-        saveWorkspacePrefs(savedId, prefs);
+        const supportsSharedPrefs = Object.prototype.hasOwnProperty.call(data, 'defaultAgent')
+          || Object.prototype.hasOwnProperty.call(data, 'defaultModel');
+        if (supportsSharedPrefs) {
+          registerWorkspacePrefs(savedId, prefs);
+          try { localStorage.removeItem(`workspacePrefs_${savedId}`); } catch { /* ignore */ }
+        } else {
+          saveWorkspacePrefs(savedId, prefs);
+        }
         try {
           const cached = {
             id: savedId,
             title: body.title,
             description: body.description,
             workdir: body.workdir,
+            defaultAgent: body.defaultAgent,
+            defaultModel: body.defaultModel,
             color: (data?.color as string | undefined) ?? initial?.color,
             favorite: (data?.favorite as boolean | undefined) ?? initial?.favorite ?? false,
             sortOrder: (data?.sortOrder as number | undefined) ?? initial?.sortOrder ?? 0,

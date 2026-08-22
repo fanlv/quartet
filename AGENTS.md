@@ -17,6 +17,8 @@ make build-all     # go build ./...
 make build-web     # Build web backend binary to bin/quartet-web
 make build-eino-cli# Build the standalone eino-cli ACP agent and install it onto $PATH
                    #   (required for agent probe and the settings eino tab to work)
+make build-ios     # Build the iOS app on macOS with Xcode
+make test-ios      # Build the iOS Simulator target without signing
 make test          # Run Go build, frontend component tests, and Playwright E2E
 make test-web      # Run frontend component tests (cd web && npm test)
 make e2e           # Run frontend Playwright E2E tests
@@ -94,6 +96,7 @@ Go tests: `go test ./...`
 - `cmd/quartet-cli` — quartet-cli 命令行工具的入口，通过后端 HTTP API 管理 graph workflow（agent 库；含手动运行 run）、cron 定时任务（schedule 增删改查/启停/立即触发）、只读查询 workspace/job/agent，以及发送微信主动消息（wechat send / accounts）。
 - `einocli/` — eino-cli 的全部实现（推理循环、中间件链、上下文组装、会话管理、多模态还原、local sandbox fork、自管配置），与 quartet 后端零 import 依赖，按"日后可整体抽到独立仓库"设计。
 - `web/` — 前端单页应用，提供聊天、工作区、文件浏览、设置、统计、调度、脚本、IM 配置等用户界面。
+- `ios/` — 原生 SwiftUI 客户端，提供局域网连接、Job/对话与 Graph 运行监控能力。
 
 ### 类型与路径
 

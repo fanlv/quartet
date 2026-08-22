@@ -591,9 +591,9 @@ func TestBuffer_GCGapDoesNotBusyLoop(t *testing.T) {
 		t.Fatalf("subscribe: %v", err)
 	}
 
-	b.Publish(runStarted("job-1"))     // seq=1
+	b.Publish(runStarted("job-1"))      // seq=1
 	b.Publish(textDelta("job-1", "m1")) // seq=2
-	b.Publish(runFinished("job-1"))   // seq=3, closes round
+	b.Publish(runFinished("job-1"))     // seq=3, closes round
 
 	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Second)
 	defer cancel1()

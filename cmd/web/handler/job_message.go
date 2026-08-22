@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -71,7 +73,22 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 	if !req.BypassCommand && len(req.Messages) == 1 && len(req.Messages[0].ImageUrls) == 0 {
 		if command.IsKnown(req.Messages[0].Content) {
 			cmdName, args := command.Parse(req.Messages[0].Content)
-			event := h.dispatchJobCommand(ctx, j, cmdName, args)
+			execute := func() *model.CommandSystemMessageEvent {
+				return h.dispatchJobCommand(ctx, j, req.ClientMessageID, cmdName, args)
+			}
+			event, duplicate, err := h.jobService.ExecuteCommand(
+				ctx, j.ID, req.ClientMessageID, req.Messages[0].Content, execute,
+			)
+			if err != nil {
+				httputil.MapError(c, err, jobErrMappings)
+				return
+			}
+			if !duplicate {
+				// ExecuteCommand persisted the receipt before this event becomes
+				// visible. If the response is lost, a retry replays the receipt
+				// instead of publishing the action a second time.
+				h.jobService.PublishTransient(j.ID, event)
+			}
 			// Return the rendered command result inline in the POST response in
 			// addition to the transient SSE broadcast. The SSE path only reaches
 			// readers connected at publish time, but an interactive job that has
@@ -80,7 +97,35 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 			// user would see nothing. The inline copy makes delivery to the
 			// caller deterministic; the transient publish still updates any OTHER
 			// tabs watching the same job.
-			c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "command_dispatched", "event": event})
+			status := "command_dispatched"
+			if duplicate {
+				status = "command_duplicate"
+			}
+			c.JSON(http.StatusOK, map[string]any{"code": 0, "status": status, "event": event})
+			return
+		}
+	}
+
+	// A result-unknown HTTP retry commonly arrives while the original run is
+	// still Running. Check the durable receipt before prepareJobSend's job-state
+	// gate so that retry is acknowledged instead of being mistaken for a new
+	// message and rejected with ErrJobRunning. SendMessage repeats the check
+	// atomically with its claim, so this fast path does not carry correctness.
+	if req.ClientMessageID != "" {
+		idempotencyOpts := h.prepareIdempotencyOptions(&req)
+		receipt, found, err := h.jobService.LookupMessage(j.ID, idempotencyOpts)
+		if err != nil {
+			httputil.MapError(c, err, jobErrMappings)
+			return
+		}
+		if found {
+			// The fast path has not constructed a runner, so it is safe to return
+			// immediately. A race after this miss is handled authoritatively by
+			// SendMessage below.
+			writeJobMessageResult(c, job.SendMessageResult{
+				Disposition: job.SendMessageDuplicate,
+				Receipt:     receipt,
+			})
 			return
 		}
 	}
@@ -99,7 +144,25 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	if h.userInputRepo != nil {
+	result, err := h.jobService.SendMessage(ctx, j.ID, runner, opts)
+	if err != nil {
+		logger.Errorf(ctx, "[job] send message failed: jobId=%s err=%v", j.ID, err)
+		httputil.MapError(c, err, jobErrMappings)
+		return
+	}
+	if !result.Started() {
+		// A concurrent request won the claim after the fast lookup but before
+		// this request entered SendMessage. The service released this request's
+		// prepared execution lease; do not append audit input or launch work.
+		writeJobMessageResult(c, result)
+		return
+	}
+
+	// The audit stream is append-only and has no uniqueness constraint. Append
+	// only when this request actually won the durable idempotency claim, or an
+	// HTTP retry would create duplicate user-input rows even though the Agent
+	// was correctly deduplicated.
+	if result.Started() && h.userInputRepo != nil {
 		for idx, m := range req.Messages {
 			if m.Content == "" && len(m.ImageUrls) == 0 {
 				continue
@@ -122,13 +185,23 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
-	if err := h.jobService.SendMessage(ctx, j.ID, runner, opts); err != nil {
-		logger.Errorf(ctx, "[job] send message failed: jobId=%s err=%v", j.ID, err)
-		httputil.MapError(c, err, jobErrMappings)
-		return
-	}
+	writeJobMessageResult(c, result)
+}
 
-	c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "started"})
+func writeJobMessageResult(c *app.RequestContext, result job.SendMessageResult) {
+	status := string(result.Disposition)
+	if status == "" {
+		status = string(job.SendMessageStarted)
+	}
+	response := map[string]any{
+		"code":   0,
+		"status": status,
+	}
+	if result.Receipt.ClientMessageID != "" {
+		response["clientMessageId"] = result.Receipt.ClientMessageID
+		response["messageState"] = result.Receipt.State
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // mapPrepareJobSendError maps a prepareJobSend failure to an HTTP response.
@@ -154,7 +227,7 @@ func mapPrepareJobSendError(c *app.RequestContext, err error) {
 // Unknown commands are handled here too — the shared command module's
 // Execute returns ok=false, and we emit a "未知命令" system message so Web
 // behaves the same as IM (neither side forwards the text to the Agent).
-func (h *Handler) dispatchJobCommand(ctx context.Context, j *model.Job, cmd, args string) *model.CommandSystemMessageEvent {
+func (h *Handler) dispatchJobCommand(ctx context.Context, j *model.Job, clientMessageID, cmd, args string) *model.CommandSystemMessageEvent {
 	ec := &command.ExecCtx{
 		Ctx:                ctx,
 		WorkspaceService:   h.workspaceService,
@@ -169,12 +242,12 @@ func (h *Handler) dispatchJobCommand(ctx context.Context, j *model.Job, cmd, arg
 			JobID:     j.ID,
 			Timestamp: time.Now().UnixMilli(),
 		},
+		ClientMessageID: clientMessageID,
 	}
 	if !ok {
 		event.Command = cmd
 		event.Text = fmt.Sprintf("未知命令: %s\n输入 /help 查看可用命令", cmd)
 		event.Present = string(command.PresentInline)
-		h.jobService.PublishTransient(j.ID, event)
 		return event
 	}
 	event.Command = command.ResolveName(cmd)
@@ -186,27 +259,32 @@ func (h *Handler) dispatchJobCommand(ctx context.Context, j *model.Job, cmd, arg
 	// dispatcher checks.
 	if result.Action.Type != "" {
 		event.Action = &model.CommandAction{
-			Type:        string(result.Action.Type),
-			WorkspaceID: result.Action.WorkspaceID,
-			JobID:       result.Action.JobID,
+			Type:            string(result.Action.Type),
+			WorkspaceID:     result.Action.WorkspaceID,
+			JobID:           result.Action.JobID,
+			ClientMessageID: commandActionClientMessageID(j.ID, clientMessageID),
 		}
 	}
-	h.jobService.PublishTransient(j.ID, event)
 	return event
+}
+
+func commandActionClientMessageID(jobID, clientMessageID string) string {
+	if clientMessageID == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(jobID + "\x00" + clientMessageID))
+	return "command-action-" + hex.EncodeToString(sum[:])
 }
 
 // prepareJobSend runs the full pre-SendMessage flow shared by the HTTP
 // JobMessage handler and the IM gateway: validates the request, builds
-// SendMessageOptions, applies any pending title update to the job (without
-// waiting for SendMessage to succeed), and returns a runner+opts ready to
-// hand to jobService.SendMessage.
+// SendMessageOptions and returns a runner+opts ready to hand to
+// jobService.SendMessage. Metadata writes are attached to the runner and run
+// only after SendMessage durably accepts this request.
 //
-// The job-state gate runs BEFORE any metadata side effects (title / session
-// model / ACP field updates below): SendMessage rejects running / deleted
-// jobs, and applying those updates for a request that is about to be
-// rejected leaks the failed send's selection into the next successful run.
-// The gate reads a Get() snapshot, so it is best-effort — SendMessage's
-// locked check stays authoritative for the residual TOCTOU window.
+// The job-state gate is a cheap early rejection only. SendMessage's locked
+// check is authoritative; deferring metadata writes to PrepareAcceptedMessage
+// closes the residual check/claim TOCTOU window.
 func (h *Handler) prepareJobSend(ctx context.Context, j *model.Job, req *model.JobMessageRequest) (job.JobRunner, *job.SendMessageOptions, error) {
 	if j.Deleted {
 		return nil, nil, job.ErrJobDeleted
@@ -238,11 +316,21 @@ func (h *Handler) prepareJobSend(ctx context.Context, j *model.Job, req *model.J
 		return nil, nil, err
 	}
 
-	if pendingTitle, needSave := h.planJobTitleUpdate(ctx, j, req); needSave {
-		j.Title = pendingTitle
-		if err := h.jobService.UpdateTitle(j.ID, pendingTitle); err != nil {
-			logger.Errorf(ctx, "[job] update title failed: jobId=%s err=%v", j.ID, err)
+	runner.prepareAccepted = func(acceptedCtx context.Context, jobID string) error {
+		if opts.SessionID != "" {
+			h.maybeUpdateSessionModel(opts.SessionID, req.ModelID)
+			h.maybeUpdateSessionACPFields(opts.SessionID, req.ACPMode, req.ACPThoughtLevel)
 		}
+		pendingTitle, userMessage, needSave, shouldRefine := h.planJobTitleUpdate(j, req)
+		if needSave {
+			if err := h.jobService.UpdateTitle(jobID, pendingTitle); err != nil {
+				logger.Errorf(acceptedCtx, "[job] update title failed: jobId=%s err=%v", jobID, err)
+			}
+		}
+		if shouldRefine {
+			h.asyncUpdateJobTitle(acceptedCtx, jobID, userMessage)
+		}
+		return nil
 	}
 
 	return runner, opts, nil
@@ -377,7 +465,7 @@ func firstNonEmptyString(values ...string) string {
 
 // planJobTitleUpdate computes a pending title for the job if needed and
 // schedules an async LLM-based refinement.
-func (h *Handler) planJobTitleUpdate(ctx context.Context, j *model.Job, req *model.JobMessageRequest) (pendingTitle string, needSave bool) {
+func (h *Handler) planJobTitleUpdate(j *model.Job, req *model.JobMessageRequest) (pendingTitle, userMessage string, needSave, shouldRefine bool) {
 	isDefaultTitle := false
 	if (j.Title == "" || j.Title == consts.DefaultJobTitle) && len(req.Messages) > 0 && req.Messages[0].Content != "" {
 		pendingTitle = strutil.TruncateRunes(req.Messages[0].Content, 30)
@@ -392,10 +480,10 @@ func (h *Handler) planJobTitleUpdate(ctx context.Context, j *model.Job, req *mod
 				parts = append(parts, replaceJobTitleVariables(m.Content, j.LoopConfig))
 			}
 		}
-		userMessage := strings.Join(parts, "\n")
-		h.asyncUpdateJobTitle(ctx, j.ID, userMessage)
+		userMessage = strings.Join(parts, "\n")
+		shouldRefine = true
 	}
-	return pendingTitle, needSave
+	return pendingTitle, userMessage, needSave, shouldRefine
 }
 
 // prepareJobMessage validates a JobMessageRequest and builds SendMessageOptions
@@ -410,14 +498,6 @@ func (h *Handler) prepareJobMessage(j *model.Job, req *model.JobMessageRequest) 
 		return nil, err
 	}
 
-	if opts.SessionID != "" {
-		h.maybeUpdateSessionACPFields(opts.SessionID, req.ACPMode, req.ACPThoughtLevel)
-	}
-
-	opts.AgentType = req.AgentType
-	opts.ModelID = req.ModelID
-	opts.ACPMode = req.ACPMode
-	opts.ACPThoughtLevel = req.ACPThoughtLevel
 	return opts, nil
 }
 
@@ -428,25 +508,13 @@ func (h *Handler) prepareJobMessage(j *model.Job, req *model.JobMessageRequest) 
 // image URLs are always preserved verbatim for downstream records (user_input,
 // etc.) — nothing is dropped here.
 func (h *Handler) prepareInteractiveRun(j *model.Job, req *model.JobMessageRequest) (*job.SendMessageOptions, error) {
-	nowMs := time.Now().UnixMilli()
-	msgs := make([]*schema.Message, 0, len(req.Messages))
-	for i := range req.Messages {
-		m := &req.Messages[i]
-		content := m.Content
-		if len(m.ImageUrls) > 0 {
-			var prefix string
-			for _, u := range m.ImageUrls {
-				prefix += fmt.Sprintf("![image](%s)\n", u)
-			}
-			content = prefix + content
-		}
-		msgs = append(msgs, schema.UserMessage(content))
-	}
+	opts := h.prepareIdempotencyOptions(req)
 
 	// Stamp user messages with a receive timestamp and a stable msg_id so
 	// that history reload can display timestamps and produce stable IDs
 	// (avoiding duplicate bubbles when a reload re-indexes messages).
-	for i, msg := range msgs {
+	nowMs := time.Now().UnixMilli()
+	for i, msg := range opts.Messages {
 		if msg.Extra == nil {
 			msg.Extra = map[string]any{}
 		}
@@ -462,11 +530,6 @@ func (h *Handler) prepareInteractiveRun(j *model.Job, req *model.JobMessageReque
 				msg.Extra[msgextra.KeyMsgID] = uuid.NewString()
 			}
 		}
-	}
-
-	opts := &job.SendMessageOptions{
-		ClientMessageID: req.ClientMessageID,
-		Messages:        msgs,
 	}
 
 	sessionID, err := h.resolveSessionID(j, req.SessionID)
@@ -492,10 +555,37 @@ func (h *Handler) prepareInteractiveRun(j *model.Job, req *model.JobMessageReque
 	}
 
 	if sessionID != "" {
-		h.maybeUpdateSessionModel(sessionID, req.ModelID)
 		opts.SessionID = sessionID
 	}
 	return opts, nil
+}
+
+// prepareIdempotencyOptions builds the stable portion of SendMessageOptions.
+// It deliberately excludes server receive timestamps and generated msg_id
+// values so an otherwise identical HTTP retry hashes to the same payload.
+func (h *Handler) prepareIdempotencyOptions(req *model.JobMessageRequest) *job.SendMessageOptions {
+	msgs := make([]*schema.Message, 0, len(req.Messages))
+	for i := range req.Messages {
+		m := &req.Messages[i]
+		content := m.Content
+		if len(m.ImageUrls) > 0 {
+			var prefix string
+			for _, u := range m.ImageUrls {
+				prefix += fmt.Sprintf("![image](%s)\n", u)
+			}
+			content = prefix + content
+		}
+		msgs = append(msgs, schema.UserMessage(content))
+	}
+	return &job.SendMessageOptions{
+		IdempotencySessionID: req.SessionID,
+		ClientMessageID:      req.ClientMessageID,
+		Messages:             msgs,
+		AgentType:            req.AgentType,
+		ModelID:              req.ModelID,
+		ACPMode:              req.ACPMode,
+		ACPThoughtLevel:      req.ACPThoughtLevel,
+	}
 }
 
 func (h *Handler) sameAgentReference(ctx context.Context, session *model.Session, requested string) bool {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
@@ -92,6 +93,8 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 			if len(textParts) > 0 {
 				content = strings.Join(textParts, "\n")
 			}
+		} else if msg.Role == schema.User {
+			content, imageUrls = extractHistoryLocalImageURLs(content)
 		}
 
 		historyMsg := model.HistoryMessage{
@@ -224,6 +227,37 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 		resp.Agents = h.resolvePublicAgents(ctx, []string{s.Type})
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// extractHistoryLocalImageURLs reconstructs imageUrls from the leading markdown
+// image lines Quartet prepends to persisted user messages. Parsing whole prefix
+// lines (instead of stopping at the first ')') preserves valid POSIX paths that
+// contain parentheses and avoids stripping user-authored inline markdown later
+// in the message. Remote / placeholder / relative tags remain visible text.
+func extractHistoryLocalImageURLs(content string) (string, []string) {
+	if content == "" {
+		return "", nil
+	}
+
+	lines := strings.Split(content, "\n")
+	cleanedLines := make([]string, 0, len(lines))
+	imageUrls := make([]string, 0)
+	readingImagePrefix := true
+	const prefix = "![image]("
+	for _, line := range lines {
+		if readingImagePrefix && strings.HasPrefix(line, prefix) && strings.HasSuffix(line, ")") {
+			path := line[len(prefix) : len(line)-1]
+			if filepath.IsAbs(path) {
+				imageUrls = append(imageUrls, path)
+				continue
+			}
+		}
+
+		readingImagePrefix = false
+		cleanedLines = append(cleanedLines, line)
+	}
+
+	return strings.Join(cleanedLines, "\n"), imageUrls
 }
 
 // toInt64 extracts an int64 from a value that may be stored as float64

@@ -70,6 +70,7 @@ var jobErrMappings = []httputil.ErrorMapping{
 	{Err: job.ErrJobNotRunning, Status: http.StatusConflict},
 	{Err: job.ErrJobNotRunnable, Status: http.StatusBadRequest},
 	{Err: job.ErrEmptyMessage, Status: http.StatusBadRequest},
+	{Err: job.ErrClientMessageIDConflict, Status: http.StatusConflict},
 }
 
 func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
@@ -105,7 +106,10 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 		if _, err := h.graphService.StopRun(ctx, j.GraphRunID, "hard stopped by user"); err != nil {
 			logger.Errorf(ctx, "[job] stop graph run failed: jobId=%s graphRunId=%s err=%v", jobID, j.GraphRunID, err)
 			if !errors.Is(err, graphsvc.ErrGraphRunNotRunning) {
-				c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopped"})
+				httputil.MapError(c, err, []httputil.ErrorMapping{
+					{Err: graphsvc.ErrGraphRunControlBusy, Status: http.StatusConflict},
+					{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},
+				})
 				return
 			}
 			// Graph scheduler gone — fall through to stopAndWait for the interactive run.
@@ -129,6 +133,91 @@ func (h *Handler) stopAndWait(ctx context.Context, job *model.Job) error {
 	// relying on BeginRun's orphan-tail cleanup to keep tool_call/tool_result
 	// pairs consistent.
 	return h.cancelJobSessions(ctx, job)
+}
+
+// deleteMarkedJob completes the destructive half of Job deletion after the
+// caller has durably set Job.Deleted. Graph jobs have a scheduler lifecycle
+// independent from jobService's interactive-run cancel table, so they must be
+// hard-stopped and joined before any session or Job directory is removed.
+//
+// The regular stopAndWait remains unconditional: a graph Job whose scheduler
+// has already settled may still have an interactive turn running in one of its
+// node sessions. Only after both producers have exited do we take a final Job
+// snapshot, delete sessions, release the graph runtime, and remove the Job.
+func (h *Handler) deleteMarkedJob(ctx context.Context, job *model.Job) error {
+	if job == nil {
+		return errors.New("job is required")
+	}
+	// MarkDeleted is serialized with SetGraphRunState. Refresh after that
+	// barrier so a graph run bound between the caller's initial Get and the
+	// tombstone write cannot be mistaken for an interactive-only Job.
+	if updated, ok := h.jobService.Get(job.ID); ok {
+		job = updated
+	}
+
+	if err := h.stopAndWait(ctx, job); err != nil {
+		return fmt.Errorf("stop interactive job run before deleting job: %w", err)
+	}
+
+	if job.Mode == model.JobModeGraph && job.GraphRunID != "" {
+		if err := h.graphService.RegisterRunLocation(ctx, job.GraphRunID, job.WorkspaceID, job.ID); err != nil {
+			return fmt.Errorf("register graph run location before deleting job: %w", err)
+		}
+		// Join the currently-visible scheduler generation first. Besides the
+		// normal running case, this also catches an in-memory producer whose run
+		// files were removed unexpectedly: StopRunAndWait captures the live
+		// handle before consulting persistence. DeleteRun below then installs the
+		// permanent no-resume fence, or reports a newer generation for us to join.
+		if _, err := h.graphService.StopRunAndWait(ctx, job.GraphRunID, "job deleted by user"); err != nil && !errors.Is(err, graphsvc.ErrGraphRunNotFound) {
+			return fmt.Errorf("stop graph run before deleting job: %w", err)
+		}
+		// The parent Job is about to disappear, so no linkage update is needed.
+		// This operation first fences new scheduler generations, joining any
+		// concurrent resume that won the race, then removes graph artifacts and
+		// closes the SSE buffer. It must precede the final session snapshot: a
+		// late resume can create a session while it unwinds.
+		if err := h.deleteGraphRunAfterJoin(ctx, job.GraphRunID); err != nil {
+			return err
+		}
+	}
+
+	// The graph scheduler and interactive run may both append session IDs while
+	// stopping. Re-fetch only after both producers are joined and GraphRun
+	// deletion has fenced resumes, so cleanup sees the true final set.
+	if updated, ok := h.jobService.Get(job.ID); ok {
+		job = updated
+	}
+	h.cleanupSessions(job.WorkspaceID, job.ID, jobAllSessionIDs(job))
+
+	h.jobService.Delete(job.ID)
+	h.sessionMu.Lock()
+	delete(h.sessionServices, job.ID)
+	h.sessionMu.Unlock()
+	return nil
+}
+
+// deleteGraphRunAfterJoin closes the small StopRunAndWait → DeleteRun race
+// against a ResumeRun that resolved the old terminal snapshot just before the
+// delete. DeleteRun's graph-service fence lets exactly one side win: if resume
+// registered first we stop/join that generation and retry; once deletion wins,
+// future registrations fail with ErrGraphRunNotFound.
+func (h *Handler) deleteGraphRunAfterJoin(ctx context.Context, runID string) error {
+	for {
+		err := h.graphService.DeleteRun(ctx, runID, nil)
+		switch {
+		case err == nil, errors.Is(err, graphsvc.ErrGraphRunNotFound):
+			return nil
+		case errors.Is(err, graphsvc.ErrGraphRunInFlight):
+			if _, stopErr := h.graphService.StopRunAndWait(ctx, runID, "job deleted by user"); stopErr != nil && !errors.Is(stopErr, graphsvc.ErrGraphRunNotFound) {
+				return fmt.Errorf("stop concurrently resumed graph run before deleting job: %w", stopErr)
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+		default:
+			return fmt.Errorf("delete graph run with job: %w", err)
+		}
+	}
 }
 
 func (h *Handler) cancelJobSessions(ctx context.Context, job *model.Job) error {

@@ -159,7 +159,7 @@ func (sc *scheduler) finishStopped(ctx context.Context) {
 		sc.run.ID, sc.stopReason, sc.run.Progress.CompletedCount, sc.run.Progress.SkippedCount,
 		sc.run.Progress.FailedCount, sc.run.Progress.TotalCount)
 	if sc.jobs != nil {
-		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusStopped, sc.run.StartedAt, finishedAt)
+		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusStopped, model.GraphRunStatusStopped, sc.run.StartedAt, finishedAt, "")
 	}
 }
 
@@ -182,7 +182,7 @@ func (sc *scheduler) finishGraceful(ctx context.Context) {
 		label, sc.run.ID, sc.stopReason, sc.run.Progress.CompletedCount, sc.run.Progress.SkippedCount,
 		sc.run.Progress.FailedCount, sc.run.Progress.TotalCount)
 	if sc.jobs != nil {
-		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, jobStatus, sc.run.StartedAt, finishedAt)
+		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, jobStatus, model.GraphRunStatusStepStopped, sc.run.StartedAt, finishedAt, "")
 	}
 }
 
@@ -220,7 +220,17 @@ func (sc *scheduler) finishAwaiting(ctx context.Context) {
 		// JobStatusStopped is a non-running, non-terminal-for-chat status: the Chat
 		// append path rejects only JobStatusRunning, so the user can discuss in the
 		// clarify session while the run is parked. Continue re-launches via resume.
-		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusStopped, sc.run.StartedAt, finishedAt)
+		graphSessionID := ""
+		for _, instance := range sc.instances {
+			if instance.Status != model.GraphInstanceStatusAwaitingInput {
+				continue
+			}
+			graphSessionID = firstNonEmpty(instance.DisplaySessionID, instance.SessionID)
+			if graphSessionID != "" {
+				break
+			}
+		}
+		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, model.JobStatusStopped, model.GraphRunStatusAwaitingInput, sc.run.StartedAt, finishedAt, graphSessionID)
 	}
 }
 

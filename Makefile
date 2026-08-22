@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend test test-web e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
+.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend build-ios test test-web test-ios e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
 
 CERTS_DIR := $(CURDIR)/certs
 # Serving model, derived ONCE at parse time so every target below
@@ -56,10 +56,12 @@ help:
 	@printf '  %-24s %s\n' 'build-cli' 'Build bin/quartet-cli'
 	@printf '  %-24s %s\n' 'build-eino-cli' 'Build eino-cli and install it to INSTALL_BIN_DIR'
 	@printf '  %-24s %s\n' 'build-web' 'Build bin/quartet-web'
-	@printf '  %-24s %s\n\n' 'build-frontend' 'Build frontend SPA into static/'
+	@printf '  %-24s %s\n' 'build-frontend' 'Build frontend SPA into static/'
+	@printf '  %-24s %s\n\n' 'build-ios' 'Build the iOS app (requires macOS + Xcode)'
 	@printf 'Test targets:\n'
 	@printf '  %-24s %s\n' 'test' 'Run Go build, frontend tests, and Playwright E2E'
 	@printf '  %-24s %s\n' 'test-web' 'Run frontend component tests'
+	@printf '  %-24s %s\n' 'test-ios' 'Build the iOS app for Simulator without signing'
 	@printf '  %-24s %s\n\n' 'e2e' 'Run frontend Playwright E2E tests'
 	@printf 'Run/service targets:\n'
 	@printf '  %-24s %s\n' 'run' 'Alias for web'
@@ -157,6 +159,20 @@ build-frontend:
 	cd web || exit 1; \
 	npm run build || { echo "❌ Frontend build failed"; exit 1; }; \
 	echo "✅ Frontend built into static/"
+
+build-ios:
+	@if ! command -v xcodebuild >/dev/null 2>&1; then \
+		echo "❌ xcodebuild is required; run this target on macOS with Xcode installed"; \
+		exit 1; \
+	fi
+	xcodebuild -project ios/Quartet.xcodeproj -scheme Quartet -configuration Debug -destination 'generic/platform=iOS' build
+
+test-ios:
+	@if ! command -v xcodebuild >/dev/null 2>&1; then \
+		echo "❌ xcodebuild is required; run this target on macOS with Xcode installed"; \
+		exit 1; \
+	fi
+	xcodebuild -project ios/Quartet.xcodeproj -scheme Quartet -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
 run-cli:
 	go run ./cmd/quartet-cli

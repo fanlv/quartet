@@ -49,7 +49,7 @@ type graphJobUpdate struct {
 	runID  string
 }
 
-func (s *stubGraphJobSink) SetGraphRunState(_ context.Context, _ string, graphRunID string, status model.JobStatus, _, _ int64) error {
+func (s *stubGraphJobSink) SetGraphRunState(_ context.Context, _ string, graphRunID string, status model.JobStatus, _ model.GraphRunStatus, _, _ int64, _ string) error {
 	if s.updates != nil {
 		s.updates <- graphJobUpdate{runID: graphRunID, status: status}
 	}
@@ -70,7 +70,7 @@ type failingGraphJobSink struct {
 	err error
 }
 
-func (s failingGraphJobSink) SetGraphRunState(context.Context, string, string, model.JobStatus, int64, int64) error {
+func (s failingGraphJobSink) SetGraphRunState(context.Context, string, string, model.JobStatus, model.GraphRunStatus, int64, int64, string) error {
 	return s.err
 }
 

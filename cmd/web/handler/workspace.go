@@ -29,6 +29,8 @@ func (h *Handler) WorkspaceCreate(ctx context.Context, c *app.RequestContext) {
 	}
 
 	ws := model.NewWorkspace(req.Title, req.Description, req.Workdir)
+	ws.DefaultAgent = strings.TrimSpace(req.DefaultAgent)
+	ws.DefaultModel = strings.TrimSpace(req.DefaultModel)
 	if err := h.workspaceService.Create(ws); err != nil {
 		logger.Errorf(ctx, "[WorkspaceCreate] Failed: %v", err)
 		if isInvalidWorkdirErr(err) {
@@ -103,7 +105,14 @@ func (h *Handler) WorkspaceUpdate(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	ws, err := h.workspaceService.Update(id, req.Title, req.Description, req.Workdir)
+	ws, err := h.workspaceService.Update(
+		id,
+		req.Title,
+		req.Description,
+		req.Workdir,
+		strings.TrimSpace(req.DefaultAgent),
+		strings.TrimSpace(req.DefaultModel),
+	)
 	if err != nil {
 		logger.Errorf(ctx, "[WorkspaceUpdate] Failed: %v", err)
 		if isInvalidWorkdirErr(err) {
@@ -126,15 +135,17 @@ func isInvalidWorkdirErr(err error) bool {
 
 func toWorkspaceInfo(ws *model.Workspace) model.WorkspaceInfo {
 	return model.WorkspaceInfo{
-		ID:          ws.ID,
-		Title:       ws.Title,
-		Description: ws.Description,
-		Workdir:     ws.Workdir,
-		Color:       ws.Color,
-		Favorite:    ws.Favorite,
-		SortOrder:   ws.SortOrder,
-		CreatedAt:   ws.CreatedAt.UnixMilli(),
-		UpdatedAt:   ws.UpdatedAt.UnixMilli(),
+		ID:           ws.ID,
+		Title:        ws.Title,
+		Description:  ws.Description,
+		Workdir:      ws.Workdir,
+		DefaultAgent: ws.DefaultAgent,
+		DefaultModel: ws.DefaultModel,
+		Color:        ws.Color,
+		Favorite:     ws.Favorite,
+		SortOrder:    ws.SortOrder,
+		CreatedAt:    ws.CreatedAt.UnixMilli(),
+		UpdatedAt:    ws.UpdatedAt.UnixMilli(),
 	}
 }
 
@@ -227,31 +238,17 @@ func (h *Handler) WorkspaceDelete(ctx context.Context, c *app.RequestContext) {
 	for _, job := range jobs {
 		if err := h.jobService.MarkDeleted(job.ID); err != nil {
 			logger.Errorf(ctx, "[WorkspaceDelete] mark job deleted failed: %v, jobId=%s", err, job.ID)
+			httputil.InternalError(c, err.Error())
+			return
 		}
 	}
 
 	for _, job := range jobs {
-		// Always stop-and-wait: StopAndWait is idempotent for non-running jobs
-		// (cancel map miss → done=nil → returns immediately), and running-status
-		// observed from the list snapshot can be stale. Unconditional call also
-		// means we always re-fetch below to pick up any SessionIDs that the run
-		// appended between the snapshot and the stop.
-		if err := h.stopAndWait(ctx, job); err != nil {
-			logger.Errorf(ctx, "[WorkspaceDelete] stopAndWait error: %v, jobId=%s", err, job.ID)
+		if err := h.deleteMarkedJob(ctx, job); err != nil {
+			logger.Errorf(ctx, "[WorkspaceDelete] delete job failed: %v, jobId=%s", err, job.ID)
+			httputil.InternalError(c, err.Error())
+			return
 		}
-		if updated, ok := h.jobService.Get(job.ID); ok {
-			job = updated
-		}
-
-		// Clean up associated sessions and agents.
-		h.cleanupSessions(job.WorkspaceID, job.ID, jobAllSessionIDs(job))
-
-		h.jobService.Delete(job.ID)
-
-		// Remove the session service for this job.
-		h.sessionMu.Lock()
-		delete(h.sessionServices, job.ID)
-		h.sessionMu.Unlock()
 	}
 
 	if err := h.workspaceService.Delete(id); err != nil {

@@ -161,6 +161,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	jobGroup := api.Group("/job")
 	jobGroup.POST("/create", h.JobCreate)
 	jobGroup.GET("/list", h.JobList)
+	jobGroup.GET("/observations", h.JobObservations)
 	jobGroup.GET("/:jobId", h.JobGet)
 	jobGroup.DELETE("/:jobId", h.JobDelete)
 	jobGroup.PUT("/:jobId/title", h.JobUpdateTitle)
