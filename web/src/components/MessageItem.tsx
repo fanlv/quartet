@@ -8,7 +8,7 @@ import { Message, UserMessage, AssistantMessage, ToolMessage, SystemMessage, Mes
 import { copyToClipboard } from '../utils/clipboard';
 import { formatMessageTime } from '../utils/time';
 import { showToast } from '../utils/toast';
-import { isImageUrl } from '../utils/url';
+import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { useFileViewer } from '../hooks/useFileViewer';
 import { DurationBadge } from './DurationBadge';
 import { FileViewer } from './FileViewer/FileViewer';
@@ -375,6 +375,10 @@ function CopyMessageFooterButton({ content }: { content: string }) {
 
 function AssistantMessageContent({ message, agentIconUrl, agentDisplayName }: { message: AssistantMessage; agentIconUrl?: string; agentDisplayName?: string }) {
   const { t } = useTranslation();
+  // The icon may be a proxied /api/v1/icon URL, which is auth-gated. On a
+  // shared page there is no agent token, so resolveIconSrc needs the share
+  // info to rewrite the src onto the shareToken-validated public route.
+  const shareInfo = useContext(ShareInfoContext);
   const messageRef = useRef<HTMLDivElement | null>(null);
   const [showFooterCopyButton, setShowFooterCopyButton] = useState(false);
   const rawContent = useMemo(() => {
@@ -467,7 +471,7 @@ function AssistantMessageContent({ message, agentIconUrl, agentDisplayName }: { 
                 <span className="assistant-bubble-icon">💻</span>
               ) : agentIconUrl ? (
                 isImageUrl(agentIconUrl)
-                  ? <img src={agentIconUrl} alt="" className="assistant-bubble-icon-img" referrerPolicy="no-referrer" />
+                  ? <img src={resolveIconSrc(agentIconUrl, shareInfo)} alt="" className="assistant-bubble-icon-img" referrerPolicy="no-referrer" />
                   : <span className="assistant-bubble-icon">{agentIconUrl}</span>
               ) : (
                 <span className="assistant-bubble-icon">✨</span>

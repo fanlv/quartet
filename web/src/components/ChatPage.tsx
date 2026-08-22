@@ -90,7 +90,7 @@ import { relinkACPThoughtLevels, setACPConfig, type ACPConfigState, type ACPConf
 import { fetchAgentPrefs, splitFavoriteModels, resolveAgentDefaults, applyDefaultsToAgent, prefsForAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { formatStatsDuration } from '../utils/statsFormat';
 import { isImeComposing } from '../utils/keyboard';
-import { isImageUrl } from '../utils/url';
+import { isImageUrl, resolveIconSrc } from '../utils/url';
 
 export interface ModelInfoACP {
   description?: string;
@@ -2018,7 +2018,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                 >
                   {selectedAgent?.icon_url && (
                     isImageUrl(selectedAgent.icon_url)
-                      ? <img src={selectedAgent.icon_url} alt="" className="model-tag-icon" referrerPolicy="no-referrer" />
+                      ? <img src={resolveIconSrc(selectedAgent.icon_url)} alt="" className="model-tag-icon" referrerPolicy="no-referrer" />
                       : <span className="model-tag-emoji">{selectedAgent.icon_url}</span>
                   )}
                   <span>{selectedAgent ? selectedAgent.display_name : t('sidebar.selectAgent')}</span>
@@ -2047,7 +2047,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                           >
                             {agent.icon_url ? (
                               isImageUrl(agent.icon_url)
-                                ? <img src={agent.icon_url} alt="" className="model-dropdown-icon" referrerPolicy="no-referrer" />
+                                ? <img src={resolveIconSrc(agent.icon_url)} alt="" className="model-dropdown-icon" referrerPolicy="no-referrer" />
                                 : <span className="model-dropdown-emoji">{agent.icon_url}</span>
                             ) : (
                               <div className="model-dropdown-icon-placeholder" />
@@ -2085,7 +2085,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                       >
                         {agent.icon_url ? (
                           isImageUrl(agent.icon_url)
-                            ? <img src={agent.icon_url} alt="" className="model-dropdown-icon" referrerPolicy="no-referrer" />
+                            ? <img src={resolveIconSrc(agent.icon_url)} alt="" className="model-dropdown-icon" referrerPolicy="no-referrer" />
                             : <span className="model-dropdown-emoji">{agent.icon_url}</span>
                         ) : (
                           <div className="model-dropdown-icon-placeholder" />

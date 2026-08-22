@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentInfo } from '../ChatPage';
 import { useACPThoughtLevels } from '../../hooks/useACPThoughtLevels';
-import { isImageUrl } from '../../utils/url';
+import { isImageUrl, resolveIconSrc } from '../../utils/url';
 
 // RoleConfig is the shared shape for all three agent roles. Title / group-reply
 // run through the headless `bin -p` path, which honors model_id and
@@ -41,7 +41,7 @@ async function responseData(res: Response): Promise<Record<string, unknown>> {
 function optionIcon(iconUrl: string | undefined) {
   if (!iconUrl) return null;
   return isImageUrl(iconUrl)
-    ? <img src={iconUrl} alt="" className="model-dropdown-icon" referrerPolicy="no-referrer" />
+    ? <img src={resolveIconSrc(iconUrl)} alt="" className="model-dropdown-icon" referrerPolicy="no-referrer" />
     : <span className="model-dropdown-emoji">{iconUrl}</span>;
 }
 

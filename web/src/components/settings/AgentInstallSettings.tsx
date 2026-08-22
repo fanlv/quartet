@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { isImageUrl } from '../../utils/url';
+import { isImageUrl, resolveIconSrc } from '../../utils/url';
 import { clearDeletedAgentLocalPreferences } from '../../utils/workspace';
 import './AgentInstallSettings.css';
 
@@ -508,7 +508,7 @@ export function AgentInstallSettings() {
 
   const renderIcon = (icon: string) =>
     isImageUrl(icon) ? (
-      <img src={icon} alt="" className="agent-install-icon" referrerPolicy="no-referrer" />
+      <img src={resolveIconSrc(icon)} alt="" className="agent-install-icon" referrerPolicy="no-referrer" />
     ) : (
       <span className="agent-install-icon agent-install-icon-emoji">{icon}</span>
     );

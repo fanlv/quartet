@@ -216,16 +216,41 @@ function mergeHeaders(base?: HeadersInit, extra?: HeadersInit): Headers {
   return headers
 }
 
+// isSameOrigin gates which requests get the X-AGENT-AUTH header.
+//
+// The token is a bearer credential for this backend only, and it grants the
+// full API surface (file read/write, agent execution, schedule creation). A
+// wrapper that stamped it onto every fetch would hand it to any cross-origin
+// URL the app happens to request — a third-party dependency phoning home, a
+// telemetry beacon, an attacker-controlled URL that reached the app — turning
+// a single unrelated request into a full credential leak. So the header goes
+// out only for our own origin.
+//
+// Relative URLs ('/api/v1/...') resolve against the current document and pass.
+// Opaque schemes (data:, blob:) resolve to origin 'null' and are excluded;
+// they never need the header. An unparseable input fails closed.
+function isSameOrigin(url: string): boolean {
+  try {
+    return new URL(url, window.location.href).origin === window.location.origin
+  } catch {
+    return false
+  }
+}
+
 window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   const token = getAuthToken()
   if (!token) return originalFetch(input, init)
 
   if (input instanceof Request) {
+    // Request.url is already absolute, resolved against the document.
+    if (!isSameOrigin(input.url)) return originalFetch(input, init)
     const headers = mergeHeaders(input.headers, init?.headers)
     headers.set(AUTH_HEADER_NAME, token)
     const req = new Request(input, { ...init, headers })
     return originalFetch(req)
   }
+
+  if (!isSameOrigin(String(input))) return originalFetch(input, init)
 
   const headers = mergeHeaders(init?.headers)
   headers.set(AUTH_HEADER_NAME, token)

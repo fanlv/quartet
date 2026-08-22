@@ -15,9 +15,18 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// but kept under /api/v1/* so it rides the frontend's existing /api
 	// proxy path without needing a second proxy rule.
 	s.GET("/api/v1/health", healthHandler)
-	s.GET("/api/v1/icon", h.IconProxy)
 
 	api := s.Group("/api/v1", agentAuthMiddleware())
+
+	// Icon proxy: fetches an arbitrary caller-supplied http(s) URL server-side
+	// and caches the bytes on disk. That is a server-side request forgery
+	// primitive, so it stays behind auth — an unauthenticated version turns the
+	// deployment into an open probe for anything the host can reach (LAN
+	// services, cloud metadata endpoints). <img> cannot send a header, so the
+	// frontend appends the ?token= query fallback (see resolveIconSrc). A
+	// shareToken-validated twin lives under /api/v1/public/icon for shared
+	// read-only job views, which have no agent token.
+	api.GET("/icon", h.IconProxy)
 
 	// Lightweight token validation: returns 200 if the token is valid without
 	// probing ACP agents. Used by the frontend AuthGate to avoid blocking on
@@ -235,6 +244,11 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	pub.GET("/job/:jobId/graph-run", h.GetJobGraphRunStatus)
 	pub.GET("/job/:jobId/graph-run/events", h.JobGraphRunEvents)
 	pub.GET("/job/:jobId/graph-run/hooks", h.JobGraphRunHooks)
+	// Agent icons for the shared chat view. PublicAgentList hands back proxied
+	// /api/v1/icon URLs, but a shared page holds no agent token, so the
+	// frontend rewrites those onto this route and the shareToken carries the
+	// authorization instead.
+	pub.GET("/icon", h.IconProxy)
 
 	// Public file preview routes (no auth, validated by fileShareToken)
 	filePub := s.Group("/api/v1/public/file-preview")

@@ -13,7 +13,7 @@ import { useGitBranch } from '../hooks/useGitBranch';
 import { usePendingImages } from '../hooks/usePendingImages';
 import { workspaceColor } from '../utils/workspace';
 import { isImeComposing } from '../utils/keyboard';
-import { isImageUrl } from '../utils/url';
+import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { showToast } from '../utils/toast';
 import { splitFavoriteModels } from '../utils/agentPrefs';
 import { DurationBadge } from './DurationBadge';
@@ -805,7 +805,7 @@ export function ChatInput({
                 >
                   {selectedAgent?.icon_url && (
                     isImageUrl(selectedAgent.icon_url)
-                      ? <img src={selectedAgent.icon_url} alt="" className="model-tag-icon" referrerPolicy="no-referrer" />
+                      ? <img src={resolveIconSrc(selectedAgent.icon_url)} alt="" className="model-tag-icon" referrerPolicy="no-referrer" />
                       : <span className="model-tag-emoji">{selectedAgent.icon_url}</span>
                   )}
                   <span>{selectedAgent ? selectedAgent.display_name : t('sidebar.selectAgent')}</span>
@@ -831,7 +831,7 @@ export function ChatInput({
                             >
                               {agent.icon_url ? (
                                 isImageUrl(agent.icon_url)
-                                  ? <img src={agent.icon_url} alt="" className="model-dropdown-icon" referrerPolicy="no-referrer" />
+                                  ? <img src={resolveIconSrc(agent.icon_url)} alt="" className="model-dropdown-icon" referrerPolicy="no-referrer" />
                                   : <span className="model-dropdown-emoji">{agent.icon_url}</span>
                               ) : (
                                 <div className="model-dropdown-icon-placeholder" />
@@ -866,7 +866,7 @@ export function ChatInput({
                         >
                           {agent.icon_url ? (
                             isImageUrl(agent.icon_url)
-                              ? <img src={agent.icon_url} alt="" className="model-dropdown-icon" referrerPolicy="no-referrer" />
+                              ? <img src={resolveIconSrc(agent.icon_url)} alt="" className="model-dropdown-icon" referrerPolicy="no-referrer" />
                               : <span className="model-dropdown-emoji">{agent.icon_url}</span>
                           ) : (
                             <div className="model-dropdown-icon-placeholder" />

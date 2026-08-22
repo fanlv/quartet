@@ -110,7 +110,11 @@ func IconCacheURL(originalURL string) string {
 	if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
 		return originalURL
 	}
-	return fmt.Sprintf("/api/v1/icon?url=%s", originalURL)
+	// QueryEscape matters: callers append their own credential parameter
+	// (?token= for the authed route, &shareToken=&jobId= for the public one),
+	// so an unescaped '&' inside originalURL would truncate the upstream URL
+	// and let it swallow whatever is appended after it.
+	return fmt.Sprintf("/api/v1/icon?url=%s", url.QueryEscape(originalURL))
 }
 
 func proxyTransport() *http.Transport {
