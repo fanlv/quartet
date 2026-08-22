@@ -89,7 +89,8 @@ struct JobChatView: View {
         } message: {
             Text("照片可使用输入框左侧的照片按钮选择。")
         }
-        .confirmationDialog("停止当前执行？", isPresented: $confirmsStop, titleVisibility: .visible) {
+        .alert("停止当前执行？", isPresented: $confirmsStop) {
+            Button("取消", role: .cancel) {}
             Button("停止", role: .destructive) {
                 Task {
                     do {
@@ -100,7 +101,8 @@ struct JobChatView: View {
                     }
                 }
             }
-            Button("取消", role: .cancel) {}
+        } message: {
+            Text("正在执行的 Agent 将收到停止请求。")
         }
         .sheet(isPresented: $showsCameraPicker) {
             CameraImagePicker(
@@ -377,12 +379,12 @@ struct JobChatView: View {
                     if granted {
                         showsCameraPicker = true
                     } else {
-                        appModel.present(APIError(summary: "没有相机权限", detail: "请在系统设置中允许 Quartet 访问相机后重试。"))
+                        appModel.present(APIError(summary: "没有相机权限", detail: "请在系统设置中允许 Sophia 访问相机后重试。"))
                     }
                 }
             }
         case .denied, .restricted:
-            appModel.present(APIError(summary: "没有相机权限", detail: "请在系统设置中允许 Quartet 访问相机后重试。"))
+            appModel.present(APIError(summary: "没有相机权限", detail: "请在系统设置中允许 Sophia 访问相机后重试。"))
         @unknown default:
             appModel.present(APIError(summary: "相机权限状态未知", detail: "系统返回了未知的相机权限状态。"))
         }
@@ -416,99 +418,22 @@ private struct ChatBubble: View {
 
     var body: some View {
         Group {
-            if isCenteredEvent {
+            switch message.kind {
+            case .user:
+                UserMessageBubble(message: message)
+            case .assistant:
+                AssistantMessageCard(message: message)
+            case .thought:
+                ThoughtMessageCard(message: message)
+            case .tool:
+                ToolCallCard(message: message)
+            case .system:
                 centeredEvent
-            } else {
-                HStack(alignment: .bottom, spacing: 8) {
-                    if message.kind == .user { Spacer(minLength: 54) }
-
-                    if message.kind != .user { avatar }
-
-                    VStack(alignment: message.kind == .user ? .trailing : .leading, spacing: 5) {
-                        messageLabel
-                        bubbleContent
-                    }
-
-                    if message.kind == .user { avatar }
-                    if message.kind != .user { Spacer(minLength: 32) }
-                }
             }
         }
         .environment(\.openURL, OpenURLAction { url in
             openSafely(url)
         })
-    }
-
-    private var messageLabel: some View {
-        HStack(spacing: 6) {
-            Text(label)
-            if let timestamp = message.timestamp {
-                Text(timeLabel(timestamp))
-                    .fontWeight(.regular)
-            }
-            if !message.isFinished {
-                Text("正在输入")
-                    .fontWeight(.semibold)
-                TypingDots()
-            }
-        }
-        .font(.system(size: 9, weight: .bold, design: .monospaced))
-        .foregroundStyle(labelColor)
-        .padding(.horizontal, 4)
-    }
-
-    private var bubbleContent: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            if message.kind == .tool {
-                if let detail = message.detail, !detail.isEmpty {
-                    Label(detail, systemImage: "wrench.and.screwdriver.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(labelColor)
-                        .lineLimit(2)
-                }
-                Text(message.content.isEmpty ? "工具正在执行…" : message.content)
-                    .font(.system(.footnote, design: .monospaced))
-                    .foregroundStyle(QuartetTheme.primaryText)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                MarkdownMessageView(text: message.content.isEmpty ? "正在组织回复…" : message.content)
-            }
-
-            ForEach(message.imagePaths, id: \.self) { path in
-                AuthenticatedImage(path: path)
-            }
-
-            if message.kind != .tool, let detail = message.detail, !detail.isEmpty {
-                DisclosureGroup("调用详情") {
-                    Text(detail)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 8)
-                }
-                .font(.caption)
-                .foregroundStyle(QuartetTheme.secondaryText)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .frame(maxWidth: message.kind == .user ? 300 : .infinity, alignment: .leading)
-        .background(background, in: bubbleShape)
-        .overlay(bubbleShape.stroke(border, lineWidth: message.isFailed ? 1.5 : 0.75))
-        .shadow(color: Color.black.opacity(0.045), radius: 10, y: 3)
-    }
-
-    private var avatar: some View {
-        ZStack {
-            Circle().fill(avatarBackground)
-            Image(systemName: avatarIcon)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(avatarForeground)
-        }
-        .frame(width: 30, height: 30)
-        .overlay(Circle().stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 0.75))
-        .accessibilityHidden(true)
     }
 
     private var centeredEvent: some View {
@@ -534,66 +459,378 @@ private struct ChatBubble: View {
         return .handled
     }
 
-    private var label: String {
-        switch message.kind {
-        case .user: "YOU"
-        case .assistant: "AGENT"
-        case .thought: "THINKING"
-        case .tool: "TOOL"
-        case .system: "SYSTEM"
+}
+
+private struct UserMessageBubble: View {
+    let message: ChatMessage
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 7) {
+            Spacer(minLength: 38)
+            if let timestamp = message.timestamp {
+                Text(chatTimeLabel(timestamp))
+                    .font(.caption2)
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .padding(.bottom, 4)
+            }
+            VStack(alignment: .leading, spacing: 9) {
+                ForEach(message.imagePaths, id: \.self) { path in
+                    AuthenticatedImage(path: path)
+                }
+                if !message.content.isEmpty {
+                    MarkdownMessageView(text: message.content, tone: .user)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: 320, alignment: .leading)
+            .background(QuartetTheme.primaryText, in: UnevenRoundedRectangle(
+                topLeadingRadius: 17, bottomLeadingRadius: 17, bottomTrailingRadius: 5, topTrailingRadius: 17, style: .continuous
+            ))
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityElement(children: .combine)
     }
+}
 
-    private var labelColor: Color {
-        message.isFailed ? QuartetTheme.failed : (message.kind == .thought ? QuartetTheme.running : QuartetTheme.accent)
-    }
+private struct AssistantMessageCard: View {
+    let message: ChatMessage
 
-    private var background: Color {
-        switch message.kind {
-        case .user: QuartetTheme.accent.opacity(0.18)
-        case .thought: QuartetTheme.running.opacity(0.09)
-        case .tool: QuartetTheme.elevated
-        default: QuartetTheme.surface
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let thought = message.thinkingContent, !thought.isEmpty {
+                ThoughtPanel(text: thought, isStreaming: false, timestamp: message.timestamp)
+            }
+            if !message.content.isEmpty || !message.isFinished {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 8) {
+                        Image(systemName: message.isShellOutput ? "terminal.fill" : "sparkles")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(message.isShellOutput ? "SHELL" : "ASSISTANT")
+                            .font(.caption.weight(.semibold))
+                        if !message.isFinished {
+                            StreamingDot(color: QuartetTheme.accent)
+                        }
+                        Spacer(minLength: 8)
+                        if let timestamp = message.timestamp, message.isFinished {
+                            Text(chatTimeLabel(timestamp))
+                                .font(.caption2)
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                        }
+                        if message.isFinished, !message.content.isEmpty {
+                            CopyIconButton(text: message.content)
+                        }
+                    }
+                    .foregroundStyle(QuartetTheme.accent)
+
+                    Divider().overlay(QuartetTheme.divider.opacity(0.7))
+
+                    if message.isShellOutput {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            Text(message.content)
+                                .font(.system(.footnote, design: .monospaced))
+                                .foregroundStyle(QuartetTheme.primaryText)
+                                .textSelection(.enabled)
+                        }
+                    } else if message.content.isEmpty {
+                        HStack(spacing: 8) {
+                            TypingDots()
+                            Text("正在组织回复…")
+                                .font(.subheadline)
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                        }
+                    } else {
+                        MarkdownMessageView(text: message.content, tone: .standard)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(QuartetTheme.divider, lineWidth: 1))
+                .shadow(color: Color.black.opacity(0.035), radius: 8, y: 2)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
 
-    private var border: Color {
-        message.isFailed ? QuartetTheme.failed.opacity(0.6) : QuartetTheme.divider
-    }
+private struct ThoughtMessageCard: View {
+    let message: ChatMessage
 
-    private var bubbleShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: message.kind == .user ? 20 : 7,
-            bottomLeadingRadius: 20,
-            bottomTrailingRadius: 20,
-            topTrailingRadius: message.kind == .user ? 7 : 20,
-            style: .continuous
+    var body: some View {
+        ThoughtPanel(
+            text: message.content.isEmpty ? "正在思考…" : message.content,
+            isStreaming: !message.isFinished,
+            timestamp: message.timestamp
         )
     }
+}
 
-    private var isCenteredEvent: Bool { message.kind == .system }
+private struct ThoughtPanel: View {
+    let text: String
+    let isStreaming: Bool
+    let timestamp: Int64?
 
-    private var avatarIcon: String {
-        switch message.kind {
-        case .user: "person.fill"
-        case .assistant: "sparkles"
-        case .thought: "brain.head.profile"
-        case .tool: "wrench.and.screwdriver.fill"
-        case .system: "info.circle.fill"
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Image(systemName: "brain.head.profile")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("深度思考")
+                    .font(.caption.weight(.semibold))
+                if isStreaming { StreamingDot(color: .blue) }
+                Spacer(minLength: 8)
+                if let timestamp, !isStreaming {
+                    Text(chatTimeLabel(timestamp))
+                        .font(.caption2)
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+            }
+            .foregroundStyle(Color.blue)
+
+            MarkdownMessageView(text: text, tone: .thought)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .background(Color.blue.opacity(0.075), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.blue.opacity(0.20), lineWidth: 1))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ToolCallCard: View {
+    let message: ChatMessage
+    @State private var isExpanded: Bool
+
+    init(message: ChatMessage) {
+        self.message = message
+        _isExpanded = State(initialValue: message.toolStatus == .processing || !message.isFinished)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 11) {
+                    Image(systemName: toolIcon)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .frame(width: 20)
+                    Text(displayName)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    toolStatusBadge
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+                .padding(.horizontal, 15)
+                .padding(.vertical, 13)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("工具 \(displayName)，\(statusLabel)")
+            .accessibilityHint(isExpanded ? "轻点收起详情" : "轻点展开参数和结果")
+
+            if status == .processing {
+                RunningPulseLine(active: true)
+            } else if isExpanded {
+                Divider().overlay(QuartetTheme.divider)
+            }
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 15) {
+                    if let arguments = message.toolArguments, !arguments.isEmpty {
+                        ToolPayloadSection(title: "PARAMETERS", text: arguments, prefersMarkdown: false)
+                    }
+                    if !message.content.isEmpty {
+                        ToolPayloadSection(title: "RESULT", text: message.content, prefersMarkdown: true)
+                    } else if status == .processing {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("工具正在执行，结果会实时显示在这里…")
+                                .font(.caption)
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                        }
+                    }
+                    if status == .placeholder, let reason = message.placeholderReason, !reason.isEmpty {
+                        Label("未完成：\(reason)", systemImage: "minus.circle")
+                            .font(.caption)
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding(15)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(borderColor, lineWidth: message.isFailed ? 1.25 : 1))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .onChange(of: message.toolStatus) { oldStatus, newStatus in
+            if oldStatus == .processing, newStatus != .processing {
+                withAnimation(.easeOut(duration: 0.2)) { isExpanded = false }
+            }
         }
     }
 
-    private var avatarBackground: Color {
-        message.kind == .user ? QuartetTheme.accent : QuartetTheme.elevated
+    private var status: ChatMessage.ToolStatus {
+        message.toolStatus ?? (message.isFinished ? (message.isFailed ? .error : .success) : .processing)
     }
 
-    private var avatarForeground: Color {
-        message.kind == .user ? Color.black.opacity(0.75) : labelColor
+    private var displayName: String {
+        let value = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty || value == "undefined" ? "Tool" : value
     }
 
-    private func timeLabel(_ timestamp: Int64) -> String {
-        timestamp.quartetDate.formatted(date: .omitted, time: .shortened)
+    private var toolIcon: String {
+        let name = displayName.lowercased()
+        if name.contains("read") || name.contains("file") { return "doc.text.magnifyingglass" }
+        if name.contains("write") || name.contains("edit") || name.contains("patch") { return "square.and.pencil" }
+        if name.contains("search") || name.contains("grep") { return "magnifyingglass" }
+        if name.contains("terminal") || name.contains("exec") || name.contains("command") { return "terminal" }
+        if name.contains("web") || name.contains("browser") { return "globe" }
+        return "wrench.and.screwdriver"
     }
+
+    @ViewBuilder private var toolStatusBadge: some View {
+        ZStack {
+            Circle().fill(statusColor.opacity(0.11))
+            if status == .processing {
+                ProgressView().controlSize(.mini).tint(statusColor)
+            } else {
+                Image(systemName: statusIcon)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(statusColor)
+            }
+        }
+        .frame(width: 28, height: 28)
+        .accessibilityLabel(statusLabel)
+    }
+
+    private var statusIcon: String {
+        switch status {
+        case .success: "checkmark"
+        case .error: "xmark"
+        case .placeholder: "minus"
+        case .processing: "ellipsis"
+        }
+    }
+
+    private var statusLabel: String {
+        switch status {
+        case .processing: "运行中"
+        case .success: "已完成"
+        case .error: "执行失败"
+        case .placeholder: "未完成"
+        }
+    }
+
+    private var statusColor: Color {
+        switch status {
+        case .processing: QuartetTheme.running
+        case .success: QuartetTheme.accent
+        case .error: QuartetTheme.failed
+        case .placeholder: QuartetTheme.secondaryText
+        }
+    }
+
+    private var borderColor: Color {
+        status == .error ? QuartetTheme.failed.opacity(0.45) : QuartetTheme.divider
+    }
+}
+
+private struct ToolPayloadSection: View {
+    let title: String
+    let text: String
+    let prefersMarkdown: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Text(title)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .tracking(0.5)
+                Spacer()
+                CopyIconButton(text: text)
+            }
+            if prefersMarkdown {
+                MarkdownMessageView(text: text, tone: .tool)
+                    .padding(12)
+                    .background(QuartetTheme.canvas, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(QuartetTheme.divider.opacity(0.8)))
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(prettyPrintedJSON(text) ?? text)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(12)
+                .background(QuartetTheme.canvas, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(QuartetTheme.divider.opacity(0.8)))
+            }
+        }
+    }
+}
+
+private struct CopyIconButton: View {
+    let text: String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            UIPasteboard.general.string = text
+            copied = true
+            Task {
+                try? await Task.sleep(for: .seconds(1.2))
+                copied = false
+            }
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(copied ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                .frame(width: 26, height: 26)
+                .background(QuartetTheme.elevated.opacity(0.75), in: RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(copied ? "已复制" : "复制内容")
+    }
+}
+
+private struct StreamingDot: View {
+    let color: Color
+    @State private var active = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 6, height: 6)
+            .scaleEffect(active ? 1.35 : 0.8)
+            .opacity(active ? 0.45 : 1)
+            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: active)
+            .onAppear { active = true }
+            .accessibilityHidden(true)
+    }
+}
+
+private func chatTimeLabel(_ timestamp: Int64) -> String {
+    timestamp.quartetDate.formatted(date: .omitted, time: .shortened)
+}
+
+private func prettyPrintedJSON(_ text: String) -> String? {
+    guard let data = text.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data),
+          JSONSerialization.isValidJSONObject(object),
+          let formatted = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else {
+        return nil
+    }
+    return String(data: formatted, encoding: .utf8)
 }
 
 private struct TypingDots: View {
@@ -700,15 +937,18 @@ private struct OutboxRow: View {
 
 private struct MarkdownMessageView: View {
     let text: String
+    var tone: MarkdownTone = .standard
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(MarkdownRenderer.blocks(from: text)) { block in
                 switch block.kind {
                 case .markdown(let content):
-                    MarkdownTextBlock(text: content)
+                    MarkdownTextBlock(text: content, tone: tone)
                 case .code(let language, let content):
-                    CodeBlockView(language: language, code: content)
+                    CodeBlockView(language: language, code: content, tone: tone)
+                case .table(let headers, let rows):
+                    MarkdownTableView(headers: headers, rows: rows, tone: tone)
                 }
             }
         }
@@ -718,16 +958,21 @@ private struct MarkdownMessageView: View {
 
 private struct MarkdownTextBlock: View {
     let text: String
+    let tone: MarkdownTone
 
     var body: some View {
         if let attributed = MarkdownRenderer.attributedString(from: text) {
             Text(attributed)
-                .foregroundStyle(QuartetTheme.primaryText)
+                .font(.body)
+                .foregroundStyle(tone.foreground)
+                .lineSpacing(4)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(text)
-                .foregroundStyle(QuartetTheme.primaryText)
+                .font(.body)
+                .foregroundStyle(tone.foreground)
+                .lineSpacing(4)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -737,13 +982,14 @@ private struct MarkdownTextBlock: View {
 private struct CodeBlockView: View {
     let language: String?
     let code: String
+    let tone: MarkdownTone
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text((language?.isEmpty == false ? language! : "code").uppercased())
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .foregroundStyle(tone.secondaryForeground)
                 Spacer()
                 Button("复制代码") {
                     UIPasteboard.general.string = code
@@ -754,14 +1000,78 @@ private struct CodeBlockView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
                     .font(.system(.footnote, design: .monospaced))
-                    .foregroundStyle(QuartetTheme.primaryText)
+                    .foregroundStyle(tone.foreground)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(12)
-        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(QuartetTheme.divider, lineWidth: 1))
+        .background(tone.codeBackground, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(tone.codeBorder, lineWidth: 1))
+    }
+}
+
+private enum MarkdownTone: Equatable {
+    case standard
+    case user
+    case thought
+    case tool
+
+    var foreground: Color {
+        switch self {
+        case .user: Color.white
+        case .thought: QuartetTheme.primaryText.opacity(0.82)
+        case .standard, .tool: QuartetTheme.primaryText
+        }
+    }
+
+    var secondaryForeground: Color {
+        self == .user ? Color.white.opacity(0.7) : QuartetTheme.secondaryText
+    }
+
+    var codeBackground: Color {
+        switch self {
+        case .user: Color.white.opacity(0.09)
+        case .thought: Color.blue.opacity(0.07)
+        case .standard, .tool: QuartetTheme.elevated.opacity(0.72)
+        }
+    }
+
+    var codeBorder: Color {
+        self == .user ? Color.white.opacity(0.18) : QuartetTheme.divider
+    }
+}
+
+private struct MarkdownTableView: View {
+    let headers: [String]
+    let rows: [[String]]
+    let tone: MarkdownTone
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                GridRow {
+                    ForEach(Array(headers.enumerated()), id: \.offset) { _, value in
+                        MarkdownTextBlock(text: value, tone: tone)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(tone.codeBackground)
+                    }
+                }
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    GridRow {
+                        ForEach(0..<headers.count, id: \.self) { index in
+                            MarkdownTextBlock(text: index < row.count ? row[index] : "", tone: tone)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                        }
+                    }
+                }
+            }
+        }
+        .background(tone.codeBackground.opacity(0.45), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(tone.codeBorder, lineWidth: 1))
     }
 }
 
@@ -810,21 +1120,21 @@ private enum MarkdownRenderer {
         enum Kind {
             case markdown(String)
             case code(language: String?, content: String)
+            case table(headers: [String], rows: [[String]])
         }
 
-        let id = UUID()
+        let id: Int
         let kind: Kind
     }
 
     static func blocks(from text: String) -> [Block] {
-        guard text.contains("```") else { return [.init(kind: .markdown(text))] }
-        var result: [Block] = []
+        var kinds: [Block.Kind] = []
         var remaining = text[...]
 
         while let opening = remaining.range(of: "```") {
             let leading = String(remaining[..<opening.lowerBound])
             if !leading.isEmpty {
-                result.append(.init(kind: .markdown(leading)))
+                appendMarkdownAndTables(leading, to: &kinds)
             }
             remaining = remaining[opening.upperBound...]
 
@@ -837,20 +1147,77 @@ private enum MarkdownRenderer {
             }
 
             guard let closing = remaining.range(of: "```") else {
-                result.append(.init(kind: .markdown("```\(language)\n\(remaining)")))
+                // An unfinished fence is common while SSE is still streaming.
+                // Render the available payload as code immediately instead of
+                // flashing raw backticks until the closing fence arrives.
+                kinds.append(.code(language: language.isEmpty ? nil : language, content: String(remaining)))
                 remaining = "".suffix(0)
                 break
             }
 
             let code = String(remaining[..<closing.lowerBound]).trimmingCharacters(in: .newlines)
-            result.append(.init(kind: .code(language: language.isEmpty ? nil : language, content: code)))
+            kinds.append(.code(language: language.isEmpty ? nil : language, content: code))
             remaining = remaining[closing.upperBound...]
         }
 
         if !remaining.isEmpty {
-            result.append(.init(kind: .markdown(String(remaining))))
+            appendMarkdownAndTables(String(remaining), to: &kinds)
         }
-        return result.isEmpty ? [.init(kind: .markdown(text))] : result
+        if kinds.isEmpty { appendMarkdownAndTables(text, to: &kinds) }
+        return kinds.enumerated().map { Block(id: $0.offset, kind: $0.element) }
+    }
+
+    private static func appendMarkdownAndTables(_ text: String, to result: inout [Block.Kind]) {
+        let lines = text.components(separatedBy: "\n")
+        var markdownLines: [String] = []
+        var index = 0
+
+        func flushMarkdown() {
+            guard !markdownLines.isEmpty else { return }
+            result.append(.markdown(markdownLines.joined(separator: "\n")))
+            markdownLines.removeAll(keepingCapacity: true)
+        }
+
+        while index < lines.count {
+            if index + 1 < lines.count,
+               isTableRow(lines[index]),
+               isTableDivider(lines[index + 1]) {
+                flushMarkdown()
+                let headers = tableCells(lines[index])
+                index += 2
+                var rows: [[String]] = []
+                while index < lines.count, isTableRow(lines[index]), !lines[index].trimmingCharacters(in: .whitespaces).isEmpty {
+                    rows.append(tableCells(lines[index]))
+                    index += 1
+                }
+                result.append(.table(headers: headers, rows: rows))
+                continue
+            }
+            markdownLines.append(lines[index])
+            index += 1
+        }
+        flushMarkdown()
+    }
+
+    private static func isTableRow(_ line: String) -> Bool {
+        tableCells(line).count > 1
+    }
+
+    private static func isTableDivider(_ line: String) -> Bool {
+        let cells = tableCells(line)
+        guard cells.count > 1 else { return false }
+        return cells.allSatisfy { cell in
+            let core = cell.trimmingCharacters(in: CharacterSet(charactersIn: " :-"))
+            return core.isEmpty && cell.filter { $0 == "-" }.count >= 3
+        }
+    }
+
+    private static func tableCells(_ line: String) -> [String] {
+        var value = line.trimmingCharacters(in: .whitespaces)
+        if value.hasPrefix("|") { value.removeFirst() }
+        if value.hasSuffix("|") { value.removeLast() }
+        return value.split(separator: "|", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
     static func attributedString(from text: String) -> AttributedString? {
@@ -1268,7 +1635,7 @@ private final class ChatViewModel: ObservableObject {
         agentType = response.type
         modeID = response.acpMode
         thoughtLevelID = response.acpThoughtLevel
-        let historyMessages = response.messages.map { ChatMessage(history: $0) }
+        let historyMessages = convertHistoryMessages(response.messages)
         if isGraph && graphRunLive && preservesLiveMessages {
             mergeGraphHistory(historyMessages)
         } else {
@@ -1287,9 +1654,10 @@ private final class ChatViewModel: ObservableObject {
             let response = try await client.sessionMessages(id: currentSessionID)
             latest = response
             let isLatestSession = index == nonEmptySessionIDs.count - 1
-            combined.append(contentsOf: response.messages.map {
-                ChatMessage(history: $0, idPrefix: isLatestSession ? nil : currentSessionID)
-            })
+            combined.append(contentsOf: convertHistoryMessages(
+                response.messages,
+                idPrefix: isLatestSession ? nil : currentSessionID
+            ))
         }
         if let latest {
             modelID = latest.modelId
@@ -1300,6 +1668,85 @@ private final class ChatViewModel: ObservableObject {
         messages = combined
         removeEchoedOutboxItems()
         bumpScrollAnchor()
+    }
+
+    // Match the Web client's history projection: assistant tool-call metadata
+    // creates the card, then the later role=tool row fills its result/status.
+    // Keeping this pairing structured is important because a single free-form
+    // detail string cannot distinguish a tool name from streamed arguments.
+    private func convertHistoryMessages(_ history: [HistoryMessage], idPrefix: String? = nil) -> [ChatMessage] {
+        func scopedID(_ id: String) -> String {
+            idPrefix.map { "\($0):\(id)" } ?? id
+        }
+
+        var converted: [ChatMessage] = []
+        var toolIndexByCallID: [String: Int] = [:]
+
+        for item in history {
+            if item.role == "assistant" {
+                var assistant = ChatMessage(history: item, idPrefix: idPrefix)
+                assistant.detail = nil
+                if item.isThinking == true || !item.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !(item.reasoningContent ?? "").isEmpty || !(item.imageUrls ?? []).isEmpty {
+                    converted.append(assistant)
+                }
+
+                for call in item.toolCalls ?? [] {
+                    let callID = scopedID(call.id)
+                    let toolName = call.name == "undefined" ? "" : call.name
+                    toolIndexByCallID[callID] = converted.count
+                    converted.append(ChatMessage(
+                        id: callID,
+                        kind: .tool,
+                        content: "",
+                        detail: nil,
+                        isFinished: false,
+                        isFailed: false,
+                        timestamp: item.finishedAt ?? item.thoughtFinishedAt ?? item.startedAt,
+                        toolCallID: call.id,
+                        toolName: toolName,
+                        toolArguments: call.arguments,
+                        toolStatus: .processing
+                    ))
+                }
+                continue
+            }
+
+            if item.role == "tool" {
+                let rawCallID = item.toolCallId ?? item.id
+                let callID = scopedID(rawCallID)
+                let finalStatus: ChatMessage.ToolStatus = item.placeholder == true
+                    ? .placeholder
+                    : (item.failed == true ? .error : .success)
+                if let index = toolIndexByCallID[callID] {
+                    converted[index].content = item.content
+                    converted[index].isFinished = true
+                    converted[index].isFailed = item.failed == true
+                    converted[index].toolStatus = finalStatus
+                    converted[index].placeholderReason = item.placeholderReason
+                    converted[index].finishedAt = item.finishedAt
+                    if let startedAt = item.startedAt { converted[index].timestamp = startedAt }
+                } else {
+                    var orphan = ChatMessage(history: item, idPrefix: idPrefix)
+                    orphan.toolCallID = rawCallID
+                    orphan.toolStatus = finalStatus
+                    converted.append(orphan)
+                    toolIndexByCallID[callID] = converted.count - 1
+                }
+                continue
+            }
+
+            converted.append(ChatMessage(history: item, idPrefix: idPrefix))
+        }
+
+        // A call without a persisted result was interrupted. Do not paint it
+        // as successful after reload.
+        for index in converted.indices where converted[index].kind == .tool && !converted[index].isFinished {
+            converted[index].isFinished = true
+            converted[index].toolStatus = .placeholder
+            converted[index].placeholderReason = "unknown"
+        }
+        return converted
     }
 
     private func startStreaming() {
@@ -1648,7 +2095,7 @@ private final class ChatViewModel: ObservableObject {
             )
         case "agentMessageEnd":
             guard belongsToVisibleSession else { return }
-            finish(id: payload["messageId"])
+            finish(id: payload["messageId"], timestamp: event.createdAt)
             phaseLabel = nil
         case "agentThoughtStart":
             guard belongsToVisibleSession, let messageID = payload["messageId"], !messageID.isEmpty else { return }
@@ -1666,24 +2113,27 @@ private final class ChatViewModel: ObservableObject {
             )
         case "agentThoughtEnd":
             guard belongsToVisibleSession else { return }
-            finish(id: payload["messageId"])
+            finish(id: payload["messageId"], timestamp: event.createdAt)
             phaseLabel = nil
         case "agentToolStart":
             guard belongsToVisibleSession, let toolID = payload["toolCallId"], !toolID.isEmpty else { return }
             phaseLabel = "正在调用工具"
             upsert(
-                id: toolID, kind: .tool, content: "", detail: payload["toolName"],
+                id: toolID, kind: .tool, content: "", detail: nil,
                 finished: false, failed: false, timestamp: event.createdAt
             )
+            configureTool(id: toolID, name: payload["toolName"], status: payload["status"])
         case "agentToolArgs":
             guard belongsToVisibleSession, let toolID = payload["toolCallId"], !toolID.isEmpty else { return }
-            appendDetail(id: toolID, text: payload["delta"] ?? "", replace: payload["replace"] == "true")
+            appendToolArguments(id: toolID, text: payload["delta"] ?? "", replace: payload["replace"] == "true")
         case "agentToolResult":
             guard belongsToVisibleSession, let toolID = payload["toolCallId"], !toolID.isEmpty else { return }
             if payload["stitched"] == "true", let index = messages.firstIndex(where: { $0.id == toolID }) {
                 messages[index].content = payload["delta"] ?? event.message ?? messages[index].content
                 messages[index].isFinished = true
                 messages[index].isFailed = payload["status"] == "Error"
+                messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: payload["status"])
+                messages[index].finishedAt = event.createdAt
                 bumpScrollAnchor()
             } else {
                 append(
@@ -1692,17 +2142,20 @@ private final class ChatViewModel: ObservableObject {
                 )
                 if let index = messages.firstIndex(where: { $0.id == toolID }) {
                     messages[index].isFailed = payload["status"] == "Error"
+                    messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: payload["status"])
                 }
             }
         case "agentToolEnd":
             guard belongsToVisibleSession else { return }
             if let toolID = payload["toolCallId"], let index = messages.firstIndex(where: { $0.id == toolID }) {
                 messages[index].isFailed = payload["status"] == "Error"
+                messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: payload["status"])
                 if let reason = payload["placeholderReason"], !reason.isEmpty {
-                    messages[index].detail = [messages[index].detail, reason].compactMap { $0 }.joined(separator: "\n")
+                    messages[index].placeholderReason = reason
+                    messages[index].toolStatus = .placeholder
                 }
             }
-            finish(id: payload["toolCallId"])
+            finish(id: payload["toolCallId"], timestamp: event.createdAt)
             phaseLabel = nil
         case "error":
             let detail = event.error?.fullDetail
@@ -1874,27 +2327,34 @@ private final class ChatViewModel: ObservableObject {
             let kind: ChatMessage.Kind = event.external?.isThinking == true ? .thought : .assistant
             append(id: messageID, kind: kind, text: event.delta ?? "", timestamp: event.timestamp)
         case "TEXT_MESSAGE_END":
-            finish(id: event.messageId)
+            finish(id: event.messageId, timestamp: event.timestamp)
         case "TOOL_CALL_START":
             guard let toolID = event.toolCallId else { return }
-            upsert(id: toolID, kind: .tool, content: "", detail: event.toolCallName, finished: false, failed: false, timestamp: event.timestamp)
+            upsert(id: toolID, kind: .tool, content: "", detail: nil, finished: false, failed: false, timestamp: event.timestamp)
+            configureTool(id: toolID, name: event.toolCallName, status: event.toolCallStatus)
         case "TOOL_CALL_ARGS":
             guard let toolID = event.toolCallId else { return }
-            appendDetail(id: toolID, text: event.delta ?? "", replace: event.replace == true)
+            appendToolArguments(id: toolID, text: event.delta ?? "", replace: event.replace == true)
         case "TOOL_CALL_RESULT":
             guard let toolID = event.toolCallId else { return }
             append(id: toolID, kind: .tool, text: event.delta ?? "", timestamp: event.timestamp)
             if let index = messages.firstIndex(where: { $0.id == toolID }) {
                 messages[index].isFailed = event.toolCallStatus == "Error"
+                messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: event.toolCallStatus)
             }
         case "TOOL_CALL_END":
-            finish(id: event.toolCallId)
+            if let toolID = event.toolCallId, let index = messages.firstIndex(where: { $0.id == toolID }) {
+                messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: event.toolCallStatus ?? (messages[index].isFailed ? "Error" : "Success"))
+            }
+            finish(id: event.toolCallId, timestamp: event.timestamp)
         case "TOOL_CALL_STITCHED":
             guard let toolID = event.toolCallId else { return }
             if let index = messages.firstIndex(where: { $0.id == toolID }) {
                 messages[index].content = event.delta ?? messages[index].content
                 messages[index].isFinished = true
                 messages[index].isFailed = event.toolCallStatus == "Error"
+                messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: event.toolCallStatus)
+                messages[index].finishedAt = event.timestamp
             }
         default:
             break
@@ -1958,14 +2418,27 @@ private final class ChatViewModel: ObservableObject {
         bumpScrollAnchor()
     }
 
-    private func appendDetail(id: String, text: String, replace: Bool) {
+    private func configureTool(id: String, name: String?, status: String?) {
         guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
-        messages[index].detail = replace ? text : (messages[index].detail ?? "") + text
+        messages[index].toolCallID = id
+        if let name, !name.isEmpty { messages[index].toolName = name }
+        messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: status)
     }
 
-    private func finish(id: String?) {
+    private func appendToolArguments(id: String, text: String, replace: Bool) {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[index].toolArguments = replace ? text : (messages[index].toolArguments ?? "") + text
+        bumpScrollAnchor()
+    }
+
+    private func finish(id: String?, timestamp: Int64? = nil) {
         guard let id, let index = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[index].isFinished = true
+        messages[index].finishedAt = timestamp ?? messages[index].finishedAt
+        if messages[index].kind == .tool, messages[index].toolStatus == .processing {
+            messages[index].toolStatus = messages[index].isFailed ? .error : .success
+        }
+        bumpScrollAnchor()
     }
 
     private func finishOpenMessages() {

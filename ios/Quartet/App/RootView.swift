@@ -37,10 +37,14 @@ private struct MainView: View {
         TabView(selection: $selectedTab) {
             JobsView()
                 .tag(0)
-                .tabItem { Label("运行台", systemImage: "waveform.path.ecg") }
+                .tabItem { Label("最近任务", systemImage: "clock.arrow.circlepath") }
+
+            StatsView()
+                .tag(1)
+                .tabItem { Label("统计", systemImage: "chart.xyaxis.line") }
 
             SettingsView()
-                .tag(1)
+                .tag(2)
                 .tabItem { Label("设置", systemImage: "slider.horizontal.3") }
         }
     }

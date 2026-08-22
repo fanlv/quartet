@@ -38,12 +38,138 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/health", authenticated: false)
     }
 
+    func restartHealthProbe() async throws -> HealthResponse {
+        let query = [
+            URLQueryItem(
+                name: "restartProbe",
+                value: String(Int64(Date().timeIntervalSince1970 * 1_000))
+            )
+        ]
+        let endpoint = endpointURL(path: "api/v1/health", query: query)
+        var request = URLRequest(
+            url: endpoint,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 3
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError(
+                summary: "无法连接 Quartet",
+                detail: "GET \(endpoint.absoluteString)\n\n\(String(describing: error))"
+            )
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError(
+                summary: "响应无效",
+                detail: "GET \(endpoint.absoluteString)\n\n服务未返回 HTTP 响应。"
+            )
+        }
+        let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError(
+                summary: "Quartet 请求失败",
+                detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)"
+            )
+        }
+
+        do {
+            return try Self.decode(HealthResponse.self, from: data)
+        } catch {
+            throw APIError(
+                summary: "无法解析 Quartet 响应",
+                detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n解析错误：\(String(describing: error))\n\n原始响应：\n\(body)"
+            )
+        }
+    }
+
+    func restartWeb() async throws -> WebRestartResponse {
+        try await request(path: "api/v1/system/restart-web", method: "POST")
+    }
+
     func verifyAuthentication() async throws {
         let _: StatusResponse = try await request(path: "api/v1/auth/verify")
     }
 
     func workspaces() async throws -> WorkspacesResponse {
         try await request(path: "api/v1/workspace/list")
+    }
+
+    func usageStats(
+        from: String?,
+        to: String?,
+        allTime: Bool,
+        compareWithPrevious: Bool
+    ) async throws -> UsageStatsReport {
+        var query: [URLQueryItem] = []
+        if let from, !from.isEmpty {
+            query.append(URLQueryItem(name: "from", value: from))
+        }
+        if let to, !to.isEmpty {
+            query.append(URLQueryItem(name: "to", value: to))
+        }
+        if allTime {
+            query.append(URLQueryItem(name: "all", value: "1"))
+        }
+        if compareWithPrevious {
+            query.append(URLQueryItem(name: "compare", value: "1"))
+        }
+
+        let endpoint = endpointURL(path: "api/v1/stats/usage", query: query)
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        if !token.isEmpty {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-AGENT-AUTH")
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: urlRequest)
+        } catch {
+            throw APIError(
+                summary: "无法连接 Quartet",
+                detail: "GET \(endpoint.absoluteString)\n\n\(String(describing: error))"
+            )
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError(
+                summary: "响应无效",
+                detail: "GET \(endpoint.absoluteString)\n\n服务未返回 HTTP 响应。"
+            )
+        }
+        let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError(
+                summary: http.statusCode == 403 ? "Token 验证失败" : "Quartet 请求失败",
+                detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)",
+                requestWasRejected: true
+            )
+        }
+
+        let report: UsageStatsReport
+        do {
+            report = try Self.decode(UsageStatsReport.self, from: data)
+        } catch {
+            throw APIError(
+                summary: "无法解析 Quartet 响应",
+                detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n解析错误：\(String(describing: error))\n\n原始响应：\n\(body)"
+            )
+        }
+        if report.failed == true || report.error?.isEmpty == false {
+            throw APIError(
+                summary: "使用统计加载失败",
+                detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)"
+            )
+        }
+        return report
     }
 
     func updateWorkspaceDefaults(_ workspace: WorkspaceSummary, defaultAgent: String, defaultModel: String) async throws -> WorkspaceSummary {
@@ -85,12 +211,118 @@ struct APIClient: @unchecked Sendable {
         return try await request(path: "api/v1/job/list", query: query)
     }
 
+    func pollJobs(
+        workspaceID: String?,
+        limit: Int = 50,
+        excludeScheduled: Bool = false,
+        etag: String?
+    ) async throws -> ConditionalJobsPage {
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if let workspaceID, !workspaceID.isEmpty {
+            query.append(URLQueryItem(name: "workspaceId", value: workspaceID))
+        }
+        if excludeScheduled {
+            query.append(URLQueryItem(name: "excludeScheduled", value: "true"))
+        }
+
+        let endpoint = endpointURL(path: "api/v1/job/list", query: query)
+        var request = URLRequest(url: endpoint)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let etag, !etag.isEmpty {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
+        if !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "X-AGENT-AUTH")
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError(
+                summary: "无法连接 Quartet",
+                detail: "GET \(endpoint.absoluteString)\n\n\(String(describing: error))"
+            )
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError(
+                summary: "响应无效",
+                detail: "GET \(endpoint.absoluteString)\n\n服务未返回 HTTP 响应。"
+            )
+        }
+        let responseETag = http.value(forHTTPHeaderField: "ETag") ?? etag
+        if http.statusCode == 304 {
+            return .notModified(etag: responseETag)
+        }
+
+        let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError(
+                summary: http.statusCode == 403 ? "Token 验证失败" : "Quartet 请求失败",
+                detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)",
+                requestWasRejected: true
+            )
+        }
+
+        do {
+            return .updated(try Self.decode(JobsPage.self, from: data), etag: responseETag)
+        } catch {
+            throw APIError(
+                summary: "无法解析 Quartet 响应",
+                detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n解析错误：\(String(describing: error))\n\n原始响应：\n\(body)"
+            )
+        }
+    }
+
     func job(id: String) async throws -> JobDetail {
         try await request(path: "api/v1/job/\(id)")
     }
 
     func createJob(_ body: CreateJobRequest) async throws -> CreateJobResponse {
         try await request(path: "api/v1/job/create", method: "POST", body: body)
+    }
+
+    func graphWorkflows() async throws -> GraphWorkflowListResponse {
+        try await request(path: "api/v1/graph/workflow/list")
+    }
+
+    func graphWorkflow(id: String) async throws -> GraphWorkflow {
+        let response: GraphWorkflowResponse = try await request(path: "api/v1/graph/workflow/\(id)")
+        guard let workflow = response.workflow else {
+            throw APIError(
+                summary: "工作流响应为空",
+                detail: "GET \(endpointURL(path: "api/v1/graph/workflow/\(id)", query: []).absoluteString)\nHTTP 200\n\n响应中缺少 workflow。"
+            )
+        }
+        return workflow
+    }
+
+    func validateGraphWorkflow(config: GraphConfig) async throws -> GraphValidationResponse {
+        try await request(
+            path: "api/v1/graph/workflow/validate",
+            method: "POST",
+            body: GraphValidationRequest(config: config)
+        )
+    }
+
+    func startGraphRun(_ body: StartGraphRunRequest) async throws -> GraphRunSummary {
+        let response: StartGraphRunResponse = try await request(
+            path: "api/v1/graph/run/start",
+            method: "POST",
+            body: body
+        )
+        guard let run = response.run else {
+            let validation = response.errors?.map { error in
+                [error.location, error.message].compactMap { $0 }.joined(separator: ": ")
+            }.joined(separator: "\n")
+            throw APIError(
+                summary: "Graph 工作流未启动",
+                detail: "POST \(endpointURL(path: "api/v1/graph/run/start", query: []).absoluteString)\nHTTP 200\n\n\(validation?.isEmpty == false ? validation! : "响应中缺少 run。")"
+            )
+        }
+        return run
     }
 
     func sessionMessages(id: String) async throws -> SessionMessagesResponse {
@@ -426,6 +658,11 @@ struct APIClient: @unchecked Sendable {
         return components.url ?? url
     }
 
+}
+
+enum ConditionalJobsPage: Sendable {
+    case notModified(etag: String?)
+    case updated(JobsPage, etag: String?)
 }
 
 struct APIError: Error, Sendable {

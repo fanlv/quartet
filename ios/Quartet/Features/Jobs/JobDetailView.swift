@@ -54,9 +54,9 @@ struct JobDetailView: View {
                 }
             }
         }
-        .confirmationDialog("停止这个 Job？", isPresented: $confirmsStop, titleVisibility: .visible) {
-            Button("停止 \(summary.displayTitle)", role: .destructive) { Task { await stop() } }
+        .alert("停止这个 Job？", isPresented: $confirmsStop) {
             Button("取消", role: .cancel) {}
+            Button("停止 \(summary.displayTitle)", role: .destructive) { Task { await stop() } }
         } message: {
             Text("正在执行的 Agent 或工作流将收到停止请求。")
         }

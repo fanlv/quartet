@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
-    <string>Quartet</string>
+    <string>Sophia</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -32,11 +32,11 @@
         <true/>
     </dict>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Quartet 需要连接同一局域网中的个人 Quartet 服务。</string>
+    <string>Sophia 需要连接同一局域网中的个人 Quartet 服务。</string>
     <key>NSCameraUsageDescription</key>
-    <string>Quartet 需要使用相机拍摄图片并发送到当前对话。</string>
+    <string>Sophia 需要使用相机拍摄图片并发送到当前对话。</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Quartet 需要读取你选择的图片并发送到当前对话。</string>
+    <string>Sophia 需要读取你选择的图片并发送到当前对话。</string>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UIApplicationSceneManifest</key>

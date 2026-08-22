@@ -1,6 +1,6 @@
-# Quartet iOS
+# Sophia
 
-Quartet 的原生 SwiftUI 客户端，面向个人内部分发和局域网使用。客户端只连接用户自己运行的 Quartet 后端，不在 iPhone 或 iPad 本地运行 Agent，也不直接访问后端机器文件系统。
+Sophia 是 Quartet 的原生 SwiftUI 客户端，面向个人内部分发和局域网使用。客户端只连接用户自己运行的 Quartet 后端，不在 iPhone 或 iPad 本地运行 Agent，也不直接访问后端机器文件系统。
 
 ## 当前代码状态
 
@@ -17,7 +17,7 @@ Quartet 的原生 SwiftUI 客户端，面向个人内部分发和局域网使用
 - 普通 Job 运行中的页面内存队列、取消待发送、发送失败恢复草稿或重试
 - Graph run 状态监控、运行概览、节点详情、节点会话/Shell 输出，以及停止、步骤后停止、取消停止、恢复和讨论完成动作；活跃节点会话支持流式消息、思考和工具调用
 - 工作空间和 Job 摘要缓存、过期/待同步提示；进入后台停止 SSE，回到前台后重新读取快照并恢复事件流
-- 当前导航使用“运行台”“设置”两栏
+- 当前导航使用“最近任务”“统计”“设置”三栏；统计页支持 7/30/90 天、全部和自定义范围，展示总览、趋势以及工作区/模型/工具排行
 - 原生 XCUITest 覆盖首次连接校验、运行台筛选与搜索、对话、Graph 和设置主路径
 
 ## 尚未实现或未完成
@@ -25,7 +25,7 @@ Quartet 的原生 SwiftUI 客户端，面向个人内部分发和局域网使用
 - 对话发送队列只保存在当前页面内存中，离开页面或进程终止后不保证保留。
 - Graph 运行总览仍使用状态轮询；进入活跃节点会话后使用 Graph 实时事件流，并在运行转入等待或结束时切换为普通 Job 事件流。
 - 长对话历史当前一次加载，尚未实现增量历史分页和列表虚拟化。
-- Job 分享、工作流模板手动运行、定时任务、文件树浏览、统计、配额、Slash 命令和 Skill 补全尚未实现。
+- Job 分享、工作流模板手动运行、定时任务、文件树浏览、配额、Slash 命令和 Skill 补全尚未实现。
 - 未声明已完成真机验证、弱网验证、锁屏/后台长时间挂起验证或 Web/iOS 并发一致性验收。
 
 ## 环境
@@ -33,21 +33,25 @@ Quartet 的原生 SwiftUI 客户端，面向个人内部分发和局域网使用
 - macOS
 - Xcode 26 或更新版本
 - iOS 26.0 或更新版本
+- CocoaPods 1.15 或更新版本
 - 可访问 Quartet 后端的局域网
 
-项目没有第三方依赖，也不需要 CocoaPods 或 Swift Package 下载。
+项目使用 CocoaPods 管理 iOS 依赖。当前应用仍只使用 Apple 系统框架，CocoaPods 用于统一维护 workspace 和后续依赖接入。
 
 ## 运行
 
-1. 在 macOS 上打开 `Quartet.xcworkspace`。
-2. 在 Quartet target 的 Signing & Capabilities 中选择个人开发团队。
-3. 连接 iPhone，选择设备并运行。
-4. 首次启动时确认服务地址并填写 `X-AGENT-AUTH` Token；未启用鉴权可留空。
+1. 在仓库根目录运行 `make pod-install`。
+2. 在 macOS 上打开 `Quartet.xcworkspace`，不要直接打开 `Quartet.xcodeproj`。
+3. 在 Quartet target 的 Signing & Capabilities 中选择个人开发团队。
+4. 连接 iPhone，选择设备并运行。
+5. 首次启动时确认服务地址并填写 `X-AGENT-AUTH` Token；未启用鉴权可留空。
 
 ## 测试
 
-- `make test-ios`：无签名构建 iOS Simulator 版本。
-- `make e2e-ios`：在 iPhone 17 Pro 模拟器运行原生 UI 端到端测试。
+- `make pod-install`：安装或同步 CocoaPods 依赖并更新 workspace。
+- `make build-ios`：同步 CocoaPods 依赖后构建真机 Debug 版本。
+- `make test-ios`：同步 CocoaPods 依赖后，无签名构建 iOS Simulator 版本。
+- `make e2e-ios`：同步 CocoaPods 依赖后，在 iPhone 17 Pro 模拟器运行原生 UI 端到端测试。
 - 可通过 `IOS_TEST_DESTINATION` 指定其他模拟器，例如 iPad。
 
 ## 验证边界

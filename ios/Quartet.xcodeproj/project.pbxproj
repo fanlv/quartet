@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5446DE90D6C5EE1F1AC35A2F /* Pods_Quartet.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA2543BC3CD90BE5E3D203F0 /* Pods_Quartet.framework */; };
 		A10000000000000000000001 /* QuartetApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* QuartetApp.swift */; };
 		A10000000000000000000002 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AppModel.swift */; };
 		A10000000000000000000003 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* RootView.swift */; };
@@ -23,6 +24,8 @@
 		A1000000000000000000000F /* GraphRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* GraphRunView.swift */; };
 		A10000000000000000000010 /* ChatAttachmentSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* ChatAttachmentSupport.swift */; };
 		A10000000000000000000011 /* DashboardCacheStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* DashboardCacheStore.swift */; };
+		A10000000000000000000012 /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* StatsView.swift */; };
+		A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* GraphWorkflowLaunchView.swift */; };
 		A10000000000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* Assets.xcassets */; };
 		B10000000000000000000001 /* QuartetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* QuartetUITests.swift */; };
 /* End PBXBuildFile section */
@@ -38,6 +41,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		1778C73C5757B965ED76A5DB /* Pods-Quartet.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Quartet.release.xcconfig"; path = "Target Support Files/Pods-Quartet/Pods-Quartet.release.xcconfig"; sourceTree = "<group>"; };
 		A20000000000000000000001 /* QuartetApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuartetApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -56,9 +60,13 @@
 		A20000000000000000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000011 /* ChatAttachmentSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentSupport.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* DashboardCacheStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardCacheStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 /* StatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* GraphWorkflowLaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphWorkflowLaunchView.swift; sourceTree = "<group>"; };
 		A20000000000000000000015 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA2543BC3CD90BE5E3D203F0 /* Pods_Quartet.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Quartet.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		B20000000000000000000001 /* QuartetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuartetUITests.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* QuartetUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuartetUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B72FD5EE42809703BD20FFAF /* Pods-Quartet.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Quartet.debug.xcconfig"; path = "Target Support Files/Pods-Quartet/Pods-Quartet.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,6 +74,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5446DE90D6C5EE1F1AC35A2F /* Pods_Quartet.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -79,12 +88,32 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		15690836406FE21AC66608B1 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				AA2543BC3CD90BE5E3D203F0 /* Pods_Quartet.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		2BBF96EFC05D29AE671A6B21 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				B72FD5EE42809703BD20FFAF /* Pods-Quartet.debug.xcconfig */,
+				1778C73C5757B965ED76A5DB /* Pods-Quartet.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
 		A40000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
 				A40000000000000000000002 /* Quartet */,
 				B40000000000000000000001 /* QuartetUITests */,
 				A40000000000000000000009 /* Products */,
+				2BBF96EFC05D29AE671A6B21 /* Pods */,
+				15690836406FE21AC66608B1 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -153,6 +182,7 @@
 				A4000000000000000000000E /* Chat */,
 				A4000000000000000000000F /* Graph */,
 				A4000000000000000000000B /* Jobs */,
+				A40000000000000000000011 /* Stats */,
 				A4000000000000000000000D /* Settings */,
 			);
 			path = Features;
@@ -214,8 +244,17 @@
 			isa = PBXGroup;
 			children = (
 				A2000000000000000000000F /* GraphRunView.swift */,
+				A20000000000000000000014 /* GraphWorkflowLaunchView.swift */,
 			);
 			path = Graph;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000011 /* Stats */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000013 /* StatsView.swift */,
+			);
+			path = Stats;
 			sourceTree = "<group>";
 		};
 		A40000000000000000000010 /* Persistence */ = {
@@ -241,6 +280,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A90000000000000000000002 /* Build configuration list for PBXNativeTarget "Quartet" */;
 			buildPhases = (
+				313F711D03ADDF31E1BC4FD3 /* [CP] Check Pods Manifest.lock */,
 				A30000000000000000000002 /* Sources */,
 				A30000000000000000000001 /* Frameworks */,
 				A30000000000000000000003 /* Resources */,
@@ -328,6 +368,31 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		313F711D03ADDF31E1BC4FD3 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-Quartet-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		A30000000000000000000002 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -348,7 +413,9 @@
 				A1000000000000000000000E /* JobChatView.swift in Sources */,
 				A10000000000000000000010 /* ChatAttachmentSupport.swift in Sources */,
 				A1000000000000000000000F /* GraphRunView.swift in Sources */,
+				A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */,
 				A10000000000000000000011 /* DashboardCacheStore.swift in Sources */,
+				A10000000000000000000012 /* StatsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -405,6 +472,7 @@
 		};
 		A80000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B72FD5EE42809703BD20FFAF /* Pods-Quartet.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -414,7 +482,7 @@
 				DEVELOPMENT_TEAM = 9BQ563P4RA;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Quartet/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Quartet;
+				INFOPLIST_KEY_CFBundleDisplayName = Sophia;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -434,6 +502,7 @@
 		};
 		A80000000000000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1778C73C5757B965ED76A5DB /* Pods-Quartet.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -442,7 +511,7 @@
 				DEVELOPMENT_TEAM = 9BQ563P4RA;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Quartet/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Quartet;
+				INFOPLIST_KEY_CFBundleDisplayName = Sophia;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (

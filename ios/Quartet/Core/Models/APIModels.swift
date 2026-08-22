@@ -8,6 +8,121 @@ struct HealthResponse: Decodable, Equatable, Sendable {
     let authRequired: Bool
 }
 
+struct WebRestartResponse: Decodable, Sendable {
+    let code: Int
+    let msg: String?
+    let logPath: String?
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case msg
+        case logPath = "log_path"
+    }
+}
+
+struct UsageStatsReport: Decodable, Sendable {
+    let range: UsageStatsRange
+    let byWorkspace: [UsageStatsWorkspaceRow]
+    let byModel: [UsageStatsModelRow]
+    let byTool: [UsageStatsToolRow]
+    let daily: [UsageStatsDailyRow]
+    let previous: UsageStatsPreviousTotals?
+    let note: String
+    let failed: Bool?
+    let error: String?
+
+    var hasData: Bool {
+        !byWorkspace.isEmpty || !byModel.isEmpty || !byTool.isEmpty || !daily.isEmpty
+    }
+}
+
+struct UsageStatsRange: Decodable, Hashable, Sendable {
+    let from: String
+    let to: String
+}
+
+struct UsageStatsTokenTotals: Decodable, Hashable, Sendable {
+    let total: Int
+    let assistant: Int
+    let thought: Int
+    let toolCall: Int
+}
+
+protocol UsageStatsTotals {
+    var totalMs: Int64 { get }
+    var turnCount: Int { get }
+    var assistantCount: Int { get }
+    var thoughtCount: Int { get }
+    var toolCallCount: Int { get }
+    var tokens: UsageStatsTokenTotals { get }
+}
+
+struct UsageStatsSectionTotals: Decodable, Hashable, Sendable, UsageStatsTotals {
+    let totalMs: Int64
+    let turnCount: Int
+    let assistantCount: Int
+    let thoughtCount: Int
+    let toolCallCount: Int
+    let tokens: UsageStatsTokenTotals
+}
+
+struct UsageStatsWorkspaceRow: Decodable, Identifiable, Hashable, Sendable, UsageStatsTotals {
+    let workspaceId: String
+    let workspaceName: String?
+    let deleted: Bool?
+    let totalMs: Int64
+    let turnCount: Int
+    let assistantCount: Int
+    let thoughtCount: Int
+    let toolCallCount: Int
+    let tokens: UsageStatsTokenTotals
+
+    var id: String { workspaceId }
+}
+
+struct UsageStatsModelRow: Decodable, Identifiable, Hashable, Sendable, UsageStatsTotals {
+    let modelId: String
+    let modelName: String?
+    let totalMs: Int64
+    let turnCount: Int
+    let assistantCount: Int
+    let thoughtCount: Int
+    let toolCallCount: Int
+    let tokens: UsageStatsTokenTotals
+
+    var id: String { modelId }
+}
+
+struct UsageStatsToolRow: Decodable, Identifiable, Hashable, Sendable {
+    let toolKey: String
+    let count: Int
+    let totalMs: Int64
+
+    var id: String { toolKey }
+}
+
+struct UsageStatsDailyRow: Decodable, Identifiable, Hashable, Sendable, UsageStatsTotals {
+    let date: String
+    let totalMs: Int64
+    let turnCount: Int
+    let assistantCount: Int
+    let thoughtCount: Int
+    let toolCallCount: Int
+    let tokens: UsageStatsTokenTotals
+    let models: [String: UsageStatsSectionTotals]?
+    let modelNames: [String: String]?
+
+    var id: String { date }
+}
+
+struct UsageStatsPreviousTotals: Decodable, Hashable, Sendable {
+    let totalMs: Int64
+    let turnCount: Int
+    let toolCallCount: Int
+    let tokensTotal: Int
+    let workspaceCount: Int
+}
+
 struct WorkspaceSummary: Codable, Identifiable, Hashable, Sendable {
     let id: String
     var version: UInt64
@@ -427,6 +542,22 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         case system
     }
 
+    enum ToolStatus: String, Hashable, Sendable {
+        case processing = "Processing"
+        case success = "Success"
+        case error = "Error"
+        case placeholder = "Placeholder"
+
+        init(serverValue: String?) {
+            switch serverValue?.lowercased() {
+            case "success": self = .success
+            case "error": self = .error
+            case "placeholder": self = .placeholder
+            default: self = .processing
+            }
+        }
+    }
+
     let id: String
     var kind: Kind
     var content: String
@@ -435,8 +566,35 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
     var isFailed: Bool
     var timestamp: Int64?
     var imagePaths: [String]
+    var finishedAt: Int64?
+    var thinkingContent: String?
+    var thinkingFinishedAt: Int64?
+    var isShellOutput: Bool
+    var toolCallID: String?
+    var toolName: String?
+    var toolArguments: String?
+    var toolStatus: ToolStatus?
+    var placeholderReason: String?
 
-    init(id: String, kind: Kind, content: String, detail: String?, isFinished: Bool, isFailed: Bool, timestamp: Int64?, imagePaths: [String] = []) {
+    init(
+        id: String,
+        kind: Kind,
+        content: String,
+        detail: String?,
+        isFinished: Bool,
+        isFailed: Bool,
+        timestamp: Int64?,
+        imagePaths: [String] = [],
+        finishedAt: Int64? = nil,
+        thinkingContent: String? = nil,
+        thinkingFinishedAt: Int64? = nil,
+        isShellOutput: Bool = false,
+        toolCallID: String? = nil,
+        toolName: String? = nil,
+        toolArguments: String? = nil,
+        toolStatus: ToolStatus? = nil,
+        placeholderReason: String? = nil
+    ) {
         self.id = id
         self.kind = kind
         self.content = content
@@ -445,6 +603,15 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         self.isFailed = isFailed
         self.timestamp = timestamp
         self.imagePaths = imagePaths
+        self.finishedAt = finishedAt
+        self.thinkingContent = thinkingContent
+        self.thinkingFinishedAt = thinkingFinishedAt
+        self.isShellOutput = isShellOutput
+        self.toolCallID = toolCallID
+        self.toolName = toolName
+        self.toolArguments = toolArguments
+        self.toolStatus = toolStatus
+        self.placeholderReason = placeholderReason
     }
 
     init(history: HistoryMessage, idPrefix: String? = nil) {
@@ -472,6 +639,19 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         isFailed = history.failed == true
         timestamp = history.startedAt
         imagePaths = history.imageUrls ?? []
+        finishedAt = history.finishedAt
+        thinkingContent = history.isThinking == true ? nil : history.reasoningContent
+        thinkingFinishedAt = history.thoughtFinishedAt
+        isShellOutput = history.isShellOutput == true
+        toolCallID = history.toolCallId
+        toolName = nil
+        toolArguments = nil
+        if history.role == "tool" {
+            toolStatus = history.placeholder == true ? .placeholder : (history.failed == true ? .error : .success)
+        } else {
+            toolStatus = nil
+        }
+        placeholderReason = history.placeholderReason
     }
 }
 
@@ -626,6 +806,166 @@ struct PendingUpload: Hashable, Sendable {
     let data: Data
     let filename: String
     let mimeType: String
+}
+
+struct GraphWorkflowSummary: Decodable, Identifiable, Hashable, Sendable {
+    let id: String
+    let workspaceId: String?
+    let name: String
+    let description: String?
+    let type: String?
+    let createdAt: String
+    let updatedAt: String
+    let nodeCount: Int
+    let edgeCount: Int
+}
+
+struct GraphWorkflowWarning: Decodable, Hashable, Sendable {
+    let file: String
+    let error: String
+}
+
+struct GraphWorkflowListResponse: Decodable, Sendable {
+    let workflows: [GraphWorkflowSummary]
+    let warnings: [GraphWorkflowWarning]?
+}
+
+struct GraphWorkflow: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let workspaceId: String?
+    let name: String
+    let description: String?
+    let type: String?
+    var config: GraphConfig
+    let createdAt: String
+    let updatedAt: String
+    let deleted: Bool?
+}
+
+struct GraphConfig: Codable, Hashable, Sendable {
+    var nodes: [GraphNode]
+    var edges: [GraphEdge]
+    var variables: [String: String]? = nil
+    var disabledVars: [String]? = nil
+    var canvas: GraphCanvasState? = nil
+    var runConfig: GraphRunConfiguration? = nil
+    var workspaceId: String? = nil
+    var workdir: String? = nil
+    var sandboxId: String? = nil
+}
+
+struct GraphNode: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let type: String
+    var title: String?
+    let parentId: String?
+    var config: GraphNodeConfiguration?
+    let layout: GraphNodeLayout?
+    let metadata: [String: String]?
+
+    var displayName: String {
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? id : trimmed
+    }
+}
+
+struct GraphNodeConfiguration: Codable, Hashable, Sendable {
+    var script: String? = nil
+    var prompt: String? = nil
+    var agentType: String? = nil
+    var modelId: String? = nil
+    var acpMode: String? = nil
+    var acpThoughtLevel: String? = nil
+    var sessionStrategy: String? = nil
+    var outputVariables: [String]? = nil
+    var lastAssistantAlias: String? = nil
+    var timeoutSeconds: Int? = nil
+    var condition: String? = nil
+    var loopMode: String? = nil
+    var fixedCount: Int? = nil
+    var untilCondition: String? = nil
+    var maxIterations: Int? = nil
+    var hookScript: String? = nil
+    var endHookMode: String? = nil
+}
+
+struct GraphNodeLayout: Codable, Hashable, Sendable {
+    let x: Double
+    let y: Double
+    let width: Double?
+    let height: Double?
+}
+
+struct GraphEdge: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let sourceNodeId: String
+    let targetNodeId: String
+    let sourcePort: String?
+    let targetPort: String?
+    let metadata: [String: String]?
+}
+
+struct GraphCanvasState: Codable, Hashable, Sendable {
+    let viewport: GraphCanvasViewport?
+}
+
+struct GraphCanvasViewport: Codable, Hashable, Sendable {
+    let x: Double
+    let y: Double
+    let zoom: Double
+}
+
+struct GraphRunConfiguration: Codable, Hashable, Sendable {
+    var concurrencyLimit: Int? = nil
+    var defaultNodeTimeoutSec: Int? = nil
+    var jobTimeoutSec: Int? = nil
+    var defaultLoopMaxIters: Int? = nil
+    var instanceLimit: Int? = nil
+    var snapshotByteLimit: Int64? = nil
+}
+
+struct GraphWorkflowResponse: Decodable, Sendable {
+    let workflow: GraphWorkflow?
+    let errors: [GraphValidationError]?
+}
+
+struct GraphValidationRequest: Encodable, Sendable {
+    let config: GraphConfig
+}
+
+struct GraphValidationResponse: Decodable, Sendable {
+    let valid: Bool
+    let errors: [GraphValidationError]?
+}
+
+struct GraphValidationError: Decodable, Hashable, Sendable {
+    let type: String
+    let message: String
+    let nodeId: String?
+    let edgeId: String?
+    let variable: String?
+    let configKey: String?
+
+    var location: String? {
+        if let nodeId, !nodeId.isEmpty { return "节点 \(nodeId)" }
+        if let edgeId, !edgeId.isEmpty { return "连线 \(edgeId)" }
+        if let variable, !variable.isEmpty { return "变量 \(variable)" }
+        if let configKey, !configKey.isEmpty { return "配置 \(configKey)" }
+        return nil
+    }
+}
+
+struct StartGraphRunRequest: Encodable, Sendable {
+    let workflowId: String
+    let workflowUpdatedAt: String
+    let workspaceId: String
+    let workdir: String
+    let config: GraphConfig
+}
+
+struct StartGraphRunResponse: Decodable, Sendable {
+    let run: GraphRunSummary?
+    let errors: [GraphValidationError]?
 }
 
 struct GraphRunStatusResponse: Decodable, Sendable {

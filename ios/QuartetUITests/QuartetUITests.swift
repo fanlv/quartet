@@ -44,7 +44,6 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["连接正常"].exists)
         app.buttons["connection-status-close"].tap()
 
-        app.buttons["job-filter-menu"].tap()
         let hideScheduledJobs = app.buttons["hide-scheduled-jobs-toggle"]
         XCTAssertTrue(hideScheduledJobs.exists)
         hideScheduledJobs.tap()
@@ -75,6 +74,19 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["https://quartet.example.test/"].exists)
         app.buttons["settings-edit-connection"].tap()
         XCTAssertTrue(app.buttons["connection-submit"].waitForExistence(timeout: 3))
+    }
+
+    func testUsageStatsTabShowsDashboard() {
+        launchDashboard()
+
+        app.tabBars.buttons["统计"].tap()
+        XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.otherElements["stats-kpis"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["总耗时"].exists)
+        XCTAssertTrue(app.staticTexts["总轮次"].exists)
+        XCTAssertTrue(app.staticTexts["Token"].exists)
+        XCTAssertTrue(app.otherElements["stats-trend"].exists)
+        XCTAssertTrue(app.staticTexts["按工作区"].exists)
     }
 
     func testCreatesANewConversationFromPrimaryAction() {
@@ -109,7 +121,7 @@ final class QuartetUITests: XCTestCase {
     private func launchDashboard() {
         app.launchArguments = ["--ui-testing-dashboard"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["运行台"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.tabBars.buttons["最近任务"].waitForExistence(timeout: 5))
     }
 }
 

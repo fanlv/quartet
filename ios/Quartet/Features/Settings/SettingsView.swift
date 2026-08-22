@@ -3,6 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var confirmsClear = false
+    @State private var confirmsRestartWeb = false
+    @State private var showsRestartSuccess = false
 
     var body: some View {
         NavigationStack {
@@ -35,6 +37,16 @@ struct SettingsView: View {
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
 
                     VStack(spacing: 0) {
+                        Button { confirmsRestartWeb = true } label: {
+                            settingsRow(
+                                model.isRestartingWeb ? "正在重启 Web..." : "重启 Web",
+                                icon: "arrow.clockwise",
+                                loading: model.isRestartingWeb
+                            )
+                        }
+                        .disabled(model.isRestartingWeb)
+                        .accessibilityIdentifier("settings-restart-web")
+                        Divider().overlay(QuartetTheme.divider).padding(.leading, 54)
                         Button { model.editConnection() } label: {
                             settingsRow("重新配置连接", icon: "network")
                         }
@@ -47,7 +59,7 @@ struct SettingsView: View {
                     .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
 
-                    Text("Quartet iOS 仅在可访问后端的局域网内工作。应用进入后台后不保证持续接收运行事件，重新打开时会同步最新状态。")
+                    Text("Sophia 仅在可访问后端的局域网内工作。应用进入后台后不保证持续接收运行事件，重新打开时会同步最新状态。")
                         .font(.footnote)
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .lineSpacing(3)
@@ -57,20 +69,51 @@ struct SettingsView: View {
             .background(QuartetTheme.canvas)
             .navigationTitle("设置")
         }
-        .confirmationDialog("清除当前连接？", isPresented: $confirmsClear, titleVisibility: .visible) {
-            Button("清除连接", role: .destructive) { model.clearConnection() }
+        .alert("清除当前连接？", isPresented: $confirmsClear) {
             Button("取消", role: .cancel) {}
+            Button("清除连接", role: .destructive) { model.clearConnection() }
         } message: {
             Text("服务地址和 Keychain 中的 Token 都会被删除。")
         }
+        .alert("重启 Web？", isPresented: $confirmsRestartWeb) {
+            Button("取消", role: .cancel) {}
+            Button("重启 Web", role: .destructive) {
+                Task {
+                    do {
+                        try await model.restartWeb()
+                        showsRestartSuccess = true
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        model.present(error)
+                    }
+                }
+            }
+        } message: {
+            Text("将执行 make web，当前连接会短暂断开。")
+        }
+        .alert("Web 重启完成", isPresented: $showsRestartSuccess) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text("新的 Web 服务已就绪。")
+        }
     }
 
-    private func settingsRow(_ title: String, icon: String, destructive: Bool = false) -> some View {
+    private func settingsRow(
+        _ title: String,
+        icon: String,
+        destructive: Bool = false,
+        loading: Bool = false
+    ) -> some View {
         HStack(spacing: 14) {
             Image(systemName: icon).frame(width: 22)
             Text(title)
             Spacer()
-            Image(systemName: "chevron.right").font(.caption.weight(.bold))
+            if loading {
+                ProgressView()
+            } else {
+                Image(systemName: "chevron.right").font(.caption.weight(.bold))
+            }
         }
         .foregroundStyle(destructive ? QuartetTheme.failed : QuartetTheme.primaryText)
         .padding(.horizontal, 16)

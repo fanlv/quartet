@@ -61,6 +61,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var hasPendingSync = false
     @Published private(set) var isUsingCachedData = false
     @Published private(set) var graphJobStates: [String: GraphJobState] = [:]
+    @Published private(set) var isRestartingWeb = false
     @Published var presentedError: PresentedError?
 
     private let defaults: UserDefaults
@@ -74,6 +75,9 @@ final class AppModel: ObservableObject {
     private var connectionGeneration: UInt64 = 0
     private var dashboardRefreshTask: Task<Void, Never>?
     private var loadMoreTask: Task<Void, Never>?
+    private var isDashboardPolling = false
+    private var dashboardPollETag: String?
+    private var dashboardPollScope: DashboardPollScope?
     private var uiTestJobs: [JobSummary] = []
 
     init(
@@ -367,6 +371,69 @@ final class AppModel: ObservableObject {
         await refreshDashboard(userInitiated: false)
     }
 
+    func pollDashboard() async {
+        guard !isRunningUITests,
+              phase == .connected,
+              !isRefreshing,
+              !isLoadingMore,
+              !isDashboardPolling else { return }
+
+        let generation = dashboardGeneration
+        let workspaceID = selectedWorkspaceID
+        let excludeScheduled = hideScheduledJobs
+        let scope = DashboardPollScope(
+            connectionIdentity: StorageKey.connectionIdentity(for: serverAddress),
+            workspaceID: workspaceID,
+            excludeScheduled: excludeScheduled
+        )
+        let etag = dashboardPollScope == scope ? dashboardPollETag : nil
+        isDashboardPolling = true
+        defer { isDashboardPolling = false }
+
+        do {
+            let result = try await makeClient().pollJobs(
+                workspaceID: workspaceID,
+                limit: 100,
+                excludeScheduled: excludeScheduled,
+                etag: etag
+            )
+            guard isCurrentDashboardRequest(generation: generation, workspaceID: workspaceID) else { return }
+
+            dashboardPollScope = scope
+            switch result {
+            case .notModified(let responseETag):
+                dashboardPollETag = responseETag
+            case .updated(let response, let responseETag):
+                dashboardPollETag = responseETag
+                applyPolledFirstPage(response)
+                let cacheSnapshot = dashboardCacheSnapshot()
+                await cacheStore.save(cacheSnapshot, generation: generation)
+            }
+            markSyncSucceeded()
+        } catch {
+            guard isCurrentDashboardRequest(generation: generation, workspaceID: workspaceID),
+                  !Task.isCancelled else { return }
+            await handleSyncFailure(error, presentToUser: false, disconnect: false)
+        }
+    }
+
+    func fetchUsageStats(
+        from: String?,
+        to: String?,
+        allTime: Bool,
+        compareWithPrevious: Bool
+    ) async throws -> UsageStatsReport {
+        if isRunningUITests {
+            return uiTestUsageStats(from: from, to: to)
+        }
+        return try await makeClient().usageStats(
+            from: from,
+            to: to,
+            allTime: allTime,
+            compareWithPrevious: compareWithPrevious
+        )
+    }
+
     func loadMoreJobs() async {
         guard phase == .connected,
               hasMoreJobs,
@@ -630,6 +697,74 @@ final class AppModel: ObservableObject {
         await reloadJobs()
     }
 
+    func restartWeb() async throws {
+        guard !isRestartingWeb else { return }
+        isRestartingWeb = true
+        defer { isRestartingWeb = false }
+
+        let client = try makeClient()
+        let previousHealth: HealthResponse?
+        do {
+            previousHealth = try await client.restartHealthProbe()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            previousHealth = nil
+        }
+        let response = try await client.restartWeb()
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "重启 Web 失败",
+                detail: "POST \(client.baseURL.appendingPathComponent("api/v1/system/restart-web").absoluteString)\nHTTP 200\n\ncode: \(response.code)\nmsg: \(response.msg ?? "<empty>")\nlog_path: \(response.logPath ?? "<empty>")"
+            )
+        }
+
+        let deadline = Date().addingTimeInterval(180)
+        var sawUnavailable = false
+        var lastProbeError: Error?
+        while Date() < deadline {
+            try await Task.sleep(for: .milliseconds(500))
+            do {
+                let currentHealth = try await client.restartHealthProbe()
+                let previousInstanceID = previousHealth?.instanceId ?? ""
+                let currentInstanceID = currentHealth.instanceId ?? ""
+                let instanceChanged = !previousInstanceID.isEmpty
+                    && !currentInstanceID.isEmpty
+                    && currentInstanceID != previousInstanceID
+                let instanceAdded = previousHealth != nil
+                    && previousInstanceID.isEmpty
+                    && !currentInstanceID.isEmpty
+                if instanceChanged || instanceAdded || sawUnavailable {
+                    health = currentHealth
+                    await refreshDashboard(
+                        userInitiated: false,
+                        presentFailure: false,
+                        disconnectOnFailure: false
+                    )
+                    return
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                sawUnavailable = true
+                lastProbeError = error
+            }
+        }
+
+        let probeDetail: String
+        if let apiError = lastProbeError as? APIError {
+            probeDetail = "\n\n最后一次健康探测：\n\(apiError.summary)\n\n\(apiError.detail)"
+        } else if let lastProbeError {
+            probeDetail = "\n\n最后一次健康探测：\n\(String(describing: lastProbeError))"
+        } else {
+            probeDetail = ""
+        }
+        throw APIError(
+            summary: "重启 Web 超时",
+            detail: "等待重启后的 Web 服务就绪超时。\n\n完整重启日志：\(response.logPath ?? "/tmp/quartet-web-restart.log")\(probeDetail)"
+        )
+    }
+
     func handleScenePhaseChange(_ phase: ScenePhase) async {
         guard !isRunningUITests else { return }
         switch phase {
@@ -796,6 +931,103 @@ final class AppModel: ObservableObject {
         phase = .connected
     }
 
+    private func uiTestUsageStats(from: String?, to: String?) -> UsageStatsReport {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let dateKey: (Int) -> String = { offset in
+            formatter.string(from: calendar.date(byAdding: .day, value: offset, to: today) ?? today)
+        }
+        let tokens = UsageStatsTokenTotals(total: 14_800, assistant: 5_300, thought: 4_100, toolCall: 2_200)
+        let modelA = UsageStatsSectionTotals(
+            totalMs: 2_160_000, turnCount: 18, assistantCount: 18, thoughtCount: 13,
+            toolCallCount: 34, tokens: tokens
+        )
+        let modelB = UsageStatsSectionTotals(
+            totalMs: 960_000, turnCount: 8, assistantCount: 8, thoughtCount: 6,
+            toolCallCount: 12,
+            tokens: UsageStatsTokenTotals(total: 6_200, assistant: 2_400, thought: 1_700, toolCall: 900)
+        )
+        let daily = [
+            UsageStatsDailyRow(
+                date: dateKey(-3), totalMs: 540_000, turnCount: 5, assistantCount: 5, thoughtCount: 4, toolCallCount: 8,
+                tokens: UsageStatsTokenTotals(total: 4_100, assistant: 1_400, thought: 1_200, toolCall: 600),
+                models: ["gpt-5.6": UsageStatsSectionTotals(
+                    totalMs: 540_000, turnCount: 5, assistantCount: 5, thoughtCount: 4, toolCallCount: 8,
+                    tokens: UsageStatsTokenTotals(total: 4_100, assistant: 1_400, thought: 1_200, toolCall: 600)
+                )], modelNames: ["gpt-5.6": "gpt-5.6"]
+            ),
+            UsageStatsDailyRow(
+                date: dateKey(-2), totalMs: 1_020_000, turnCount: 9, assistantCount: 9, thoughtCount: 7, toolCallCount: 14,
+                tokens: UsageStatsTokenTotals(total: 7_000, assistant: 2_600, thought: 1_900, toolCall: 1_100),
+                models: [
+                    "gpt-5.6": UsageStatsSectionTotals(
+                        totalMs: 660_000, turnCount: 6, assistantCount: 6, thoughtCount: 5, toolCallCount: 9,
+                        tokens: UsageStatsTokenTotals(total: 4_500, assistant: 1_700, thought: 1_200, toolCall: 700)
+                    ),
+                    "gpt-5.4": UsageStatsSectionTotals(
+                        totalMs: 360_000, turnCount: 3, assistantCount: 3, thoughtCount: 2, toolCallCount: 5,
+                        tokens: UsageStatsTokenTotals(total: 2_500, assistant: 900, thought: 700, toolCall: 400)
+                    )
+                ],
+                modelNames: ["gpt-5.6": "gpt-5.6", "gpt-5.4": "gpt-5.4"]
+            ),
+            UsageStatsDailyRow(
+                date: dateKey(-1), totalMs: 780_000, turnCount: 6, assistantCount: 6, thoughtCount: 5, toolCallCount: 11,
+                tokens: UsageStatsTokenTotals(total: 5_200, assistant: 2_100, thought: 1_400, toolCall: 700),
+                models: ["gpt-5.4": UsageStatsSectionTotals(
+                    totalMs: 780_000, turnCount: 6, assistantCount: 6, thoughtCount: 5, toolCallCount: 11,
+                    tokens: UsageStatsTokenTotals(total: 5_200, assistant: 2_100, thought: 1_400, toolCall: 700)
+                )], modelNames: ["gpt-5.4": "gpt-5.4"]
+            ),
+            UsageStatsDailyRow(
+                date: dateKey(0), totalMs: 780_000, turnCount: 6, assistantCount: 6, thoughtCount: 3, toolCallCount: 13,
+                tokens: UsageStatsTokenTotals(total: 4_700, assistant: 1_600, thought: 1_300, toolCall: 700),
+                models: ["gpt-5.6": UsageStatsSectionTotals(
+                    totalMs: 780_000, turnCount: 6, assistantCount: 6, thoughtCount: 3, toolCallCount: 13,
+                    tokens: UsageStatsTokenTotals(total: 4_700, assistant: 1_600, thought: 1_300, toolCall: 700)
+                )], modelNames: ["gpt-5.6": "gpt-5.6"]
+            )
+        ]
+        return UsageStatsReport(
+            range: UsageStatsRange(from: from ?? dateKey(-29), to: to ?? dateKey(0)),
+            byWorkspace: [
+                UsageStatsWorkspaceRow(
+                    workspaceId: "ws-studio", workspaceName: "Quartet Studio", deleted: false,
+                    totalMs: 2_160_000, turnCount: 18, assistantCount: 18, thoughtCount: 13, toolCallCount: 34, tokens: tokens
+                ),
+                UsageStatsWorkspaceRow(
+                    workspaceId: "ws-lab", workspaceName: "实验室", deleted: false,
+                    totalMs: 960_000, turnCount: 8, assistantCount: 8, thoughtCount: 6, toolCallCount: 12, tokens: modelB.tokens
+                )
+            ],
+            byModel: [
+                UsageStatsModelRow(
+                    modelId: "gpt-5.6", modelName: "gpt-5.6", totalMs: modelA.totalMs, turnCount: modelA.turnCount,
+                    assistantCount: modelA.assistantCount, thoughtCount: modelA.thoughtCount, toolCallCount: modelA.toolCallCount, tokens: modelA.tokens
+                ),
+                UsageStatsModelRow(
+                    modelId: "gpt-5.4", modelName: "gpt-5.4", totalMs: modelB.totalMs, turnCount: modelB.turnCount,
+                    assistantCount: modelB.assistantCount, thoughtCount: modelB.thoughtCount, toolCallCount: modelB.toolCallCount, tokens: modelB.tokens
+                )
+            ],
+            byTool: [
+                UsageStatsToolRow(toolKey: "exec_command", count: 21, totalMs: 780_000),
+                UsageStatsToolRow(toolKey: "apply_patch", count: 15, totalMs: 480_000),
+                UsageStatsToolRow(toolKey: "view_image", count: 10, totalMs: 240_000)
+            ],
+            daily: daily,
+            previous: UsageStatsPreviousTotals(
+                totalMs: 2_640_000, turnCount: 22, toolCallCount: 38, tokensTotal: 17_400, workspaceCount: 2
+            ),
+            note: "stats.tokensLocalEstimateNote", failed: false, error: nil
+        )
+    }
+
     private func uiTestJobDetail(id: String) throws -> JobDetail {
         let summary = uiTestJobs.first(where: { $0.id == id }) ?? uiTestJobs[0]
         let json = """
@@ -872,6 +1104,43 @@ final class AppModel: ObservableObject {
         jobs = response.jobs
         nextCursor = response.nextCursor
         hasMoreJobs = response.hasMore
+    }
+
+    private func applyPolledFirstPage(_ response: JobsPage) {
+        let previousJobs = jobs
+        let previousByID = Dictionary(uniqueKeysWithValues: previousJobs.map { ($0.id, $0) })
+        let fetchedIDs = Set(response.jobs.map(\.id))
+        var merged = response.jobs.map { fresh in
+            guard let existing = previousByID[fresh.id] else { return fresh }
+            return existing == fresh ? existing : fresh
+        }
+
+        if response.hasMore, let cutoff = response.jobs.last {
+            for existing in previousJobs where !fetchedIDs.contains(existing.id) {
+                if !jobComesBefore(existing, cutoff) {
+                    merged.append(existing)
+                }
+            }
+        }
+        merged.sort(by: jobComesBefore)
+        jobs = merged
+
+        let hadLoadedAdditionalPages = previousJobs.count > 100
+        if !hadLoadedAdditionalPages || !response.hasMore {
+            nextCursor = response.nextCursor
+            hasMoreJobs = response.hasMore
+        }
+    }
+
+    private func jobComesBefore(_ lhs: JobSummary, _ rhs: JobSummary) -> Bool {
+        let lhsPinnedAt = lhs.pinnedAt ?? 0
+        let rhsPinnedAt = rhs.pinnedAt ?? 0
+        let lhsPinned = lhsPinnedAt > 0
+        let rhsPinned = rhsPinnedAt > 0
+        if lhsPinned != rhsPinned { return lhsPinned }
+        if lhsPinnedAt != rhsPinnedAt { return lhsPinnedAt > rhsPinnedAt }
+        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+        return lhs.id < rhs.id
     }
 
     private func beginDashboardRequest() -> UInt64 {
@@ -1081,5 +1350,11 @@ final class AppModel: ObservableObject {
         static func tokenAccount(for serverAddress: String) -> String {
             "agent-auth-token|\(connectionIdentity(for: serverAddress) ?? "invalid-server")"
         }
+    }
+
+    private struct DashboardPollScope: Equatable {
+        let connectionIdentity: String?
+        let workspaceID: String?
+        let excludeScheduled: Bool
     }
 }

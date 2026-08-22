@@ -60,19 +60,18 @@ struct GraphRunView: View {
             guard phase == .active else { return }
             Task { await refresh(silent: snapshot != nil) }
         }
-        .confirmationDialog(
+        .alert(
             confirmation?.confirmationTitle ?? "控制工作流",
             isPresented: Binding(
                 get: { confirmation != nil },
                 set: { if !$0 { confirmation = nil } }
-            ),
-            titleVisibility: .visible
+            )
         ) {
             if let confirmation {
+                Button("取消", role: .cancel) {}
                 Button(confirmation.label, role: confirmation.isDestructive ? .destructive : nil) {
                     Task { await perform(confirmation) }
                 }
-                Button("取消", role: .cancel) {}
             }
         } message: {
             if let confirmation {

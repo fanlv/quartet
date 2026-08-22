@@ -52,6 +52,15 @@ private struct CreateJobIntent {
     let payload: CreateJobIntentPayload
 }
 
+private enum NewConversationMode: String, CaseIterable, Identifiable {
+    case chat
+    case graph
+
+    var id: String { rawValue }
+    var title: String { self == .chat ? "对话" : "Graph Workflow" }
+    var icon: String { self == .chat ? "bubble.left.and.bubble.right" : "point.3.connected.trianglepath.dotted" }
+}
+
 struct NewConversationView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: AppModel
@@ -59,6 +68,7 @@ struct NewConversationView: View {
 
     @State private var agents: [AgentSummary] = []
     @State private var agentPreferences: [String: AgentPreferences] = [:]
+    @State private var creationMode: NewConversationMode = .chat
     @State private var workspaceID = ""
     @State private var agentID = ""
     @State private var modelID = ""
@@ -119,29 +129,41 @@ struct NewConversationView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if loading {
-                        loadingState
-                    } else {
-                        introduction
-                        composer
-                        configurationSection
-                        agentStatusNotice
+            VStack(spacing: 0) {
+                modeSelector
+
+                if creationMode == .chat {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            if loading {
+                                loadingState
+                            } else {
+                                introduction
+                                composer
+                                configurationSection
+                                agentStatusNotice
+                            }
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.top, 12)
+                        .padding(.bottom, 24)
                     }
+                    .scrollDismissesKeyboard(.interactively)
+                } else {
+                    GraphWorkflowLaunchView(onCreated: onCreated)
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
             }
-            .scrollDismissesKeyboard(.interactively)
             .background(QuartetTheme.canvas)
             .navigationTitle("新对话")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
             }
-            .task { await load() }
+            .task(id: creationMode) {
+                if creationMode == .chat, agents.isEmpty {
+                    await load()
+                }
+            }
             .onChange(of: currentCreatePayload) { _, payload in
                 if createIntent?.payload != payload {
                     createIntent = nil
@@ -171,9 +193,37 @@ struct NewConversationView: View {
                 )
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !loading { actionBar }
+                if creationMode == .chat, !loading { actionBar }
             }
         }
+    }
+
+    private var modeSelector: some View {
+        HStack(spacing: 8) {
+            ForEach(NewConversationMode.allCases) { item in
+                let selected = creationMode == item
+                Button {
+                    composerFocused = false
+                    withAnimation(.easeInOut(duration: 0.2)) { creationMode = item }
+                } label: {
+                    Label(item.title, systemImage: item.icon)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(selected ? QuartetTheme.primaryText : QuartetTheme.secondaryText)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(selected ? QuartetTheme.surface : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .shadow(color: selected ? Color.black.opacity(0.08) : .clear, radius: 8, y: 3)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("新建\(item.title)")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(4)
+        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
     }
 
     private var loadingState: some View {
@@ -213,7 +263,7 @@ struct NewConversationView: View {
                 Text("从一句话开始")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(QuartetTheme.primaryText)
-                Text("写下目标，Quartet 会用下方配置创建并启动 Job。")
+                Text("写下目标，Sophia 会用下方配置创建并启动 Job。")
                     .font(.subheadline)
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -848,12 +898,12 @@ struct NewConversationView: View {
                     if granted {
                         showsCameraPicker = true
                     } else {
-                        present(APIError(summary: "没有相机权限", detail: "请在系统设置中允许 Quartet 访问相机后重试。"))
+                        present(APIError(summary: "没有相机权限", detail: "请在系统设置中允许 Sophia 访问相机后重试。"))
                     }
                 }
             }
         case .denied, .restricted:
-            present(APIError(summary: "没有相机权限", detail: "请在系统设置中允许 Quartet 访问相机后重试。"))
+            present(APIError(summary: "没有相机权限", detail: "请在系统设置中允许 Sophia 访问相机后重试。"))
         @unknown default:
             present(APIError(summary: "相机权限状态未知", detail: "系统返回了未知的相机权限状态。"))
         }

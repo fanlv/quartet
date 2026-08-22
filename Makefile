@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend build-ios test test-web test-ios e2e e2e-ios clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
+.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend pod-install build-ios test test-web test-ios e2e e2e-ios clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
 
 CERTS_DIR := $(CURDIR)/certs
 # Serving model, derived ONCE at parse time so every target below
@@ -59,6 +59,7 @@ help:
 	@printf '  %-24s %s\n' 'build-eino-cli' 'Build eino-cli and install it to INSTALL_BIN_DIR'
 	@printf '  %-24s %s\n' 'build-web' 'Build bin/quartet-web'
 	@printf '  %-24s %s\n' 'build-frontend' 'Build frontend SPA into static/'
+	@printf '  %-24s %s\n' 'pod-install' 'Install iOS CocoaPods dependencies'
 	@printf '  %-24s %s\n\n' 'build-ios' 'Build the iOS app (requires macOS + Xcode)'
 	@printf 'Test targets:\n'
 	@printf '  %-24s %s\n' 'test' 'Run Go build, frontend tests, and Playwright E2E'
@@ -163,21 +164,28 @@ build-frontend:
 	npm run build || { echo "❌ Frontend build failed"; exit 1; }; \
 	echo "✅ Frontend built into static/"
 
-build-ios:
+pod-install:
+	@if ! command -v pod >/dev/null 2>&1; then \
+		echo "❌ CocoaPods is required; install it before building the iOS app"; \
+		exit 1; \
+	fi
+	cd ios && pod install
+
+build-ios: pod-install
 	@if ! command -v xcodebuild >/dev/null 2>&1; then \
 		echo "❌ xcodebuild is required; run this target on macOS with Xcode installed"; \
 		exit 1; \
 	fi
 	xcodebuild -workspace ios/Quartet.xcworkspace -scheme Quartet -configuration Debug -destination 'generic/platform=iOS' build
 
-test-ios:
+test-ios: pod-install
 	@if ! command -v xcodebuild >/dev/null 2>&1; then \
 		echo "❌ xcodebuild is required; run this target on macOS with Xcode installed"; \
 		exit 1; \
 	fi
 	xcodebuild -workspace ios/Quartet.xcworkspace -scheme Quartet -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath '$(IOS_DERIVED_DATA)' CODE_SIGNING_ALLOWED=NO build
 
-e2e-ios:
+e2e-ios: pod-install
 	@if ! command -v xcodebuild >/dev/null 2>&1; then \
 		echo "❌ xcodebuild is required; run this target on macOS with Xcode installed"; \
 		exit 1; \
