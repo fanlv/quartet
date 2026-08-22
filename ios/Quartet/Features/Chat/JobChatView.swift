@@ -644,10 +644,10 @@ private struct ToolCallCard: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: 15) {
                     if let arguments = message.toolArguments, !arguments.isEmpty {
-                        ToolPayloadSection(title: "PARAMETERS", text: arguments, prefersMarkdown: false)
+                        ToolPayloadSection(title: "PARAMETERS", text: arguments)
                     }
                     if !message.content.isEmpty {
-                        ToolPayloadSection(title: "RESULT", text: message.content, prefersMarkdown: true)
+                        ToolPayloadSection(title: "RESULT", text: message.content)
                     } else if status == .processing {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
@@ -746,7 +746,6 @@ private struct ToolCallCard: View {
 private struct ToolPayloadSection: View {
     let title: String
     let text: String
-    let prefersMarkdown: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -758,7 +757,7 @@ private struct ToolPayloadSection: View {
                 Spacer()
                 CopyIconButton(text: text)
             }
-            if prefersMarkdown {
+            if prettyPrintedJSON(text) == nil {
                 MarkdownMessageView(text: text, tone: .tool)
                     .padding(12)
                     .background(QuartetTheme.canvas, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -868,7 +867,7 @@ private struct OutboxBubble: View {
             .font(.system(size: 10, weight: .bold, design: .monospaced))
             .foregroundStyle(item.isFailed ? QuartetTheme.failed : QuartetTheme.secondaryText)
 
-            MarkdownMessageView(text: item.displayText)
+            MarkdownMessageView(text: item.displayText, tone: .user)
 
             if let attachment = item.attachment {
                 ChatAttachmentPreview(upload: attachment)
@@ -884,7 +883,7 @@ private struct OutboxBubble: View {
         }
         .padding(14)
         .frame(maxWidth: 310, alignment: .leading)
-        .background(QuartetTheme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 16))
+        .background(Color(red: 0.10, green: 0.10, blue: 0.10), in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(item.isFailed ? QuartetTheme.failed.opacity(0.6) : QuartetTheme.divider, lineWidth: 1))
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
@@ -1535,6 +1534,7 @@ private final class ChatViewModel: ObservableObject {
         thoughtLevelID = route.thoughtLevelID
         loading = true
         errorDetail = nil
+        let seededInitialDraftID = seedInitialDraftIfNeeded(route: route)
 
         do {
             let detail = try await client.job(id: jobID)
@@ -1583,23 +1583,12 @@ private final class ChatViewModel: ObservableObject {
             if isTurnRunning || sessionID != nil || route.initialMessage != nil || route.initialAttachment != nil || route.initialImagePaths != nil {
                 startStreaming()
             }
-
-            if !didSeedInitialDraft, route.initialMessage != nil || route.initialAttachment != nil || route.initialImagePaths != nil {
-                didSeedInitialDraft = true
-                enqueueDraft(
-                    text: route.initialMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-                    attachment: route.initialAttachment,
-                    remoteImagePaths: route.initialImagePaths ?? [],
-                    isInitialDraft: true
-                )
-            } else {
-                scheduleOutboxProcessing()
-            }
+            scheduleOutboxProcessing()
         } catch {
             loading = false
             let detail = errorText(error)
             errorDetail = detail
-            restoreInitialDraftIfNeeded(route: route, detail: detail)
+            restoreInitialDraftIfNeeded(id: seededInitialDraftID, detail: detail)
         }
     }
 
@@ -1643,14 +1632,15 @@ private final class ChatViewModel: ObservableObject {
         bumpScrollAnchor()
     }
 
+    @discardableResult
     func enqueueDraft(
         text: String,
         attachment: PendingUpload?,
         remoteImagePaths: [String] = [],
         isInitialDraft: Bool = false
-    ) {
+    ) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || attachment != nil || !remoteImagePaths.isEmpty else { return }
+        guard !trimmed.isEmpty || attachment != nil || !remoteImagePaths.isEmpty else { return nil }
         let item = LocalOutboxItem(
             id: UUID().uuidString.lowercased(),
             draft: ComposerDraft(text: trimmed, attachment: attachment),
@@ -1663,6 +1653,7 @@ private final class ChatViewModel: ObservableObject {
         outbox.append(item)
         bumpScrollAnchor()
         scheduleOutboxProcessing()
+        return item.id
     }
 
     func cancelOutboxItem(id: String) {
@@ -1718,19 +1709,34 @@ private final class ChatViewModel: ObservableObject {
 
     func markStopped() {
         status = "stopped"
-        isTurnRunning = false
         finishOpenMessages(outcome: "stopped", timestamp: Int64(Date().timeIntervalSince1970 * 1_000))
+        isTurnRunning = false
         stopStreaming()
         scheduleOutboxProcessing()
     }
 
-    private func restoreInitialDraftIfNeeded(route: ChatRoute, detail: String) {
+    private func seedInitialDraftIfNeeded(route: ChatRoute) -> String? {
+        guard !didSeedInitialDraft else { return nil }
         let hasInitialContent = (route.initialMessage?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
             || route.initialAttachment != nil
             || !(route.initialImagePaths ?? []).isEmpty
-        guard hasInitialContent else { return }
-        publishRestore(ComposerDraft(text: route.initialMessage ?? "", attachment: route.initialAttachment))
+        guard hasInitialContent else { return nil }
+
+        didSeedInitialDraft = true
+        return enqueueDraft(
+            text: route.initialMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            attachment: route.initialAttachment,
+            remoteImagePaths: route.initialImagePaths ?? [],
+            isInitialDraft: true
+        )
+    }
+
+    private func restoreInitialDraftIfNeeded(id: String?, detail: String) {
+        guard let id, let index = outbox.firstIndex(where: { $0.id == id }) else { return }
+        let item = outbox.remove(at: index)
+        publishRestore(item.draft)
         errorDetail = detail
+        bumpScrollAnchor()
     }
 
     private func loadHistory(sessionID: String, preservesLiveMessages: Bool = true) async throws {
@@ -1784,12 +1790,19 @@ private final class ChatViewModel: ObservableObject {
             idPrefix.map { "\($0):\(id)" } ?? id
         }
 
+        // Keep one canonical base projection per history row, then expand the
+        // assistant/tool relationship into the richer timeline below.
+        let isLatestSession = idPrefix == nil
+        let currentSessionID = idPrefix ?? ""
+        let baseMessages = history.map {
+            ChatMessage(history: $0, idPrefix: isLatestSession ? nil : currentSessionID)
+        }
         var converted: [ChatMessage] = []
         var toolIndexByCallID: [String: Int] = [:]
 
-        for item in history {
+        for (offset, item) in history.enumerated() {
             if item.role == "assistant" {
-                var assistant = ChatMessage(history: item, idPrefix: idPrefix)
+                var assistant = baseMessages[offset]
                 assistant.detail = nil
                 if item.isThinking == true || !item.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || !(item.reasoningContent ?? "").isEmpty || !(item.imageUrls ?? []).isEmpty {
@@ -1832,7 +1845,7 @@ private final class ChatViewModel: ObservableObject {
                     converted[index].finishedAt = item.finishedAt
                     if let startedAt = item.startedAt { converted[index].timestamp = startedAt }
                 } else {
-                    var orphan = ChatMessage(history: item, idPrefix: idPrefix)
+                    var orphan = baseMessages[offset]
                     orphan.toolCallID = rawCallID
                     orphan.toolStatus = finalStatus
                     converted.append(orphan)
@@ -1841,7 +1854,7 @@ private final class ChatViewModel: ObservableObject {
                 continue
             }
 
-            converted.append(ChatMessage(history: item, idPrefix: idPrefix))
+            converted.append(baseMessages[offset])
         }
 
         // A call without a persisted result was interrupted. Do not paint it

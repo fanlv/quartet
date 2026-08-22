@@ -43,8 +43,6 @@ struct GraphWorkflowLaunchView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                introduction
-
                 if loading {
                     loadingState
                 } else if workflows.isEmpty {
@@ -99,30 +97,6 @@ struct GraphWorkflowLaunchView: View {
             }
         }
         .sheet(item: $localError) { ErrorDetailView(error: $0) }
-    }
-
-    private var introduction: some View {
-        HStack(alignment: .center, spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(QuartetTheme.accent.opacity(0.13))
-                Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.accent)
-            }
-            .frame(width: 52, height: 52)
-            .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("从工作流启动")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(QuartetTheme.primaryText)
-                Text("选择模板，调整本次运行的全局与节点配置，然后直接执行。修改只作用于本次运行。")
-                    .font(.subheadline)
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
     }
 
     private var loadingState: some View {
@@ -430,7 +404,13 @@ struct GraphWorkflowLaunchView: View {
             async let workflowResponse = client.graphWorkflows()
             async let agentResponse = appModel.agentCatalog()
             let (loadedWorkflows, loadedAgents) = try await (workflowResponse, agentResponse)
-            workflows = loadedWorkflows.workflows.sorted { $0.updatedAt > $1.updatedAt }
+            workflows = loadedWorkflows.workflows.sorted { lhs, rhs in
+                lhs.name.compare(
+                    rhs.name,
+                    options: [.caseInsensitive, .diacriticInsensitive, .numeric],
+                    locale: .current
+                ) == .orderedAscending
+            }
             warnings = loadedWorkflows.warnings ?? []
             agents = loadedAgents
             guard let targetID = selectedWorkflowID.isEmpty || !workflows.contains(where: { $0.id == selectedWorkflowID })

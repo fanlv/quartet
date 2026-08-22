@@ -13,3 +13,4 @@
 
 FOUNDATION_EXPORT double Pods_QuartetVersionNumber;
 FOUNDATION_EXPORT const unsigned char Pods_QuartetVersionString[];
+

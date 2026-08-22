@@ -138,7 +138,6 @@ struct NewConversationView: View {
                             if loading {
                                 loadingState
                             } else {
-                                introduction
                                 composer
                                 configurationSection
                                 agentStatusNotice
@@ -245,30 +244,6 @@ struct NewConversationView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 90)
-    }
-
-    private var introduction: some View {
-        HStack(alignment: .center, spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(QuartetTheme.accent.opacity(0.13))
-                Image(systemName: "sparkles")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.accent)
-            }
-            .frame(width: 52, height: 52)
-            .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("从一句话开始")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(QuartetTheme.primaryText)
-                Text("写下目标，Sophia 会用下方配置创建并启动 Job。")
-                    .font(.subheadline)
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
     }
 
     private var composer: some View {
