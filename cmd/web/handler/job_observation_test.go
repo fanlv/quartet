@@ -91,3 +91,25 @@ func TestEnrichLegacyGraphObservationsBoundsFallbackLookups(t *testing.T) {
 		t.Fatalf("fallback Graph lookups = %d, want bounded 24", len(graphService.calls))
 	}
 }
+
+func TestEnrichLegacyGraphObservationsKeepsEveryExactTransition(t *testing.T) {
+	graphService := &observationHandlerGraphService{statuses: map[string]*model.GraphRunStatusResponse{
+		"run-1": {Run: &model.GraphRun{Status: model.GraphRunStatusCompleted}},
+	}}
+	handler := &Handler{graphService: graphService}
+	response := model.JobObservationResponse{Changes: []model.JobObservationEvent{
+		{EventID: "1", GraphRunID: "run-1", GraphStatus: "awaitingInput", GraphSessionID: "session-1", Job: model.JobSummary{ID: "job-1", Mode: model.JobModeGraph, Status: model.JobStatusStopped}},
+		{EventID: "2", GraphRunID: "run-1", GraphStatus: "running", Job: model.JobSummary{ID: "job-1", Mode: model.JobModeGraph, Status: model.JobStatusRunning}},
+		{EventID: "3", GraphRunID: "run-1", GraphStatus: "completed", Job: model.JobSummary{ID: "job-1", Mode: model.JobModeGraph, Status: model.JobStatusCompleted}},
+	}}
+
+	handler.enrichLegacyGraphObservations(context.Background(), &response)
+
+	if len(graphService.calls) != 0 {
+		t.Fatalf("exact journal events triggered current-status lookups: %v", graphService.calls)
+	}
+	if response.Changes[0].GraphStatus != "awaitingInput" || response.Changes[0].GraphSessionID != "session-1" ||
+		response.Changes[1].GraphStatus != "running" || response.Changes[2].GraphStatus != "completed" {
+		t.Fatalf("exact transition history was mutated: %#v", response.Changes)
+	}
+}

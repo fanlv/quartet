@@ -34,6 +34,7 @@ struct JobsView: View {
             .task(id: model.pendingNotificationDestination) {
                 guard let destination = model.pendingNotificationDestination else { return }
                 guard let summary = await model.notificationDestinationSummary() else {
+                    guard model.pendingNotificationDestination == destination else { return }
                     model.present(APIError(
                         summary: "无法打开通知目标",
                         detail: "暂时无法读取通知对应的 Job，请恢复连接后重新点击该通知。"
@@ -41,9 +42,11 @@ struct JobsView: View {
                     model.clearPendingNotificationDestination()
                     return
                 }
+                guard model.pendingNotificationDestination == destination else { return }
                 if let workspaceID = destination.workspaceID, workspaceID != model.selectedWorkspaceID {
                     await model.selectWorkspace(workspaceID)
                 }
+                guard model.pendingNotificationDestination == destination else { return }
                 path = [ChatRoute(summary: summary, targetSessionID: destination.graphSessionID)]
                 model.clearPendingNotificationDestination()
             }

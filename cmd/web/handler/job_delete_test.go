@@ -809,8 +809,8 @@ func TestDeleteJobGraphRun_UnlinkFailureIsRetryable(t *testing.T) {
 	if linked, ok := jobs.Get(job.ID); !ok || linked.GraphRunID != run.ID {
 		t.Fatalf("failed unlink changed Job linkage: %#v", linked)
 	}
-	if _, err := graphs.GetRunStatus(ctx, run.ID); err != nil {
-		t.Fatalf("failed unlink removed run artifacts: %v", err)
+	if _, err := graphs.GetRunStatus(ctx, run.ID); !errors.Is(err, graphsvc.ErrGraphRunNotFound) {
+		t.Fatalf("first delete phase did not remove GraphRun artifacts: %v", err)
 	}
 
 	second := requestContextWithParam("jobId", job.ID)

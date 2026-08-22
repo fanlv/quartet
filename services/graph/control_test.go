@@ -503,7 +503,7 @@ func TestDeleteRunRejectsInFlightAndUnlinksJob(t *testing.T) {
 	}
 }
 
-func TestDeleteRun_UnlinkFailureKeepsRunRetryable(t *testing.T) {
+func TestDeleteRun_UnlinkFailureKeepsSecondPhaseRetryable(t *testing.T) {
 	uniqueMemoryRoot(t)
 	svc, err := NewService()
 	if err != nil {
@@ -527,8 +527,8 @@ func TestDeleteRun_UnlinkFailureKeepsRunRetryable(t *testing.T) {
 	if err := svc.DeleteRun(context.Background(), run.ID, sink); !errors.Is(err, wantErr) {
 		t.Fatalf("DeleteRun error = %v, want unlink failure", err)
 	}
-	if _, err := svc.GetRunStatus(context.Background(), run.ID); err != nil {
-		t.Fatalf("run was removed after failed unlink: %v", err)
+	if _, err := svc.GetRunStatus(context.Background(), run.ID); !errors.Is(err, ErrGraphRunNotFound) {
+		t.Fatalf("run artifacts after completed first phase = %v, want ErrGraphRunNotFound", err)
 	}
 
 	sink.err = nil

@@ -51,4 +51,14 @@ func TestWorkspaceDefaultsUseVersionedPatchWithoutPreflightGet(t *testing.T) {
 	if !strings.Contains(appModel, "updateWorkspaceDefaults(") || !strings.Contains(appModel, "workspaces[index] = saved") {
 		t.Fatal("AppModel must commit the server-returned workspace and version")
 	}
+	for _, contract := range []string{
+		"candidate.available",
+		"available.models?.availableModels.contains",
+		"defaultAgent: canonicalAgent",
+		"defaultModel: validModel",
+	} {
+		if !strings.Contains(appModel, contract) {
+			t.Fatalf("workspace defaults validation missing %q", contract)
+		}
+	}
 }

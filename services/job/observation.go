@@ -241,6 +241,18 @@ func (s *serviceImpl) recordJobObservation(job *model.Job, graphStatus string) {
 	s.recordJobObservationWithGraphSession(job, graphStatus, "")
 }
 
+func (s *serviceImpl) recordCurrentJobObservation(jobID string) {
+	s.mu.RLock()
+	job, ok := s.jobs[jobID]
+	if !ok || job.Deleted {
+		s.mu.RUnlock()
+		return
+	}
+	snapshot := job.DeepCopy()
+	s.mu.RUnlock()
+	s.recordJobObservation(snapshot, "")
+}
+
 func (s *serviceImpl) recordJobObservationWithGraphSession(job *model.Job, graphStatus, graphSessionID string) {
 	if job == nil || job.Deleted || job.WorkspaceID == "" {
 		return

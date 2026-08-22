@@ -8,6 +8,7 @@ import {
   registerWorkspacePrefs,
   registerWorkspaceColors,
   saveWorkspacePrefs,
+  validWorkspaceDefaultModel,
   workspaceColor,
   type WorkspacePrefs,
 } from '../../utils/workspace';
@@ -70,7 +71,7 @@ export function WorkspacesSettings() {
     void refresh();
     fetch('/api/v1/agent/list')
       .then((r) => r.json())
-      .then((d) => setAgents((d?.agent_list || []).filter((agent: AgentInfo) => agent.available !== false)))
+      .then((d) => setAgents((d?.agent_list || []).filter((agent: AgentInfo) => agent.available === true)))
       .catch(() => setAgents([]));
   }, [refresh]);
 
@@ -346,12 +347,11 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
         description: description.trim(),
         workdir: workdir.trim(),
         defaultAgent: prefs.defaultAgent || '',
-        defaultModel: prefs.defaultModel || '',
+        defaultModel: validWorkspaceDefaultModel(prefs.defaultModel, availableModels) || '',
       };
       const url = mode === 'edit' ? `/api/v1/workspace/${initial!.id}` : '/api/v1/workspace/create';
-      const method = mode === 'edit' ? 'PUT' : 'POST';
       const res = await fetch(url, {
-        method: mode === 'edit' ? 'PATCH' : method,
+        method: mode === 'edit' ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(mode === 'edit' ? {
           expectedVersion: initial!.version,
@@ -364,7 +364,7 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || `HTTP ${res.status}`);
+        throw new Error(data?.msg || data?.error || `HTTP ${res.status}`);
       }
       const data = await res.json();
       const savedId = (data?.id as string | undefined) ?? initial?.id;
@@ -372,7 +372,10 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
         const supportsSharedPrefs = Object.prototype.hasOwnProperty.call(data, 'defaultAgent')
           || Object.prototype.hasOwnProperty.call(data, 'defaultModel');
         if (supportsSharedPrefs) {
-          registerWorkspacePrefs(savedId, prefs);
+          registerWorkspacePrefs(savedId, {
+            defaultAgent: data?.defaultAgent || undefined,
+            defaultModel: data?.defaultModel || undefined,
+          });
           try { localStorage.removeItem(`workspacePrefs_${savedId}`); } catch { /* ignore */ }
         } else {
           saveWorkspacePrefs(savedId, prefs);

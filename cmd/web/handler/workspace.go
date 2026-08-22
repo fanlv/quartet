@@ -32,6 +32,11 @@ func (h *Handler) WorkspaceCreate(ctx context.Context, c *app.RequestContext) {
 	}
 	defaultAgent := strings.TrimSpace(req.DefaultAgent)
 	defaultModel := strings.TrimSpace(req.DefaultModel)
+	releaseAgent, acquired := h.acquireAgentSettingWrite(c, defaultAgent)
+	if !acquired {
+		return
+	}
+	defer releaseAgent()
 	if err := h.validateWorkspaceDefaults(ctx, defaultAgent, defaultModel); err != nil {
 		httputil.BadRequest(c, err.Error())
 		return
@@ -124,6 +129,11 @@ func (h *Handler) WorkspaceUpdate(ctx context.Context, c *app.RequestContext) {
 	if req.DefaultAgent != nil {
 		agentID := strings.TrimSpace(*req.DefaultAgent)
 		modelID := strings.TrimSpace(*req.DefaultModel)
+		releaseAgent, acquired := h.acquireAgentSettingWrite(c, agentID)
+		if !acquired {
+			return
+		}
+		defer releaseAgent()
 		if err := h.validateWorkspaceDefaults(ctx, agentID, modelID); err != nil {
 			httputil.BadRequest(c, err.Error())
 			return

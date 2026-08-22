@@ -101,6 +101,14 @@ export interface WorkspacePrefs {
   defaultModel?: string;
 }
 
+export function validWorkspaceDefaultModel(
+  modelId: string | undefined,
+  availableModels: Array<{ modelId: string }> | undefined,
+): string | undefined {
+  if (!modelId) return undefined;
+  return availableModels?.some((model) => model.modelId === modelId) ? modelId : undefined;
+}
+
 const serverPrefsRegistry = new Map<string, WorkspacePrefs>();
 
 function prefsKey(wsId: string): string {
@@ -144,7 +152,7 @@ export function registerWorkspacePrefs(wsId: string, prefs: WorkspacePrefs) {
   });
 }
 
-// Move a legacy browser-local preference into the existing workspace update
+// Move a legacy browser-local preference into the versioned workspace patch
 // endpoint. The server wins when it already has a shared value. Failed writes
 // keep localStorage intact so a later page load can retry without losing data.
 export async function migrateWorkspacePrefsToServer(

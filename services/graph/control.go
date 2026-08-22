@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/fanlv/quartet/pkg/logger"
@@ -221,7 +222,13 @@ func (sc *scheduler) finishAwaiting(ctx context.Context) {
 		// append path rejects only JobStatusRunning, so the user can discuss in the
 		// clarify session while the run is parked. Continue re-launches via resume.
 		graphSessionID := ""
-		for _, instance := range sc.instances {
+		instanceKeys := make([]string, 0, len(sc.instances))
+		for key := range sc.instances {
+			instanceKeys = append(instanceKeys, key)
+		}
+		sort.Strings(instanceKeys)
+		for _, key := range instanceKeys {
+			instance := sc.instances[key]
 			if instance.Status != model.GraphInstanceStatusAwaitingInput {
 				continue
 			}

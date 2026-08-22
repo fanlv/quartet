@@ -47,6 +47,34 @@ func TestWorkspaceCreateRejectsDefaultModelWithoutAgent(t *testing.T) {
 	}
 }
 
+func TestWorkspacePatchRejectsStaleVersionWithConflict(t *testing.T) {
+	h, _ := workspaceDefaultsTestHandler(t, nil)
+	current, ok := h.workspaceService.Get("ws-1")
+	if !ok {
+		t.Fatal("default workspace not found")
+	}
+	engine := route.NewEngine(config.NewOptions(nil))
+	engine.PATCH("/api/v1/workspace/:id", h.WorkspaceUpdate)
+	body, err := json.Marshal(model.UpdateWorkspaceRequest{
+		ExpectedVersion: current.Version + 1,
+		DefaultAgent:    stringPointerForReconcileTest(""),
+		DefaultModel:    stringPointerForReconcileTest(""),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := ut.PerformRequest(
+		engine,
+		http.MethodPatch,
+		"/api/v1/workspace/ws-1",
+		&ut.Body{Body: bytes.NewReader(body), Len: len(body)},
+		ut.Header{Key: "Content-Type", Value: "application/json"},
+	)
+	if status := recorder.Result().StatusCode(); status != http.StatusConflict {
+		t.Fatalf("status = %d body=%s, want %d", status, recorder.Result().Body(), http.StatusConflict)
+	}
+}
+
 func workspaceDefaultsTestHandler(t *testing.T, agents []model.CustomAgent) (*Handler, string) {
 	t.Helper()
 	root := t.TempDir()

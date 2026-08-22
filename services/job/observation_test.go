@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -78,6 +79,7 @@ func TestObserveJobsPaginatesStableChangeJournal(t *testing.T) {
 
 	var ids []string
 	cursor := baseline.Cursor
+	pageNumber := 0
 	for {
 		page, err := service.ObserveJobs(cursor, 2)
 		if err != nil {
@@ -87,11 +89,19 @@ func TestObserveJobsPaginatesStableChangeJournal(t *testing.T) {
 			ids = append(ids, change.Job.ID)
 		}
 		cursor = page.Cursor
+		if pageNumber == 0 {
+			job := observationTestJob("job-5", model.JobStatusCompleted, 6)
+			service.mu.Lock()
+			service.jobs[job.ID] = job
+			service.mu.Unlock()
+			service.recordJobObservation(job.DeepCopy(), "")
+		}
+		pageNumber++
 		if !page.HasMore {
 			break
 		}
 	}
-	if got, want := fmt.Sprint(ids), "[job-0 job-1 job-2 job-3 job-4]"; got != want {
+	if got, want := fmt.Sprint(ids), "[job-0 job-1 job-2 job-3 job-4 job-5]"; got != want {
 		t.Fatalf("ids = %s, want %s", got, want)
 	}
 }
@@ -179,6 +189,82 @@ func TestObserveJobsKeepsRepeatedTerminalOutcomeForDifferentRuns(t *testing.T) {
 	}
 	if response.Changes[1].EventID == response.Changes[3].EventID {
 		t.Fatal("distinct runs reused a terminal event ID")
+	}
+}
+
+func TestTerminalPersistenceFailureStillRecordsVolatileObservation(t *testing.T) {
+	repo := newIdempotencyTestRepo()
+	service := newStateTestService()
+	service.repos["workspace"] = repo
+	job := observationTestJob("volatile-terminal", model.JobStatusRunning, 1)
+	job.Progress = &model.JobProgress{}
+	service.jobs[job.ID] = job
+	repo.seed(job)
+	baseline, err := service.ObserveJobs("", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	saveErr := errors.New("forced terminal persistence failure")
+	// Two saveJobWithRetry calls, each with two attempts, all fail. The live
+	// in-memory terminal state and SSE event are still published by contract.
+	repo.failNext(4, saveErr)
+	_ = captureTerminalEvent(t, service, job.ID, func() {
+		service.finishJob(context.Background(), job)
+	})
+
+	response, err := service.ObserveJobs(baseline.Cursor, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Changes) != 1 {
+		t.Fatalf("changes = %#v, want volatile terminal observation", response.Changes)
+	}
+	change := response.Changes[0]
+	if change.Job.Status != model.JobStatusCompleted || change.RunOutcome != model.RunOutcomeCompleted {
+		t.Fatalf("volatile terminal change = %#v, want completed outcome", change)
+	}
+	if persisted, ok := repo.saved(job.ID); !ok || persisted.Status != model.JobStatusRunning {
+		t.Fatalf("durable state = %#v, want pre-terminal running state", persisted)
+	}
+}
+
+func TestTerminalPersistenceFailureCannotAppendStaleTerminalAfterNextRun(t *testing.T) {
+	repo := newIdempotencyTestRepo()
+	service := newStateTestService()
+	service.repos["workspace"] = repo
+	job := observationTestJob("volatile-order", model.JobStatusRunning, 1)
+	job.Progress = &model.JobProgress{}
+	service.jobs[job.ID] = job
+	repo.seed(job)
+	baseline, err := service.ObserveJobs("", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.failNext(4, errors.New("forced terminal persistence failure"))
+	service.finishJob(context.Background(), job)
+
+	lock := service.persistLock(job.ID)
+	lock.Lock()
+	service.mu.Lock()
+	job.Status = model.JobStatusRunning
+	job.StartedAt = job.FinishedAt + 1
+	job.FinishedAt = 0
+	job.LastRunOutcome = ""
+	nextRun := job.DeepCopy()
+	service.mu.Unlock()
+	service.recordJobObservation(nextRun, "")
+	lock.Unlock()
+
+	response, err := service.ObserveJobs(baseline.Cursor, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Changes) != 2 {
+		t.Fatalf("changes = %#v, want terminal then next running", response.Changes)
+	}
+	if response.Changes[0].Job.Status != model.JobStatusCompleted || response.Changes[1].Job.Status != model.JobStatusRunning {
+		t.Fatalf("ordered statuses = [%s %s], want completed then running", response.Changes[0].Job.Status, response.Changes[1].Job.Status)
 	}
 }
 
@@ -325,6 +411,36 @@ func TestSetGraphRunStateRecordsExactTimedOutStatus(t *testing.T) {
 	}
 	if change.PreviousGraphState != "" {
 		t.Fatalf("previous Graph status = %q, want empty baseline detail", change.PreviousGraphState)
+	}
+}
+
+func TestSetGraphRunStatePersistenceFailureStillRecordsVolatileTerminal(t *testing.T) {
+	repo := newIdempotencyTestRepo()
+	job := observationTestJob("graph-volatile", model.JobStatusRunning, 1)
+	job.Mode = model.JobModeGraph
+	job.GraphRunID = "run-volatile"
+	service := newObservationTestService(job)
+	service.repos[job.WorkspaceID] = repo
+	repo.seed(job)
+	baseline, err := service.ObserveJobs("", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.failNext(1, errors.New("forced graph terminal save failure"))
+
+	err = service.SetGraphRunState(
+		context.Background(), job.ID, job.GraphRunID,
+		model.JobStatusFailed, model.GraphRunStatusTimedOut, 1, 2, "",
+	)
+	if err == nil {
+		t.Fatal("SetGraphRunState unexpectedly succeeded")
+	}
+	response, observeErr := service.ObserveJobs(baseline.Cursor, 100)
+	if observeErr != nil {
+		t.Fatal(observeErr)
+	}
+	if len(response.Changes) != 1 || response.Changes[0].GraphStatus != "timedOut" {
+		t.Fatalf("volatile Graph observation = %#v, want exact timedOut event", response.Changes)
 	}
 }
 

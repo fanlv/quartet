@@ -200,9 +200,10 @@ type runControl struct {
 // one run ID. Potentially slow preparation may happen outside the lock, but every
 // writer revalidates persisted state under it before committing.
 type runLifecycle struct {
-	mu      sync.Mutex
-	handle  *runControl
-	deleted bool
+	mu          sync.Mutex
+	handle      *runControl
+	deleted     bool
+	deleteJobID string
 }
 
 type serviceImpl struct {

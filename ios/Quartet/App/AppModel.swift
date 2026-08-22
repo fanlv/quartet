@@ -518,10 +518,20 @@ final class AppModel: ObservableObject {
         guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else {
             throw APIError(summary: "工作空间不存在", detail: "未找到工作空间 \(workspaceID)")
         }
+        let available = try await makeClient().agents().agentList.first { candidate in
+            candidate.available && (candidate.agentId == agent || candidate.type == agent)
+        }
+        guard let available else {
+            throw APIError(summary: "Agent 不可用", detail: "Agent \(agent) 不存在或当前不可用。")
+        }
+        let canonicalAgent = available.agentId
+        let validModel = available.models?.availableModels.contains(where: { $0.modelId == model }) == true
+            ? model
+            : ""
         let saved = try await makeClient().updateWorkspaceDefaults(
             workspaces[index],
-            defaultAgent: agent,
-            defaultModel: model
+            defaultAgent: canonicalAgent,
+            defaultModel: validModel
         )
         workspaces[index] = saved
     }
@@ -1055,23 +1065,25 @@ final class AppModel: ObservableObject {
         var nextIndex = 0
         let maximumConcurrentRequests = 6
 
-        await withTaskGroup(of: (String, GraphRunStatusResponse?).self) { group in
+        await withTaskGroup(of: (Int, String, GraphRunStatusResponse?).self) { group in
             func addNextRequest() {
                 guard nextIndex < jobIDs.count else { return }
                 let jobID = jobIDs[nextIndex]
+                let requestIndex = nextIndex
                 nextIndex += 1
                 group.addTask {
                     do {
                         let client = try APIClient(serverAddress: address, token: currentToken)
-                        return (jobID, try await client.graphRunStatus(jobID: jobID))
+                        return (requestIndex, jobID, try await client.graphRunStatus(jobID: jobID))
                     } catch {
-                        return (jobID, nil)
+                        return (requestIndex, jobID, nil)
                     }
                 }
             }
 
             for _ in 0..<min(maximumConcurrentRequests, jobIDs.count) { addNextRequest() }
-            while let (jobID, response) = await group.next() {
+            var failedRequestedJobs: [(Int, JobSummary)] = []
+            while let (requestIndex, jobID, response) = await group.next() {
                 guard isCurrentDashboardGeneration(generation) else {
                     group.cancelAll()
                     return
@@ -1079,10 +1091,11 @@ final class AppModel: ObservableObject {
                 if let response, let job = jobsByID[jobID] {
                     applyGraphStatus(job: job, response: response)
                 } else if let job = jobsByID[jobID] {
-                    retryJobs.append(job)
+                    failedRequestedJobs.append((requestIndex, job))
                 }
                 addNextRequest()
             }
+            retryJobs.append(contentsOf: failedRequestedJobs.sorted { $0.0 < $1.0 }.map(\.1))
         }
         guard isCurrentDashboardGeneration(generation) else { return }
         pendingGraphStatusObservationJobs = retryJobs
@@ -1105,7 +1118,11 @@ final class AppModel: ObservableObject {
         let graphSessionID = awaitingInstance?.displaySessionId ?? awaitingInstance?.sessionId
         let transitionStamp = run.finishedAt ?? awaitingInstance?.startedAt ?? job.updatedAt
         let transitionKey = "\(run.id):v\(run.currentVersion):\(run.status):\(transitionStamp):\(graphSessionID ?? "none")"
-        if let previousStatus, lastNotifiedGraphTransitions[jobID] != transitionKey {
+        guard let previousStatus else {
+            lastNotifiedGraphTransitions[jobID] = transitionKey
+            return
+        }
+        if lastNotifiedGraphTransitions[jobID] != transitionKey {
             emitNotificationIfNeeded(
                 oldStatus: previousStatus,
                 newStatus: run.status,

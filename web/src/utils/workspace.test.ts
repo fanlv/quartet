@@ -9,6 +9,7 @@ import {
   registerWorkspaceColors,
   saveWorkspacePrefs,
   setLastUsedWorkspaceId,
+  validWorkspaceDefaultModel,
   workspaceColor,
 } from './workspace';
 
@@ -74,6 +75,13 @@ describe('workspace utils', () => {
 
     setLastUsedWorkspaceId('ws-last');
     expect(getLastUsedWorkspaceId()).toBe('ws-last');
+  });
+
+  it('keeps only models exposed by the selected Agent', () => {
+    const models = [{ modelId: 'owned-model' }];
+    expect(validWorkspaceDefaultModel('owned-model', models)).toBe('owned-model');
+    expect(validWorkspaceDefaultModel('other-agent-model', models)).toBeUndefined();
+    expect(validWorkspaceDefaultModel(undefined, models)).toBeUndefined();
   });
 
   it('migrates legacy local prefs to the server and removes local storage on success', async () => {

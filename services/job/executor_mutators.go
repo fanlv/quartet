@@ -323,6 +323,9 @@ func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID stri
 		return fmt.Errorf("get repo for workspace %s failed: %w", cp.WorkspaceID, err)
 	}
 	if err := repo.Save(cp.ID, cp); err != nil {
+		if isTerminalJobStatus(status) {
+			s.recordJobObservationWithGraphSession(cp, string(graphStatus), graphSessionID)
+		}
 		lock.Unlock()
 		return err
 	}

@@ -793,27 +793,40 @@ func (s *serviceImpl) DeleteRun(ctx context.Context, runID string, jobs JobState
 	lifecycle.mu.Lock()
 	defer lifecycle.mu.Unlock()
 	if lifecycle.deleted {
-		return ErrGraphRunNotFound
+		if jobs != nil && lifecycle.deleteJobID != "" {
+			if err := jobs.ClearGraphRunLinkage(ctx, lifecycle.deleteJobID, runID); err != nil {
+				return fmt.Errorf("clear job graph-run linkage: %w", err)
+			}
+			lifecycle.deleteJobID = ""
+		}
+		return nil
 	}
 	if lifecycle.handle != nil {
 		return ErrGraphRunInFlight
 	}
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
+		if errors.Is(graphRunLoadError(runID, err), ErrGraphRunNotFound) && jobs != nil && lifecycle.deleteJobID != "" {
+			// A prior attempt (possibly in another process) removed the run
+			// artifacts but failed to clear the Job linkage. The handler has
+			// re-registered that linkage, so finish the second phase directly.
+			lifecycle.deleted = true
+			if unlinkErr := jobs.ClearGraphRunLinkage(ctx, lifecycle.deleteJobID, runID); unlinkErr != nil {
+				return fmt.Errorf("clear job graph-run linkage: %w", unlinkErr)
+			}
+			lifecycle.deleteJobID = ""
+			return nil
+		}
 		return graphRunLoadError(runID, err)
 	}
 	if isInFlightStatus(run.Status) {
 		return fmt.Errorf("%w: status=%s", ErrGraphRunInFlight, run.Status)
 	}
-	// Detach the Job first. This is the only fallible cross-service step; doing
-	// it before graph artifacts are removed keeps a failed unlink retryable and
-	// avoids leaving a Job permanently pointing at an already-missing run. The
-	// lifecycle lock prevents a resume/static writer from racing this ordering.
-	if jobs != nil && run.JobID != "" {
-		if err := jobs.ClearGraphRunLinkage(ctx, run.JobID, runID); err != nil {
-			return fmt.Errorf("clear job graph-run linkage: %w", err)
-		}
-	}
+	// Persist the delete intent in the process lifecycle before removing the
+	// artifacts. A failed artifact delete leaves the Job linkage intact. Once
+	// artifacts are gone, a failed unlink remains retryable through the cached
+	// Job ID (RegisterRunLocation rebuilds it after process restart).
+	lifecycle.deleteJobID = run.JobID
 	lifecycle.deleted = true
 	if err := s.runRepo.DeleteRun(ctx, runID); err != nil {
 		lifecycle.deleted = false
@@ -823,6 +836,12 @@ func (s *serviceImpl) DeleteRun(ctx context.Context, runID string, jobs JobState
 	// wakes it so its SSE handler exits). The run's status is already terminal
 	// (in-flight runs are rejected above), so no producer is publishing.
 	s.removeBuffer(runID)
+	if jobs != nil && lifecycle.deleteJobID != "" {
+		if err := jobs.ClearGraphRunLinkage(ctx, lifecycle.deleteJobID, runID); err != nil {
+			return fmt.Errorf("clear job graph-run linkage: %w", err)
+		}
+		lifecycle.deleteJobID = ""
+	}
 	return nil
 }
 

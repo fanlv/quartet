@@ -260,6 +260,9 @@ func (s *serviceImpl) Patch(id string, expectedVersion uint64, patch Patch) (*mo
 	}
 	updated := cloneWorkspace(ws)
 	s.mu.RUnlock()
+	if updated.Version == 0 {
+		updated.Version = 1
+	}
 
 	if expectedVersion == 0 || expectedVersion != updated.Version {
 		return nil, fmt.Errorf("%w: current version=%d, expected version=%d", ErrVersionConflict, updated.Version, expectedVersion)
@@ -300,14 +303,23 @@ func (s *serviceImpl) Patch(id string, expectedVersion uint64, patch Patch) (*mo
 		return nil, fmt.Errorf("workspace not found: %s", id)
 	}
 	// In-place update: a pointer-replace here would clobber any field
-	// another goroutine legitimately changed while we were doing disk I/O
-	// (e.g. SetSandboxRef racing with Update). We only own the fields
-	// this call actually modifies; everything else is left untouched.
-	cur.Title = updated.Title
-	cur.Description = updated.Description
-	cur.Workdir = updated.Workdir
-	cur.DefaultAgent = updated.DefaultAgent
-	cur.DefaultModel = updated.DefaultModel
+	// another goroutine legitimately changed while we were doing disk I/O.
+	// Apply only fields owned by this patch; everything else stays untouched.
+	if patch.Title != nil {
+		cur.Title = updated.Title
+	}
+	if patch.Description != nil {
+		cur.Description = updated.Description
+	}
+	if patch.Workdir != nil {
+		cur.Workdir = updated.Workdir
+	}
+	if patch.DefaultAgent != nil {
+		cur.DefaultAgent = updated.DefaultAgent
+	}
+	if patch.DefaultModel != nil {
+		cur.DefaultModel = updated.DefaultModel
+	}
 	cur.Version = updated.Version
 	cur.UpdatedAt = updated.UpdatedAt
 	s.bumpRevisionLocked()
@@ -378,6 +390,10 @@ func (s *serviceImpl) SetFavorite(id string, favorite bool) (*model.Workspace, e
 	s.mu.RUnlock()
 
 	updated.Favorite = favorite
+	if updated.Version == 0 {
+		updated.Version = 1
+	}
+	updated.Version++
 	updated.UpdatedAt = time.Now()
 	if err := s.repo.Save(updated.ID, updated); err != nil {
 		return nil, fmt.Errorf("save workspace failed: %w", err)
@@ -390,6 +406,7 @@ func (s *serviceImpl) SetFavorite(id string, favorite bool) (*model.Workspace, e
 		return nil, fmt.Errorf("workspace not found: %s", id)
 	}
 	cur.Favorite = updated.Favorite
+	cur.Version = updated.Version
 	cur.UpdatedAt = updated.UpdatedAt
 	s.bumpRevisionLocked()
 	result := cloneWorkspace(cur)
@@ -448,7 +465,11 @@ func (s *serviceImpl) Reorder(ids []string) error {
 		}
 		originals = append(originals, cloneWorkspace(ws))
 		updated := cloneWorkspace(ws)
+		if updated.Version == 0 {
+			updated.Version = 1
+		}
 		updated.SortOrder = order
+		updated.Version++
 		updated.UpdatedAt = now
 		updates = append(updates, updated)
 	}
@@ -474,6 +495,7 @@ func (s *serviceImpl) Reorder(ids []string) error {
 		cur, ok := s.workspaces[updated.ID]
 		if ok && cur != nil && !cur.Deleted {
 			cur.SortOrder = updated.SortOrder
+			cur.Version = updated.Version
 			cur.UpdatedAt = updated.UpdatedAt
 		}
 	}
@@ -609,7 +631,11 @@ func (s *serviceImpl) MarkDeleted(id string) error {
 	}
 	updated := cloneWorkspace(ws)
 	s.mu.RUnlock()
+	if updated.Version == 0 {
+		updated.Version = 1
+	}
 	updated.Deleted = true
+	updated.Version++
 	updated.UpdatedAt = time.Now()
 	if err := s.repo.Save(updated.ID, updated); err != nil {
 		// Roll back the in-memory flag so the caller sees a consistent state.
@@ -624,6 +650,7 @@ func (s *serviceImpl) MarkDeleted(id string) error {
 	// Mark deleted in-place so Get/List immediately stop returning this
 	// workspace. The disk record was already written above.
 	cur.Deleted = true
+	cur.Version = updated.Version
 	cur.UpdatedAt = updated.UpdatedAt
 	s.bumpRevisionLocked()
 	s.mu.Unlock()
@@ -662,7 +689,11 @@ func (s *serviceImpl) EnsureDefault() error {
 		logger.Warn("[workspace.Service] default workspace workdir is empty; healing to %q", fresh)
 		updated := cloneWorkspace(cur)
 		s.mu.RUnlock()
+		if updated.Version == 0 {
+			updated.Version = 1
+		}
 		updated.Workdir = fresh
+		updated.Version++
 		updated.UpdatedAt = time.Now()
 		if err := s.repo.Save(updated.ID, updated); err != nil {
 			return fmt.Errorf("heal default workspace workdir failed: %w", err)
@@ -672,6 +703,7 @@ func (s *serviceImpl) EnsureDefault() error {
 		// other writers, but still re-check for safety.
 		if cur2, ok := s.workspaces[consts.DefaultWorkspaceID]; ok && cur2 != nil && !cur2.Deleted {
 			cur2.Workdir = updated.Workdir
+			cur2.Version = updated.Version
 			cur2.UpdatedAt = updated.UpdatedAt
 			s.bumpRevisionLocked()
 		}
@@ -736,6 +768,10 @@ func (s *serviceImpl) RegenerateAllColors() ([]*model.Workspace, error) {
 		s.mu.RUnlock()
 
 		updated.Color = model.RandomWorkspaceColor()
+		if updated.Version == 0 {
+			updated.Version = 1
+		}
+		updated.Version++
 		updated.UpdatedAt = now
 		if err := s.repo.Save(updated.ID, updated); err != nil {
 			mu.Unlock()
@@ -746,6 +782,7 @@ func (s *serviceImpl) RegenerateAllColors() ([]*model.Workspace, error) {
 		// Under shard lock, we should still exist, but keep a defensive re-check.
 		if cur, ok := s.workspaces[id]; ok && cur != nil && !cur.Deleted {
 			cur.Color = updated.Color
+			cur.Version = updated.Version
 			cur.UpdatedAt = updated.UpdatedAt
 			updatedAny = true
 		}

@@ -181,7 +181,18 @@ func (s *serviceImpl) cleanupUnboundRun(ctx context.Context, runID string, cause
 }
 
 func (s *serviceImpl) RegisterRunLocation(ctx context.Context, runID, workspaceID, jobID string) error {
-	return s.runRepo.RegisterRunLocation(ctx, runID, workspaceID, jobID)
+	if err := s.runRepo.RegisterRunLocation(ctx, runID, workspaceID, jobID); err != nil {
+		return err
+	}
+	// Keep the bound Job identity in process even after run artifacts are
+	// deleted. If the following unlink fails, a retry can still repair the
+	// dangling Job.GraphRunID without reloading run.json. This registration is
+	// also performed by handlers after restart, rebuilding the retry metadata.
+	lifecycle := s.lifecycle(runID)
+	lifecycle.mu.Lock()
+	lifecycle.deleteJobID = jobID
+	lifecycle.mu.Unlock()
+	return nil
 }
 
 func (s *serviceImpl) GetRunStatus(ctx context.Context, runID string) (*model.GraphRunStatusResponse, error) {

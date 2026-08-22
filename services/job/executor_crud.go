@@ -135,6 +135,7 @@ func (s *serviceImpl) CreateIdempotent(job *model.Job) (*model.Job, bool, error)
 	if err := repo.Save(cp.ID, cp); err != nil {
 		return nil, false, err
 	}
+	observationCopy := cp.DeepCopy()
 	s.mu.Lock()
 	if existing, exists := s.jobs[cp.ID]; exists {
 		existingCopy := existing.DeepCopy()
@@ -147,7 +148,7 @@ func (s *serviceImpl) CreateIdempotent(job *model.Job) (*model.Job, bool, error)
 	s.jobs[cp.ID] = cp
 	s.mu.Unlock()
 	s.bumpListVersion(cp.WorkspaceID)
-	s.recordJobObservation(cp.DeepCopy(), "")
+	s.recordJobObservation(observationCopy, "")
 	return cp.DeepCopy(), false, nil
 }
 

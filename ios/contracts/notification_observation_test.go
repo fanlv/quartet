@@ -65,14 +65,16 @@ func TestGraphStatusObservationIsChangeDrivenAndConcurrencyBounded(t *testing.T)
 	requireContains(t, refreshBody, "let maximumRequestsPerRefresh = 24")
 	requireContains(t, refreshBody, "Array(graphJobs.prefix(maximumRequestsPerRefresh))")
 	requireContains(t, refreshBody, "Array(graphJobs.dropFirst(maximumRequestsPerRefresh))")
-	requireContains(t, refreshBody, "retryJobs.append(job)")
+	requireContains(t, refreshBody, "failedRequestedJobs.append((requestIndex, job))")
 	requireContains(t, refreshBody, "pendingGraphStatusObservationJobs = retryJobs")
 	if strings.Contains(candidateBody, "sorted {") {
 		t.Fatal("fallback candidates must retain FIFO order across polling rounds")
 	}
 	requireContains(t, refreshBody, "let maximumConcurrentRequests = 6")
 	requireContains(t, refreshBody, "0..<min(maximumConcurrentRequests, jobIDs.count)")
-	requireContains(t, refreshBody, "while let (jobID, response) = await group.next()")
+	requireContains(t, refreshBody, "while let (requestIndex, jobID, response) = await group.next()")
+	requireContains(t, refreshBody, "failedRequestedJobs.append((requestIndex, job))")
+	requireContains(t, refreshBody, "failedRequestedJobs.sorted { $0.0 < $1.0 }")
 	if strings.Contains(refreshBody, "for job in graphJobs {") {
 		t.Fatal("refreshGraphStatuses must not create one child task for every historical Graph Job")
 	}
@@ -175,6 +177,7 @@ func TestNotificationDestinationDoesNotFailOnInitialNilTaskID(t *testing.T) {
 	taskBody := source[taskStart:]
 	requireContains(t, taskBody, "guard let destination = model.pendingNotificationDestination else { return }")
 	requireContains(t, taskBody, "guard let summary = await model.notificationDestinationSummary() else")
+	requireContains(t, taskBody, "guard model.pendingNotificationDestination == destination else { return }")
 }
 
 func readSource(t *testing.T, path string) string {

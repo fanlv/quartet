@@ -291,7 +291,6 @@ async function migrateStoredAgentReferences(workspaceId?: string): Promise<void>
     const [listData, catalogData, workspaceData] = await Promise.all([listRes.json(), catalogRes.json(), workspaceRes.json()]);
     const active = (Array.isArray(listData?.agent_list) ? listData.agent_list as AgentInfo[] : [])
       .filter((agent) => agent.available === true);
-    const activeIDs = new Set(active.map((agent) => agent.agent_id));
     const items = Array.isArray(catalogData?.agents) ? catalogData.agents as Array<{
       agent_id: string;
       lifecycle?: string;
@@ -305,7 +304,7 @@ async function migrateStoredAgentReferences(workspaceId?: string): Promise<void>
       byIdentifier.set(agent.type, agent.agent_id);
     }
     for (const item of items) {
-      if (item.lifecycle !== 'active' || item.deprecated || !activeIDs.has(item.agent_id)) continue;
+      if (item.lifecycle !== 'active' || item.deprecated) continue;
       byIdentifier.set(item.agent_id, item.agent_id);
       if (item.definition?.bin) byIdentifier.set(item.definition.bin, item.agent_id);
       if (item.definition?.acp_program) {

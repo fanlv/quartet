@@ -237,6 +237,9 @@ func TestSchedulerInstanceLimitFailsRun(t *testing.T) {
 		t.Fatalf("StartRun failed: %v", err)
 	}
 	got := waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusFailed)
+	if _, err := svc.StopRunAndWait(context.Background(), run.ID, "join instance-limit failure"); err != nil {
+		t.Fatalf("join failed run: %v", err)
+	}
 	if got.Run.LastError == nil {
 		t.Fatal("expected LastError on failed run")
 	}
