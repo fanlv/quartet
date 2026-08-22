@@ -87,6 +87,7 @@ describe('workspace utils', () => {
         ok: true,
         json: async () => ({
           id: 'ws-migrate',
+          version: 1,
           title: 'Workspace',
           description: 'Desc',
           workdir: '/tmp/ws-migrate',
@@ -115,12 +116,10 @@ describe('workspace utils', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/workspace/ws-migrate');
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/workspace/ws-migrate', {
-      method: 'PUT',
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        title: 'Workspace',
-        description: 'Desc',
-        workdir: '/tmp/ws-migrate',
+        expectedVersion: 1,
         defaultAgent: 'agent-canonical',
         defaultModel: 'legacy-model',
       }),
@@ -165,6 +164,116 @@ describe('workspace utils', () => {
       defaultAgent: 'legacy-agent',
       defaultModel: 'legacy-model',
     }));
+  });
+
+  it('drops an unresolved legacy Agent instead of writing it back to the server', async () => {
+    localStorage.setItem('workspacePrefs_ws-deleted-agent', JSON.stringify({
+      defaultAgent: 'custom-deleted',
+      defaultModel: 'deleted-model',
+    }));
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'ws-deleted-agent',
+        version: 4,
+        title: 'Workspace',
+        description: 'Desc',
+        workdir: '/tmp/ws-deleted-agent',
+        defaultAgent: '',
+        defaultModel: '',
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const migrated = await migrateWorkspacePrefsToServer('ws-deleted-agent', () => undefined);
+
+    expect(migrated).toEqual({});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('workspacePrefs_ws-deleted-agent')).toBeNull();
+  });
+
+  it('migrates defaults with a versioned partial update', async () => {
+    localStorage.setItem('workspacePrefs_ws-patch', JSON.stringify({
+      defaultAgent: 'legacy-agent',
+      defaultModel: 'agent-model',
+    }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'ws-patch',
+          version: 7,
+          title: 'Concurrent title',
+          description: 'Concurrent description',
+          workdir: '/tmp/ws-patch',
+          defaultAgent: '',
+          defaultModel: '',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'ws-patch',
+          version: 8,
+          defaultAgent: 'agent-canonical',
+          defaultModel: 'agent-model',
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await migrateWorkspacePrefsToServer('ws-patch', (value) => (
+      value === 'legacy-agent' ? 'agent-canonical' : undefined
+    ));
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/workspace/ws-patch', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedVersion: 7,
+        defaultAgent: 'agent-canonical',
+        defaultModel: 'agent-model',
+      }),
+    });
+  });
+
+  it('drops a default model that does not belong to the resolved Agent', async () => {
+    localStorage.setItem('workspacePrefs_ws-wrong-model', JSON.stringify({
+      defaultAgent: 'legacy-agent',
+      defaultModel: 'other-agent-model',
+    }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'ws-wrong-model',
+          version: 3,
+          defaultAgent: '',
+          defaultModel: '',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'ws-wrong-model',
+          version: 4,
+          defaultAgent: 'agent-canonical',
+          defaultModel: '',
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const migrated = await migrateWorkspacePrefsToServer(
+      'ws-wrong-model',
+      () => 'agent-canonical',
+      (_agentID, modelID) => modelID === 'owned-model',
+    );
+
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
+      expectedVersion: 3,
+      defaultAgent: 'agent-canonical',
+      defaultModel: '',
+    });
+    expect(migrated).toEqual({ defaultAgent: 'agent-canonical', defaultModel: undefined });
   });
 
   it('prefers server shared prefs and clears obsolete local storage without rewriting', async () => {

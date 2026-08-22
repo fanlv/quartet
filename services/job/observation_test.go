@@ -139,6 +139,49 @@ func TestObserveJobsKeepsCompletedRunningCompletedBetweenPolls(t *testing.T) {
 	}
 }
 
+func TestObserveJobsKeepsRepeatedTerminalOutcomeForDifferentRuns(t *testing.T) {
+	job := observationTestJob("repeat-terminal", model.JobStatusCompleted, 1)
+	service := newObservationTestService(job)
+	baseline, err := service.ObserveJobs("", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for run := int64(2); run <= 3; run++ {
+		service.mu.Lock()
+		job.Status = model.JobStatusRunning
+		job.StartedAt = run * 10
+		job.FinishedAt = 0
+		running := job.DeepCopy()
+		service.mu.Unlock()
+		service.recordJobObservation(running, "")
+
+		service.mu.Lock()
+		job.Status = model.JobStatusCompleted
+		job.FinishedAt = run*10 + 1
+		job.LastRunOutcome = model.RunOutcomeCompleted
+		completed := job.DeepCopy()
+		service.mu.Unlock()
+		service.recordJobObservation(completed, "")
+	}
+
+	response, err := service.ObserveJobs(baseline.Cursor, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Changes) != 4 {
+		t.Fatalf("changes = %#v, want two complete run lifecycles", response.Changes)
+	}
+	for _, index := range []int{1, 3} {
+		if response.Changes[index].RunOutcome != model.RunOutcomeCompleted {
+			t.Fatalf("terminal change %d outcome = %q, want completed", index, response.Changes[index].RunOutcome)
+		}
+	}
+	if response.Changes[1].EventID == response.Changes[3].EventID {
+		t.Fatal("distinct runs reused a terminal event ID")
+	}
+}
+
 func TestObserveJobsKeepsRecordedEventsBeforeFirstPollAsBaseline(t *testing.T) {
 	job := observationTestJob("quick", model.JobStatusPending, 1)
 	service := newObservationTestService(job)
@@ -209,6 +252,42 @@ func TestObserveJobsPreservesExactGraphTransitionsAndSession(t *testing.T) {
 	}
 }
 
+func TestSetGraphRunStatePreservesAwaitingInputSession(t *testing.T) {
+	job := observationTestJob("graph-await", model.JobStatusRunning, 1)
+	job.Mode = model.JobModeGraph
+	job.GraphRunID = "run-await"
+	service := newObservationTestService(job)
+	service.newJobRepo = func(string) (repository.JobRepo, error) { return &stubJobRepo{}, nil }
+	baseline, err := service.ObserveJobs("", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.SetGraphRunState(
+		context.Background(),
+		job.ID,
+		job.GraphRunID,
+		model.JobStatusStopped,
+		model.GraphRunStatusAwaitingInput,
+		1,
+		2,
+		"session-await",
+	); err != nil {
+		t.Fatal(err)
+	}
+	response, err := service.ObserveJobs(baseline.Cursor, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Changes) != 1 {
+		t.Fatalf("changes = %#v, want one awaiting event", response.Changes)
+	}
+	change := response.Changes[0]
+	if change.GraphStatus != "awaitingInput" || change.GraphSessionID != "session-await" {
+		t.Fatalf("awaiting event = %#v, want exact status and deep-link session", change)
+	}
+}
+
 func TestSetGraphRunStateRecordsExactTimedOutStatus(t *testing.T) {
 	job := observationTestJob("graph", model.JobStatusRunning, 1)
 	job.Mode = model.JobModeGraph
@@ -274,6 +353,27 @@ func TestObserveJobsNeverReturnsShareToken(t *testing.T) {
 	}
 	if len(next.Changes) != 1 || next.Changes[0].Job.ShareToken != "" {
 		t.Fatalf("change observation leaked share token: %#v", next.Changes)
+	}
+}
+
+func TestObserveJobsLargeHistoryReturnsOnlyActiveSnapshot(t *testing.T) {
+	service := newObservationTestService()
+	for index := 0; index < 13_266; index++ {
+		id := fmt.Sprintf("history-%05d", index)
+		service.jobs[id] = observationTestJob(id, model.JobStatusCompleted, int64(index+1))
+	}
+	service.jobs["active-other-workspace"] = observationTestJob("active-other-workspace", model.JobStatusRunning, 20_000)
+	service.jobs["active-other-workspace"].WorkspaceID = "workspace-other"
+
+	response, err := service.ObserveJobs("", 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.ActiveJobs) != 1 || response.ActiveJobs[0].ID != "active-other-workspace" {
+		t.Fatalf("active jobs = %#v, want only cross-workspace active job", response.ActiveJobs)
+	}
+	if len(response.Changes) != 0 || !response.Reset {
+		t.Fatalf("large history baseline = %#v, want reset without historical events", response)
 	}
 }
 

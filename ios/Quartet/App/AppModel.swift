@@ -79,7 +79,7 @@ final class AppModel: ObservableObject {
     private var latestGraphRunVersions: [String: Int] = [:]
     private var lastNotifiedGraphTransitions: [String: String] = [:]
     private var interactiveFinalStatusesAwaitingSync: [String: String] = [:]
-    private var pendingGraphStatusObservationIDs: [String] = []
+    private var pendingGraphStatusObservationJobs: [JobSummary] = []
     private var jobObservationCursor: String?
     private var dashboardGeneration: UInt64 = 0
     private var connectionGeneration: UInt64 = 0
@@ -333,6 +333,28 @@ final class AppModel: ObservableObject {
         await refreshDashboard(userInitiated: false)
     }
 
+    func pollNotifications() async {
+        guard phase == .connected else { return }
+        let generation = dashboardGeneration
+        do {
+            let observation = try await fetchJobObservations(client: makeClient())
+            guard isCurrentDashboardGeneration(generation) else { return }
+            let previousJobs = latestObservedJobs
+            processDashboardNotifications(previousJobs: previousJobs, observation: observation)
+            let graphCandidates = graphStatusObservationCandidates(
+                changes: observation.changes,
+                activeJobs: observation.activeJobs
+            )
+            await refreshGraphStatuses(for: graphCandidates, generation: generation)
+            guard isCurrentDashboardGeneration(generation) else { return }
+            applyObservationSnapshot(observation)
+        } catch {
+            guard isCurrentDashboardGeneration(generation) else { return }
+            isDataStale = true
+            hasPendingSync = true
+        }
+    }
+
     func loadMoreJobs() async {
         guard phase == .connected,
               hasMoreJobs,
@@ -496,7 +518,7 @@ final class AppModel: ObservableObject {
         guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else {
             throw APIError(summary: "工作空间不存在", detail: "未找到工作空间 \(workspaceID)")
         }
-        let saved = try await makeClient().updateWorkspace(
+        let saved = try await makeClient().updateWorkspaceDefaults(
             workspaces[index],
             defaultAgent: agent,
             defaultModel: model
@@ -568,19 +590,23 @@ final class AppModel: ObservableObject {
     ) async {
         let cachedJob = jobSummary(id: jobID)
         let detail = try? await makeClient().job(id: jobID)
-        let resolvedOutcome = detail?.latestTerminalRunOutcome ?? outcome
+        let resolvedOutcome = outcome.isEmpty ? (detail?.latestTerminalRunOutcome ?? finalStatus) : outcome
         let normalizedOutcome = Self.normalizedNotificationOutcome(resolvedOutcome)
         guard ["completed", "failed", "stopped"].contains(normalizedOutcome) else { return }
-        let eventIdentity = "interactive-\(occurredAt ?? Int64(Date().timeIntervalSince1970 * 1_000))"
+        let terminalTimestamp = occurredAt ?? Int64(Date().timeIntervalSince1970 * 1_000)
+        let eventIdentity = Self.terminalEventIdentity(terminalTimestamp)
         emitNotificationForOutcome(
             outcome: normalizedOutcome,
             jobID: jobID,
             title: detail?.title ?? cachedJob?.displayTitle ?? fallbackTitle,
             workspaceID: detail?.workspaceId ?? cachedJob?.workspaceId ?? fallbackWorkspaceID,
             eventIdentity: eventIdentity,
-            occurredAtMilliseconds: occurredAt
+            occurredAtMilliseconds: terminalTimestamp
         )
-        interactiveFinalStatusesAwaitingSync[jobID] = detail?.status ?? finalStatus
+        interactiveFinalStatusesAwaitingSync[jobID] = Self.interactiveTerminalSuppressionKey(
+            outcome: normalizedOutcome,
+            timestamp: terminalTimestamp
+        )
     }
 
     func setNotificationPreference(_ kind: QuartetNotificationKind, enabled: Bool) {
@@ -628,7 +654,7 @@ final class AppModel: ObservableObject {
         latestGraphRunVersions = [:]
         lastNotifiedGraphTransitions = [:]
         interactiveFinalStatusesAwaitingSync = [:]
-        pendingGraphStatusObservationIDs = []
+        pendingGraphStatusObservationJobs = []
         jobObservationCursor = nil
         selectedWorkspaceID = nil
         nextCursor = nil
@@ -665,7 +691,7 @@ final class AppModel: ObservableObject {
         latestGraphRunVersions = [:]
         lastNotifiedGraphTransitions = [:]
         interactiveFinalStatusesAwaitingSync = [:]
-        pendingGraphStatusObservationIDs = []
+        pendingGraphStatusObservationJobs = []
         jobObservationCursor = nil
         selectedWorkspaceID = nil
         nextCursor = nil
@@ -868,17 +894,38 @@ final class AppModel: ObservableObject {
         previousJobs: [String: JobSummary],
         observation: JobObservationPage
     ) {
-        guard !observation.reset else { return }
+        guard !observation.reset else {
+            pendingGraphStatusObservationJobs = []
+            graphJobStates = [:]
+            latestGraphRunVersions = [:]
+            lastNotifiedGraphTransitions = [:]
+            interactiveFinalStatusesAwaitingSync = [:]
+            return
+        }
         for change in observation.changes {
             let job = change.job
-            let oldStatus = interactiveFinalStatusesAwaitingSync.removeValue(forKey: job.id)
-                ?? change.previousGraphStatus
+            if let graphStatus = change.graphStatus {
+                pendingGraphStatusObservationJobs.removeAll { $0.id == job.id }
+                graphJobStates[job.id] = GraphJobState(status: graphStatus, lastError: nil, updatedAt: Date())
+            }
+            let oldStatus = change.previousGraphStatus
                 ?? change.previousStatus
                 ?? previousJobs[job.id]?.status
-            let newStatus = change.graphStatus ?? job.status
-            guard let oldStatus, oldStatus != newStatus else { continue }
+            let newStatus = change.graphStatus ?? change.runOutcome ?? job.status
+            let repeatsActionableGraphState = job.mode == "graph"
+                && newStatus == "awaitingInput"
+                && change.graphSessionId != nil
+            guard let oldStatus, oldStatus != newStatus || repeatsActionableGraphState else { continue }
             if job.mode == "graph", Self.isActivelyRunningStatus(newStatus) {
                 graphJobStates.removeValue(forKey: job.id)
+                continue
+            }
+            let suppressionKey = Self.interactiveTerminalSuppressionKey(
+                outcome: Self.normalizedNotificationOutcome(newStatus),
+                timestamp: change.occurredAt
+            )
+            if interactiveFinalStatusesAwaitingSync[job.id] == suppressionKey {
+                interactiveFinalStatusesAwaitingSync.removeValue(forKey: job.id)
                 continue
             }
             emitNotificationIfNeeded(
@@ -887,7 +934,13 @@ final class AppModel: ObservableObject {
                 jobID: job.id,
                 title: job.displayTitle,
                 workspaceID: job.workspaceId,
-                eventIdentity: change.eventId,
+                eventIdentity: change.graphRunId.map {
+                    Self.graphEventIdentity(
+                        runID: $0,
+                        timestamp: change.occurredAt,
+                        graphSessionID: change.graphSessionId
+                    )
+                } ?? Self.terminalEventIdentity(change.occurredAt),
                 graphSessionID: change.graphSessionId,
                 occurredAtMilliseconds: change.occurredAt
             )
@@ -903,6 +956,8 @@ final class AppModel: ObservableObject {
 
         while true {
             let page = try await client.jobObservations(cursor: cursor, limit: 200)
+            if page.reset { return page }
+            activeJobsByID.removeAll(keepingCapacity: true)
             for job in page.activeJobs {
                 activeJobsByID[job.id] = job
             }
@@ -938,6 +993,14 @@ final class AppModel: ObservableObject {
         var latest = Dictionary(uniqueKeysWithValues: observation.activeJobs.map { ($0.id, $0) })
         for change in observation.changes {
             latest[change.job.id] = change.job
+            if let index = jobs.firstIndex(where: { $0.id == change.job.id }) {
+                jobs[index] = change.job
+            }
+        }
+        for activeJob in observation.activeJobs {
+            if let index = jobs.firstIndex(where: { $0.id == activeJob.id }) {
+                jobs[index] = activeJob
+            }
         }
         latestObservedJobs = latest
         jobObservationCursor = observation.cursor
@@ -949,22 +1012,24 @@ final class AppModel: ObservableObject {
     ) -> [JobSummary] {
         var candidates: [JobSummary] = []
         var candidateIDs = Set<String>()
-        let currentGraphJobs = Dictionary(uniqueKeysWithValues: (
-            activeJobs + changes.map(\.job)
-        ).filter { $0.mode == "graph" }.map { ($0.id, $0) })
-
+        var latestJobsByID: [String: JobSummary] = [:]
+        for job in activeJobs where job.mode == "graph" {
+            latestJobsByID[job.id] = job
+        }
+        for change in changes where change.job.mode == "graph" {
+            latestJobsByID[change.job.id] = change.job
+        }
+        for pendingJob in pendingGraphStatusObservationJobs {
+            let job = latestJobsByID[pendingJob.id] ?? pendingJob
+            guard job.status == "stopped", candidateIDs.insert(job.id).inserted else { continue }
+            candidates.append(job)
+        }
         for change in changes {
             let job = change.job
             guard job.mode == "graph",
                   change.graphStatus == nil,
                   job.status == "stopped",
                   candidateIDs.insert(job.id).inserted else { continue }
-            candidates.append(job)
-        }
-        for jobID in pendingGraphStatusObservationIDs {
-            guard let job = currentGraphJobs[jobID],
-                  job.status == "stopped",
-                  candidateIDs.insert(jobID).inserted else { continue }
             candidates.append(job)
         }
         return candidates
@@ -974,7 +1039,7 @@ final class AppModel: ObservableObject {
         guard isCurrentDashboardGeneration(generation) else { return }
         let graphJobs = jobs.filter { $0.mode == "graph" }
         guard !graphJobs.isEmpty else {
-            pendingGraphStatusObservationIDs = []
+            pendingGraphStatusObservationJobs = []
             return
         }
 
@@ -986,7 +1051,7 @@ final class AppModel: ObservableObject {
         let currentToken = token
         // Put unserved work before failures. Persistent failures therefore
         // rotate behind later candidates instead of monopolizing every round.
-        var failedIDs = graphJobs.dropFirst(maximumRequestsPerRefresh).map(\.id)
+        var retryJobs = Array(graphJobs.dropFirst(maximumRequestsPerRefresh))
         var nextIndex = 0
         let maximumConcurrentRequests = 6
 
@@ -1013,14 +1078,14 @@ final class AppModel: ObservableObject {
                 }
                 if let response, let job = jobsByID[jobID] {
                     applyGraphStatus(job: job, response: response)
-                } else {
-                    failedIDs.append(jobID)
+                } else if let job = jobsByID[jobID] {
+                    retryJobs.append(job)
                 }
                 addNextRequest()
             }
         }
         guard isCurrentDashboardGeneration(generation) else { return }
-        pendingGraphStatusObservationIDs = failedIDs
+        pendingGraphStatusObservationJobs = retryJobs
     }
 
     private func applyGraphStatus(job: JobSummary, response: GraphRunStatusResponse) {
@@ -1036,20 +1101,22 @@ final class AppModel: ObservableObject {
         let previousVersion = latestGraphRunVersions[jobID]
         graphJobStates[jobID] = state
         latestGraphRunVersions[jobID] = run.currentVersion
-        let transitionKey = "\(run.id):v\(run.currentVersion):\(run.status)"
-        if let previousStatus,
-           (previousStatus != run.status || previousVersion != run.currentVersion),
-           lastNotifiedGraphTransitions[jobID] != transitionKey {
-            let awaitingInstance = response.instances?.first(where: { $0.status == "awaitingInput" })
-            let graphSessionID = awaitingInstance?.displaySessionId ?? awaitingInstance?.sessionId
-            let transitionStamp = run.finishedAt ?? awaitingInstance?.startedAt ?? job.updatedAt
+        let awaitingInstance = response.instances?.first(where: { $0.status == "awaitingInput" })
+        let graphSessionID = awaitingInstance?.displaySessionId ?? awaitingInstance?.sessionId
+        let transitionStamp = run.finishedAt ?? awaitingInstance?.startedAt ?? job.updatedAt
+        let transitionKey = "\(run.id):v\(run.currentVersion):\(run.status):\(transitionStamp):\(graphSessionID ?? "none")"
+        if let previousStatus, lastNotifiedGraphTransitions[jobID] != transitionKey {
             emitNotificationIfNeeded(
                 oldStatus: previousStatus,
                 newStatus: run.status,
                 jobID: jobID,
                 title: job.displayTitle,
                 workspaceID: run.workspaceId ?? job.workspaceId,
-                eventIdentity: "graph-\(run.id)-v\(run.currentVersion)-\(transitionStamp)-\(graphSessionID ?? "none")",
+                eventIdentity: Self.graphEventIdentity(
+                    runID: run.id,
+                    timestamp: transitionStamp,
+                    graphSessionID: graphSessionID
+                ),
                 graphSessionID: graphSessionID,
                 occurredAtMilliseconds: transitionStamp
             )
@@ -1097,7 +1164,8 @@ final class AppModel: ObservableObject {
     ) {
         let oldOutcome = Self.normalizedNotificationOutcome(oldStatus)
         let newOutcome = Self.normalizedNotificationOutcome(newStatus)
-        guard oldOutcome != newOutcome else { return }
+        let repeatsActionableGraphState = newStatus == "awaitingInput" && graphSessionID != nil
+        guard oldOutcome != newOutcome || repeatsActionableGraphState else { return }
         emitNotificationForOutcome(
             outcome: newOutcome,
             displayStatus: newStatus,
@@ -1167,6 +1235,18 @@ final class AppModel: ObservableObject {
 
     private static func normalizedNotificationOutcome(_ status: String) -> String {
         status == "timedOut" ? "failed" : status
+    }
+
+    private static func terminalEventIdentity(_ timestamp: Int64) -> String {
+        "terminal-\(timestamp)"
+    }
+
+    private static func graphEventIdentity(runID: String, timestamp: Int64, graphSessionID: String?) -> String {
+        "graph-\(runID)-\(timestamp)-\(graphSessionID ?? "none")"
+    }
+
+    private static func interactiveTerminalSuppressionKey(outcome: String, timestamp: Int64) -> String {
+        "\(normalizedNotificationOutcome(outcome)):\(terminalEventIdentity(timestamp))"
     }
 
     private static func isActivelyRunningStatus(_ status: String) -> Bool {

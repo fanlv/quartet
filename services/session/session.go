@@ -4,6 +4,7 @@ import (
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/types/model"
+	typepath "github.com/fanlv/quartet/types/path"
 )
 
 type Service interface {
@@ -56,9 +57,9 @@ func NewService(wsID, jobID string) (Service, error) {
 	}
 
 	m := &serviceImpl{
-		sessions: make(map[string]*model.Session),
-		repo:     repo,
-		persistKey: wsID + "/" + jobID,
+		sessions:   make(map[string]*model.Session),
+		repo:       repo,
+		persistKey: typepath.LocalSessionsDirInWorkspaceJob(wsID, jobID),
 	}
 
 	if err := m.load(); err != nil {

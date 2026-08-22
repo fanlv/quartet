@@ -209,8 +209,8 @@ func TestServiceUpdate_ValidatesWorkdir(t *testing.T) {
 	}
 
 	bad := "evil"
-	if _, err := svc.Update("ws-test", "t2", "d2", bad, "", ""); err == nil {
-		t.Fatalf("Update(bad) unexpectedly succeeded")
+	if _, err := svc.Patch("ws-test", 1, Patch{Workdir: &bad}); err == nil {
+		t.Fatalf("Patch(bad) unexpectedly succeeded")
 	}
 	if svc.workspaces["ws-test"].Workdir == bad {
 		t.Fatalf("bad workdir applied in memory")
@@ -225,6 +225,7 @@ func TestServiceUpdate_PersistsDefaultAgentAndModel(t *testing.T) {
 		workspaces: map[string]*model.Workspace{
 			"ws-test": {
 				ID:           "ws-test",
+				Version:      1,
 				Title:        "test",
 				Workdir:      filepath.Join(root, "workspaces", "ws-test"),
 				DefaultAgent: "old-agent",
@@ -236,7 +237,13 @@ func TestServiceUpdate_PersistsDefaultAgentAndModel(t *testing.T) {
 		repo: repo,
 	}
 
-	got, err := svc.Update("ws-test", "t2", "d2", filepath.Join(root, "workspaces", "ws-test"), "agent-b", "model-b")
+	title, description := "t2", "d2"
+	workdir := filepath.Join(root, "workspaces", "ws-test")
+	agent, modelID := "agent-b", "model-b"
+	got, err := svc.Patch("ws-test", 1, Patch{
+		Title: &title, Description: &description, Workdir: &workdir,
+		DefaultAgent: &agent, DefaultModel: &modelID,
+	})
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -264,6 +271,7 @@ func TestServiceUpdate_ClearsDefaultAgentAndModel(t *testing.T) {
 		workspaces: map[string]*model.Workspace{
 			"ws-test": {
 				ID:           "ws-test",
+				Version:      1,
 				Title:        "test",
 				Workdir:      filepath.Join(root, "workspaces", "ws-test"),
 				DefaultAgent: "old-agent",
@@ -275,7 +283,8 @@ func TestServiceUpdate_ClearsDefaultAgentAndModel(t *testing.T) {
 		repo: repo,
 	}
 
-	got, err := svc.Update("ws-test", "t2", "d2", filepath.Join(root, "workspaces", "ws-test"), "", "")
+	empty := ""
+	got, err := svc.Patch("ws-test", 1, Patch{DefaultAgent: &empty, DefaultModel: &empty})
 	if err != nil {
 		t.Fatalf("Update(clear) error = %v", err)
 	}
@@ -292,6 +301,58 @@ func TestServiceUpdate_ClearsDefaultAgentAndModel(t *testing.T) {
 	}
 	if stored.DefaultAgent != "" || stored.DefaultModel != "" {
 		t.Fatalf("stored prefs = (%q, %q), want empty", stored.DefaultAgent, stored.DefaultModel)
+	}
+}
+
+func TestServiceDefaultsUpdateDoesNotOverwriteConcurrentMetadata(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	repo := &fakeWorkspaceRepo{}
+	svc := &serviceImpl{
+		workspaces: map[string]*model.Workspace{
+			"ws-test": {
+				ID:          "ws-test",
+				Version:     1,
+				Title:       "old title",
+				Description: "old description",
+				Workdir:     filepath.Join(root, "workspaces", "old"),
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			},
+		},
+		repo: repo,
+	}
+	concurrentTitle := "concurrent title"
+	if _, err := svc.Patch("ws-test", 1, Patch{Title: &concurrentTitle}); err != nil {
+		t.Fatalf("concurrent metadata update: %v", err)
+	}
+	agent, modelID := "agent-new", "model-new"
+	if _, err := svc.Patch("ws-test", 2, Patch{DefaultAgent: &agent, DefaultModel: &modelID}); err != nil {
+		t.Fatalf("defaults update: %v", err)
+	}
+
+	got, _ := svc.Get("ws-test")
+	if got.Title != "concurrent title" || got.Description != "old description" ||
+		got.Workdir != filepath.Join(root, "workspaces", "old") {
+		t.Fatalf("defaults update overwrote concurrent metadata: %+v", got)
+	}
+}
+
+func TestServicePatchRejectsStaleVersion(t *testing.T) {
+	now := time.Now()
+	repo := &fakeWorkspaceRepo{}
+	svc := &serviceImpl{
+		workspaces: map[string]*model.Workspace{
+			"ws-test": {ID: "ws-test", Version: 3, Workdir: "/tmp/ws-test", CreatedAt: now, UpdatedAt: now},
+		},
+		repo: repo,
+	}
+	agent := "agent-new"
+	if _, err := svc.Patch("ws-test", 2, Patch{DefaultAgent: &agent}); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("Patch(stale) error = %v, want ErrVersionConflict", err)
+	}
+	if got, _ := svc.Get("ws-test"); got.DefaultAgent != "" || got.Version != 3 {
+		t.Fatalf("stale patch mutated workspace: %+v", got)
 	}
 }
 

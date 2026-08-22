@@ -164,6 +164,26 @@ function toInstallRequestFailure(err: unknown, action: InstallAction): InstallRe
   };
 }
 
+export function clearDeletedAgentLocalPreferences(agentId: string) {
+  if (localStorage.getItem('last_agent_type') === agentId) {
+    localStorage.removeItem('last_agent_type');
+  }
+  const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+    .filter((key): key is string => !!key?.startsWith('workspacePrefs_'));
+  for (const key of keys) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || '{}') as { defaultAgent?: string; defaultModel?: string };
+      if (value.defaultAgent !== agentId) continue;
+      delete value.defaultAgent;
+      delete value.defaultModel;
+      if (Object.keys(value).length === 0) localStorage.removeItem(key);
+      else localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      localStorage.removeItem(key);
+    }
+  }
+}
+
 // AgentInstallSettings manages the full Agent catalog, checks installed
 // component versions and runs catalog-controlled install/upgrade flows. The
 // backend only accepts an agent_id; complete step output, recheck and
@@ -399,23 +419,7 @@ export function AgentInstallSettings() {
       window.dispatchEvent(new CustomEvent('quartet:agent-catalog-changed', {
         detail: { agentId: agent.agent_id },
       }));
-      if (localStorage.getItem('last_agent_type') === agent.agent_id) {
-        localStorage.removeItem('last_agent_type');
-      }
-      for (let index = 0; index < localStorage.length; index += 1) {
-        const key = localStorage.key(index);
-        if (!key?.startsWith('workspacePrefs_')) continue;
-        try {
-          const value = JSON.parse(localStorage.getItem(key) || '{}') as { defaultAgent?: string; defaultModel?: string };
-          if (value.defaultAgent !== agent.agent_id) continue;
-          delete value.defaultAgent;
-          delete value.defaultModel;
-          if (Object.keys(value).length === 0) localStorage.removeItem(key);
-          else localStorage.setItem(key, JSON.stringify(value));
-        } catch {
-          localStorage.removeItem(key);
-        }
-      }
+      clearDeletedAgentLocalPreferences(agent.agent_id);
       await loadData();
       await loadVersions(true);
     } catch (err) {

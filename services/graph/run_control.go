@@ -51,8 +51,8 @@ func (s *serviceImpl) StopRunAndWait(ctx context.Context, runID, reason string) 
 	lifecycle := s.lifecycle(runID)
 	reason = orDefault(reason, "hard stopped by user")
 
-	// Deliberately perform the first persistent read without opMu when there is
-	// no handle. A concurrently-started ResumeRun is allowed to claim its
+	// Deliberately perform the first persistent read without the lifecycle lock
+	// when there is no handle. A concurrently-started ResumeRun may claim its
 	// generation while this read is in flight; the loop below then observes and
 	// joins it instead of incorrectly repairing the run as schedulerless.
 	lifecycle.mu.Lock()
@@ -71,11 +71,9 @@ func (s *serviceImpl) StopRunAndWait(ctx context.Context, runID, reason string) 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		lifecycle.opMu.Lock()
 		lifecycle.mu.Lock()
 		if lifecycle.deleted {
 			lifecycle.mu.Unlock()
-			lifecycle.opMu.Unlock()
 			if observed != nil {
 				return observed, nil
 			}
@@ -83,13 +81,17 @@ func (s *serviceImpl) StopRunAndWait(ctx context.Context, runID, reason string) 
 		}
 		handle = lifecycle.handle
 		if handle != nil {
-			// Normal delivery preserves the explicit stop reason. If the ordinary
-			// queue is full, cancellation is the non-droppable priority path.
-			if err := sendControlToHandle(handle, controlSignal{kind: ctrlHardStop, reason: reason}); err != nil {
-				handle.cancel()
-			}
 			lifecycle.mu.Unlock()
-			lifecycle.opMu.Unlock()
+			// A destructive stop is never dropped when the ordinary control queue
+			// is full. Wait until the scheduler accepts it or completes; unlike
+			// ordinary controls, queue pressure is not exposed as ControlBusy.
+			select {
+			case handle.controlCh <- controlSignal{kind: ctrlHardStop, reason: reason}:
+			case <-handle.done:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 			select {
 			case <-handle.done:
 			case <-ctx.Done():
@@ -104,16 +106,34 @@ func (s *serviceImpl) StopRunAndWait(ctx context.Context, runID, reason string) 
 
 		run, err := s.runRepo.GetRun(ctx, runID)
 		if err != nil {
-			lifecycle.opMu.Unlock()
 			return nil, graphRunLoadError(runID, err)
 		}
 		observed = run
 		if !isSchedulerlessInFlight(run.Status) {
-			lifecycle.opMu.Unlock()
-			return run, nil
+			// Linearize the no-handle return with ResumeRun and DeleteRun. A
+			// generation that registers before this lock is observed and joined; a
+			// generation that registers after it is ordered after this completed
+			// stop operation.
+			lifecycle.mu.Lock()
+			if lifecycle.deleted {
+				lifecycle.mu.Unlock()
+				return observed, nil
+			}
+			if lifecycle.handle != nil {
+				lifecycle.mu.Unlock()
+				continue
+			}
+			latest, latestErr := s.runRepo.GetRun(ctx, runID)
+			lifecycle.mu.Unlock()
+			if latestErr != nil {
+				return nil, graphRunLoadError(runID, latestErr)
+			}
+			if isSchedulerlessInFlight(latest.Status) {
+				continue
+			}
+			return latest, nil
 		}
 		forced, err := s.forceTerminalNoSchedulerLocked(ctx, lifecycle, runID, model.GraphRunStatusStopped, reason, "")
-		lifecycle.opMu.Unlock()
 		if errors.Is(err, ErrGraphRunNotFound) {
 			// Concurrent deletion won before the orphan repair commit. The
 			// destructive postcondition is already stronger than stopped.
@@ -148,25 +168,13 @@ func (s *serviceImpl) ReconcileInterruptedRun(ctx context.Context, runID string)
 // interruption reason (empty clears it).
 func (s *serviceImpl) forceTerminalNoScheduler(ctx context.Context, runID string, target model.GraphRunStatus, reason, progressErr string) (*model.GraphRun, error) {
 	lifecycle := s.lifecycle(runID)
-	lifecycle.opMu.Lock()
-	defer lifecycle.opMu.Unlock()
 	return s.forceTerminalNoSchedulerLocked(ctx, lifecycle, runID, target, reason, progressErr)
 }
 
-// forceTerminalNoSchedulerLocked requires lifecycle.opMu. It performs every
-// read and write in one lifecycle transaction so DeleteRun cannot remove the
-// run between the status check and the terminal SaveRun.
+// forceTerminalNoSchedulerLocked takes the lifecycle lock for its commit. It
+// revalidates the persisted status under that lock so DeleteRun or ResumeRun
+// cannot interleave with the terminal writes.
 func (s *serviceImpl) forceTerminalNoSchedulerLocked(ctx context.Context, lifecycle *runLifecycle, runID string, target model.GraphRunStatus, reason, progressErr string) (*model.GraphRun, error) {
-	lifecycle.mu.Lock()
-	deleted := lifecycle.deleted
-	handle := lifecycle.handle
-	lifecycle.mu.Unlock()
-	if deleted {
-		return nil, ErrGraphRunNotFound
-	}
-	if handle != nil {
-		return nil, nil
-	}
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
 		return nil, graphRunLoadError(runID, err)
@@ -195,12 +203,23 @@ func (s *serviceImpl) forceTerminalNoSchedulerLocked(ctx context.Context, lifecy
 	if run.Progress != nil {
 		run.Progress.LastError = progressErr
 	}
+
+	// The loads and transformation above need not exclude DeleteRun. Only the
+	// commit must be linearized. Recheck both the tombstone and handle while
+	// holding the lifecycle lock, then keep it through every write.
 	lifecycle.mu.Lock()
 	defer lifecycle.mu.Unlock()
 	if lifecycle.deleted {
 		return nil, ErrGraphRunNotFound
 	}
 	if lifecycle.handle != nil {
+		return nil, nil
+	}
+	latest, err := s.runRepo.GetRun(ctx, runID)
+	if err != nil {
+		return nil, graphRunLoadError(runID, err)
+	}
+	if !isSchedulerlessInFlight(latest.Status) {
 		return nil, nil
 	}
 	if instancesChanged {
@@ -252,12 +271,10 @@ func (s *serviceImpl) CancelStopRun(ctx context.Context, runID, reason string) (
 // scheduler goroutine.
 func (s *serviceImpl) signalAndSnapshot(ctx context.Context, runID string, sig controlSignal) (*model.GraphRun, error) {
 	lifecycle := s.lifecycle(runID)
-	lifecycle.opMu.Lock()
-	defer lifecycle.opMu.Unlock()
 	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
 	deleted := lifecycle.deleted
 	handle := lifecycle.handle
-	lifecycle.mu.Unlock()
 	if deleted {
 		return nil, ErrGraphRunNotFound
 	}
@@ -314,8 +331,6 @@ func (s *serviceImpl) ResumeRun(ctx context.Context, runID string, runner Runner
 		return nil, ErrGraphRunnerMissing
 	}
 	lifecycle := s.lifecycle(runID)
-	lifecycle.opMu.Lock()
-	defer lifecycle.opMu.Unlock()
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
 		return nil, graphRunLoadError(runID, err)
@@ -339,8 +354,6 @@ func (s *serviceImpl) ContinueRun(ctx context.Context, runID string, runner Runn
 		return nil, ErrGraphRunnerMissing
 	}
 	lifecycle := s.lifecycle(runID)
-	lifecycle.opMu.Lock()
-	defer lifecycle.opMu.Unlock()
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
 		return nil, graphRunLoadError(runID, err)
@@ -358,41 +371,48 @@ func (s *serviceImpl) ContinueRun(ctx context.Context, runID string, runner Runn
 // responsible for status validation; `run` is the already-loaded run.
 func (s *serviceImpl) relaunchResumableRun(ctx context.Context, run *model.GraphRun, runner Runner, jobs JobStateSink) (*model.GraphRun, error) {
 	lifecycle := s.lifecycle(run.ID)
-	lifecycle.opMu.Lock()
-	defer lifecycle.opMu.Unlock()
 	return s.relaunchResumableRunLocked(ctx, lifecycle, run, runner, jobs)
 }
 
 func (s *serviceImpl) relaunchResumableRunLocked(ctx context.Context, lifecycle *runLifecycle, run *model.GraphRun, runner Runner, jobs JobStateSink) (*model.GraphRun, error) {
 	runID := run.ID
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	lifecycle.mu.Lock()
-	if lifecycle.deleted {
+	var handle *runControl
+	var runCtx context.Context
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		lifecycle.mu.Lock()
+		if lifecycle.deleted {
+			lifecycle.mu.Unlock()
+			return nil, ErrGraphRunNotFound
+		}
+		if existing := lifecycle.handle; existing != nil {
+			lifecycle.mu.Unlock()
+			select {
+			case <-existing.done:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		// Re-read after winning the lifecycle slot. A concurrent resume may have
+		// completed while this caller waited, invalidating its earlier snapshot.
+		latest, err := s.runRepo.GetRun(ctx, runID)
+		if err != nil {
+			lifecycle.mu.Unlock()
+			return nil, graphRunLoadError(runID, err)
+		}
+		if !isResumableStatus(latest.Status) {
+			lifecycle.mu.Unlock()
+			return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotResumable, latest.Status)
+		}
+		handle, runCtx = newRunControl()
+		lifecycle.handle = handle
 		lifecycle.mu.Unlock()
-		return nil, ErrGraphRunNotFound
+		run = latest
+		break
 	}
-	if lifecycle.handle != nil {
-		lifecycle.mu.Unlock()
-		return nil, fmt.Errorf("%w: scheduler generation is active", ErrGraphRunNotResumable)
-	}
-	// The snapshot supplied by a direct/internal caller may predate another
-	// generation. Re-read under opMu so only one concurrent resume can validate
-	// and claim the current persisted terminal state.
-	latest, err := s.runRepo.GetRun(ctx, runID)
-	if err != nil {
-		lifecycle.mu.Unlock()
-		return nil, graphRunLoadError(runID, err)
-	}
-	if !isResumableStatus(latest.Status) {
-		lifecycle.mu.Unlock()
-		return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotResumable, latest.Status)
-	}
-	handle, runCtx := newRunControl()
-	lifecycle.handle = handle
-	lifecycle.mu.Unlock()
-	run = latest
 	launched := false
 	defer func() {
 		if !launched {
@@ -770,18 +790,14 @@ func bindingFromGraphSnapshot(snapshot model.GraphAgentSnapshot) *model.AgentRun
 // DeleteRun deletes a non-in-flight GraphRun and clears the bound Job linkage.
 func (s *serviceImpl) DeleteRun(ctx context.Context, runID string, jobs JobStateSink) error {
 	lifecycle := s.lifecycle(runID)
-	lifecycle.opMu.Lock()
-	defer lifecycle.opMu.Unlock()
 	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
 	if lifecycle.deleted {
-		lifecycle.mu.Unlock()
 		return ErrGraphRunNotFound
 	}
 	if lifecycle.handle != nil {
-		lifecycle.mu.Unlock()
 		return ErrGraphRunInFlight
 	}
-	lifecycle.mu.Unlock()
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
 		return graphRunLoadError(runID, err)
@@ -789,24 +805,24 @@ func (s *serviceImpl) DeleteRun(ctx context.Context, runID string, jobs JobState
 	if isInFlightStatus(run.Status) {
 		return fmt.Errorf("%w: status=%s", ErrGraphRunInFlight, run.Status)
 	}
-	lifecycle.mu.Lock()
+	// Detach the Job first. This is the only fallible cross-service step; doing
+	// it before graph artifacts are removed keeps a failed unlink retryable and
+	// avoids leaving a Job permanently pointing at an already-missing run. The
+	// lifecycle lock prevents a resume/static writer from racing this ordering.
+	if jobs != nil && run.JobID != "" {
+		if err := jobs.ClearGraphRunLinkage(ctx, run.JobID, runID); err != nil {
+			return fmt.Errorf("clear job graph-run linkage: %w", err)
+		}
+	}
 	lifecycle.deleted = true
-	lifecycle.mu.Unlock()
 	if err := s.runRepo.DeleteRun(ctx, runID); err != nil {
-		lifecycle.mu.Lock()
 		lifecycle.deleted = false
-		lifecycle.mu.Unlock()
 		return err
 	}
 	// Free the in-memory event buffer (if any reader is still attached, Close
 	// wakes it so its SSE handler exits). The run's status is already terminal
 	// (in-flight runs are rejected above), so no producer is publishing.
 	s.removeBuffer(runID)
-	if jobs != nil && run.JobID != "" {
-		if err := jobs.ClearGraphRunLinkage(ctx, run.JobID, runID); err != nil {
-			logger.Warnf(ctx, "[graph] clear job graph-run linkage failed: job=%s run=%s err=%v", run.JobID, runID, err)
-		}
-	}
 	return nil
 }
 

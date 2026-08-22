@@ -110,6 +110,12 @@ func cloneCommandEvent(event *model.CommandSystemMessageEvent) *model.CommandSys
 		return nil
 	}
 	copyEvent := *event
+	if event.External != nil {
+		copyEvent.External = make(map[string]any, len(event.External))
+		for key, value := range event.External {
+			copyEvent.External[key] = value
+		}
+	}
 	if event.Action != nil {
 		copyAction := *event.Action
 		copyEvent.Action = &copyAction

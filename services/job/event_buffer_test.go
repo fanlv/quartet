@@ -68,7 +68,21 @@ func TestBuffer_SubscribeFromTailDeliversNewEvents(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	got := drainReader(t, ctx, r, 2)
+	// Reader intentionally provides at-least-once delivery until the caller
+	// acknowledges a sequence. The two publishes can straddle two Read calls,
+	// so mirror the SSE writer and acknowledge each delivered batch; otherwise
+	// a second Read is allowed to return seq=1 again.
+	got := make([]readEntry, 0, 2)
+	for len(got) < 2 {
+		batch, ok := r.Read(ctx, 2-len(got))
+		if !ok {
+			t.Fatalf("reader returned ok=false before 2 events (got %d)", len(got))
+		}
+		got = append(got, batch...)
+		for _, entry := range batch {
+			r.Ack(entry.Seq)
+		}
+	}
 	if len(got) != 2 {
 		t.Fatalf("expected 2 events, got %d", len(got))
 	}

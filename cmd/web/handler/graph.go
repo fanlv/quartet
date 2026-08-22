@@ -239,7 +239,9 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 			if mErr := h.jobService.MarkDeleted(req.JobID); mErr != nil {
 				logger.Warnf(ctx, "[graph] rollback mark-deleted failed: jobId=%s err=%v", req.JobID, mErr)
 			}
-			h.jobService.Delete(req.JobID)
+			if dErr := h.jobService.Delete(req.JobID); dErr != nil {
+				logger.Warnf(ctx, "[graph] rollback delete failed: jobId=%s err=%v", req.JobID, dErr)
+			}
 			logger.Infof(ctx, "[graph] rolled back empty graph job after StartRun failure: jobId=%s err=%v", req.JobID, err)
 		}
 		if verrs, ok := validationErrors(err); ok {

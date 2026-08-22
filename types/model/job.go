@@ -411,6 +411,12 @@ func (j *Job) DeepCopy() *Job {
 			copyReceipt := receipt
 			if receipt.Event != nil {
 				copyEvent := *receipt.Event
+				if receipt.Event.External != nil {
+					copyEvent.External = make(map[string]any, len(receipt.Event.External))
+					for key, value := range receipt.Event.External {
+						copyEvent.External[key] = value
+					}
+				}
 				if receipt.Event.Action != nil {
 					copyAction := *receipt.Event.Action
 					copyEvent.Action = &copyAction

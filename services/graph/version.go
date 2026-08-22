@@ -2,7 +2,6 @@ package graph
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -55,20 +54,64 @@ func (s *serviceImpl) UpdateRunVersion(ctx context.Context, runID string, req *m
 	if req == nil {
 		return nil, fmt.Errorf("request is required")
 	}
-	run, err := s.runRepo.GetRun(ctx, runID)
-	if err != nil {
-		return nil, graphRunLoadError(runID, err)
-	}
-	if isInFlightStatus(run.Status) {
-		return s.updateRunVersionInFlight(ctx, runID, req, src)
-	}
-	if !isStaticEditableStatus(run.Status) {
-		return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotEditable, run.Status)
+	lifecycle := s.lifecycle(runID)
+	var run *model.GraphRun
+	for {
+		lifecycle.mu.Lock()
+		if lifecycle.deleted {
+			lifecycle.mu.Unlock()
+			return nil, ErrGraphRunNotFound
+		}
+		var err error
+		run, err = s.runRepo.GetRun(ctx, runID)
+		if err != nil {
+			lifecycle.mu.Unlock()
+			return nil, graphRunLoadError(runID, err)
+		}
+		if isInFlightStatus(run.Status) {
+			handle := lifecycle.handle
+			return s.updateRunVersionInFlightLocked(ctx, lifecycle, handle, run, req, src)
+		}
+		if !isStaticEditableStatus(run.Status) {
+			lifecycle.mu.Unlock()
+			return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotEditable, run.Status)
+		}
+		if handle := lifecycle.handle; handle != nil {
+			lifecycle.mu.Unlock()
+			select {
+			case <-handle.done:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		lifecycle.mu.Unlock()
+		break
 	}
 
 	oldCfg := effectiveConfig(run)
-	updated, err := s.appendRunVersion(ctx, run, req, src, nil)
+	baseVersion := run.CurrentVersion
+	prepared, err := s.prepareRunVersion(ctx, run, req, src, nil)
 	if err != nil {
+		return nil, err
+	}
+
+	// Snapshot resolution may call a slow external runtime. Re-enter the
+	// lifecycle only for the commit, then re-read and reject if deletion, resume,
+	// or any other version update changed the snapshot we prepared from.
+	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
+	if lifecycle.deleted {
+		return nil, ErrGraphRunNotFound
+	}
+	latest, err := s.runRepo.GetRun(ctx, runID)
+	if err != nil {
+		return nil, graphRunLoadError(runID, err)
+	}
+	if lifecycle.handle != nil || !isStaticEditableStatus(latest.Status) || latest.CurrentVersion != baseVersion || !graphConfigNoOpEqual(effectiveConfig(latest), oldCfg) {
+		return nil, fmt.Errorf("%w: run changed while preparing version update", ErrGraphRunNotEditable)
+	}
+	if err := s.runRepo.SaveRun(ctx, prepared); err != nil {
 		return nil, err
 	}
 	// A mid-run FixedCount change on a stopped run takes effect when the
@@ -76,10 +119,10 @@ func (s *serviceImpl) UpdateRunVersion(ctx context.Context, runID string, req *m
 	// the node from the new config), but the persisted progress denominator was
 	// seeded with the old count. Correct it here so the bar stays accurate; the
 	// live (in-flight) path does the same inside applyVersionUpdate.
-	if err := s.adjustStaticLoopDenominator(ctx, updated, oldCfg); err != nil {
+	if err := s.adjustStaticLoopDenominator(ctx, prepared, oldCfg); err != nil {
 		return nil, err
 	}
-	return updated, nil
+	return prepared, nil
 }
 
 // adjustStaticLoopDenominator corrects the persisted progress denominator after
@@ -128,7 +171,14 @@ func isStaticEditableStatus(st model.GraphRunStatus) bool {
 	}
 }
 
-func (s *serviceImpl) updateRunVersionInFlight(ctx context.Context, runID string, req *model.UpdateGraphRunVersionRequest, src Runner) (*model.GraphRun, error) {
+// updateRunVersionInFlightLocked enters with lifecycle.mu held. It releases the
+// lock immediately after enqueueing so a barrier can prove the request is in the
+// scheduler queue without holding the lifecycle lock while awaiting a response.
+func (s *serviceImpl) updateRunVersionInFlightLocked(ctx context.Context, lifecycle *runLifecycle, handle *runControl, run *model.GraphRun, req *model.UpdateGraphRunVersionRequest, src Runner) (*model.GraphRun, error) {
+	if handle == nil {
+		lifecycle.mu.Unlock()
+		return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotEditable, run.Status)
+	}
 	resp := make(chan versionUpdateResult, 1)
 	sig := controlSignal{
 		kind:          ctrlUpdateVersion,
@@ -136,25 +186,40 @@ func (s *serviceImpl) updateRunVersionInFlight(ctx context.Context, runID string
 		versionRunner: src,
 		versionResp:   resp,
 	}
-	if err := s.sendControl(runID, sig); err != nil {
-		if errors.Is(err, ErrGraphRunNotRunning) {
-			run, getErr := s.runRepo.GetRun(ctx, runID)
-			if getErr != nil {
-				return nil, graphRunLoadError(runID, getErr)
-			}
-			return nil, fmt.Errorf("%w: status=%s", ErrGraphRunNotEditable, run.Status)
-		}
+	if err := sendControlToHandle(handle, sig); err != nil {
+		lifecycle.mu.Unlock()
 		return nil, err
 	}
+	lifecycle.mu.Unlock()
 	select {
 	case result := <-resp:
 		return result.run, result.err
+	case <-handle.done:
+		// A destructive stop may retire the scheduler before it reaches this
+		// queued update. Do not strand the caller until its request deadline.
+		select {
+		case result := <-resp:
+			return result.run, result.err
+		default:
+			return nil, ErrGraphRunNotEditable
+		}
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
 func (s *serviceImpl) appendRunVersion(ctx context.Context, run *model.GraphRun, req *model.UpdateGraphRunVersionRequest, src Runner, instances map[string]model.GraphInstanceState) (*model.GraphRun, error) {
+	updated, err := s.prepareRunVersion(ctx, run, req, src, instances)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.runRepo.SaveRun(ctx, updated); err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func (s *serviceImpl) prepareRunVersion(ctx context.Context, run *model.GraphRun, req *model.UpdateGraphRunVersionRequest, src Runner, instances map[string]model.GraphInstanceState) (*model.GraphRun, error) {
 	if req == nil {
 		return nil, fmt.Errorf("request is required")
 	}
@@ -242,9 +307,6 @@ func (s *serviceImpl) appendRunVersion(ctx context.Context, run *model.GraphRun,
 	})
 	run.CurrentVersion = newVersion
 	run.UpdatedAt = now
-	if err := s.runRepo.SaveRun(ctx, run); err != nil {
-		return nil, err
-	}
 	return run, nil
 }
 

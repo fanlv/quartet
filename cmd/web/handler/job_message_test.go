@@ -31,6 +31,9 @@ type fakeJobService struct {
 	sendCalls       int
 	startCalls      int
 	commandCalls    int
+	prepareCalls    int
+	publishCalls    int
+	commandErr      error
 }
 
 func (f *fakeJobService) UpdateTitle(jobID string, title string) error {
@@ -68,14 +71,18 @@ func (f *fakeJobService) LookupMessage(_ string, opts *job.SendMessageOptions) (
 
 func (f *fakeJobService) SendMessage(_ context.Context, _ string, runner job.JobRunner, opts *job.SendMessageOptions) (job.SendMessageResult, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.sendCalls++
 	if receipt, ok := f.receipts[opts.ClientMessageID]; ok {
 		if f.receiptPayloads[opts.ClientMessageID] != firstMessageContent(opts) {
+			f.mu.Unlock()
 			if prepared, ok := runner.(job.PreparedExecutionReleaser); ok {
 				prepared.ReleasePreparedExecution()
 			}
 			return job.SendMessageResult{}, job.ErrClientMessageIDConflict
+		}
+		f.mu.Unlock()
+		if prepared, ok := runner.(job.PreparedExecutionReleaser); ok {
+			prepared.ReleasePreparedExecution()
 		}
 		return job.SendMessageResult{Disposition: job.SendMessageDuplicate, Receipt: receipt}, nil
 	}
@@ -92,6 +99,15 @@ func (f *fakeJobService) SendMessage(_ context.Context, _ string, runner job.Job
 	f.receipts[opts.ClientMessageID] = receipt
 	f.receiptPayloads[opts.ClientMessageID] = firstMessageContent(opts)
 	f.startCalls++
+	f.mu.Unlock()
+	if preparer, ok := runner.(job.AcceptedMessagePreparer); ok {
+		if err := preparer.PrepareAcceptedMessage(context.Background(), f.job.ID); err != nil {
+			return job.SendMessageResult{}, err
+		}
+		f.mu.Lock()
+		f.prepareCalls++
+		f.mu.Unlock()
+	}
 	return job.SendMessageResult{Disposition: job.SendMessageStarted, Receipt: receipt}, nil
 }
 
@@ -113,6 +129,9 @@ func (f *fakeJobService) ExecuteCommand(_ context.Context, _ string, clientMessa
 	}
 	f.commandCalls++
 	event := execute()
+	if f.commandErr != nil {
+		return nil, false, f.commandErr
+	}
 	if f.commands == nil {
 		f.commands = make(map[string]*model.CommandSystemMessageEvent)
 		f.commandPayloads = make(map[string]string)
@@ -123,7 +142,11 @@ func (f *fakeJobService) ExecuteCommand(_ context.Context, _ string, clientMessa
 	return event, false, nil
 }
 
-func (f *fakeJobService) PublishTransient(string, any) {}
+func (f *fakeJobService) PublishTransient(string, any) {
+	f.mu.Lock()
+	f.publishCalls++
+	f.mu.Unlock()
+}
 
 // A message sent to a Running job is rejected by SendMessage with
 // ErrJobRunning (409). prepareJobSend must reject it UP FRONT: the pre-send
@@ -261,10 +284,15 @@ func TestJobMessage_CommandRetryReturnsStoredResultWithoutRedispatch(t *testing.
 	fjs := &fakeJobService{
 		job: &model.Job{ID: "job-command", WorkspaceID: "ws-1", Title: "existing title"},
 	}
-	h := &Handler{jobService: fjs}
+	h := &Handler{
+		jobService: fjs,
+		workspaceService: &createJobWorkspaceService{workspace: &model.Workspace{
+			ID: "ws-1", Workdir: t.TempDir(),
+		}},
+	}
 	engine := route.NewEngine(config.NewOptions(nil))
 	engine.POST("/api/v1/job/:jobId/message", h.JobMessage)
-	body := []byte(`{"clientMessageId":"command-1","messages":[{"role":"user","content":"/help"}]}`)
+	body := []byte(`{"clientMessageId":"command-1","messages":[{"role":"user","content":"/new"}]}`)
 
 	perform := func() map[string]any {
 		recorder := ut.PerformRequest(engine, http.MethodPost, "/api/v1/job/job-command/message",
@@ -286,10 +314,41 @@ func TestJobMessage_CommandRetryReturnsStoredResultWithoutRedispatch(t *testing.
 	if first["status"] != "command_dispatched" || second["status"] != "command_duplicate" {
 		t.Fatalf("statuses=(%v,%v), want command_dispatched/command_duplicate", first["status"], second["status"])
 	}
+	firstEvent := first["event"].(map[string]any)
+	secondEvent := second["event"].(map[string]any)
+	firstAction := firstEvent["action"].(map[string]any)
+	secondAction := secondEvent["action"].(map[string]any)
+	if firstAction["clientMessageId"] == "" || firstAction["clientMessageId"] != secondAction["clientMessageId"] {
+		t.Fatalf("command action keys=(%v,%v), want same non-empty key", firstAction["clientMessageId"], secondAction["clientMessageId"])
+	}
 	fjs.mu.Lock()
 	defer fjs.mu.Unlock()
 	if fjs.commandCalls != 1 {
 		t.Fatalf("command executions=%d, want 1", fjs.commandCalls)
+	}
+	if fjs.publishCalls != 1 {
+		t.Fatalf("transient publishes=%d, want first dispatch only", fjs.publishCalls)
+	}
+}
+
+func TestJobMessage_CommandReceiptFailureDoesNotPublishAction(t *testing.T) {
+	fjs := &fakeJobService{
+		job:        &model.Job{ID: "job-command-fail", WorkspaceID: "ws-1", Title: "existing title"},
+		commandErr: errors.New("persist command receipt failed"),
+	}
+	h := &Handler{jobService: fjs}
+	engine := route.NewEngine(config.NewOptions(nil))
+	engine.POST("/api/v1/job/:jobId/message", h.JobMessage)
+	body := []byte(`{"clientMessageId":"command-fail","messages":[{"role":"user","content":"/help"}]}`)
+	recorder := ut.PerformRequest(engine, http.MethodPost, "/api/v1/job/job-command-fail/message",
+		&ut.Body{Body: bytes.NewReader(body), Len: len(body)}, ut.Header{Key: "Content-Type", Value: "application/json"})
+	if recorder.Result().StatusCode() != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s, want 500", recorder.Result().StatusCode(), recorder.Result().Body())
+	}
+	fjs.mu.Lock()
+	defer fjs.mu.Unlock()
+	if fjs.commandCalls != 1 || fjs.publishCalls != 0 {
+		t.Fatalf("commandCalls/publishCalls=%d/%d, want 1/0", fjs.commandCalls, fjs.publishCalls)
 	}
 }
 
@@ -321,14 +380,19 @@ func TestJobMessage_ConcurrentDifferentPayloadLoserHasNoPreClaimSideEffects(t *t
 	if err != nil {
 		t.Fatalf("prepare loser: %v", err)
 	}
-	if n := fjs.titleCallCount(); n != 0 {
-		t.Fatalf("losing prepare changed title before claim: %d calls", n)
+	if n := fjs.titleCallCount(); n != 1 {
+		t.Fatalf("only winner should change title before loser claim: %d calls", n)
 	}
 	_, err = fjs.SendMessage(context.Background(), fjs.job.ID, loserRunner, loserOpts)
 	if !errors.Is(err, job.ErrClientMessageIDConflict) {
 		t.Fatalf("loser error=%v, want clientMessageId conflict", err)
 	}
-	if n := fjs.titleCallCount(); n != 0 {
+	if n := fjs.titleCallCount(); n != 1 {
 		t.Fatalf("losing conflict changed title: %d calls", n)
+	}
+	fjs.mu.Lock()
+	defer fjs.mu.Unlock()
+	if fjs.prepareCalls != 1 {
+		t.Fatalf("accepted preparation calls=%d, want winner only", fjs.prepareCalls)
 	}
 }

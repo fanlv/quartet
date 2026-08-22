@@ -10,10 +10,8 @@ import (
 
 func TestPersistedJobRoundTripKeepsPrivateMessageReceipts(t *testing.T) {
 	original := &model.Job{
-		ID:                      "job-1",
-		ActiveClientMessageID:   "client-1",
-		CreationClientMessageID: "create-client-1",
-		CreationPayloadHash:     "create-hash-1",
+		ID:                    "job-1",
+		ActiveClientMessageID: "client-1",
 		ClientMessageReceipts: map[string]model.ClientMessageReceipt{
 			"client-1": {
 				State:       model.ClientMessageStateProcessing,
@@ -31,6 +29,8 @@ func TestPersistedJobRoundTripKeepsPrivateMessageReceipts(t *testing.T) {
 				},
 			},
 		},
+		CreationClientMessageID: "creation-1",
+		CreationPayloadHash:     "creation-hash-1",
 	}
 
 	data, err := marshalPersistedJob(original)
@@ -55,6 +55,9 @@ func TestPersistedJobRoundTripKeepsPrivateMessageReceipts(t *testing.T) {
 	}
 	if got := loaded.CommandReceipts["command-1"]; got.Event == nil || got.Event.Command != "/new" || got.Event.Action == nil || got.Event.Action.WorkspaceID != "ws-1" {
 		t.Fatalf("command receipt did not round-trip: %#v", got)
+	}
+	if loaded.CreationClientMessageID != "creation-1" || loaded.CreationPayloadHash != "creation-hash-1" {
+		t.Fatalf("creation receipt did not round-trip: id=%q hash=%q", loaded.CreationClientMessageID, loaded.CreationPayloadHash)
 	}
 }
 

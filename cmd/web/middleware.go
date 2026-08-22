@@ -1,20 +1,110 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/common/compress"
 	"github.com/fanlv/quartet/cmd/web/handler"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/consts"
 )
+
+const minJSONGzipBytes = 1024
+
+// jsonGzipMiddleware compresses buffered JSON responses when the client
+// advertises gzip support. Streaming responses (especially SSE) and file
+// downloads are deliberately untouched: only application/json bodies pass the
+// content-type gate, and a body stream is always skipped so flushing semantics
+// cannot change.
+func jsonGzipMiddleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		accept := strings.ToLower(string(c.Request.Header.Peek("Accept")))
+		if strings.Contains(accept, "text/event-stream") ||
+			!acceptsGzip(string(c.Request.Header.Peek("Accept-Encoding"))) {
+			c.Next(ctx)
+			return
+		}
+
+		c.Next(ctx)
+
+		if c.Response.IsBodyStream() || len(c.Response.Header.ContentEncoding()) > 0 {
+			return
+		}
+		body := c.Response.Body()
+		if len(body) < minJSONGzipBytes {
+			return
+		}
+		contentType := strings.ToLower(string(c.Response.Header.ContentType()))
+		if strings.HasPrefix(contentType, "text/event-stream") {
+			return
+		}
+		if !strings.HasPrefix(contentType, "application/json") && !strings.Contains(contentType, "+json") {
+			return
+		}
+
+		gzipped := compress.AppendGzipBytesLevel(nil, body, compress.CompressDefaultCompression)
+		c.Response.Header.SetContentEncoding("gzip")
+		appendVary(&c.Response.Header, "Accept-Encoding")
+		c.Response.SetBodyStream(bytes.NewReader(gzipped), len(gzipped))
+	}
+}
+
+func acceptsGzip(value string) bool {
+	wildcardQuality := -1.0
+	for _, part := range strings.Split(value, ",") {
+		fields := strings.Split(part, ";")
+		encoding := strings.TrimSpace(fields[0])
+		if !strings.EqualFold(encoding, "gzip") && encoding != "*" {
+			continue
+		}
+		quality := 1.0
+		for _, param := range fields[1:] {
+			keyValue := strings.SplitN(strings.TrimSpace(param), "=", 2)
+			if len(keyValue) != 2 || !strings.EqualFold(strings.TrimSpace(keyValue[0]), "q") {
+				continue
+			}
+			parsed, err := strconv.ParseFloat(strings.TrimSpace(keyValue[1]), 64)
+			if err != nil {
+				quality = 0
+			} else {
+				quality = parsed
+			}
+			break
+		}
+		if strings.EqualFold(encoding, "gzip") {
+			return quality > 0
+		}
+		wildcardQuality = quality
+	}
+	return wildcardQuality > 0
+}
+
+func appendVary(header interface {
+	Get(string) string
+	Set(string, string)
+}, value string) {
+	existing := header.Get("Vary")
+	for _, item := range strings.Split(existing, ",") {
+		if strings.EqualFold(strings.TrimSpace(item), value) {
+			return
+		}
+	}
+	if existing == "" {
+		header.Set("Vary", value)
+		return
+	}
+	header.Set("Vary", existing+", "+value)
+}
 
 func agentAuthMiddleware() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {

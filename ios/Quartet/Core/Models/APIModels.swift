@@ -10,6 +10,7 @@ struct HealthResponse: Decodable, Equatable, Sendable {
 
 struct WorkspaceSummary: Codable, Identifiable, Hashable, Sendable {
     let id: String
+    var version: UInt64
     var title: String
     var description: String
     var workdir: String
@@ -31,9 +32,7 @@ struct WorkspacesResponse: Decodable, Sendable {
 }
 
 struct UpdateWorkspaceRequest: Encodable, Sendable {
-    let title: String
-    let description: String
-    let workdir: String
+    let expectedVersion: UInt64
     let defaultAgent: String
     let defaultModel: String
 }
@@ -250,9 +249,11 @@ struct JobObservationEvent: Decodable, Sendable {
     let eventId: String
     let job: JobSummary
     let previousStatus: String?
+    let graphRunId: String?
     let graphStatus: String?
     let previousGraphStatus: String?
     let graphSessionId: String?
+    let runOutcome: String?
     let occurredAt: Int64
 }
 
@@ -520,6 +521,7 @@ struct EventExternal: Decodable, Sendable {
 struct CreateJobResponse: Decodable, Sendable {
     let jobId: String
     let createdAt: Int64
+    let status: String?
 }
 
 struct CreateJobRequest: Encodable, Sendable {
@@ -530,6 +532,25 @@ struct CreateJobRequest: Encodable, Sendable {
     let mode = "interactive"
     let workdir: String?
     let workspaceId: String
+    let clientMessageId: String?
+
+    init(
+        modelId: String,
+        agentType: String,
+        acpMode: String?,
+        acpThoughtLevel: String?,
+        workdir: String?,
+        workspaceId: String,
+        clientMessageId: String? = nil
+    ) {
+        self.modelId = modelId
+        self.agentType = agentType
+        self.acpMode = acpMode
+        self.acpThoughtLevel = acpThoughtLevel
+        self.workdir = workdir
+        self.workspaceId = workspaceId
+        self.clientMessageId = clientMessageId
+    }
 }
 
 struct SendMessageRequest: Encodable, Sendable {

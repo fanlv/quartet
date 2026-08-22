@@ -134,7 +134,7 @@ func TestJobCreateHTTPRepeatedCommandActionReturnsSameJobID(t *testing.T) {
 	engine := route.NewEngine(config.NewOptions(nil))
 	engine.POST("/api/v1/job/create", h.JobCreate)
 	req := model.CreateJobRequest{
-		ClientMessageID: "command-client-http",
+		ClientMessageID: commandActionClientMessageID("source-job", "command-client-http"),
 		AgentType:       "claude",
 		ModelID:         "sonnet",
 		Mode:            model.JobModeInteractive,

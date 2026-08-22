@@ -24,6 +24,10 @@ type JobRepo interface {
 	Load(jobID string) (*model.Job, error)
 	ListIDs() ([]string, error)
 	LoadAll() ([]*model.Job, error)
+	// SweepDeleted removes complete on-disk job directories whose durable job
+	// metadata is marked Deleted. It is the startup recovery half of the
+	// two-phase Job deletion protocol.
+	SweepDeleted() error
 }
 
 type persistedJob struct {
@@ -114,6 +118,10 @@ func (r *jobRepo) Load(jobID string) (*model.Job, error) {
 	if err := validateJobID(jobID); err != nil {
 		return nil, err
 	}
+	return r.loadUnlocked(jobID)
+}
+
+func (r *jobRepo) loadUnlocked(jobID string) (*model.Job, error) {
 	jobDir := path.LocalJobDirInWorkspace(r.wsID, jobID)
 	metaPath := path.JobMetaFilePath(jobDir)
 	result, err := r.sandbox.FileRead(&fsmodel.FileReadRequest{
@@ -203,4 +211,40 @@ func (r *jobRepo) LoadAll() ([]*model.Job, error) {
 	}
 
 	return jobs, nil
+}
+
+// SweepDeleted removes residue left when a process stopped after persisting a
+// Job's Deleted tombstone but before deleting the whole job directory. Cleanup
+// is best-effort per Job: an unreadable tombstone or failed directory removal
+// is logged and left intact so the next service startup can retry it. LoadAll
+// independently filters Deleted jobs, so failed cleanup never resurrects one.
+func (r *jobRepo) SweepDeleted() error {
+	jobIDs, err := r.ListIDs()
+	if err != nil {
+		return err
+	}
+
+	for _, jobID := range jobIDs {
+		mu := r.lockFor(jobID)
+		mu.Lock()
+
+		job, loadErr := r.loadUnlocked(jobID)
+		if loadErr != nil {
+			mu.Unlock()
+			logger.Error("[jobRepo] sweep load %s failed: %v", jobID, loadErr)
+			continue
+		}
+		if !job.Deleted {
+			mu.Unlock()
+			continue
+		}
+
+		jobDir := path.LocalJobDirInWorkspace(r.wsID, jobID)
+		removeErr := r.sandbox.FileDelete(&fsmodel.FileDeleteRequest{Path: jobDir})
+		mu.Unlock()
+		if removeErr != nil {
+			logger.Error("[jobRepo] sweep cleanup %s failed: %v", jobID, removeErr)
+		}
+	}
+	return nil
 }

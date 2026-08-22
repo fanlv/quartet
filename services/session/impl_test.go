@@ -14,6 +14,7 @@ type barrierSessionRepo struct {
 
 	persisted  map[string]model.Session
 	beforeSave func(model.Session) error
+	saveCount  int
 }
 
 func (r *barrierSessionRepo) Save(sessionID string, meta *model.Session) error {
@@ -25,6 +26,7 @@ func (r *barrierSessionRepo) Save(sessionID string, meta *model.Session) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.saveCount++
 	if r.persisted == nil {
 		r.persisted = make(map[string]model.Session)
 	}
@@ -70,6 +72,12 @@ func (r *barrierSessionRepo) persistedSession(sessionID string) (model.Session, 
 	return meta, ok
 }
 
+func (r *barrierSessionRepo) saves() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.saveCount
+}
+
 func TestDeleteWaitsForInFlightMetadataSave(t *testing.T) {
 	const sessionID = "session-race"
 	updateSaveStarted := make(chan struct{})
@@ -98,7 +106,8 @@ func TestDeleteWaitsForInFlightMetadataSave(t *testing.T) {
 		sessions: map[string]*model.Session{
 			sessionID: {ID: sessionID, Title: "before", ModelID: "model-before"},
 		},
-		repo: repo,
+		repo:       repo,
+		persistKey: t.TempDir(),
 	}
 
 	updateDone := make(chan error, 1)
@@ -109,7 +118,9 @@ func TestDeleteWaitsForInFlightMetadataSave(t *testing.T) {
 	deleteDone := make(chan struct{})
 	go func() {
 		close(deleteCallStarted)
-		svc.Delete(sessionID)
+		if err := svc.Delete(sessionID); err != nil {
+			t.Errorf("Delete() error = %v", err)
+		}
 		close(deleteDone)
 	}()
 	awaitSignal(t, deleteCallStarted, "delete goroutine did not start")
@@ -138,6 +149,138 @@ func TestDeleteWaitsForInFlightMetadataSave(t *testing.T) {
 	}
 	if _, ok := svc.Get(sessionID); ok {
 		t.Fatal("deleted session remains in memory")
+	}
+}
+
+func TestDeleteFencesStaleServiceInstance(t *testing.T) {
+	persistKey := t.TempDir() + "/workspace/job/sessions"
+	const sessionID = "session-shared-gate"
+	repo := &barrierSessionRepo{
+		persisted: map[string]model.Session{
+			sessionID: {ID: sessionID, Title: "before", ModelID: "model-before"},
+		},
+	}
+	newFixture := func() *serviceImpl {
+		return &serviceImpl{
+			sessions: map[string]*model.Session{
+				sessionID: {ID: sessionID, Title: "before", ModelID: "model-before"},
+			},
+			repo:       repo,
+			persistKey: persistKey,
+		}
+	}
+	deletingService := newFixture()
+	staleService := newFixture()
+
+	if err := deletingService.Delete(sessionID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	savesAfterDelete := repo.saves()
+	if err := staleService.UpdateModelID(sessionID, "model-after-delete"); err != nil {
+		t.Fatalf("UpdateModelID() after Delete error = %v", err)
+	}
+	if got := repo.saves(); got != savesAfterDelete {
+		t.Fatalf("stale service persisted after Delete: saves=%d, want %d", got, savesAfterDelete)
+	}
+	persisted, ok := repo.persistedSession(sessionID)
+	if !ok || !persisted.Deleted {
+		t.Fatalf("persisted tombstone was overwritten: %+v, ok=%v", persisted, ok)
+	}
+}
+
+func TestDeleteSaveFailureIsRetryable(t *testing.T) {
+	const sessionID = "session-delete-retry"
+	errSave := errors.New("save tombstone failed")
+	failDelete := true
+	repo := &barrierSessionRepo{
+		persisted: map[string]model.Session{
+			sessionID: {ID: sessionID, Title: "before"},
+		},
+	}
+	repo.beforeSave = func(meta model.Session) error {
+		if meta.Deleted && failDelete {
+			return errSave
+		}
+		return nil
+	}
+	svc := &serviceImpl{
+		sessions: map[string]*model.Session{
+			sessionID: {ID: sessionID, Title: "before"},
+		},
+		repo:       repo,
+		persistKey: t.TempDir(),
+	}
+
+	if err := svc.Delete(sessionID); !errors.Is(err, errSave) {
+		t.Fatalf("Delete() error = %v, want %v", err, errSave)
+	}
+	if _, ok := svc.Get(sessionID); !ok {
+		t.Fatal("failed Delete removed session from memory")
+	}
+	if persisted, _ := repo.persistedSession(sessionID); persisted.Deleted {
+		t.Fatal("failed Delete unexpectedly persisted tombstone")
+	}
+
+	// A failed tombstone must not poison the gate: ordinary writes and a
+	// later Delete retry remain legal because disk still says live.
+	if err := svc.UpdateTitle(sessionID, "after failed delete"); err != nil {
+		t.Fatalf("UpdateTitle() after failed Delete error = %v", err)
+	}
+	failDelete = false
+	if err := svc.Delete(sessionID); err != nil {
+		t.Fatalf("Delete() retry error = %v", err)
+	}
+	if persisted, _ := repo.persistedSession(sessionID); !persisted.Deleted {
+		t.Fatal("Delete retry did not persist tombstone")
+	}
+}
+
+func TestDeleteBlocksQueuedMetadataUpdate(t *testing.T) {
+	const sessionID = "session-delete-first"
+	deleteSaveStarted := make(chan struct{})
+	releaseDeleteSave := make(chan struct{})
+	var deleteOnce sync.Once
+	repo := &barrierSessionRepo{
+		persisted: map[string]model.Session{
+			sessionID: {ID: sessionID, Title: "before"},
+		},
+	}
+	repo.beforeSave = func(meta model.Session) error {
+		if meta.Deleted {
+			deleteOnce.Do(func() { close(deleteSaveStarted) })
+			<-releaseDeleteSave
+		}
+		return nil
+	}
+	svc := &serviceImpl{
+		sessions: map[string]*model.Session{
+			sessionID: {ID: sessionID, Title: "before"},
+		},
+		repo:       repo,
+		persistKey: t.TempDir(),
+	}
+
+	deleteDone := make(chan error, 1)
+	go func() { deleteDone <- svc.Delete(sessionID) }()
+	awaitSignal(t, deleteSaveStarted, "Delete did not reach Save")
+
+	updateDone := make(chan error, 1)
+	go func() { updateDone <- svc.UpdateTitle(sessionID, "after") }()
+	select {
+	case err := <-updateDone:
+		t.Fatalf("UpdateTitle completed while Delete was in flight: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseDeleteSave)
+	if err := <-deleteDone; err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if err := <-updateDone; err != nil {
+		t.Fatalf("UpdateTitle() after Delete error = %v", err)
+	}
+	if got := repo.saves(); got != 1 {
+		t.Fatalf("queued update persisted after Delete: saves=%d, want 1", got)
 	}
 }
 

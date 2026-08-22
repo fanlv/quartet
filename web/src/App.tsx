@@ -7,6 +7,7 @@ import { StatsPage } from './components/stats/StatsPage';
 import { ConnectionStatusProvider } from './contexts/ConnectionStatus';
 import { markBootStage, reportBootFailure } from './utils/boot';
 import { prefetchSkills } from './utils/skills';
+import { claimJobCreateIntent, clearJobCreateIntent, clearJobCreateIntentScope } from './utils/jobCreateIntent';
 import { DEFAULT_WORKSPACE_ID, getLastUsedWorkspaceId, setLastUsedWorkspaceId, loadWorkspacePrefs, registerWorkspaceColors } from './utils/workspace';
 import './App.css';
 
@@ -301,6 +302,8 @@ function App() {
       body.workspaceId = currentWorkspace?.id ?? DEFAULT_WORKSPACE_ID;
       if (acpMode) body.acpMode = acpMode;
       if (acpThoughtLevel) body.acpThoughtLevel = acpThoughtLevel;
+      const createIntentID = claimJobCreateIntent('start-chat', body);
+      body.clientMessageId = createIntentID;
 
       const response = await fetch('/api/v1/job/create', {
         method: 'POST',
@@ -308,11 +311,14 @@ function App() {
         body: JSON.stringify(body),
       });
       if (!response.ok) {
+        clearJobCreateIntent('start-chat', createIntentID);
         const errData = await response.json().catch(() => null);
         throw new Error(errData?.error || `HTTP ${response.status}`);
       }
       const data = await response.json();
       const jobId = data.jobId;
+      if (!jobId) throw new Error('POST /api/v1/job/create returned an empty jobId');
+      clearJobCreateIntent('start-chat', createIntentID);
 
       updateUrlWithJobId(jobId);
       setCurrentJobId(jobId);
@@ -344,6 +350,8 @@ function App() {
       };
       if (workdir) body.workdir = workdir;
       body.workspaceId = currentWorkspace?.id ?? DEFAULT_WORKSPACE_ID;
+      const createIntentID = claimJobCreateIntent('start-new-chat', body);
+      body.clientMessageId = createIntentID;
 
       const response = await fetch('/api/v1/job/create', {
         method: 'POST',
@@ -351,11 +359,14 @@ function App() {
         body: JSON.stringify(body),
       });
       if (!response.ok) {
+        clearJobCreateIntent('start-new-chat', createIntentID);
         const errData = await response.json().catch(() => null);
         throw new Error(errData?.error || `HTTP ${response.status}`);
       }
       const data = await response.json();
       const jobId = data.jobId;
+      if (!jobId) throw new Error('POST /api/v1/job/create returned an empty jobId');
+      clearJobCreateIntent('start-new-chat', createIntentID);
 
       updateUrlWithJobId(jobId);
       setCurrentJobId(jobId);
@@ -493,7 +504,10 @@ function App() {
         const empty = jobs
           .filter((j) => !j.scheduleId && (j.mode ?? 'interactive') === 'interactive' && (j.sessionCount || 0) === 0)
           .sort((a, b) => b.updatedAt - a.updatedAt);
-        if (empty.length > 0) return empty[0].id;
+        if (empty.length > 0) {
+          clearJobCreateIntentScope(`workspace:${ws.id}`);
+          return empty[0].id;
+        }
       }
     } catch (err) {
       console.error('[reuseOrCreateJob] list failed:', err);
@@ -521,6 +535,8 @@ function App() {
     if (ws.workdir) body.workdir = ws.workdir;
     if (acpMode) body.acpMode = acpMode;
     if (acpThoughtLevel) body.acpThoughtLevel = acpThoughtLevel;
+    const createIntentID = claimJobCreateIntent(`workspace:${ws.id}`, body);
+    body.clientMessageId = createIntentID;
 
     try {
       const createRes = await fetch('/api/v1/job/create', {
@@ -528,9 +544,14 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!createRes.ok) return null;
+      if (!createRes.ok) {
+        clearJobCreateIntent(`workspace:${ws.id}`, createIntentID);
+        return null;
+      }
       const created = await createRes.json();
-      return created?.jobId || null;
+      const createdJobID = created?.jobId || null;
+      clearJobCreateIntent(`workspace:${ws.id}`, createIntentID);
+      return createdJobID;
     } catch (err) {
       console.error('[reuseOrCreateJob] create failed:', err);
       return null;
@@ -718,10 +739,12 @@ function App() {
             mode: 'interactive',
             workspaceId: targetWsId,
           };
-          if (action.clientMessageId) body.clientMessageId = action.clientMessageId;
           if (inheritedWorkdir) body.workdir = inheritedWorkdir;
           if (inheritedAcpMode) body.acpMode = inheritedAcpMode;
           if (inheritedAcpThoughtLevel) body.acpThoughtLevel = inheritedAcpThoughtLevel;
+          const commandCreateScope = `command-new:${currentJobId || targetWsId}`;
+          const createIntentID = claimJobCreateIntent(commandCreateScope, body, action.clientMessageId);
+          body.clientMessageId = createIntentID;
           try {
             const createRes = await fetch('/api/v1/job/create', {
               method: 'POST',
@@ -729,6 +752,7 @@ function App() {
               body: JSON.stringify(body),
             });
             if (!createRes.ok) {
+              clearJobCreateIntent(commandCreateScope, createIntentID);
               const errData = await createRes.json().catch(() => null);
               notifyError(`创建新对话失败：${errData?.error || `HTTP ${createRes.status}`}`);
               return;
@@ -736,6 +760,7 @@ function App() {
             const created = await createRes.json();
             const newJobId = created?.jobId;
             if (!newJobId) return;
+            clearJobCreateIntent(commandCreateScope, createIntentID);
             // 5. Navigate to the new Job (stay on the chat page).
             updateUrlWithJobId(newJobId);
             setCurrentJobId(newJobId);

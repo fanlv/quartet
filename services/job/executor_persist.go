@@ -38,9 +38,25 @@ func (s *serviceImpl) saveJobWithRetry(ctx context.Context, job *model.Job, acti
 // persist-shard acquisition. Callers that already hold persistLock(job.ID) —
 // lifecycle transitions that must keep their check→flip→persist sequence
 // serialized call this directly; the persist shard is NOT reentrant, so
-// calling saveJobWithRetry while holding it would deadlock.
+// calling saveJobWithRetry while holding it would deadlock. Before touching
+// disk it also verifies that job is still the live map entry and is not
+// tombstoned. That check is the final fence against an old run pointer writing
+// after Delete has started or completed.
 func (s *serviceImpl) saveJobWithRetryUnderPersistLock(ctx context.Context, job *model.Job, action string) error {
 	s.mu.Lock()
+	current, ok := s.jobs[job.ID]
+	if !ok {
+		s.mu.Unlock()
+		return ErrJobNotFound
+	}
+	if current.Deleted {
+		s.mu.Unlock()
+		return ErrJobDeleted
+	}
+	if current != job {
+		s.mu.Unlock()
+		return ErrJobNotFound
+	}
 	job.UpdatedAt = time.Now()
 	cp := job.DeepCopy()
 	s.mu.Unlock()

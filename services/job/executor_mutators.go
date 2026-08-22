@@ -21,8 +21,10 @@ import (
 // Progress, LoopConfig as a whole, Resume, SessionIDs); see the ownership
 // model on serviceImpl.
 //
-// MarkDeleted / UpdateTitle / UpdatePinned / SetFirstModelID share the simple "snapshot →
-// save → mirror" shape and are routed through updateJobField. EnsureShareToken
+// UpdateTitle / UpdatePinned / SetFirstModelID share the simple "snapshot →
+// save → mirror" shape and are routed through updateJobField. MarkDeleted is
+// deliberately separate: it is the one mutator allowed to observe an existing
+// tombstone and return success. EnsureShareToken
 // and ClearShareToken are NOT eligible: the former runs a caller-supplied
 // generator outside the lock and uses double-checked locking; both touch
 // externally-visible state and require explicit rollback when Save fails.
@@ -49,6 +51,10 @@ func (s *serviceImpl) updateJobField(jobID string, mutate, mirror func(j *model.
 	if !ok {
 		s.mu.Unlock()
 		return ErrJobNotFound
+	}
+	if existing.Deleted {
+		s.mu.Unlock()
+		return ErrJobDeleted
 	}
 	cp := existing.DeepCopy()
 	s.mu.Unlock()
@@ -84,8 +90,41 @@ func (s *serviceImpl) updateJobField(jobID string, mutate, mirror func(j *model.
 // snapshot. Callers should still wait for the run to exit before cleaning up
 // on-disk artefacts.
 func (s *serviceImpl) MarkDeleted(jobID string) error {
-	set := func(j *model.Job) { j.Deleted = true }
-	return s.updateJobField(jobID, set, set)
+	lock := s.persistLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	s.mu.Lock()
+	existing, ok := s.jobs[jobID]
+	if !ok {
+		s.mu.Unlock()
+		return ErrJobNotFound
+	}
+	if existing.Deleted {
+		s.mu.Unlock()
+		return nil
+	}
+	cp := existing.DeepCopy()
+	cp.Deleted = true
+	cp.UpdatedAt = time.Now()
+	s.mu.Unlock()
+
+	repo, err := s.getOrCreateRepo(cp.WorkspaceID)
+	if err != nil {
+		return fmt.Errorf("get repo for workspace %s failed: %w", cp.WorkspaceID, err)
+	}
+	if err := repo.Save(cp.ID, cp); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	if cur, exists := s.jobs[jobID]; exists && cur == existing {
+		existing.Deleted = true
+		existing.UpdatedAt = cp.UpdatedAt
+	}
+	s.mu.Unlock()
+	s.bumpListVersion(cp.WorkspaceID)
+	return nil
 }
 
 func (s *serviceImpl) UpdateTitle(jobID string, title string) error {
@@ -116,23 +155,44 @@ func (s *serviceImpl) UpdatePinned(jobID string, pinned bool) (int64, error) {
 // Idempotent: if the job already carries this modelID we skip the disk write
 // and the in-memory mirror entirely.
 func (s *serviceImpl) SetFirstModelID(jobID string, modelID string) error {
-	if modelID == "" {
-		return nil
-	}
-	s.mu.RLock()
+	lock := s.persistLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	s.mu.Lock()
 	existing, ok := s.jobs[jobID]
 	if !ok {
-		s.mu.RUnlock()
+		s.mu.Unlock()
 		return ErrJobNotFound
 	}
-	if existing.FirstModelID == modelID {
-		s.mu.RUnlock()
+	if existing.Deleted {
+		s.mu.Unlock()
+		return ErrJobDeleted
+	}
+	if modelID == "" || existing.FirstModelID == modelID {
+		s.mu.Unlock()
 		return nil
 	}
-	s.mu.RUnlock()
+	cp := existing.DeepCopy()
+	cp.FirstModelID = modelID
+	cp.UpdatedAt = time.Now()
+	s.mu.Unlock()
 
-	set := func(j *model.Job) { j.FirstModelID = modelID }
-	return s.updateJobField(jobID, set, set)
+	repo, err := s.getOrCreateRepo(cp.WorkspaceID)
+	if err != nil {
+		return fmt.Errorf("get repo for workspace %s failed: %w", cp.WorkspaceID, err)
+	}
+	if err := repo.Save(cp.ID, cp); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if cur, exists := s.jobs[jobID]; exists && cur == existing {
+		existing.FirstModelID = modelID
+		existing.UpdatedAt = cp.UpdatedAt
+	}
+	s.mu.Unlock()
+	s.bumpListVersion(cp.WorkspaceID)
+	return nil
 }
 
 // AttachGraphSession appends sessionID to the job's GraphSessionIDs whitelist
@@ -167,15 +227,20 @@ func (s *serviceImpl) AttachGraphSession(_ context.Context, jobID, sessionID str
 		s.mu.Unlock()
 		return ErrJobNotFound
 	}
-	if existing.Deleted {
-		s.mu.Unlock()
-		return ErrJobDeleted
-	}
 	for _, sid := range existing.GraphSessionIDs {
 		if sid == sessionID {
 			s.mu.Unlock()
 			return nil // already whitelisted — skip the redundant save
 		}
+	}
+	if existing.Deleted {
+		// A graph node may finish opening its session while Job deletion is
+		// draining the scheduler. Keep that late ownership fact in memory so
+		// deleteMarkedJob's final snapshot can remove the session, but never
+		// rewrite the durable tombstone or recreate an already-removed dir.
+		existing.GraphSessionIDs = append(existing.GraphSessionIDs, sessionID)
+		s.mu.Unlock()
+		return nil
 	}
 	cp := existing.DeepCopy()
 	cp.GraphSessionIDs = append(cp.GraphSessionIDs, sessionID)
@@ -214,9 +279,30 @@ func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID stri
 		return ErrJobNotFound
 	}
 	if existing.Deleted {
+		// MarkDeleted fences every durable writer, but a scheduler that was
+		// already bound to this exact GraphRun still owns one final completion
+		// notification. Deliver it from an in-memory terminal snapshot so a
+		// scheduled task releases its concurrency slot without rewriting the
+		// tombstone (or resurrecting job.json after physical deletion).
+		if graphRunID == "" || existing.GraphRunID != graphRunID || !isTerminalJobStatus(status) {
+			s.mu.Unlock()
+			lock.Unlock()
+			return ErrJobDeleted
+		}
+		existing.Mode = model.JobModeGraph
+		existing.Status = status
+		if startedAt > 0 {
+			existing.StartedAt = startedAt
+		}
+		if finishedAt > 0 {
+			existing.FinishedAt = finishedAt
+		}
+		existing.UpdatedAt = time.Now()
+		doneJob = existing.DeepCopy()
 		s.mu.Unlock()
 		lock.Unlock()
-		return ErrJobDeleted
+		s.notifyJobDone(doneJob)
+		return nil
 	}
 	cp := existing.DeepCopy()
 	cp.Mode = model.JobModeGraph
@@ -257,10 +343,13 @@ func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID stri
 
 	s.bumpListVersion(cp.WorkspaceID)
 	s.recordJobObservationWithGraphSession(cp, string(graphStatus), graphSessionID)
-	lock.Unlock()
 	if status == model.JobStatusPending || status == model.JobStatusRunning {
+		// Clear before releasing the persistence shard. Otherwise a tombstone
+		// and its terminal callback could overtake this post-save bookkeeping,
+		// then this older running update would erase the exactly-once marker.
 		s.clearJobDoneNotified(jobID)
 	}
+	lock.Unlock()
 	if doneJob != nil {
 		s.notifyJobDone(doneJob)
 	}
@@ -359,6 +448,10 @@ func (s *serviceImpl) EnsureShareToken(jobID string, generate func() (string, er
 		s.mu.Unlock()
 		return "", ErrJobNotFound
 	}
+	if existing.Deleted {
+		s.mu.Unlock()
+		return "", ErrJobDeleted
+	}
 	if existing.ShareToken != "" {
 		tok := existing.ShareToken
 		s.mu.Unlock()
@@ -386,6 +479,10 @@ func (s *serviceImpl) EnsureShareToken(jobID string, generate func() (string, er
 	if !ok {
 		s.mu.Unlock()
 		return "", ErrJobNotFound
+	}
+	if existing.Deleted {
+		s.mu.Unlock()
+		return "", ErrJobDeleted
 	}
 	if existing.ShareToken != "" {
 		// Another caller won the race; use their token.
@@ -425,6 +522,10 @@ func (s *serviceImpl) ClearShareToken(jobID string) error {
 		s.mu.Unlock()
 		return ErrJobNotFound
 	}
+	if existing.Deleted {
+		s.mu.Unlock()
+		return ErrJobDeleted
+	}
 	if existing.ShareToken == "" {
 		s.mu.Unlock()
 		return nil
@@ -445,6 +546,10 @@ func (s *serviceImpl) ClearShareToken(jobID string) error {
 	if !ok {
 		s.mu.Unlock()
 		return ErrJobNotFound
+	}
+	if existing.Deleted {
+		s.mu.Unlock()
+		return ErrJobDeleted
 	}
 	if existing.ShareToken == "" {
 		s.mu.Unlock()

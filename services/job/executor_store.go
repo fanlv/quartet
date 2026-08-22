@@ -95,13 +95,14 @@ func (s *serviceImpl) nowMillis() int64 {
 type serviceImpl struct {
 	jobs map[string]*model.Job
 	mu   sync.RWMutex
-	// persistShards serializes (DeepCopy + repo.Save) on a per-job basis.
+	// persistShards serializes every job.json writer and physical Job deletion
+	// on a per-job basis.
 	// Sharded by FNV-1a(jobID) so saves on different jobs don't block each
 	// other — the previous global persistMu serialized every job's saves
 	// across the whole process, which became visible when several scheduled
 	// loops fanned out at the same time. Within a single job the order is
-	// still preserved (an older best-effort save cannot overtake a newer
-	// handler-side mutation), which is the actual invariant we need.
+	// still preserved, and Delete cannot remove a directory while an older
+	// Save is able to recreate it.
 	persistShards [persistShardCount]sync.Mutex
 
 	// per-workspace repos: wsID -> JobRepo
@@ -353,6 +354,13 @@ func (s *serviceImpl) load() {
 			logger.Errorf(ctx, "[job.Service] create repo failed: workspace=%s err=%v", ws.ID, err)
 			continue
 		}
+		// Complete any two-phase deletion interrupted after its durable
+		// Deleted tombstone was written. SweepDeleted is best-effort per Job:
+		// failed removals remain tombstoned and LoadAll below keeps them out of
+		// memory, while a later process restart retries the physical cleanup.
+		if err := repo.SweepDeleted(); err != nil {
+			logger.Errorf(ctx, "[job.Service] sweep deleted jobs failed: workspace=%s err=%v", ws.ID, err)
+		}
 		jobs, err := repo.LoadAll()
 		if err != nil {
 			logger.Errorf(ctx, "[job.Service] load jobs failed: workspace=%s err=%v", ws.ID, err)
@@ -374,6 +382,13 @@ func (s *serviceImpl) load() {
 // makes the per-job reconciliation independently testable and keeps load()
 // focused on workspace/repo traversal.
 func (s *serviceImpl) reconcileLoadedJob(ctx context.Context, repo repository.JobRepo, j *model.Job) bool {
+	// Startup currently calls this before the service is published, but keeping
+	// its repair writes on the normal shard makes the persistence contract true
+	// even for focused tests and future live-reconciliation callers.
+	lock := s.persistLock(j.ID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	if j.Deleted {
 		return false
 	}

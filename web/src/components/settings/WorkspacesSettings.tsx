@@ -15,6 +15,7 @@ import './WorkspacesSettings.css';
 
 interface WorkspaceItem {
   id: string;
+  version: number;
   title: string;
   description: string;
   workdir: string;
@@ -350,9 +351,16 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
       const url = mode === 'edit' ? `/api/v1/workspace/${initial!.id}` : '/api/v1/workspace/create';
       const method = mode === 'edit' ? 'PUT' : 'POST';
       const res = await fetch(url, {
-        method,
+        method: mode === 'edit' ? 'PATCH' : method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(mode === 'edit' ? {
+          expectedVersion: initial!.version,
+          title: body.title,
+          description: body.description,
+          workdir: body.workdir,
+          defaultAgent: body.defaultAgent,
+          defaultModel: body.defaultModel,
+        } : body),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -370,17 +378,7 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
           saveWorkspacePrefs(savedId, prefs);
         }
         try {
-          const cached = {
-            id: savedId,
-            title: body.title,
-            description: body.description,
-            workdir: body.workdir,
-            defaultAgent: body.defaultAgent,
-            defaultModel: body.defaultModel,
-            color: (data?.color as string | undefined) ?? initial?.color,
-            favorite: (data?.favorite as boolean | undefined) ?? initial?.favorite ?? false,
-            sortOrder: (data?.sortOrder as number | undefined) ?? initial?.sortOrder ?? 0,
-          };
+          const cached = data as WorkspaceItem;
           localStorage.setItem(`workspace_${savedId}`, JSON.stringify(cached));
           window.dispatchEvent(new CustomEvent('quartet:workspace-updated', { detail: cached }));
         } catch { /* ignore */ }

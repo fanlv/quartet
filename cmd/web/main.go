@@ -485,6 +485,11 @@ func newServer(lc listenConfig) *server.Hertz {
 		logger.Infof(context.Background(), "[cors] same-origin only (set %s=<origin,...> to allow cross-origin; previous releases defaulted to '*')", consts.EnvKeyCORSOrigins)
 	}
 
+	// Compress buffered JSON API responses. The middleware itself checks the
+	// response content type and skips body streams, so SSE keeps its immediate
+	// flush behaviour and static/file responses remain unchanged. Register it
+	// outside the logger so access logging still sees the original JSON body.
+	h.Use(jsonGzipMiddleware())
 	h.Use(loggerMiddleware())
 
 	return h

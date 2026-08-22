@@ -41,10 +41,11 @@ func (l *deleteCallLog) snapshot() []string {
 
 type deleteJobService struct {
 	jobsvc.Service
-	mu      sync.Mutex
-	job     *model.Job
-	markErr error
-	log     *deleteCallLog
+	mu        sync.Mutex
+	job       *model.Job
+	markErr   error
+	deleteErr error
+	log       *deleteCallLog
 }
 
 func (s *deleteJobService) Get(jobID string) (*model.Job, bool) {
@@ -79,7 +80,10 @@ func (s *deleteJobService) MarkDeleted(jobID string) error {
 }
 
 func (s *deleteJobService) StopAndWait(string) { s.log.add("job.stop-and-wait") }
-func (s *deleteJobService) Delete(string)      { s.log.add("job.delete") }
+func (s *deleteJobService) Delete(string) error {
+	s.log.add("job.delete")
+	return s.deleteErr
+}
 
 type deleteGraphService struct {
 	graphsvc.Service
@@ -96,6 +100,20 @@ type deleteGraphService struct {
 type stopErrorGraphService struct {
 	graphsvc.Service
 	err error
+}
+
+type failFirstUnlinkJobService struct {
+	jobsvc.Service
+	err   error
+	calls int
+}
+
+func (s *failFirstUnlinkJobService) ClearGraphRunLinkage(ctx context.Context, jobID, runID string) error {
+	s.calls++
+	if s.calls == 1 {
+		return s.err
+	}
+	return s.Service.ClearGraphRunLinkage(ctx, jobID, runID)
 }
 
 func (s stopErrorGraphService) RegisterRunLocation(context.Context, string, string, string) error {
@@ -333,25 +351,58 @@ func TestJobDelete_MarkDeletedFailureStopsLifecycle(t *testing.T) {
 	}
 }
 
-func TestJobStop_GraphControlBusyReturnsConflict(t *testing.T) {
+func TestJobDelete_PhysicalDeleteFailureIsReturned(t *testing.T) {
 	log := &deleteCallLog{}
-	job := &model.Job{
-		ID: "job-stop-busy", WorkspaceID: "ws-delete", Mode: model.JobModeGraph,
-		GraphRunID: "graph-run", Status: model.JobStatusRunning,
-	}
+	deleteErr := errors.New("remove job directory failed")
+	job := &model.Job{ID: "job-delete-fails", WorkspaceID: "ws-delete"}
 	h := &Handler{
-		jobService:   &deleteJobService{job: job, log: log},
-		graphService: stopErrorGraphService{err: graphsvc.ErrGraphRunControlBusy},
+		jobService:      &deleteJobService{job: job, deleteErr: deleteErr, log: log},
+		sessionServices: map[string]*sessionEntry{},
 	}
 	c := requestContextWithParam("jobId", job.ID)
 
-	h.JobStop(context.Background(), c)
+	h.JobDelete(context.Background(), c)
 
-	if got := c.Response.StatusCode(); got != http.StatusConflict {
-		t.Fatalf("status = %d, want %d; body=%s", got, http.StatusConflict, c.Response.Body())
+	if got := c.Response.StatusCode(); got != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d; body=%s", got, http.StatusInternalServerError, c.Response.Body())
 	}
-	if got := log.snapshot(); containsDeleteCall(got, "job.stop-and-wait") {
-		t.Fatalf("graph control rejection unexpectedly fell back to Job stop: calls=%v", got)
+	want := []string{"job.mark-deleted", "job.stop-and-wait", "job.delete"}
+	if got := log.snapshot(); !equalDeleteCalls(got, want) {
+		t.Fatalf("calls after physical delete failure = %v, want %v", got, want)
+	}
+}
+
+func TestJobStop_GraphControlErrorsAreNotReportedAsSuccess(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{name: "control queue busy", err: graphsvc.ErrGraphRunControlBusy, wantStatus: http.StatusConflict},
+		{name: "unexpected service failure", err: errors.New("graph storage unavailable"), wantStatus: http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log := &deleteCallLog{}
+			job := &model.Job{
+				ID: "job-stop-error", WorkspaceID: "ws-delete", Mode: model.JobModeGraph,
+				GraphRunID: "graph-run", Status: model.JobStatusRunning,
+			}
+			h := &Handler{
+				jobService:   &deleteJobService{job: job, log: log},
+				graphService: stopErrorGraphService{err: tt.err},
+			}
+			c := requestContextWithParam("jobId", job.ID)
+
+			h.JobStop(context.Background(), c)
+
+			if got := c.Response.StatusCode(); got != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", got, tt.wantStatus, c.Response.Body())
+			}
+			if got := log.snapshot(); containsDeleteCall(got, "job.stop-and-wait") {
+				t.Fatalf("graph control rejection unexpectedly fell back to Job stop: calls=%v", got)
+			}
+		})
 	}
 }
 
@@ -437,9 +488,11 @@ func TestWorkspaceDelete_JobTombstoneFailureStopsCascade(t *testing.T) {
 }
 
 type graphDeleteBlockingRunner struct {
+	started        chan struct{}
 	cancelObserved chan struct{}
 	release        chan struct{}
 	sessionID      string
+	startOnce      sync.Once
 }
 
 func (r *graphDeleteBlockingRunner) InitSession(context.Context, string, *model.SessionOverrides) (string, error) {
@@ -447,6 +500,9 @@ func (r *graphDeleteBlockingRunner) InitSession(context.Context, string, *model.
 }
 
 func (r *graphDeleteBlockingRunner) RunIteration(ctx context.Context, _ string, _ []*schema.Message, _ agui.EventHandler) error {
+	if r.started != nil {
+		r.startOnce.Do(func() { close(r.started) })
+	}
 	<-ctx.Done()
 	close(r.cancelObserved)
 	<-r.release
@@ -504,6 +560,7 @@ func TestJobDelete_RunningGraphJoinsSchedulerBeforeRemovingDirectory(t *testing.
 	}
 
 	runner := &graphDeleteBlockingRunner{
+		started:        make(chan struct{}),
 		cancelObserved: make(chan struct{}),
 		release:        make(chan struct{}),
 		sessionID:      graphSession.ID,
@@ -531,25 +588,11 @@ func TestJobDelete_RunningGraphJoinsSchedulerBeforeRemovingDirectory(t *testing.
 		t.Fatal("StartRun returned a nil run")
 	}
 
-	// Wait until the graph worker is definitely executing before deleting.
-	deadline := time.After(3 * time.Second)
-	for {
-		status, statusErr := graphs.GetRunStatus(ctx, run.ID)
-		if statusErr == nil && status != nil {
-			for _, instance := range status.Instances {
-				if instance.NodeID == "agent" && instance.Status == model.GraphInstanceStatusRunning {
-					goto running
-				}
-			}
-		}
-		select {
-		case <-deadline:
-			t.Fatal("graph worker did not enter running state")
-		case <-time.After(10 * time.Millisecond):
-		}
+	select {
+	case <-runner.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("graph worker did not start")
 	}
-
-running:
 	h := &Handler{
 		jobService: jobs, graphService: graphs, workspaceService: workspaces,
 		acpAgentService: acp.NewACPService(),
@@ -635,7 +678,8 @@ func TestJobDelete_RunningScheduledGraphSignalsDoneExactlyOnce(t *testing.T) {
 	})
 
 	runner := &graphDeleteBlockingRunner{
-		cancelObserved: make(chan struct{}), release: make(chan struct{}), sessionID: "scheduled-session",
+		started: make(chan struct{}), cancelObserved: make(chan struct{}),
+		release: make(chan struct{}), sessionID: "scheduled-session",
 	}
 	cfg := model.GraphConfig{
 		WorkspaceID: workspace.ID, Workdir: workspace.Workdir,
@@ -649,13 +693,17 @@ func TestJobDelete_RunningScheduledGraphSignalsDoneExactlyOnce(t *testing.T) {
 			{ID: "agent-end", SourceNodeID: "agent", TargetNodeID: "end"},
 		},
 	}
-	run, err := graphs.StartRun(ctx, &model.StartGraphRunRequest{
+	_, err = graphs.StartRun(ctx, &model.StartGraphRunRequest{
 		JobID: job.ID, WorkspaceID: workspace.ID, Workdir: workspace.Workdir, Config: &cfg,
 	}, runner, jobs)
 	if err != nil {
 		t.Fatalf("start graph run: %v", err)
 	}
-	waitForGraphInstanceStatus(t, graphs, run.ID, "agent", model.GraphInstanceStatusRunning)
+	select {
+	case <-runner.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("scheduled graph worker did not start")
+	}
 
 	h := &Handler{
 		jobService: jobs, graphService: graphs, workspaceService: workspaces,
@@ -689,23 +737,92 @@ func TestJobDelete_RunningScheduledGraphSignalsDoneExactlyOnce(t *testing.T) {
 	}
 }
 
-func waitForGraphInstanceStatus(t *testing.T, graphs graphsvc.Service, runID, nodeID string, want model.GraphInstanceStatus) {
-	t.Helper()
+func TestDeleteJobGraphRun_UnlinkFailureIsRetryable(t *testing.T) {
+	t.Setenv("LOCAL_MEMORY", t.TempDir())
+	ctx := context.Background()
+	workspaces, err := workspacesvc.NewService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := model.NewWorkspace("unlink retry", "", t.TempDir())
+	workspace.ID = "ws-unlink-retry"
+	if err := workspaces.Create(workspace); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := jobsvc.NewService(workspaces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := model.NewJob(workspace.Workdir, workspace.ID)
+	job.ID = "job-unlink-retry"
+	if err := jobs.Create(job); err != nil {
+		t.Fatal(err)
+	}
+	graphs, err := graphsvc.NewService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := model.GraphConfig{
+		WorkspaceID: workspace.ID, Workdir: workspace.Workdir,
+		Nodes: []model.GraphNode{
+			{ID: "start", Type: model.GraphNodeTypeStart},
+			{ID: "shell", Type: model.GraphNodeTypeShell, Config: model.GraphNodeConfig{Script: "true"}},
+			{ID: "end", Type: model.GraphNodeTypeEnd},
+		},
+		Edges: []model.GraphEdge{
+			{ID: "start-shell", SourceNodeID: "start", TargetNodeID: "shell"},
+			{ID: "shell-end", SourceNodeID: "shell", TargetNodeID: "end"},
+		},
+	}
+	run, err := graphs.StartRun(ctx, &model.StartGraphRunRequest{
+		JobID: job.ID, WorkspaceID: workspace.ID, Workdir: workspace.Workdir, Config: &cfg,
+	}, &graphDeleteBlockingRunner{
+		started: make(chan struct{}), cancelObserved: make(chan struct{}), release: make(chan struct{}), sessionID: "unused",
+	}, jobs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	deadline := time.After(3 * time.Second)
 	for {
-		status, err := graphs.GetRunStatus(context.Background(), runID)
-		if err == nil && status != nil {
-			for _, instance := range status.Instances {
-				if instance.NodeID == nodeID && instance.Status == want {
-					return
-				}
-			}
+		status, statusErr := graphs.GetRunStatus(ctx, run.ID)
+		if statusErr == nil && status.Run.Status == model.GraphRunStatusCompleted {
+			break
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("graph node %s did not reach %s", nodeID, want)
+			t.Fatal("graph run did not complete")
 		case <-time.After(time.Millisecond):
 		}
+	}
+	if _, err := graphs.StopRunAndWait(ctx, run.ID, "join completed run"); err != nil {
+		t.Fatal(err)
+	}
+
+	wantErr := errors.New("forced unlink failure")
+	failingJobs := &failFirstUnlinkJobService{Service: jobs, err: wantErr}
+	h := &Handler{jobService: failingJobs, graphService: graphs}
+	first := requestContextWithParam("jobId", job.ID)
+	h.DeleteJobGraphRun(ctx, first)
+	if got := first.Response.StatusCode(); got != http.StatusInternalServerError {
+		t.Fatalf("first status = %d, want 500; body=%s", got, first.Response.Body())
+	}
+	if linked, ok := jobs.Get(job.ID); !ok || linked.GraphRunID != run.ID {
+		t.Fatalf("failed unlink changed Job linkage: %#v", linked)
+	}
+	if _, err := graphs.GetRunStatus(ctx, run.ID); err != nil {
+		t.Fatalf("failed unlink removed run artifacts: %v", err)
+	}
+
+	second := requestContextWithParam("jobId", job.ID)
+	h.DeleteJobGraphRun(ctx, second)
+	if got := second.Response.StatusCode(); got != http.StatusOK {
+		t.Fatalf("retry status = %d, want 200; body=%s", got, second.Response.Body())
+	}
+	if linked, ok := jobs.Get(job.ID); !ok || linked.GraphRunID != "" {
+		t.Fatalf("retry did not clear Job linkage: %#v", linked)
+	}
+	if _, err := graphs.GetRunStatus(ctx, run.ID); !errors.Is(err, graphsvc.ErrGraphRunNotFound) {
+		t.Fatalf("retry did not remove GraphRun: %v", err)
 	}
 }
 

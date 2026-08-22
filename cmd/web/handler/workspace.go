@@ -2,11 +2,14 @@ package handler
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/services/workspace"
 	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 
@@ -27,10 +30,16 @@ func (h *Handler) WorkspaceCreate(ctx context.Context, c *app.RequestContext) {
 		httputil.BadRequest(c, "workdir is required")
 		return
 	}
+	defaultAgent := strings.TrimSpace(req.DefaultAgent)
+	defaultModel := strings.TrimSpace(req.DefaultModel)
+	if err := h.validateWorkspaceDefaults(ctx, defaultAgent, defaultModel); err != nil {
+		httputil.BadRequest(c, err.Error())
+		return
+	}
 
 	ws := model.NewWorkspace(req.Title, req.Description, req.Workdir)
-	ws.DefaultAgent = strings.TrimSpace(req.DefaultAgent)
-	ws.DefaultModel = strings.TrimSpace(req.DefaultModel)
+	ws.DefaultAgent = defaultAgent
+	ws.DefaultModel = defaultModel
 	if err := h.workspaceService.Create(ws); err != nil {
 		logger.Errorf(ctx, "[WorkspaceCreate] Failed: %v", err)
 		if isInvalidWorkdirErr(err) {
@@ -96,25 +105,43 @@ func (h *Handler) WorkspaceUpdate(ctx context.Context, c *app.RequestContext) {
 		httputil.BadRequest(c, "Invalid request body")
 		return
 	}
-	if req.Title == "" {
+	if req.ExpectedVersion == 0 {
+		httputil.BadRequest(c, "expectedVersion is required")
+		return
+	}
+	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
 		httputil.BadRequest(c, "title is required")
 		return
 	}
-	if req.Workdir == "" {
+	if req.Workdir != nil && strings.TrimSpace(*req.Workdir) == "" {
 		httputil.BadRequest(c, "workdir is required")
 		return
 	}
+	if (req.DefaultAgent == nil) != (req.DefaultModel == nil) {
+		httputil.BadRequest(c, "defaultAgent and defaultModel must be updated together")
+		return
+	}
+	if req.DefaultAgent != nil {
+		agentID := strings.TrimSpace(*req.DefaultAgent)
+		modelID := strings.TrimSpace(*req.DefaultModel)
+		if err := h.validateWorkspaceDefaults(ctx, agentID, modelID); err != nil {
+			httputil.BadRequest(c, err.Error())
+			return
+		}
+		req.DefaultAgent = &agentID
+		req.DefaultModel = &modelID
+	}
 
-	ws, err := h.workspaceService.Update(
-		id,
-		req.Title,
-		req.Description,
-		req.Workdir,
-		strings.TrimSpace(req.DefaultAgent),
-		strings.TrimSpace(req.DefaultModel),
-	)
+	ws, err := h.workspaceService.Patch(id, req.ExpectedVersion, workspace.Patch{
+		Title: req.Title, Description: req.Description, Workdir: req.Workdir,
+		DefaultAgent: req.DefaultAgent, DefaultModel: req.DefaultModel,
+	})
 	if err != nil {
 		logger.Errorf(ctx, "[WorkspaceUpdate] Failed: %v", err)
+		if errors.Is(err, workspace.ErrVersionConflict) {
+			httputil.Conflict(c, err.Error())
+			return
+		}
 		if isInvalidWorkdirErr(err) {
 			httputil.BadRequest(c, err.Error())
 			return
@@ -124,6 +151,35 @@ func (h *Handler) WorkspaceUpdate(ctx context.Context, c *app.RequestContext) {
 	}
 
 	c.JSON(http.StatusOK, toWorkspaceInfo(ws))
+}
+
+func (h *Handler) validateWorkspaceDefaults(ctx context.Context, agentID, modelID string) error {
+	if agentID == "" {
+		if modelID != "" {
+			return fmt.Errorf("defaultModel requires defaultAgent")
+		}
+		return nil
+	}
+	entry, found, err := h.agentCatalog.Find(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("resolve default AgentID %q failed: %w", agentID, err)
+	}
+	if !found {
+		return fmt.Errorf("default AgentID %q does not exist", agentID)
+	}
+	switch entry.Source {
+	case model.AgentCatalogSourceBuiltin:
+		if entry.Builtin == nil || entry.Builtin.Deprecated {
+			return fmt.Errorf("default AgentID %q is not active", agentID)
+		}
+	case model.AgentCatalogSourceCustom:
+		if entry.Custom == nil || entry.Custom.Lifecycle != model.AgentLifecycleActive {
+			return fmt.Errorf("default AgentID %q is not active", agentID)
+		}
+	default:
+		return fmt.Errorf("default AgentID %q is not active", agentID)
+	}
+	return nil
 }
 
 // isInvalidWorkdirErr reports whether err was produced by the workspace
@@ -136,6 +192,7 @@ func isInvalidWorkdirErr(err error) bool {
 func toWorkspaceInfo(ws *model.Workspace) model.WorkspaceInfo {
 	return model.WorkspaceInfo{
 		ID:           ws.ID,
+		Version:      ws.Version,
 		Title:        ws.Title,
 		Description:  ws.Description,
 		Workdir:      ws.Workdir,

@@ -192,3 +192,37 @@ func TestCommandDuplicateAndInlineSSEDedupUseClientMessageID(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateJobUsesAStableIntentIDUntilTheSemanticPayloadChanges(t *testing.T) {
+	models := chatSource(t, "Quartet/Core/Models/APIModels.swift")
+	view := chatSource(t, "Quartet/Features/Chat/NewConversationView.swift")
+	client := chatSource(t, "Quartet/Core/Networking/APIClient.swift")
+	for _, contract := range []string{
+		"let status: String?",
+		"let clientMessageId: String?",
+		"clientMessageId: String? = nil",
+	} {
+		if !strings.Contains(models, contract) {
+			t.Fatalf("CreateJob DTO source contract missing %q", contract)
+		}
+	}
+	for _, contract := range []string{
+		"private struct CreateJobIntentPayload: Equatable",
+		"@State private var createIntent: CreateJobIntent?",
+		"return CreateJobIntentPayload(",
+		"if createIntent?.payload != payload",
+		"id: UUID().uuidString.lowercased()",
+		"clientMessageId: createIntent.id",
+		"createIntent = nil",
+		"if isDefinitelyRejected(error)",
+		"agentType: payload.agentType",
+		"modelID: payload.modelID",
+	} {
+		if !strings.Contains(view, contract) {
+			t.Fatalf("CreateJob intent source contract missing %q", contract)
+		}
+	}
+	if !strings.Contains(client, "requestWasRejected: true") {
+		t.Fatal("definite client-side/HTTP rejection must rotate the CreateJob intent ID")
+	}
+}

@@ -51,10 +51,12 @@ type Service interface {
 	// the global version when wsID is empty). Increments on any job mutation
 	// that would affect the listing. Used for ETag / If-None-Match handling.
 	WorkspaceListVersion(wsID string) int64
-	Delete(jobID string)
-	// MarkDeleted sets job.Deleted=true atomically (Get + mutate + persist
-	// under the service's internal lock) so concurrent Save calls can't
-	// overwrite the flag with a stale snapshot.
+	// Delete physically removes a tombstoned Job. It returns storage errors and
+	// keeps the in-memory tombstone intact on failure so callers can retry.
+	Delete(jobID string) error
+	// MarkDeleted durably sets job.Deleted=true under the per-job persistence
+	// shard so concurrent Save calls cannot overwrite the flag with a stale
+	// snapshot. Repeated calls are successful no-ops.
 	MarkDeleted(jobID string) error
 	// UpdateTitle updates only the title of a job, avoiding stale-copy overwrites.
 	UpdateTitle(jobID string, title string) error
@@ -86,7 +88,9 @@ type Service interface {
 	// AttachGraphSession records an Agent node's session on the job's
 	// GraphSessionIDs whitelist (de-duplicated, kept off SessionIDs) so an
 	// interactive message may later target it — letting a user keep chatting in
-	// a finished graph node's session after the run stops. Idempotent.
+	// a finished graph node's session after the run stops. During tombstoned
+	// teardown, a late session is registered in memory only so final cleanup can
+	// see it without rewriting job.json. Idempotent.
 	AttachGraphSession(ctx context.Context, jobID, sessionID string) error
 	// JobTitle returns the Job's display title (or "" if unknown), used by a
 	// graph node hook to inject $QUARTET_JOB_TITLE. Best-effort, never errors.

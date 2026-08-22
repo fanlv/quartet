@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -22,7 +23,7 @@ type Service interface {
 	Create(ws *model.Workspace) error
 	Get(id string) (*model.Workspace, bool)
 	List() []*model.Workspace
-	Update(id string, title, description, workdir, defaultAgent, defaultModel string) (*model.Workspace, error)
+	Patch(id string, expectedVersion uint64, patch Patch) (*model.Workspace, error)
 	ClearAgentDefaults(agentID string) error
 	SetFavorite(id string, favorite bool) (*model.Workspace, error)
 	Reorder(ids []string) error
@@ -56,6 +57,18 @@ type Service interface {
 	// workspace and persists the change. Returns the updated list in the same
 	// order as List().
 	RegenerateAllColors() ([]*model.Workspace, error)
+}
+
+var ErrVersionConflict = errors.New("workspace has been modified")
+
+// Patch contains only fields the caller explicitly owns. Nil leaves a field
+// unchanged; a non-nil empty string clears an optional field.
+type Patch struct {
+	Title        *string
+	Description  *string
+	Workdir      *string
+	DefaultAgent *string
+	DefaultModel *string
 }
 
 type serviceImpl struct {
@@ -134,6 +147,9 @@ func (s *serviceImpl) load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, ws := range all {
+		if ws.Version == 0 {
+			ws.Version = 1
+		}
 		// Backfill color for legacy records persisted before the Color field
 		// existed. Save-through so the value sticks across restarts; a failed
 		// save still keeps the in-memory value so the UI renders consistently
@@ -160,6 +176,9 @@ func (s *serviceImpl) Create(ws *model.Workspace) error {
 	}
 	if !filepath.IsAbs(copy.Workdir) {
 		return fmt.Errorf("invalid workdir: workdir must be absolute: %s", copy.Workdir)
+	}
+	if copy.Version == 0 {
+		copy.Version = 1
 	}
 	mu := s.lockFor(copy.ID)
 	mu.Lock()
@@ -228,7 +247,7 @@ func sortWorkspaceList(workspaces []*model.Workspace) {
 	})
 }
 
-func (s *serviceImpl) Update(id string, title, description, workdir, defaultAgent, defaultModel string) (*model.Workspace, error) {
+func (s *serviceImpl) Patch(id string, expectedVersion uint64, patch Patch) (*model.Workspace, error) {
 	mu := s.lockFor(id)
 	mu.Lock()
 	defer mu.Unlock()
@@ -242,18 +261,31 @@ func (s *serviceImpl) Update(id string, title, description, workdir, defaultAgen
 	updated := cloneWorkspace(ws)
 	s.mu.RUnlock()
 
-	if workdir == "" {
-		return nil, fmt.Errorf("invalid workdir: workdir is empty")
+	if expectedVersion == 0 || expectedVersion != updated.Version {
+		return nil, fmt.Errorf("%w: current version=%d, expected version=%d", ErrVersionConflict, updated.Version, expectedVersion)
 	}
-	if !filepath.IsAbs(workdir) {
-		return nil, fmt.Errorf("invalid workdir: workdir must be absolute: %s", workdir)
+	if patch.Title != nil {
+		updated.Title = *patch.Title
 	}
-
-	updated.Title = title
-	updated.Description = description
-	updated.Workdir = workdir
-	updated.DefaultAgent = defaultAgent
-	updated.DefaultModel = defaultModel
+	if patch.Description != nil {
+		updated.Description = *patch.Description
+	}
+	if patch.Workdir != nil {
+		if *patch.Workdir == "" {
+			return nil, fmt.Errorf("invalid workdir: workdir is empty")
+		}
+		if !filepath.IsAbs(*patch.Workdir) {
+			return nil, fmt.Errorf("invalid workdir: workdir must be absolute: %s", *patch.Workdir)
+		}
+		updated.Workdir = *patch.Workdir
+	}
+	if patch.DefaultAgent != nil {
+		updated.DefaultAgent = strings.TrimSpace(*patch.DefaultAgent)
+	}
+	if patch.DefaultModel != nil {
+		updated.DefaultModel = strings.TrimSpace(*patch.DefaultModel)
+	}
+	updated.Version++
 	updated.UpdatedAt = time.Now()
 
 	if err := s.repo.Save(updated.ID, updated); err != nil {
@@ -276,6 +308,7 @@ func (s *serviceImpl) Update(id string, title, description, workdir, defaultAgen
 	cur.Workdir = updated.Workdir
 	cur.DefaultAgent = updated.DefaultAgent
 	cur.DefaultModel = updated.DefaultModel
+	cur.Version = updated.Version
 	cur.UpdatedAt = updated.UpdatedAt
 	s.bumpRevisionLocked()
 	s.mu.Unlock()
@@ -308,6 +341,7 @@ func (s *serviceImpl) ClearAgentDefaults(agentID string) error {
 		s.mu.RUnlock()
 		updated.DefaultAgent = ""
 		updated.DefaultModel = ""
+		updated.Version++
 		updated.UpdatedAt = time.Now()
 		if err := s.repo.Save(updated.ID, updated); err != nil {
 			mu.Unlock()
@@ -319,6 +353,7 @@ func (s *serviceImpl) ClearAgentDefaults(agentID string) error {
 		if ok && current != nil && !current.Deleted && current.DefaultAgent == agentID {
 			current.DefaultAgent = ""
 			current.DefaultModel = ""
+			current.Version = updated.Version
 			current.UpdatedAt = updated.UpdatedAt
 			s.bumpRevisionLocked()
 		}
@@ -649,6 +684,7 @@ func (s *serviceImpl) EnsureDefault() error {
 	now := time.Now()
 	ws := &model.Workspace{
 		ID:        consts.DefaultWorkspaceID,
+		Version:   1,
 		Title:     consts.DefaultWorkspaceTitle,
 		Workdir:   resolveDefaultWorkdir(),
 		Color:     model.RandomWorkspaceColor(),

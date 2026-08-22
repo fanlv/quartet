@@ -37,6 +37,22 @@ func (s *serviceImpl) Create(job *model.Job) error {
 	// removes a fragile invariant that a future "read job.X right after
 	// Create" addition could break.
 	cp := job.DeepCopy()
+	lock := s.persistLock(cp.ID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// A Create racing teardown for the same ID must not write through a
+	// durable tombstone. IDs are normally unique, but this check also covers
+	// deterministic/idempotent callers and keeps every job.json writer behind
+	// the same deletion fence.
+	s.mu.RLock()
+	existing := s.jobs[cp.ID]
+	deleted := existing != nil && existing.Deleted
+	s.mu.RUnlock()
+	if deleted {
+		return ErrJobDeleted
+	}
+
 	repo, err := s.getOrCreateRepo(cp.WorkspaceID)
 	if err != nil {
 		return fmt.Errorf("get repo for workspace %s failed: %w", cp.WorkspaceID, err)
@@ -44,9 +60,10 @@ func (s *serviceImpl) Create(job *model.Job) error {
 	if err := repo.Save(cp.ID, cp); err != nil {
 		return err
 	}
+	observationCopy := cp.DeepCopy()
 	s.store(cp.ID, cp)
 	s.bumpListVersion(cp.WorkspaceID)
-	s.recordJobObservation(cp, "")
+	s.recordJobObservation(observationCopy, "")
 	return nil
 }
 
@@ -73,6 +90,9 @@ func (s *serviceImpl) CreateIdempotent(job *model.Job) (*model.Job, bool, error)
 	if exists {
 		cp := existing.DeepCopy()
 		s.mu.RUnlock()
+		if cp.Deleted {
+			return nil, false, ErrJobDeleted
+		}
 		if cp.CreationClientMessageID != job.CreationClientMessageID || cp.CreationPayloadHash != job.CreationPayloadHash {
 			return nil, false, fmt.Errorf("%w: %q", ErrClientMessageIDConflict, job.CreationClientMessageID)
 		}
@@ -90,20 +110,44 @@ func (s *serviceImpl) CreateIdempotent(job *model.Job) (*model.Job, bool, error)
 	// idempotent even across that boundary.
 	if persisted, loadErr := repo.Load(cp.ID); loadErr == nil {
 		if persisted != nil {
+			if persisted.Deleted {
+				return nil, false, ErrJobDeleted
+			}
 			if persisted.CreationClientMessageID != cp.CreationClientMessageID || persisted.CreationPayloadHash != cp.CreationPayloadHash {
 				return nil, false, fmt.Errorf("%w: %q", ErrClientMessageIDConflict, cp.CreationClientMessageID)
 			}
-			s.store(cp.ID, persisted)
+			s.mu.Lock()
+			if existing, exists := s.jobs[cp.ID]; exists {
+				existingCopy := existing.DeepCopy()
+				s.mu.Unlock()
+				if existingCopy.CreationClientMessageID != cp.CreationClientMessageID || existingCopy.CreationPayloadHash != cp.CreationPayloadHash {
+					return nil, false, fmt.Errorf("%w: %q", ErrClientMessageIDConflict, cp.CreationClientMessageID)
+				}
+				return existingCopy, true, nil
+			}
+			s.jobs[cp.ID] = persisted
+			s.mu.Unlock()
 			return persisted.DeepCopy(), true, nil
 		}
-	} else if !errors.Is(loadErr, os.ErrNotExist) {
+	} else if !errors.Is(loadErr, os.ErrNotExist) && !strings.Contains(loadErr.Error(), "no such file or directory") {
 		return nil, false, fmt.Errorf("load idempotent job %s: %w", cp.ID, loadErr)
 	}
 	if err := repo.Save(cp.ID, cp); err != nil {
 		return nil, false, err
 	}
-	s.store(cp.ID, cp)
+	s.mu.Lock()
+	if existing, exists := s.jobs[cp.ID]; exists {
+		existingCopy := existing.DeepCopy()
+		s.mu.Unlock()
+		if existingCopy.CreationClientMessageID != cp.CreationClientMessageID || existingCopy.CreationPayloadHash != cp.CreationPayloadHash {
+			return nil, false, fmt.Errorf("%w: %q", ErrClientMessageIDConflict, cp.CreationClientMessageID)
+		}
+		return existingCopy, true, nil
+	}
+	s.jobs[cp.ID] = cp
+	s.mu.Unlock()
 	s.bumpListVersion(cp.WorkspaceID)
+	s.recordJobObservation(cp.DeepCopy(), "")
 	return cp.DeepCopy(), false, nil
 }
 
@@ -390,42 +434,58 @@ func (s *serviceImpl) ListByWorkspacePaged(wsID, cursor string, limit int, exclu
 	return page, nextCursor, hasMore, version
 }
 
-func (s *serviceImpl) Delete(jobID string) {
-	// Defensive: ensure any in-flight run has exited before tearing down
-	// memory and disk state. Without this, a tail-end saveJobWithRetry inside
-	// finishJob / stopJob / failJob would recreate the job directory we are
-	// about to FileDelete, leaving a half-resurrected ghost on disk and
-	// leaking the goroutine. StopAndWait is idempotent — when no run is
-	// active it returns immediately. Callers SHOULD still MarkDeleted before
-	// calling Delete (so concurrent SendMessage calls are
-	// rejected during teardown), but a forgotten MarkDeleted no longer
-	// produces a goroutine leak or file resurrection.
+func (s *serviceImpl) Delete(jobID string) error {
+	// Install the durable tombstone before stopping producers. This is
+	// idempotent when the handler already called MarkDeleted and prevents any
+	// new Job writer from starting while StopAndWait drains an interactive run.
+	if err := s.MarkDeleted(jobID); err != nil {
+		if errors.Is(err, ErrJobNotFound) {
+			return nil
+		}
+		return fmt.Errorf("mark job deleted: %w", err)
+	}
 	s.StopAndWait(jobID)
 
-	s.mu.Lock()
+	// Physical deletion shares the exact shard used by every job.json writer.
+	// Holding it through lookup, FileDelete, and map removal ensures an older
+	// Save either commits before this removal or observes the tombstone after
+	// it; it can never recreate the directory after FileDelete succeeds.
+	lock := s.persistLock(jobID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	s.mu.RLock()
 	j, ok := s.jobs[jobID]
-	if ok {
-		j.Deleted = true
+	if !ok {
+		s.mu.RUnlock()
+		s.clearJobDoneNotified(jobID)
+		s.bus.remove(jobID)
+		return nil
 	}
-	var cp *model.Job
-	if ok {
-		cp = j.DeepCopy()
-		// Remove the job from the in-memory map so it can be garbage-collected.
+	cp := j.DeepCopy()
+	s.mu.RUnlock()
+	if !cp.Deleted {
+		return fmt.Errorf("delete job %s without durable tombstone", jobID)
+	}
+
+	jobDir := typepath.LocalJobDirInWorkspace(cp.WorkspaceID, cp.ID)
+	if err := s.fileManager.FileDelete(&fsmodel.FileDeleteRequest{Path: jobDir}); err != nil {
+		// Keep the in-memory tombstone on failure. Get can still retrieve it for
+		// the same DELETE request to retry, while List and every writer continue
+		// to treat it as deleted. The event buffer is likewise retained until a
+		// successful physical delete.
+		return fmt.Errorf("remove job dir %s: %w", jobDir, err)
+	}
+
+	s.mu.Lock()
+	if current, exists := s.jobs[jobID]; exists && current == j {
 		delete(s.jobs, jobID)
 	}
 	s.mu.Unlock()
-	if ok {
-		s.clearJobDoneNotified(jobID)
-		s.bumpListVersion(cp.WorkspaceID)
-		jobDir := typepath.LocalJobDirInWorkspace(cp.WorkspaceID, cp.ID)
-		if err := s.fileManager.FileDelete(&fsmodel.FileDeleteRequest{Path: jobDir}); err != nil {
-			logger.Errorf(context.Background(), "[job.Service] remove job dir failed: dir=%s err=%v", jobDir, err)
-		}
-	}
-	// Close and remove the per-job event buffer so any connected SSE
-	// clients receive the stream-end signal and the in-memory tail is
-	// released. After remove, future Subscribe / Publish calls for this
-	// jobID create a fresh empty buffer (which will never be touched
-	// because the job is gone from s.jobs).
+	s.clearJobDoneNotified(jobID)
+	s.bumpListVersion(cp.WorkspaceID)
+	// Close and remove the per-job event buffer only after durable removal
+	// succeeds, so a failed Delete preserves a fully retryable tombstone.
 	s.bus.remove(jobID)
+	return nil
 }

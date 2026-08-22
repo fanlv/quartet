@@ -19,6 +19,28 @@ type recordingSink struct {
 	mu            sync.Mutex
 	clearedRuns   map[string]bool
 	attachedByJob map[string][]string
+	updates       []graphSinkUpdate
+}
+
+type retryableUnlinkSink struct {
+	err   error
+	calls int
+}
+
+func (*retryableUnlinkSink) SetGraphRunState(context.Context, string, string, model.JobStatus, model.GraphRunStatus, int64, int64, string) error {
+	return nil
+}
+func (s *retryableUnlinkSink) ClearGraphRunLinkage(context.Context, string, string) error {
+	s.calls++
+	return s.err
+}
+func (*retryableUnlinkSink) AttachGraphSession(context.Context, string, string) error { return nil }
+func (*retryableUnlinkSink) JobTitle(context.Context, string) string                  { return "" }
+
+type graphSinkUpdate struct {
+	jobStatus      model.JobStatus
+	graphStatus    model.GraphRunStatus
+	graphSessionID string
 }
 
 // lifecycleBlockingRunner exposes channel checkpoints for scheduler lifecycle
@@ -72,7 +94,12 @@ func (*stoppedGateSink) ClearGraphRunLinkage(context.Context, string, string) er
 func (*stoppedGateSink) AttachGraphSession(context.Context, string, string) error   { return nil }
 func (*stoppedGateSink) JobTitle(context.Context, string) string                    { return "" }
 
-func (s *recordingSink) SetGraphRunState(context.Context, string, string, model.JobStatus, model.GraphRunStatus, int64, int64, string) error {
+func (s *recordingSink) SetGraphRunState(_ context.Context, _, _ string, jobStatus model.JobStatus, graphStatus model.GraphRunStatus, _, _ int64, graphSessionID string) error {
+	s.mu.Lock()
+	s.updates = append(s.updates, graphSinkUpdate{
+		jobStatus: jobStatus, graphStatus: graphStatus, graphSessionID: graphSessionID,
+	})
+	s.mu.Unlock()
 	return nil
 }
 
@@ -107,6 +134,54 @@ func (s *recordingSink) cleared(runID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.clearedRuns[runID]
+}
+
+func (s *recordingSink) lastUpdate() (graphSinkUpdate, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.updates) == 0 {
+		return graphSinkUpdate{}, false
+	}
+	return s.updates[len(s.updates)-1], true
+}
+
+func TestFinishAwaitingReportsGraphStatusAndSession(t *testing.T) {
+	uniqueMemoryRoot(t)
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	sink := &recordingSink{}
+	cfg := model.GraphConfig{
+		Workdir: t.TempDir(),
+		Nodes: []model.GraphNode{
+			node("start", model.GraphNodeTypeStart),
+			{ID: "clarify", Type: model.GraphNodeTypeClarify, Config: model.GraphNodeConfig{AgentType: "tester"}},
+			node("end", model.GraphNodeTypeEnd),
+		},
+		Edges: []model.GraphEdge{
+			edge("start_clarify", "start", "clarify"),
+			edge("clarify_end", "clarify", "end"),
+		},
+	}
+	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{
+		JobID: "job-awaiting", Config: &cfg,
+	}, stubGraphRunner{}, sink)
+	if err != nil {
+		t.Fatalf("StartRun failed: %v", err)
+	}
+	waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusAwaitingInput)
+	if _, err := svc.StopRunAndWait(context.Background(), run.ID, "join awaiting run"); err != nil {
+		t.Fatalf("join awaiting run: %v", err)
+	}
+
+	update, ok := sink.lastUpdate()
+	if !ok {
+		t.Fatal("finishAwaiting did not update the Job sink")
+	}
+	if update.jobStatus != model.JobStatusStopped || update.graphStatus != model.GraphRunStatusAwaitingInput || update.graphSessionID != "session-1" {
+		t.Fatalf("sink update = %+v, want stopped/awaitingInput/session-1", update)
+	}
 }
 
 // promptNode builds a Prompt business node (uses the runner, unlike Shell).
@@ -425,6 +500,46 @@ func TestDeleteRunRejectsInFlightAndUnlinksJob(t *testing.T) {
 	}
 	if _, err := svc.GetRunStatus(context.Background(), run.ID); err == nil {
 		t.Fatal("run should be gone after delete")
+	}
+}
+
+func TestDeleteRun_UnlinkFailureKeepsRunRetryable(t *testing.T) {
+	uniqueMemoryRoot(t)
+	svc, err := NewService()
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	run := &model.GraphRun{
+		ID: model.NewGraphRunID(), JobID: "job-unlink-retry", WorkspaceID: "ws-1",
+		Status: model.GraphRunStatusStopped, Progress: &model.GraphProgress{}, Resume: &model.GraphResumeState{},
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	impl := svc.(*serviceImpl)
+	if err := impl.runRepo.RegisterRun(context.Background(), run); err != nil {
+		t.Fatalf("RegisterRun failed: %v", err)
+	}
+	if err := impl.persistRuntimeState(context.Background(), run, map[string]model.GraphInstanceState{}, map[string]model.GraphEdgeState{}, map[string]map[string]string{}); err != nil {
+		t.Fatalf("persist run failed: %v", err)
+	}
+
+	wantErr := errors.New("forced unlink failure")
+	sink := &retryableUnlinkSink{err: wantErr}
+	if err := svc.DeleteRun(context.Background(), run.ID, sink); !errors.Is(err, wantErr) {
+		t.Fatalf("DeleteRun error = %v, want unlink failure", err)
+	}
+	if _, err := svc.GetRunStatus(context.Background(), run.ID); err != nil {
+		t.Fatalf("run was removed after failed unlink: %v", err)
+	}
+
+	sink.err = nil
+	if err := svc.DeleteRun(context.Background(), run.ID, sink); err != nil {
+		t.Fatalf("retry DeleteRun failed: %v", err)
+	}
+	if sink.calls != 2 {
+		t.Fatalf("unlink calls = %d, want 2", sink.calls)
+	}
+	if _, err := svc.GetRunStatus(context.Background(), run.ID); !errors.Is(err, ErrGraphRunNotFound) {
+		t.Fatalf("run after successful retry = %v, want ErrGraphRunNotFound", err)
 	}
 }
 

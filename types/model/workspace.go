@@ -8,6 +8,7 @@ import (
 
 type Workspace struct {
 	ID           string    `json:"id"`
+	Version      uint64    `json:"version"`
 	Title        string    `json:"title"`
 	Description  string    `json:"description"`
 	Workdir      string    `json:"workdir"`
@@ -41,6 +42,7 @@ type SandboxRef struct {
 func NewWorkspace(title, description, workdir string) *Workspace {
 	return &Workspace{
 		ID:          newWorkspaceID(),
+		Version:     1,
 		Title:       title,
 		Description: description,
 		Workdir:     workdir,

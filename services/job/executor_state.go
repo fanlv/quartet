@@ -282,7 +282,8 @@ func (s *serviceImpl) persistAndPublishTerminal(ctx context.Context, job *model.
 	// job.LastRunOutcome was already stamped under s.mu by
 	// captureTerminalSnapshotLocked — don't write it here (this runs after the
 	// lock is released and would race the locked readers).
-	if err := s.saveJobWithRetry(ctx, job, action); err != nil {
+	if err := s.saveJobWithRetry(ctx, job, action); err != nil &&
+		!errors.Is(err, ErrJobDeleted) && !errors.Is(err, ErrJobNotFound) {
 		// Record the persistence failure on progress so a subsequent refresh
 		// (when save eventually succeeds or during recovery) at least shows why
 		// disk diverged from the event stream.

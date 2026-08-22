@@ -46,15 +46,12 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/workspace/list")
     }
 
-    func updateWorkspace(_ workspace: WorkspaceSummary, defaultAgent: String, defaultModel: String) async throws -> WorkspaceSummary {
-        let latest: WorkspaceSummary = try await request(path: "api/v1/workspace/\(workspace.id)")
+    func updateWorkspaceDefaults(_ workspace: WorkspaceSummary, defaultAgent: String, defaultModel: String) async throws -> WorkspaceSummary {
         return try await request(
             path: "api/v1/workspace/\(workspace.id)",
-            method: "PUT",
+            method: "PATCH",
             body: UpdateWorkspaceRequest(
-                title: latest.title,
-                description: latest.description,
-                workdir: latest.workdir,
+                expectedVersion: workspace.version,
                 defaultAgent: defaultAgent,
                 defaultModel: defaultModel
             )
@@ -306,7 +303,11 @@ struct APIClient: @unchecked Sendable {
         do {
             bodyData = try JSONEncoder().encode(body)
         } catch {
-            throw APIError(summary: "无法编码请求", detail: String(describing: error))
+            throw APIError(
+                summary: "无法编码请求",
+                detail: String(describing: error),
+                requestWasRejected: true
+            )
         }
         return try await request(path: path, method: method, query: query, bodyData: bodyData, authenticated: authenticated)
     }
@@ -351,7 +352,8 @@ struct APIClient: @unchecked Sendable {
         guard (200..<300).contains(http.statusCode) else {
             throw APIError(
                 summary: http.statusCode == 403 ? "Token 验证失败" : "Quartet 请求失败",
-                detail: "\(method) \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)"
+                detail: "\(method) \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)",
+                requestWasRejected: true
             )
         }
 
@@ -382,6 +384,13 @@ struct APIClient: @unchecked Sendable {
 struct APIError: Error, Sendable {
     let summary: String
     let detail: String
+    let requestWasRejected: Bool
+
+    init(summary: String, detail: String, requestWasRejected: Bool = false) {
+        self.summary = summary
+        self.detail = detail
+        self.requestWasRejected = requestWasRejected
+    }
 }
 
 private struct StatusResponse: Decodable, Sendable {

@@ -53,6 +53,7 @@ func (r *stubJobRepo) Save(jobID string, job *model.Job) error { return nil }
 func (r *stubJobRepo) Load(jobID string) (*model.Job, error)   { return nil, nil }
 func (r *stubJobRepo) ListIDs() ([]string, error)              { return nil, nil }
 func (r *stubJobRepo) LoadAll() ([]*model.Job, error)          { return nil, nil }
+func (r *stubJobRepo) SweepDeleted() error                     { return nil }
 
 func newStateTestService() *serviceImpl {
 	return &serviceImpl{

@@ -616,9 +616,9 @@ func (h *Handler) getOrCreateSessionService(wsID, jobID string) (session.Service
 // Cache keys for agent services are (wsID, jobID, sessionID), so we must
 // pass the job dimensions through; using sessionID alone would silently
 // no-op if a different job happened to mint the same sessionID.
-func (h *Handler) cleanupSessions(wsID, jobID string, sessionIDs []string) {
+func (h *Handler) cleanupSessions(wsID, jobID string, sessionIDs []string) error {
 	if len(sessionIDs) == 0 {
-		return
+		return nil
 	}
 	// Reload the session service from disk if it was evicted (idle timeout
 	// or never preloaded). Without this fallback, ss.Delete(sid) would
@@ -629,6 +629,7 @@ func (h *Handler) cleanupSessions(wsID, jobID string, sessionIDs []string) {
 		logger.Errorf(context.Background(),
 			"[Handler] cleanupSessions: load session service failed: wsId=%s jobId=%s err=%v",
 			wsID, jobID, err)
+		return fmt.Errorf("load session service for cleanup: %w", err)
 	}
 	for _, sid := range sessionIDs {
 		if lease, ok := h.acpAgentService.Get(wsID, jobID, sid); ok {
@@ -636,10 +637,13 @@ func (h *Handler) cleanupSessions(wsID, jobID string, sessionIDs []string) {
 			lease.Release()
 		}
 		if ss != nil {
-			ss.Delete(sid)
+			if err := ss.Delete(sid); err != nil {
+				return fmt.Errorf("delete session %s: %w", sid, err)
+			}
 		}
 		h.acpAgentService.Delete(wsID, jobID, sid)
 	}
+	return nil
 }
 
 // jobAllSessionIDs returns every session owned by a job — its SessionIDs

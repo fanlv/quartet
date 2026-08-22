@@ -27,6 +27,7 @@ import { translateGraphEvent } from '../utils/translateGraphEvent';
 import { backendPhaseKind, type ChatPhase } from '../utils/chatPhase';
 import { useConnectionStatus } from '../contexts/ConnectionStatus';
 import { isKnownCommand } from '../utils/commands';
+import { claimJobCreateIntent, clearJobCreateIntent } from '../utils/jobCreateIntent';
 
 // deriveStreamingPhase reads the current streaming phase off the LAST
 // message — O(1), so it runs inline on render with no useMemo. A tail
@@ -624,6 +625,19 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   }, [waitForEventStreamReady]);
 
   const historyLoadedRef = useRef(false);
+  // Tracks initial history hydration independently from historyLoadedRef so a
+  // failed initial load can still be retried by a later graph reconcile after
+  // the attempt settles. The generation prevents an older effect cleanup from
+  // clearing the flag for a newer hydration of the same job.
+  const historyHydratingRef = useRef(false);
+  const historyHydrationGenerationRef = useRef(0);
+  // All history-loading paths (initial hydration, load-on-switch, graph
+  // reconcile and reconnect recovery) share this map. A large graph session can
+  // otherwise be fetched and JSON-decoded several times concurrently before
+  // loadedSessionIds is committed by React. Entries live only until the request
+  // settles: this deliberately deduplicates in-flight work without turning the
+  // browser into a second long-lived history cache.
+  const historyLoadsInFlightRef = useRef<Map<string, Promise<Message[]>>>(new Map());
   // Resume sequence handed back by the snapshot endpoint (job.lastEventSeq).
   // Updated whenever syncJobState fetches the snapshot and consumed by the
   // SSE connect path so reconnects after a 410 / page refresh resume from
@@ -682,6 +696,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // does not briefly show stale data from the previous job.
   useEffect(() => {
     historyLoadedRef.current = false;
+    historyHydratingRef.current = false;
+    ++historyHydrationGenerationRef.current;
     pendingEventsRef.current = [];
     // Invalidate any in-flight syncJobState responses from the previous job —
     // bumping the generation ensures their stale-check fails on arrival.
@@ -1588,7 +1604,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   handleEventRef.current = handleEvent;
 
   // Load history for existing job
-  const loadHistory = useCallback(async (sid: string, tagSessionId?: string) => {
+  const loadHistory = useCallback((sid: string, tagSessionId?: string): Promise<Message[]> => {
+    const inFlight = historyLoadsInFlightRef.current.get(sid);
+    if (inFlight) return inFlight;
+
+    const request = (async () => {
       const response = await fetch(apiUrl(`/sessions/${sid}/messages`));
       if (!response.ok) {
         if (response.status === 404) return [];
@@ -1625,6 +1645,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
       const historyMessages = data.messages || [];
       const converted: Message[] = [];
+      // Tool results reference an earlier assistant tool call. Keep the first
+      // converted index for each call ID so matching thousands of persisted
+      // results stays O(n), instead of scanning the growing array for every
+      // result (O(n²) on long sessions).
+      const toolMessageIndexByCallId = new Map<string, number>();
       const now = Date.now();
 
       for (const msg of historyMessages) {
@@ -1645,12 +1670,19 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             // produce a negative elapsed and hide the badge entirely.
             const toolCreatedAtFallback = msg.finishedAt || msg.thoughtFinishedAt || msg.startedAt || now;
             for (const tc of msg.toolCalls) {
+              const toolIndex = converted.length;
               converted.push({ id: tc.id, role: MessageRoleEnum.TOOL, content: '', createdAt: toolCreatedAtFallback, status: MessageStatusEnum.Started, toolCallId: tc.id, toolCallName: (tc.name && tc.name !== 'undefined') ? tc.name : '', toolCallArgs: tc.arguments, toolCallStatus: ToolCallStatusEnum.Processing, parentMessageId: msg.id, sessionId: tagSessionId });
+              // Preserve the old findIndex semantics if malformed history
+              // contains the same tool-call ID more than once: the first call
+              // remains the result target.
+              if (!toolMessageIndexByCallId.has(tc.id)) {
+                toolMessageIndexByCallId.set(tc.id, toolIndex);
+              }
             }
           }
         } else if (msg.role === 'tool') {
-          const idx = converted.findIndex((m) => m.role === MessageRoleEnum.TOOL && (m as ToolMessage).toolCallId === msg.toolCallId);
-          if (idx >= 0) {
+          const idx = toolMessageIndexByCallId.get(msg.toolCallId);
+          if (idx !== undefined) {
             // Priority: placeholder > failed > success. Placeholder
             // indicates a synthesised result (run cancelled /
             // interrupted / superseded) and must not be painted as
@@ -1684,6 +1716,17 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
 
       return converted;
+    })();
+    historyLoadsInFlightRef.current.set(sid, request);
+    const clearInFlight = () => {
+      // Identity check prevents an older completion from deleting a newer
+      // request installed for the same session after this one settled.
+      if (historyLoadsInFlightRef.current.get(sid) === request) {
+        historyLoadsInFlightRef.current.delete(sid);
+      }
+    };
+    void request.then(clearInFlight, clearInFlight);
+    return request;
   }, [apiUrl, isPublic]);
 
   // Re-sync job state after SSE reconnect to recover from missed events.
@@ -2509,7 +2552,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       // watches it fills in its conversation. Other sessions reload lazily when
       // selected (handled by the load-on-switch effect).
       const active = activeSessionIdRef.current;
-      if (active && entries.some((e) => e.sessionId === active)) {
+      if (!historyHydratingRef.current && active && entries.some((e) => e.sessionId === active)) {
         try {
           const msgs = await loadHistory(active, active);
           if (!cancelled && msgs.length > 0) {
@@ -2680,9 +2723,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     const trimmed = content.trim();
     const hasImages = !!imageUrls && imageUrls.length > 0;
     if (!options?.bypassCommand && !hasImages && isKnownCommand(trimmed)) {
+      const commandIntentScope = `command:${jobId}`;
       const commandClientMessageId = options?.optimisticMessageId
-        ?? crypto.randomUUID?.()
-        ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+        ?? claimJobCreateIntent(commandIntentScope, { content: trimmed });
       // Clear any previous pending watchdog before dispatching a new command.
       clearPendingCommandWatchdog();
       try {
@@ -2695,6 +2738,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           }),
         });
         if (!res.ok) {
+          clearJobCreateIntent(commandIntentScope, commandClientMessageId);
           const errData = await res.json().catch(() => null);
           const msg = errData?.error || `HTTP ${res.status}`;
           console.error('[sendMessage] command dispatch failed:', msg);
@@ -2709,6 +2753,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         // alone would land on no reader and the page would show nothing.
         // applyCommandEvent dedups against the SSE copy when both arrive.
         const body = await res.json().catch(() => null);
+        clearJobCreateIntent(commandIntentScope, commandClientMessageId);
         const event = body?.event as CommandSystemMessageEvent | undefined;
         if (event && event.text) {
           applyCommandEvent(event);
@@ -2962,6 +3007,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     // sessions; wired into this effect's cleanup so a job switch / unmount
     // drops any pending idle callback immediately.
     let cancelIdlePrefetch: (() => void) | null = null;
+    const hydrationGeneration = ++historyHydrationGenerationRef.current;
+    historyHydratingRef.current = true;
     setJobId(existingJobId);
     setIsLoadingHistory(true);
     setJobNotFound(false);
@@ -3439,6 +3486,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         setError(`Failed to load job: ${msg}`);
       })
       .finally(() => {
+        if (historyHydrationGenerationRef.current === hydrationGeneration) {
+          historyHydratingRef.current = false;
+        }
         if (!cancelled) {
           setIsLoadingHistory(false);
           // Open the SSE auto-connect gate. By this point lastEventSeqRef

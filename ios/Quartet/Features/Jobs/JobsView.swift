@@ -24,16 +24,6 @@ struct JobsView: View {
             .navigationBarTitleDisplayMode(.large)
             .refreshable { await model.refreshDashboard() }
             .onAppear { Task { await model.reloadJobs() } }
-            .task {
-                while !Task.isCancelled {
-                    do {
-                        try await Task.sleep(for: .seconds(5))
-                    } catch {
-                        return
-                    }
-                    await model.reloadJobs()
-                }
-            }
             .navigationDestination(for: ChatRoute.self) { route in
                 if route.summary.mode == "graph", route.targetSessionID == nil {
                     GraphRunView(summary: route.summary)
@@ -42,8 +32,8 @@ struct JobsView: View {
                 }
             }
             .task(id: model.pendingNotificationDestination) {
-                guard let destination = model.pendingNotificationDestination,
-                      let summary = await model.notificationDestinationSummary() else {
+                guard let destination = model.pendingNotificationDestination else { return }
+                guard let summary = await model.notificationDestinationSummary() else {
                     model.present(APIError(
                         summary: "无法打开通知目标",
                         detail: "暂时无法读取通知对应的 Job，请恢复连接后重新点击该通知。"

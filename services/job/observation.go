@@ -30,6 +30,7 @@ type jobObservationFingerprint struct {
 	graphRunID     string
 	lastRunOutcome model.RunOutcome
 	graphStatus    string
+	graphSessionID string
 }
 
 type jobObservationSnapshot struct {
@@ -42,9 +43,11 @@ type jobObservationEvent struct {
 	sequence            uint64
 	job                 model.JobSummary
 	previousStatus      model.JobStatus
+	graphRunID          string
 	graphStatus         string
 	previousGraphStatus string
 	graphSessionID      string
+	runOutcome          model.RunOutcome
 	occurredAt          int64
 }
 
@@ -86,16 +89,17 @@ func (s *serviceImpl) ObserveJobs(cursor string, limit int) (model.JobObservatio
 	defer s.observations.mu.Unlock()
 
 	s.mu.RLock()
-	jobs := make([]jobObservationSnapshot, 0, len(s.jobs))
+	activeJobs := make([]jobObservationSnapshot, 0)
 	for _, job := range s.jobs {
-		if job.Deleted || job.WorkspaceID == "" {
+		if job.Deleted || job.WorkspaceID == "" ||
+			(job.Status != model.JobStatusPending && job.Status != model.JobStatusRunning) {
 			continue
 		}
 		summary := summarize(job)
 		// Observation clients never need share credentials. Keep the lightweight
 		// lifecycle feed incapable of exposing them even to an authenticated UI.
 		summary.ShareToken = ""
-		jobs = append(jobs, jobObservationSnapshot{
+		activeJobs = append(activeJobs, jobObservationSnapshot{
 			job: summary,
 			fingerprint: jobObservationFingerprint{
 				status:         job.Status,
@@ -111,8 +115,8 @@ func (s *serviceImpl) ObserveJobs(cursor string, limit int) (model.JobObservatio
 
 	// Map iteration is intentionally unordered. A deterministic ID order makes
 	// sequence assignment and pagination repeatable for tests and clients.
-	sort.Slice(jobs, func(i, j int) bool { return jobs[i].job.ID < jobs[j].job.ID })
-	return s.observations.observeLocked(jobs, decodedCursor, hasCursor, limit), nil
+	sort.Slice(activeJobs, func(i, j int) bool { return activeJobs[i].job.ID < activeJobs[j].job.ID })
+	return s.observations.observeLocked(activeJobs, decodedCursor, hasCursor, limit), nil
 }
 
 func (t *jobObservationTracker) observeLocked(
@@ -122,8 +126,12 @@ func (t *jobObservationTracker) observeLocked(
 	limit int,
 ) model.JobObservationResponse {
 	if !t.initialized {
-		t.epoch = newObservationEpoch()
-		t.fingerprints = make(map[string]jobObservationFingerprint, len(jobs))
+		if t.epoch == "" {
+			t.epoch = newObservationEpoch()
+		}
+		if t.fingerprints == nil {
+			t.fingerprints = make(map[string]jobObservationFingerprint, len(jobs))
+		}
 		for _, job := range jobs {
 			if _, recorded := t.fingerprints[job.job.ID]; !recorded {
 				t.fingerprints[job.job.ID] = job.fingerprint
@@ -148,6 +156,7 @@ func (t *jobObservationTracker) observeLocked(
 	if !hasCursor || cursor.Epoch != t.epoch || cursor.Sequence > t.sequence || t.cursorExpired(cursor.Sequence) {
 		return model.JobObservationResponse{
 			ActiveJobs: activeJobs,
+			Changes:    []model.JobObservationEvent{},
 			Cursor:     encodeJobObservationCursor(jobObservationCursor{Epoch: t.epoch, Sequence: t.sequence}),
 			Reset:      true,
 		}
@@ -166,9 +175,11 @@ func (t *jobObservationTracker) observeLocked(
 			EventID:            fmt.Sprintf("%s:%d", t.epoch, event.sequence),
 			Job:                event.job,
 			PreviousState:      event.previousStatus,
+			GraphRunID:         event.graphRunID,
 			GraphStatus:        event.graphStatus,
 			PreviousGraphState: event.previousGraphStatus,
 			GraphSessionID:     event.graphSessionID,
+			RunOutcome:         event.runOutcome,
 			OccurredAt:         event.occurredAt,
 		})
 	}
@@ -189,8 +200,12 @@ func (t *jobObservationTracker) record(job jobObservationSnapshot) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.initialized {
-		t.epoch = newObservationEpoch()
-		t.fingerprints = make(map[string]jobObservationFingerprint)
+		if t.epoch == "" {
+			t.epoch = newObservationEpoch()
+		}
+		if t.fingerprints == nil {
+			t.fingerprints = make(map[string]jobObservationFingerprint)
+		}
 	}
 	previous, exists := t.fingerprints[job.job.ID]
 	if exists && previous == job.fingerprint {
@@ -208,9 +223,11 @@ func (t *jobObservationTracker) record(job jobObservationSnapshot) {
 		sequence:            t.sequence,
 		job:                 job.job,
 		previousStatus:      previous.status,
+		graphRunID:          job.fingerprint.graphRunID,
 		graphStatus:         job.fingerprint.graphStatus,
 		previousGraphStatus: previous.graphStatus,
 		graphSessionID:      job.graphSessionID,
+		runOutcome:          job.fingerprint.lastRunOutcome,
 		occurredAt:          occurredAt,
 	})
 	t.fingerprints[job.job.ID] = job.fingerprint
@@ -244,6 +261,7 @@ func (s *serviceImpl) recordJobObservationWithGraphSession(job *model.Job, graph
 			graphRunID:     job.GraphRunID,
 			lastRunOutcome: job.LastRunOutcome,
 			graphStatus:    graphStatus,
+			graphSessionID: graphSessionID,
 		},
 	})
 }

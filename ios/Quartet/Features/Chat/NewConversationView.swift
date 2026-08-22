@@ -38,6 +38,20 @@ struct ChatRoute: Hashable {
     }
 }
 
+private struct CreateJobIntentPayload: Equatable {
+    let workspaceID: String
+    let agentType: String
+    let modelID: String
+    let modeID: String?
+    let thoughtLevelID: String?
+    let workdir: String
+}
+
+private struct CreateJobIntent {
+    let id: String
+    let payload: CreateJobIntentPayload
+}
+
 struct NewConversationView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: AppModel
@@ -62,9 +76,21 @@ struct NewConversationView: View {
     @State private var validationTimedOut = false
     @State private var savesDefaults = false
     @State private var localError: PresentedError?
+    @State private var createIntent: CreateJobIntent?
 
     private var workspace: WorkspaceSummary? { model.workspaces.first { $0.id == workspaceID } }
     private var agent: AgentSummary? { agents.first { $0.id == agentID } }
+    private var currentCreatePayload: CreateJobIntentPayload? {
+        guard let workspace, let agent else { return nil }
+        return CreateJobIntentPayload(
+            workspaceID: workspace.id,
+            agentType: agent.type,
+            modelID: modelID,
+            modeID: modeID.isEmpty ? nil : modeID,
+            thoughtLevelID: thoughtLevelID.isEmpty ? nil : thoughtLevelID,
+            workdir: workspace.workdir
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -101,6 +127,11 @@ struct NewConversationView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
             }
             .task { await load() }
+            .onChange(of: currentCreatePayload) { _, payload in
+                if createIntent?.payload != payload {
+                    createIntent = nil
+                }
+            }
             .onChange(of: selectedPhoto) { _, item in
                 guard let item else { return }
                 Task { await loadPhoto(item) }
@@ -293,6 +324,7 @@ struct NewConversationView: View {
         } catch is CancellationError {
             return
         } catch {
+            waitingForValidation = false
             present(error)
         }
     }
@@ -320,7 +352,7 @@ struct NewConversationView: View {
     }
 
     private func create() async {
-        guard let workspace, let agent, agent.available else { return }
+        guard let workspace, let agent, agent.available, let payload = currentCreatePayload else { return }
         creating = true
         defer { creating = false }
         do {
@@ -331,47 +363,65 @@ struct NewConversationView: View {
                     model: modelID
                 )
             }
+            if createIntent?.payload != payload {
+                createIntent = CreateJobIntent(
+                    id: UUID().uuidString.lowercased(),
+                    payload: payload
+                )
+            }
+            guard let createIntent else { return }
             let request = CreateJobRequest(
-                modelId: modelID,
-                agentType: agent.type,
-                acpMode: modeID.isEmpty ? nil : modeID,
-                acpThoughtLevel: thoughtLevelID.isEmpty ? nil : thoughtLevelID,
-                workdir: workspace.workdir,
-                workspaceId: workspace.id
+                modelId: payload.modelID,
+                agentType: payload.agentType,
+                acpMode: payload.modeID,
+                acpThoughtLevel: payload.thoughtLevelID,
+                workdir: payload.workdir,
+                workspaceId: payload.workspaceID,
+                clientMessageId: createIntent.id
             )
             let jobID = try await model.createJob(request: request)
+            self.createIntent = nil
             let now = Int64(Date().timeIntervalSince1970 * 1_000)
             let summary = JobSummary(
                 id: jobID,
                 title: "新对话",
-                modelId: modelID,
+                modelId: payload.modelID,
                 status: "pending",
                 mode: "interactive",
-                workspaceId: workspace.id,
-                workdir: workspace.workdir,
+                workspaceId: payload.workspaceID,
+                workdir: payload.workdir,
                 createdAt: now,
                 updatedAt: now,
                 pinnedAt: nil,
                 sessionCount: 0,
                 scheduleId: nil,
                 shareToken: nil,
-                agentId: agent.agentId,
-                acpMode: modeID.isEmpty ? nil : modeID,
-                acpThoughtLevel: thoughtLevelID.isEmpty ? nil : thoughtLevelID
+                agentId: payload.agentType,
+                acpMode: payload.modeID,
+                acpThoughtLevel: payload.thoughtLevelID
             )
             await model.reloadJobs()
             onCreated(ChatRoute(
                 summary: summary,
                 initialMessage: message.trimmingCharacters(in: .whitespacesAndNewlines),
                 initialAttachment: pendingImage,
-                agentType: agent.type,
-                modelID: modelID,
-                modeID: modeID.isEmpty ? nil : modeID,
-                thoughtLevelID: thoughtLevelID.isEmpty ? nil : thoughtLevelID,
+                agentType: payload.agentType,
+                modelID: payload.modelID,
+                modeID: payload.modeID,
+                thoughtLevelID: payload.thoughtLevelID,
                 initialImagePaths: nil,
                 targetSessionID: nil
             ))
-        } catch { present(error) }
+        } catch {
+            if isDefinitelyRejected(error) {
+                createIntent = nil
+            }
+            present(error)
+        }
+    }
+
+    private func isDefinitelyRejected(_ error: Error) -> Bool {
+        (error as? APIError)?.requestWasRejected == true
     }
 
     private func loadPhoto(_ item: PhotosPickerItem) async {

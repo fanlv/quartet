@@ -188,7 +188,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	wsGroup.POST("/regenerate-colors", h.WorkspaceRegenerateColors)
 	wsGroup.PUT("/order", h.WorkspaceReorder)
 	wsGroup.GET("/:id", h.WorkspaceGet)
-	wsGroup.PUT("/:id", h.WorkspaceUpdate)
+	wsGroup.PATCH("/:id", h.WorkspaceUpdate)
 	wsGroup.PUT("/:id/favorite", h.WorkspaceUpdateFavorite)
 	wsGroup.DELETE("/:id", h.WorkspaceDelete)
 

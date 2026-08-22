@@ -265,6 +265,7 @@ type DailyStatsEntry struct {
 
 type WorkspaceInfo struct {
 	ID           string `json:"id"`
+	Version      uint64 `json:"version"`
 	Title        string `json:"title"`
 	Description  string `json:"description"`
 	Workdir      string `json:"workdir"`

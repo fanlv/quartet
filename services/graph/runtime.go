@@ -133,8 +133,6 @@ func (s *serviceImpl) StartRun(ctx context.Context, req *model.StartGraphRunRequ
 	// in the same lifecycle discipline as resume/delete. Register its handle
 	// before the run becomes externally observable.
 	lifecycle := s.lifecycle(run.ID)
-	lifecycle.opMu.Lock()
-	defer lifecycle.opMu.Unlock()
 	lifecycle.mu.Lock()
 	if lifecycle.deleted {
 		lifecycle.mu.Unlock()

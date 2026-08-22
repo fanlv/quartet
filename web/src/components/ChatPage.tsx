@@ -289,9 +289,13 @@ async function migrateStoredAgentReferences(workspaceId?: string): Promise<void>
       fetch('/api/v1/workspace/list'),
     ]);
     const [listData, catalogData, workspaceData] = await Promise.all([listRes.json(), catalogRes.json(), workspaceRes.json()]);
-    const active = Array.isArray(listData?.agent_list) ? listData.agent_list as AgentInfo[] : [];
+    const active = (Array.isArray(listData?.agent_list) ? listData.agent_list as AgentInfo[] : [])
+      .filter((agent) => agent.available === true);
+    const activeIDs = new Set(active.map((agent) => agent.agent_id));
     const items = Array.isArray(catalogData?.agents) ? catalogData.agents as Array<{
       agent_id: string;
+      lifecycle?: string;
+      deprecated?: boolean;
       definition?: { bin?: string; acp_program?: string; acp_args?: string[] };
       historical_identifiers?: Array<{ value?: string }>;
     }> : [];
@@ -301,6 +305,7 @@ async function migrateStoredAgentReferences(workspaceId?: string): Promise<void>
       byIdentifier.set(agent.type, agent.agent_id);
     }
     for (const item of items) {
+      if (item.lifecycle !== 'active' || item.deprecated || !activeIDs.has(item.agent_id)) continue;
       byIdentifier.set(item.agent_id, item.agent_id);
       if (item.definition?.bin) byIdentifier.set(item.definition.bin, item.agent_id);
       if (item.definition?.acp_program) {
@@ -312,6 +317,10 @@ async function migrateStoredAgentReferences(workspaceId?: string): Promise<void>
       }
     }
     const resolve = (value: string) => byIdentifier.get(value);
+    const modelBelongsToAgent = (agentID: string, modelID: string) => {
+      const agent = active.find((candidate) => candidate.agent_id === agentID);
+      return !!agent?.models?.availableModels.some((model) => model.modelId === modelID);
+    };
     const last = localStorage.getItem('last_agent_type');
     if (last) {
       const migrated = resolve(last);
@@ -324,7 +333,7 @@ async function migrateStoredAgentReferences(workspaceId?: string): Promise<void>
       if (typeof workspace?.id === 'string' && workspace.id) workspaceIds.add(workspace.id);
     }
     await Promise.all([...workspaceIds].map(async (id) => {
-      await migrateWorkspacePrefsToServer(id, resolve);
+      await migrateWorkspacePrefsToServer(id, resolve, modelBelongsToAgent);
     }));
   } catch (err) {
     console.warn('[agent-migration] stored reference migration failed:', err);

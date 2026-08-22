@@ -150,6 +150,7 @@ export function registerWorkspacePrefs(wsId: string, prefs: WorkspacePrefs) {
 export async function migrateWorkspacePrefsToServer(
   wsId: string,
   resolveAgent?: (value: string) => string | undefined,
+  modelBelongsToAgent?: (agentId: string, modelId: string) => boolean,
 ): Promise<WorkspacePrefs> {
   if (!wsId) return {};
   let local: WorkspacePrefs = {};
@@ -158,10 +159,14 @@ export async function migrateWorkspacePrefsToServer(
     if (raw) {
       const value = JSON.parse(raw);
       const storedAgent = typeof value.defaultAgent === 'string' ? value.defaultAgent : undefined;
-      local = {
-        defaultAgent: storedAgent && resolveAgent ? (resolveAgent(storedAgent) || storedAgent) : storedAgent,
-        defaultModel: typeof value.defaultModel === 'string' ? value.defaultModel : undefined,
-      };
+      const resolvedAgent = storedAgent && resolveAgent ? resolveAgent(storedAgent) : storedAgent;
+      const storedModel = typeof value.defaultModel === 'string' ? value.defaultModel : undefined;
+      local = resolvedAgent ? {
+        defaultAgent: resolvedAgent,
+        defaultModel: storedModel && (!modelBelongsToAgent || modelBelongsToAgent(resolvedAgent, storedModel))
+          ? storedModel
+          : undefined,
+      } : {};
     }
   } catch { /* leave local empty */ }
 
@@ -175,28 +180,31 @@ export async function migrateWorkspacePrefsToServer(
     defaultAgent: typeof workspace?.defaultAgent === 'string' && workspace.defaultAgent ? workspace.defaultAgent : undefined,
     defaultModel: typeof workspace?.defaultModel === 'string' && workspace.defaultModel ? workspace.defaultModel : undefined,
   };
-  const shared: WorkspacePrefs = {
-    ...sharedRaw,
-    defaultAgent: sharedRaw.defaultAgent && resolveAgent
-      ? (resolveAgent(sharedRaw.defaultAgent) || sharedRaw.defaultAgent)
-      : sharedRaw.defaultAgent,
-  };
+  const resolvedSharedAgent = sharedRaw.defaultAgent && resolveAgent
+    ? resolveAgent(sharedRaw.defaultAgent)
+    : sharedRaw.defaultAgent;
+  const shared: WorkspacePrefs = resolvedSharedAgent ? {
+    defaultAgent: resolvedSharedAgent,
+    defaultModel: sharedRaw.defaultModel && (!modelBelongsToAgent || modelBelongsToAgent(resolvedSharedAgent, sharedRaw.defaultModel))
+      ? sharedRaw.defaultModel
+      : undefined,
+  } : {};
+  const rawHasShared = !!(sharedRaw.defaultAgent || sharedRaw.defaultModel);
   const hasShared = !!(shared.defaultAgent || shared.defaultModel);
   const source = hasShared ? shared : local;
-  const sharedAlreadyCanonical = shared.defaultAgent === sharedRaw.defaultAgent;
-  if ((hasShared && sharedAlreadyCanonical) || (!hasShared && !local.defaultAgent && !local.defaultModel)) {
+  const sharedAlreadyCanonical = shared.defaultAgent === sharedRaw.defaultAgent
+    && shared.defaultModel === sharedRaw.defaultModel;
+  if ((hasShared && sharedAlreadyCanonical) || (!rawHasShared && !local.defaultAgent && !local.defaultModel)) {
     registerWorkspacePrefs(wsId, source);
     try { localStorage.removeItem(prefsKey(wsId)); } catch { /* ignore */ }
     return source;
   }
 
   const update = await fetch(`/api/v1/workspace/${encodeURIComponent(wsId)}`, {
-    method: 'PUT',
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      title: workspace.title || '',
-      description: workspace.description || '',
-      workdir: workspace.workdir || '',
+      expectedVersion: workspace.version,
       defaultAgent: source.defaultAgent || '',
       defaultModel: source.defaultModel || '',
     }),

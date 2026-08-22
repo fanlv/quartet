@@ -340,11 +340,18 @@ func TestSchedulerJobTimeoutCancelsRunningInstances(t *testing.T) {
 			edge("slow_e", "slow", "e"),
 		},
 	}
-	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-timeout-run", Config: &cfg}, blockingGraphRunner{}, nil)
+	sink := &recordingSink{}
+	run, err := svc.StartRun(context.Background(), &model.StartGraphRunRequest{JobID: "job-timeout-run", Config: &cfg}, blockingGraphRunner{}, sink)
 	if err != nil {
 		t.Fatalf("StartRun failed: %v", err)
 	}
 	got := waitGraphRunStatus(t, svc, run.ID, model.GraphRunStatusTimedOut)
+	// The persisted run becomes timedOut immediately before the terminal Job
+	// sink update. Join the scheduler generation so the observation below is
+	// ordered after that callback rather than racing it.
+	if _, err := svc.StopRunAndWait(context.Background(), run.ID, "join timeout"); err != nil {
+		t.Fatalf("join timed-out run: %v", err)
+	}
 	if got.Run.LastError == nil || !contains(got.Run.LastError.Message, "job timed out after 1s") {
 		t.Fatalf("job timeout error missing full detail: %+v", got.Run.LastError)
 	}
@@ -357,6 +364,9 @@ func TestSchedulerJobTimeoutCancelsRunningInstances(t *testing.T) {
 	}
 	if got.Progress.InterruptedCount != 1 {
 		t.Fatalf("progress = %+v, want interrupted=1", got.Progress)
+	}
+	if update, ok := sink.lastUpdate(); !ok || update.jobStatus != model.JobStatusFailed || update.graphStatus != model.GraphRunStatusTimedOut || update.graphSessionID != "" {
+		t.Fatalf("terminal sink update = %+v, want failed/timedOut with empty session", update)
 	}
 }
 

@@ -24,7 +24,7 @@ type CreateJobRequest struct {
 	// ClientMessageID makes Job creation retry-safe. For a /new command this
 	// is a command-action key derived from (source Job, command message ID), not
 	// the message-send key itself.
-	ClientMessageID string `json:"clientMessageId,omitempty"`
+	ClientMessageID string  `json:"clientMessageId,omitempty"`
 	ACPMode         string  `json:"acpMode,omitempty"`
 	ACPThoughtLevel string  `json:"acpThoughtLevel,omitempty"`
 	Mode            JobMode `json:"mode,omitempty"`
@@ -92,11 +92,12 @@ type CreateWorkspaceRequest struct {
 }
 
 type UpdateWorkspaceRequest struct {
-	Title        string `json:"title"`
-	Description  string `json:"description"`
-	Workdir      string `json:"workdir"`
-	DefaultAgent string `json:"defaultAgent,omitempty"`
-	DefaultModel string `json:"defaultModel,omitempty"`
+	ExpectedVersion uint64  `json:"expectedVersion"`
+	Title           *string `json:"title,omitempty"`
+	Description     *string `json:"description,omitempty"`
+	Workdir         *string `json:"workdir,omitempty"`
+	DefaultAgent    *string `json:"defaultAgent,omitempty"`
+	DefaultModel    *string `json:"defaultModel,omitempty"`
 }
 
 type UpdateWorkspaceFavoriteRequest struct {

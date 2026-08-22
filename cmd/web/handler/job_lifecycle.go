@@ -187,9 +187,13 @@ func (h *Handler) deleteMarkedJob(ctx context.Context, job *model.Job) error {
 	if updated, ok := h.jobService.Get(job.ID); ok {
 		job = updated
 	}
-	h.cleanupSessions(job.WorkspaceID, job.ID, jobAllSessionIDs(job))
+	if err := h.cleanupSessions(job.WorkspaceID, job.ID, jobAllSessionIDs(job)); err != nil {
+		return err
+	}
 
-	h.jobService.Delete(job.ID)
+	if err := h.jobService.Delete(job.ID); err != nil {
+		return fmt.Errorf("delete job storage: %w", err)
+	}
 	h.sessionMu.Lock()
 	delete(h.sessionServices, job.ID)
 	h.sessionMu.Unlock()

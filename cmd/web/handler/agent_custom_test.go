@@ -26,6 +26,8 @@ func (s *reconcileSettingsService) ClearAgentSettings(agentID string) error {
 	return nil
 }
 
+func (s *reconcileSettingsService) GetACPEnvVersion(string) int64 { return 0 }
+
 type reconcileWorkspaceService struct {
 	workspace.Service
 	clearCalls []string
@@ -65,13 +67,11 @@ func TestReconcileDeletingAgents_RestartClearsWorkspaceDefaults(t *testing.T) {
 	if !ok {
 		t.Fatalf("default workspace %q not found", consts.DefaultWorkspaceID)
 	}
-	if _, err := beforeRestart.Update(
-		defaultWorkspace.ID,
-		defaultWorkspace.Title,
-		defaultWorkspace.Description,
-		defaultWorkspace.Workdir,
-		agentID,
-		modelID,
+	if _, err := beforeRestart.Patch(
+		defaultWorkspace.ID, defaultWorkspace.Version, workspace.Patch{
+			DefaultAgent: stringPointerForReconcileTest(agentID),
+			DefaultModel: stringPointerForReconcileTest(modelID),
+		},
 	); err != nil {
 		t.Fatalf("persist workspace defaults before restart: %v", err)
 	}
@@ -139,6 +139,8 @@ func TestReconcileDeletingAgents_RestartClearsWorkspaceDefaults(t *testing.T) {
 		t.Fatalf("ACP cleanup calls = %d, want 1", len(acpService.deleteCalls))
 	}
 }
+
+func stringPointerForReconcileTest(value string) *string { return &value }
 
 func TestReconcileDeletingAgents_WorkspaceCleanupFailureKeepsDeleting(t *testing.T) {
 	root := t.TempDir()

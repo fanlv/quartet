@@ -70,6 +70,8 @@ func (r *idempotencyTestRepo) LoadAll() ([]*model.Job, error) {
 	return jobs, nil
 }
 
+func (r *idempotencyTestRepo) SweepDeleted() error { return nil }
+
 func (r *idempotencyTestRepo) seed(job *model.Job) {
 	r.mu.Lock()
 	r.jobs[job.ID] = job.DeepCopy()

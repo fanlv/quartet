@@ -196,13 +196,10 @@ type runControl struct {
 	doneOnce  sync.Once
 }
 
-// runLifecycle serializes every operation that can create, stop, mutate, or
-// delete a scheduler generation for one run ID. Repository calls deliberately
-// happen while this lock is held: the lock is per-run, and keeping the persisted
-// status check in the same critical section as control registration/deletion is
-// what removes the otherwise unavoidable check-then-act races.
+// runLifecycle serializes the commit points that create, stop, mutate, or delete
+// one run ID. Potentially slow preparation may happen outside the lock, but every
+// writer revalidates persisted state under it before committing.
 type runLifecycle struct {
-	opMu    sync.Mutex
 	mu      sync.Mutex
 	handle  *runControl
 	deleted bool
@@ -402,39 +399,6 @@ func newRunControl() (*runControl, context.Context) {
 	}, runCtx
 }
 
-// registerControl serializes scheduler generations for a run. A contender waits
-// for the current generation to finish, but the caller must re-read and validate
-// persisted state after registration; its earlier snapshot may have become stale
-// while it waited.
-func (s *serviceImpl) registerControl(waitCtx context.Context, runID string) (*runControl, context.Context, error) {
-	lifecycle := s.lifecycle(runID)
-	for {
-		if err := waitCtx.Err(); err != nil {
-			return nil, nil, err
-		}
-
-		lifecycle.mu.Lock()
-		if lifecycle.deleted {
-			lifecycle.mu.Unlock()
-			return nil, nil, ErrGraphRunNotFound
-		}
-		existing := lifecycle.handle
-		if existing == nil {
-			handle, runCtx := newRunControl()
-			lifecycle.handle = handle
-			lifecycle.mu.Unlock()
-			return handle, runCtx, nil
-		}
-		lifecycle.mu.Unlock()
-
-		select {
-		case <-existing.done:
-		case <-waitCtx.Done():
-			return nil, nil, waitCtx.Err()
-		}
-	}
-}
-
 // completeControl releases one scheduler generation's control handle and closes
 // only that generation's done channel. Completion shares the lifecycle lock with
 // resume, stop, static writes, and deletion, so none can observe a half-retired
@@ -523,17 +487,6 @@ func (s *serviceImpl) RunEventSnapshotSeq(runID string) (uint64, bool) {
 		return 0, false
 	}
 	return buf.SnapshotSeq(), true
-}
-
-// sendControl delivers a control signal to a running run's scheduler goroutine
-// without blocking. Returns ErrGraphRunNotRunning if no scheduler is live and
-// ErrGraphRunControlBusy if the signal was not accepted.
-func (s *serviceImpl) sendControl(runID string, sig controlSignal) error {
-	handle := s.getControl(runID)
-	if handle == nil {
-		return ErrGraphRunNotRunning
-	}
-	return sendControlToHandle(handle, sig)
 }
 
 // sendControlToHandle sends to a previously captured scheduler generation. It
