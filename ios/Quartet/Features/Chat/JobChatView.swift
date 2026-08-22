@@ -484,7 +484,7 @@ private struct UserMessageBubble: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .frame(maxWidth: 320, alignment: .leading)
-            .background(QuartetTheme.primaryText, in: UnevenRoundedRectangle(
+            .background(Color(red: 0.10, green: 0.10, blue: 0.10), in: UnevenRoundedRectangle(
                 topLeadingRadius: 17, bottomLeadingRadius: 17, bottomTrailingRadius: 5, topTrailingRadius: 17, style: .continuous
             ))
         }
@@ -949,10 +949,47 @@ private struct MarkdownMessageView: View {
                     CodeBlockView(language: language, code: content, tone: tone)
                 case .table(let headers, let rows):
                     MarkdownTableView(headers: headers, rows: rows, tone: tone)
+                case .heading(let level, let content):
+                    MarkdownTextBlock(text: content, tone: tone)
+                        .font(headingFont(level))
+                        .fontWeight(.bold)
+                case .quote(let content):
+                    HStack(alignment: .top, spacing: 10) {
+                        Capsule()
+                            .fill(tone == .user ? Color.white.opacity(0.45) : QuartetTheme.secondaryText.opacity(0.5))
+                            .frame(width: 3)
+                        MarkdownTextBlock(text: content, tone: tone)
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 10)
+                    .background(tone.codeBackground.opacity(0.7), in: RoundedRectangle(cornerRadius: 7))
+                case .list(let ordered, let items):
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(ordered ? "\(index + 1)." : "•")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(tone.secondaryForeground)
+                                    .frame(minWidth: ordered ? 20 : 10, alignment: .trailing)
+                                MarkdownTextBlock(text: item, tone: tone)
+                            }
+                        }
+                    }
+                case .divider:
+                    Divider().overlay(tone.codeBorder)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func headingFont(_ level: Int) -> Font {
+        switch level {
+        case 1: .title2
+        case 2: .title3
+        case 3: .headline
+        default: .subheadline
+        }
     }
 }
 
@@ -1121,6 +1158,10 @@ private enum MarkdownRenderer {
             case markdown(String)
             case code(language: String?, content: String)
             case table(headers: [String], rows: [[String]])
+            case heading(level: Int, content: String)
+            case quote(String)
+            case list(ordered: Bool, items: [String])
+            case divider
         }
 
         let id: Int
@@ -1193,6 +1234,44 @@ private enum MarkdownRenderer {
                 result.append(.table(headers: headers, rows: rows))
                 continue
             }
+
+            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+            if let heading = heading(in: trimmed) {
+                flushMarkdown()
+                result.append(.heading(level: heading.level, content: heading.content))
+                index += 1
+                continue
+            }
+            if isDivider(trimmed) {
+                flushMarkdown()
+                result.append(.divider)
+                index += 1
+                continue
+            }
+            if trimmed.hasPrefix("> ") || trimmed == ">" {
+                flushMarkdown()
+                var quoted: [String] = []
+                while index < lines.count {
+                    let candidate = lines[index].trimmingCharacters(in: .whitespaces)
+                    guard candidate.hasPrefix(">") else { break }
+                    quoted.append(String(candidate.dropFirst()).trimmingCharacters(in: .whitespaces))
+                    index += 1
+                }
+                result.append(.quote(quoted.joined(separator: "\n")))
+                continue
+            }
+            if let firstItem = listItem(in: trimmed) {
+                flushMarkdown()
+                var items = [firstItem.content]
+                let ordered = firstItem.ordered
+                index += 1
+                while index < lines.count, let next = listItem(in: lines[index].trimmingCharacters(in: .whitespaces)), next.ordered == ordered {
+                    items.append(next.content)
+                    index += 1
+                }
+                result.append(.list(ordered: ordered, items: items))
+                continue
+            }
             markdownLines.append(lines[index])
             index += 1
         }
@@ -1210,6 +1289,31 @@ private enum MarkdownRenderer {
             let core = cell.trimmingCharacters(in: CharacterSet(charactersIn: " :-"))
             return core.isEmpty && cell.filter { $0 == "-" }.count >= 3
         }
+    }
+
+    private static func heading(in line: String) -> (level: Int, content: String)? {
+        let markerCount = line.prefix { $0 == "#" }.count
+        guard (1...6).contains(markerCount) else { return nil }
+        let boundary = line.index(line.startIndex, offsetBy: markerCount)
+        guard boundary < line.endIndex, line[boundary] == " " else { return nil }
+        return (markerCount, String(line[line.index(after: boundary)...]))
+    }
+
+    private static func isDivider(_ line: String) -> Bool {
+        let compact = line.filter { !$0.isWhitespace }
+        guard compact.count >= 3, let first = compact.first, ["-", "*", "_"].contains(first) else { return false }
+        return compact.allSatisfy { $0 == first }
+    }
+
+    private static func listItem(in line: String) -> (ordered: Bool, content: String)? {
+        if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ") {
+            return (false, String(line.dropFirst(2)))
+        }
+        guard let dot = line.firstIndex(of: "."), dot < line.endIndex else { return nil }
+        let number = line[..<dot]
+        let afterDot = line.index(after: dot)
+        guard !number.isEmpty, number.allSatisfy(\.isNumber), afterDot < line.endIndex, line[afterDot] == " " else { return nil }
+        return (true, String(line[line.index(after: afterDot)...]))
     }
 
     private static func tableCells(_ line: String) -> [String] {
@@ -1615,6 +1719,7 @@ private final class ChatViewModel: ObservableObject {
     func markStopped() {
         status = "stopped"
         isTurnRunning = false
+        finishOpenMessages(outcome: "stopped", timestamp: Int64(Date().timeIntervalSince1970 * 1_000))
         stopStreaming()
         scheduleOutboxProcessing()
     }
@@ -2196,7 +2301,7 @@ private final class ChatViewModel: ObservableObject {
                     self.errorDetail = self.errorText(error)
                 }
             }
-            self.finishOpenMessages()
+            self.finishOpenMessages(outcome: self.status, timestamp: Int64(Date().timeIntervalSince1970 * 1_000))
             self.phaseLabel = nil
             self.streamTask?.cancel()
             self.streamTask = nil
@@ -2277,7 +2382,7 @@ private final class ChatViewModel: ObservableObject {
             phaseLabel = "Agent 已启动"
         case "RUN_FINISHED":
             phaseLabel = nil
-            finishOpenMessages()
+            finishOpenMessages(outcome: "completed", timestamp: event.timestamp)
             // RUN_FINISHED closes the Agent round, but the backend publishes the
             // authoritative JOB_* terminal event only after it has persisted the
             // Job transition. Keep the local queue paused until that event arrives;
@@ -2289,7 +2394,7 @@ private final class ChatViewModel: ObservableObject {
             let outcome = event.runOutcome ?? "completed"
             publishTerminalStateChange()
             applyRunOutcome(outcome)
-            finishOpenMessages()
+            finishOpenMessages(outcome: outcome, timestamp: event.timestamp)
             scheduleSnapshotRefresh()
             stopStreaming()
         case "JOB_FAILED":
@@ -2300,7 +2405,7 @@ private final class ChatViewModel: ObservableObject {
             publishTerminalStateChange()
             applyRunOutcome(outcome)
             if let message = event.message, !message.isEmpty { errorDetail = message }
-            finishOpenMessages()
+            finishOpenMessages(outcome: outcome, timestamp: event.timestamp)
             scheduleSnapshotRefresh()
             stopStreaming()
         case "JOB_STOPPED":
@@ -2310,7 +2415,7 @@ private final class ChatViewModel: ObservableObject {
             let outcome = event.runOutcome ?? "stopped"
             publishTerminalStateChange()
             applyRunOutcome(outcome)
-            finishOpenMessages()
+            finishOpenMessages(outcome: outcome, timestamp: event.timestamp)
             scheduleSnapshotRefresh()
             stopStreaming()
         case "RUN_ERROR":
@@ -2441,9 +2546,18 @@ private final class ChatViewModel: ObservableObject {
         bumpScrollAnchor()
     }
 
-    private func finishOpenMessages() {
+    private func finishOpenMessages(outcome: String = "completed", timestamp: Int64? = nil) {
         for index in messages.indices {
+            guard !messages[index].isFinished else { continue }
             messages[index].isFinished = true
+            messages[index].finishedAt = timestamp ?? messages[index].finishedAt
+            guard messages[index].kind == .tool, messages[index].toolStatus == .processing else { continue }
+            if outcome == "completed" {
+                messages[index].toolStatus = .success
+            } else {
+                messages[index].toolStatus = .placeholder
+                messages[index].placeholderReason = outcome == "failed" ? "job_failed" : "interrupted"
+            }
         }
         bumpScrollAnchor()
     }
