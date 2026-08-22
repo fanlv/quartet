@@ -121,24 +121,24 @@ struct JobsView: View {
             Button { presentsConnectionStatus = true } label: {
                 HStack(spacing: 12) {
                     Image(systemName: connectionNoticeIcon(state))
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(connectionNoticeColor(state))
                         .frame(width: 34, height: 34)
                         .background(connectionNoticeColor(state).opacity(0.12), in: Circle())
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(connectionHeadline(state))
-                            .font(.subheadline.weight(.semibold))
+                            .font(.quartet(.control, weight: .semibold))
                             .foregroundStyle(QuartetTheme.primaryText)
                         Text(connectionNoticeDetail(state))
-                            .font(.caption)
+                            .font(.quartet(.detail))
                             .foregroundStyle(QuartetTheme.secondaryText)
                             .lineLimit(1)
                     }
 
                     Spacer(minLength: 8)
                     Image(systemName: "chevron.right")
-                        .font(.caption.weight(.bold))
+                        .font(.quartet(.detail, weight: .bold))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
                 .padding(.horizontal, 14)
@@ -169,11 +169,11 @@ struct JobsView: View {
         } label: {
             HStack(spacing: 6) {
                 Text(selectedWorkspaceTitle)
-                    .font(.headline)
+                    .font(.quartet(.regular, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
+                    .font(.quartet(.compact, weight: .bold))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
             .frame(maxWidth: 190)
@@ -282,7 +282,7 @@ struct JobsView: View {
     private var sectionHeader: some View {
         HStack(spacing: 10) {
             Text("最近任务")
-                .font(.headline)
+                .font(.quartet(.regular, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
 
             Button {
@@ -292,7 +292,7 @@ struct JobsView: View {
                     model.hideScheduledJobs ? "显示定时任务" : "隐藏定时任务",
                     systemImage: model.hideScheduledJobs ? "eye" : "eye.slash"
                 )
-                .font(.caption.weight(.semibold))
+                .font(.quartet(.detail, weight: .semibold))
                 .labelStyle(.titleAndIcon)
                 .foregroundStyle(QuartetTheme.accent)
                 .padding(.horizontal, 9)
@@ -310,7 +310,7 @@ struct JobsView: View {
                         .frame(width: 7, height: 7)
                     Text("\(model.activeJobCount) 个进行中")
                 }
-                .font(.caption.weight(.medium))
+                .font(.quartet(.detail, weight: .medium))
                 .foregroundStyle(QuartetTheme.secondaryText)
             }
         }
@@ -420,14 +420,14 @@ private struct JobRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 7) {
                     Text(job.displayTitle)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     if (job.pinnedAt ?? 0) > 0 {
                         Image(systemName: "pin.fill")
-                            .font(.caption2.weight(.bold))
+                            .font(.quartet(.compact, weight: .bold))
                             .foregroundStyle(QuartetTheme.accent)
                             .accessibilityHidden(true)
                     }
@@ -462,7 +462,7 @@ private struct JobRow: View {
 
                     JobSentTime(timestamp: job.updatedAt)
                 }
-                .font(.caption)
+                .font(.quartet(.detail))
                 .foregroundStyle(QuartetTheme.secondaryText)
                 .lineLimit(1)
             }
@@ -544,7 +544,7 @@ private struct JobModeIcon: View {
 
             if mode == "loop" {
                 Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.quartet(.control, weight: .semibold))
                     .foregroundStyle(color)
             } else {
                 JobModeGlyph(mode: mode)
@@ -644,7 +644,7 @@ private struct JobStatusIcon: View {
                     Circle()
                         .stroke(statusColor.opacity(0.7), lineWidth: 1.2)
                     Image(systemName: statusSymbol)
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.quartet(.compact, weight: .bold))
                         .foregroundStyle(statusColor)
                 }
             }
@@ -695,7 +695,7 @@ private struct JobSentTime: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: refreshInterval)) { context in
             Text(formattedTime(relativeTo: context.date))
-                .font(.caption.monospacedDigit())
+                .font(.quartet(.detail).monospacedDigit())
                 .lineLimit(1)
                 .accessibilityLabel("发送时间，\(formattedTime(relativeTo: context.date))")
         }
@@ -792,10 +792,10 @@ private struct DashboardConnectionView: View {
 
                     VStack(alignment: .leading, spacing: 7) {
                         Text("服务地址")
-                            .font(.caption.weight(.semibold))
+                            .font(.quartet(.detail, weight: .semibold))
                             .foregroundStyle(QuartetTheme.secondaryText)
                         Text(model.serverAddress)
-                            .font(.system(.footnote, design: .monospaced))
+                            .font(.quartet(.detail, design: .monospaced))
                             .foregroundStyle(QuartetTheme.primaryText)
                             .textSelection(.enabled)
                     }
@@ -808,14 +808,14 @@ private struct DashboardConnectionView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
                                 Label("最近一次错误", systemImage: "exclamationmark.triangle.fill")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.quartet(.control, weight: .semibold))
                                     .foregroundStyle(QuartetTheme.failed)
                                 Spacer()
                                 Button("复制") { UIPasteboard.general.string = failure }
-                                    .font(.caption.weight(.semibold))
+                                    .font(.quartet(.detail, weight: .semibold))
                             }
                             Text(failure)
-                                .font(.system(.caption, design: .monospaced))
+                                .font(.quartet(.detail, design: .monospaced))
                                 .foregroundStyle(QuartetTheme.primaryText)
                                 .textSelection(.enabled)
                         }
@@ -837,7 +837,7 @@ private struct DashboardConnectionView: View {
                             }
                             Text(model.connectionState.isConnected ? "立即同步" : "重新连接")
                         }
-                        .font(.headline)
+                        .font(.quartet(.regular, weight: .semibold))
                         .foregroundStyle(QuartetTheme.canvas)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
@@ -865,17 +865,17 @@ private struct DashboardConnectionView: View {
         let state = model.connectionState
         return HStack(spacing: 14) {
             Image(systemName: statusIcon)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.quartet(.large, weight: .semibold))
                 .foregroundStyle(statusColor)
                 .frame(width: 46, height: 46)
                 .background(statusColor.opacity(0.12), in: Circle())
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(statusTitle)
-                    .font(.headline)
+                    .font(.quartet(.regular, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Text(syncDescription(state))
-                    .font(.footnote)
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
         }

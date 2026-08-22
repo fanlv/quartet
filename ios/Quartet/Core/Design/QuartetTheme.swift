@@ -41,7 +41,7 @@ enum QuartetFontSize {
         case .large: .title3
         case .regular: .body
         case .control: .subheadline
-        case .detail: .caption
+        case .detail: .footnote
         case .compact: .caption2
         }
     }
