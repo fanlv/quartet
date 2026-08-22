@@ -206,7 +206,7 @@ struct NewConversationView: View {
                     withAnimation(.easeInOut(duration: 0.2)) { creationMode = item }
                 } label: {
                     Label(item.title, systemImage: item.icon)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(selected ? QuartetTheme.primaryText : QuartetTheme.secondaryText)
                         .frame(maxWidth: .infinity)
                         .frame(height: 42)
@@ -236,10 +236,10 @@ struct NewConversationView: View {
                     .controlSize(.large)
             }
             Text("正在准备对话")
-                .font(.headline)
+                .font(.quartet(.regular, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
             Text("正在读取空间与 Agent 配置…")
-                .font(.subheadline)
+                .font(.quartet(.control))
                 .foregroundStyle(QuartetTheme.secondaryText)
         }
         .frame(maxWidth: .infinity)
@@ -251,24 +251,25 @@ struct NewConversationView: View {
         return VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("第一条消息")
-                    .font(.headline)
+                    .font(.quartet(.regular, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Spacer()
                 Text(message.isEmpty ? "支持文字与图片" : "\(message.count) 字")
-                    .font(.caption)
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
 
             ZStack(alignment: .topLeading) {
                 if message.isEmpty {
                     Text("描述你想完成的事情…")
-                        .font(.body)
+                        .font(.quartet(.regular))
                         .foregroundStyle(QuartetTheme.secondaryText.opacity(0.8))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 8)
                         .allowsHitTesting(false)
                 }
                 TextEditor(text: $message)
+                    .font(.quartet(.regular))
                     .scrollContentBackground(.hidden)
                     .focused($composerFocused)
                     .frame(minHeight: 148)
@@ -283,7 +284,7 @@ struct NewConversationView: View {
                             selectedPhoto = nil
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.caption.weight(.bold))
+                                .font(.quartet(.detail, weight: .bold))
                                 .foregroundStyle(QuartetTheme.primaryText)
                                 .frame(width: 28, height: 28)
                                 .background(QuartetTheme.elevated, in: Circle())
@@ -297,7 +298,7 @@ struct NewConversationView: View {
                 HStack(spacing: 8) {
                     PhotosPicker(selection: $selectedPhoto, matching: .images) {
                         Label("照片", systemImage: hasPendingImage ? "photo.fill" : "photo")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.quartet(.control, weight: .semibold))
                             .padding(.horizontal, 12)
                             .frame(height: 36)
                             .background(QuartetTheme.elevated, in: Capsule())
@@ -324,7 +325,7 @@ struct NewConversationView: View {
 
     private func attachmentActionLabel(_ title: String, icon: String) -> some View {
         Label(title, systemImage: icon)
-            .font(.subheadline.weight(.semibold))
+            .font(.quartet(.control, weight: .semibold))
             .padding(.horizontal, 12)
             .frame(height: 36)
             .background(QuartetTheme.elevated, in: Capsule())
@@ -334,11 +335,11 @@ struct NewConversationView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text("运行配置")
-                    .font(.headline)
+                    .font(.quartet(.regular, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Spacer()
                 Text("按空间记忆")
-                    .font(.caption)
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
 
@@ -360,16 +361,16 @@ struct NewConversationView: View {
                             configurationIcon("slider.horizontal.3")
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("高级选项")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.quartet(.control, weight: .semibold))
                                     .foregroundStyle(QuartetTheme.primaryText)
                                 Text("\(modeName) · \(thoughtLevelName)")
-                                    .font(.caption)
+                                    .font(.quartet(.detail))
                                     .foregroundStyle(QuartetTheme.secondaryText)
                                     .lineLimit(1)
                             }
                             Spacer()
                             Image(systemName: "chevron.down")
-                                .font(.caption.weight(.bold))
+                                .font(.quartet(.detail, weight: .bold))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                                 .rotationEffect(.degrees(showsAdvancedOptions ? 180 : 0))
                         }
@@ -395,10 +396,10 @@ struct NewConversationView: View {
                 Toggle(isOn: $savesDefaults) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("设为空间默认")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.quartet(.control, weight: .semibold))
                             .foregroundStyle(QuartetTheme.primaryText)
                         Text("创建成功时保存当前 Agent 与模型")
-                            .font(.caption)
+                            .font(.quartet(.detail))
                             .foregroundStyle(QuartetTheme.secondaryText)
                     }
                 }
@@ -422,11 +423,11 @@ struct NewConversationView: View {
                                 .fill(workspaceTint(item))
                                 .frame(width: 10, height: 10)
                             Text(item.displayName)
-                                .font(.subheadline.weight(.semibold))
+                                .font(.quartet(.control, weight: .semibold))
                                 .lineLimit(1)
                             if selected {
                                 Image(systemName: "checkmark")
-                                    .font(.caption.weight(.bold))
+                                    .font(.quartet(.detail, weight: .bold))
                             }
                         }
                         .foregroundStyle(selected ? QuartetTheme.primaryText : QuartetTheme.secondaryText)
@@ -514,16 +515,16 @@ struct NewConversationView: View {
             configurationIcon(icon)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.caption)
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
                 Text(value)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.quartet(.control, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                     .lineLimit(1)
             }
             Spacer()
             Image(systemName: "chevron.up.chevron.down")
-                .font(.caption2.weight(.bold))
+                .font(.quartet(.compact, weight: .bold))
                 .foregroundStyle(QuartetTheme.secondaryText)
         }
         .padding(.horizontal, 14)
@@ -533,7 +534,7 @@ struct NewConversationView: View {
 
     private func configurationIcon(_ name: String) -> some View {
         Image(systemName: name)
-            .font(.system(size: 15, weight: .semibold))
+            .font(.quartet(.control, weight: .semibold))
             .foregroundStyle(QuartetTheme.accent)
             .frame(width: 32, height: 32)
             .background(QuartetTheme.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -557,9 +558,9 @@ struct NewConversationView: View {
                     Text(creating ? "正在创建…" : "创建并发送")
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .font(.caption.weight(.bold))
+                        .font(.quartet(.detail, weight: .bold))
                 }
-                .font(.headline)
+                .font(.quartet(.regular, weight: .semibold))
                 .foregroundStyle(.black)
                 .padding(.horizontal, 18)
                 .frame(height: 54)
@@ -578,7 +579,7 @@ struct NewConversationView: View {
 
     private func contextPill(_ value: String, icon: String) -> some View {
         Label(value, systemImage: icon)
-            .font(.caption.weight(.medium))
+            .font(.quartet(.detail, weight: .medium))
             .foregroundStyle(QuartetTheme.secondaryText)
             .lineLimit(1)
             .padding(.horizontal, 9)
@@ -599,17 +600,17 @@ struct NewConversationView: View {
                     Text(agent.isValidationPending
                         ? (validationTimedOut ? "Agent 验证尚未完成" : "Agent \(agent.availabilityLabel)，正在自动重试")
                         : "Agent 当前不可用")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.quartet(.control, weight: .semibold))
                 }
                 if let error = agent.error, !error.isEmpty {
                     Text(error)
-                        .font(.caption)
+                        .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.failed)
                         .textSelection(.enabled)
                 }
                 if !waitingForValidation {
                     Button("重新检查") { Task { await load(preserveSelection: true) } }
-                        .font(.caption.weight(.semibold))
+                        .font(.quartet(.detail, weight: .semibold))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

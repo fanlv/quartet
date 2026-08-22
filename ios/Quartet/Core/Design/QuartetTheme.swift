@@ -29,6 +29,34 @@ enum QuartetTheme {
     }
 }
 
+enum QuartetFontSize {
+    case large
+    case regular
+    case control
+    case detail
+    case compact
+
+    fileprivate var textStyle: Font.TextStyle {
+        switch self {
+        case .large: .title3
+        case .regular: .body
+        case .control: .subheadline
+        case .detail: .caption
+        case .compact: .caption2
+        }
+    }
+}
+
+extension Font {
+    static func quartet(
+        _ size: QuartetFontSize,
+        weight: Font.Weight? = nil,
+        design: Font.Design = .default
+    ) -> Font {
+        .system(size.textStyle, design: design, weight: weight)
+    }
+}
+
 private extension UIColor {
     convenience init(rgb: UInt32) {
         self.init(

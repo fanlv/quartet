@@ -134,7 +134,7 @@ struct JobChatView: View {
                 Circle()
                     .fill(chat.statusColor.opacity(0.15))
                 Image(systemName: chat.isRunning ? "waveform" : "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.quartet(.detail, weight: .bold))
                     .foregroundStyle(chat.statusColor)
             }
             .frame(width: 34, height: 34)
@@ -150,12 +150,12 @@ struct JobChatView: View {
                             .lineLimit(1)
                     }
                 }
-                .font(.caption.weight(.semibold))
+                .font(.quartet(.detail, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
 
                 if let session = chat.sessionIDDisplay {
                     Text(session)
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .font(.quartet(.compact, weight: .medium, design: .monospaced))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .lineLimit(1)
                 }
@@ -170,7 +170,7 @@ struct JobChatView: View {
                         .frame(width: 6, height: 6)
                 }
                 Text(chat.streamStateLabel)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
             }
             .foregroundStyle(chat.streamStateColor)
             .padding(.horizontal, 9)
@@ -193,7 +193,7 @@ struct JobChatView: View {
                         VStack(spacing: 12) {
                             ProgressView()
                             Text("正在同步对话…")
-                                .font(.caption)
+                                .font(.quartet(.detail))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                         }
                         .padding(.top, 80)
@@ -232,7 +232,7 @@ struct JobChatView: View {
                         Spacer()
                         Text("详情")
                     }
-                    .font(.caption)
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.failed)
                 }
             }
@@ -244,7 +244,7 @@ struct JobChatView: View {
                         self.pendingImage = nil
                         selectedPhoto = nil
                     }
-                    .font(.caption)
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.failed)
                     Spacer()
                 }
@@ -266,7 +266,7 @@ struct JobChatView: View {
             HStack(alignment: .bottom, spacing: 10) {
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     Image(systemName: hasPendingImage ? "photo.fill" : "photo")
-                        .font(.headline)
+                        .font(.quartet(.regular, weight: .semibold))
                         .foregroundStyle(hasPendingImage ? QuartetTheme.accent : QuartetTheme.secondaryText)
                         .frame(width: 36, height: 44)
                 }
@@ -276,13 +276,14 @@ struct JobChatView: View {
                     showsAttachmentMenu = true
                 } label: {
                     Image(systemName: "plus.viewfinder")
-                        .font(.headline)
+                        .font(.quartet(.regular, weight: .semibold))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .frame(width: 36, height: 44)
                 }
                 .accessibilityLabel("更多图片来源")
 
                 TextField("继续对话…", text: $draft, axis: .vertical)
+                    .font(.quartet(.regular))
                     .lineLimit(1...6)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
@@ -291,7 +292,7 @@ struct JobChatView: View {
 
                 Button { enqueueDraft() } label: {
                     Image(systemName: "arrow.up")
-                        .font(.headline.weight(.bold))
+                        .font(.quartet(.regular, weight: .bold))
                         .foregroundStyle(.black)
                         .frame(width: 44, height: 44)
                         .background(QuartetTheme.accent, in: Circle())
@@ -304,12 +305,12 @@ struct JobChatView: View {
 
             if chat.isRunning {
                 Text("当前轮次运行中，新消息会先进入本地队列，等本轮结束后自动按顺序发送。")
-                    .font(.caption)
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else if chat.hasQueuedMessages {
                 Text("队列中的消息会依次发送，可在发送前取消。")
-                    .font(.caption)
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -442,7 +443,7 @@ private struct ChatBubble: View {
             Text(message.content.isEmpty ? "系统事件" : message.content)
                 .textSelection(.enabled)
         }
-        .font(.caption)
+        .font(.quartet(.detail))
         .foregroundStyle(message.isFailed ? QuartetTheme.failed : QuartetTheme.secondaryText)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -469,7 +470,7 @@ private struct UserMessageBubble: View {
             Spacer(minLength: 38)
             if let timestamp = message.timestamp {
                 Text(chatTimeLabel(timestamp))
-                    .font(.caption2)
+                    .font(.quartet(.compact))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .padding(.bottom, 4)
             }
@@ -505,16 +506,16 @@ private struct AssistantMessageCard: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 8) {
                         Image(systemName: message.isShellOutput ? "terminal.fill" : "sparkles")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.quartet(.detail, weight: .semibold))
                         Text(message.isShellOutput ? "SHELL" : "ASSISTANT")
-                            .font(.caption.weight(.semibold))
+                            .font(.quartet(.detail, weight: .semibold))
                         if !message.isFinished {
                             StreamingDot(color: QuartetTheme.accent)
                         }
                         Spacer(minLength: 8)
                         if let timestamp = message.timestamp, message.isFinished {
                             Text(chatTimeLabel(timestamp))
-                                .font(.caption2)
+                                .font(.quartet(.compact))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                         }
                         if message.isFinished, !message.content.isEmpty {
@@ -528,7 +529,7 @@ private struct AssistantMessageCard: View {
                     if message.isShellOutput {
                         ScrollView(.horizontal, showsIndicators: false) {
                             Text(message.content)
-                                .font(.system(.footnote, design: .monospaced))
+                                .font(.quartet(.detail, design: .monospaced))
                                 .foregroundStyle(QuartetTheme.primaryText)
                                 .textSelection(.enabled)
                         }
@@ -536,7 +537,7 @@ private struct AssistantMessageCard: View {
                         HStack(spacing: 8) {
                             TypingDots()
                             Text("正在组织回复…")
-                                .font(.subheadline)
+                                .font(.quartet(.control))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                         }
                     } else {
@@ -575,14 +576,14 @@ private struct ThoughtPanel: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
                 Image(systemName: "brain.head.profile")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.quartet(.detail, weight: .semibold))
                 Text("深度思考")
-                    .font(.caption.weight(.semibold))
+                    .font(.quartet(.detail, weight: .semibold))
                 if isStreaming { StreamingDot(color: .blue) }
                 Spacer(minLength: 8)
                 if let timestamp, !isStreaming {
                     Text(chatTimeLabel(timestamp))
-                        .font(.caption2)
+                        .font(.quartet(.compact))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
             }
@@ -614,17 +615,17 @@ private struct ToolCallCard: View {
             } label: {
                 HStack(spacing: 11) {
                     Image(systemName: toolIcon)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .frame(width: 20)
                     Text(displayName)
-                        .font(.subheadline.weight(.medium))
+                        .font(.quartet(.control, weight: .medium))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .lineLimit(1)
                     Spacer(minLength: 6)
                     toolStatusBadge
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption.weight(.semibold))
+                        .font(.quartet(.detail, weight: .semibold))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
                 .padding(.horizontal, 15)
@@ -652,13 +653,13 @@ private struct ToolCallCard: View {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
                             Text("工具正在执行，结果会实时显示在这里…")
-                                .font(.caption)
+                                .font(.quartet(.detail))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                         }
                     }
                     if status == .placeholder, let reason = message.placeholderReason, !reason.isEmpty {
                         Label("未完成：\(reason)", systemImage: "minus.circle")
-                            .font(.caption)
+                            .font(.quartet(.detail))
                             .foregroundStyle(QuartetTheme.secondaryText)
                             .textSelection(.enabled)
                     }
@@ -703,7 +704,7 @@ private struct ToolCallCard: View {
                 ProgressView().controlSize(.mini).tint(statusColor)
             } else {
                 Image(systemName: statusIcon)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.quartet(.compact, weight: .bold))
                     .foregroundStyle(statusColor)
             }
         }
@@ -751,7 +752,7 @@ private struct ToolPayloadSection: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 7) {
                 Text(title)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .tracking(0.5)
                 Spacer()
@@ -765,7 +766,7 @@ private struct ToolPayloadSection: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(prettyPrintedJSON(text) ?? text)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.quartet(.detail, design: .monospaced))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -792,7 +793,7 @@ private struct CopyIconButton: View {
             }
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(.caption.weight(.semibold))
+                .font(.quartet(.detail, weight: .semibold))
                 .foregroundStyle(copied ? QuartetTheme.accent : QuartetTheme.secondaryText)
                 .frame(width: 26, height: 26)
                 .background(QuartetTheme.elevated.opacity(0.75), in: RoundedRectangle(cornerRadius: 6))
@@ -864,7 +865,7 @@ private struct OutboxBubble: View {
                 Text("YOU")
                 Text(item.statusTitle)
             }
-            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .font(.quartet(.compact, weight: .bold, design: .monospaced))
             .foregroundStyle(item.isFailed ? QuartetTheme.failed : QuartetTheme.secondaryText)
 
             MarkdownMessageView(text: item.displayText, tone: .user)
@@ -875,7 +876,7 @@ private struct OutboxBubble: View {
 
             if let detail = item.failureDetail {
                 Text(detail)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.quartet(.detail, design: .monospaced))
                     .foregroundStyle(QuartetTheme.failed)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -899,18 +900,18 @@ private struct OutboxRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(item.summaryLine)
-                    .font(.caption.weight(.semibold))
+                    .font(.quartet(.detail, weight: .semibold))
                     .foregroundStyle(item.isFailed ? QuartetTheme.failed : QuartetTheme.primaryText)
                     .lineLimit(1)
                 Spacer()
                 Text(item.statusTitle)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
                     .foregroundStyle(item.isFailed ? QuartetTheme.failed : QuartetTheme.secondaryText)
             }
 
             if let detail = item.failureDetail {
                 Text(detail)
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(.quartet(.compact, design: .monospaced))
                     .foregroundStyle(QuartetTheme.failed)
                     .lineLimit(3)
             }
@@ -926,7 +927,7 @@ private struct OutboxRow: View {
                 }
                 Spacer()
             }
-            .font(.caption)
+            .font(.quartet(.detail))
         }
         .padding(12)
         .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 14))
@@ -967,7 +968,7 @@ private struct MarkdownMessageView: View {
                         ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text(ordered ? "\(index + 1)." : "•")
-                                    .font(.body.weight(.semibold))
+                                    .font(.quartet(.regular, weight: .semibold))
                                     .foregroundStyle(tone.secondaryForeground)
                                     .frame(minWidth: ordered ? 20 : 10, alignment: .trailing)
                                 MarkdownTextBlock(text: item, tone: tone)
@@ -984,10 +985,9 @@ private struct MarkdownMessageView: View {
 
     private func headingFont(_ level: Int) -> Font {
         switch level {
-        case 1: .title2
-        case 2: .title3
-        case 3: .headline
-        default: .subheadline
+        case 1, 2: .quartet(.large)
+        case 3: .quartet(.regular)
+        default: .quartet(.control)
         }
     }
 }
@@ -999,14 +999,14 @@ private struct MarkdownTextBlock: View {
     var body: some View {
         if let attributed = MarkdownRenderer.attributedString(from: text) {
             Text(attributed)
-                .font(.body)
+                .font(.quartet(.regular))
                 .foregroundStyle(tone.foreground)
                 .lineSpacing(4)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(text)
-                .font(.body)
+                .font(.quartet(.regular))
                 .foregroundStyle(tone.foreground)
                 .lineSpacing(4)
                 .textSelection(.enabled)
@@ -1024,18 +1024,18 @@ private struct CodeBlockView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text((language?.isEmpty == false ? language! : "code").uppercased())
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
                     .foregroundStyle(tone.secondaryForeground)
                 Spacer()
                 Button("复制代码") {
                     UIPasteboard.general.string = code
                 }
-                .font(.caption)
+                .font(.quartet(.detail))
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
-                    .font(.system(.footnote, design: .monospaced))
+                    .font(.quartet(.detail, design: .monospaced))
                     .foregroundStyle(tone.foreground)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1128,7 +1128,7 @@ private struct AuthenticatedImage: View {
             } else if let error {
                 Button { appModel.present(APIError(summary: "图片加载失败", detail: error)) } label: {
                     Label("图片加载失败，查看详情", systemImage: "photo.badge.exclamationmark")
-                        .font(.caption)
+                        .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.failed)
                 }
             } else {

@@ -125,7 +125,7 @@ struct ChatAttachmentPreview: View {
                         .scaledToFill()
                 } else {
                     Image(systemName: "photo")
-                        .font(.title3)
+                        .font(.quartet(.large))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
             }
@@ -135,10 +135,10 @@ struct ChatAttachmentPreview: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(upload.filename)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.quartet(.control, weight: .semibold))
                     .lineLimit(1)
                 Text("\(upload.mimeType) · \(sizeDescription)")
-                    .font(.caption)
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
 
