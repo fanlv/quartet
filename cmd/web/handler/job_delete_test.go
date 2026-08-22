@@ -813,6 +813,14 @@ func TestDeleteJobGraphRun_UnlinkFailureIsRetryable(t *testing.T) {
 		t.Fatalf("first delete phase did not remove GraphRun artifacts: %v", err)
 	}
 
+	// Model a process restart between the two phases. resolveJobGraphRun will
+	// register the stale Job linkage with the new graph service, which must be
+	// sufficient to finish unlinking even though run.json is already gone.
+	graphs, err = graphsvc.NewService()
+	if err != nil {
+		t.Fatalf("restart graph service: %v", err)
+	}
+	h.graphService = graphs
 	second := requestContextWithParam("jobId", job.ID)
 	h.DeleteJobGraphRun(ctx, second)
 	if got := second.Response.StatusCode(); got != http.StatusOK {

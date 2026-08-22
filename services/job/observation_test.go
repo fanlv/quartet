@@ -4,12 +4,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/types/model"
 )
+
+type terminalBlockingObservationRepo struct {
+	*idempotencyTestRepo
+	blockTerminal atomic.Bool
+	entered       chan struct{}
+	release       chan struct{}
+}
+
+func (r *terminalBlockingObservationRepo) Save(jobID string, job *model.Job) error {
+	if job.Status == model.JobStatusCompleted && r.blockTerminal.CompareAndSwap(true, false) {
+		close(r.entered)
+		<-r.release
+	}
+	return r.idempotencyTestRepo.Save(jobID, job)
+}
 
 func TestObserveJobsBaselineAndLifecycleChanges(t *testing.T) {
 	service := newObservationTestService(
@@ -266,6 +282,78 @@ func TestTerminalPersistenceFailureCannotAppendStaleTerminalAfterNextRun(t *test
 	if response.Changes[0].Job.Status != model.JobStatusCompleted || response.Changes[1].Job.Status != model.JobStatusRunning {
 		t.Fatalf("ordered statuses = [%s %s], want completed then running", response.Changes[0].Job.Status, response.Changes[1].Job.Status)
 	}
+}
+
+func TestTerminalJournalIsLinearizedBeforeNextRun(t *testing.T) {
+	repo := &terminalBlockingObservationRepo{
+		idempotencyTestRepo: newIdempotencyTestRepo(),
+		entered:             make(chan struct{}),
+		release:             make(chan struct{}),
+	}
+	repo.blockTerminal.Store(true)
+	service := newIdempotencyService(repo)
+	job := addIdempotencyJob(service, "linearized-terminal")
+	job.WorkspaceID = "workspace"
+	job.Status = model.JobStatusRunning
+	job.StartedAt = 1
+	service.repos["workspace"] = repo
+	repo.seed(job)
+	baseline, err := service.ObserveJobs("", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	terminalDone := make(chan struct{})
+	go func() {
+		service.finishJob(context.Background(), job)
+		close(terminalDone)
+	}()
+	select {
+	case <-repo.entered:
+	case <-time.After(time.Second):
+		t.Fatal("terminal persist did not enter blocking repository")
+	}
+
+	runnerRelease := make(chan struct{})
+	runner := newIdempotencyTestRunner(runnerRelease, nil)
+	sendDone := make(chan error, 1)
+	go func() {
+		_, sendErr := service.SendMessage(context.Background(), job.ID, runner, idempotencyTestOptions("next-run", "hello"))
+		sendDone <- sendErr
+	}()
+	select {
+	case <-runner.started:
+		t.Fatal("next run overtook the blocked terminal postamble")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(repo.release)
+	select {
+	case <-terminalDone:
+	case <-time.After(time.Second):
+		t.Fatal("terminal postamble did not finish")
+	}
+	select {
+	case err := <-sendDone:
+		if err != nil {
+			t.Fatalf("next SendMessage: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("next SendMessage remained blocked")
+	}
+	waitForIdempotencyRunner(t, runner)
+
+	response, err := service.ObserveJobs(baseline.Cursor, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Changes) < 2 {
+		t.Fatalf("changes = %#v, want terminal followed by next running", response.Changes)
+	}
+	if response.Changes[0].Job.Status != model.JobStatusCompleted || response.Changes[1].Job.Status != model.JobStatusRunning {
+		t.Fatalf("ordered statuses = [%s %s], want completed then running", response.Changes[0].Job.Status, response.Changes[1].Job.Status)
+	}
+	close(runnerRelease)
 }
 
 func TestObserveJobsKeepsRecordedEventsBeforeFirstPollAsBaseline(t *testing.T) {

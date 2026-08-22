@@ -101,6 +101,12 @@ func TestGraphTimedOutUsesFailedNotificationOutcome(t *testing.T) {
 	requireContains(t, processBody, "graphJobStates[job.id] = GraphJobState(status: graphStatus")
 	requireContains(t, processBody, "repeatsActionableGraphState")
 	requireContains(t, processBody, "newStatus == \"awaitingInput\"")
+	emitBody = swiftFunctionBody(t, source, "private func emitNotificationIfNeeded")
+	requireContains(t, emitBody, "oldOutcome != newOutcome || repeatsActionableGraphState")
+	graphIdentityBody := swiftFunctionBody(t, source, "private static func graphEventIdentity")
+	requireContains(t, graphIdentityBody, "runID")
+	requireContains(t, graphIdentityBody, "timestamp")
+	requireContains(t, graphIdentityBody, "graphSessionID")
 }
 
 func TestJournalTerminalSuppressesDuplicateInteractiveNotification(t *testing.T) {
@@ -143,6 +149,9 @@ func TestGraphEventsAreConsumedWithoutDetailReplay(t *testing.T) {
 	candidateBody := swiftFunctionBody(t, source, "private func graphStatusObservationCandidates")
 	requireContains(t, candidateBody, "change.graphStatus == nil")
 	requireContains(t, candidateBody, "for pendingJob in pendingGraphStatusObservationJobs")
+	applyGraphBody := swiftFunctionBody(t, source, "private func applyGraphStatus")
+	requireContains(t, applyGraphBody, "guard let previousStatus else")
+	requireContains(t, applyGraphBody, "lastNotifiedGraphTransitions[jobID] = transitionKey")
 }
 
 func TestLegacyGraphEnrichmentNeverOverwritesExactJournalState(t *testing.T) {
@@ -177,7 +186,10 @@ func TestNotificationDestinationDoesNotFailOnInitialNilTaskID(t *testing.T) {
 	taskBody := source[taskStart:]
 	requireContains(t, taskBody, "guard let destination = model.pendingNotificationDestination else { return }")
 	requireContains(t, taskBody, "guard let summary = await model.notificationDestinationSummary() else")
-	requireContains(t, taskBody, "guard model.pendingNotificationDestination == destination else { return }")
+	requireContains(t, taskBody, "guard !Task.isCancelled, model.pendingNotificationDestination == destination else { return }")
+	if strings.Count(taskBody, "guard !Task.isCancelled, model.pendingNotificationDestination == destination else { return }") < 3 {
+		t.Fatal("notification destination task must revalidate cancellation after every await")
+	}
 }
 
 func readSource(t *testing.T, path string) string {

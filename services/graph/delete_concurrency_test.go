@@ -61,6 +61,48 @@ type lifecycleSecondGetGateRepo struct {
 	release chan struct{}
 }
 
+type lifecycleFailOnceDeleteRepo struct {
+	repository.GraphRunRepo
+	mu        sync.Mutex
+	fail      bool
+	deleteErr error
+}
+
+type lifecyclePartialDeleteRepo struct {
+	repository.GraphRunRepo
+	workspaceID string
+	jobID       string
+	deleteErr   error
+	mu          sync.Mutex
+	calls       int
+}
+
+func (r *lifecyclePartialDeleteRepo) DeleteRun(ctx context.Context, runID string) error {
+	r.mu.Lock()
+	r.calls++
+	call := r.calls
+	r.mu.Unlock()
+	if call == 1 {
+		if err := os.Remove(typepath.GraphRunFile(r.workspaceID, r.jobID)); err != nil {
+			return err
+		}
+		return r.deleteErr
+	}
+	return r.GraphRunRepo.DeleteRun(ctx, runID)
+}
+
+func (r *lifecycleFailOnceDeleteRepo) DeleteRun(ctx context.Context, runID string) error {
+	r.mu.Lock()
+	if r.fail {
+		r.fail = false
+		err := r.deleteErr
+		r.mu.Unlock()
+		return err
+	}
+	r.mu.Unlock()
+	return r.GraphRunRepo.DeleteRun(ctx, runID)
+}
+
 func (r *lifecycleSecondGetGateRepo) GetRun(ctx context.Context, runID string) (*model.GraphRun, error) {
 	run, err := r.GraphRunRepo.GetRun(ctx, runID)
 	if r.count.Add(1) == 2 {
@@ -365,6 +407,105 @@ func TestDeleteRunWinsAgainstPreparedStaticVersionCommit(t *testing.T) {
 	}
 	if _, err := os.Stat(jobDir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("deleted job directory was recreated: %v", err)
+	}
+}
+
+func TestDeleteRun_ArtifactFailureKeepsLinkAndRetryState(t *testing.T) {
+	uniqueMemoryRoot(t)
+	api, err := NewService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := api.(*serviceImpl)
+	run := &model.GraphRun{
+		ID: model.NewGraphRunID(), JobID: "job-artifact-retry", WorkspaceID: "ws-1",
+		Status: model.GraphRunStatusStopped, Progress: &model.GraphProgress{}, Resume: &model.GraphResumeState{},
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := svc.runRepo.RegisterRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.persistRuntimeState(context.Background(), run, map[string]model.GraphInstanceState{}, map[string]model.GraphEdgeState{}, map[string]map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("forced graph artifact delete failure")
+	svc.runRepo = &lifecycleFailOnceDeleteRepo{GraphRunRepo: svc.runRepo, fail: true, deleteErr: wantErr}
+	sink := &retryableUnlinkSink{}
+
+	if err := svc.DeleteRun(context.Background(), run.ID, sink); !errors.Is(err, wantErr) {
+		t.Fatalf("first DeleteRun error = %v, want %v", err, wantErr)
+	}
+	if sink.calls != 0 {
+		t.Fatalf("unlink calls after failed artifact delete = %d, want 0", sink.calls)
+	}
+	if _, err := svc.GetRunStatus(context.Background(), run.ID); err != nil {
+		t.Fatalf("failed artifact deletion removed run: %v", err)
+	}
+	lifecycle := svc.lifecycle(run.ID)
+	lifecycle.mu.Lock()
+	deleted := lifecycle.deleted
+	lifecycle.mu.Unlock()
+	if deleted {
+		t.Fatal("failed artifact delete left lifecycle fenced")
+	}
+
+	if err := svc.DeleteRun(context.Background(), run.ID, sink); err != nil {
+		t.Fatalf("retry DeleteRun failed: %v", err)
+	}
+	if sink.calls != 1 {
+		t.Fatalf("unlink calls after successful retry = %d, want 1", sink.calls)
+	}
+	if _, err := svc.GetRunStatus(context.Background(), run.ID); !errors.Is(err, ErrGraphRunNotFound) {
+		t.Fatalf("run after successful retry = %v, want ErrGraphRunNotFound", err)
+	}
+}
+
+func TestDeleteRun_RetryFinishesPartiallyDeletedArtifactsBeforeUnlink(t *testing.T) {
+	uniqueMemoryRoot(t)
+	api, err := NewService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := api.(*serviceImpl)
+	run := &model.GraphRun{
+		ID: model.NewGraphRunID(), JobID: "job-partial-artifact-retry", WorkspaceID: "ws-1",
+		Status: model.GraphRunStatusStopped, Progress: &model.GraphProgress{}, Resume: &model.GraphResumeState{},
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := svc.runRepo.RegisterRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.persistRuntimeState(context.Background(), run, map[string]model.GraphInstanceState{}, map[string]model.GraphEdgeState{}, map[string]map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("forced partial graph delete failure")
+	repo := &lifecyclePartialDeleteRepo{
+		GraphRunRepo: svc.runRepo, workspaceID: run.WorkspaceID, jobID: run.JobID, deleteErr: wantErr,
+	}
+	svc.runRepo = repo
+	sink := &retryableUnlinkSink{}
+
+	if err := svc.DeleteRun(context.Background(), run.ID, sink); !errors.Is(err, wantErr) {
+		t.Fatalf("first DeleteRun error = %v, want %v", err, wantErr)
+	}
+	if sink.calls != 0 {
+		t.Fatalf("unlink calls after partial artifact failure = %d, want 0", sink.calls)
+	}
+	if _, err := os.Stat(typepath.GraphRunFile(run.WorkspaceID, run.JobID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("fixture did not remove run.json: %v", err)
+	}
+
+	if err := svc.DeleteRun(context.Background(), run.ID, sink); err != nil {
+		t.Fatalf("retry DeleteRun failed: %v", err)
+	}
+	if sink.calls != 1 {
+		t.Fatalf("unlink calls after retry = %d, want 1", sink.calls)
+	}
+	if repo.calls != 2 {
+		t.Fatalf("artifact delete calls = %d, want 2", repo.calls)
+	}
+	if _, err := os.Stat(typepath.GraphRunDir(run.WorkspaceID, run.JobID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("partial graph artifacts survived retry: %v", err)
 	}
 }
 

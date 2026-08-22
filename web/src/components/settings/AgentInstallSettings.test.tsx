@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clearDeletedAgentLocalPreferences } from './AgentInstallSettings';
+import { clearDeletedAgentLocalPreferences } from '../../utils/workspace';
 
 describe('clearDeletedAgentLocalPreferences', () => {
   it('clears every adjacent workspace preference for the deleted Agent', () => {

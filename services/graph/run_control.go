@@ -807,10 +807,17 @@ func (s *serviceImpl) DeleteRun(ctx context.Context, runID string, jobs JobState
 	run, err := s.runRepo.GetRun(ctx, runID)
 	if err != nil {
 		if errors.Is(graphRunLoadError(runID, err), ErrGraphRunNotFound) && jobs != nil && lifecycle.deleteJobID != "" {
-			// A prior attempt (possibly in another process) removed the run
-			// artifacts but failed to clear the Job linkage. The handler has
-			// re-registered that linkage, so finish the second phase directly.
+			// A prior attempt may have removed run.json and then failed part-way
+			// through deleting the rest of graph_run. Retry the idempotent artifact
+			// deletion before unlinking; otherwise the missing run.json would make
+			// us strand the remaining artifacts permanently. The handler has
+			// re-registered the run location, so this also works after restart.
 			lifecycle.deleted = true
+			if deleteErr := s.runRepo.DeleteRun(ctx, runID); deleteErr != nil {
+				lifecycle.deleted = false
+				return deleteErr
+			}
+			s.removeBuffer(runID)
 			if unlinkErr := jobs.ClearGraphRunLinkage(ctx, lifecycle.deleteJobID, runID); unlinkErr != nil {
 				return fmt.Errorf("clear job graph-run linkage: %w", unlinkErr)
 			}

@@ -39,6 +39,9 @@ func (s *serviceImpl) publishRunOutcome(jobID, sessionID string, runID string, e
 }
 
 func (s *serviceImpl) finishJob(ctx context.Context, job *model.Job) {
+	lock := s.persistLock(job.ID)
+	lock.Lock()
+	defer lock.Unlock()
 	s.mu.Lock()
 	resolution := s.applyTerminalStatusLocked(job, model.JobStatusCompleted, true)
 	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeCompleted, s.nowMillis)
@@ -47,7 +50,7 @@ func (s *serviceImpl) finishJob(ctx context.Context, job *model.Job) {
 	// records that *this* run (the interactive send) actually
 	// completed successfully, regardless of whether finalStatus is a
 	// restored prior status.
-	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, jobRunActionFinish, "", model.RunOutcomeCompleted)
+	finalStatus := s.persistAndPublishTerminalUnderPersistLock(ctx, job, snap, jobRunActionFinish, "", model.RunOutcomeCompleted)
 	logLifecycleTerminal(ctx, job.ID, jobRunActionFinish, finalStatus, model.RunOutcomeCompleted, resolution, "")
 }
 
@@ -68,11 +71,14 @@ func (s *serviceImpl) clearCancel(jobID string, entry *cancelEntry) {
 }
 
 func (s *serviceImpl) stopJob(ctx context.Context, job *model.Job) {
+	lock := s.persistLock(job.ID)
+	lock.Lock()
+	defer lock.Unlock()
 	s.mu.Lock()
 	resolution := s.applyTerminalStatusLocked(job, model.JobStatusStopped, false)
 	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeStopped, s.nowMillis)
 	s.mu.Unlock()
-	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, jobRunActionStop, "", model.RunOutcomeStopped)
+	finalStatus := s.persistAndPublishTerminalUnderPersistLock(ctx, job, snap, jobRunActionStop, "", model.RunOutcomeStopped)
 	logLifecycleTerminal(ctx, job.ID, jobRunActionStop, finalStatus, model.RunOutcomeStopped, resolution, "")
 }
 
@@ -83,6 +89,9 @@ func (s *serviceImpl) stopJob(ctx context.Context, job *model.Job) {
 // applyTerminalStatusLocked return before Resume would be touched, so
 // historical (legacy loop) Resume data survives an interactive failure.
 func (s *serviceImpl) failJob(ctx context.Context, job *model.Job, message string) {
+	lock := s.persistLock(job.ID)
+	lock.Lock()
+	defer lock.Unlock()
 	s.mu.Lock()
 	resolution := s.applyTerminalStatusLocked(job, model.JobStatusFailed, true)
 	// Defensive: ensure Progress is non-nil before recording LastError.
@@ -99,7 +108,7 @@ func (s *serviceImpl) failJob(ctx context.Context, job *model.Job, message strin
 	}
 	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeFailed, s.nowMillis)
 	s.mu.Unlock()
-	finalStatus := s.persistAndPublishTerminal(ctx, job, snap, jobRunActionFail, message, model.RunOutcomeFailed)
+	finalStatus := s.persistAndPublishTerminalUnderPersistLock(ctx, job, snap, jobRunActionFail, message, model.RunOutcomeFailed)
 	logLifecycleTerminal(ctx, job.ID, jobRunActionFail, finalStatus, model.RunOutcomeFailed, resolution, message)
 }
 
@@ -275,14 +284,15 @@ func finishActiveClientMessageLocked(job *model.Job, runOutcome model.RunOutcome
 	job.ActiveClientMessageID = ""
 }
 
-// persistAndPublishTerminal finishes the shared terminal-transition postamble:
-// persist the job, stamp a breadcrumb on persistence failure, and publish the
-// matching SSE event. Caller MUST have released s.mu before calling.
-func (s *serviceImpl) persistAndPublishTerminal(ctx context.Context, job *model.Job, snap terminalSnapshot, action string, failMessage string, runOutcome model.RunOutcome) model.JobStatus {
+// persistAndPublishTerminalUnderPersistLock finishes the shared terminal
+// postamble while the caller holds persistLock(job.ID). This keeps the terminal
+// mutation, persistence/journal record and SSE publish ahead of any next run.
+// Caller MUST have released s.mu before calling.
+func (s *serviceImpl) persistAndPublishTerminalUnderPersistLock(ctx context.Context, job *model.Job, snap terminalSnapshot, action string, failMessage string, runOutcome model.RunOutcome) model.JobStatus {
 	// job.LastRunOutcome was already stamped under s.mu by
 	// captureTerminalSnapshotLocked — don't write it here (this runs after the
 	// lock is released and would race the locked readers).
-	if err := s.saveJobWithRetry(ctx, job, action); err != nil &&
+	if err := s.saveJobWithRetryUnderPersistLock(ctx, job, action); err != nil &&
 		!errors.Is(err, ErrJobDeleted) && !errors.Is(err, ErrJobNotFound) {
 		// Record the persistence failure on progress so a subsequent refresh
 		// (when save eventually succeeds or during recovery) at least shows why
@@ -292,9 +302,14 @@ func (s *serviceImpl) persistAndPublishTerminal(ctx context.Context, job *model.
 			// The live terminal event is still published below so an fs hiccup does
 			// not strand the UI in Running forever, but a transient first failure can
 			// now still persist both terminal state and the diagnostic marker.
-			_ = s.saveJobWithRetry(ctx, job, action+"_persist_error")
+			_ = s.saveJobWithRetryUnderPersistLock(ctx, job, action+"_persist_error")
 		}
 	}
+	// Both persistence attempts may fail, but the in-memory terminal and SSE
+	// event are still live. Record the current state before releasing the shard;
+	// a subsequent SendMessage cannot overtake this append. Successful saves
+	// already recorded the same fingerprint and are de-duplicated here.
+	s.recordCurrentJobObservation(job.ID)
 	s.publishTerminalEvent(job.ID, snap.finalStatus, failMessage, runOutcome, snap.terminalAt)
 	return snap.finalStatus
 }

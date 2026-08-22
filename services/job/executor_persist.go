@@ -78,12 +78,6 @@ func (s *serviceImpl) saveJobWithRetryUnderPersistLock(ctx context.Context, job 
 	}
 	if saveErr != nil {
 		logger.Errorf(ctx, "[job.Service] saveJobWithRetry failed: action=%s jobId=%s err=%v", action, job.ID, saveErr)
-		// A terminal transition is still published to SSE and remains visible in
-		// memory when persistence fails. Record that current live state while the
-		// per-job shard is still held so a subsequent run cannot overtake it.
-		if action == jobRunActionFinish || action == jobRunActionStop || action == jobRunActionFail {
-			s.recordCurrentJobObservation(job.ID)
-		}
 		return saveErr
 	}
 	s.bumpListVersion(cp.WorkspaceID)

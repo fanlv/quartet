@@ -144,6 +144,29 @@ export function saveWorkspacePrefs(wsId: string, prefs: WorkspacePrefs) {
   }
 }
 
+// Snapshot matching keys before deleting them. Removing entries while walking
+// localStorage by index shifts later entries and can otherwise skip adjacent
+// workspace preference records.
+export function clearDeletedAgentLocalPreferences(agentId: string) {
+  if (localStorage.getItem('last_agent_type') === agentId) {
+    localStorage.removeItem('last_agent_type');
+  }
+  const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+    .filter((key): key is string => !!key?.startsWith('workspacePrefs_'));
+  for (const key of keys) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || '{}') as { defaultAgent?: string; defaultModel?: string };
+      if (value.defaultAgent !== agentId) continue;
+      delete value.defaultAgent;
+      delete value.defaultModel;
+      if (Object.keys(value).length === 0) localStorage.removeItem(key);
+      else localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      localStorage.removeItem(key);
+    }
+  }
+}
+
 export function registerWorkspacePrefs(wsId: string, prefs: WorkspacePrefs) {
   if (!wsId) return;
   serverPrefsRegistry.set(wsId, {

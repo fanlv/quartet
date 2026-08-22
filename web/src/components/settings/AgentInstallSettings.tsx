@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isImageUrl } from '../../utils/url';
+import { clearDeletedAgentLocalPreferences } from '../../utils/workspace';
 import './AgentInstallSettings.css';
 
 interface InstallStepResult {
@@ -162,26 +163,6 @@ function toInstallRequestFailure(err: unknown, action: InstallAction): InstallRe
     kind: err instanceof ResponseError && err.status === 409 ? 'busy' : 'error',
     detail: err instanceof Error ? err.message : String(err),
   };
-}
-
-export function clearDeletedAgentLocalPreferences(agentId: string) {
-  if (localStorage.getItem('last_agent_type') === agentId) {
-    localStorage.removeItem('last_agent_type');
-  }
-  const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
-    .filter((key): key is string => !!key?.startsWith('workspacePrefs_'));
-  for (const key of keys) {
-    try {
-      const value = JSON.parse(localStorage.getItem(key) || '{}') as { defaultAgent?: string; defaultModel?: string };
-      if (value.defaultAgent !== agentId) continue;
-      delete value.defaultAgent;
-      delete value.defaultModel;
-      if (Object.keys(value).length === 0) localStorage.removeItem(key);
-      else localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      localStorage.removeItem(key);
-    }
-  }
 }
 
 // AgentInstallSettings manages the full Agent catalog, checks installed

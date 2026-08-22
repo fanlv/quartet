@@ -82,13 +82,13 @@ func (s *serviceImpl) ObserveJobs(cursor string, limit int) (model.JobObservatio
 		return model.JobObservationResponse{}, err
 	}
 
-	// Serialize snapshot capture with tracker advancement. Without this outer
-	// lock, two clients could capture old/new Job states in order but acquire
-	// the tracker lock in reverse order, manufacturing a false reverse change.
+	// State mutations that need exact ordering append while holding s.mu, then
+	// acquire the observation lock. Match that order here to keep the active
+	// snapshot and journal cursor in one linearizable view.
+	s.mu.RLock()
 	s.observations.mu.Lock()
 	defer s.observations.mu.Unlock()
-
-	s.mu.RLock()
+	defer s.mu.RUnlock()
 	activeJobs := make([]jobObservationSnapshot, 0)
 	for _, job := range s.jobs {
 		if job.Deleted || job.WorkspaceID == "" ||
@@ -111,8 +111,6 @@ func (s *serviceImpl) ObserveJobs(cursor string, limit int) (model.JobObservatio
 			},
 		})
 	}
-	s.mu.RUnlock()
-
 	// Map iteration is intentionally unordered. A deterministic ID order makes
 	// sequence assignment and pagination repeatable for tests and clients.
 	sort.Slice(activeJobs, func(i, j int) bool { return activeJobs[i].job.ID < activeJobs[j].job.ID })
