@@ -21,38 +21,12 @@ struct RootView: View {
         .task {
             await model.bootstrap()
         }
-        .task(id: notificationPollingEnabled) {
-            guard notificationPollingEnabled else { return }
-            let clock = ContinuousClock()
-            var nextPoll = clock.now.advanced(by: .seconds(5))
-            while !Task.isCancelled {
-                do {
-                    try await clock.sleep(until: nextPoll)
-                } catch {
-                    return
-                }
-                guard notificationPollingEnabled else { return }
-                nextPoll = nextPoll.advanced(by: .seconds(5))
-                await model.pollNotifications()
-                if nextPoll < clock.now {
-                    nextPoll = clock.now
-                }
-            }
-        }
         .onChange(of: scenePhase) { _, phase in
             Task { await model.handleScenePhaseChange(phase) }
-        }
-        .onChange(of: model.pendingNotificationDestination) { _, destination in
-            guard destination != nil else { return }
-            selectedTab = 0
         }
         .sheet(item: $model.presentedError) { error in
             ErrorDetailView(error: error)
         }
-    }
-
-    private var notificationPollingEnabled: Bool {
-        scenePhase == .active && model.phase == .connected
     }
 }
 

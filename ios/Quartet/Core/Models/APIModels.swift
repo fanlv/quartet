@@ -122,6 +122,33 @@ struct AgentListResponse: Decodable, Sendable {
     }
 }
 
+struct AgentPreferences: Decodable, Hashable, Sendable {
+    let favoriteModelIDs: [String]?
+    let defaultModelID: String?
+    let defaultMode: String?
+    let defaultThoughtLevel: String?
+
+    enum CodingKeys: String, CodingKey {
+        case favoriteModelIDs = "favorite_model_ids"
+        case defaultModelID = "default_model_id"
+        case defaultMode = "default_mode"
+        case defaultThoughtLevel = "default_thought_level"
+    }
+}
+
+struct AgentPreferencesSettings: Decodable, Sendable {
+    let agentPreferences: [String: AgentPreferences]?
+
+    enum CodingKeys: String, CodingKey {
+        case agentPreferences = "agent_prefs"
+    }
+}
+
+struct AgentPreferencesResponse: Decodable, Sendable {
+    let code: Int
+    let settings: AgentPreferencesSettings?
+}
+
 struct JobSummary: Decodable, Identifiable, Hashable, Sendable {
     let id: String
     let title: String
@@ -235,26 +262,6 @@ struct JobsPage: Decodable, Sendable {
     let nextCursor: String?
     let hasMore: Bool
     let version: Int64?
-}
-
-struct JobObservationPage: Decodable, Sendable {
-    let activeJobs: [JobSummary]
-    let changes: [JobObservationEvent]
-    let cursor: String
-    let hasMore: Bool
-    let reset: Bool
-}
-
-struct JobObservationEvent: Decodable, Sendable {
-    let eventId: String
-    let job: JobSummary
-    let previousStatus: String?
-    let graphRunId: String?
-    let graphStatus: String?
-    let previousGraphStatus: String?
-    let graphSessionId: String?
-    let runOutcome: String?
-    let occurredAt: Int64
 }
 
 struct JobDetail: Decodable, Identifiable, Sendable {
@@ -648,6 +655,37 @@ struct GraphRunStatusResponse: Decodable, Sendable {
 
 struct GraphRunActionResponse: Decodable, Sendable {
     let run: GraphRunSummary?
+}
+
+struct GraphStreamEvent: Decodable, Sendable {
+    let id: String
+    let runId: String
+    let type: String
+    let nodeId: String?
+    let message: String?
+    let payload: [String: String]?
+    let error: GraphStreamError?
+    let createdAt: Int64
+}
+
+struct GraphStreamError: Decodable, Sendable {
+    let message: String?
+    let stdout: String?
+    let stderr: String?
+    let modelOutput: String?
+    let details: [String: String]?
+
+    var fullDetail: String {
+        var parts: [String] = []
+        if let message, !message.isEmpty { parts.append(message) }
+        if let stdout, !stdout.isEmpty { parts.append("stdout:\n\(stdout)") }
+        if let stderr, !stderr.isEmpty { parts.append("stderr:\n\(stderr)") }
+        if let modelOutput, !modelOutput.isEmpty { parts.append("model output:\n\(modelOutput)") }
+        if let details, !details.isEmpty {
+            parts.append(details.sorted(by: { $0.key < $1.key }).map { "\($0.key): \($0.value)" }.joined(separator: "\n"))
+        }
+        return parts.joined(separator: "\n\n")
+    }
 }
 
 struct GraphRunSummary: Decodable, Sendable {

@@ -1,7 +1,6 @@
 import Foundation
 import Combine
 import SwiftUI
-import UserNotifications
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -52,6 +51,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var workspaces: [WorkspaceSummary] = []
     @Published private(set) var jobs: [JobSummary] = []
     @Published private(set) var selectedWorkspaceID: String?
+    @Published private(set) var hideScheduledJobs: Bool
     @Published private(set) var isRefreshing = false
     @Published private(set) var isLoadingMore = false
     @Published private(set) var hasMoreJobs = false
@@ -61,54 +61,58 @@ final class AppModel: ObservableObject {
     @Published private(set) var hasPendingSync = false
     @Published private(set) var isUsingCachedData = false
     @Published private(set) var graphJobStates: [String: GraphJobState] = [:]
-    @Published private(set) var notifications: [QuartetNotificationRecord] = []
-    @Published private(set) var notificationPreferences = QuartetNotificationPreferences()
-    @Published private(set) var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
-    @Published private(set) var pendingNotificationDestination: QuartetNotificationDestination?
     @Published var presentedError: PresentedError?
 
     private let defaults: UserDefaults
     private let cacheStore: DashboardCacheStore
-    private let notificationCenterModel: QuartetNotificationCenter
-    private var cancellables = Set<AnyCancellable>()
+    private let uiTestScenario: String?
     private var credentialServerAddress: String
     private var credentialCacheNamespace: String
     private var nextCursor: String?
     private var hasLoadedCachedDashboard = false
-    private var latestObservedJobs: [String: JobSummary] = [:]
-    private var latestGraphRunVersions: [String: Int] = [:]
-    private var lastNotifiedGraphTransitions: [String: String] = [:]
-    private var interactiveFinalStatusesAwaitingSync: [String: String] = [:]
-    private var pendingGraphStatusObservationJobs: [JobSummary] = []
-    private var jobObservationCursor: String?
     private var dashboardGeneration: UInt64 = 0
     private var connectionGeneration: UInt64 = 0
     private var dashboardRefreshTask: Task<Void, Never>?
     private var loadMoreTask: Task<Void, Never>?
+    private var uiTestJobs: [JobSummary] = []
 
     init(
         defaults: UserDefaults = .standard,
         cacheStore: DashboardCacheStore = DashboardCacheStore(),
-        notificationCenterModel: QuartetNotificationCenter? = nil
+        processArguments: [String] = ProcessInfo.processInfo.arguments
     ) {
-        self.defaults = defaults
-        self.cacheStore = cacheStore
-        self.notificationCenterModel = notificationCenterModel ?? QuartetNotificationCenter(
-            defaults: .standard,
-            center: .current()
-        )
-        let storedServerAddress = defaults.string(forKey: StorageKey.serverAddress) ?? Self.defaultServerAddress
-        let storedCredentialNamespace = defaults.string(forKey: StorageKey.credentialCacheNamespace) ?? UUID().uuidString
+#if DEBUG
+        let detectedUITestScenario = processArguments.first(where: { $0.hasPrefix("--ui-testing-") })
+#else
+        let detectedUITestScenario: String? = nil
+#endif
+        let effectiveDefaults: UserDefaults
+        if detectedUITestScenario != nil,
+           let testDefaults = UserDefaults(suiteName: "fun.fanlv.quartet.ios.ui-tests") {
+            testDefaults.removePersistentDomain(forName: "fun.fanlv.quartet.ios.ui-tests")
+            effectiveDefaults = testDefaults
+        } else {
+            effectiveDefaults = defaults
+        }
+        self.defaults = effectiveDefaults
+        self.cacheStore = detectedUITestScenario == nil
+            ? cacheStore
+            : DashboardCacheStore(directoryName: "QuartetUITests")
+        uiTestScenario = detectedUITestScenario
+        hideScheduledJobs = effectiveDefaults.object(forKey: StorageKey.hideScheduledJobs) as? Bool ?? true
+        let storedServerAddress = effectiveDefaults.string(forKey: StorageKey.serverAddress) ?? Self.defaultServerAddress
+        let storedCredentialNamespace = effectiveDefaults.string(forKey: StorageKey.credentialCacheNamespace) ?? UUID().uuidString
         serverAddress = storedServerAddress
         credentialServerAddress = storedServerAddress
         credentialCacheNamespace = storedCredentialNamespace
-        defaults.set(storedCredentialNamespace, forKey: StorageKey.credentialCacheNamespace)
-        token = Self.loadStoredToken(for: storedServerAddress, migrateLegacyCredential: true)
-        selectedWorkspaceID = defaults.string(forKey: StorageKey.selectedWorkspaceID)
-        if let timestamp = defaults.object(forKey: StorageKey.lastSuccessfulSyncAt) as? Double {
+        effectiveDefaults.set(storedCredentialNamespace, forKey: StorageKey.credentialCacheNamespace)
+        token = detectedUITestScenario == nil
+            ? Self.loadStoredToken(for: storedServerAddress, migrateLegacyCredential: true)
+            : ""
+        selectedWorkspaceID = effectiveDefaults.string(forKey: StorageKey.selectedWorkspaceID)
+        if let timestamp = effectiveDefaults.object(forKey: StorageKey.lastSuccessfulSyncAt) as? Double {
             lastSuccessfulSyncAt = Date(timeIntervalSince1970: timestamp)
         }
-        bindNotifications()
     }
 
     var activeJobCount: Int {
@@ -127,6 +131,8 @@ final class AppModel: ObservableObject {
         phase == .connected || hasDashboardContent
     }
 
+    var isRunningUITests: Bool { uiTestScenario != nil }
+
     var connectionState: ConnectionState {
         ConnectionState(
             phase: phase,
@@ -140,13 +146,22 @@ final class AppModel: ObservableObject {
 
     func bootstrap() async {
         guard phase == .booting else { return }
+        if uiTestScenario == "--ui-testing-onboarding" {
+            serverAddress = Self.defaultServerAddress
+            token = ""
+            phase = .disconnected
+            return
+        }
+        if uiTestScenario != nil {
+            seedUITestDashboard()
+            return
+        }
         let hasValidatedConnection = defaults.bool(forKey: StorageKey.connectionValidated)
         if hasValidatedConnection {
             await loadCachedDashboardIfNeeded()
         } else {
             await cacheStore.clear()
         }
-        await refreshNotificationAuthorization()
         guard hasValidatedConnection else {
             phase = .disconnected
             return
@@ -202,7 +217,6 @@ final class AppModel: ObservableObject {
             await handleSyncFailure(
                 error,
                 presentToUser: !hasDashboardContent,
-                emitsNotification: hasDashboardContent,
                 disconnect: true
             )
         }
@@ -214,9 +228,17 @@ final class AppModel: ObservableObject {
         clearCachedSnapshot: Bool = false,
         disconnectOnFailure: Bool = true
     ) async {
+        if isRunningUITests {
+            lastSuccessfulSyncAt = Date()
+            lastSyncFailureMessage = nil
+            isDataStale = false
+            hasPendingSync = false
+            return
+        }
         guard phase != .connecting || presentFailure else { return }
         let generation = beginDashboardRequest()
         let workspaceID = selectedWorkspaceID
+        let excludeScheduled = hideScheduledJobs
         let shouldDisconnectOnFailure = disconnectOnFailure || phase == .disconnected
         isRefreshing = true
         defer {
@@ -236,6 +258,7 @@ final class AppModel: ObservableObject {
             await self.performDashboardRefresh(
                 generation: generation,
                 workspaceID: workspaceID,
+                excludeScheduled: excludeScheduled,
                 presentFailure: userInitiated || presentFailure,
                 disconnectOnFailure: shouldDisconnectOnFailure
             )
@@ -252,6 +275,7 @@ final class AppModel: ObservableObject {
     private func performDashboardRefresh(
         generation: UInt64,
         workspaceID: String?,
+        excludeScheduled: Bool,
         presentFailure: Bool,
         disconnectOnFailure: Bool
     ) async {
@@ -259,13 +283,14 @@ final class AppModel: ObservableObject {
         do {
             let client = try makeClient()
             async let workspaceRequest = client.workspaces()
-            async let visibleJobsRequest = client.jobs(workspaceID: workspaceID, limit: 100)
-            async let observationRequest = fetchJobObservations(client: client)
-            let previousJobs = latestObservedJobs
-            let (workspaceResponse, requestedVisibleJobsResponse, observationResponse) = try await (
+            async let visibleJobsRequest = client.jobs(
+                workspaceID: workspaceID,
+                limit: 100,
+                excludeScheduled: excludeScheduled
+            )
+            let (workspaceResponse, requestedVisibleJobsResponse) = try await (
                 workspaceRequest,
-                visibleJobsRequest,
-                observationRequest
+                visibleJobsRequest
             )
             guard isCurrentDashboardRequest(generation: generation, workspaceID: workspaceID) else { return }
 
@@ -279,7 +304,11 @@ final class AppModel: ObservableObject {
                 hasMoreJobs = false
                 await cacheStore.clear()
                 failureWorkspaceID = nil
-                visibleJobsResponse = try await client.jobs(workspaceID: nil, limit: 100)
+                visibleJobsResponse = try await client.jobs(
+                    workspaceID: nil,
+                    limit: 100,
+                    excludeScheduled: excludeScheduled
+                )
                 guard isCurrentDashboardRequest(generation: generation, workspaceID: nil) else { return }
             }
             applyFirstPage(visibleJobsResponse)
@@ -289,26 +318,12 @@ final class AppModel: ObservableObject {
                 cacheSnapshot,
                 generation: generation
             )
-            guard isCurrentDashboardGeneration(generation), !Task.isCancelled else { return }
-
-            processDashboardNotifications(
-                previousJobs: previousJobs,
-                observation: observationResponse
-            )
-            let graphCandidates = graphStatusObservationCandidates(
-                changes: observationResponse.changes,
-                activeJobs: observationResponse.activeJobs
-            )
-            await refreshGraphStatuses(for: graphCandidates, generation: generation)
-            guard isCurrentDashboardGeneration(generation), !Task.isCancelled else { return }
-            applyObservationSnapshot(observationResponse)
         } catch {
             guard isCurrentDashboardRequest(generation: generation, workspaceID: failureWorkspaceID),
                   !Task.isCancelled else { return }
             await handleSyncFailure(
                 error,
                 presentToUser: presentFailure,
-                emitsNotification: true,
                 disconnect: disconnectOnFailure
             )
         }
@@ -317,6 +332,10 @@ final class AppModel: ObservableObject {
     func selectWorkspace(_ id: String?) async {
         guard selectedWorkspaceID != id else { return }
         selectedWorkspaceID = id
+        if isRunningUITests {
+            jobs = filteredUITestJobs(workspaceID: id)
+            return
+        }
         if let id {
             defaults.set(id, forKey: StorageKey.selectedWorkspaceID)
         } else {
@@ -328,31 +347,24 @@ final class AppModel: ObservableObject {
         await refreshDashboard(userInitiated: false, clearCachedSnapshot: true)
     }
 
-    func reloadJobs() async {
-        guard phase == .connected else { return }
-        await refreshDashboard(userInitiated: false)
+    func setHideScheduledJobs(_ hidden: Bool) async {
+        guard hideScheduledJobs != hidden else { return }
+        hideScheduledJobs = hidden
+        defaults.set(hidden, forKey: StorageKey.hideScheduledJobs)
+        if isRunningUITests {
+            jobs = filteredUITestJobs(workspaceID: selectedWorkspaceID)
+            return
+        }
+        jobs = []
+        nextCursor = nil
+        hasMoreJobs = false
+        await refreshDashboard(userInitiated: false, clearCachedSnapshot: true)
     }
 
-    func pollNotifications() async {
+    func reloadJobs() async {
+        guard !isRunningUITests else { return }
         guard phase == .connected else { return }
-        let generation = dashboardGeneration
-        do {
-            let observation = try await fetchJobObservations(client: makeClient())
-            guard isCurrentDashboardGeneration(generation) else { return }
-            let previousJobs = latestObservedJobs
-            processDashboardNotifications(previousJobs: previousJobs, observation: observation)
-            let graphCandidates = graphStatusObservationCandidates(
-                changes: observation.changes,
-                activeJobs: observation.activeJobs
-            )
-            await refreshGraphStatuses(for: graphCandidates, generation: generation)
-            guard isCurrentDashboardGeneration(generation) else { return }
-            applyObservationSnapshot(observation)
-        } catch {
-            guard isCurrentDashboardGeneration(generation) else { return }
-            isDataStale = true
-            hasPendingSync = true
-        }
+        await refreshDashboard(userInitiated: false)
     }
 
     func loadMoreJobs() async {
@@ -363,13 +375,15 @@ final class AppModel: ObservableObject {
               let nextCursor else { return }
         let generation = dashboardGeneration
         let workspaceID = selectedWorkspaceID
+        let excludeScheduled = hideScheduledJobs
         isLoadingMore = true
         let pageTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performLoadMoreJobs(
                 generation: generation,
                 workspaceID: workspaceID,
-                cursor: nextCursor
+                cursor: nextCursor,
+                excludeScheduled: excludeScheduled
             )
         }
         loadMoreTask = pageTask
@@ -387,12 +401,14 @@ final class AppModel: ObservableObject {
     private func performLoadMoreJobs(
         generation: UInt64,
         workspaceID: String?,
-        cursor: String
+        cursor: String,
+        excludeScheduled: Bool
     ) async {
         do {
             let response = try await makeClient().jobs(
                 workspaceID: workspaceID,
-                cursor: cursor
+                cursor: cursor,
+                excludeScheduled: excludeScheduled
             )
             guard isCurrentPageRequest(
                 generation: generation,
@@ -417,7 +433,24 @@ final class AppModel: ObservableObject {
     }
 
     func jobDetail(id: String) async throws -> JobDetail {
-        try await makeClient().job(id: id)
+        if isRunningUITests {
+            return try uiTestJobDetail(id: id)
+        }
+        return try await makeClient().job(id: id)
+    }
+
+    func graphRunStatus(jobID: String) async throws -> GraphRunStatusResponse {
+        if isRunningUITests {
+            return uiTestGraphRunStatus(jobID: jobID)
+        }
+        return try await makeClient().graphRunStatus(jobID: jobID)
+    }
+
+    func performGraphAction(jobID: String, action: String) async throws -> GraphRunActionResponse {
+        if isRunningUITests {
+            return GraphRunActionResponse(run: uiTestGraphRunStatus(jobID: jobID).run)
+        }
+        return try await makeClient().graphRunAction(jobID: jobID, action: action)
     }
 
     func refreshGraphStatus(jobID: String) async {
@@ -447,7 +480,7 @@ final class AppModel: ObservableObject {
     }
 
     func jobSummary(id: String) -> JobSummary? {
-        jobs.first(where: { $0.id == id }) ?? latestObservedJobs[id]
+        jobs.first(where: { $0.id == id })
     }
 
     func displayedStatus(for job: JobSummary) -> String {
@@ -467,28 +500,6 @@ final class AppModel: ObservableObject {
         graphJobStates[jobID]
     }
 
-    func notificationDestinationSummary() async -> JobSummary? {
-        guard let jobID = pendingNotificationDestination?.jobID else { return nil }
-        if let cached = jobSummary(id: jobID) { return cached }
-        guard let detail = try? await makeClient().job(id: jobID) else { return nil }
-        let now = Int64(Date().timeIntervalSince1970 * 1_000)
-        return JobSummary(
-            id: detail.id,
-            title: detail.title,
-            modelId: detail.firstModelId,
-            status: detail.status,
-            mode: detail.mode,
-            workspaceId: detail.workspaceId,
-            workdir: detail.workdir,
-            createdAt: now,
-            updatedAt: now,
-            pinnedAt: nil,
-            sessionCount: detail.sessionCount,
-            scheduleId: detail.scheduleId,
-            shareToken: nil
-        )
-    }
-
     func availableAgents() async throws -> [AgentSummary] {
         let response = try await makeClient().agents()
         let available = response.agentList.filter(\.available)
@@ -504,7 +515,65 @@ final class AppModel: ObservableObject {
         return available
     }
 
+    func agentCatalog() async throws -> [AgentSummary] {
+        if isRunningUITests {
+            return [
+                AgentSummary(
+                    agentId: "trae",
+                    type: "trae",
+                    modelId: "gpt-5.6",
+                    displayName: "TraeCode",
+                    availability: "available",
+                    available: true,
+                    refreshing: false,
+                    error: nil,
+                    models: AgentModelState(
+                        availableModels: [
+                            AgentModel(modelId: "gpt-5.6", name: "GPT-5.6", description: "默认模型"),
+                            AgentModel(modelId: "gpt-5.4", name: "GPT-5.4", description: "快速模型")
+                        ],
+                        currentModelId: "gpt-5.6"
+                    ),
+                    modes: AgentModeState(
+                        availableModes: [AgentOption(id: "default", name: "默认", description: nil)],
+                        currentModeId: "default"
+                    ),
+                    thoughtLevels: AgentThoughtLevelState(
+                        availableThoughtLevels: [AgentOption(id: "medium", name: "标准", description: nil)],
+                        currentThoughtLevelId: "medium"
+                    )
+                )
+            ]
+        }
+        return try await makeClient().agents().agentList
+    }
+
+    func agentPreferences() async throws -> [String: AgentPreferences] {
+        if isRunningUITests {
+            return [
+                "trae": AgentPreferences(
+                    favoriteModelIDs: ["gpt-5.6"],
+                    defaultModelID: "gpt-5.4",
+                    defaultMode: "default",
+                    defaultThoughtLevel: "medium"
+                )
+            ]
+        }
+        let response = try await makeClient().agentPreferences()
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法读取 Agent 默认设置",
+                detail: "GET /api/v1/config/settings/get 返回 code=\(response.code)。"
+            )
+        }
+        return response.settings?.agentPreferences ?? [:]
+    }
+
     func createJob(request: CreateJobRequest) async throws -> String {
+        if isRunningUITests {
+            hasPendingSync = true
+            return "job-e2e-created"
+        }
         let response = try await makeClient().createJob(request)
         hasPendingSync = true
         return response.jobId
@@ -515,6 +584,7 @@ final class AppModel: ObservableObject {
     }
 
     func saveWorkspaceDefaults(workspaceID: String, agent: String, model: String) async throws {
+        if isRunningUITests { return }
         guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else {
             throw APIError(summary: "工作空间不存在", detail: "未找到工作空间 \(workspaceID)")
         }
@@ -561,9 +631,9 @@ final class AppModel: ObservableObject {
     }
 
     func handleScenePhaseChange(_ phase: ScenePhase) async {
+        guard !isRunningUITests else { return }
         switch phase {
         case .active:
-            await refreshNotificationAuthorization()
             if defaults.bool(forKey: StorageKey.connectionValidated) {
                 if self.phase == .disconnected && !token.isEmpty {
                     await connect()
@@ -590,82 +660,20 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func recordInteractiveTerminalEvent(
-        jobID: String,
-        outcome: String,
-        finalStatus: String,
-        occurredAt: Int64?,
-        fallbackTitle: String,
-        fallbackWorkspaceID: String?
-    ) async {
-        let cachedJob = jobSummary(id: jobID)
-        let detail = try? await makeClient().job(id: jobID)
-        let resolvedOutcome = outcome.isEmpty ? (detail?.latestTerminalRunOutcome ?? finalStatus) : outcome
-        let normalizedOutcome = Self.normalizedNotificationOutcome(resolvedOutcome)
-        guard ["completed", "failed", "stopped"].contains(normalizedOutcome) else { return }
-        let terminalTimestamp = occurredAt ?? Int64(Date().timeIntervalSince1970 * 1_000)
-        let eventIdentity = Self.terminalEventIdentity(terminalTimestamp)
-        emitNotificationForOutcome(
-            outcome: normalizedOutcome,
-            jobID: jobID,
-            title: detail?.title ?? cachedJob?.displayTitle ?? fallbackTitle,
-            workspaceID: detail?.workspaceId ?? cachedJob?.workspaceId ?? fallbackWorkspaceID,
-            eventIdentity: eventIdentity,
-            occurredAtMilliseconds: terminalTimestamp
-        )
-        interactiveFinalStatusesAwaitingSync[jobID] = Self.interactiveTerminalSuppressionKey(
-            outcome: normalizedOutcome,
-            timestamp: terminalTimestamp
-        )
-    }
-
-    func setNotificationPreference(_ kind: QuartetNotificationKind, enabled: Bool) {
-        notificationCenterModel.togglePreference(kind, enabled: enabled)
-    }
-
-    func requestNotificationAuthorization() async {
-        _ = await notificationCenterModel.requestAuthorization()
-        await refreshNotificationAuthorization()
-    }
-
-    func openNotification(_ record: QuartetNotificationRecord) {
-        notificationCenterModel.select(record)
-    }
-
-    func markNotificationRead(_ record: QuartetNotificationRecord) {
-        notificationCenterModel.markRead(record)
-    }
-
-    func markAllNotificationsRead() {
-        notificationCenterModel.markAllRead()
-    }
-
-    func clearNotificationRecords() {
-        notificationCenterModel.clearRecords()
-    }
-
-    func clearPendingNotificationDestination() {
-        pendingNotificationDestination = nil
-    }
-
     func editConnection() {
         let generation = invalidateDashboardRequests()
         connectionGeneration &+= 1
-        try? KeychainStore.delete(account: StorageKey.tokenAccount(for: credentialServerAddress))
-        try? KeychainStore.delete(account: StorageKey.legacyTokenAccount)
+        if !isRunningUITests {
+            try? KeychainStore.delete(account: StorageKey.tokenAccount(for: credentialServerAddress))
+            try? KeychainStore.delete(account: StorageKey.legacyTokenAccount)
+        }
         defaults.set(false, forKey: StorageKey.connectionValidated)
         defaults.removeObject(forKey: StorageKey.selectedWorkspaceID)
         defaults.removeObject(forKey: StorageKey.lastSuccessfulSyncAt)
         health = nil
         workspaces = []
         jobs = []
-        latestObservedJobs = [:]
         graphJobStates = [:]
-        latestGraphRunVersions = [:]
-        lastNotifiedGraphTransitions = [:]
-        interactiveFinalStatusesAwaitingSync = [:]
-        pendingGraphStatusObservationJobs = []
-        jobObservationCursor = nil
         selectedWorkspaceID = nil
         nextCursor = nil
         hasMoreJobs = false
@@ -674,7 +682,6 @@ final class AppModel: ObservableObject {
         isUsingCachedData = false
         lastSuccessfulSyncAt = nil
         lastSyncFailureMessage = nil
-        pendingNotificationDestination = nil
         phase = .disconnected
         token = ""
         rotateCredentialCacheNamespace()
@@ -688,21 +695,17 @@ final class AppModel: ObservableObject {
         defaults.set(false, forKey: StorageKey.connectionValidated)
         defaults.removeObject(forKey: StorageKey.selectedWorkspaceID)
         defaults.removeObject(forKey: StorageKey.lastSuccessfulSyncAt)
-        try? KeychainStore.delete(account: StorageKey.tokenAccount(for: credentialServerAddress))
-        try? KeychainStore.delete(account: StorageKey.legacyTokenAccount)
+        if !isRunningUITests {
+            try? KeychainStore.delete(account: StorageKey.tokenAccount(for: credentialServerAddress))
+            try? KeychainStore.delete(account: StorageKey.legacyTokenAccount)
+        }
         serverAddress = Self.defaultServerAddress
         credentialServerAddress = Self.defaultServerAddress
         token = ""
         health = nil
         workspaces = []
         jobs = []
-        latestObservedJobs = [:]
         graphJobStates = [:]
-        latestGraphRunVersions = [:]
-        lastNotifiedGraphTransitions = [:]
-        interactiveFinalStatusesAwaitingSync = [:]
-        pendingGraphStatusObservationJobs = []
-        jobObservationCursor = nil
         selectedWorkspaceID = nil
         nextCursor = nil
         hasMoreJobs = false
@@ -711,7 +714,6 @@ final class AppModel: ObservableObject {
         isUsingCachedData = false
         lastSuccessfulSyncAt = nil
         lastSyncFailureMessage = nil
-        pendingNotificationDestination = nil
         phase = .disconnected
         rotateCredentialCacheNamespace()
         Task { await cacheStore.advanceGeneration(to: generation, clearingExistingCache: true) }
@@ -730,6 +732,123 @@ final class AppModel: ObservableObject {
 
     private func makeClient() throws -> APIClient {
         try APIClient(serverAddress: serverAddress, token: token)
+    }
+
+    private func seedUITestDashboard() {
+        let now = Int64(Date().timeIntervalSince1970 * 1_000)
+        serverAddress = "https://quartet.example.test/"
+        token = ""
+        health = HealthResponse(
+            status: "ok",
+            time: nil,
+            buildTime: "UI Test",
+            instanceId: "ios-e2e",
+            authRequired: false
+        )
+        workspaces = [
+            WorkspaceSummary(
+                id: "ws-studio", version: 1, title: "Quartet Studio",
+                description: "主工作空间", workdir: "/workspace/quartet",
+                defaultAgent: "trae", defaultModel: "gpt-5.6", color: "18B8A7",
+                favorite: true, sortOrder: 0, createdAt: now - 86_400_000, updatedAt: now
+            ),
+            WorkspaceSummary(
+                id: "ws-lab", version: 1, title: "实验室",
+                description: "实验任务", workdir: "/workspace/lab",
+                defaultAgent: "trae", defaultModel: "gpt-5.4", color: "F2A83B",
+                favorite: false, sortOrder: 1, createdAt: now - 43_200_000, updatedAt: now
+            )
+        ]
+        uiTestJobs = [
+            JobSummary(
+                id: "job-chat-running", title: "优化 iOS 交互体验", modelId: "gpt-5.6",
+                status: "running", mode: "interactive", workspaceId: "ws-studio",
+                workdir: "/workspace/quartet", createdAt: now - 900_000, updatedAt: now - 15_000,
+                pinnedAt: now - 800_000, sessionCount: 2, scheduleId: nil, shareToken: nil,
+                agentId: "trae", acpMode: "default", acpThoughtLevel: "medium"
+            ),
+            JobSummary(
+                id: "job-graph-waiting", title: "发布前检查流水线", modelId: nil,
+                status: "awaitingInput", mode: "graph", workspaceId: "ws-studio",
+                workdir: "/workspace/quartet", createdAt: now - 3_600_000, updatedAt: now - 120_000,
+                pinnedAt: nil, sessionCount: 3, scheduleId: nil, shareToken: nil
+            ),
+            JobSummary(
+                id: "job-lab-complete", title: "组件回归检查", modelId: "gpt-5.4",
+                status: "completed", mode: "interactive", workspaceId: "ws-lab",
+                workdir: "/workspace/lab", createdAt: now - 7_200_000, updatedAt: now - 1_800_000,
+                pinnedAt: nil, sessionCount: 1, scheduleId: "nightly-ui", shareToken: nil,
+                agentId: "trae", acpMode: "default", acpThoughtLevel: "medium"
+            )
+        ]
+        jobs = filteredUITestJobs(workspaceID: nil)
+        selectedWorkspaceID = nil
+        lastSuccessfulSyncAt = Date()
+        lastSyncFailureMessage = nil
+        isDataStale = false
+        hasPendingSync = false
+        isUsingCachedData = false
+        graphJobStates["job-graph-waiting"] = GraphJobState(
+            status: "awaitingInput",
+            lastError: nil,
+            updatedAt: Date()
+        )
+        phase = .connected
+    }
+
+    private func uiTestJobDetail(id: String) throws -> JobDetail {
+        let summary = uiTestJobs.first(where: { $0.id == id }) ?? uiTestJobs[0]
+        let json = """
+        {
+          "id": "\(summary.id)",
+          "title": "\(summary.displayTitle)",
+          "status": "\(displayedStatus(for: summary))",
+          "mode": "\(summary.mode ?? "interactive")",
+          "workspaceId": "\(summary.workspaceId ?? "ws-studio")",
+          "workdir": "\(summary.workdir ?? "/workspace/quartet")",
+          "createdAt": "2026-08-22T10:00:00Z",
+          "updatedAt": "2026-08-22T12:00:00Z",
+          "sessionIds": ["session-1"],
+          "graphSessionIds": [],
+          "firstModelId": "\(summary.modelId ?? "gpt-5.6")",
+          "initialAgentId": "trae",
+          "lastEventSeq": 42
+        }
+        """
+        return try JSONDecoder().decode(JobDetail.self, from: Data(json.utf8))
+    }
+
+    private func filteredUITestJobs(workspaceID: String?) -> [JobSummary] {
+        uiTestJobs.filter { job in
+            let matchesWorkspace = workspaceID == nil || job.workspaceId == workspaceID
+            let isScheduled = job.scheduleId?.isEmpty == false
+            return matchesWorkspace && (!hideScheduledJobs || !isScheduled)
+        }
+    }
+
+    private func uiTestGraphRunStatus(jobID: String) -> GraphRunStatusResponse {
+        let progress = GraphProgressSummary(
+            totalCount: 4, completedCount: 2, failedCount: 0, skippedCount: 0,
+            interruptedCount: 0, runningCount: 0, lastError: nil
+        )
+        return GraphRunStatusResponse(
+            run: GraphRunSummary(
+                id: "run-e2e", workflowId: "release-check", jobId: jobID,
+                workspaceId: "ws-studio", status: "awaitingInput", currentVersion: 3,
+                startedAt: Int64(Date().timeIntervalSince1970 * 1_000) - 180_000,
+                finishedAt: nil, lastError: nil, progress: progress
+            ),
+            progress: progress,
+            instances: [
+                GraphInstanceSummary(
+                    key: GraphInstanceKeySummary(nodeId: "review", iterations: nil),
+                    nodeId: "review", nodeTitle: "人工确认发布", nodeType: "clarify",
+                    status: "awaitingInput", version: 3, sessionId: "session-review",
+                    displaySessionId: "session-review", startedAt: nil, finishedAt: nil,
+                    durationMs: nil, error: nil, blockedReason: "等待确认发布范围"
+                )
+            ]
+        )
     }
 
     private func isCurrentConnectionRequest(
@@ -800,27 +919,6 @@ final class AppModel: ObservableObject {
         )
     }
 
-    private func bindNotifications() {
-        notificationCenterModel.$records
-            .sink { [weak self] in self?.notifications = $0 }
-            .store(in: &cancellables)
-        notificationCenterModel.$preferences
-            .sink { [weak self] in self?.notificationPreferences = $0 }
-            .store(in: &cancellables)
-        notificationCenterModel.$authorizationStatus
-            .sink { [weak self] in self?.notificationAuthorizationStatus = $0 }
-            .store(in: &cancellables)
-        notificationCenterModel.onDestinationSelected = { [weak self] destination in
-            guard let self else { return }
-            Task { @MainActor in
-                self.pendingNotificationDestination = destination
-                if let workspaceID = destination.workspaceID, workspaceID != self.selectedWorkspaceID {
-                    await self.selectWorkspace(workspaceID)
-                }
-            }
-        }
-    }
-
     private func loadCachedDashboardIfNeeded() async {
         guard !hasLoadedCachedDashboard else { return }
         hasLoadedCachedDashboard = true
@@ -838,18 +936,16 @@ final class AppModel: ObservableObject {
             return
         }
         workspaces = snapshot.workspaces
-        jobs = snapshot.jobs.map(\.jobSummary)
+        let cachedJobs = snapshot.jobs.map(\.jobSummary)
+        jobs = hideScheduledJobs
+            ? cachedJobs.filter { $0.scheduleId?.isEmpty != false }
+            : cachedJobs
         isUsingCachedData = true
         isDataStale = true
         hasPendingSync = true
         if lastSuccessfulSyncAt == nil {
             lastSuccessfulSyncAt = snapshot.savedAt
         }
-        latestObservedJobs = Dictionary(uniqueKeysWithValues: jobs.map { ($0.id, $0) })
-    }
-
-    private func refreshNotificationAuthorization() async {
-        await notificationCenterModel.refreshAuthorizationStatus()
     }
 
     private func markSyncSucceeded() {
@@ -866,7 +962,6 @@ final class AppModel: ObservableObject {
     private func handleSyncFailure(
         _ error: Error,
         presentToUser: Bool,
-        emitsNotification: Bool,
         disconnect: Bool
     ) async {
         if disconnect {
@@ -885,223 +980,16 @@ final class AppModel: ObservableObject {
             failureMessage = String(describing: error)
         }
         lastSyncFailureMessage = failureMessage
-        if emitsNotification {
-            notificationCenterModel.record(
-                kind: .connectionIssue,
-                title: "Quartet 连接异常",
-                body: hasDashboardContent
-                    ? "当前展示的是本地缓存，待网络恢复后会重新同步。"
-                    : "同步失败，请在应用内查看完整错误。",
-                dedupeKey: "connection:\(serverAddress):\(lastSuccessfulSyncAt?.timeIntervalSince1970 ?? 0):\(failureMessage)"
-            )
-        }
         if presentToUser {
             present(error)
         }
     }
 
-    private func processDashboardNotifications(
-        previousJobs: [String: JobSummary],
-        observation: JobObservationPage
+    private func applyGraphStatus(
+        job: JobSummary,
+        response: GraphRunStatusResponse,
+        graphStates: inout [String: GraphJobState]
     ) {
-        guard !observation.reset else {
-            pendingGraphStatusObservationJobs = []
-            graphJobStates = [:]
-            latestGraphRunVersions = [:]
-            lastNotifiedGraphTransitions = [:]
-            interactiveFinalStatusesAwaitingSync = [:]
-            return
-        }
-        for change in observation.changes {
-            let job = change.job
-            if let graphStatus = change.graphStatus {
-                pendingGraphStatusObservationJobs.removeAll { $0.id == job.id }
-                graphJobStates[job.id] = GraphJobState(status: graphStatus, lastError: nil, updatedAt: Date())
-            }
-            let oldStatus = change.previousGraphStatus
-                ?? change.previousStatus
-                ?? previousJobs[job.id]?.status
-            let newStatus = change.graphStatus ?? change.runOutcome ?? job.status
-            let repeatsActionableGraphState = job.mode == "graph"
-                && newStatus == "awaitingInput"
-                && change.graphSessionId != nil
-            guard let oldStatus, oldStatus != newStatus || repeatsActionableGraphState else { continue }
-            if job.mode == "graph", Self.isActivelyRunningStatus(newStatus) {
-                graphJobStates.removeValue(forKey: job.id)
-                continue
-            }
-            let suppressionKey = Self.interactiveTerminalSuppressionKey(
-                outcome: Self.normalizedNotificationOutcome(newStatus),
-                timestamp: change.occurredAt
-            )
-            if interactiveFinalStatusesAwaitingSync[job.id] == suppressionKey {
-                interactiveFinalStatusesAwaitingSync.removeValue(forKey: job.id)
-                continue
-            }
-            emitNotificationIfNeeded(
-                oldStatus: oldStatus,
-                newStatus: newStatus,
-                jobID: job.id,
-                title: job.displayTitle,
-                workspaceID: job.workspaceId,
-                eventIdentity: change.graphRunId.map {
-                    Self.graphEventIdentity(
-                        runID: $0,
-                        timestamp: change.occurredAt,
-                        graphSessionID: change.graphSessionId
-                    )
-                } ?? Self.terminalEventIdentity(change.occurredAt),
-                graphSessionID: change.graphSessionId,
-                occurredAtMilliseconds: change.occurredAt
-            )
-        }
-    }
-
-    private func fetchJobObservations(client: APIClient) async throws -> JobObservationPage {
-        var activeJobsByID: [String: JobSummary] = [:]
-        var changes: [JobObservationEvent] = []
-        var seenCursors = Set<String>()
-        var cursor = jobObservationCursor
-        var reset = false
-
-        while true {
-            let page = try await client.jobObservations(cursor: cursor, limit: 200)
-            if page.reset { return page }
-            activeJobsByID.removeAll(keepingCapacity: true)
-            for job in page.activeJobs {
-                activeJobsByID[job.id] = job
-            }
-            changes.append(contentsOf: page.changes)
-            reset = reset || page.reset
-            guard page.hasMore else {
-                return JobObservationPage(
-                    activeJobs: Array(activeJobsByID.values),
-                    changes: changes,
-                    cursor: page.cursor,
-                    hasMore: false,
-                    reset: reset
-                )
-            }
-            let nextCursor = page.cursor
-            guard !nextCursor.isEmpty else {
-                throw APIError(
-                    summary: "Job 通知观察响应无效",
-                    detail: "GET /api/v1/job/observations 返回 hasMore=true，但没有 cursor；本轮未提交不完整的通知观察结果。"
-                )
-            }
-            guard seenCursors.insert(nextCursor).inserted else {
-                throw APIError(
-                    summary: "Job 通知观察响应无效",
-                    detail: "GET /api/v1/job/observations 重复返回 cursor \(nextCursor)；本轮未提交不完整的通知观察结果。"
-                )
-            }
-            cursor = nextCursor
-        }
-    }
-
-    private func applyObservationSnapshot(_ observation: JobObservationPage) {
-        var latest = Dictionary(uniqueKeysWithValues: observation.activeJobs.map { ($0.id, $0) })
-        for change in observation.changes {
-            latest[change.job.id] = change.job
-            if let index = jobs.firstIndex(where: { $0.id == change.job.id }) {
-                jobs[index] = change.job
-            }
-        }
-        for activeJob in observation.activeJobs {
-            if let index = jobs.firstIndex(where: { $0.id == activeJob.id }) {
-                jobs[index] = activeJob
-            }
-        }
-        latestObservedJobs = latest
-        jobObservationCursor = observation.cursor
-    }
-
-    private func graphStatusObservationCandidates(
-        changes: [JobObservationEvent],
-        activeJobs: [JobSummary]
-    ) -> [JobSummary] {
-        var candidates: [JobSummary] = []
-        var candidateIDs = Set<String>()
-        var latestJobsByID: [String: JobSummary] = [:]
-        for job in activeJobs where job.mode == "graph" {
-            latestJobsByID[job.id] = job
-        }
-        for change in changes where change.job.mode == "graph" {
-            latestJobsByID[change.job.id] = change.job
-        }
-        for pendingJob in pendingGraphStatusObservationJobs {
-            let job = latestJobsByID[pendingJob.id] ?? pendingJob
-            guard job.status == "stopped", candidateIDs.insert(job.id).inserted else { continue }
-            candidates.append(job)
-        }
-        for change in changes {
-            let job = change.job
-            guard job.mode == "graph",
-                  change.graphStatus == nil,
-                  job.status == "stopped",
-                  candidateIDs.insert(job.id).inserted else { continue }
-            candidates.append(job)
-        }
-        return candidates
-    }
-
-    private func refreshGraphStatuses(for jobs: [JobSummary], generation: UInt64) async {
-        guard isCurrentDashboardGeneration(generation) else { return }
-        let graphJobs = jobs.filter { $0.mode == "graph" }
-        guard !graphJobs.isEmpty else {
-            pendingGraphStatusObservationJobs = []
-            return
-        }
-
-        let maximumRequestsPerRefresh = 24
-        let requestedJobs = Array(graphJobs.prefix(maximumRequestsPerRefresh))
-        let jobsByID = Dictionary(uniqueKeysWithValues: requestedJobs.map { ($0.id, $0) })
-        let jobIDs = requestedJobs.map(\.id)
-        let address = serverAddress
-        let currentToken = token
-        // Put unserved work before failures. Persistent failures therefore
-        // rotate behind later candidates instead of monopolizing every round.
-        var retryJobs = Array(graphJobs.dropFirst(maximumRequestsPerRefresh))
-        var nextIndex = 0
-        let maximumConcurrentRequests = 6
-
-        await withTaskGroup(of: (Int, String, GraphRunStatusResponse?).self) { group in
-            func addNextRequest() {
-                guard nextIndex < jobIDs.count else { return }
-                let jobID = jobIDs[nextIndex]
-                let requestIndex = nextIndex
-                nextIndex += 1
-                group.addTask {
-                    do {
-                        let client = try APIClient(serverAddress: address, token: currentToken)
-                        return (requestIndex, jobID, try await client.graphRunStatus(jobID: jobID))
-                    } catch {
-                        return (requestIndex, jobID, nil)
-                    }
-                }
-            }
-
-            for _ in 0..<min(maximumConcurrentRequests, jobIDs.count) { addNextRequest() }
-            var failedRequestedJobs: [(Int, JobSummary)] = []
-            while let (requestIndex, jobID, response) = await group.next() {
-                guard isCurrentDashboardGeneration(generation) else {
-                    group.cancelAll()
-                    return
-                }
-                if let response, let job = jobsByID[jobID] {
-                    applyGraphStatus(job: job, response: response)
-                } else if let job = jobsByID[jobID] {
-                    failedRequestedJobs.append((requestIndex, job))
-                }
-                addNextRequest()
-            }
-            retryJobs.append(contentsOf: failedRequestedJobs.sorted { $0.0 < $1.0 }.map(\.1))
-        }
-        guard isCurrentDashboardGeneration(generation) else { return }
-        pendingGraphStatusObservationJobs = retryJobs
-    }
-
-    private func applyGraphStatus(job: JobSummary, response: GraphRunStatusResponse) {
         guard let run = response.run else { return }
         let jobID = job.id
         let state = GraphJobState(
@@ -1109,35 +997,14 @@ final class AppModel: ObservableObject {
             lastError: run.lastError?.fullDetail ?? response.progress?.lastError,
             updatedAt: Date()
         )
-        let previousStatus = graphJobStates[jobID]?.status
-            ?? latestObservedJobs[jobID]?.status
-        let previousVersion = latestGraphRunVersions[jobID]
-        graphJobStates[jobID] = state
-        latestGraphRunVersions[jobID] = run.currentVersion
-        let awaitingInstance = response.instances?.first(where: { $0.status == "awaitingInput" })
-        let graphSessionID = awaitingInstance?.displaySessionId ?? awaitingInstance?.sessionId
-        let transitionStamp = run.finishedAt ?? awaitingInstance?.startedAt ?? job.updatedAt
-        let transitionKey = "\(run.id):v\(run.currentVersion):\(run.status):\(transitionStamp):\(graphSessionID ?? "none")"
-        guard let previousStatus else {
-            lastNotifiedGraphTransitions[jobID] = transitionKey
-            return
-        }
-        if lastNotifiedGraphTransitions[jobID] != transitionKey {
-            emitNotificationIfNeeded(
-                oldStatus: previousStatus,
-                newStatus: run.status,
-                jobID: jobID,
-                title: job.displayTitle,
-                workspaceID: run.workspaceId ?? job.workspaceId,
-                eventIdentity: Self.graphEventIdentity(
-                    runID: run.id,
-                    timestamp: transitionStamp,
-                    graphSessionID: graphSessionID
-                ),
-                graphSessionID: graphSessionID,
-                occurredAtMilliseconds: transitionStamp
-            )
-            lastNotifiedGraphTransitions[jobID] = transitionKey
+        graphStates[jobID] = state
+    }
+
+    private func applyGraphStatus(job: JobSummary, response: GraphRunStatusResponse) {
+        var updatedGraphStates = graphJobStates
+        applyGraphStatus(job: job, response: response, graphStates: &updatedGraphStates)
+        if graphJobStates != updatedGraphStates {
+            graphJobStates = updatedGraphStates
         }
     }
 
@@ -1167,107 +1034,6 @@ final class AppModel: ObservableObject {
         case "stopped": "已停止"
         default: status
         }
-    }
-
-    private func emitNotificationIfNeeded(
-        oldStatus: String,
-        newStatus: String,
-        jobID: String,
-        title: String,
-        workspaceID: String?,
-        eventIdentity: String,
-        graphSessionID: String? = nil,
-        occurredAtMilliseconds: Int64? = nil
-    ) {
-        let oldOutcome = Self.normalizedNotificationOutcome(oldStatus)
-        let newOutcome = Self.normalizedNotificationOutcome(newStatus)
-        let repeatsActionableGraphState = newStatus == "awaitingInput" && graphSessionID != nil
-        guard oldOutcome != newOutcome || repeatsActionableGraphState else { return }
-        emitNotificationForOutcome(
-            outcome: newOutcome,
-            displayStatus: newStatus,
-            jobID: jobID,
-            title: title,
-            workspaceID: workspaceID,
-            eventIdentity: eventIdentity,
-            graphSessionID: graphSessionID,
-            occurredAtMilliseconds: occurredAtMilliseconds
-        )
-    }
-
-    private func emitNotificationForOutcome(
-        outcome: String,
-        displayStatus: String? = nil,
-        jobID: String,
-        title: String,
-        workspaceID: String?,
-        eventIdentity: String,
-        graphSessionID: String? = nil,
-        occurredAtMilliseconds: Int64? = nil
-    ) {
-        let occurredAt = occurredAtMilliseconds.map { $0.quartetDate } ?? Date()
-        let workspaceName = workspaces.first(where: { $0.id == workspaceID })?.displayName
-            ?? workspaceID
-            ?? "未指定工作空间"
-        let body = "\(title) · \(workspaceName) · \(statusLabel(displayStatus ?? outcome)) · \(occurredAt.formatted(date: .abbreviated, time: .shortened))"
-        let dedupeKey = "job:\(jobID):\(outcome):\(eventIdentity)"
-        switch outcome {
-        case "completed":
-            notificationCenterModel.record(
-                kind: .jobCompleted,
-                title: "Job 已完成",
-                body: body,
-                jobID: jobID,
-                workspaceID: workspaceID,
-                dedupeKey: dedupeKey
-            )
-        case "failed":
-            notificationCenterModel.record(
-                kind: .jobFailed,
-                title: "Job 执行失败",
-                body: body,
-                jobID: jobID,
-                workspaceID: workspaceID,
-                dedupeKey: dedupeKey
-            )
-        case "awaitingInput":
-            notificationCenterModel.record(
-                kind: .awaitingInput,
-                title: "需要人工处理",
-                body: body,
-                jobID: jobID,
-                workspaceID: workspaceID,
-                graphSessionID: graphSessionID,
-                dedupeKey: dedupeKey
-            )
-        case "stopped":
-            // User-requested stops are visible in the Job state but are not a
-            // configured notification category. Keeping the event here still
-            // lets the conversation queue use the authoritative terminal edge.
-            break
-        default:
-            break
-        }
-    }
-
-    private static func normalizedNotificationOutcome(_ status: String) -> String {
-        status == "timedOut" ? "failed" : status
-    }
-
-    private static func terminalEventIdentity(_ timestamp: Int64) -> String {
-        "terminal-\(timestamp)"
-    }
-
-    private static func graphEventIdentity(runID: String, timestamp: Int64, graphSessionID: String?) -> String {
-        "graph-\(runID)-\(timestamp)-\(graphSessionID ?? "none")"
-    }
-
-    private static func interactiveTerminalSuppressionKey(outcome: String, timestamp: Int64) -> String {
-        "\(normalizedNotificationOutcome(outcome)):\(terminalEventIdentity(timestamp))"
-    }
-
-    private static func isActivelyRunningStatus(_ status: String) -> Bool {
-        status == "running" || status == "pending" || status == "stepStopping"
     }
 
     private static func loadStoredToken(
@@ -1300,6 +1066,7 @@ final class AppModel: ObservableObject {
         static let serverAddress = "quartet.serverAddress"
         static let connectionValidated = "quartet.connectionValidated"
         static let selectedWorkspaceID = "quartet.selectedWorkspaceID"
+        static let hideScheduledJobs = "quartet.hideScheduledJobs"
         static let lastSuccessfulSyncAt = "quartet.lastSuccessfulSyncAt"
         static let credentialCacheNamespace = "quartet.credentialCacheNamespace"
         static let legacyTokenAccount = "agent-auth-token"

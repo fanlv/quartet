@@ -70,11 +70,11 @@ actor DashboardCacheStore {
     private let cacheURL: URL
     private var minimumWritableGeneration: UInt64 = 0
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, directoryName: String = "Quartet") {
         let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
         cacheURL = baseURL
-            .appendingPathComponent("Quartet", isDirectory: true)
+            .appendingPathComponent(directoryName, isDirectory: true)
             .appendingPathComponent("dashboard-cache.json", isDirectory: false)
     }
 

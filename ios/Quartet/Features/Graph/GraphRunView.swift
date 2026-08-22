@@ -205,7 +205,7 @@ struct GraphRunView: View {
             if !silent { loading = false }
         }
         do {
-            let response = try await appModel.apiClient().graphRunStatus(jobID: summary.id)
+            let response = try await appModel.graphRunStatus(jobID: summary.id)
             snapshot = response
             appModel.observeGraphStatus(job: summary, response: response)
         } catch {
@@ -217,7 +217,7 @@ struct GraphRunView: View {
         pendingAction = action
         defer { pendingAction = nil }
         do {
-            let response = try await appModel.apiClient().graphRunAction(jobID: summary.id, action: action.rawValue)
+            let response = try await appModel.performGraphAction(jobID: summary.id, action: action.rawValue)
             if let run = response.run {
                 snapshot = GraphRunStatusResponse(
                     run: run,

@@ -23,9 +23,19 @@
 		A1000000000000000000000F /* GraphRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* GraphRunView.swift */; };
 		A10000000000000000000010 /* ChatAttachmentSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* ChatAttachmentSupport.swift */; };
 		A10000000000000000000011 /* DashboardCacheStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* DashboardCacheStore.swift */; };
-		A10000000000000000000012 /* NotificationCenterModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* NotificationCenterModel.swift */; };
-		A10000000000000000000013 /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* NotificationsView.swift */; };
+		A10000000000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* Assets.xcassets */; };
+		B10000000000000000000001 /* QuartetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* QuartetUITests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B30000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A60000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A50000000000000000000001;
+			remoteInfo = Quartet;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		A20000000000000000000001 /* QuartetApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuartetApp.swift; sourceTree = "<group>"; };
@@ -46,12 +56,20 @@
 		A20000000000000000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000011 /* ChatAttachmentSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentSupport.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* DashboardCacheStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardCacheStore.swift; sourceTree = "<group>"; };
-		A20000000000000000000013 /* NotificationCenterModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCenterModel.swift; sourceTree = "<group>"; };
-		A20000000000000000000014 /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000015 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B20000000000000000000001 /* QuartetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuartetUITests.swift; sourceTree = "<group>"; };
+		B20000000000000000000002 /* QuartetUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuartetUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A30000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B30000000000000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -65,6 +83,7 @@
 			isa = PBXGroup;
 			children = (
 				A40000000000000000000002 /* Quartet */,
+				B40000000000000000000001 /* QuartetUITests */,
 				A40000000000000000000009 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -74,6 +93,7 @@
 			children = (
 				A20000000000000000000001 /* QuartetApp.swift */,
 				A20000000000000000000010 /* Info.plist */,
+				A20000000000000000000015 /* Assets.xcassets */,
 				A40000000000000000000003 /* App */,
 				A40000000000000000000004 /* Core */,
 				A40000000000000000000008 /* Features */,
@@ -133,7 +153,6 @@
 				A4000000000000000000000E /* Chat */,
 				A4000000000000000000000F /* Graph */,
 				A4000000000000000000000B /* Jobs */,
-				A40000000000000000000011 /* Notifications */,
 				A4000000000000000000000D /* Settings */,
 			);
 			path = Features;
@@ -143,6 +162,7 @@
 			isa = PBXGroup;
 			children = (
 				A2000000000000000000000C /* Quartet.app */,
+				B20000000000000000000002 /* QuartetUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -206,13 +226,12 @@
 			path = Persistence;
 			sourceTree = "<group>";
 		};
-		A40000000000000000000011 /* Notifications */ = {
+		B40000000000000000000001 /* QuartetUITests */ = {
 			isa = PBXGroup;
 			children = (
-				A20000000000000000000013 /* NotificationCenterModel.swift */,
-				A20000000000000000000014 /* NotificationsView.swift */,
+				B20000000000000000000001 /* QuartetUITests.swift */,
 			);
-			path = Notifications;
+			path = QuartetUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -235,6 +254,24 @@
 			productReference = A2000000000000000000000C /* Quartet.app */;
 			productType = "com.apple.product-type.application";
 		};
+		B50000000000000000000001 /* QuartetUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B90000000000000000000001 /* Build configuration list for PBXNativeTarget "QuartetUITests" */;
+			buildPhases = (
+				B30000000000000000000003 /* Sources */,
+				B30000000000000000000002 /* Frameworks */,
+				B30000000000000000000004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B60000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = QuartetUITests;
+			productName = QuartetUITests;
+			productReference = B20000000000000000000002 /* QuartetUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -247,6 +284,10 @@
 				TargetAttributes = {
 					A50000000000000000000001 = {
 						CreatedOnToolsVersion = 26.0;
+					};
+					B50000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = A50000000000000000000001;
 					};
 				};
 			};
@@ -264,12 +305,21 @@
 			projectRoot = "";
 			targets = (
 				A50000000000000000000001 /* Quartet */,
+				B50000000000000000000001 /* QuartetUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A30000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000014 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B30000000000000000000004 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -299,12 +349,26 @@
 				A10000000000000000000010 /* ChatAttachmentSupport.swift in Sources */,
 				A1000000000000000000000F /* GraphRunView.swift in Sources */,
 				A10000000000000000000011 /* DashboardCacheStore.swift in Sources */,
-				A10000000000000000000012 /* NotificationCenterModel.swift in Sources */,
-				A10000000000000000000013 /* NotificationsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B30000000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000001 /* QuartetUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B60000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A50000000000000000000001 /* Quartet */;
+			targetProxy = B30000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A70000000000000000000001 /* Debug */ = {
@@ -342,6 +406,7 @@
 		A80000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -370,6 +435,7 @@
 		A80000000000000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -394,6 +460,40 @@
 			};
 			name = Release;
 		};
+		B80000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9BQ563P4RA;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fun.fanlv.quartet.ios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Quartet;
+			};
+			name = Debug;
+		};
+		B80000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9BQ563P4RA;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fun.fanlv.quartet.ios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Quartet;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -411,6 +511,15 @@
 			buildConfigurations = (
 				A80000000000000000000001 /* Debug */,
 				A80000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B90000000000000000000001 /* Build configuration list for PBXNativeTarget "QuartetUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B80000000000000000000001 /* Debug */,
+				B80000000000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

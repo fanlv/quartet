@@ -80,7 +80,7 @@ func TestWorkspaceSelectionInvalidatesVisiblePageBeforeRefreshing(t *testing.T) 
 func TestMissingPersistedWorkspaceFallsBackWithinTheMandatoryRefresh(t *testing.T) {
 	source := iosSource(t, "Quartet/App/AppModel.swift")
 
-	requireSourceMatch(t, source, `if let workspaceID, !workspaces\.contains[\s\S]*await cacheStore\.clear\(\)[\s\S]*failureWorkspaceID = nil[\s\S]*visibleJobsResponse = try await client\.jobs\(workspaceID: nil, limit: 100\)[\s\S]*isCurrentDashboardRequest\(generation: generation, workspaceID: nil\)`, "a deleted persisted workspace must fall back to an unfiltered first page inside the mandatory refresh")
+	requireSourceMatch(t, source, `if let workspaceID, !workspaces\.contains[\s\S]*await cacheStore\.clear\(\)[\s\S]*failureWorkspaceID = nil[\s\S]*visibleJobsResponse = try await client\.jobs\(\s*workspaceID: nil,\s*limit: 100,\s*excludeScheduled: excludeScheduled\s*\)[\s\S]*isCurrentDashboardRequest\(generation: generation, workspaceID: nil\)`, "a deleted persisted workspace must fall back to the all-workspace first page without dropping the scheduled-job filter")
 	requireSourceMatch(t, source, `catch \{\s*guard isCurrentDashboardRequest\(generation: generation, workspaceID: failureWorkspaceID\)`, "fallback errors must be attributed to the corrected workspace selection")
 }
 
@@ -92,7 +92,6 @@ func TestAuthenticatedConnectionKeepsDashboardAvailableOnInitialRefreshFailure(t
 	requireSourceMatch(t, source, `if presentToUser \{\s*present\(error\)`, "dashboard failures must retain the complete error detail for the copyable error sheet")
 	requireSourceMatch(t, source, `guard phase != \.connecting \|\| presentFailure else \{ return \}`, "a silent view refresh must not supersede the mandatory post-authentication refresh")
 	requireSourceMatch(t, source, `failureMessage = "\\\(apiError\.summary\)\\n\\n\\\(apiError\.detail\)"`, "connection state must retain the full API error detail")
-	requireSourceMatch(t, source, `: "同步失败，请在应用内查看完整错误。"`, "local notification text must not include the full server response")
 }
 
 func TestCredentialsAreScopedToServerOrigin(t *testing.T) {
@@ -112,7 +111,7 @@ func TestCredentialsAreScopedToServerOrigin(t *testing.T) {
 func TestDashboardCacheCannotChangeTheAuthoritativeServerOrigin(t *testing.T) {
 	source := iosSource(t, "Quartet/App/AppModel.swift")
 	start := strings.Index(source, "private func loadCachedDashboardIfNeeded() async")
-	end := strings.Index(source, "private func refreshNotificationAuthorization() async")
+	end := strings.Index(source, "private func markSyncSucceeded()")
 	if start < 0 || end <= start {
 		t.Fatal("cannot locate cached dashboard loader")
 	}

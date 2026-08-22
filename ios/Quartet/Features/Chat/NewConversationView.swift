@@ -58,6 +58,7 @@ struct NewConversationView: View {
     let onCreated: (ChatRoute) -> Void
 
     @State private var agents: [AgentSummary] = []
+    @State private var agentPreferences: [String: AgentPreferences] = [:]
     @State private var workspaceID = ""
     @State private var agentID = ""
     @State private var modelID = ""
@@ -66,9 +67,9 @@ struct NewConversationView: View {
     @State private var message = ""
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var pendingImage: PendingUpload?
-    @State private var showsAttachmentMenu = false
     @State private var showsCameraPicker = false
     @State private var showsDocumentPicker = false
+    @State private var showsAdvancedOptions = false
     @State private var loading = true
     @State private var creating = false
     @State private var waitingForValidation = false
@@ -77,9 +78,33 @@ struct NewConversationView: View {
     @State private var savesDefaults = false
     @State private var localError: PresentedError?
     @State private var createIntent: CreateJobIntent?
+    @FocusState private var composerFocused: Bool
 
     private var workspace: WorkspaceSummary? { model.workspaces.first { $0.id == workspaceID } }
     private var agent: AgentSummary? { agents.first { $0.id == agentID } }
+    private var agentName: String {
+        guard let agent else { return "选择 Agent" }
+        return agent.displayName.isEmpty ? agent.type : agent.displayName
+    }
+    private var modelName: String {
+        agent?.models?.availableModels.first(where: { $0.modelId == modelID })?.name
+            ?? (modelID.isEmpty ? "选择模型" : modelID)
+    }
+    private var modeName: String {
+        agent?.modes?.availableModes.first(where: { $0.id == modeID })?.name ?? "跟随 Agent"
+    }
+    private var thoughtLevelName: String {
+        agent?.thoughtLevels?.availableThoughtLevels.first(where: { $0.id == thoughtLevelID })?.name ?? "跟随 Agent"
+    }
+    private var hasAdvancedOptions: Bool {
+        agent?.modes?.availableModes.isEmpty == false || agent?.thoughtLevels?.availableThoughtLevels.isEmpty == false
+    }
+    private var cannotCreate: Bool {
+        creating
+            || workspaceID.isEmpty
+            || agent?.available != true
+            || (message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImage == nil)
+    }
     private var currentCreatePayload: CreateJobIntentPayload? {
         guard let workspace, let agent else { return nil }
         return CreateJobIntentPayload(
@@ -95,31 +120,21 @@ struct NewConversationView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    Text("NEW RUN / INTERACTIVE")
-                        .font(.system(.caption, design: .monospaced).weight(.bold))
-                        .tracking(1.5)
-                        .foregroundStyle(QuartetTheme.accent)
-
+                VStack(alignment: .leading, spacing: 20) {
                     if loading {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            if waitingForValidation {
-                                Text("Agent 正在后台验证，页面会自动重试（第 \(validationAttempt) 次）…")
-                                    .font(.footnote)
-                                    .foregroundStyle(QuartetTheme.secondaryText)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 70)
+                        loadingState
                     } else {
-                        pickerSection
-                        agentStatusNotice
+                        introduction
                         composer
+                        configurationSection
+                        agentStatusNotice
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 18)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(QuartetTheme.canvas)
             .navigationTitle("新对话")
             .navigationBarTitleDisplayMode(.inline)
@@ -137,13 +152,6 @@ struct NewConversationView: View {
                 Task { await loadPhoto(item) }
             }
             .sheet(item: $localError) { ErrorDetailView(error: $0) }
-            .confirmationDialog("添加图片", isPresented: $showsAttachmentMenu, titleVisibility: .visible) {
-                Button("相机") { requestCameraAccess() }
-                Button("文件") { showsDocumentPicker = true }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("可从照片、相机或系统文件中添加图片。")
-            }
             .sheet(isPresented: $showsCameraPicker) {
                 CameraImagePicker(
                     onImagePicked: { image in
@@ -162,90 +170,395 @@ struct NewConversationView: View {
                     onCancel: { showsDocumentPicker = false }
                 )
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !loading { actionBar }
+            }
         }
     }
 
-    private var pickerSection: some View {
-        VStack(spacing: 0) {
-            Picker("工作空间", selection: $workspaceID) {
-                ForEach(model.workspaces) { Text($0.displayName).tag($0.id) }
+    private var loadingState: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(QuartetTheme.accent.opacity(0.12))
+                    .frame(width: 64, height: 64)
+                ProgressView()
+                    .tint(QuartetTheme.accent)
+                    .controlSize(.large)
             }
-            .onChange(of: workspaceID) { _, _ in applyWorkspaceDefaults() }
-            rowDivider
-            Picker("Agent", selection: $agentID) {
-                ForEach(agents) { item in
-                    let name = item.displayName.isEmpty ? item.type : item.displayName
-                    Text(item.available ? name : "\(name) · \(item.availabilityLabel)").tag(item.id)
-                }
-            }
-            .onChange(of: agentID) { _, _ in applyAgentDefaults() }
-            if let models = agent?.models?.availableModels, !models.isEmpty {
-                rowDivider
-                Picker("模型", selection: $modelID) {
-                    ForEach(models) { Text($0.name).tag($0.modelId) }
-                }
-            }
-            if let modes = agent?.modes?.availableModes, !modes.isEmpty {
-                rowDivider
-                Picker("模式", selection: $modeID) {
-                    ForEach(modes) { Text($0.name).tag($0.id) }
-                }
-            }
-            if let levels = agent?.thoughtLevels?.availableThoughtLevels, !levels.isEmpty {
-                rowDivider
-                Picker("思考等级", selection: $thoughtLevelID) {
-                    ForEach(levels) { Text($0.name).tag($0.id) }
-                }
-            }
-            rowDivider
-            Toggle("设为工作空间默认", isOn: $savesDefaults)
+            Text("正在准备对话")
+                .font(.headline)
+                .foregroundStyle(QuartetTheme.primaryText)
+            Text("正在读取空间与 Agent 配置…")
+                .font(.subheadline)
+                .foregroundStyle(QuartetTheme.secondaryText)
         }
-        .pickerStyle(.menu)
-        .padding(.horizontal, 16)
-        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
+        .frame(maxWidth: .infinity)
+        .padding(.top, 90)
+    }
+
+    private var introduction: some View {
+        HStack(alignment: .center, spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(QuartetTheme.accent.opacity(0.13))
+                Image(systemName: "sparkles")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.accent)
+            }
+            .frame(width: 52, height: 52)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("从一句话开始")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Text("写下目标，Quartet 会用下方配置创建并启动 Job。")
+                    .font(.subheadline)
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private var composer: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("第一条消息")
-                .font(.headline)
-            TextEditor(text: $message)
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: 130)
-                .padding(12)
-                .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
+        let hasPendingImage = pendingImage != nil
+        return VStack(alignment: .leading, spacing: 14) {
             HStack {
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    Label("照片", systemImage: pendingImage == nil ? "photo" : "photo.fill")
+                Text("第一条消息")
+                    .font(.headline)
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Spacer()
+                Text(message.isEmpty ? "支持文字与图片" : "\(message.count) 字")
+                    .font(.caption)
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+
+            ZStack(alignment: .topLeading) {
+                if message.isEmpty {
+                    Text("描述你想完成的事情…")
+                        .font(.body)
+                        .foregroundStyle(QuartetTheme.secondaryText.opacity(0.8))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 8)
+                        .allowsHitTesting(false)
                 }
-                .foregroundStyle(pendingImage == nil ? QuartetTheme.secondaryText : QuartetTheme.accent)
-                Button { showsAttachmentMenu = true } label: {
-                    Label("相机或文件", systemImage: "plus.viewfinder")
-                }
-                .foregroundStyle(QuartetTheme.secondaryText)
-                if pendingImage != nil {
-                    Spacer()
-                    Button("移除") { pendingImage = nil; selectedPhoto = nil }
-                        .foregroundStyle(QuartetTheme.failed)
+                TextEditor(text: $message)
+                    .scrollContentBackground(.hidden)
+                    .focused($composerFocused)
+                    .frame(minHeight: 148)
+                    .accessibilityIdentifier("new-conversation-message")
+            }
+
+            if let pendingImage {
+                ChatAttachmentPreview(upload: pendingImage)
+                    .overlay(alignment: .topTrailing) {
+                        Button {
+                            self.pendingImage = nil
+                            selectedPhoto = nil
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(QuartetTheme.primaryText)
+                                .frame(width: 28, height: 28)
+                                .background(QuartetTheme.elevated, in: Circle())
+                        }
+                        .accessibilityLabel("移除图片")
+                        .padding(8)
+                    }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                        Label("照片", systemImage: hasPendingImage ? "photo.fill" : "photo")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .frame(height: 36)
+                            .background(QuartetTheme.elevated, in: Capsule())
+                    }
+                    .foregroundStyle(hasPendingImage ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                    Button { requestCameraAccess() } label: {
+                        attachmentActionLabel("相机", icon: "camera")
+                    }
+                    Button { showsDocumentPicker = true } label: {
+                        attachmentActionLabel("文件", icon: "folder")
+                    }
                 }
             }
-            .font(.subheadline)
+        }
+        .padding(16)
+        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(composerFocused ? QuartetTheme.accent.opacity(0.75) : QuartetTheme.divider, lineWidth: composerFocused ? 1.5 : 1)
+        )
+        .shadow(color: Color.black.opacity(composerFocused ? 0.08 : 0.03), radius: 18, y: 8)
+        .animation(.easeOut(duration: 0.18), value: composerFocused)
+    }
+
+    private func attachmentActionLabel(_ title: String, icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background(QuartetTheme.elevated, in: Capsule())
+    }
+
+    private var configurationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("运行配置")
+                    .font(.headline)
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Spacer()
+                Text("按空间记忆")
+                    .font(.caption)
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+
+            workspacePicker
+
+            VStack(spacing: 0) {
+                agentPicker
+                rowDivider
+                modelPicker
+
+                if hasAdvancedOptions {
+                    rowDivider
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showsAdvancedOptions.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            configurationIcon("slider.horizontal.3")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("高级选项")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(QuartetTheme.primaryText)
+                                Text("\(modeName) · \(thoughtLevelName)")
+                                    .font(.caption)
+                                    .foregroundStyle(QuartetTheme.secondaryText)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                                .rotationEffect(.degrees(showsAdvancedOptions ? 180 : 0))
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 60)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if showsAdvancedOptions {
+                        if agent?.modes?.availableModes.isEmpty == false {
+                            rowDivider.padding(.leading, 58)
+                            modePicker
+                        }
+                        if agent?.thoughtLevels?.availableThoughtLevels.isEmpty == false {
+                            rowDivider.padding(.leading, 58)
+                            thoughtLevelPicker
+                        }
+                    }
+                }
+
+                rowDivider
+                Toggle(isOn: $savesDefaults) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("设为空间默认")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(QuartetTheme.primaryText)
+                        Text("创建成功时保存当前 Agent 与模型")
+                            .font(.caption)
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                    }
+                }
+                .tint(QuartetTheme.accent)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 64)
+            }
+            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(QuartetTheme.divider))
+        }
+    }
+
+    private var workspacePicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(model.workspaces) { item in
+                    let selected = workspaceID == item.id
+                    Button { workspaceID = item.id } label: {
+                        HStack(spacing: 9) {
+                            Circle()
+                                .fill(workspaceTint(item))
+                                .frame(width: 10, height: 10)
+                            Text(item.displayName)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            if selected {
+                                Image(systemName: "checkmark")
+                                    .font(.caption.weight(.bold))
+                            }
+                        }
+                        .foregroundStyle(selected ? QuartetTheme.primaryText : QuartetTheme.secondaryText)
+                        .padding(.horizontal, 14)
+                        .frame(height: 44)
+                        .background(selected ? QuartetTheme.accent.opacity(0.14) : QuartetTheme.surface, in: Capsule())
+                        .overlay(Capsule().stroke(selected ? QuartetTheme.accent.opacity(0.7) : QuartetTheme.divider))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("工作空间，\(item.displayName)\(selected ? "，已选择" : "")")
+                }
+            }
+            .padding(.vertical, 1)
+        }
+        .onChange(of: workspaceID) { _, _ in applyWorkspaceDefaults() }
+    }
+
+    private var agentPicker: some View {
+        Menu {
+            ForEach(agents) { item in
+                let name = item.displayName.isEmpty ? item.type : item.displayName
+                Button { selectAgent(item.id) } label: {
+                    if item.id == agentID {
+                        Label(name, systemImage: "checkmark")
+                    } else {
+                        Text(item.available ? name : "\(name) · \(item.availabilityLabel)")
+                    }
+                }
+                .disabled(!item.available && item.id != agentID)
+            }
+        } label: {
+            configurationRow(title: "Agent", value: agentName, icon: "command")
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var modelPicker: some View {
+        Menu {
+            ForEach(orderedModels) { item in
+                Button { modelID = item.modelId } label: {
+                    if item.modelId == modelID {
+                        Label(item.name, systemImage: "checkmark")
+                    } else if favoriteModelIDs.contains(item.modelId) {
+                        Label(item.name, systemImage: "star.fill")
+                    } else {
+                        Text(item.name)
+                    }
+                }
+            }
+        } label: {
+            configurationRow(title: "模型", value: modelName, icon: "cpu")
+        }
+        .buttonStyle(.plain)
+        .disabled(orderedModels.isEmpty)
+    }
+
+    private var modePicker: some View {
+        Menu {
+            ForEach(agent?.modes?.availableModes ?? []) { item in
+                Button { modeID = item.id } label: {
+                    item.id == modeID ? Label(item.name, systemImage: "checkmark") : Label(item.name, systemImage: "circle")
+                }
+            }
+        } label: {
+            configurationRow(title: "模式", value: modeName, icon: "point.3.connected.trianglepath.dotted")
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var thoughtLevelPicker: some View {
+        Menu {
+            ForEach(agent?.thoughtLevels?.availableThoughtLevels ?? []) { item in
+                Button { thoughtLevelID = item.id } label: {
+                    item.id == thoughtLevelID ? Label(item.name, systemImage: "checkmark") : Label(item.name, systemImage: "circle")
+                }
+            }
+        } label: {
+            configurationRow(title: "思考等级", value: thoughtLevelName, icon: "brain")
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func configurationRow(title: String, value: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            configurationIcon(icon)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                Text(value)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(QuartetTheme.secondaryText)
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 60)
+        .contentShape(Rectangle())
+    }
+
+    private func configurationIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(QuartetTheme.accent)
+            .frame(width: 32, height: 32)
+            .background(QuartetTheme.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var actionBar: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                contextPill(workspace?.displayName ?? "未选择空间", icon: "square.stack.3d.up")
+                contextPill(agentName, icon: "command")
+                contextPill(modelName, icon: "cpu")
+            }
+
             Button { Task { await create() } } label: {
-                HStack {
-                    if creating { ProgressView().tint(.black) }
+                HStack(spacing: 10) {
+                    if creating {
+                        ProgressView().tint(.black)
+                    } else {
+                        Image(systemName: "arrow.up.circle.fill")
+                    }
                     Text(creating ? "正在创建…" : "创建并发送")
                     Spacer()
-                    Image(systemName: "arrow.up")
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
                 }
                 .font(.headline)
                 .foregroundStyle(.black)
                 .padding(.horizontal, 18)
-                .frame(height: 52)
-                .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 14))
+                .frame(height: 54)
+                .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            .disabled(creating || workspaceID.isEmpty || agent?.available != true || (message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImage == nil))
+            .disabled(cannotCreate)
+            .opacity(cannotCreate ? 0.45 : 1)
+            .accessibilityIdentifier("new-conversation-create")
         }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Rectangle().fill(QuartetTheme.divider).frame(height: 0.5) }
+    }
+
+    private func contextPill(_ value: String, icon: String) -> some View {
+        Label(value, systemImage: icon)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(QuartetTheme.secondaryText)
+            .lineLimit(1)
+            .padding(.horizontal, 9)
+            .frame(height: 26)
+            .background(QuartetTheme.elevated, in: Capsule())
     }
 
     @ViewBuilder
@@ -288,13 +601,17 @@ struct NewConversationView: View {
         validationTimedOut = false
         defer { loading = false }
         do {
+            agentPreferences = try await model.agentPreferences()
+        } catch {
+            present(error)
+            agentPreferences = [:]
+        }
+        do {
             var didInitializeSelection = preserveSelection && !agentID.isEmpty
             var receivedSnapshot = false
-            let client = try model.apiClient()
             for attempt in 1...15 {
                 try Task.checkCancellation()
-                let response = try await client.agents()
-                let snapshot = response.agentList
+                let snapshot = try await model.agentCatalog()
                 receivedSnapshot = true
                 guard !snapshot.isEmpty else {
                     throw APIError(summary: "没有可用的 Agent", detail: "GET /api/v1/agent/list 返回空列表。")
@@ -306,7 +623,7 @@ struct NewConversationView: View {
                     applyWorkspaceDefaults()
                     didInitializeSelection = true
                 } else if !selectedWasAvailable, agent?.available == true {
-                    applyAgentDefaults()
+                    applyAgentDefaults(includeWorkspaceDefault: true)
                 }
                 loading = false
 
@@ -333,22 +650,70 @@ struct NewConversationView: View {
         let requested = workspace?.defaultAgent
         let fallback = agents.first(where: \.available) ?? agents.first
         if let requested {
-            agentID = agents.first(where: { $0.type == requested || $0.agentId == requested })?.id ?? fallback?.id ?? ""
+            agentID = agents.first(where: {
+                $0.available && ($0.type == requested || $0.agentId == requested)
+            })?.id ?? fallback?.id ?? ""
         } else {
             agentID = fallback?.id ?? ""
         }
-        applyAgentDefaults()
+        applyAgentDefaults(includeWorkspaceDefault: true)
     }
 
-    private func applyAgentDefaults() {
+    private func selectAgent(_ id: String) {
+        agentID = id
+        applyAgentDefaults(includeWorkspaceDefault: false)
+    }
+
+    private func applyAgentDefaults(includeWorkspaceDefault: Bool = false) {
         guard let agent else { return }
+        let preferences = agentPreferences[agent.agentId] ?? agentPreferences[agent.type]
+        let availableModels = agent.models?.availableModels ?? []
         let workspaceMatchesAgent = workspace?.defaultAgent == agent.type || workspace?.defaultAgent == agent.agentId
-        let preferredModel = workspaceMatchesAgent ? workspace?.defaultModel : nil
-        modelID = agent.models?.availableModels.first(where: { $0.modelId == preferredModel })?.modelId
-            ?? agent.models?.currentModelId
+        let workspaceModel = includeWorkspaceDefault && workspaceMatchesAgent ? workspace?.defaultModel : nil
+        modelID = validID(workspaceModel, in: availableModels.map(\.modelId))
+            ?? validID(preferences?.defaultModelID, in: availableModels.map(\.modelId))
+            ?? availableModels.first?.modelId
             ?? agent.modelId
-        modeID = agent.modes?.currentModeId ?? ""
-        thoughtLevelID = agent.thoughtLevels?.currentThoughtLevelId ?? ""
+
+        let availableModes = agent.modes?.availableModes.map(\.id) ?? []
+        modeID = validID(preferences?.defaultMode, in: availableModes)
+            ?? validID(agent.modes?.currentModeId, in: availableModes)
+            ?? ""
+
+        let availableThoughtLevels = agent.thoughtLevels?.availableThoughtLevels.map(\.id) ?? []
+        thoughtLevelID = validID(preferences?.defaultThoughtLevel, in: availableThoughtLevels)
+            ?? validID(agent.thoughtLevels?.currentThoughtLevelId, in: availableThoughtLevels)
+            ?? ""
+    }
+
+    private func validID(_ candidate: String?, in available: [String]) -> String? {
+        guard let candidate, available.contains(candidate) else { return nil }
+        return candidate
+    }
+
+    private var favoriteModelIDs: Set<String> {
+        guard let agent else { return [] }
+        return Set((agentPreferences[agent.agentId] ?? agentPreferences[agent.type])?.favoriteModelIDs ?? [])
+    }
+
+    private var orderedModels: [AgentModel] {
+        let available = agent?.models?.availableModels ?? []
+        let favoriteOrder = (agent.flatMap { agentPreferences[$0.agentId] ?? agentPreferences[$0.type] })?.favoriteModelIDs ?? []
+        let byID = Dictionary(available.map { ($0.modelId, $0) }, uniquingKeysWith: { first, _ in first })
+        let favorites = favoriteOrder.compactMap { byID[$0] }
+        let favoriteSet = Set(favoriteOrder)
+        return favorites + available.filter { !favoriteSet.contains($0.modelId) }
+    }
+
+    private func workspaceTint(_ item: WorkspaceSummary) -> Color {
+        guard let raw = item.color?.trimmingCharacters(in: CharacterSet(charactersIn: "#")),
+              raw.count == 6,
+              let value = UInt64(raw, radix: 16) else { return QuartetTheme.accent }
+        return Color(
+            red: Double((value >> 16) & 0xff) / 255,
+            green: Double((value >> 8) & 0xff) / 255,
+            blue: Double(value & 0xff) / 255
+        )
     }
 
     private func create() async {

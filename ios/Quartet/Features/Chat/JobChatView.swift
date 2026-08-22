@@ -43,6 +43,10 @@ struct JobChatView: View {
             }
         }
         .task(id: route.summary.id) {
+            if appModel.isRunningUITests {
+                chat.startUITestPreview(route: route)
+                return
+            }
             do {
                 let client = try appModel.apiClient()
                 await chat.start(route: route, client: client)
@@ -74,20 +78,9 @@ struct JobChatView: View {
             pendingImage = restored.attachment
             selectedPhoto = nil
         }
-        .onChange(of: chat.terminalEventVersion) { _, _ in
-            guard let terminal = chat.latestTerminalEvent else { return }
+        .onChange(of: chat.terminalStateVersion) { _, _ in
             guard route.summary.mode != "graph" else { return }
-            Task {
-                await appModel.recordInteractiveTerminalEvent(
-                    jobID: route.summary.id,
-                    outcome: terminal.outcome,
-                    finalStatus: terminal.finalStatus,
-                    occurredAt: terminal.occurredAt,
-                    fallbackTitle: chat.title.isEmpty ? route.summary.displayTitle : chat.title,
-                    fallbackWorkspaceID: route.summary.workspaceId
-                )
-                await appModel.reloadJobs()
-            }
+            Task { await appModel.reloadJobs() }
         }
         .confirmationDialog("更多图片来源", isPresented: $showsAttachmentMenu, titleVisibility: .visible) {
             Button("相机") { requestCameraAccess() }
@@ -134,37 +127,74 @@ struct JobChatView: View {
     }
 
     private var statusStrip: some View {
-        VStack(spacing: 8) {
-            HStack {
+        HStack(spacing: 11) {
+            ZStack {
                 Circle()
-                    .fill(QuartetTheme.statusColor(chat.status))
-                    .frame(width: 8, height: 8)
-                Text(chat.statusLabel)
-                if let phase = chat.phaseLabel {
-                    Text("· \(phase)")
-                }
-                if let session = chat.sessionIDDisplay {
-                    Text("· \(session)")
-                }
-                Spacer()
-                Text(chat.streamStateLabel)
-                    .foregroundStyle(chat.streamStateColor)
+                    .fill(chat.statusColor.opacity(0.15))
+                Image(systemName: chat.isRunning ? "waveform" : "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(chat.statusColor)
             }
-            .font(.system(size: 10, weight: .bold, design: .monospaced))
-            .foregroundStyle(QuartetTheme.secondaryText)
-            RunningPulseLine(active: chat.isRunning)
+            .frame(width: 34, height: 34)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(chat.statusColor)
+                        .frame(width: 7, height: 7)
+                    Text(chat.statusLabel)
+                    if let phase = chat.phaseLabel {
+                        Text("· \(phase)")
+                            .lineLimit(1)
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(QuartetTheme.primaryText)
+
+                if let session = chat.sessionIDDisplay {
+                    Text(session)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 6) {
+                if chat.streamStateLabel != "OFFLINE" {
+                    Circle()
+                        .fill(chat.streamStateColor)
+                        .frame(width: 6, height: 6)
+                }
+                Text(chat.streamStateLabel)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+            }
+            .foregroundStyle(chat.streamStateColor)
+            .padding(.horizontal, 9)
+            .frame(height: 26)
+            .background(QuartetTheme.elevated, in: Capsule())
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(QuartetTheme.surface)
+        .padding(.vertical, 9)
+        .background(.thinMaterial)
+        .overlay(alignment: .bottom) {
+            RunningPulseLine(active: chat.isRunning)
+        }
     }
 
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 18) {
+                LazyVStack(spacing: 14) {
                     if chat.loading && chat.messages.isEmpty && chat.outbox.isEmpty {
-                        ProgressView().padding(.top, 80)
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text("正在同步对话…")
+                                .font(.caption)
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                        }
+                        .padding(.top, 80)
                     }
                     ForEach(chat.messages) { message in
                         ChatBubble(message: message)
@@ -176,7 +206,8 @@ struct JobChatView: View {
                     }
                     Color.clear.frame(height: 1).id("chat-bottom")
                 }
-                .padding(16)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 18)
             }
             .onChange(of: chat.scrollAnchor) { _, _ in
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -187,7 +218,8 @@ struct JobChatView: View {
     }
 
     private var composer: some View {
-        VStack(spacing: 10) {
+        let hasPendingImage = pendingImage != nil
+        return VStack(spacing: 10) {
             if let error = chat.errorDetail {
                 Button {
                     appModel.present(APIError(summary: "对话错误", detail: error))
@@ -231,9 +263,9 @@ struct JobChatView: View {
 
             HStack(alignment: .bottom, spacing: 10) {
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    Image(systemName: pendingImage == nil ? "photo" : "photo.fill")
+                    Image(systemName: hasPendingImage ? "photo.fill" : "photo")
                         .font(.headline)
-                        .foregroundStyle(pendingImage == nil ? QuartetTheme.secondaryText : QuartetTheme.accent)
+                        .foregroundStyle(hasPendingImage ? QuartetTheme.accent : QuartetTheme.secondaryText)
                         .frame(width: 36, height: 44)
                 }
                 .accessibilityLabel("从相册选择图片")
@@ -253,6 +285,7 @@ struct JobChatView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
                     .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 18))
+                    .accessibilityIdentifier("chat-composer")
 
                 Button { enqueueDraft() } label: {
                     Image(systemName: "arrow.up")
@@ -264,6 +297,7 @@ struct JobChatView: View {
                 .disabled(chat.loading || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImage == nil))
                 .opacity(chat.sending ? 0.55 : 1)
                 .accessibilityLabel("发送消息")
+                .accessibilityIdentifier("chat-send")
             }
 
             if chat.isRunning {
@@ -381,29 +415,71 @@ private struct ChatBubble: View {
     let message: ChatMessage
 
     var body: some View {
-        VStack(alignment: message.kind == .user ? .trailing : .leading, spacing: 7) {
-            HStack(spacing: 7) {
-                Text(label)
-                if !message.isFinished { ProgressView().controlSize(.mini) }
-            }
-            .font(.system(size: 10, weight: .bold, design: .monospaced))
-            .foregroundStyle(labelColor)
+        Group {
+            if isCenteredEvent {
+                centeredEvent
+            } else {
+                HStack(alignment: .bottom, spacing: 8) {
+                    if message.kind == .user { Spacer(minLength: 54) }
 
+                    if message.kind != .user { avatar }
+
+                    VStack(alignment: message.kind == .user ? .trailing : .leading, spacing: 5) {
+                        messageLabel
+                        bubbleContent
+                    }
+
+                    if message.kind == .user { avatar }
+                    if message.kind != .user { Spacer(minLength: 32) }
+                }
+            }
+        }
+        .environment(\.openURL, OpenURLAction { url in
+            openSafely(url)
+        })
+    }
+
+    private var messageLabel: some View {
+        HStack(spacing: 6) {
+            Text(label)
+            if let timestamp = message.timestamp {
+                Text(timeLabel(timestamp))
+                    .fontWeight(.regular)
+            }
+            if !message.isFinished {
+                Text("正在输入")
+                    .fontWeight(.semibold)
+                TypingDots()
+            }
+        }
+        .font(.system(size: 9, weight: .bold, design: .monospaced))
+        .foregroundStyle(labelColor)
+        .padding(.horizontal, 4)
+    }
+
+    private var bubbleContent: some View {
+        VStack(alignment: .leading, spacing: 9) {
             if message.kind == .tool {
-                Text(message.content.isEmpty ? "…" : message.content)
+                if let detail = message.detail, !detail.isEmpty {
+                    Label(detail, systemImage: "wrench.and.screwdriver.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(labelColor)
+                        .lineLimit(2)
+                }
+                Text(message.content.isEmpty ? "工具正在执行…" : message.content)
                     .font(.system(.footnote, design: .monospaced))
                     .foregroundStyle(QuartetTheme.primaryText)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                MarkdownMessageView(text: message.content.isEmpty ? "…" : message.content)
+                MarkdownMessageView(text: message.content.isEmpty ? "正在组织回复…" : message.content)
             }
 
             ForEach(message.imagePaths, id: \.self) { path in
                 AuthenticatedImage(path: path)
             }
 
-            if let detail = message.detail, !detail.isEmpty {
+            if message.kind != .tool, let detail = message.detail, !detail.isEmpty {
                 DisclosureGroup("调用详情") {
                     Text(detail)
                         .font(.system(.caption, design: .monospaced))
@@ -415,14 +491,38 @@ private struct ChatBubble: View {
                 .foregroundStyle(QuartetTheme.secondaryText)
             }
         }
-        .padding(14)
-        .frame(maxWidth: message.kind == .user ? 310 : .infinity, alignment: .leading)
-        .background(background, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(border, lineWidth: 1))
-        .frame(maxWidth: .infinity, alignment: message.kind == .user ? .trailing : .leading)
-        .environment(\.openURL, OpenURLAction { url in
-            openSafely(url)
-        })
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .frame(maxWidth: message.kind == .user ? 300 : .infinity, alignment: .leading)
+        .background(background, in: bubbleShape)
+        .overlay(bubbleShape.stroke(border, lineWidth: message.isFailed ? 1.5 : 0.75))
+        .shadow(color: Color.black.opacity(0.045), radius: 10, y: 3)
+    }
+
+    private var avatar: some View {
+        ZStack {
+            Circle().fill(avatarBackground)
+            Image(systemName: avatarIcon)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(avatarForeground)
+        }
+        .frame(width: 30, height: 30)
+        .overlay(Circle().stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 0.75))
+        .accessibilityHidden(true)
+    }
+
+    private var centeredEvent: some View {
+        HStack(spacing: 8) {
+            Image(systemName: message.isFailed ? "exclamationmark.triangle.fill" : "info.circle.fill")
+            Text(message.content.isEmpty ? "系统事件" : message.content)
+                .textSelection(.enabled)
+        }
+        .font(.caption)
+        .foregroundStyle(message.isFailed ? QuartetTheme.failed : QuartetTheme.secondaryText)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(QuartetTheme.elevated.opacity(0.8), in: Capsule())
+        .frame(maxWidth: .infinity)
     }
 
     private func openSafely(_ url: URL) -> OpenURLAction.Result {
@@ -449,11 +549,73 @@ private struct ChatBubble: View {
     }
 
     private var background: Color {
-        message.kind == .user ? QuartetTheme.accent.opacity(0.14) : QuartetTheme.surface
+        switch message.kind {
+        case .user: QuartetTheme.accent.opacity(0.18)
+        case .thought: QuartetTheme.running.opacity(0.09)
+        case .tool: QuartetTheme.elevated
+        default: QuartetTheme.surface
+        }
     }
 
     private var border: Color {
         message.isFailed ? QuartetTheme.failed.opacity(0.6) : QuartetTheme.divider
+    }
+
+    private var bubbleShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: message.kind == .user ? 20 : 7,
+            bottomLeadingRadius: 20,
+            bottomTrailingRadius: 20,
+            topTrailingRadius: message.kind == .user ? 7 : 20,
+            style: .continuous
+        )
+    }
+
+    private var isCenteredEvent: Bool { message.kind == .system }
+
+    private var avatarIcon: String {
+        switch message.kind {
+        case .user: "person.fill"
+        case .assistant: "sparkles"
+        case .thought: "brain.head.profile"
+        case .tool: "wrench.and.screwdriver.fill"
+        case .system: "info.circle.fill"
+        }
+    }
+
+    private var avatarBackground: Color {
+        message.kind == .user ? QuartetTheme.accent : QuartetTheme.elevated
+    }
+
+    private var avatarForeground: Color {
+        message.kind == .user ? Color.black.opacity(0.75) : labelColor
+    }
+
+    private func timeLabel(_ timestamp: Int64) -> String {
+        timestamp.quartetDate.formatted(date: .omitted, time: .shortened)
+    }
+}
+
+private struct TypingDots: View {
+    @State private var active = false
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(QuartetTheme.accent)
+                    .frame(width: 3, height: 3)
+                    .offset(y: active ? -2 : 2)
+                    .animation(
+                        .easeInOut(duration: 0.55)
+                            .repeatForever(autoreverses: true)
+                            .delay(Double(index) * 0.12),
+                        value: active
+                    )
+            }
+        }
+        .onAppear { active = true }
+        .accessibilityHidden(true)
     }
 }
 
@@ -708,12 +870,6 @@ private struct ComposerDraft: Hashable, Sendable {
     let attachment: PendingUpload?
 }
 
-private struct ChatTerminalEvent: Equatable, Sendable {
-    let outcome: String
-    let finalStatus: String
-    let occurredAt: Int64?
-}
-
 private struct OutboxRequestContext: Hashable, Sendable {
     let targetSessionID: String?
     let modelID: String?
@@ -822,8 +978,7 @@ private final class ChatViewModel: ObservableObject {
     @Published var restoreDraft: ComposerDraft?
     @Published var restoreDraftVersion = 0
     @Published var scrollAnchor = 0
-    @Published var latestTerminalEvent: ChatTerminalEvent?
-    @Published var terminalEventVersion = 0
+    @Published var terminalStateVersion = 0
 
     private var client: APIClient?
     private var jobID = ""
@@ -834,10 +989,15 @@ private final class ChatViewModel: ObservableObject {
     private var modeID: String?
     private var thoughtLevelID: String?
     private var lastEventID: UInt64 = 0
+    private var lastGraphEventID: UInt64 = 0
     private var streamTask: Task<Void, Never>?
+    private var graphReconcileTask: Task<Void, Never>?
+    private var graphMonitorTask: Task<Void, Never>?
     private var didSeedInitialDraft = false
     private var isTurnRunning = false
     private var isProcessingOutbox = false
+    private var isGraph = false
+    private var graphRunLive = false
 
     var isRunning: Bool { isTurnRunning }
     var hasQueuedMessages: Bool {
@@ -860,6 +1020,14 @@ private final class ChatViewModel: ObservableObject {
         case .offline: QuartetTheme.secondaryText
         }
     }
+    var statusColor: Color {
+        switch status {
+        case "running", "pending", "awaitingInput", "stepStopping": QuartetTheme.running
+        case "completed": QuartetTheme.accent
+        case "failed", "timedOut": QuartetTheme.failed
+        default: QuartetTheme.stopped
+        }
+    }
 
     var statusLabel: String {
         switch status {
@@ -867,16 +1035,26 @@ private final class ChatViewModel: ObservableObject {
         case "running": "运行中"
         case "completed": "已完成"
         case "failed": "失败"
+        case "timedOut": "已超时"
         case "stopped": "已停止"
         case "awaitingInput": "等待输入"
+        case "stepStopping": "步骤后停止中"
+        case "stepStopped": "已在步骤后停止"
         default: status
         }
     }
 
     func start(route: ChatRoute, client: APIClient) async {
         stopStreaming()
+        let changesJob = !jobID.isEmpty && jobID != route.summary.id
+        if changesJob {
+            messages = []
+            outbox = []
+            sessionID = nil
+        }
         self.client = client
         jobID = route.summary.id
+        isGraph = route.summary.mode == "graph"
         title = route.summary.displayTitle
         status = route.summary.status
         preferredSessionID = route.targetSessionID
@@ -892,12 +1070,27 @@ private final class ChatViewModel: ObservableObject {
             title = detail.title
             status = detail.status
             lastEventID = detail.lastEventSeq
-            isTurnRunning = detail.status == "running" || (detail.status == "pending" && hasPriorConversation(detail))
+            lastGraphEventID = 0
+            var graphDefaultSessionID: String?
+            if isGraph {
+                let graphSnapshot = try await client.graphRunStatus(jobID: jobID)
+                let graphStatus = graphSnapshot.run?.status
+                graphRunLive = graphStatus.map(isLiveGraphStatus) ?? false
+                graphDefaultSessionID = latestGraphSessionID(in: graphSnapshot)
+                if detail.status != "running", let graphStatus {
+                    status = graphStatus
+                }
+            } else {
+                graphRunLive = false
+            }
+            isTurnRunning = graphRunLive
+                || detail.status == "running"
+                || (detail.status == "pending" && hasPriorConversation(detail))
 
             let interactiveSessions = detail.sessionIds ?? []
             let fallbackSession = interactiveSessions.last ?? detail.graphSessionIds?.last
             let requestedSession = preferredSessionID?.trimmingCharacters(in: .whitespacesAndNewlines)
-            sessionID = (requestedSession?.isEmpty == false ? requestedSession : nil) ?? fallbackSession
+            sessionID = (requestedSession?.isEmpty == false ? requestedSession : nil) ?? graphDefaultSessionID ?? fallbackSession
             if interactiveSessions.isEmpty && requestedSession?.isEmpty != false {
                 agentType = detail.initialAgentId ?? agentType
                 modelID = detail.firstModelId ?? modelID
@@ -937,6 +1130,46 @@ private final class ChatViewModel: ObservableObject {
             errorDetail = detail
             restoreInitialDraftIfNeeded(route: route, detail: detail)
         }
+    }
+
+    func startUITestPreview(route: ChatRoute) {
+        stopStreaming()
+        jobID = route.summary.id
+        isGraph = route.summary.mode == "graph"
+        graphRunLive = isGraph && ["pending", "running", "stepStopping"].contains(route.summary.status)
+        title = route.summary.displayTitle
+        status = route.summary.status
+        sessionID = "session-preview"
+        modelID = route.modelID ?? route.summary.modelId
+        agentType = route.agentType ?? route.summary.agentId
+        modeID = route.modeID ?? route.summary.acpMode
+        thoughtLevelID = route.thoughtLevelID ?? route.summary.acpThoughtLevel
+        var previewMessages = [
+            ChatMessage(
+                id: "preview-user", kind: .user,
+                content: "请检查 iOS 端的核心交互和状态展示。", detail: nil,
+                isFinished: true, isFailed: false, timestamp: nil
+            ),
+            ChatMessage(
+                id: "preview-assistant", kind: .assistant,
+                content: "已完成第一轮检查。运行状态和操作反馈都已同步。", detail: nil,
+                isFinished: true, isFailed: false, timestamp: nil
+            )
+        ]
+        if let initialMessage = route.initialMessage, !initialMessage.isEmpty {
+            previewMessages.insert(
+                ChatMessage(
+                    id: "preview-initial", kind: .user, content: initialMessage, detail: nil,
+                    isFinished: true, isFailed: false, timestamp: nil
+                ),
+                at: 0
+            )
+        }
+        messages = previewMessages
+        isTurnRunning = route.summary.status == "running"
+        phaseLabel = isTurnRunning ? "正在处理" : nil
+        loading = false
+        bumpScrollAnchor()
     }
 
     func enqueueDraft(
@@ -1005,6 +1238,10 @@ private final class ChatViewModel: ObservableObject {
     func stopStreaming() {
         streamTask?.cancel()
         streamTask = nil
+        graphReconcileTask?.cancel()
+        graphReconcileTask = nil
+        graphMonitorTask?.cancel()
+        graphMonitorTask = nil
         streamState = .offline
     }
 
@@ -1024,14 +1261,19 @@ private final class ChatViewModel: ObservableObject {
         errorDetail = detail
     }
 
-    private func loadHistory(sessionID: String) async throws {
+    private func loadHistory(sessionID: String, preservesLiveMessages: Bool = true) async throws {
         guard let client else { return }
         let response = try await client.sessionMessages(id: sessionID)
         modelID = response.modelId
         agentType = response.type
         modeID = response.acpMode
         thoughtLevelID = response.acpThoughtLevel
-        messages = response.messages.map { ChatMessage(history: $0) }
+        let historyMessages = response.messages.map { ChatMessage(history: $0) }
+        if isGraph && graphRunLive && preservesLiveMessages {
+            mergeGraphHistory(historyMessages)
+        } else {
+            messages = historyMessages
+        }
         removeEchoedOutboxItems()
         bumpScrollAnchor()
     }
@@ -1063,6 +1305,12 @@ private final class ChatViewModel: ObservableObject {
     private func startStreaming() {
         guard streamTask == nil, let client else { return }
         let jobID = self.jobID
+        if isGraph && graphRunLive {
+            startGraphMonitor()
+        } else {
+            graphMonitorTask?.cancel()
+            graphMonitorTask = nil
+        }
         streamState = .connecting
         streamTask = Task { @MainActor [weak self] in
             var attempts = 0
@@ -1070,18 +1318,32 @@ private final class ChatViewModel: ObservableObject {
                 guard let self else { return }
                 let resumeID = self.lastEventID
                 do {
-                    try await client.streamEvents(
-                        jobID: jobID,
-                        lastEventID: resumeID,
-                        onOpen: {
-                            self.streamState = .live
-                            self.errorDetail = nil
-                            self.scheduleOutboxProcessing()
-                        },
-                        onEvent: { event, id in
-                            self.apply(event, id: id)
-                        }
-                    )
+                    if self.isGraph && self.graphRunLive {
+                        try await client.streamGraphEvents(
+                            jobID: jobID,
+                            lastEventID: self.lastGraphEventID,
+                            onOpen: {
+                                self.streamState = .live
+                                self.errorDetail = nil
+                            },
+                            onEvent: { event, id in
+                                self.applyGraph(event, id: id)
+                            }
+                        )
+                    } else {
+                        try await client.streamEvents(
+                            jobID: jobID,
+                            lastEventID: resumeID,
+                            onOpen: {
+                                self.streamState = .live
+                                self.errorDetail = nil
+                                self.scheduleOutboxProcessing()
+                            },
+                            onEvent: { event, id in
+                                self.apply(event, id: id)
+                            }
+                        )
+                    }
                     attempts = 0
                     self.streamState = .reconnecting
                     try await Task.sleep(for: .seconds(1))
@@ -1093,26 +1355,8 @@ private final class ChatViewModel: ObservableObject {
                     self.errorDetail = self.errorText(error)
                     do {
                         try await Task.sleep(for: .seconds(min(8, attempts * 2)))
-                        let snapshot = try await client.job(id: jobID)
-                        self.status = snapshot.status
-                        self.lastEventID = snapshot.lastEventSeq
-                        let interactiveSessions = snapshot.sessionIds ?? []
-                        let fallbackSession = interactiveSessions.last ?? snapshot.graphSessionIds?.last
-                        self.sessionID = self.preferredSessionID ?? fallbackSession
-                        if interactiveSessions.isEmpty && self.preferredSessionID == nil {
-                            self.agentType = snapshot.initialAgentId ?? self.agentType
-                            self.modelID = snapshot.firstModelId ?? self.modelID
-                            self.modeID = snapshot.initialAcpMode ?? self.modeID
-                            self.thoughtLevelID = snapshot.initialAcpThoughtLevel ?? self.thoughtLevelID
-                        }
-                        if self.preferredSessionID != nil, let session = self.sessionID {
-                            try await self.loadHistory(sessionID: session)
-                        } else if !interactiveSessions.isEmpty {
-                            try await self.loadInteractiveHistory(sessionIDs: interactiveSessions)
-                        } else if let session = self.sessionID {
-                            try await self.loadHistory(sessionID: session)
-                        }
-                        self.isTurnRunning = snapshot.status == "running" || (snapshot.status == "pending" && self.hasPriorConversation(snapshot))
+                        self.lastGraphEventID = 0
+                        try await self.refreshSnapshotAndHistory()
                     } catch is CancellationError {
                         return
                     } catch {
@@ -1351,6 +1595,14 @@ private final class ChatViewModel: ObservableObject {
         title = snapshot.title
         status = snapshot.status
         lastEventID = snapshot.lastEventSeq
+        if isGraph {
+            let graphSnapshot = try await client.graphRunStatus(jobID: jobID)
+            let graphStatus = graphSnapshot.run?.status
+            graphRunLive = graphStatus.map(isLiveGraphStatus) ?? false
+            if snapshot.status != "running", let graphStatus {
+                status = graphStatus
+            }
+        }
         let interactiveSessions = snapshot.sessionIds ?? []
         let fallbackSession = interactiveSessions.last ?? snapshot.graphSessionIds?.last
         sessionID = preferredSessionID ?? fallbackSession
@@ -1367,6 +1619,194 @@ private final class ChatViewModel: ObservableObject {
         } else if let sessionID {
             try await loadHistory(sessionID: sessionID)
         }
+        isTurnRunning = graphRunLive
+            || snapshot.status == "running"
+            || (snapshot.status == "pending" && hasPriorConversation(snapshot))
+    }
+
+    private func applyGraph(_ event: GraphStreamEvent, id: UInt64?) {
+        if let id { lastGraphEventID = id }
+
+        let payload = event.payload ?? [:]
+        let eventSessionID = payload["sessionId"]
+        let belongsToVisibleSession = eventSessionID == nil || sessionID == nil || eventSessionID == sessionID
+
+        switch event.type {
+        case "agentMessageStart":
+            guard belongsToVisibleSession, let messageID = payload["messageId"], !messageID.isEmpty else { return }
+            phaseLabel = "Agent 正在回复"
+            upsert(
+                id: messageID, kind: .assistant, content: "", detail: nil,
+                finished: false, failed: false, timestamp: event.createdAt
+            )
+        case "agentMessageDelta":
+            guard belongsToVisibleSession, let messageID = payload["messageId"], !messageID.isEmpty else { return }
+            phaseLabel = "Agent 正在回复"
+            append(
+                id: messageID, kind: .assistant,
+                text: payload["delta"] ?? event.message ?? "", timestamp: event.createdAt
+            )
+        case "agentMessageEnd":
+            guard belongsToVisibleSession else { return }
+            finish(id: payload["messageId"])
+            phaseLabel = nil
+        case "agentThoughtStart":
+            guard belongsToVisibleSession, let messageID = payload["messageId"], !messageID.isEmpty else { return }
+            phaseLabel = "正在思考"
+            upsert(
+                id: messageID, kind: .thought, content: "", detail: nil,
+                finished: false, failed: false, timestamp: event.createdAt
+            )
+        case "agentThoughtDelta":
+            guard belongsToVisibleSession, let messageID = payload["messageId"], !messageID.isEmpty else { return }
+            phaseLabel = "正在思考"
+            append(
+                id: messageID, kind: .thought,
+                text: payload["delta"] ?? event.message ?? "", timestamp: event.createdAt
+            )
+        case "agentThoughtEnd":
+            guard belongsToVisibleSession else { return }
+            finish(id: payload["messageId"])
+            phaseLabel = nil
+        case "agentToolStart":
+            guard belongsToVisibleSession, let toolID = payload["toolCallId"], !toolID.isEmpty else { return }
+            phaseLabel = "正在调用工具"
+            upsert(
+                id: toolID, kind: .tool, content: "", detail: payload["toolName"],
+                finished: false, failed: false, timestamp: event.createdAt
+            )
+        case "agentToolArgs":
+            guard belongsToVisibleSession, let toolID = payload["toolCallId"], !toolID.isEmpty else { return }
+            appendDetail(id: toolID, text: payload["delta"] ?? "", replace: payload["replace"] == "true")
+        case "agentToolResult":
+            guard belongsToVisibleSession, let toolID = payload["toolCallId"], !toolID.isEmpty else { return }
+            if payload["stitched"] == "true", let index = messages.firstIndex(where: { $0.id == toolID }) {
+                messages[index].content = payload["delta"] ?? event.message ?? messages[index].content
+                messages[index].isFinished = true
+                messages[index].isFailed = payload["status"] == "Error"
+                bumpScrollAnchor()
+            } else {
+                append(
+                    id: toolID, kind: .tool,
+                    text: payload["delta"] ?? event.message ?? "", timestamp: event.createdAt
+                )
+                if let index = messages.firstIndex(where: { $0.id == toolID }) {
+                    messages[index].isFailed = payload["status"] == "Error"
+                }
+            }
+        case "agentToolEnd":
+            guard belongsToVisibleSession else { return }
+            if let toolID = payload["toolCallId"], let index = messages.firstIndex(where: { $0.id == toolID }) {
+                messages[index].isFailed = payload["status"] == "Error"
+                if let reason = payload["placeholderReason"], !reason.isEmpty {
+                    messages[index].detail = [messages[index].detail, reason].compactMap { $0 }.joined(separator: "\n")
+                }
+            }
+            finish(id: payload["toolCallId"])
+            phaseLabel = nil
+        case "error":
+            let detail = event.error?.fullDetail
+            errorDetail = detail?.isEmpty == false ? detail : (event.message ?? "Graph run stream reported an error")
+            scheduleGraphReconcile(immediate: true)
+        case "instanceStarted", "instanceCompleted", "instanceFailed", "instanceSkipped",
+             "edgeResolved", "loopIteration", "progressUpdated":
+            scheduleGraphReconcile(immediate: event.type == "progressUpdated" || event.message == "session opened")
+        default:
+            break
+        }
+    }
+
+    private func scheduleGraphReconcile(immediate: Bool) {
+        guard graphReconcileTask == nil, client != nil else { return }
+        graphReconcileTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.graphReconcileTask = nil }
+            if !immediate {
+                do {
+                    try await Task.sleep(for: .milliseconds(400))
+                } catch {
+                    return
+                }
+            }
+            let wasLive = self.graphRunLive
+            do {
+                try await self.refreshGraphRunState()
+            } catch {
+                self.errorDetail = self.errorText(error)
+                return
+            }
+            guard wasLive, !self.graphRunLive else { return }
+            if let sessionID = self.sessionID {
+                do {
+                    try await self.loadHistory(sessionID: sessionID)
+                } catch {
+                    self.errorDetail = self.errorText(error)
+                }
+            }
+            self.finishOpenMessages()
+            self.phaseLabel = nil
+            self.streamTask?.cancel()
+            self.streamTask = nil
+            self.graphMonitorTask?.cancel()
+            self.graphMonitorTask = nil
+            self.streamState = .offline
+            self.startStreaming()
+        }
+    }
+
+    private func refreshGraphRunState() async throws {
+        guard let client else { return }
+        let snapshot = try await client.graphRunStatus(jobID: jobID)
+        guard let run = snapshot.run else { return }
+        status = run.status
+        graphRunLive = isLiveGraphStatus(run.status)
+        isTurnRunning = graphRunLive
+        if preferredSessionID == nil, let latestSession = latestGraphSessionID(in: snapshot), latestSession != sessionID {
+            sessionID = latestSession
+            try await loadHistory(sessionID: latestSession, preservesLiveMessages: false)
+        }
+        if let error = run.lastError?.fullDetail, !error.isEmpty {
+            errorDetail = error
+        } else if let error = snapshot.progress?.lastError, !error.isEmpty {
+            errorDetail = error
+        } else {
+            errorDetail = nil
+        }
+    }
+
+    private func startGraphMonitor() {
+        guard graphMonitorTask == nil, client != nil else { return }
+        graphMonitorTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(2))
+                } catch {
+                    return
+                }
+                guard let self, self.graphRunLive else { return }
+                self.scheduleGraphReconcile(immediate: true)
+            }
+        }
+    }
+
+    private func mergeGraphHistory(_ persisted: [ChatMessage]) {
+        let persistedIDs = Set(persisted.map(\.id))
+        let inFlight = messages.filter { !persistedIDs.contains($0.id) }
+        messages = persisted + inFlight
+    }
+
+    private func latestGraphSessionID(in snapshot: GraphRunStatusResponse) -> String? {
+        snapshot.instances?
+            .compactMap { instance -> (String, Int64)? in
+                guard let candidate = instance.displaySessionId ?? instance.sessionId, !candidate.isEmpty else { return nil }
+                return (candidate, instance.startedAt ?? 0)
+            }
+            .max(by: { $0.1 < $1.1 })?
+            .0
+    }
+
+    private func isLiveGraphStatus(_ status: String) -> Bool {
+        ["pending", "running", "stepStopping"].contains(status)
     }
 
     private func apply(_ event: ServerEvent, id: UInt64?) {
@@ -1394,7 +1834,7 @@ private final class ChatViewModel: ObservableObject {
             phaseLabel = nil
             isTurnRunning = false
             let outcome = event.runOutcome ?? "completed"
-            publishTerminalEvent(outcome: outcome, finalStatus: "completed", occurredAt: event.timestamp)
+            publishTerminalStateChange()
             applyRunOutcome(outcome)
             finishOpenMessages()
             scheduleSnapshotRefresh()
@@ -1404,7 +1844,7 @@ private final class ChatViewModel: ObservableObject {
             phaseLabel = nil
             isTurnRunning = false
             let outcome = event.runOutcome ?? "failed"
-            publishTerminalEvent(outcome: outcome, finalStatus: "failed", occurredAt: event.timestamp)
+            publishTerminalStateChange()
             applyRunOutcome(outcome)
             if let message = event.message, !message.isEmpty { errorDetail = message }
             finishOpenMessages()
@@ -1415,7 +1855,7 @@ private final class ChatViewModel: ObservableObject {
             phaseLabel = nil
             isTurnRunning = false
             let outcome = event.runOutcome ?? "stopped"
-            publishTerminalEvent(outcome: outcome, finalStatus: "stopped", occurredAt: event.timestamp)
+            publishTerminalStateChange()
             applyRunOutcome(outcome)
             finishOpenMessages()
             scheduleSnapshotRefresh()
@@ -1582,9 +2022,8 @@ private final class ChatViewModel: ObservableObject {
         restoreDraftVersion &+= 1
     }
 
-    private func publishTerminalEvent(outcome: String, finalStatus: String, occurredAt: Int64?) {
-        latestTerminalEvent = ChatTerminalEvent(outcome: outcome, finalStatus: finalStatus, occurredAt: occurredAt)
-        terminalEventVersion &+= 1
+    private func publishTerminalStateChange() {
+        terminalStateVersion &+= 1
     }
 
     private func applyRunOutcome(_ outcome: String) {

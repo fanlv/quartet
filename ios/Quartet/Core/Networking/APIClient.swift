@@ -62,7 +62,16 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/agent/list")
     }
 
-    func jobs(workspaceID: String?, cursor: String? = nil, limit: Int = 50) async throws -> JobsPage {
+    func agentPreferences() async throws -> AgentPreferencesResponse {
+        try await request(path: "api/v1/config/settings/get")
+    }
+
+    func jobs(
+        workspaceID: String?,
+        cursor: String? = nil,
+        limit: Int = 50,
+        excludeScheduled: Bool = false
+    ) async throws -> JobsPage {
         var query = [URLQueryItem(name: "limit", value: String(limit))]
         if let workspaceID, !workspaceID.isEmpty {
             query.append(URLQueryItem(name: "workspaceId", value: workspaceID))
@@ -70,15 +79,10 @@ struct APIClient: @unchecked Sendable {
         if let cursor, !cursor.isEmpty {
             query.append(URLQueryItem(name: "cursor", value: cursor))
         }
-        return try await request(path: "api/v1/job/list", query: query)
-    }
-
-    func jobObservations(cursor: String? = nil, limit: Int = 200) async throws -> JobObservationPage {
-        var query = [URLQueryItem(name: "limit", value: String(limit))]
-        if let cursor, !cursor.isEmpty {
-            query.append(URLQueryItem(name: "cursor", value: cursor))
+        if excludeScheduled {
+            query.append(URLQueryItem(name: "excludeScheduled", value: "true"))
         }
-        return try await request(path: "api/v1/job/observations", query: query)
+        return try await request(path: "api/v1/job/list", query: query)
     }
 
     func job(id: String) async throws -> JobDetail {
@@ -184,7 +188,38 @@ struct APIClient: @unchecked Sendable {
         onOpen: @escaping @MainActor () async -> Void = {},
         onEvent: @escaping @MainActor (ServerEvent, UInt64?) async -> Void
     ) async throws {
-        let endpoint = endpointURL(path: "api/v1/job/\(jobID)/events", query: [])
+        try await streamSSE(
+            path: "api/v1/job/\(jobID)/events",
+            lastEventID: lastEventID,
+            eventType: ServerEvent.self,
+            onOpen: onOpen,
+            onEvent: onEvent
+        )
+    }
+
+    func streamGraphEvents(
+        jobID: String,
+        lastEventID: UInt64,
+        onOpen: @escaping @MainActor () async -> Void = {},
+        onEvent: @escaping @MainActor (GraphStreamEvent, UInt64?) async -> Void
+    ) async throws {
+        try await streamSSE(
+            path: "api/v1/job/\(jobID)/graph-run/events",
+            lastEventID: lastEventID,
+            eventType: GraphStreamEvent.self,
+            onOpen: onOpen,
+            onEvent: onEvent
+        )
+    }
+
+    private func streamSSE<Event: Decodable & Sendable>(
+        path: String,
+        lastEventID: UInt64,
+        eventType: Event.Type,
+        onOpen: @escaping @MainActor () async -> Void,
+        onEvent: @escaping @MainActor (Event, UInt64?) async -> Void
+    ) async throws {
+        let endpoint = endpointURL(path: path, query: [])
         var request = URLRequest(url: endpoint)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue(String(lastEventID), forHTTPHeaderField: "Last-Event-ID")
@@ -225,7 +260,7 @@ struct APIClient: @unchecked Sendable {
                 let data = dataLines.joined(separator: "\n")
                 dataLines.removeAll(keepingCapacity: true)
                 do {
-                    let event = try Self.decode(ServerEvent.self, from: Data(data.utf8))
+                    let event = try Self.decode(eventType, from: Data(data.utf8))
                     await onEvent(event, eventID)
                 } catch {
                     throw APIError(
@@ -238,6 +273,18 @@ struct APIClient: @unchecked Sendable {
                 dataLines.append(String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces))
             } else if line.hasPrefix("id:") {
                 eventID = UInt64(String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces))
+            }
+        }
+        if !dataLines.isEmpty {
+            let data = dataLines.joined(separator: "\n")
+            do {
+                let event = try Self.decode(eventType, from: Data(data.utf8))
+                await onEvent(event, eventID)
+            } catch {
+                throw APIError(
+                    summary: "无法解析实时事件",
+                    detail: "GET \(endpoint.absoluteString)\n\n解析错误：\(String(describing: error))\n\n原始事件：\n\(data)"
+                )
             }
         }
     }

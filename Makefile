@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend build-ios test test-web test-ios e2e clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
+.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend build-ios test test-web test-ios e2e e2e-ios clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
 
 CERTS_DIR := $(CURDIR)/certs
 # Serving model, derived ONCE at parse time so every target below
@@ -32,6 +32,8 @@ BUILD_TIME ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 GIT_DIRTY ?= $(shell if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then echo true; else echo false; fi)
 WEB_LDFLAGS := -X main.buildTime=$(BUILD_TIME) -X main.buildCommit=$(GIT_COMMIT) -X main.buildDirty=$(GIT_DIRTY)
+IOS_TEST_DESTINATION ?= platform=iOS Simulator,name=iPhone 17 Pro,OS=latest
+IOS_DERIVED_DATA ?= /tmp/quartet-ios-derived
 
 # Skill install (see install-skill target). The quartet-workflow skill drives
 # the quartet-cli binary, which its SKILL.md (requires.bins) expects on PATH, so
@@ -62,6 +64,7 @@ help:
 	@printf '  %-24s %s\n' 'test' 'Run Go build, frontend tests, and Playwright E2E'
 	@printf '  %-24s %s\n' 'test-web' 'Run frontend component tests'
 	@printf '  %-24s %s\n' 'test-ios' 'Build the iOS app for Simulator without signing'
+	@printf '  %-24s %s\n' 'e2e-ios' 'Run native iOS UI tests in Simulator'
 	@printf '  %-24s %s\n\n' 'e2e' 'Run frontend Playwright E2E tests'
 	@printf 'Run/service targets:\n'
 	@printf '  %-24s %s\n' 'run' 'Alias for web'
@@ -165,14 +168,21 @@ build-ios:
 		echo "❌ xcodebuild is required; run this target on macOS with Xcode installed"; \
 		exit 1; \
 	fi
-	xcodebuild -project ios/Quartet.xcodeproj -scheme Quartet -configuration Debug -destination 'generic/platform=iOS' build
+	xcodebuild -workspace ios/Quartet.xcworkspace -scheme Quartet -configuration Debug -destination 'generic/platform=iOS' build
 
 test-ios:
 	@if ! command -v xcodebuild >/dev/null 2>&1; then \
 		echo "❌ xcodebuild is required; run this target on macOS with Xcode installed"; \
 		exit 1; \
 	fi
-	xcodebuild -project ios/Quartet.xcodeproj -scheme Quartet -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+	xcodebuild -workspace ios/Quartet.xcworkspace -scheme Quartet -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath '$(IOS_DERIVED_DATA)' CODE_SIGNING_ALLOWED=NO build
+
+e2e-ios:
+	@if ! command -v xcodebuild >/dev/null 2>&1; then \
+		echo "❌ xcodebuild is required; run this target on macOS with Xcode installed"; \
+		exit 1; \
+	fi
+	xcodebuild -workspace ios/Quartet.xcworkspace -scheme Quartet -configuration Debug -destination '$(IOS_TEST_DESTINATION)' -derivedDataPath '$(IOS_DERIVED_DATA)' CODE_SIGNING_ALLOWED=NO test
 
 run-cli:
 	go run ./cmd/quartet-cli

@@ -3,7 +3,6 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var confirmsClear = false
-    @State private var presentsNotifications = false
 
     var body: some View {
         NavigationStack {
@@ -35,38 +34,11 @@ struct SettingsView: View {
                     .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
 
-                    Button { presentsNotifications = true } label: {
-                        HStack(alignment: .center, spacing: 14) {
-                            Image(systemName: "bell.badge")
-                                .frame(width: 22)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("通知中心")
-                                    .foregroundStyle(QuartetTheme.primaryText)
-                                Text(notificationSummary)
-                                    .font(.caption)
-                                    .foregroundStyle(QuartetTheme.secondaryText)
-                            }
-                            Spacer()
-                            if !model.notifications.filter(\.isUnread).isEmpty {
-                                Text("\(model.notifications.filter(\.isUnread).count)")
-                                    .font(.system(.caption, design: .monospaced).weight(.bold))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(QuartetTheme.failed.opacity(0.12), in: Capsule())
-                                    .foregroundStyle(QuartetTheme.failed)
-                            }
-                            Image(systemName: "chevron.right").font(.caption.weight(.bold))
-                        }
-                        .padding(.horizontal, 16)
-                        .frame(height: 72)
-                    }
-                    .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
-
                     VStack(spacing: 0) {
                         Button { model.editConnection() } label: {
                             settingsRow("重新配置连接", icon: "network")
                         }
+                        .accessibilityIdentifier("settings-edit-connection")
                         Divider().overlay(QuartetTheme.divider).padding(.leading, 54)
                         Button(role: .destructive) { confirmsClear = true } label: {
                             settingsRow("清除地址与 Token", icon: "trash", destructive: true)
@@ -91,12 +63,6 @@ struct SettingsView: View {
         } message: {
             Text("服务地址和 Keychain 中的 Token 都会被删除。")
         }
-        .sheet(isPresented: $presentsNotifications) {
-            NavigationStack {
-                NotificationsView()
-                    .environmentObject(model)
-            }
-        }
     }
 
     private func settingsRow(_ title: String, icon: String, destructive: Bool = false) -> some View {
@@ -110,18 +76,5 @@ struct SettingsView: View {
         .padding(.horizontal, 16)
         .frame(height: 54)
         .contentShape(Rectangle())
-    }
-
-    private var notificationSummary: String {
-        switch model.notificationAuthorizationStatus {
-        case .authorized, .provisional, .ephemeral:
-            return "已启用本地通知，\(model.notifications.filter(\.isUnread).count) 条未读。"
-        case .denied:
-            return "系统通知权限已关闭，仍可在应用内查看事件。"
-        case .notDetermined:
-            return "尚未请求系统通知权限。"
-        default:
-            return "通知权限受限，应用内通知仍可用。"
-        }
     }
 }

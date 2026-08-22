@@ -12,16 +12,25 @@ struct ConnectionView: View {
     var body: some View {
         ZStack {
             QuartetTheme.canvas.ignoresSafeArea()
+            Circle()
+                .fill(QuartetTheme.accent.opacity(0.10))
+                .frame(width: 320, height: 320)
+                .blur(radius: 80)
+                .offset(x: 170, y: -300)
+                .accessibilityHidden(true)
             ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    Spacer(minLength: 52)
+                VStack(alignment: .leading, spacing: 24) {
+                    Spacer(minLength: 24)
                     brand
                     connectionForm
                     boundaryNote
                     Spacer(minLength: 24)
                 }
                 .padding(.horizontal, 24)
+                .frame(maxWidth: 620)
+                .frame(maxWidth: .infinity)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
         .alert("使用未加密连接？", isPresented: $confirmsHTTP) {
             Button("取消", role: .cancel) {}
@@ -35,16 +44,18 @@ struct ConnectionView: View {
 
     private var brand: some View {
         VStack(alignment: .leading, spacing: 14) {
-            PulseMark()
-            Text("QUARTET / IOS")
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .tracking(3)
-                .foregroundStyle(QuartetTheme.accent)
-            Text("连接你的\n运行工作台")
-                .font(.system(size: 42, weight: .bold, design: .rounded))
+            HStack(spacing: 14) {
+                PulseMark()
+                Text("QUARTET / IOS")
+                    .font(.system(.caption, design: .monospaced).weight(.bold))
+                    .tracking(2.4)
+                    .foregroundStyle(QuartetTheme.accent)
+            }
+            Text("连接运行工作台")
+                .font(.system(.largeTitle, design: .rounded).weight(.bold))
                 .foregroundStyle(QuartetTheme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("在同一局域网中查看 Job、掌握运行状态，并在需要时立即停止。")
+            Text("随时查看 Job、继续对话、处理等待中的工作流。")
                 .font(.body)
                 .foregroundStyle(QuartetTheme.secondaryText)
                 .lineSpacing(4)
@@ -60,6 +71,8 @@ struct ConnectionView: View {
                     .keyboardType(.URL)
                     .autocorrectionDisabled()
                     .font(.system(.body, design: .monospaced))
+                    .submitLabel(.next)
+                    .accessibilityIdentifier("connection-server")
                     .padding(14)
                     .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
             }
@@ -77,6 +90,9 @@ struct ConnectionView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .font(.system(.body, design: .monospaced))
+                    .submitLabel(.go)
+                    .onSubmit(startConnection)
+                    .accessibilityIdentifier("connection-token")
 
                     Button { revealsToken.toggle() } label: {
                         Image(systemName: revealsToken ? "eye.slash" : "eye")
@@ -102,6 +118,7 @@ struct ConnectionView: View {
                 .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 14))
             }
             .disabled(model.phase == .connecting || model.serverAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityIdentifier("connection-submit")
         }
         .padding(20)
         .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 20))
@@ -116,7 +133,7 @@ struct ConnectionView: View {
 
     private func fieldLabel(_ text: String, index: String) -> some View {
         HStack(spacing: 8) {
-            Text(index).font(.system(.caption, design: .monospaced)).foregroundStyle(QuartetTheme.accent)
+            Text(index).font(.system(.caption, design: .monospaced).weight(.bold)).foregroundStyle(QuartetTheme.accent)
             Text(text).font(.subheadline.weight(.semibold)).foregroundStyle(QuartetTheme.primaryText)
         }
     }

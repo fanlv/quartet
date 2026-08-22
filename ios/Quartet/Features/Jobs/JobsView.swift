@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct JobsView: View {
     @EnvironmentObject private var model: AppModel
@@ -7,15 +8,15 @@ struct JobsView: View {
     @State private var renamingJob: JobSummary?
     @State private var renameDraft = ""
     @State private var deletingJob: JobSummary?
-    @State private var presentsNotifications = false
+    @State private var presentsConnectionStatus = false
 
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    overview
-                    connectionSummary
-                    workspaceFilter
+                    connectionNotice
+                    dashboardControls
+                    sectionHeader
                     jobList
                 }
             }
@@ -23,7 +24,6 @@ struct JobsView: View {
             .navigationTitle("运行台")
             .navigationBarTitleDisplayMode(.large)
             .refreshable { await model.refreshDashboard() }
-            .onAppear { Task { await model.reloadJobs() } }
             .navigationDestination(for: ChatRoute.self) { route in
                 if route.summary.mode == "graph", route.targetSessionID == nil {
                     GraphRunView(summary: route.summary)
@@ -31,47 +31,22 @@ struct JobsView: View {
                     JobChatView(route: route)
                 }
             }
-            .task(id: model.pendingNotificationDestination) {
-                guard let destination = model.pendingNotificationDestination else { return }
-                guard let summary = await model.notificationDestinationSummary() else {
-                    guard !Task.isCancelled, model.pendingNotificationDestination == destination else { return }
-                    model.present(APIError(
-                        summary: "无法打开通知目标",
-                        detail: "暂时无法读取通知对应的 Job，请恢复连接后重新点击该通知。"
-                    ))
-                    model.clearPendingNotificationDestination()
-                    return
-                }
-                guard !Task.isCancelled, model.pendingNotificationDestination == destination else { return }
-                if let workspaceID = destination.workspaceID, workspaceID != model.selectedWorkspaceID {
-                    await model.selectWorkspace(workspaceID)
-                }
-                guard !Task.isCancelled, model.pendingNotificationDestination == destination else { return }
-                path = [ChatRoute(summary: summary, targetSessionID: destination.graphSessionID)]
-                model.clearPendingNotificationDestination()
-            }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { presentsNotifications = true } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "bell")
-                            if !model.notifications.filter(\.isUnread).isEmpty {
-                                Circle()
-                                    .fill(QuartetTheme.failed)
-                                    .frame(width: 9, height: 9)
-                                    .offset(x: 4, y: -4)
-                            }
-                        }
-                    }
-                    .accessibilityLabel("通知中心")
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 14) {
-                        ConnectionBadge(state: model.connectionState)
+                        Button { presentsConnectionStatus = true } label: {
+                            ConnectionBadge(
+                                state: model.connectionState,
+                                isRefreshing: model.isRefreshing
+                            )
+                        }
+                        .accessibilityLabel(connectionStatusAccessibilityLabel)
+                        .accessibilityIdentifier("connection-status-button")
                         Button { presentsNewConversation = true } label: {
                             Image(systemName: "plus")
                         }
                         .accessibilityLabel("新建对话")
+                        .accessibilityIdentifier("new-conversation-button")
                     }
                 }
             }
@@ -81,11 +56,9 @@ struct JobsView: View {
                     path.append(route)
                 }
             }
-            .sheet(isPresented: $presentsNotifications) {
-                NavigationStack {
-                    NotificationsView()
-                        .environmentObject(model)
-                }
+            .sheet(isPresented: $presentsConnectionStatus) {
+                DashboardConnectionView()
+                    .environmentObject(model)
             }
             .alert("重命名 Job", isPresented: Binding(
                 get: { renamingJob != nil },
@@ -125,78 +98,122 @@ struct JobsView: View {
         }
     }
 
-    private var overview: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .lastTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(String(model.activeJobCount))
-                        .font(.system(size: 46, weight: .bold, design: .rounded))
-                        .foregroundStyle(model.activeJobCount > 0 ? QuartetTheme.running : QuartetTheme.primaryText)
-                    Text("正在运行")
-                        .font(.system(.caption, design: .monospaced).weight(.semibold))
-                        .foregroundStyle(QuartetTheme.secondaryText)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(String(model.jobs.count))
-                        .font(.system(size: 24, weight: .semibold, design: .rounded))
-                    Text("当前列表")
-                        .font(.caption)
-                        .foregroundStyle(QuartetTheme.secondaryText)
-                }
-            }
-            RunningPulseLine(active: model.activeJobCount > 0)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 22)
-    }
-
-    private var connectionSummary: some View {
+    @ViewBuilder
+    private var connectionNotice: some View {
         let state = model.connectionState
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(QuartetTheme.statusColor(model.connectionState.isConnected ? "running" : "failed"))
-                    .frame(width: 8, height: 8)
-                Text(connectionHeadline(state))
-                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(QuartetTheme.primaryText)
-                Spacer()
-                if model.isRefreshing {
-                    ProgressView()
-                        .scaleEffect(0.8)
+        if !state.isConnected || state.isStale || state.hasPendingSync {
+            Button { presentsConnectionStatus = true } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: connectionNoticeIcon(state))
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(connectionNoticeColor(state))
+                        .frame(width: 34, height: 34)
+                        .background(connectionNoticeColor(state).opacity(0.12), in: Circle())
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(connectionHeadline(state))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(QuartetTheme.primaryText)
+                        Text(connectionNoticeDetail(state))
+                            .font(.caption)
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(QuartetTheme.secondaryText)
                 }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 54)
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(connectionNoticeColor(state).opacity(0.24)))
             }
-            Text(connectionDetail(state))
-                .font(.footnote)
-                .foregroundStyle(QuartetTheme.secondaryText)
-                .lineSpacing(3)
-            if state.isStale || state.hasPendingSync {
-                Label(state.isStale ? "当前数据可能已过期，恢复连接后会自动刷新。" : "存在待同步状态，应用返回前台后会重新刷新。", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.caption)
-                    .foregroundStyle(QuartetTheme.secondaryText)
-            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 20)
+            .padding(.top, 6)
+            .accessibilityIdentifier("connection-notice")
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 16)
     }
 
-    private var workspaceFilter: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                workspaceButton(id: nil, title: "全部", color: QuartetTheme.accent)
+    private var dashboardControls: some View {
+        HStack(spacing: 10) {
+            Menu {
+                workspaceMenuButton(id: nil, title: "全部工作空间", color: QuartetTheme.accent)
+                if !model.workspaces.isEmpty {
+                    Divider()
+                }
                 ForEach(model.workspaces) { workspace in
-                    workspaceButton(
+                    workspaceMenuButton(
                         id: workspace.id,
                         title: workspace.displayName,
                         color: Color(hex: workspace.color) ?? QuartetTheme.accent
                     )
                 }
+            } label: {
+                HStack(spacing: 11) {
+                    Circle()
+                        .fill(selectedWorkspaceColor)
+                        .frame(width: 10, height: 10)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(selectedWorkspaceTitle)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(QuartetTheme.primaryText)
+                            .lineLimit(1)
+                        Text(workspaceSummary)
+                            .font(.caption)
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+                .padding(.horizontal, 15)
+                .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(QuartetTheme.divider))
             }
-            .padding(.horizontal, 20)
+            .accessibilityLabel("工作空间，当前为\(selectedWorkspaceTitle)")
+            .accessibilityIdentifier("workspace-selector")
+
+            Menu {
+                Button {
+                    Task { await model.setHideScheduledJobs(!model.hideScheduledJobs) }
+                } label: {
+                    Label(
+                        model.hideScheduledJobs ? "显示定时任务" : "隐藏定时任务",
+                        systemImage: model.hideScheduledJobs ? "calendar.badge.plus" : "calendar.badge.minus"
+                    )
+                }
+                .accessibilityIdentifier("hide-scheduled-jobs-toggle")
+
+                Button { Task { await model.refreshDashboard() } } label: {
+                    Label("刷新任务", systemImage: "arrow.clockwise")
+                }
+                .disabled(model.isRefreshing)
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: model.hideScheduledJobs
+                          ? "line.3.horizontal.decrease.circle.fill"
+                          : "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(model.hideScheduledJobs ? QuartetTheme.accent : QuartetTheme.primaryText)
+                        .frame(width: 56, height: 58)
+                        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(QuartetTheme.divider))
+                }
+            }
+            .accessibilityLabel(model.hideScheduledJobs ? "任务筛选，已隐藏定时任务" : "任务筛选，显示全部任务")
+            .accessibilityIdentifier("job-filter-menu")
         }
-        .padding(.bottom, 16)
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
     }
 
     @ViewBuilder
@@ -205,91 +222,139 @@ struct JobsView: View {
             HStack { Spacer(); ProgressView(); Spacer() }
                 .padding(.top, 80)
         } else if model.jobs.isEmpty {
-            ContentUnavailableView(
-                "暂无 Job",
-                systemImage: "waveform.path",
-                description: Text(model.selectedWorkspace == nil ? "当前实例还没有任务。" : "这个工作空间还没有任务。")
-            )
-            .padding(.top, 54)
-        } else {
-            VStack(spacing: 0) {
-                ForEach(model.jobs) { job in
-                    HStack(spacing: 0) {
-                        NavigationLink {
-                            if job.mode == "graph" {
-                                GraphRunView(summary: job)
-                            } else {
-                                JobChatView(route: ChatRoute(
-                                    summary: job,
-                                    agentType: job.agentId,
-                                    modelID: job.modelId,
-                                    modeID: job.acpMode,
-                                    thoughtLevelID: job.acpThoughtLevel
-                                ))
-                            }
-                        } label: {
-                            JobRow(
-                                job: job,
-                                workspace: workspace(for: job),
-                                displayedStatus: model.displayedStatus(for: job),
-                                displayedStatusLabel: model.displayedStatusLabel(for: job)
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        Menu {
-                            Button { togglePinned(job) } label: {
-                                Label((job.pinnedAt ?? 0) > 0 ? "取消置顶" : "置顶", systemImage: (job.pinnedAt ?? 0) > 0 ? "pin.slash" : "pin")
-                            }
-                            Button { renamingJob = job; renameDraft = job.displayTitle } label: {
-                                Label("重命名", systemImage: "pencil")
-                            }
-                            Button(role: .destructive) { deletingJob = job } label: {
-                                Label("删除", systemImage: "trash")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                                .frame(width: 44, height: 48)
-                        }
-                        .accessibilityLabel("\(job.displayTitle) 的更多操作")
+            ContentUnavailableView {
+                Label("暂无 Job", systemImage: "waveform.path")
+            } description: {
+                Text(model.selectedWorkspace == nil ? "当前筛选下还没有任务。" : "这个工作空间在当前筛选下还没有任务。")
+            } actions: {
+                if model.selectedWorkspace != nil {
+                    Button("查看全部工作空间") {
+                        Task { await model.selectWorkspace(nil) }
                     }
-                    Divider().overlay(QuartetTheme.divider).padding(.leading, 56)
                 }
-                if model.hasMoreJobs {
-                    Button { Task { await model.loadMoreJobs() } } label: {
-                        HStack {
-                            Spacer()
-                            if model.isLoadingMore { ProgressView() } else { Text("加载更多") }
-                            Spacer()
-                        }
-                        .padding(.vertical, 18)
+                if model.hideScheduledJobs {
+                    Button("显示定时任务") {
+                        Task { await model.setHideScheduledJobs(false) }
                     }
-                    .disabled(model.isLoadingMore)
                 }
             }
-            .background(QuartetTheme.surface)
-            .task(id: model.jobs.map(\.id)) {
-                for job in model.jobs where job.mode == "graph" {
+            .padding(.top, 54)
+        } else {
+            ForEach(model.jobs) { job in
+                HStack(spacing: 0) {
+                    NavigationLink {
+                        if job.mode == "graph" {
+                            GraphRunView(summary: job)
+                        } else {
+                            JobChatView(route: ChatRoute(
+                                summary: job,
+                                agentType: job.agentId,
+                                modelID: job.modelId,
+                                modeID: job.acpMode,
+                                thoughtLevelID: job.acpThoughtLevel
+                            ))
+                        }
+                    } label: {
+                        JobRow(
+                            job: job,
+                            workspace: workspace(for: job),
+                            displayedStatus: model.displayedStatus(for: job),
+                            displayedStatusLabel: model.displayedStatusLabel(for: job)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("job-\(job.id)")
+
+                    Menu {
+                        Button { togglePinned(job) } label: {
+                            Label((job.pinnedAt ?? 0) > 0 ? "取消置顶" : "置顶", systemImage: (job.pinnedAt ?? 0) > 0 ? "pin.slash" : "pin")
+                        }
+                        Button { renamingJob = job; renameDraft = job.displayTitle } label: {
+                            Label("重命名", systemImage: "pencil")
+                        }
+                        Button(role: .destructive) { deletingJob = job } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .frame(width: 44, height: 48)
+                    }
+                    .accessibilityLabel("\(job.displayTitle) 的更多操作")
+                }
+                .background(QuartetTheme.surface)
+                .task(id: job.id) {
                     await model.refreshGraphStatusIfNeeded(for: job)
                 }
+                Divider()
+                    .overlay(QuartetTheme.divider)
+                    .padding(.leading, 56)
+                    .background(QuartetTheme.surface)
+            }
+            if model.hasMoreJobs {
+                Button { Task { await model.loadMoreJobs() } } label: {
+                    HStack {
+                        Spacer()
+                        if model.isLoadingMore { ProgressView() } else { Text("加载更多") }
+                        Spacer()
+                    }
+                    .padding(.vertical, 18)
+                }
+                .disabled(model.isLoadingMore)
+                .background(QuartetTheme.surface)
             }
         }
     }
 
-    private func workspaceButton(id: String?, title: String, color: Color) -> some View {
+    private var sectionHeader: some View {
+        HStack {
+            Text("最近任务")
+                .font(.headline)
+                .foregroundStyle(QuartetTheme.primaryText)
+            Spacer()
+            if model.activeJobCount > 0 {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(QuartetTheme.running)
+                        .frame(width: 7, height: 7)
+                    Text("\(model.activeJobCount) 个进行中")
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(QuartetTheme.secondaryText)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+    }
+
+    private func workspaceMenuButton(id: String?, title: String, color: Color) -> some View {
         let selected = model.selectedWorkspaceID == id
         return Button { Task { await model.selectWorkspace(id) } } label: {
-            HStack(spacing: 7) {
-                Circle().fill(color).frame(width: 7, height: 7)
-                Text(title).lineLimit(1)
+            HStack {
+                Circle().fill(color).frame(width: 8, height: 8)
+                Text(title)
+                Spacer()
+                if selected {
+                    Image(systemName: "checkmark")
+                }
             }
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(selected ? QuartetTheme.canvas : QuartetTheme.primaryText)
-            .padding(.horizontal, 13)
-            .frame(height: 36)
-            .background(selected ? QuartetTheme.primaryText : QuartetTheme.elevated, in: Capsule())
         }
+        .accessibilityValue(selected ? "已选择" : "")
+        .accessibilityIdentifier("workspace-filter-\(id ?? "all")")
+    }
+
+    private var selectedWorkspaceTitle: String {
+        model.selectedWorkspace?.displayName ?? "全部工作空间"
+    }
+
+    private var selectedWorkspaceColor: Color {
+        Color(hex: model.selectedWorkspace?.color) ?? QuartetTheme.accent
+    }
+
+    private var workspaceSummary: String {
+        let count = "\(model.jobs.count) 个任务"
+        return model.hideScheduledJobs ? "\(count) · 已隐藏定时任务" : count
     }
 
     private func workspace(for job: JobSummary) -> WorkspaceSummary? {
@@ -305,25 +370,40 @@ struct JobsView: View {
 
     private func connectionHeadline(_ state: AppModel.ConnectionState) -> String {
         if state.phase == .connecting {
-            return "正在同步服务器状态"
+            return "正在重新连接"
         }
         if state.isStale {
-            return "当前展示的是缓存快照"
+            return state.isConnected ? "数据可能已过期" : "连接已中断"
         }
-        if state.isConnected {
-            return "连接正常"
+        if state.hasPendingSync {
+            return "等待同步"
         }
         return "连接中断"
     }
 
-    private func connectionDetail(_ state: AppModel.ConnectionState) -> String {
-        if let lastSuccessfulSyncAt = state.lastSuccessfulSyncAt {
-            if let failure = state.lastFailureMessage, state.isStale {
-                return "上次成功同步 \(lastSuccessfulSyncAt.formatted(date: .omitted, time: .shortened))，最近失败：\(failure)"
-            }
-            return "上次成功同步 \(lastSuccessfulSyncAt.formatted(date: .omitted, time: .shortened))"
+    private func connectionNoticeDetail(_ state: AppModel.ConnectionState) -> String {
+        if state.isUsingCachedData || state.isStale {
+            return "正在展示本地缓存，点按查看详情"
         }
-        return state.lastFailureMessage ?? "尚未完成首次同步。"
+        return "有状态等待刷新，点按立即同步"
+    }
+
+    private func connectionNoticeIcon(_ state: AppModel.ConnectionState) -> String {
+        if state.phase == .connecting { return "arrow.triangle.2.circlepath" }
+        if !state.isConnected { return "wifi.slash" }
+        return "exclamationmark.arrow.triangle.2.circlepath"
+    }
+
+    private func connectionNoticeColor(_ state: AppModel.ConnectionState) -> Color {
+        state.isConnected ? QuartetTheme.running : QuartetTheme.failed
+    }
+
+    private var connectionStatusAccessibilityLabel: String {
+        let state = model.connectionState
+        if model.isRefreshing || state.phase == .connecting { return "正在同步" }
+        if !state.isConnected { return "连接中断，查看连接状态" }
+        if state.isStale || state.hasPendingSync { return "数据待同步，查看连接状态" }
+        return "连接正常，查看连接状态"
     }
 }
 
@@ -400,15 +480,187 @@ private struct JobRow: View {
 
 private struct ConnectionBadge: View {
     let state: AppModel.ConnectionState
+    let isRefreshing: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle().fill(state.isConnected ? QuartetTheme.accent : QuartetTheme.failed).frame(width: 7, height: 7)
-            Text(state.isConnected ? (state.isStale ? "STALE" : "ONLINE") : "OFFLINE")
+        ZStack {
+            Circle()
+                .fill(statusColor.opacity(0.12))
+                .frame(width: 30, height: 30)
+
+            if isRefreshing || state.phase == .connecting {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(statusColor)
+            } else {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 9, height: 9)
+
+                if state.isStale || state.hasPendingSync {
+                    Circle()
+                        .fill(QuartetTheme.canvas)
+                        .frame(width: 7, height: 7)
+                        .overlay(
+                            Circle()
+                                .fill(QuartetTheme.running)
+                                .frame(width: 5, height: 5)
+                        )
+                        .offset(x: 7, y: -7)
+                }
+            }
         }
-        .font(.system(size: 10, weight: .bold, design: .monospaced))
-        .foregroundStyle(QuartetTheme.secondaryText)
-        .accessibilityLabel(state.isConnected ? (state.isStale ? "缓存数据" : "已连接") : "未连接")
+    }
+
+    private var statusColor: Color {
+        if !state.isConnected { return QuartetTheme.failed }
+        if state.isStale || state.hasPendingSync { return QuartetTheme.running }
+        return QuartetTheme.accent
+    }
+}
+
+private struct DashboardConnectionView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    statusCard
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("服务地址")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                        Text(model.serverAddress)
+                            .font(.system(.footnote, design: .monospaced))
+                            .foregroundStyle(QuartetTheme.primaryText)
+                            .textSelection(.enabled)
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(QuartetTheme.divider))
+
+                    if let failure = model.connectionState.lastFailureMessage, !failure.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Label("最近一次错误", systemImage: "exclamationmark.triangle.fill")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(QuartetTheme.failed)
+                                Spacer()
+                                Button("复制") { UIPasteboard.general.string = failure }
+                                    .font(.caption.weight(.semibold))
+                            }
+                            Text(failure)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(QuartetTheme.primaryText)
+                                .textSelection(.enabled)
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(QuartetTheme.failed.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(QuartetTheme.failed.opacity(0.24)))
+                    }
+
+                    Button {
+                        Task { await synchronize() }
+                    } label: {
+                        HStack {
+                            if model.isRefreshing || model.connectionState.phase == .connecting {
+                                ProgressView()
+                                    .tint(QuartetTheme.canvas)
+                            } else {
+                                Image(systemName: model.connectionState.isConnected ? "arrow.clockwise" : "network")
+                            }
+                            Text(model.connectionState.isConnected ? "立即同步" : "重新连接")
+                        }
+                        .font(.headline)
+                        .foregroundStyle(QuartetTheme.canvas)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(QuartetTheme.primaryText, in: RoundedRectangle(cornerRadius: 15))
+                    }
+                    .disabled(model.isRefreshing || model.connectionState.phase == .connecting)
+                    .accessibilityIdentifier("connection-sync-button")
+                }
+                .padding(20)
+            }
+            .background(QuartetTheme.canvas)
+            .navigationTitle("连接状态")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                        .accessibilityIdentifier("connection-status-close")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var statusCard: some View {
+        let state = model.connectionState
+        return HStack(spacing: 14) {
+            Image(systemName: statusIcon)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(statusColor)
+                .frame(width: 46, height: 46)
+                .background(statusColor.opacity(0.12), in: Circle())
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(statusTitle)
+                    .font(.headline)
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Text(syncDescription(state))
+                    .font(.footnote)
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
+    }
+
+    private var statusTitle: String {
+        let state = model.connectionState
+        if model.isRefreshing || state.phase == .connecting { return "正在同步" }
+        if !state.isConnected { return "连接中断" }
+        if state.isStale { return "当前数据可能已过期" }
+        if state.hasPendingSync { return "有状态等待同步" }
+        return "连接正常"
+    }
+
+    private var statusIcon: String {
+        let state = model.connectionState
+        if model.isRefreshing || state.phase == .connecting { return "arrow.triangle.2.circlepath" }
+        if !state.isConnected { return "wifi.slash" }
+        if state.isStale || state.hasPendingSync { return "exclamationmark.arrow.triangle.2.circlepath" }
+        return "checkmark"
+    }
+
+    private var statusColor: Color {
+        let state = model.connectionState
+        if !state.isConnected { return QuartetTheme.failed }
+        if state.isStale || state.hasPendingSync { return QuartetTheme.running }
+        return QuartetTheme.accent
+    }
+
+    private func syncDescription(_ state: AppModel.ConnectionState) -> String {
+        guard let date = state.lastSuccessfulSyncAt else {
+            return "尚未完成首次同步"
+        }
+        return "上次成功同步于 \(date.formatted(date: .abbreviated, time: .shortened))"
+    }
+
+    private func synchronize() async {
+        if model.connectionState.isConnected {
+            await model.refreshDashboard()
+        } else {
+            await model.connect()
+        }
     }
 }
 
