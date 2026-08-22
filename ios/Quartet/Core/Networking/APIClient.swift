@@ -483,41 +483,44 @@ struct APIClient: @unchecked Sendable {
         }
 
         await onOpen()
-        var dataLines: [String] = []
-        var eventID: UInt64?
-        for try await line in bytes.lines {
-            try Task.checkCancellation()
-            if line.isEmpty {
-                guard !dataLines.isEmpty else { continue }
-                let data = dataLines.joined(separator: "\n")
-                dataLines.removeAll(keepingCapacity: true)
-                do {
-                    let event = try Self.decode(eventType, from: Data(data.utf8))
-                    await onEvent(event, eventID)
-                } catch {
-                    throw APIError(
-                        summary: "无法解析实时事件",
-                        detail: "GET \(endpoint.absoluteString)\n\n解析错误：\(String(describing: error))\n\n原始事件：\n\(data)"
-                    )
-                }
-                eventID = nil
-            } else if line.hasPrefix("data:") {
-                dataLines.append(String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces))
-            } else if line.hasPrefix("id:") {
-                eventID = UInt64(String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces))
-            }
-        }
-        if !dataLines.isEmpty {
-            let data = dataLines.joined(separator: "\n")
+        var parser = SSEFrameParser()
+        var lineBytes: [UInt8] = []
+
+        func deliver(_ frame: SSEFrame) async throws {
             do {
-                let event = try Self.decode(eventType, from: Data(data.utf8))
-                await onEvent(event, eventID)
+                let event = try Self.decode(eventType, from: Data(frame.data.utf8))
+                await onEvent(event, frame.id)
             } catch {
                 throw APIError(
                     summary: "无法解析实时事件",
-                    detail: "GET \(endpoint.absoluteString)\n\n解析错误：\(String(describing: error))\n\n原始事件：\n\(data)"
+                    detail: "GET \(endpoint.absoluteString)\n\n解析错误：\(String(describing: error))\n\n原始事件：\n\(frame.data)"
                 )
             }
+        }
+
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            guard byte == 0x0A else {
+                lineBytes.append(byte)
+                continue
+            }
+            if lineBytes.last == 0x0D {
+                lineBytes.removeLast()
+            }
+            let line = String(decoding: lineBytes, as: UTF8.self)
+            lineBytes.removeAll(keepingCapacity: true)
+            if let frame = parser.consume(line) {
+                try await deliver(frame)
+            }
+        }
+        if !lineBytes.isEmpty {
+            let line = String(decoding: lineBytes, as: UTF8.self)
+            if let frame = parser.consume(line) {
+                try await deliver(frame)
+            }
+        }
+        if let frame = parser.finish() {
+            try await deliver(frame)
         }
     }
 
@@ -658,6 +661,47 @@ struct APIClient: @unchecked Sendable {
         return components.url ?? url
     }
 
+}
+
+private struct SSEFrame {
+    let id: UInt64?
+    let data: String
+}
+
+private struct SSEFrameParser {
+    private var eventID: UInt64?
+    private var dataLines: [String] = []
+
+    mutating func consume(_ line: String) -> SSEFrame? {
+        if line.isEmpty {
+            return finish()
+        }
+        if line.hasPrefix("data:") {
+            dataLines.append(fieldValue(line, prefixLength: 5))
+        } else if line.hasPrefix("id:") {
+            eventID = UInt64(fieldValue(line, prefixLength: 3))
+        }
+        return nil
+    }
+
+    mutating func finish() -> SSEFrame? {
+        guard !dataLines.isEmpty else {
+            eventID = nil
+            return nil
+        }
+        let frame = SSEFrame(id: eventID, data: dataLines.joined(separator: "\n"))
+        eventID = nil
+        dataLines.removeAll(keepingCapacity: true)
+        return frame
+    }
+
+    private func fieldValue(_ line: String, prefixLength: Int) -> String {
+        var value = line.dropFirst(prefixLength)
+        if value.first == " " {
+            value.removeFirst()
+        }
+        return String(value)
+    }
 }
 
 enum ConditionalJobsPage: Sendable {

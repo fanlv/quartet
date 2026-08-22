@@ -118,6 +118,32 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["人工确认发布"].exists)
     }
 
+    func testLiveBackendNewConversationStreamsAssistantMessage() throws {
+        guard ProcessInfo.processInfo.environment["QUARTET_LIVE_E2E"] == "1" else {
+            throw XCTSkip("Set QUARTET_LIVE_E2E=1 to run against the configured real backend.")
+        }
+
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["最近任务"].waitForExistence(timeout: 30))
+        app.buttons["new-conversation-button"].tap()
+        XCTAssertTrue(app.navigationBars["新对话"].waitForExistence(timeout: 15))
+
+        let message = app.textViews["new-conversation-message"]
+        XCTAssertTrue(message.waitForExistence(timeout: 30))
+        let prompt = "请从 1 数到 100，每个数字单独一行，最后输出 IOS_E2E_STREAM_OK。不要使用工具。"
+        message.tap()
+        message.typeText(prompt)
+        app.buttons["new-conversation-create"].tap()
+
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 45))
+        XCTAssertTrue(app.staticTexts[prompt].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["ASSISTANT"].firstMatch.waitForExistence(timeout: 45))
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "IOS_E2E_STREAM_OK")).firstMatch
+                .waitForExistence(timeout: 180)
+        )
+    }
+
     private func launchDashboard() {
         app.launchArguments = ["--ui-testing-dashboard"]
         app.launch()

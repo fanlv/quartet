@@ -73,6 +73,10 @@ type BaseEvent struct {
 
 type RunStartedEvent struct {
 	BaseEvent
+	// ClientMessageID identifies the interactive user message that opened this
+	// round. Empty for non-interactive runs. Clients use it to reconcile their
+	// optimistic user bubble as soon as the round starts.
+	ClientMessageID string `json:"clientMessageId,omitempty"`
 }
 
 type TokenUsage struct {

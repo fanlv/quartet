@@ -250,9 +250,9 @@ struct JobChatView: View {
                 }
             }
 
-            if !chat.outbox.isEmpty {
+            if !chat.composerOutboxItems.isEmpty {
                 VStack(spacing: 8) {
-                    ForEach(chat.outbox) { item in
+                    ForEach(chat.composerOutboxItems) { item in
                         OutboxRow(
                             item: item,
                             onCancel: { chat.cancelOutboxItem(id: item.id) },
@@ -1474,7 +1474,21 @@ private final class ChatViewModel: ObservableObject {
         outbox.contains { if case .queued = $0.state { return true } else { return false } }
     }
     var timelineOutboxItems: [LocalOutboxItem] {
-        outbox.filter(\.isVisibleInTimeline)
+        let optimisticMessageIDs = Set(messages.map(\.id))
+        return outbox.filter { $0.isVisibleInTimeline && !optimisticMessageIDs.contains($0.id) }
+    }
+    var composerOutboxItems: [LocalOutboxItem] {
+        let optimisticMessageIDs = Set(messages.map(\.id))
+        return outbox.filter { item in
+            switch item.state {
+            case .queued:
+                return !optimisticMessageIDs.contains(item.id)
+            case .failed:
+                return true
+            case .uploading, .sending, .awaitingEcho:
+                return false
+            }
+        }
     }
     var sessionIDDisplay: String? {
         guard let sessionID, !sessionID.isEmpty else { return nil }
@@ -1651,6 +1665,9 @@ private final class ChatViewModel: ObservableObject {
             state: .queued
         )
         outbox.append(item)
+        if isInitialDraft && (attachment == nil || !remoteImagePaths.isEmpty) {
+            upsertOptimisticUserMessage(for: item)
+        }
         bumpScrollAnchor()
         scheduleOutboxProcessing()
         return item.id
@@ -1665,6 +1682,9 @@ private final class ChatViewModel: ObservableObject {
         guard let index = outbox.firstIndex(where: { $0.id == id }) else { return }
         let item = outbox[index]
         let startsNewExecution = item.retryRequiresNewMessageID
+        if startsNewExecution {
+            messages.removeAll { $0.id == item.id && $0.isOptimistic }
+        }
         outbox[index] = LocalOutboxItem(
             id: startsNewExecution ? UUID().uuidString.lowercased() : item.id,
             draft: item.draft,
@@ -1693,6 +1713,7 @@ private final class ChatViewModel: ObservableObject {
     func restoreOutboxItem(id: String) {
         guard let index = outbox.firstIndex(where: { $0.id == id }) else { return }
         let item = outbox.remove(at: index)
+        messages.removeAll { $0.id == id && $0.isOptimistic }
         publishRestore(item.draft)
         bumpScrollAnchor()
     }
@@ -1734,6 +1755,7 @@ private final class ChatViewModel: ObservableObject {
     private func restoreInitialDraftIfNeeded(id: String?, detail: String) {
         guard let id, let index = outbox.firstIndex(where: { $0.id == id }) else { return }
         let item = outbox.remove(at: index)
+        messages.removeAll { $0.id == id && $0.isOptimistic }
         publishRestore(item.draft)
         errorDetail = detail
         bumpScrollAnchor()
@@ -1979,6 +2001,9 @@ private final class ChatViewModel: ObservableObject {
 
         do {
             outbox[index].state = .sending
+            if outbox[index].attachment == nil || !outbox[index].remoteImagePaths.isEmpty {
+                upsertOptimisticUserMessage(for: outbox[index])
+            }
             startStreaming()
             try await waitForStreamReady()
 
@@ -1991,6 +2016,7 @@ private final class ChatViewModel: ObservableObject {
                 )
                 guard let refreshed = outbox.firstIndex(where: { $0.id == itemID }) else { return }
                 outbox[refreshed].remoteImagePaths = [path]
+                upsertOptimisticUserMessage(for: outbox[refreshed])
             }
 
             guard let refreshed = outbox.firstIndex(where: { $0.id == itemID }) else { return }
@@ -2125,9 +2151,30 @@ private final class ChatViewModel: ObservableObject {
     private func setAwaitingEcho(itemID: String) {
         guard let index = outbox.firstIndex(where: { $0.id == itemID }) else { return }
         outbox[index].state = .awaitingEcho
+        upsertOptimisticUserMessage(for: outbox[index])
         isTurnRunning = true
         status = "running"
         bumpScrollAnchor()
+    }
+
+    private func upsertOptimisticUserMessage(for item: LocalOutboxItem) {
+        if let index = messages.firstIndex(where: { $0.id == item.id }) {
+            messages[index].content = item.draft.text
+            messages[index].imagePaths = item.remoteImagePaths
+            messages[index].isFailed = false
+            return
+        }
+        messages.append(ChatMessage(
+            id: item.id,
+            kind: .user,
+            content: item.draft.text,
+            detail: nil,
+            isFinished: true,
+            isFailed: false,
+            timestamp: item.createdAt,
+            imagePaths: item.remoteImagePaths,
+            isOptimistic: true
+        ))
     }
 
     private func markOutboxFailed(
@@ -2139,6 +2186,9 @@ private final class ChatViewModel: ObservableObject {
         if let index = outbox.firstIndex(where: { $0.id == itemID }) {
             outbox[index].state = .failed(detail: detail, requiresNewMessageID: requiresNewMessageID)
             publishRestore(outbox[index].draft)
+            if let messageIndex = messages.firstIndex(where: { $0.id == itemID }) {
+                messages[messageIndex].isFailed = true
+            }
         } else if let fallback {
             // A history refresh may already have replaced the optimistic item
             // with its persisted user message. Restore the draft without adding
@@ -2393,6 +2443,9 @@ private final class ChatViewModel: ObservableObject {
         case "RUN_STARTED":
             isTurnRunning = true
             phaseLabel = "Agent 已启动"
+            if let clientMessageID = event.clientMessageId {
+                setAwaitingEcho(itemID: clientMessageID)
+            }
         case "RUN_FINISHED":
             phaseLabel = nil
             finishOpenMessages(outcome: "completed", timestamp: event.timestamp)
@@ -2435,19 +2488,23 @@ private final class ChatViewModel: ObservableObject {
             errorDetail = [event.code, event.message].compactMap { $0 }.joined(separator: "\n")
         case "COMMAND_SYSTEM_MESSAGE":
             applyCommandEvent(event)
+        case "CUSTOM":
+            applyCustomEvent(event)
         case "TEXT_MESSAGE_START":
             guard let messageID = event.messageId else { return }
             let kind: ChatMessage.Kind = event.external?.isThinking == true ? .thought : .assistant
+            phaseLabel = kind == .thought ? "正在思考" : "Agent 正在回复"
             upsert(id: messageID, kind: kind, content: "", detail: nil, finished: false, failed: false, timestamp: event.timestamp)
-            removeEchoedOutboxItems()
         case "TEXT_MESSAGE_CONTENT":
             guard let messageID = event.messageId else { return }
             let kind: ChatMessage.Kind = event.external?.isThinking == true ? .thought : .assistant
+            phaseLabel = kind == .thought ? "正在思考" : "Agent 正在回复"
             append(id: messageID, kind: kind, text: event.delta ?? "", timestamp: event.timestamp)
         case "TEXT_MESSAGE_END":
             finish(id: event.messageId, timestamp: event.timestamp)
         case "TOOL_CALL_START":
             guard let toolID = event.toolCallId else { return }
+            phaseLabel = "正在调用工具"
             upsert(id: toolID, kind: .tool, content: "", detail: nil, finished: false, failed: false, timestamp: event.timestamp)
             configureTool(id: toolID, name: event.toolCallName, status: event.toolCallStatus)
         case "TOOL_CALL_ARGS":
@@ -2465,6 +2522,7 @@ private final class ChatViewModel: ObservableObject {
                 messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: event.toolCallStatus ?? (messages[index].isFailed ? "Error" : "Success"))
             }
             finish(id: event.toolCallId, timestamp: event.timestamp)
+            phaseLabel = nil
         case "TOOL_CALL_STITCHED":
             guard let toolID = event.toolCallId else { return }
             if let index = messages.firstIndex(where: { $0.id == toolID }) {
@@ -2473,6 +2531,24 @@ private final class ChatViewModel: ObservableObject {
                 messages[index].isFailed = event.toolCallStatus == "Error"
                 messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: event.toolCallStatus)
                 messages[index].finishedAt = event.timestamp
+            }
+        default:
+            break
+        }
+    }
+
+    private func applyCustomEvent(_ event: ServerEvent) {
+        switch event.name {
+        case "agent_phase":
+            switch event.value?.phase {
+            case "starting": phaseLabel = "正在启动 Agent"
+            case "reconnecting": phaseLabel = "正在重连 Agent"
+            case "thinking": phaseLabel = event.value?.detail?.isEmpty == false ? event.value?.detail : "正在思考"
+            default: break
+            }
+        case "job_title_updated":
+            if let updatedTitle = event.value?.title, !updatedTitle.isEmpty {
+                title = updatedTitle
             }
         default:
             break
@@ -2590,7 +2666,7 @@ private final class ChatViewModel: ObservableObject {
     }
 
     private func removeEchoedOutboxItems() {
-        let serverIDs = Set(messages.map(\.id))
+        let serverIDs = Set(messages.filter { !$0.isOptimistic }.map(\.id))
         outbox.removeAll { item in
             switch item.state {
             case .awaitingEcho, .failed:
@@ -2602,7 +2678,7 @@ private final class ChatViewModel: ObservableObject {
     }
 
     private func reconcileAwaitingEchoIfNeeded() {
-        let serverIDs = Set(messages.map(\.id))
+        let serverIDs = Set(messages.filter { !$0.isOptimistic }.map(\.id))
         for index in outbox.indices {
             guard case .awaitingEcho = outbox[index].state else { continue }
             if serverIDs.contains(outbox[index].id) {
@@ -2634,6 +2710,9 @@ private final class ChatViewModel: ObservableObject {
         guard let index = outbox.firstIndex(where: { $0.state == .awaitingEcho }) else { return }
         let failedItem = outbox[index]
         outbox[index].state = .failed(detail: detail, requiresNewMessageID: true)
+        if let messageIndex = messages.firstIndex(where: { $0.id == failedItem.id && $0.isOptimistic }) {
+            messages[messageIndex].isFailed = true
+        }
         publishRestore(failedItem.draft)
         removeEchoedOutboxItems()
         bumpScrollAnchor()
@@ -2644,7 +2723,7 @@ private final class ChatViewModel: ObservableObject {
     }
 
     private func hasPriorConversation(_ detail: JobDetail) -> Bool {
-        detail.sessionCount > 0 || !messages.isEmpty
+        detail.sessionCount > 0 || messages.contains { !$0.isOptimistic }
     }
 
     private func errorText(_ error: Error) -> String {

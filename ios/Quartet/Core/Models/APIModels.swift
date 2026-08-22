@@ -575,6 +575,7 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
     var toolArguments: String?
     var toolStatus: ToolStatus?
     var placeholderReason: String?
+    var isOptimistic: Bool
 
     init(
         id: String,
@@ -593,7 +594,8 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         toolName: String? = nil,
         toolArguments: String? = nil,
         toolStatus: ToolStatus? = nil,
-        placeholderReason: String? = nil
+        placeholderReason: String? = nil,
+        isOptimistic: Bool = false
     ) {
         self.id = id
         self.kind = kind
@@ -612,6 +614,7 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         self.toolArguments = toolArguments
         self.toolStatus = toolStatus
         self.placeholderReason = placeholderReason
+        self.isOptimistic = isOptimistic
     }
 
     init(history: HistoryMessage, idPrefix: String? = nil) {
@@ -652,6 +655,7 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
             toolStatus = nil
         }
         placeholderReason = history.placeholderReason
+        isOptimistic = false
     }
 }
 
@@ -659,6 +663,8 @@ struct ServerEvent: Decodable, Sendable {
     let type: String
     let sessionId: String?
     let clientMessageId: String?
+    let name: String?
+    let value: ServerEventValue?
     let timestamp: Int64?
     let messageId: String?
     let role: String?
@@ -674,7 +680,7 @@ struct ServerEvent: Decodable, Sendable {
     let runOutcome: String?
 
     private enum CodingKeys: String, CodingKey {
-        case type, sessionId, clientMessageId, timestamp, messageId, role, delta, message, text
+        case type, sessionId, clientMessageId, name, value, timestamp, messageId, role, delta, message, text
         case code, toolCallId, toolCallName, toolCallStatus, replace, external, runOutcome
     }
 
@@ -683,6 +689,8 @@ struct ServerEvent: Decodable, Sendable {
         type = try values.decode(String.self, forKey: .type)
         sessionId = try values.decodeIfPresent(String.self, forKey: .sessionId)
         clientMessageId = try values.decodeIfPresent(String.self, forKey: .clientMessageId)
+        name = try values.decodeIfPresent(String.self, forKey: .name)
+        value = try values.decodeIfPresent(ServerEventValue.self, forKey: .value)
         timestamp = try values.decodeIfPresent(Int64.self, forKey: .timestamp)
         messageId = try values.decodeIfPresent(String.self, forKey: .messageId)
         role = try values.decodeIfPresent(String.self, forKey: .role)
@@ -703,6 +711,13 @@ struct EventExternal: Decodable, Sendable {
     let isThinking: Bool?
     let isShellOutput: Bool?
     let placeholderReason: String?
+}
+
+struct ServerEventValue: Decodable, Sendable {
+    let phase: String?
+    let detail: String?
+    let title: String?
+    let error: String?
 }
 
 struct CreateJobResponse: Decodable, Sendable {

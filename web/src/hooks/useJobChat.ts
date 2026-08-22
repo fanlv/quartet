@@ -1237,6 +1237,22 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       case EventTypeEnum.RUN_STARTED:
         setIsLoading(true);
         setError(null);
+        if (event.clientMessageId) {
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.role === MessageRoleEnum.USER && message.clientMessageId === event.clientMessageId
+                ? {
+                    ...message,
+                    sessionId: event.sessionId || message.sessionId,
+                    pending: false,
+                    failed: false,
+                    deliveryStatus: 'sent',
+                    sendError: undefined,
+                  }
+                : message
+            )
+          );
+        }
         // Reset timing for this new run (interactive mode resets per-round)
         if (!loopRunningRef.current) {
           setJobStartedAt(event.timestamp || Date.now());

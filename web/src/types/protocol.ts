@@ -70,6 +70,7 @@ export interface BaseEvent {
 
 export interface RunStartedEvent extends BaseEvent {
   type: EventTypeEnum.RUN_STARTED;
+  clientMessageId?: string;
 }
 
 export interface TokenUsage {

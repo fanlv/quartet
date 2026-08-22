@@ -14,6 +14,10 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 	logger.Debugf(ctx, "[step] run: jobId=%s msg=%s", job.ID, strutil.TruncateRunesWithEllipsis(msg, 200))
 
 	handler := newLoopEventHandler(ctx, job.ID, sessionID, s)
+	clientMessageID := ""
+	if opts != nil {
+		clientMessageID = opts.ClientMessageID
+	}
 	// An interactive send treats RUN_STARTED as the run's semantic boundary
 	// used by the UI for per-round duration. It MUST share the same clock read
 	// as the persisted job.StartedAt to keep live vs reload consistent.
@@ -27,6 +31,7 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 			SessionID: sessionID, RunID: handler.runID,
 			Timestamp: runStartedAt,
 		},
+		ClientMessageID: clientMessageID,
 	})
 
 	messages := opts.getMessages()
