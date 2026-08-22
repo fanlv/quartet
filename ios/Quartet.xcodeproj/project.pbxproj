@@ -102,11 +102,30 @@
 			path = Core;
 			sourceTree = "<group>";
 		};
-		A40000000000000000000005 /* Design */ = {isa = PBXGroup; children = (A20000000000000000000004 /* QuartetTheme.swift */,); path = Design; sourceTree = "<group>"; };
-		A40000000000000000000006 /* Models */ = {isa = PBXGroup; children = (A20000000000000000000005 /* APIModels.swift */,); path = Models; sourceTree = "<group>"; };
-		A40000000000000000000007 /* Networking */ = {isa = PBXGroup; children = (A20000000000000000000006 /* APIClient.swift */,); path = Networking; sourceTree = "<group>"; };
-		A40000000000000000000010 /* Persistence */ = {isa = PBXGroup; children = (A20000000000000000000012 /* DashboardCacheStore.swift */,); path = Persistence; sourceTree = "<group>"; };
-		A4000000000000000000000C /* Security */ = {isa = PBXGroup; children = (A20000000000000000000007 /* KeychainStore.swift */,); path = Security; sourceTree = "<group>"; };
+		A40000000000000000000005 /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000004 /* QuartetTheme.swift */,
+			);
+			path = Design;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000006 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000005 /* APIModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000007 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000006 /* APIClient.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
 		A40000000000000000000008 /* Features */ = {
 			isa = PBXGroup;
 			children = (
@@ -120,13 +139,82 @@
 			path = Features;
 			sourceTree = "<group>";
 		};
-		A40000000000000000000009 /* Products */ = {isa = PBXGroup; children = (A2000000000000000000000C /* Quartet.app */,); name = Products; sourceTree = "<group>"; };
-		A4000000000000000000000A /* Connection */ = {isa = PBXGroup; children = (A20000000000000000000008 /* ConnectionView.swift */,); path = Connection; sourceTree = "<group>"; };
-		A4000000000000000000000B /* Jobs */ = {isa = PBXGroup; children = (A20000000000000000000009 /* JobsView.swift */, A2000000000000000000000A /* JobDetailView.swift */,); path = Jobs; sourceTree = "<group>"; };
-		A4000000000000000000000D /* Settings */ = {isa = PBXGroup; children = (A2000000000000000000000B /* SettingsView.swift */,); path = Settings; sourceTree = "<group>"; };
-		A4000000000000000000000E /* Chat */ = {isa = PBXGroup; children = (A2000000000000000000000D /* NewConversationView.swift */, A2000000000000000000000E /* JobChatView.swift */, A20000000000000000000011 /* ChatAttachmentSupport.swift */,); path = Chat; sourceTree = "<group>"; };
-		A4000000000000000000000F /* Graph */ = {isa = PBXGroup; children = (A2000000000000000000000F /* GraphRunView.swift */,); path = Graph; sourceTree = "<group>"; };
-		A40000000000000000000011 /* Notifications */ = {isa = PBXGroup; children = (A20000000000000000000013 /* NotificationCenterModel.swift */, A20000000000000000000014 /* NotificationsView.swift */,); path = Notifications; sourceTree = "<group>"; };
+		A40000000000000000000009 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000C /* Quartet.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000000A /* Connection */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000008 /* ConnectionView.swift */,
+			);
+			path = Connection;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000000B /* Jobs */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000009 /* JobsView.swift */,
+				A2000000000000000000000A /* JobDetailView.swift */,
+			);
+			path = Jobs;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000000C /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000007 /* KeychainStore.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000000D /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000B /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000000E /* Chat */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000D /* NewConversationView.swift */,
+				A2000000000000000000000E /* JobChatView.swift */,
+				A20000000000000000000011 /* ChatAttachmentSupport.swift */,
+			);
+			path = Chat;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000000F /* Graph */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000F /* GraphRunView.swift */,
+			);
+			path = Graph;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000010 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000012 /* DashboardCacheStore.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000011 /* Notifications */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000013 /* NotificationCenterModel.swift */,
+				A20000000000000000000014 /* NotificationsView.swift */,
+			);
+			path = Notifications;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -157,24 +245,37 @@
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
-					A50000000000000000000001 = { CreatedOnToolsVersion = 26.0; };
+					A50000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+					};
 				};
 			};
 			buildConfigurationList = A90000000000000000000001 /* Build configuration list for PBXProject "Quartet" */;
 			compatibilityVersion = "Xcode 15.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
-			knownRegions = (en, Base);
+			knownRegions = (
+				en,
+				Base,
+			);
 			mainGroup = A40000000000000000000001;
 			productRefGroup = A40000000000000000000009 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (A50000000000000000000001 /* Quartet */,);
+			targets = (
+				A50000000000000000000001 /* Quartet */,
+			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A30000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A30000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -245,12 +346,16 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = 9BQ563P4RA;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Quartet/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Quartet;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = fun.fanlv.quartet.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -268,12 +373,16 @@
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9BQ563P4RA;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Quartet/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Quartet;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = fun.fanlv.quartet.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -290,13 +399,19 @@
 /* Begin XCConfigurationList section */
 		A90000000000000000000001 /* Build configuration list for PBXProject "Quartet" */ = {
 			isa = XCConfigurationList;
-			buildConfigurations = (A70000000000000000000001 /* Debug */, A70000000000000000000002 /* Release */,);
+			buildConfigurations = (
+				A70000000000000000000001 /* Debug */,
+				A70000000000000000000002 /* Release */,
+			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		A90000000000000000000002 /* Build configuration list for PBXNativeTarget "Quartet" */ = {
 			isa = XCConfigurationList;
-			buildConfigurations = (A80000000000000000000001 /* Debug */, A80000000000000000000002 /* Release */,);
+			buildConfigurations = (
+				A80000000000000000000001 /* Debug */,
+				A80000000000000000000002 /* Release */,
+			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
