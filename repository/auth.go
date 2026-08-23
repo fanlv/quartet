@@ -1,8 +1,6 @@
 package repository
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,11 +37,6 @@ func NewAuthRepo() (*AuthRepo, error) {
 	if err != nil {
 		return nil, err
 	}
-	processNamespace := make([]byte, 16)
-	if _, err := rand.Read(processNamespace); err != nil {
-		return nil, fmt.Errorf("generate authentication session namespace: %w", err)
-	}
-	sessionsDir = filepath.Join(sessionsDir, hex.EncodeToString(processNamespace))
 	return &AuthRepo{systemFile: systemFile, usersDir: usersDir, rolesDir: rolesDir, sessionsDir: sessionsDir}, nil
 }
 

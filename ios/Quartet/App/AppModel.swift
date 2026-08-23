@@ -182,10 +182,11 @@ final class AppModel: ObservableObject {
         connectionGeneration &+= 1
         let generation = connectionGeneration
         let requestedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hadRequestedCredentials = !requestedUsername.isEmpty && !password.isEmpty
         phase = .connecting
         hasPendingSync = true
         do {
-            let client = try makeClient()
+            let client = try makeClient(notifyUnauthorized: false)
             let health = try await client.health()
             guard isCurrentConnectionRequest(
                 generation: generation,
@@ -234,6 +235,16 @@ final class AppModel: ObservableObject {
             )
         } catch {
             guard generation == connectionGeneration else { return }
+            if let apiError = error as? APIError,
+               apiError.httpStatusCode == 401,
+               !hadRequestedCredentials {
+                await handleUnauthorized(
+                    apiError,
+                    requestGeneration: generation,
+                    requestConnectionIdentity: StorageKey.connectionIdentity(for: serverAddress)
+                )
+                return
+            }
             phase = .disconnected
             await handleSyncFailure(
                 error,
@@ -901,9 +912,9 @@ final class AppModel: ObservableObject {
         Task { await leaveConnection(clearAddress: true) }
     }
 
-    private func leaveConnection(clearAddress: Bool) async {
-        if phase == .connected {
-            try? await makeClient().logout()
+    private func leaveConnection(clearAddress: Bool, revokeServerSession: Bool = true) async {
+        if revokeServerSession, phase == .connected {
+            try? await makeClient(notifyUnauthorized: false).logout()
         }
         let generation = invalidateDashboardRequests()
         connectionGeneration &+= 1
@@ -948,8 +959,40 @@ final class AppModel: ObservableObject {
         )
     }
 
-    private func makeClient() throws -> APIClient {
-        try APIClient(serverAddress: serverAddress, csrfToken: csrfToken)
+    private func makeClient(notifyUnauthorized: Bool = true) throws -> APIClient {
+        let requestGeneration = connectionGeneration
+        let requestConnectionIdentity = StorageKey.connectionIdentity(for: serverAddress)
+        let unauthorizedHandler: (@MainActor @Sendable (APIError) async -> Void)?
+        if notifyUnauthorized {
+            unauthorizedHandler = { [weak self] error in
+                guard let self else { return }
+                await self.handleUnauthorized(
+                    error,
+                    requestGeneration: requestGeneration,
+                    requestConnectionIdentity: requestConnectionIdentity
+                )
+            }
+        } else {
+            unauthorizedHandler = nil
+        }
+        return try APIClient(
+            serverAddress: serverAddress,
+            csrfToken: csrfToken,
+            onUnauthorized: unauthorizedHandler
+        )
+    }
+
+    private func handleUnauthorized(
+        _ error: APIError,
+        requestGeneration: UInt64,
+        requestConnectionIdentity: String?
+    ) async {
+        guard requestGeneration == connectionGeneration,
+              requestConnectionIdentity == StorageKey.connectionIdentity(for: serverAddress) else {
+            return
+        }
+        await leaveConnection(clearAddress: false, revokeServerSession: false)
+        present(error)
     }
 
     private func seedUITestDashboard() {

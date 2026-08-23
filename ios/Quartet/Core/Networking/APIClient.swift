@@ -4,8 +4,14 @@ struct APIClient: @unchecked Sendable {
     let baseURL: URL
     private let csrfToken: String
     private let session: URLSession
+    private let onUnauthorized: (@MainActor @Sendable (APIError) async -> Void)?
 
-    init(serverAddress: String, csrfToken: String = "", session: URLSession = .shared) throws {
+    init(
+        serverAddress: String,
+        csrfToken: String = "",
+        session: URLSession = .shared,
+        onUnauthorized: (@MainActor @Sendable (APIError) async -> Void)? = nil
+    ) throws {
         let trimmed = serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var components = URLComponents(string: trimmed),
               let scheme = components.scheme?.lowercased(),
@@ -28,6 +34,7 @@ struct APIClient: @unchecked Sendable {
         self.baseURL = normalized
         self.csrfToken = csrfToken.trimmingCharacters(in: .whitespacesAndNewlines)
         self.session = session
+        self.onUnauthorized = onUnauthorized
     }
 
     private static func decode<Response: Decodable>(_ type: Response.Type, from data: Data) throws -> Response {
@@ -152,11 +159,14 @@ struct APIClient: @unchecked Sendable {
         }
         let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
         guard (200..<300).contains(http.statusCode) else {
-            throw APIError(
+            let error = APIError(
                 summary: http.statusCode == 401 ? "登录状态已失效" : http.statusCode == 403 ? "权限不足" : "Quartet 请求失败",
                 detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)",
-                requestWasRejected: true
+                requestWasRejected: true,
+                httpStatusCode: http.statusCode
             )
+            await notifyUnauthorizedIfNeeded(status: http.statusCode, error: error)
+            throw error
         }
 
         let report: UsageStatsReport
@@ -272,11 +282,14 @@ struct APIClient: @unchecked Sendable {
 
         let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
         guard (200..<300).contains(http.statusCode) else {
-            throw APIError(
+            let error = APIError(
                 summary: http.statusCode == 401 ? "登录状态已失效" : http.statusCode == 403 ? "权限不足" : "Quartet 请求失败",
                 detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)",
-                requestWasRejected: true
+                requestWasRejected: true,
+                httpStatusCode: http.statusCode
             )
+            await notifyUnauthorizedIfNeeded(status: http.statusCode, error: error)
+            throw error
         }
 
         do {
@@ -408,7 +421,13 @@ struct APIClient: @unchecked Sendable {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let raw = String(data: responseData, encoding: .utf8) ?? "<\(responseData.count) bytes of non-UTF-8 data>"
         guard (200..<300).contains(status) else {
-            throw APIError(summary: "附件上传失败", detail: "POST \(endpoint.absoluteString)\nHTTP \(status)\n\n\(raw)")
+            let error = APIError(
+                summary: status == 401 ? "登录状态已失效" : "附件上传失败",
+                detail: "POST \(endpoint.absoluteString)\nHTTP \(status)\n\n\(raw)",
+                httpStatusCode: status
+            )
+            await notifyUnauthorizedIfNeeded(status: status, error: error)
+            throw error
         }
         do {
             let response = try Self.decode(UploadResponse.self, from: responseData)
@@ -521,10 +540,13 @@ struct APIClient: @unchecked Sendable {
                 bodyLines.append("读取错误响应失败：\(String(describing: error))")
             }
             let body = bodyLines.joined(separator: "\n")
-            throw APIError(
-                summary: status == 410 ? "事件位置已过期" : "实时连接被拒绝",
-                detail: "GET \(endpoint.absoluteString)\nHTTP \(status)\n\n\(body)"
+            let error = APIError(
+                summary: status == 401 ? "登录状态已失效" : status == 410 ? "事件位置已过期" : "实时连接被拒绝",
+                detail: "GET \(endpoint.absoluteString)\nHTTP \(status)\n\n\(body)",
+                httpStatusCode: status
             )
+            await notifyUnauthorizedIfNeeded(status: status, error: error)
+            throw error
         }
 
         await onOpen()
@@ -601,7 +623,15 @@ struct APIClient: @unchecked Sendable {
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
                 let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
-                throw APIError(summary: "文件加载失败", detail: "GET \(endpoint.absoluteString)\nHTTP \(status)\n\n\(body)")
+                let error = APIError(
+                    summary: status == 401 ? "登录状态已失效" : "文件加载失败",
+                    detail: "GET \(endpoint.absoluteString)\nHTTP \(status)\n\n\(body)",
+                    httpStatusCode: status
+                )
+                if isQuartetAPIURL(endpoint) {
+                    await notifyUnauthorizedIfNeeded(status: status, error: error)
+                }
+                throw error
             }
             return data
         } catch let error as APIError {
@@ -679,11 +709,16 @@ struct APIClient: @unchecked Sendable {
         }
         let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
         guard (200..<300).contains(http.statusCode) else {
-            throw APIError(
+            let error = APIError(
                 summary: http.statusCode == 401 ? "登录状态已失效" : http.statusCode == 403 ? "权限不足" : "Quartet 请求失败",
                 detail: "\(method) \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)",
-                requestWasRejected: true
+                requestWasRejected: true,
+                httpStatusCode: http.statusCode
             )
+            if authenticated {
+                await notifyUnauthorizedIfNeeded(status: http.statusCode, error: error)
+            }
+            throw error
         }
 
         do {
@@ -706,6 +741,22 @@ struct APIClient: @unchecked Sendable {
         }
         components.queryItems = query
         return components.url ?? url
+    }
+
+    private func notifyUnauthorizedIfNeeded(status: Int, error: APIError) async {
+        guard status == 401 else { return }
+        await onUnauthorized?(error)
+    }
+
+    private func isQuartetAPIURL(_ url: URL) -> Bool {
+        guard let baseComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
+              let urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return false
+        }
+        return baseComponents.scheme?.lowercased() == urlComponents.scheme?.lowercased()
+            && baseComponents.host?.lowercased() == urlComponents.host?.lowercased()
+            && baseComponents.port == urlComponents.port
+            && urlComponents.path.contains("/api/v1/")
     }
 
 }
@@ -760,11 +811,13 @@ struct APIError: Error, Sendable {
     let summary: String
     let detail: String
     let requestWasRejected: Bool
+    let httpStatusCode: Int?
 
-    init(summary: String, detail: String, requestWasRejected: Bool = false) {
+    init(summary: String, detail: String, requestWasRejected: Bool = false, httpStatusCode: Int? = nil) {
         self.summary = summary
         self.detail = detail
         self.requestWasRejected = requestWasRejected
+        self.httpStatusCode = httpStatusCode
     }
 }
 

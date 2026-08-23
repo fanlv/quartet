@@ -37,12 +37,10 @@ type Role struct {
 }
 
 type AuthSession struct {
-	TokenHash  string    `json:"tokenHash"`
-	UserID     string    `json:"userId"`
-	CSRFToken  string    `json:"csrfToken"`
-	CreatedAt  time.Time `json:"createdAt"`
-	LastSeenAt time.Time `json:"lastSeenAt"`
-	ExpiresAt  time.Time `json:"expiresAt"`
+	TokenHash string    `json:"tokenHash"`
+	UserID    string    `json:"userId"`
+	CSRFToken string    `json:"csrfToken"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type UserView struct {

@@ -262,7 +262,7 @@ func requestIsSecure(c *app.RequestContext) bool {
 	return strings.EqualFold(string(c.URI().Scheme()), "https") || strings.EqualFold(strings.TrimSpace(string(c.GetHeader("X-Forwarded-Proto"))), "https")
 }
 func setSessionCookie(c *app.RequestContext, token string) {
-	c.SetCookie(auth.CookieName, token, int(auth.SessionMaxAge/time.Second), "/", "", protocol.CookieSameSiteStrictMode, requestIsSecure(c), true)
+	c.SetCookie(auth.CookieName, token, int(auth.PersistentCookieMaxAge/time.Second), "/", "", protocol.CookieSameSiteStrictMode, requestIsSecure(c), true)
 }
 func clearSessionCookie(c *app.RequestContext) {
 	c.SetCookie(auth.CookieName, "", -1, "/", "", protocol.CookieSameSiteStrictMode, requestIsSecure(c), true)

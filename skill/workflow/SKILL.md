@@ -53,7 +53,7 @@ bash <skill_dir>/build.sh   # 产出 <skill_dir>/bin/quartet-cli
 - 首次使用先运行 `quartet-cli auth login --username <用户名>`，密码从终端安全输入。
 - CLI 按 `QUARTET_BASE_URL` 保存服务端登录 Cookie 和 CSRF 凭证，后续命令自动携带。
 - 用 `quartet-cli auth me` 查看当前登录用户；用 `quartet-cli auth logout` 退出。
-- `401` 表示登录会话不存在或已过期，需要重新登录；`403` 表示当前角色缺少该操作所需权限。
+- `401` 表示登录会话不存在或已被撤销，需要重新登录；`403` 表示当前角色缺少该操作所需权限。
 
 所有错误（含后端校验错误）都会**全量打印**到 stderr。结果 JSON 打印到 stdout。
 

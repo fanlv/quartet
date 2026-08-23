@@ -6,8 +6,9 @@
 
 - 私有 `/api/v1/*` 由 `sessionAuthMiddleware` 校验 `quartet_session` Cookie。
 - Cookie 是 host-only、HttpOnly、SameSite=Strict；HTTPS 请求增加 Secure。
-- Cookie 只保存随机会话值，服务端仅保存摘要、用户 ID、CSRF 值与有效期。
-- 会话不存在或过期返回 401；用户已登录但缺少路由权限返回 403。
+- Cookie 只保存随机会话值，服务端仅保存摘要、用户 ID 和 CSRF 值。
+- 登录会话没有时间过期限制，服务重启后继续有效；会话不存在或已被撤销返回 401，用户已登录但缺少路由权限返回 403。
+- Web 和 iOS 收到 401 后返回登录页面。
 - 用户停用、删除或重置密码时撤销其全部会话。
 - `/api/v1/auth/me` 是轻量登录态探测接口，不触发 Agent 探测。
 

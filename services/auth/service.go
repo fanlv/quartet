@@ -28,8 +28,10 @@ const (
 	AdminRoleID        = "admin"
 	MemberRoleID       = "member"
 	ViewerRoleID       = "viewer"
-	SessionMaxAge      = 30 * 24 * time.Hour
-	SessionIdleTimeout = 24 * time.Hour
+	// PersistentCookieMaxAge only controls how long clients retain the cookie.
+	// Auth sessions themselves do not expire and remain valid until explicitly
+	// revoked (logout, password reset/change, user disable, or user deletion).
+	PersistentCookieMaxAge = 10 * 365 * 24 * time.Hour
 )
 
 type State string
@@ -344,8 +346,7 @@ func (s *Service) createSessionLocked(user *model.User) (string, *model.AuthPrin
 	if err != nil {
 		return "", nil, err
 	}
-	now := time.Now().UTC()
-	session := &model.AuthSession{TokenHash: tokenHash(token), UserID: user.ID, CSRFToken: csrf, CreatedAt: now, LastSeenAt: now, ExpiresAt: now.Add(SessionMaxAge)}
+	session := &model.AuthSession{TokenHash: tokenHash(token), UserID: user.ID, CSRFToken: csrf, CreatedAt: time.Now().UTC()}
 	if err := s.repo.SaveSession(session); err != nil {
 		return "", nil, err
 	}
@@ -373,23 +374,9 @@ func (s *Service) Authenticate(token string) (*model.AuthPrincipal, error) {
 	if err != nil {
 		return nil, err
 	}
-	if time.Now().After(session.ExpiresAt) {
-		_ = s.repo.DeleteSession(session.TokenHash)
-		return nil, ErrUnauthorized
-	}
-	if time.Since(session.LastSeenAt) > SessionIdleTimeout {
-		_ = s.repo.DeleteSession(session.TokenHash)
-		return nil, ErrUnauthorized
-	}
 	user := s.users[session.UserID]
 	if user == nil || user.Status != UserStatusActive {
 		return nil, ErrUnauthorized
-	}
-	if time.Since(session.LastSeenAt) > 5*time.Minute {
-		session.LastSeenAt = time.Now().UTC()
-		if err := s.repo.SaveSession(session); err != nil {
-			return nil, err
-		}
 	}
 	return s.principalLocked(user, session.CSRFToken)
 }
