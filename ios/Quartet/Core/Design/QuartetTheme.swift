@@ -2,35 +2,57 @@ import SwiftUI
 import UIKit
 
 enum QuartetTheme {
-    // Neutral graphite surfaces keep the interface calm; phosphor mint carries the brand signal.
-    static let canvas = dynamic(light: 0xF2F5F2, dark: 0x060B09)
-    static let surface = dynamic(light: 0xFBFDFB, dark: 0x0C1512)
-    static let elevated = dynamic(light: 0xE7EDE9, dark: 0x14231E)
-    static let primaryText = dynamic(light: 0x101815, dark: 0xECF8F3)
-    static let secondaryText = dynamic(light: 0x5C6B65, dark: 0x8EA49B)
-    static let divider = dynamic(light: 0xD2DDD7, dark: 0x233A32)
+    // Warm paper and carbon surfaces keep orange and terminal green crisp in both appearances.
+    static let canvas = dynamic(light: 0xF6F2EC, dark: 0x080907)
+    static let surface = dynamic(light: 0xFFFDFC, dark: 0x11130F)
+    static let elevated = dynamic(light: 0xECE5DC, dark: 0x1B1F18)
+    static let primaryText = dynamic(light: 0x181410, dark: 0xF7F2EA)
+    static let secondaryText = dynamic(light: 0x685E54, dark: 0xABA297)
+    static let divider = dynamic(light: 0xD8CEC3, dark: 0x33382F)
 
-    static let accent = dynamic(light: 0x007C5E, dark: 0x42E6B1)
-    static let onAccent = dynamic(light: 0xFFFFFF, dark: 0x04110D)
-    static let success = dynamic(light: 0x5F7C16, dark: 0xB4D64B)
-    static let running = dynamic(light: 0x9A5600, dark: 0xF2B84B)
-    static let failed = dynamic(light: 0xB83A44, dark: 0xFF747D)
-    static let stopped = dynamic(light: 0x5E6B66, dark: 0x8B9B95)
+    // Orange owns brand and primary actions. Green is reserved for live, healthy, and terminal states.
+    static let accent = dynamic(light: 0xC64B00, dark: 0xFF7A1A)
+    static let accentDeep = dynamic(light: 0x8F3500, dark: 0xFF9D52)
+    static let accentSoft = dynamic(light: 0xE46A16, dark: 0xD85D0B)
+    static let onAccent = dynamic(light: 0xFFFFFF, dark: 0x160A02)
+    static let terminalGreen = dynamic(light: 0x08783E, dark: 0x4DFF88)
+    static let terminalGreenMuted = dynamic(light: 0x3E704D, dark: 0x79C98F)
+    static let success = terminalGreenMuted
+    static let running = terminalGreen
+    static let warning = accent
+    static let failed = dynamic(light: 0xB62435, dark: 0xFF5364)
+    static let onDanger = dynamic(light: 0xFFFFFF, dark: 0x190205)
+    static let stopped = dynamic(light: 0x686159, dark: 0xA39B91)
 
-    // Restrained secondary hues are reserved for charts and mode identification.
-    static let chartLime = success
-    static let chartViolet = dynamic(light: 0x745D91, dark: 0xB49BD3)
-    static let chartRose = dynamic(light: 0xA64F69, dark: 0xE58AA2)
-    static let chartSlate = dynamic(light: 0x526D64, dark: 0x87A49A)
+    // Code surfaces deliberately stay dark: this is the focused hacker-console moment.
+    static let terminalBackground = dynamic(light: 0x10130F, dark: 0x040704)
+    static let terminalText = dynamic(light: 0x42E978, dark: 0x62FF98)
+    static let terminalBorder = dynamic(light: 0x285F39, dark: 0x245D36)
+
+    // Charts use approved hues only; line shape and labels remain the primary differentiators.
+    static let chartOrange = accent
+    static let chartDeepOrange = accentDeep
+    static let chartSoftOrange = accentSoft
+    static let chartGreen = terminalGreen
+    static let chartMutedGreen = terminalGreenMuted
+    static let chartRed = failed
+    static let chartGraphite = dynamic(light: 0x4F4942, dark: 0xC4BBB0)
 
     static func statusColor(_ status: String) -> Color {
         switch status.lowercased() {
-        case "running": accent
-        case "pending", "awaitinginput", "stepstopping": running
+        case "running": running
+        case "pending", "awaitinginput", "stepstopping": warning
         case "completed": success
         case "failed", "timedout": failed
         default: stopped
         }
+    }
+
+    static func workspaceTint(_ seed: String?) -> Color {
+        guard let seed, !seed.isEmpty else { return accent }
+        let checksum = seed.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0x7fffffff }
+        let palette = [chartOrange, chartGreen, chartDeepOrange, chartMutedGreen, chartGraphite]
+        return palette[checksum % palette.count]
     }
 
     private static func dynamic(light: UInt32, dark: UInt32) -> Color {
@@ -84,7 +106,7 @@ struct PulseMark: View {
         HStack(spacing: 5) {
             ForEach(0..<4, id: \.self) { index in
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(index == 2 ? QuartetTheme.accent : QuartetTheme.secondaryText.opacity(0.45))
+                    .fill(index == 2 ? QuartetTheme.accent : QuartetTheme.terminalGreenMuted.opacity(0.58))
                     .frame(width: 4, height: [12, 24, 36, 18][index])
             }
         }
@@ -102,7 +124,7 @@ struct RunningPulseLine: View {
                 Rectangle().fill(QuartetTheme.divider)
                 if active {
                     Capsule()
-                        .fill(QuartetTheme.accent)
+                        .fill(QuartetTheme.running)
                         .frame(width: max(48, proxy.size.width * 0.25))
                         .offset(x: moving ? proxy.size.width : -proxy.size.width * 0.25)
                 }
@@ -113,5 +135,96 @@ struct RunningPulseLine: View {
         .onAppear { moving = true }
         .animation(active ? .linear(duration: 1.8).repeatForever(autoreverses: false) : .default, value: moving)
         .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    func quartetSheetStyle() -> some View {
+        presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
+            .presentationBackground(QuartetTheme.canvas)
+    }
+}
+
+struct AttachmentSourcePopover: View {
+    let onCamera: () -> Void
+    let onFile: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("添加附件")
+                    .font(.quartet(.regular, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Text("选择相机拍摄，或从系统文件中添加图片。")
+                    .font(.quartet(.detail))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(spacing: 0) {
+                actionRow(
+                    title: "相机",
+                    detail: "拍摄一张新照片",
+                    systemImage: "camera.fill",
+                    action: onCamera
+                )
+
+                Divider()
+                    .overlay(QuartetTheme.divider)
+                    .padding(.leading, 52)
+
+                actionRow(
+                    title: "文件",
+                    detail: "支持最大 10MB 的图片",
+                    systemImage: "folder.fill",
+                    action: onFile
+                )
+            }
+            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .padding(16)
+        .frame(width: 286)
+        .background(QuartetTheme.surface)
+        .presentationCompactAdaptation(.popover)
+        .presentationBackground(QuartetTheme.surface)
+    }
+
+    private func actionRow(
+        title: String,
+        detail: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.accent)
+                    .frame(width: 34, height: 34)
+                    .background(QuartetTheme.accent.opacity(0.12), in: Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                    Text(detail)
+                        .font(.quartet(.compact))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.quartet(.compact, weight: .bold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+            .padding(.horizontal, 10)
+            .frame(minHeight: 58)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
     }
 }

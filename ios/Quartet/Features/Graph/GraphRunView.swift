@@ -637,12 +637,24 @@ private struct GraphNodeSessionView: View {
             VStack(alignment: .leading, spacing: 8) {
                 GraphMetaTile(title: "SESSION ID", value: sessionID)
                 HStack(alignment: .top, spacing: 12) {
-                    GraphMetaTile(title: "模型", value: modelID.isEmpty ? "—" : modelID)
+                    GraphMetaTile(title: "模型", value: AgentConfigurationDisplay.modelName(
+                        modelID,
+                        agentReference: agentType,
+                        agents: appModel.agentCatalogSnapshot
+                    ) ?? "—")
                     GraphMetaTile(title: "Agent", value: agentType ?? "—")
                 }
                 HStack(alignment: .top, spacing: 12) {
-                    GraphMetaTile(title: "模式", value: acpMode ?? "—")
-                    GraphMetaTile(title: "思考等级", value: thoughtLevel ?? "—")
+                    GraphMetaTile(title: "模式", value: AgentConfigurationDisplay.modeName(
+                        acpMode,
+                        agentReference: agentType,
+                        agents: appModel.agentCatalogSnapshot
+                    ) ?? "—")
+                    GraphMetaTile(title: "思考等级", value: AgentConfigurationDisplay.thoughtLevelName(
+                        thoughtLevel,
+                        agentReference: agentType,
+                        agents: appModel.agentCatalogSnapshot
+                    ) ?? "—")
                 }
                 if let workdir, !workdir.isEmpty {
                     GraphMetaTile(title: "Workdir", value: workdir)
@@ -667,6 +679,9 @@ private struct GraphNodeSessionView: View {
     private func load() async {
         loading = true
         defer { loading = false }
+        if appModel.agentCatalogSnapshot.isEmpty {
+            await appModel.refreshAgentCatalog()
+        }
         do {
             let response = try await appModel.apiClient().sessionMessages(id: sessionID)
             messages = response.messages

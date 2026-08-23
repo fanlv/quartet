@@ -203,6 +203,20 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/agent/list")
     }
 
+    func agentUsage(provider: String) async throws -> AgentUsageResponse {
+        try await request(
+            path: "api/v1/agent/usage",
+            query: [URLQueryItem(name: "type", value: provider)]
+        )
+    }
+
+    func agentVersion(command: String) async throws -> AgentVersionResponse {
+        try await request(
+            path: "api/v1/agent/version",
+            query: [URLQueryItem(name: "command", value: command)]
+        )
+    }
+
     func setACPConfig(_ body: SetACPConfigRequest) async throws -> SetACPConfigResponse {
         try await request(path: "api/v1/agent/config", method: "POST", body: body)
     }

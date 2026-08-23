@@ -331,10 +331,10 @@ private struct StatsKPIGrid: View {
         }
         return [
             StatsKPICard(id: "duration", title: "总耗时", value: StatsFormat.duration(totalMs), current: Double(totalMs), previous: report.previous.map { Double($0.totalMs) }, icon: "clock", color: QuartetTheme.accent),
-            StatsKPICard(id: "turns", title: "总轮次", value: StatsFormat.count(turns), current: Double(turns), previous: report.previous.map { Double($0.turnCount) }, icon: "bubble.left.and.bubble.right", color: QuartetTheme.chartLime),
+            StatsKPICard(id: "turns", title: "总轮次", value: StatsFormat.count(turns), current: Double(turns), previous: report.previous.map { Double($0.turnCount) }, icon: "bubble.left.and.bubble.right", color: QuartetTheme.chartGreen),
             StatsKPICard(id: "tokens", title: "Token", value: StatsFormat.count(tokens), current: Double(tokens), previous: report.previous.map { Double(StatsFormat.displayedTokens($0.tokensTotal)) }, icon: "text.word.spacing", color: QuartetTheme.running),
-            StatsKPICard(id: "tools", title: "工具调用", value: StatsFormat.count(tools), current: Double(tools), previous: report.previous.map { Double($0.toolCallCount) }, icon: "wrench.and.screwdriver", color: QuartetTheme.chartViolet),
-            StatsKPICard(id: "workspaces", title: "工作区", value: StatsFormat.count(report.byWorkspace.count), current: Double(report.byWorkspace.count), previous: report.previous.map { Double($0.workspaceCount) }, icon: "square.grid.2x2", color: QuartetTheme.chartSlate)
+            StatsKPICard(id: "tools", title: "工具调用", value: StatsFormat.count(tools), current: Double(tools), previous: report.previous.map { Double($0.toolCallCount) }, icon: "wrench.and.screwdriver", color: QuartetTheme.chartDeepOrange),
+            StatsKPICard(id: "workspaces", title: "工作区", value: StatsFormat.count(report.byWorkspace.count), current: Double(report.byWorkspace.count), previous: report.previous.map { Double($0.workspaceCount) }, icon: "square.grid.2x2", color: QuartetTheme.chartGraphite)
         ]
     }
 }
@@ -543,12 +543,12 @@ private struct StatsTrendCard: View {
         }
         let modelIDs = modelIDSet.sorted()
         let palette: [Color] = [
-            QuartetTheme.chartLime,
-            QuartetTheme.chartViolet,
-            QuartetTheme.running,
-            QuartetTheme.failed,
-            QuartetTheme.chartRose,
-            QuartetTheme.chartSlate
+            QuartetTheme.chartGreen,
+            QuartetTheme.chartDeepOrange,
+            QuartetTheme.chartMutedGreen,
+            QuartetTheme.chartRed,
+            QuartetTheme.chartSoftOrange,
+            QuartetTheme.chartGraphite
         ]
         for (index, modelID) in modelIDs.enumerated() {
             let name = days.compactMap { $0.modelNames?[modelID] }.first ?? StatsFormat.modelName(modelID)

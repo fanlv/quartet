@@ -65,21 +65,48 @@ final class QuartetUITests: XCTestCase {
     func testConversationAndSettingsFlows() {
         launchDashboard()
 
+        XCTAssertTrue(app.tabBars.buttons["最近任务"].exists)
         app.buttons["job-job-chat-running"].tap()
         XCTAssertTrue(app.navigationBars["优化 iOS 交互体验"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
         XCTAssertTrue(app.textFields["chat-composer"].exists)
         XCTAssertTrue(app.staticTexts["已完成第一轮检查。运行状态和操作反馈都已同步。"].exists)
         XCTAssertTrue(app.staticTexts["TraeCode"].exists)
         XCTAssertFalse(app.staticTexts["ASSISTANT"].exists)
         XCTAssertTrue(app.staticTexts["AI 正在思考..."].exists)
         XCTAssertFalse(app.staticTexts["当前轮次运行中，新消息会保存到服务端队列并按顺序发送。"].exists)
+
         app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.tabBars.buttons["最近任务"].waitForExistence(timeout: 2))
 
         app.tabBars.buttons["设置"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["https://quartet.example.test/"].exists)
         app.buttons["settings-edit-connection"].tap()
         XCTAssertTrue(app.buttons["connection-submit"].waitForExistence(timeout: 3))
+    }
+
+    func testChatAttachmentMenuAnchorsAboveComposerButton() {
+        launchDashboard()
+
+        app.buttons["job-job-chat-running"].tap()
+        XCTAssertTrue(app.navigationBars["优化 iOS 交互体验"].waitForExistence(timeout: 5))
+
+        let attachmentMenu = app.buttons["chat-attachment-menu"]
+        XCTAssertTrue(attachmentMenu.exists)
+        let attachmentAnchorFrame = attachmentMenu.frame
+        attachmentMenu.tap()
+
+        let cameraAction = app.buttons["相机"]
+        let fileAction = app.buttons["文件"]
+        XCTAssertTrue(cameraAction.waitForExistence(timeout: 2))
+        XCTAssertTrue(fileAction.exists)
+        XCTAssertLessThan(fileAction.frame.maxY, attachmentAnchorFrame.minY)
+        XCTAssertLessThan(fileAction.frame.minX, attachmentAnchorFrame.midX)
+        XCTAssertGreaterThan(fileAction.frame.maxX, attachmentAnchorFrame.midX)
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.08)).tap()
+        XCTAssertFalse(fileAction.waitForExistence(timeout: 1))
     }
 
     func testUsageStatsTabShowsDashboard() {

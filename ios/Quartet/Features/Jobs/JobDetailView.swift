@@ -31,6 +31,11 @@ struct JobDetailView: View {
         .background(QuartetTheme.canvas)
         .navigationTitle(summary.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if model.agentCatalogSnapshot.isEmpty {
+                await model.refreshAgentCatalog()
+            }
+        }
         .task { await load() }
         .refreshable { await load() }
         .sheet(isPresented: $presentsLatestError) {
@@ -53,6 +58,7 @@ struct JobDetailView: View {
                     }
                 }
             }
+            .quartetSheetStyle()
         }
         .alert("停止这个 Job？", isPresented: $confirmsStop) {
             Button("取消", role: .cancel) {}
@@ -91,7 +97,11 @@ struct JobDetailView: View {
             DetailRow(label: "JOB ID", value: detail.id)
             DetailRow(label: "WORKSPACE", value: detail.workspaceId)
             DetailRow(label: "SCHEDULE", value: detail.scheduleId ?? summary.scheduleId ?? "—")
-            DetailRow(label: "MODEL", value: detail.firstModelId ?? summary.modelId ?? "—")
+            DetailRow(label: "MODEL", value: AgentConfigurationDisplay.modelName(
+                detail.firstModelId ?? summary.modelId,
+                agentReference: detail.initialAgentId ?? summary.agentId,
+                agents: model.agentCatalogSnapshot
+            ) ?? "—")
             DetailRow(label: "STATUS", value: statusLabel(graphState?.status ?? detail.status))
             DetailRow(label: "WORKDIR", value: detail.workdir ?? "—")
             DetailRow(label: "SESSIONS", value: String(detail.sessionCount))

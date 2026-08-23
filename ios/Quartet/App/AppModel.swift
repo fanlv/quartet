@@ -28,6 +28,11 @@ final class AppModel: ObservableObject {
         let updatedAt: Date
     }
 
+    private struct OptimisticJobExecution {
+        let baseline: JobSummary
+        let display: JobSummary
+    }
+
     static let defaultServerAddress = "https://devbox.fanlv.fun/"
 
     @Published var phase: ConnectionPhase = .booting
@@ -44,6 +49,7 @@ final class AppModel: ObservableObject {
             username = ""
             password = ""
             csrfToken = ""
+            agentCatalogSnapshot = []
         }
     }
     @Published var username: String = ""
@@ -51,6 +57,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var health: HealthResponse?
     @Published private(set) var workspaces: [WorkspaceSummary] = []
     @Published private(set) var jobs: [JobSummary] = []
+    @Published private(set) var agentCatalogSnapshot: [AgentSummary] = []
     @Published private(set) var selectedWorkspaceID: String?
     @Published private(set) var hideScheduledJobs: Bool
     @Published private(set) var isRefreshing = false
@@ -81,6 +88,7 @@ final class AppModel: ObservableObject {
     private var dashboardPollETag: String?
     private var dashboardPollScope: DashboardPollScope?
     private var uiTestJobs: [JobSummary] = []
+    private var optimisticJobExecutions: [String: OptimisticJobExecution] = [:]
 
     init(
         defaults: UserDefaults = .standard,
@@ -579,7 +587,9 @@ final class AppModel: ObservableObject {
     }
 
     func displayedStatus(for job: JobSummary) -> String {
-        graphJobStates[job.id]?.status
+        optimisticJobExecutions[job.id] != nil
+            ? "running"
+            : graphJobStates[job.id]?.status
             ?? job.status
     }
 
@@ -611,8 +621,9 @@ final class AppModel: ObservableObject {
     }
 
     func agentCatalog() async throws -> [AgentSummary] {
+        let catalog: [AgentSummary]
         if isRunningUITests {
-            return [
+            catalog = [
                 AgentSummary(
                     agentId: "trae",
                     type: "trae",
@@ -639,8 +650,19 @@ final class AppModel: ObservableObject {
                     )
                 )
             ]
+        } else {
+            catalog = try await makeClient().agents().agentList
         }
-        return try await makeClient().agents().agentList
+        agentCatalogSnapshot = catalog
+        return catalog
+    }
+
+    func refreshAgentCatalog() async {
+        do {
+            _ = try await agentCatalog()
+        } catch {
+            present(error)
+        }
     }
 
     func agentPreferences() async throws -> [String: AgentPreferences] {
@@ -728,6 +750,29 @@ final class AppModel: ObservableObject {
         let response = try await makeClient().createJob(request)
         hasPendingSync = true
         return response.jobId
+    }
+
+    func beginOptimisticJobExecution(id: String, fallback: JobSummary? = nil) {
+        guard let current = jobs.first(where: { $0.id == id }) ?? fallback else { return }
+        let now = Int64(Date().timeIntervalSince1970 * 1_000)
+        let baseline = optimisticJobExecutions[id]?.baseline ?? current
+        let display = current.updating(updatedAt: max(current.updatedAt, now))
+        optimisticJobExecutions[id] = OptimisticJobExecution(
+            baseline: baseline,
+            display: display
+        )
+        upsertVisibleJob(display)
+        hasPendingSync = true
+    }
+
+    func cancelOptimisticJobExecution(id: String) {
+        guard let optimistic = optimisticJobExecutions.removeValue(forKey: id) else { return }
+        if shouldDisplayJob(optimistic.baseline) {
+            upsertVisibleJob(optimistic.baseline)
+        } else {
+            jobs.removeAll { $0.id == id }
+        }
+        hasPendingSync = !optimisticJobExecutions.isEmpty
     }
 
     func sentMessageHistory(workspaceID: String?) throws -> [SentMessageHistoryItem] {
@@ -929,6 +974,7 @@ final class AppModel: ObservableObject {
         workspaces = []
         jobs = []
         graphJobStates = [:]
+        optimisticJobExecutions = [:]
         selectedWorkspaceID = nil
         nextCursor = nil
         hasMoreJobs = false
@@ -1229,7 +1275,10 @@ final class AppModel: ObservableObject {
     }
 
     private func applyFirstPage(_ response: JobsPage) {
-        jobs = response.jobs
+        var merged = response.jobs.map(reconcileOptimisticJobExecution)
+        appendMissingOptimisticJobs(to: &merged)
+        merged.sort(by: jobComesBefore)
+        jobs = merged
         nextCursor = response.nextCursor
         hasMoreJobs = response.hasMore
     }
@@ -1239,6 +1288,7 @@ final class AppModel: ObservableObject {
         let previousByID = Dictionary(uniqueKeysWithValues: previousJobs.map { ($0.id, $0) })
         let fetchedIDs = Set(response.jobs.map(\.id))
         var merged = response.jobs.map { fresh in
+            let fresh = reconcileOptimisticJobExecution(fresh)
             guard let existing = previousByID[fresh.id] else { return fresh }
             return existing == fresh ? existing : fresh
         }
@@ -1250,6 +1300,7 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+        appendMissingOptimisticJobs(to: &merged)
         merged.sort(by: jobComesBefore)
         jobs = merged
 
@@ -1269,6 +1320,42 @@ final class AppModel: ObservableObject {
         if lhsPinnedAt != rhsPinnedAt { return lhsPinnedAt > rhsPinnedAt }
         if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
         return lhs.id < rhs.id
+    }
+
+    private func reconcileOptimisticJobExecution(_ fresh: JobSummary) -> JobSummary {
+        guard let optimistic = optimisticJobExecutions[fresh.id] else { return fresh }
+        let hasStarted = fresh.status == "running" || fresh.status == "stepStopping"
+        let hasNewerTerminalState = fresh.status != "pending"
+            && fresh.updatedAt > optimistic.baseline.updatedAt
+        if hasStarted || hasNewerTerminalState {
+            optimisticJobExecutions.removeValue(forKey: fresh.id)
+            return fresh
+        }
+        return optimistic.display
+    }
+
+    private func appendMissingOptimisticJobs(to merged: inout [JobSummary]) {
+        let existingIDs = Set(merged.map(\.id))
+        for (id, optimistic) in optimisticJobExecutions
+        where !existingIDs.contains(id) && shouldDisplayJob(optimistic.display) {
+            merged.append(optimistic.display)
+        }
+    }
+
+    private func upsertVisibleJob(_ job: JobSummary) {
+        guard shouldDisplayJob(job) else { return }
+        if let index = jobs.firstIndex(where: { $0.id == job.id }) {
+            jobs[index] = job
+        } else {
+            jobs.append(job)
+        }
+        jobs.sort(by: jobComesBefore)
+    }
+
+    private func shouldDisplayJob(_ job: JobSummary) -> Bool {
+        if let selectedWorkspaceID, job.workspaceId != selectedWorkspaceID { return false }
+        if hideScheduledJobs, job.scheduleId?.isEmpty == false { return false }
+        return true
     }
 
     private func beginDashboardRequest() -> UInt64 {
@@ -1308,7 +1395,9 @@ final class AppModel: ObservableObject {
     private func dashboardCacheSnapshot() -> DashboardCacheSnapshot {
         DashboardCacheSnapshot(
             workspaces: workspaces,
-            jobs: jobs.map(CachedJobSummary.init),
+            jobs: jobs.map { job in
+                CachedJobSummary(optimisticJobExecutions[job.id]?.baseline ?? job)
+            },
             selectedWorkspaceID: selectedWorkspaceID,
             serverAddress: serverAddress,
             credentialNamespace: credentialCacheNamespace,
@@ -1352,7 +1441,7 @@ final class AppModel: ObservableObject {
         defaults.set(now.timeIntervalSince1970, forKey: StorageKey.lastSuccessfulSyncAt)
         lastSyncFailureMessage = nil
         isDataStale = false
-        hasPendingSync = false
+        hasPendingSync = !optimisticJobExecutions.isEmpty
         isUsingCachedData = false
     }
 

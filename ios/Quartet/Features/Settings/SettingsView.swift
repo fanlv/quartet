@@ -19,7 +19,13 @@ struct SettingsView: View {
                             .foregroundStyle(QuartetTheme.primaryText)
                             .textSelection(.enabled)
                         HStack(spacing: 7) {
-                            Circle().fill(model.connectionState.isConnected ? QuartetTheme.accent : QuartetTheme.failed).frame(width: 8, height: 8)
+                            Circle()
+                                .fill(
+                                    !model.connectionState.isConnected
+                                        ? QuartetTheme.failed
+                                        : (model.connectionState.isStale ? QuartetTheme.warning : QuartetTheme.terminalGreen)
+                                )
+                                .frame(width: 8, height: 8)
                             Text(model.connectionState.isConnected ? (model.connectionState.isStale ? "缓存中" : "已连接") : "未连接")
                             if let buildTime = model.health?.buildTime { Text("· \(buildTime)") }
                         }

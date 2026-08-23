@@ -16,6 +16,14 @@ struct JobChatView: View {
     @State private var showsAttachmentMenu = false
     @State private var showsCameraPicker = false
     @State private var showsDocumentPicker = false
+    @State private var showsMessageLibrary = false
+    @State private var focusesComposerAfterMessageLibrary = false
+    @State private var sentMessageHistory: [SentMessageHistoryItem] = []
+    @State private var projectMessagePresets: [MessagePreset] = []
+    @State private var globalMessagePresets: [MessagePreset] = []
+    @State private var messagePresetLoadErrors: [String] = []
+    @State private var loadingMessagePresets = false
+    @State private var linkedThoughtLevelsForDisplay: AgentThoughtLevelState?
     @FocusState private var composerFocused: Bool
 
     var body: some View {
@@ -26,7 +34,6 @@ struct JobChatView: View {
         .background(QuartetTheme.canvas)
         .navigationTitle(chat.title.isEmpty ? route.summary.displayTitle : chat.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 NavigationLink {
@@ -35,12 +42,6 @@ struct JobChatView: View {
                     Image(systemName: "info.circle")
                 }
                 .accessibilityLabel("Job 详情")
-                if chat.isRunning {
-                    Button(role: .destructive) { confirmsStop = true } label: {
-                        Image(systemName: "stop.fill")
-                    }
-                    .accessibilityLabel("停止生成")
-                }
             }
         }
         .task(id: route.summary.id) {
@@ -54,6 +55,14 @@ struct JobChatView: View {
             } catch {
                 appModel.present(error)
             }
+        }
+        .task(id: route.summary.id) {
+            if appModel.agentCatalogSnapshot.isEmpty {
+                await appModel.refreshAgentCatalog()
+            }
+        }
+        .task(id: thoughtLevelDisplayConfigurationKey) {
+            await refreshThoughtLevelDisplayOptions()
         }
         .onDisappear { chat.stopStreaming() }
         .onChange(of: scenePhase) { _, phase in
@@ -83,12 +92,10 @@ struct JobChatView: View {
             guard route.summary.mode != "graph" else { return }
             Task { await appModel.reloadJobs() }
         }
-        .confirmationDialog("添加附件", isPresented: $showsAttachmentMenu, titleVisibility: .visible) {
-            Button("相机") { requestCameraAccess() }
-            Button("文件") { showsDocumentPicker = true }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("照片可使用输入框左侧的照片按钮选择，文件支持最大 10MB。")
+        .onChange(of: chat.sending) { wasSending, isSending in
+            guard wasSending, !isSending, !chat.isRunning else { return }
+            appModel.cancelOptimisticJobExecution(id: route.summary.id)
+            Task { await appModel.reloadJobs() }
         }
         .alert("停止当前执行？", isPresented: $confirmsStop) {
             Button("取消", role: .cancel) {}
@@ -117,6 +124,7 @@ struct JobChatView: View {
                     showsCameraPicker = false
                 }
             )
+            .quartetSheetStyle()
         }
         .sheet(isPresented: $showsDocumentPicker) {
             DocumentAttachmentPicker(
@@ -128,6 +136,26 @@ struct JobChatView: View {
                     showsDocumentPicker = false
                 }
             )
+            .quartetSheetStyle()
+        }
+        .sheet(isPresented: $showsMessageLibrary, onDismiss: {
+            if focusesComposerAfterMessageLibrary {
+                focusesComposerAfterMessageLibrary = false
+                composerFocused = true
+            }
+        }) {
+            MessagePresetHistorySheet(
+                currentMessage: $draft,
+                projectPresets: projectMessagePresets,
+                globalPresets: globalMessagePresets,
+                history: sentMessageHistory,
+                errors: messagePresetLoadErrors,
+                loading: loadingMessagePresets,
+                onApplied: { focusesComposerAfterMessageLibrary = true }
+            )
+            .presentationDetents([.medium, .large])
+            .quartetSheetStyle()
+            .task(id: route.summary.workspaceId) { await loadMessagePresets() }
         }
     }
 
@@ -158,6 +186,7 @@ struct JobChatView: View {
                     }
                     if chat.isRunning {
                         HStack(spacing: 9) {
+                            Spacer(minLength: 0)
                             ProgressView()
                                 .controlSize(.small)
                                 .tint(QuartetTheme.accent)
@@ -293,6 +322,24 @@ struct JobChatView: View {
                 WrappingHStack(spacing: 7) {
                     composerContext
 
+                    Button {
+                        composerFocused = false
+                        loadSentMessageHistory()
+                        loadingMessagePresets = true
+                        showsMessageLibrary = true
+                    } label: {
+                        Label("历史会话", systemImage: "clock.arrow.circlepath")
+                            .font(.quartet(.compact, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .padding(.horizontal, 10)
+                            .frame(height: 36)
+                            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("预置消息与历史")
+                    .accessibilityHint("打开后可从分组列表中选择")
+                    .accessibilityIdentifier("chat-message-history")
+
                     PhotosPicker(selection: $selectedPhoto, matching: .images) {
                         Image(systemName: hasPendingAttachment ? "paperclip.circle.fill" : "photo")
                             .font(.quartet(.control, weight: .semibold))
@@ -315,6 +362,45 @@ struct JobChatView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("更多附件来源")
+                    .accessibilityIdentifier("chat-attachment-menu")
+                    .popover(
+                        isPresented: $showsAttachmentMenu,
+                        attachmentAnchor: .rect(.bounds),
+                        arrowEdge: .bottom
+                    ) {
+                        AttachmentSourcePopover(
+                            onCamera: {
+                                showsAttachmentMenu = false
+                                Task { @MainActor in
+                                    await Task.yield()
+                                    requestCameraAccess()
+                                }
+                            },
+                            onFile: {
+                                showsAttachmentMenu = false
+                                Task { @MainActor in
+                                    await Task.yield()
+                                    showsDocumentPicker = true
+                                }
+                            }
+                        )
+                    }
+
+                    if chat.isRunning {
+                        Button(role: .destructive) {
+                            composerFocused = false
+                            confirmsStop = true
+                        } label: {
+                            Image(systemName: "stop.fill")
+                                .font(.quartet(.control, weight: .bold))
+                                .foregroundStyle(QuartetTheme.onAccent)
+                                .frame(width: 38, height: 38)
+                                .background(QuartetTheme.failed, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("停止生成")
+                        .accessibilityIdentifier("chat-stop")
+                    }
 
                     Button {
                         composerFocused = false
@@ -359,25 +445,25 @@ struct JobChatView: View {
     private var composerContext: some View {
         Group {
             ComposerMetadataChip(
-                icon: "sparkles",
+                agentIconUrl: chat.agentDisplayIconUrl,
                 text: chat.agentDisplayLabel,
                 accessibilityLabel: "Agent，\(chat.agentDisplayLabel)"
             )
             ComposerMetadataChip(
                 icon: "cpu",
-                text: chat.modelDisplayLabel,
-                accessibilityLabel: "Model ID，\(chat.modelDisplayLabel)"
+                text: modelDisplayLabel,
+                accessibilityLabel: "模型，\(modelDisplayLabel)"
             )
             ComposerMetadataChip(
                 icon: "slider.horizontal.3",
-                text: chat.modeDisplayLabel,
-                accessibilityLabel: "Mode，\(chat.modeDisplayLabel)"
+                text: modeDisplayLabel,
+                accessibilityLabel: "模式，\(modeDisplayLabel)"
             )
-            if let thoughtLevel = chat.thoughtLevelDisplayLabel {
+            if let thoughtLevel = thoughtLevelDisplayLabel {
                 ComposerMetadataChip(
                     icon: "brain.head.profile",
                     text: thoughtLevel,
-                    accessibilityLabel: "Thought level，\(thoughtLevel)"
+                    accessibilityLabel: "思考等级，\(thoughtLevel)"
                 )
             }
             ComposerMetadataChip(
@@ -385,6 +471,12 @@ struct JobChatView: View {
                 text: chat.tokenCountLabel,
                 accessibilityLabel: chat.tokenCountAccessibilityLabel
             )
+            if let agentType = agentRuntimeType {
+                AgentUsageStrip(
+                    command: agentType,
+                    displayName: chat.agentDisplayLabel
+                )
+            }
             if chat.showsDuration {
                 TimelineView(.periodic(from: .now, by: 1)) { timeline in
                     ComposerMetadataChip(
@@ -408,6 +500,49 @@ struct JobChatView: View {
         chat.loading || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImage == nil)
     }
 
+    private var modelDisplayLabel: String {
+        AgentConfigurationDisplay.modelName(
+            chat.modelIDForDisplay,
+            agentReference: chat.agentReferenceForDisplay,
+            agents: appModel.agentCatalogSnapshot
+        ) ?? "未指定 Model"
+    }
+
+    private var agentRuntimeType: String? {
+        guard let reference = chat.agentRuntimeType else { return nil }
+        return appModel.agentCatalogSnapshot.first {
+            $0.agentId == reference || $0.type == reference
+        }?.type ?? reference
+    }
+
+    private var modeDisplayLabel: String {
+        AgentConfigurationDisplay.modeName(
+            chat.modeIDForDisplay,
+            agentReference: chat.agentReferenceForDisplay,
+            agents: appModel.agentCatalogSnapshot
+        ) ?? "默认模式"
+    }
+
+    private var thoughtLevelDisplayLabel: String? {
+        if let thoughtLevelID = chat.thoughtLevelIDForDisplay,
+           let name = linkedThoughtLevelsForDisplay?.availableThoughtLevels
+            .first(where: { $0.id == thoughtLevelID })?.name,
+           !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return name
+        }
+        return AgentConfigurationDisplay.thoughtLevelName(
+            chat.thoughtLevelIDForDisplay,
+            agentReference: chat.agentReferenceForDisplay,
+            agents: appModel.agentCatalogSnapshot
+        )
+    }
+
+    private var thoughtLevelDisplayConfigurationKey: String {
+        [chat.agentReferenceForDisplay, chat.modelIDForDisplay, chat.thoughtLevelIDForDisplay]
+            .compactMap { $0 }
+            .joined(separator: "::")
+    }
+
     private func enqueueDraft() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || pendingImage != nil else { return }
@@ -416,10 +551,74 @@ struct JobChatView: View {
         } catch {
             appModel.present(error)
         }
-        chat.enqueueDraft(text: text, attachment: pendingImage)
+        if chat.enqueueDraft(text: text, attachment: pendingImage) != nil {
+            appModel.beginOptimisticJobExecution(id: route.summary.id, fallback: route.summary)
+        }
         draft = ""
         pendingImage = nil
         selectedPhoto = nil
+    }
+
+    private func loadSentMessageHistory() {
+        do {
+            sentMessageHistory = try appModel.sentMessageHistory(workspaceID: route.summary.workspaceId)
+        } catch {
+            appModel.present(error)
+        }
+    }
+
+    private func loadMessagePresets() async {
+        guard let workspaceID = route.summary.workspaceId, !workspaceID.isEmpty else {
+            projectMessagePresets = []
+            globalMessagePresets = []
+            messagePresetLoadErrors = []
+            loadingMessagePresets = false
+            return
+        }
+        loadingMessagePresets = true
+        projectMessagePresets = []
+        globalMessagePresets = []
+        messagePresetLoadErrors = []
+        defer { loadingMessagePresets = false }
+        do {
+            let response = try await appModel.effectiveMessagePresets(workspaceID: workspaceID)
+            projectMessagePresets = response.project
+            globalMessagePresets = response.global
+            messagePresetLoadErrors = (response.errors ?? []).map { error in
+                [error.scope, error.file, error.error]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+            }
+        } catch is CancellationError {
+            return
+        } catch let error as APIError {
+            messagePresetLoadErrors = ["\(error.summary)\n\n\(error.detail)"]
+        } catch {
+            messagePresetLoadErrors = [String(reflecting: error)]
+        }
+    }
+
+    private func refreshThoughtLevelDisplayOptions() async {
+        guard let agentReference = chat.agentReferenceForDisplay,
+              let modelID = chat.modelIDForDisplay,
+              chat.thoughtLevelIDForDisplay != nil else {
+            linkedThoughtLevelsForDisplay = nil
+            return
+        }
+        let agentType = appModel.agentCatalogSnapshot.first { agent in
+            agent.agentId == agentReference || agent.type == agentReference
+        }?.type ?? agentReference
+        linkedThoughtLevelsForDisplay = nil
+        do {
+            linkedThoughtLevelsForDisplay = try await appModel.relinkACPThoughtLevels(
+                agentType: agentType,
+                modelID: modelID
+            )
+        } catch is CancellationError {
+            return
+        } catch {
+            appModel.present(error)
+        }
     }
 
     private func loadPhoto(_ item: PhotosPickerItem) async {
@@ -506,14 +705,33 @@ struct JobChatView: View {
 }
 
 private struct ComposerMetadataChip: View {
-    let icon: String
+    let icon: String?
+    let agentIconUrl: String?
     let text: String
     let accessibilityLabel: String
 
+    init(icon: String, text: String, accessibilityLabel: String) {
+        self.icon = icon
+        agentIconUrl = nil
+        self.text = text
+        self.accessibilityLabel = accessibilityLabel
+    }
+
+    init(agentIconUrl: String?, text: String, accessibilityLabel: String) {
+        icon = nil
+        self.agentIconUrl = agentIconUrl
+        self.text = text
+        self.accessibilityLabel = accessibilityLabel
+    }
+
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.quartet(.compact, weight: .semibold))
+            if let icon {
+                Image(systemName: icon)
+                    .font(.quartet(.compact, weight: .semibold))
+            } else {
+                AgentIdentityIcon(iconUrl: agentIconUrl)
+            }
             Text(text)
                 .font(.quartet(.compact, weight: .medium))
                 .lineLimit(1)
@@ -524,6 +742,411 @@ private struct ComposerMetadataChip: View {
         .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+private enum AgentUsageProvider: String {
+    case codex
+    case claude
+    case antigravity
+    case kimi
+    case qoder
+
+    static func resolve(command: String, displayName: String) -> Self? {
+        let candidate = "\(command) \(displayName)".lowercased()
+        if candidate.contains("antigravity") { return .antigravity }
+        if candidate.contains("codex") { return .codex }
+        if candidate.contains("claude") { return .claude }
+        if candidate.contains("qoder") || candidate.contains("qcode") { return .qoder }
+        if candidate.contains("kimi") { return .kimi }
+        return nil
+    }
+}
+
+private enum AgentUsageCache {
+    static func usage(provider: AgentUsageProvider, namespace: String) -> AgentUsageResponse? {
+        guard let data = UserDefaults.standard.data(forKey: key("agentUsage_\(provider.rawValue)", namespace: namespace)) else { return nil }
+        return try? JSONDecoder().decode(AgentUsageResponse.self, from: data)
+    }
+
+    static func setUsage(_ usage: AgentUsageResponse, provider: AgentUsageProvider, namespace: String) {
+        guard let data = try? JSONEncoder().encode(usage) else { return }
+        UserDefaults.standard.set(data, forKey: key("agentUsage_\(provider.rawValue)", namespace: namespace))
+    }
+
+    static func version(command: String, namespace: String) -> String {
+        UserDefaults.standard.string(forKey: key("agentVersion_\(command)", namespace: namespace)) ?? ""
+    }
+
+    static func setVersion(_ version: String, command: String, namespace: String) {
+        let key = key("agentVersion_\(command)", namespace: namespace)
+        if version.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else {
+            UserDefaults.standard.set(version, forKey: key)
+        }
+    }
+
+    private static func key(_ value: String, namespace: String) -> String {
+        "\(namespace)|\(value)"
+    }
+}
+
+private struct AgentUsageDetail: Identifiable {
+    let id = UUID()
+    let title: String
+    let lines: [String]
+}
+
+private struct AgentUsageStrip: View {
+    @EnvironmentObject private var appModel: AppModel
+
+    let command: String
+    let displayName: String
+
+    @State private var usage: AgentUsageResponse?
+    @State private var version = ""
+    @State private var loading = false
+    @State private var requestError: APIError?
+    @State private var detail: AgentUsageDetail?
+
+    private var provider: AgentUsageProvider? {
+        AgentUsageProvider.resolve(command: command, displayName: displayName)
+    }
+
+    private var identity: String {
+        "\(appModel.serverAddress):\(provider?.rawValue ?? "version"):\(command)"
+    }
+
+    var body: some View {
+        Group {
+            if provider != nil || !version.isEmpty || requestError != nil {
+                HStack(spacing: 5) {
+                    usageContent
+
+                    if loading {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(QuartetTheme.secondaryText)
+                            .accessibilityLabel("正在获取 Agent 用量")
+                    } else {
+                        Button {
+                            Task { await refresh() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(QuartetTheme.secondaryText.opacity(0.72))
+                                .frame(width: 22, height: 22)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("刷新 Agent 用量")
+                    }
+
+                    if let requestError {
+                        Button {
+                            appModel.present(requestError)
+                        } label: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(QuartetTheme.failed)
+                                .frame(width: 22, height: 22)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("查看 Agent 用量错误")
+                    }
+                }
+                .padding(.leading, 4)
+                .accessibilityElement(children: .contain)
+            }
+        }
+        .task(id: identity) {
+            restoreCache()
+            if appModel.isRunningUITests {
+                version = "v1.0.0"
+                return
+            }
+            await refresh()
+        }
+        .popover(item: $detail, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) { value in
+            VStack(alignment: .leading, spacing: 6) {
+                Text(value.title)
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                ForEach(Array(value.lines.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.quartet(.compact, design: .monospaced))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+            }
+            .padding(12)
+            .background(QuartetTheme.surface)
+            .presentationCompactAdaptation(.popover)
+            .presentationBackground(QuartetTheme.surface)
+        }
+    }
+
+    @ViewBuilder
+    private var usageContent: some View {
+        if let provider, let usage {
+            switch provider {
+            case .codex:
+                if let value = usage.codex { codexContent(value) }
+            case .claude:
+                if let value = usage.claude { claudeContent(value) }
+            case .antigravity:
+                if let value = usage.antigravity { antigravityContent(value) }
+            case .kimi:
+                if let value = usage.kimi { kimiContent(value) }
+            case .qoder:
+                if let value = usage.qoder { qoderContent(value) }
+            }
+        } else if !version.isEmpty {
+            versionLabel(version)
+        }
+    }
+
+    private func codexContent(_ value: CodexAgentUsage) -> some View {
+        Group {
+            if let version = displayValue(value.version) { versionLabel(version) }
+            if let window = value.primaryWindow { usageRing(label: windowLabel(window), window: window) }
+            if let window = value.secondaryWindow { usageRing(label: windowLabel(window), window: window) }
+            usageRing(
+                label: String(value.resetCredits),
+                percent: value.resetCredits > 0 ? 100 : 0,
+                color: value.resetCredits > 0 ? QuartetTheme.accentDeep : QuartetTheme.secondaryText.opacity(0.55),
+                detail: AgentUsageDetail(
+                    title: "剩余 \(value.resetCredits) 次重置额度",
+                    lines: (value.resetCreditExpiries ?? []).map { "\(formatDate($0, includesDate: true)) 到期" }
+                )
+            )
+        }
+    }
+
+    private func claudeContent(_ value: ClaudeAgentUsage) -> some View {
+        Group {
+            if let version = displayValue(value.version) { versionLabel(version) }
+            usageMetric(icon: "calendar", text: money(value.todayCost), emphasis: QuartetTheme.running, label: "今日花费 \(money(value.todayCost))")
+            usageMetric(icon: "sum", text: money(value.totalCost), emphasis: QuartetTheme.primaryText, label: "累计花费 \(money(value.totalCost))")
+        }
+    }
+
+    private func antigravityContent(_ value: AntigravityAgentUsage) -> some View {
+        Group {
+            if let version = displayValue(value.version) { versionLabel(version) }
+            if value.claude5h != nil || value.claudeWeekly != nil {
+                usageGroup(mark: "C", windows: [("5h", value.claude5h), ("7d", value.claudeWeekly)])
+            }
+            if value.gemini5h != nil || value.geminiWeekly != nil {
+                usageGroup(mark: "G", windows: [("5h", value.gemini5h), ("7d", value.geminiWeekly)])
+            }
+        }
+    }
+
+    private func kimiContent(_ value: KimiAgentUsage) -> some View {
+        Group {
+            if let version = displayValue(value.version) { versionLabel(version) }
+            if let window = value.weekly { usageRing(label: windowLabel(window), window: window) }
+            if let window = value.fiveHour { usageRing(label: windowLabel(window), window: window) }
+            if let window = value.total {
+                usageRing(
+                    label: "Σ",
+                    percent: window.usedPercent,
+                    color: usageColor(window.usedPercent),
+                    detail: AgentUsageDetail(
+                        title: "累计额度 \(Int(window.usedPercent.rounded()))%",
+                        lines: value.parallelLimit.map { ["并发上限 \($0)"] } ?? []
+                    )
+                )
+            }
+        }
+    }
+
+    private func qoderContent(_ value: QoderAgentUsage) -> some View {
+        Group {
+            if let version = displayValue(value.version) { versionLabel(version) }
+            Button {
+                var lines: [String] = []
+                if let plan = displayValue(value.planType) {
+                    lines.append(plan.split(separator: "_").map { $0.capitalized }.joined(separator: " "))
+                }
+                if let expiresAt = value.expiresAt, expiresAt > 0 {
+                    lines.append("\(formatDate(expiresAt, includesDate: true)) 到期")
+                }
+                if value.quotaExceeded { lines.append("额度已用尽") }
+                detail = AgentUsageDetail(
+                    title: "已用 \(credits(value.used)) / \(credits(value.total))",
+                    lines: lines
+                )
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "dollarsign.circle")
+                        .font(.system(size: 11, weight: .medium))
+                    Text(credits(value.used))
+                        .fontWeight(.bold)
+                        .foregroundStyle(usageColor(value.usedPercent))
+                    Text("/ \(credits(value.total))")
+                        .foregroundStyle(QuartetTheme.secondaryText.opacity(0.75))
+                    GeometryReader { proxy in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(QuartetTheme.divider)
+                            Capsule()
+                                .fill(usageColor(value.usedPercent))
+                                .frame(width: proxy.size.width * min(max(value.usedPercent, 0), 100) / 100)
+                        }
+                    }
+                    .frame(width: 38, height: 4)
+                }
+                .font(.quartet(.compact))
+                .foregroundStyle(QuartetTheme.secondaryText)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Qoder 已用 \(credits(value.used))，总额度 \(credits(value.total))")
+        }
+    }
+
+    private func versionLabel(_ value: String) -> some View {
+        Text(value)
+            .font(.quartet(.compact, weight: .medium, design: .monospaced))
+            .foregroundStyle(QuartetTheme.secondaryText.opacity(0.74))
+            .lineLimit(1)
+            .accessibilityLabel("Agent 版本 \(value)")
+    }
+
+    private func usageMetric(icon: String, text: String, emphasis: Color, label: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .medium))
+            Text(text)
+                .fontWeight(.bold)
+                .foregroundStyle(emphasis)
+        }
+        .font(.quartet(.compact, design: .monospaced))
+        .foregroundStyle(QuartetTheme.secondaryText)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+    }
+
+    private func usageGroup(mark: String, windows: [(String, AgentUsageWindow?)]) -> some View {
+        HStack(spacing: 2) {
+            Text(mark)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .padding(.trailing, 2)
+            ForEach(Array(windows.enumerated()), id: \.offset) { _, item in
+                if let window = item.1 { usageRing(label: item.0, window: window) }
+            }
+        }
+        .padding(2)
+        .background(QuartetTheme.elevated.opacity(0.8), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(QuartetTheme.divider, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+    }
+
+    private func usageRing(label: String, window: AgentUsageWindow) -> some View {
+        usageRing(
+            label: label,
+            percent: window.usedPercent,
+            color: usageColor(window.usedPercent),
+            detail: AgentUsageDetail(
+                title: "\(label) \(Int(window.usedPercent.rounded()))%",
+                lines: ["\(formatReset(window)) 重置"]
+            )
+        )
+    }
+
+    private func usageRing(label: String, percent: Double, color: Color, detail value: AgentUsageDetail) -> some View {
+        Button { detail = value } label: {
+            ZStack {
+                Circle()
+                    .stroke(QuartetTheme.divider, lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: min(max(percent, 0), 100) / 100)
+                    .stroke(color, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Text(label)
+                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(color)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(value.title)，\(value.lines.joined(separator: "，"))")
+    }
+
+    private func restoreCache() {
+        requestError = nil
+        usage = provider.flatMap {
+            AgentUsageCache.usage(provider: $0, namespace: appModel.serverAddress)
+        }
+        version = provider == nil
+            ? AgentUsageCache.version(command: command, namespace: appModel.serverAddress)
+            : ""
+    }
+
+    private func refresh() async {
+        loading = true
+        requestError = nil
+        defer { loading = false }
+
+        do {
+            if let provider {
+                let response = try await appModel.apiClient().agentUsage(provider: provider.rawValue)
+                try Task.checkCancellation()
+                usage = response
+                AgentUsageCache.setUsage(response, provider: provider, namespace: appModel.serverAddress)
+            } else {
+                let response = try await appModel.apiClient().agentVersion(command: command)
+                try Task.checkCancellation()
+                version = response.version?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                AgentUsageCache.setVersion(version, command: command, namespace: appModel.serverAddress)
+            }
+        } catch is CancellationError {
+            return
+        } catch let error as APIError {
+            requestError = error
+        } catch {
+            requestError = APIError(summary: "Agent 用量加载失败", detail: String(describing: error))
+        }
+    }
+
+    private func usageColor(_ percent: Double) -> Color {
+        if percent >= 80 { return QuartetTheme.failed }
+        if percent >= 50 { return QuartetTheme.warning }
+        return QuartetTheme.success
+    }
+
+    private func windowLabel(_ window: AgentUsageWindow) -> String {
+        let seconds = window.limitWindowSeconds
+        if seconds > 0, seconds % 86_400 == 0 { return "\(seconds / 86_400)d" }
+        if seconds > 0, seconds % 3_600 == 0 { return "\(seconds / 3_600)h" }
+        if seconds > 0, seconds % 60 == 0 { return "\(seconds / 60)m" }
+        return "\(max(0, seconds))s"
+    }
+
+    private func formatReset(_ window: AgentUsageWindow) -> String {
+        let seconds = window.resetAt > 0
+            ? TimeInterval(window.resetAt)
+            : Date().timeIntervalSince1970 + TimeInterval(window.resetAfterSeconds)
+        return formatDate(Int64(seconds), includesDate: window.limitWindowSeconds >= 86_400)
+    }
+
+    private func formatDate(_ unixSeconds: Int64, includesDate: Bool) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = includesDate ? "MM-dd HH:mm" : "HH:mm"
+        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(unixSeconds)))
+    }
+
+    private func money(_ value: Double) -> String { String(format: "$%.2f", value) }
+
+    private func credits(_ value: Double) -> String {
+        value.rounded() == value ? String(Int64(value)) : String(format: "%.1f", value)
+    }
+
+    private func displayValue(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
     }
 }
 
@@ -1291,7 +1914,7 @@ private struct CodeBlockView: View {
             HStack {
                 Text((language?.isEmpty == false ? language! : "code").uppercased())
                     .font(.quartet(.compact, weight: .bold, design: .monospaced))
-                    .foregroundStyle(tone.secondaryForeground)
+                    .foregroundStyle(codeSecondaryForeground)
                 Spacer()
                 Button("复制代码") {
                     UIPasteboard.general.string = code
@@ -1302,14 +1925,30 @@ private struct CodeBlockView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
                     .font(.quartet(.detail, design: .monospaced))
-                    .foregroundStyle(tone.foreground)
+                    .foregroundStyle(codeForeground)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(12)
-        .background(tone.codeBackground, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(tone.codeBorder, lineWidth: 1))
+        .background(codeBackground, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(codeBorder, lineWidth: 1))
+    }
+
+    private var codeForeground: Color {
+        tone == .user ? tone.foreground : QuartetTheme.terminalText
+    }
+
+    private var codeSecondaryForeground: Color {
+        tone == .user ? tone.secondaryForeground : QuartetTheme.terminalGreenMuted
+    }
+
+    private var codeBackground: Color {
+        tone == .user ? tone.codeBackground : QuartetTheme.terminalBackground
+    }
+
+    private var codeBorder: Color {
+        tone == .user ? tone.codeBorder : QuartetTheme.terminalBorder
     }
 }
 
@@ -1439,29 +2078,30 @@ private struct AuthenticatedFile: View {
         Button { Task { await openFile() } } label: {
             HStack(spacing: 10) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.12))
+                    RoundedRectangle(cornerRadius: 8).fill(QuartetTheme.onAccent.opacity(0.12))
                     Image(systemName: "doc.fill").font(.quartet(.control, weight: .semibold))
                 }
                 .frame(width: 40, height: 44)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(attachment.name).font(.quartet(.control, weight: .semibold)).lineLimit(1)
                     if !fileMeta.isEmpty {
-                        Text(fileMeta).font(.quartet(.compact)).foregroundStyle(Color.white.opacity(0.68)).lineLimit(1)
+                        Text(fileMeta).font(.quartet(.compact)).foregroundStyle(QuartetTheme.onAccent.opacity(0.68)).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 6)
-                if downloading { ProgressView().controlSize(.small).tint(.white) }
+                if downloading { ProgressView().controlSize(.small).tint(QuartetTheme.onAccent) }
                 else { Image(systemName: "arrow.down.circle") }
             }
             .padding(10)
-            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.white.opacity(0.18), lineWidth: 1))
+            .background(QuartetTheme.onAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(QuartetTheme.onAccent.opacity(0.18), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("打开文件 \(attachment.name)")
         .disabled(downloading)
         .sheet(item: $previewDocument) { document in
             LocalFilePreview(url: document.url)
+                .quartetSheetStyle()
         }
     }
 
@@ -1831,9 +2471,11 @@ private final class ChatViewModel: ObservableObject {
         displayValue(agentDisplayName) ?? displayValue(agentType) ?? "未指定 Agent"
     }
     var agentDisplayIconUrl: String? { displayValue(agentIconUrl) }
-    var modelDisplayLabel: String { displayValue(modelID) ?? "未指定 Model" }
-    var modeDisplayLabel: String { displayValue(modeID) ?? "默认模式" }
-    var thoughtLevelDisplayLabel: String? { displayValue(thoughtLevelID) }
+    var agentRuntimeType: String? { displayValue(agentType) }
+    var modelIDForDisplay: String? { displayValue(modelID) }
+    var agentReferenceForDisplay: String? { displayValue(agentType) }
+    var modeIDForDisplay: String? { displayValue(modeID) }
+    var thoughtLevelIDForDisplay: String? { displayValue(thoughtLevelID) }
     var tokenCountLabel: String { "Tokens: \(Self.compactCount(totalTokens))" }
     var tokenCountAccessibilityLabel: String { "Token 数量，\(totalTokens)" }
     var showsDuration: Bool {

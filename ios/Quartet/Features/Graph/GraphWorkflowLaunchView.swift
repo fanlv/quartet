@@ -86,6 +86,7 @@ struct GraphWorkflowLaunchView: View {
         .sheet(isPresented: $showsGlobalEditor) {
             if let binding = configBinding {
                 GraphGlobalConfigurationView(config: binding)
+                    .quartetSheetStyle()
             }
         }
         .sheet(isPresented: Binding(
@@ -94,9 +95,12 @@ struct GraphWorkflowLaunchView: View {
         )) {
             if let nodeID = editingNodeID, let nodeBinding = binding(forNodeID: nodeID) {
                 GraphNodeConfigurationView(node: nodeBinding, agents: agents)
+                    .quartetSheetStyle()
             }
         }
-        .sheet(item: $localError) { ErrorDetailView(error: $0) }
+        .sheet(item: $localError) {
+            ErrorDetailView(error: $0)
+        }
     }
 
     private var loadingState: some View {
@@ -621,13 +625,7 @@ struct GraphWorkflowLaunchView: View {
     }
 
     private func workspaceTint(_ item: WorkspaceSummary) -> Color {
-        guard let raw = item.color?.trimmingCharacters(in: CharacterSet(charactersIn: "#")),
-              raw.count == 6, let value = UInt64(raw, radix: 16) else { return QuartetTheme.accent }
-        return Color(
-            red: Double((value >> 16) & 0xff) / 255,
-            green: Double((value >> 8) & 0xff) / 255,
-            blue: Double(value & 0xff) / 255
-        )
+        QuartetTheme.workspaceTint(item.id)
     }
 }
 
@@ -673,10 +671,10 @@ private struct GraphNodeBadge: View {
         switch type {
         case "start": QuartetTheme.accent
         case "end": QuartetTheme.failed
-        case "shell": .orange
+        case "shell": QuartetTheme.accentDeep
         case "prompt", "clarify": QuartetTheme.accent
-        case "ifElse": .yellow
-        case "loop": .mint
+        case "ifElse": QuartetTheme.accentSoft
+        case "loop": QuartetTheme.terminalGreenMuted
         default: QuartetTheme.secondaryText
         }
     }
@@ -770,6 +768,8 @@ private struct GraphGlobalConfigurationView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(QuartetTheme.canvas)
             .navigationTitle("全局配置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -916,6 +916,8 @@ private struct GraphNodeConfigurationView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(QuartetTheme.canvas)
             .navigationTitle(draft.displayName)
             .navigationBarTitleDisplayMode(.inline)
             .task(id: thoughtLevelSelection) {

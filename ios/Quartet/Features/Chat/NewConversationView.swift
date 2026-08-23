@@ -120,11 +120,13 @@ struct NewConversationView: View {
             ?? (modelID.isEmpty ? "选择模型" : modelID)
     }
     private var modeName: String {
-        agent?.modes?.availableModes.first(where: { $0.id == modeID })?.name ?? "跟随 Agent"
+        agent?.modes?.availableModes.first(where: { $0.id == modeID })?.name
+            ?? (modeID.isEmpty ? "跟随 Agent" : modeID)
     }
     private var thoughtLevelName: String {
         if isLinkingThoughtLevels { return "正在刷新…" }
-        return linkedThoughtLevels?.availableThoughtLevels.first(where: { $0.id == thoughtLevelID })?.name ?? "跟随 Agent"
+        return linkedThoughtLevels?.availableThoughtLevels.first(where: { $0.id == thoughtLevelID })?.name
+            ?? (thoughtLevelID.isEmpty ? "跟随 Agent" : thoughtLevelID)
     }
     private var hasAdvancedOptions: Bool {
         agent?.modes?.availableModes.isEmpty == false
@@ -211,7 +213,9 @@ struct NewConversationView: View {
                 guard let item else { return }
                 Task { await loadPhoto(item) }
             }
-            .sheet(item: $localError) { ErrorDetailView(error: $0) }
+            .sheet(item: $localError) {
+                ErrorDetailView(error: $0)
+            }
             .sheet(isPresented: $showsCameraPicker) {
                 CameraImagePicker(
                     onImagePicked: { image in
@@ -220,6 +224,7 @@ struct NewConversationView: View {
                     },
                     onCancel: { showsCameraPicker = false }
                 )
+                .quartetSheetStyle()
             }
             .sheet(isPresented: $showsDocumentPicker) {
                 DocumentAttachmentPicker(
@@ -229,6 +234,7 @@ struct NewConversationView: View {
                     },
                     onCancel: { showsDocumentPicker = false }
                 )
+                .quartetSheetStyle()
             }
             .sheet(isPresented: $showsMessageLibrary, onDismiss: {
                 if focusesComposerAfterMessageLibrary {
@@ -246,8 +252,7 @@ struct NewConversationView: View {
                     onApplied: { focusesComposerAfterMessageLibrary = true }
                 )
                 .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(28)
+                .quartetSheetStyle()
                 .task(id: workspaceID) { await loadMessagePresets() }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -890,14 +895,7 @@ struct NewConversationView: View {
     }
 
     private func workspaceTint(_ item: WorkspaceSummary) -> Color {
-        guard let raw = item.color?.trimmingCharacters(in: CharacterSet(charactersIn: "#")),
-              raw.count == 6,
-              let value = UInt64(raw, radix: 16) else { return QuartetTheme.accent }
-        return Color(
-            red: Double((value >> 16) & 0xff) / 255,
-            green: Double((value >> 8) & 0xff) / 255,
-            blue: Double(value & 0xff) / 255
-        )
+        QuartetTheme.workspaceTint(item.id)
     }
 
     private func create() async {
@@ -959,6 +957,7 @@ struct NewConversationView: View {
                 acpThoughtLevel: payload.thoughtLevelID
             )
             await model.reloadJobs()
+            model.beginOptimisticJobExecution(id: jobID, fallback: summary)
             onCreated(ChatRoute(
                 summary: summary,
                 initialMessage: message.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1111,7 +1110,7 @@ struct NewConversationView: View {
     }
 }
 
-private struct MessagePresetHistorySheet: View {
+struct MessagePresetHistorySheet: View {
     @Binding var currentMessage: String
     let projectPresets: [MessagePreset]
     let globalPresets: [MessagePreset]
@@ -1200,13 +1199,12 @@ private struct MessagePresetHistorySheet: View {
                     Button("完成") { dismiss() }
                 }
             }
-            .confirmationDialog(
+            .alert(
                 "输入框已有内容",
                 isPresented: Binding(
                     get: { pendingPreset != nil },
                     set: { if !$0 { pendingPreset = nil } }
-                ),
-                titleVisibility: .visible
+                )
             ) {
                 Button("追加") { applyPendingPreset(append: true) }
                 Button("替换") { applyPendingPreset(append: false) }

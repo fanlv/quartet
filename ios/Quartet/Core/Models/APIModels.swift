@@ -282,6 +282,82 @@ struct AgentOption: Decodable, Identifiable, Hashable, Sendable {
     let description: String?
 }
 
+enum AgentConfigurationDisplay {
+    static func modelName(
+        _ modelID: String?,
+        agentReference: String?,
+        agents: [AgentSummary]
+    ) -> String? {
+        guard let modelID = displayValue(modelID) else { return nil }
+        let candidates = matchingAgents(agentReference, in: agents)
+        let name = candidates
+            .lazy
+            .compactMap { agent in
+                agent.models?.availableModels.first(where: { $0.modelId == modelID })?.name
+            }
+            .compactMap { displayValue($0) }
+            .first
+        return name ?? modelID
+    }
+
+    static func modeName(
+        _ modeID: String?,
+        agentReference: String?,
+        agents: [AgentSummary]
+    ) -> String? {
+        optionName(
+            modeID,
+            agentReference: agentReference,
+            agents: agents,
+            options: { $0.modes?.availableModes ?? [] }
+        )
+    }
+
+    static func thoughtLevelName(
+        _ thoughtLevelID: String?,
+        agentReference: String?,
+        agents: [AgentSummary]
+    ) -> String? {
+        optionName(
+            thoughtLevelID,
+            agentReference: agentReference,
+            agents: agents,
+            options: { $0.thoughtLevels?.availableThoughtLevels ?? [] }
+        )
+    }
+
+    private static func optionName(
+        _ optionID: String?,
+        agentReference: String?,
+        agents: [AgentSummary],
+        options: @escaping (AgentSummary) -> [AgentOption]
+    ) -> String? {
+        guard let optionID = displayValue(optionID) else { return nil }
+        let name = matchingAgents(agentReference, in: agents)
+            .lazy
+            .compactMap { agent in
+                options(agent).first(where: { $0.id == optionID })?.name
+            }
+            .compactMap { displayValue($0) }
+            .first
+        return name ?? optionID
+    }
+
+    private static func matchingAgents(
+        _ reference: String?,
+        in agents: [AgentSummary]
+    ) -> [AgentSummary] {
+        guard let reference = displayValue(reference) else { return agents }
+        return agents.filter { $0.agentId == reference || $0.type == reference }
+    }
+
+    private static func displayValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+}
+
 struct AgentListResponse: Decodable, Sendable {
     let code: Int
     let agentList: [AgentSummary]
@@ -294,6 +370,127 @@ struct AgentListResponse: Decodable, Sendable {
         case workdir
         case jobEnable = "job_enable"
     }
+}
+
+struct AgentUsageResponse: Codable, Hashable, Sendable {
+    let code: Int
+    let type: String
+    let codex: CodexAgentUsage?
+    let claude: ClaudeAgentUsage?
+    let antigravity: AntigravityAgentUsage?
+    let kimi: KimiAgentUsage?
+    let qoder: QoderAgentUsage?
+}
+
+struct AgentUsageWindow: Codable, Hashable, Sendable {
+    let usedPercent: Double
+    let limitWindowSeconds: Int64
+    let resetAfterSeconds: Int64
+    let resetAt: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case usedPercent = "used_percent"
+        case limitWindowSeconds = "limit_window_seconds"
+        case resetAfterSeconds = "reset_after_seconds"
+        case resetAt = "reset_at"
+    }
+}
+
+struct CodexAgentUsage: Codable, Hashable, Sendable {
+    let email: String?
+    let planType: String?
+    let version: String?
+    let primaryWindow: AgentUsageWindow?
+    let secondaryWindow: AgentUsageWindow?
+    let resetCredits: Int
+    let resetCreditExpiries: [Int64]?
+
+    enum CodingKeys: String, CodingKey {
+        case email
+        case planType = "plan_type"
+        case version
+        case primaryWindow = "primary_window"
+        case secondaryWindow = "secondary_window"
+        case resetCredits = "reset_credits"
+        case resetCreditExpiries = "reset_credit_expiries"
+    }
+}
+
+struct ClaudeAgentUsage: Codable, Hashable, Sendable {
+    let name: String?
+    let keySuffix: String?
+    let version: String?
+    let todayCost: Double
+    let totalCost: Double
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case keySuffix = "key_suffix"
+        case version
+        case todayCost = "today_cost"
+        case totalCost = "total_cost"
+    }
+}
+
+struct AntigravityAgentUsage: Codable, Hashable, Sendable {
+    let version: String?
+    let claudeWeekly: AgentUsageWindow?
+    let claude5h: AgentUsageWindow?
+    let geminiWeekly: AgentUsageWindow?
+    let gemini5h: AgentUsageWindow?
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case claudeWeekly = "claude_weekly"
+        case claude5h = "claude_5h"
+        case geminiWeekly = "gemini_weekly"
+        case gemini5h = "gemini_5h"
+    }
+}
+
+struct KimiAgentUsage: Codable, Hashable, Sendable {
+    let version: String?
+    let parallelLimit: Int64?
+    let weekly: AgentUsageWindow?
+    let fiveHour: AgentUsageWindow?
+    let total: AgentUsageWindow?
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case parallelLimit = "parallel_limit"
+        case weekly
+        case fiveHour = "five_hour"
+        case total
+    }
+}
+
+struct QoderAgentUsage: Codable, Hashable, Sendable {
+    let version: String?
+    let planType: String?
+    let unit: String?
+    let total: Double
+    let used: Double
+    let remaining: Double
+    let usedPercent: Double
+    let expiresAt: Int64?
+    let quotaExceeded: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case planType = "plan_type"
+        case unit
+        case total
+        case used
+        case remaining
+        case usedPercent = "used_percent"
+        case expiresAt = "expires_at"
+        case quotaExceeded = "quota_exceeded"
+    }
+}
+
+struct AgentVersionResponse: Codable, Hashable, Sendable {
+    let code: Int
+    let version: String?
 }
 
 struct AgentPreferences: Decodable, Hashable, Sendable {
@@ -448,6 +645,27 @@ struct JobSummary: Decodable, Identifiable, Hashable, Sendable {
         case "loop": "LOOP"
         default: "CHAT"
         }
+    }
+
+    func updating(status: String? = nil, updatedAt: Int64? = nil) -> JobSummary {
+        JobSummary(
+            id: id,
+            title: title,
+            modelId: modelId,
+            status: status ?? self.status,
+            mode: mode,
+            workspaceId: workspaceId,
+            workdir: workdir,
+            createdAt: createdAt,
+            updatedAt: updatedAt ?? self.updatedAt,
+            pinnedAt: pinnedAt,
+            sessionCount: sessionCount,
+            scheduleId: scheduleId,
+            shareToken: shareToken,
+            agentId: agentId,
+            acpMode: acpMode,
+            acpThoughtLevel: acpThoughtLevel
+        )
     }
 }
 

@@ -22,6 +22,7 @@ struct JobsView: View {
             .navigationTitle("运行台")
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await model.refreshDashboard() }
+            .task { await model.refreshAgentCatalog() }
             .task(id: dashboardPollingConfiguration) {
                 let configuration = dashboardPollingConfiguration
                 guard configuration.isActive, !model.isRunningUITests else { return }
@@ -69,6 +70,7 @@ struct JobsView: View {
                     presentsNewConversation = false
                     path.append(route)
                 }
+                .quartetSheetStyle()
             }
             .sheet(isPresented: $presentsConnectionStatus) {
                 DashboardConnectionView()
@@ -97,11 +99,10 @@ struct JobsView: View {
                     }
                 )
                 .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(28)
-                .presentationBackground(QuartetTheme.canvas)
+                .quartetSheetStyle()
             }
         }
+        .toolbar(path.isEmpty ? .visible : .hidden, for: .tabBar)
     }
 
     @ViewBuilder
@@ -153,7 +154,7 @@ struct JobsView: View {
                 workspaceMenuButton(
                     id: workspace.id,
                     title: workspace.displayName,
-                    color: Color(hex: workspace.color) ?? QuartetTheme.accent
+                    color: QuartetTheme.workspaceTint(workspace.id)
                 )
             }
         } label: {
@@ -201,23 +202,22 @@ struct JobsView: View {
             ForEach(Array(model.jobs.enumerated()), id: \.element.id) { index, job in
                 VStack(spacing: 0) {
                     HStack(alignment: .center, spacing: 0) {
-                        NavigationLink {
-                            if job.mode == "graph" {
-                                GraphRunView(summary: job)
-                            } else {
-                                JobChatView(route: ChatRoute(
-                                    summary: job,
-                                    agentType: job.agentId,
-                                    modelID: job.modelId,
-                                    modeID: job.acpMode,
-                                    thoughtLevelID: job.acpThoughtLevel
-                                ))
-                            }
-                        } label: {
+                        NavigationLink(value: ChatRoute(
+                            summary: job,
+                            agentType: job.agentId,
+                            modelID: job.modelId,
+                            modeID: job.acpMode,
+                            thoughtLevelID: job.acpThoughtLevel
+                        )) {
                             JobRow(
                                 job: job,
                                 workspace: workspace(for: job),
-                                displayedStatus: model.displayedStatus(for: job)
+                                displayedStatus: model.displayedStatus(for: job),
+                                modelName: AgentConfigurationDisplay.modelName(
+                                    job.modelId,
+                                    agentReference: job.agentId,
+                                    agents: model.agentCatalogSnapshot
+                                )
                             )
                         }
                         .buttonStyle(.plain)
@@ -362,7 +362,7 @@ struct JobsView: View {
     }
 
     private func connectionNoticeColor(_ state: AppModel.ConnectionState) -> Color {
-        state.isConnected ? QuartetTheme.running : QuartetTheme.failed
+        state.isConnected ? QuartetTheme.warning : QuartetTheme.failed
     }
 
     private var dashboardPollingConfiguration: DashboardPollingConfiguration {
@@ -496,7 +496,7 @@ private struct JobActionsSheet: View {
                     title: "重命名",
                     detail: "使用更容易识别的任务名称",
                     systemImage: "pencil",
-                    tint: QuartetTheme.chartViolet,
+                    tint: QuartetTheme.accentDeep,
                     accessibilityIdentifier: "job-action-rename"
                 ) {
                     content = .rename
@@ -617,7 +617,7 @@ private struct JobActionsSheet: View {
                 } label: {
                     Text("确认删除")
                         .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(QuartetTheme.onDanger)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         .background(QuartetTheme.failed, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -704,7 +704,7 @@ private struct JobActionsSheet: View {
 
     private var modeColor: Color {
         switch job.mode {
-        case "graph": QuartetTheme.chartViolet
+        case "graph": QuartetTheme.terminalGreen
         case "loop": QuartetTheme.running
         default: QuartetTheme.accent
         }
@@ -715,6 +715,7 @@ private struct JobRow: View {
     let job: JobSummary
     let workspace: WorkspaceSummary?
     let displayedStatus: String
+    let modelName: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -756,7 +757,7 @@ private struct JobRow: View {
 
                     Text("·")
 
-                    Text(modelName)
+                    Text(modelName ?? fallbackModelName)
                         .lineLimit(1)
 
                     Spacer(minLength: 2)
@@ -801,7 +802,7 @@ private struct JobRow: View {
         return "未关联工作空间"
     }
 
-    private var modelName: String {
+    private var fallbackModelName: String {
         if let modelID = job.modelId?.trimmingCharacters(in: .whitespacesAndNewlines),
            !modelID.isEmpty {
             return modelID
@@ -814,12 +815,12 @@ private struct JobRow: View {
     }
 
     private var workspaceColor: Color {
-        Color(hex: workspace?.color) ?? modeColor
+        workspace.map { QuartetTheme.workspaceTint($0.id) } ?? modeColor
     }
 
     private var modeColor: Color {
         switch job.mode {
-        case "graph": QuartetTheme.chartViolet
+        case "graph": QuartetTheme.terminalGreen
         case "loop": QuartetTheme.running
         default: QuartetTheme.accent
         }
@@ -1050,7 +1051,7 @@ private struct ConnectionBadge: View {
 
     private var statusColor: Color {
         if !state.isConnected { return QuartetTheme.failed }
-        if state.isStale || state.hasPendingSync { return QuartetTheme.running }
+        if state.isStale || state.hasPendingSync { return QuartetTheme.warning }
         return QuartetTheme.accent
     }
 }
@@ -1134,6 +1135,7 @@ private struct DashboardConnectionView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .quartetSheetStyle()
     }
 
     private var statusCard: some View {
@@ -1180,7 +1182,7 @@ private struct DashboardConnectionView: View {
     private var statusColor: Color {
         let state = model.connectionState
         if !state.isConnected { return QuartetTheme.failed }
-        if state.isStale || state.hasPendingSync { return QuartetTheme.running }
+        if state.isStale || state.hasPendingSync { return QuartetTheme.warning }
         return QuartetTheme.accent
     }
 
@@ -1197,18 +1199,5 @@ private struct DashboardConnectionView: View {
         } else {
             await model.connect()
         }
-    }
-}
-
-private extension Color {
-    init?(hex: String?) {
-        guard let hex else { return nil }
-        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        guard cleaned.count == 6, let value = UInt64(cleaned, radix: 16) else { return nil }
-        self.init(
-            red: Double((value >> 16) & 0xff) / 255,
-            green: Double((value >> 8) & 0xff) / 255,
-            blue: Double(value & 0xff) / 255
-        )
     }
 }

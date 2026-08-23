@@ -47,6 +47,10 @@ private struct MainView: View {
                 .tag(2)
                 .tabItem { Label("设置", systemImage: "slider.horizontal.3") }
         }
+        .tabViewStyle(.tabBarOnly)
+        .tabBarMinimizeBehavior(.never)
+        .toolbarBackground(QuartetTheme.surface, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
     }
 }
 
@@ -93,6 +97,7 @@ struct ErrorDetailView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .quartetSheetStyle()
     }
 }
 
