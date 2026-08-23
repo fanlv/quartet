@@ -71,6 +71,10 @@ var jobErrMappings = []httputil.ErrorMapping{
 	{Err: job.ErrJobNotRunnable, Status: http.StatusBadRequest},
 	{Err: job.ErrEmptyMessage, Status: http.StatusBadRequest},
 	{Err: job.ErrClientMessageIDConflict, Status: http.StatusConflict},
+	{Err: job.ErrMessageQueueFull, Status: http.StatusConflict},
+	{Err: job.ErrQueuedMessageNotFound, Status: http.StatusNotFound},
+	{Err: job.ErrQueuedMessageClaimed, Status: http.StatusConflict},
+	{Err: job.ErrMessageQueueBlocked, Status: http.StatusConflict},
 }
 
 func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
@@ -84,6 +88,27 @@ func (h *Handler) JobStop(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		httputil.NotFound(c, "job not found")
 		return
+	}
+	if j.Mode == model.JobModeInteractive {
+		if queueService, supportsQueue := h.jobService.(job.MessageQueueService); supportsQueue {
+			// The service performs this check while holding the Job's persist
+			// shard. A handler-side status/queue snapshot alone would leave a
+			// race where a concurrent submission starts between the check and
+			// StopAndWait.
+			shouldStop, err := queueService.PauseMessageQueueForStop(ctx, jobID)
+			if err != nil {
+				logger.Errorf(ctx, "[job] pause message queue before stop failed: jobId=%s err=%v", jobID, err)
+				httputil.MapError(c, err, jobErrMappings)
+				return
+			}
+			if !shouldStop {
+				c.JSON(http.StatusOK, map[string]any{"code": 0, "status": "stopped"})
+				return
+			}
+			if refreshed, exists := h.jobService.Get(jobID); exists {
+				j = refreshed
+			}
+		}
 	}
 
 	if j.Status != model.JobStatusRunning {

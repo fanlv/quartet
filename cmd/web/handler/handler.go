@@ -24,6 +24,7 @@ import (
 	"github.com/fanlv/quartet/services/einocli"
 	"github.com/fanlv/quartet/services/graph"
 	"github.com/fanlv/quartet/services/job"
+	"github.com/fanlv/quartet/services/messagepreset"
 	"github.com/fanlv/quartet/services/prompt"
 	"github.com/fanlv/quartet/services/schedule"
 	"github.com/fanlv/quartet/services/session"
@@ -97,33 +98,34 @@ type Handler struct {
 	// handlers. It must NOT be the per-request ctx (which is cancelled when
 	// the response is sent) nor context.Background (which is never cancelled
 	// and leaks long-running retries past shutdown).
-	rootCtx          context.Context
-	sessionServices  map[string]*sessionEntry // jobID -> sessionEntry
-	sessionMu        sync.RWMutex
-	titleInFlight    sync.Map     // jobID -> struct{}, prevents concurrent title generation
-	titleFailCount   atomic.Int32 // consecutive title-generation failures across all jobs (circuit breaker)
-	titleOpenSince   atomic.Int64 // unix seconds when circuit opened; 0 means closed
-	titleProbing     atomic.Bool  // CAS guard: only one goroutine may probe during half-open state
-	acpAgentService  acp.ACPService
-	agentCatalog     *catalog.Service
-	agentExecutions  *agentExecutionGate
-	settingsService  config.SettingsService
-	promptService    prompt.Service
-	graphService     graph.Service
-	jobService       job.Service
-	recentDirsRepo   repository.RecentDirsRepo
-	userInputRepo    repository.UserInputRepo
-	workspaceService workspace.Service
-	scheduleService  schedule.Service
-	scheduler        *schedule.Scheduler
-	usageStats       usagestats.Service
-	usageService     usage.Service
-	agentVersions    *agentversion.Service
-	acpProbeCache    *probe.CacheService
-	einoCLI          *einocli.Service
-	skillsService    *skills.Service
-	wechatOutbox     *wechatoutbox.Service
-	authService      *auth.Service
+	rootCtx              context.Context
+	sessionServices      map[string]*sessionEntry // jobID -> sessionEntry
+	sessionMu            sync.RWMutex
+	titleInFlight        sync.Map     // jobID -> struct{}, prevents concurrent title generation
+	titleFailCount       atomic.Int32 // consecutive title-generation failures across all jobs (circuit breaker)
+	titleOpenSince       atomic.Int64 // unix seconds when circuit opened; 0 means closed
+	titleProbing         atomic.Bool  // CAS guard: only one goroutine may probe during half-open state
+	acpAgentService      acp.ACPService
+	agentCatalog         *catalog.Service
+	agentExecutions      *agentExecutionGate
+	settingsService      config.SettingsService
+	promptService        prompt.Service
+	graphService         graph.Service
+	jobService           job.Service
+	messagePresetService messagepreset.Service
+	recentDirsRepo       repository.RecentDirsRepo
+	userInputRepo        repository.UserInputRepo
+	workspaceService     workspace.Service
+	scheduleService      schedule.Service
+	scheduler            *schedule.Scheduler
+	usageStats           usagestats.Service
+	usageService         usage.Service
+	agentVersions        *agentversion.Service
+	acpProbeCache        *probe.CacheService
+	einoCLI              *einocli.Service
+	skillsService        *skills.Service
+	wechatOutbox         *wechatoutbox.Service
+	authService          *auth.Service
 
 	// imGateway is shared across all IM platforms. It is initialized lazily
 	// by ensureIMGateway so each StartLarkListener / StartWeiXinListener can
@@ -191,6 +193,11 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		return nil, err
 	}
 
+	messagePresetSvc, err := messagepreset.NewService(wss)
+	if err != nil {
+		return nil, err
+	}
+
 	ss, err := config.NewSettingsService()
 	if err != nil {
 		return nil, err
@@ -227,26 +234,27 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 	}
 
 	h := &Handler{
-		rootCtx:          ctx,
-		sessionServices:  make(map[string]*sessionEntry),
-		acpAgentService:  acp.NewACPService(),
-		agentCatalog:     agentCatalog,
-		agentExecutions:  newAgentExecutionGate(),
-		settingsService:  ss,
-		promptService:    ps,
-		graphService:     gs,
-		jobService:       js,
-		recentDirsRepo:   rdr,
-		userInputRepo:    repository.NewUserInputRepo(),
-		workspaceService: wss,
-		scheduleService:  schSvc,
-		usageStats:       usageStats,
-		usageService:     usage.NewService(ss),
-		agentVersions:    agentversion.NewService(agentCatalog),
-		acpProbeCache:    acpProbeCache,
-		einoCLI:          einocli.NewService(),
-		skillsService:    skills.NewService(ctx),
-		authService:      authSvc,
+		rootCtx:              ctx,
+		sessionServices:      make(map[string]*sessionEntry),
+		acpAgentService:      acp.NewACPService(),
+		agentCatalog:         agentCatalog,
+		agentExecutions:      newAgentExecutionGate(),
+		settingsService:      ss,
+		promptService:        ps,
+		graphService:         gs,
+		jobService:           js,
+		messagePresetService: messagePresetSvc,
+		recentDirsRepo:       rdr,
+		userInputRepo:        repository.NewUserInputRepo(),
+		workspaceService:     wss,
+		scheduleService:      schSvc,
+		usageStats:           usageStats,
+		usageService:         usage.NewService(ss),
+		agentVersions:        agentversion.NewService(agentCatalog),
+		acpProbeCache:        acpProbeCache,
+		einoCLI:              einocli.NewService(),
+		skillsService:        skills.NewService(ctx),
+		authService:          authSvc,
 	}
 	wechatOutbox, err := wechatoutbox.NewService(func() messaging.Replier {
 		h.imGatewayMu.RLock()
@@ -307,6 +315,9 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		logger.Warnf(ctx, "[agent.catalog] skip custom revision pruning: %v", err)
 	}
 	h.refreshCustomAgentValidations(ctx)
+	if queueService, ok := js.(job.MessageQueueService); ok {
+		queueService.SetMessageQueueDispatcher(h.prepareQueuedJobDispatch)
+	}
 
 	// Register job completion callback to update schedule status and release resources.
 	js.SetOnJobDone(func(j *model.Job) {

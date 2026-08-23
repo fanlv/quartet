@@ -77,6 +77,7 @@ import { ScheduleEditModal } from './ScheduleEditModal';
 import { cronToHuman } from './CronInput';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
 import { AgentUsageCard } from './AgentUsageCard';
+import { MessagePresetHistoryMenu, type SentMessageHistoryItem } from './MessagePresetHistoryMenu';
 import { copyToClipboard } from '../utils/clipboard';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useGitBranch } from '../hooks/useGitBranch';
@@ -140,12 +141,7 @@ export interface AgentInfo {
   thoughtLevels?: SessionThoughtLevelState;
 }
 
-interface LocalSentMessage {
-  id: string;
-  ts: number;
-  content: string;
-  imageUrls?: string[];
-}
+type LocalSentMessage = SentMessageHistoryItem;
 
 interface LocalSentMessagePayload {
   v: 1;
@@ -615,8 +611,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
 
   // Local cache of "sent" messages (recorded on click send, regardless of server success/failure)
   const localHistoryStorageKey = `quartet:sent_history:${workspaceId || 'default'}`;
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const historyRef = useRef<HTMLDivElement>(null);
   const [historyItems, setHistoryItems] = useState<LocalSentMessage[]>(() => readLocalSentMessages(localHistoryStorageKey));
   const historyCursorRef = useRef<number | null>(null);
   const historyDraftRef = useRef<{ input: string; pickedImageUrls: string[] } | null>(null);
@@ -945,9 +939,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
       }
       if (thoughtLevelDropdownRef.current && !thoughtLevelDropdownRef.current.contains(target)) {
         setShowThoughtLevelDropdown(false);
-      }
-      if (historyRef.current && !historyRef.current.contains(target)) {
-        setHistoryOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -2308,77 +2299,37 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
               )}
             </div>
             <div className="home-input-actions">
-              <div className="chat-model-selector chat-history-selector" ref={historyRef}>
-                <button
-                  type="button"
-                  className="chat-btn history-btn"
-                  onClick={() => {
-                    if (!jobEnable || isInitializing || !connected) return;
-                    setHistoryOpen((v) => !v);
-                  }}
-                  disabled={!jobEnable || isInitializing || !connected}
-                  title="本地历史（点击发送即记录）"
-                  aria-label="本地历史"
-                >
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 8v5l3 2" />
-                    <circle cx="12" cy="12" r="9" />
-                  </svg>
-                </button>
-                {historyOpen && (() => {
-                  const listContent = historyItems.length === 0 ? (
-                    <div className="chat-history-empty">暂无历史</div>
-                  ) : (
-                    historyItems.map((it) => {
-                      const text = (it.content || '').replace(/\s+/g, ' ').trim();
-                      const preview = text.length > 120 ? text.slice(0, 120) + '…' : text;
-                      const imgCount = it.imageUrls?.length || 0;
-                      return (
-                        <div
-                          key={it.id}
-                          className="chat-history-item"
-                          role="option"
-                          title={it.content}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            const nextInput = it.content === '[image]' && imgCount > 0 ? '' : it.content;
-                            setInput(nextInput);
-                            setPickedImageUrls(it.imageUrls || []);
-                            clearImages();
-                            setHistoryOpen(false);
-                            historyCursorRef.current = null;
-                            historyDraftRef.current = null;
-                            requestAnimationFrame(() => {
-                              textareaRef.current?.focus();
-                              if (textareaRef.current) {
-                                const pos = (nextInput || '').length;
-                                textareaRef.current.selectionStart = textareaRef.current.selectionEnd = pos;
-                              }
-                            });
-                          }}
-                        >
-                          <span className="chat-history-text">{preview || '（空）'}</span>
-                          {imgCount > 0 && <span className="chat-history-badge">🖼️{imgCount}</span>}
-                        </div>
-                      );
-                    })
-                  );
-                  return isMobile ? createPortal(
-                    <div className="mobile-dropdown-overlay" onClick={() => setHistoryOpen(false)}>
-                      <div className="mobile-dropdown-sheet" onClick={(e) => e.stopPropagation()}>
-                        <div className="chat-history-dropdown chat-history-dropdown-mobile" role="listbox" aria-label="sent message history">
-                          {listContent}
-                        </div>
-                      </div>
-                    </div>,
-                    document.body
-                  ) : (
-                    <div className="chat-history-dropdown" role="listbox" aria-label="sent message history">
-                      {listContent}
-                    </div>
-                  );
-                })()}
-              </div>
+              <MessagePresetHistoryMenu
+                workspaceId={workspaceId}
+                disabled={!jobEnable || isInitializing || !connected}
+                isMobile={isMobile}
+                currentInput={input}
+                historyItems={historyItems}
+                onApplyPreset={(content, mode) => {
+                  const nextInput = mode === 'append' && input ? `${input}\n\n${content}` : content;
+                  setInput(nextInput);
+                  closeSlash();
+                  historyCursorRef.current = null;
+                  historyDraftRef.current = null;
+                  requestAnimationFrame(() => {
+                    textareaRef.current?.focus();
+                    if (textareaRef.current) textareaRef.current.selectionStart = textareaRef.current.selectionEnd = nextInput.length;
+                  });
+                }}
+                onApplyHistory={(item) => {
+                  const nextInput = item.content === '[image]' && item.imageUrls?.length ? '' : item.content;
+                  setInput(nextInput);
+                  setPickedImageUrls(item.imageUrls || []);
+                  clearImages();
+                  closeSlash();
+                  historyCursorRef.current = null;
+                  historyDraftRef.current = null;
+                  requestAnimationFrame(() => {
+                    textareaRef.current?.focus();
+                    if (textareaRef.current) textareaRef.current.selectionStart = textareaRef.current.selectionEnd = nextInput.length;
+                  });
+                }}
+              />
               <button
                 className="chat-btn send-btn"
                 onClick={handleSubmit}

@@ -67,6 +67,9 @@ function installFetchMock(api: MockApi) {
       }
       return jsonResponse({ code: 0, status: 'started' })
     }
+    if (url.includes(`/job/${JOB_ID}/message-queue`)) {
+      return jsonResponse({ code: 0, queue: { jobId: JOB_ID, version: 0, paused: false, willContinue: false, items: [] } })
+    }
     if (url.includes(`/job/${JOB_ID}/stop`)) return jsonResponse({ code: 0 })
     if (url.includes(`/job/${JOB_ID}/graph-run`)) return jsonResponse(api.graphRun ?? {})
     if (url.endsWith(`/api/v1/job/${JOB_ID}`)) {
@@ -106,8 +109,8 @@ function messageContents(api: MockApi): string[] {
   return api.postMessageBodies.map((b) => b.messages?.[0]?.content ?? '')
 }
 
-describe('useJobChat queued-message drain', () => {
-  it('drains the whole queue in order even when a queued slash command takes the fast path', async () => {
+describe('useJobChat server message queue submission', () => {
+  it('submits messages immediately so the server owns scheduling order', async () => {
     const api: MockApi = { job: runningInteractiveJob(), failEvents: false, eventsFetchCount: 0, jobFetchCount: 0, historyFetchCount: 0, postMessageBodies: [] }
     installFetchMock(api)
     const { result } = renderHook(() => useJobChat({ existingJobId: JOB_ID }))
@@ -120,19 +123,10 @@ describe('useJobChat queued-message drain', () => {
       result.current.queueMessage({ content: '/help' })
       result.current.queueMessage({ content: '总结一下' })
     })
-    expect(result.current.queuedMessages).toHaveLength(2)
-
-    // The run ends → the queue drains. The slash command takes sendMessage's
-    // fast path, which never flips isLoading — the dispatch lock must still be
-    // released so the next entry is sent.
-    api.job = interactiveJob()
-    await act(async () => { await result.current.stopGeneration() })
-
     await waitFor(() => expect(messageContents(api)).toContain('总结一下'))
     const contents = messageContents(api)
     expect(contents.indexOf('/help')).toBeGreaterThanOrEqual(0)
     expect(contents.indexOf('/help')).toBeLessThan(contents.indexOf('总结一下'))
-    await waitFor(() => expect(result.current.queuedMessages).toHaveLength(0))
   })
 })
 
@@ -251,13 +245,11 @@ describe('useJobChat graph jobs', () => {
     await waitFor(() => expect(result.current.isLoadingHistory).toBe(false))
 
     act(() => { result.current.queueMessage({ content: 'graph queued msg' }) })
-    expect(result.current.queuedMessages).toHaveLength(1)
 
     // Give the drain effect every chance to fire — it must not: the queue
     // drain sends with a null sessionId, which the graph backend contract
     // deliberately does not support.
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)) })
     expect(api.postMessageBodies).toHaveLength(0)
-    expect(result.current.queuedMessages).toHaveLength(1)
   })
 })

@@ -513,7 +513,7 @@ private struct JobRow: View {
 
     private var modeColor: Color {
         switch job.mode {
-        case "graph": Color(red: 0.30, green: 0.52, blue: 0.92)
+        case "graph": QuartetTheme.chartViolet
         case "loop": QuartetTheme.running
         default: QuartetTheme.accent
         }
@@ -617,27 +617,14 @@ private struct JobModeGlyph: Shape {
 }
 
 private struct JobStatusIcon: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     let status: String
 
     var body: some View {
         Group {
             if isLive {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { context in
-                    ZStack {
-                        Circle()
-                            .stroke(statusColor.opacity(0.18), lineWidth: 2.5)
-                        Circle()
-                            .trim(from: 0.04, to: 0.72)
-                            .stroke(
-                                statusColor,
-                                style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
-                            )
-                            .rotationEffect(reduceMotion ? .zero : .degrees(rotationAngle(at: context.date)))
-                    }
-                }
-                .padding(1)
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(statusColor)
             } else {
                 ZStack {
                     Circle()
@@ -653,28 +640,11 @@ private struct JobStatusIcon: View {
     }
 
     private var isLive: Bool {
-        status == "running" || status == "stepStopping"
-    }
-
-    private func rotationAngle(at date: Date) -> Double {
-        let duration = 0.85
-        let elapsed = date.timeIntervalSinceReferenceDate
-        return elapsed.truncatingRemainder(dividingBy: duration) / duration * 360
+        status == "pending" || status == "running" || status == "stepStopping"
     }
 
     private var statusColor: Color {
-        switch status {
-        case "running", "stepStopping":
-            Color(red: 0.15, green: 0.39, blue: 0.92)
-        case "completed":
-            Color(red: 0.09, green: 0.64, blue: 0.29)
-        case "failed", "timedOut":
-            Color(red: 0.86, green: 0.15, blue: 0.15)
-        case "pending", "awaitingInput":
-            Color(red: 0.63, green: 0.38, blue: 0.03)
-        default:
-            QuartetTheme.stopped
-        }
+        QuartetTheme.statusColor(status)
     }
 
     private var statusSymbol: String {

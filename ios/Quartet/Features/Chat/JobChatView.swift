@@ -16,6 +16,7 @@ struct JobChatView: View {
     @State private var showsAttachmentMenu = false
     @State private var showsCameraPicker = false
     @State private var showsDocumentPicker = false
+    @FocusState private var composerFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,6 +41,11 @@ struct JobChatView: View {
                     }
                     .accessibilityLabel("停止生成")
                 }
+            }
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("完成") { composerFocused = false }
+                    .accessibilityLabel("收起键盘")
             }
         }
         .task(id: route.summary.id) {
@@ -102,7 +108,9 @@ struct JobChatView: View {
                 }
             }
         } message: {
-            Text("正在执行的 Agent 将收到停止请求。")
+            Text(chat.serverQueue.items.isEmpty
+                ? "正在执行的 Agent 将收到停止请求。"
+                : "正在执行的 Agent 将收到停止请求，后续排队消息会保留并暂停，需手动继续。")
         }
         .sheet(isPresented: $showsCameraPicker) {
             CameraImagePicker(
@@ -154,6 +162,7 @@ struct JobChatView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 18)
             }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: chat.scrollAnchor) { _, _ in
                 withAnimation(.easeOut(duration: 0.2)) {
                     proxy.scrollTo("chat-bottom", anchor: .bottom)
@@ -193,6 +202,45 @@ struct JobChatView: View {
                 }
             }
 
+            if !chat.serverQueue.items.isEmpty || chat.serverQueue.paused {
+                VStack(spacing: 0) {
+                    if chat.serverQueue.paused {
+                        HStack {
+                            Text(chat.serverQueue.pauseReason == "blocked" ? "队列已阻塞，请删除失败消息" : "队列已暂停")
+                                .font(.quartet(.detail, weight: .semibold))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                            Spacer()
+                            if chat.serverQueue.pauseReason != "blocked" {
+                                Button("继续队列") { Task { await chat.continueQueue() } }
+                                    .font(.quartet(.detail, weight: .semibold))
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                    }
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(chat.serverQueue.items.enumerated()), id: \.element.id) { index, item in
+                                ServerQueueRow(
+                                    index: index + 1, item: item,
+                                    deleting: chat.deletingQueueIDs.contains(item.id),
+                                    onShowError: { chat.showQueueError(item) },
+                                    onDelete: { Task { await chat.deleteQueuedMessage(id: item.id) } }
+                                )
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 156)
+                }
+                .background(QuartetTheme.surface)
+                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 16))
+                .overlay(
+                    UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 16)
+                        .stroke(QuartetTheme.divider, lineWidth: 1)
+                )
+                .padding(.bottom, -10)
+            }
+
             VStack(spacing: 0) {
                 if let pendingImage {
                     ChatAttachmentPreview(upload: pendingImage)
@@ -218,6 +266,7 @@ struct JobChatView: View {
                 TextField("继续对话…", text: $draft, axis: .vertical)
                     .font(.quartet(.regular))
                     .lineLimit(1...6)
+                    .focused($composerFocused)
                     .padding(.horizontal, 15)
                     .padding(.vertical, 14)
                     .frame(minHeight: 54, alignment: .topLeading)
@@ -253,7 +302,7 @@ struct JobChatView: View {
                     Button { enqueueDraft() } label: {
                         Image(systemName: "arrow.up")
                             .font(.quartet(.control, weight: .bold))
-                            .foregroundStyle(sendDisabled ? QuartetTheme.secondaryText : Color.black)
+                            .foregroundStyle(sendDisabled ? QuartetTheme.secondaryText : QuartetTheme.onAccent)
                             .frame(width: 38, height: 38)
                             .background(sendDisabled ? QuartetTheme.elevated : QuartetTheme.accent, in: Circle())
                     }
@@ -274,12 +323,12 @@ struct JobChatView: View {
             .shadow(color: Color.black.opacity(0.05), radius: 16, y: 7)
 
             if chat.isRunning {
-                Text("当前轮次运行中，新消息会先进入本地队列，等本轮结束后自动按顺序发送。")
+                Text("当前轮次运行中，新消息会保存到服务端队列并按顺序发送。")
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
-            } else if chat.hasQueuedMessages {
-                Text("队列中的消息会依次发送，可在发送前取消。")
+            } else if !chat.serverQueue.items.isEmpty || chat.hasQueuedMessages {
+                Text(chat.serverQueue.paused ? "服务端队列已暂停，继续后会按顺序发送。" : "队列中的消息会由服务端依次发送，可在执行前删除。")
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -632,7 +681,7 @@ private struct ThoughtPanel: View {
                     .font(.quartet(.detail, weight: .semibold))
                 Text("深度思考")
                     .font(.quartet(.detail, weight: .semibold))
-                if isStreaming { StreamingDot(color: .blue) }
+                if isStreaming { StreamingDot(color: QuartetTheme.accent) }
                 Spacer(minLength: 8)
                 if let timestamp, !isStreaming {
                     Text(chatTimeLabel(timestamp))
@@ -640,14 +689,14 @@ private struct ThoughtPanel: View {
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
             }
-            .foregroundStyle(Color.blue)
+            .foregroundStyle(QuartetTheme.accent)
 
             MarkdownMessageView(text: text, tone: .thought)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
-        .background(Color.blue.opacity(0.075), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.blue.opacity(0.20), lineWidth: 1))
+        .background(QuartetTheme.accent.opacity(0.075), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(QuartetTheme.accent.opacity(0.24), lineWidth: 1))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -988,6 +1037,55 @@ private struct OutboxRow: View {
     }
 }
 
+private struct ServerQueueRow: View {
+    let index: Int
+    let item: QueuedJobMessage
+    let deleting: Bool
+    let onShowError: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Text("\(index)")
+                .font(.quartet(.compact, design: .monospaced))
+                .foregroundStyle(QuartetTheme.secondaryText)
+            Text(item.summaryLine)
+                .font(.quartet(.detail))
+                .foregroundStyle(item.state == "blocked" ? QuartetTheme.failed : QuartetTheme.primaryText)
+                .lineLimit(1)
+            Spacer(minLength: 6)
+            if !item.imagePaths.isEmpty {
+                Image(systemName: "photo")
+                    .font(.quartet(.compact))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+            if item.error?.isEmpty == false {
+                Button(action: onShowError) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(QuartetTheme.failed)
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("查看排队错误")
+            }
+            Button(role: .destructive, action: onDelete) {
+                Group {
+                    if deleting { ProgressView() }
+                    else { Image(systemName: "xmark").font(.quartet(.compact, weight: .bold)) }
+                }.frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .disabled(deleting)
+            .accessibilityLabel("删除排队消息")
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 7)
+        .overlay(alignment: .bottom) { Divider().overlay(QuartetTheme.divider) }
+        .accessibilityHint(item.error ?? "等待发送")
+    }
+}
+
 private struct MarkdownMessageView: View {
     let text: String
     var tone: MarkdownTone = .standard
@@ -1009,7 +1107,7 @@ private struct MarkdownMessageView: View {
                 case .quote(let content):
                     HStack(alignment: .top, spacing: 10) {
                         Capsule()
-                            .fill(tone == .user ? Color.white.opacity(0.45) : QuartetTheme.secondaryText.opacity(0.5))
+                            .fill(tone == .user ? QuartetTheme.onAccent.opacity(0.42) : QuartetTheme.secondaryText.opacity(0.5))
                             .frame(width: 3)
                         MarkdownTextBlock(text: content, tone: tone)
                     }
@@ -1115,26 +1213,26 @@ private enum MarkdownTone: Equatable {
 
     var foreground: Color {
         switch self {
-        case .user: Color.white
+        case .user: QuartetTheme.onAccent
         case .thought: QuartetTheme.primaryText.opacity(0.82)
         case .standard, .tool: QuartetTheme.primaryText
         }
     }
 
     var secondaryForeground: Color {
-        self == .user ? Color.white.opacity(0.7) : QuartetTheme.secondaryText
+        self == .user ? QuartetTheme.onAccent.opacity(0.68) : QuartetTheme.secondaryText
     }
 
     var codeBackground: Color {
         switch self {
-        case .user: Color.white.opacity(0.09)
-        case .thought: Color.blue.opacity(0.07)
+        case .user: QuartetTheme.onAccent.opacity(0.08)
+        case .thought: QuartetTheme.accent.opacity(0.07)
         case .standard, .tool: QuartetTheme.elevated.opacity(0.72)
         }
     }
 
     var codeBorder: Color {
-        self == .user ? Color.white.opacity(0.18) : QuartetTheme.divider
+        self == .user ? QuartetTheme.onAccent.opacity(0.16) : QuartetTheme.divider
     }
 }
 
@@ -1467,7 +1565,8 @@ private struct LocalOutboxItem: Identifiable, Hashable, Sendable {
     }
 
     var isVisibleInTimeline: Bool {
-        true
+        if case .awaitingEcho = state { return true }
+        return false
     }
 
     var summaryLine: String {
@@ -1489,6 +1588,8 @@ private enum StreamConnectionState: Equatable {
 private final class ChatViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var outbox: [LocalOutboxItem] = []
+    @Published var serverQueue = MessageQueueSnapshot(jobId: "", version: 0, paused: false, pauseReason: nil, willContinue: false, active: nil, items: [])
+    @Published var deletingQueueIDs: Set<String> = []
     @Published var title = ""
     @Published var status = "pending"
     @Published var loading = true
@@ -1519,6 +1620,7 @@ private final class ChatViewModel: ObservableObject {
     private var graphReconcileTask: Task<Void, Never>?
     private var graphMonitorTask: Task<Void, Never>?
     private var didSeedInitialDraft = false
+    private var knownQueuedItems: [String: QueuedJobMessage] = [:]
     private var accumulatedRoundBoundaries: Set<String> = []
     private var isTurnRunning = false
     private var isProcessingOutbox = false
@@ -1537,11 +1639,11 @@ private final class ChatViewModel: ObservableObject {
         let optimisticMessageIDs = Set(messages.map(\.id))
         return outbox.filter { item in
             switch item.state {
-            case .queued:
+            case .queued, .uploading, .sending:
                 return !optimisticMessageIDs.contains(item.id)
             case .failed:
                 return true
-            case .uploading, .sending, .awaitingEcho:
+            case .awaitingEcho:
                 return false
             }
         }
@@ -1575,6 +1677,7 @@ private final class ChatViewModel: ObservableObject {
         if changesJob {
             messages = []
             outbox = []
+            serverQueue = MessageQueueSnapshot(jobId: route.summary.id, version: 0, paused: false, pauseReason: nil, willContinue: false, active: nil, items: [])
             sessionID = nil
             agentDisplayName = nil
             totalTokens = 0
@@ -1582,6 +1685,7 @@ private final class ChatViewModel: ObservableObject {
             runFinishedAt = nil
             accumulatedDurationMs = 0
             accumulatedRoundBoundaries = []
+            knownQueuedItems = [:]
         }
         self.client = client
         jobID = route.summary.id
@@ -1599,6 +1703,13 @@ private final class ChatViewModel: ObservableObject {
 
         do {
             let detail = try await client.job(id: jobID)
+            if !isGraph {
+                do {
+                    applyServerQueue(try await client.messageQueue(jobID: jobID))
+                } catch {
+                    errorDetail = errorText(error)
+                }
+            }
             title = detail.title
             status = detail.status
             runStartedAt = detail.startedAt
@@ -1620,6 +1731,7 @@ private final class ChatViewModel: ObservableObject {
             isTurnRunning = graphRunLive
                 || detail.status == "running"
                 || (detail.status == "pending" && hasPriorConversation(detail))
+                || serverQueue.willContinue
 
             let interactiveSessions = detail.sessionIds ?? []
             let fallbackSession = interactiveSessions.last ?? detail.graphSessionIds?.last
@@ -1641,6 +1753,7 @@ private final class ChatViewModel: ObservableObject {
             } else {
                 messages = []
             }
+            if !isGraph { applyServerQueue(serverQueue) }
 
             loading = false
             if isTurnRunning || sessionID != nil || route.initialMessage != nil || route.initialAttachment != nil || route.initialImagePaths != nil {
@@ -1730,6 +1843,35 @@ private final class ChatViewModel: ObservableObject {
         bumpScrollAnchor()
     }
 
+    func deleteQueuedMessage(id: String) async {
+        guard let client else { return }
+        guard deletingQueueIDs.insert(id).inserted else { return }
+        defer { deletingQueueIDs.remove(id) }
+        do {
+            applyServerQueue(try await client.deleteQueuedMessage(jobID: jobID, messageID: id))
+        } catch {
+            errorDetail = errorText(error)
+        }
+    }
+
+    func showQueueError(_ item: QueuedJobMessage) {
+        guard let detail = item.error, !detail.isEmpty else { return }
+        errorDetail = detail
+    }
+
+    func continueQueue() async {
+        guard let client else { return }
+        do {
+            applyServerQueue(try await client.continueMessageQueue(jobID: jobID))
+            if serverQueue.willContinue {
+                isTurnRunning = true
+                startStreaming()
+            }
+        } catch {
+            errorDetail = errorText(error)
+        }
+    }
+
     func retryOutboxItem(id: String) {
         guard let index = outbox.firstIndex(where: { $0.id == id }) else { return }
         let item = outbox[index]
@@ -1786,8 +1928,12 @@ private final class ChatViewModel: ObservableObject {
         runFinishedAt = now
         finishOpenMessages(outcome: "stopped", timestamp: now)
         isTurnRunning = false
-        stopStreaming()
-        scheduleOutboxProcessing()
+        Task { [weak self] in
+            guard let self, let client = self.client else { return }
+            do { self.applyServerQueue(try await client.messageQueue(jobID: self.jobID)) }
+            catch { self.errorDetail = self.errorText(error) }
+            self.scheduleOutboxProcessing()
+        }
     }
 
     private func seedInitialDraftIfNeeded(route: ChatRoute) -> String? {
@@ -2023,22 +2169,23 @@ private final class ChatViewModel: ObservableObject {
 
     private func processOutboxIfPossible() async {
         guard !isProcessingOutbox else { return }
-        guard !loading, !sending, !isTurnRunning else { return }
+        guard !loading, !sending else { return }
+        // Graph messages retain their existing client-side serialization. The
+        // durable server queue only applies to ordinary interactive Jobs.
+        if isGraph && isTurnRunning { return }
         guard let index = outbox.firstIndex(where: {
             if case .queued = $0.state { return true }
             return false
         }) else { return }
 
         isProcessingOutbox = true
-        defer { isProcessingOutbox = false }
-        await dispatchOutboxItem(at: index)
-
-        if outbox.contains(where: {
-            if case .queued = $0.state { return true }
-            return false
-        }) && !isTurnRunning {
-            scheduleOutboxProcessing()
+        defer {
+            isProcessingOutbox = false
+            if outbox.contains(where: { if case .queued = $0.state { return true }; return false }) {
+                scheduleOutboxProcessing()
+            }
         }
+        await dispatchOutboxItem(at: index)
     }
 
     private func dispatchOutboxItem(at index: Int) async {
@@ -2117,6 +2264,24 @@ private final class ChatViewModel: ObservableObject {
             bumpScrollAnchor()
             return
         }
+        if response.status == "queued" {
+            if let current = outbox.first(where: { $0.id == itemID }), case .awaitingEcho = current.state {
+                return
+            }
+            if let queue = response.queue { applyServerQueue(queue) }
+            messages.removeAll { $0.id == itemID && $0.isOptimistic }
+            outbox.removeAll { $0.id == itemID }
+            isTurnRunning = serverQueue.willContinue
+            bumpScrollAnchor()
+            return
+        }
+        if response.status == "deleted" {
+            if let queue = response.queue { applyServerQueue(queue) }
+            messages.removeAll { $0.id == itemID && $0.isOptimistic }
+            outbox.removeAll { $0.id == itemID }
+            bumpScrollAnchor()
+            return
+        }
         guard response.status == "started" || response.isDuplicate else {
             markOutboxFailed(
                 itemID: itemID,
@@ -2133,6 +2298,17 @@ private final class ChatViewModel: ObservableObject {
         }
         guard response.isDuplicate else {
             setAwaitingEcho(itemID: itemID)
+            return
+        }
+        if response.messageState == "queued" || response.messageState == "blocked" || response.messageState == "deleted" {
+            if let current = outbox.first(where: { $0.id == itemID }), case .awaitingEcho = current.state {
+                return
+            }
+            if let queue = response.queue { applyServerQueue(queue) }
+            messages.removeAll { $0.id == itemID && $0.isOptimistic }
+            outbox.removeAll { $0.id == itemID }
+            isTurnRunning = serverQueue.willContinue
+            bumpScrollAnchor()
             return
         }
 
@@ -2168,9 +2344,15 @@ private final class ChatViewModel: ObservableObject {
                 errorDetail = errorText(error)
             }
             outbox.removeAll { $0.id == itemID }
-            isTurnRunning = false
-            stopStreaming()
+            isTurnRunning = serverQueue.willContinue
+            if isGraph { stopStreaming() }
             scheduleOutboxProcessing()
+            bumpScrollAnchor()
+        case "queued", "blocked":
+            if let queue = response.queue { applyServerQueue(queue) }
+            messages.removeAll { $0.id == itemID && $0.isOptimistic }
+            outbox.removeAll { $0.id == itemID }
+            isTurnRunning = serverQueue.willContinue
             bumpScrollAnchor()
         case "failed", "stopped", "interrupted":
             let failedItem = outbox.first(where: { $0.id == itemID })
@@ -2182,8 +2364,8 @@ private final class ChatViewModel: ObservableObject {
             let state = response.messageState ?? "unknown"
             let detail = "服务端确认消息 \(itemID) 已被处理，但最终状态为 \(state)。草稿和附件已恢复，可使用新的消息 ID 重试。"
             markOutboxFailed(itemID: itemID, detail: detail, requiresNewMessageID: true, fallback: failedItem)
-            isTurnRunning = false
-            stopStreaming()
+            isTurnRunning = serverQueue.willContinue
+            if isGraph { stopStreaming() }
         case let state?:
             markOutboxFailed(
                 itemID: itemID,
@@ -2256,6 +2438,10 @@ private final class ChatViewModel: ObservableObject {
     private func refreshSnapshotAndHistory() async throws {
         guard let client else { return }
         let snapshot = try await client.job(id: jobID)
+        if !isGraph {
+            do { applyServerQueue(try await client.messageQueue(jobID: jobID)) }
+            catch { errorDetail = errorText(error) }
+        }
         title = snapshot.title
         status = snapshot.status
         runStartedAt = snapshot.startedAt
@@ -2285,9 +2471,11 @@ private final class ChatViewModel: ObservableObject {
         } else if let sessionID {
             try await loadHistory(sessionID: sessionID)
         }
+        if !isGraph { applyServerQueue(serverQueue) }
         isTurnRunning = graphRunLive
             || snapshot.status == "running"
             || (snapshot.status == "pending" && hasPriorConversation(snapshot))
+            || serverQueue.willContinue
     }
 
     private func applyGraph(_ event: GraphStreamEvent, id: UInt64?) {
@@ -2488,6 +2676,23 @@ private final class ChatViewModel: ObservableObject {
             runStartedAt = event.timestamp ?? runStartedAt
             runFinishedAt = nil
             if let clientMessageID = event.clientMessageId {
+                let queued = knownQueuedItems[clientMessageID]
+                if let queued,
+                   !messages.contains(where: { $0.id == clientMessageID }) {
+                    messages.append(ChatMessage(
+                        id: queued.id, kind: .user, content: queued.summaryLine, detail: nil,
+                        isFinished: true, isFailed: false, timestamp: event.timestamp,
+                        imagePaths: queued.imagePaths
+                    ))
+                }
+                if serverQueue.items.contains(where: { $0.id == clientMessageID }) {
+                    serverQueue = MessageQueueSnapshot(
+                        jobId: serverQueue.jobId, version: serverQueue.version, paused: serverQueue.paused,
+                        pauseReason: serverQueue.pauseReason, willContinue: true,
+                        active: queued,
+                        items: serverQueue.items.filter { $0.id != clientMessageID }
+                    )
+                }
                 setAwaitingEcho(itemID: clientMessageID)
             }
         case "RUN_FINISHED":
@@ -2506,7 +2711,6 @@ private final class ChatViewModel: ObservableObject {
             applyRunOutcome(outcome)
             finishOpenMessages(outcome: outcome, timestamp: event.timestamp)
             scheduleSnapshotRefresh()
-            stopStreaming()
         case "JOB_FAILED":
             status = "failed"
             isTurnRunning = false
@@ -2517,7 +2721,6 @@ private final class ChatViewModel: ObservableObject {
             if let message = event.message, !message.isEmpty { errorDetail = message }
             finishOpenMessages(outcome: outcome, timestamp: event.timestamp)
             scheduleSnapshotRefresh()
-            stopStreaming()
         case "JOB_STOPPED":
             status = "stopped"
             isTurnRunning = false
@@ -2527,7 +2730,6 @@ private final class ChatViewModel: ObservableObject {
             applyRunOutcome(outcome)
             finishOpenMessages(outcome: outcome, timestamp: event.timestamp)
             scheduleSnapshotRefresh()
-            stopStreaming()
         case "RUN_ERROR":
             errorDetail = [event.code, event.message].compactMap { $0 }.joined(separator: "\n")
         case "COMMAND_SYSTEM_MESSAGE":
@@ -2586,6 +2788,14 @@ private final class ChatViewModel: ObservableObject {
         case "job_title_updated":
             if let updatedTitle = event.value?.title, !updatedTitle.isEmpty {
                 title = updatedTitle
+            }
+        case "message_queue_changed":
+            if let version = event.value?.version, version > serverQueue.version, let client {
+                Task { [weak self] in
+                    guard let self else { return }
+                    do { self.applyServerQueue(try await client.messageQueue(jobID: self.jobID)) }
+                    catch { self.errorDetail = self.errorText(error) }
+                }
             }
         default:
             break
@@ -2688,6 +2898,24 @@ private final class ChatViewModel: ObservableObject {
         bumpScrollAnchor()
     }
 
+    private func applyServerQueue(_ snapshot: MessageQueueSnapshot) {
+        guard snapshot.jobId == jobID else { return }
+        if serverQueue.jobId == jobID, snapshot.version < serverQueue.version { return }
+        for item in snapshot.items { knownQueuedItems[item.id] = item }
+        if let active = snapshot.active {
+            knownQueuedItems[active.id] = active
+            if !messages.contains(where: { $0.id == active.id }) {
+                messages.append(ChatMessage(
+                    id: active.id, kind: .user, content: active.summaryLine, detail: nil,
+                    isFinished: true, isFailed: false, timestamp: active.createdAt,
+                    imagePaths: active.imagePaths, isOptimistic: true
+                ))
+            }
+        }
+        serverQueue = snapshot
+        isTurnRunning = snapshot.willContinue || status == "running" || graphRunLive
+    }
+
     private func scheduleSnapshotRefresh() {
         guard client != nil else { return }
         Task { [weak self] in
@@ -2696,6 +2924,7 @@ private final class ChatViewModel: ObservableObject {
                 try await self.refreshSnapshotAndHistory()
                 self.reconcileAwaitingEchoIfNeeded()
                 self.scheduleOutboxProcessing()
+                if self.isGraph && !self.serverQueue.willContinue { self.stopStreaming() }
             } catch {
                 self.errorDetail = self.errorText(error)
             }

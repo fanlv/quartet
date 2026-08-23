@@ -118,13 +118,13 @@ struct ConnectionView: View {
 
             Button(action: startConnection) {
                 HStack {
-                    if model.phase == .connecting { ProgressView().tint(.black) }
+                    if model.phase == .connecting { ProgressView().tint(QuartetTheme.onAccent) }
                     Text(model.phase == .connecting ? "正在验证…" : "连接 Quartet")
                     Spacer()
                     Image(systemName: "arrow.up.right")
                 }
                 .font(.headline)
-                .foregroundStyle(.black)
+                .foregroundStyle(QuartetTheme.onAccent)
                 .padding(.horizontal, 18)
                 .frame(height: 54)
                 .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 14))

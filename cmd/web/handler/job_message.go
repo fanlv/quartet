@@ -72,6 +72,10 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 	// non-web clients).
 	if !req.BypassCommand && len(req.Messages) == 1 && len(req.Messages[0].ImageUrls) == 0 {
 		if command.IsKnown(req.Messages[0].Content) {
+			if j.Status == model.JobStatusRunning && !command.IsReadOnly(req.Messages[0].Content) {
+				httputil.Conflict(c, "the command has side effects and cannot run while the job is running; try again after the current message finishes")
+				return
+			}
 			cmdName, args := command.Parse(req.Messages[0].Content)
 			execute := func() *model.CommandSystemMessageEvent {
 				return h.dispatchJobCommand(ctx, j, req.ClientMessageID, cmdName, args)
@@ -106,86 +110,147 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
-	// A result-unknown HTTP retry commonly arrives while the original run is
-	// still Running. Check the durable receipt before prepareJobSend's job-state
-	// gate so that retry is acknowledged instead of being mistaken for a new
-	// message and rejected with ErrJobRunning. SendMessage repeats the check
-	// atomically with its claim, so this fast path does not carry correctness.
+	queueService, supportsQueue := h.jobService.(job.MessageQueueService)
+	if !supportsQueue || j.Mode != model.JobModeInteractive {
+		h.sendJobMessageDirect(ctx, c, j, &req, receivedAt)
+		return
+	}
 	if req.ClientMessageID != "" {
 		idempotencyOpts := h.prepareIdempotencyOptions(&req)
+		receipt, found, lookupErr := h.jobService.LookupMessage(j.ID, idempotencyOpts)
+		if lookupErr != nil {
+			httputil.MapError(c, lookupErr, jobErrMappings)
+			return
+		}
+		if found {
+			snapshot, queueErr := queueService.MessageQueue(j.ID)
+			if queueErr != nil {
+				httputil.MapError(c, queueErr, jobErrMappings)
+				return
+			}
+			disposition := job.SubmitMessageDuplicate
+			if receipt.State == model.ClientMessageStateDeleted {
+				disposition = job.SubmitMessageDeleted
+			}
+			writeSubmitMessageResult(c, job.SubmitMessageResult{Disposition: disposition, Receipt: receipt, Queue: snapshot})
+			return
+		}
+	}
+
+	queued, err := h.prepareQueuedJobMessage(ctx, j, &req)
+	if err != nil {
+		mapPrepareJobSendError(c, err)
+		return
+	}
+	if principal, ok := CurrentPrincipal(c); ok {
+		queued.ActorID = principal.User.ID
+	}
+
+	result, err := queueService.SubmitMessage(ctx, j.ID, queued)
+	if err != nil {
+		logger.Errorf(ctx, "[job] submit message failed: jobId=%s err=%v", j.ID, err)
+		httputil.MapError(c, err, jobErrMappings)
+		return
+	}
+
+	// The audit stream is append-only. SubmitMessage reports queued only for the
+	// first durable acceptance, so retries never duplicate these rows.
+	if result.Disposition == job.SubmitMessageQueued || result.Disposition == job.SubmitMessageStarted {
+		h.appendWebUserInputs(ctx, j, &req, receivedAt)
+	}
+
+	writeSubmitMessageResult(c, result)
+}
+
+func (h *Handler) sendJobMessageDirect(ctx context.Context, c *app.RequestContext, j *model.Job, req *model.JobMessageRequest, receivedAt time.Time) {
+	if req.ClientMessageID != "" {
+		idempotencyOpts := h.prepareIdempotencyOptions(req)
 		receipt, found, err := h.jobService.LookupMessage(j.ID, idempotencyOpts)
 		if err != nil {
 			httputil.MapError(c, err, jobErrMappings)
 			return
 		}
 		if found {
-			// The fast path has not constructed a runner, so it is safe to return
-			// immediately. A race after this miss is handled authoritatively by
-			// SendMessage below.
-			writeJobMessageResult(c, job.SendMessageResult{
-				Disposition: job.SendMessageDuplicate,
-				Receipt:     receipt,
-			})
+			writeJobMessageResult(c, job.SendMessageResult{Disposition: job.SendMessageDuplicate, Receipt: receipt})
 			return
 		}
 	}
-
-	// "真实用户输入" 窄口径流：命令已在上面的快速路径 return，此处按 messages 数组
-	// 顺序遍历落盘，每条非空消息一条 JSONL 条目（文档 §3.6 "命令一律不落"：即便
-	// 走到这里，也对每条消息再做一次命令判定，命中即跳过；这样覆盖
-	// BypassCommand、多消息、带图命令等快速路径未拦截的场景）。
-	// 判定口径与 IM 侧 dispatchAdminCommand 保持一致：只有已知命令（command.IsKnown）
-	// 才跳过落盘，未知 slash 文本（例如拼错的 /hlep 或 /etc/hosts 这类路径）按真实
-	// 用户消息落盘并转发给 Agent。
-	// 落盘发生在 prepareJobSend 成功之后，避免参数错误时留脏数据（文档 §3.5）。
-	runner, opts, err := h.prepareJobSend(ctx, j, &req)
+	runner, opts, err := h.prepareJobSend(ctx, j, req)
 	if err != nil {
 		mapPrepareJobSendError(c, err)
 		return
 	}
-
 	result, err := h.jobService.SendMessage(ctx, j.ID, runner, opts)
 	if err != nil {
-		logger.Errorf(ctx, "[job] send message failed: jobId=%s err=%v", j.ID, err)
 		httputil.MapError(c, err, jobErrMappings)
 		return
 	}
-	if !result.Started() {
-		// A concurrent request won the claim after the fast lookup but before
-		// this request entered SendMessage. The service released this request's
-		// prepared execution lease; do not append audit input or launch work.
-		writeJobMessageResult(c, result)
+	if result.Started() {
+		h.appendWebUserInputs(ctx, j, req, receivedAt)
+	}
+	writeJobMessageResult(c, result)
+}
+
+func (h *Handler) appendWebUserInputs(ctx context.Context, j *model.Job, req *model.JobMessageRequest, receivedAt time.Time) {
+	if h.userInputRepo == nil {
 		return
 	}
-
-	// The audit stream is append-only and has no uniqueness constraint. Append
-	// only when this request actually won the durable idempotency claim, or an
-	// HTTP retry would create duplicate user-input rows even though the Agent
-	// was correctly deduplicated.
-	if result.Started() && h.userInputRepo != nil {
-		for idx, m := range req.Messages {
-			if m.Content == "" && len(m.ImageUrls) == 0 {
-				continue
-			}
-			if command.IsKnown(m.Content) {
-				continue
-			}
-			msgID := m.ID
-			if msgID == "" {
-				if idx == 0 && req.ClientMessageID != "" {
-					msgID = req.ClientMessageID
-				} else {
-					msgID = uuid.NewString()
-				}
-			}
-			input := model.NewWebUserInput(receivedAt, msgID, j.ID, j.WorkspaceID, m.Content, m.ImageUrls)
-			if err := h.userInputRepo.Append(ctx, input); err != nil {
-				logger.Errorf(ctx, "[user_input] append web failed: jobId=%s err=%v", j.ID, err)
+	for idx, m := range req.Messages {
+		if m.Content == "" && len(m.ImageUrls) == 0 {
+			continue
+		}
+		if command.IsKnown(m.Content) {
+			continue
+		}
+		msgID := m.ID
+		if msgID == "" {
+			if idx == 0 && req.ClientMessageID != "" {
+				msgID = req.ClientMessageID
+			} else {
+				msgID = uuid.NewString()
 			}
 		}
+		input := model.NewWebUserInput(receivedAt, msgID, j.ID, j.WorkspaceID, m.Content, m.ImageUrls)
+		if err := h.userInputRepo.Append(ctx, input); err != nil {
+			logger.Errorf(ctx, "[user_input] append web failed: jobId=%s err=%v", j.ID, err)
+		}
 	}
+}
 
-	writeJobMessageResult(c, result)
+func writeSubmitMessageResult(c *app.RequestContext, result job.SubmitMessageResult) {
+	response := map[string]any{
+		"code": 0, "status": result.Disposition, "queue": result.Queue,
+	}
+	if result.Receipt.ClientMessageID != "" {
+		response["clientMessageId"] = result.Receipt.ClientMessageID
+		response["messageState"] = result.Receipt.State
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) prepareQueuedJobMessage(ctx context.Context, j *model.Job, req *model.JobMessageRequest) (model.QueuedJobMessage, error) {
+	if j.Deleted {
+		return model.QueuedJobMessage{}, job.ErrJobDeleted
+	}
+	if j.Mode != model.JobModeInteractive {
+		return model.QueuedJobMessage{}, job.ErrJobNotRunnable
+	}
+	if req.ClientMessageID == "" {
+		return model.QueuedJobMessage{}, fmt.Errorf("clientMessageId is required")
+	}
+	if len(req.Messages) == 0 {
+		return model.QueuedJobMessage{}, job.ErrEmptyMessage
+	}
+	agentID, revision, err := h.resolveInteractiveExecutionTarget(ctx, j, req)
+	if err != nil {
+		return model.QueuedJobMessage{}, err
+	}
+	return model.QueuedJobMessage{
+		ID: req.ClientMessageID, Messages: req.Messages, SessionID: req.SessionID,
+		AgentType: req.AgentType, AgentID: agentID, AgentRevision: revision,
+		ModelID: req.ModelID, ACPMode: req.ACPMode, ACPThoughtLevel: req.ACPThoughtLevel,
+		BypassCommand: req.BypassCommand, Source: "web", CreatedAt: time.Now().UnixMilli(),
+	}, nil
 }
 
 func writeJobMessageResult(c *app.RequestContext, result job.SendMessageResult) {

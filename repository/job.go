@@ -35,6 +35,10 @@ type persistedJob struct {
 	ActiveClientMessageID   string                                `json:"activeClientMessageId,omitempty"`
 	ClientMessageReceipts   map[string]model.ClientMessageReceipt `json:"clientMessageReceipts,omitempty"`
 	CommandReceipts         map[string]model.CommandReceipt       `json:"commandReceipts,omitempty"`
+	MessageQueue            []model.QueuedJobMessage              `json:"messageQueue,omitempty"`
+	MessageQueueVersion     int64                                 `json:"messageQueueVersion,omitempty"`
+	MessageQueuePaused      bool                                  `json:"messageQueuePaused,omitempty"`
+	MessageQueuePauseReason string                                `json:"messageQueuePauseReason,omitempty"`
 	CreationClientMessageID string                                `json:"creationClientMessageId,omitempty"`
 	CreationPayloadHash     string                                `json:"creationPayloadHash,omitempty"`
 }
@@ -145,6 +149,10 @@ func marshalPersistedJob(job *model.Job) ([]byte, error) {
 		ActiveClientMessageID:   job.ActiveClientMessageID,
 		ClientMessageReceipts:   job.ClientMessageReceipts,
 		CommandReceipts:         job.CommandReceipts,
+		MessageQueue:            job.MessageQueue,
+		MessageQueueVersion:     job.MessageQueueVersion,
+		MessageQueuePaused:      job.MessageQueuePaused,
+		MessageQueuePauseReason: job.MessageQueuePauseReason,
 		CreationClientMessageID: job.CreationClientMessageID,
 		CreationPayloadHash:     job.CreationPayloadHash,
 	})
@@ -158,6 +166,10 @@ func unmarshalPersistedJob(data []byte) (*model.Job, error) {
 	stored.Job.ActiveClientMessageID = stored.ActiveClientMessageID
 	stored.Job.ClientMessageReceipts = stored.ClientMessageReceipts
 	stored.Job.CommandReceipts = stored.CommandReceipts
+	stored.Job.MessageQueue = stored.MessageQueue
+	stored.Job.MessageQueueVersion = stored.MessageQueueVersion
+	stored.Job.MessageQueuePaused = stored.MessageQueuePaused
+	stored.Job.MessageQueuePauseReason = stored.MessageQueuePauseReason
 	stored.Job.CreationClientMessageID = stored.CreationClientMessageID
 	stored.Job.CreationPayloadHash = stored.CreationPayloadHash
 	return stored.Job, nil

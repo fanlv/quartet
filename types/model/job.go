@@ -35,11 +35,14 @@ const (
 type ClientMessageState string
 
 const (
+	ClientMessageStateQueued      ClientMessageState = "queued"
+	ClientMessageStateBlocked     ClientMessageState = "blocked"
 	ClientMessageStateProcessing  ClientMessageState = "processing"
 	ClientMessageStateCompleted   ClientMessageState = "completed"
 	ClientMessageStateFailed      ClientMessageState = "failed"
 	ClientMessageStateStopped     ClientMessageState = "stopped"
 	ClientMessageStateInterrupted ClientMessageState = "interrupted"
+	ClientMessageStateDeleted     ClientMessageState = "deleted"
 )
 
 // ClientMessageReceipt is the persistent idempotency record for a
@@ -50,6 +53,50 @@ type ClientMessageReceipt struct {
 	PayloadHash string             `json:"payloadHash"`
 	AcceptedAt  int64              `json:"acceptedAt"`
 	FinishedAt  int64              `json:"finishedAt,omitempty"`
+}
+
+type QueuedMessageState string
+
+const (
+	QueuedMessageStateQueued     QueuedMessageState = "queued"
+	QueuedMessageStateBlocked    QueuedMessageState = "blocked"
+	QueuedMessageStateProcessing QueuedMessageState = "processing"
+)
+
+const (
+	MessageQueuePauseUserStopped = "user_stopped"
+	MessageQueuePauseBlocked     = "blocked"
+)
+
+// QueuedJobMessage is a durable, not-yet-started interactive message. It is
+// hidden from ordinary Job JSON and exposed only through the queue API.
+type QueuedJobMessage struct {
+	ID              string             `json:"id"`
+	Messages        []RequestMessage   `json:"messages"`
+	SessionID       string             `json:"sessionId,omitempty"`
+	AgentType       string             `json:"agentType,omitempty"`
+	AgentID         string             `json:"agentId,omitempty"`
+	AgentRevision   string             `json:"agentRevision,omitempty"`
+	ModelID         string             `json:"modelId,omitempty"`
+	ACPMode         string             `json:"acpMode,omitempty"`
+	ACPThoughtLevel string             `json:"acpThoughtLevel,omitempty"`
+	BypassCommand   bool               `json:"bypassCommand,omitempty"`
+	Source          string             `json:"source,omitempty"`
+	ActorID         string             `json:"actorId,omitempty"`
+	State           QueuedMessageState `json:"state"`
+	Error           string             `json:"error,omitempty"`
+	CreatedAt       int64              `json:"createdAt"`
+	UpdatedAt       int64              `json:"updatedAt"`
+}
+
+type MessageQueueSnapshot struct {
+	JobID        string             `json:"jobId"`
+	Version      int64              `json:"version"`
+	Paused       bool               `json:"paused"`
+	PauseReason  string             `json:"pauseReason,omitempty"`
+	WillContinue bool               `json:"willContinue"`
+	Active       *QueuedJobMessage  `json:"active,omitempty"`
+	Items        []QueuedJobMessage `json:"items"`
 }
 
 // CommandReceipt records a completed slash-command dispatch. Commands use a
@@ -150,6 +197,10 @@ type Job struct {
 	ActiveClientMessageID   string                          `json:"-"`
 	ClientMessageReceipts   map[string]ClientMessageReceipt `json:"-"`
 	CommandReceipts         map[string]CommandReceipt       `json:"-"`
+	MessageQueue            []QueuedJobMessage              `json:"-"`
+	MessageQueueVersion     int64                           `json:"-"`
+	MessageQueuePaused      bool                            `json:"-"`
+	MessageQueuePauseReason string                          `json:"-"`
 	CreationClientMessageID string                          `json:"-"`
 	CreationPayloadHash     string                          `json:"-"`
 
@@ -424,6 +475,19 @@ func (j *Job) DeepCopy() *Job {
 				copyReceipt.Event = &copyEvent
 			}
 			cp.CommandReceipts[id] = copyReceipt
+		}
+	}
+	if len(j.MessageQueue) > 0 {
+		cp.MessageQueue = make([]QueuedJobMessage, len(j.MessageQueue))
+		for i := range j.MessageQueue {
+			cp.MessageQueue[i] = j.MessageQueue[i]
+			if len(j.MessageQueue[i].Messages) > 0 {
+				cp.MessageQueue[i].Messages = make([]RequestMessage, len(j.MessageQueue[i].Messages))
+				copy(cp.MessageQueue[i].Messages, j.MessageQueue[i].Messages)
+				for k := range cp.MessageQueue[i].Messages {
+					cp.MessageQueue[i].Messages[k].ImageUrls = append([]string(nil), j.MessageQueue[i].Messages[k].ImageUrls...)
+				}
+			}
 		}
 	}
 

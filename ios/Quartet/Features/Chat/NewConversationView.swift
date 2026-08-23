@@ -52,6 +52,12 @@ private struct CreateJobIntent {
     let payload: CreateJobIntentPayload
 }
 
+private struct NewConversationAgentModelSelection: Hashable {
+    let agentID: String
+    let agentType: String
+    let modelID: String
+}
+
 private enum NewConversationMode: String, CaseIterable, Identifiable {
     case chat
     case graph
@@ -74,6 +80,9 @@ struct NewConversationView: View {
     @State private var modelID = ""
     @State private var modeID = ""
     @State private var thoughtLevelID = ""
+    @State private var linkedThoughtLevels: AgentThoughtLevelState?
+    @State private var linkedThoughtLevelSelection: NewConversationAgentModelSelection?
+    @State private var thoughtLevelRequestID: UUID?
     @State private var message = ""
     @State private var sentMessageHistory: [SentMessageHistoryItem] = []
     @State private var selectedPhoto: PhotosPickerItem?
@@ -106,13 +115,25 @@ struct NewConversationView: View {
         agent?.modes?.availableModes.first(where: { $0.id == modeID })?.name ?? "跟随 Agent"
     }
     private var thoughtLevelName: String {
-        agent?.thoughtLevels?.availableThoughtLevels.first(where: { $0.id == thoughtLevelID })?.name ?? "跟随 Agent"
+        if isLinkingThoughtLevels { return "正在刷新…" }
+        return linkedThoughtLevels?.availableThoughtLevels.first(where: { $0.id == thoughtLevelID })?.name ?? "跟随 Agent"
     }
     private var hasAdvancedOptions: Bool {
-        agent?.modes?.availableModes.isEmpty == false || agent?.thoughtLevels?.availableThoughtLevels.isEmpty == false
+        agent?.modes?.availableModes.isEmpty == false
+            || linkedThoughtLevels?.availableThoughtLevels.isEmpty == false
+            || isLinkingThoughtLevels
+    }
+    private var thoughtLevelSelection: NewConversationAgentModelSelection? {
+        guard let agent, agent.available, !modelID.isEmpty, agent.models != nil else { return nil }
+        return NewConversationAgentModelSelection(agentID: agent.agentId, agentType: agent.type, modelID: modelID)
+    }
+    private var isLinkingThoughtLevels: Bool {
+        guard let selection = thoughtLevelSelection else { return false }
+        return linkedThoughtLevelSelection != selection
     }
     private var cannotCreate: Bool {
         creating
+            || isLinkingThoughtLevels
             || workspaceID.isEmpty
             || agent?.available != true
             || (message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImage == nil)
@@ -159,6 +180,13 @@ struct NewConversationView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItemGroup(placement: .keyboard) {
+                    if creationMode == .chat, composerFocused {
+                        Spacer()
+                        Button("完成") { composerFocused = false }
+                            .accessibilityLabel("收起键盘")
+                    }
+                }
             }
             .task(id: creationMode) {
                 if creationMode == .chat, agents.isEmpty {
@@ -168,6 +196,10 @@ struct NewConversationView: View {
             .task(id: workspaceID) {
                 guard creationMode == .chat, !workspaceID.isEmpty else { return }
                 loadSentMessageHistory()
+            }
+            .task(id: thoughtLevelSelection) {
+                guard creationMode == .chat else { return }
+                await refreshThoughtLevels(for: thoughtLevelSelection)
             }
             .onChange(of: currentCreatePayload) { _, payload in
                 if createIntent?.payload != payload {
@@ -453,7 +485,10 @@ struct NewConversationView: View {
                             rowDivider.padding(.leading, 58)
                             modePicker
                         }
-                        if agent?.thoughtLevels?.availableThoughtLevels.isEmpty == false {
+                        if isLinkingThoughtLevels {
+                            rowDivider.padding(.leading, 58)
+                            configurationRow(title: "思考等级", value: "正在读取可用等级…", icon: "brain")
+                        } else if linkedThoughtLevels?.availableThoughtLevels.isEmpty == false {
                             rowDivider.padding(.leading, 58)
                             thoughtLevelPicker
                         }
@@ -535,7 +570,7 @@ struct NewConversationView: View {
     private var modelPicker: some View {
         Menu {
             ForEach(orderedModels) { item in
-                Button { modelID = item.modelId } label: {
+                Button { selectModel(item.modelId) } label: {
                     if item.modelId == modelID {
                         Label(item.name, systemImage: "checkmark")
                     } else if favoriteModelIDs.contains(item.modelId) {
@@ -567,7 +602,7 @@ struct NewConversationView: View {
 
     private var thoughtLevelPicker: some View {
         Menu {
-            ForEach(agent?.thoughtLevels?.availableThoughtLevels ?? []) { item in
+            ForEach(linkedThoughtLevels?.availableThoughtLevels ?? []) { item in
                 Button { thoughtLevelID = item.id } label: {
                     item.id == thoughtLevelID ? Label(item.name, systemImage: "checkmark") : Label(item.name, systemImage: "circle")
                 }
@@ -619,7 +654,7 @@ struct NewConversationView: View {
             Button { Task { await create() } } label: {
                 HStack(spacing: 10) {
                     if creating {
-                        ProgressView().tint(.black)
+                        ProgressView().tint(QuartetTheme.onAccent)
                     } else {
                         Image(systemName: "arrow.up.circle.fill")
                     }
@@ -629,7 +664,7 @@ struct NewConversationView: View {
                         .font(.quartet(.detail, weight: .bold))
                 }
                 .font(.quartet(.regular, weight: .semibold))
-                .foregroundStyle(.black)
+                .foregroundStyle(QuartetTheme.onAccent)
                 .padding(.horizontal, 18)
                 .frame(height: 54)
                 .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -754,8 +789,21 @@ struct NewConversationView: View {
     }
 
     private func selectAgent(_ id: String) {
+        let previousSelection = thoughtLevelSelection
         agentID = id
         applyAgentDefaults(includeWorkspaceDefault: false)
+        if let selection = thoughtLevelSelection, selection == previousSelection {
+            linkedThoughtLevels = nil
+            linkedThoughtLevelSelection = nil
+            thoughtLevelID = ""
+            Task { await refreshThoughtLevels(for: selection) }
+        }
+    }
+
+    private func selectModel(_ id: String) {
+        guard modelID != id else { return }
+        modelID = id
+        invalidateThoughtLevelsIfNeeded()
     }
 
     private func applyAgentDefaults(includeWorkspaceDefault: Bool = false) {
@@ -774,10 +822,53 @@ struct NewConversationView: View {
             ?? validID(agent.modes?.currentModeId, in: availableModes)
             ?? ""
 
-        let availableThoughtLevels = agent.thoughtLevels?.availableThoughtLevels.map(\.id) ?? []
-        thoughtLevelID = validID(preferences?.defaultThoughtLevel, in: availableThoughtLevels)
-            ?? validID(agent.thoughtLevels?.currentThoughtLevelId, in: availableThoughtLevels)
-            ?? ""
+        invalidateThoughtLevelsIfNeeded()
+    }
+
+    private func invalidateThoughtLevelsIfNeeded() {
+        guard linkedThoughtLevelSelection != thoughtLevelSelection else { return }
+        linkedThoughtLevels = nil
+        linkedThoughtLevelSelection = nil
+        thoughtLevelID = ""
+    }
+
+    private func refreshThoughtLevels(for selection: NewConversationAgentModelSelection?) async {
+        guard let selection else {
+            linkedThoughtLevels = nil
+            linkedThoughtLevelSelection = nil
+            thoughtLevelRequestID = nil
+            thoughtLevelID = ""
+            return
+        }
+        invalidateThoughtLevelsIfNeeded()
+        let requestID = UUID()
+        thoughtLevelRequestID = requestID
+        do {
+            let state = try await model.relinkACPThoughtLevels(
+                agentType: selection.agentType,
+                modelID: selection.modelID
+            )
+            try Task.checkCancellation()
+            guard thoughtLevelSelection == selection, thoughtLevelRequestID == requestID else { return }
+            let preferences = agentPreferences[selection.agentID] ?? agentPreferences[selection.agentType]
+            let available = state.availableThoughtLevels.map(\.id)
+            linkedThoughtLevels = state
+            linkedThoughtLevelSelection = selection
+            thoughtLevelID = validID(preferences?.defaultThoughtLevel, in: available)
+                ?? validID(state.currentThoughtLevelId, in: available)
+                ?? ""
+        } catch is CancellationError {
+            return
+        } catch {
+            guard thoughtLevelSelection == selection, thoughtLevelRequestID == requestID else { return }
+            linkedThoughtLevels = AgentThoughtLevelState(
+                availableThoughtLevels: [],
+                currentThoughtLevelId: ""
+            )
+            linkedThoughtLevelSelection = selection
+            thoughtLevelID = ""
+            present(error)
+        }
     }
 
     private func validID(_ candidate: String?, in available: [String]) -> String? {
@@ -811,7 +902,8 @@ struct NewConversationView: View {
     }
 
     private func create() async {
-        guard let workspace, let agent, agent.available, let payload = currentCreatePayload else { return }
+        guard !isLinkingThoughtLevels,
+              let workspace, let agent, agent.available, let payload = currentCreatePayload else { return }
         creating = true
         defer { creating = false }
         do {

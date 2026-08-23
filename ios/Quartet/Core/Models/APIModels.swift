@@ -238,6 +238,44 @@ struct AgentThoughtLevelState: Decodable, Hashable, Sendable {
     let currentThoughtLevelId: String
 }
 
+enum ACPConfigTarget: String, Encodable, Sendable {
+    case model
+    case mode
+    case thoughtLevel
+}
+
+struct SetACPConfigRequest: Encodable, Sendable {
+    let target: ACPConfigTarget
+    let sessionId: String?
+    let agentType: String?
+    let model: String?
+    let mode: String?
+    let thoughtLevel: String?
+
+    init(
+        target: ACPConfigTarget,
+        sessionId: String? = nil,
+        agentType: String? = nil,
+        model: String? = nil,
+        mode: String? = nil,
+        thoughtLevel: String? = nil
+    ) {
+        self.target = target
+        self.sessionId = sessionId
+        self.agentType = agentType
+        self.model = model
+        self.mode = mode
+        self.thoughtLevel = thoughtLevel
+    }
+}
+
+struct SetACPConfigResponse: Decodable, Sendable {
+    let code: Int
+    let models: AgentModelState?
+    let modes: AgentModeState?
+    let thoughtLevels: AgentThoughtLevelState?
+}
+
 struct AgentOption: Decodable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
@@ -740,6 +778,7 @@ struct ServerEventValue: Decodable, Sendable {
     let title: String?
     let error: String?
     let totalTokens: Int?
+    let version: Int64?
 }
 
 struct CreateJobResponse: Decodable, Sendable {
@@ -830,8 +869,45 @@ struct SendMessageResponse: Decodable, Sendable {
     let clientMessageId: String?
     let messageState: String?
     let event: ServerEvent?
+    let queue: MessageQueueSnapshot?
 
     var isDuplicate: Bool { status == "duplicate" }
+}
+
+struct MessageQueueEnvelope: Decodable, Sendable {
+    let code: Int?
+    let queue: MessageQueueSnapshot
+}
+
+struct MessageQueueSnapshot: Decodable, Hashable, Sendable {
+    let jobId: String
+    let version: Int64
+    let paused: Bool
+    let pauseReason: String?
+    let willContinue: Bool
+    let active: QueuedJobMessage?
+    let items: [QueuedJobMessage]
+}
+
+struct QueuedJobMessage: Decodable, Identifiable, Hashable, Sendable {
+    struct Message: Decodable, Hashable, Sendable {
+        let content: String
+        let imageUrls: [String]?
+    }
+
+    let id: String
+    let messages: [Message]
+    let state: String
+    let error: String?
+    let createdAt: Int64
+
+    var summaryLine: String {
+        let text = messages.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n")
+        if !text.isEmpty { return text }
+        return imagePaths.isEmpty ? "空消息" : "[图片]"
+    }
+
+    var imagePaths: [String] { messages.flatMap { $0.imageUrls ?? [] } }
 }
 
 struct UploadResponse: Decodable, Sendable {

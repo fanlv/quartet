@@ -163,6 +163,12 @@ type serviceImpl struct {
 	// returning anything.
 	usageRecorder usagestats.Recorder
 
+	messageQueueDispatcher   MessageQueueDispatcher
+	messageQueueDispatcherMu sync.RWMutex
+	messageQueueDispatching  map[string]bool
+	messageQueueDispatchMu   sync.Mutex
+	stopping                 bool
+
 	// clock is instance-scoped so run/event millisecond timestamps can be
 	// deterministic in focused tests without mutating package globals.
 	clock clock
@@ -470,15 +476,19 @@ func (s *serviceImpl) store(jobID string, job *model.Job) {
 // owned fields are intentionally excluded so a concurrent targeted update
 // (e.g. UpdateTitle) is not clobbered by the rollback.
 type jobRunStateSnapshot struct {
-	Status                model.JobStatus
-	StartedAt             int64
-	FinishedAt            int64
-	SessionIDs            []string
-	Progress              *model.JobProgress
-	Resume                *model.JobResume
-	LastRunOutcome        model.RunOutcome
-	ActiveClientMessageID string
-	ClientMessageReceipts map[string]model.ClientMessageReceipt
+	Status                  model.JobStatus
+	StartedAt               int64
+	FinishedAt              int64
+	SessionIDs              []string
+	Progress                *model.JobProgress
+	Resume                  *model.JobResume
+	LastRunOutcome          model.RunOutcome
+	ActiveClientMessageID   string
+	ClientMessageReceipts   map[string]model.ClientMessageReceipt
+	MessageQueue            []model.QueuedJobMessage
+	MessageQueueVersion     int64
+	MessageQueuePaused      bool
+	MessageQueuePauseReason string
 }
 
 // snapshotRunStateLocked captures the run-owned fields that may be
@@ -486,15 +496,19 @@ type jobRunStateSnapshot struct {
 func snapshotRunStateLocked(job *model.Job) jobRunStateSnapshot {
 	cp := job.DeepCopy()
 	return jobRunStateSnapshot{
-		Status:                cp.Status,
-		StartedAt:             cp.StartedAt,
-		FinishedAt:            cp.FinishedAt,
-		SessionIDs:            cp.SessionIDs,
-		Progress:              cp.Progress,
-		Resume:                cp.Resume,
-		LastRunOutcome:        cp.LastRunOutcome,
-		ActiveClientMessageID: cp.ActiveClientMessageID,
-		ClientMessageReceipts: cp.ClientMessageReceipts,
+		Status:                  cp.Status,
+		StartedAt:               cp.StartedAt,
+		FinishedAt:              cp.FinishedAt,
+		SessionIDs:              cp.SessionIDs,
+		Progress:                cp.Progress,
+		Resume:                  cp.Resume,
+		LastRunOutcome:          cp.LastRunOutcome,
+		ActiveClientMessageID:   cp.ActiveClientMessageID,
+		ClientMessageReceipts:   cp.ClientMessageReceipts,
+		MessageQueue:            cp.MessageQueue,
+		MessageQueueVersion:     cp.MessageQueueVersion,
+		MessageQueuePaused:      cp.MessageQueuePaused,
+		MessageQueuePauseReason: cp.MessageQueuePauseReason,
 	}
 }
 
@@ -510,6 +524,10 @@ func restoreRunStateLocked(job *model.Job, snap jobRunStateSnapshot) {
 	job.LastRunOutcome = snap.LastRunOutcome
 	job.ActiveClientMessageID = snap.ActiveClientMessageID
 	job.ClientMessageReceipts = snap.ClientMessageReceipts
+	job.MessageQueue = snap.MessageQueue
+	job.MessageQueueVersion = snap.MessageQueueVersion
+	job.MessageQueuePaused = snap.MessageQueuePaused
+	job.MessageQueuePauseReason = snap.MessageQueuePauseReason
 }
 
 // restoreRunStateAfterPersistFailure rolls back only run-owned fields after

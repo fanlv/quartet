@@ -58,7 +58,12 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	// Running state we set here.
 	lock := s.persistLock(jobID)
 	lock.Lock()
-	defer lock.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			lock.Unlock()
+		}
+	}()
 
 	s.mu.Lock()
 	job, ok := s.jobs[jobID]
@@ -80,8 +85,10 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 				s.mu.Unlock()
 				return result, fmt.Errorf("%w: %q", ErrClientMessageIDConflict, opts.ClientMessageID)
 			}
-			s.mu.Unlock()
-			return duplicateSendMessageResult(opts.ClientMessageID, receipt), nil
+			if receipt.State != model.ClientMessageStateQueued {
+				s.mu.Unlock()
+				return duplicateSendMessageResult(opts.ClientMessageID, receipt), nil
+			}
 		}
 	}
 	if job.Status == model.JobStatusRunning {
@@ -90,6 +97,20 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	}
 
 	prevRunState := snapshotRunStateLocked(job)
+	queuedClaim := false
+	if opts.ClientMessageID != "" {
+		if receipt, exists := job.ClientMessageReceipts[opts.ClientMessageID]; exists && receipt.State == model.ClientMessageStateQueued {
+			queueIndex := firstWaitingQueueIndex(job.MessageQueue)
+			if job.MessageQueuePaused || queueIndex < 0 || job.MessageQueue[queueIndex].ID != opts.ClientMessageID {
+				s.mu.Unlock()
+				return result, ErrMessageQueueBlocked
+			}
+			job.MessageQueue[queueIndex].State = model.QueuedMessageStateProcessing
+			job.MessageQueue[queueIndex].UpdatedAt = s.nowMillis()
+			job.MessageQueueVersion++
+			queuedClaim = true
+		}
+	}
 	// Don't clear Resume — preserve any legacy (loop) resume cursor.
 	// Remember the prior status so that terminal states (Completed/Failed/
 	// Stopped) are restored when the interactive run ends, instead of being
@@ -104,10 +125,14 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 		if job.ClientMessageReceipts == nil {
 			job.ClientMessageReceipts = make(map[string]model.ClientMessageReceipt)
 		}
+		acceptedAt := job.StartedAt
+		if queuedReceipt, exists := job.ClientMessageReceipts[opts.ClientMessageID]; exists && queuedReceipt.AcceptedAt > 0 {
+			acceptedAt = queuedReceipt.AcceptedAt
+		}
 		receipt := model.ClientMessageReceipt{
 			State:       model.ClientMessageStateProcessing,
 			PayloadHash: payloadHash,
-			AcceptedAt:  job.StartedAt,
+			AcceptedAt:  acceptedAt,
 		}
 		job.ClientMessageReceipts[opts.ClientMessageID] = receipt
 		job.ActiveClientMessageID = opts.ClientMessageID
@@ -152,18 +177,32 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	// its node sessions must be status-neutral — always remember the prior
 	// status so the terminal path restores it instead of promoting the parked
 	// run to Completed (which would desync job.status from the still-running /
-	// parked GraphRun).
 	if job.Mode == model.JobModeGraph || shouldPreservePriorStatus(priorStatus, priorResume) {
 		s.setInteractivePriorStatus(job.ID, priorStatus)
 	}
 
 	logLifecycleStart(ctx, job.ID, startCtx)
+	lock.Unlock()
+	locked = false
 
 	safe.Go(ctx, func() {
-		defer s.cleanupDone(job.ID, res.done)
+		defer func() {
+			s.cleanupDone(job.ID, res.done)
+			if opts.FromMessageQueue {
+				s.completeClaimedQueueItem(context.Background(), job.ID, opts.ClientMessageID)
+				s.clearEmptyMessageQueuePause(context.Background(), job.ID)
+				s.finishMessageQueueDispatch(job.ID)
+			} else {
+				s.clearEmptyMessageQueuePause(context.Background(), job.ID)
+				s.requestMessageQueueDispatch(job.ID)
+			}
+		}()
 		s.runInteractive(res.ctx, job, runner, opts, res.entry)
 	})
 	asyncStarted = true
+	if queuedClaim {
+		s.publishMessageQueueChanged(job.ID)
+	}
 	return result, nil
 }
 
@@ -277,6 +316,7 @@ func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner
 	if sessionID == "" {
 		sid, err := s.initAndAttachSession(ctx, job, runner, &model.SessionOverrides{
 			AgentType:       opts.AgentType,
+			AgentBinding:    opts.AgentBinding,
 			ModelID:         opts.ModelID,
 			ACPMode:         opts.ACPMode,
 			ACPThoughtLevel: opts.ACPThoughtLevel,

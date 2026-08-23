@@ -1063,6 +1063,9 @@ func (h *Handler) pruneUnreferencedAgentRevisions(ctx context.Context) error {
 		referenced[agentID][revision] = true
 	}
 	for _, job := range h.jobService.List() {
+		for _, queued := range job.MessageQueue {
+			add(queued.AgentID, queued.AgentRevision)
+		}
 		for _, sessionID := range jobAllSessionIDs(job) {
 			session, ok := h.lookupSession(sessionID)
 			if !ok || session == nil {

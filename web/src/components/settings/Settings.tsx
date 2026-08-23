@@ -12,12 +12,13 @@ import { WorkspacesSettings } from './WorkspacesSettings';
 import { LogsSettings } from './LogsSettings';
 import { UserManagement } from './UserManagement';
 import { RoleManagement } from './RoleManagement';
+import { MessagePresetSettings } from './MessagePresetSettings';
 import { useAuthPrincipal } from '../../auth';
 import './Settings.css';
 import './WeChatSettings.css';
 import './AuthManagement.css';
 
-export type SettingsTab = 'general' | 'workspace' | 'account' | 'users' | 'roles' | 'eino' | 'prompt' | 'skill' | 'agents' | 'lark' | 'wechat' | 'logs';
+export type SettingsTab = 'general' | 'workspace' | 'message-presets' | 'account' | 'users' | 'roles' | 'eino' | 'prompt' | 'skill' | 'agents' | 'lark' | 'wechat' | 'logs';
 
 interface SettingsProps {
   onClose: () => void;
@@ -25,9 +26,10 @@ interface SettingsProps {
   initialTab?: SettingsTab;
 }
 
-const tabDefs: { key: SettingsTab; labelKey: string; icon: string; permission?: string }[] = [
+const tabDefs: { key: SettingsTab; labelKey: string; icon: string; permission?: string; anyPermissions?: string[] }[] = [
   { key: 'general', labelKey: 'settings.tabs.general', icon: '⚙️', permission: 'config.write' },
   { key: 'workspace', labelKey: 'settings.tabs.workspace', icon: '🗂️', permission: 'workspace.write' },
+  { key: 'message-presets', labelKey: 'settings.tabs.messagePresets', icon: '💬', anyPermissions: ['config.read', 'workspace.read'] },
   { key: 'account', labelKey: 'settings.tabs.account', icon: '👤' },
   { key: 'users', labelKey: 'settings.tabs.users', icon: '👥', permission: 'users.read' },
   { key: 'roles', labelKey: 'settings.tabs.roles', icon: '🛡️', permission: 'roles.read' },
@@ -44,15 +46,31 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
   const { t } = useTranslation();
   const principal = useAuthPrincipal();
   const visibleTabs = useMemo(
-    () => tabDefs.filter((tab) => !tab.permission || principal?.permissions.includes(tab.permission)),
+    () => tabDefs.filter((tab) => {
+      if (tab.permission && !principal?.permissions.includes(tab.permission)) return false;
+      return !tab.anyPermissions || tab.anyPermissions.some((permission) => principal?.permissions.includes(permission));
+    }),
     [principal],
   );
   const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
     visibleTabs.some((tab) => tab.key === initialTab) ? initialTab : visibleTabs[0]?.key ?? 'account',
   );
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [messagePresetsDirty, setMessagePresetsDirty] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+
+  const requestClose = () => {
+    if (messagePresetsDirty && !window.confirm(t('settings.messagePresets.discardConfirm'))) return;
+    onClose();
+  };
+
+  const selectTab = (tab: SettingsTab) => {
+    if (tab === activeTab) return;
+    if (activeTab === 'message-presets' && messagePresetsDirty && !window.confirm(t('settings.messagePresets.discardConfirm'))) return;
+    if (activeTab === 'message-presets') setMessagePresetsDirty(false);
+    setActiveTab(tab);
+  };
 
   useEffect(() => {
     if (!visibleTabs.some((tab) => tab.key === activeTab)) {
@@ -131,6 +149,8 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
         return <GeneralSettings onSettingsChanged={onSettingsChanged} />;
       case 'workspace':
         return <WorkspacesSettings />;
+      case 'message-presets':
+        return <MessagePresetSettings onDirtyChange={setMessagePresetsDirty} />;
       case 'account':
         return <AccountSettings />;
       case 'users':
@@ -157,7 +177,7 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
   };
 
   return (
-    <div className="settings-overlay" onClick={onClose} data-testid="settings-overlay">
+    <div className="settings-overlay" onClick={requestClose} data-testid="settings-overlay">
       <div
         className={`settings-modal ${keyboardOpen ? 'settings-modal-keyboard-open' : ''}`}
         ref={modalRef}
@@ -166,7 +186,7 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
       >
         <div className="settings-header">
           <h2 className="settings-title">{t('settings.title')}</h2>
-          <button className="settings-close-btn" onClick={onClose} data-testid="settings-close-button">
+          <button className="settings-close-btn" onClick={requestClose} data-testid="settings-close-button">
             ×
           </button>
         </div>
@@ -177,7 +197,7 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
               <div
                 key={tab.key}
                 className={`settings-nav-item ${activeTab === tab.key ? 'active' : ''}`}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => selectTab(tab.key)}
                 data-testid="settings-tab"
                 data-settings-tab={tab.key}
                 data-active={activeTab === tab.key ? 'true' : 'false'}

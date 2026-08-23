@@ -653,6 +653,30 @@ final class AppModel: ObservableObject {
         return response.settings?.agentPreferences ?? [:]
     }
 
+    func relinkACPThoughtLevels(agentType: String, modelID: String) async throws -> AgentThoughtLevelState {
+        if isRunningUITests {
+            return AgentThoughtLevelState(
+                availableThoughtLevels: [AgentOption(id: "medium", name: "标准", description: nil)],
+                currentThoughtLevelId: "medium"
+            )
+        }
+        let response = try await makeClient().setACPConfig(SetACPConfigRequest(
+            target: .model,
+            agentType: agentType,
+            model: modelID
+        ))
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法刷新思考等级",
+                detail: "POST /api/v1/agent/config 返回 code=\(response.code)。"
+            )
+        }
+        return response.thoughtLevels ?? AgentThoughtLevelState(
+            availableThoughtLevels: [],
+            currentThoughtLevelId: ""
+        )
+    }
+
     func createJob(request: CreateJobRequest) async throws -> String {
         if isRunningUITests {
             hasPendingSync = true

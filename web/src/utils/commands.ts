@@ -48,6 +48,16 @@ export function isKnownCommand(text: string): boolean {
   return ALL_COMMAND_NAMES.includes(head);
 }
 
+export function isReadOnlyCommand(text: string): boolean {
+  const trimmed = text.trim();
+  const [rawHead = '', rawSub = ''] = trimmed.split(/\s+/, 2);
+  const name = resolveCommandName(rawHead);
+  const sub = rawSub.toLowerCase();
+  if (name === '/help' || name === '/status') return true;
+  if (name === '/workspace' || name === '/job') return !sub || sub === 'list' || sub === 'ls';
+  return false;
+}
+
 // Resolves an alias/canonical name to its canonical form, or empty if the
 // text doesn't match a known command. Mirrors services/command.ResolveName.
 export function resolveCommandName(raw: string): string {

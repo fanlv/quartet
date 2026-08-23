@@ -2,22 +2,33 @@ import SwiftUI
 import UIKit
 
 enum QuartetTheme {
-    static let canvas = dynamic(light: 0xF4F7F8, dark: 0x071014)
-    static let surface = dynamic(light: 0xFFFFFF, dark: 0x0D1B20)
-    static let elevated = dynamic(light: 0xEAF0F2, dark: 0x14272D)
-    static let primaryText = dynamic(light: 0x102127, dark: 0xEAF6F6)
-    static let secondaryText = dynamic(light: 0x587078, dark: 0x89A2A9)
-    static let divider = dynamic(light: 0xD3DEE1, dark: 0x20363D)
-    static let accent = Color(red: 0.10, green: 0.72, blue: 0.66)
-    static let running = Color(red: 0.95, green: 0.66, blue: 0.24)
-    static let failed = Color(red: 0.94, green: 0.35, blue: 0.32)
-    static let stopped = Color(red: 0.54, green: 0.61, blue: 0.64)
+    // Neutral graphite surfaces keep the interface calm; phosphor mint carries the brand signal.
+    static let canvas = dynamic(light: 0xF2F5F2, dark: 0x060B09)
+    static let surface = dynamic(light: 0xFBFDFB, dark: 0x0C1512)
+    static let elevated = dynamic(light: 0xE7EDE9, dark: 0x14231E)
+    static let primaryText = dynamic(light: 0x101815, dark: 0xECF8F3)
+    static let secondaryText = dynamic(light: 0x5C6B65, dark: 0x8EA49B)
+    static let divider = dynamic(light: 0xD2DDD7, dark: 0x233A32)
+
+    static let accent = dynamic(light: 0x007C5E, dark: 0x42E6B1)
+    static let onAccent = dynamic(light: 0xFFFFFF, dark: 0x04110D)
+    static let success = dynamic(light: 0x5F7C16, dark: 0xB4D64B)
+    static let running = dynamic(light: 0x9A5600, dark: 0xF2B84B)
+    static let failed = dynamic(light: 0xB83A44, dark: 0xFF747D)
+    static let stopped = dynamic(light: 0x5E6B66, dark: 0x8B9B95)
+
+    // Restrained secondary hues are reserved for charts and mode identification.
+    static let chartLime = success
+    static let chartViolet = dynamic(light: 0x745D91, dark: 0xB49BD3)
+    static let chartRose = dynamic(light: 0xA64F69, dark: 0xE58AA2)
+    static let chartSlate = dynamic(light: 0x526D64, dark: 0x87A49A)
 
     static func statusColor(_ status: String) -> Color {
         switch status.lowercased() {
-        case "running", "pending": running
-        case "completed": accent
-        case "failed": failed
+        case "running": accent
+        case "pending", "awaitinginput", "stepstopping": running
+        case "completed": success
+        case "failed", "timedout": failed
         default: stopped
         }
     }

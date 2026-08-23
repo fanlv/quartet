@@ -7,6 +7,7 @@ import { AgentUsageCard } from './AgentUsageCard';
 import { FileMention, FileResult } from './FileMention';
 import { SlashFloater, SkillBackdrop } from './SlashCompletion';
 import { slashCompletionKeyDown, useSlashCompletion } from '../utils/slashCompletion';
+import { isKnownCommand, isReadOnlyCommand } from '../utils/commands';
 import { copyToClipboard } from '../utils/clipboard';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useGitBranch } from '../hooks/useGitBranch';
@@ -17,6 +18,7 @@ import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { showToast } from '../utils/toast';
 import { splitFavoriteModels } from '../utils/agentPrefs';
 import { DurationBadge } from './DurationBadge';
+import { MessagePresetHistoryMenu, type SentMessageHistoryItem } from './MessagePresetHistoryMenu';
 import './ChatInput.css';
 
 function toImagePreviewUrl(path: string): string {
@@ -24,12 +26,7 @@ function toImagePreviewUrl(path: string): string {
   return `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
 }
 
-interface LocalSentMessage {
-  id: string;
-  ts: number;
-  content: string;
-  imageUrls?: string[];
-}
+type LocalSentMessage = SentMessageHistoryItem;
 
 interface LocalSentMessagePayload {
   v: 1;
@@ -118,6 +115,8 @@ interface QueuedMessageView {
   id: string;
   content: string;
   imageUrls?: string[];
+  state?: 'queued' | 'blocked' | 'processing';
+  error?: string;
 }
 
 interface ChatInputProps {
@@ -176,7 +175,10 @@ interface ChatInputProps {
   /** Pending messages waiting to be sent after the current run finishes (interactive mode). */
   queuedMessages?: QueuedMessageView[];
   /** Cancel a specific queued message by id. */
-  onCancelQueuedMessage?: (id: string) => void;
+  onCancelQueuedMessage?: (id: string) => void | Promise<void>;
+  messageQueuePaused?: boolean;
+  messageQueuePauseReason?: string;
+  onContinueMessageQueue?: () => void | Promise<void>;
   /** If true, allow composing & sending while isLoading is true — the send will be queued. */
   canQueueWhileRunning?: boolean;
   /** localStorage key scope for sent-message history. */
@@ -224,6 +226,9 @@ export function ChatInput({
   jobEnable = true,
   queuedMessages,
   onCancelQueuedMessage,
+  messageQueuePaused = false,
+  messageQueuePauseReason,
+  onContinueMessageQueue,
   canQueueWhileRunning = false,
   localHistoryKey,
 }: ChatInputProps) {
@@ -247,12 +252,11 @@ export function ChatInput({
 
   // Local cache of "sent" messages (recorded on click send, regardless of server success/failure)
   const localHistoryStorageKey = `quartet:sent_history:${localHistoryKey || 'global'}`;
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const historyRef = useRef<HTMLDivElement>(null);
   const [historyItems, setHistoryItems] = useState<LocalSentMessage[]>(() => readLocalSentMessages(localHistoryStorageKey));
   const historyCursorRef = useRef<number | null>(null);
   const historyDraftRef = useRef<{ input: string; pickedImageUrls: string[] } | null>(null);
   const [pickedImageUrls, setPickedImageUrls] = useState<string[]>([]);
+  const [deletingQueuedIds, setDeletingQueuedIds] = useState<Set<string>>(new Set());
 
   const [mentionState, setMentionState] = useState<{ keyword: string; start: number } | null>(null);
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
@@ -297,7 +301,7 @@ export function ChatInput({
   // compose and submit: the submission is queued and auto-sent when the run finishes.
   const canQueue = canQueueWhileRunning && !interactionDisabled;
   const composerLocked = interactionDisabled || (isLoading && !canQueue);
-  const hasQueued = !!queuedMessages && queuedMessages.length > 0;
+  const hasQueued = (!!queuedMessages && queuedMessages.length > 0) || messageQueuePaused;
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -317,9 +321,6 @@ export function ChatInput({
       if (thoughtLevelDropdownRef.current && !thoughtLevelDropdownRef.current.contains(target)) {
         setShowThoughtLevelDropdown(false);
       }
-      if (historyRef.current && !historyRef.current.contains(target)) {
-        setHistoryOpen(false);
-      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -331,7 +332,6 @@ export function ChatInput({
     setShowModelDropdown(false);
     setShowModeDropdown(false);
     setShowThoughtLevelDropdown(false);
-    setHistoryOpen(false);
     setMentionState(null);
     closeSlash();
   }, [interactionDisabled, closeSlash]);
@@ -395,6 +395,10 @@ export function ChatInput({
     const allUploaded = pendingImages.every((img) => img.uploadedPath && !img.uploading);
     if (!hasContent || interactionDisabled) return;
     if (isLoading && !canQueue) return;
+    if (isLoading && isKnownCommand(input) && !isReadOnlyCommand(input)) {
+      showToast(t('chat.commandUnavailableWhileRunning'));
+      return;
+    }
     if (pendingImages.length > 0 && !allUploaded) {
       const failedImage = pendingImages.find((img) => img.error);
       if (failedImage) {
@@ -700,26 +704,59 @@ export function ChatInput({
           />
         )}
         {hasQueued && (
-          <div className="chat-queued-row" role="list" aria-label={t('chat.waitingToSend')} data-testid="chat-queued-list">
-            {queuedMessages!.map((q) => {
-              const preview = q.content.trim() || (q.imageUrls && q.imageUrls.length > 0 ? t('chat.imagesCount', { count: q.imageUrls.length }) : '');
-              return (
-                <div key={q.id} className="chat-queued-pill" role="listitem" title={preview || t('chat.waitingToSend')} data-testid="chat-queued-item" data-queued-id={q.id}>
-                  <svg className="chat-queued-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  </svg>
-                  <span className="chat-queued-text">{preview || t('chat.waitingToSend')}</span>
-                  {onCancelQueuedMessage && (
-                    <button
-                      className="chat-queued-cancel"
-                      onClick={() => onCancelQueuedMessage(q.id)}
-                      title={t('chat.cancelQueue')}
-                      aria-label={t('chat.cancelQueue')}
-                    >×</button>
-                  )}
-                </div>
-              );
-            })}
+          <div className="chat-queued-panel" data-testid="chat-queued-list">
+            {messageQueuePaused && (
+              <div className="chat-queued-header">
+                <span>{messageQueuePauseReason === 'blocked' ? t('chat.queueBlocked') : t('chat.queuePaused')}</span>
+                {messageQueuePauseReason !== 'blocked' && onContinueMessageQueue && (
+                  <button
+                    type="button"
+                    onClick={() => { void Promise.resolve(onContinueMessageQueue()).catch(() => {}); }}
+                  >{t('chat.continueQueue')}</button>
+                )}
+              </div>
+            )}
+            <div className="chat-queued-row" role="list" aria-label={t('chat.waitingToSend')}>
+              {(queuedMessages ?? []).map((q, index) => {
+                const preview = q.content.trim() || (q.imageUrls && q.imageUrls.length > 0 ? t('chat.imagesCount', { count: q.imageUrls.length }) : '');
+                const deleting = deletingQueuedIds.has(q.id);
+                return (
+                  <div key={q.id} className={`chat-queued-pill ${q.state === 'blocked' ? 'blocked' : ''}`} role="listitem" title={q.error || preview || t('chat.waitingToSend')} data-testid="chat-queued-item" data-queued-id={q.id}>
+                    <span className="chat-queued-index">{index + 1}</span>
+                    <span className="chat-queued-text">{preview || t('chat.waitingToSend')}</span>
+                    {q.imageUrls && q.imageUrls.length > 0 && <span className="chat-queued-images">{t('chat.imagesCount', { count: q.imageUrls.length })}</span>}
+                    {q.error && (
+                      <button
+                        type="button"
+                        className="chat-queued-error"
+                        title={q.error}
+                        aria-label={q.error}
+                        onClick={() => { void copyToClipboard(q.error!); showToast(t('common.copySuccess')); }}
+                      >!</button>
+                    )}
+                    {onCancelQueuedMessage && (
+                      <button
+                        type="button"
+                        className="chat-queued-cancel"
+                        disabled={deleting}
+                        onClick={() => {
+                          setDeletingQueuedIds((prev) => new Set(prev).add(q.id));
+                          void Promise.resolve(onCancelQueuedMessage(q.id)).catch(() => {
+                            // The owner surfaces the full server error. Consume the
+                            // rejection here so a failed delete is not reported as an
+                            // unhandled browser promise.
+                          }).finally(() => {
+                            setDeletingQueuedIds((prev) => { const next = new Set(prev); next.delete(q.id); return next; });
+                          });
+                        }}
+                        title={q.error || t('chat.cancelQueue')}
+                        aria-label={t('chat.cancelQueue')}
+                      >{deleting ? '…' : '×'}</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
         {pickedImageUrls.length > 0 && (
@@ -1095,79 +1132,39 @@ export function ChatInput({
             )}
           </div>
           <div className="chat-input-actions">
-            <div className="chat-model-selector chat-history-selector" ref={historyRef}>
-              <button
-                type="button"
-                className="chat-btn history-btn"
-                onClick={() => {
-                  if (interactionDisabled) return;
-                  setHistoryOpen((v) => !v);
-                }}
-                disabled={interactionDisabled}
-                title="本地历史（点击发送即记录）"
-                aria-label="本地历史"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M12 8v5l3 2" />
-                  <circle cx="12" cy="12" r="9" />
-                </svg>
-              </button>
-              {historyOpen && (() => {
-                const listContent = historyItems.length === 0 ? (
-                  <div className="chat-history-empty">暂无历史</div>
-                ) : (
-                  historyItems.map((it) => {
-                    const text = (it.content || '').replace(/\s+/g, ' ').trim();
-                    const preview = text.length > 120 ? text.slice(0, 120) + '…' : text;
-                    const imgCount = it.imageUrls?.length || 0;
-                    return (
-                      <div
-                        key={it.id}
-                        className="chat-history-item"
-                        role="option"
-                        title={it.content}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          const nextInput = it.content === '[image]' && imgCount > 0 ? '' : it.content;
-                          setInput(nextInput);
-                          setPickedImageUrls(it.imageUrls || []);
-                          clearImages();
-                          setHistoryOpen(false);
-                          historyCursorRef.current = null;
-                          historyDraftRef.current = null;
-                          requestAnimationFrame(() => {
-                            textareaRef.current?.focus();
-                            if (textareaRef.current) {
-                              const pos = (nextInput || '').length;
-                              textareaRef.current.selectionStart = textareaRef.current.selectionEnd = pos;
-                            }
-                          });
-                        }}
-                      >
-                        <span className="chat-history-text">{preview || '（空）'}</span>
-                        {imgCount > 0 && <span className="chat-history-badge">🖼️{imgCount}</span>}
-                      </div>
-                    );
-                  })
-                );
-                return isMobile ? createPortal(
-                  <div className="mobile-dropdown-overlay" onClick={() => setHistoryOpen(false)}>
-                    <div className="mobile-dropdown-sheet" onClick={(e) => e.stopPropagation()}>
-                      <div className="chat-history-dropdown chat-history-dropdown-mobile" role="listbox" aria-label="sent message history">
-                        {listContent}
-                      </div>
-                    </div>
-                  </div>,
-                  document.body
-                ) : (
-                  <div className="chat-history-dropdown" role="listbox" aria-label="sent message history">
-                    {listContent}
-                  </div>
-                );
-              })()}
-            </div>
+            <MessagePresetHistoryMenu
+              workspaceId={workspaceId}
+              disabled={interactionDisabled}
+              isMobile={isMobile}
+              currentInput={input}
+              historyItems={historyItems}
+              onApplyPreset={(content, mode) => {
+                const nextInput = mode === 'append' && input ? `${input}\n\n${content}` : content;
+                setInput(nextInput);
+                closeSlash();
+                historyCursorRef.current = null;
+                historyDraftRef.current = null;
+                requestAnimationFrame(() => {
+                  textareaRef.current?.focus();
+                  if (textareaRef.current) textareaRef.current.selectionStart = textareaRef.current.selectionEnd = nextInput.length;
+                });
+              }}
+              onApplyHistory={(item) => {
+                const nextInput = item.content === '[image]' && item.imageUrls?.length ? '' : item.content;
+                setInput(nextInput);
+                setPickedImageUrls(item.imageUrls || []);
+                clearImages();
+                closeSlash();
+                historyCursorRef.current = null;
+                historyDraftRef.current = null;
+                requestAnimationFrame(() => {
+                  textareaRef.current?.focus();
+                  if (textareaRef.current) textareaRef.current.selectionStart = textareaRef.current.selectionEnd = nextInput.length;
+                });
+              }}
+            />
             {isLoading && (
-              <button className="chat-btn stop-btn" onClick={onStop} disabled={controlsDisabled || !onStop} title={t('chat.stopGeneration')} data-testid="chat-stop-button">
+              <button className="chat-btn stop-btn" onClick={onStop} disabled={controlsDisabled || !onStop} title={hasQueued ? t('chat.stopAndPauseQueue') : t('chat.stopGeneration')} data-testid="chat-stop-button">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                   <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>

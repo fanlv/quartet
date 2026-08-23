@@ -188,6 +188,22 @@ func IsKnown(text string) bool {
 	return ResolveName(cmd) != ""
 }
 
+// IsReadOnly reports whether a known command only reads state and can safely
+// run while an Agent turn is active. Navigation and mutation commands are
+// rejected by the Web adapter during a running turn rather than delayed.
+func IsReadOnly(text string) bool {
+	cmd, args := Parse(text)
+	switch ResolveName(cmd) {
+	case "/help", "/status":
+		return true
+	case "/workspace", "/job":
+		sub, _ := splitSub(args)
+		return sub == "" || sub == "list" || sub == "ls"
+	default:
+		return false
+	}
+}
+
 // Execute dispatches a command by its canonical name. Returns (nil, false)
 // when the name is not recognized — the caller can fall through to its
 // regular-message path.

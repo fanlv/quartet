@@ -157,6 +157,18 @@ type Service interface {
 	SetUsageRecorder(r usagestats.Recorder)
 }
 
+// MessageQueueService is the optional durable queue extension implemented by
+// the production job service. Keeping it separate leaves focused Service test
+// doubles and non-Web callers on the direct SendMessage contract.
+type MessageQueueService interface {
+	SubmitMessage(ctx context.Context, jobID string, message model.QueuedJobMessage) (SubmitMessageResult, error)
+	MessageQueue(jobID string) (model.MessageQueueSnapshot, error)
+	DeleteQueuedMessage(ctx context.Context, jobID, clientMessageID string) (model.MessageQueueSnapshot, error)
+	ContinueMessageQueue(ctx context.Context, jobID string) (model.MessageQueueSnapshot, error)
+	PauseMessageQueueForStop(ctx context.Context, jobID string) (bool, error)
+	SetMessageQueueDispatcher(fn MessageQueueDispatcher)
+}
+
 // SendMessageOptions provides parameters for sending a message to an existing session.
 type SendMessageOptions struct {
 	SessionID string
@@ -168,11 +180,13 @@ type SendMessageOptions struct {
 	Messages             []*schema.Message
 
 	// Agent/model configuration for this message run.
-	AgentType string
-	ModelID   string
-	ACPMode   string
+	AgentType    string
+	AgentBinding *model.AgentRuntimeBinding
+	ModelID      string
+	ACPMode      string
 
-	ACPThoughtLevel string
+	ACPThoughtLevel  string
+	FromMessageQueue bool
 }
 
 type SendMessageDisposition string
@@ -186,6 +200,25 @@ type SendMessageResult struct {
 	Disposition SendMessageDisposition
 	Receipt     MessageReceipt
 }
+
+type SubmitMessageDisposition string
+
+const (
+	SubmitMessageStarted   SubmitMessageDisposition = "started"
+	SubmitMessageQueued    SubmitMessageDisposition = "queued"
+	SubmitMessageDuplicate SubmitMessageDisposition = "duplicate"
+	SubmitMessageDeleted   SubmitMessageDisposition = "deleted"
+)
+
+type SubmitMessageResult struct {
+	Disposition SubmitMessageDisposition
+	Receipt     MessageReceipt
+	Queue       model.MessageQueueSnapshot
+}
+
+// MessageQueueDispatcher prepares a persisted queue item for the existing
+// interactive execution pipeline. It must not retain request-scoped state.
+type MessageQueueDispatcher func(context.Context, string, model.QueuedJobMessage) (JobRunner, *SendMessageOptions, error)
 
 // MessageReceipt is the service-facing projection of a persisted receipt.
 // The payload hash stays internal so callers cannot accidentally make business
@@ -215,19 +248,20 @@ func NewService(wsSvc workspace.Service) (Service, error) {
 	}
 
 	s := &serviceImpl{
-		jobs:                   make(map[string]*model.Job),
-		repos:                  make(map[string]repository.JobRepo),
-		newJobRepo:             repository.NewJobRepo,
-		newSessionRepo:         repository.NewSessionRepo,
-		wsSvc:                  wsSvc,
-		fileManager:            fileserver.GetFileManager(),
-		bus:                    newBusOwner(),
-		cancels:                make(map[string]*cancelEntry),
-		dones:                  make(map[string]chan struct{}),
-		interactivePriorStatus: make(map[string]model.JobStatus),
-		listVersions:           newListVersionTracker(),
-		notifiedJobs:           make(map[string]struct{}),
-		clock:                  realClock{},
+		jobs:                    make(map[string]*model.Job),
+		repos:                   make(map[string]repository.JobRepo),
+		newJobRepo:              repository.NewJobRepo,
+		newSessionRepo:          repository.NewSessionRepo,
+		wsSvc:                   wsSvc,
+		fileManager:             fileserver.GetFileManager(),
+		bus:                     newBusOwner(),
+		cancels:                 make(map[string]*cancelEntry),
+		dones:                   make(map[string]chan struct{}),
+		interactivePriorStatus:  make(map[string]model.JobStatus),
+		listVersions:            newListVersionTracker(),
+		notifiedJobs:            make(map[string]struct{}),
+		messageQueueDispatching: make(map[string]bool),
+		clock:                   realClock{},
 	}
 
 	s.load()

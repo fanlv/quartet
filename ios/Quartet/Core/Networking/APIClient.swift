@@ -193,6 +193,10 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/agent/list")
     }
 
+    func setACPConfig(_ body: SetACPConfigRequest) async throws -> SetACPConfigResponse {
+        try await request(path: "api/v1/agent/config", method: "POST", body: body)
+    }
+
     func agentPreferences() async throws -> AgentPreferencesResponse {
         try await request(path: "api/v1/config/settings/get")
     }
@@ -345,6 +349,25 @@ struct APIClient: @unchecked Sendable {
 
     func sendMessage(jobID: String, body: SendMessageRequest) async throws -> SendMessageResponse {
         try await request(path: "api/v1/job/\(jobID)/message", method: "POST", body: body)
+    }
+
+    func messageQueue(jobID: String) async throws -> MessageQueueSnapshot {
+        let response: MessageQueueEnvelope = try await request(path: "api/v1/job/\(jobID)/message-queue")
+        return response.queue
+    }
+
+    func deleteQueuedMessage(jobID: String, messageID: String) async throws -> MessageQueueSnapshot {
+        let response: MessageQueueEnvelope = try await request(
+            path: "api/v1/job/\(jobID)/message-queue/\(messageID)", method: "DELETE"
+        )
+        return response.queue
+    }
+
+    func continueMessageQueue(jobID: String) async throws -> MessageQueueSnapshot {
+        let response: MessageQueueEnvelope = try await request(
+            path: "api/v1/job/\(jobID)/message-queue/continue", method: "POST", body: EmptyRequest()
+        )
+        return response.queue
     }
 
     func uploadImage(data: Data, filename: String, mimeType: String) async throws -> String {

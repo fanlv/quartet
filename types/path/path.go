@@ -274,6 +274,39 @@ func GraphWorkflowsDir() (string, error) {
 	return filepath.Join(dir, graphWorkflowsDir), nil
 }
 
+// MessagePresetsDir returns the Git-managed preset-message configuration root.
+func MessagePresetsDir() (string, error) {
+	dir, err := QuartetConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "message-presets"), nil
+}
+
+func GlobalMessagePresetsFile() (string, error) {
+	dir, err := MessagePresetsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "global.json"), nil
+}
+
+func WorkspaceMessagePresetsDir() (string, error) {
+	dir, err := MessagePresetsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "workspaces"), nil
+}
+
+func WorkspaceMessagePresetsFile(workspaceID string) (string, error) {
+	dir, err := WorkspaceMessagePresetsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, workspaceID+".json"), nil
+}
+
 // GraphRunDir returns the runtime artifact directory for a GraphRun bound to a
 // Job: {LOCAL_MEMORY}/quartet/data/workspaces/{wsID}/jobs/{jobID}/graph_run/.
 // The run data lives with the Job, not in the global agent directory.

@@ -350,14 +350,14 @@ struct GraphWorkflowLaunchView: View {
 
             Button { Task { await start() } } label: {
                 HStack(spacing: 10) {
-                    if starting { ProgressView().tint(.black) }
+                    if starting { ProgressView().tint(QuartetTheme.onAccent) }
                     else { Image(systemName: "play.fill") }
                     Text(starting ? "正在启动…" : "运行 Workflow")
                     Spacer()
                     Image(systemName: "chevron.right").font(.quartet(.detail, weight: .bold))
                 }
                 .font(.quartet(.regular, weight: .semibold))
-                .foregroundStyle(.black)
+                .foregroundStyle(QuartetTheme.onAccent)
                 .padding(.horizontal, 18)
                 .frame(height: 54)
                 .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -840,8 +840,15 @@ private struct GraphVariableDraft: Identifiable {
     }
 }
 
+private struct GraphAgentModelSelection: Hashable {
+    let agentID: String
+    let agentType: String
+    let modelID: String
+}
+
 private struct GraphNodeConfigurationView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var appModel: AppModel
     @Binding var node: GraphNode
     let agents: [AgentSummary]
 
@@ -851,6 +858,10 @@ private struct GraphNodeConfigurationView: View {
     @State private var maxIterations: String
     @State private var outputVariables: String
     @State private var validationMessage: String?
+    @State private var linkedThoughtLevels: AgentThoughtLevelState?
+    @State private var linkedThoughtLevelSelection: GraphAgentModelSelection?
+    @State private var thoughtLevelRequestID: UUID?
+    @State private var thoughtLevelLinkError: String?
 
     init(node: Binding<GraphNode>, agents: [AgentSummary]) {
         _node = node
@@ -871,6 +882,15 @@ private struct GraphNodeConfigurationView: View {
 
     private var isAgentNode: Bool { draft.type == "prompt" || draft.type == "clarify" }
     private var inheritsSession: Bool { config.sessionStrategy == "inherit" }
+    private var thoughtLevelSelection: GraphAgentModelSelection? {
+        guard isAgentNode, !inheritsSession, let agent = selectedAgent, agent.available,
+              agent.models != nil, let modelID = config.modelId, !modelID.isEmpty else { return nil }
+        return GraphAgentModelSelection(agentID: agent.agentId, agentType: agent.type, modelID: modelID)
+    }
+    private var isLinkingThoughtLevels: Bool {
+        guard let selection = thoughtLevelSelection else { return false }
+        return linkedThoughtLevelSelection != selection
+    }
 
     var body: some View {
         NavigationStack {
@@ -898,9 +918,15 @@ private struct GraphNodeConfigurationView: View {
             }
             .navigationTitle(draft.displayName)
             .navigationBarTitleDisplayMode(.inline)
+            .task(id: thoughtLevelSelection) {
+                await refreshThoughtLevels(for: thoughtLevelSelection)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("完成") { save() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { save() }
+                        .disabled(isLinkingThoughtLevels)
+                }
             }
         }
     }
@@ -980,6 +1006,9 @@ private struct GraphNodeConfigurationView: View {
                             Text("\(modelID)（当前）").tag(modelID)
                         }
                     }
+                    .onChange(of: config.modelId) { _, _ in
+                        clearThoughtLevelForNewSelection()
+                    }
                     if !(agent.modes?.availableModes ?? []).isEmpty {
                         Picker("模式", selection: configBinding(\.acpMode, default: "")) {
                             Text("跟随 Agent").tag("")
@@ -992,17 +1021,31 @@ private struct GraphNodeConfigurationView: View {
                             }
                         }
                     }
-                    if !(agent.thoughtLevels?.availableThoughtLevels ?? []).isEmpty {
+                    if isLinkingThoughtLevels {
+                        HStack {
+                            Text("思考等级")
+                            Spacer()
+                            ProgressView()
+                            Text("正在刷新…")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if !(linkedThoughtLevels?.availableThoughtLevels ?? []).isEmpty {
                         Picker("思考等级", selection: configBinding(\.acpThoughtLevel, default: "")) {
                             Text("跟随 Agent").tag("")
-                            ForEach(agent.thoughtLevels?.availableThoughtLevels ?? []) { option in
+                            ForEach(linkedThoughtLevels?.availableThoughtLevels ?? []) { option in
                                 Text(option.name).tag(option.id)
                             }
                             if let level = config.acpThoughtLevel, !level.isEmpty,
-                               agent.thoughtLevels?.availableThoughtLevels.contains(where: { $0.id == level }) != true {
+                               linkedThoughtLevels?.availableThoughtLevels.contains(where: { $0.id == level }) != true {
                                 Text("\(level)（当前）").tag(level)
                             }
                         }
+                    }
+                    if let thoughtLevelLinkError {
+                        Text(thoughtLevelLinkError)
+                            .font(.quartet(.detail))
+                            .foregroundStyle(QuartetTheme.failed)
+                            .textSelection(.enabled)
                     }
                 }
             }
@@ -1063,6 +1106,72 @@ private struct GraphNodeConfigurationView: View {
         next.acpMode = nil
         next.acpThoughtLevel = nil
         config = next
+        invalidateThoughtLevelsIfNeeded()
+    }
+
+    private func clearThoughtLevelForNewSelection() {
+        var next = config
+        next.acpThoughtLevel = nil
+        config = next
+        invalidateThoughtLevelsIfNeeded()
+    }
+
+    private func invalidateThoughtLevelsIfNeeded() {
+        guard linkedThoughtLevelSelection != thoughtLevelSelection else { return }
+        linkedThoughtLevels = nil
+        linkedThoughtLevelSelection = nil
+        thoughtLevelLinkError = nil
+    }
+
+    private func refreshThoughtLevels(for selection: GraphAgentModelSelection?) async {
+        guard let selection else {
+            linkedThoughtLevels = nil
+            linkedThoughtLevelSelection = nil
+            thoughtLevelRequestID = nil
+            thoughtLevelLinkError = nil
+            return
+        }
+        invalidateThoughtLevelsIfNeeded()
+        let requestID = UUID()
+        thoughtLevelRequestID = requestID
+        do {
+            let state = try await appModel.relinkACPThoughtLevels(
+                agentType: selection.agentType,
+                modelID: selection.modelID
+            )
+            try Task.checkCancellation()
+            guard thoughtLevelSelection == selection, thoughtLevelRequestID == requestID else { return }
+            linkedThoughtLevels = state
+            linkedThoughtLevelSelection = selection
+            thoughtLevelLinkError = nil
+            if let level = config.acpThoughtLevel,
+               !level.isEmpty,
+               !state.availableThoughtLevels.contains(where: { $0.id == level }) {
+                var next = config
+                next.acpThoughtLevel = nil
+                config = next
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard thoughtLevelSelection == selection, thoughtLevelRequestID == requestID else { return }
+            linkedThoughtLevels = AgentThoughtLevelState(
+                availableThoughtLevels: [],
+                currentThoughtLevelId: ""
+            )
+            linkedThoughtLevelSelection = selection
+            var next = config
+            next.acpThoughtLevel = nil
+            config = next
+            thoughtLevelLinkError = errorDetail(error)
+        }
+    }
+
+    private func errorDetail(_ error: Error) -> String {
+        if let apiError = error as? APIError {
+            return "\(apiError.summary)\n\(apiError.detail)"
+        }
+        return String(describing: error)
     }
 
     private func save() {

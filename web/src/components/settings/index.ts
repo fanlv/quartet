@@ -6,3 +6,4 @@ export { ACPSettings } from './ACPSettings';
 export { WeChatSettings } from './WeChatSettings';
 export { UserManagement } from './UserManagement';
 export { RoleManagement } from './RoleManagement';
+export { MessagePresetSettings } from './MessagePresetSettings';

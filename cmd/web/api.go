@@ -141,6 +141,16 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	settings.PUT("/agent/:agentId/env", permit(auth.PermissionConfigWrite), h.SaveAgentEnvVars)
 	settings.PUT("/agent/:agentId/prefs", permit(auth.PermissionConfigWrite), h.SaveAgentPrefs)
 
+	messagePresets := config.Group("/message-presets")
+	messagePresets.GET("/effective", permit(auth.PermissionWorkspaceRead), h.EffectiveMessagePresets)
+	messagePresets.GET("/global", permit(auth.PermissionConfigRead), h.GetGlobalMessagePresets)
+	messagePresets.PUT("/global", permit(auth.PermissionConfigWrite), h.SaveGlobalMessagePresets)
+	messagePresets.GET("/workspaces/:id", permit(auth.PermissionWorkspaceRead), h.GetWorkspaceMessagePresets)
+	messagePresets.PUT("/workspaces/:id", permit(auth.PermissionWorkspaceWrite), h.SaveWorkspaceMessagePresets)
+	messagePresets.GET("/orphans", permit(auth.PermissionConfigRead), h.ListOrphanMessagePresets)
+	messagePresets.DELETE("/orphans/:id", permit(auth.PermissionConfigWrite), h.DeleteOrphanMessagePresets)
+	messagePresets.POST("/orphans/:id/rebind", permit(auth.PermissionConfigWrite), permit(auth.PermissionWorkspaceWrite), h.RebindOrphanMessagePresets)
+
 	// WeChat (iLink) routes — scan-to-login, account management, and
 	// first-contact approval. See cmd/web/handler/wechat_login_api.go.
 	wx := api.Group("/wechat")
@@ -197,6 +207,9 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	jobGroup.PUT("/:jobId/title", permit(auth.PermissionJobManage), h.JobUpdateTitle)
 	jobGroup.PUT("/:jobId/pin", permit(auth.PermissionJobManage), h.JobUpdatePin)
 	jobGroup.POST("/:jobId/message", permit(auth.PermissionJobExecute), h.JobMessage)
+	jobGroup.GET("/:jobId/message-queue", permit(auth.PermissionJobRead), h.JobMessageQueue)
+	jobGroup.DELETE("/:jobId/message-queue/:messageId", permit(auth.PermissionJobExecute), h.JobMessageQueueDelete)
+	jobGroup.POST("/:jobId/message-queue/continue", permit(auth.PermissionJobExecute), h.JobMessageQueueContinue)
 	jobGroup.POST("/:jobId/stop", permit(auth.PermissionJobExecute), h.JobStop)
 	jobGroup.GET("/:jobId/events", permit(auth.PermissionJobRead), h.JobEvents)
 	jobGroup.GET("/:jobId/graph-run", permit(auth.PermissionJobRead), h.GetJobGraphRunStatus)

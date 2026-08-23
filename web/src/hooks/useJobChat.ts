@@ -318,6 +318,30 @@ export interface QueuedMessage {
   acpMode?: string;
   acpThoughtLevel?: string;
   agentType?: string;
+  state?: 'queued' | 'blocked' | 'processing';
+  error?: string;
+}
+
+interface MessageQueueItem {
+  id: string;
+  messages?: Array<{ content?: string; imageUrls?: string[] }>;
+  modelId?: string;
+  acpMode?: string;
+  acpThoughtLevel?: string;
+  agentType?: string;
+  state?: 'queued' | 'blocked' | 'processing';
+  error?: string;
+  createdAt?: number;
+}
+
+interface MessageQueueSnapshot {
+  jobId: string;
+  version: number;
+  paused: boolean;
+  pauseReason?: string;
+  willContinue: boolean;
+  active?: MessageQueueItem;
+  items: MessageQueueItem[];
 }
 
 export interface LoopSessionEntry {
@@ -375,6 +399,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   }, [isPublic, shareToken, existingJobId]);
   const { reportDisconnect, reportReconnect } = useConnectionStatus();
   const [jobId, setJobId] = useState<string | null>(existingJobId || null);
+  const jobIdRef = useRef<string | null>(existingJobId || null);
+  jobIdRef.current = jobId;
   const [jobTitle, setJobTitle] = useState('');
   const [jobShareTokenState, setJobShareTokenState] = useState<string | null>(null);
   // Set when /job/:id returns 404. Gates the SSE auto-connect (no point
@@ -475,6 +501,61 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
   // Pending message queue (interactive mode only: messages composed while a run is in progress)
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
+  const [messageQueuePaused, setMessageQueuePaused] = useState(false);
+  const [messageQueuePauseReason, setMessageQueuePauseReason] = useState<string | null>(null);
+  const messageQueueVersionRef = useRef(-1);
+  const messageQueueWillContinueRef = useRef(false);
+  const queuedMessagesRef = useRef<QueuedMessage[]>([]);
+  const knownQueuedMessagesRef = useRef<Map<string, QueuedMessage>>(new Map());
+  const activeClientMessageIdRef = useRef<string | null>(null);
+
+  const applyMessageQueueSnapshot = useCallback((snapshot: MessageQueueSnapshot | null | undefined) => {
+    if (!snapshot || typeof snapshot.version !== 'number' || snapshot.version < messageQueueVersionRef.current) return;
+    if (snapshot.jobId && jobIdRef.current && snapshot.jobId !== jobIdRef.current) return;
+    messageQueueVersionRef.current = snapshot.version;
+    messageQueueWillContinueRef.current = !!snapshot.willContinue;
+    const projectItem = (item: MessageQueueItem): QueuedMessage => ({
+      id: item.id,
+      content: item.messages?.map((message) => message.content || '').filter(Boolean).join('\n') || '',
+      imageUrls: item.messages?.flatMap((message) => message.imageUrls || []),
+      modelId: item.modelId,
+      acpMode: item.acpMode,
+      acpThoughtLevel: item.acpThoughtLevel,
+      agentType: item.agentType,
+      state: item.state,
+      error: item.error,
+    });
+    const items = (snapshot.items || []).map(projectItem);
+    for (const item of items) knownQueuedMessagesRef.current.set(item.id, item);
+    if (snapshot.active) {
+      const active = projectItem(snapshot.active);
+      knownQueuedMessagesRef.current.set(active.id, active);
+      activeClientMessageIdRef.current = active.id;
+      setMessages((prev) => prev.some((message) => message.id === active.id) ? prev : [...prev, {
+        id: active.id, role: MessageRoleEnum.USER, content: active.content,
+        createdAt: snapshot.active?.createdAt || Date.now(), status: MessageStatusEnum.Finished,
+        clientMessageId: active.id, pending: true, deliveryStatus: 'sent', imageUrls: active.imageUrls,
+      } as Message]);
+    } else {
+      activeClientMessageIdRef.current = null;
+    }
+    queuedMessagesRef.current = items;
+    setQueuedMessages(items);
+    setMessageQueuePaused(!!snapshot.paused);
+    setMessageQueuePauseReason(snapshot.pauseReason || null);
+    setIsLoading(!!snapshot.willContinue);
+  }, []);
+
+  const refreshMessageQueue = useCallback(async (targetJobId?: string) => {
+    const id = targetJobId || jobId;
+    if (!id || isPublic) return null;
+    const response = await fetch(`/api/v1/job/${encodeURIComponent(id)}/message-queue`);
+    if (!response.ok) throw new Error(await readHTTPError(response));
+    const body = await response.json();
+    const snapshot = body?.queue as MessageQueueSnapshot | undefined;
+    applyMessageQueueSnapshot(snapshot);
+    return snapshot || null;
+  }, [applyMessageQueueSnapshot, isPublic, jobId]);
 
   // Loop state
   const [isLoop, setIsLoop] = useState(false);
@@ -692,6 +773,23 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     isLoadingRef.current = isLoading;
   }, [isLoading]);
 
+  useEffect(() => {
+    if (!existingJobId || isPublic || !snapshotReady || isGraph) return;
+    let cancelled = false;
+    const refresh = () => {
+      void refreshMessageQueue(existingJobId).catch((err) => {
+        if (!cancelled) {
+          console.warn('[messageQueue] initial refresh failed:', err);
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    };
+    refresh();
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVisible); };
+  }, [existingJobId, isGraph, isPublic, refreshMessageQueue, snapshotReady]);
+
   // Reset all state when existingJobId changes so a reused component
   // does not briefly show stale data from the previous job.
   useEffect(() => {
@@ -712,6 +810,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setJobId(existingJobId || null);
     setJobTitle('');
     setMessages(initialUserMessage ? [initialUserMessage] : []);
+    setQueuedMessages([]);
+    queuedMessagesRef.current = [];
+    knownQueuedMessagesRef.current.clear();
+    messageQueueVersionRef.current = -1;
+    messageQueueWillContinueRef.current = false;
+    setMessageQueuePaused(false);
+    setMessageQueuePauseReason(null);
+    activeClientMessageIdRef.current = null;
     setIsLoop(false);
     isLoopRef.current = false;
     setIsGraph(false);
@@ -935,7 +1041,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         loopRunningRef.current = false;
         setJobFinishedAt(event.timestamp || Date.now());
         setLoopProgress(event.progress);
-        setIsLoading(false);
+        setIsLoading(messageQueueWillContinueRef.current);
         // Mark all sessions as ended so input becomes editable
         setEndedSessionIds((prev) => {
           const next = new Set(prev);
@@ -969,14 +1075,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         // the live SSE stream; reloading from disk would race with the
         // in-memory state and produce duplicates (history IDs can differ
         // from streaming IDs for thinking/tool messages).
-        if (event.jobId) syncJobStateRef.current(event.jobId, undefined, true).catch((err) => {
-          console.warn('[useJobChat] JOB_COMPLETED syncJobState failed:', err);
-        });
-        // Job is terminal — disconnect SSE to stop the infinite
-        // reconnect cycle (connect → idle timeout → server close → reconnect).
-        console.info('[useJobChat] JOB_COMPLETED: disconnecting SSE (terminal state)');
-        eventSseRef.current?.disconnect();
-        markEventStreamReady(false);
+        if (event.jobId) void refreshMessageQueue(event.jobId).then((queue) => {
+          if (queue?.willContinue) { setIsLoading(true); return; }
+          if (!isLoopRef.current) return;
+          eventSseRef.current?.disconnect();
+          markEventStreamReady(false);
+        }).catch((err) => console.warn('[useJobChat] JOB_COMPLETED queue sync failed:', err));
+        if (event.jobId) syncJobStateRef.current(event.jobId, undefined, true).catch((err) => console.warn('[useJobChat] JOB_COMPLETED syncJobState failed:', err));
         break;
       }
 
@@ -988,7 +1093,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         loopRunningRef.current = false;
         setJobFinishedAt(event.timestamp || Date.now());
         setLoopProgress(event.progress);
-        setIsLoading(false);
+        setIsLoading(messageQueueWillContinueRef.current);
         setEndedSessionIds((prev) => {
           const next = new Set(prev);
           if (event.progress?.results) {
@@ -1014,13 +1119,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           placeholderReason:
             runOutcome === 'failed' ? 'job_failed' : 'interrupted',
         });
-        if (event.jobId) syncJobStateRef.current(event.jobId, undefined, true).catch((err) => {
-          console.warn('[useJobChat] JOB_STOPPED syncJobState failed:', err);
-        });
-        // Job is terminal — disconnect SSE to stop the infinite reconnect cycle.
-        console.info('[useJobChat] JOB_STOPPED: disconnecting SSE (terminal state)');
-        eventSseRef.current?.disconnect();
-        markEventStreamReady(false);
+        if (event.jobId) void refreshMessageQueue(event.jobId).then((queue) => {
+          if (queue?.willContinue) { setIsLoading(true); return; }
+          if (!isLoopRef.current) return;
+          eventSseRef.current?.disconnect();
+          markEventStreamReady(false);
+        }).catch((err) => console.warn('[useJobChat] JOB_STOPPED queue sync failed:', err));
+        if (event.jobId) syncJobStateRef.current(event.jobId, undefined, true).catch((err) => console.warn('[useJobChat] JOB_STOPPED syncJobState failed:', err));
         break;
       }
 
@@ -1033,7 +1138,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         setJobFinishedAt(event.timestamp || Date.now());
         if (event.progress) setLoopProgress(event.progress);
         setError(event.message);
-        setIsLoading(false);
+        setIsLoading(messageQueueWillContinueRef.current);
         setEndedSessionIds((prev) => {
           const next = new Set(prev);
           if (event.progress?.results) {
@@ -1055,13 +1160,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           placeholderReason:
             runOutcome === 'stopped' ? 'interrupted' : 'job_failed',
         });
-        if (event.jobId) syncJobStateRef.current(event.jobId, undefined, true).catch((err) => {
-          console.warn('[useJobChat] JOB_FAILED syncJobState failed:', err);
-        });
-        // Job is terminal — disconnect SSE to stop the infinite reconnect cycle.
-        console.info('[useJobChat] JOB_FAILED: disconnecting SSE (terminal state)');
-        eventSseRef.current?.disconnect();
-        markEventStreamReady(false);
+        if (event.jobId) void refreshMessageQueue(event.jobId).then((queue) => {
+          if (queue?.willContinue) { setIsLoading(true); return; }
+          if (!isLoopRef.current) return;
+          eventSseRef.current?.disconnect();
+          markEventStreamReady(false);
+        }).catch((err) => console.warn('[useJobChat] JOB_FAILED queue sync failed:', err));
+        if (event.jobId) syncJobStateRef.current(event.jobId, undefined, true).catch((err) => console.warn('[useJobChat] JOB_FAILED syncJobState failed:', err));
         break;
       }
 
@@ -1205,7 +1310,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           if (event.result?.error) {
             setError(event.result.error);
           }
-          setIsLoading(false);
+          setIsLoading(messageQueueWillContinueRef.current);
         }
         if (event.result) {
           const fPath = event.result.path || [];
@@ -1238,8 +1343,24 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         setIsLoading(true);
         setError(null);
         if (event.clientMessageId) {
+          activeClientMessageIdRef.current = event.clientMessageId;
+          const queued = knownQueuedMessagesRef.current.get(event.clientMessageId);
           setMessages((prev) =>
-            prev.map((message) =>
+            (queued && !prev.some((message) => message.id === queued.id)
+              ? [...prev, {
+                  id: queued.id,
+                  role: MessageRoleEnum.USER,
+                  content: queued.content,
+                  createdAt: event.timestamp || Date.now(),
+                  status: MessageStatusEnum.Finished,
+                  sessionId: event.sessionId || undefined,
+                  clientMessageId: queued.id,
+                  pending: false,
+                  deliveryStatus: 'sent',
+                  imageUrls: queued.imageUrls,
+                } as Message]
+              : prev
+            ).map((message) =>
               message.role === MessageRoleEnum.USER && message.clientMessageId === event.clientMessageId
                 ? {
                     ...message,
@@ -1261,8 +1382,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         break;
 
       case EventTypeEnum.RUN_FINISHED:
+        activeClientMessageIdRef.current = null;
         if (!loopRunningRef.current) {
-          setIsLoading(false);
+          setIsLoading(messageQueueWillContinueRef.current);
           // In interactive mode (no loop), RUN_FINISHED marks the end of the round
           setJobFinishedAt((prev) => prev ?? (event.timestamp || Date.now()));
         }
@@ -1284,8 +1406,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         break;
 
       case EventTypeEnum.RUN_ERROR:
+        activeClientMessageIdRef.current = null;
         if (!loopRunningRef.current) {
-          setIsLoading(false);
+          setIsLoading(messageQueueWillContinueRef.current);
           // In interactive mode (no loop), RUN_ERROR also marks the end of the round.
           // Mirror RUN_FINISHED so the ChatInput badge doesn't briefly disappear
           // between RUN_ERROR and the subsequent JOB_* terminal event.
@@ -1569,6 +1692,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         if (event.name === 'job_title_generation_error_cleared') {
           setTitleGenerationError(null);
         }
+        if (event.name === 'message_queue_changed') {
+          void refreshMessageQueue(event.jobId).catch((err) => {
+            console.warn('[messageQueue] refresh after event failed:', err);
+          });
+        }
         if (event.name === 'progress_total_updated') {
           // The backend recomputed the total-steps denominator: a group broke
           // early via stepStopLoop (evaluator STOP or Shell STOP_LOOP), or a
@@ -1614,7 +1742,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       default:
         break;
     }
-  }, [applyActiveSessionSelection, applyCommandEvent, finalizeInFlightMessages, markEventStreamReady, setLoopSessions, updateServerClock]);
+  }, [applyActiveSessionSelection, applyCommandEvent, finalizeInFlightMessages, markEventStreamReady, refreshMessageQueue, setLoopSessions, updateServerClock]);
 
   // Keep ref in sync so the SSE effect always uses the latest handler
   handleEventRef.current = handleEvent;
@@ -1805,6 +1933,14 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       const isTerminal = status === 'completed' || status === 'stopped' || status === 'failed';
 
       if (isTerminal) {
+        let queueWillContinue = false;
+        if (job.mode !== 'graph') {
+          try {
+            queueWillContinue = !!(await refreshMessageQueue(id))?.willContinue;
+          } catch (queueError) {
+            console.warn('[useJobChat] terminal queue sync failed:', queueError);
+          }
+        }
         const hasPendingRunStart = eventStreamReadyWaitersRef.current.size > 0;
         // For graph jobs "running" is owned by the graph run status snapshot
         // (applyGraphRunStatusSnapshot / GraphLoopProgress), NOT job.status — the
@@ -1815,15 +1951,17 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         // graph snapshot for graph jobs. A send/start/continue waiting for SSE
         // readiness is also already loading; this snapshot describes the prior
         // terminal run and must not flash the composer back to idle.
-        if (job.mode !== 'graph' && !hasPendingRunStart) {
+        if (job.mode !== 'graph' && !hasPendingRunStart && !queueWillContinue) {
           setIsLoading(false);
+        } else if (queueWillContinue) {
+          setIsLoading(true);
         }
         // Job is terminal — disconnect SSE to prevent infinite reconnect loops.
         // This covers Case B: client reconnects after the terminal event was
         // already sent (page refresh, mobile background recovery, network flap).
         // Case A (client online when terminal event arrives) is handled in
         // handleEvent's JOB_COMPLETED/STOPPED/FAILED branches.
-        if (!hasPendingRunStart) {
+        if (!hasPendingRunStart && !queueWillContinue && job.mode === 'loop') {
           if (eventSseRef.current && !eventSseRef.current.isDisconnected()) {
             console.info(`[JobEvents] syncJobState: disconnecting SSE (job terminal, status=${status}, jobId=${id})`);
             eventSseRef.current.disconnect();
@@ -2111,7 +2249,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       console.warn('[SSE reconnect] failed to sync job state:', err);
       throw err;
     }
-  }, [apiUrl, finalizeInFlightMessages, loadHistory, markEventStreamReady, setLoopSessions, getServerNowEstimate, seedServerClockFromResponse]);
+  }, [apiUrl, finalizeInFlightMessages, loadHistory, markEventStreamReady, refreshMessageQueue, setLoopSessions, getServerNowEstimate, seedServerClockFromResponse]);
 
   // Keep syncJobStateRef in sync so handleEvent can call it.
   syncJobStateRef.current = syncJobState;
@@ -2870,11 +3008,18 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       const body = await response.json().catch(() => null);
       if (body?.status === 'command_dispatched' || body?.status === 'command_duplicate') {
         setMessages((prev) => prev.filter((m) => m.id !== userMessageId));
-        setIsLoading(false);
+        setIsLoading(messageQueueWillContinueRef.current);
         const event = body?.event as CommandSystemMessageEvent | undefined;
         if (event && event.text) applyCommandEvent(event);
       } else if (body?.status === 'duplicate') {
         const messageState = typeof body?.messageState === 'string' ? body.messageState : '';
+        if (messageState === 'queued' || messageState === 'blocked' || messageState === 'deleted') {
+          if (activeClientMessageIdRef.current === userMessageId) return;
+          setMessages((prev) => prev.filter((message) => message.id !== userMessageId || message.pending === false));
+          applyMessageQueueSnapshot(body?.queue as MessageQueueSnapshot);
+          setIsLoading(!!body?.queue?.willContinue);
+          return;
+        }
         const stillProcessing = messageState === 'processing';
         // This 200 acknowledges the original delivery; it did not start a new
         // run. A processing receipt can keep following that original run's SSE,
@@ -2899,6 +3044,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setIsLoading(false);
           await syncJobState(jobId);
         }
+      } else if (body?.status === 'queued') {
+        if (activeClientMessageIdRef.current === userMessageId) return;
+        setMessages((prev) => prev.filter((message) => message.id !== userMessageId || message.pending === false));
+        applyMessageQueueSnapshot(body?.queue as MessageQueueSnapshot);
+        setIsLoading(!!body?.queue?.willContinue);
+      } else if (body?.status === 'deleted') {
+        setMessages((prev) => prev.filter((message) => message.id !== userMessageId));
+        applyMessageQueueSnapshot(body?.queue as MessageQueueSnapshot);
+        setIsLoading(!!body?.queue?.willContinue);
       } else {
         // The HTTP response is the delivery acknowledgement: the backend has
         // accepted the message and started the run. Keep `pending` untouched
@@ -2927,13 +3081,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             : msg
         )
       );
-      setIsLoading(false);
+      setIsLoading(messageQueueWillContinueRef.current);
       if (ignoreNetworkError) {
         return;
       }
       setError(errorMessage);
     }
-  }, [jobId, isPublic, clearPendingCommandWatchdog, applyCommandEvent, ensureEventStreamReady, reportDisconnect, syncJobState]);
+  }, [jobId, isPublic, clearPendingCommandWatchdog, applyCommandEvent, applyMessageQueueSnapshot, ensureEventStreamReady, reportDisconnect, syncJobState]);
 
   // Cleanup watchdog on unmount.
   useEffect(() => {
@@ -2942,48 +3096,41 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     };
   }, [clearPendingCommandWatchdog]);
 
-  // Queue a message to send after the current run finishes (interactive mode only)
   const queueMessage = useCallback((msg: Omit<QueuedMessage, 'id'>) => {
-    const id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-    setQueuedMessages((prev) => [...prev, { ...msg, id }]);
-  }, []);
+    if (isLoop || isGraph) return;
+    void sendMessage(msg.content, msg.modelId ?? null, null, msg.imageUrls, msg.acpMode, msg.agentType, msg.acpThoughtLevel);
+  }, [isGraph, isLoop, sendMessage]);
 
-  const cancelQueuedMessage = useCallback((id: string) => {
-    setQueuedMessages((prev) => prev.filter((m) => m.id !== id));
-  }, []);
+  const cancelQueuedMessage = useCallback(async (id: string) => {
+    if (!jobId || isPublic) return;
+    const response = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/message-queue/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!response.ok) {
+      const requestError = new Error(await readHTTPError(response));
+      setError(requestError.message);
+      throw requestError;
+    }
+    const body = await response.json();
+    applyMessageQueueSnapshot(body?.queue as MessageQueueSnapshot);
+  }, [applyMessageQueueSnapshot, isPublic, jobId]);
+
+  const continueMessageQueue = useCallback(async () => {
+    if (!jobId || isPublic) return;
+    const response = await fetch(`/api/v1/job/${encodeURIComponent(jobId)}/message-queue/continue`, { method: 'POST' });
+    if (!response.ok) {
+      const requestError = new Error(await readHTTPError(response));
+      setError(requestError.message);
+      throw requestError;
+    }
+    const body = await response.json();
+    applyMessageQueueSnapshot(body?.queue as MessageQueueSnapshot);
+    setIsLoading(!!body?.queue?.willContinue);
+  }, [applyMessageQueueSnapshot, isPublic, jobId]);
 
   const clearQueuedMessages = useCallback(() => {
-    setQueuedMessages([]);
-  }, []);
-
-  // Mutex: while true, a queued sendMessage promise is still unsettled.
-  // Prevents the effect from re-entering and flushing the whole queue at once.
-  const queueDispatchingRef = useRef(false);
-  const [queueDispatchSeq, setQueueDispatchSeq] = useState(0);
-
-  // Auto-send the next queued message when the current run becomes idle (interactive mode only).
-  // Sends STRICTLY one-at-a-time: waits for `isLoading` to go false (job finished) before
-  // firing the next item in the queue.
-  useEffect(() => {
-    if (isLoop || isGraph) return;
-    if (isLoading) return;
-    if (queueDispatchingRef.current) return;
-    if (queuedMessages.length === 0) return;
-
-    queueDispatchingRef.current = true;
-    const head = queuedMessages[0];
-    setQueuedMessages((prev) => prev.slice(1));
-    void sendMessage(head.content, head.modelId ?? null, null, head.imageUrls, head.acpMode, head.agentType, head.acpThoughtLevel)
-      .catch((err) => {
-        console.error('[queuedMessage] send failed:', err);
-      })
-      .finally(() => {
-        queueDispatchingRef.current = false;
-        // Commands do not toggle isLoading, so explicitly re-run the drain
-        // after their fast-path promise settles.
-        setQueueDispatchSeq((seq) => seq + 1);
-      });
-  }, [isLoading, isLoop, isGraph, queuedMessages, sendMessage, queueDispatchSeq]);
+    void Promise.all(queuedMessagesRef.current.map((message) => cancelQueuedMessage(message.id))).catch((err) => {
+      setError(err instanceof Error ? err.message : String(err));
+    });
+  }, [cancelQueuedMessage]);
 
   const stopGeneration = useCallback(async () => {
     if (!jobId) {
@@ -3028,7 +3175,6 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setJobId(existingJobId);
     setIsLoadingHistory(true);
     setJobNotFound(false);
-
     fetch(apiUrl(`/job/${existingJobId}`))
       .then(async (res) => {
         // Critical: the backend returns 404 with a JSON error envelope
@@ -3703,6 +3849,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     cancelQueuedMessage,
     clearQueuedMessages,
     queuedMessages,
+    messageQueuePaused,
+    messageQueuePauseReason,
+    continueMessageQueue,
     stopGeneration,
     clearMessages,
     eventsReady,

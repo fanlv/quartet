@@ -39,7 +39,7 @@ func TestJobInitialInteractiveConfigurationJSONRoundTrip(t *testing.T) {
 }
 
 func TestJobDeepCopyIsIndependent(t *testing.T) {
-	assertDeepCopyFieldsCovered(t, reflect.TypeOf(Job{}), []string{"LoopConfig", "SessionIDs", "GraphSessionIDs", "Progress", "Resume", "ClientMessageReceipts", "CommandReceipts"})
+	assertDeepCopyFieldsCovered(t, reflect.TypeOf(Job{}), []string{"LoopConfig", "SessionIDs", "GraphSessionIDs", "Progress", "Resume", "ClientMessageReceipts", "CommandReceipts", "MessageQueue"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(LoopConfig{}), []string{"Flow", "Variables", "DisabledVars", "Rounds"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(FlowNode{}), []string{"Children"})
 	assertDeepCopyFieldsCovered(t, reflect.TypeOf(JobProgress{}), []string{"CurrentPath", "Results", "PersistWarnings", "GroupActualIterations", "GroupActualLeafCounts", "SkippedPaths"})
@@ -89,6 +89,10 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 				},
 			},
 		},
+		MessageQueue: []QueuedJobMessage{{
+			ID:       "queued-1",
+			Messages: []RequestMessage{{Content: "queued original", ImageUrls: []string{"image-original"}}},
+		}},
 		CreationClientMessageID: "create-client-1",
 		CreationPayloadHash:     "create-hash-1",
 	}
@@ -118,6 +122,8 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	commandReceipt.Event.Action.WorkspaceID = "copy-ws"
 	cp.CommandReceipts["command-1"] = commandReceipt
 	cp.CommandReceipts["copy-only"] = CommandReceipt{PayloadHash: "copy"}
+	cp.MessageQueue[0].Messages[0].Content = "queued copy"
+	cp.MessageQueue[0].Messages[0].ImageUrls[0] = "image-copy"
 
 	if orig.SessionIDs[0] != "session-1" {
 		t.Fatalf("orig SessionIDs mutated via copy: got %q", orig.SessionIDs[0])
@@ -182,6 +188,12 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	if _, ok := orig.CommandReceipts["copy-only"]; ok {
 		t.Fatal("orig CommandReceipts gained key added on copy")
 	}
+	if got := orig.MessageQueue[0].Messages[0].Content; got != "queued original" {
+		t.Fatalf("orig MessageQueue content mutated via copy: got %q", got)
+	}
+	if got := orig.MessageQueue[0].Messages[0].ImageUrls[0]; got != "image-original" {
+		t.Fatalf("orig MessageQueue image mutated via copy: got %q", got)
+	}
 	if cp.CreationClientMessageID != orig.CreationClientMessageID || cp.CreationPayloadHash != orig.CreationPayloadHash {
 		t.Fatalf("creation idempotency fields changed in copy: got (%q,%q), want (%q,%q)", cp.CreationClientMessageID, cp.CreationPayloadHash, orig.CreationClientMessageID, orig.CreationPayloadHash)
 	}
@@ -193,6 +205,8 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	orig.LoopConfig.Rounds[0].RepeatCount = 7
 	orig.Progress.Results[0].Path[1] = 7
 	orig.Resume.NextPath[1] = 7
+	orig.MessageQueue[0].Messages[0].Content = "queued orig changed"
+	orig.MessageQueue[0].Messages[0].ImageUrls[0] = "image-orig-changed"
 
 	if cp.SessionIDs[1] != "session-2" {
 		t.Fatalf("copy SessionIDs mutated via orig: got %q", cp.SessionIDs[1])
@@ -214,6 +228,12 @@ func TestJobDeepCopyIsIndependent(t *testing.T) {
 	}
 	if got := cp.Resume.NextPath[1]; got != 0 {
 		t.Fatalf("copy Resume.NextPath mutated via orig: got %d", got)
+	}
+	if got := cp.MessageQueue[0].Messages[0].Content; got != "queued copy" {
+		t.Fatalf("copy MessageQueue content mutated via orig: got %q", got)
+	}
+	if got := cp.MessageQueue[0].Messages[0].ImageUrls[0]; got != "image-copy" {
+		t.Fatalf("copy MessageQueue image mutated via orig: got %q", got)
 	}
 }
 

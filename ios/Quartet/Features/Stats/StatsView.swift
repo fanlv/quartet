@@ -93,7 +93,7 @@ struct StatsView: View {
                         Button { preset = item } label: {
                             Text(item.title)
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(preset == item ? Color.white : QuartetTheme.secondaryText)
+                                .foregroundStyle(preset == item ? QuartetTheme.onAccent : QuartetTheme.secondaryText)
                                 .padding(.horizontal, 13)
                                 .frame(height: 32)
                                 .background(
@@ -331,10 +331,10 @@ private struct StatsKPIGrid: View {
         }
         return [
             StatsKPICard(id: "duration", title: "总耗时", value: StatsFormat.duration(totalMs), current: Double(totalMs), previous: report.previous.map { Double($0.totalMs) }, icon: "clock", color: QuartetTheme.accent),
-            StatsKPICard(id: "turns", title: "总轮次", value: StatsFormat.count(turns), current: Double(turns), previous: report.previous.map { Double($0.turnCount) }, icon: "bubble.left.and.bubble.right", color: Color.blue),
-            StatsKPICard(id: "tokens", title: "Token", value: StatsFormat.count(tokens), current: Double(tokens), previous: report.previous.map { Double(StatsFormat.displayedTokens($0.tokensTotal)) }, icon: "text.word.spacing", color: Color.orange),
-            StatsKPICard(id: "tools", title: "工具调用", value: StatsFormat.count(tools), current: Double(tools), previous: report.previous.map { Double($0.toolCallCount) }, icon: "wrench.and.screwdriver", color: Color.purple),
-            StatsKPICard(id: "workspaces", title: "工作区", value: StatsFormat.count(report.byWorkspace.count), current: Double(report.byWorkspace.count), previous: report.previous.map { Double($0.workspaceCount) }, icon: "square.grid.2x2", color: Color.cyan)
+            StatsKPICard(id: "turns", title: "总轮次", value: StatsFormat.count(turns), current: Double(turns), previous: report.previous.map { Double($0.turnCount) }, icon: "bubble.left.and.bubble.right", color: QuartetTheme.chartLime),
+            StatsKPICard(id: "tokens", title: "Token", value: StatsFormat.count(tokens), current: Double(tokens), previous: report.previous.map { Double(StatsFormat.displayedTokens($0.tokensTotal)) }, icon: "text.word.spacing", color: QuartetTheme.running),
+            StatsKPICard(id: "tools", title: "工具调用", value: StatsFormat.count(tools), current: Double(tools), previous: report.previous.map { Double($0.toolCallCount) }, icon: "wrench.and.screwdriver", color: QuartetTheme.chartViolet),
+            StatsKPICard(id: "workspaces", title: "工作区", value: StatsFormat.count(report.byWorkspace.count), current: Double(report.byWorkspace.count), previous: report.previous.map { Double($0.workspaceCount) }, icon: "square.grid.2x2", color: QuartetTheme.chartSlate)
         ]
     }
 }
@@ -524,7 +524,7 @@ private struct StatsTrendCard: View {
         var result = [StatsTrendSeries(
             id: "__total__",
             name: "总计",
-            color: Color(red: 0.13, green: 0.77, blue: 0.37),
+            color: QuartetTheme.accent,
             isTotal: true,
             points: days.compactMap { row in
                 guard let date = StatsFormat.date(row.date) else { return nil }
@@ -543,12 +543,12 @@ private struct StatsTrendCard: View {
         }
         let modelIDs = modelIDSet.sorted()
         let palette: [Color] = [
-            Color(red: 0.15, green: 0.39, blue: 0.92),
-            Color(red: 0.05, green: 0.58, blue: 0.53),
-            Color(red: 0.58, green: 0.20, blue: 0.92),
-            Color(red: 0.86, green: 0.15, blue: 0.15),
-            Color(red: 0.92, green: 0.34, blue: 0.05),
-            Color(red: 0.86, green: 0.15, blue: 0.47)
+            QuartetTheme.chartLime,
+            QuartetTheme.chartViolet,
+            QuartetTheme.running,
+            QuartetTheme.failed,
+            QuartetTheme.chartRose,
+            QuartetTheme.chartSlate
         ]
         for (index, modelID) in modelIDs.enumerated() {
             let name = days.compactMap { $0.modelNames?[modelID] }.first ?? StatsFormat.modelName(modelID)

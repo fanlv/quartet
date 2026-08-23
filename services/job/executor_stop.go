@@ -58,6 +58,7 @@ func (s *serviceImpl) StopAndWait(jobID string) {
 // StopAll cancels all running jobs and waits for their goroutines to exit.
 // Used during graceful shutdown.
 func (s *serviceImpl) StopAll() {
+	s.setStopping(true)
 	// Snapshot all cancel funcs under lock, then cancel outside lock.
 	s.cancelMu.Lock()
 	cancels := make(map[string]context.CancelFunc, len(s.cancels))
@@ -93,4 +94,10 @@ func (s *serviceImpl) StopAll() {
 		})
 	}
 	wg.Wait()
+}
+
+func (s *serviceImpl) setStopping(stopping bool) {
+	s.messageQueueDispatchMu.Lock()
+	s.stopping = stopping
+	s.messageQueueDispatchMu.Unlock()
 }

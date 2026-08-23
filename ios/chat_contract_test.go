@@ -68,7 +68,7 @@ func TestStreamConnectionStateRemainsInternalToChat(t *testing.T) {
 		"case reconnecting",
 		"streamState = .offline",
 		"self.streamState = .live",
-		"isTurnRunning = false\n        stopStreaming()",
+		"if self.isGraph && !self.serverQueue.willContinue { self.stopStreaming() }",
 	} {
 		if !strings.Contains(source, contract) {
 			t.Fatalf("SSE status source contract missing %q", contract)

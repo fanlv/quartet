@@ -215,6 +215,9 @@ export function JobChat(props: JobChatProps) {
     queueMessage,
     cancelQueuedMessage,
     queuedMessages,
+    messageQueuePaused,
+    messageQueuePauseReason,
+    continueMessageQueue,
     stopGeneration,
     clearMessages,
     eventsReady,
@@ -1823,7 +1826,16 @@ export function JobChat(props: JobChatProps) {
             onSwitchWorkspace={canExecuteJobs ? onSwitchWorkspaceChat : undefined}
             jobEnable={jobEnable}
             queuedMessages={canExecuteJobs ? queuedMessages : undefined}
-            onCancelQueuedMessage={canExecuteJobs ? cancelQueuedMessage : undefined}
+            onCancelQueuedMessage={canExecuteJobs ? (id) => cancelQueuedMessage(id).catch((err) => {
+                console.error('[messageQueue] delete failed:', err);
+              }) : undefined}
+            messageQueuePaused={messageQueuePaused}
+            messageQueuePauseReason={messageQueuePauseReason || undefined}
+            onContinueMessageQueue={canExecuteJobs ? () => {
+              void continueMessageQueue().catch((err) => {
+                console.error('[messageQueue] continue failed:', err);
+              });
+            } : undefined}
             canQueueWhileRunning={!isLoop && !isGraph && canExecuteJobs}
             onSelectModel={selectedAgent?.models ? handleSelectModel : undefined}
             onSelectMode={selectedAgent?.modes ? handleSelectMode : undefined}
