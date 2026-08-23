@@ -200,7 +200,7 @@ E2E 不依赖开发者机器上的模型配置、ACP 安装状态或历史数据
 
 前端缺稳定选择器，需补 `data-testid`，只加测试需要的节点，命名 `区域-元素`（如 `chat-input`、`message-item`、`sidebar-job-item`、`loop-progress`）。重复实体（Job、message、tool call、session、Loop 轮次）须暴露稳定业务标识或状态属性（各类 ID、role、Loop path、运行状态），优先用这些定位而非 `nth()`。最小集状态：
 
-- **[已完成] 鉴权门**：初始化码、用户名、密码输入框、提交按钮、错误提示、重试按钮。
+- **[已完成] 鉴权门**：用户名、密码输入框、提交按钮、错误提示、重试按钮。
 - **[已完成] 聊天输入 / 消息**：输入框、发送按钮、停止按钮、队列、消息列表、单条消息、user / assistant / tool / system 消息、耗时相关节点。
 - **[已完成] 工具调用**：调用块、工具名、参数区、结果区、成功 / 失败 / 运行中状态。
 - **[已完成] Job 导航**：侧边栏、Job item、选中态、Rename 输入框、Delete 按钮与删除确认弹窗、Home Job History Pin 按钮与置顶状态属性已完成。

@@ -34,7 +34,7 @@ describe('AuthGate', () => {
     mockFetchByRoute({ '/api/v1/health': jsonResponse({ authState: 'uninitialized' }) })
     render(<AuthGate><div>App Ready</div></AuthGate>)
     expect(await screen.findByText('Initialize administrator')).toBeTruthy()
-    expect(screen.getByPlaceholderText('Initialization code from backend logs')).toBeTruthy()
+    expect(screen.getByPlaceholderText('Username')).toBeTruthy()
   })
 
   it('logs in with username and password', async () => {

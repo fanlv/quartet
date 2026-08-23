@@ -47,7 +47,6 @@
     "recoveryDesc": "用户或角色配置不完整，请在本机从 Memory Git 历史恢复后重试。",
     "probing": "正在检查服务状态…",
     "probeFailed": "无法读取服务状态，请确认后端已经启动。",
-    "initCode": "后端日志中的初始化码",
     "username": "用户名",
     "displayName": "显示名称（选填）",
     "password": "密码",

@@ -342,9 +342,6 @@ func main() {
 	}
 	authState, _ := h.AuthStatus()
 	logger.Infof(ctx, "[security] user session authentication state=%s", authState)
-	if authState == auth.StateUninitialized {
-		logger.Infof(ctx, "[security] first-run initialization code: %s", h.AuthInitCode())
-	}
 
 	// Start the loopback plaintext companion listener (constructed above).
 	// Non-fatal: if 127.0.0.1:8090 is unavailable the public TLS server keeps

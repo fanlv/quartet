@@ -16,7 +16,6 @@ import (
 )
 
 func (h *Handler) AuthStatus() (auth.State, string) { return h.authService.Status() }
-func (h *Handler) AuthInitCode() string             { return h.authService.InitCode() }
 
 func (h *Handler) AuthInit(_ context.Context, c *app.RequestContext) {
 	var req model.InitAdminRequest

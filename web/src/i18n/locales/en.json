@@ -47,7 +47,6 @@
     "recoveryDesc": "User or role configuration is incomplete. Restore it locally from the Memory Git history, then retry.",
     "probing": "Checking service status…",
     "probeFailed": "Could not read service status. Check that the backend is running.",
-    "initCode": "Initialization code from backend logs",
     "username": "Username",
     "displayName": "Display name (optional)",
     "password": "Password",

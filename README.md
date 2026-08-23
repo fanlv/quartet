@@ -295,10 +295,9 @@ Without certificates, Quartet binds to `0.0.0.0:8090` over HTTP. When both
 and defaults to `0.0.0.0:443`.
 
 Quartet always protects private APIs with user login sessions. On first start,
-the backend log prints a one-time initialization code; use it on the Web setup
-page to create the first administrator. Administrators can then create users
-and assign roles. Web, iOS, and `quartet-cli` all authenticate with cookies;
-there is no shared API token. See the
+use the Web setup page to create the first administrator. Administrators can
+then create users and assign roles. Web, iOS, and `quartet-cli` all authenticate
+with cookies; there is no shared API token. See the
 [permissions and access-control documentation](docs/arch/permissions/README.md)
 for the complete boundary.
 

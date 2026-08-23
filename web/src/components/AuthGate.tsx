@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AuthPrincipal } from '../auth';
 import { AUTH_EXPIRED_EVENT, setAuthPrincipal } from '../auth';
@@ -47,6 +47,7 @@ interface AuthGateProps { children: React.ReactNode }
 
 export function AuthGate({ children }: AuthGateProps) {
   const { t } = useTranslation();
+  const gateRef = useRef<HTMLDivElement>(null);
   const skipGate = useMemo(() => hasPublicShareToken(), []);
   const [stage, setStage] = useState<GateStage>(skipGate ? 'ready' : 'probing');
   const [username, setUsername] = useState('');
@@ -54,7 +55,6 @@ export function AuthGate({ children }: AuthGateProps) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
-  const [initCode, setInitCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [detail, setDetail] = useState('');
   const [canReportLogs, setCanReportLogs] = useState(false);
@@ -103,11 +103,41 @@ export function AuthGate({ children }: AuthGateProps) {
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, expired);
   }, [skipGate]);
 
+  useEffect(() => {
+    const gate = gateRef.current;
+    const viewport = window.visualViewport;
+    if (!gate || !viewport) return;
+
+    let revealTimer = 0;
+    const revealFocusedField = () => {
+      window.clearTimeout(revealTimer);
+      revealTimer = window.setTimeout(() => {
+        const active = document.activeElement;
+        if (
+          gate.contains(active) &&
+          (active instanceof HTMLInputElement ||
+            active instanceof HTMLTextAreaElement ||
+            active instanceof HTMLSelectElement)
+        ) {
+          active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      }, 150);
+    };
+
+    viewport.addEventListener('resize', revealFocusedField);
+    gate.addEventListener('focusin', revealFocusedField);
+    return () => {
+      window.clearTimeout(revealTimer);
+      viewport.removeEventListener('resize', revealFocusedField);
+      gate.removeEventListener('focusin', revealFocusedField);
+    };
+  }, [stage]);
+
   const submit = useCallback(async (kind: 'init' | 'login' | 'password') => {
     setSubmitting(true); setDetail('');
     const endpoint = kind === 'init' ? '/api/v1/auth/init' : kind === 'login' ? '/api/v1/auth/login' : '/api/v1/auth/password';
     const body = kind === 'init'
-      ? { initCode, username, displayName, password, confirmPassword }
+      ? { username, displayName, password, confirmPassword }
       : kind === 'login' ? { username, password } : { currentPassword, newPassword: password };
     try {
       const response = await fetch(endpoint, { method: kind === 'password' ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -118,7 +148,7 @@ export function AuthGate({ children }: AuthGateProps) {
       setPassword(''); setConfirmPassword(''); setCurrentPassword('');
       setStage(principal.user.mustChangePassword ? 'changePassword' : 'ready');
     } catch (error) { setDetail(errorDetail(error)); } finally { setSubmitting(false); }
-  }, [confirmPassword, currentPassword, displayName, initCode, password, username]);
+  }, [confirmPassword, currentPassword, displayName, password, username]);
 
   const logout = useCallback(async () => {
     setSubmitting(true);
@@ -140,7 +170,7 @@ export function AuthGate({ children }: AuthGateProps) {
 
   const title = stage === 'initialize' ? t('auth.initializeTitle') : stage === 'changePassword' ? t('auth.changePasswordTitle') : stage === 'recovery' ? t('auth.recoveryTitle') : t('auth.loginTitle');
   return (
-    <div className="auth-gate" data-testid="auth-gate" data-stage={stage}>
+    <div ref={gateRef} className="auth-gate" data-testid="auth-gate" data-stage={stage}>
       <div className="auth-gate-card">
         <div className="auth-gate-icon" aria-hidden="true">Q</div>
         <h1 className="auth-gate-title">{title}</h1>
@@ -149,12 +179,11 @@ export function AuthGate({ children }: AuthGateProps) {
         {stage === 'recovery' && <p className="auth-gate-desc">{t('auth.recoveryDesc')}</p>}
         {(stage === 'initialize' || stage === 'login') && (
           <div className="auth-gate-form">
-            {stage === 'initialize' && <input className="auth-gate-input" data-testid="auth-gate-init-code" value={initCode} onChange={(event) => setInitCode(event.target.value)} placeholder={t('auth.initCode')} autoComplete="one-time-code" />}
             <input className="auth-gate-input" data-testid="auth-gate-username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder={t('auth.username')} autoComplete="username" autoFocus />
             {stage === 'initialize' && <input className="auth-gate-input" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t('auth.displayName')} autoComplete="name" />}
             <input className="auth-gate-input" data-testid="auth-gate-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={t('auth.password')} autoComplete={stage === 'initialize' ? 'new-password' : 'current-password'} />
             {stage === 'initialize' && <input className="auth-gate-input" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder={t('auth.confirmPassword')} autoComplete="new-password" />}
-            <button className="auth-gate-btn auth-gate-btn-primary" data-testid="auth-gate-submit-button" disabled={submitting || !username.trim() || !password || (stage === 'initialize' && (!initCode.trim() || password !== confirmPassword))} onClick={() => void submit(stage === 'initialize' ? 'init' : 'login')}>{submitting ? t('auth.submitting') : stage === 'initialize' ? t('auth.initialize') : t('auth.login')}</button>
+            <button className="auth-gate-btn auth-gate-btn-primary" data-testid="auth-gate-submit-button" disabled={submitting || !username.trim() || !password || (stage === 'initialize' && password !== confirmPassword)} onClick={() => void submit(stage === 'initialize' ? 'init' : 'login')}>{submitting ? t('auth.submitting') : stage === 'initialize' ? t('auth.initialize') : t('auth.login')}</button>
           </div>
         )}
         {stage === 'changePassword' && (

@@ -129,7 +129,6 @@ type Service struct {
 	repo          *repository.AuthRepo
 	state         State
 	stateErr      error
-	initCode      string
 	system        *model.AuthSystem
 	users         map[string]*model.User
 	roles         map[string]*model.Role
@@ -149,12 +148,6 @@ func NewService() (*Service, error) {
 	}
 	s := &Service{repo: repo, users: map[string]*model.User{}, roles: map[string]*model.Role{}, loginFailures: map[string]*loginFailure{}}
 	s.load()
-	if s.state == StateUninitialized {
-		s.initCode, err = randomToken(12)
-		if err != nil {
-			return nil, fmt.Errorf("generate initialization code: %w", err)
-		}
-	}
 	return s, nil
 }
 
@@ -233,7 +226,6 @@ func (s *Service) Status() (State, string) {
 	}
 	return s.state, ""
 }
-func (s *Service) InitCode() string { s.mu.RLock(); defer s.mu.RUnlock(); return s.initCode }
 
 func permissions() []model.PermissionInfo {
 	out := make([]model.PermissionInfo, 0, len(permissionDescriptions))
@@ -280,9 +272,6 @@ func (s *Service) Initialize(req model.InitAdminRequest) (string, *model.AuthPri
 	if s.state != StateUninitialized {
 		return "", nil, fmt.Errorf("%w: current state is %s", ErrConflict, s.state)
 	}
-	if subtleString(req.InitCode, s.initCode) == false {
-		return "", nil, errors.New("invalid initialization code")
-	}
 	if req.Password != req.ConfirmPassword {
 		return "", nil, errors.New("password confirmation does not match")
 	}
@@ -312,7 +301,7 @@ func (s *Service) Initialize(req model.InitAdminRequest) (string, *model.AuthPri
 	if err := s.repo.SaveSystem(system); err != nil {
 		return "", nil, err
 	}
-	s.users[user.ID], s.system, s.state, s.initCode = user, system, StateReady, ""
+	s.users[user.ID], s.system, s.state = user, system, StateReady
 	return s.createSessionLocked(user)
 }
 
@@ -1030,16 +1019,6 @@ func randomToken(size int) (string, error) {
 func tokenHash(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
-}
-func subtleString(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	var diff byte
-	for i := range a {
-		diff |= a[i] ^ b[i]
-	}
-	return diff == 0
 }
 func validStatus(status string) bool {
 	return status == UserStatusActive || status == UserStatusDisabled || status == UserStatusDeleted

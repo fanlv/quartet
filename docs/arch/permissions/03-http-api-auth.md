@@ -14,7 +14,7 @@
 ## 2. 初始化与登录
 
 - `/api/v1/health` 匿名可访问，通过 `authState` 返回 `uninitialized`、`ready` 或 `recovery`。
-- `uninitialized` 状态下，后端日志打印一次性初始化码；`POST /api/v1/auth/init` 校验该码并创建首个管理员。
+- `uninitialized` 状态下，`POST /api/v1/auth/init` 创建首个管理员。
 - `POST /api/v1/auth/login` 使用用户名和密码登录。连续失败会触发短时限流。
 - 认证配置损坏或缺少有效管理员时进入 `recovery`，不重新开放匿名初始化。
 

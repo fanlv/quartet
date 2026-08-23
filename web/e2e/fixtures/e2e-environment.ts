@@ -189,22 +189,11 @@ async function waitForHTTP(url: string, timeoutMs: number, processes: ManagedPro
   throw new Error(`Timed out waiting for ${url}: ${String(lastError)}\n${processes.map(processTail).join('\n')}`)
 }
 
-async function initializeE2EAdmin(backend: ManagedProcess, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs
-  let initCode = ''
-  while (Date.now() < deadline) {
-    const output = `${backend.stdout.join('')}\n${backend.stderr.join('')}`
-    initCode = output.match(/first-run initialization code: ([a-f0-9]+)/)?.[1] || ''
-    if (initCode) break
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-  if (!initCode) throw new Error(`Backend did not print an initialization code\n${processTail(backend)}`)
-
+async function initializeE2EAdmin() {
   const response = await fetch(`${backendURL}/api/v1/auth/init`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      initCode,
       username: e2eUsername,
       displayName: 'Quartet E2E',
       password: e2ePassword,
@@ -541,7 +530,7 @@ async function globalSetup() {
     // ACP discovery refreshes asynchronously, so an empty isolated cache must
     // not delay backend health readiness.
     await waitForHTTP(`${backendURL}/api/v1/health`, 30_000, processes)
-    const auth = await initializeE2EAdmin(backend, 10_000)
+    const auth = await initializeE2EAdmin()
     fs.writeFileSync(path.join(runDir, 'auth.json'), `${JSON.stringify(auth, null, 2)}\n`, { mode: 0o600 })
 
     const frontend = startProcess({

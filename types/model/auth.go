@@ -71,7 +71,6 @@ type AuthPrincipal struct {
 }
 
 type InitAdminRequest struct {
-	InitCode        string `json:"initCode"`
 	Username        string `json:"username"`
 	DisplayName     string `json:"displayName"`
 	Password        string `json:"password"`

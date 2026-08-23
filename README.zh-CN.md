@@ -248,7 +248,7 @@ Claude Code 要求后端的 `PATH` 中同时能找到 `claude` 和 `claude-agent
 没有证书时，Quartet 默认通过 HTTP 监听 `0.0.0.0:8090`。证书目录中同时存在
 `cert.pem` 和 `key.pem` 时，会启用 HTTPS，并默认监听 `0.0.0.0:443`。
 
-Quartet 始终使用用户登录会话保护私有 API。首次启动时，后端日志会打印一次性初始化码；在 Web 初始化页使用该码创建首个管理员。后续由管理员在设置中创建用户和分配角色。Web、iOS 和 `quartet-cli` 均通过 Cookie 登录，不再使用共享 Token。完整边界请查看[权限与访问控制文档](docs/arch/permissions/README.md)。
+Quartet 始终使用用户登录会话保护私有 API。首次启动时，在 Web 初始化页创建首个管理员。后续由管理员在设置中创建用户和分配角色。Web、iOS 和 `quartet-cli` 均通过 Cookie 登录，不再使用共享 Token。完整边界请查看[权限与访问控制文档](docs/arch/permissions/README.md)。
 
 ## 数据与隐私
 
