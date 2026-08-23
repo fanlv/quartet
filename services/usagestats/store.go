@@ -49,8 +49,8 @@ type store struct {
 
 const maxCachedMonths = 12
 
-// migrateLegacyUsageStats copies monthly files from the former ignored
-// quartet/data location into the Git-managed usage-stats directory. Existing
+// migrateLegacyUsageStats copies monthly files from the former
+// quartet/data location into the persistent usage-stats directory. Existing
 // destination files always win, and source files are retained so an
 // interrupted rollout remains recoverable.
 func migrateLegacyUsageStats() (int, error) {

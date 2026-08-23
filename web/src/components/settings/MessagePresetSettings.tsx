@@ -182,7 +182,6 @@ export function MessagePresetSettings({ onDirtyChange }: Props) {
         {canReadGlobal && orphans.map((item) => <option key={item.config.workspaceId} value={`orphan:${item.config.workspaceId}`}>{t('settings.messagePresets.orphanLabel', { name: item.config.workspaceTitle || item.config.workspaceId })}</option>)}
       </select>
     </div>
-    <div className="preset-warning">{t('settings.messagePresets.secretWarning')}</div>
     {orphanErrors.map((error) => <div key={`${error.file}:${error.error}`} className="preset-notice error">{error.file}: {error.error}</div>)}
     {notice && <div className={`preset-notice ${notice.kind}`}>{notice.text}</div>}
     {scope.type === 'orphan' && selectedOrphan && <div className="preset-orphan-actions"><div><strong>{selectedOrphan.config.workspaceTitle || selectedOrphan.config.workspaceId}</strong><span>{selectedOrphan.config.workspaceWorkdir}</span></div>

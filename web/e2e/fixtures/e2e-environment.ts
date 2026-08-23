@@ -248,7 +248,7 @@ function prepareLocalMemory(localMemory: string) {
 
 // seedAgentConfig writes settings.json (always) and, when E2E model
 // credentials are supplied, an isolated model into the eino-cli model catalog
-// under the Git-managed Memory config directory.
+// under the persistent configuration directory.
 //
 //   - settings.json always carries the E2E username + default IM workspace.
 //   - When QUARTET_E2E_MODEL_API_KEY (and _MODEL_NAME) are set, an eino-cli

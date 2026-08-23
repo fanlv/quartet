@@ -2,7 +2,7 @@
 
 | 环境变量 | 默认 | 作用 |
 | --- | --- | --- |
-| `LOCAL_MEMORY` | 无，必填 | 持久数据、Git 管理配置和运行状态根目录 |
+| `LOCAL_MEMORY` | 无，必填 | 持久数据、配置和运行状态根目录 |
 | `QUARTET_LISTEN_ADDR` | 无证书时 `0.0.0.0:8090`，有证书时 `0.0.0.0:443` | 覆盖监听地址 |
 | `QUARTET_CORS_ORIGINS` | 空，仅同源 | 跨域来源白名单 |
 | `QUARTET_CERTS_DIR` | `certs` | TLS 证书目录 |

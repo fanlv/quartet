@@ -44,7 +44,7 @@
     "changePasswordTitle": "Change your password",
     "changePasswordDesc": "An administrator assigned a temporary password. Change it before continuing.",
     "recoveryTitle": "Authentication configuration needs recovery",
-    "recoveryDesc": "User or role configuration is incomplete. Restore it locally from the Memory Git history, then retry.",
+    "recoveryDesc": "User or role configuration is incomplete. Restore the authentication configuration locally, then retry.",
     "probing": "Checking service status…",
     "probeFailed": "Could not read service status. Check that the backend is running.",
     "username": "Username",
@@ -229,7 +229,6 @@
       "global": "All workspaces",
       "orphanLabel": "Unbound: {{name}}",
       "orphanMissing": "The unbound configuration is missing or changed. Refresh and try again.",
-      "secretWarning": "Presets are stored in the shared Memory Git history. Do not put passwords, tokens, or other secrets here.",
       "discardConfirm": "There are unsaved preset changes. Discard them?",
       "empty": "No presets in this scope",
       "namePlaceholder": "Name (optional, up to 80 characters)",
@@ -240,7 +239,7 @@
       "rebound": "Unbound configuration rebound",
       "rebind": "Rebind to workspace…",
       "targetHasPresets": "The target workspace already has message presets. Resolve that configuration before rebinding.",
-      "deleteOrphanConfirm": "Delete this unbound configuration? The deletion will appear as a Memory Git change."
+      "deleteOrphanConfirm": "Delete this unbound configuration?"
     },
     "agents": {
       "description": "Manage built-in and custom agents and check local component versions. Installation and upgrades only run the preset flow shown on each card. “Check availability” starts a temporary agent and checks its ACP connection without sending a message, reinstalling, or upgrading it.",

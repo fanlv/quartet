@@ -127,10 +127,10 @@ func NewService(rootCtx context.Context) (Service, error) {
 	}
 	migrated, err := migrateLegacyUsageStats()
 	if err != nil {
-		return nil, fmt.Errorf("initialize Git-managed usage statistics: %w", err)
+		return nil, fmt.Errorf("initialize persistent usage statistics: %w", err)
 	}
 	if migrated > 0 {
-		logger.Infof(rootCtx, "[usagestats] copied %d legacy monthly file(s) into the Git-managed Memory location", migrated)
+		logger.Infof(rootCtx, "[usagestats] copied %d legacy monthly file(s) into the persistent configuration location", migrated)
 	}
 	st := newStore()
 	s := &service{

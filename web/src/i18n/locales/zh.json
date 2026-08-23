@@ -44,7 +44,7 @@
     "changePasswordTitle": "请修改密码",
     "changePasswordDesc": "管理员已为你设置临时密码，修改后才能继续使用。",
     "recoveryTitle": "认证配置需要恢复",
-    "recoveryDesc": "用户或角色配置不完整，请在本机从 Memory Git 历史恢复后重试。",
+    "recoveryDesc": "用户或角色配置不完整，请在本机恢复认证配置后重试。",
     "probing": "正在检查服务状态…",
     "probeFailed": "无法读取服务状态，请确认后端已经启动。",
     "username": "用户名",
@@ -226,7 +226,6 @@
       "global": "全部项目",
       "orphanLabel": "未绑定：{{name}}",
       "orphanMissing": "未绑定配置不存在或已被修改，请刷新后重试。",
-      "secretWarning": "预置消息会保存到共享的 Memory Git 历史中，请勿填写密码、令牌或其他秘密。",
       "discardConfirm": "当前预置消息有未保存修改，确定放弃吗？",
       "empty": "当前范围暂无预置消息",
       "namePlaceholder": "名称（选填，最多 80 个字符）",
@@ -237,7 +236,7 @@
       "rebound": "未绑定配置已重新绑定",
       "rebind": "重新绑定到项目…",
       "targetHasPresets": "目标项目已经有预置消息，请先处理目标配置后再重新绑定。",
-      "deleteOrphanConfirm": "确定删除这份未绑定配置吗？该删除会成为 Memory Git 变更。"
+      "deleteOrphanConfirm": "确定删除这份未绑定配置吗？"
     },
     "agents": {
       "description": "管理内置和自定义 Agent，并检查本地组件版本。安装和升级只执行卡片中展示的预置流程；“检查可用性”会启动临时 Agent 检查 ACP 连接，不会发送消息、重新安装或升级。",

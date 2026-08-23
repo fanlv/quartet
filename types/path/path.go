@@ -157,7 +157,7 @@ func QuartetTmpDir() (string, error) {
 	return filepath.Join(dir, tmpDir), nil
 }
 
-// AuthConfigDir returns the Git-managed authentication configuration root.
+// AuthConfigDir returns the persistent authentication configuration root.
 func AuthConfigDir() (string, error) {
 	dir, err := QuartetConfigDir()
 	if err != nil {
@@ -274,7 +274,7 @@ func GraphWorkflowsDir() (string, error) {
 	return filepath.Join(dir, graphWorkflowsDir), nil
 }
 
-// MessagePresetsDir returns the Git-managed preset-message configuration root.
+// MessagePresetsDir returns the persistent preset-message configuration root.
 func MessagePresetsDir() (string, error) {
 	dir, err := QuartetConfigDir()
 	if err != nil {
@@ -386,8 +386,7 @@ func ScheduleStatesDir() (string, error) {
 }
 
 // UsageStatsDir returns {LOCAL_MEMORY}/quartet/usage-stats/. Usage statistics
-// live outside quartet/data so they remain visible to the Memory repository's
-// Git tracking rules.
+// live outside quartet/data as persistent configuration data.
 func UsageStatsDir() (string, error) {
 	dir, err := QuartetDir()
 	if err != nil {
@@ -398,7 +397,7 @@ func UsageStatsDir() (string, error) {
 
 // LegacyUsageStatsDir returns the former usage-statistics directory. It is
 // retained only so the usage service can copy existing monthly files into the
-// Git-managed location during startup.
+// persistent location during startup.
 func LegacyUsageStatsDir() (string, error) {
 	dir, err := QuartetDataDir()
 	if err != nil {

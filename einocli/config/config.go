@@ -1,6 +1,6 @@
 // Package config is eino-cli's self-managed configuration store. When
 // LOCAL_MEMORY is available, the model catalog and general config live under
-// the Git-managed Memory repository at quartet/config/eino/. Session state
+// the persistent configuration directory at quartet/config/eino/. Session state
 // remains under Root() (~/.eino/ by default). The package has no dependency on
 // quartet — the quartet backend talks to it exclusively through `eino-cli`
 // subcommands.
@@ -41,7 +41,7 @@ func Root() string {
 	return filepath.Join(home, ".eino")
 }
 
-// configRoot returns the Git-managed eino configuration directory when
+// configRoot returns the persistent eino configuration directory when
 // quartet supplies LOCAL_MEMORY. Standalone eino-cli usage without
 // LOCAL_MEMORY keeps configuration alongside session state under Root().
 func configRoot() string {
@@ -135,7 +135,7 @@ func loadModelsLocked() ([]*Model, error) {
 }
 
 // migrateLegacyConfigFileLocked copies one config file from the former
-// Root()-based store when the Git-managed destination does not exist yet.
+// Root()-based store when the persistent destination does not exist yet.
 // The source is deliberately retained so migration is recoverable.
 // Caller must hold mu.
 func migrateLegacyConfigFileLocked(destination string) error {
