@@ -6,9 +6,7 @@ struct JobsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var path: [ChatRoute] = []
     @State private var presentsNewConversation = false
-    @State private var renamingJob: JobSummary?
-    @State private var renameDraft = ""
-    @State private var deletingJob: JobSummary?
+    @State private var actionJob: JobSummary?
     @State private var presentsConnectionStatus = false
 
     var body: some View {
@@ -76,40 +74,32 @@ struct JobsView: View {
                 DashboardConnectionView()
                     .environmentObject(model)
             }
-            .alert("重命名 Job", isPresented: Binding(
-                get: { renamingJob != nil },
-                set: { if !$0 { renamingJob = nil } }
-            )) {
-                TextField("Job 标题", text: $renameDraft)
-                Button("取消", role: .cancel) { renamingJob = nil }
-                Button("保存") {
-                    guard let job = renamingJob else { return }
-                    let title = String(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
-                    Task {
-                        do { try await model.renameJob(id: job.id, title: title) }
-                        catch { model.present(error) }
-                    }
-                    renamingJob = nil
-                }
-                .disabled(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            } message: {
-                Text("最多 200 个字符。")
-            }
-            .alert("删除这个 Job？", isPresented: Binding(
-                get: { deletingJob != nil },
-                set: { if !$0 { deletingJob = nil } }
-            )) {
-                Button("取消", role: .cancel) {}
-                if let deletingJob {
-                    Button("删除 \(deletingJob.displayTitle)", role: .destructive) {
+            .sheet(item: $actionJob) { job in
+                JobActionsSheet(
+                    job: job,
+                    onTogglePinned: {
+                        actionJob = nil
+                        togglePinned(job)
+                    },
+                    onRename: { title in
+                        actionJob = nil
                         Task {
-                            do { try await model.deleteJob(id: deletingJob.id) }
+                            do { try await model.renameJob(id: job.id, title: title) }
+                            catch { model.present(error) }
+                        }
+                    },
+                    onDelete: {
+                        actionJob = nil
+                        Task {
+                            do { try await model.deleteJob(id: job.id) }
                             catch { model.present(error) }
                         }
                     }
-                }
-            } message: {
-                Text("运行中的任务会先停止，随后删除相关会话。")
+                )
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+                .presentationBackground(QuartetTheme.canvas)
             }
         }
     }
@@ -234,23 +224,18 @@ struct JobsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityIdentifier("job-\(job.id)")
 
-                        Menu {
-                            Button { togglePinned(job) } label: {
-                                Label((job.pinnedAt ?? 0) > 0 ? "取消置顶" : "置顶", systemImage: (job.pinnedAt ?? 0) > 0 ? "pin.slash" : "pin")
-                            }
-                            Button { renamingJob = job; renameDraft = job.displayTitle } label: {
-                                Label("重命名", systemImage: "pencil")
-                            }
-                            Button(role: .destructive) { deletingJob = job } label: {
-                                Label("删除", systemImage: "trash")
-                            }
-                        } label: {
+                        Button { actionJob = job } label: {
                             Image(systemName: "ellipsis")
+                                .font(.quartet(.control, weight: .semibold))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                                 .frame(width: 44, height: 44)
+                                .background(QuartetTheme.elevated.opacity(0.72), in: Circle())
                                 .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                         .accessibilityLabel("\(job.displayTitle) 的更多操作")
+                        .accessibilityIdentifier("job-more-\(job.id)")
+                        .padding(.trailing, 8)
                     }
 
                     if index < model.jobs.count - 1 {
@@ -403,6 +388,327 @@ private struct DashboardPollingConfiguration: Equatable {
     let hasActiveJobs: Bool
     let workspaceID: String?
     let hidesScheduledJobs: Bool
+}
+
+private struct JobActionsSheet: View {
+    private enum Content: Equatable {
+        case actions
+        case rename
+        case deleteConfirmation
+    }
+
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var renameFieldFocused: Bool
+
+    let job: JobSummary
+    let onTogglePinned: () -> Void
+    let onRename: (String) -> Void
+    let onDelete: () -> Void
+
+    @State private var content: Content = .actions
+    @State private var renameDraft: String
+
+    init(
+        job: JobSummary,
+        onTogglePinned: @escaping () -> Void,
+        onRename: @escaping (String) -> Void,
+        onDelete: @escaping () -> Void
+    ) {
+        self.job = job
+        self.onTogglePinned = onTogglePinned
+        self.onRename = onRename
+        self.onDelete = onDelete
+        _renameDraft = State(initialValue: job.displayTitle)
+    }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            header
+
+            Group {
+                switch content {
+                case .actions:
+                    actions
+                case .rename:
+                    renameForm
+                case .deleteConfirmation:
+                    deleteConfirmation
+                }
+            }
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .animation(.snappy(duration: 0.28), value: content)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            JobModeIcon(mode: job.mode, color: modeColor)
+                .frame(width: 42, height: 42)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(headerTitle)
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+
+                Text(job.displayTitle)
+                    .font(.quartet(.regular, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.quartet(.detail, weight: .bold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .frame(width: 36, height: 36)
+                    .background(QuartetTheme.elevated, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭")
+        }
+    }
+
+    private var actions: some View {
+        VStack(spacing: 12) {
+            VStack(spacing: 0) {
+                actionRow(
+                    title: isPinned ? "取消置顶" : "置顶任务",
+                    detail: isPinned ? "恢复按最近更新时间排序" : "固定显示在最近任务顶部",
+                    systemImage: isPinned ? "pin.slash.fill" : "pin.fill",
+                    tint: QuartetTheme.accent,
+                    accessibilityIdentifier: "job-action-pin",
+                    showsDisclosure: false
+                ) {
+                    onTogglePinned()
+                }
+
+                Divider()
+                    .overlay(QuartetTheme.divider)
+                    .padding(.leading, 62)
+
+                actionRow(
+                    title: "重命名",
+                    detail: "使用更容易识别的任务名称",
+                    systemImage: "pencil",
+                    tint: QuartetTheme.chartViolet,
+                    accessibilityIdentifier: "job-action-rename"
+                ) {
+                    content = .rename
+                }
+            }
+            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 1)
+            }
+
+            actionRow(
+                title: "删除任务",
+                detail: "同时删除与任务关联的会话",
+                systemImage: "trash.fill",
+                tint: QuartetTheme.failed,
+                isDestructive: true,
+                accessibilityIdentifier: "job-action-delete"
+            ) {
+                content = .deleteConfirmation
+            }
+            .background(QuartetTheme.failed.opacity(0.07), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(QuartetTheme.failed.opacity(0.18), lineWidth: 1)
+            }
+        }
+    }
+
+    private var renameForm: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("任务名称")
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+
+                TextField("输入任务名称", text: $renameDraft)
+                    .font(.quartet(.regular, weight: .medium))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .textInputAutocapitalization(.sentences)
+                    .submitLabel(.done)
+                    .focused($renameFieldFocused)
+                    .onSubmit(saveRename)
+                    .padding(.horizontal, 15)
+                    .frame(minHeight: 52)
+                    .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(renameFieldFocused ? QuartetTheme.accent : QuartetTheme.divider, lineWidth: 1)
+                    }
+                    .accessibilityIdentifier("job-rename-field")
+                    .task { renameFieldFocused = true }
+                    .onChange(of: renameDraft) { _, value in
+                        if value.count > 200 {
+                            renameDraft = String(value.prefix(200))
+                        }
+                    }
+
+                Text("\(renameDraft.count) / 200")
+                    .font(.quartet(.compact, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+
+            HStack(spacing: 10) {
+                secondaryButton("返回") {
+                    renameFieldFocused = false
+                    content = .actions
+                }
+
+                Button("保存名称", action: saveRename)
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.onAccent)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .disabled(preparedTitle.isEmpty || preparedTitle == job.displayTitle)
+                    .opacity(preparedTitle.isEmpty || preparedTitle == job.displayTitle ? 0.45 : 1)
+                    .accessibilityIdentifier("job-rename-save")
+            }
+        }
+    }
+
+    private var deleteConfirmation: some View {
+        VStack(spacing: 18) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "trash.fill")
+                    .font(.quartet(.regular, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.failed)
+                    .frame(width: 44, height: 44)
+                    .background(QuartetTheme.failed.opacity(0.12), in: Circle())
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("确定删除这个任务？")
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                    Text("运行中的任务会先停止，随后删除相关会话。此操作无法撤销。")
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(QuartetTheme.failed.opacity(0.07), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(QuartetTheme.failed.opacity(0.2), lineWidth: 1)
+            }
+
+            HStack(spacing: 10) {
+                secondaryButton("保留任务") {
+                    content = .actions
+                }
+
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Text("确认删除")
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(QuartetTheme.failed, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("job-delete-confirm")
+            }
+        }
+    }
+
+    private func actionRow(
+        title: String,
+        detail: String,
+        systemImage: String,
+        tint: Color,
+        isDestructive: Bool = false,
+        accessibilityIdentifier: String,
+        showsDisclosure: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: isDestructive ? .destructive : nil, action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 38, height: 38)
+                    .background(tint.opacity(0.11), in: Circle())
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(isDestructive ? QuartetTheme.failed : QuartetTheme.primaryText)
+                    Text(detail)
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                if showsDisclosure {
+                    Image(systemName: "chevron.right")
+                        .font(.quartet(.compact, weight: .bold))
+                        .foregroundStyle(QuartetTheme.secondaryText.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 13)
+            .frame(minHeight: 64)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .font(.quartet(.control, weight: .semibold))
+            .foregroundStyle(QuartetTheme.primaryText)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func saveRename() {
+        guard !preparedTitle.isEmpty, preparedTitle != job.displayTitle else { return }
+        onRename(preparedTitle)
+    }
+
+    private var preparedTitle: String {
+        String(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
+    }
+
+    private var isPinned: Bool {
+        (job.pinnedAt ?? 0) > 0
+    }
+
+    private var headerTitle: String {
+        switch content {
+        case .actions: "任务操作"
+        case .rename: "重命名任务"
+        case .deleteConfirmation: "删除任务"
+        }
+    }
+
+    private var modeColor: Color {
+        switch job.mode {
+        case "graph": QuartetTheme.chartViolet
+        case "loop": QuartetTheme.running
+        default: QuartetTheme.accent
+        }
+    }
 }
 
 private struct JobRow: View {
@@ -685,28 +991,26 @@ private struct JobSentTime: View {
 
     private func formattedTime(relativeTo now: Date) -> String {
         let elapsed = max(0, now.timeIntervalSince(sentAt))
-        if elapsed < 10 {
-            return "刚刚"
-        }
         if elapsed < 60 {
-            return "\(Int(elapsed)) s 前"
+            return "Just now"
         }
         if elapsed < 3_600 {
-            return "\(Int(elapsed / 60)) m 前"
+            return "\(Int(elapsed / 60))m ago"
         }
 
         let calendar = Calendar.autoupdatingCurrent
-        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: sentAt)
+        let components = calendar.dateComponents([.month, .day, .hour, .minute], from: sentAt)
         let time = String(format: "%02d:%02d", components.hour ?? 0, components.minute ?? 0)
         if calendar.isDate(sentAt, inSameDayAs: now) {
             return time
         }
 
-        let monthAndDay = "\(components.month ?? 0)月\(components.day ?? 0)日"
-        if calendar.component(.year, from: sentAt) == calendar.component(.year, from: now) {
-            return "\(monthAndDay) \(time)"
-        }
-        return "\(components.year ?? 0)年\(monthAndDay) \(time)"
+        return String(
+            format: "%02d-%02d %@",
+            components.month ?? 0,
+            components.day ?? 0,
+            time
+        )
     }
 }
 

@@ -653,6 +653,38 @@ final class AppModel: ObservableObject {
         return response.settings?.agentPreferences ?? [:]
     }
 
+    func effectiveMessagePresets(workspaceID: String) async throws -> EffectiveMessagePresetsResponse {
+        if isRunningUITests {
+            return EffectiveMessagePresetsResponse(
+                code: 0,
+                workspaceId: workspaceID,
+                project: [
+                    MessagePreset(
+                        id: "ios-ui-test-project-preset",
+                        name: "检查当前改动",
+                        content: "请检查当前工作区的改动并给出风险清单。"
+                    )
+                ],
+                global: [
+                    MessagePreset(
+                        id: "ios-ui-test-global-preset",
+                        name: "总结进展",
+                        content: "请总结当前进展、遗留问题和下一步建议。"
+                    )
+                ],
+                errors: []
+            )
+        }
+        let response = try await makeClient().effectiveMessagePresets(workspaceID: workspaceID)
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法读取预置消息",
+                detail: "GET /api/v1/config/message-presets/effective?workspaceId=\(workspaceID) 返回 code=\(response.code)。"
+            )
+        }
+        return response
+    }
+
     func relinkACPThoughtLevels(agentType: String, modelID: String) async throws -> AgentThoughtLevelState {
         if isRunningUITests {
             return AgentThoughtLevelState(

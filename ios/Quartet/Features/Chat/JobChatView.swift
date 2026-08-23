@@ -42,11 +42,6 @@ struct JobChatView: View {
                     .accessibilityLabel("停止生成")
                 }
             }
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("完成") { composerFocused = false }
-                    .accessibilityLabel("收起键盘")
-            }
         }
         .task(id: route.summary.id) {
             if appModel.isRunningUITests {
@@ -150,12 +145,31 @@ struct JobChatView: View {
                         .padding(.top, 80)
                     }
                     ForEach(chat.messages) { message in
-                        ChatBubble(message: message)
+                        ChatBubble(
+                            message: message,
+                            fallbackAgentName: chat.agentDisplayLabel,
+                            fallbackAgentIconUrl: chat.agentDisplayIconUrl
+                        )
                             .id(message.id)
                     }
                     ForEach(chat.timelineOutboxItems) { item in
                         OutboxBubble(item: item)
                             .id(item.id)
+                    }
+                    if chat.isRunning {
+                        HStack(spacing: 9) {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(QuartetTheme.accent)
+                            Text("AI 正在思考...")
+                                .font(.quartet(.control, weight: .medium))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 6)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("AI 正在思考")
                     }
                     Color.clear.frame(height: 1).id("chat-bottom")
                 }
@@ -163,6 +177,7 @@ struct JobChatView: View {
                 .padding(.vertical, 18)
             }
             .scrollDismissesKeyboard(.interactively)
+            .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
             .onChange(of: chat.scrollAnchor) { _, _ in
                 withAnimation(.easeOut(duration: 0.2)) {
                     proxy.scrollTo("chat-bottom", anchor: .bottom)
@@ -275,7 +290,7 @@ struct JobChatView: View {
                 Divider()
                     .overlay(QuartetTheme.divider.opacity(0.7))
 
-                HStack(alignment: .center, spacing: 7) {
+                WrappingHStack(spacing: 7) {
                     composerContext
 
                     PhotosPicker(selection: $selectedPhoto, matching: .images) {
@@ -285,9 +300,11 @@ struct JobChatView: View {
                             .frame(width: 36, height: 36)
                             .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
+                    .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
                     .accessibilityLabel("从相册选择图片")
 
                     Button {
+                        composerFocused = false
                         showsAttachmentMenu = true
                     } label: {
                         Image(systemName: "plus")
@@ -299,7 +316,10 @@ struct JobChatView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("更多图片来源")
 
-                    Button { enqueueDraft() } label: {
+                    Button {
+                        composerFocused = false
+                        enqueueDraft()
+                    } label: {
                         Image(systemName: "arrow.up")
                             .font(.quartet(.control, weight: .bold))
                             .foregroundStyle(sendDisabled ? QuartetTheme.secondaryText : QuartetTheme.onAccent)
@@ -314,6 +334,7 @@ struct JobChatView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 9)
+                .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
             }
             .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(
@@ -322,12 +343,7 @@ struct JobChatView: View {
             )
             .shadow(color: Color.black.opacity(0.05), radius: 16, y: 7)
 
-            if chat.isRunning {
-                Text("当前轮次运行中，新消息会保存到服务端队列并按顺序发送。")
-                    .font(.quartet(.detail))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else if !chat.serverQueue.items.isEmpty || chat.hasQueuedMessages {
+            if !chat.isRunning && (!chat.serverQueue.items.isEmpty || chat.hasQueuedMessages) {
                 Text(chat.serverQueue.paused ? "服务端队列已暂停，继续后会按顺序发送。" : "队列中的消息会由服务端依次发送，可在执行前删除。")
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
@@ -341,55 +357,51 @@ struct JobChatView: View {
     }
 
     private var composerContext: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+        Group {
+            ComposerMetadataChip(
+                icon: "sparkles",
+                text: chat.agentDisplayLabel,
+                accessibilityLabel: "Agent，\(chat.agentDisplayLabel)"
+            )
+            ComposerMetadataChip(
+                icon: "cpu",
+                text: chat.modelDisplayLabel,
+                accessibilityLabel: "Model ID，\(chat.modelDisplayLabel)"
+            )
+            ComposerMetadataChip(
+                icon: "slider.horizontal.3",
+                text: chat.modeDisplayLabel,
+                accessibilityLabel: "Mode，\(chat.modeDisplayLabel)"
+            )
+            if let thoughtLevel = chat.thoughtLevelDisplayLabel {
                 ComposerMetadataChip(
-                    icon: "sparkles",
-                    text: chat.agentDisplayLabel,
-                    accessibilityLabel: "Agent，\(chat.agentDisplayLabel)"
+                    icon: "brain.head.profile",
+                    text: thoughtLevel,
+                    accessibilityLabel: "Thought level，\(thoughtLevel)"
                 )
-                ComposerMetadataChip(
-                    icon: "cpu",
-                    text: chat.modelDisplayLabel,
-                    accessibilityLabel: "Model ID，\(chat.modelDisplayLabel)"
-                )
-                ComposerMetadataChip(
-                    icon: "slider.horizontal.3",
-                    text: chat.modeDisplayLabel,
-                    accessibilityLabel: "Mode，\(chat.modeDisplayLabel)"
-                )
-                if let thoughtLevel = chat.thoughtLevelDisplayLabel {
+            }
+            ComposerMetadataChip(
+                icon: "text.word.spacing",
+                text: chat.tokenCountLabel,
+                accessibilityLabel: chat.tokenCountAccessibilityLabel
+            )
+            if chat.showsDuration {
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
                     ComposerMetadataChip(
-                        icon: "brain.head.profile",
-                        text: thoughtLevel,
-                        accessibilityLabel: "Thought level，\(thoughtLevel)"
-                    )
-                }
-                ComposerMetadataChip(
-                    icon: "text.word.spacing",
-                    text: chat.tokenCountLabel,
-                    accessibilityLabel: chat.tokenCountAccessibilityLabel
-                )
-                if chat.showsDuration {
-                    TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                        ComposerMetadataChip(
-                            icon: "clock",
-                            text: chat.durationLabel(at: timeline.date),
-                            accessibilityLabel: "耗时，\(chat.durationLabel(at: timeline.date))"
-                        )
-                    }
-                }
-                if let workspace = appModel.workspaces.first(where: { $0.id == route.summary.workspaceId }) {
-                    ComposerMetadataChip(
-                        icon: "folder",
-                        text: workspace.displayName,
-                        accessibilityLabel: "工作空间，\(workspace.displayName)"
+                        icon: "clock",
+                        text: chat.durationLabel(at: timeline.date),
+                        accessibilityLabel: "耗时，\(chat.durationLabel(at: timeline.date))"
                     )
                 }
             }
-            .padding(.vertical, 1)
+            if let workspace = appModel.workspaces.first(where: { $0.id == route.summary.workspaceId }) {
+                ComposerMetadataChip(
+                    icon: "folder",
+                    text: workspace.displayName,
+                    accessibilityLabel: "工作空间，\(workspace.displayName)"
+                )
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var sendDisabled: Bool {
@@ -515,9 +527,70 @@ private struct ComposerMetadataChip: View {
     }
 }
 
+private struct WrappingHStack: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+        let result = layout(subviews: subviews, maxWidth: maxWidth)
+        return CGSize(width: result.width, height: result.height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let result = layout(subviews: subviews, maxWidth: bounds.width)
+        for item in result.items {
+            subviews[item.index].place(
+                at: CGPoint(x: bounds.minX + item.origin.x, y: bounds.minY + item.origin.y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(item.size)
+            )
+        }
+    }
+
+    private func layout(subviews: Subviews, maxWidth: CGFloat) -> (items: [Item], width: CGFloat, height: CGFloat) {
+        var items: [Item] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var usedWidth: CGFloat = 0
+
+        for index in subviews.indices {
+            var size = subviews[index].sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
+            size.width = min(size.width, maxWidth)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            items.append(Item(index: index, origin: CGPoint(x: x, y: y), size: size))
+            usedWidth = max(usedWidth, x + size.width)
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+        }
+        return (items, usedWidth, items.isEmpty ? 0 : y + rowHeight)
+    }
+
+    private struct Item {
+        let index: Int
+        let origin: CGPoint
+        let size: CGSize
+    }
+}
+
 private struct ChatBubble: View {
     @EnvironmentObject private var appModel: AppModel
     let message: ChatMessage
+    let fallbackAgentName: String
+    let fallbackAgentIconUrl: String?
 
     var body: some View {
         Group {
@@ -525,7 +598,11 @@ private struct ChatBubble: View {
             case .user:
                 UserMessageBubble(message: message)
             case .assistant:
-                AssistantMessageCard(message: message)
+                AssistantMessageCard(
+                    message: message,
+                    agentName: message.agentDisplayName ?? fallbackAgentName,
+                    agentIconUrl: message.agentIconUrl ?? fallbackAgentIconUrl
+                )
             case .thought:
                 ThoughtMessageCard(message: message)
             case .tool:
@@ -587,7 +664,7 @@ private struct UserMessageBubble: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .frame(maxWidth: 320, alignment: .leading)
-            .background(Color(red: 0.10, green: 0.10, blue: 0.10), in: UnevenRoundedRectangle(
+            .background(QuartetTheme.accent, in: UnevenRoundedRectangle(
                 topLeadingRadius: 17, bottomLeadingRadius: 17, bottomTrailingRadius: 5, topTrailingRadius: 17, style: .continuous
             ))
         }
@@ -598,18 +675,25 @@ private struct UserMessageBubble: View {
 
 private struct AssistantMessageCard: View {
     let message: ChatMessage
+    let agentName: String
+    let agentIconUrl: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let thought = message.thinkingContent, !thought.isEmpty {
                 ThoughtPanel(text: thought, isStreaming: false, timestamp: message.timestamp)
             }
-            if !message.content.isEmpty || !message.isFinished {
+            if !message.content.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 8) {
-                        Image(systemName: message.isShellOutput ? "terminal.fill" : "sparkles")
-                            .font(.quartet(.detail, weight: .semibold))
-                        Text(message.isShellOutput ? "SHELL" : "ASSISTANT")
+                        if message.isShellOutput {
+                            Text("💻")
+                                .font(.quartet(.control))
+                                .accessibilityHidden(true)
+                        } else {
+                            AgentIdentityIcon(iconUrl: agentIconUrl)
+                        }
+                        Text(message.isShellOutput ? "Shell" : agentName)
                             .font(.quartet(.detail, weight: .semibold))
                         if !message.isFinished {
                             StreamingDot(color: QuartetTheme.accent)
@@ -635,13 +719,6 @@ private struct AssistantMessageCard: View {
                                 .foregroundStyle(QuartetTheme.primaryText)
                                 .textSelection(.enabled)
                         }
-                    } else if message.content.isEmpty {
-                        HStack(spacing: 8) {
-                            TypingDots()
-                            Text("正在组织回复…")
-                                .font(.quartet(.control))
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                        }
                     } else {
                         MarkdownMessageView(text: message.content, tone: .standard)
                     }
@@ -654,6 +731,46 @@ private struct AssistantMessageCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct AgentIdentityIcon: View {
+    @EnvironmentObject private var appModel: AppModel
+    let iconUrl: String?
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else if let icon = textIcon {
+                Text(icon)
+                    .font(.quartet(.control))
+            } else {
+                Image(systemName: "sparkles")
+                    .font(.quartet(.detail, weight: .semibold))
+            }
+        }
+        .frame(width: 20, height: 20)
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .accessibilityHidden(true)
+        .task(id: iconUrl) {
+            image = nil
+            guard textIcon == nil, let iconUrl, !iconUrl.isEmpty else { return }
+            guard let data = try? await appModel.apiClient().fileData(path: iconUrl) else { return }
+            image = UIImage(data: data)
+        }
+    }
+
+    private var textIcon: String? {
+        guard let value = iconUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        if value.hasPrefix("http://") || value.hasPrefix("https://")
+            || value.hasPrefix("data:image/") || value.hasPrefix("/api/v1/icon") {
+            return nil
+        }
+        return value
     }
 }
 
@@ -716,9 +833,8 @@ private struct ToolCallCard: View {
                 withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
             } label: {
                 HStack(spacing: 11) {
-                    Image(systemName: toolIcon)
-                        .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.secondaryText)
+                    Text(toolIcon)
+                        .font(.quartet(.control))
                         .frame(width: 20)
                     Text(displayName)
                         .font(.quartet(.control, weight: .medium))
@@ -738,9 +854,7 @@ private struct ToolCallCard: View {
             .accessibilityLabel("工具 \(displayName)，\(statusLabel)")
             .accessibilityHint(isExpanded ? "轻点收起详情" : "轻点展开参数和结果")
 
-            if status == .processing {
-                RunningPulseLine(active: true)
-            } else if isExpanded {
+            if isExpanded {
                 Divider().overlay(QuartetTheme.divider)
             }
 
@@ -790,13 +904,23 @@ private struct ToolCallCard: View {
     }
 
     private var toolIcon: String {
-        let name = displayName.lowercased()
-        if name.contains("read") || name.contains("file") { return "doc.text.magnifyingglass" }
-        if name.contains("write") || name.contains("edit") || name.contains("patch") { return "square.and.pencil" }
-        if name.contains("search") || name.contains("grep") { return "magnifyingglass" }
-        if name.contains("terminal") || name.contains("exec") || name.contains("command") { return "terminal" }
-        if name.contains("web") || name.contains("browser") { return "globe" }
-        return "wrench.and.screwdriver"
+        let mappings = [
+            ("Agent", "🤖"), ("Read", "📖"), ("Edit", "✏️"), ("Write", "📝"),
+            ("Glob", "🗂️"), ("Grep", "🔍"), ("WebSearch", "🌐"), ("WebFetch", "⬇️"),
+            ("Bash", "💻"), ("Terminal", "💻"), ("Task", "📝"), ("TaskOutput", "📤"),
+            ("TaskStop", "🛑"), ("TaskCreate", "📝"), ("TaskGet", "🔎"), ("TaskUpdate", "🛠️"),
+            ("TaskList", "📋"), ("EnterPlanMode", "🗺️"), ("ExitPlanMode", "🚪"),
+            ("NotebookEdit", "📓"), ("AskUserQuestion", "❓"), ("Skill", "🧠"), ("LSP", "🧩"),
+            ("EnterWorktree", "🌿"), ("ExitWorktree", "🍂"), ("TeamCreate", "👥➕"),
+            ("TeamDelete", "👥❌"), ("SendMessage", "✉️"), ("CronCreate", "⏰"),
+            ("CronDelete", "⏰"), ("CronList", "⏰"), ("browser_click", "🖱️"),
+            ("browser_evaluate", "⚙️"), ("browser_get_html", "📄"), ("browser_get_page_info", "ℹ️"),
+            ("browser_get_title", "📑"), ("browser_get_url", "🔗"), ("browser_navigate", "🧭"),
+            ("browser_pdf", "📋"), ("browser_screenshot", "📸"), ("browser_scroll", "📜"),
+            ("browser_type", "⌨️"), ("browser_wait_visible", "👁️")
+        ]
+        if let exact = mappings.first(where: { $0.0 == displayName }) { return exact.1 }
+        return mappings.first(where: { displayName.hasPrefix($0.0) })?.1 ?? "💻"
     }
 
     @ViewBuilder private var toolStatusBadge: some View {
@@ -935,29 +1059,6 @@ private func prettyPrintedJSON(_ text: String) -> String? {
     return String(data: formatted, encoding: .utf8)
 }
 
-private struct TypingDots: View {
-    @State private var active = false
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<3, id: \.self) { index in
-                Circle()
-                    .fill(QuartetTheme.accent)
-                    .frame(width: 3, height: 3)
-                    .offset(y: active ? -2 : 2)
-                    .animation(
-                        .easeInOut(duration: 0.55)
-                            .repeatForever(autoreverses: true)
-                            .delay(Double(index) * 0.12),
-                        value: active
-                    )
-            }
-        }
-        .onAppear { active = true }
-        .accessibilityHidden(true)
-    }
-}
-
 private struct OutboxBubble: View {
     let item: LocalOutboxItem
 
@@ -968,7 +1069,7 @@ private struct OutboxBubble: View {
                 Text(item.statusTitle)
             }
             .font(.quartet(.compact, weight: .bold, design: .monospaced))
-            .foregroundStyle(item.isFailed ? QuartetTheme.failed : QuartetTheme.secondaryText)
+            .foregroundStyle(item.isFailed ? QuartetTheme.failed : QuartetTheme.onAccent.opacity(0.76))
 
             MarkdownMessageView(text: item.displayText, tone: .user)
 
@@ -986,8 +1087,8 @@ private struct OutboxBubble: View {
         }
         .padding(14)
         .frame(maxWidth: 310, alignment: .leading)
-        .background(Color(red: 0.10, green: 0.10, blue: 0.10), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(item.isFailed ? QuartetTheme.failed.opacity(0.6) : QuartetTheme.divider, lineWidth: 1))
+        .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(item.isFailed ? QuartetTheme.failed.opacity(0.6) : QuartetTheme.onAccent.opacity(0.16), lineWidth: 1))
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
@@ -1612,6 +1713,7 @@ private final class ChatViewModel: ObservableObject {
     @Published private var modelID: String?
     @Published private var agentType: String?
     @Published private var agentDisplayName: String?
+    @Published private var agentIconUrl: String?
     @Published private var modeID: String?
     @Published private var thoughtLevelID: String?
     private var lastEventID: UInt64 = 0
@@ -1621,6 +1723,7 @@ private final class ChatViewModel: ObservableObject {
     private var graphMonitorTask: Task<Void, Never>?
     private var didSeedInitialDraft = false
     private var knownQueuedItems: [String: QueuedJobMessage] = [:]
+    private var agentDisplayInfoByReference: [String: AgentDisplayInfo] = [:]
     private var accumulatedRoundBoundaries: Set<String> = []
     private var isTurnRunning = false
     private var isProcessingOutbox = false
@@ -1651,6 +1754,7 @@ private final class ChatViewModel: ObservableObject {
     var agentDisplayLabel: String {
         displayValue(agentDisplayName) ?? displayValue(agentType) ?? "未指定 Agent"
     }
+    var agentDisplayIconUrl: String? { displayValue(agentIconUrl) }
     var modelDisplayLabel: String { displayValue(modelID) ?? "未指定 Model" }
     var modeDisplayLabel: String { displayValue(modeID) ?? "默认模式" }
     var thoughtLevelDisplayLabel: String? { displayValue(thoughtLevelID) }
@@ -1680,6 +1784,8 @@ private final class ChatViewModel: ObservableObject {
             serverQueue = MessageQueueSnapshot(jobId: route.summary.id, version: 0, paused: false, pauseReason: nil, willContinue: false, active: nil, items: [])
             sessionID = nil
             agentDisplayName = nil
+            agentIconUrl = nil
+            agentDisplayInfoByReference = [:]
             totalTokens = 0
             runStartedAt = nil
             runFinishedAt = nil
@@ -1743,6 +1849,11 @@ private final class ChatViewModel: ObservableObject {
                 modeID = detail.initialAcpMode ?? modeID
                 thoughtLevelID = detail.initialAcpThoughtLevel ?? thoughtLevelID
             }
+            if let reference = displayValue(agentType),
+               let agentInfo = await resolveAgentDisplayInfo(reference: reference) {
+                agentDisplayName = resolvedAgentName(agentInfo)
+                agentIconUrl = displayValue(agentInfo.iconUrl)
+            }
 
             if requestedSession?.isEmpty == false, let sessionID {
                 try await loadHistory(sessionID: sessionID)
@@ -1781,6 +1892,7 @@ private final class ChatViewModel: ObservableObject {
         modeID = route.modeID ?? route.summary.acpMode
         thoughtLevelID = route.thoughtLevelID ?? route.summary.acpThoughtLevel
         agentDisplayName = "TraeCode"
+        agentIconUrl = "✨"
         totalTokens = 12_480
         runStartedAt = Int64(Date().addingTimeInterval(-83).timeIntervalSince1970 * 1_000)
         runFinishedAt = isGraph || route.summary.status == "running" ? nil : Int64(Date().timeIntervalSince1970 * 1_000)
@@ -1964,8 +2076,9 @@ private final class ChatViewModel: ObservableObject {
     private func loadHistory(sessionID: String, preservesLiveMessages: Bool = true) async throws {
         guard let client else { return }
         let response = try await client.sessionMessages(id: sessionID)
-        applySessionMetadata(response)
-        let historyMessages = convertHistoryMessages(response.messages)
+        let agentInfo = await resolveAgentDisplayInfo(for: response)
+        applySessionMetadata(response, agentInfo: agentInfo)
+        let historyMessages = convertHistoryMessages(response.messages, agentInfo: agentInfo)
         if isGraph && graphRunLive && preservesLiveMessages {
             mergeGraphHistory(historyMessages)
         } else {
@@ -1978,19 +2091,19 @@ private final class ChatViewModel: ObservableObject {
     private func loadInteractiveHistory(sessionIDs: [String]) async throws {
         guard let client else { return }
         var combined: [ChatMessage] = []
-        var latest: SessionMessagesResponse?
         let nonEmptySessionIDs = sessionIDs.filter { !$0.isEmpty }
         for (index, currentSessionID) in nonEmptySessionIDs.enumerated() {
             let response = try await client.sessionMessages(id: currentSessionID)
-            latest = response
+            let agentInfo = await resolveAgentDisplayInfo(for: response)
             let isLatestSession = index == nonEmptySessionIDs.count - 1
             combined.append(contentsOf: convertHistoryMessages(
                 response.messages,
-                idPrefix: isLatestSession ? nil : currentSessionID
+                idPrefix: isLatestSession ? nil : currentSessionID,
+                agentInfo: agentInfo
             ))
-        }
-        if let latest {
-            applySessionMetadata(latest)
+            if isLatestSession {
+                applySessionMetadata(response, agentInfo: agentInfo)
+            }
         }
         messages = combined
         removeEchoedOutboxItems()
@@ -2001,7 +2114,11 @@ private final class ChatViewModel: ObservableObject {
     // creates the card, then the later role=tool row fills its result/status.
     // Keeping this pairing structured is important because a single free-form
     // detail string cannot distinguish a tool name from streamed arguments.
-    private func convertHistoryMessages(_ history: [HistoryMessage], idPrefix: String? = nil) -> [ChatMessage] {
+    private func convertHistoryMessages(
+        _ history: [HistoryMessage],
+        idPrefix: String? = nil,
+        agentInfo: AgentDisplayInfo? = nil
+    ) -> [ChatMessage] {
         func scopedID(_ id: String) -> String {
             idPrefix.map { "\($0):\(id)" } ?? id
         }
@@ -2079,6 +2196,10 @@ private final class ChatViewModel: ObservableObject {
             converted[index].isFinished = true
             converted[index].toolStatus = .placeholder
             converted[index].placeholderReason = "unknown"
+        }
+        for index in converted.indices where converted[index].kind == .assistant {
+            converted[index].agentDisplayName = resolvedAgentName(agentInfo)
+            converted[index].agentIconUrl = displayValue(agentInfo?.iconUrl)
         }
         return converted
     }
@@ -2992,17 +3113,41 @@ private final class ChatViewModel: ObservableObject {
         detail.sessionCount > 0 || messages.contains { !$0.isOptimistic }
     }
 
-    private func applySessionMetadata(_ response: SessionMessagesResponse) {
+    private func applySessionMetadata(_ response: SessionMessagesResponse, agentInfo: AgentDisplayInfo?) {
         modelID = response.modelId
         agentType = response.type
         modeID = response.acpMode
         thoughtLevelID = response.acpThoughtLevel
         totalTokens = response.tokenUsage?.totalTokens ?? totalTokens
-        if let agentType = response.type, let display = response.agents?[agentType] {
-            agentDisplayName = display.displayName
-        } else {
-            agentDisplayName = nil
+        agentDisplayName = resolvedAgentName(agentInfo)
+        agentIconUrl = displayValue(agentInfo?.iconUrl)
+    }
+
+    private func resolveAgentDisplayInfo(for response: SessionMessagesResponse) async -> AgentDisplayInfo? {
+        guard let reference = displayValue(response.type) else { return nil }
+        if let embedded = response.agents?[reference] {
+            agentDisplayInfoByReference[reference] = embedded
+            return embedded
         }
+        return await resolveAgentDisplayInfo(reference: reference)
+    }
+
+    private func resolveAgentDisplayInfo(reference: String) async -> AgentDisplayInfo? {
+        if let cached = agentDisplayInfoByReference[reference] { return cached }
+        guard let client else { return nil }
+        do {
+            let info = try await client.resolveAgentDisplayInfo(ids: [reference]).agents[reference]
+            if let info { agentDisplayInfoByReference[reference] = info }
+            return info
+        } catch {
+            errorDetail = errorText(error)
+            return nil
+        }
+    }
+
+    private func resolvedAgentName(_ info: AgentDisplayInfo?) -> String? {
+        guard let info, let name = displayValue(info.displayName) else { return nil }
+        return info.deleted ? "\(name)（已删除）" : name
     }
 
     private func archiveFinishedRoundIfNeeded() {

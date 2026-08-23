@@ -201,6 +201,13 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/config/settings/get")
     }
 
+    func effectiveMessagePresets(workspaceID: String) async throws -> EffectiveMessagePresetsResponse {
+        try await request(
+            path: "api/v1/config/message-presets/effective",
+            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
+        )
+    }
+
     func jobs(
         workspaceID: String?,
         cursor: String? = nil,
@@ -557,20 +564,20 @@ struct APIClient: @unchecked Sendable {
             return data
         }
         let endpoint: URL
-        let isBackendFileRequest: Bool
         if let remoteURL = URL(string: path),
            let scheme = remoteURL.scheme?.lowercased(),
            scheme == "https" || scheme == "http" {
             endpoint = remoteURL
-            isBackendFileRequest = false
+        } else if path.hasPrefix("/api/v1/icon"),
+                  let relativeURL = URL(string: path, relativeTo: baseURL)?.absoluteURL {
+            endpoint = relativeURL
         } else {
             endpoint = endpointURL(
                 path: "api/v1/serve-file",
                 query: [URLQueryItem(name: "path", value: path)]
             )
-            isBackendFileRequest = true
         }
-        var request = URLRequest(url: endpoint)
+        let request = URLRequest(url: endpoint)
         do {
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0

@@ -69,6 +69,10 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["优化 iOS 交互体验"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.textFields["chat-composer"].exists)
         XCTAssertTrue(app.staticTexts["已完成第一轮检查。运行状态和操作反馈都已同步。"].exists)
+        XCTAssertTrue(app.staticTexts["TraeCode"].exists)
+        XCTAssertFalse(app.staticTexts["ASSISTANT"].exists)
+        XCTAssertTrue(app.staticTexts["AI 正在思考..."].exists)
+        XCTAssertFalse(app.staticTexts["当前轮次运行中，新消息会保存到服务端队列并按顺序发送。"].exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         app.tabBars.buttons["设置"].tap()
@@ -124,6 +128,43 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["14 字"].waitForExistence(timeout: 2))
     }
 
+    func testNewConversationAppliesProjectAndGlobalPresets() {
+        launchDashboard()
+        app.buttons["new-conversation-button"].tap()
+        XCTAssertTrue(app.navigationBars["新任务"].waitForExistence(timeout: 5))
+
+        app.buttons["new-task-message-history"].tap()
+        XCTAssertTrue(app.navigationBars["预置消息与历史"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["当前项目"].exists)
+        XCTAssertTrue(app.staticTexts["全部项目"].exists)
+        app.buttons["检查当前改动"].tap()
+
+        let message = app.textViews["new-conversation-message"]
+        XCTAssertTrue(message.waitForExistence(timeout: 2))
+        XCTAssertEqual(message.value as? String, "请检查当前工作区的改动并给出风险清单。")
+
+        app.buttons["new-task-message-history"].tap()
+        app.buttons["总结进展"].tap()
+        XCTAssertTrue(app.buttons["追加"].waitForExistence(timeout: 2))
+        app.buttons["追加"].tap()
+        XCTAssertEqual(
+            app.textViews["new-conversation-message"].value as? String,
+            "请检查当前工作区的改动并给出风险清单。\n\n请总结当前进展、遗留问题和下一步建议。"
+        )
+
+        app.buttons["new-task-message-history"].tap()
+        XCTAssertTrue(app.navigationBars["预置消息与历史"].waitForExistence(timeout: 2))
+        let replacementPreset = app.buttons["总结进展"]
+        XCTAssertTrue(replacementPreset.waitForExistence(timeout: 2))
+        replacementPreset.tap()
+        XCTAssertTrue(app.buttons["替换"].waitForExistence(timeout: 2))
+        app.buttons["替换"].tap()
+        XCTAssertEqual(
+            app.textViews["new-conversation-message"].value as? String,
+            "请总结当前进展、遗留问题和下一步建议。"
+        )
+    }
+
     func testGraphRunShowsProgressAndHumanAction() {
         launchDashboard()
 
@@ -153,7 +194,6 @@ final class QuartetUITests: XCTestCase {
 
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 45))
         XCTAssertTrue(app.staticTexts[prompt].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["ASSISTANT"].firstMatch.waitForExistence(timeout: 45))
         XCTAssertTrue(
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "IOS_E2E_STREAM_OK")).firstMatch
                 .waitForExistence(timeout: 180)

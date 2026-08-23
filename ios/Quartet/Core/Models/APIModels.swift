@@ -323,6 +323,26 @@ struct AgentPreferencesResponse: Decodable, Sendable {
     let settings: AgentPreferencesSettings?
 }
 
+struct MessagePreset: Decodable, Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String?
+    let content: String
+}
+
+struct MessagePresetLoadError: Decodable, Hashable, Sendable {
+    let scope: String
+    let file: String
+    let error: String
+}
+
+struct EffectiveMessagePresetsResponse: Decodable, Sendable {
+    let code: Int
+    let workspaceId: String
+    let project: [MessagePreset]
+    let global: [MessagePreset]
+    let errors: [MessagePresetLoadError]?
+}
+
 struct JobSummary: Decodable, Identifiable, Hashable, Sendable {
     let id: String
     let title: String
@@ -634,6 +654,8 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
     var toolArguments: String?
     var toolStatus: ToolStatus?
     var placeholderReason: String?
+    var agentDisplayName: String?
+    var agentIconUrl: String?
     var isOptimistic: Bool
 
     init(
@@ -654,6 +676,8 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         toolArguments: String? = nil,
         toolStatus: ToolStatus? = nil,
         placeholderReason: String? = nil,
+        agentDisplayName: String? = nil,
+        agentIconUrl: String? = nil,
         isOptimistic: Bool = false
     ) {
         self.id = id
@@ -673,6 +697,8 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         self.toolArguments = toolArguments
         self.toolStatus = toolStatus
         self.placeholderReason = placeholderReason
+        self.agentDisplayName = agentDisplayName
+        self.agentIconUrl = agentIconUrl
         self.isOptimistic = isOptimistic
     }
 
@@ -714,6 +740,8 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
             toolStatus = nil
         }
         placeholderReason = history.placeholderReason
+        agentDisplayName = nil
+        agentIconUrl = nil
         isOptimistic = false
     }
 }

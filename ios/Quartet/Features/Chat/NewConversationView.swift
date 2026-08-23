@@ -85,11 +85,16 @@ struct NewConversationView: View {
     @State private var thoughtLevelRequestID: UUID?
     @State private var message = ""
     @State private var sentMessageHistory: [SentMessageHistoryItem] = []
+    @State private var projectMessagePresets: [MessagePreset] = []
+    @State private var globalMessagePresets: [MessagePreset] = []
+    @State private var messagePresetLoadErrors: [String] = []
+    @State private var loadingMessagePresets = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var pendingImage: PendingUpload?
     @State private var showsCameraPicker = false
     @State private var showsDocumentPicker = false
-    @State private var showsSentMessageHistory = false
+    @State private var showsMessageLibrary = false
+    @State private var focusesComposerAfterMessageLibrary = false
     @State private var showsAdvancedOptions = false
     @State private var loading = true
     @State private var creating = false
@@ -180,13 +185,6 @@ struct NewConversationView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItemGroup(placement: .keyboard) {
-                    if creationMode == .chat, composerFocused {
-                        Spacer()
-                        Button("完成") { composerFocused = false }
-                            .accessibilityLabel("收起键盘")
-                    }
-                }
             }
             .task(id: creationMode) {
                 if creationMode == .chat, agents.isEmpty {
@@ -228,6 +226,26 @@ struct NewConversationView: View {
                     },
                     onCancel: { showsDocumentPicker = false }
                 )
+            }
+            .sheet(isPresented: $showsMessageLibrary, onDismiss: {
+                if focusesComposerAfterMessageLibrary {
+                    focusesComposerAfterMessageLibrary = false
+                    composerFocused = true
+                }
+            }) {
+                MessagePresetHistorySheet(
+                    currentMessage: $message,
+                    projectPresets: projectMessagePresets,
+                    globalPresets: globalMessagePresets,
+                    history: sentMessageHistory,
+                    errors: messagePresetLoadErrors,
+                    loading: loadingMessagePresets,
+                    onApplied: { focusesComposerAfterMessageLibrary = true }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+                .task(id: workspaceID) { await loadMessagePresets() }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if creationMode == .chat, !loading { actionBar }
@@ -292,27 +310,44 @@ struct NewConversationView: View {
                     .font(.quartet(.regular, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Spacer()
-                Button {
-                    composerFocused = false
-                    loadSentMessageHistory()
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showsSentMessageHistory.toggle()
-                    }
-                } label: {
-                    Label(showsSentMessageHistory ? "收起历史" : "历史消息", systemImage: "clock.arrow.circlepath")
-                        .font(.quartet(.detail, weight: .semibold))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(QuartetTheme.accent)
-                .accessibilityIdentifier("new-task-message-history")
                 Text(message.isEmpty ? "支持文字与图片" : "\(message.count) 字")
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
 
-            if showsSentMessageHistory {
-                sentMessageHistoryPicker
+            Button {
+                composerFocused = false
+                loadSentMessageHistory()
+                loadingMessagePresets = true
+                showsMessageLibrary = true
+            } label: {
+                HStack(spacing: 11) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                        .frame(width: 32, height: 32)
+                        .background(QuartetTheme.accent.opacity(0.12), in: Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("预置消息与历史")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.primaryText)
+                        Text("当前项目、全部项目与最近发送")
+                            .font(.quartet(.compact))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.up")
+                        .font(.quartet(.compact, weight: .bold))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+                .padding(.horizontal, 12)
+                .frame(minHeight: 52)
+                .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("预置消息与历史")
+            .accessibilityHint("打开后可从分组列表中选择")
+            .accessibilityIdentifier("new-task-message-history")
 
             ZStack(alignment: .topLeading) {
                 if message.isEmpty {
@@ -327,6 +362,12 @@ struct NewConversationView: View {
                     .font(.quartet(.regular))
                     .scrollContentBackground(.hidden)
                     .focused($composerFocused)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        Task { @MainActor in
+                            await Task.yield()
+                            composerFocused = true
+                        }
+                    })
                     .frame(minHeight: 148)
                     .accessibilityIdentifier("new-conversation-message")
             }
@@ -376,51 +417,6 @@ struct NewConversationView: View {
         )
         .shadow(color: Color.black.opacity(composerFocused ? 0.08 : 0.03), radius: 18, y: 8)
         .animation(.easeOut(duration: 0.18), value: composerFocused)
-    }
-
-    @ViewBuilder
-    private var sentMessageHistoryPicker: some View {
-        if sentMessageHistory.isEmpty {
-            Text("暂无发送历史")
-                .font(.quartet(.detail))
-                .foregroundStyle(QuartetTheme.secondaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
-        } else {
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 10) {
-                    ForEach(sentMessageHistory) { item in
-                        Button {
-                            message = item.content
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showsSentMessageHistory = false
-                            }
-                            composerFocused = true
-                        } label: {
-                            VStack(alignment: .leading, spacing: 7) {
-                                Text(item.content)
-                                    .font(.quartet(.control))
-                                    .foregroundStyle(QuartetTheme.primaryText)
-                                    .lineLimit(3)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(Date(timeIntervalSince1970: Double(item.createdAt) / 1_000)
-                                    .formatted(date: .abbreviated, time: .shortened))
-                                    .font(.quartet(.compact))
-                                    .foregroundStyle(QuartetTheme.secondaryText)
-                            }
-                            .padding(12)
-                            .frame(width: 250, alignment: .leading)
-                            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(item.content)
-                        .accessibilityHint("选择后可继续修改")
-                        .accessibilityIdentifier("sent-message-history-item-\(item.id)")
-                    }
-                }
-            }
-        }
     }
 
     private func attachmentActionLabel(_ title: String, icon: String) -> some View {
@@ -991,6 +987,47 @@ struct NewConversationView: View {
         }
     }
 
+    private func loadMessagePresets() async {
+        guard !workspaceID.isEmpty else {
+            projectMessagePresets = []
+            globalMessagePresets = []
+            messagePresetLoadErrors = []
+            return
+        }
+        let requestedWorkspaceID = workspaceID
+        loadingMessagePresets = true
+        projectMessagePresets = []
+        globalMessagePresets = []
+        messagePresetLoadErrors = []
+        defer {
+            if workspaceID == requestedWorkspaceID {
+                loadingMessagePresets = false
+            }
+        }
+        do {
+            let response = try await model.effectiveMessagePresets(workspaceID: requestedWorkspaceID)
+            guard workspaceID == requestedWorkspaceID else { return }
+            projectMessagePresets = response.project
+            globalMessagePresets = response.global
+            messagePresetLoadErrors = (response.errors ?? []).map { error in
+                [error.scope, error.file, error.error]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard workspaceID == requestedWorkspaceID else { return }
+            projectMessagePresets = []
+            globalMessagePresets = []
+            if let error = error as? APIError {
+                messagePresetLoadErrors = ["\(error.summary)\n\n\(error.detail)"]
+            } else {
+                messagePresetLoadErrors = [String(reflecting: error)]
+            }
+        }
+    }
+
     private func loadPhoto(_ item: PhotosPickerItem) async {
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else { return }
@@ -1067,5 +1104,214 @@ struct NewConversationView: View {
         } else {
             localError = PresentedError(title: "操作失败", detail: String(describing: error))
         }
+    }
+}
+
+private struct MessagePresetHistorySheet: View {
+    @Binding var currentMessage: String
+    let projectPresets: [MessagePreset]
+    let globalPresets: [MessagePreset]
+    let history: [SentMessageHistoryItem]
+    let errors: [String]
+    let loading: Bool
+    let onApplied: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var pendingPreset: MessagePreset?
+
+    private var hasContent: Bool {
+        !projectPresets.isEmpty || !globalPresets.isEmpty || !history.isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if loading, !hasContent, errors.isEmpty {
+                    VStack(spacing: 14) {
+                        ProgressView()
+                            .controlSize(.large)
+                            .tint(QuartetTheme.accent)
+                        Text("正在读取预置消息…")
+                            .font(.quartet(.control))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if !hasContent, errors.isEmpty {
+                    ContentUnavailableView(
+                        "暂无预置消息或历史",
+                        systemImage: "text.badge.plus",
+                        description: Text("可在 Web 端设置预置消息；成功发送的消息会保存在最近发送中。")
+                    )
+                } else {
+                    List {
+                        if loading {
+                            HStack(spacing: 10) {
+                                ProgressView().controlSize(.small)
+                                Text("正在刷新预置消息…")
+                            }
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                        }
+
+                        if !errors.isEmpty {
+                            Section("加载错误") {
+                                ForEach(Array(errors.enumerated()), id: \.offset) { _, error in
+                                    Text(error)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(QuartetTheme.failed)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                        }
+
+                        presetSection("当前项目", presets: projectPresets, scope: "project")
+                        presetSection("全部项目", presets: globalPresets, scope: "global")
+
+                        if !history.isEmpty {
+                            Section("最近发送") {
+                                ForEach(history) { item in
+                                    Button { applyHistory(item) } label: {
+                                        MessageLibraryRow(
+                                            title: messagePreview(item.content),
+                                            subtitle: Date(timeIntervalSince1970: Double(item.createdAt) / 1_000)
+                                                .formatted(date: .abbreviated, time: .shortened),
+                                            icon: "clock.arrow.circlepath"
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(item.content)
+                                    .accessibilityHint("替换当前输入内容")
+                                    .accessibilityIdentifier("sent-message-history-item-\(item.id)")
+                                }
+                            }
+                        }
+                    }
+                    .scrollContentBackground(.hidden)
+                }
+            }
+            .background(QuartetTheme.canvas)
+            .navigationTitle("预置消息与历史")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .confirmationDialog(
+                "输入框已有内容",
+                isPresented: Binding(
+                    get: { pendingPreset != nil },
+                    set: { if !$0 { pendingPreset = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("追加") { applyPendingPreset(append: true) }
+                Button("替换") { applyPendingPreset(append: false) }
+                Button("取消", role: .cancel) { pendingPreset = nil }
+            } message: {
+                Text("请选择替换当前草稿，或把预置消息追加到草稿末尾。")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func presetSection(_ title: String, presets: [MessagePreset], scope: String) -> some View {
+        if !presets.isEmpty {
+            Section(title) {
+                ForEach(presets) { preset in
+                    Button { selectPreset(preset) } label: {
+                        MessageLibraryRow(
+                            title: preset.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                                ? preset.name!
+                                : messagePreview(preset.content),
+                            subtitle: preset.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                                ? messagePreview(preset.content)
+                                : nil,
+                            icon: preset.content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
+                                ? "terminal"
+                                : "text.bubble"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(preset.name?.isEmpty == false ? preset.name! : messagePreview(preset.content))
+                    .accessibilityHint(currentMessage.isEmpty ? "填入消息输入框" : "选择追加或替换当前输入内容")
+                    .accessibilityIdentifier("message-preset-\(scope)-\(preset.id)")
+                }
+            }
+        }
+    }
+
+    private func selectPreset(_ preset: MessagePreset) {
+        if currentMessage.isEmpty {
+            applyPreset(preset, append: false)
+        } else {
+            pendingPreset = preset
+        }
+    }
+
+    private func applyPendingPreset(append: Bool) {
+        guard let pendingPreset else { return }
+        self.pendingPreset = nil
+        applyPreset(pendingPreset, append: append)
+    }
+
+    private func applyPreset(_ preset: MessagePreset, append: Bool) {
+        if append, !currentMessage.isEmpty {
+            currentMessage += "\n\n\(preset.content)"
+        } else {
+            currentMessage = preset.content
+        }
+        onApplied()
+        dismiss()
+    }
+
+    private func applyHistory(_ item: SentMessageHistoryItem) {
+        currentMessage = item.content
+        onApplied()
+        dismiss()
+    }
+
+    private func messagePreview(_ content: String) -> String {
+        let value = content
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard !value.isEmpty else { return "（空）" }
+        return value.count > 120 ? "\(value.prefix(120))…" : value
+    }
+}
+
+private struct MessageLibraryRow: View {
+    let title: String
+    let subtitle: String?
+    let icon: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(QuartetTheme.accent)
+                .frame(width: 32, height: 32)
+                .background(QuartetTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.quartet(.control, weight: .medium))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.quartet(.compact))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .lineLimit(2)
+                }
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.quartet(.compact, weight: .bold))
+                .foregroundStyle(QuartetTheme.secondaryText.opacity(0.7))
+                .padding(.top, 8)
+        }
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
     }
 }
