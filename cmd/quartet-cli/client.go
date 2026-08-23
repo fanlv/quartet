@@ -9,11 +9,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -21,9 +21,19 @@ const defaultBaseURL = "http://127.0.0.1:8090"
 
 // client talks to the Quartet web backend's graph-workflow API.
 type client struct {
-	baseURL string
-	token   string
-	http    *http.Client
+	baseURL       string
+	sessionCookie string
+	csrfToken     string
+	credentialErr error
+	http          *http.Client
+}
+
+type storedSession struct {
+	Cookie    string `json:"cookie"`
+	CSRFToken string `json:"csrfToken"`
+}
+type sessionStore struct {
+	Sessions map[string]storedSession `json:"sessions"`
 }
 
 func newClient() *client {
@@ -31,30 +41,17 @@ func newClient() *client {
 	if base == "" {
 		base = defaultBaseURL
 	}
-	return &client{
-		baseURL: base,
-		token:   firstAuthToken(os.Getenv(consts.EnvKeyAgentAuth)),
-		http:    &http.Client{Timeout: 30 * time.Second},
-	}
-}
-
-// firstAuthToken picks the first non-empty token from the comma-separated
-// X_AGENT_AUTH value. The backend accepts any single token from the list but
-// compares against the WHOLE header value, so sending the raw joined string
-// would never match (same convention as agent-browser's `${X_AGENT_AUTH%%,*}`).
-func firstAuthToken(raw string) string {
-	for _, t := range strings.Split(raw, ",") {
-		if t = strings.TrimSpace(t); t != "" {
-			return t
-		}
-	}
-	return ""
+	stored, err := loadStoredSession(base)
+	return &client{baseURL: base, sessionCookie: stored.Cookie, csrfToken: stored.CSRFToken, credentialErr: err, http: &http.Client{Timeout: 30 * time.Second}}
 }
 
 // do issues a request and returns the raw body. A non-2xx status is turned into
 // an error carrying the full response body, so backend validation/auth errors
 // reach the user verbatim (per the repo "show errors in full" convention).
 func (c *client) do(ctx context.Context, method, path string, body any) ([]byte, error) {
+	if c.credentialErr != nil {
+		return nil, c.credentialErr
+	}
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -71,8 +68,11 @@ func (c *client) do(ctx context.Context, method, path string, body any) ([]byte,
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.token != "" {
-		req.Header.Set(consts.HeaderAgentAuth, c.token)
+	if c.sessionCookie != "" {
+		req.AddCookie(&http.Cookie{Name: "quartet_session", Value: c.sessionCookie})
+	}
+	if method != http.MethodGet && method != http.MethodHead && c.csrfToken != "" {
+		req.Header.Set("X-CSRF-Token", c.csrfToken)
 	}
 
 	resp, err := c.http.Do(req)
@@ -89,6 +89,82 @@ func (c *client) do(ctx context.Context, method, path string, body any) ([]byte,
 		return respBody, fmt.Errorf("backend returned %s for %s %s: %s", resp.Status, method, path, strings.TrimSpace(string(respBody)))
 	}
 	return respBody, nil
+}
+
+func sessionFile() (string, error) {
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "quartet", "sessions.json"), nil
+}
+func readSessionStore() (sessionStore, string, error) {
+	path, err := sessionFile()
+	if err != nil {
+		return sessionStore{}, "", err
+	}
+	store := sessionStore{Sessions: map[string]storedSession{}}
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return store, path, nil
+	}
+	if err != nil {
+		return store, path, fmt.Errorf("read session store: %w", err)
+	}
+	if err := json.Unmarshal(raw, &store); err != nil {
+		return store, path, fmt.Errorf("parse session store %s: %w", path, err)
+	}
+	if store.Sessions == nil {
+		store.Sessions = map[string]storedSession{}
+	}
+	return store, path, nil
+}
+func loadStoredSession(baseURL string) (storedSession, error) {
+	store, _, err := readSessionStore()
+	if err != nil {
+		return storedSession{}, err
+	}
+	return store.Sessions[baseURL], nil
+}
+func saveStoredSession(baseURL string, session storedSession) error {
+	store, path, err := readSessionStore()
+	if err != nil {
+		return err
+	}
+	if session.Cookie == "" {
+		delete(store.Sessions, baseURL)
+	} else {
+		store.Sessions[baseURL] = session
+	}
+	raw, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(filepath.Dir(path), "sessions-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempName := temp.Name()
+	defer os.Remove(tempName)
+	if err := temp.Chmod(0o600); err != nil {
+		temp.Close()
+		return err
+	}
+	if _, err := temp.Write(append(raw, '\n')); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tempName, path)
 }
 
 func (c *client) createWorkflow(ctx context.Context, req *model.CreateGraphWorkflowRequest) (*model.GraphWorkflowResponse, error) {

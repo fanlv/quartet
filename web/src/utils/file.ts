@@ -70,7 +70,7 @@ export async function readFile(path: string, jobId?: string, signal?: AbortSigna
   };
 }
 
-// Images are fetched as a blob so the auth header/cookie path is identical
+// Images are fetched as a blob so the authenticated cookie path is identical
 // to the JSON API; the caller owns revoking the returned object URL.
 export async function fetchFileAsBlobUrl(path: string, signal?: AbortSignal): Promise<string> {
   const endpoint = `/api/v1/serve-file?path=${encodeURIComponent(path)}`;

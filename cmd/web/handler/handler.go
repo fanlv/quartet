@@ -19,6 +19,7 @@ import (
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/services/agent/usage"
 	agentversion "github.com/fanlv/quartet/services/agent/versioncheck"
+	"github.com/fanlv/quartet/services/auth"
 	"github.com/fanlv/quartet/services/config"
 	"github.com/fanlv/quartet/services/einocli"
 	"github.com/fanlv/quartet/services/graph"
@@ -122,6 +123,7 @@ type Handler struct {
 	einoCLI          *einocli.Service
 	skillsService    *skills.Service
 	wechatOutbox     *wechatoutbox.Service
+	authService      *auth.Service
 
 	// imGateway is shared across all IM platforms. It is initialized lazily
 	// by ensureIMGateway so each StartLarkListener / StartWeiXinListener can
@@ -137,6 +139,11 @@ type Handler struct {
 }
 
 func NewHandler(ctx context.Context) (*Handler, error) {
+	authSvc, err := auth.NewService()
+	if err != nil {
+		return nil, fmt.Errorf("initialize auth service: %w", err)
+	}
+
 	wss, err := workspace.NewService()
 	if err != nil {
 		return nil, err
@@ -239,6 +246,7 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		acpProbeCache:    acpProbeCache,
 		einoCLI:          einocli.NewService(),
 		skillsService:    skills.NewService(ctx),
+		authService:      authSvc,
 	}
 	wechatOutbox, err := wechatoutbox.NewService(func() messaging.Replier {
 		h.imGatewayMu.RLock()
@@ -352,6 +360,11 @@ func (h *Handler) GetScheduleService() schedule.Service {
 // GetJobService returns the handler's job service for use during shutdown.
 func (h *Handler) GetJobService() job.Service {
 	return h.jobService
+}
+
+// GetAuthService exposes authentication state to route middleware and health.
+func (h *Handler) GetAuthService() *auth.Service {
+	return h.authService
 }
 
 // GetUsageStats exposes the usage-stats service so the main shutdown path

@@ -53,7 +53,7 @@ struct SettingsView: View {
                         .accessibilityIdentifier("settings-edit-connection")
                         Divider().overlay(QuartetTheme.divider).padding(.leading, 54)
                         Button(role: .destructive) { confirmsClear = true } label: {
-                            settingsRow("清除地址与 Token", icon: "trash", destructive: true)
+                            settingsRow("退出并清除连接", icon: "trash", destructive: true)
                         }
                     }
                     .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
@@ -73,7 +73,7 @@ struct SettingsView: View {
             Button("取消", role: .cancel) {}
             Button("清除连接", role: .destructive) { model.clearConnection() }
         } message: {
-            Text("服务地址和 Keychain 中的 Token 都会被删除。")
+            Text("服务地址和本机 Cookie 登录状态都会被删除。")
         }
         .alert("重启 Web？", isPresented: $confirmsRestartWeb) {
             Button("取消", role: .cancel) {}

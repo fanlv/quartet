@@ -94,18 +94,19 @@ func TestAuthenticatedConnectionKeepsDashboardAvailableOnInitialRefreshFailure(t
 	requireSourceMatch(t, source, `failureMessage = "\\\(apiError\.summary\)\\n\\n\\\(apiError\.detail\)"`, "connection state must retain the full API error detail")
 }
 
-func TestCredentialsAreScopedToServerOrigin(t *testing.T) {
+func TestUserLoginUsesCookiesWithoutPersistingPassword(t *testing.T) {
 	source := iosSource(t, "Quartet/App/AppModel.swift")
+	client := iosSource(t, "Quartet/Core/Networking/APIClient.swift")
 
-	requireSourceMatch(t, source, `loadStoredToken\(for: storedServerAddress, migrateLegacyCredential: true\)`, "startup must load only the token for the persisted server origin")
-	requireSourceMatch(t, source, `tokenAccount\(for: client\.baseURL\.absoluteString\)`, "a successful connection must write the token under the normalized destination origin")
-	requireSourceMatch(t, source, `func editConnection\(\)[\s\S]*KeychainStore\.delete\(account: StorageKey\.tokenAccount\(for: credentialServerAddress\)\)[\s\S]*token = ""`, "reconfiguring the server must delete and discard the old origin token")
-	requireSourceMatch(t, source, `didSet \{\s*guard StorageKey\.connectionIdentity\(for: serverAddress\) != StorageKey\.connectionIdentity\(for: oldValue\)[\s\S]*invalidateDashboardRequests\(\)[\s\S]*token = ""`, "editing a server address must invalidate dashboard work and discard a token from another origin")
+	requireSourceMatch(t, source, `@Published var username: String`, "connection form must accept a username")
+	requireSourceMatch(t, source, `@Published var password: String`, "connection form must accept a password")
+	requireSourceMatch(t, source, `principal = try await client\.login\(username: requestedUsername, password: password\)`, "connection must establish a user session when no cookie is available")
+	requireSourceMatch(t, source, `csrfToken = principal\.csrfToken[\s\S]*password = ""`, "a successful login must retain CSRF state and discard the password")
 	requireSourceMatch(t, source, `private var connectionGeneration: UInt64`, "superseded connection attempts must be invalidated")
-	requireSourceMatch(t, source, `guard isCurrentConnectionRequest\([\s\S]*requestedToken: requestedToken[\s\S]*else \{ return \}`, "an old connection response must not commit credentials or state for a new address")
-	requireSourceMatch(t, source, `finishSupersededConnectionIfNeeded\(generation: generation\)[\s\S]*if generation == connectionGeneration, phase == \.connecting \{\s*phase = \.disconnected`, "editing only the token during validation must return the UI to a retryable state")
-	requireSourceMatch(t, source, `migrateLegacyCredential: true[\s\S]*KeychainStore\.delete\(account: StorageKey\.legacyTokenAccount\)`, "the legacy global keychain entry must migrate only to the previously persisted server")
-	requireSourceMatch(t, source, `agent-auth-token\|\\\(connectionIdentity\(for: serverAddress\) \?\? "invalid-server"\)`, "keychain account identity must include the complete normalized server base URL")
+	requireSourceMatch(t, source, `guard isCurrentConnectionRequest\([\s\S]*requestedUsername: requestedUsername`, "an old login response must not commit state for a new address or username")
+	if strings.Contains(source, "KeychainStore.write") { t.Fatal("password or session must not be written to Keychain by AppModel") }
+	if strings.Contains(client, "X-AGENT-AUTH") { t.Fatal("iOS client must not send the removed shared-token header") }
+	requireSourceMatch(t, client, `X-CSRF-Token`, "mutating requests must carry the session CSRF token")
 }
 
 func TestDashboardCacheCannotChangeTheAuthoritativeServerOrigin(t *testing.T) {

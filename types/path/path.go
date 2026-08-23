@@ -157,6 +157,47 @@ func QuartetTmpDir() (string, error) {
 	return filepath.Join(dir, tmpDir), nil
 }
 
+// AuthConfigDir returns the Git-managed authentication configuration root.
+func AuthConfigDir() (string, error) {
+	dir, err := QuartetConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "auth"), nil
+}
+
+func AuthSystemFile() (string, error) {
+	dir, err := AuthConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "system.json"), nil
+}
+
+func AuthUsersDir() (string, error) {
+	dir, err := AuthConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "users"), nil
+}
+
+func AuthRolesDir() (string, error) {
+	dir, err := AuthConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "roles"), nil
+}
+
+func AuthSessionsDir() (string, error) {
+	dir, err := QuartetStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "auth", "sessions"), nil
+}
+
 // IconCacheDir returns {LOCAL_MEMORY}/var/quartet/cache/icons/.
 func IconCacheDir() (string, error) {
 	dir, err := QuartetCacheDir()

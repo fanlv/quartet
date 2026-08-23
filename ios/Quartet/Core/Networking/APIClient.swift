@@ -2,10 +2,10 @@ import Foundation
 
 struct APIClient: @unchecked Sendable {
     let baseURL: URL
-    private let token: String
+    private let csrfToken: String
     private let session: URLSession
 
-    init(serverAddress: String, token: String, session: URLSession = .shared) throws {
+    init(serverAddress: String, csrfToken: String = "", session: URLSession = .shared) throws {
         let trimmed = serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var components = URLComponents(string: trimmed),
               let scheme = components.scheme?.lowercased(),
@@ -26,7 +26,7 @@ struct APIClient: @unchecked Sendable {
             throw APIError(summary: "服务地址无效", detail: "无法解析地址：\(trimmed)")
         }
         self.baseURL = normalized
-        self.token = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.csrfToken = csrfToken.trimmingCharacters(in: .whitespacesAndNewlines)
         self.session = session
     }
 
@@ -93,8 +93,16 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/system/restart-web", method: "POST")
     }
 
-    func verifyAuthentication() async throws {
-        let _: StatusResponse = try await request(path: "api/v1/auth/verify")
+    func currentUser() async throws -> AuthPrincipal {
+        try await request(path: "api/v1/auth/me")
+    }
+
+    func login(username: String, password: String) async throws -> AuthPrincipal {
+        try await request(path: "api/v1/auth/login", method: "POST", body: LoginRequest(username: username, password: password), authenticated: false)
+    }
+
+    func logout() async throws {
+        let _: StatusResponse = try await request(path: "api/v1/auth/logout", method: "POST")
     }
 
     func workspaces() async throws -> WorkspacesResponse {
@@ -124,9 +132,6 @@ struct APIClient: @unchecked Sendable {
         let endpoint = endpointURL(path: "api/v1/stats/usage", query: query)
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        if !token.isEmpty {
-            urlRequest.setValue(token, forHTTPHeaderField: "X-AGENT-AUTH")
-        }
 
         let data: Data
         let response: URLResponse
@@ -148,7 +153,7 @@ struct APIClient: @unchecked Sendable {
         let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
         guard (200..<300).contains(http.statusCode) else {
             throw APIError(
-                summary: http.statusCode == 403 ? "Token 验证失败" : "Quartet 请求失败",
+                summary: http.statusCode == 401 ? "登录状态已失效" : http.statusCode == 403 ? "权限不足" : "Quartet 请求失败",
                 detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)",
                 requestWasRejected: true
             )
@@ -231,9 +236,6 @@ struct APIClient: @unchecked Sendable {
         if let etag, !etag.isEmpty {
             request.setValue(etag, forHTTPHeaderField: "If-None-Match")
         }
-        if !token.isEmpty {
-            request.setValue(token, forHTTPHeaderField: "X-AGENT-AUTH")
-        }
 
         let data: Data
         let response: URLResponse
@@ -260,7 +262,7 @@ struct APIClient: @unchecked Sendable {
         let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
         guard (200..<300).contains(http.statusCode) else {
             throw APIError(
-                summary: http.statusCode == 403 ? "Token 验证失败" : "Quartet 请求失败",
+                summary: http.statusCode == 401 ? "登录状态已失效" : http.statusCode == 403 ? "权限不足" : "Quartet 请求失败",
                 detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)",
                 requestWasRejected: true
             )
@@ -360,7 +362,7 @@ struct APIClient: @unchecked Sendable {
         request.httpBody = body
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if !token.isEmpty { request.setValue(token, forHTTPHeaderField: "X-AGENT-AUTH") }
+        if !csrfToken.isEmpty { request.setValue(csrfToken, forHTTPHeaderField: "X-CSRF-Token") }
 
         let responseData: Data
         let response: URLResponse
@@ -455,7 +457,6 @@ struct APIClient: @unchecked Sendable {
         var request = URLRequest(url: endpoint)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue(String(lastEventID), forHTTPHeaderField: "Last-Event-ID")
-        if !token.isEmpty { request.setValue(token, forHTTPHeaderField: "X-AGENT-AUTH") }
 
         let bytes: URLSession.AsyncBytes
         let response: URLResponse
@@ -547,9 +548,6 @@ struct APIClient: @unchecked Sendable {
             isBackendFileRequest = true
         }
         var request = URLRequest(url: endpoint)
-        if isBackendFileRequest, !token.isEmpty {
-            request.setValue(token, forHTTPHeaderField: "X-AGENT-AUTH")
-        }
         do {
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -609,8 +607,8 @@ struct APIClient: @unchecked Sendable {
             request.httpBody = bodyData
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        if authenticated, !token.isEmpty {
-            request.setValue(token, forHTTPHeaderField: "X-AGENT-AUTH")
+        if authenticated, method != "GET", method != "HEAD", !csrfToken.isEmpty {
+            request.setValue(csrfToken, forHTTPHeaderField: "X-CSRF-Token")
         }
 
         let data: Data
@@ -633,7 +631,7 @@ struct APIClient: @unchecked Sendable {
         let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
         guard (200..<300).contains(http.statusCode) else {
             throw APIError(
-                summary: http.statusCode == 403 ? "Token 验证失败" : "Quartet 请求失败",
+                summary: http.statusCode == 401 ? "登录状态已失效" : http.statusCode == 403 ? "权限不足" : "Quartet 请求失败",
                 detail: "\(method) \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)",
                 requestWasRejected: true
             )

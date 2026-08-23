@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { VirtualList } from './VirtualList';
+import { useAuthPrincipal } from '../auth';
 import './Sidebar.css';
 
 type JobInfo = JobSummary;
@@ -21,6 +22,11 @@ interface SidebarProps {
 
 export function Sidebar({ currentJobId, workspaceId, onNewChat, onSelectJob, onOpenSettings, settingsRefreshKey }: SidebarProps) {
   const { t } = useTranslation();
+  const principal = useAuthPrincipal();
+  const canReadJobs = principal?.permissions.includes('job.read') ?? false;
+  const canExecuteJobs = principal?.permissions.includes('job.execute') ?? false;
+  const canManageJobs = principal?.permissions.includes('job.manage') ?? false;
+  const canReadConfig = principal?.permissions.includes('config.read') ?? false;
   const {
     jobs,
     hasMore,
@@ -29,20 +35,23 @@ export function Sidebar({ currentJobId, workspaceId, onNewChat, onSelectJob, onO
     loadMore,
     removeJob,
     patchJob,
-  } = useJobList({ workspaceId });
-  const [username, setUsername] = useState('User');
+  } = useJobList({ workspaceId, disabled: !canReadJobs });
+  const username = principal?.user.displayName || principal?.user.username || 'User';
   const [avatarUrl, setAvatarUrl] = useState('');
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [renameError, setRenameError] = useState('');
 
   useEffect(() => {
+    if (!canReadConfig) {
+      setAvatarUrl('');
+      return;
+    }
     const fetchSettings = async () => {
       try {
         const res = await fetch('/api/v1/config/settings/get');
         const data = await res.json();
         if (data.code === 0 && data.settings) {
-          setUsername(data.settings.username || 'User');
           setAvatarUrl(data.settings.avatar_url || '');
         }
       } catch {
@@ -50,7 +59,7 @@ export function Sidebar({ currentJobId, workspaceId, onNewChat, onSelectJob, onO
       }
     };
     fetchSettings();
-  }, [settingsRefreshKey]);
+  }, [canReadConfig, settingsRefreshKey]);
 
   const [deleteConfirm, setDeleteConfirm] = useState<{ jobId: string; title: string } | null>(null);
 
@@ -148,10 +157,10 @@ export function Sidebar({ currentJobId, workspaceId, onNewChat, onSelectJob, onO
         </div>
       </div>
 
-      <div className="sidebar-new-chat" onClick={onNewChat} data-testid="sidebar-new-chat-button">
+      {canExecuteJobs && <div className="sidebar-new-chat" onClick={onNewChat} data-testid="sidebar-new-chat-button">
         <span className="new-chat-icon">+</span>
         <span>{t('sidebar.newChat')}</span>
-      </div>
+      </div>}
 
       <div className="sidebar-section" data-testid="sidebar-job-section">
         <div className="sidebar-section-title">{t('sidebar.jobHistory')}</div>
@@ -239,19 +248,19 @@ export function Sidebar({ currentJobId, workspaceId, onNewChat, onSelectJob, onO
                       className="session-title"
                       data-testid="sidebar-job-title"
                       title={getJobTitle(job)}
-                      onDoubleClick={(e) => startRename(e, job)}
+                      onDoubleClick={canManageJobs ? (e) => startRename(e, job) : undefined}
                     >
                       {getJobTitle(job)}
                     </span>
                   )}
-                  <button
+                  {canManageJobs && <button
                     className="session-delete-btn"
                     onClick={(e) => handleDeleteClick(e, job)}
                     title={t('common.delete')}
                     data-testid="sidebar-job-delete-button"
                   >
                     ×
-                  </button>
+                  </button>}
                 </a>
               );
             }}

@@ -1,6 +1,5 @@
 import type { Page } from '../fixtures/test'
 import { expect, test } from '../fixtures/test'
-import { e2eAuthToken } from '../fixtures/e2e-environment'
 
 // E2E coverage for the settings page's eino tab: the tab proxies
 // /api/v1/config/eino/* to `eino-cli models|systemprompt` subcommands exec'd
@@ -27,7 +26,6 @@ let einoSeeded = false
 
 test.beforeAll(async ({ request }) => {
   const res = await request.get('/api/v1/config/eino/model/list', {
-    headers: { 'X-AGENT-AUTH': e2eAuthToken },
   })
   const body = (await res.json().catch(() => ({}))) as { code?: number; models?: { display_name?: string }[] }
   einoAvailable = res.ok() && body.code === 0
@@ -35,10 +33,9 @@ test.beforeAll(async ({ request }) => {
 })
 
 async function openEinoTab(page: Page) {
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto('/')
   await expect(page.getByTestId('auth-gate')).toHaveCount(0)
 

@@ -6,6 +6,7 @@ import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import { copyToClipboard } from '../utils/clipboard';
+import { useAuthPrincipal } from '../auth';
 import './FilePreviewPage.css';
 
 interface FilePreviewData {
@@ -433,11 +434,13 @@ function MarkdownPreviewImage({ basePath, src, alt }: { basePath: string; src: s
 }
 
 export function FilePreviewPage() {
+  const principal = useAuthPrincipal();
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const path = params.get('path')?.trim() || '';
   const jobId = params.get('jobId')?.trim() || '';
   const fileShareToken = params.get('fileShareToken') || '';
   const isPublic = !!fileShareToken;
+  const canShareFiles = !isPublic && (principal?.permissions.includes('file.share') ?? false);
   const markdown = isMarkdownPath(path);
   const html = isHtmlPath(path);
   const renderedDocument = markdown || html;
@@ -452,12 +455,12 @@ export function FilePreviewPage() {
   const [shareCopied, setShareCopied] = useState(false);
 
   useEffect(() => {
-    if (isPublic || !path) return;
+    if (!canShareFiles || !path) return;
     void fetch(`/api/v1/file-share/get?path=${encodeURIComponent(path)}`)
       .then((res) => res.json())
       .then((data) => { if (data.shared) setShareToken(data.token); })
       .catch(() => {});
-  }, [path, isPublic]);
+  }, [canShareFiles, path]);
 
   useEffect(() => {
     document.title = path ? `${fileNameFromPath(path)} · 文件预览` : '文件预览';
@@ -598,12 +601,12 @@ export function FilePreviewPage() {
               {copied ? '已复制' : '复制内容'}
             </button>
           )}
-          {!isPublic && data && !shareToken && (
+          {canShareFiles && data && !shareToken && (
             <button type="button" className="file-preview-button" onClick={handleShare} disabled={shareLoading}>
               {shareLoading ? '分享中…' : '分享'}
             </button>
           )}
-          {!isPublic && shareToken && (
+          {canShareFiles && shareToken && (
             <>
               <button type="button" className="file-preview-button" onClick={handleCopyShareLink}>
                 {shareCopied ? '已复制' : '复制分享链接'}

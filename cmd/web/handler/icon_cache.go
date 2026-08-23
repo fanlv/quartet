@@ -111,7 +111,7 @@ func IconCacheURL(originalURL string) string {
 		return originalURL
 	}
 	// QueryEscape matters: callers append their own credential parameter
-	// (?token= for the authed route, &shareToken=&jobId= for the public one),
+	// (session cookie for the private route, &shareToken=&jobId= for the public one),
 	// so an unescaped '&' inside originalURL would truncate the upstream URL
 	// and let it swallow whatever is appended after it.
 	return fmt.Sprintf("/api/v1/icon?url=%s", url.QueryEscape(originalURL))

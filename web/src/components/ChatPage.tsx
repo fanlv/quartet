@@ -2,11 +2,11 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useConnectionStatus } from '../contexts/ConnectionStatus';
+import { useAuthPrincipal } from '../auth';
 import './ChatPage.css';
 import './JobChat.css';
 import './ChatInput.css';
 
-const MSG_AUTH_TOKEN_KEY = 'quartet.x_auth_token';
 const WEB_RESTART_POLL_INTERVAL_MS = 500;
 const WEB_RESTART_PROBE_TIMEOUT_MS = 3000;
 const WEB_RESTART_TIMEOUT_MS = 180_000;
@@ -65,10 +65,7 @@ async function waitForWebRestart(previousHealth: WebHealthProbe): Promise<boolea
 
 function toImagePreviewUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:') || path.startsWith('blob:')) return path;
-  const token = (localStorage.getItem(MSG_AUTH_TOKEN_KEY) ?? '').trim();
-  let url = `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
-  if (token) url += `&token=${encodeURIComponent(token)}`;
-  return url;
+  return `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
 }
 import { DirPicker } from './DirPicker';
 import { ScheduleInfo } from '../types';
@@ -225,7 +222,7 @@ function appendLocalSentMessage(storageKey: string, item: Omit<LocalSentMessage,
 async function uploadImage(file: File): Promise<string> {
   const formData = new FormData();
   formData.append('file', file);
-  // Auth header is injected by the global fetch interceptor in main.tsx
+  // The session cookie and CSRF header are handled by the global fetch wrapper.
   const res = await fetch('/api/v1/upload-file', { method: 'POST', body: formData });
   const data = await res.json();
   if (!data || data.code !== 0) throw new Error(data?.msg || 'Upload failed');
@@ -250,17 +247,17 @@ interface ChatPageProps {
   onOpenGraph?: () => void;
 }
 
-async function fetchUserSettings(): Promise<{ avatarUrl: string; username: string }> {
+async function fetchUserSettings(): Promise<{ avatarUrl: string }> {
   try {
     const res = await fetch('/api/v1/config/settings/get');
     const data = await res.json().catch(() => null);
     if (data?.code === 0 && data.settings) {
-      return { avatarUrl: data.settings.avatar_url || '', username: data.settings.username || 'User' };
+      return { avatarUrl: data.settings.avatar_url || '' };
     }
   } catch (err) {
     console.error('Failed to fetch user settings:', err);
   }
-  return { avatarUrl: '', username: 'User' };
+  return { avatarUrl: '' };
 }
 
 async function fetchAgentList(): Promise<{ agents: AgentInfo[]; workdir: string; jobEnable: boolean }> {
@@ -490,8 +487,8 @@ interface JobHistoryRowProps {
   modelLabel: string | null;
   workspaceName?: string;
   onSelect: (jobId: string, workspaceId?: string) => void;
-  onPin: (e: React.MouseEvent, job: JobInfo) => void;
-  onDelete: (e: React.MouseEvent, job: JobInfo) => void;
+  onPin?: (e: React.MouseEvent, job: JobInfo) => void;
+  onDelete?: (e: React.MouseEvent, job: JobInfo) => void;
 }
 
 const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceName, onSelect, onPin, onDelete }: JobHistoryRowProps) {
@@ -557,7 +554,7 @@ const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceNa
         {modelLabel && <span className="home-job-history-row-model" title={modelLabel}>{modelLabel}</span>}
         <span className="home-job-history-row-time">{formatJobTime(job.updatedAt, i18n.language)}</span>
       </div>
-      <button
+      {onPin && <button
         className={`home-job-history-row-pin ${isPinned ? 'pinned' : ''}`}
         onClick={(e) => { e.preventDefault(); onPin(e, job); }}
         title={isPinned ? 'Unpin' : 'Pin'}
@@ -565,20 +562,31 @@ const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceNa
         data-testid="home-job-history-row-pin"
       >
         ★
-      </button>
-      <button
+      </button>}
+      {onDelete && <button
         className="home-job-history-row-delete"
         onClick={(e) => { e.preventDefault(); onDelete(e, job); }}
         title="Delete"
         data-testid="home-job-history-row-delete"
       >
         ×
-      </button>
+      </button>}
     </a>
   );
 });
 
 export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWorkdir, workspaceId, workspaceTitle, onSelectWorkspace, onSelectJob, onOpenSettings, onOpenAgentSettings, onOpenStats, onOpenGraph }: ChatPageProps) {
+  const principal = useAuthPrincipal();
+  const canReadJobs = principal?.permissions.includes('job.read') ?? false;
+  const canExecuteJobs = principal?.permissions.includes('job.execute') ?? false;
+  const canReadAgents = principal?.permissions.includes('agent.read') ?? false;
+  const canReadConfig = principal?.permissions.includes('config.read') ?? false;
+  const canManageJobs = principal?.permissions.includes('job.manage') ?? false;
+  const canReadSchedules = principal?.permissions.includes('schedule.read') ?? false;
+  const canWriteSchedules = principal?.permissions.includes('schedule.write') ?? false;
+  const canReadFiles = principal?.permissions.includes('file.read') ?? false;
+  const canWriteFiles = principal?.permissions.includes('file.write') ?? false;
+  const canManageSystem = principal?.permissions.includes('system.manage') ?? false;
   const { connected, buildTime } = useConnectionStatus();
   const { t, i18n } = useTranslation();
   const [input, setInput] = useState('');
@@ -722,7 +730,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   }, [wsSwitchOpen]);
   const canSwitchWorkspaceInFooter = !!(onSelectWorkspace && allWorkspaces.length > 0);
   // Current git branch of the home compose workdir, shown in the workspace tag.
-  const gitBranch = useGitBranch(workdir, true);
+  const gitBranch = useGitBranch(workdir, canReadFiles);
 
   const wsNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -744,6 +752,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   } = useJobList({
     workspaceId: filterWorkspaceId || undefined,
     excludeScheduled: hideScheduledJobs,
+    disabled: !canReadJobs,
   });
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const [agentsEditorOpen, setAgentsEditorOpen] = useState(false);
@@ -808,6 +817,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   }, [removeImage]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (!canWriteFiles) return;
     const items = e.clipboardData?.items;
     if (!items) return;
     const imageFiles: File[] = [];
@@ -822,17 +832,27 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
       imageFiles.forEach((f) => dt.items.add(f));
       handleImageSelect(dt.files);
     }
-  }, [handleImageSelect]);
+  }, [canWriteFiles, handleImageSelect]);
 
   useEffect(() => {
+    if (!canReadConfig) {
+      setUserAvatarUrl('');
+      return;
+    }
     fetchUserSettings().then(({ avatarUrl }) => setUserAvatarUrl(avatarUrl));
-  }, [refreshKey]);
+  }, [canReadConfig, refreshKey]);
 
   useEffect(() => {
+    if (!canExecuteJobs || !canReadAgents) {
+      setAgents([]);
+      setAgentsLoaded(true);
+      setJobEnable(false);
+      return;
+    }
     let cancelled = false;
     setAgentsLoaded(false);
     void migrateStoredAgentReferences(workspaceId)
-      .then(() => Promise.all([fetchAgentList(), fetchAgentPrefs()]))
+      .then(() => Promise.all([fetchAgentList(), canReadConfig ? fetchAgentPrefs() : Promise.resolve({})]))
       .then(([{ agents: list, workdir: wd, jobEnable: je }, prefsMap]) => {
       if (cancelled) return;
       setJobEnable(je);
@@ -906,7 +926,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     return () => {
       cancelled = true;
     };
-  }, [refreshKey, workspaceWorkdir, workspaceId]);
+  }, [canExecuteJobs, canReadAgents, canReadConfig, refreshKey, workspaceWorkdir, workspaceId]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -937,6 +957,11 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   // Fetch scheduled tasks on mount and poll. Scheduled tasks are now
   // workspace-independent (方向二-d): we always fetch the global list.
   const fetchSchedules = useCallback(async () => {
+    if (!canReadSchedules) {
+      setSchedules([]);
+      setSchedulesLoaded(true);
+      return;
+    }
     try {
       const res = await fetch(`/api/v1/schedule/list`);
       if (res.ok) {
@@ -947,7 +972,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     finally {
       setSchedulesLoaded(true);
     }
-  }, []);
+  }, [canReadSchedules]);
 
   useEffect(() => {
     fetchSchedules();
@@ -1530,7 +1555,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                 <path d="M9.5 13h.01M14.5 13h.01" />
               </svg>
             )}
-            {' '}<span className="header-logo-text">{workspaceTitle || 'Quartet'}</span>
+            {' '}<span className="header-logo-text">{workspaceTitle || principal?.user.displayName || 'Quartet'}</span>
             {localizedBuildTime.full && (
               <span className="home-build-time" title={`${t('home.buildTime')}: ${buildTime}`} data-testid="home-build-time">
                 <span className="home-build-time-full">{t('home.buildTimeValue', { time: localizedBuildTime.full })}</span>
@@ -1542,7 +1567,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         <nav className="header-nav">
           {/* Page-specific button (left): restarting web services only makes
               sense from the home page. */}
-          <button
+          {canManageSystem && <button
             className={`header-settings-btn header-restart-btn ${webRestarting ? 'restarting' : ''}`}
             onClick={() => setRestartConfirmOpen(true)}
             disabled={webRestarting}
@@ -1553,7 +1578,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
               <path d="M21 12a9 9 0 1 1-2.64-6.36" />
               <polyline points="21 3 21 9 15 9" />
             </svg>
-          </button>
+          </button>}
           {/* Shared buttons (right): kept in the same order as the chat page's
               header so the two toolbars stay consistent. */}
           {onOpenStats && (
@@ -1589,7 +1614,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
               </svg>
             </button>
           )}
-          <button
+          {canWriteFiles && <button
             className={`header-filebrowser-btn ${agentsEditorOpen ? 'active' : ''}`}
             onClick={() => setAgentsEditorOpen(!agentsEditorOpen)}
             title="AGENTS.md"
@@ -1601,8 +1626,8 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
               <line x1="16" y1="17" x2="8" y2="17" />
               <polyline points="10 9 9 9 8 9" />
             </svg>
-          </button>
-          <button
+          </button>}
+          {canReadFiles && <button
             className={`header-filebrowser-btn ${fileBrowserOpen ? 'active' : ''}`}
             onClick={() => setFileBrowserOpen(!fileBrowserOpen)}
             title="File Browser"
@@ -1610,7 +1635,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
             </svg>
-          </button>
+          </button>}
           {onOpenSettings && (
             <button className="header-settings-btn" onClick={onOpenSettings} title="设置" aria-label="设置" data-testid="settings-open-button">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1636,7 +1661,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         }
       >
         {/* Scheduled Tasks section */}
-        <div className={`home-schedule-section ${schedulesExpanded ? 'expanded' : 'collapsed'}`}>
+        {canReadSchedules && <div className={`home-schedule-section ${schedulesExpanded ? 'expanded' : 'collapsed'}`}>
           <div className="home-schedule-header">
             <div
               className="home-schedule-title-row"
@@ -1655,7 +1680,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
               <span className="home-schedule-title">Scheduled Tasks</span>
               <span className="home-schedule-count">{schedules.length} tasks</span>
             </div>
-            <button
+            {canWriteSchedules && <button
               className="home-schedule-add-btn"
               onClick={(e) => { e.stopPropagation(); setScheduleModal({ mode: 'create' }); }}
             >
@@ -1664,7 +1689,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
               {t('home.newTask')}
-            </button>
+            </button>}
           </div>
           {schedulesExpanded && (
           <div className="home-schedule-list">
@@ -1705,24 +1730,24 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                     ? new Date(s.nextRunAt).toLocaleString(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                     : ''}
                 </span>
-                <button
+                {canWriteSchedules && <button
                   className={`home-schedule-row-toggle ${s.enabled ? 'on' : ''}`}
                   onClick={(e) => { e.stopPropagation(); handleScheduleToggle(s.id); }}
                   title={s.enabled ? '禁用' : '启用'}
-                />
-                <button
+                />}
+                {canWriteSchedules && <button
                   className="home-schedule-row-delete"
                   onClick={(e) => { e.stopPropagation(); setScheduleDeleteConfirm({ id: s.id, name: s.name }); }}
                   title="删除"
                 >
                   ×
-                </button>
+                </button>}
               </div>
               );
             })}
           </div>
           )}
-        </div>
+        </div>}
 
         <div className={`home-job-list ${jobHistoryExpanded ? 'expanded' : 'collapsed'}`} data-testid="home-job-history" data-expanded={jobHistoryExpanded ? 'true' : 'false'}>
           <div className="home-job-list-header" onClick={() => setJobHistoryExpanded(!jobHistoryExpanded)} style={{ cursor: 'pointer' }} data-testid="home-job-history-header">
@@ -1840,8 +1865,8 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                           modelLabel={getJobModelLabel(job)}
                           workspaceName={job.workspaceId ? (wsNameById.get(job.workspaceId) || undefined) : undefined}
                           onSelect={handleJobSelect}
-                          onPin={handleJobPinClick}
-                          onDelete={handleJobDeleteClick}
+                          onPin={canManageJobs ? handleJobPinClick : undefined}
+                          onDelete={canManageJobs ? handleJobDeleteClick : undefined}
                         />
                       ))}
                     </div>
@@ -1905,7 +1930,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         </div>
       )}
       <div className="home-input-wrapper" style={{ position: 'relative' }}>
-          {mentionState && workdir && (
+          {canReadFiles && mentionState && workdir && (
             <FileMention
               keyword={mentionState.keyword}
               workdir={workdir}
@@ -1975,14 +2000,14 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
               rows={1}
             />
           </div>
-          <input
+          {canWriteFiles && <input
             ref={fileInputRef}
             type="file"
             accept="image/*"
             multiple
             style={{ display: 'none' }}
             onChange={(e) => { handleImageSelect(e.target.files); e.target.value = ''; }}
-          />
+          />}
           <div className="home-input-footer">
             <div className="home-input-options">
               <div className="chat-model-selector" ref={dropdownRef}>
@@ -2263,7 +2288,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                   )}
                 </div>
               )}
-              <button
+              {canWriteFiles && <button
                 className="chat-btn upload-btn"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isInitializing || !jobEnable || !connected}
@@ -2274,7 +2299,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                   <circle cx="8.5" cy="8.5" r="1.5" />
                   <polyline points="21 15 16 10 5 21" />
                 </svg>
-              </button>
+              </button>}
               {selectedAgent && (
                 <AgentUsageCard
                   agentType={selectedAgent.type}
@@ -2476,7 +2501,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         />
       )}
 
-      {fileBrowserOpen && createPortal(
+      {canReadFiles && fileBrowserOpen && createPortal(
         <FileBrowser
           rootPath={workdir}
           onClose={() => setFileBrowserOpen(false)}
@@ -2484,7 +2509,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         document.body
       )}
 
-      {agentsEditorOpen && workdir && createPortal(
+      {canWriteFiles && agentsEditorOpen && workdir && createPortal(
         <AgentsLocalEditor
           workdir={workdir}
           onClose={() => setAgentsEditorOpen(false)}
@@ -2507,7 +2532,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         </div>
       )}
 
-      {restartConfirmOpen && (
+      {canManageSystem && restartConfirmOpen && (
         <div className="delete-confirm-overlay" onClick={() => setRestartConfirmOpen(false)}>
           <div className="delete-confirm-dialog restart-confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="delete-confirm-title">{t('system.restartWebConfirmTitle')}</div>
@@ -2527,7 +2552,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
       )}
 
       {/* Schedule delete confirmation */}
-      {scheduleDeleteConfirm && (
+      {canWriteSchedules && scheduleDeleteConfirm && (
         <div className="delete-confirm-overlay" onClick={() => setScheduleDeleteConfirm(null)}>
           <div className="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="delete-confirm-title">删除定时任务</div>
@@ -2543,7 +2568,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
       )}
 
       {/* Schedule edit/create modal */}
-      {scheduleModal.mode !== 'closed' && (
+      {canWriteSchedules && scheduleModal.mode !== 'closed' && (
         <ScheduleEditModal
           schedule={scheduleModal.mode === 'edit' ? scheduleModal.schedule : null}
           workspaceId={workspaceId}

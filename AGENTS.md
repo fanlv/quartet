@@ -8,7 +8,7 @@ This file documents the current architecture and development conventions for thi
 2. 重构文档里面的话，不要有代码细节，只写功能描述。
 3. 错误信息就要全量给用户显示，不要隐藏任何错误信息.
 4. services 目录下的代码，尽量不要对外暴露全局的函数。比如 func ValidateWorkdir(workdir string) error 。
-5. 当前 quartet 程序一般是运行在 用户的个人电脑上，或者沙箱里面。使用者只有 用户一个人。所以不用考虑 用户是否能够访问电脑上所有资源这种安全问题。
+5. 当前 quartet 程序一般运行在用户的个人电脑或沙箱里的可信共享实例。账号之间不隔离工作区和业务数据，RBAC 只控制功能能力；不用考虑账号是否能访问宿主机上的资源。
 
 ## Build & Run Commands
 
@@ -76,8 +76,8 @@ Go tests: `go test ./...`
 ### API & Route Conventions
 
 - 路由统一注册在 `cmd/web/api.go` 的 `registerRoutes`
-- `/api/v1/health` 不走鉴权，用于前端探测服务状态和是否需要 token。
-- `/api/v1/*` 默认走 `agentAuthMiddleware`，`/api/v1/public/*` 走 `shareTokenMiddleware`。
+- `/api/v1/health` 不走鉴权，用于前端探测服务和认证初始化状态。
+- `/api/v1/*` 默认走 Cookie 会话鉴权并按路由校验 RBAC 权限，`/api/v1/public/*` 走 `shareTokenMiddleware`。
 - 当前接口风格是混合型：
   - 查询/流式接口大量使用 `GET`（如 agent list、job list、SSE、public share）
   - 创建/动作类接口主要使用 `POST`
@@ -143,5 +143,5 @@ Go tests: `go test ./...`
 
 - `docs/` — 架构与功能设计文档。
 - 就在 main 分支开发，不要在其他分支开发。
-- agent-browser --session deepagent-bubble --headers "{\"x-agent-auth\":\"${X_AGENT_AUTH%%,*}\"}" open --enable react-devtools 'https://devbox.fanlv.fun/?workspaceId=ws-1' 可以查看页面。`X_AGENT_AUTH` 使用逗号分隔多个值，此命令取第一个。
+- 使用 agent-browser 调试页面时先在页面内登录，后续复用同一个 session，例如 `agent-browser --session deepagent-bubble open --enable react-devtools 'https://devbox.fanlv.fun/?workspaceId=ws-1'`。
 - ACP 工具并发错误后未 reset session 这个不要 reset session ，reset session 会丢失所有上下文。

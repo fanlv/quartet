@@ -7,6 +7,7 @@ import { StatsPage } from './components/stats/StatsPage';
 import { ConnectionStatusProvider } from './contexts/ConnectionStatus';
 import { markBootStage, reportBootFailure } from './utils/boot';
 import { prefetchSkills } from './utils/skills';
+import { useAuthPrincipal } from './auth';
 import { claimJobCreateIntent, clearJobCreateIntent, clearJobCreateIntentScope } from './utils/jobCreateIntent';
 import { DEFAULT_WORKSPACE_ID, getLastUsedWorkspaceId, setLastUsedWorkspaceId, loadWorkspacePrefs, registerWorkspaceColors } from './utils/workspace';
 import './App.css';
@@ -104,8 +105,9 @@ function graphUrl(): string {
   return url.toString();
 }
 
-function App() {
+function WorkspaceApp() {
   const { t } = useTranslation();
+  const principal = useAuthPrincipal();
   const [showChat, setShowChat] = useState(() => !!getJobIdFromUrl());
   const [initialMessage, setInitialMessage] = useState<string | null>(null);
   const [initialImageUrls, setInitialImageUrls] = useState<string[] | undefined>();
@@ -128,8 +130,8 @@ function App() {
   const [missingJobNoticeId, setMissingJobNoticeId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isReadonly) prefetchSkills();
-  }, [isReadonly]);
+    if (!isReadonly && principal?.permissions.includes('skills.read')) prefetchSkills();
+  }, [isReadonly, principal]);
 
   // Workspace state. On first load:
   //   1. Try URL `?workspaceId=...`.
@@ -213,6 +215,10 @@ function App() {
       markBootStage('workspace-initialization-skipped', 'public-share');
       return;
     }
+    if (!principal?.permissions.includes('workspace.read')) {
+      markBootStage('workspace-initialization-skipped', 'permission');
+      return;
+    }
     let cancelled = false;
     markBootStage('workspace-initialization-start');
     (async () => {
@@ -273,7 +279,7 @@ function App() {
     // Only runs once at mount — intentionally no deps on currentWorkspace to
     // avoid re-running when user switches workspaces.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReadonly]);
+  }, [isReadonly, principal]);
 
 
   // Normal chat: create job then navigate
@@ -980,7 +986,7 @@ function App() {
           </button>
         </div>
       )}
-      {showStats ? (
+      {showStats && principal?.permissions.includes('stats.read') ? (
         <div className="app-main">
           <StatsPage
             onClose={handleCloseStats}
@@ -988,7 +994,7 @@ function App() {
             onJumpToWorkspace={handleJumpToWorkspace}
           />
         </div>
-      ) : showGraph ? (
+      ) : showGraph && principal?.permissions.includes('workflow.read') ? (
         <div className="app-main">
           <GraphWorkflowPage
             workspaceId={currentWorkspace?.id}
@@ -999,7 +1005,7 @@ function App() {
             onRunStarted={handleGraphRunStarted}
           />
         </div>
-      ) : showChat && currentJobId ? (
+      ) : showChat && currentJobId && principal?.permissions.includes('job.read') ? (
         <div className="app-main">
           <JobChat
             key={currentJobId}
@@ -1019,8 +1025,8 @@ function App() {
             onJobCreated={handleJobCreated}
             onSelectJob={handleSelectJob}
             onOpenSettings={handleOpenSettings}
-            onOpenStats={handleOpenStats}
-            onOpenGraph={handleOpenGraph}
+            onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
+            onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
             onStartNewChat={handleStartNewChat}
             onSwitchWorkspaceChat={handleSwitchWorkspaceChat}
             onJobNotFound={handleJobNotFound}
@@ -1038,9 +1044,9 @@ function App() {
             onSelectWorkspace={handleSelectWorkspace}
             onSelectJob={handleSelectJob}
             onOpenSettings={handleOpenSettings}
-            onOpenAgentSettings={handleOpenAgentSettings}
-            onOpenStats={handleOpenStats}
-            onOpenGraph={handleOpenGraph}
+            onOpenAgentSettings={principal?.permissions.includes('agent.manage') ? handleOpenAgentSettings : undefined}
+            onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
+            onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
           />
         </div>
       )}
@@ -1054,6 +1060,28 @@ function App() {
     </div>
     </ConnectionStatusProvider>
   );
+}
+
+function App() {
+  const principal = useAuthPrincipal();
+  const isPublicShare = !!getShareTokenFromUrl();
+  const params = new URLSearchParams(window.location.search);
+  const requestedView = params.get('view');
+  const canOpenRequestedView = principal?.permissions.includes('workspace.read')
+    || (requestedView === 'stats' && principal?.permissions.includes('stats.read'))
+    || (requestedView === 'graph' && principal?.permissions.includes('workflow.read'))
+    || (!!params.get('jobId') && principal?.permissions.includes('job.read'));
+  if (!isPublicShare && principal && !canOpenRequestedView) {
+    const initialTab: SettingsTab = principal.permissions.includes('users.read')
+      ? 'users'
+      : principal.permissions.includes('roles.read') ? 'roles' : 'account';
+    return (
+      <div className="app-layout">
+        <Settings initialTab={initialTab} onClose={() => undefined} />
+      </div>
+    );
+  }
+  return <WorkspaceApp />;
 }
 
 export default App;

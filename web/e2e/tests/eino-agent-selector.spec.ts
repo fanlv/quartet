@@ -1,5 +1,4 @@
 import { expect, test } from '../fixtures/test'
-import { e2eAuthToken } from '../fixtures/e2e-environment'
 
 // E2E coverage for the refactor's core selector regression (spec user story
 // 1): eino-cli must appear as ONE ordinary agent entry in the agent selector
@@ -17,7 +16,6 @@ let einoSeeded = false
 
 test.beforeAll(async ({ request }) => {
   const res = await request.get('/api/v1/config/eino/model/list', {
-    headers: { 'X-AGENT-AUTH': e2eAuthToken },
   })
   const body = (await res.json().catch(() => ({}))) as { code?: number; models?: { display_name?: string }[] }
   einoSeeded = res.ok() && body.code === 0 && Array.isArray(body.models) && body.models.some((m) => m.display_name === 'Quartet E2E Model')
@@ -26,10 +24,9 @@ test.beforeAll(async ({ request }) => {
 test('agent selector shows eino-cli as a single entry', async ({ page }) => {
   test.skip(!einoSeeded, 'eino-cli is not seeded in this run (no QUARTET_E2E_MODEL_API_KEY)')
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto('/')
   await expect(page.getByTestId('auth-gate')).toHaveCount(0)
 

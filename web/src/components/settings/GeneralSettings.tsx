@@ -7,7 +7,6 @@ interface GeneralSettingsProps {
 
 export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
   const { t, i18n } = useTranslation();
-  const [username, setUsername] = useState('User');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [graphEndHookScript, setGraphEndHookScript] = useState('');
   const [loading, setLoading] = useState(true);
@@ -23,7 +22,6 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
       const res = await fetch('/api/v1/config/settings/get');
       const data = await res.json();
       if (data.code === 0 && data.settings) {
-        setUsername(data.settings.username || 'User');
         setAvatarUrl(data.settings.avatar_url || '');
         setGraphEndHookScript(data.settings.graph_end_hook_script || '');
       }
@@ -47,7 +45,6 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...currentSettings,
-          username,
           avatar_url: avatarUrl,
           graph_end_hook_script: graphEndHookScript,
         }),
@@ -89,20 +86,6 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
           </select>
           <span className="settings-switch-desc">
             {t('settings.general.languageDesc')}
-          </span>
-        </div>
-
-        <div className="settings-form-group">
-          <label className="settings-label">{t('settings.general.username')}</label>
-          <input
-            type="text"
-            className="settings-input"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="User"
-          />
-          <span className="settings-switch-desc">
-            {t('settings.general.usernameDesc')}
           </span>
         </div>
 

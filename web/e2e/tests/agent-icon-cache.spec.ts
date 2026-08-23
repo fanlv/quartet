@@ -1,15 +1,13 @@
 import { expect, test } from '../fixtures/test'
-import { e2eAuthToken } from '../fixtures/e2e-environment'
 
 // Verifies that all agent icon rendering paths display correctly after the
 // icon proxy cache feature. Icons served from /api/v1/icon?url=... must render
 // as <img> elements (not raw text), and emoji icons must still render as text.
 
 async function openAppWithAuth(page: import('@playwright/test').Page) {
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto('/')
   await expect(page.getByTestId('auth-gate')).toHaveCount(0)
   await expect(page.getByRole('textbox', { name: /ask anything/i })).toBeVisible()
@@ -19,8 +17,11 @@ test.describe('agent icon rendering', () => {
   test('agent selector shows icons as images, not raw text', async ({ page }) => {
     await openAppWithAuth(page)
 
-    // Open the agent dropdown
-    await page.locator('.chat-model-selector .model-tag').first().click()
+    // Agent discovery is asynchronous. Wait for the loading/empty placeholder
+    // to become an interactive selector before clicking it.
+    const selector = page.locator('.chat-model-selector .model-tag:not(.disabled)').first()
+    await expect(selector).toBeVisible({ timeout: 15_000 })
+    await selector.click()
     await expect(page.locator('.model-dropdown')).toBeVisible()
 
     // Every dropdown item with an icon should render either an <img> or an emoji <span>
@@ -107,7 +108,6 @@ test.describe('agent icon rendering', () => {
   test('icon proxy endpoint returns image content-type', async ({ request }) => {
     // Get the agent list to find a real icon URL
     const listRes = await request.get('/api/v1/agent/list', {
-      headers: { 'X-AGENT-AUTH': e2eAuthToken },
     })
     expect(listRes.ok()).toBeTruthy()
     const data = await listRes.json()
@@ -122,7 +122,6 @@ test.describe('agent icon rendering', () => {
 
     // Hit the proxy endpoint
     const iconRes = await request.get(proxyAgent.icon_url, {
-      headers: { 'X-AGENT-AUTH': e2eAuthToken },
     })
 
     // Should return successfully with an image content type

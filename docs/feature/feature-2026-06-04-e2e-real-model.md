@@ -28,7 +28,7 @@
 
 ### 3.1 E2E（Playwright，真实模型）
 
-- 启动仍用专用隔离环境：临时 `LOCAL_MEMORY`、专用前后端端口、固定 `X_AGENT_AUTH`、`workers: 1`、失败保留产物。这部分与 E2E 专用代码无关，保留。
+- 启动仍用专用隔离环境：临时 `LOCAL_MEMORY`、专用前后端端口、初始化测试管理员并注入 Cookie/CSRF、`workers: 1`、失败保留产物。这部分与 E2E 专用代码无关，保留。
 - 不再设置 `QUARTET_E2E`；后端按生产模式运行，使用真实 provider 配置。
 - E2E 运行依赖真实模型凭证（如 API key / base url），由环境变量提供；缺失凭证时 E2E 直接失败并完整展示缺失原因，不静默跳过、不回退假数据。
 - 测试数据全部经真实业务接口创建：建 Job 走 `/job/create`，发消息走 `/job/message`，启动 Loop 走 `/job/start`，历史 / 侧边栏多 Job 经真实建 Job + 发消息预置。
@@ -52,7 +52,7 @@
 
 | 原 E2E 用例 | 去向 |
 |---|---|
-| 鉴权门（无 / 错 / 正确 token、探测失败重试） | 保留为真实 E2E（与模型无关） |
+| 鉴权门（无 Cookie、错误密码、正常登录、探测失败重试） | 保留为真实 E2E（与模型无关） |
 | 聊天快捷键真实 IME composition | 保留为真实 E2E |
 | 设置页语言切换 | 保留为真实 E2E |
 | 聊天主链路（建 Job / 发消息 / 流式回复 / 工具块） | 保留为真实 E2E，断言改为结构信号、不比对固定文本 |
@@ -98,7 +98,7 @@
 
 ### 4.4 前端与测试基建清除
 
-- `web/e2e/fixtures/e2e-environment.ts`：删除 `QUARTET_E2E` 注入与关闭态后端夹具；保留隔离启动 / 端口 / token / 产物管理。
+- `web/e2e/fixtures/e2e-environment.ts`：删除 `QUARTET_E2E` 注入与关闭态后端夹具；保留隔离启动 / 端口 / 测试用户会话 / 产物管理。
 - `web/e2e/fixtures/test.ts`、`web/vite.config.ts`、`web/src/components/ChatPage.tsx`：移除 E2E 专用分支 / 场景头注入，保留真实链路所需的 `data-testid` 选择器。
 - `web/e2e/tests/startup.spec.ts`：按 §3.4 重写 / 拆分，删除依赖 E2E 专用能力的用例，下沉故障用例到组件层。
 

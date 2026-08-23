@@ -18,9 +18,9 @@ CLI 是对后端 HTTP API 的薄封装：
 | 变量 | 说明 | 默认 |
 |---|---|---|
 | `QUARTET_BASE_URL` | 后端地址 | `http://127.0.0.1:8090` |
-| `X_AGENT_AUTH` | 鉴权 token（逗号列表取第一个发送） | 空 |
 
 - 构建/安装 CLI：在仓库根目录 `make install-skill-cli`（装到 `~/.local/bin`，须在 PATH 上）。
+- 首次使用先运行 `quartet-cli auth login --username <用户名>`；当前用户需要 `im.send` 权限。
 - 所有错误**全量打印**到 stderr；结果打印到 stdout。
 
 ## 命令

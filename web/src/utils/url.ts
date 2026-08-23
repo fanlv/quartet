@@ -2,11 +2,6 @@
 const ICON_PROXY_PATH = '/api/v1/icon';
 const PUBLIC_ICON_PROXY_PATH = '/api/v1/public/icon';
 
-// Mirrors the localStorage key owned by main.tsx / AuthGate. Duplicated rather
-// than imported to keep this util free of app-shell imports, matching how the
-// other <img>-src builders in this codebase read the token.
-const AUTH_TOKEN_STORAGE_KEY = 'quartet.x_auth_token';
-
 // isImageUrl returns true for strings that look like an http(s) URL or a
 // data:image/ URI. Callers use it to decide whether to render an <img> vs. treat the value as an
 // emoji / text icon. The check is deliberately permissive: the backend is
@@ -23,9 +18,7 @@ export type IconShareInfo = { shareToken: string; jobId: string };
 //
 // /api/v1/icon sits behind the API auth middleware (it fetches arbitrary
 // caller-supplied URLs server-side, so leaving it open would expose an SSRF
-// probe). <img> cannot carry an X-AGENT-AUTH header, so the token rides the
-// ?token= query fallback the auth middleware accepts — the same approach
-// buildMessageImageUrl uses for /api/v1/serve-file.
+// probe). Browser-native same-origin requests carry the session cookie.
 //
 // In a public share context there is no agent token, so the request is
 // rewritten onto /api/v1/public/icon and the job's shareToken authorizes it.
@@ -43,9 +36,7 @@ export function resolveIconSrc(iconUrl: string | undefined, shareInfo?: IconShar
     );
   }
 
-  const token = (localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) ?? '').trim();
-  if (!token) return iconUrl;
-  return appendQuery(iconUrl, `token=${encodeURIComponent(token)}`);
+  return iconUrl;
 }
 
 function appendQuery(url: string, params: string): string {

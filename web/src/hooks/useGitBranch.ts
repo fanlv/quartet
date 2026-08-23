@@ -6,8 +6,8 @@ import { useEffect, useState } from 'react';
  * the path. Returns '' when the directory is not a git repo, is on a detached
  * HEAD, the request fails, or `enabled` is false.
  *
- * `enabled` should be false in shared/read-only views: the endpoint sits behind
- * the agent-auth middleware, so a public viewer would only get a 401 anyway.
+ * `enabled` should be false in shared/read-only views or when the current user
+ * lacks file.read; the private endpoint otherwise rejects the request.
  *
  * Refetches when the window regains focus so switching branches in a terminal
  * and tabbing back updates the badge without a reload.
@@ -24,7 +24,7 @@ export function useGitBranch(path: string | undefined, enabled = true): string {
     let cancelled = false;
     const load = async () => {
       try {
-        // Auth header is injected by the global fetch interceptor in main.tsx.
+        // The session cookie is included by the global fetch wrapper.
         const res = await fetch(`/api/v1/git-branch?path=${encodeURIComponent(path)}`);
         if (!res.ok) {
           if (!cancelled) setBranch('');

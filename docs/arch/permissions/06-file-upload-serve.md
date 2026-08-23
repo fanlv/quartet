@@ -40,4 +40,4 @@
 
 ## 4. 设计意图
 
-quartet 的工作目录里可能存着 LLM / Agent 写出来的 HTML、SVG、JS（思考过程、调试产物、用户上传等），如果浏览器把它们当成"应用 origin 里的脚本"渲染，就能读 `localStorage.quartet.x_auth_token` 然后转发到外网。这一层 MIME 白名单 + nosniff + 强制下载是把这条链路堵住。
+quartet 的工作目录里可能存着 LLM / Agent 写出来的 HTML、SVG、JS（思考过程、调试产物、用户上传等）。如果浏览器把它们当成应用 origin 下的脚本执行，就可以借用户会话发起同源操作。这一层 MIME 白名单、nosniff 与强制下载用于阻断该链路。

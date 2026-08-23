@@ -21,6 +21,7 @@ import (
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/services/auth"
 	jobsvc "github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/model"
 )
@@ -214,6 +215,12 @@ func (h *Handler) JobList(ctx context.Context, c *app.RequestContext) {
 	}
 
 	summaries, nextCursor, hasMore, _ := h.jobService.ListByWorkspacePaged(wsID, cursor, limit, excludeScheduled)
+	principal, _ := CurrentPrincipal(c)
+	if !h.authService.HasPermission(principal, auth.PermissionJobShare) {
+		for i := range summaries {
+			summaries[i].ShareToken = ""
+		}
+	}
 
 	dailyStats := h.collectDailyStats(ctx, wsID, summaries)
 
@@ -293,6 +300,10 @@ func (h *Handler) JobGet(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		httputil.NotFound(c, "job not found")
 		return
+	}
+	principal, _ := CurrentPrincipal(c)
+	if !h.authService.HasPermission(principal, auth.PermissionJobShare) {
+		job.ShareToken = ""
 	}
 
 	// Marshal as a flat envelope so the existing client shape (model.Job

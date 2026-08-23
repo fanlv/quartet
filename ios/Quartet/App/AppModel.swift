@@ -41,12 +41,13 @@ final class AppModel: ObservableObject {
             if phase == .connecting {
                 phase = .disconnected
             }
-            if StorageKey.tokenAccount(for: serverAddress) != StorageKey.tokenAccount(for: credentialServerAddress) {
-                token = ""
-            }
+            username = ""
+            password = ""
+            csrfToken = ""
         }
     }
-    @Published var token: String
+    @Published var username: String = ""
+    @Published var password: String = ""
     @Published private(set) var health: HealthResponse?
     @Published private(set) var workspaces: [WorkspaceSummary] = []
     @Published private(set) var jobs: [JobSummary] = []
@@ -68,7 +69,7 @@ final class AppModel: ObservableObject {
     private let cacheStore: DashboardCacheStore
     private let sentMessageHistoryStore: SentMessageHistoryStore
     private let uiTestScenario: String?
-    private var credentialServerAddress: String
+    private var csrfToken: String = ""
     private var credentialCacheNamespace: String
     private var nextCursor: String?
     private var hasLoadedCachedDashboard = false
@@ -109,12 +110,12 @@ final class AppModel: ObservableObject {
         let storedServerAddress = effectiveDefaults.string(forKey: StorageKey.serverAddress) ?? Self.defaultServerAddress
         let storedCredentialNamespace = effectiveDefaults.string(forKey: StorageKey.credentialCacheNamespace) ?? UUID().uuidString
         serverAddress = storedServerAddress
-        credentialServerAddress = storedServerAddress
         credentialCacheNamespace = storedCredentialNamespace
         effectiveDefaults.set(storedCredentialNamespace, forKey: StorageKey.credentialCacheNamespace)
-        token = detectedUITestScenario == nil
-            ? Self.loadStoredToken(for: storedServerAddress, migrateLegacyCredential: true)
-            : ""
+        if detectedUITestScenario == nil {
+            try? KeychainStore.delete(account: StorageKey.legacyTokenAccount)
+            try? KeychainStore.delete(account: StorageKey.legacyTokenAccount(for: storedServerAddress))
+        }
         selectedWorkspaceID = effectiveDefaults.string(forKey: StorageKey.selectedWorkspaceID)
         if let timestamp = effectiveDefaults.object(forKey: StorageKey.lastSuccessfulSyncAt) as? Double {
             lastSuccessfulSyncAt = Date(timeIntervalSince1970: timestamp)
@@ -154,7 +155,8 @@ final class AppModel: ObservableObject {
         guard phase == .booting else { return }
         if uiTestScenario == "--ui-testing-onboarding" {
             serverAddress = Self.defaultServerAddress
-            token = ""
+            username = ""
+            password = ""
             phase = .disconnected
             return
         }
@@ -179,35 +181,48 @@ final class AppModel: ObservableObject {
         guard phase != .connecting else { return }
         connectionGeneration &+= 1
         let generation = connectionGeneration
-        let requestedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         phase = .connecting
         hasPendingSync = true
         do {
             let client = try makeClient()
-            let credentialAccount = StorageKey.tokenAccount(for: client.baseURL.absoluteString)
             let health = try await client.health()
             guard isCurrentConnectionRequest(
                 generation: generation,
                 client: client,
-                requestedToken: requestedToken
+                requestedUsername: requestedUsername
             ) else {
                 finishSupersededConnectionIfNeeded(generation: generation)
                 return
             }
-            if health.authRequired {
-                try await client.verifyAuthentication()
-                guard isCurrentConnectionRequest(
-                    generation: generation,
-                    client: client,
-                    requestedToken: requestedToken
-                ) else {
-                    finishSupersededConnectionIfNeeded(generation: generation)
-                    return
-                }
+            guard health.authState == "ready" else {
+                let stateDetail = health.authError.flatMap { $0.isEmpty ? nil : $0 }.map { "\n\n\($0)" } ?? ""
+                throw APIError(
+                    summary: health.authState == "uninitialized" ? "Quartet 尚未初始化" : "认证配置需要恢复",
+                    detail: "请先在 Web 页面完成管理员初始化或恢复认证配置。\(stateDetail)"
+                )
             }
-            try KeychainStore.write(requestedToken, account: credentialAccount)
-            credentialServerAddress = client.baseURL.absoluteString
-            serverAddress = credentialServerAddress
+            let principal: AuthPrincipal
+            do {
+                principal = try await client.currentUser()
+            } catch {
+                guard !requestedUsername.isEmpty, !password.isEmpty else { throw error }
+                principal = try await client.login(username: requestedUsername, password: password)
+            }
+            guard isCurrentConnectionRequest(
+                generation: generation,
+                client: client,
+                requestedUsername: requestedUsername
+            ) else {
+                finishSupersededConnectionIfNeeded(generation: generation)
+                return
+            }
+            if principal.user.mustChangePassword {
+                throw APIError(summary: "需要修改密码", detail: "该账号使用临时密码，请先在 Web 页面修改密码后再连接 iOS。")
+            }
+            serverAddress = client.baseURL.absoluteString
+            csrfToken = principal.csrfToken
+            password = ""
             defaults.set(serverAddress, forKey: StorageKey.serverAddress)
             defaults.set(true, forKey: StorageKey.connectionValidated)
             self.health = health
@@ -797,7 +812,7 @@ final class AppModel: ObservableObject {
         switch phase {
         case .active:
             if defaults.bool(forKey: StorageKey.connectionValidated) {
-                if self.phase == .disconnected && !token.isEmpty {
+                if self.phase == .disconnected {
                     await connect()
                 } else if self.phase == .connected {
                     await refreshDashboard(userInitiated: false)
@@ -823,47 +838,26 @@ final class AppModel: ObservableObject {
     }
 
     func editConnection() {
-        let generation = invalidateDashboardRequests()
-        connectionGeneration &+= 1
-        if !isRunningUITests {
-            try? KeychainStore.delete(account: StorageKey.tokenAccount(for: credentialServerAddress))
-            try? KeychainStore.delete(account: StorageKey.legacyTokenAccount)
-        }
-        defaults.set(false, forKey: StorageKey.connectionValidated)
-        defaults.removeObject(forKey: StorageKey.selectedWorkspaceID)
-        defaults.removeObject(forKey: StorageKey.lastSuccessfulSyncAt)
-        health = nil
-        workspaces = []
-        jobs = []
-        graphJobStates = [:]
-        selectedWorkspaceID = nil
-        nextCursor = nil
-        hasMoreJobs = false
-        isDataStale = false
-        hasPendingSync = false
-        isUsingCachedData = false
-        lastSuccessfulSyncAt = nil
-        lastSyncFailureMessage = nil
-        phase = .disconnected
-        token = ""
-        rotateCredentialCacheNamespace()
-        Task { await cacheStore.advanceGeneration(to: generation, clearingExistingCache: true) }
+        Task { await leaveConnection(clearAddress: false) }
     }
 
     func clearConnection() {
+        Task { await leaveConnection(clearAddress: true) }
+    }
+
+    private func leaveConnection(clearAddress: Bool) async {
+        if phase == .connected {
+            try? await makeClient().logout()
+        }
         let generation = invalidateDashboardRequests()
         connectionGeneration &+= 1
-        defaults.removeObject(forKey: StorageKey.serverAddress)
+        clearSessionCookies(for: serverAddress)
+        if clearAddress {
+            defaults.removeObject(forKey: StorageKey.serverAddress)
+        }
         defaults.set(false, forKey: StorageKey.connectionValidated)
         defaults.removeObject(forKey: StorageKey.selectedWorkspaceID)
         defaults.removeObject(forKey: StorageKey.lastSuccessfulSyncAt)
-        if !isRunningUITests {
-            try? KeychainStore.delete(account: StorageKey.tokenAccount(for: credentialServerAddress))
-            try? KeychainStore.delete(account: StorageKey.legacyTokenAccount)
-        }
-        serverAddress = Self.defaultServerAddress
-        credentialServerAddress = Self.defaultServerAddress
-        token = ""
         health = nil
         workspaces = []
         jobs = []
@@ -876,7 +870,13 @@ final class AppModel: ObservableObject {
         isUsingCachedData = false
         lastSuccessfulSyncAt = nil
         lastSyncFailureMessage = nil
+        if clearAddress {
+            serverAddress = Self.defaultServerAddress
+        }
         phase = .disconnected
+        username = ""
+        password = ""
+        csrfToken = ""
         rotateCredentialCacheNamespace()
         Task { await cacheStore.advanceGeneration(to: generation, clearingExistingCache: true) }
     }
@@ -893,19 +893,21 @@ final class AppModel: ObservableObject {
     }
 
     private func makeClient() throws -> APIClient {
-        try APIClient(serverAddress: serverAddress, token: token)
+        try APIClient(serverAddress: serverAddress, csrfToken: csrfToken)
     }
 
     private func seedUITestDashboard() {
         let now = Int64(Date().timeIntervalSince1970 * 1_000)
         serverAddress = "https://quartet.example.test/"
-        token = ""
+        username = ""
+        password = ""
         health = HealthResponse(
             status: "ok",
             time: nil,
             buildTime: "UI Test",
             instanceId: "ios-e2e",
-            authRequired: false
+            authState: "ready",
+            authError: nil
         )
         workspaces = [
             WorkspaceSummary(
@@ -1113,11 +1115,11 @@ final class AppModel: ObservableObject {
     private func isCurrentConnectionRequest(
         generation: UInt64,
         client: APIClient,
-        requestedToken: String
+        requestedUsername: String
     ) -> Bool {
         generation == connectionGeneration
             && StorageKey.connectionIdentity(for: serverAddress) == client.baseURL.absoluteString
-            && token.trimmingCharacters(in: .whitespacesAndNewlines) == requestedToken
+            && username.trimmingCharacters(in: .whitespacesAndNewlines) == requestedUsername
     }
 
     private func finishSupersededConnectionIfNeeded(generation: UInt64) {
@@ -1332,21 +1334,12 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private static func loadStoredToken(
-        for serverAddress: String,
-        migrateLegacyCredential: Bool
-    ) -> String {
-        let account = StorageKey.tokenAccount(for: serverAddress)
-        if let token = try? KeychainStore.read(account: account) {
-            return token
+    private func clearSessionCookies(for serverAddress: String) {
+        guard let url = URL(string: serverAddress),
+              let cookies = HTTPCookieStorage.shared.cookies(for: url) else { return }
+        for cookie in cookies where cookie.name == "quartet_session" {
+            HTTPCookieStorage.shared.deleteCookie(cookie)
         }
-        guard migrateLegacyCredential,
-              let legacyToken = try? KeychainStore.read(account: StorageKey.legacyTokenAccount) else {
-            return ""
-        }
-        try? KeychainStore.write(legacyToken, account: account)
-        try? KeychainStore.delete(account: StorageKey.legacyTokenAccount)
-        return legacyToken
     }
 
     private func rotateCredentialCacheNamespace() {
@@ -1372,16 +1365,17 @@ final class AppModel: ObservableObject {
         static let credentialCacheNamespace = "quartet.credentialCacheNamespace"
         static let legacyTokenAccount = "agent-auth-token"
 
+        static func legacyTokenAccount(for serverAddress: String) -> String {
+            "agent-auth-token|\(connectionIdentity(for: serverAddress) ?? "invalid-server")"
+        }
+
         static func connectionIdentity(for serverAddress: String) -> String? {
-            guard let client = try? APIClient(serverAddress: serverAddress, token: "") else {
+            guard let client = try? APIClient(serverAddress: serverAddress) else {
                 return nil
             }
             return client.baseURL.absoluteString
         }
 
-        static func tokenAccount(for serverAddress: String) -> String {
-            "agent-auth-token|\(connectionIdentity(for: serverAddress) ?? "invalid-server")"
-        }
     }
 
     private struct DashboardPollScope: Equatable {

@@ -1,5 +1,7 @@
 # 03 — API 层改造
 
+> **已废弃：** 本文中的 JWT 与旧 Token 兼容方案不再实施。当前方案见 `docs/feature/feature-2026-08-23-user-auth-permission-management.md`。
+
 ## 1. 中间件链变更
 
 ### 现有中间件

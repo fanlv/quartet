@@ -20,6 +20,7 @@ import { registerWorkspaceColors } from '../utils/workspace';
 import { ensureAgentDisplays, invalidateAgentDisplays, peekAgentDisplay, useAgentDisplayVersion } from '../utils/agentDisplay';
 import { fetchAgentPrefs, prefsForAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { relinkACPThoughtLevels, setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
+import { useAuthPrincipal } from '../auth';
 import './JobChat.css';
 
 // Must match the backend limit in cmd/web/handler/job.go (jobTitleMaxLen).
@@ -39,7 +40,7 @@ async function fetchAgentList(shareToken?: string, jobId?: string): Promise<{ ag
       // the real cause (auth failure, probe error, …) instead of a generic
       // "empty list".
       const detail = (data && typeof data.msg === 'string' && data.msg) || `HTTP ${res.status}`;
-      // The private route already passed agentAuthMiddleware, so a malformed
+      // The private route already passed session authentication, so a malformed
       // business response does not revoke write access. Public shares remain
       // read-only and intentionally report jobEnable=false.
       return { agents: [], workdir: '', jobEnable: !shareToken, error: detail };
@@ -109,6 +110,16 @@ const JOB_ROW_HEIGHT = 36;
 export function JobChat(props: JobChatProps) {
   const { existingJobId, initialMessage, initialImageUrls, initialWorkdir, initialSessionId, initialModelId, initialAgentType, initialAcpMode, initialAcpThoughtLevel, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
   const { t } = useTranslation();
+  const principal = useAuthPrincipal();
+  const canReadJobs = !!isReadonly || (principal?.permissions.includes('job.read') ?? false);
+  const canExecuteJobs = !isReadonly && (principal?.permissions.includes('job.execute') ?? false);
+  const canManageJobs = !isReadonly && (principal?.permissions.includes('job.manage') ?? false);
+  const canShareJobs = !isReadonly && (principal?.permissions.includes('job.share') ?? false);
+  const canReadAgents = !!isReadonly || (principal?.permissions.includes('agent.read') ?? false);
+  const canReadConfig = !isReadonly && (principal?.permissions.includes('config.read') ?? false);
+  const canReadFiles = !isReadonly && (principal?.permissions.includes('file.read') ?? false);
+  const canWriteFiles = !isReadonly && (principal?.permissions.includes('file.write') ?? false);
+  const canReadWorkspaces = !isReadonly && (principal?.permissions.includes('workspace.read') ?? false);
 
   // Read the workspace title from the cross-page cache populated by App.tsx
   // on first boot. Falls back to the id when missing. Keeps the chat-page
@@ -240,7 +251,7 @@ export function JobChat(props: JobChatProps) {
   // newly-created workspaces show up after a Settings-dialog refresh.
   const [allWorkspaces, setAllWorkspaces] = useState<Array<{ id: string; title: string; description: string; workdir: string; color?: string }>>([]);
   useEffect(() => {
-    if (isReadonly) return;
+    if (!canReadWorkspaces) return;
     let cancelled = false;
     (async () => {
       try {
@@ -254,7 +265,7 @@ export function JobChat(props: JobChatProps) {
       } catch { /* ignore */ }
     })();
     return () => { cancelled = true; };
-  }, [isReadonly]);
+  }, [canReadWorkspaces]);
   // Patch the workspaces list on the fly when Settings edits / deletes a
   // workspace. Avoids stale titles in the footer dropdown.
   useEffect(() => {
@@ -299,7 +310,7 @@ export function JobChat(props: JobChatProps) {
     pollIntervalMs: jobListOpen ? 60_000 : 0,
     activePollIntervalMs: jobListOpen ? 5_000 : 0,
     refetchOnFocus: jobListOpen,
-    disabled: !!isReadonly,
+    disabled: !canReadJobs,
   });
   const [userAvatarUrl, setUserAvatarUrl] = useState('');
   const [jobShareToken, setJobShareToken] = useState<string | null>(null);
@@ -360,7 +371,7 @@ export function JobChat(props: JobChatProps) {
   }, [existingJobId, jobId, jobTitle, patchJobInList]);
 
   useEffect(() => {
-    if (isReadonly) return;
+    if (!canReadConfig) return;
     fetch('/api/v1/config/settings/get')
       .then((res) => res.json())
       .then((data) => {
@@ -369,17 +380,23 @@ export function JobChat(props: JobChatProps) {
         }
       })
       .catch(() => {});
-  }, [isReadonly]);
+  }, [canReadConfig]);
 
   // Per-agent favorites for the model dropdown grouping. Skip in readonly/
   // shared views (no settings access). Defaults are not applied here — they
   // were resolved on ChatPage before this Job existed.
   useEffect(() => {
-    if (isReadonly) return;
+    if (!canReadConfig) return;
     fetchAgentPrefs().then(setAgentPrefs).catch(() => {});
-  }, [isReadonly]);
+  }, [canReadConfig]);
 
   useEffect(() => {
+    if (!canReadAgents) {
+      setAgents([]);
+      setJobEnable(false);
+      setInitialAgentRefreshPending(false);
+      return;
+    }
     let cancelled = false;
     void fetchAgentList(shareToken, existingJobId).then(({ agents: list, jobEnable: je, error: listError }) => {
       if (cancelled) return;
@@ -474,7 +491,7 @@ export function JobChat(props: JobChatProps) {
     return () => {
       cancelled = true;
     };
-  }, [existingJobId, shareToken, initialMessage, initialAgentType, initialModelId, initialAcpMode, initialAcpThoughtLevel, isReadonly]);
+  }, [canReadAgents, existingJobId, shareToken, initialMessage, initialAgentType, initialModelId, initialAcpMode, initialAcpThoughtLevel, isReadonly]);
 
   useEffect(() => {
     if (sessionWorkdir) setWorkdir(sessionWorkdir);
@@ -588,7 +605,7 @@ export function JobChat(props: JobChatProps) {
   // it becomes selected so ChatInput never combines a restored model with the
   // probe cache's thought-level list from another model.
   useEffect(() => {
-    if (isReadonly || !selectedAgent) return;
+    if (!canExecuteJobs || !selectedAgent) return;
     if (sessionType && selectedAgent.type !== sessionType) return;
 
     const modelId = !hasUserSelected && sessionModelId
@@ -632,7 +649,7 @@ export function JobChat(props: JobChatProps) {
     hasUserSelected,
     hasUserSelectedThoughtLevel,
     initialAcpThoughtLevel,
-    isReadonly,
+    canExecuteJobs,
     selectedAgent,
     sessionACPThoughtLevel,
     sessionModelId,
@@ -919,7 +936,7 @@ export function JobChat(props: JobChatProps) {
     // if the user typed `/help` on the home page, it must become a normal
     // first message here, not a command dispatch. Commands only apply to
     // messages the user types INSIDE an existing chat.
-    if (initialMessage && selectedAgent) {
+    if (canExecuteJobs && initialMessage && selectedAgent) {
       initialMessageSent.current = true;
       sendMessage(initialMessage, effectiveModelId, null, initialImageUrls, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId, {
         bypassCommand: true,
@@ -928,7 +945,7 @@ export function JobChat(props: JobChatProps) {
         console.error('Failed to send initial message:', err);
       }).finally(() => setInitialDispatchPending(false));
     }
-  }, [effectiveModelId, error, eventsReady, initialAgentRefreshPending, initialMessage, initialImageUrls, initialUserMessage, isLoadingHistory, sendMessage, selectedAgent]);
+  }, [canExecuteJobs, effectiveModelId, error, eventsReady, initialAgentRefreshPending, initialMessage, initialImageUrls, initialUserMessage, isLoadingHistory, sendMessage, selectedAgent]);
 
   const handleNewChat = () => {
     clearMessages();
@@ -1183,7 +1200,7 @@ export function JobChat(props: JobChatProps) {
             ) : (
               <>
                 <span className="header-logo-text">{headerTitle}</span>
-                {!isReadonly && existingJobId && (
+                {canManageJobs && existingJobId && (
                   <button
                     type="button"
                     className="header-edit-title-btn"
@@ -1282,7 +1299,7 @@ export function JobChat(props: JobChatProps) {
                   </div>
                 )}
               </div>
-              <button
+              {canExecuteJobs && <button
                 className="header-filebrowser-btn"
                 onClick={handleNewJob}
                 title="New Chat"
@@ -1290,7 +1307,7 @@ export function JobChat(props: JobChatProps) {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M12 5v14M5 12h14" />
                 </svg>
-              </button>
+              </button>}
               <button
                 className={`header-filebrowser-btn header-action-overflow ${outlineOpen ? 'active' : ''}`}
                 onClick={() => setOutlineOpen((v) => !v)}
@@ -1307,7 +1324,7 @@ export function JobChat(props: JobChatProps) {
                 </svg>
               </button>
               {/* Share button */}
-              {jobShareToken ? (
+              {canShareJobs && (jobShareToken ? (
                 <>
                   <button
                     className="header-filebrowser-btn header-action-overflow"
@@ -1359,7 +1376,7 @@ export function JobChat(props: JobChatProps) {
                     )}
                   </svg>
                 </button>
-              )}
+              ))}
               {/* Shared buttons (right): same order as the home page's header. */}
               {onOpenStats && (
                 <button
@@ -1394,7 +1411,7 @@ export function JobChat(props: JobChatProps) {
                   </svg>
                 </button>
               )}
-              <button
+              {canWriteFiles && <button
                 className={`header-filebrowser-btn header-action-overflow ${agentsEditorOpen ? 'active' : ''}`}
                 onClick={() => setAgentsEditorOpen(!agentsEditorOpen)}
                 title="AGENTS.md"
@@ -1406,8 +1423,8 @@ export function JobChat(props: JobChatProps) {
                   <line x1="16" y1="17" x2="8" y2="17" />
                   <polyline points="10 9 9 9 8 9" />
                 </svg>
-              </button>
-              <button
+              </button>}
+              {canReadFiles && <button
                 className={`header-filebrowser-btn header-action-overflow ${fileBrowserOpen ? 'active' : ''}`}
                 onClick={() => setFileBrowserOpen(!fileBrowserOpen)}
                 title="File Browser"
@@ -1415,7 +1432,7 @@ export function JobChat(props: JobChatProps) {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
                 </svg>
-              </button>
+              </button>}
               {onOpenSettings && (
                 <button className="header-settings-btn header-action-overflow" onClick={onOpenSettings} title="Settings" data-testid="settings-open-button">
                   ⚙️
@@ -1463,7 +1480,7 @@ export function JobChat(props: JobChatProps) {
                       </span>
                       <span>{t('chat.outline.title')}</span>
                     </button>
-                    {jobShareToken ? (
+                    {canShareJobs && (jobShareToken ? (
                       <>
                         <button
                           type="button"
@@ -1536,7 +1553,7 @@ export function JobChat(props: JobChatProps) {
                         </span>
                         <span>{shareCopied ? t('common.copySuccess') : t('chat.headerActions.share')}</span>
                       </button>
-                    )}
+                    ))}
                     {onOpenStats && (
                       <button
                         type="button"
@@ -1689,10 +1706,10 @@ export function JobChat(props: JobChatProps) {
           snapshot={graphRunStatusSnapshot}
           streamError={graphStreamError}
           onSnapshot={applyGraphRunStatusSnapshot}
-          readOnly={isReadonly}
+          readOnly={!canExecuteJobs}
           shareToken={shareToken}
           agents={agents}
-          canEdit={!isReadonly}
+          canEdit={canExecuteJobs}
           executionBlocked={!!activeAgentBlock}
           executionBlockedHint={activeAgentBlockHint}
           getSessionAgentReference={(sessionId) => getSessionMeta(sessionId)?.type || null}
@@ -1743,7 +1760,7 @@ export function JobChat(props: JobChatProps) {
             messages={messages}
             isLoading={isLoading || initialDispatchPending}
             loadingLabel={phaseLabel(activePhase)}
-            onSendMessage={isReadonly ? undefined : handleSendMessage}
+            onSendMessage={canExecuteJobs ? handleSendMessage : undefined}
             agentIconUrl={selectedAgent?.icon_url}
             agentDisplayName={selectedAgent?.display_name}
             resolveAgentForSession={resolveAgentForSession}
@@ -1768,7 +1785,7 @@ export function JobChat(props: JobChatProps) {
           )}
           <ChatInput
             onSend={handleSendMessage}
-            onStop={isReadonly ? undefined : stopGeneration}
+            onStop={canExecuteJobs ? stopGeneration : undefined}
             isLoading={isLoading}
             // NOTE: deliberately NOT disabled on transient SSE disconnect
             // (!connected). A DOM-disabled textarea blurs itself (killing any
@@ -1781,8 +1798,8 @@ export function JobChat(props: JobChatProps) {
             // activeAgentBlock DOES disable the composer: a session whose Agent
             // was deleted (or no longer resolves) cannot execute anymore.
             disabled={initialDispatchPending || !!activeAgentBlock || ((isLoop || isGraph) && !(activeSessionId && endedSessionIds.has(activeSessionId)))}
-            readOnly={!!isReadonly}
-            placeholder={activeAgentBlockHint ?? (isGraph && !(activeSessionId && endedSessionIds.has(activeSessionId)) ? 'Graph workflow run' : isReadonly ? 'Read-only mode' : undefined)}
+            readOnly={!canExecuteJobs}
+            placeholder={activeAgentBlockHint ?? (isGraph && !(activeSessionId && endedSessionIds.has(activeSessionId)) ? 'Graph workflow run' : !canExecuteJobs ? 'Read-only mode' : undefined)}
             localHistoryKey={`${workspaceId || 'default'}`}
             totalTokens={totalTokens}
             roundStartedAt={interactiveAccumulatedMs > 0 ? undefined : roundStartedAt}
@@ -1802,12 +1819,12 @@ export function JobChat(props: JobChatProps) {
             workdir={workdir}
             workspaceTitle={workspaceTitle}
             workspaceId={workspaceId}
-            switchableWorkspaces={isReadonly ? undefined : allWorkspaces}
-            onSwitchWorkspace={isReadonly ? undefined : onSwitchWorkspaceChat}
+            switchableWorkspaces={canExecuteJobs ? allWorkspaces : undefined}
+            onSwitchWorkspace={canExecuteJobs ? onSwitchWorkspaceChat : undefined}
             jobEnable={jobEnable}
-            queuedMessages={isReadonly ? undefined : queuedMessages}
-            onCancelQueuedMessage={isReadonly ? undefined : cancelQueuedMessage}
-            canQueueWhileRunning={!isLoop && !isGraph && !isReadonly}
+            queuedMessages={canExecuteJobs ? queuedMessages : undefined}
+            onCancelQueuedMessage={canExecuteJobs ? cancelQueuedMessage : undefined}
+            canQueueWhileRunning={!isLoop && !isGraph && canExecuteJobs}
             onSelectModel={selectedAgent?.models ? handleSelectModel : undefined}
             onSelectMode={selectedAgent?.modes ? handleSelectMode : undefined}
             onSelectThoughtLevel={selectedAgent?.thoughtLevels ? handleSelectThoughtLevel : undefined}
@@ -1829,7 +1846,7 @@ export function JobChat(props: JobChatProps) {
           </>
         )}
 
-        {!isReadonly && fileBrowserOpen && createPortal(
+        {canReadFiles && fileBrowserOpen && createPortal(
           <FileBrowser
             rootPath={workdir}
             jobId={jobId || undefined}
@@ -1838,7 +1855,7 @@ export function JobChat(props: JobChatProps) {
           document.body
         )}
 
-        {!isReadonly && agentsEditorOpen && workdir && createPortal(
+        {canWriteFiles && agentsEditorOpen && workdir && createPortal(
           <AgentsLocalEditor
             workdir={workdir}
             jobId={jobId || undefined}

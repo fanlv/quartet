@@ -5,7 +5,28 @@ struct HealthResponse: Decodable, Equatable, Sendable {
     let time: String?
     let buildTime: String?
     let instanceId: String?
-    let authRequired: Bool
+    let authState: String
+    let authError: String?
+}
+
+struct AuthUser: Decodable, Sendable {
+    let id: String
+    let username: String
+    let displayName: String
+    let roleIds: [String]
+    let status: String
+    let mustChangePassword: Bool
+}
+
+struct AuthPrincipal: Decodable, Sendable {
+    let user: AuthUser
+    let permissions: [String]
+    let csrfToken: String
+}
+
+struct LoginRequest: Encodable, Sendable {
+    let username: String
+    let password: String
 }
 
 struct WebRestartResponse: Decodable, Sendable {

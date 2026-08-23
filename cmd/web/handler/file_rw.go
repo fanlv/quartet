@@ -283,13 +283,11 @@ func (h *Handler) ServeFile(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// The agent auth middleware accepts `?token=` in the query string so that
-	// browser-native requests like <img src> work. That means any file served
-	// from here is reachable same-origin with the caller's session cookie /
-	// localStorage. If we let the browser interpret the response as HTML, SVG
+	// Browser-native requests such as <img src> carry the same-origin session
+	// cookie. If we let the browser interpret the response as HTML, SVG
 	// or other active content, an attacker-controlled file under LOCAL_MEMORY
 	// (workspace checkouts, uploads) could execute script in our origin and
-	// exfiltrate `quartet.x_auth_token`. Two defenses:
+	// issue authenticated requests. Two defenses:
 	//   1. nosniff: refuse MIME type sniffing so the browser cannot upgrade
 	//      octet-stream to HTML based on content.
 	//   2. inline whitelist: only declare a renderable Content-Type for a

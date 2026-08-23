@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -15,6 +17,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/compress"
 	"github.com/fanlv/quartet/cmd/web/handler"
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/services/auth"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/consts"
 )
@@ -106,33 +109,49 @@ func appendVary(header interface {
 	header.Set("Vary", existing+", "+value)
 }
 
-func agentAuthMiddleware() app.HandlerFunc {
+func sessionAuthMiddleware(authSvc *auth.Service) app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
-		token := string(c.GetHeader(consts.HeaderAgentAuth))
-		// Fallback: allow token via query parameter (for browser-native requests like <img src>)
-		if token == "" {
-			token = string(c.Query("token"))
-		}
-		if !handler.CheckAgentAuth(token) {
-			// Several common authed routes are in the access-log skip list,
-			// so this line is often the only trace of the rejection — keep
-			// enough context to triage without tailing handler logs.
-			//
-			// Split by token shape so the level matches the signal:
-			//   empty token  — the client simply has no token configured
-			//                  yet (first-run UI, post-rotation reload).
-			//                  High-frequency and expected; log at Info.
-			//   non-empty    — token was supplied but did not match. Could
-			//                  be misconfiguration or a probing client;
-			//                  keep at Warn so it surfaces.
-			logFn := logger.Warnf
-			if token == "" {
-				logFn = logger.Infof
+		principal, err := authSvc.Authenticate(string(c.Cookie(auth.CookieName)))
+		if err != nil {
+			logger.Infof(ctx, "[auth] reject %s %s remote=%s err=%v", c.Method(), c.Request.URI().Path(), c.ClientIP(), err)
+			status := http.StatusUnauthorized
+			if errors.Is(err, auth.ErrUninitialized) || errors.Is(err, auth.ErrRecovery) {
+				status = http.StatusServiceUnavailable
 			}
-			logFn(ctx, "[auth] reject %s %s remote=%s tokenPrefix=%s tokenLen=%d",
-				c.Method(), c.Request.URI().Path(), c.ClientIP(),
-				tokenPrefix(token), len(token))
-			c.JSON(http.StatusForbidden, map[string]string{"error": "permission denied"})
+			c.JSON(status, map[string]string{"error": err.Error()})
+			c.Abort()
+			return
+		}
+		c.Set("authPrincipal", principal)
+		if principal.User.MustChangePassword {
+			requestPath := string(c.Request.URI().Path())
+			method := string(c.Method())
+			allowed := (requestPath == "/api/v1/auth/me" && method == http.MethodGet) ||
+				(requestPath == "/api/v1/auth/password" && method == http.MethodPut) ||
+				(requestPath == "/api/v1/auth/logout" && method == http.MethodPost)
+			if !allowed {
+				c.JSON(http.StatusForbidden, map[string]string{"error": "password change required"})
+				c.Abort()
+				return
+			}
+		}
+		if requestChangesState(string(c.Method())) {
+			csrf := strings.TrimSpace(string(c.GetHeader(auth.CSRFHeader)))
+			if csrf == "" || subtle.ConstantTimeCompare([]byte(csrf), []byte(principal.CSRFToken)) != 1 {
+				c.JSON(http.StatusForbidden, map[string]string{"error": "invalid CSRF token"})
+				c.Abort()
+				return
+			}
+		}
+		c.Next(ctx)
+	}
+}
+
+func permissionMiddleware(authSvc *auth.Service, permission auth.Permission) app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		principal, ok := handler.CurrentPrincipal(c)
+		if !ok || !authSvc.HasPermission(principal, permission) {
+			c.JSON(http.StatusForbidden, map[string]string{"error": fmt.Sprintf("permission denied: %s is required", permission)})
 			c.Abort()
 			return
 		}
@@ -140,17 +159,8 @@ func agentAuthMiddleware() app.HandlerFunc {
 	}
 }
 
-// tokenPrefix returns a short, non-reversible hint of the supplied token for
-// triage logging. Empty token reports as "<empty>"; non-empty tokens are
-// truncated to 4 chars so the full secret never reaches log files.
-func tokenPrefix(token string) string {
-	if token == "" {
-		return "<empty>"
-	}
-	if len(token) <= 4 {
-		return token + "***"
-	}
-	return token[:4] + "***"
+func requestChangesState(method string) bool {
+	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
 }
 
 type httpLogConfig struct {
@@ -259,7 +269,15 @@ func loggerMiddleware() app.HandlerFunc {
 		}
 
 		reqBody := truncate(string(c.Request.Body()), 500)
+		responseRedacted := false
+		if strings.HasPrefix(reqPath, "/api/v1/auth/") || reqPath == "/api/v1/users" || strings.HasSuffix(reqPath, "/reset-password") {
+			reqBody = "[redacted authentication payload]"
+			responseRedacted = true
+		}
 		respBody := truncate(string(c.Response.Body()), 500)
+		if responseRedacted {
+			respBody = "[redacted authentication response]"
+		}
 		if respBody == "" {
 			ct := strings.ToLower(string(c.Response.Header.ContentType()))
 			if strings.Contains(ct, "text/event-stream") {

@@ -1,5 +1,7 @@
 # 多用户支持 — 总览
 
+> **已废弃：** 本目录保留为历史设计记录，不再作为实施依据。当前共享实例账号、Cookie 会话和 RBAC 方案见 `docs/feature/feature-2026-08-23-user-auth-permission-management.md`。
+
 > 创建日期：2026-05-17
 
 ## 现状

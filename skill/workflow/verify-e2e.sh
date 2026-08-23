@@ -5,10 +5,8 @@
 # with the `type` field). Restart it first:  make web
 #
 # Usage:
-#   X_AGENT_AUTH=<token> bash skill/workflow/verify-e2e.sh
-# Token must be ONE value from the backend's comma-separated X_AGENT_AUTH list.
-# Do not pass the whole comma-separated list here; the CLI sends its
-# X_AGENT_AUTH env value as one X-AGENT-AUTH header without splitting it.
+#   quartet-cli auth login --username <user>
+#   bash skill/workflow/verify-e2e.sh
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

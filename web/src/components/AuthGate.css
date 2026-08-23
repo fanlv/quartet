@@ -71,6 +71,17 @@
   margin-bottom: 14px;
 }
 
+.auth-gate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.auth-gate-form .auth-gate-btn {
+  align-self: stretch;
+}
+
 .auth-gate-input {
   flex: 1;
   min-width: 0;

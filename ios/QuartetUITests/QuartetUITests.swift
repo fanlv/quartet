@@ -16,8 +16,10 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(server.waitForExistence(timeout: 5))
         server.tap()
         server.clearAndTypeText("not-a-url")
-        app.secureTextFields["connection-token"].tap()
-        app.secureTextFields["connection-token"].typeText("test-token")
+        app.textFields["connection-username"].tap()
+        app.textFields["connection-username"].typeText("admin")
+        app.secureTextFields["connection-password"].tap()
+        app.secureTextFields["connection-password"].typeText("test-password")
         app.buttons["connection-submit"].tap()
 
         XCTAssertTrue(app.navigationBars["服务地址无效"].waitForExistence(timeout: 5))
@@ -84,7 +86,7 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["stats-kpis"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["总耗时"].exists)
         XCTAssertTrue(app.staticTexts["总轮次"].exists)
-        XCTAssertTrue(app.staticTexts["Token"].exists)
+        XCTAssertTrue(app.staticTexts["账号"].exists)
         XCTAssertTrue(app.otherElements["stats-trend"].exists)
         XCTAssertTrue(app.staticTexts["按工作区"].exists)
     }

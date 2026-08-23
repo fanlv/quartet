@@ -10,7 +10,7 @@ import (
 	"github.com/fanlv/quartet/services/agent/catalog"
 	agentinstall "github.com/fanlv/quartet/services/agent/install"
 	"github.com/fanlv/quartet/services/agent/probe"
-	"github.com/fanlv/quartet/types/consts"
+	"github.com/fanlv/quartet/services/auth"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -134,13 +134,11 @@ func (h *Handler) AgentList(ctx context.Context, c *app.RequestContext) {
 		// DirPicker and is otherwise hard to trace back.
 		logger.Warnf(ctx, "[agent.list] defaultBrowseRoot failed (workdir will be empty in response): %v", err)
 	}
-	// Probe-only: this drives the response's JobEnable flag, not request
-	// gating, so call the pure form and silently accept failure. The
-	// public /api/v1/public/agent/list route in particular is reached
-	// without an agent token (it is gated by shareToken instead), and
-	// noisy ERRORs here would obscure real auth failures.
-	token := string(c.GetHeader(consts.HeaderAgentAuth))
-	jobEnable := CheckAgentAuth(token)
+	principal, isAuthenticated := CurrentPrincipal(c)
+	// The public share route has no login principal but still needs the saved
+	// Agent metadata to render history. It is always read-only, so JobEnable
+	// stays false. Private callers receive execution capability from RBAC.
+	jobEnable := isAuthenticated && h.authService.HasPermission(principal, auth.PermissionJobExecute)
 	c.JSON(http.StatusOK, model.AgentListResponse{
 		Code:      0,
 		AgentList: agentList,

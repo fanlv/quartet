@@ -4,7 +4,7 @@
 
 位置：`cmd/web/handler/job_lifecycle.go` 中的 `JobEvents`。
 
-挂在 `/api/v1/job/:jobId/events`，前置走 `agentAuthMiddleware`。
+挂在 `/api/v1/job/:jobId/events`，前置校验登录 Cookie 和 `job.read` 权限。
 
 - 仅做"Job 是否存在"的存在性检查；不存在 → 404。
 - 通过后调用 event buffer 把"快照 + tail"一并推给客户端。
@@ -12,7 +12,7 @@
   - 缺失 / 解析失败：当作新订阅，从最新可用 seq 开始。
   - seq 比 buffer 已驱逐的最早条目还旧：返回 `410 Gone`，提示客户端重新拉取快照。
 
-**没有 per-Job 的拥有者校验**：通过 token 鉴权的请求方可以订阅本机任何 Job 的事件流。这与"单机单用户"的设计前提一致。
+**没有 per-Job 的拥有者校验**：具有 `job.read` 权限的用户可以订阅实例中的任何 Job 事件流。这与共享实例模型一致。
 
 ## 2. 公域 SSE —— `Public Job Events`
 
@@ -37,10 +37,10 @@
 
 ## 4. SSE 鉴权一次性
 
-quartet 的 SSE 在握手时校验 token / shareToken，连接持续期间不会再做 per-event 校验。token 轮换的影响：已建立的连接保持，新连接需要新 token；这是 Hertz 长连接 + 静态密钥的固有行为。
+quartet 的私有 SSE 在握手时校验登录 Cookie 和 `job.read`；公开 SSE 校验 shareToken。连接持续期间不做逐事件重新校验。
 
 ## 5. 含义说明（运维视角）
 
-- 通过 token 拿到 `/api/v1/*` 的请求方就能订阅所有 Job、读所有受白名单保护的文件，没有进一步隔离。
-- 部署到非单机环境前，请把 `X_AGENT_AUTH` 设成只在受信圈层流通的强密钥。
+- 具有对应权限的登录用户可访问实例中的全部同类资源，没有按用户归属隔离。
+- 部署到不可信网络时必须使用 HTTPS，保护用户名、密码与 Cookie。
 - 把 quartet 暴露到公网时，建议结合反向代理做：IP allowlist、TLS、限流，因为应用层没有这些能力。

@@ -38,6 +38,28 @@
   "app": {
     "jobMissingNotice": "Job {{jobId}} does not exist or has been deleted. Cleared the stale URL and returned to the workspace home."
   },
+  "auth": {
+    "initializeTitle": "Initialize administrator",
+    "loginTitle": "Sign in to Quartet",
+    "changePasswordTitle": "Change your password",
+    "changePasswordDesc": "An administrator assigned a temporary password. Change it before continuing.",
+    "recoveryTitle": "Authentication configuration needs recovery",
+    "recoveryDesc": "User or role configuration is incomplete. Restore it locally from the Memory Git history, then retry.",
+    "probing": "Checking service status…",
+    "probeFailed": "Could not read service status. Check that the backend is running.",
+    "initCode": "Initialization code from backend logs",
+    "username": "Username",
+    "displayName": "Display name (optional)",
+    "password": "Password",
+    "confirmPassword": "Confirm password",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "initialize": "Create administrator",
+    "login": "Sign in",
+    "changePassword": "Change password",
+    "logout": "Sign out",
+    "submitting": "Submitting…"
+  },
   "sidebar": {
     "newChat": "New Chat",
     "jobHistory": "Job History",
@@ -173,7 +195,9 @@
     "tabs": {
       "general": "General",
       "workspace": "Workspaces",
-      "token": "Token",
+      "account": "Account",
+      "users": "Users",
+      "roles": "Roles",
       "eino": "Eino",
       "prompt": "Prompts",
       "skill": "Skills",
@@ -314,24 +338,6 @@
       "graphEndHookScript": "Graph end-node default hook (Shell)",
       "graphEndHookScriptPlaceholder": "# e.g. send a Lark message when a workflow finishes\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE finished\"",
       "graphEndHookScriptDesc": "The default side-effect shell script run when a graph workflow reaches an end node set to \"Use global default script\". Its output is ignored and a failure only logs. Available env vars: $QUARTET_JOB_TITLE, $QUARTET_JOB_ID, $QUARTET_RUN_ID, $QUARTET_NODE_ID, $QUARTET_NODE_TITLE, $QUARTET_NODE_TYPE, $QUARTET_LAST_ASSISTANT."
-    },
-    "token": {
-      "sectionTitle": "Auth Token",
-      "sectionDesc": "Set your authentication token.",
-      "placeholder": "Enter token (leave empty to skip)",
-      "show": "Show",
-      "hide": "Hide",
-      "clear": "Clear",
-      "paste": "Paste",
-      "statusNotSet": "Status: Not set",
-      "statusSet": "Status: Set (length {{length}})",
-      "lastSaved": "Last saved:",
-      "gateTitle": "Authentication Required",
-      "gateDescNeedToken": "This instance requires authentication. Please enter your access token to continue.",
-      "gateDescInvalidToken": "The saved token was rejected by the server. Please re-enter a valid token.",
-      "gateProbing": "Verifying access…",
-      "gateProbeFailed": "Could not reach the server at /api/v1/health. Check that the backend is running, then retry.",
-      "gateContinue": "Continue"
     },
     "model": {
       "addModel": "+ Add Model",

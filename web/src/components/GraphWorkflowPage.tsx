@@ -58,6 +58,7 @@ import { GraphCanvas, type GraphCanvasFocus } from './graph/GraphCanvas';
 import { GraphInspector, BUILTIN_VARS } from './graph/GraphInspector';
 import { GraphRunInspector } from './graph/GraphRunInspector';
 import { registerWorkspaceColors, workspaceColor } from '../utils/workspace';
+import { useAuthPrincipal } from '../auth';
 import './GraphWorkflowPage.css';
 
 // Workspace list item shape, mirrored from ChatPage's /workspace/list usage.
@@ -589,6 +590,12 @@ function upsertWorkflow(list: GraphWorkflowSummary[], workflow: GraphWorkflow | 
 
 export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdir, onClose, onDirtyChange, onRunStarted }: GraphWorkflowPageProps) {
   const { t } = useTranslation();
+  const principal = useAuthPrincipal();
+  const canWriteWorkflows = principal?.permissions.includes('workflow.write') ?? false;
+  const canExecuteWorkflows = principal?.permissions.includes('workflow.execute') ?? false;
+  const canExecuteJobs = principal?.permissions.includes('job.execute') ?? false;
+  const canReadAgents = principal?.permissions.includes('agent.read') ?? false;
+  const canReadWorkspaces = principal?.permissions.includes('workspace.read') ?? false;
   const isMobile = useIsMobile();
   const [workflows, setWorkflows] = useState<GraphWorkflowSummary[]>([]);
   // Which library tab is active: 'user' = workflows authored in this UI,
@@ -994,7 +1001,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
 
   useEffect(() => {
     // Load agents for the inspector's Agent/model selectors.
-    void (async () => {
+    if (canReadAgents) void (async () => {
       try {
         const res = await fetch('/api/v1/agent/list');
         if (!res.ok) throw new Error(await readError(res));
@@ -1010,7 +1017,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       }
     })();
     // Load the workspace list for the workspace selector (mirrors ChatPage).
-    void (async () => {
+    if (canReadWorkspaces) void (async () => {
       try {
         const res = await fetch('/api/v1/workspace/list');
         if (!res.ok) throw new Error(await readError(res));
@@ -1023,7 +1030,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
         setWorkspaceListError(err instanceof Error ? err.message : String(err));
       }
     })();
-  }, [t]);
+  }, [canReadAgents, canReadWorkspaces, t]);
 
   // Close the workspace dropdown on outside click (mirrors LoopConfigPanel).
   useEffect(() => {
@@ -2045,7 +2052,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     return frozen;
   }, [editingRun, runInstances, nodes]);
 
-  const canEditSelectedRun = !!selectedRun && isGraphRunEditable(selectedRun.status);
+  const canEditSelectedRun = canExecuteJobs && !!selectedRun && isGraphRunEditable(selectedRun.status);
 
   // ---- JSON advanced view ----
   // The JSON pane holds a DRAFT (jsonText). It is only the live config when the
@@ -2161,12 +2168,12 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   <polyline points="21 3 21 9 15 9" />
                 </svg>
               </button>
-              <button className="graph-primary-icon-btn" onClick={() => { if (guardDiscard()) startNew(); }} title={t('graph.sidebar.newWorkflow')} aria-label={t('graph.sidebar.newWorkflow')}>
+              {canWriteWorkflows && <button className="graph-primary-icon-btn" onClick={() => { if (guardDiscard()) startNew(); }} title={t('graph.sidebar.newWorkflow')} aria-label={t('graph.sidebar.newWorkflow')}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M12 5v14" />
                   <path d="M5 12h14" />
                 </svg>
-              </button>
+              </button>}
               {isMobile && (
                 <button
                   className="graph-sidebar-close"
@@ -2297,7 +2304,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                 className="graph-name-input"
                 data-testid="graph-name-input"
                 value={name}
-                disabled={(viewingRun && !editingRun) || editingLocked}
+                disabled={!canWriteWorkflows || (viewingRun && !editingRun) || editingLocked}
                 onChange={(e) => {
                   clearValidationState();
                   setName(e.target.value);
@@ -2309,7 +2316,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                 className="graph-desc-input"
                 data-testid="graph-description-input"
                 value={description}
-                disabled={(viewingRun && !editingRun) || editingLocked}
+                disabled={!canWriteWorkflows || (viewingRun && !editingRun) || editingLocked}
                 onChange={(e) => {
                   clearValidationState();
                   setDescription(e.target.value);
@@ -2328,7 +2335,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   <GraphButtonIcon name="canvas" />
                   {t('graph.editor.canvas')}
                 </button>
-                <button data-testid="graph-view-json" className={viewMode === 'json' ? 'active' : ''} onClick={() => switchView('json')} disabled={editingLocked || (viewingRun && !editingRun)}>
+                <button data-testid="graph-view-json" className={viewMode === 'json' ? 'active' : ''} onClick={() => switchView('json')} disabled={!canWriteWorkflows || editingLocked || (viewingRun && !editingRun)}>
                   <GraphButtonIcon name="json" />
                   {t('graph.editor.json')}
                 </button>
@@ -2340,7 +2347,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                       className="graph-primary-btn"
                       data-testid="graph-save-run-version"
                       onClick={() => void saveRunVersion()}
-                      disabled={editingLocked || viewMode === 'json' || !runVersionDirty}
+                      disabled={!canExecuteJobs || editingLocked || viewMode === 'json' || !runVersionDirty}
                       title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}
                     >
                       <GraphButtonIcon name="save" />
@@ -2387,26 +2394,26 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                         <GraphButtonIcon name="reset" />
                         {t('graph.editor.reset')}
                       </button>
-                      {selectedWorkflow && (
+                      {canWriteWorkflows && selectedWorkflow && (
                         <button className="graph-danger-btn" onClick={() => { setActionsMenuOpen(false); if (guardDiscard()) setDeleteTarget(selectedWorkflow); }} disabled={editingLocked}>
                           <GraphButtonIcon name="trash" />
                           {t('graph.editor.delete')}
                         </button>
                       )}
-                      <button className="graph-secondary-btn" data-testid="graph-save-as-new" onClick={() => { setActionsMenuOpen(false); void save('create'); }} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
+                      {canWriteWorkflows && <button className="graph-secondary-btn" data-testid="graph-save-as-new" onClick={() => { setActionsMenuOpen(false); void save('create'); }} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                         <GraphButtonIcon name="copy" />
                         {t('graph.editor.saveAsNew')}
-                      </button>
+                      </button>}
                     </div>
                   </div>
-                  <button className="graph-primary-btn" data-testid="graph-save" onClick={() => void save(selectedWorkflow ? 'update' : 'create')} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
+                  {canWriteWorkflows && <button className="graph-primary-btn" data-testid="graph-save" onClick={() => void save(selectedWorkflow ? 'update' : 'create')} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                     <GraphButtonIcon name="save" />
                     {selectedWorkflow ? t('graph.editor.save') : t('graph.editor.create')}
-                  </button>
-                  <button className="graph-run-btn" data-testid="graph-run" onClick={() => void startRun()} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
+                  </button>}
+                  {canExecuteWorkflows && <button className="graph-run-btn" data-testid="graph-run" onClick={() => void startRun()} disabled={editingLocked || viewMode === 'json'} title={viewMode === 'json' ? t('graph.editor.applyJsonFirst') : undefined}>
                     <GraphButtonIcon name="play" />
                     {startingRun ? t('graph.editor.starting') : t('graph.editor.run')}
-                  </button>
+                  </button>}
                 </>
               )}
             </div>
@@ -2425,9 +2432,9 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
           <div className="graph-editor-body">
             {viewMode === 'json' ? (
               <div className="graph-json-pane">
-                <textarea spellCheck={false} data-testid="graph-json-textarea" aria-label={t('graph.editor.jsonConfigAria')} value={jsonText} onChange={(e) => setJsonText(e.target.value)} />
+                <textarea spellCheck={false} readOnly={!canWriteWorkflows} data-testid="graph-json-textarea" aria-label={t('graph.editor.jsonConfigAria')} value={jsonText} onChange={(e) => setJsonText(e.target.value)} />
                 <div className="graph-json-actions">
-                  <button
+                  {canWriteWorkflows && <button
                     className="graph-primary-btn"
                     data-testid="graph-json-apply"
                     onClick={applyJson}
@@ -2435,7 +2442,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   >
                     <GraphButtonIcon name="apply" />
                     {t('graph.editor.applyToCanvas')}
-                  </button>
+                  </button>}
                 </div>
               </div>
             ) : (
@@ -2444,7 +2451,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   key={canvasKey}
                   nodes={canvasNodes}
                   edges={canvasEdges}
-                  readOnly={(viewingRun && !editingRun) || editingLocked}
+                  readOnly={!canWriteWorkflows || (viewingRun && !editingRun) || editingLocked}
                   allowNodeDrag={editingRun && !editingLocked}
                   showMiniMap={!isMobile}
                   isMobile={isMobile}
@@ -2468,7 +2475,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                   onPaneClick={() => {
                     setSelectedNodeId(null);
                   }}
-                  onAddNode={onAddNode}
+                  onAddNode={canWriteWorkflows ? onAddNode : () => undefined}
                   onReparent={onReparent}
                   onViewportChange={onViewportChange}
                   onCopy={onCopy}
@@ -2485,7 +2492,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                     node={selectedGraphNode}
                     config={inspectorConfig}
                     agents={agents}
-                    readOnly={editingLocked}
+                    readOnly={!canWriteWorkflows || editingLocked}
                     drawerOpen={!isMobile || inspectorDrawerOpen}
                     frozenNodeIds={frozenRunNodeIds}
                     lockRunConfig={editingRun}

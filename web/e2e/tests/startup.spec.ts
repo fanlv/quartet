@@ -4,12 +4,15 @@ import path from 'node:path'
 import { expect, test, type APIRequestContext, type Page } from '../fixtures/test'
 import {
   e2eAgentType,
-  e2eAuthToken,
+  e2eAuthHeaders,
   e2eInterruptedRunningJobID,
   e2eLegacyFirstModelID,
   e2eLegacyFirstModelJobID,
   e2eModelID,
+  e2ePassword,
   e2ePersistWarningJobID,
+  e2eUsername,
+  installE2EAuthCookie,
 } from '../fixtures/e2e-environment'
 
 // This suite drives REAL agent links. There is no QUARTET_E2E mode, no replay
@@ -48,10 +51,9 @@ type E2EGraphConfig = {
 }
 
 async function openAppWithAuth(page: Page, path = '/') {
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(path)
   await expect(page.getByTestId('auth-gate')).toHaveCount(0)
 }
@@ -81,7 +83,7 @@ async function pathExists(filePath: string) {
 // createInteractiveJob creates a real interactive job through the public API,
 // returning its id. No scenario header — the job runs against the live model.
 async function createInteractiveJob(request: APIRequestContext, workspaceId = 'ws-1', title?: string) {
-  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
+  const headers = e2eAuthHeaders()
   const res = await request.post('/api/v1/job/create', {
     headers,
     data: { agentType: e2eAgentType, modelId: MODEL_ID, workspaceId, mode: 'interactive' },
@@ -97,7 +99,7 @@ async function createInteractiveJob(request: APIRequestContext, workspaceId = 'w
 }
 
 async function createWorkspace(request: APIRequestContext, title: string, workdir: string) {
-  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
+  const headers = e2eAuthHeaders()
   const res = await request.post('/api/v1/workspace/create', {
     headers,
     data: { title, description: 'E2E workspace', workdir },
@@ -143,41 +145,232 @@ function waitForTimestampTick() {
   return new Promise((resolve) => setTimeout(resolve, 50))
 }
 
-test('boots isolated backend and frontend with auth token', async ({ page }) => {
+test('boots isolated backend and frontend with a user session', async ({ page }) => {
   await openAppWithAuth(page)
   await expectHomeReady(page)
 })
 
-test('auth gate asks for a token when browser storage is empty', async ({ page }) => {
+test('auth gate asks for credentials when the session cookie is absent', async ({ page }) => {
+  await page.context().clearCookies()
   await page.goto('/')
 
-  await expect(page.getByTestId('auth-gate')).toHaveAttribute('data-stage', 'needToken')
-  await expect(page.getByTestId('auth-gate-token-input')).toBeVisible()
+  await expect(page.getByTestId('auth-gate')).toHaveAttribute('data-stage', 'login')
   await expect(page.getByTestId('auth-gate-submit-button')).toBeDisabled()
 
-  await page.getByTestId('auth-gate-token-input').fill(e2eAuthToken)
+  await page.getByTestId('auth-gate-username').fill(e2eUsername)
+  await page.getByTestId('auth-gate-password').fill(e2ePassword)
   await expect(page.getByTestId('auth-gate-submit-button')).toBeEnabled()
   await page.getByTestId('auth-gate-submit-button').click()
 
   await expectHomeReady(page)
-  await expect.poll(async () => page.evaluate(() => localStorage.getItem('quartet.x_auth_token'))).toBe(e2eAuthToken)
+  await expect.poll(async () => (await page.context().cookies()).some((cookie) => cookie.name === 'quartet_session')).toBe(true)
 })
 
-test('auth gate rejects a wrong token and recovers after the correct token is entered', async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem('quartet.x_auth_token', 'wrong-e2e-token')
-    localStorage.setItem('quartet-language', 'en')
-  })
-
+test('auth gate rejects a wrong password and recovers with valid credentials', async ({ page }) => {
+  await page.context().clearCookies()
   await page.goto('/')
-
-  await expect(page.getByTestId('auth-gate')).toHaveAttribute('data-stage', 'invalidToken')
-  await expect(page.getByTestId('auth-gate-token-input')).toBeVisible()
-
-  await page.getByTestId('auth-gate-token-input').fill(e2eAuthToken)
+  await expect(page.getByTestId('auth-gate')).toHaveAttribute('data-stage', 'login')
+  await page.getByTestId('auth-gate-username').fill(e2eUsername)
+  await page.getByTestId('auth-gate-password').fill('wrong-password1')
   await page.getByTestId('auth-gate-submit-button').click()
-
+  await expect(page.getByText(/invalid username or password/)).toBeVisible()
+  await page.getByTestId('auth-gate-password').fill(e2ePassword)
+  await page.getByTestId('auth-gate-submit-button').click()
   await expectHomeReady(page)
+  await installE2EAuthCookie(page)
+})
+
+test('private APIs require the session cookie and CSRF token', async ({ request }) => {
+  const unauthenticated = await request.get('/api/v1/auth/me', {
+    headers: { Cookie: '', 'X-CSRF-Token': '' },
+  })
+  expect(unauthenticated.status()).toBe(401)
+  expect(await unauthenticated.text()).toContain('authentication required')
+
+  const missingCSRF = await request.post('/api/v1/auth/logout', {
+    headers: { 'X-CSRF-Token': '' },
+  })
+  expect(missingCSRF.status()).toBe(403)
+  expect(await missingCSRF.text()).toContain('invalid CSRF token')
+
+  const legacyHeader = await request.get('/api/v1/auth/me', {
+    headers: { Cookie: '', 'X-CSRF-Token': '', 'X-AGENT-AUTH': 'legacy-token-must-not-work' },
+  })
+  expect(legacyHeader.status()).toBe(401)
+})
+
+test('RBAC applies immediately through forced password change and logout', async ({ request }) => {
+  const suffix = Date.now().toString(36)
+  const username = `viewer-${suffix}`
+  const temporaryPassword = `temporary-${suffix}-1`
+  const permanentPassword = `permanent-${suffix}-2`
+
+  const createRole = await request.post('/api/v1/roles', {
+    data: {
+      name: `Workspace reader ${suffix}`,
+      description: 'E2E workspace-only role',
+      permissions: ['workspace.read'],
+    },
+  })
+  expect(createRole.ok(), await createRole.text()).toBeTruthy()
+  const createdRole = (await createRole.json()).role as { id: string; version: number }
+  const roleID = createdRole.id
+
+  const createUser = await request.post('/api/v1/users', {
+    data: { username, displayName: username, password: temporaryPassword, roleIds: [roleID] },
+  })
+  expect(createUser.ok(), await createUser.text()).toBeTruthy()
+  const userID = (await createUser.json()).user.id as string
+
+  const login = await request.post('/api/v1/auth/login', {
+    data: { username, password: temporaryPassword },
+  })
+  expect(login.ok(), await login.text()).toBeTruthy()
+  const loginPrincipal = await login.json() as { csrfToken: string; user: { mustChangePassword: boolean } }
+  expect(loginPrincipal.user.mustChangePassword).toBe(true)
+  const loginCookie = login.headers()['set-cookie']?.match(/quartet_session=([^;]+)/)?.[1]
+  expect(loginCookie).toBeTruthy()
+
+  const temporaryHeaders = {
+    Cookie: `quartet_session=${loginCookie}`,
+    'X-CSRF-Token': loginPrincipal.csrfToken,
+  }
+  const blockedBeforePasswordChange = await request.get('/api/v1/workspace/list', { headers: temporaryHeaders })
+  expect(blockedBeforePasswordChange.status()).toBe(403)
+  expect(await blockedBeforePasswordChange.text()).toContain('password change required')
+
+  const changePassword = await request.put('/api/v1/auth/password', {
+    headers: temporaryHeaders,
+    data: { currentPassword: temporaryPassword, newPassword: permanentPassword },
+  })
+  expect(changePassword.ok(), await changePassword.text()).toBeTruthy()
+  const principal = await changePassword.json() as { csrfToken: string; user: { mustChangePassword: boolean } }
+  expect(principal.user.mustChangePassword).toBe(false)
+  const sessionCookie = changePassword.headers()['set-cookie']?.match(/quartet_session=([^;]+)/)?.[1]
+  expect(sessionCookie).toBeTruthy()
+  const userHeaders = { Cookie: `quartet_session=${sessionCookie}`, 'X-CSRF-Token': principal.csrfToken }
+
+  expect((await request.get('/api/v1/workspace/list', { headers: userHeaders })).ok()).toBe(true)
+  const deniedJobs = await request.get('/api/v1/job/list', { headers: userHeaders })
+  expect(deniedJobs.status()).toBe(403)
+  expect(await deniedJobs.text()).toContain('job.read is required')
+
+  const updateRole = await request.put(`/api/v1/roles/${roleID}`, {
+    data: {
+      version: createdRole.version,
+      name: `Workspace reader ${suffix}`,
+      description: 'E2E workspace and job reader role',
+      permissions: ['job.read', 'workspace.read'],
+    },
+  })
+  expect(updateRole.ok(), await updateRole.text()).toBeTruthy()
+  expect((await request.get('/api/v1/job/list', { headers: userHeaders })).ok()).toBe(true)
+
+  expect((await request.post('/api/v1/auth/logout', { headers: userHeaders })).ok()).toBe(true)
+  expect((await request.get('/api/v1/auth/me', { headers: userHeaders })).status()).toBe(401)
+
+  const relogin = await request.post('/api/v1/auth/login', { data: { username, password: permanentPassword } })
+  expect(relogin.ok(), await relogin.text()).toBeTruthy()
+  const reloginPrincipal = await relogin.json() as { csrfToken: string }
+  const reloginCookie = relogin.headers()['set-cookie']?.match(/quartet_session=([^;]+)/)?.[1]
+  expect(reloginCookie).toBeTruthy()
+  const reloginHeaders = { Cookie: `quartet_session=${reloginCookie}`, 'X-CSRF-Token': reloginPrincipal.csrfToken }
+
+  const currentUser = await request.get(`/api/v1/users/${userID}`)
+  expect(currentUser.ok(), await currentUser.text()).toBeTruthy()
+  const currentVersion = (await currentUser.json()).user.version as number
+  expect((await request.put(`/api/v1/users/${userID}`, { data: { version: currentVersion, status: 'disabled' } })).ok()).toBe(true)
+  expect((await request.get('/api/v1/auth/me', { headers: reloginHeaders })).status()).toBe(401)
+
+  const disabledUser = await request.get(`/api/v1/users/${userID}`)
+  expect(disabledUser.ok(), await disabledUser.text()).toBeTruthy()
+  const disabledVersion = (await disabledUser.json()).user.version as number
+  expect((await request.delete(`/api/v1/users/${userID}`, { data: { version: disabledVersion } })).ok()).toBe(true)
+  const updatedRoleVersion = (await updateRole.json()).role.version as number
+  expect((await request.delete(`/api/v1/roles/${roleID}`, { data: { version: updatedRoleVersion } })).ok()).toBe(true)
+})
+
+test('admin can create a role and user in the UI and the user completes forced password change', async ({ page, request }) => {
+  const suffix = Date.now().toString(36)
+  const roleName = `Browser Reader ${suffix}`
+  const username = `browser-${suffix}`
+  const temporaryPassword = `temporary-${suffix}-1`
+  const permanentPassword = `permanent-${suffix}-2`
+
+  await openAppWithAuth(page)
+  await page.getByTestId('settings-open-button').click()
+  await page.locator('[data-settings-tab="roles"]').click()
+  await page.getByTestId('role-name-input').fill(roleName)
+  await page.locator('[data-permission-id="workspace.read"]').check()
+  const roleCreated = page.waitForResponse((response) =>
+    response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/roles',
+  )
+  await page.getByTestId('role-save-button').click()
+  expect((await roleCreated).ok()).toBe(true)
+  await expect(page.locator('.auth-admin-list button').filter({ hasText: roleName })).toBeVisible()
+
+  await page.locator('[data-settings-tab="users"]').click()
+  await page.getByTestId('user-username-input').fill(username)
+  await page.getByTestId('user-display-name-input').fill(`Browser user ${suffix}`)
+  await page.getByTestId('user-password-input').fill(temporaryPassword)
+  await page.locator('[data-role-id="member"]').uncheck()
+  const rolesResponse = await request.get('/api/v1/roles')
+  expect(rolesResponse.ok(), await rolesResponse.text()).toBeTruthy()
+  const browserRole = ((await rolesResponse.json()).roles as Array<{ id: string; name: string }>).find((role) => role.name === roleName)
+  expect(browserRole).toBeTruthy()
+  await page.locator(`[data-role-id="${browserRole!.id}"]`).check()
+  const userCreated = page.waitForResponse((response) =>
+    response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/users',
+  )
+  await page.getByTestId('user-create-button').click()
+  expect((await userCreated).ok()).toBe(true)
+  await expect(page.locator('.auth-admin-list button').filter({ hasText: username })).toBeVisible()
+
+  await page.locator('[data-settings-tab="roles"]').click()
+  await expect(page.locator('.auth-admin-list button').filter({ hasText: roleName })).toContainText('1 个用户')
+
+  await page.context().clearCookies()
+  await page.reload()
+  await expect(page.getByTestId('auth-gate')).toHaveAttribute('data-stage', 'login')
+
+  await page.getByTestId('auth-gate-username').fill(username)
+  await page.getByTestId('auth-gate-password').fill(temporaryPassword)
+  await page.getByTestId('auth-gate-submit-button').click()
+  await expect(page.getByTestId('auth-gate')).toHaveAttribute('data-stage', 'changePassword')
+  await page.getByTestId('auth-gate-current-password').fill(temporaryPassword)
+  await page.getByTestId('auth-gate-new-password').fill(permanentPassword)
+  await page.getByTestId('auth-gate-change-password').click()
+  await expectHomeReady(page)
+
+  await page.getByTestId('settings-open-button').click()
+  await expect(page.locator('[data-settings-tab="account"]')).toBeVisible()
+  await expect(page.locator('[data-settings-tab="users"]')).toHaveCount(0)
+  await expect(page.locator('[data-settings-tab="roles"]')).toHaveCount(0)
+  await page.getByRole('button', { name: '退出登录' }).click()
+  await expect(page.getByTestId('auth-gate')).toHaveAttribute('data-stage', 'login')
+
+  // The browser and API fixtures start with the same administrator session.
+  // Logging out through the UI correctly revokes it, so obtain a fresh admin
+  // session for fixture cleanup instead of weakening the logout assertion.
+  const adminLogin = await request.post('/api/v1/auth/login', {
+    data: { username: e2eUsername, password: e2ePassword },
+  })
+  expect(adminLogin.ok(), await adminLogin.text()).toBeTruthy()
+  const adminPrincipal = await adminLogin.json() as { csrfToken: string }
+  const adminCookie = adminLogin.headers()['set-cookie']?.match(/quartet_session=([^;]+)/)?.[1]
+  expect(adminCookie).toBeTruthy()
+  const adminHeaders = { Cookie: `quartet_session=${adminCookie}`, 'X-CSRF-Token': adminPrincipal.csrfToken }
+
+  const users = await request.get('/api/v1/users', { headers: adminHeaders })
+  expect(users.ok(), await users.text()).toBeTruthy()
+  const user = ((await users.json()).users as Array<{ id: string; username: string; version: number }>).find((item) => item.username === username)
+  expect(user).toBeTruthy()
+  expect((await request.delete(`/api/v1/users/${user!.id}`, { headers: adminHeaders, data: { version: user!.version } })).ok()).toBe(true)
+  const roles = await request.get('/api/v1/roles', { headers: adminHeaders })
+  expect(roles.ok(), await roles.text()).toBeTruthy()
+  const role = ((await roles.json()).roles as Array<{ id: string; name: string; version: number }>).find((item) => item.name === roleName)
+  expect(role).toBeTruthy()
+  expect((await request.delete(`/api/v1/roles/${role!.id}`, { headers: adminHeaders, data: { version: role!.version } })).ok()).toBe(true)
 })
 
 test('auth gate shows probe failure and retry can recover in a real browser', async ({ page }) => {
@@ -198,10 +391,9 @@ test('auth gate shows probe failure and retry can recover in a real browser', as
     await route.fallback()
   })
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
 
   await page.goto('/')
 
@@ -277,7 +469,7 @@ test('home job history lists real jobs and navigates into a selected job', async
 })
 
 test('startup load backfills legacy job FirstModelID into job list summaries', async ({ request }) => {
-  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
+  const headers = e2eAuthHeaders()
 
   const detail = await getJobSnapshot(request, e2eLegacyFirstModelJobID, headers)
   expect(detail.firstModelId).toBe(e2eLegacyFirstModelID)
@@ -293,7 +485,7 @@ test('startup load backfills legacy job FirstModelID into job list summaries', a
 })
 
 test('startup load reconciles interrupted running jobs and persists the repair', async ({ request }) => {
-  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
+  const headers = e2eAuthHeaders()
 
   const detail = await getJobSnapshot(request, e2eInterruptedRunningJobID, headers)
   expect(detail.status).toBe('failed')
@@ -311,7 +503,7 @@ test('startup load reconciles interrupted running jobs and persists the repair',
 })
 
 test('startup load preserves persistence warnings without promoting them to LastError', async ({ page, request }) => {
-  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
+  const headers = e2eAuthHeaders()
   const expectedWarning = 'persist failed after iteration_started: injected e2e disk warning'
 
   const detail = await getJobSnapshot(request, e2ePersistWarningJobID, headers)
@@ -333,7 +525,7 @@ test('startup load preserves persistence warnings without promoting them to Last
 })
 
 test('home job history rename persists through the real API', async ({ page, request }) => {
-  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
+  const headers = e2eAuthHeaders()
   const job = await createInteractiveJob(request, 'ws-1', 'E2E Rename Source')
 
   await openAppWithAuth(page, '/?workspaceId=ws-1')
@@ -366,7 +558,7 @@ test('home job history rename persists through the real API', async ({ page, req
 })
 
 test('job list ETag changes after list-affecting mutations', async ({ request }) => {
-  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
+  const headers = e2eAuthHeaders()
   const job = await createInteractiveJob(request, 'ws-1', 'E2E List Version Source')
 
   const firstList = await request.get('/api/v1/job/list?workspaceId=ws-1&limit=25', { headers })
@@ -404,7 +596,7 @@ test('job list ETag changes after list-affecting mutations', async ({ request })
 })
 
 test('pinning a job updates UpdatedAt and invalidates the real job list cache', async ({ request }) => {
-  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
+  const headers = e2eAuthHeaders()
   const { localMemory } = await getE2ERunInfo()
   const workdir = path.join(localMemory, `e2e-pin-api-${Date.now()}`)
   await fs.mkdir(workdir, { recursive: true })
@@ -508,7 +700,7 @@ test('home job history uses pin response UpdatedAt when a job is unpinned', asyn
 })
 
 test('home job history delete requires confirmation and persists removal', async ({ page, request }) => {
-  const headers = { 'X-AGENT-AUTH': e2eAuthToken }
+  const headers = e2eAuthHeaders()
   const keep = await createInteractiveJob(request, 'ws-1', 'E2E Delete Keep')
   const remove = await createInteractiveJob(request, 'ws-1', 'E2E Delete Target')
 
@@ -562,7 +754,7 @@ test('streams a real assistant reply through the chat UI', async ({ page }) => {
   await expect(page.getByTestId('chat-send-button')).toBeVisible({ timeout: 120_000 })
 })
 
-const scheduleHeaders = { 'X-AGENT-AUTH': e2eAuthToken }
+const scheduleHeaders = e2eAuthHeaders()
 
 function validShellGraphConfig(marker: string, workspaceId: string, workdir: string): E2EGraphConfig {
   return {

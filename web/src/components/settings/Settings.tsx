@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GeneralSettings } from './GeneralSettings';
-import { TokenSettings } from './TokenSettings';
+import { AccountSettings } from './AccountSettings';
 import { EinoSettings } from './EinoSettings';
 import { PromptSettings } from './PromptSettings';
 import { SkillSettings } from './SkillSettings';
@@ -10,10 +10,14 @@ import { LarkSettings } from './LarkSettings';
 import { WeChatSettings } from './WeChatSettings';
 import { WorkspacesSettings } from './WorkspacesSettings';
 import { LogsSettings } from './LogsSettings';
+import { UserManagement } from './UserManagement';
+import { RoleManagement } from './RoleManagement';
+import { useAuthPrincipal } from '../../auth';
 import './Settings.css';
 import './WeChatSettings.css';
+import './AuthManagement.css';
 
-export type SettingsTab = 'general' | 'workspace' | 'token' | 'eino' | 'prompt' | 'skill' | 'agents' | 'lark' | 'wechat' | 'logs';
+export type SettingsTab = 'general' | 'workspace' | 'account' | 'users' | 'roles' | 'eino' | 'prompt' | 'skill' | 'agents' | 'lark' | 'wechat' | 'logs';
 
 interface SettingsProps {
   onClose: () => void;
@@ -21,25 +25,40 @@ interface SettingsProps {
   initialTab?: SettingsTab;
 }
 
-const tabDefs: { key: SettingsTab; labelKey: string; icon: string }[] = [
-  { key: 'general', labelKey: 'settings.tabs.general', icon: '⚙️' },
-  { key: 'workspace', labelKey: 'settings.tabs.workspace', icon: '🗂️' },
-  { key: 'token', labelKey: 'settings.tabs.token', icon: '🔑' },
-  { key: 'eino', labelKey: 'settings.tabs.eino', icon: '🤖' },
-  { key: 'prompt', labelKey: 'settings.tabs.prompt', icon: '📝' },
-  { key: 'skill', labelKey: 'settings.tabs.skill', icon: '🧩' },
-  { key: 'agents', labelKey: 'settings.tabs.agents', icon: '📦' },
-  { key: 'lark', labelKey: 'settings.tabs.lark', icon: '💬' },
-  { key: 'wechat', labelKey: 'settings.tabs.wechat', icon: '💚' },
-  { key: 'logs', labelKey: 'settings.tabs.logs', icon: '📋' },
+const tabDefs: { key: SettingsTab; labelKey: string; icon: string; permission?: string }[] = [
+  { key: 'general', labelKey: 'settings.tabs.general', icon: '⚙️', permission: 'config.write' },
+  { key: 'workspace', labelKey: 'settings.tabs.workspace', icon: '🗂️', permission: 'workspace.write' },
+  { key: 'account', labelKey: 'settings.tabs.account', icon: '👤' },
+  { key: 'users', labelKey: 'settings.tabs.users', icon: '👥', permission: 'users.read' },
+  { key: 'roles', labelKey: 'settings.tabs.roles', icon: '🛡️', permission: 'roles.read' },
+  { key: 'eino', labelKey: 'settings.tabs.eino', icon: '🤖', permission: 'config.write' },
+  { key: 'prompt', labelKey: 'settings.tabs.prompt', icon: '📝', permission: 'config.write' },
+  { key: 'skill', labelKey: 'settings.tabs.skill', icon: '🧩', permission: 'skills.manage' },
+  { key: 'agents', labelKey: 'settings.tabs.agents', icon: '📦', permission: 'agent.manage' },
+  { key: 'lark', labelKey: 'settings.tabs.lark', icon: '💬', permission: 'config.write' },
+  { key: 'wechat', labelKey: 'settings.tabs.wechat', icon: '💚', permission: 'im.manage' },
+  { key: 'logs', labelKey: 'settings.tabs.logs', icon: '📋', permission: 'logs.manage' },
 ];
 
 export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }: SettingsProps) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const principal = useAuthPrincipal();
+  const visibleTabs = useMemo(
+    () => tabDefs.filter((tab) => !tab.permission || principal?.permissions.includes(tab.permission)),
+    [principal],
+  );
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
+    visibleTabs.some((tab) => tab.key === initialTab) ? initialTab : visibleTabs[0]?.key ?? 'account',
+  );
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.key === activeTab)) {
+      setActiveTab(visibleTabs[0]?.key ?? 'account');
+    }
+  }, [activeTab, visibleTabs]);
 
   // iPad/手机端：使用 visualViewport API 检测键盘弹出，动态调整模态框高度
   // 解决 position:fixed 元素不随键盘缩小导致输入框被遮挡的问题
@@ -112,8 +131,12 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
         return <GeneralSettings onSettingsChanged={onSettingsChanged} />;
       case 'workspace':
         return <WorkspacesSettings />;
-      case 'token':
-        return <TokenSettings />;
+      case 'account':
+        return <AccountSettings />;
+      case 'users':
+        return <UserManagement />;
+      case 'roles':
+        return <RoleManagement />;
       case 'eino':
         return <EinoSettings />;
       case 'prompt':
@@ -150,7 +173,7 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
 
         <div className="settings-body">
           <nav className="settings-nav">
-            {tabDefs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <div
                 key={tab.key}
                 className={`settings-nav-item ${activeTab === tab.key ? 'active' : ''}`}

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import { expect, test, type APIRequestContext, type Page } from '../fixtures/test'
-import { e2eAuthToken } from '../fixtures/e2e-environment'
+import { e2eAuthHeaders } from '../fixtures/e2e-environment'
 
 // This suite closes out the "独立 React Flow 画布" module (feature doc tasks 18
 // and 19) with real end-to-end verification:
@@ -17,7 +17,7 @@ import { e2eAuthToken } from '../fixtures/e2e-environment'
 // terminal status, persisted layout round-trips, validation errors locate to a
 // node) rather than model text.
 
-const AUTH_HEADERS = { 'X-AGENT-AUTH': e2eAuthToken }
+const AUTH_HEADERS = e2eAuthHeaders()
 type GraphConfig = {
   name?: string
   nodes: Array<Record<string, unknown>>
@@ -88,10 +88,9 @@ function linearShellConfig(workspace: GraphWorkspace): GraphConfig {
 
 async function openGraphCanvas(page: Page, request: APIRequestContext, name = 'canvas'): Promise<GraphWorkspace> {
   const workspace = await createGraphWorkspace(request, name)
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
   await expect(page.getByTestId('auth-gate')).toHaveCount(0)
   // The default config (start -> Shell -> end) renders on the canvas at mount.

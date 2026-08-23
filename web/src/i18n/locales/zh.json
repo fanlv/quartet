@@ -38,6 +38,28 @@
   "app": {
     "jobMissingNotice": "Job {{jobId}} 不存在或已被删除。已清理失效 URL，并返回工作空间首页。"
   },
+  "auth": {
+    "initializeTitle": "初始化管理员",
+    "loginTitle": "登录 Quartet",
+    "changePasswordTitle": "请修改密码",
+    "changePasswordDesc": "管理员已为你设置临时密码，修改后才能继续使用。",
+    "recoveryTitle": "认证配置需要恢复",
+    "recoveryDesc": "用户或角色配置不完整，请在本机从 Memory Git 历史恢复后重试。",
+    "probing": "正在检查服务状态…",
+    "probeFailed": "无法读取服务状态，请确认后端已经启动。",
+    "initCode": "后端日志中的初始化码",
+    "username": "用户名",
+    "displayName": "显示名称（选填）",
+    "password": "密码",
+    "confirmPassword": "确认密码",
+    "currentPassword": "当前密码",
+    "newPassword": "新密码",
+    "initialize": "创建管理员",
+    "login": "登录",
+    "changePassword": "修改密码",
+    "logout": "退出登录",
+    "submitting": "提交中…"
+  },
   "sidebar": {
     "newChat": "新对话",
     "jobHistory": "历史记录",
@@ -170,7 +192,9 @@
     "tabs": {
       "general": "系统设置",
       "workspace": "工作空间",
-      "token": "Token",
+      "account": "账号",
+      "users": "用户管理",
+      "roles": "角色权限",
       "eino": "Eino 配置",
       "prompt": "Prompt 设置",
       "skill": "技能管理",
@@ -311,24 +335,6 @@
       "graphEndHookScript": "图工作流终点默认 Hook（Shell）",
       "graphEndHookScriptPlaceholder": "# 例如：工作流跑完发个飞书通知\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE 已完成\"",
       "graphEndHookScriptDesc": "图工作流到达「使用全局默认脚本」的终点结点时执行的默认副作用脚本。输出会被忽略，失败只打日志。可用环境变量：$QUARTET_JOB_TITLE、$QUARTET_JOB_ID、$QUARTET_RUN_ID、$QUARTET_NODE_ID、$QUARTET_NODE_TITLE、$QUARTET_NODE_TYPE、$QUARTET_LAST_ASSISTANT。"
-    },
-    "token": {
-      "sectionTitle": "鉴权 Token",
-      "sectionDesc": "设置你的鉴权 Token。",
-      "placeholder": "请输入 Token（留空则不携带）",
-      "show": "显示",
-      "hide": "隐藏",
-      "clear": "清空",
-      "paste": "粘贴",
-      "statusNotSet": "当前状态：未设置",
-      "statusSet": "当前状态：已设置（长度 {{length}}）",
-      "lastSaved": "最近保存：",
-      "gateTitle": "需要鉴权",
-      "gateDescNeedToken": "当前实例已开启鉴权，请输入访问 Token 后继续。",
-      "gateDescInvalidToken": "已保存的 Token 被服务端拒绝，请重新输入有效的 Token。",
-      "gateProbing": "正在校验访问凭证…",
-      "gateProbeFailed": "无法访问 /api/v1/health，请确认后端已启动后重试。",
-      "gateContinue": "继续"
     },
     "model": {
       "addModel": "+ 添加模型",

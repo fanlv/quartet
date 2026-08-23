@@ -1,5 +1,7 @@
 # 07 — 部署与运维
 
+> **已废弃：** 本文中的 JWT、SQLite 和兼容模式不再实施。当前方案见 `docs/feature/feature-2026-08-23-user-auth-permission-management.md`。
+
 ## 1. 部署模式对比
 
 | 维度 | 单用户（现状） | 多用户 |

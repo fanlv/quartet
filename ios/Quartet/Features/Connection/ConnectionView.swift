@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ConnectionView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var revealsToken = false
+    @State private var revealsPassword = false
     @State private var confirmsHTTP = false
 
     private var usesPlainHTTP: Bool {
@@ -38,7 +38,7 @@ struct ConnectionView: View {
                 Task { await model.connect() }
             }
         } message: {
-            Text("HTTP 会让 Token 和对话内容在局域网中以明文传输。只应连接你信任的网络。")
+            Text("HTTP 会让登录凭证和对话内容在局域网中以明文传输。只应连接你信任的网络。")
         }
     }
 
@@ -78,13 +78,25 @@ struct ConnectionView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                fieldLabel("访问 Token", index: "02")
+                fieldLabel("用户名", index: "02")
+                TextField("请输入用户名", text: $model.username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(.body, design: .monospaced))
+                    .submitLabel(.next)
+                    .accessibilityIdentifier("connection-username")
+                    .padding(14)
+                    .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                fieldLabel("密码", index: "03")
                 HStack {
                     Group {
-                        if revealsToken {
-                            TextField("未启用鉴权时可留空", text: $model.token)
+                        if revealsPassword {
+                            TextField("请输入密码", text: $model.password)
                         } else {
-                            SecureField("未启用鉴权时可留空", text: $model.token)
+                            SecureField("请输入密码", text: $model.password)
                         }
                     }
                     .textInputAutocapitalization(.never)
@@ -92,13 +104,13 @@ struct ConnectionView: View {
                     .font(.system(.body, design: .monospaced))
                     .submitLabel(.go)
                     .onSubmit(startConnection)
-                    .accessibilityIdentifier("connection-token")
+                    .accessibilityIdentifier("connection-password")
 
-                    Button { revealsToken.toggle() } label: {
-                        Image(systemName: revealsToken ? "eye.slash" : "eye")
+                    Button { revealsPassword.toggle() } label: {
+                        Image(systemName: revealsPassword ? "eye.slash" : "eye")
                             .foregroundStyle(QuartetTheme.secondaryText)
                     }
-                    .accessibilityLabel(revealsToken ? "隐藏 Token" : "显示 Token")
+                    .accessibilityLabel(revealsPassword ? "隐藏密码" : "显示密码")
                 }
                 .padding(14)
                 .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
@@ -126,7 +138,7 @@ struct ConnectionView: View {
     }
 
     private var boundaryNote: some View {
-        Label("Token 仅保存在本机 Keychain。应用不会在 iPhone 上运行 Agent。", systemImage: "lock.shield")
+        Label("密码不会保存在设备上；登录状态由系统 Cookie 管理。应用不会在 iPhone 上运行 Agent。", systemImage: "lock.shield")
             .font(.footnote)
             .foregroundStyle(QuartetTheme.secondaryText)
     }

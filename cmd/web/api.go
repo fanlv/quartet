@@ -8,92 +8,113 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/fanlv/quartet/cmd/web/handler"
+	"github.com/fanlv/quartet/services/auth"
 )
 
 func registerRoutes(s *server.Hertz, h *handler.Handler) {
-	// Registered outside the /api/v1 group so it skips agentAuthMiddleware,
+	// Registered outside the protected /api/v1 group so clients can discover
 	// but kept under /api/v1/* so it rides the frontend's existing /api
 	// proxy path without needing a second proxy rule.
-	s.GET("/api/v1/health", healthHandler)
+	s.GET("/api/v1/health", healthHandler(h))
+	s.POST("/api/v1/auth/init", h.AuthInit)
+	s.POST("/api/v1/auth/login", h.AuthLogin)
 
-	api := s.Group("/api/v1", agentAuthMiddleware())
+	api := s.Group("/api/v1", sessionAuthMiddleware(h.GetAuthService()))
+	permit := func(permission auth.Permission) app.HandlerFunc {
+		return permissionMiddleware(h.GetAuthService(), permission)
+	}
+
+	api.GET("/auth/me", h.AuthMe)
+	api.PUT("/auth/me", h.AuthUpdateProfile)
+	api.PUT("/auth/password", h.AuthChangePassword)
+	api.POST("/auth/logout", h.AuthLogout)
+
+	users := api.Group("/users")
+	users.GET("", permit(auth.PermissionUsersRead), h.UserList)
+	users.POST("", permit(auth.PermissionUsersManage), h.UserCreate)
+	users.GET("/:userId", permit(auth.PermissionUsersRead), h.UserGet)
+	users.PUT("/:userId", permit(auth.PermissionUsersManage), h.UserUpdate)
+	users.DELETE("/:userId", permit(auth.PermissionUsersManage), h.UserDelete)
+	users.POST("/:userId/reset-password", permit(auth.PermissionUsersManage), h.UserResetPassword)
+
+	api.GET("/permissions", permit(auth.PermissionRolesRead), h.PermissionList)
+	roles := api.Group("/roles")
+	roles.GET("", permit(auth.PermissionRolesRead), h.RoleList)
+	roles.POST("", permit(auth.PermissionRolesManage), h.RoleCreate)
+	roles.GET("/:roleId", permit(auth.PermissionRolesRead), h.RoleGet)
+	roles.PUT("/:roleId", permit(auth.PermissionRolesManage), h.RoleUpdate)
+	roles.DELETE("/:roleId", permit(auth.PermissionRolesManage), h.RoleDelete)
 
 	// Icon proxy: fetches an arbitrary caller-supplied http(s) URL server-side
 	// and caches the bytes on disk. That is a server-side request forgery
 	// primitive, so it stays behind auth — an unauthenticated version turns the
 	// deployment into an open probe for anything the host can reach (LAN
 	// services, cloud metadata endpoints). <img> cannot send a header, so the
-	// frontend appends the ?token= query fallback (see resolveIconSrc). A
-	// shareToken-validated twin lives under /api/v1/public/icon for shared
-	// read-only job views, which have no agent token.
-	api.GET("/icon", h.IconProxy)
-
-	// Lightweight token validation: returns 200 if the token is valid without
-	// probing ACP agents. Used by the frontend AuthGate to avoid blocking on
-	// slow/unreachable agents during boot.
-	api.GET("/auth/verify", h.AuthVerify)
+	// same-origin browser requests carry the session cookie. A shareToken-
+	// validated twin lives under /api/v1/public/icon for shared read-only views.
+	api.GET("/icon", permit(auth.PermissionAgentRead), h.IconProxy)
 
 	agent := api.Group("/agent")
-	agent.GET("/list", h.AgentList)
+	agent.GET("/list", permit(auth.PermissionAgentRead), h.AgentList)
 	// Complete management catalog: append-only built-ins followed by persisted
 	// custom entries, with structured ACP startup definitions and capabilities.
-	agent.GET("/catalog", h.AgentCatalog)
-	agent.GET("/catalog/deleted", h.DeletedAgentCatalog)
-	agent.GET("/catalog/:agentId", h.AgentCatalogDetail)
+	agent.GET("/catalog", permit(auth.PermissionAgentRead), h.AgentCatalog)
+	agent.GET("/catalog/deleted", permit(auth.PermissionAgentRead), h.DeletedAgentCatalog)
+	agent.GET("/catalog/:agentId", permit(auth.PermissionAgentRead), h.AgentCatalogDetail)
 	// Batch display-info resolution for historical Agent references (old
 	// session serve commands, graph node snapshots). Used by the chat view to
 	// render agents that were renamed or deleted since the history was made.
-	agent.POST("/display-info/resolve", h.AgentDisplayInfoResolve)
+	agent.POST("/display-info/resolve", permit(auth.PermissionAgentRead), h.AgentDisplayInfoResolve)
 	// Live subscription / quota info for the Codex / Claude ACP agents,
 	// shown on the Home page. Refetched on every agent-type switch.
-	agent.GET("/usage", h.AgentUsage)
+	agent.GET("/usage", permit(auth.PermissionAgentRead), h.AgentUsage)
 	// Installed CLI version of a known ACP agent, keyed by its serve command.
 	// Backs the composer usage strip for agents without a quota view.
-	agent.GET("/version", h.AgentVersion)
+	agent.GET("/version", permit(auth.PermissionAgentRead), h.AgentVersion)
 	// Management-page version inventory and controlled built-in upgrade flow.
 	// Version checks are read-only and cached; upgrades execute only the preset
 	// catalog steps for the route's AgentID.
-	agent.GET("/versions", h.AgentVersionCheck)
-	agent.POST("/:agentId/upgrade", h.AgentUpgrade)
+	agent.GET("/versions", permit(auth.PermissionAgentRead), h.AgentVersionCheck)
+	agent.POST("/:agentId/upgrade", permit(auth.PermissionAgentManage), h.AgentUpgrade)
 	// ACP live-config switch: change model / mode / thought_level and get the
 	// refreshed selector lists back. Body carries an optional sessionId (live
 	// session switch) or agentType (Home session-less preview).
-	agent.POST("/config", h.SetACPConfig)
+	agent.POST("/config", permit(auth.PermissionJobExecute), h.SetACPConfig)
 	// Built-in agent installation: candidates are the not-installed,
 	// not-deprecated catalog entries; install only accepts an AgentID and
 	// executes the catalog's preset flow, then rechecks installation and
 	// runs a full ACP validation.
-	agent.GET("/install/candidates", h.AgentInstallCandidates)
-	agent.POST("/install", h.AgentInstall)
-	agent.POST("/:agentId/uninstall", h.AgentUninstall)
-	agent.POST("/custom", h.CreateCustomAgent)
-	agent.PUT("/custom/:agentId", h.UpdateCustomAgent)
-	agent.POST("/custom/:agentId/restore", h.RestoreCustomAgent)
-	agent.POST("/:agentId/revalidate", h.RevalidateAgent)
-	agent.GET("/custom/:agentId/delete-impact", h.CustomAgentDeleteImpact)
-	agent.POST("/custom/:agentId/delete", h.DeleteCustomAgent)
+	agent.GET("/install/candidates", permit(auth.PermissionAgentRead), h.AgentInstallCandidates)
+	agent.POST("/install", permit(auth.PermissionAgentManage), h.AgentInstall)
+	agent.POST("/:agentId/uninstall", permit(auth.PermissionAgentManage), h.AgentUninstall)
+	agent.POST("/custom", permit(auth.PermissionAgentManage), h.CreateCustomAgent)
+	agent.PUT("/custom/:agentId", permit(auth.PermissionAgentManage), h.UpdateCustomAgent)
+	agent.POST("/custom/:agentId/restore", permit(auth.PermissionAgentManage), h.RestoreCustomAgent)
+	agent.POST("/:agentId/revalidate", permit(auth.PermissionAgentManage), h.RevalidateAgent)
+	agent.GET("/custom/:agentId/delete-impact", permit(auth.PermissionAgentManage), h.CustomAgentDeleteImpact)
+	agent.POST("/custom/:agentId/delete", permit(auth.PermissionAgentManage), h.DeleteCustomAgent)
 
-	api.GET("/list-dir", h.ListDir)
-	api.POST("/mkdir", h.MkDir)
-	api.POST("/read-file", h.ReadFile)
-	api.POST("/write-file", h.WriteFile)
-	api.GET("/serve-file", h.ServeFile)
-	api.GET("/file-exists", h.FileExists)
-	api.GET("/search-files", h.SearchFiles)
+	api.GET("/list-dir", permit(auth.PermissionFileRead), h.ListDir)
+	api.POST("/mkdir", permit(auth.PermissionFileWrite), h.MkDir)
+	api.POST("/read-file", permit(auth.PermissionFileRead), h.ReadFile)
+	api.POST("/write-file", permit(auth.PermissionFileWrite), h.WriteFile)
+	api.GET("/serve-file", permit(auth.PermissionFileRead), h.ServeFile)
+	api.GET("/file-exists", permit(auth.PermissionFileRead), h.FileExists)
+	api.GET("/search-files", permit(auth.PermissionFileRead), h.SearchFiles)
 	// Current git branch for a directory (composer workspace tag).
-	api.GET("/git-branch", h.GitBranch)
+	api.GET("/git-branch", permit(auth.PermissionFileRead), h.GitBranch)
 
-	api.POST("/upload-file", h.UploadFile)
+	api.POST("/upload-file", permit(auth.PermissionFileWrite), h.UploadFile)
 
-	api.GET("/recent-dirs", h.GetRecentDirs)
-	api.POST("/recent-dirs", h.AddRecentDir)
+	api.GET("/recent-dirs", permit(auth.PermissionWorkspaceRead), h.GetRecentDirs)
+	api.POST("/recent-dirs", permit(auth.PermissionWorkspaceWrite), h.AddRecentDir)
 
 	sessions := api.Group("/sessions")
-	sessions.GET("/:sessionId/messages", h.GetSessionMessages)
+	sessions.GET("/:sessionId/messages", permit(auth.PermissionJobRead), h.GetSessionMessages)
 
 	prompt := api.Group("/prompt")
-	prompt.POST("/get", h.GetPrompt)
-	prompt.POST("/save", h.SavePrompt)
+	prompt.POST("/get", permit(auth.PermissionConfigRead), h.GetPrompt)
+	prompt.POST("/save", permit(auth.PermissionConfigWrite), h.SavePrompt)
 
 	config := api.Group("/config")
 
@@ -102,132 +123,132 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// through (secrets never touch quartet storage).
 	einoCfg := config.Group("/eino")
 	einoModel := einoCfg.Group("/model")
-	einoModel.GET("/list", h.GetEinoModelList)
-	einoModel.POST("/create", h.CreateEinoModel)
-	einoModel.DELETE("/:modelId", h.DeleteEinoModel)
-	einoCfg.GET("/system-prompt", h.GetEinoSystemPrompt)
-	einoCfg.POST("/system-prompt", h.SaveEinoSystemPrompt)
+	einoModel.GET("/list", permit(auth.PermissionConfigRead), h.GetEinoModelList)
+	einoModel.POST("/create", permit(auth.PermissionConfigWrite), h.CreateEinoModel)
+	einoModel.DELETE("/:modelId", permit(auth.PermissionConfigWrite), h.DeleteEinoModel)
+	einoCfg.GET("/system-prompt", permit(auth.PermissionConfigRead), h.GetEinoSystemPrompt)
+	einoCfg.POST("/system-prompt", permit(auth.PermissionConfigWrite), h.SaveEinoSystemPrompt)
 
 	settings := config.Group("/settings")
-	settings.GET("/get", h.GetSettings)
-	settings.POST("/save", h.SaveSettings)
-	settings.GET("/title-generation-agent", h.GetTitleGenerationAgent)
-	settings.PUT("/title-generation-agent", h.SaveTitleGenerationAgent)
-	settings.GET("/group-reply-agent", h.GetGroupReplyAgent)
-	settings.PUT("/group-reply-agent", h.SaveGroupReplyAgent)
-	settings.GET("/im-session-agent", h.GetIMSessionAgent)
-	settings.PUT("/im-session-agent", h.SaveIMSessionAgent)
-	settings.PUT("/agent/:agentId/env", h.SaveAgentEnvVars)
-	settings.PUT("/agent/:agentId/prefs", h.SaveAgentPrefs)
+	settings.GET("/get", permit(auth.PermissionConfigRead), h.GetSettings)
+	settings.POST("/save", permit(auth.PermissionConfigWrite), h.SaveSettings)
+	settings.GET("/title-generation-agent", permit(auth.PermissionConfigRead), h.GetTitleGenerationAgent)
+	settings.PUT("/title-generation-agent", permit(auth.PermissionConfigWrite), h.SaveTitleGenerationAgent)
+	settings.GET("/group-reply-agent", permit(auth.PermissionConfigRead), h.GetGroupReplyAgent)
+	settings.PUT("/group-reply-agent", permit(auth.PermissionConfigWrite), h.SaveGroupReplyAgent)
+	settings.GET("/im-session-agent", permit(auth.PermissionConfigRead), h.GetIMSessionAgent)
+	settings.PUT("/im-session-agent", permit(auth.PermissionConfigWrite), h.SaveIMSessionAgent)
+	settings.PUT("/agent/:agentId/env", permit(auth.PermissionConfigWrite), h.SaveAgentEnvVars)
+	settings.PUT("/agent/:agentId/prefs", permit(auth.PermissionConfigWrite), h.SaveAgentPrefs)
 
 	// WeChat (iLink) routes — scan-to-login, account management, and
 	// first-contact approval. See cmd/web/handler/wechat_login_api.go.
 	wx := api.Group("/wechat")
-	wx.POST("/login/start", h.WeChatLoginStart)
-	wx.GET("/login/status", h.WeChatLoginStatus)
-	wx.GET("/accounts", h.WeChatAccounts)
-	wx.POST("/logout", h.WeChatLogout)
-	wx.GET("/pending", h.WeChatPending)
-	wx.POST("/pending/dismiss", h.WeChatPendingDismiss)
-	wx.POST("/admin/add", h.WeChatAdminAdd)
-	wx.POST("/admin/remove", h.WeChatAdminRemove)
+	wx.POST("/login/start", permit(auth.PermissionIMManage), h.WeChatLoginStart)
+	wx.GET("/login/status", permit(auth.PermissionIMRead), h.WeChatLoginStatus)
+	wx.GET("/accounts", permit(auth.PermissionIMRead), h.WeChatAccounts)
+	wx.POST("/logout", permit(auth.PermissionIMManage), h.WeChatLogout)
+	wx.GET("/pending", permit(auth.PermissionIMRead), h.WeChatPending)
+	wx.POST("/pending/dismiss", permit(auth.PermissionIMManage), h.WeChatPendingDismiss)
+	wx.POST("/admin/add", permit(auth.PermissionIMManage), h.WeChatAdminAdd)
+	wx.POST("/admin/remove", permit(auth.PermissionIMManage), h.WeChatAdminRemove)
 	// Proactive push (scheduled jobs / scripts) — not reply-driven.
-	wx.GET("/outbox/status", h.WeChatOutboxStatus)
-	wx.POST("/send", h.WeChatSend)
-	wx.GET("/outbox/:taskId", h.WeChatOutboxGet)
+	wx.GET("/outbox/status", permit(auth.PermissionIMRead), h.WeChatOutboxStatus)
+	wx.POST("/send", permit(auth.PermissionIMSend), h.WeChatSend)
+	wx.GET("/outbox/:taskId", permit(auth.PermissionIMRead), h.WeChatOutboxGet)
 
 	// Log viewer routes.
 	logs := api.Group("/logs")
-	logs.GET("/list", h.LogsList)
-	logs.POST("/clear", h.LogsClear)
-	logs.POST("/level", h.LogsSetLevel)
-	logs.POST("/frontend", h.LogsFrontendReport)
+	logs.GET("/list", permit(auth.PermissionLogsRead), h.LogsList)
+	logs.POST("/clear", permit(auth.PermissionLogsManage), h.LogsClear)
+	logs.POST("/level", permit(auth.PermissionLogsManage), h.LogsSetLevel)
+	logs.POST("/frontend", permit(auth.PermissionLogsReport), h.LogsFrontendReport)
 
 	// Skill management routes
 	skills := api.Group("/skills")
-	skills.GET("/list", h.SkillList)
-	skills.POST("/install-project-tools", h.SkillInstallProjectTools)
-	skills.POST("/add", h.SkillAdd)
-	skills.POST("/remove", h.SkillRemove)
-	skills.GET("/check", h.SkillCheck)
-	skills.POST("/update", h.SkillUpdate)
-	skills.GET("/find", h.SkillFind)
+	skills.GET("/list", permit(auth.PermissionSkillsRead), h.SkillList)
+	skills.POST("/install-project-tools", permit(auth.PermissionSkillsManage), h.SkillInstallProjectTools)
+	skills.POST("/add", permit(auth.PermissionSkillsManage), h.SkillAdd)
+	skills.POST("/remove", permit(auth.PermissionSkillsManage), h.SkillRemove)
+	skills.GET("/check", permit(auth.PermissionSkillsRead), h.SkillCheck)
+	skills.POST("/update", permit(auth.PermissionSkillsManage), h.SkillUpdate)
+	skills.GET("/find", permit(auth.PermissionSkillsRead), h.SkillFind)
 
 	// Graph workflow config routes (config management only; runtime execution
 	// is owned by a separate module). These config routes stay auth-only; the
 	// read-only run status/events for a *shared* graph job are exposed under
 	// /api/v1/public/* further below (see the pub group).
 	graph := api.Group("/graph")
-	graph.POST("/workflow", h.CreateGraphWorkflow)
-	graph.GET("/workflow/list", h.ListGraphWorkflows)
-	graph.POST("/workflow/validate", h.ValidateGraphWorkflow)
-	graph.GET("/workflow/:workflowId", h.GetGraphWorkflow)
-	graph.PUT("/workflow/:workflowId", h.UpdateGraphWorkflow)
-	graph.DELETE("/workflow/:workflowId", h.DeleteGraphWorkflow)
-	graph.POST("/run/start", h.StartGraphRun)
+	graph.POST("/workflow", permit(auth.PermissionWorkflowWrite), h.CreateGraphWorkflow)
+	graph.GET("/workflow/list", permit(auth.PermissionWorkflowRead), h.ListGraphWorkflows)
+	graph.POST("/workflow/validate", permit(auth.PermissionWorkflowRead), h.ValidateGraphWorkflow)
+	graph.GET("/workflow/:workflowId", permit(auth.PermissionWorkflowRead), h.GetGraphWorkflow)
+	graph.PUT("/workflow/:workflowId", permit(auth.PermissionWorkflowWrite), h.UpdateGraphWorkflow)
+	graph.DELETE("/workflow/:workflowId", permit(auth.PermissionWorkflowWrite), h.DeleteGraphWorkflow)
+	graph.POST("/run/start", permit(auth.PermissionWorkflowExecute), h.StartGraphRun)
 
 	// Job routes
 	jobGroup := api.Group("/job")
-	jobGroup.POST("/create", h.JobCreate)
-	jobGroup.GET("/list", h.JobList)
-	jobGroup.GET("/observations", h.JobObservations)
-	jobGroup.GET("/:jobId", h.JobGet)
-	jobGroup.DELETE("/:jobId", h.JobDelete)
-	jobGroup.PUT("/:jobId/title", h.JobUpdateTitle)
-	jobGroup.PUT("/:jobId/pin", h.JobUpdatePin)
-	jobGroup.POST("/:jobId/message", h.JobMessage)
-	jobGroup.POST("/:jobId/stop", h.JobStop)
-	jobGroup.GET("/:jobId/events", h.JobEvents)
-	jobGroup.GET("/:jobId/graph-run", h.GetJobGraphRunStatus)
-	jobGroup.GET("/:jobId/graph-run/events", h.JobGraphRunEvents)
-	jobGroup.GET("/:jobId/graph-run/hooks", h.JobGraphRunHooks)
-	jobGroup.POST("/:jobId/graph-run/stop", h.StopJobGraphRun)
-	jobGroup.POST("/:jobId/graph-run/step-stop", h.StepStopJobGraphRun)
-	jobGroup.POST("/:jobId/graph-run/cancel-stop", h.CancelStopJobGraphRun)
-	jobGroup.POST("/:jobId/graph-run/resume", h.ResumeJobGraphRun)
-	jobGroup.POST("/:jobId/graph-run/continue", h.ContinueJobGraphRun)
-	jobGroup.PUT("/:jobId/graph-run/version", h.UpdateJobGraphRunVersion)
-	jobGroup.DELETE("/:jobId/graph-run", h.DeleteJobGraphRun)
+	jobGroup.POST("/create", permit(auth.PermissionJobExecute), h.JobCreate)
+	jobGroup.GET("/list", permit(auth.PermissionJobRead), h.JobList)
+	jobGroup.GET("/observations", permit(auth.PermissionJobRead), h.JobObservations)
+	jobGroup.GET("/:jobId", permit(auth.PermissionJobRead), h.JobGet)
+	jobGroup.DELETE("/:jobId", permit(auth.PermissionJobManage), h.JobDelete)
+	jobGroup.PUT("/:jobId/title", permit(auth.PermissionJobManage), h.JobUpdateTitle)
+	jobGroup.PUT("/:jobId/pin", permit(auth.PermissionJobManage), h.JobUpdatePin)
+	jobGroup.POST("/:jobId/message", permit(auth.PermissionJobExecute), h.JobMessage)
+	jobGroup.POST("/:jobId/stop", permit(auth.PermissionJobExecute), h.JobStop)
+	jobGroup.GET("/:jobId/events", permit(auth.PermissionJobRead), h.JobEvents)
+	jobGroup.GET("/:jobId/graph-run", permit(auth.PermissionJobRead), h.GetJobGraphRunStatus)
+	jobGroup.GET("/:jobId/graph-run/events", permit(auth.PermissionJobRead), h.JobGraphRunEvents)
+	jobGroup.GET("/:jobId/graph-run/hooks", permit(auth.PermissionJobRead), h.JobGraphRunHooks)
+	jobGroup.POST("/:jobId/graph-run/stop", permit(auth.PermissionJobExecute), h.StopJobGraphRun)
+	jobGroup.POST("/:jobId/graph-run/step-stop", permit(auth.PermissionJobExecute), h.StepStopJobGraphRun)
+	jobGroup.POST("/:jobId/graph-run/cancel-stop", permit(auth.PermissionJobExecute), h.CancelStopJobGraphRun)
+	jobGroup.POST("/:jobId/graph-run/resume", permit(auth.PermissionJobExecute), h.ResumeJobGraphRun)
+	jobGroup.POST("/:jobId/graph-run/continue", permit(auth.PermissionJobExecute), h.ContinueJobGraphRun)
+	jobGroup.PUT("/:jobId/graph-run/version", permit(auth.PermissionJobExecute), h.UpdateJobGraphRunVersion)
+	jobGroup.DELETE("/:jobId/graph-run", permit(auth.PermissionJobManage), h.DeleteJobGraphRun)
 
 	// Workspace routes
 	wsGroup := api.Group("/workspace")
-	wsGroup.POST("/create", h.WorkspaceCreate)
-	wsGroup.GET("/list", h.WorkspaceList)
-	wsGroup.GET("/default-workdir", h.WorkspaceDefaultWorkdir)
-	wsGroup.POST("/regenerate-colors", h.WorkspaceRegenerateColors)
-	wsGroup.PUT("/order", h.WorkspaceReorder)
-	wsGroup.GET("/:id", h.WorkspaceGet)
-	wsGroup.PATCH("/:id", h.WorkspaceUpdate)
-	wsGroup.PUT("/:id/favorite", h.WorkspaceUpdateFavorite)
-	wsGroup.DELETE("/:id", h.WorkspaceDelete)
+	wsGroup.POST("/create", permit(auth.PermissionWorkspaceWrite), h.WorkspaceCreate)
+	wsGroup.GET("/list", permit(auth.PermissionWorkspaceRead), h.WorkspaceList)
+	wsGroup.GET("/default-workdir", permit(auth.PermissionWorkspaceRead), h.WorkspaceDefaultWorkdir)
+	wsGroup.POST("/regenerate-colors", permit(auth.PermissionWorkspaceWrite), h.WorkspaceRegenerateColors)
+	wsGroup.PUT("/order", permit(auth.PermissionWorkspaceWrite), h.WorkspaceReorder)
+	wsGroup.GET("/:id", permit(auth.PermissionWorkspaceRead), h.WorkspaceGet)
+	wsGroup.PATCH("/:id", permit(auth.PermissionWorkspaceWrite), h.WorkspaceUpdate)
+	wsGroup.PUT("/:id/favorite", permit(auth.PermissionWorkspaceWrite), h.WorkspaceUpdateFavorite)
+	wsGroup.DELETE("/:id", permit(auth.PermissionWorkspaceWrite), h.WorkspaceDelete)
 
 	// Usage stats routes
 	statsGroup := api.Group("/stats")
-	statsGroup.GET("/usage", h.StatsUsage)
+	statsGroup.GET("/usage", permit(auth.PermissionStatsRead), h.StatsUsage)
 
 	// System operation routes.
 	systemGroup := api.Group("/system")
-	systemGroup.POST("/restart-web", h.SystemRestartWeb)
+	systemGroup.POST("/restart-web", permit(auth.PermissionSystemManage), h.SystemRestartWeb)
 
 	// Schedule routes
 	schGroup := api.Group("/schedule")
-	schGroup.POST("/create", h.ScheduleCreate)
-	schGroup.GET("/list", h.ScheduleList)
-	schGroup.GET("/:scheduleId", h.ScheduleGet)
-	schGroup.PUT("/:scheduleId", h.ScheduleUpdate)
-	schGroup.DELETE("/:scheduleId", h.ScheduleDelete)
-	schGroup.POST("/:scheduleId/toggle", h.ScheduleToggle)
-	schGroup.POST("/:scheduleId/run", h.ScheduleRun)
+	schGroup.POST("/create", permit(auth.PermissionScheduleWrite), h.ScheduleCreate)
+	schGroup.GET("/list", permit(auth.PermissionScheduleRead), h.ScheduleList)
+	schGroup.GET("/:scheduleId", permit(auth.PermissionScheduleRead), h.ScheduleGet)
+	schGroup.PUT("/:scheduleId", permit(auth.PermissionScheduleWrite), h.ScheduleUpdate)
+	schGroup.DELETE("/:scheduleId", permit(auth.PermissionScheduleWrite), h.ScheduleDelete)
+	schGroup.POST("/:scheduleId/toggle", permit(auth.PermissionScheduleWrite), h.ScheduleToggle)
+	schGroup.POST("/:scheduleId/run", permit(auth.PermissionScheduleExecute), h.ScheduleRun)
 
 	// Share/Unshare routes (auth required)
-	jobGroup.POST("/:jobId/share", h.JobShare)
-	jobGroup.POST("/:jobId/unshare", h.JobUnshare)
+	jobGroup.POST("/:jobId/share", permit(auth.PermissionJobShare), h.JobShare)
+	jobGroup.POST("/:jobId/unshare", permit(auth.PermissionJobShare), h.JobUnshare)
 
 	// File share routes (auth required)
 	fileShare := api.Group("/file-share")
-	fileShare.POST("/create", h.FileShareCreate)
-	fileShare.POST("/delete", h.FileShareDelete)
-	fileShare.GET("/get", h.FileShareGet)
+	fileShare.POST("/create", permit(auth.PermissionFileShare), h.FileShareCreate)
+	fileShare.POST("/delete", permit(auth.PermissionFileShare), h.FileShareDelete)
+	fileShare.GET("/get", permit(auth.PermissionFileShare), h.FileShareGet)
 
 	// Public read-only routes (no auth, validated by shareToken)
 	pub := s.Group("/api/v1/public", shareTokenMiddleware(h.GetJobService()))
@@ -261,17 +282,18 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	registerStaticFallback(s)
 }
 
-func healthHandler(ctx context.Context, c *app.RequestContext) {
-	// authRequired lets the frontend gate protected requests at boot:
-	// when true, the UI knows it must collect a token before firing
-	// /workspace/list, /job/list, the SSE stream, etc., instead of
-	// triggering a wave of 403s. The endpoint stays unauthenticated so
-	// a brand-new client with no token can still discover the policy.
-	c.JSON(http.StatusOK, map[string]any{
-		"status":       "ok",
-		"time":         time.Now().Format(time.RFC3339),
-		"buildTime":    buildTime,
-		"instanceId":   serverInstanceID,
-		"authRequired": handler.IsAuthRequired(),
-	})
+func healthHandler(h *handler.Handler) app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		// The endpoint stays unauthenticated so clients can select the init, login,
+		// recovery, or ready flow without probing any business service.
+		state, stateError := h.AuthStatus()
+		c.JSON(http.StatusOK, map[string]any{
+			"status":     "ok",
+			"time":       time.Now().Format(time.RFC3339),
+			"buildTime":  buildTime,
+			"instanceId": serverInstanceID,
+			"authState":  state,
+			"authError":  stateError,
+		})
+	}
 }

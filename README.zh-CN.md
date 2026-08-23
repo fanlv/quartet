@@ -13,8 +13,9 @@ Quartet 将电脑上已经安装的 AI 编程 Agent 汇集到一个浏览器工�
 让你可以在同一套界面中进行交互式对话、编排可复用的多 Agent 工作流、观察实时执行过程，
 并将任务历史保存在本地。
 
-Quartet 面向在个人电脑或开发沙箱中运行的单用户场景。项目目前仍在快速开发中，在稳定版本
-发布前，API 和本地数据格式可能会发生变化。
+Quartet 面向在个人电脑或开发沙箱中运行的可信共享实例。多个登录账号共享同一套工作区和
+业务数据，并通过角色限制可用能力。项目目前仍在快速开发中，在稳定版本发布前，API 和本地
+数据格式可能会发生变化。
 
 ## 核心功能
 
@@ -238,7 +239,6 @@ Claude Code 要求后端的 `PATH` 中同时能找到 `claude` 和 `claude-agent
 | 环境变量 | 必需 | 说明 |
 |---|---:|---|
 | `LOCAL_MEMORY` | 是 | Quartet 持久化数据和运行状态使用的绝对路径 |
-| `X_AGENT_AUTH` | 否 | 受保护 API 要求的一个 Token，或以逗号分隔的多个 Token |
 | `QUARTET_LISTEN_ADDR` | 否 | 覆盖默认监听地址 |
 | `QUARTET_CORS_ORIGINS` | 否 | 以逗号分隔的跨域来源白名单；未设置时仅允许同源 |
 | `QUARTET_LOG_LEVEL` | 否 | 初始日志级别：`debug`、`info`、`warn` 或 `error` |
@@ -248,16 +248,7 @@ Claude Code 要求后端的 `PATH` 中同时能找到 `claude` 和 `claude-agent
 没有证书时，Quartet 默认通过 HTTP 监听 `0.0.0.0:8090`。证书目录中同时存在
 `cert.pem` 和 `key.pem` 时，会启用 HTTPS，并默认监听 `0.0.0.0:443`。
 
-未设置 `X_AGENT_AUTH` 时 API 不要求认证。通过局域网地址、容器端口、隧道或公网域名使用服务前，
-请设置强 Token：
-
-```bash
-export X_AGENT_AUTH="$(openssl rand -hex 32)"
-make web
-```
-
-浏览器会要求输入 Token，并通过 `X-AGENT-AUTH` 请求头发送。完整边界请查看
-[权限与访问控制文档](docs/arch/permissions/README.md)。
+Quartet 始终使用用户登录会话保护私有 API。首次启动时，后端日志会打印一次性初始化码；在 Web 初始化页使用该码创建首个管理员。后续由管理员在设置中创建用户和分配角色。Web、iOS 和 `quartet-cli` 均通过 Cookie 登录，不再使用共享 Token。完整边界请查看[权限与访问控制文档](docs/arch/permissions/README.md)。
 
 ## 数据与隐私
 

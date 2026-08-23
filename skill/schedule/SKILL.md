@@ -18,10 +18,9 @@ CLI 是对后端 HTTP API 的薄封装，复用后端类型：
 | 变量 | 说明 | 默认 |
 |---|---|---|
 | `QUARTET_BASE_URL` | 后端地址 | `http://127.0.0.1:8090` |
-| `X_AGENT_AUTH` | 鉴权 token | 空 |
 
 - 构建/安装 CLI：在仓库根目录 `make install-skill-cli`（装到 `~/.local/bin`，须在 PATH 上）。
-- `X_AGENT_AUTH` 支持逗号分隔的多 token，CLI 自动取第一个发送。403 时先 `curl -s "$QUARTET_BASE_URL/api/v1/health"` 看 `authRequired`；浏览器已登录时可从 localStorage 取 `quartet.x_auth_token`。
+- 首次使用先运行 `quartet-cli auth login --username <用户名>`；CLI 按后端地址保存登录 Cookie。`401` 时重新登录，`403` 时检查账号的 schedule 权限。
 - 所有错误（含后端校验错误）**全量打印**到 stderr；结果 JSON 打印到 stdout。
 
 ## 命令

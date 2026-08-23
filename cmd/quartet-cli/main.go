@@ -27,8 +27,7 @@
 //
 // Connection:
 //   - Base URL: $QUARTET_BASE_URL (default http://127.0.0.1:8090)
-//   - Auth: $X_AGENT_AUTH; when it holds a comma-separated list, the first
-//     token is sent as the X-AGENT-AUTH header.
+//   - Auth: use `quartet-cli auth login`; the session is stored per base URL.
 //
 // Per the repo convention, every error is printed in full — nothing is hidden.
 package main
@@ -57,13 +56,13 @@ Groups:
   job        Inspect and stop jobs
   agent      List installed ACP agents (read-only)
   wechat     WeChat helpers (send proactive messages via the backend)
+  auth       Login, inspect, or clear the current user session
 
 Run "quartet-cli <group> -h" for a group's commands, or
 "quartet-cli workflow <command> -h" for command-specific flags.
 
 Environment:
   QUARTET_BASE_URL   Backend base URL (default http://127.0.0.1:8090)
-  X_AGENT_AUTH       Auth token(s); comma-separated list → first token sent as the X-AGENT-AUTH header
 `
 
 func main() {
@@ -89,6 +88,8 @@ func main() {
 		err = runAgentGroup(args)
 	case "wechat", "wx":
 		err = runWeChatGroup(args)
+	case "auth":
+		err = runAuthGroup(args)
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return

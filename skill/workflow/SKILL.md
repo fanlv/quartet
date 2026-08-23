@@ -48,17 +48,12 @@ bash <skill_dir>/build.sh   # 产出 <skill_dir>/bin/quartet-cli
 | 变量 | 说明 | 默认 |
 |---|---|---|
 | `QUARTET_BASE_URL` | 后端地址 | `http://127.0.0.1:8090` |
-| `X_AGENT_AUTH` | 鉴权 token，非空时作为 `X-AGENT-AUTH` 头发送 | 空 |
 
 鉴权规则：
-- 后端进程的 `X_AGENT_AUTH` 可以是逗号分隔的 token 列表，例如 `tokenA,tokenB`；后端校验时会拆开，任意一个匹配即可。
-- CLI 读取自己环境里的 `X_AGENT_AUTH` 后**自动取第一个 token**发送（含空白修剪），所以直接把整段逗号列表赋给它也能正常工作。
-
-403 排查顺序：
-1. 先确认后端是否要求鉴权：`curl -s "$QUARTET_BASE_URL/api/v1/health"`，看 `authRequired`。
-2. 如果 `authRequired=true`，确认当前 shell 的 `X_AGENT_AUTH` 已设置且非空。
-3. 如果浏览器已登录，可从 localStorage 取 `quartet.x_auth_token`，它就是可用于 CLI 的单个 token。
-4. 仍然 403 时，看后端日志里的 `tokenPrefix` 和 `tokenLen` 比对发出去的是哪个 token。
+- 首次使用先运行 `quartet-cli auth login --username <用户名>`，密码从终端安全输入。
+- CLI 按 `QUARTET_BASE_URL` 保存服务端登录 Cookie 和 CSRF 凭证，后续命令自动携带。
+- 用 `quartet-cli auth me` 查看当前登录用户；用 `quartet-cli auth logout` 退出。
+- `401` 表示登录会话不存在或已过期，需要重新登录；`403` 表示当前角色缺少该操作所需权限。
 
 所有错误（含后端校验错误）都会**全量打印**到 stderr。结果 JSON 打印到 stdout。
 

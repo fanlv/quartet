@@ -2,8 +2,8 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, vi } from 'vitest'
 import i18n from './src/i18n'
+import { setAuthPrincipal } from './src/auth'
 
-const AUTH_TOKEN_STORAGE_KEY = 'quartet.x_auth_token'
 const DEFAULT_TEST_LANGUAGE = 'en'
 
 class MockEventSource extends EventTarget {
@@ -61,6 +61,31 @@ function unexpectedFetch(input: RequestInfo | URL): Promise<Response> {
 }
 
 beforeEach(async () => {
+  // Component tests render feature pages directly instead of mounting the
+  // production AuthGate. Give those pages the same administrator principal
+  // they would receive after a successful test login; authorization-specific
+  // tests can replace it explicitly.
+  setAuthPrincipal({
+    user: {
+      id: 'test-admin',
+      username: 'admin',
+      displayName: 'Admin',
+      roleIds: ['admin'],
+      status: 'active',
+      mustChangePassword: false,
+      version: 1,
+      createdAt: '',
+      updatedAt: '',
+    },
+    permissions: [
+      'workspace.read', 'workspace.write', 'job.read', 'job.execute', 'job.manage', 'job.share',
+      'workflow.read', 'workflow.write', 'workflow.execute', 'schedule.read', 'schedule.write', 'schedule.execute',
+      'file.read', 'file.write', 'file.share', 'agent.read', 'agent.manage', 'config.read', 'config.write',
+      'im.read', 'im.manage', 'im.send', 'stats.read', 'logs.read', 'logs.manage', 'logs.report',
+      'skills.read', 'skills.manage', 'system.manage', 'users.read', 'users.manage', 'roles.read', 'roles.manage',
+    ],
+    csrfToken: 'test-csrf-token',
+  })
   vi.stubGlobal('fetch', vi.fn(unexpectedFetch))
   vi.stubGlobal('EventSource', MockEventSource)
   vi.stubGlobal('ResizeObserver', class {
@@ -81,7 +106,6 @@ beforeEach(async () => {
 
   localStorage.clear()
   sessionStorage.clear()
-  localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, 'test-token')
   localStorage.setItem('quartet-language', DEFAULT_TEST_LANGUAGE)
   await i18n.changeLanguage(DEFAULT_TEST_LANGUAGE)
   document.documentElement.lang = DEFAULT_TEST_LANGUAGE
@@ -89,6 +113,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   cleanup()
+  setAuthPrincipal(null)
   vi.clearAllTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()

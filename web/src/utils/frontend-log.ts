@@ -21,9 +21,8 @@ const MAX_QUEUE = 200;
 const queue: FrontendLogEntry[] = [];
 let flushTimer: number | null = null;
 let installed = false;
-// Until AuthGate confirms the token is accepted (or that the server doesn't
-// require one), we MUST NOT POST to /api/v1/logs/frontend — the endpoint
-// lives behind agentAuthMiddleware and would otherwise contribute to the
+// Until AuthGate confirms the session, we MUST NOT POST to
+// /api/v1/logs/frontend — the endpoint is private and would otherwise add to
 // 403 storm the gate exists to prevent. Default to disabled; AuthGate
 // flips this to true once it resolves to the "ready" stage.
 let forwarderEnabled = false;
@@ -32,7 +31,7 @@ let forwarderEnabled = false;
 // warn/error are still captured into the in-memory queue (capped by
 // MAX_QUEUE) and remain visible in the browser console. If the gate later
 // reaches "ready", queued entries flush on the next interval after enabling.
-// If the gate never reaches "ready" (missing/invalid token or failed probe),
+// If the gate never reaches "ready" (missing/invalid session or failed probe),
 // they intentionally stay browser-local instead of hammering the protected
 // report endpoint with requests that are expected to fail.
 export function setAuthForwarderEnabled(enabled: boolean) {

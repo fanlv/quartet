@@ -228,8 +228,6 @@ function UserMessageContent({ message }: { message: UserMessage }) {
   );
 }
 
-const MSG_AUTH_TOKEN_KEY = 'quartet.x_auth_token';
-
 // Share-mode info (shareToken + jobId) is provided by MessageItem and consumed
 // by MessageImage via context. Using context instead of a module-level variable
 // keeps each MessageItem subtree isolated — critical when share-mode and
@@ -242,10 +240,7 @@ function buildMessageImageUrl(path: string, shareInfo: ShareInfo | null): string
   if (shareInfo) {
     return `/api/v1/public/serve-file?path=${encodeURIComponent(path)}&shareToken=${encodeURIComponent(shareInfo.shareToken)}&jobId=${encodeURIComponent(shareInfo.jobId)}`;
   }
-  const token = (localStorage.getItem(MSG_AUTH_TOKEN_KEY) ?? '').trim();
-  let url = `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
-  if (token) url += `&token=${encodeURIComponent(token)}`;
-  return url;
+  return `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
 }
 
 function readPixelCustomProperty(style: CSSStyleDeclaration, name: string, fallback: number): number {
@@ -293,11 +288,7 @@ function MessageImage({ path, alt }: { path: string; alt?: string }) {
       alt={alt || ''}
       className="user-message-image"
       style={layoutWidth == null ? undefined : { width: `${layoutWidth}px` }}
-      // The serve-file URL carries the auth token as a query string. Without
-      // an explicit no-referrer policy the browser sends the full URL (token
-      // and all) to any third-party domain the image links to, e.g. if the
-      // user clicks through into another origin. The flag also prevents the
-      // token leaking into access logs of cross-origin redirects.
+      // Avoid forwarding the source page URL if a file response redirects.
       referrerPolicy="no-referrer"
       onLoad={(event) => {
         setLayoutWidth(getMessageImageLayoutWidth(event.currentTarget));

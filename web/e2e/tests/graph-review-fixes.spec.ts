@@ -3,7 +3,7 @@ import path from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
 import { expect, test, type APIRequestContext, type Page } from '../fixtures/test'
-import { e2eAuthToken } from '../fixtures/e2e-environment'
+import { e2eAuthHeaders, e2ePassword, e2eUsername } from '../fixtures/e2e-environment'
 
 // This suite verifies the code-review fixes (docs feature task "代码评审修复
 // 2026-06-24"). Like graph-canvas.spec.ts it drives the REAL backend with
@@ -74,7 +74,7 @@ import { e2eAuthToken } from '../fixtures/e2e-environment'
 //   #63 unchanged run-version edits do not append duplicate versions
 //   #64 saving a workflow keeps canvas edges visible after the editor unlocks
 
-const AUTH_HEADERS = { 'X-AGENT-AUTH': e2eAuthToken }
+const AUTH_HEADERS = e2eAuthHeaders()
 
 type GraphConfig = {
   name?: string
@@ -186,7 +186,7 @@ function parseSSEMessageEvents(text: string): Array<Record<string, unknown>> {
   return events
 }
 
-async function startReplayBackend(runInfo: E2ERunInfo, port: number): Promise<ChildProcessWithoutNullStreams> {
+async function startReplayBackend(runInfo: E2ERunInfo, port: number): Promise<{ proc: ChildProcessWithoutNullStreams; authHeaders: Record<string, string> }> {
   if (!runInfo.repoRoot) throw new Error('repoRoot missing from E2E env.json')
   const logDir = path.join(process.env.QUARTET_E2E_RUN_DIR || '.', 'logs')
   await fs.mkdir(logDir, { recursive: true })
@@ -199,7 +199,6 @@ async function startReplayBackend(runInfo: E2ERunInfo, port: number): Promise<Ch
       LOCAL_MEMORY: runInfo.localMemory,
       GOCACHE: path.join(process.env.QUARTET_E2E_RUN_DIR || '.', `go-build-cache-replay-${port}`),
       GOTMPDIR: runInfo.goTmp,
-      X_AGENT_AUTH: e2eAuthToken,
       QUARTET_LISTEN_ADDR: `127.0.0.1:${port}`,
       // The repository may contain production certs. This replay subprocess is
       // always contacted over loopback HTTP, just like the primary E2E backend.
@@ -210,7 +209,17 @@ async function startReplayBackend(runInfo: E2ERunInfo, port: number): Promise<Ch
   proc.stdout.pipe(stdout.createWriteStream())
   proc.stderr.pipe(stderr.createWriteStream())
   await waitForHTTP(`http://127.0.0.1:${port}/api/v1/health`, 30_000)
-  return proc
+  const login = await fetch(`http://127.0.0.1:${port}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: e2eUsername, password: e2ePassword }),
+  })
+  const raw = await login.text()
+  if (!login.ok) throw new Error(`Replay backend login failed: HTTP ${login.status} ${raw}`)
+  const principal = JSON.parse(raw) as { csrfToken?: string }
+  const cookie = (login.headers.get('set-cookie') || '').match(/(?:^|,\s*)quartet_session=([^;]+)/)?.[1]
+  if (!cookie || !principal.csrfToken) throw new Error(`Replay backend login returned incomplete credentials: ${raw}`)
+  return { proc, authHeaders: { Cookie: `quartet_session=${cookie}`, 'X-CSRF-Token': principal.csrfToken } }
 }
 
 async function stopProcess(proc: ChildProcessWithoutNullStreams) {
@@ -401,10 +410,9 @@ async function dropNodeOnElement(page: Page, dragLabel: RegExp | string, targetS
 
 async function openGraphCanvas(page: Page, request: APIRequestContext, name: string): Promise<GraphWorkspace> {
   const workspace = await createGraphWorkspace(request, name)
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
   await expect(page.getByTestId('auth-gate')).toHaveCount(0)
   await expect(page.getByTestId('graph-node-start')).toBeVisible()
@@ -531,10 +539,9 @@ test('graph review #39: JSON draft dirty guard covers Back, New, and selecting a
   const first = await createWorkflow(request, workspace, `e2e-json-leave-a-${Date.now()}`)
   const second = await createWorkflow(request, workspace, `e2e-json-leave-b-${Date.now()}`)
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
   await expect(page.getByTestId(`graph-workflow-row-${first.id}`)).toBeVisible({ timeout: 10_000 })
   await page.getByTestId(`graph-workflow-row-${first.id}`).click()
@@ -991,10 +998,9 @@ test('graph review #9: a corrupt workflow file surfaces as a warning in the UI',
 
   // The UI shows the warning block (corrupt file does not silently vanish).
   const workspace = await createGraphWorkspace(request, 'corrupt-ui')
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
   await expect(page.getByTestId('graph-node-start')).toBeVisible()
   const warningBlock = page.getByTestId('graph-workflow-warnings')
@@ -1010,10 +1016,9 @@ test('graph review #42: schedule modal surfaces graph workflow list warnings', a
   await fs.writeFile(path.join(workflowsDir, corruptName), '{ this is not valid json', 'utf8')
 
   const workspace = await createGraphWorkspace(request, 'schedule-warning')
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspace.workspaceId}`)
   await expect(page.getByTestId('auth-gate')).toHaveCount(0)
   await expect(page.getByTestId('home-content')).toBeVisible({ timeout: 10_000 })
@@ -1053,10 +1058,9 @@ test('graph review #46: workflow list is global and shows each workflow workspac
   expect((listBody.workflows ?? []).some((wf: { id: string }) => wf.id === wfA.id)).toBe(true)
   expect((listBody.workflows ?? []).some((wf: { id: string }) => wf.id === wfB.id)).toBe(true)
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   // Open the library while focused on workspace A; both workflows show up, each
   // tagged with its own workspace.
   await page.goto(`/?workspaceId=${workspaceA.workspaceId}&view=graph`)
@@ -1070,10 +1074,9 @@ test('graph review #54: cross-workspace save keeps the open workflow editable', 
   const workspaceA = await createGraphWorkspace(request, 'cross-workspace-save-a')
   await createGraphWorkspace(request, 'cross-workspace-save-b')
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspaceA.workspaceId}&view=graph`)
   await expect(page.getByTestId('graph-workspace-trigger')).toBeVisible({ timeout: 10_000 })
 
@@ -1243,10 +1246,9 @@ test('graph review #52: mounted Graph page updates workspace context while keepi
   const workflowA = await createWorkflow(request, workspaceA, `e2e-mounted-switch-a-${Date.now()}`)
   const workflowB = await createWorkflow(request, workspaceB, `e2e-mounted-switch-b-${Date.now()}`)
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspaceA.workspaceId}&view=graph`)
   await expect(page.getByTestId(`graph-workflow-row-${workflowA.id}`)).toBeVisible({ timeout: 10_000 })
   await expect(page.getByTestId(`graph-workflow-row-${workflowB.id}`)).toBeVisible()
@@ -1628,10 +1630,9 @@ test('graph review #15: refreshing the workflow list keeps stale open-document t
   const name = `e2e-refresh-token-${Date.now()}`
   const original = await createWorkflow(request, workspace, name)
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
   await expect(page.getByTestId(`graph-workflow-row-${original.id}`)).toBeVisible({ timeout: 10_000 })
   await page.getByTestId(`graph-workflow-row-${original.id}`).click()
@@ -1722,10 +1723,9 @@ test('graph review #18: opening a corrupt workflow surfaces the parse error', as
   const workspace = await createGraphWorkspace(request, 'corrupt-open')
   const workflow = await createWorkflow(request, workspace, `e2e-corrupt-open-${Date.now()}`)
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
   // The row exists while the file is still healthy. Corrupt it after the list
   // has loaded so selecting the row exercises the direct GetWorkflow path.
@@ -1820,10 +1820,9 @@ test('graph review #21: reopening a workflow avoids duplicate generated node and
     workdir: workspace.workdir,
   })
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
   await expect(page.getByTestId(`graph-workflow-row-${workflow.id}`)).toBeVisible({ timeout: 10_000 })
   await page.getByTestId(`graph-workflow-row-${workflow.id}`).click()
@@ -1942,7 +1941,7 @@ test('graph review #23b: corrupted event log surfaces through disk replay SSE er
   try {
     const stream = await readSSEUntil(
       `http://127.0.0.1:${replayPort}/api/v1/job/${encodeURIComponent(run.jobId)}/graph-run/events`,
-      AUTH_HEADERS,
+      replayBackend.authHeaders,
       (chunk) => chunk.includes('replay list events failed') && chunk.includes('unmarshal graph event'),
       15_000,
     )
@@ -1953,7 +1952,7 @@ test('graph review #23b: corrupted event log surfaces through disk replay SSE er
     expect(errorEvent?.message).toContain('unmarshal graph event')
     expect((errorEvent?.error as { message?: string } | undefined)?.message).toContain('unmarshal graph event')
   } finally {
-    await stopProcess(replayBackend)
+    await stopProcess(replayBackend.proc)
   }
 })
 
@@ -2188,10 +2187,9 @@ test('graph review #29: workflow list date includes year for older workflow', as
   raw.updatedAt = '2024-01-02T12:00:00Z'
   await fs.writeFile(workflowFile, `${JSON.stringify(raw, null, 2)}\n`, 'utf8')
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
   await expect(page.getByTestId(`graph-workflow-row-${workflow.id}`)).toBeVisible({ timeout: 10_000 })
   await expect(page.getByTestId(`graph-workflow-row-${workflow.id}`).locator('.graph-workflow-row-date')).toContainText('2024')
@@ -2347,10 +2345,9 @@ test('graph review #33: refreshed list version cannot delete a stale open workfl
   const name = `e2e-delete-open-token-${Date.now()}`
   const original = await createWorkflow(request, workspace, name)
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
   await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph`)
   await expect(page.getByTestId(`graph-workflow-row-${original.id}`)).toBeVisible({ timeout: 10_000 })
   await page.getByTestId(`graph-workflow-row-${original.id}`).click()
@@ -2585,10 +2582,9 @@ test('graph review #49: schedule modal displays full save and trigger errors', a
   const workspace = await createGraphWorkspace(request, 'schedule-full-errors')
   const workflow = await createWorkflow(request, workspace, `e2e-schedule-errors-${Date.now()}`)
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
 
   await page.route('**/api/v1/schedule/create', async (route) => {
     await route.fulfill({
@@ -2657,10 +2653,9 @@ test('graph review #49b: schedule Trigger Now is disabled while the request is p
   expect(createSchedule.ok(), `schedule create failed: ${createSchedule.status()} ${await createSchedule.text()}`).toBeTruthy()
   const schedule = (await createSchedule.json()).schedule as { id: string; name: string }
 
-  await page.addInitScript((token) => {
-    localStorage.setItem('quartet.x_auth_token', token)
+  await page.addInitScript(() => {
     localStorage.setItem('quartet-language', 'en')
-  }, e2eAuthToken)
+  })
 
   let runCalls = 0
   let releaseRun: (() => void) | null = null

@@ -5,7 +5,20 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const e2eAuthToken = process.env.QUARTET_E2E_AUTH_TOKEN || 'quartet-e2e-token'
+export const e2eUsername = 'quartet-e2e-admin'
+export const e2ePassword = 'quartet-e2e-password1'
+export function e2eAuthHeaders() {
+  return {
+    Cookie: `quartet_session=${process.env.QUARTET_E2E_SESSION_COOKIE || ''}`,
+    'X-CSRF-Token': process.env.QUARTET_E2E_CSRF_TOKEN || '',
+  }
+}
+
+export async function installE2EAuthCookie(page: { context(): { addCookies(cookies: Array<{ name: string; value: string; url: string }>): Promise<void> } }) {
+  const sessionCookie = process.env.QUARTET_E2E_SESSION_COOKIE || ''
+  if (!sessionCookie) throw new Error('QUARTET_E2E_SESSION_COOKIE is not set; E2E global setup did not initialize authentication')
+  await page.context().addCookies([{ name: 'quartet_session', value: sessionCookie, url: e2eFrontendURL }])
+}
 export const e2eLegacyFirstModelJobID = 'job-e2e-legacy-first-model'
 export const e2eLegacyFirstModelID = 'e2e-legacy-first-model'
 export const e2eInterruptedRunningJobID = 'job-e2e-interrupted-running'
@@ -16,6 +29,7 @@ const frontendPort = Number(process.env.VITE_E2E_PORT || 5174)
 const backendURL = process.env.VITE_E2E_BACKEND_URL || `http://127.0.0.1:${backendPort}`
 const frontendURL = `http://127.0.0.1:${frontendPort}`
 export const e2eBackendURL = backendURL
+export const e2eFrontendURL = frontendURL
 
 // E2E drives REAL agent links (no replay model, no QUARTET_E2E mode). The
 // primary chat-link coverage runs against an installed ACP agent discovered
@@ -173,6 +187,39 @@ async function waitForHTTP(url: string, timeoutMs: number, processes: ManagedPro
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
   throw new Error(`Timed out waiting for ${url}: ${String(lastError)}\n${processes.map(processTail).join('\n')}`)
+}
+
+async function initializeE2EAdmin(backend: ManagedProcess, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs
+  let initCode = ''
+  while (Date.now() < deadline) {
+    const output = `${backend.stdout.join('')}\n${backend.stderr.join('')}`
+    initCode = output.match(/first-run initialization code: ([a-f0-9]+)/)?.[1] || ''
+    if (initCode) break
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  if (!initCode) throw new Error(`Backend did not print an initialization code\n${processTail(backend)}`)
+
+  const response = await fetch(`${backendURL}/api/v1/auth/init`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      initCode,
+      username: e2eUsername,
+      displayName: 'Quartet E2E',
+      password: e2ePassword,
+      confirmPassword: e2ePassword,
+    }),
+  })
+  const raw = await response.text()
+  if (!response.ok) throw new Error(`E2E administrator initialization failed: HTTP ${response.status} ${raw}`)
+  const principal = JSON.parse(raw) as { csrfToken?: string }
+  const setCookie = response.headers.get('set-cookie') || ''
+  const sessionCookie = setCookie.match(/(?:^|,\s*)quartet_session=([^;]+)/)?.[1] || ''
+  if (!sessionCookie || !principal.csrfToken) throw new Error(`E2E initialization returned incomplete credentials: ${raw}`)
+  process.env.QUARTET_E2E_SESSION_COOKIE = sessionCookie
+  process.env.QUARTET_E2E_CSRF_TOKEN = principal.csrfToken
+  return { sessionCookie, csrfToken: principal.csrfToken }
 }
 
 function createRunDir() {
@@ -483,7 +530,6 @@ async function globalSetup() {
         ...(einoOnPath
           ? { PATH: `${einoBinDir}${path.delimiter}${process.env.PATH || ''}`, EINO_HOME: einoHome }
           : {}),
-        X_AGENT_AUTH: e2eAuthToken,
         QUARTET_LISTEN_ADDR: `127.0.0.1:${backendPort}`,
         // The repository may contain production certs. E2E always exercises
         // its isolated loopback backend over plain HTTP.
@@ -495,6 +541,8 @@ async function globalSetup() {
     // ACP discovery refreshes asynchronously, so an empty isolated cache must
     // not delay backend health readiness.
     await waitForHTTP(`${backendURL}/api/v1/health`, 30_000, processes)
+    const auth = await initializeE2EAdmin(backend, 10_000)
+    fs.writeFileSync(path.join(runDir, 'auth.json'), `${JSON.stringify(auth, null, 2)}\n`, { mode: 0o600 })
 
     const frontend = startProcess({
       name: 'frontend',

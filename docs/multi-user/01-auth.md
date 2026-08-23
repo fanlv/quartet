@@ -1,5 +1,7 @@
 # 01 — 用户模型与认证
 
+> **已废弃：** 本文中的 JWT、SQLite 和兼容模式不再实施。当前方案见 `docs/feature/feature-2026-08-23-user-auth-permission-management.md`。
+
 ## 1. User 模型
 
 User 包含以下字段：

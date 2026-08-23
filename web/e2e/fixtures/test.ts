@@ -1,6 +1,7 @@
 import { expect, test as base, type APIRequestContext, type APIResponse, type ConsoleMessage, type Page, type Request, type Response, type TestInfo } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { e2eAuthHeaders, installE2EAuthCookie } from './e2e-environment'
 
 type ConsoleEntry = {
   timestamp: string
@@ -240,6 +241,11 @@ function wrapRequestContext(request: APIRequestContext, diagnostics: E2EDiagnost
           ? String((args[1] as { method?: string } | undefined)?.method ?? 'GET').toUpperCase()
           : methodName
         const requestBody = requestBodyFromOptions(args[1])
+        const options = args[1] && typeof args[1] === 'object' ? args[1] as Record<string, unknown> : {}
+        // Supply authenticated defaults for every APIRequestContext call while
+        // preserving explicit per-test overrides (needed to assert anonymous,
+        // missing-CSRF, and legacy-header rejection paths).
+        args[1] = { ...options, headers: { ...e2eAuthHeaders(), ...(options.headers as Record<string, string> | undefined) } }
         const response = await original.apply(target, args) as APIResponse
         await recordAPIResponse({ method: requestMethod, url, requestBody, response, diagnostics, testInfo })
         return response
@@ -264,6 +270,7 @@ export const test = base.extend<{ diagnostics: E2EDiagnostics }>({
     await persistDiagnostics(testInfo, diagnostics)
   },
   page: async ({ page, diagnostics }, fixtureUse, testInfo) => {
+    await installE2EAuthCookie(page)
     attachPageDiagnostics(page, diagnostics, testInfo)
     await fixtureUse(page)
   },

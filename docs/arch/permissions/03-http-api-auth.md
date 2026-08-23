@@ -1,98 +1,39 @@
 # 03 · HTTP API 鉴权
 
-> 范围：`/api/v1/*` 的 Token 认证、`/api/v1/public/*` 的 Share Token、CORS、Listen Addr。
+> 范围：用户登录会话、RBAC、公开分享、CORS 与监听地址。
 
-## 1. Bearer Token 中间件 —— `agentAuthMiddleware`
+## 1. 用户会话
 
-位置：`cmd/web/middleware.go` 中的 `agentAuthMiddleware()`。
+- 私有 `/api/v1/*` 由 `sessionAuthMiddleware` 校验 `quartet_session` Cookie。
+- Cookie 是 host-only、HttpOnly、SameSite=Strict；HTTPS 请求增加 Secure。
+- Cookie 只保存随机会话值，服务端仅保存摘要、用户 ID、CSRF 值与有效期。
+- 会话不存在或过期返回 401；用户已登录但缺少路由权限返回 403。
+- 用户停用、删除或重置密码时撤销其全部会话。
+- `/api/v1/auth/me` 是轻量登录态探测接口，不触发 Agent 探测。
 
-- Token 来源（按优先级）：
-  1. 请求头 `X-AGENT-AUTH`（推荐）。
-  2. URL Query `?token=...`（给 `<img src>` 这类无法加自定义头的浏览器原生请求兜底）。
-- 对比逻辑在 `cmd/web/handler/auth.go` 的 `CheckAgentAuth`：
-  - 配置来源：`X_AGENT_AUTH` 环境变量，逗号分隔可配多个。
-  - 未配置 → "开放访问"，任何 token 都返回通过。这是单机默认体验，这里不用考虑安全问题，因为是运行在用户个人电脑上。
-  - 已配置 → 用 `subtle.ConstantTimeCompare` 做常量时间对比，逐个匹配。
-- `IsAuthRequired()` 提供给 `/api/v1/health` 等公开接口探测：返回是否至少有一个非空 token 配置。
+## 2. 初始化与登录
 
-### 1.1 拒绝时的日志策略
+- `/api/v1/health` 匿名可访问，通过 `authState` 返回 `uninitialized`、`ready` 或 `recovery`。
+- `uninitialized` 状态下，后端日志打印一次性初始化码；`POST /api/v1/auth/init` 校验该码并创建首个管理员。
+- `POST /api/v1/auth/login` 使用用户名和密码登录。连续失败会触发短时限流。
+- 认证配置损坏或缺少有效管理员时进入 `recovery`，不重新开放匿名初始化。
 
-注释里写得很清楚：很多被鉴权的路径在访问日志里默认会被跳过，所以中间件这条 reject 行往往是排障唯一线索。日志级别区分：
+## 3. 权限
 
-- 空 token → `Info`（首次启动 UI、token 轮转等正常情况）。
-- 非空 token 但不匹配 → `Warn`（误配 / 攻击探测）。
+私有业务路由在注册时显式声明稳定权限 ID。用户可绑定多个角色，有效权限为角色权限并集。未声明鉴权策略的私有路由不应放行。完整权限 ID 和路由矩阵见 [用户认证与权限方案](../../feature/feature-2026-08-23-user-auth-permission-management.md)。
 
-`tokenPrefix(token)` 只输出前 4 位 + `***`，绝不会把完整 token 写日志。
+这是共享实例权限模型：权限控制功能类别，不按资源创建人隔离数据。
 
-### 1.2 拒绝响应
+## 4. CSRF
 
-```json
-{ "error": "permission denied" }
-```
+Cookie 会自动随请求发送，因此所有修改状态的私有请求必须携带当前会话对应的 `X-CSRF-Token`。该值由登录、初始化和 `/api/v1/auth/me` 返回。GET、HEAD、OPTIONS 和 SSE 握手不要求该请求头。
 
-HTTP `403 Forbidden`，并 `c.Abort()`。
+## 5. 公开分享
 
-## 2. Share Token 中间件 —— `shareTokenMiddleware`
+`/api/v1/public/*` 不创建用户登录态，继续通过 `shareToken` 或 `fileShareToken` 校验，只允许既有只读分享能力。分享凭证不能访问私有接口。
 
-位置：`cmd/web/middleware.go` 中的 `shareTokenMiddleware(jobSvc)`。
+## 6. CORS 与监听地址
 
-挂在 `/api/v1/public/*` 路由组下，给 Job 的"分享只读视图"用。
-
-流程：
-
-1. 取 query `?shareToken=...`，缺失 → `403 {"error":"shareToken is required"}`。
-2. 取 jobId（`:jobId` 路径参数 / 否则 `?jobId=`），缺失 → `400 {"error":"jobId is required"}`。
-3. `jobSvc.Get(jobID)`，找不到 → `404 {"error":"job not found"}`。
-4. 把 `j.ShareToken` 与请求 token 用 `subtle.ConstantTimeCompare` 比对，不一致 → `403 {"error":"invalid share token"}`。
-5. 通过后把 Job 写入 `c.Set("publicJob", j)` 给下游 handler 使用。
-
-### 2.1 Share Token 生命周期
-
-位置：`cmd/web/handler/job.go` 中的 `JobShare` / `JobShareClear`。
-
-- `EnsureShareToken`（在 job service 层）：拿到锁后读现值，空则用 32 字节 `crypto/rand` 生成并持久化；并发请求不会签出多个不同 token。
-- `ClearShareToken`：原子清空，避免并发覆盖。
-- 没有过期机制；撤回 = 清空或删除 Job。
-
-## 3. `/api/v1/public/*` 路由
-
-位置：`cmd/web/api.go`。
-
-公共路径只有少数几条且全部"读"：
-- `GET /api/v1/public/job/:jobId` —— 读 Job 元信息。
-- `GET /api/v1/public/job/:jobId/events` —— SSE 订阅 Job 事件。
-- `GET /api/v1/public/sessions/:sessionId/messages` —— 读会话消息。
-- `GET /api/v1/public/serve-file?path=...` —— 受限的文件服务，详见下一节。
-
-### 3.1 `PublicServeFile` 的额外约束
-
-位置：`cmd/web/handler/job_public.go` 中的 `PublicServeFile`。
-
-- 取出 `c.Get("publicJob")` 拿到经过 share token 校验的 Job。
-- 把 `typepath.LocalSessionsDirInWorkspaceJob(job.WorkspaceID, job.ID)` 当作"允许的根"。
-- 双方做 `FileEvalSymlinks`，校验请求路径必须落在该 Job 的 sessions 目录之下。
-- 拒绝时返回 `403 {"error":"access denied: path is outside job directory"}`。
-
-含义：分享出去的链接**不能**通过 `path=...` 跳读到 Job 范围之外的文件。
-
-## 4. `/api/v1/health` 的特殊性
-
-它**不**走 `agentAuthMiddleware`，是给前端做"是否需要登录"探测用的。返回里包含 `authRequired`，前端据此决定要不要在请求里挂 token。
-
-## 5. CORS
-
-位置：`cmd/web/main.go` 中的 `corsOrigins()` / `cors.Config`。
-
-- 配置来源：`QUARTET_CORS_ORIGINS`（逗号分隔多个 origin）。
-- 未配置：默认 same-origin。Boot 时打 Info 日志，提醒"以前的版本默认 `*`，现在已改为 same-origin，要跨域必须显式配置"。
-- `AllowHeaders` 包含 `X-AGENT-AUTH`，确保鉴权头能在跨域预检里通过。
-
-## 6. Listen Addr
-
-位置：`cmd/web/main.go`，配置项 `QUARTET_LISTEN_ADDR`（如 `0.0.0.0:8090` 暴露到 LAN）。
-
-注意：暴露到 LAN/WAN **必须**同时设置 `X_AGENT_AUTH`，否则任何能连到端口的人都能调所有 API。Boot 时如果 `X_AGENT_AUTH` 未设会打 Info 日志提示。
-
-## 7. 没有 Session / Cookie / Refresh Token
-
-quartet 的 HTTP 鉴权是无状态的、单个静态共享密钥。对 IM 网关、SSE 长连接同样如此（连接建立时校验一次，长连本身不再做 per-message 鉴权）。
+- 默认同源访问。跨域来源由 `QUARTET_CORS_ORIGINS` 显式配置。
+- Cookie 登录的跨域部署还必须允许 credentials，且来源不能使用通配符。
+- `QUARTET_LISTEN_ADDR` 可以覆盖监听地址。暴露到不可信网络时应使用 HTTPS，并结合反向代理限流。

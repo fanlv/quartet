@@ -160,7 +160,6 @@
     <script>
       (function () {
         var BOOT_TIMEOUT_MS = 10000;
-        var AUTH_TOKEN_KEY = 'quartet.x_auth_token';
         var APP_STORAGE_KEYS = {
           'quartet-language': true,
           'last_used_workspace_id': true,
@@ -183,7 +182,6 @@
         var timer = 0;
 
         function isAppStorageKey(key) {
-          if (key === AUTH_TOKEN_KEY) return false;
           if (APP_STORAGE_KEYS[key]) return true;
           for (var i = 0; i < APP_STORAGE_PREFIXES.length; i += 1) {
             if (key.indexOf(APP_STORAGE_PREFIXES[i]) === 0) return true;
@@ -276,7 +274,7 @@
           var message = document.getElementById('boot-message');
           var details = document.getElementById('boot-details');
           if (title) title.textContent = completed ? 'Application error' : 'Application failed to start';
-          if (message) message.textContent = 'Reload the page, or clear only Quartet cache data and try again. Your access token will be kept.';
+          if (message) message.textContent = 'Reload the page, or clear only Quartet cache data and try again. Your login cookie will be kept.';
           if (details) details.textContent = diagnostics();
         }
 

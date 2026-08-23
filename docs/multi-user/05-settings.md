@@ -1,5 +1,7 @@
 # 05 — 配置与设置
 
+> **已废弃：** 本文中的按用户数据隔离方案不再实施。当前方案见 `docs/feature/feature-2026-08-23-user-auth-permission-management.md`。
+
 ## 1. 配置分层
 
 多用户模式下配置分为两类：

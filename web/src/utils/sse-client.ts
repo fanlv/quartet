@@ -35,10 +35,9 @@ export class SSEClient {
   private lastEventId = '';
   private resumeGoneNotified = false;
   // Set true once we observe an auth rejection (401/403). Stops further
-  // reconnect scheduling: with no valid token, every retry would just
-  // generate another `[auth] reject ... tokenPrefix=<empty>` log on the
-  // server and burn battery on the client. The user must reload the page
-  // (which re-runs AuthGate) or set a fresh token before we try again.
+  // reconnect scheduling: with no valid session, every retry would just
+  // generate another auth rejection and burn battery on the client. The user
+  // must sign in again before a new client is created.
   private authRejected = false;
 
   private shouldLogReconnectIssue(attempt: number): boolean {
@@ -71,12 +70,9 @@ export class SSEClient {
   }
 
   // handleAuthRejection short-circuits the reconnect loop on 401/403.
-  // The token-injecting fetch wrapper in main.tsx silently drops the
-  // X-AGENT-AUTH header when localStorage has no token (e.g. user
-  // cleared it via Settings → Token, or the value was wiped externally).
   // Without this guard the SSE client keeps retrying the protected
   // endpoint on the exponential-backoff schedule and the server logs
-  // `[auth] reject ... tokenLen=0` every attempt. We notify via onError
+  // endpoint every attempt. We notify via onError
   // and onDisconnect once, then stay quiet until the caller rebuilds us.
   private async handleAuthRejection(options: SSEClientOptions, response: Response): Promise<void> {
     if (this.authRejected) return;
@@ -88,7 +84,7 @@ export class SSEClient {
     }
     const errBody = await response.text().catch(() => '');
     const errMsg = this.parseResponseError(response.status, errBody);
-    console.error(`[SSEClient] auth rejected (${errMsg}); stopping reconnect — token likely missing or invalid, page reload required`);
+    console.error(`[SSEClient] auth rejected (${errMsg}); stopping reconnect — sign-in required`);
     options.onError?.(new Error(`SSE auth rejected: ${errMsg}`));
     options.onDisconnect?.();
   }

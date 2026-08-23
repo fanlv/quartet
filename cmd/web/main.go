@@ -23,6 +23,7 @@ import (
 	"github.com/fanlv/quartet/pkg/sandbox"
 	svcacp "github.com/fanlv/quartet/services/agent/acp"
 	acpprobe "github.com/fanlv/quartet/services/agent/probe"
+	"github.com/fanlv/quartet/services/auth"
 	"github.com/fanlv/quartet/services/schedule"
 	"github.com/fanlv/quartet/types/consts"
 	"github.com/hertz-contrib/cors"
@@ -128,8 +129,8 @@ func fileExists(p string) bool {
 // header for cross-origin requests, which is the safe default for a local
 // server that ships with no web client on a third-party origin. Operators
 // who proxy the UI from a different origin can set the env var explicitly.
-// The literal "*" is accepted for dev workflows; combined with the built-in
-// auth token it's still gated, but anyone relying on it should be aware.
+// Cookie authentication requires concrete origins when credentials are used;
+// a wildcard entry is ignored.
 func corsOrigins() []string {
 	v := strings.TrimSpace(os.Getenv(consts.EnvKeyCORSOrigins))
 	if v == "" {
@@ -139,6 +140,10 @@ func corsOrigins() []string {
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
 		if s := strings.TrimSpace(p); s != "" {
+			if s == "*" {
+				logger.Warnf(context.Background(), "[cors] ignore wildcard origin: cookie authentication requires an explicit origin")
+				continue
+			}
 			out = append(out, s)
 		}
 	}
@@ -335,11 +340,10 @@ func main() {
 	} else {
 		logger.Infof(ctx, "Server is running on %s://%s", lc.scheme(), addr)
 	}
-	if os.Getenv(consts.EnvKeyAgentAuth) == "" {
-		logger.Warnf(ctx, "[security] %s is not set; API access is OPEN — every request is allowed. Set %s to a token before exposing this server to untrusted networks.",
-			consts.EnvKeyAgentAuth, consts.EnvKeyAgentAuth)
-	} else {
-		logger.Infof(ctx, "[security] %s is set; API access requires a matching token", consts.EnvKeyAgentAuth)
+	authState, _ := h.AuthStatus()
+	logger.Infof(ctx, "[security] user session authentication state=%s", authState)
+	if authState == auth.StateUninitialized {
+		logger.Infof(ctx, "[security] first-run initialization code: %s", h.AuthInitCode())
 	}
 
 	// Start the loopback plaintext companion listener (constructed above).
@@ -470,10 +474,10 @@ func newServer(lc listenConfig) *server.Hertz {
 	if len(origins) > 0 {
 		h.Use(cors.New(cors.Config{
 			AllowOrigins:     origins,
-			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowHeaders:     []string{"Content-Type", "Authorization", "X-Requested-With", consts.HeaderAgentAuth},
+			AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"Content-Type", "X-Requested-With", auth.CSRFHeader},
 			ExposeHeaders:    []string{"Content-Length"},
-			AllowCredentials: false,
+			AllowCredentials: true,
 			MaxAge:           24 * time.Hour,
 		}))
 		logger.Infof(context.Background(), "[cors] cross-origin enabled for: %s", strings.Join(origins, ", "))

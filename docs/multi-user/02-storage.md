@@ -1,5 +1,7 @@
 # 02 — 存储层改造
 
+> **已废弃：** 本文中的按用户数据隔离与 SQLite 方案不再实施。当前方案见 `docs/feature/feature-2026-08-23-user-auth-permission-management.md`。
+
 ## 1. 现有目录结构（单用户）
 
 ```text

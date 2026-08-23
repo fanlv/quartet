@@ -15,9 +15,11 @@ boundary, so the same UI can run interactive conversations, compose repeatable
 multi-agent workflows, inspect live execution, and keep the resulting history
 on local storage.
 
-Quartet is designed for a single user running it on a personal computer or in a
-development sandbox. It is under active development, and its APIs and stored
-data formats may change before a stable release.
+Quartet is designed for a trusted shared instance running on a personal computer
+or in a development sandbox. Multiple login accounts share the same workspaces
+and data while roles control available capabilities. It is under active
+development, and its APIs and stored data formats may change before a stable
+release.
 
 ## Highlights
 
@@ -282,7 +284,6 @@ Quartet requires both `claude` and `claude-agent-acp` for Claude Code, and both
 | Variable | Required | Description |
 |---|---:|---|
 | `LOCAL_MEMORY` | Yes | Absolute path used for Quartet's persistent data and runtime state |
-| `X_AGENT_AUTH` | No | One token, or a comma-separated list of tokens, required by protected API routes |
 | `QUARTET_LISTEN_ADDR` | No | Overrides the default listen address |
 | `QUARTET_CORS_ORIGINS` | No | Comma-separated cross-origin allowlist; unset means same-origin only |
 | `QUARTET_LOG_LEVEL` | No | Initial log level: `debug`, `info`, `warn`, or `error` |
@@ -293,16 +294,11 @@ Without certificates, Quartet binds to `0.0.0.0:8090` over HTTP. When both
 `cert.pem` and `key.pem` exist in the certificate directory, it enables HTTPS
 and defaults to `0.0.0.0:443`.
 
-The API is open when `X_AGENT_AUTH` is unset. Set a strong token before using
-Quartet on a LAN, container port, tunnel, or public domain:
-
-```bash
-export X_AGENT_AUTH="$(openssl rand -hex 32)"
-make web
-```
-
-The browser will ask for the token and send it through the `X-AGENT-AUTH`
-header. See the
+Quartet always protects private APIs with user login sessions. On first start,
+the backend log prints a one-time initialization code; use it on the Web setup
+page to create the first administrator. Administrators can then create users
+and assign roles. Web, iOS, and `quartet-cli` all authenticate with cookies;
+there is no shared API token. See the
 [permissions and access-control documentation](docs/arch/permissions/README.md)
 for the complete boundary.
 

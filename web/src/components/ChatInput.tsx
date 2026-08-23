@@ -19,14 +19,9 @@ import { splitFavoriteModels } from '../utils/agentPrefs';
 import { DurationBadge } from './DurationBadge';
 import './ChatInput.css';
 
-const MSG_AUTH_TOKEN_KEY = 'quartet.x_auth_token';
-
 function toImagePreviewUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:') || path.startsWith('blob:')) return path;
-  const token = (localStorage.getItem(MSG_AUTH_TOKEN_KEY) ?? '').trim();
-  let url = `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
-  if (token) url += `&token=${encodeURIComponent(token)}`;
-  return url;
+  return `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
 }
 
 interface LocalSentMessage {
@@ -112,7 +107,7 @@ function appendLocalSentMessage(storageKey: string, item: Omit<LocalSentMessage,
 async function uploadImage(file: File): Promise<string> {
   const formData = new FormData();
   formData.append('file', file);
-  // Auth header is injected by the global fetch interceptor in main.tsx
+  // The session cookie and CSRF header are handled by the global fetch wrapper.
   const res = await fetch('/api/v1/upload-file', { method: 'POST', body: formData });
   const data = await res.json();
   if (!data || data.code !== 0) throw new Error(data?.msg || 'Upload failed');
@@ -294,7 +289,7 @@ export function ChatInput({
     switchableWorkspaces && switchableWorkspaces.length > 0 && onSwitchWorkspace
   );
   // Current git branch of the footer workdir (skipped in read-only/shared views
-  // where the endpoint would only 401 behind agent-auth).
+  // where the private endpoint would reject the request).
   const gitBranch = useGitBranch(displayWorkdir || workdir, !readOnly);
   const interactionDisabled = disabled || readOnly || !jobEnable;
   const controlsDisabled = readOnly || !jobEnable;

@@ -7,8 +7,8 @@ Sophia 是 Quartet 的原生 SwiftUI 客户端，面向个人内部分发和局�
 当前仓库中的 iOS 工程已实现首个纵切代码，能力范围包括：
 
 - 单个可配置后端，默认 `https://devbox.fanlv.fun/`
-- 健康检查与按需 Token 验证
-- Keychain Token 存储，服务地址保存在 `UserDefaults`
+- 健康检查与 Cookie 登录会话验证
+- 用户名和密码登录；密码不持久化，服务地址保存在 `UserDefaults`
 - 工作空间列表、筛选和服务端共享的默认 Agent/模型读写
 - Job 分页列表、详情、停止、置顶、重命名和删除
 - 新建 Agent 对话，支持选择工作空间、Agent、模型、模式和思考等级
@@ -44,7 +44,7 @@ Sophia 是 Quartet 的原生 SwiftUI 客户端，面向个人内部分发和局�
 2. 在 macOS 上打开 `Quartet.xcworkspace`，不要直接打开 `Quartet.xcodeproj`。
 3. 在 Quartet target 的 Signing & Capabilities 中选择个人开发团队。
 4. 连接 iPhone，选择设备并运行。
-5. 首次启动时确认服务地址并填写 `X-AGENT-AUTH` Token；未启用鉴权可留空。
+5. 首次启动时确认服务地址并填写 Quartet 用户名和密码；实例尚未初始化时，先在 Web 页面创建管理员。
 
 ## 测试
 

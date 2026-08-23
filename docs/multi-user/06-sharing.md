@@ -1,5 +1,7 @@
 # 06 — 共享与协作
 
+> **已废弃：** 本文中的资源归属与组织内分享方案不在本期范围。当前共享实例方案见 `docs/feature/feature-2026-08-23-user-auth-permission-management.md`。
+
 ## 1. Job 分享（现有功能适配）
 
 ### 现状
