@@ -75,10 +75,12 @@ struct NewConversationView: View {
     @State private var modeID = ""
     @State private var thoughtLevelID = ""
     @State private var message = ""
+    @State private var sentMessageHistory: [SentMessageHistoryItem] = []
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var pendingImage: PendingUpload?
     @State private var showsCameraPicker = false
     @State private var showsDocumentPicker = false
+    @State private var showsSentMessageHistory = false
     @State private var showsAdvancedOptions = false
     @State private var loading = true
     @State private var creating = false
@@ -153,7 +155,7 @@ struct NewConversationView: View {
                 }
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle("新对话")
+            .navigationTitle("新任务")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
@@ -162,6 +164,10 @@ struct NewConversationView: View {
                 if creationMode == .chat, agents.isEmpty {
                     await load()
                 }
+            }
+            .task(id: workspaceID) {
+                guard creationMode == .chat, !workspaceID.isEmpty else { return }
+                loadSentMessageHistory()
             }
             .onChange(of: currentCreatePayload) { _, payload in
                 if createIntent?.payload != payload {
@@ -214,7 +220,7 @@ struct NewConversationView: View {
                         .shadow(color: selected ? Color.black.opacity(0.08) : .clear, radius: 8, y: 3)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("新建\(item.title)")
+                .accessibilityLabel(item == .chat ? "创建普通任务" : "创建 Graph Workflow 任务")
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
@@ -235,7 +241,7 @@ struct NewConversationView: View {
                     .tint(QuartetTheme.accent)
                     .controlSize(.large)
             }
-            Text("正在准备对话")
+            Text("正在准备任务")
                 .font(.quartet(.regular, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
             Text("正在读取空间与 Agent 配置…")
@@ -249,14 +255,31 @@ struct NewConversationView: View {
     private var composer: some View {
         let hasPendingImage = pendingImage != nil
         return VStack(alignment: .leading, spacing: 14) {
-            HStack {
+            HStack(spacing: 12) {
                 Text("第一条消息")
                     .font(.quartet(.regular, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Spacer()
+                Button {
+                    composerFocused = false
+                    loadSentMessageHistory()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showsSentMessageHistory.toggle()
+                    }
+                } label: {
+                    Label(showsSentMessageHistory ? "收起历史" : "历史消息", systemImage: "clock.arrow.circlepath")
+                        .font(.quartet(.detail, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(QuartetTheme.accent)
+                .accessibilityIdentifier("new-task-message-history")
                 Text(message.isEmpty ? "支持文字与图片" : "\(message.count) 字")
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
+            }
+
+            if showsSentMessageHistory {
+                sentMessageHistoryPicker
             }
 
             ZStack(alignment: .topLeading) {
@@ -321,6 +344,51 @@ struct NewConversationView: View {
         )
         .shadow(color: Color.black.opacity(composerFocused ? 0.08 : 0.03), radius: 18, y: 8)
         .animation(.easeOut(duration: 0.18), value: composerFocused)
+    }
+
+    @ViewBuilder
+    private var sentMessageHistoryPicker: some View {
+        if sentMessageHistory.isEmpty {
+            Text("暂无发送历史")
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 10) {
+                    ForEach(sentMessageHistory) { item in
+                        Button {
+                            message = item.content
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showsSentMessageHistory = false
+                            }
+                            composerFocused = true
+                        } label: {
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text(item.content)
+                                    .font(.quartet(.control))
+                                    .foregroundStyle(QuartetTheme.primaryText)
+                                    .lineLimit(3)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(Date(timeIntervalSince1970: Double(item.createdAt) / 1_000)
+                                    .formatted(date: .abbreviated, time: .shortened))
+                                    .font(.quartet(.compact))
+                                    .foregroundStyle(QuartetTheme.secondaryText)
+                            }
+                            .padding(12)
+                            .frame(width: 250, alignment: .leading)
+                            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(item.content)
+                        .accessibilityHint("选择后可继续修改")
+                        .accessibilityIdentifier("sent-message-history-item-\(item.id)")
+                    }
+                }
+            }
+        }
     }
 
     private func attachmentActionLabel(_ title: String, icon: String) -> some View {
@@ -772,10 +840,18 @@ struct NewConversationView: View {
             )
             let jobID = try await model.createJob(request: request)
             self.createIntent = nil
+            do {
+                sentMessageHistory = try model.recordSentMessage(
+                    message,
+                    workspaceID: payload.workspaceID
+                )
+            } catch {
+                model.present(error)
+            }
             let now = Int64(Date().timeIntervalSince1970 * 1_000)
             let summary = JobSummary(
                 id: jobID,
-                title: "新对话",
+                title: "新任务",
                 modelId: payload.modelID,
                 status: "pending",
                 mode: "interactive",
@@ -813,6 +889,14 @@ struct NewConversationView: View {
 
     private func isDefinitelyRejected(_ error: Error) -> Bool {
         (error as? APIError)?.requestWasRejected == true
+    }
+
+    private func loadSentMessageHistory() {
+        do {
+            sentMessageHistory = try model.sentMessageHistory(workspaceID: workspaceID)
+        } catch {
+            present(error)
+        }
     }
 
     private func loadPhoto(_ item: PhotosPickerItem) async {

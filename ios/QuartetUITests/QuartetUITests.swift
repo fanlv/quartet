@@ -93,7 +93,7 @@ final class QuartetUITests: XCTestCase {
         launchDashboard()
 
         app.buttons["new-conversation-button"].tap()
-        XCTAssertTrue(app.navigationBars["新对话"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["新任务"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Quartet Studio"].exists)
         XCTAssertTrue(app.staticTexts["TraeCode"].exists)
 
@@ -103,9 +103,23 @@ final class QuartetUITests: XCTestCase {
         message.typeText("验证新建对话主路径")
         app.buttons["new-conversation-create"].tap()
 
-        XCTAssertTrue(app.navigationBars["新对话"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["新任务"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["验证新建对话主路径"].exists)
         XCTAssertTrue(app.textFields["chat-composer"].exists)
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["new-conversation-button"].tap()
+        XCTAssertTrue(app.navigationBars["新任务"].waitForExistence(timeout: 5))
+        app.buttons["new-task-message-history"].tap()
+        let historyItem = app.buttons["验证新建对话主路径"]
+        XCTAssertTrue(historyItem.waitForExistence(timeout: 2))
+        historyItem.tap()
+        XCTAssertTrue(app.staticTexts["9 字"].waitForExistence(timeout: 2))
+        let recalledMessage = app.textViews["new-conversation-message"]
+        XCTAssertTrue(recalledMessage.waitForExistence(timeout: 2))
+        recalledMessage.tap()
+        recalledMessage.typeText("，补充范围")
+        XCTAssertTrue(app.staticTexts["14 字"].waitForExistence(timeout: 2))
     }
 
     func testGraphRunShowsProgressAndHumanAction() {
@@ -126,7 +140,7 @@ final class QuartetUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["最近任务"].waitForExistence(timeout: 30))
         app.buttons["new-conversation-button"].tap()
-        XCTAssertTrue(app.navigationBars["新对话"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["新任务"].waitForExistence(timeout: 15))
 
         let message = app.textViews["new-conversation-message"]
         XCTAssertTrue(message.waitForExistence(timeout: 30))
@@ -147,7 +161,7 @@ final class QuartetUITests: XCTestCase {
     private func launchDashboard() {
         app.launchArguments = ["--ui-testing-dashboard"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["最近任务"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["new-conversation-button"].waitForExistence(timeout: 5))
     }
 }
 

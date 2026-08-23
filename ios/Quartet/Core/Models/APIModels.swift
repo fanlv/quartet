@@ -718,6 +718,7 @@ struct ServerEventValue: Decodable, Sendable {
     let detail: String?
     let title: String?
     let error: String?
+    let totalTokens: Int?
 }
 
 struct CreateJobResponse: Decodable, Sendable {

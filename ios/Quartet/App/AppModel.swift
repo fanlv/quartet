@@ -66,6 +66,7 @@ final class AppModel: ObservableObject {
 
     private let defaults: UserDefaults
     private let cacheStore: DashboardCacheStore
+    private let sentMessageHistoryStore: SentMessageHistoryStore
     private let uiTestScenario: String?
     private var credentialServerAddress: String
     private var credentialCacheNamespace: String
@@ -99,6 +100,7 @@ final class AppModel: ObservableObject {
             effectiveDefaults = defaults
         }
         self.defaults = effectiveDefaults
+        sentMessageHistoryStore = SentMessageHistoryStore(defaults: effectiveDefaults)
         self.cacheStore = detectedUITestScenario == nil
             ? cacheStore
             : DashboardCacheStore(directoryName: "QuartetUITests")
@@ -644,6 +646,31 @@ final class AppModel: ObservableObject {
         let response = try await makeClient().createJob(request)
         hasPendingSync = true
         return response.jobId
+    }
+
+    func sentMessageHistory(workspaceID: String?) throws -> [SentMessageHistoryItem] {
+        let scope = sentMessageHistoryScope(workspaceID: workspaceID)
+        do {
+            return try sentMessageHistoryStore.items(scope: scope)
+        } catch {
+            throw APIError(
+                summary: "无法读取发送历史",
+                detail: "读取本地发送历史失败。\n服务：\(serverAddress)\n工作空间：\(workspaceID ?? "default")\n\n\(String(reflecting: error))"
+            )
+        }
+    }
+
+    @discardableResult
+    func recordSentMessage(_ content: String, workspaceID: String?) throws -> [SentMessageHistoryItem] {
+        let scope = sentMessageHistoryScope(workspaceID: workspaceID)
+        do {
+            return try sentMessageHistoryStore.append(content: content, scope: scope)
+        } catch {
+            throw APIError(
+                summary: "无法保存发送历史",
+                detail: "保存本地发送历史失败。\n服务：\(serverAddress)\n工作空间：\(workspaceID ?? "default")\n\n\(String(reflecting: error))"
+            )
+        }
     }
 
     func apiClient() throws -> APIClient {
@@ -1329,6 +1356,11 @@ final class AppModel: ObservableObject {
 
     private var hasDashboardContent: Bool {
         !workspaces.isEmpty || !jobs.isEmpty
+    }
+
+    private func sentMessageHistoryScope(workspaceID: String?) -> String {
+        let server = StorageKey.connectionIdentity(for: serverAddress) ?? serverAddress
+        return "\(server)|\(workspaceID ?? "default")"
     }
 
     private enum StorageKey {

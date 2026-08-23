@@ -62,7 +62,7 @@ struct JobsView: View {
                     Button { presentsNewConversation = true } label: {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel("新建对话")
+                    .accessibilityLabel("新建任务")
                     .accessibilityIdentifier("new-conversation-button")
                 }
             }
@@ -471,6 +471,7 @@ private struct JobRow: View {
         .padding(.leading, 16)
         .padding(.trailing, 6)
         .padding(.vertical, 16)
+        .contentShape(Rectangle())
     }
 
     private var modeText: String {

@@ -60,10 +60,9 @@ func TestAgentValidationStateIsVisibleAndRetried(t *testing.T) {
 	}
 }
 
-func TestStreamBadgeUsesActualConnectionState(t *testing.T) {
+func TestStreamConnectionStateRemainsInternalToChat(t *testing.T) {
 	source := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
 	for _, contract := range []string{
-		"Text(chat.streamStateLabel)",
 		"case connecting",
 		"case live",
 		"case reconnecting",
@@ -73,6 +72,15 @@ func TestStreamBadgeUsesActualConnectionState(t *testing.T) {
 	} {
 		if !strings.Contains(source, contract) {
 			t.Fatalf("SSE status source contract missing %q", contract)
+		}
+	}
+	for _, removedPresentation := range []string{
+		"private var statusStrip",
+		"Text(chat.streamStateLabel)",
+		"var streamStateLabel",
+	} {
+		if strings.Contains(source, removedPresentation) {
+			t.Fatalf("chat must not present connection/status chrome %q", removedPresentation)
 		}
 	}
 }

@@ -19,13 +19,13 @@ struct JobChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            statusStrip
             messageList
             composer
         }
         .background(QuartetTheme.canvas)
         .navigationTitle(chat.title.isEmpty ? route.summary.displayTitle : chat.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 NavigationLink {
@@ -128,63 +128,6 @@ struct JobChatView: View {
         }
     }
 
-    private var statusStrip: some View {
-        HStack(spacing: 11) {
-            ZStack {
-                Circle()
-                    .fill(chat.statusColor.opacity(0.15))
-                Image(systemName: chat.isRunning ? "waveform" : "bubble.left.and.bubble.right.fill")
-                    .font(.quartet(.detail, weight: .bold))
-                    .foregroundStyle(chat.statusColor)
-            }
-            .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(chat.statusColor)
-                        .frame(width: 7, height: 7)
-                    Text(chat.statusLabel)
-                    if let phase = chat.phaseLabel {
-                        Text("· \(phase)")
-                            .lineLimit(1)
-                    }
-                }
-                .font(.quartet(.detail, weight: .semibold))
-                .foregroundStyle(QuartetTheme.primaryText)
-
-                if let session = chat.sessionIDDisplay {
-                    Text(session)
-                        .font(.quartet(.compact, weight: .medium, design: .monospaced))
-                        .foregroundStyle(QuartetTheme.secondaryText)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            HStack(spacing: 6) {
-                if chat.streamStateLabel != "OFFLINE" {
-                    Circle()
-                        .fill(chat.streamStateColor)
-                        .frame(width: 6, height: 6)
-                }
-                Text(chat.streamStateLabel)
-                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
-            }
-            .foregroundStyle(chat.streamStateColor)
-            .padding(.horizontal, 9)
-            .frame(height: 26)
-            .background(QuartetTheme.elevated, in: Capsule())
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 9)
-        .background(.thinMaterial)
-        .overlay(alignment: .bottom) {
-            RunningPulseLine(active: chat.isRunning)
-        }
-    }
-
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -237,19 +180,6 @@ struct JobChatView: View {
                 }
             }
 
-            if let pendingImage {
-                ChatAttachmentPreview(upload: pendingImage)
-                HStack {
-                    Button("移除图片") {
-                        self.pendingImage = nil
-                        selectedPhoto = nil
-                    }
-                    .font(.quartet(.detail))
-                    .foregroundStyle(QuartetTheme.failed)
-                    Spacer()
-                }
-            }
-
             if !chat.composerOutboxItems.isEmpty {
                 VStack(spacing: 8) {
                     ForEach(chat.composerOutboxItems) { item in
@@ -263,45 +193,85 @@ struct JobChatView: View {
                 }
             }
 
-            HStack(alignment: .bottom, spacing: 10) {
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    Image(systemName: hasPendingImage ? "photo.fill" : "photo")
-                        .font(.quartet(.regular, weight: .semibold))
-                        .foregroundStyle(hasPendingImage ? QuartetTheme.accent : QuartetTheme.secondaryText)
-                        .frame(width: 36, height: 44)
+            VStack(spacing: 0) {
+                if let pendingImage {
+                    ChatAttachmentPreview(upload: pendingImage)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 12)
+                        .overlay(alignment: .topTrailing) {
+                            Button {
+                                self.pendingImage = nil
+                                selectedPhoto = nil
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.quartet(.compact, weight: .bold))
+                                    .foregroundStyle(QuartetTheme.primaryText)
+                                    .frame(width: 28, height: 28)
+                                    .background(.thinMaterial, in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("移除图片")
+                            .padding(18)
+                        }
                 }
-                .accessibilityLabel("从相册选择图片")
-
-                Button {
-                    showsAttachmentMenu = true
-                } label: {
-                    Image(systemName: "plus.viewfinder")
-                        .font(.quartet(.regular, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.secondaryText)
-                        .frame(width: 36, height: 44)
-                }
-                .accessibilityLabel("更多图片来源")
 
                 TextField("继续对话…", text: $draft, axis: .vertical)
                     .font(.quartet(.regular))
                     .lineLimit(1...6)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
-                    .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 18))
+                    .padding(.horizontal, 15)
+                    .padding(.vertical, 14)
+                    .frame(minHeight: 54, alignment: .topLeading)
                     .accessibilityIdentifier("chat-composer")
 
-                Button { enqueueDraft() } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.quartet(.regular, weight: .bold))
-                        .foregroundStyle(.black)
-                        .frame(width: 44, height: 44)
-                        .background(QuartetTheme.accent, in: Circle())
+                Divider()
+                    .overlay(QuartetTheme.divider.opacity(0.7))
+
+                HStack(alignment: .center, spacing: 7) {
+                    composerContext
+
+                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                        Image(systemName: hasPendingImage ? "photo.fill" : "photo")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(hasPendingImage ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                            .frame(width: 36, height: 36)
+                            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .accessibilityLabel("从相册选择图片")
+
+                    Button {
+                        showsAttachmentMenu = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.quartet(.control, weight: .bold))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .frame(width: 36, height: 36)
+                            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("更多图片来源")
+
+                    Button { enqueueDraft() } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.quartet(.control, weight: .bold))
+                            .foregroundStyle(sendDisabled ? QuartetTheme.secondaryText : Color.black)
+                            .frame(width: 38, height: 38)
+                            .background(sendDisabled ? QuartetTheme.elevated : QuartetTheme.accent, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(sendDisabled)
+                    .opacity(chat.sending ? 0.55 : 1)
+                    .accessibilityLabel("发送消息")
+                    .accessibilityIdentifier("chat-send")
                 }
-                .disabled(chat.loading || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImage == nil))
-                .opacity(chat.sending ? 0.55 : 1)
-                .accessibilityLabel("发送消息")
-                .accessibilityIdentifier("chat-send")
+                .padding(.horizontal, 10)
+                .padding(.vertical, 9)
             }
+            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(QuartetTheme.divider, lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: 16, y: 7)
 
             if chat.isRunning {
                 Text("当前轮次运行中，新消息会先进入本地队列，等本轮结束后自动按顺序发送。")
@@ -318,12 +288,73 @@ struct JobChatView: View {
         .padding(.horizontal, 12)
         .padding(.top, 10)
         .padding(.bottom, 8)
-        .background(.ultraThinMaterial)
+        .background(.thinMaterial)
+    }
+
+    private var composerContext: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ComposerMetadataChip(
+                    icon: "sparkles",
+                    text: chat.agentDisplayLabel,
+                    accessibilityLabel: "Agent，\(chat.agentDisplayLabel)"
+                )
+                ComposerMetadataChip(
+                    icon: "cpu",
+                    text: chat.modelDisplayLabel,
+                    accessibilityLabel: "Model ID，\(chat.modelDisplayLabel)"
+                )
+                ComposerMetadataChip(
+                    icon: "slider.horizontal.3",
+                    text: chat.modeDisplayLabel,
+                    accessibilityLabel: "Mode，\(chat.modeDisplayLabel)"
+                )
+                if let thoughtLevel = chat.thoughtLevelDisplayLabel {
+                    ComposerMetadataChip(
+                        icon: "brain.head.profile",
+                        text: thoughtLevel,
+                        accessibilityLabel: "Thought level，\(thoughtLevel)"
+                    )
+                }
+                ComposerMetadataChip(
+                    icon: "text.word.spacing",
+                    text: chat.tokenCountLabel,
+                    accessibilityLabel: chat.tokenCountAccessibilityLabel
+                )
+                if chat.showsDuration {
+                    TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                        ComposerMetadataChip(
+                            icon: "clock",
+                            text: chat.durationLabel(at: timeline.date),
+                            accessibilityLabel: "耗时，\(chat.durationLabel(at: timeline.date))"
+                        )
+                    }
+                }
+                if let workspace = appModel.workspaces.first(where: { $0.id == route.summary.workspaceId }) {
+                    ComposerMetadataChip(
+                        icon: "folder",
+                        text: workspace.displayName,
+                        accessibilityLabel: "工作空间，\(workspace.displayName)"
+                    )
+                }
+            }
+            .padding(.vertical, 1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var sendDisabled: Bool {
+        chat.loading || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImage == nil)
     }
 
     private func enqueueDraft() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || pendingImage != nil else { return }
+        do {
+            try appModel.recordSentMessage(text, workspaceID: route.summary.workspaceId)
+        } catch {
+            appModel.present(error)
+        }
         chat.enqueueDraft(text: text, attachment: pendingImage)
         draft = ""
         pendingImage = nil
@@ -410,6 +441,28 @@ struct JobChatView: View {
                 contentType: UTType(filenameExtension: url.pathExtension)
             )
         }
+    }
+}
+
+private struct ComposerMetadataChip: View {
+    let icon: String
+    let text: String
+    let accessibilityLabel: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.quartet(.compact, weight: .semibold))
+            Text(text)
+                .font(.quartet(.compact, weight: .medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(QuartetTheme.secondaryText)
+        .padding(.horizontal, 9)
+        .frame(height: 30)
+        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 
@@ -968,7 +1021,7 @@ private struct MarkdownMessageView: View {
                         ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text(ordered ? "\(index + 1)." : "•")
-                                    .font(.quartet(.regular, weight: .semibold))
+                                    .font(.quartet(tone.contentFontSize, weight: .semibold))
                                     .foregroundStyle(tone.secondaryForeground)
                                     .frame(minWidth: ordered ? 20 : 10, alignment: .trailing)
                                 MarkdownTextBlock(text: item, tone: tone)
@@ -999,14 +1052,14 @@ private struct MarkdownTextBlock: View {
     var body: some View {
         if let attributed = MarkdownRenderer.attributedString(from: text) {
             Text(attributed)
-                .font(.quartet(.regular))
+                .font(.quartet(tone.contentFontSize))
                 .foregroundStyle(tone.foreground)
                 .lineSpacing(4)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(text)
-                .font(.quartet(.regular))
+                .font(.quartet(tone.contentFontSize))
                 .foregroundStyle(tone.foreground)
                 .lineSpacing(4)
                 .textSelection(.enabled)
@@ -1052,6 +1105,13 @@ private enum MarkdownTone: Equatable {
     case user
     case thought
     case tool
+
+    var contentFontSize: QuartetFontSize {
+        switch self {
+        case .standard, .thought: .control
+        case .user, .tool: .regular
+        }
+    }
 
     var foreground: Color {
         switch self {
@@ -1423,15 +1483,6 @@ private enum StreamConnectionState: Equatable {
     case connecting
     case live
     case reconnecting
-
-    var label: String {
-        switch self {
-        case .offline: "OFFLINE"
-        case .connecting: "CONNECTING"
-        case .live: "LIVE"
-        case .reconnecting: "RECONNECTING"
-        }
-    }
 }
 
 @MainActor
@@ -1443,27 +1494,32 @@ private final class ChatViewModel: ObservableObject {
     @Published var loading = true
     @Published var sending = false
     @Published private var streamState: StreamConnectionState = .offline
-    @Published var phaseLabel: String?
     @Published var errorDetail: String?
     @Published var restoreDraft: ComposerDraft?
     @Published var restoreDraftVersion = 0
     @Published var scrollAnchor = 0
     @Published var terminalStateVersion = 0
+    @Published private(set) var totalTokens = 0
+    @Published private(set) var runStartedAt: Int64?
+    @Published private(set) var runFinishedAt: Int64?
+    @Published private(set) var accumulatedDurationMs: Int64 = 0
 
     private var client: APIClient?
     private var jobID = ""
     private(set) var sessionID: String?
     private var preferredSessionID: String?
-    private var modelID: String?
-    private var agentType: String?
-    private var modeID: String?
-    private var thoughtLevelID: String?
+    @Published private var modelID: String?
+    @Published private var agentType: String?
+    @Published private var agentDisplayName: String?
+    @Published private var modeID: String?
+    @Published private var thoughtLevelID: String?
     private var lastEventID: UInt64 = 0
     private var lastGraphEventID: UInt64 = 0
     private var streamTask: Task<Void, Never>?
     private var graphReconcileTask: Task<Void, Never>?
     private var graphMonitorTask: Task<Void, Never>?
     private var didSeedInitialDraft = false
+    private var accumulatedRoundBoundaries: Set<String> = []
     private var isTurnRunning = false
     private var isProcessingOutbox = false
     private var isGraph = false
@@ -1490,42 +1546,27 @@ private final class ChatViewModel: ObservableObject {
             }
         }
     }
-    var sessionIDDisplay: String? {
-        guard let sessionID, !sessionID.isEmpty else { return nil }
-        return "SESSION \(sessionID.suffix(8))"
+    var agentDisplayLabel: String {
+        displayValue(agentDisplayName) ?? displayValue(agentType) ?? "未指定 Agent"
     }
-    var streamStateLabel: String {
-        streamState.label
-    }
-    var streamStateColor: Color {
-        switch streamState {
-        case .live: QuartetTheme.accent
-        case .connecting, .reconnecting: QuartetTheme.running
-        case .offline: QuartetTheme.secondaryText
-        }
-    }
-    var statusColor: Color {
-        switch status {
-        case "running", "pending", "awaitingInput", "stepStopping": QuartetTheme.running
-        case "completed": QuartetTheme.accent
-        case "failed", "timedOut": QuartetTheme.failed
-        default: QuartetTheme.stopped
-        }
+    var modelDisplayLabel: String { displayValue(modelID) ?? "未指定 Model" }
+    var modeDisplayLabel: String { displayValue(modeID) ?? "默认模式" }
+    var thoughtLevelDisplayLabel: String? { displayValue(thoughtLevelID) }
+    var tokenCountLabel: String { "Tokens: \(Self.compactCount(totalTokens))" }
+    var tokenCountAccessibilityLabel: String { "Token 数量，\(totalTokens)" }
+    var showsDuration: Bool {
+        accumulatedDurationMs > 0 || (runStartedAt != nil && (isTurnRunning || runFinishedAt != nil))
     }
 
-    var statusLabel: String {
-        switch status {
-        case "pending": "等待中"
-        case "running": "运行中"
-        case "completed": "已完成"
-        case "failed": "失败"
-        case "timedOut": "已超时"
-        case "stopped": "已停止"
-        case "awaitingInput": "等待输入"
-        case "stepStopping": "步骤后停止中"
-        case "stepStopped": "已在步骤后停止"
-        default: status
+    func durationLabel(at date: Date) -> String {
+        let currentDuration: Int64
+        if let runStartedAt {
+            let end = runFinishedAt ?? Int64(date.timeIntervalSince1970 * 1_000)
+            currentDuration = max(0, end - runStartedAt)
+        } else {
+            currentDuration = 0
         }
+        return Self.formatDuration(accumulatedDurationMs + currentDuration)
     }
 
     func start(route: ChatRoute, client: APIClient) async {
@@ -1535,6 +1576,12 @@ private final class ChatViewModel: ObservableObject {
             messages = []
             outbox = []
             sessionID = nil
+            agentDisplayName = nil
+            totalTokens = 0
+            runStartedAt = nil
+            runFinishedAt = nil
+            accumulatedDurationMs = 0
+            accumulatedRoundBoundaries = []
         }
         self.client = client
         jobID = route.summary.id
@@ -1554,6 +1601,8 @@ private final class ChatViewModel: ObservableObject {
             let detail = try await client.job(id: jobID)
             title = detail.title
             status = detail.status
+            runStartedAt = detail.startedAt
+            runFinishedAt = detail.finishedAt
             lastEventID = detail.lastEventSeq
             lastGraphEventID = 0
             var graphDefaultSessionID: String?
@@ -1618,6 +1667,10 @@ private final class ChatViewModel: ObservableObject {
         agentType = route.agentType ?? route.summary.agentId
         modeID = route.modeID ?? route.summary.acpMode
         thoughtLevelID = route.thoughtLevelID ?? route.summary.acpThoughtLevel
+        agentDisplayName = "TraeCode"
+        totalTokens = 12_480
+        runStartedAt = Int64(Date().addingTimeInterval(-83).timeIntervalSince1970 * 1_000)
+        runFinishedAt = isGraph || route.summary.status == "running" ? nil : Int64(Date().timeIntervalSince1970 * 1_000)
         var previewMessages = [
             ChatMessage(
                 id: "preview-user", kind: .user,
@@ -1641,7 +1694,6 @@ private final class ChatViewModel: ObservableObject {
         }
         messages = previewMessages
         isTurnRunning = route.summary.status == "running"
-        phaseLabel = isTurnRunning ? "正在处理" : nil
         loading = false
         bumpScrollAnchor()
     }
@@ -1730,7 +1782,9 @@ private final class ChatViewModel: ObservableObject {
 
     func markStopped() {
         status = "stopped"
-        finishOpenMessages(outcome: "stopped", timestamp: Int64(Date().timeIntervalSince1970 * 1_000))
+        let now = Int64(Date().timeIntervalSince1970 * 1_000)
+        runFinishedAt = now
+        finishOpenMessages(outcome: "stopped", timestamp: now)
         isTurnRunning = false
         stopStreaming()
         scheduleOutboxProcessing()
@@ -1764,10 +1818,7 @@ private final class ChatViewModel: ObservableObject {
     private func loadHistory(sessionID: String, preservesLiveMessages: Bool = true) async throws {
         guard let client else { return }
         let response = try await client.sessionMessages(id: sessionID)
-        modelID = response.modelId
-        agentType = response.type
-        modeID = response.acpMode
-        thoughtLevelID = response.acpThoughtLevel
+        applySessionMetadata(response)
         let historyMessages = convertHistoryMessages(response.messages)
         if isGraph && graphRunLive && preservesLiveMessages {
             mergeGraphHistory(historyMessages)
@@ -1793,10 +1844,7 @@ private final class ChatViewModel: ObservableObject {
             ))
         }
         if let latest {
-            modelID = latest.modelId
-            agentType = latest.type
-            modeID = latest.acpMode
-            thoughtLevelID = latest.acpThoughtLevel
+            applySessionMetadata(latest)
         }
         messages = combined
         removeEchoedOutboxItems()
@@ -1996,6 +2044,7 @@ private final class ChatViewModel: ObservableObject {
     private func dispatchOutboxItem(at index: Int) async {
         guard outbox.indices.contains(index), let client else { return }
         let itemID = outbox[index].id
+        archiveFinishedRoundIfNeeded()
         sending = true
         defer { sending = false }
 
@@ -2209,6 +2258,8 @@ private final class ChatViewModel: ObservableObject {
         let snapshot = try await client.job(id: jobID)
         title = snapshot.title
         status = snapshot.status
+        runStartedAt = snapshot.startedAt
+        runFinishedAt = snapshot.finishedAt
         lastEventID = snapshot.lastEventSeq
         if isGraph {
             let graphSnapshot = try await client.graphRunStatus(jobID: jobID)
@@ -2249,14 +2300,12 @@ private final class ChatViewModel: ObservableObject {
         switch event.type {
         case "agentMessageStart":
             guard belongsToVisibleSession, let messageID = payload["messageId"], !messageID.isEmpty else { return }
-            phaseLabel = "Agent 正在回复"
             upsert(
                 id: messageID, kind: .assistant, content: "", detail: nil,
                 finished: false, failed: false, timestamp: event.createdAt
             )
         case "agentMessageDelta":
             guard belongsToVisibleSession, let messageID = payload["messageId"], !messageID.isEmpty else { return }
-            phaseLabel = "Agent 正在回复"
             append(
                 id: messageID, kind: .assistant,
                 text: payload["delta"] ?? event.message ?? "", timestamp: event.createdAt
@@ -2264,17 +2313,14 @@ private final class ChatViewModel: ObservableObject {
         case "agentMessageEnd":
             guard belongsToVisibleSession else { return }
             finish(id: payload["messageId"], timestamp: event.createdAt)
-            phaseLabel = nil
         case "agentThoughtStart":
             guard belongsToVisibleSession, let messageID = payload["messageId"], !messageID.isEmpty else { return }
-            phaseLabel = "正在思考"
             upsert(
                 id: messageID, kind: .thought, content: "", detail: nil,
                 finished: false, failed: false, timestamp: event.createdAt
             )
         case "agentThoughtDelta":
             guard belongsToVisibleSession, let messageID = payload["messageId"], !messageID.isEmpty else { return }
-            phaseLabel = "正在思考"
             append(
                 id: messageID, kind: .thought,
                 text: payload["delta"] ?? event.message ?? "", timestamp: event.createdAt
@@ -2282,10 +2328,8 @@ private final class ChatViewModel: ObservableObject {
         case "agentThoughtEnd":
             guard belongsToVisibleSession else { return }
             finish(id: payload["messageId"], timestamp: event.createdAt)
-            phaseLabel = nil
         case "agentToolStart":
             guard belongsToVisibleSession, let toolID = payload["toolCallId"], !toolID.isEmpty else { return }
-            phaseLabel = "正在调用工具"
             upsert(
                 id: toolID, kind: .tool, content: "", detail: nil,
                 finished: false, failed: false, timestamp: event.createdAt
@@ -2324,7 +2368,6 @@ private final class ChatViewModel: ObservableObject {
                 }
             }
             finish(id: payload["toolCallId"], timestamp: event.createdAt)
-            phaseLabel = nil
         case "error":
             let detail = event.error?.fullDetail
             errorDetail = detail?.isEmpty == false ? detail : (event.message ?? "Graph run stream reported an error")
@@ -2365,7 +2408,6 @@ private final class ChatViewModel: ObservableObject {
                 }
             }
             self.finishOpenMessages(outcome: self.status, timestamp: Int64(Date().timeIntervalSince1970 * 1_000))
-            self.phaseLabel = nil
             self.streamTask?.cancel()
             self.streamTask = nil
             self.graphMonitorTask?.cancel()
@@ -2439,15 +2481,17 @@ private final class ChatViewModel: ObservableObject {
         case "JOB_STARTED":
             status = "running"
             isTurnRunning = true
-            phaseLabel = "Agent 已启动"
+            runStartedAt = event.timestamp ?? runStartedAt
+            runFinishedAt = nil
         case "RUN_STARTED":
             isTurnRunning = true
-            phaseLabel = "Agent 已启动"
+            runStartedAt = event.timestamp ?? runStartedAt
+            runFinishedAt = nil
             if let clientMessageID = event.clientMessageId {
                 setAwaitingEcho(itemID: clientMessageID)
             }
         case "RUN_FINISHED":
-            phaseLabel = nil
+            runFinishedAt = event.timestamp ?? runFinishedAt
             finishOpenMessages(outcome: "completed", timestamp: event.timestamp)
             // RUN_FINISHED closes the Agent round, but the backend publishes the
             // authoritative JOB_* terminal event only after it has persisted the
@@ -2455,8 +2499,8 @@ private final class ChatViewModel: ObservableObject {
             // sending here races the backend's still-running gate and returns 409.
         case "JOB_COMPLETED":
             status = "completed"
-            phaseLabel = nil
             isTurnRunning = false
+            runFinishedAt = event.timestamp ?? runFinishedAt
             let outcome = event.runOutcome ?? "completed"
             publishTerminalStateChange()
             applyRunOutcome(outcome)
@@ -2465,8 +2509,8 @@ private final class ChatViewModel: ObservableObject {
             stopStreaming()
         case "JOB_FAILED":
             status = "failed"
-            phaseLabel = nil
             isTurnRunning = false
+            runFinishedAt = event.timestamp ?? runFinishedAt
             let outcome = event.runOutcome ?? "failed"
             publishTerminalStateChange()
             applyRunOutcome(outcome)
@@ -2476,8 +2520,8 @@ private final class ChatViewModel: ObservableObject {
             stopStreaming()
         case "JOB_STOPPED":
             status = "stopped"
-            phaseLabel = nil
             isTurnRunning = false
+            runFinishedAt = event.timestamp ?? runFinishedAt
             let outcome = event.runOutcome ?? "stopped"
             publishTerminalStateChange()
             applyRunOutcome(outcome)
@@ -2493,18 +2537,15 @@ private final class ChatViewModel: ObservableObject {
         case "TEXT_MESSAGE_START":
             guard let messageID = event.messageId else { return }
             let kind: ChatMessage.Kind = event.external?.isThinking == true ? .thought : .assistant
-            phaseLabel = kind == .thought ? "正在思考" : "Agent 正在回复"
             upsert(id: messageID, kind: kind, content: "", detail: nil, finished: false, failed: false, timestamp: event.timestamp)
         case "TEXT_MESSAGE_CONTENT":
             guard let messageID = event.messageId else { return }
             let kind: ChatMessage.Kind = event.external?.isThinking == true ? .thought : .assistant
-            phaseLabel = kind == .thought ? "正在思考" : "Agent 正在回复"
             append(id: messageID, kind: kind, text: event.delta ?? "", timestamp: event.timestamp)
         case "TEXT_MESSAGE_END":
             finish(id: event.messageId, timestamp: event.timestamp)
         case "TOOL_CALL_START":
             guard let toolID = event.toolCallId else { return }
-            phaseLabel = "正在调用工具"
             upsert(id: toolID, kind: .tool, content: "", detail: nil, finished: false, failed: false, timestamp: event.timestamp)
             configureTool(id: toolID, name: event.toolCallName, status: event.toolCallStatus)
         case "TOOL_CALL_ARGS":
@@ -2522,7 +2563,6 @@ private final class ChatViewModel: ObservableObject {
                 messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: event.toolCallStatus ?? (messages[index].isFailed ? "Error" : "Success"))
             }
             finish(id: event.toolCallId, timestamp: event.timestamp)
-            phaseLabel = nil
         case "TOOL_CALL_STITCHED":
             guard let toolID = event.toolCallId else { return }
             if let index = messages.firstIndex(where: { $0.id == toolID }) {
@@ -2539,12 +2579,9 @@ private final class ChatViewModel: ObservableObject {
 
     private func applyCustomEvent(_ event: ServerEvent) {
         switch event.name {
-        case "agent_phase":
-            switch event.value?.phase {
-            case "starting": phaseLabel = "正在启动 Agent"
-            case "reconnecting": phaseLabel = "正在重连 Agent"
-            case "thinking": phaseLabel = event.value?.detail?.isEmpty == false ? event.value?.detail : "正在思考"
-            default: break
+        case "token_usage":
+            if let tokens = event.value?.totalTokens {
+                totalTokens = tokens
             }
         case "job_title_updated":
             if let updatedTitle = event.value?.title, !updatedTitle.isEmpty {
@@ -2724,6 +2761,50 @@ private final class ChatViewModel: ObservableObject {
 
     private func hasPriorConversation(_ detail: JobDetail) -> Bool {
         detail.sessionCount > 0 || messages.contains { !$0.isOptimistic }
+    }
+
+    private func applySessionMetadata(_ response: SessionMessagesResponse) {
+        modelID = response.modelId
+        agentType = response.type
+        modeID = response.acpMode
+        thoughtLevelID = response.acpThoughtLevel
+        totalTokens = response.tokenUsage?.totalTokens ?? totalTokens
+        if let agentType = response.type, let display = response.agents?[agentType] {
+            agentDisplayName = display.displayName
+        } else {
+            agentDisplayName = nil
+        }
+    }
+
+    private func archiveFinishedRoundIfNeeded() {
+        guard let start = runStartedAt, let end = runFinishedAt, end >= start else { return }
+        let boundary = "\(start):\(end)"
+        if accumulatedRoundBoundaries.insert(boundary).inserted {
+            accumulatedDurationMs += end - start
+        }
+        runStartedAt = nil
+        runFinishedAt = nil
+    }
+
+    private func displayValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private static func compactCount(_ value: Int) -> String {
+        guard value >= 1_000 else { return String(value) }
+        return String(format: "%.2fK", Double(value) / 1_000)
+    }
+
+    private static func formatDuration(_ milliseconds: Int64) -> String {
+        guard milliseconds >= 1_000 else { return "\(milliseconds)ms" }
+        if milliseconds < 60_000 {
+            return String(format: "%.1fs", Double(milliseconds) / 1_000)
+        }
+        if milliseconds < 3_600_000 {
+            return "\(milliseconds / 60_000)m \((milliseconds % 60_000) / 1_000)s"
+        }
+        return "\(milliseconds / 3_600_000)h \((milliseconds % 3_600_000) / 60_000)m"
     }
 
     private func errorText(_ error: Error) -> String {

@@ -27,6 +27,7 @@
 		A10000000000000000000012 /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* StatsView.swift */; };
 		A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* GraphWorkflowLaunchView.swift */; };
 		A10000000000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* Assets.xcassets */; };
+		A10000000000000000000015 /* SentMessageHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* SentMessageHistoryStore.swift */; };
 		B10000000000000000000001 /* QuartetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* QuartetUITests.swift */; };
 /* End PBXBuildFile section */
 
@@ -63,6 +64,7 @@
 		A20000000000000000000013 /* StatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* GraphWorkflowLaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphWorkflowLaunchView.swift; sourceTree = "<group>"; };
 		A20000000000000000000015 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A20000000000000000000016 /* SentMessageHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentMessageHistoryStore.swift; sourceTree = "<group>"; };
 		AA2543BC3CD90BE5E3D203F0 /* Pods_Quartet.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Quartet.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		B20000000000000000000001 /* QuartetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuartetUITests.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* QuartetUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuartetUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -261,6 +263,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000012 /* DashboardCacheStore.swift */,
+				A20000000000000000000016 /* SentMessageHistoryStore.swift */,
 			);
 			path = Persistence;
 			sourceTree = "<group>";
@@ -416,6 +419,7 @@
 				A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */,
 				A10000000000000000000011 /* DashboardCacheStore.swift in Sources */,
 				A10000000000000000000012 /* StatsView.swift in Sources */,
+				A10000000000000000000015 /* SentMessageHistoryStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
