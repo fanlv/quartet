@@ -12,15 +12,16 @@ type ListSessionsResponse struct {
 }
 
 type HistoryMessage struct {
-	ID               string         `json:"id"`
-	Role             MessageRole    `json:"role"`
-	Content          string         `json:"content"`
-	ReasoningContent string         `json:"reasoningContent,omitempty"`
-	ToolCallID       string         `json:"toolCallId,omitempty"`
-	ToolCalls        []ToolCallInfo `json:"toolCalls,omitempty"`
-	ImageUrls        []string       `json:"imageUrls,omitempty"`
-	IsShellOutput    bool           `json:"isShellOutput,omitempty"`
-	IsThinking       bool           `json:"isThinking,omitempty"`
+	ID               string           `json:"id"`
+	Role             MessageRole      `json:"role"`
+	Content          string           `json:"content"`
+	ReasoningContent string           `json:"reasoningContent,omitempty"`
+	ToolCallID       string           `json:"toolCallId,omitempty"`
+	ToolCalls        []ToolCallInfo   `json:"toolCalls,omitempty"`
+	ImageUrls        []string         `json:"imageUrls,omitempty"`
+	FileAttachments  []FileAttachment `json:"fileAttachments,omitempty"`
+	IsShellOutput    bool             `json:"isShellOutput,omitempty"`
+	IsThinking       bool             `json:"isThinking,omitempty"`
 	// Failed is true for role=tool messages whose stored content carries
 	// the "[failed] " prefix. The server detects the prefix once and
 	// surfaces this flag so the frontend can paint the tool bubble with

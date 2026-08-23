@@ -3,12 +3,14 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useMessagePresets } from '../hooks/useMessagePresets';
 import type { MessagePreset } from '../utils/messagePresets';
+import type { FileAttachment } from '../types';
 
 export interface SentMessageHistoryItem {
   id: string;
   ts: number;
   content: string;
   imageUrls?: string[];
+  fileAttachments?: FileAttachment[];
 }
 
 interface Props {
@@ -101,9 +103,11 @@ export function MessagePresetHistoryMenu({
       <div className="chat-history-group-title">{t('chat.recentSent')}</div>
       {historyItems.map((item) => {
         const imageCount = item.imageUrls?.length || 0;
+        const fileCount = item.fileAttachments?.length || 0;
         return <button type="button" role="option" key={item.id} className="chat-history-item" title={item.content} onClick={() => { onApplyHistory(item); setOpen(false); }}>
           <span className="chat-history-text">{previewText(item.content) || t('chat.presetEmpty')}</span>
           {imageCount > 0 && <span className="chat-history-badge">🖼️{imageCount}</span>}
+          {fileCount > 0 && <span className="chat-history-badge">📎{fileCount}</span>}
         </button>;
       })}
     </section>}

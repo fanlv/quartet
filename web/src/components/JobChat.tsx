@@ -13,7 +13,7 @@ import { StepOutline } from './StepOutline';
 import { FileBrowser } from './FileBrowser';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
 import { AgentInfo } from './ChatPage';
-import { MessageRoleEnum, MessageStatusEnum, type UserMessage } from '../types';
+import { MessageRoleEnum, MessageStatusEnum, type UserMessage, type FileAttachment } from '../types';
 import { ServerClockProvider } from '../contexts/ServerClock';
 import { VirtualList } from './VirtualList';
 import { registerWorkspaceColors } from '../utils/workspace';
@@ -64,6 +64,7 @@ interface JobChatProps {
   existingJobId: string;
   initialMessage?: string | null;
   initialImageUrls?: string[];
+  initialFileAttachments?: FileAttachment[];
   initialWorkdir?: string;
   initialSessionId?: string;
   initialModelId?: string;
@@ -108,7 +109,7 @@ interface JobInfo {
 const JOB_ROW_HEIGHT = 36;
 
 export function JobChat(props: JobChatProps) {
-  const { existingJobId, initialMessage, initialImageUrls, initialWorkdir, initialSessionId, initialModelId, initialAgentType, initialAcpMode, initialAcpThoughtLevel, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
+  const { existingJobId, initialMessage, initialImageUrls, initialFileAttachments, initialWorkdir, initialSessionId, initialModelId, initialAgentType, initialAcpMode, initialAcpThoughtLevel, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
   const { t } = useTranslation();
   const principal = useAuthPrincipal();
   const canReadJobs = !!isReadonly || (principal?.permissions.includes('job.read') ?? false);
@@ -173,6 +174,7 @@ export function JobChat(props: JobChatProps) {
       failed: false,
       deliveryStatus: 'sending',
       imageUrls: initialImageUrls?.length ? initialImageUrls : undefined,
+      fileAttachments: initialFileAttachments?.length ? initialFileAttachments : undefined,
     };
   });
 
@@ -898,7 +900,7 @@ export function JobChat(props: JobChatProps) {
     : sessionModelId ?? agentEffectiveModelId;
 
   const handleSendMessage = useCallback(
-    (content: string, imageUrls?: string[]) => {
+    (content: string, imageUrls?: string[], fileAttachments?: FileAttachment[]) => {
       const targetSessionId = (isLoop || isGraph) ? activeSessionId : null;
       // Only interactive mode queues. Graph discussion sends must keep their
       // explicit node sessionId, which the generic queue does not retain.
@@ -906,6 +908,7 @@ export function JobChat(props: JobChatProps) {
         queueMessage({
           content,
           imageUrls,
+          fileAttachments,
           modelId: effectiveModelId,
           acpMode: selectedAgent?.modes?.currentModeId,
           agentType: selectedAgent?.type,
@@ -913,7 +916,7 @@ export function JobChat(props: JobChatProps) {
         });
         return;
       }
-      sendMessage(content, effectiveModelId, targetSessionId, imageUrls, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId);
+      sendMessage(content, effectiveModelId, targetSessionId, imageUrls, fileAttachments, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId);
     },
     [sendMessage, queueMessage, isLoading, effectiveModelId, isLoop, isGraph, activeSessionId, selectedAgent]
   );
@@ -941,14 +944,14 @@ export function JobChat(props: JobChatProps) {
     // messages the user types INSIDE an existing chat.
     if (canExecuteJobs && initialMessage && selectedAgent) {
       initialMessageSent.current = true;
-      sendMessage(initialMessage, effectiveModelId, null, initialImageUrls, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId, {
+      sendMessage(initialMessage, effectiveModelId, null, initialImageUrls, initialFileAttachments, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId, {
         bypassCommand: true,
         optimisticMessageId: initialUserMessage?.id,
       }).catch((err) => {
         console.error('Failed to send initial message:', err);
       }).finally(() => setInitialDispatchPending(false));
     }
-  }, [canExecuteJobs, effectiveModelId, error, eventsReady, initialAgentRefreshPending, initialMessage, initialImageUrls, initialUserMessage, isLoadingHistory, sendMessage, selectedAgent]);
+  }, [canExecuteJobs, effectiveModelId, error, eventsReady, initialAgentRefreshPending, initialMessage, initialImageUrls, initialFileAttachments, initialUserMessage, isLoadingHistory, sendMessage, selectedAgent]);
 
   const handleNewChat = () => {
     clearMessages();

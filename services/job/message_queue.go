@@ -10,6 +10,7 @@ import (
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/safe"
 	"github.com/fanlv/quartet/types/model"
+	"github.com/fanlv/quartet/types/msgextra"
 )
 
 const messageQueueLimit = 100
@@ -592,13 +593,14 @@ func (s *serviceImpl) completeClaimedQueueItem(ctx context.Context, jobID, clien
 func queuedMessageOptions(message model.QueuedJobMessage) *SendMessageOptions {
 	messages := make([]*schema.Message, 0, len(message.Messages))
 	for _, input := range message.Messages {
-		content := input.Content
-		prefix := ""
-		for _, imageURL := range input.ImageUrls {
-			prefix += fmt.Sprintf("![image](%s)\n", imageURL)
+		msg := schema.UserMessage(input.AgentContent())
+		if len(input.FileAttachments) > 0 {
+			msg.Extra = map[string]any{
+				msgextra.KeyFileAttachments:     input.FileAttachments,
+				msgextra.KeyOriginalUserContent: input.Content,
+			}
 		}
-		content = prefix + content
-		messages = append(messages, schema.UserMessage(content))
+		messages = append(messages, msg)
 	}
 	var binding *model.AgentRuntimeBinding
 	if message.AgentID != "" && message.AgentRevision != "" {

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
-import { Message, UserMessage, AssistantMessage, ToolMessage, SystemMessage, MessageRoleEnum, MessageStatusEnum, ToolCallStatusEnum, type CommandSystemMessageEvent } from '../types';
+import { Message, UserMessage, AssistantMessage, ToolMessage, SystemMessage, MessageRoleEnum, MessageStatusEnum, ToolCallStatusEnum, type CommandSystemMessageEvent, type FileAttachment } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatMessageTime } from '../utils/time';
 import { showToast } from '../utils/toast';
@@ -176,6 +176,11 @@ function UserMessageContent({ message }: { message: UserMessage }) {
   const { t } = useTranslation();
   const userMsg = message as UserMessage;
   const imageUrls = userMsg.imageUrls;
+  const fileAttachments = userMsg.fileAttachments;
+  const content = (message.content === '[file]' && fileAttachments?.length)
+    || (message.content === '[image]' && imageUrls?.length)
+    ? ''
+    : message.content;
   const timeStr = formatMessageTime(message.createdAt);
   // `pending` tracks optimistic-message reconciliation and can outlive the
   // HTTP request. deliveryStatus is the user-facing transport acknowledgement.
@@ -193,7 +198,7 @@ function UserMessageContent({ message }: { message: UserMessage }) {
       <div className="message-content">
         <div className="user-bubble-row">
           <div className="user-meta-col">
-            <CopyMessageButton content={message.content} />
+            <CopyMessageButton content={content} />
             {timeStr && <div className="message-timestamp user-timestamp">{timeStr}</div>}
           </div>
           <div className="message-bubble user-bubble">
@@ -204,10 +209,17 @@ function UserMessageContent({ message }: { message: UserMessage }) {
                 ))}
               </div>
             )}
+            {fileAttachments && fileAttachments.length > 0 && (
+              <div className="user-message-files">
+                {fileAttachments.map((attachment) => (
+                  <MessageFile key={attachment.path} attachment={attachment} />
+                ))}
+              </div>
+            )}
             <div className="markdown-content">
               {userMsg.isShellOutput
-                ? <pre className="shell-content">{message.content}</pre>
-                : renderMarkdown(message.content)}
+                ? <pre className="shell-content">{content}</pre>
+                : renderMarkdown(content)}
             </div>
           </div>
         </div>
@@ -241,6 +253,31 @@ function buildMessageImageUrl(path: string, shareInfo: ShareInfo | null): string
     return `/api/v1/public/serve-file?path=${encodeURIComponent(path)}&shareToken=${encodeURIComponent(shareInfo.shareToken)}&jobId=${encodeURIComponent(shareInfo.jobId)}`;
   }
   return `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
+}
+
+function MessageFile({ attachment }: { attachment: FileAttachment }) {
+  const shareInfo = useContext(ShareInfoContext);
+  const baseHref = buildMessageImageUrl(attachment.path, shareInfo);
+  const href = attachment.path.startsWith('http://') || attachment.path.startsWith('https://') || attachment.path.startsWith('data:')
+    ? baseHref
+    : `${baseHref}&name=${encodeURIComponent(attachment.name)}`;
+  const extension = attachment.name.split('.').pop();
+  return (
+    <a className="user-message-file" href={href} target="_blank" rel="noopener noreferrer" download={attachment.name}>
+      <span className="user-message-file-icon" aria-hidden="true">{extension && extension !== attachment.name ? extension.slice(0, 5).toUpperCase() : 'FILE'}</span>
+      <span className="user-message-file-copy">
+        <span className="user-message-file-name">{attachment.name}</span>
+        <span className="user-message-file-meta">{attachment.mimeType || '文件'}{attachment.size ? ` · ${formatMessageFileSize(attachment.size)}` : ''}</span>
+      </span>
+      <span className="user-message-file-download" aria-hidden="true">↓</span>
+    </a>
+  );
+}
+
+function formatMessageFileSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function readPixelCustomProperty(style: CSSStyleDeclaration, name: string, fallback: number): number {

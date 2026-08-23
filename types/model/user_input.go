@@ -38,8 +38,9 @@ type UserInput struct {
 	JobID       string `json:"jobId,omitempty"`
 	WorkspaceID string `json:"workspaceId,omitempty"`
 
-	Content   string   `json:"content"`
-	ImageUrls []string `json:"imageUrls,omitempty"`
+	Content         string           `json:"content"`
+	ImageUrls       []string         `json:"imageUrls,omitempty"`
+	FileAttachments []FileAttachment `json:"fileAttachments,omitempty"`
 
 	// Kind distinguishes entry shapes in the single flat stream. Empty means
 	// "message" for backward compatibility with entries written before the
@@ -75,15 +76,16 @@ func NewIMUserInput(receivedAt time.Time, platform, messageID, chatID, senderID,
 // (before prepareJobSend's potentially slow image reads / base64 work),
 // so the timestamp reflects "when the server received" the request and
 // stays on the correct side of a midnight boundary.
-func NewWebUserInput(receivedAt time.Time, messageID, jobID, workspaceID, content string, imageUrls []string) *UserInput {
+func NewWebUserInput(receivedAt time.Time, messageID, jobID, workspaceID, content string, imageUrls []string, fileAttachments []FileAttachment) *UserInput {
 	return &UserInput{
-		MessageID:   messageID,
-		ReceivedAt:  receivedAt.UnixMilli(),
-		Source:      UserInputSourceWeb,
-		Platform:    UserInputPlatformWeb,
-		JobID:       jobID,
-		WorkspaceID: workspaceID,
-		Content:     content,
-		ImageUrls:   imageUrls,
+		MessageID:       messageID,
+		ReceivedAt:      receivedAt.UnixMilli(),
+		Source:          UserInputSourceWeb,
+		Platform:        UserInputPlatformWeb,
+		JobID:           jobID,
+		WorkspaceID:     workspaceID,
+		Content:         content,
+		ImageUrls:       imageUrls,
+		FileAttachments: fileAttachments,
 	}
 }

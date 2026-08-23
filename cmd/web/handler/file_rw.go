@@ -297,8 +297,14 @@ func (h *Handler) ServeFile(ctx context.Context, c *app.RequestContext) {
 	contentType, inline := serveFileContentType(filePath)
 	c.Response.Header.Set("X-Content-Type-Options", "nosniff")
 	if !inline {
+		downloadName := strings.TrimSpace(string(c.Query("name")))
+		if downloadName == "" {
+			downloadName = filepath.Base(filePath)
+		} else {
+			downloadName = filepath.Base(downloadName)
+		}
 		c.Response.Header.Set("Content-Disposition",
-			buildAttachmentDisposition(filepath.Base(filePath)))
+			buildAttachmentDisposition(downloadName))
 	}
 
 	// TOCTOU narrowing: re-validate right before FileDownload opens the
@@ -497,7 +503,18 @@ func (h *Handler) UploadFile(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	c.JSON(http.StatusOK, map[string]any{"code": 0, "path": destPath})
+	originalName := filepath.Base(file.Filename)
+	contentType := strings.TrimSpace(file.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = mime.TypeByExtension(ext)
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	c.JSON(http.StatusOK, map[string]any{
+		"code": 0, "path": destPath, "name": originalName,
+		"mimeType": contentType, "size": file.Size,
+	})
 }
 
 // isPathAllowedForServe checks that the file path is inside the agent's

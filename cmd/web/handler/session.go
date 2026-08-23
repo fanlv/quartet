@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -64,6 +65,7 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 
 		content := msg.Content
 		var imageUrls []string
+		var fileAttachments []model.FileAttachment
 
 		// Extract text content and image URLs from UserInputMultiContent (multimodal user input)
 		if len(msg.UserInputMultiContent) > 0 {
@@ -88,6 +90,21 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 							imageUrls = append(imageUrls, fmt.Sprintf("data:%s;base64,%s", mimeType, *part.Image.Base64Data))
 						}
 					}
+				case schema.ChatMessagePartTypeFileURL:
+					if part.File != nil {
+						path := ""
+						if lp, ok := part.File.Extra[msgextra.KeyLocalPath].(string); ok {
+							path = lp
+						} else if part.File.URL != nil {
+							path = *part.File.URL
+						}
+						if path != "" {
+							fileAttachments = append(fileAttachments, model.FileAttachment{
+								Path: path, Name: part.File.Name, MIMEType: part.File.MIMEType,
+								Size: toInt64(part.File.Extra[msgextra.KeyFileSize]),
+							})
+						}
+					}
 				}
 			}
 			if len(textParts) > 0 {
@@ -96,6 +113,16 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 		} else if msg.Role == schema.User {
 			content, imageUrls = extractHistoryLocalImageURLs(content)
 		}
+		if msg.Extra != nil {
+			if rawAttachments, ok := msg.Extra[msgextra.KeyFileAttachments]; ok {
+				fileAttachments = decodeHistoryFileAttachments(rawAttachments)
+			}
+			if original, ok := msg.Extra[msgextra.KeyOriginalUserContent].(string); ok {
+				content = original
+			} else {
+				content = stripAttachmentPromptPrefix(content, fileAttachments)
+			}
+		}
 
 		historyMsg := model.HistoryMessage{
 			ID:               fmt.Sprintf("%s:msg_%d", sessionID, i),
@@ -103,6 +130,7 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 			Content:          content,
 			ReasoningContent: msg.ReasoningContent,
 			ImageUrls:        imageUrls,
+			FileAttachments:  fileAttachments,
 		}
 
 		// Prefer the stable SSE message ID stored during persistence so that
@@ -227,6 +255,36 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 		resp.Agents = h.resolvePublicAgents(ctx, []string{s.Type})
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+func decodeHistoryFileAttachments(value any) []model.FileAttachment {
+	if value == nil {
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var attachments []model.FileAttachment
+	if err := json.Unmarshal(data, &attachments); err != nil {
+		return nil
+	}
+	return attachments
+}
+
+func stripAttachmentPromptPrefix(content string, attachments []model.FileAttachment) string {
+	if content == "" || len(attachments) == 0 {
+		return content
+	}
+	remaining := content
+	for _, attachment := range attachments {
+		line := model.RequestMessage{FileAttachments: []model.FileAttachment{attachment}}.FileAttachmentPromptPrefix()
+		if !strings.HasPrefix(remaining, line) {
+			return content
+		}
+		remaining = strings.TrimPrefix(remaining, line)
+	}
+	return remaining
 }
 
 // extractHistoryLocalImageURLs reconstructs imageUrls from the leading markdown

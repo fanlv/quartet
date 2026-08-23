@@ -595,6 +595,7 @@ struct HistoryMessage: Decodable, Identifiable, Hashable, Sendable {
     let toolCallId: String?
     let toolCalls: [HistoryToolCall]?
     let imageUrls: [String]?
+    let fileAttachments: [FileAttachment]?
     let isShellOutput: Bool?
     let isThinking: Bool?
     let failed: Bool?
@@ -645,6 +646,7 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
     var isFailed: Bool
     var timestamp: Int64?
     var imagePaths: [String]
+    var fileAttachments: [FileAttachment]
     var finishedAt: Int64?
     var thinkingContent: String?
     var thinkingFinishedAt: Int64?
@@ -667,6 +669,7 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         isFailed: Bool,
         timestamp: Int64?,
         imagePaths: [String] = [],
+        fileAttachments: [FileAttachment] = [],
         finishedAt: Int64? = nil,
         thinkingContent: String? = nil,
         thinkingFinishedAt: Int64? = nil,
@@ -688,6 +691,7 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         self.isFailed = isFailed
         self.timestamp = timestamp
         self.imagePaths = imagePaths
+        self.fileAttachments = fileAttachments
         self.finishedAt = finishedAt
         self.thinkingContent = thinkingContent
         self.thinkingFinishedAt = thinkingFinishedAt
@@ -727,6 +731,7 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         isFailed = history.failed == true
         timestamp = history.startedAt
         imagePaths = history.imageUrls ?? []
+        fileAttachments = history.fileAttachments ?? []
         finishedAt = history.finishedAt
         thinkingContent = history.isThinking == true ? nil : history.reasoningContent
         thinkingFinishedAt = history.thoughtFinishedAt
@@ -852,12 +857,14 @@ struct SendMessageRequest: Encodable, Sendable {
         let timestamp: Int64
         let role = "user"
         let imageUrls: [String]?
+        let fileAttachments: [FileAttachment]?
 
-        init(id: String, content: String, timestamp: Int64, imageUrls: [String]? = nil) {
+        init(id: String, content: String, timestamp: Int64, imageUrls: [String]? = nil, fileAttachments: [FileAttachment]? = nil) {
             self.id = id
             self.content = content
             self.timestamp = timestamp
             self.imageUrls = imageUrls
+            self.fileAttachments = fileAttachments
         }
     }
 
@@ -921,6 +928,7 @@ struct QueuedJobMessage: Decodable, Identifiable, Hashable, Sendable {
     struct Message: Decodable, Hashable, Sendable {
         let content: String
         let imageUrls: [String]?
+        let fileAttachments: [FileAttachment]?
     }
 
     let id: String
@@ -932,21 +940,34 @@ struct QueuedJobMessage: Decodable, Identifiable, Hashable, Sendable {
     var summaryLine: String {
         let text = messages.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n")
         if !text.isEmpty { return text }
-        return imagePaths.isEmpty ? "空消息" : "[图片]"
+        if !imagePaths.isEmpty { return "[图片]" }
+        return fileAttachments.isEmpty ? "空消息" : "[文件]"
     }
 
     var imagePaths: [String] { messages.flatMap { $0.imageUrls ?? [] } }
+    var fileAttachments: [FileAttachment] { messages.flatMap { $0.fileAttachments ?? [] } }
 }
 
 struct UploadResponse: Decodable, Sendable {
     let code: Int
     let path: String
+    let name: String?
+    let mimeType: String?
+    let size: Int64?
+}
+
+struct FileAttachment: Codable, Hashable, Sendable {
+    let path: String
+    let name: String
+    let mimeType: String?
+    let size: Int64?
 }
 
 struct PendingUpload: Hashable, Sendable {
     let data: Data
     let filename: String
     let mimeType: String
+    let isImage: Bool
 }
 
 struct GraphWorkflowSummary: Decodable, Identifiable, Hashable, Sendable {

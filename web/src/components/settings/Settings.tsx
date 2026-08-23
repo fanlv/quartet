@@ -1,24 +1,22 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GeneralSettings } from './GeneralSettings';
-import { AccountSettings } from './AccountSettings';
+import { AccountManagement } from './AccountManagement';
 import { EinoSettings } from './EinoSettings';
 import { PromptSettings } from './PromptSettings';
 import { SkillSettings } from './SkillSettings';
 import { AgentManagement } from './AgentManagement';
-import { LarkSettings } from './LarkSettings';
-import { WeChatSettings } from './WeChatSettings';
+import { IMSettings } from './IMSettings';
 import { WorkspacesSettings } from './WorkspacesSettings';
 import { LogsSettings } from './LogsSettings';
-import { UserManagement } from './UserManagement';
-import { RoleManagement } from './RoleManagement';
 import { MessagePresetSettings } from './MessagePresetSettings';
 import { useAuthPrincipal } from '../../auth';
 import './Settings.css';
 import './WeChatSettings.css';
 import './AuthManagement.css';
 
-export type SettingsTab = 'general' | 'workspace' | 'message-presets' | 'account' | 'users' | 'roles' | 'eino' | 'prompt' | 'skill' | 'agents' | 'lark' | 'wechat' | 'logs';
+export type SettingsTab = 'general' | 'workspace' | 'message-presets' | 'account' | 'users' | 'roles' | 'eino' | 'prompt' | 'skill' | 'agents' | 'im' | 'lark' | 'wechat' | 'logs';
+type SettingsNavTab = Exclude<SettingsTab, 'users' | 'roles' | 'lark' | 'wechat'>;
 
 interface SettingsProps {
   onClose: () => void;
@@ -26,19 +24,16 @@ interface SettingsProps {
   initialTab?: SettingsTab;
 }
 
-const tabDefs: { key: SettingsTab; labelKey: string; icon: string; permission?: string; anyPermissions?: string[] }[] = [
+const tabDefs: { key: SettingsNavTab; labelKey: string; icon: string; permission?: string; anyPermissions?: string[] }[] = [
   { key: 'general', labelKey: 'settings.tabs.general', icon: '⚙️', permission: 'config.write' },
   { key: 'workspace', labelKey: 'settings.tabs.workspace', icon: '🗂️', permission: 'workspace.write' },
   { key: 'message-presets', labelKey: 'settings.tabs.messagePresets', icon: '💬', anyPermissions: ['config.read', 'workspace.read'] },
-  { key: 'account', labelKey: 'settings.tabs.account', icon: '👤' },
-  { key: 'users', labelKey: 'settings.tabs.users', icon: '👥', permission: 'users.read' },
-  { key: 'roles', labelKey: 'settings.tabs.roles', icon: '🛡️', permission: 'roles.read' },
+  { key: 'account', labelKey: 'settings.tabs.accountManagement', icon: '👤' },
   { key: 'eino', labelKey: 'settings.tabs.eino', icon: '🤖', permission: 'config.write' },
   { key: 'prompt', labelKey: 'settings.tabs.prompt', icon: '📝', permission: 'config.write' },
   { key: 'skill', labelKey: 'settings.tabs.skill', icon: '🧩', permission: 'skills.manage' },
   { key: 'agents', labelKey: 'settings.tabs.agents', icon: '📦', permission: 'agent.manage' },
-  { key: 'lark', labelKey: 'settings.tabs.lark', icon: '💬', permission: 'config.write' },
-  { key: 'wechat', labelKey: 'settings.tabs.wechat', icon: '💚', permission: 'im.manage' },
+  { key: 'im', labelKey: 'settings.tabs.im', icon: '💬', anyPermissions: ['config.write', 'im.manage'] },
   { key: 'logs', labelKey: 'settings.tabs.logs', icon: '📋', permission: 'logs.manage' },
 ];
 
@@ -52,8 +47,11 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
     }),
     [principal],
   );
-  const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
-    visibleTabs.some((tab) => tab.key === initialTab) ? initialTab : visibleTabs[0]?.key ?? 'account',
+  const initialNavTab: SettingsNavTab = initialTab === 'users' || initialTab === 'roles'
+    ? 'account'
+    : initialTab === 'lark' || initialTab === 'wechat' ? 'im' : initialTab;
+  const [activeTab, setActiveTab] = useState<SettingsNavTab>(() =>
+    visibleTabs.some((tab) => tab.key === initialNavTab) ? initialNavTab : visibleTabs[0]?.key ?? 'account',
   );
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [messagePresetsDirty, setMessagePresetsDirty] = useState(false);
@@ -65,7 +63,7 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
     onClose();
   };
 
-  const selectTab = (tab: SettingsTab) => {
+  const selectTab = (tab: SettingsNavTab) => {
     if (tab === activeTab) return;
     if (activeTab === 'message-presets' && messagePresetsDirty && !window.confirm(t('settings.messagePresets.discardConfirm'))) return;
     if (activeTab === 'message-presets') setMessagePresetsDirty(false);
@@ -152,11 +150,7 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
       case 'message-presets':
         return <MessagePresetSettings onDirtyChange={setMessagePresetsDirty} />;
       case 'account':
-        return <AccountSettings />;
-      case 'users':
-        return <UserManagement />;
-      case 'roles':
-        return <RoleManagement />;
+        return <AccountManagement initialTab={initialTab === 'users' || initialTab === 'roles' ? initialTab : 'account'} />;
       case 'eino':
         return <EinoSettings />;
       case 'prompt':
@@ -165,10 +159,8 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
         return <SkillSettings />;
       case 'agents':
         return <AgentManagement />;
-      case 'lark':
-        return <LarkSettings />;
-      case 'wechat':
-        return <WeChatSettings />;
+      case 'im':
+        return <IMSettings initialTab={initialTab === 'wechat' ? 'wechat' : 'lark'} />;
       case 'logs':
         return <LogsSettings />;
       default:

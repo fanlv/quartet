@@ -486,6 +486,7 @@ func (j *Job) DeepCopy() *Job {
 				copy(cp.MessageQueue[i].Messages, j.MessageQueue[i].Messages)
 				for k := range cp.MessageQueue[i].Messages {
 					cp.MessageQueue[i].Messages[k].ImageUrls = append([]string(nil), j.MessageQueue[i].Messages[k].ImageUrls...)
+					cp.MessageQueue[i].Messages[k].FileAttachments = append([]FileAttachment(nil), j.MessageQueue[i].Messages[k].FileAttachments...)
 				}
 			}
 		}

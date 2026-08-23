@@ -13,6 +13,7 @@ struct ChatRoute: Hashable {
     var modeID: String?
     var thoughtLevelID: String?
     var initialImagePaths: [String]?
+    var initialFileAttachments: [FileAttachment]?
     var targetSessionID: String?
 
     init(
@@ -24,6 +25,7 @@ struct ChatRoute: Hashable {
         modeID: String? = nil,
         thoughtLevelID: String? = nil,
         initialImagePaths: [String]? = nil,
+        initialFileAttachments: [FileAttachment]? = nil,
         targetSessionID: String? = nil
     ) {
         self.summary = summary
@@ -34,6 +36,7 @@ struct ChatRoute: Hashable {
         self.modeID = modeID
         self.thoughtLevelID = thoughtLevelID
         self.initialImagePaths = initialImagePaths
+        self.initialFileAttachments = initialFileAttachments
         self.targetSessionID = targetSessionID
     }
 }
@@ -219,7 +222,7 @@ struct NewConversationView: View {
                 )
             }
             .sheet(isPresented: $showsDocumentPicker) {
-                DocumentImagePicker(
+                DocumentAttachmentPicker(
                     onDocumentPicked: { url in
                         showsDocumentPicker = false
                         Task { await loadDocument(url) }
@@ -310,7 +313,7 @@ struct NewConversationView: View {
                     .font(.quartet(.regular, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Spacer()
-                Text(message.isEmpty ? "支持文字与图片" : "\(message.count) 字")
+                Text(message.isEmpty ? "支持文字、图片与文件" : "\(message.count) 字")
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
@@ -385,7 +388,7 @@ struct NewConversationView: View {
                                 .frame(width: 28, height: 28)
                                 .background(QuartetTheme.elevated, in: Circle())
                         }
-                        .accessibilityLabel("移除图片")
+                        .accessibilityLabel("移除附件")
                         .padding(8)
                     }
             }
@@ -965,6 +968,7 @@ struct NewConversationView: View {
                 modeID: payload.modeID,
                 thoughtLevelID: payload.thoughtLevelID,
                 initialImagePaths: nil,
+                initialFileAttachments: nil,
                 targetSessionID: nil
             ))
         } catch {
@@ -1062,7 +1066,7 @@ struct NewConversationView: View {
                 try Data(contentsOf: url)
             }.value
             pendingImage = try await MainActor.run {
-                try ChatAttachmentProcessor.prepareImageUpload(
+                try ChatAttachmentProcessor.prepareFileUpload(
                     data: data,
                     suggestedFilename: url.lastPathComponent,
                     contentType: UTType(filenameExtension: url.pathExtension)

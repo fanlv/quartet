@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -47,6 +48,10 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 		httputil.BadRequest(c, err.Error())
 		return
 	}
+	if err := validateFileAttachments(req.Messages); err != nil {
+		httputil.BadRequest(c, err.Error())
+		return
+	}
 
 	// Chat-page command branch (方向一-2): when the first message is a known
 	// slash command, execute it through the shared command module and push
@@ -70,7 +75,7 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 	// the normal message flow so those payloads are not silently dropped
 	// (would-be orphan uploads on the server, lost follow-up messages from
 	// non-web clients).
-	if !req.BypassCommand && len(req.Messages) == 1 && len(req.Messages[0].ImageUrls) == 0 {
+	if !req.BypassCommand && len(req.Messages) == 1 && len(req.Messages[0].ImageUrls) == 0 && len(req.Messages[0].FileAttachments) == 0 {
 		if command.IsKnown(req.Messages[0].Content) {
 			if j.Status == model.JobStatusRunning && !command.IsReadOnly(req.Messages[0].Content) {
 				httputil.Conflict(c, "the command has side effects and cannot run while the job is running; try again after the current message finishes")
@@ -199,10 +204,10 @@ func (h *Handler) appendWebUserInputs(ctx context.Context, j *model.Job, req *mo
 		return
 	}
 	for idx, m := range req.Messages {
-		if m.Content == "" && len(m.ImageUrls) == 0 {
+		if m.Content == "" && len(m.ImageUrls) == 0 && len(m.FileAttachments) == 0 {
 			continue
 		}
-		if command.IsKnown(m.Content) {
+		if command.IsKnown(m.Content) && len(m.ImageUrls) == 0 && len(m.FileAttachments) == 0 {
 			continue
 		}
 		msgID := m.ID
@@ -213,7 +218,7 @@ func (h *Handler) appendWebUserInputs(ctx context.Context, j *model.Job, req *mo
 				msgID = uuid.NewString()
 			}
 		}
-		input := model.NewWebUserInput(receivedAt, msgID, j.ID, j.WorkspaceID, m.Content, m.ImageUrls)
+		input := model.NewWebUserInput(receivedAt, msgID, j.ID, j.WorkspaceID, m.Content, m.ImageUrls, m.FileAttachments)
 		if err := h.userInputRepo.Append(ctx, input); err != nil {
 			logger.Errorf(ctx, "[user_input] append web failed: jobId=%s err=%v", j.ID, err)
 		}
@@ -243,6 +248,9 @@ func (h *Handler) prepareQueuedJobMessage(ctx context.Context, j *model.Job, req
 	}
 	if len(req.Messages) == 0 {
 		return model.QueuedJobMessage{}, job.ErrEmptyMessage
+	}
+	if err := validateFileAttachments(req.Messages); err != nil {
+		return model.QueuedJobMessage{}, err
 	}
 	agentID, revision, err := h.resolveInteractiveExecutionTarget(ctx, j, req)
 	if err != nil {
@@ -560,6 +568,9 @@ func (h *Handler) prepareJobMessage(j *model.Job, req *model.JobMessageRequest) 
 	if len(req.Messages) == 0 {
 		return nil, fmt.Errorf("messages is required")
 	}
+	if err := validateFileAttachments(req.Messages); err != nil {
+		return nil, err
+	}
 
 	opts, err := h.prepareInteractiveRun(j, req)
 	if err != nil {
@@ -569,12 +580,33 @@ func (h *Handler) prepareJobMessage(j *model.Job, req *model.JobMessageRequest) 
 	return opts, nil
 }
 
+func validateFileAttachments(messages []model.RequestMessage) error {
+	for i := range messages {
+		for j := range messages[i].FileAttachments {
+			attachment := &messages[i].FileAttachments[j]
+			attachment.Path = filepath.Clean(strings.TrimSpace(attachment.Path))
+			attachment.Name = strings.TrimSpace(attachment.Name)
+			if !filepath.IsAbs(attachment.Path) {
+				return fmt.Errorf("messages[%d].fileAttachments[%d].path must be absolute", i, j)
+			}
+			if !isPathAllowedForServe(attachment.Path) {
+				return fmt.Errorf("messages[%d].fileAttachments[%d].path is outside allowed directories", i, j)
+			}
+			if attachment.Name == "" {
+				attachment.Name = filepath.Base(attachment.Path)
+			} else {
+				attachment.Name = filepath.Base(attachment.Name)
+			}
+		}
+	}
+	return nil
+}
+
 // prepareInteractiveRun handles interactive mode: build messages, resolve session, update model.
 //
-// All agents (ACP CLIs, including eino-cli) take image inputs as an
-// `![image](<abs path>)` text tag prepended to the message content, so the
-// image URLs are always preserved verbatim for downstream records (user_input,
-// etc.) — nothing is dropped here.
+// All agents (ACP CLIs, including eino-cli) receive attachment paths in the
+// flattened text prompt. Ordinary-file metadata is also stored on the message
+// so history can render it without parsing prompt text.
 func (h *Handler) prepareInteractiveRun(j *model.Job, req *model.JobMessageRequest) (*job.SendMessageOptions, error) {
 	opts := h.prepareIdempotencyOptions(req)
 
@@ -635,15 +667,14 @@ func (h *Handler) prepareIdempotencyOptions(req *model.JobMessageRequest) *job.S
 	msgs := make([]*schema.Message, 0, len(req.Messages))
 	for i := range req.Messages {
 		m := &req.Messages[i]
-		content := m.Content
-		if len(m.ImageUrls) > 0 {
-			var prefix string
-			for _, u := range m.ImageUrls {
-				prefix += fmt.Sprintf("![image](%s)\n", u)
+		message := schema.UserMessage(m.AgentContent())
+		if len(m.FileAttachments) > 0 {
+			message.Extra = map[string]any{
+				msgextra.KeyFileAttachments:     m.FileAttachments,
+				msgextra.KeyOriginalUserContent: m.Content,
 			}
-			content = prefix + content
 		}
-		msgs = append(msgs, schema.UserMessage(content))
+		msgs = append(msgs, message)
 	}
 	return &job.SendMessageOptions{
 		IdempotencySessionID: req.SessionID,

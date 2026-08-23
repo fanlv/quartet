@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { JobChat, ChatPage, GraphWorkflowPage, Settings } from './components';
-import type { CommandAction } from './types';
+import type { CommandAction, FileAttachment } from './types';
 import type { SettingsTab } from './components/settings/Settings';
 import { StatsPage } from './components/stats/StatsPage';
 import { ConnectionStatusProvider } from './contexts/ConnectionStatus';
@@ -111,6 +111,7 @@ function WorkspaceApp() {
   const [showChat, setShowChat] = useState(() => !!getJobIdFromUrl());
   const [initialMessage, setInitialMessage] = useState<string | null>(null);
   const [initialImageUrls, setInitialImageUrls] = useState<string[] | undefined>();
+  const [initialFileAttachments, setInitialFileAttachments] = useState<FileAttachment[] | undefined>();
   const [currentJobId, setCurrentJobId] = useState<string | undefined>(() => getJobIdFromUrl());
   const [initialSessionId, setInitialSessionId] = useState<string | undefined>(() => getSessionIdFromUrl());
   const [shareToken] = useState<string | undefined>(() => getShareTokenFromUrl());
@@ -172,6 +173,7 @@ function WorkspaceApp() {
       if (!jobId) {
         setInitialMessage(null);
         setInitialImageUrls(undefined);
+        setInitialFileAttachments(undefined);
         setInitialModelId(undefined);
         setInitialAgentType(undefined);
         setInitialAcpMode(undefined);
@@ -283,7 +285,7 @@ function WorkspaceApp() {
 
 
   // Normal chat: create job then navigate
-  const handleStartChat = useCallback(async (message: string, modelId: string, type: string, workdir?: string, imageUrls?: string[], acpMode?: string, acpThoughtLevel?: string) => {
+  const handleStartChat = useCallback(async (message: string, modelId: string, type: string, workdir?: string, imageUrls?: string[], fileAttachments?: FileAttachment[], acpMode?: string, acpThoughtLevel?: string) => {
     setMissingJobNoticeId(null);
     setIsInitializing(true);
     try {
@@ -330,6 +332,7 @@ function WorkspaceApp() {
       setCurrentJobId(jobId);
       setInitialMessage(message);
       setInitialImageUrls(imageUrls);
+      setInitialFileAttachments(fileAttachments);
       setInitialWorkdir(workdir);
       setInitialModelId(modelId);
       setInitialAgentType(type);
@@ -378,6 +381,7 @@ function WorkspaceApp() {
       setCurrentJobId(jobId);
       setInitialMessage(null);
       setInitialImageUrls(undefined);
+      setInitialFileAttachments(undefined);
       setInitialWorkdir(workdir);
       setInitialModelId(modelId);
       setInitialAgentType(agentType);
@@ -401,6 +405,7 @@ function WorkspaceApp() {
     window.history.pushState({}, '', url.toString());
     setInitialMessage(null);
     setInitialImageUrls(undefined);
+    setInitialFileAttachments(undefined);
     setCurrentJobId(undefined);
     setInitialModelId(undefined);
     setInitialAgentType(undefined);
@@ -440,6 +445,7 @@ function WorkspaceApp() {
     setCurrentJobId(jobId);
     setInitialMessage(null);
     setInitialImageUrls(undefined);
+    setInitialFileAttachments(undefined);
     setInitialModelId(undefined);
     setInitialAgentType(undefined);
     setInitialAcpMode(undefined);
@@ -473,6 +479,7 @@ function WorkspaceApp() {
     setInitialSessionId(undefined);
     setInitialMessage(null);
     setInitialImageUrls(undefined);
+    setInitialFileAttachments(undefined);
     setInitialModelId(undefined);
     setInitialAgentType(undefined);
     setInitialAcpMode(undefined);
@@ -582,6 +589,7 @@ function WorkspaceApp() {
         setShowChat(true);
         setInitialMessage(null);
         setInitialImageUrls(undefined);
+        setInitialFileAttachments(undefined);
         setInitialModelId(undefined);
         setInitialAgentType(undefined);
         setInitialAcpMode(undefined);
@@ -685,6 +693,7 @@ function WorkspaceApp() {
           // Clear per-session initial bundle so JobChat does a fresh load.
           setInitialMessage(null);
           setInitialImageUrls(undefined);
+          setInitialFileAttachments(undefined);
           setInitialModelId(undefined);
           setInitialAgentType(undefined);
           setInitialAcpMode(undefined);
@@ -773,6 +782,7 @@ function WorkspaceApp() {
             setShowChat(true);
             setInitialMessage(null);
             setInitialImageUrls(undefined);
+            setInitialFileAttachments(undefined);
             setInitialModelId(undefined);
             setInitialAgentType(undefined);
             setInitialAcpMode(undefined);
@@ -902,6 +912,7 @@ function WorkspaceApp() {
     setShowStats(false);
     setInitialMessage(null);
     setInitialImageUrls(undefined);
+    setInitialFileAttachments(undefined);
     setInitialSessionId(undefined);
     updateUrlWithJobId(jobId);
     setCurrentJobId(jobId);
@@ -926,6 +937,7 @@ function WorkspaceApp() {
     setInitialSessionId(undefined);
     setInitialMessage(null);
     setInitialImageUrls(undefined);
+    setInitialFileAttachments(undefined);
     setInitialWorkdir(undefined);
     setInitialModelId(undefined);
     setInitialAgentType(undefined);
@@ -1012,6 +1024,7 @@ function WorkspaceApp() {
             existingJobId={currentJobId}
             initialMessage={initialMessage}
             initialImageUrls={initialImageUrls}
+            initialFileAttachments={initialFileAttachments}
             initialWorkdir={initialWorkdir}
             initialSessionId={initialSessionId}
             initialModelId={initialModelId}

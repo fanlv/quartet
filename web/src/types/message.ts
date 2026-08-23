@@ -14,9 +14,17 @@ export interface BaseMessage {
   sendError?: string;
 }
 
+export interface FileAttachment {
+  path: string;
+  name: string;
+  mimeType?: string;
+  size?: number;
+}
+
 export interface UserMessage extends BaseMessage {
   role: MessageRoleEnum.USER;
   imageUrls?: string[];
+  fileAttachments?: FileAttachment[];
   // True for the script of a Graph Shell node's display session. Rendered as
   // preformatted text (not markdown) so newlines and shell syntax survive.
   isShellOutput?: boolean;

@@ -377,12 +377,16 @@ struct APIClient: @unchecked Sendable {
         return response.queue
     }
 
-    func uploadImage(data: Data, filename: String, mimeType: String) async throws -> String {
+    func uploadFile(data: Data, filename: String, mimeType: String) async throws -> FileAttachment {
         let endpoint = endpointURL(path: "api/v1/upload-file", query: [])
         let boundary = "Boundary-\(UUID().uuidString)"
+        let multipartFilename = filename
+            .replacingOccurrences(of: "\r", with: "_")
+            .replacingOccurrences(of: "\n", with: "_")
+            .replacingOccurrences(of: "\"", with: "_")
         var body = Data()
         body.append(Data("--\(boundary)\r\n".utf8))
-        body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(multipartFilename)\"\r\n".utf8))
         body.append(Data("Content-Type: \(mimeType)\r\n\r\n".utf8))
         body.append(data)
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))
@@ -399,16 +403,26 @@ struct APIClient: @unchecked Sendable {
         do {
             (responseData, response) = try await session.data(for: request)
         } catch {
-            throw APIError(summary: "图片上传失败", detail: "POST \(endpoint.absoluteString)\n\n\(String(describing: error))")
+            throw APIError(summary: "附件上传失败", detail: "POST \(endpoint.absoluteString)\n\n\(String(describing: error))")
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let raw = String(data: responseData, encoding: .utf8) ?? "<\(responseData.count) bytes of non-UTF-8 data>"
         guard (200..<300).contains(status) else {
-            throw APIError(summary: "图片上传失败", detail: "POST \(endpoint.absoluteString)\nHTTP \(status)\n\n\(raw)")
+            throw APIError(summary: "附件上传失败", detail: "POST \(endpoint.absoluteString)\nHTTP \(status)\n\n\(raw)")
         }
         do {
             let response = try Self.decode(UploadResponse.self, from: responseData)
-            return response.path
+            guard response.code == 0 else {
+                throw APIError(summary: "附件上传失败", detail: "POST \(endpoint.absoluteString)\nHTTP \(status)\n\n\(raw)")
+            }
+            return FileAttachment(
+                path: response.path,
+                name: response.name ?? filename,
+                mimeType: response.mimeType ?? mimeType,
+                size: response.size ?? Int64(data.count)
+            )
+        } catch let apiError as APIError {
+            throw apiError
         } catch {
             throw APIError(summary: "无法解析上传响应", detail: "\(String(describing: error))\n\n原始响应：\n\(raw)")
         }
@@ -555,11 +569,11 @@ struct APIClient: @unchecked Sendable {
         }
     }
 
-    func fileData(path: String) async throws -> Data {
+    func fileData(path: String, downloadName: String? = nil) async throws -> Data {
         if path.hasPrefix("data:"), let comma = path.firstIndex(of: ","), path[..<comma].contains(";base64") {
             let encoded = String(path[path.index(after: comma)...])
             guard let data = Data(base64Encoded: encoded) else {
-                throw APIError(summary: "图片数据无效", detail: "无法解码 data URL。")
+                throw APIError(summary: "文件数据无效", detail: "无法解码 data URL。")
             }
             return data
         }
@@ -572,9 +586,13 @@ struct APIClient: @unchecked Sendable {
                   let relativeURL = URL(string: path, relativeTo: baseURL)?.absoluteURL {
             endpoint = relativeURL
         } else {
+            var query = [URLQueryItem(name: "path", value: path)]
+            if let downloadName, !downloadName.isEmpty {
+                query.append(URLQueryItem(name: "name", value: downloadName))
+            }
             endpoint = endpointURL(
                 path: "api/v1/serve-file",
-                query: [URLQueryItem(name: "path", value: path)]
+                query: query
             )
         }
         let request = URLRequest(url: endpoint)
@@ -583,13 +601,13 @@ struct APIClient: @unchecked Sendable {
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
                 let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
-                throw APIError(summary: "图片加载失败", detail: "GET \(endpoint.absoluteString)\nHTTP \(status)\n\n\(body)")
+                throw APIError(summary: "文件加载失败", detail: "GET \(endpoint.absoluteString)\nHTTP \(status)\n\n\(body)")
             }
             return data
         } catch let error as APIError {
             throw error
         } catch {
-            throw APIError(summary: "图片加载失败", detail: "GET \(endpoint.absoluteString)\n\n\(String(describing: error))")
+            throw APIError(summary: "文件加载失败", detail: "GET \(endpoint.absoluteString)\n\n\(String(describing: error))")
         }
     }
 

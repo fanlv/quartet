@@ -1,9 +1,36 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
+import QuickLook
 
 enum ChatAttachmentProcessor {
     static let maximumImageBytes = 10 * 1024 * 1024
+    static let maximumFileBytes = 10 * 1024 * 1024
+
+    @MainActor
+    static func prepareFileUpload(
+        data: Data,
+        suggestedFilename: String,
+        contentType: UTType? = nil
+    ) throws -> PendingUpload {
+        let type = contentType ?? inferredType(from: suggestedFilename)
+        if type?.conforms(to: .image) == true, UIImage(data: data) != nil {
+            return try prepareImageUpload(data: data, suggestedFilename: suggestedFilename, contentType: type)
+        }
+        guard !data.isEmpty else {
+            throw APIError(summary: "文件为空", detail: "未读取到有效文件数据。")
+        }
+        guard data.count <= maximumFileBytes else {
+            throw APIError(summary: "文件过大", detail: "文件超过服务端 10MB 限制，请选择更小的文件后重试。")
+        }
+        let filename = URL(fileURLWithPath: suggestedFilename).lastPathComponent
+        return PendingUpload(
+            data: data,
+            filename: filename.isEmpty ? "ios-\(UUID().uuidString)" : filename,
+            mimeType: type?.preferredMIMEType ?? "application/octet-stream",
+            isImage: false
+        )
+    }
 
     @MainActor
     static func prepareImageUpload(
@@ -21,7 +48,8 @@ enum ChatAttachmentProcessor {
             return PendingUpload(
                 data: data,
                 filename: "\(baseName).\(type.preferredFilenameExtension ?? "jpg")",
-                mimeType: type.preferredMIMEType ?? "image/jpeg"
+                mimeType: type.preferredMIMEType ?? "image/jpeg",
+                isImage: true
             )
         }
 
@@ -49,7 +77,8 @@ enum ChatAttachmentProcessor {
                     return PendingUpload(
                         data: data,
                         filename: "\(baseName).jpg",
-                        mimeType: "image/jpeg"
+                        mimeType: "image/jpeg",
+                        isImage: true
                     )
                 }
             }
@@ -124,7 +153,7 @@ struct ChatAttachmentPreview: View {
                         .resizable()
                         .scaledToFill()
                 } else {
-                    Image(systemName: "photo")
+                    Image(systemName: upload.isImage ? "photo" : "doc.fill")
                         .font(.quartet(.large))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
@@ -203,7 +232,7 @@ struct CameraImagePicker: UIViewControllerRepresentable {
     }
 }
 
-struct DocumentImagePicker: UIViewControllerRepresentable {
+struct DocumentAttachmentPicker: UIViewControllerRepresentable {
     let onDocumentPicked: @MainActor (URL) -> Void
     let onCancel: @MainActor () -> Void
 
@@ -213,7 +242,7 @@ struct DocumentImagePicker: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(
-            forOpeningContentTypes: [.image],
+            forOpeningContentTypes: [.item],
             asCopy: true
         )
         picker.delegate = context.coordinator
@@ -251,6 +280,35 @@ struct DocumentImagePicker: UIViewControllerRepresentable {
             Task { @MainActor in
                 onDocumentPicked(url)
             }
+        }
+    }
+}
+
+struct LocalFilePreview: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {
+        context.coordinator.url = url
+        uiViewController.reloadData()
+    }
+
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        var url: URL
+
+        init(url: URL) { self.url = url }
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            url as NSURL
         }
     }
 }

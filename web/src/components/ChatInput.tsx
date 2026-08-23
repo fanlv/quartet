@@ -11,7 +11,9 @@ import { isKnownCommand, isReadOnlyCommand } from '../utils/commands';
 import { copyToClipboard } from '../utils/clipboard';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useGitBranch } from '../hooks/useGitBranch';
-import { usePendingImages } from '../hooks/usePendingImages';
+import { uploadChatAttachment, usePendingAttachments, type UploadedAttachment } from '../hooks/usePendingAttachments';
+import { PendingAttachmentPreviews, UploadedFilePreviews } from './AttachmentPreviews';
+import type { FileAttachment } from '../types';
 import { workspaceColor } from '../utils/workspace';
 import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl, resolveIconSrc } from '../utils/url';
@@ -72,6 +74,9 @@ function readLocalSentMessages(storageKey: string): LocalSentMessage[] {
         imageUrls: Array.isArray((it as LocalSentMessage).imageUrls)
           ? (it as LocalSentMessage).imageUrls!.filter((u) => typeof u === 'string')
           : undefined,
+        fileAttachments: Array.isArray((it as LocalSentMessage).fileAttachments)
+          ? (it as LocalSentMessage).fileAttachments!.filter((file) => file && typeof file.path === 'string' && typeof file.name === 'string')
+          : undefined,
       }))
       .slice(0, LOCAL_SENT_MESSAGE_LIMIT);
   } catch {
@@ -94,6 +99,7 @@ function appendLocalSentMessage(storageKey: string, item: Omit<LocalSentMessage,
     ts: item.ts || Date.now(),
     content: item.content,
     imageUrls: item.imageUrls,
+    fileAttachments: item.fileAttachments,
   };
   const prev = readLocalSentMessages(storageKey);
   const next = [nextItem, ...prev].slice(0, LOCAL_SENT_MESSAGE_LIMIT);
@@ -101,26 +107,17 @@ function appendLocalSentMessage(storageKey: string, item: Omit<LocalSentMessage,
   return next;
 }
 
-async function uploadImage(file: File): Promise<string> {
-  const formData = new FormData();
-  formData.append('file', file);
-  // The session cookie and CSRF header are handled by the global fetch wrapper.
-  const res = await fetch('/api/v1/upload-file', { method: 'POST', body: formData });
-  const data = await res.json();
-  if (!data || data.code !== 0) throw new Error(data?.msg || 'Upload failed');
-  return data.path as string;
-}
-
 interface QueuedMessageView {
   id: string;
   content: string;
   imageUrls?: string[];
+  fileAttachments?: FileAttachment[];
   state?: 'queued' | 'blocked' | 'processing';
   error?: string;
 }
 
 interface ChatInputProps {
-  onSend: (message: string, imageUrls?: string[]) => void;
+  onSend: (message: string, imageUrls?: string[], fileAttachments?: FileAttachment[]) => void;
   onStop?: () => void;
   isLoading: boolean;
   disabled?: boolean;
@@ -248,14 +245,15 @@ export function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [tabletBottomGap, setTabletBottomGap] = useState(0);
 
-  const { pendingImages, addImages, removeImage, clearImages } = usePendingImages(uploadImage);
+  const { pendingAttachments, addAttachments, removeAttachment, clearAttachments } = usePendingAttachments(uploadChatAttachment);
 
   // Local cache of "sent" messages (recorded on click send, regardless of server success/failure)
   const localHistoryStorageKey = `quartet:sent_history:${localHistoryKey || 'global'}`;
   const [historyItems, setHistoryItems] = useState<LocalSentMessage[]>(() => readLocalSentMessages(localHistoryStorageKey));
   const historyCursorRef = useRef<number | null>(null);
-  const historyDraftRef = useRef<{ input: string; pickedImageUrls: string[] } | null>(null);
+  const historyDraftRef = useRef<{ input: string; pickedImageUrls: string[]; pickedFileAttachments: FileAttachment[] } | null>(null);
   const [pickedImageUrls, setPickedImageUrls] = useState<string[]>([]);
+  const [pickedFileAttachments, setPickedFileAttachments] = useState<FileAttachment[]>([]);
   const [deletingQueuedIds, setDeletingQueuedIds] = useState<Set<string>>(new Set());
 
   const [mentionState, setMentionState] = useState<{ keyword: string; start: number } | null>(null);
@@ -391,40 +389,51 @@ export function ChatInput({
   }, [isTabletLayout]);
 
   const handleSend = () => {
-    const hasContent = input.trim() || pendingImages.length > 0 || pickedImageUrls.length > 0;
-    const allUploaded = pendingImages.every((img) => img.uploadedPath && !img.uploading);
+    const hasContent = input.trim() || pickedImageUrls.length > 0 || pendingAttachments.length > 0 || pickedFileAttachments.length > 0;
+    const allUploaded = pendingAttachments.every((attachment) => attachment.uploaded && !attachment.uploading);
     if (!hasContent || interactionDisabled) return;
     if (isLoading && !canQueue) return;
     if (isLoading && isKnownCommand(input) && !isReadOnlyCommand(input)) {
       showToast(t('chat.commandUnavailableWhileRunning'));
       return;
     }
-    if (pendingImages.length > 0 && !allUploaded) {
-      const failedImage = pendingImages.find((img) => img.error);
-      if (failedImage) {
-        showToast(t('chat.imageUploadFailed', { error: failedImage.error }));
+    if (!allUploaded) {
+      const failedUpload = pendingAttachments.find((attachment) => attachment.error)?.error;
+      if (failedUpload) {
+        showToast(t('chat.attachmentUploadFailed', { error: failedUpload }));
       }
       return;
     }
 
-    const uploadedImageUrls = pendingImages
-      .map((img) => img.uploadedPath!)
-      .filter(Boolean);
-
-    const imageUrls = [...pickedImageUrls, ...uploadedImageUrls].filter(Boolean);
-    const contentToSend = input.trim() || (imageUrls.length > 0 ? '[image]' : '');
+    const imageUrls = [...pickedImageUrls];
+    const uploadedFiles = pendingAttachments
+      .map((attachment) => attachment.uploaded)
+      .filter((attachment): attachment is UploadedAttachment => !!attachment);
+    const imageAttachments = uploadedFiles.filter((attachment) => attachment.isImage);
+    const fileAttachments = [
+      ...pickedFileAttachments,
+      ...uploadedFiles.filter((attachment) => !attachment.isImage).map(({ isImage: _isImage, ...attachment }) => attachment),
+    ];
+    imageUrls.push(...imageAttachments.map((attachment) => attachment.path));
+    const contentToSend = input.trim() || (fileAttachments.length > 0 ? '[file]' : '[image]');
 
     // Record locally on send click, regardless of server result.
     const nextHistory = appendLocalSentMessage(localHistoryStorageKey, {
       content: contentToSend,
       imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+      fileAttachments: fileAttachments.length > 0 ? fileAttachments : undefined,
     });
     setHistoryItems(nextHistory);
 
-    onSend(contentToSend, imageUrls.length > 0 ? imageUrls : undefined);
+    if (fileAttachments.length > 0) {
+      onSend(contentToSend, imageUrls.length > 0 ? imageUrls : undefined, fileAttachments);
+    } else {
+      onSend(contentToSend, imageUrls.length > 0 ? imageUrls : undefined);
+    }
     setInput('');
     setPickedImageUrls([]);
-    clearImages();
+    setPickedFileAttachments([]);
+    clearAttachments();
     setMentionState(null);
     closeSlash();
     historyCursorRef.current = null;
@@ -433,13 +442,13 @@ export function ChatInput({
 
   const handleImageSelect = useCallback(async (files: FileList | null) => {
     if (interactionDisabled) return;
-    await addImages(files);
-  }, [addImages, interactionDisabled]);
+    await addAttachments(files);
+  }, [addAttachments, interactionDisabled]);
 
-  const handleRemoveImage = useCallback((previewUrl: string) => {
+  const handleRemovePickedFile = useCallback((path: string) => {
     if (interactionDisabled) return;
-    removeImage(previewUrl);
-  }, [interactionDisabled, removeImage]);
+    setPickedFileAttachments((previous) => previous.filter((file) => file.path !== path));
+  }, [interactionDisabled]);
 
   const handleRemovePickedImage = useCallback((url: string) => {
     if (interactionDisabled) return;
@@ -548,19 +557,20 @@ export function ChatInput({
       const caretAtStart = selStart === 0 && selEnd === 0;
       const cursor = historyCursorRef.current;
 
-      const allowEnterHistory = caretAtStart && input.length === 0 && pendingImages.length === 0 && pickedImageUrls.length === 0;
+      const allowEnterHistory = caretAtStart && input.length === 0 && pendingAttachments.length === 0 && pickedImageUrls.length === 0 && pickedFileAttachments.length === 0;
       if (e.key === 'ArrowUp' && (cursor != null || allowEnterHistory)) {
         if (historyItems.length > 0) {
           e.preventDefault();
           if (cursor == null) {
-            historyDraftRef.current = { input, pickedImageUrls };
+            historyDraftRef.current = { input, pickedImageUrls, pickedFileAttachments };
             historyCursorRef.current = 0;
             const it = historyItems[0];
-            const nextInput = it.content === '[image]' && it.imageUrls && it.imageUrls.length > 0 ? '' : it.content;
+            const nextInput = (it.content === '[image]' || it.content === '[file]') && ((it.imageUrls?.length ?? 0) + (it.fileAttachments?.length ?? 0) > 0) ? '' : it.content;
             setInput(nextInput);
             setPickedImageUrls(it.imageUrls || []);
+            setPickedFileAttachments(it.fileAttachments || []);
             // clear pending uploads when recalling history
-            clearImages();
+            clearAttachments();
             requestAnimationFrame(() => {
               textareaRef.current?.focus();
               if (textareaRef.current) {
@@ -572,10 +582,11 @@ export function ChatInput({
             const nextIdx = Math.min(historyItems.length - 1, cursor + 1);
             historyCursorRef.current = nextIdx;
             const it = historyItems[nextIdx];
-            const nextInput = it.content === '[image]' && it.imageUrls && it.imageUrls.length > 0 ? '' : it.content;
+            const nextInput = (it.content === '[image]' || it.content === '[file]') && ((it.imageUrls?.length ?? 0) + (it.fileAttachments?.length ?? 0) > 0) ? '' : it.content;
             setInput(nextInput);
             setPickedImageUrls(it.imageUrls || []);
-            clearImages();
+            setPickedFileAttachments(it.fileAttachments || []);
+            clearAttachments();
             requestAnimationFrame(() => {
               textareaRef.current?.focus();
               if (textareaRef.current) {
@@ -596,17 +607,20 @@ export function ChatInput({
           if (draft) {
             setInput(draft.input);
             setPickedImageUrls(draft.pickedImageUrls);
+            setPickedFileAttachments(draft.pickedFileAttachments);
           } else {
             setInput('');
             setPickedImageUrls([]);
+            setPickedFileAttachments([]);
           }
         } else {
           historyCursorRef.current = nextIdx;
           const it = historyItems[nextIdx];
-          const nextInput = it.content === '[image]' && it.imageUrls && it.imageUrls.length > 0 ? '' : it.content;
+          const nextInput = (it.content === '[image]' || it.content === '[file]') && ((it.imageUrls?.length ?? 0) + (it.fileAttachments?.length ?? 0) > 0) ? '' : it.content;
           setInput(nextInput);
           setPickedImageUrls(it.imageUrls || []);
-          clearImages();
+          setPickedFileAttachments(it.fileAttachments || []);
+          clearAttachments();
           requestAnimationFrame(() => {
             textareaRef.current?.focus();
             if (textareaRef.current) {
@@ -718,13 +732,16 @@ export function ChatInput({
             )}
             <div className="chat-queued-row" role="list" aria-label={t('chat.waitingToSend')}>
               {(queuedMessages ?? []).map((q, index) => {
-                const preview = q.content.trim() || (q.imageUrls && q.imageUrls.length > 0 ? t('chat.imagesCount', { count: q.imageUrls.length }) : '');
+                const preview = q.content.trim()
+                  || (q.imageUrls && q.imageUrls.length > 0 ? t('chat.imagesCount', { count: q.imageUrls.length }) : '')
+                  || (q.fileAttachments && q.fileAttachments.length > 0 ? t('chat.filesCount', { count: q.fileAttachments.length }) : '');
                 const deleting = deletingQueuedIds.has(q.id);
                 return (
                   <div key={q.id} className={`chat-queued-pill ${q.state === 'blocked' ? 'blocked' : ''}`} role="listitem" title={q.error || preview || t('chat.waitingToSend')} data-testid="chat-queued-item" data-queued-id={q.id}>
                     <span className="chat-queued-index">{index + 1}</span>
                     <span className="chat-queued-text">{preview || t('chat.waitingToSend')}</span>
                     {q.imageUrls && q.imageUrls.length > 0 && <span className="chat-queued-images">{t('chat.imagesCount', { count: q.imageUrls.length })}</span>}
+                    {q.fileAttachments && q.fileAttachments.length > 0 && <span className="chat-queued-images">{t('chat.filesCount', { count: q.fileAttachments.length })}</span>}
                     {q.error && (
                       <button
                         type="button"
@@ -769,18 +786,8 @@ export function ChatInput({
             ))}
           </div>
         )}
-        {pendingImages.length > 0 && (
-          <div className="chat-image-preview-row">
-            {pendingImages.map((img) => (
-              <div key={img.previewUrl} className={`chat-image-preview-item ${img.error ? 'error' : ''}`}>
-                <img src={img.previewUrl} alt="" className="chat-image-preview-thumb" />
-                {img.uploading && <div className="chat-image-preview-loading" />}
-                {img.error && <span className="chat-image-preview-error" title={img.error}>!</span>}
-                <button className="chat-image-preview-remove" onClick={() => handleRemoveImage(img.previewUrl)}>×</button>
-              </div>
-            ))}
-          </div>
-        )}
+        <UploadedFilePreviews attachments={pickedFileAttachments} onRemove={handleRemovePickedFile} />
+        <PendingAttachmentPreviews attachments={pendingAttachments} onRemove={removeAttachment} />
         <SlashFloater items={slashItems} activeIdx={slashActiveIdx} onPick={applySlashItem} onActiveIdxChange={setSlashActiveIdx} />
         <div className={`chat-input-editor${imeComposing ? ' composing' : ''}`}>
           <SkillBackdrop input={input} skillNameSet={skillNameSet} backdropRef={backdropRef} />
@@ -818,7 +825,6 @@ export function ChatInput({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
           multiple
           style={{ display: 'none' }}
           onChange={(e) => { handleImageSelect(e.target.files); e.target.value = ''; }}
@@ -1116,12 +1122,10 @@ export function ChatInput({
               className="chat-btn upload-btn"
               onClick={() => fileInputRef.current?.click()}
               disabled={composerLocked}
-              title={t('chat.uploadImage')}
+              title={t('chat.uploadAttachment')}
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
+                <path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" />
               </svg>
             </button>
             {selectedAgent && (
@@ -1150,10 +1154,11 @@ export function ChatInput({
                 });
               }}
               onApplyHistory={(item) => {
-                const nextInput = item.content === '[image]' && item.imageUrls?.length ? '' : item.content;
+                const nextInput = (item.content === '[image]' || item.content === '[file]') && ((item.imageUrls?.length ?? 0) + (item.fileAttachments?.length ?? 0) > 0) ? '' : item.content;
                 setInput(nextInput);
                 setPickedImageUrls(item.imageUrls || []);
-                clearImages();
+                setPickedFileAttachments(item.fileAttachments || []);
+                clearAttachments();
                 closeSlash();
                 historyCursorRef.current = null;
                 historyDraftRef.current = null;
@@ -1174,7 +1179,7 @@ export function ChatInput({
             <button
               className="chat-btn send-btn"
               onClick={handleSend}
-              disabled={composerLocked || (!input.trim() && pendingImages.length === 0 && pickedImageUrls.length === 0) || pendingImages.some((img) => img.uploading)}
+              disabled={composerLocked || (!input.trim() && pendingAttachments.length === 0 && pickedImageUrls.length === 0 && pickedFileAttachments.length === 0) || pendingAttachments.some((attachment) => attachment.uploading)}
               title={isLoading && canQueue ? t('chat.queueSend') : t('chat.sendMessage')}
               data-testid="chat-send-button"
             >

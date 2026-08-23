@@ -43,6 +43,17 @@ const (
 	// for the key name.
 	KeyLocalPath = "local_path"
 
+	// KeyFileSize preserves the uploaded file size on a file input part.
+	KeyFileSize = "file_size"
+
+	// KeyFileAttachments preserves structured metadata for ordinary uploaded
+	// files while the ACP-compatible prompt carries their readable paths.
+	KeyFileAttachments = "file_attachments"
+
+	// KeyOriginalUserContent keeps the user's text separate from the
+	// ACP-compatible attachment prefix added to Message.Content.
+	KeyOriginalUserContent = "original_user_content"
+
 	// KeyTokenCountCache is the per-message token-count cache written by
 	// the tokenizer. Private prefix reserved for middleware internals.
 	KeyTokenCountCache = "_agent_middleware_token_count"

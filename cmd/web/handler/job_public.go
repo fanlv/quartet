@@ -51,7 +51,7 @@ func (h *Handler) PublicGetSessionMessages(ctx context.Context, c *app.RequestCo
 }
 
 // PublicServeFile serves files for a shared job, restricted to the job's session directory
-// and the global uploads directory (for user-uploaded images).
+// and the global uploads directory (for user-uploaded attachments).
 func (h *Handler) PublicServeFile(ctx context.Context, c *app.RequestContext) {
 	job, ok := getPublicJob(c)
 	if !ok {
@@ -91,7 +91,7 @@ func (h *Handler) PublicServeFile(ctx context.Context, c *app.RequestContext) {
 		allowed = true
 	}
 
-	// 2. Global uploads directory (user-uploaded images)
+	// 2. Global uploads directory (user-uploaded attachments)
 	if !allowed {
 		if uploadsDir, err := typepath.UploadsDir(); err == nil {
 			realUploadsDir := uploadsDir

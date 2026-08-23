@@ -114,6 +114,60 @@
   min-height: 0;
 }
 
+.settings-subtab-layout {
+  min-height: 0;
+}
+
+.settings-subtabs {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: #f3f4f6;
+}
+
+.settings-subtab {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #667085;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+
+.settings-subtab:hover {
+  color: #1a1a1a;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.settings-subtab:active {
+  transform: translateY(1px);
+}
+
+.settings-subtab:focus-visible {
+  outline: 2px solid #0066ff;
+  outline-offset: 2px;
+}
+
+.settings-subtab.active {
+  color: #1a1a1a;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.settings-subtab-content {
+  min-height: 0;
+}
+
 .settings-section {
   margin-bottom: 32px;
 }
@@ -479,6 +533,16 @@
 
   .settings-content {
     padding: 16px;
+  }
+
+  .settings-subtabs {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 20px;
+  }
+
+  .settings-subtab {
+    flex: 1 0 auto;
   }
 
   .settings-section {

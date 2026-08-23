@@ -83,12 +83,12 @@ struct JobChatView: View {
             guard route.summary.mode != "graph" else { return }
             Task { await appModel.reloadJobs() }
         }
-        .confirmationDialog("更多图片来源", isPresented: $showsAttachmentMenu, titleVisibility: .visible) {
+        .confirmationDialog("添加附件", isPresented: $showsAttachmentMenu, titleVisibility: .visible) {
             Button("相机") { requestCameraAccess() }
             Button("文件") { showsDocumentPicker = true }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("照片可使用输入框左侧的照片按钮选择。")
+            Text("照片可使用输入框左侧的照片按钮选择，文件支持最大 10MB。")
         }
         .alert("停止当前执行？", isPresented: $confirmsStop) {
             Button("取消", role: .cancel) {}
@@ -119,7 +119,7 @@ struct JobChatView: View {
             )
         }
         .sheet(isPresented: $showsDocumentPicker) {
-            DocumentImagePicker(
+            DocumentAttachmentPicker(
                 onDocumentPicked: { url in
                     showsDocumentPicker = false
                     Task { await loadDocument(url) }
@@ -187,7 +187,7 @@ struct JobChatView: View {
     }
 
     private var composer: some View {
-        let hasPendingImage = pendingImage != nil
+        let hasPendingAttachment = pendingImage != nil
         return VStack(spacing: 10) {
             if let error = chat.errorDetail {
                 Button {
@@ -273,7 +273,7 @@ struct JobChatView: View {
                                     .background(.thinMaterial, in: Circle())
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("移除图片")
+                            .accessibilityLabel("移除附件")
                             .padding(18)
                         }
                 }
@@ -294,9 +294,9 @@ struct JobChatView: View {
                     composerContext
 
                     PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                        Image(systemName: hasPendingImage ? "photo.fill" : "photo")
+                        Image(systemName: hasPendingAttachment ? "paperclip.circle.fill" : "photo")
                             .font(.quartet(.control, weight: .semibold))
-                            .foregroundStyle(hasPendingImage ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                            .foregroundStyle(hasPendingAttachment ? QuartetTheme.accent : QuartetTheme.secondaryText)
                             .frame(width: 36, height: 36)
                             .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
@@ -314,7 +314,7 @@ struct JobChatView: View {
                             .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("更多图片来源")
+                    .accessibilityLabel("更多附件来源")
 
                     Button {
                         composerFocused = false
@@ -496,7 +496,7 @@ struct JobChatView: View {
         }.value
 
         return try await MainActor.run {
-            try ChatAttachmentProcessor.prepareImageUpload(
+            try ChatAttachmentProcessor.prepareFileUpload(
                 data: data,
                 suggestedFilename: url.lastPathComponent,
                 contentType: UTType(filenameExtension: url.pathExtension)
@@ -644,6 +644,12 @@ private struct ChatBubble: View {
 private struct UserMessageBubble: View {
     let message: ChatMessage
 
+    private var displayContent: String {
+        if message.content == "[image]", !message.imagePaths.isEmpty { return "" }
+        if message.content == "[file]", !message.fileAttachments.isEmpty { return "" }
+        return message.content
+    }
+
     var body: some View {
         HStack(alignment: .bottom, spacing: 7) {
             Spacer(minLength: 38)
@@ -657,8 +663,11 @@ private struct UserMessageBubble: View {
                 ForEach(message.imagePaths, id: \.self) { path in
                     AuthenticatedImage(path: path)
                 }
-                if !message.content.isEmpty {
-                    MarkdownMessageView(text: message.content, tone: .user)
+                ForEach(message.fileAttachments, id: \.path) { attachment in
+                    AuthenticatedFile(attachment: attachment)
+                }
+                if !displayContent.isEmpty {
+                    MarkdownMessageView(text: displayContent, tone: .user)
                 }
             }
             .padding(.horizontal, 16)
@@ -1160,6 +1169,11 @@ private struct ServerQueueRow: View {
                     .font(.quartet(.compact))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
+            if !item.fileAttachments.isEmpty {
+                Image(systemName: "paperclip")
+                    .font(.quartet(.compact))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
             if item.error?.isEmpty == false {
                 Button(action: onShowError) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -1410,6 +1424,67 @@ private struct AuthenticatedImage: View {
     }
 }
 
+private struct AuthenticatedFile: View {
+    @EnvironmentObject private var appModel: AppModel
+    let attachment: FileAttachment
+    @State private var downloading = false
+    @State private var previewDocument: PreviewDocument?
+
+    private struct PreviewDocument: Identifiable {
+        let id = UUID()
+        let url: URL
+    }
+
+    var body: some View {
+        Button { Task { await openFile() } } label: {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.12))
+                    Image(systemName: "doc.fill").font(.quartet(.control, weight: .semibold))
+                }
+                .frame(width: 40, height: 44)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(attachment.name).font(.quartet(.control, weight: .semibold)).lineLimit(1)
+                    if !fileMeta.isEmpty {
+                        Text(fileMeta).font(.quartet(.compact)).foregroundStyle(Color.white.opacity(0.68)).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 6)
+                if downloading { ProgressView().controlSize(.small).tint(.white) }
+                else { Image(systemName: "arrow.down.circle") }
+            }
+            .padding(10)
+            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.white.opacity(0.18), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("打开文件 \(attachment.name)")
+        .disabled(downloading)
+        .sheet(item: $previewDocument) { document in
+            LocalFilePreview(url: document.url)
+        }
+    }
+
+    private var fileMeta: String {
+        let size = attachment.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+        return [attachment.mimeType, size].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    @MainActor private func openFile() async {
+        downloading = true
+        defer { downloading = false }
+        do {
+            let data = try await appModel.apiClient().fileData(path: attachment.path, downloadName: attachment.name)
+            let safeName = attachment.name.replacingOccurrences(of: "/", with: "-")
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(safeName.isEmpty ? UUID().uuidString : safeName)
+            try data.write(to: url, options: .atomic)
+            previewDocument = PreviewDocument(url: url)
+        } catch {
+            appModel.present(error)
+        }
+    }
+}
+
 private enum MarkdownRenderer {
     struct Block: Identifiable {
         enum Kind {
@@ -1623,11 +1698,12 @@ private struct LocalOutboxItem: Identifiable, Hashable, Sendable {
     let isInitialDraft: Bool
     let requestContext: OutboxRequestContext
     var remoteImagePaths: [String]
+    var remoteFileAttachments: [FileAttachment]
     var state: State
 
     var displayText: String {
         let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty, draft.attachment != nil { return "[image]" }
+        if trimmed.isEmpty, let attachment = draft.attachment { return attachment.isImage ? "[image]" : "[file]" }
         return trimmed.isEmpty ? "…" : trimmed
     }
 
@@ -1673,7 +1749,7 @@ private struct LocalOutboxItem: Identifiable, Hashable, Sendable {
     var summaryLine: String {
         let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
-        if draft.attachment != nil { return "[image]" }
+        if let attachment = draft.attachment { return attachment.isImage ? "[image]" : "[file]" }
         return "空消息"
     }
 }
@@ -1867,7 +1943,7 @@ private final class ChatViewModel: ObservableObject {
             if !isGraph { applyServerQueue(serverQueue) }
 
             loading = false
-            if isTurnRunning || sessionID != nil || route.initialMessage != nil || route.initialAttachment != nil || route.initialImagePaths != nil {
+            if isTurnRunning || sessionID != nil || route.initialMessage != nil || route.initialAttachment != nil || route.initialImagePaths != nil || route.initialFileAttachments != nil {
                 startStreaming()
             }
             scheduleOutboxProcessing()
@@ -1928,10 +2004,11 @@ private final class ChatViewModel: ObservableObject {
         text: String,
         attachment: PendingUpload?,
         remoteImagePaths: [String] = [],
+        remoteFileAttachments: [FileAttachment] = [],
         isInitialDraft: Bool = false
     ) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || attachment != nil || !remoteImagePaths.isEmpty else { return nil }
+        guard !trimmed.isEmpty || attachment != nil || !remoteImagePaths.isEmpty || !remoteFileAttachments.isEmpty else { return nil }
         let item = LocalOutboxItem(
             id: UUID().uuidString.lowercased(),
             draft: ComposerDraft(text: trimmed, attachment: attachment),
@@ -1939,10 +2016,11 @@ private final class ChatViewModel: ObservableObject {
             isInitialDraft: isInitialDraft,
             requestContext: currentRequestContext(bypassCommand: isInitialDraft),
             remoteImagePaths: remoteImagePaths,
+            remoteFileAttachments: remoteFileAttachments,
             state: .queued
         )
         outbox.append(item)
-        if isInitialDraft && (attachment == nil || !remoteImagePaths.isEmpty) {
+        if isInitialDraft && (attachment == nil || !remoteImagePaths.isEmpty || !remoteFileAttachments.isEmpty) {
             upsertOptimisticUserMessage(for: item)
         }
         bumpScrollAnchor()
@@ -2000,6 +2078,7 @@ private final class ChatViewModel: ObservableObject {
                 ? currentRequestContext(bypassCommand: item.isInitialDraft)
                 : item.requestContext,
             remoteImagePaths: item.remoteImagePaths,
+            remoteFileAttachments: item.remoteFileAttachments,
             state: .queued
         )
         scheduleOutboxProcessing()
@@ -2053,6 +2132,7 @@ private final class ChatViewModel: ObservableObject {
         let hasInitialContent = (route.initialMessage?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
             || route.initialAttachment != nil
             || !(route.initialImagePaths ?? []).isEmpty
+            || !(route.initialFileAttachments ?? []).isEmpty
         guard hasInitialContent else { return nil }
 
         didSeedInitialDraft = true
@@ -2060,6 +2140,7 @@ private final class ChatViewModel: ObservableObject {
             text: route.initialMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             attachment: route.initialAttachment,
             remoteImagePaths: route.initialImagePaths ?? [],
+            remoteFileAttachments: route.initialFileAttachments ?? [],
             isInitialDraft: true
         )
     }
@@ -2318,21 +2399,25 @@ private final class ChatViewModel: ObservableObject {
 
         do {
             outbox[index].state = .sending
-            if outbox[index].attachment == nil || !outbox[index].remoteImagePaths.isEmpty {
+            if outbox[index].attachment == nil || !outbox[index].remoteImagePaths.isEmpty || !outbox[index].remoteFileAttachments.isEmpty {
                 upsertOptimisticUserMessage(for: outbox[index])
             }
             startStreaming()
             try await waitForStreamReady()
 
-            if let attachment = outbox[index].attachment, outbox[index].remoteImagePaths.isEmpty {
+            if let attachment = outbox[index].attachment, outbox[index].remoteImagePaths.isEmpty, outbox[index].remoteFileAttachments.isEmpty {
                 outbox[index].state = .uploading
-                let path = try await client.uploadImage(
+                let uploaded = try await client.uploadFile(
                     data: attachment.data,
                     filename: attachment.filename,
                     mimeType: attachment.mimeType
                 )
                 guard let refreshed = outbox.firstIndex(where: { $0.id == itemID }) else { return }
-                outbox[refreshed].remoteImagePaths = [path]
+                if attachment.isImage {
+                    outbox[refreshed].remoteImagePaths = [uploaded.path]
+                } else {
+                    outbox[refreshed].remoteFileAttachments = [uploaded]
+                }
                 upsertOptimisticUserMessage(for: outbox[refreshed])
             }
 
@@ -2347,7 +2432,8 @@ private final class ChatViewModel: ObservableObject {
                         id: item.id,
                         content: content,
                         timestamp: item.createdAt,
-                        imageUrls: item.remoteImagePaths.isEmpty ? nil : item.remoteImagePaths
+                        imageUrls: item.remoteImagePaths.isEmpty ? nil : item.remoteImagePaths,
+                        fileAttachments: item.remoteFileAttachments.isEmpty ? nil : item.remoteFileAttachments
                     )],
                     modelId: item.requestContext.modelID,
                     agentType: item.requestContext.agentType,
@@ -2513,6 +2599,7 @@ private final class ChatViewModel: ObservableObject {
         if let index = messages.firstIndex(where: { $0.id == item.id }) {
             messages[index].content = item.draft.text
             messages[index].imagePaths = item.remoteImagePaths
+            messages[index].fileAttachments = item.remoteFileAttachments
             messages[index].isFailed = false
             return
         }
@@ -2525,6 +2612,7 @@ private final class ChatViewModel: ObservableObject {
             isFailed: false,
             timestamp: item.createdAt,
             imagePaths: item.remoteImagePaths,
+            fileAttachments: item.remoteFileAttachments,
             isOptimistic: true
         ))
     }
@@ -2803,7 +2891,7 @@ private final class ChatViewModel: ObservableObject {
                     messages.append(ChatMessage(
                         id: queued.id, kind: .user, content: queued.summaryLine, detail: nil,
                         isFinished: true, isFailed: false, timestamp: event.timestamp,
-                        imagePaths: queued.imagePaths
+                        imagePaths: queued.imagePaths, fileAttachments: queued.fileAttachments
                     ))
                 }
                 if serverQueue.items.contains(where: { $0.id == clientMessageID }) {
@@ -3029,7 +3117,7 @@ private final class ChatViewModel: ObservableObject {
                 messages.append(ChatMessage(
                     id: active.id, kind: .user, content: active.summaryLine, detail: nil,
                     isFinished: true, isFailed: false, timestamp: active.createdAt,
-                    imagePaths: active.imagePaths, isOptimistic: true
+                    imagePaths: active.imagePaths, fileAttachments: active.fileAttachments, isOptimistic: true
                 ))
             }
         }

@@ -299,7 +299,13 @@ test('admin can create a role and user in the UI and the user completes forced p
 
   await openAppWithAuth(page)
   await page.getByTestId('settings-open-button').click()
-  await page.locator('[data-settings-tab="roles"]').click()
+  await expect(page.locator('[data-settings-tab="roles"]')).toHaveCount(0)
+  await expect(page.locator('[data-settings-tab="users"]')).toHaveCount(0)
+  await page.locator('[data-settings-tab="account"]').click()
+  await expect(page.locator('[data-settings-subtab="account"]')).toBeVisible()
+  await expect(page.locator('[data-settings-subtab="roles"]')).toBeVisible()
+  await expect(page.locator('[data-settings-subtab="users"]')).toBeVisible()
+  await page.locator('[data-settings-subtab="roles"]').click()
   await page.getByTestId('role-name-input').fill(roleName)
   await page.locator('[data-permission-id="workspace.read"]').check()
   const roleCreated = page.waitForResponse((response) =>
@@ -309,7 +315,7 @@ test('admin can create a role and user in the UI and the user completes forced p
   expect((await roleCreated).ok()).toBe(true)
   await expect(page.locator('.auth-admin-list button').filter({ hasText: roleName })).toBeVisible()
 
-  await page.locator('[data-settings-tab="users"]').click()
+  await page.locator('[data-settings-subtab="users"]').click()
   await page.getByTestId('user-username-input').fill(username)
   await page.getByTestId('user-display-name-input').fill(`Browser user ${suffix}`)
   await page.getByTestId('user-password-input').fill(temporaryPassword)
@@ -326,7 +332,7 @@ test('admin can create a role and user in the UI and the user completes forced p
   expect((await userCreated).ok()).toBe(true)
   await expect(page.locator('.auth-admin-list button').filter({ hasText: username })).toBeVisible()
 
-  await page.locator('[data-settings-tab="roles"]').click()
+  await page.locator('[data-settings-subtab="roles"]').click()
   await expect(page.locator('.auth-admin-list button').filter({ hasText: roleName })).toContainText('1 个用户')
 
   await page.context().clearCookies()
@@ -346,6 +352,10 @@ test('admin can create a role and user in the UI and the user completes forced p
   await expect(page.locator('[data-settings-tab="account"]')).toBeVisible()
   await expect(page.locator('[data-settings-tab="users"]')).toHaveCount(0)
   await expect(page.locator('[data-settings-tab="roles"]')).toHaveCount(0)
+  await page.locator('[data-settings-tab="account"]').click()
+  await expect(page.locator('[data-settings-subtab="account"]')).toBeVisible()
+  await expect(page.locator('[data-settings-subtab="users"]')).toHaveCount(0)
+  await expect(page.locator('[data-settings-subtab="roles"]')).toHaveCount(0)
   await page.getByRole('button', { name: '退出登录' }).click()
   await expect(page.getByTestId('auth-gate')).toHaveAttribute('data-stage', 'login')
 
@@ -420,6 +430,15 @@ test('switches language from settings in real browser', async ({ page }) => {
   await expect(page.getByTestId('settings-language-select')).toHaveValue('zh')
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh')
   await expect.poll(async () => page.evaluate(() => localStorage.getItem('quartet-language'))).toBe('zh')
+
+  await expect(page.locator('[data-settings-tab="lark"]')).toHaveCount(0)
+  await expect(page.locator('[data-settings-tab="wechat"]')).toHaveCount(0)
+  await page.locator('[data-settings-tab="im"]').click()
+  await expect(page.locator('[data-settings-subtab="lark"]')).toBeVisible()
+  await expect(page.locator('[data-settings-subtab="wechat"]')).toBeVisible()
+  await expect(page.locator('[data-active-subtab="lark"]')).toBeVisible()
+  await page.locator('[data-settings-subtab="wechat"]').click()
+  await expect(page.locator('[data-active-subtab="wechat"]')).toBeVisible()
 })
 
 test('keeps composing text and does not send when Enter is pressed during IME composition', async ({ page }) => {

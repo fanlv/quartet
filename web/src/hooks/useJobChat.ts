@@ -10,6 +10,7 @@ import {
   MessageRoleEnum,
   MessageStatusEnum,
   ToolCallStatusEnum,
+  type FileAttachment,
   JobProgress,
   FlowNode,
   type GraphInstanceState,
@@ -314,6 +315,7 @@ export interface QueuedMessage {
   id: string;
   content: string;
   imageUrls?: string[];
+  fileAttachments?: FileAttachment[];
   modelId?: string | null;
   acpMode?: string;
   acpThoughtLevel?: string;
@@ -324,7 +326,7 @@ export interface QueuedMessage {
 
 interface MessageQueueItem {
   id: string;
-  messages?: Array<{ content?: string; imageUrls?: string[] }>;
+  messages?: Array<{ content?: string; imageUrls?: string[]; fileAttachments?: FileAttachment[] }>;
   modelId?: string;
   acpMode?: string;
   acpThoughtLevel?: string;
@@ -518,6 +520,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       id: item.id,
       content: item.messages?.map((message) => message.content || '').filter(Boolean).join('\n') || '',
       imageUrls: item.messages?.flatMap((message) => message.imageUrls || []),
+      fileAttachments: item.messages?.flatMap((message) => message.fileAttachments || []),
       modelId: item.modelId,
       acpMode: item.acpMode,
       acpThoughtLevel: item.acpThoughtLevel,
@@ -534,7 +537,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       setMessages((prev) => prev.some((message) => message.id === active.id) ? prev : [...prev, {
         id: active.id, role: MessageRoleEnum.USER, content: active.content,
         createdAt: snapshot.active?.createdAt || Date.now(), status: MessageStatusEnum.Finished,
-        clientMessageId: active.id, pending: true, deliveryStatus: 'sent', imageUrls: active.imageUrls,
+        clientMessageId: active.id, pending: true, deliveryStatus: 'sent', imageUrls: active.imageUrls, fileAttachments: active.fileAttachments,
       } as Message]);
     } else {
       activeClientMessageIdRef.current = null;
@@ -1358,6 +1361,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                   pending: false,
                   deliveryStatus: 'sent',
                   imageUrls: queued.imageUrls,
+                  fileAttachments: queued.fileAttachments,
                 } as Message]
               : prev
             ).map((message) =>
@@ -1798,7 +1802,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
       for (const msg of historyMessages) {
         if (msg.role === 'user') {
-          converted.push({ id: msg.id, role: MessageRoleEnum.USER, content: msg.content, createdAt: msg.startedAt || now, status: MessageStatusEnum.Finished, sessionId: tagSessionId, pending: false, failed: false, imageUrls: msg.imageUrls || undefined, isShellOutput: msg.isShellOutput || false });
+          converted.push({ id: msg.id, role: MessageRoleEnum.USER, content: msg.content, createdAt: msg.startedAt || now, status: MessageStatusEnum.Finished, sessionId: tagSessionId, pending: false, failed: false, imageUrls: msg.imageUrls || undefined, fileAttachments: msg.fileAttachments || undefined, isShellOutput: msg.isShellOutput || false });
         } else if (msg.role === 'assistant') {
           if (msg.isThinking) {
             // Separate thought entry emitted by the history API when thought_msg_id is present.
@@ -2848,7 +2852,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // server to skip its command-dispatch branch. Used by the home-page path
   // where the user typed `/help` as the very first message so the text becomes
   // the Job's first message, not a command.
-  const sendMessage = useCallback(async (content: string, modelId?: string | null, targetSessionId?: string | null, imageUrls?: string[], acpMode?: string, agentType?: string, acpThoughtLevel?: string, options?: { bypassCommand?: boolean; optimisticMessageId?: string }) => {
+  const sendMessage = useCallback(async (content: string, modelId?: string | null, targetSessionId?: string | null, imageUrls?: string[], fileAttachments?: FileAttachment[], acpMode?: string, agentType?: string, acpThoughtLevel?: string, options?: { bypassCommand?: boolean; optimisticMessageId?: string }) => {
     if (!jobId || isPublic) return;
     // We're about to flip the buffering flag so handleEvent will route
     // incoming SSE events straight to state. Any events that were buffered
@@ -2875,8 +2879,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     // declines its command branch when ImageUrls is non-empty (see
     // job_message.go), so the message + images stay bundled end-to-end.
     const trimmed = content.trim();
-    const hasImages = !!imageUrls && imageUrls.length > 0;
-    if (!options?.bypassCommand && !hasImages && isKnownCommand(trimmed)) {
+    const hasAttachments = (!!imageUrls && imageUrls.length > 0) || (!!fileAttachments && fileAttachments.length > 0);
+    if (!options?.bypassCommand && !hasAttachments && isKnownCommand(trimmed)) {
       const commandIntentScope = `command:${jobId}`;
       const commandClientMessageId = options?.optimisticMessageId
         ?? claimJobCreateIntent(commandIntentScope, { content: trimmed });
@@ -2948,6 +2952,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       pending: true,
       deliveryStatus: 'sending',
       imageUrls: imageUrls && imageUrls.length > 0 ? imageUrls : undefined,
+      fileAttachments: fileAttachments && fileAttachments.length > 0 ? fileAttachments : undefined,
     } as Message;
 
     setMessages((prev) => {
@@ -2982,6 +2987,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           timestamp: Date.now(),
           role: 'user',
           imageUrls: imageUrls && imageUrls.length > 0 ? imageUrls : undefined,
+          fileAttachments: fileAttachments && fileAttachments.length > 0 ? fileAttachments : undefined,
         }],
       };
       if (modelId) payload.modelId = modelId;
@@ -3098,7 +3104,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
   const queueMessage = useCallback((msg: Omit<QueuedMessage, 'id'>) => {
     if (isLoop || isGraph) return;
-    void sendMessage(msg.content, msg.modelId ?? null, null, msg.imageUrls, msg.acpMode, msg.agentType, msg.acpThoughtLevel);
+    void sendMessage(msg.content, msg.modelId ?? null, null, msg.imageUrls, msg.fileAttachments, msg.acpMode, msg.agentType, msg.acpThoughtLevel);
   }, [isGraph, isLoop, sendMessage]);
 
   const cancelQueuedMessage = useCallback(async (id: string) => {
