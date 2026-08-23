@@ -145,6 +145,9 @@ func (h *Handler) JobMessage(ctx context.Context, c *app.RequestContext) {
 	if principal, ok := CurrentPrincipal(c); ok {
 		queued.ActorID = principal.User.ID
 	}
+	if string(c.GetHeader("X-Quartet-Client")) == "ios" {
+		queued.Source = "ios"
+	}
 
 	result, err := queueService.SubmitMessage(ctx, j.ID, queued)
 	if err != nil {
