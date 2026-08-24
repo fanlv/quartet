@@ -75,6 +75,21 @@ final class QuartetUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["ASSISTANT"].exists)
         XCTAssertTrue(app.staticTexts["AI 正在思考..."].exists)
         XCTAssertFalse(app.staticTexts["当前轮次运行中，新消息会保存到服务端队列并按顺序发送。"].exists)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 2))
+
+        app.buttons["main-tab-2"].tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["https://quartet.example.test/"].exists)
+        app.buttons["settings-edit-connection"].tap()
+        XCTAssertTrue(app.buttons["connection-submit"].waitForExistence(timeout: 3))
+    }
+
+    func testChatComposerConfigurationAndWorkspaceFooter() {
+        launchDashboard()
+
+        app.buttons["job-job-chat-running"].tap()
+        XCTAssertTrue(app.navigationBars["优化 iOS 交互体验"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["chat-message-history"].exists)
         XCTAssertFalse(app.staticTexts["历史会话"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["workspace-footer"].exists)
@@ -91,15 +106,6 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.buttons["深入"].waitForExistence(timeout: 2))
         app.buttons["深入"].tap()
         XCTAssertTrue(app.staticTexts["深入"].waitForExistence(timeout: 2))
-
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 2))
-
-        app.buttons["main-tab-2"].tap()
-        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["https://quartet.example.test/"].exists)
-        app.buttons["settings-edit-connection"].tap()
-        XCTAssertTrue(app.buttons["connection-submit"].waitForExistence(timeout: 3))
     }
 
     func testChatAttachmentMenuAnchorsAboveComposerButton() {
@@ -154,18 +160,18 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(targetJob.waitForExistence(timeout: 2))
 
         let start = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72))
-        let end = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.86))
+        let end = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.93))
         start.press(forDuration: 0.05, thenDragTo: end)
 
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = "最近任务从透明 TabBar 后方划过"
+        attachment.lifetime = .keepAlways
+        add(attachment)
         XCTAssertGreaterThan(
             targetJob.frame.maxY,
             recentTab.frame.minY,
             "任务行应该能够滚动到透明 TabBar 后方"
         )
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = "最近任务从透明 TabBar 后方划过"
-        attachment.lifetime = .keepAlways
-        add(attachment)
     }
 
     func testCreatesANewConversationFromPrimaryAction() {
