@@ -7,7 +7,8 @@ struct JobsView: View {
     @Binding private var showsMainTabBar: Bool
     @State private var path: [ChatRoute] = []
     @State private var presentsNewConversation = false
-    @State private var actionJob: JobSummary?
+    @State private var actionPresentation: JobActionPresentation?
+    @State private var swipedActionJobID: String?
     @State private var presentsConnectionStatus = false
 
     init(showsMainTabBar: Binding<Bool>) {
@@ -80,7 +81,7 @@ struct JobsView: View {
             .sheet(isPresented: $presentsNewConversation) {
                 NewConversationView { route in
                     presentsNewConversation = false
-                    showsMainTabBar = false
+                    setMainTabBarVisible(false)
                     path.append(route)
                 }
                 .quartetSheetStyle()
@@ -89,22 +90,24 @@ struct JobsView: View {
                 DashboardConnectionView()
                     .environmentObject(model)
             }
-            .sheet(item: $actionJob) { job in
+            .sheet(item: $actionPresentation) { presentation in
+                let job = presentation.job
                 JobActionsSheet(
                     job: job,
+                    initialContent: presentation.initialContent,
                     onTogglePinned: {
-                        actionJob = nil
+                        actionPresentation = nil
                         togglePinned(job)
                     },
                     onRename: { title in
-                        actionJob = nil
+                        actionPresentation = nil
                         Task {
                             do { try await model.renameJob(id: job.id, title: title) }
                             catch { model.present(error) }
                         }
                     },
                     onDelete: {
-                        actionJob = nil
+                        actionPresentation = nil
                         Task {
                             do { try await model.deleteJob(id: job.id) }
                             catch { model.present(error) }
@@ -117,9 +120,9 @@ struct JobsView: View {
         }
         .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .onAppear { showsMainTabBar = path.isEmpty }
+        .onAppear { setMainTabBarVisible(path.isEmpty) }
         .onChange(of: path.isEmpty) { _, isAtRoot in
-            showsMainTabBar = isAtRoot
+            setMainTabBarVisible(isAtRoot)
         }
     }
 
@@ -229,8 +232,12 @@ struct JobsView: View {
                             agentReference: job.agentId,
                             agents: model.agentCatalogSnapshot
                         ),
+                        isShowingSwipeActions: isShowingActionsBinding(for: job),
                         onOpen: { openJob(job) },
-                        onActions: { actionJob = job }
+                        onShowActions: { presentActions(for: job) },
+                        onTogglePinned: { togglePinned(job) },
+                        onRename: { presentActions(for: job, initialContent: .rename) },
+                        onDelete: { presentActions(for: job, initialContent: .deleteConfirmation) }
                     )
 
                     if index < model.jobs.count - 1 {
@@ -324,7 +331,8 @@ struct JobsView: View {
     }
 
     private func openJob(_ job: JobSummary) {
-        showsMainTabBar = false
+        swipedActionJobID = nil
+        setMainTabBarVisible(false)
         path.append(ChatRoute(
             summary: job,
             agentType: job.agentId,
@@ -332,6 +340,14 @@ struct JobsView: View {
             modeID: job.acpMode,
             thoughtLevelID: job.acpThoughtLevel
         ))
+    }
+
+    private func setMainTabBarVisible(_ isVisible: Bool) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            showsMainTabBar = isVisible
+        }
     }
 
     private func agentName(for reference: String?) -> String? {
@@ -349,10 +365,32 @@ struct JobsView: View {
     }
 
     private func togglePinned(_ job: JobSummary) {
+        swipedActionJobID = nil
         Task {
             do { try await model.setJobPinned(id: job.id, pinned: (job.pinnedAt ?? 0) == 0) }
             catch { model.present(error) }
         }
+    }
+
+    private func presentActions(
+        for job: JobSummary,
+        initialContent: JobActionSheetContent = .actions
+    ) {
+        swipedActionJobID = nil
+        actionPresentation = JobActionPresentation(job: job, initialContent: initialContent)
+    }
+
+    private func isShowingActionsBinding(for job: JobSummary) -> Binding<Bool> {
+        Binding(
+            get: { swipedActionJobID == job.id },
+            set: { isShowing in
+                if isShowing {
+                    swipedActionJobID = job.id
+                } else if swipedActionJobID == job.id {
+                    swipedActionJobID = nil
+                }
+            }
+        )
     }
 
     private func connectionHeadline(_ state: AppModel.ConnectionState) -> String {
@@ -410,13 +448,30 @@ private struct DashboardPollingConfiguration: Equatable {
     let hidesScheduledJobs: Bool
 }
 
-private struct JobActionsSheet: View {
-    private enum Content: Equatable {
-        case actions
-        case rename
-        case deleteConfirmation
-    }
+private struct JobActionPresentation: Identifiable {
+    let job: JobSummary
+    let initialContent: JobActionSheetContent
 
+    var id: String {
+        "\(job.id)-\(initialContent.id)"
+    }
+}
+
+private enum JobActionSheetContent: Equatable {
+    case actions
+    case rename
+    case deleteConfirmation
+
+    var id: String {
+        switch self {
+        case .actions: "actions"
+        case .rename: "rename"
+        case .deleteConfirmation: "delete"
+        }
+    }
+}
+
+private struct JobActionsSheet: View {
     @FocusState private var renameFieldFocused: Bool
 
     let job: JobSummary
@@ -424,11 +479,12 @@ private struct JobActionsSheet: View {
     let onRename: (String) -> Void
     let onDelete: () -> Void
 
-    @State private var content: Content = .actions
+    @State private var content: JobActionSheetContent
     @State private var renameDraft: String
 
     init(
         job: JobSummary,
+        initialContent: JobActionSheetContent = .actions,
         onTogglePinned: @escaping () -> Void,
         onRename: @escaping (String) -> Void,
         onDelete: @escaping () -> Void
@@ -437,6 +493,7 @@ private struct JobActionsSheet: View {
         self.onTogglePinned = onTogglePinned
         self.onRename = onRename
         self.onDelete = onDelete
+        _content = State(initialValue: initialContent)
         _renameDraft = State(initialValue: job.displayTitle)
     }
 
@@ -697,17 +754,52 @@ private struct JobActionsSheet: View {
 }
 
 private struct JobRow: View {
+    private let actionButtonWidth: CGFloat = 58
+    private let actionButtonSpacing: CGFloat = 8
+    private let trailingPadding: CGFloat = 12
+
     let job: JobSummary
     let workspace: WorkspaceSummary?
     let displayedStatus: String
     let agentName: String?
     let modelName: String?
+    @Binding var isShowingSwipeActions: Bool
     let onOpen: () -> Void
-    let onActions: () -> Void
+    let onShowActions: () -> Void
+    let onTogglePinned: () -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
+
+    @GestureState private var dragTranslation: CGFloat = 0
 
     var body: some View {
+        ZStack(alignment: .trailing) {
+            if isShowingSwipeActions || dragTranslation < 0 {
+                swipeActions
+                    .padding(.trailing, trailingPadding)
+            }
+
+            content
+                .offset(x: rowOffset)
+                .simultaneousGesture(rowDragGesture)
+                .animation(.snappy(duration: 0.22), value: isShowingSwipeActions)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+        .accessibilityAction(named: isPinned ? "取消置顶" : "置顶") {
+            onTogglePinned()
+        }
+        .accessibilityAction(named: "重命名") {
+            onRename()
+        }
+        .accessibilityAction(named: "删除任务") {
+            onDelete()
+        }
+    }
+
+    private var content: some View {
         HStack(alignment: .top, spacing: 8) {
-            Button(action: onOpen) {
+            Button(action: handleOpen) {
                 HStack(alignment: .top, spacing: 12) {
                     JobModeIcon(mode: job.mode, status: displayedStatus)
                         .frame(width: 34, height: 34)
@@ -723,7 +815,7 @@ private struct JobRow: View {
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                            if (job.pinnedAt ?? 0) > 0 {
+                            if isPinned {
                                 Image(systemName: "pin.fill")
                                     .font(.quartet(.compact, weight: .bold))
                                     .foregroundStyle(QuartetTheme.accent)
@@ -735,10 +827,6 @@ private struct JobRow: View {
                             metadataTopLine
                             metadataSeparator
                             metadataBottomLine
-                            Spacer(minLength: 2)
-                            JobSentTime(timestamp: job.updatedAt)
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                                .fixedSize(horizontal: true, vertical: false)
                         }
                         .font(.quartet(.detail))
                         .lineLimit(1)
@@ -753,24 +841,131 @@ private struct JobRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("job-\(job.id)")
 
-            Button(action: onActions) {
-                Image(systemName: "ellipsis")
-                    .font(.quartet(.control, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .frame(width: 30, height: 30)
-                    .background(QuartetTheme.elevated.opacity(0.7), in: Circle())
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(job.displayTitle) 的更多操作")
-            .accessibilityIdentifier("job-more-\(job.id)")
-            .padding(.top, -4)
-            .padding(.trailing, -2)
+            timeButton
+                .padding(.top, 25)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 16)
         .padding(.trailing, 12)
         .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(QuartetTheme.surface)
+    }
+
+    private var timeButton: some View {
+        Button(action: onShowActions) {
+            JobSentTime(timestamp: job.updatedAt)
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .fixedSize(horizontal: true, vertical: false)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(job.displayTitle) 的任务操作")
+        .accessibilityHint("点按打开任务操作")
+        .accessibilityIdentifier("job-time-\(job.id)")
+    }
+
+    private var swipeActions: some View {
+        HStack(spacing: actionButtonSpacing) {
+            swipeActionButton(
+                systemImage: isPinned ? "pin.slash.fill" : "pin.fill",
+                label: isPinned ? "取消置顶" : "置顶",
+                tint: QuartetTheme.accent,
+                identifier: "job-swipe-pin-\(job.id)",
+                action: onTogglePinned
+            )
+            swipeActionButton(
+                systemImage: "pencil",
+                label: "重命名",
+                tint: QuartetTheme.accentDeep,
+                identifier: "job-swipe-rename-\(job.id)",
+                action: onRename
+            )
+            swipeActionButton(
+                systemImage: "trash.fill",
+                label: "删除任务",
+                tint: QuartetTheme.failed,
+                identifier: "job-swipe-delete-\(job.id)",
+                action: onDelete
+            )
+        }
+        .opacity(swipeActionsProgress)
+        .animation(nil, value: dragTranslation)
+        .allowsHitTesting(isShowingSwipeActions)
+        .accessibilityHidden(!isShowingSwipeActions)
+    }
+
+    private func swipeActionButton(
+        systemImage: String,
+        label: String,
+        tint: Color,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            closeSwipeActions()
+            action()
+        } label: {
+            Image(systemName: systemImage)
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 42, height: 42)
+                .background(tint, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: actionButtonWidth, height: 58)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private var rowDragGesture: some Gesture {
+        DragGesture(minimumDistance: 18, coordinateSpace: .local)
+            .updating($dragTranslation) { value, state, _ in
+                let horizontal = value.translation.width
+                let vertical = abs(value.translation.height)
+                guard abs(horizontal) > vertical * 1.3, horizontal < 0 || isShowingSwipeActions else { return }
+                state = value.translation.width
+            }
+            .onEnded { value in
+                let horizontal = value.translation.width
+                let vertical = abs(value.translation.height)
+                guard abs(horizontal) > vertical * 1.3 else { return }
+                withAnimation(.snappy(duration: 0.22)) {
+                    if horizontal < -44 || value.predictedEndTranslation.width < -100 {
+                        isShowingSwipeActions = true
+                    } else if horizontal > 28 || value.predictedEndTranslation.width > 70 {
+                        isShowingSwipeActions = false
+                    }
+                }
+            }
+    }
+
+    private var rowOffset: CGFloat {
+        let base = isShowingSwipeActions ? -swipeActionsWidth : 0
+        let proposed = base + dragTranslation
+        return min(0, max(-swipeActionsWidth, proposed))
+    }
+
+    private var swipeActionsWidth: CGFloat {
+        actionButtonWidth * 3 + actionButtonSpacing * 2 + trailingPadding
+    }
+
+    private var swipeActionsProgress: Double {
+        Double(abs(rowOffset) / swipeActionsWidth)
+    }
+
+    private func handleOpen() {
+        if isShowingSwipeActions {
+            closeSwipeActions()
+        } else {
+            onOpen()
+        }
+    }
+
+    private func closeSwipeActions() {
+        withAnimation(.snappy(duration: 0.22)) {
+            isShowingSwipeActions = false
+        }
     }
 
     private var metadataTopLine: some View {
@@ -891,6 +1086,10 @@ private struct JobRow: View {
         case "timedOut": "运行超时"
         default: displayedStatus
         }
+    }
+
+    private var isPinned: Bool {
+        (job.pinnedAt ?? 0) > 0
     }
 }
 

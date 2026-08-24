@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 @MainActor
 final class QuartetUITests: XCTestCase {
@@ -64,11 +65,20 @@ final class QuartetUITests: XCTestCase {
     func testDashboardCompactJobRowActions() {
         launchDashboard()
 
-        XCTAssertTrue(app.buttons["job-more-job-chat-running"].exists)
-        app.buttons["job-more-job-chat-running"].tap()
+        XCTAssertFalse(app.buttons["job-more-job-chat-running"].exists)
+        XCTAssertTrue(app.buttons["job-time-job-chat-running"].exists)
+        app.buttons["job-time-job-chat-running"].tap()
         XCTAssertTrue(app.buttons["job-action-pin"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.buttons["job-action-rename"].exists)
         XCTAssertTrue(app.buttons["job-action-delete"].exists)
+        app.swipeDown()
+
+        let job = app.buttons["job-job-chat-running"]
+        XCTAssertTrue(job.waitForExistence(timeout: 2))
+        job.swipeLeft()
+        XCTAssertTrue(app.buttons["job-swipe-pin-job-chat-running"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["job-swipe-rename-job-chat-running"].exists)
+        XCTAssertTrue(app.buttons["job-swipe-delete-job-chat-running"].exists)
     }
 
     func testConversationAndSettingsFlows() {
@@ -87,7 +97,7 @@ final class QuartetUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 2))
 
-        app.buttons["main-tab-2"].tap()
+        app.buttons["main-tab-3"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["https://quartet.example.test/"].exists)
         app.buttons["settings-edit-connection"].tap()
@@ -109,7 +119,7 @@ final class QuartetUITests: XCTestCase {
             XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 3))
             XCTAssertFalse(app.navigationBars["优化 iOS 交互体验"].exists)
 
-            app.buttons["main-tab-1"].tap()
+            app.buttons["main-tab-2"].tap()
             XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 3))
             XCTAssertTrue(app.otherElements["stats-kpis"].exists)
             app.buttons["main-tab-0"].tap()
@@ -117,10 +127,35 @@ final class QuartetUITests: XCTestCase {
         }
     }
 
+    func testOpeningChatDoesNotExposeBlackBottomBackground() {
+        launchDashboard()
+
+        app.buttons["job-job-chat-running"].tap()
+        XCTAssertTrue(app.navigationBars["优化 iOS 交互体验"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.descendants(matching: .any)["main-tab-bar"].exists)
+
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "聊天页底部背景"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        let bottomLuminance = screenshot.averageLuminance(inNormalizedRects: [
+            CGRect(x: 0.05, y: 0.955, width: 0.25, height: 0.03),
+            CGRect(x: 0.70, y: 0.955, width: 0.25, height: 0.03)
+        ])
+        XCTAssertGreaterThan(
+            bottomLuminance,
+            0.02,
+            "聊天页底部安全区不应露出纯黑窗口背景"
+        )
+    }
+
     func testRootStatsDoesNotSwipeBackToRecentJobs() {
         launchDashboard()
 
-        app.buttons["main-tab-1"].tap()
+        app.buttons["main-tab-2"].tap()
         XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 3))
 
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
@@ -185,7 +220,7 @@ final class QuartetUITests: XCTestCase {
     func testUsageStatsTabShowsDashboard() {
         launchDashboard()
 
-        app.buttons["main-tab-1"].tap()
+        app.buttons["main-tab-2"].tap()
         XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.otherElements["stats-kpis"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["总耗时"].exists)
@@ -346,7 +381,7 @@ final class QuartetUITests: XCTestCase {
         }
 
         let jobButtons = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH 'job-' AND NOT identifier BEGINSWITH 'job-more-'")
+            NSPredicate(format: "identifier BEGINSWITH 'job-' AND NOT identifier BEGINSWITH 'job-time-' AND NOT identifier BEGINSWITH 'job-swipe-'")
         )
         XCTAssertTrue(jobButtons.firstMatch.waitForExistence(timeout: 30))
 
@@ -387,5 +422,54 @@ private extension XCUIElement {
             application.menuItems["Select All"].tap()
         }
         typeText(text)
+    }
+}
+
+private extension XCUIScreenshot {
+    func averageLuminance(inNormalizedRects normalizedRects: [CGRect]) -> CGFloat {
+        guard let image = UIImage(data: pngRepresentation)?.cgImage else {
+            return 0
+        }
+
+        let width = image.width
+        let height = image.height
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return 0
+        }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        var luminance: CGFloat = 0
+        var sampleCount = 0
+        for normalizedRect in normalizedRects {
+            let minX = max(0, min(width - 1, Int(CGFloat(width) * normalizedRect.minX)))
+            let maxX = max(minX, min(width - 1, Int(CGFloat(width) * normalizedRect.maxX)))
+            let minY = max(0, min(height - 1, Int(CGFloat(height) * normalizedRect.minY)))
+            let maxY = max(minY, min(height - 1, Int(CGFloat(height) * normalizedRect.maxY)))
+
+            for y in minY...maxY {
+                for x in minX...maxX {
+                    let offset = y * bytesPerRow + x * bytesPerPixel
+                    let red = CGFloat(pixels[offset]) / 255
+                    let green = CGFloat(pixels[offset + 1]) / 255
+                    let blue = CGFloat(pixels[offset + 2]) / 255
+                    luminance += red * 0.2126 + green * 0.7152 + blue * 0.0722
+                    sampleCount += 1
+                }
+            }
+        }
+
+        guard sampleCount > 0 else { return 0 }
+        return luminance / CGFloat(sampleCount)
     }
 }

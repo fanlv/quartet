@@ -28,6 +28,7 @@
 		A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* GraphWorkflowLaunchView.swift */; };
 		A10000000000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* Assets.xcassets */; };
 		A10000000000000000000015 /* SentMessageHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* SentMessageHistoryStore.swift */; };
+		A10000000000000000000016 /* ScheduledTasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* ScheduledTasksView.swift */; };
 		B10000000000000000000001 /* QuartetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* QuartetUITests.swift */; };
 /* End PBXBuildFile section */
 
@@ -65,6 +66,7 @@
 		A20000000000000000000014 /* GraphWorkflowLaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphWorkflowLaunchView.swift; sourceTree = "<group>"; };
 		A20000000000000000000015 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000016 /* SentMessageHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentMessageHistoryStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000017 /* ScheduledTasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledTasksView.swift; sourceTree = "<group>"; };
 		AA2543BC3CD90BE5E3D203F0 /* Pods_Quartet.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Quartet.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		B20000000000000000000001 /* QuartetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuartetUITests.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* QuartetUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuartetUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -184,6 +186,7 @@
 				A4000000000000000000000E /* Chat */,
 				A4000000000000000000000F /* Graph */,
 				A4000000000000000000000B /* Jobs */,
+				A40000000000000000000012 /* ScheduledTasks */,
 				A40000000000000000000011 /* Stats */,
 				A4000000000000000000000D /* Settings */,
 			);
@@ -257,6 +260,14 @@
 				A20000000000000000000013 /* StatsView.swift */,
 			);
 			path = Stats;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000012 /* ScheduledTasks */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000017 /* ScheduledTasksView.swift */,
+			);
+			path = ScheduledTasks;
 			sourceTree = "<group>";
 		};
 		A40000000000000000000010 /* Persistence */ = {
@@ -417,6 +428,7 @@
 				A10000000000000000000010 /* ChatAttachmentSupport.swift in Sources */,
 				A1000000000000000000000F /* GraphRunView.swift in Sources */,
 				A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */,
+				A10000000000000000000016 /* ScheduledTasksView.swift in Sources */,
 				A10000000000000000000011 /* DashboardCacheStore.swift in Sources */,
 				A10000000000000000000012 /* StatsView.swift in Sources */,
 				A10000000000000000000015 /* SentMessageHistoryStore.swift in Sources */,

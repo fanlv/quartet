@@ -7,7 +7,9 @@ struct RootView: View {
     @State private var selectedTab = 0
 
     var body: some View {
-        Group {
+        ZStack {
+            QuartetTheme.canvas.ignoresSafeArea()
+
             switch model.canPresentDashboard ? .connected : model.phase {
             case .booting:
                 LaunchView()
@@ -16,9 +18,6 @@ struct RootView: View {
             case .connected:
                 MainView(selectedTab: $selectedTab)
             }
-        }
-        .background {
-            QuartetTheme.canvas.ignoresSafeArea()
         }
         .tint(QuartetTheme.accent)
         .task {
@@ -39,28 +38,41 @@ private struct MainView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            VStack(spacing: 0) {
-                Group {
-                    switch selectedTab {
-                    case 1:
-                        StatsView()
-                    case 2:
-                        SettingsView()
-                    default:
-                        JobsView(showsMainTabBar: $showsTabBar)
+            ZStack {
+                QuartetTheme.canvas.ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    Group {
+                        switch selectedTab {
+                        case 1:
+                            ScheduledTasksView()
+                        case 2:
+                            StatsView()
+                        case 3:
+                            SettingsView()
+                        default:
+                            JobsView(showsMainTabBar: $showsTabBar)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if showsTabBar {
+                        MainTabBar(selection: $selectedTab, bottomSafeAreaHeight: proxy.safeAreaInsets.bottom)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if showsTabBar {
-                    MainTabBar(selection: $selectedTab, bottomSafeAreaHeight: proxy.safeAreaInsets.bottom)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+                .ignoresSafeArea(.container, edges: showsTabBar ? .bottom : Edge.Set())
             }
-            .ignoresSafeArea(.container, edges: showsTabBar ? .bottom : Edge.Set())
         }
         .onChange(of: selectedTab) { _, _ in
-            showsTabBar = true
+            setTabBarVisible(true)
+        }
+    }
+
+    private func setTabBarVisible(_ isVisible: Bool) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            showsTabBar = isVisible
         }
     }
 }
@@ -71,8 +83,9 @@ private struct MainTabBar: View {
 
     private let items = [
         TabItem(id: 0, title: "最近任务", systemImage: "clock.arrow.circlepath"),
-        TabItem(id: 1, title: "统计", systemImage: "chart.xyaxis.line"),
-        TabItem(id: 2, title: "设置", systemImage: "slider.horizontal.3")
+        TabItem(id: 1, title: "定时任务", systemImage: "calendar.badge.clock"),
+        TabItem(id: 2, title: "统计", systemImage: "chart.xyaxis.line"),
+        TabItem(id: 3, title: "设置", systemImage: "slider.horizontal.3")
     ]
     private let contentHeight: CGFloat = 49
     private let itemContentVerticalOffset: CGFloat = 5
