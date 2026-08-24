@@ -44,7 +44,8 @@ final class QuartetUITests: XCTestCase {
         app.buttons["connection-status-button"].tap()
         XCTAssertTrue(app.navigationBars["连接状态"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["连接正常"].exists)
-        app.buttons["connection-status-close"].tap()
+        app.swipeDown()
+        XCTAssertFalse(app.navigationBars["连接状态"].waitForExistence(timeout: 2))
 
         let hideScheduledJobs = app.buttons["hide-scheduled-jobs-toggle"]
         XCTAssertTrue(hideScheduledJobs.exists)
@@ -98,11 +99,13 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["main"].exists)
 
         app.buttons["chat-model-selector"].tap()
+        XCTAssertTrue(app.navigationBars["选择模型"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.buttons["GPT-5.4"].waitForExistence(timeout: 2))
         app.buttons["GPT-5.4"].tap()
         XCTAssertTrue(app.staticTexts["GPT-5.4"].waitForExistence(timeout: 2))
 
         app.buttons["chat-thought-level-selector"].tap()
+        XCTAssertTrue(app.navigationBars["选择思考等级"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.buttons["深入"].waitForExistence(timeout: 2))
         app.buttons["深入"].tap()
         XCTAssertTrue(app.staticTexts["深入"].waitForExistence(timeout: 2))
@@ -120,8 +123,10 @@ final class QuartetUITests: XCTestCase {
         attachmentMenu.tap()
 
         let cameraAction = app.buttons["相机"]
+        let photoLibraryAction = app.buttons["相册"]
         let fileAction = app.buttons["文件"]
         XCTAssertTrue(cameraAction.waitForExistence(timeout: 2))
+        XCTAssertTrue(photoLibraryAction.exists)
         XCTAssertTrue(fileAction.exists)
         XCTAssertLessThan(fileAction.frame.maxY, attachmentAnchorFrame.minY)
         XCTAssertLessThan(fileAction.frame.minX, attachmentAnchorFrame.midX)
@@ -139,38 +144,39 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["stats-kpis"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["总耗时"].exists)
         XCTAssertTrue(app.staticTexts["总轮次"].exists)
-        XCTAssertTrue(app.staticTexts["账号"].exists)
+        XCTAssertTrue(app.staticTexts["工作区"].exists)
         XCTAssertTrue(app.otherElements["stats-trend"].exists)
         XCTAssertTrue(app.staticTexts["按工作区"].exists)
     }
 
-    func testRecentJobsScrollBehindTransparentTabBar() {
-        app.launchArguments = ["--ui-testing-transparent-tabbar"]
+    func testRecentJobsScrollAboveDockedTabBar() {
+        app.launchArguments = ["--ui-testing-docked-tabbar"]
         app.launch()
 
         let recentTab = app.buttons["main-tab-0"]
-        let targetJob = app.buttons["job-job-tabbar-10"]
+        let tabBar = app.descendants(matching: .any)["main-tab-bar"]
+        let targetJob = app.buttons["job-job-tabbar-14"]
         XCTAssertTrue(recentTab.waitForExistence(timeout: 5))
+        XCTAssertTrue(tabBar.exists)
+        XCTAssertFalse(app.tabBars.firstMatch.exists, "系统 TabBar 不应残留背景或第二套按钮")
+        XCTAssertEqual(tabBar.frame.maxY, app.frame.maxY, accuracy: 1, "自定义 TabBar 应贴住屏幕底边")
 
         let scrollView = app.scrollViews.firstMatch
         XCTAssertTrue(scrollView.exists)
-        for _ in 0..<8 where !targetJob.isHittable {
+        for _ in 0..<12 where !targetJob.isHittable {
             scrollView.swipeUp()
         }
         XCTAssertTrue(targetJob.waitForExistence(timeout: 2))
-
-        let start = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72))
-        let end = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.93))
-        start.press(forDuration: 0.05, thenDragTo: end)
+        XCTAssertTrue(targetJob.isHittable)
 
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = "最近任务从透明 TabBar 后方划过"
+        attachment.name = "最近任务与吸底实心 TabBar"
         attachment.lifetime = .keepAlways
         add(attachment)
-        XCTAssertGreaterThan(
+        XCTAssertLessThanOrEqual(
             targetJob.frame.maxY,
-            recentTab.frame.minY,
-            "任务行应该能够滚动到透明 TabBar 后方"
+            tabBar.frame.minY + 1,
+            "最后一条任务应完整滚动到实心 TabBar 上方"
         )
     }
 

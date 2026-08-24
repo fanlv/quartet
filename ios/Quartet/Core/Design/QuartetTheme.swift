@@ -21,6 +21,7 @@ enum QuartetTheme {
     static let running = terminalGreen
     static let warning = dynamic(light: 0xA16207, dark: 0xFACC15)
     static let failed = dynamic(light: 0xB62435, dark: 0xFF5364)
+    static let chatStop = Color(red: 239 / 255, green: 68 / 255, blue: 68 / 255)
     static let onDanger = dynamic(light: 0xFFFFFF, dark: 0x190205)
     static let stopped = dynamic(light: 0x686159, dark: 0xA39B91)
 
@@ -161,9 +162,7 @@ struct RunningPulseLine: View {
 
 extension View {
     func quartetSheetStyle() -> some View {
-        presentationDragIndicator(.visible)
-            .presentationCornerRadius(28)
-            .presentationBackground(QuartetTheme.canvas)
+        modifier(QuartetSheetStyleModifier())
     }
 
     func quartetPlainNavigationBackButton() -> some View {
@@ -177,6 +176,7 @@ private struct QuartetPlainNavigationBackButtonModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .navigationBarBackButtonHidden(true)
+            .background(QuartetNavigationSwipeBackEnabler())
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { dismiss() } label: {
@@ -190,7 +190,144 @@ private struct QuartetPlainNavigationBackButtonModifier: ViewModifier {
     }
 }
 
+private struct QuartetSheetStyleModifier: ViewModifier {
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
+            .presentationBackground(QuartetTheme.canvas)
+            .background(QuartetSheetSwipeBackInstaller { dismiss() })
+    }
+}
+
+private struct QuartetSheetSwipeBackInstaller: UIViewControllerRepresentable {
+    let onDismiss: () -> Void
+
+    func makeUIViewController(context: Context) -> ResolverViewController {
+        ResolverViewController(onDismiss: onDismiss)
+    }
+
+    func updateUIViewController(_ uiViewController: ResolverViewController, context: Context) {
+        uiViewController.onDismiss = onDismiss
+        uiViewController.installGestureRecognizerIfPossible()
+    }
+
+    static func dismantleUIViewController(_ uiViewController: ResolverViewController, coordinator: Void) {
+        uiViewController.removeGestureRecognizer()
+    }
+
+    final class ResolverViewController: UIViewController, UIGestureRecognizerDelegate {
+        fileprivate var onDismiss: () -> Void
+        private weak var gestureContainer: UIView?
+        private lazy var gestureRecognizer: UIScreenEdgePanGestureRecognizer = {
+            let recognizer = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleSwipeBack(_:)))
+            recognizer.edges = .left
+            recognizer.delegate = self
+            return recognizer
+        }()
+
+        init(onDismiss: @escaping () -> Void) {
+            self.onDismiss = onDismiss
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            installGestureRecognizerIfPossible()
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            installGestureRecognizerIfPossible()
+        }
+
+        fileprivate func installGestureRecognizerIfPossible() {
+            var containerController: UIViewController = self
+            while let parent = containerController.parent {
+                containerController = parent
+            }
+            let container = containerController.view
+            guard gestureContainer !== container else { return }
+            removeGestureRecognizer()
+            container?.addGestureRecognizer(gestureRecognizer)
+            gestureContainer = container
+        }
+
+        fileprivate func removeGestureRecognizer() {
+            gestureContainer?.removeGestureRecognizer(gestureRecognizer)
+            gestureContainer = nil
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let gestureRecognizer = gestureRecognizer as? UIScreenEdgePanGestureRecognizer else {
+                return false
+            }
+            let velocity = gestureRecognizer.velocity(in: gestureRecognizer.view)
+            return velocity.x > abs(velocity.y)
+        }
+
+        @objc private func handleSwipeBack(_ gestureRecognizer: UIScreenEdgePanGestureRecognizer) {
+            guard gestureRecognizer.state == .ended else { return }
+            let translation = gestureRecognizer.translation(in: gestureRecognizer.view)
+            let velocity = gestureRecognizer.velocity(in: gestureRecognizer.view)
+            guard translation.x >= 72 || velocity.x >= 700 else { return }
+            onDismiss()
+        }
+    }
+}
+
+private struct QuartetNavigationSwipeBackEnabler: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> ResolverViewController {
+        ResolverViewController()
+    }
+
+    func updateUIViewController(_ uiViewController: ResolverViewController, context: Context) {
+        uiViewController.enableSwipeBackIfPossible()
+    }
+
+    final class ResolverViewController: UIViewController {
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            enableSwipeBackIfPossible()
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            enableSwipeBackIfPossible()
+        }
+
+        fileprivate func enableSwipeBackIfPossible() {
+            guard let navigationController,
+                  let gestureRecognizer = navigationController.interactivePopGestureRecognizer else {
+                return
+            }
+            gestureRecognizer.delegate = QuartetNavigationSwipeBackGestureDelegate.shared
+            gestureRecognizer.isEnabled = navigationController.viewControllers.count > 1
+        }
+    }
+}
+
+private final class QuartetNavigationSwipeBackGestureDelegate: NSObject, UIGestureRecognizerDelegate {
+    static let shared = QuartetNavigationSwipeBackGestureDelegate()
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let navigationController = gestureRecognizer.view?.next as? UINavigationController else {
+            return false
+        }
+        return navigationController.viewControllers.count > 1
+            && navigationController.transitionCoordinator == nil
+    }
+}
+
 struct AttachmentSourcePopover: View {
+    let onPhotoLibrary: () -> Void
     let onCamera: () -> Void
     let onFile: () -> Void
 
@@ -200,13 +337,24 @@ struct AttachmentSourcePopover: View {
                 Text("添加附件")
                     .font(.quartet(.regular, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
-                Text("选择相机拍摄，或从系统文件中添加图片。")
+                Text("从相册、相机或系统文件中添加图片。")
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(spacing: 0) {
+                actionRow(
+                    title: "相册",
+                    detail: "从照片图库中选择",
+                    systemImage: "photo.on.rectangle.angled",
+                    action: onPhotoLibrary
+                )
+
+                Divider()
+                    .overlay(QuartetTheme.divider)
+                    .padding(.leading, 52)
+
                 actionRow(
                     title: "相机",
                     detail: "拍摄一张新照片",

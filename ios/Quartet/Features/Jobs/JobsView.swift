@@ -22,10 +22,8 @@ struct JobsView: View {
                     sectionHeader
                     jobList
                 }
-                .padding(.bottom, 104)
             }
-            .ignoresSafeArea(.container, edges: .bottom)
-            .background(QuartetTheme.canvas.ignoresSafeArea(edges: .bottom))
+            .background(QuartetTheme.canvas)
             .navigationTitle("运行台")
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await model.refreshDashboard() }
@@ -408,7 +406,6 @@ private struct JobActionsSheet: View {
         case deleteConfirmation
     }
 
-    @Environment(\.dismiss) private var dismiss
     @FocusState private var renameFieldFocused: Bool
 
     let job: JobSummary
@@ -454,11 +451,6 @@ private struct JobActionsSheet: View {
             .background(QuartetTheme.canvas)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") {}
-                        .hidden()
-                        .accessibilityHidden(true)
-                }
                 ToolbarItem(placement: .principal) {
                     Text(job.displayTitle)
                         .font(.quartet(.regular, weight: .semibold))
@@ -467,10 +459,6 @@ private struct JobActionsSheet: View {
                         .truncationMode(.tail)
                         .accessibilityAddTraits(.isHeader)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-                .sharedBackgroundVisibility(.hidden)
             }
         }
         .animation(.snappy(duration: 0.28), value: content)
@@ -1090,7 +1078,6 @@ private struct ConnectionBadge: View {
 
 private struct DashboardConnectionView: View {
     @EnvironmentObject private var model: AppModel
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -1159,13 +1146,6 @@ private struct DashboardConnectionView: View {
             .background(QuartetTheme.canvas)
             .navigationTitle("连接状态")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                        .accessibilityIdentifier("connection-status-close")
-                }
-                .sharedBackgroundVisibility(.hidden)
-            }
         }
         .presentationDetents([.medium, .large])
         .quartetSheetStyle()

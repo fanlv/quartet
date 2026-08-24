@@ -1136,11 +1136,11 @@ final class AppModel: ObservableObject {
                 agentId: "trae", acpMode: "default", acpThoughtLevel: "medium"
             )
         ]
-        if uiTestScenario == "--ui-testing-transparent-tabbar" {
+        if uiTestScenario == "--ui-testing-docked-tabbar" {
             uiTestJobs.append(contentsOf: (1...14).map { index in
                 JobSummary(
                     id: "job-tabbar-\(index)",
-                    title: String(format: "透明栏滚动验证 %02d", index),
+                    title: String(format: "吸底栏滚动验证 %02d", index),
                     modelId: "gpt-5.6",
                     status: "completed",
                     mode: "interactive",

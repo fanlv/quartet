@@ -3,6 +3,25 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
+private enum ChatConfigurationPicker: String, Identifiable {
+    case model
+    case thoughtLevel
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .model: "选择模型"
+        case .thoughtLevel: "选择思考等级"
+        }
+    }
+}
+
+private struct ChatConfigurationOption: Identifiable {
+    let id: String
+    let name: String
+    let detail: String?
+}
+
 struct JobChatView: View {
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.scenePhase) private var scenePhase
@@ -11,6 +30,7 @@ struct JobChatView: View {
 
     @State private var draft = ""
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showsPhotoPicker = false
     @State private var pendingImage: PendingUpload?
     @State private var confirmsStop = false
     @State private var showsAttachmentMenu = false
@@ -28,6 +48,7 @@ struct JobChatView: View {
     @State private var configuredModels: AgentModelState?
     @State private var configuredThoughtLevels: AgentThoughtLevelState?
     @State private var changingACPConfiguration = false
+    @State private var configurationPicker: ChatConfigurationPicker?
     @State private var gitBranch = ""
     @FocusState private var composerFocused: Bool
 
@@ -90,6 +111,7 @@ struct JobChatView: View {
             guard let item else { return }
             Task { await loadPhoto(item) }
         }
+        .photosPicker(isPresented: $showsPhotoPicker, selection: $selectedPhoto, matching: .images)
         .onChange(of: chat.restoreDraftVersion) { _, _ in
             guard let restored = chat.restoreDraft else { return }
             draft = restored.text
@@ -164,6 +186,26 @@ struct JobChatView: View {
             .presentationDetents([.medium, .large])
             .quartetSheetStyle()
             .task(id: route.summary.workspaceId) { await loadMessagePresets() }
+        }
+        .sheet(item: $configurationPicker) { picker in
+            ChatConfigurationSelectionSheet(
+                title: picker.title,
+                options: configurationOptions(for: picker),
+                selectedID: configurationSelectionID(for: picker),
+                onSelect: { id in
+                    configurationPicker = nil
+                    Task {
+                        switch picker {
+                        case .model:
+                            await selectModel(id)
+                        case .thoughtLevel:
+                            await selectThoughtLevel(id)
+                        }
+                    }
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .quartetSheetStyle()
         }
     }
 
@@ -359,33 +401,23 @@ struct JobChatView: View {
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.quartet(.compact, weight: .semibold))
                             .foregroundStyle(QuartetTheme.secondaryText)
-                            .frame(width: 36, height: 36)
-                            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .frame(width: 30, height: 30)
+                            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("预置消息与历史")
                     .accessibilityHint("打开后可从分组列表中选择")
                     .accessibilityIdentifier("chat-message-history")
 
-                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                        Image(systemName: hasPendingAttachment ? "paperclip.circle.fill" : "photo")
-                            .font(.quartet(.control, weight: .semibold))
-                            .foregroundStyle(hasPendingAttachment ? QuartetTheme.accent : QuartetTheme.secondaryText)
-                            .frame(width: 36, height: 36)
-                            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }
-                    .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
-                    .accessibilityLabel("从相册选择图片")
-
                     Button {
                         composerFocused = false
                         showsAttachmentMenu = true
                     } label: {
                         Image(systemName: "plus")
-                            .font(.quartet(.control, weight: .bold))
-                            .foregroundStyle(QuartetTheme.secondaryText)
-                            .frame(width: 36, height: 36)
-                            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .font(.quartet(.compact, weight: .bold))
+                            .foregroundStyle(hasPendingAttachment ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                            .frame(width: 30, height: 30)
+                            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("更多附件来源")
@@ -396,6 +428,13 @@ struct JobChatView: View {
                         arrowEdge: .bottom
                     ) {
                         AttachmentSourcePopover(
+                            onPhotoLibrary: {
+                                showsAttachmentMenu = false
+                                Task { @MainActor in
+                                    await Task.yield()
+                                    showsPhotoPicker = true
+                                }
+                            },
                             onCamera: {
                                 showsAttachmentMenu = false
                                 Task { @MainActor in
@@ -419,10 +458,13 @@ struct JobChatView: View {
                             confirmsStop = true
                         } label: {
                             Image(systemName: "stop.fill")
-                                .font(.quartet(.control, weight: .bold))
+                                .font(.quartet(.compact, weight: .bold))
                                 .foregroundStyle(QuartetTheme.onAccent)
-                                .frame(width: 38, height: 38)
-                                .background(QuartetTheme.failed, in: Circle())
+                                .frame(width: 30, height: 30)
+                                .background(
+                                    QuartetTheme.chatStop,
+                                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                )
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("停止生成")
@@ -434,10 +476,13 @@ struct JobChatView: View {
                         enqueueDraft()
                     } label: {
                         Image(systemName: "arrow.up")
-                            .font(.quartet(.control, weight: .bold))
+                            .font(.quartet(.compact, weight: .bold))
                             .foregroundStyle(sendDisabled ? QuartetTheme.secondaryText : QuartetTheme.onAccent)
-                            .frame(width: 38, height: 38)
-                            .background(sendDisabled ? QuartetTheme.elevated : QuartetTheme.accent, in: Circle())
+                            .frame(width: 30, height: 30)
+                            .background(
+                                sendDisabled ? QuartetTheme.elevated : QuartetTheme.accent,
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            )
                     }
                     .buttonStyle(.plain)
                     .disabled(sendDisabled)
@@ -482,18 +527,9 @@ struct JobChatView: View {
                 text: chat.agentDisplayLabel,
                 accessibilityLabel: "Agent，\(chat.agentDisplayLabel)"
             )
-            Menu {
-                ForEach(availableModels) { model in
-                    Button {
-                        Task { await selectModel(model.modelId) }
-                    } label: {
-                        if model.modelId == chat.modelIDForDisplay {
-                            Label(model.name, systemImage: "checkmark")
-                        } else {
-                            Text(model.name)
-                        }
-                    }
-                }
+            Button {
+                composerFocused = false
+                configurationPicker = .model
             } label: {
                 ComposerMetadataChip(
                     icon: changingACPConfiguration ? "arrow.trianglehead.2.clockwise.rotate.90" : "cpu",
@@ -511,18 +547,9 @@ struct JobChatView: View {
             )
             if !availableThoughtLevels.isEmpty || thoughtLevelDisplayLabel != nil {
                 let thoughtLevel = thoughtLevelDisplayLabel ?? "思考等级"
-                Menu {
-                    ForEach(availableThoughtLevels) { level in
-                        Button {
-                            Task { await selectThoughtLevel(level.id) }
-                        } label: {
-                            if level.id == chat.thoughtLevelIDForDisplay {
-                                Label(level.name, systemImage: "checkmark")
-                            } else {
-                                Text(level.name)
-                            }
-                        }
-                    }
+                Button {
+                    composerFocused = false
+                    configurationPicker = .thoughtLevel
                 } label: {
                     ComposerMetadataChip(
                         icon: changingACPConfiguration ? "arrow.trianglehead.2.clockwise.rotate.90" : "brain.head.profile",
@@ -662,6 +689,28 @@ struct JobChatView: View {
         configuredThoughtLevels?.availableThoughtLevels
             ?? selectedAgent?.thoughtLevels?.availableThoughtLevels
             ?? []
+    }
+
+    private func configurationOptions(for picker: ChatConfigurationPicker) -> [ChatConfigurationOption] {
+        switch picker {
+        case .model:
+            return availableModels.map {
+                ChatConfigurationOption(id: $0.modelId, name: $0.name, detail: $0.description)
+            }
+        case .thoughtLevel:
+            return availableThoughtLevels.map {
+                ChatConfigurationOption(id: $0.id, name: $0.name, detail: $0.description)
+            }
+        }
+    }
+
+    private func configurationSelectionID(for picker: ChatConfigurationPicker) -> String? {
+        switch picker {
+        case .model:
+            return chat.modelIDForDisplay
+        case .thoughtLevel:
+            return chat.thoughtLevelIDForDisplay
+        }
     }
 
     private var workspaceName: String? {
@@ -1482,6 +1531,64 @@ private struct ChatBubble: View {
 
 }
 
+private struct ChatConfigurationSelectionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let title: String
+    let options: [ChatConfigurationOption]
+    let selectedID: String?
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List(options) { option in
+                Button {
+                    onSelect(option.id)
+                    dismiss()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: option.id == selectedID ? "checkmark.circle.fill" : "circle")
+                            .font(.quartet(.regular, weight: .semibold))
+                            .foregroundStyle(option.id == selectedID ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(option.name)
+                                .font(.quartet(.control, weight: .semibold))
+                                .foregroundStyle(QuartetTheme.primaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if let detail = option.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
+                               !detail.isEmpty {
+                                Text(detail)
+                                    .font(.quartet(.detail))
+                                    .foregroundStyle(QuartetTheme.secondaryText)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(option.name)
+                .accessibilityAddTraits(option.id == selectedID ? .isSelected : [])
+                .accessibilityIdentifier("chat-configuration-option-\(option.id)")
+                .listRowBackground(QuartetTheme.surface)
+            }
+            .scrollContentBackground(.hidden)
+            .background(QuartetTheme.canvas)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
+        }
+    }
+}
+
 private struct UserMessageBubble: View {
     let message: ChatMessage
 
@@ -1494,11 +1601,18 @@ private struct UserMessageBubble: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: 7) {
             Spacer(minLength: 38)
-            if let timestamp = message.timestamp {
-                Text(chatTimeLabel(timestamp))
-                    .font(.quartet(.compact))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .padding(.bottom, 4)
+            if !displayContent.isEmpty || message.timestamp != nil {
+                VStack(alignment: .trailing, spacing: 4) {
+                    if !displayContent.isEmpty {
+                        CopyIconButton(text: displayContent, appearance: .plain)
+                    }
+                    if let timestamp = message.timestamp {
+                        Text(chatTimeLabel(timestamp))
+                            .font(.quartet(.compact))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                    }
+                }
+                .padding(.bottom, 4)
             }
             VStack(alignment: .leading, spacing: 9) {
                 ForEach(message.imagePaths, id: \.self) { path in
@@ -1555,7 +1669,7 @@ private struct AssistantMessageCard: View {
                                 .foregroundStyle(QuartetTheme.secondaryText)
                         }
                         if message.isFinished, !message.content.isEmpty {
-                            CopyIconButton(text: message.content)
+                            CopyIconButton(text: message.content, appearance: .plain)
                         }
                     }
                     .foregroundStyle(QuartetTheme.accent)
@@ -1856,7 +1970,13 @@ private struct ToolPayloadSection: View {
 }
 
 private struct CopyIconButton: View {
+    enum Appearance {
+        case plain
+        case filled
+    }
+
     let text: String
+    var appearance: Appearance = .filled
     @State private var copied = false
 
     var body: some View {
@@ -1872,7 +1992,12 @@ private struct CopyIconButton: View {
                 .font(.quartet(.detail, weight: .semibold))
                 .foregroundStyle(copied ? QuartetTheme.accent : QuartetTheme.secondaryText)
                 .frame(width: 26, height: 26)
-                .background(QuartetTheme.elevated.opacity(0.75), in: RoundedRectangle(cornerRadius: 6))
+                .background {
+                    if appearance == .filled {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(QuartetTheme.elevated.opacity(0.75))
+                    }
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(copied ? "已复制" : "复制内容")

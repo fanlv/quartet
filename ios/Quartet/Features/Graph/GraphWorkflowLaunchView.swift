@@ -775,7 +775,7 @@ private struct GraphGlobalConfigurationView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                     .sharedBackgroundVisibility(.hidden)
-                ToolbarItem(placement: .confirmationAction) { Button("完成") { save() } }
+                ToolbarItem(placement: .confirmationAction) { Button("保存") { save() } }
                     .sharedBackgroundVisibility(.hidden)
             }
         }
@@ -929,7 +929,7 @@ private struct GraphNodeConfigurationView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                     .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { save() }
+                    Button("保存") { save() }
                         .disabled(isLinkingThoughtLevels)
                 }
                 .sharedBackgroundVisibility(.hidden)

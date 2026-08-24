@@ -97,6 +97,7 @@ struct NewConversationView: View {
     @State private var showsCameraPicker = false
     @State private var showsDocumentPicker = false
     @State private var showsMessageLibrary = false
+    @State private var showsWorkspacePicker = false
     @State private var focusesComposerAfterMessageLibrary = false
     @State private var showsAdvancedOptions = false
     @State private var loading = true
@@ -216,6 +217,15 @@ struct NewConversationView: View {
             }
             .sheet(item: $localError) {
                 ErrorDetailView(error: $0)
+            }
+            .sheet(isPresented: $showsWorkspacePicker) {
+                NewConversationWorkspacePicker(
+                    workspaces: model.workspaces,
+                    selectedWorkspaceID: workspaceID,
+                    onSelect: { workspaceID = $0 }
+                )
+                .presentationDetents([.medium, .large])
+                .quartetSheetStyle()
             }
             .sheet(isPresented: $showsCameraPicker) {
                 CameraImagePicker(
@@ -521,35 +531,43 @@ struct NewConversationView: View {
     }
 
     private var workspacePicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(model.workspaces) { item in
-                    let selected = workspaceID == item.id
-                    Button { workspaceID = item.id } label: {
-                        HStack(spacing: 9) {
-                            Circle()
-                                .fill(workspaceTint(item))
-                                .frame(width: 10, height: 10)
-                            Text(item.displayName)
-                                .font(.quartet(.control, weight: .semibold))
-                                .lineLimit(1)
-                            if selected {
-                                Image(systemName: "checkmark")
-                                    .font(.quartet(.detail, weight: .bold))
-                            }
-                        }
-                        .foregroundStyle(selected ? QuartetTheme.primaryText : QuartetTheme.secondaryText)
-                        .padding(.horizontal, 14)
-                        .frame(height: 44)
-                        .background(selected ? QuartetTheme.accent.opacity(0.14) : QuartetTheme.surface, in: Capsule())
-                        .overlay(Capsule().stroke(selected ? QuartetTheme.accent.opacity(0.7) : QuartetTheme.divider))
+        Button {
+            composerFocused = false
+            showsWorkspacePicker = true
+        } label: {
+            HStack(spacing: 12) {
+                configurationIcon("square.stack.3d.up")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("工作空间")
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                    Text(workspace?.displayName ?? "未选择工作空间")
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .lineLimit(1)
+                    if let workspace {
+                        Text(workspace.workdir)
+                            .font(.quartet(.compact))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("工作空间，\(item.displayName)\(selected ? "，已选择" : "")")
                 }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.quartet(.detail, weight: .bold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
             }
-            .padding(.vertical, 1)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 68)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
+        .accessibilityLabel("工作空间，当前为\(workspace?.displayName ?? "未选择")")
+        .accessibilityHint("点按弹出工作空间列表")
+        .accessibilityIdentifier("new-task-workspace-picker")
         .onChange(of: workspaceID) { _, _ in applyWorkspaceDefaults() }
     }
 
@@ -895,10 +913,6 @@ struct NewConversationView: View {
         return favorites + available.filter { !favoriteSet.contains($0.modelId) }
     }
 
-    private func workspaceTint(_ item: WorkspaceSummary) -> Color {
-        QuartetTheme.workspaceTint(item.id)
-    }
-
     private func create() async {
         guard !isLinkingThoughtLevels,
               let workspace, let agent, agent.available, let payload = currentCreatePayload else { return }
@@ -1111,6 +1125,77 @@ struct NewConversationView: View {
     }
 }
 
+private struct NewConversationWorkspacePicker: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let workspaces: [WorkspaceSummary]
+    let selectedWorkspaceID: String
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if workspaces.isEmpty {
+                    ContentUnavailableView(
+                        "没有可用的工作空间",
+                        systemImage: "square.stack.3d.up.slash",
+                        description: Text("请先在 Web 端创建工作空间。")
+                    )
+                } else {
+                    List(workspaces) { workspace in
+                        Button {
+                            onSelect(workspace.id)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Circle()
+                                    .fill(QuartetTheme.workspaceTint(workspace))
+                                    .frame(width: 12, height: 12)
+                                    .accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(workspace.displayName)
+                                        .font(.quartet(.control, weight: .semibold))
+                                        .foregroundStyle(QuartetTheme.primaryText)
+                                    Text(workspace.workdir)
+                                        .font(.quartet(.detail))
+                                        .foregroundStyle(QuartetTheme.secondaryText)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                Spacer(minLength: 8)
+                                if workspace.id == selectedWorkspaceID {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.quartet(.regular, weight: .semibold))
+                                        .foregroundStyle(QuartetTheme.accent)
+                                        .accessibilityHidden(true)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(workspace.displayName)，\(workspace.workdir)")
+                        .accessibilityValue(workspace.id == selectedWorkspaceID ? "已选择" : "")
+                        .accessibilityHint("选择此工作空间并关闭弹窗")
+                        .accessibilityIdentifier("new-task-workspace-\(workspace.id)")
+                        .listRowBackground(QuartetTheme.surface)
+                    }
+                    .scrollContentBackground(.hidden)
+                }
+            }
+            .background(QuartetTheme.canvas)
+            .navigationTitle("选择工作空间")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
+        }
+    }
+}
+
 struct MessagePresetHistorySheet: View {
     @Binding var currentMessage: String
     let projectPresets: [MessagePreset]
@@ -1195,12 +1280,6 @@ struct MessagePresetHistorySheet: View {
             .background(QuartetTheme.canvas)
             .navigationTitle("预置消息与历史")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-                .sharedBackgroundVisibility(.hidden)
-            }
             .alert(
                 "输入框已有内容",
                 isPresented: Binding(

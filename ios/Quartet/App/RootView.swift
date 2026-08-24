@@ -35,40 +35,31 @@ private struct MainView: View {
     @State private var showsTabBar = true
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .bottom) {
-                TabView(selection: $selectedTab) {
-                    JobsView(showsMainTabBar: $showsTabBar)
-                        .tag(0)
-                        .tabItem { Label("最近任务", systemImage: "clock.arrow.circlepath") }
+        TabView(selection: $selectedTab) {
+            JobsView(showsMainTabBar: $showsTabBar)
+                .tag(0)
 
-                    StatsView()
-                        .tag(1)
-                        .tabItem { Label("统计", systemImage: "chart.xyaxis.line") }
+            StatsView()
+                .tag(1)
 
-                    SettingsView()
-                        .tag(2)
-                        .tabItem { Label("设置", systemImage: "slider.horizontal.3") }
-                }
-                .toolbar(.hidden, for: .tabBar)
-
-                if showsTabBar {
-                    TransparentTabBar(selection: $selectedTab)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, max(6, proxy.safeAreaInsets.bottom - 2))
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+            SettingsView()
+                .tag(2)
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showsTabBar {
+                MainTabBar(selection: $selectedTab)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .ignoresSafeArea(.container, edges: .bottom)
-            .animation(.snappy(duration: 0.24), value: showsTabBar)
-            .onChange(of: selectedTab) { _, _ in
-                showsTabBar = true
-            }
+        }
+        .animation(.snappy(duration: 0.24), value: showsTabBar)
+        .onChange(of: selectedTab) { _, _ in
+            showsTabBar = true
         }
     }
 }
 
-private struct TransparentTabBar: View {
+private struct MainTabBar: View {
     @Binding var selection: Int
 
     private let items = [
@@ -91,13 +82,21 @@ private struct TransparentTabBar: View {
                     .foregroundStyle(selection == item.id ? QuartetTheme.accent : QuartetTheme.primaryText)
                     .frame(maxWidth: .infinity, minHeight: 54)
                     .contentShape(Rectangle())
-                    .shadow(color: QuartetTheme.canvas, radius: 2)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(item.title)
                 .accessibilityAddTraits(selection == item.id ? .isSelected : [])
                 .accessibilityIdentifier("main-tab-\(item.id)")
             }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
+        .background(QuartetTheme.surface.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(QuartetTheme.divider)
+                .frame(height: 0.5)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("main-tab-bar")
