@@ -411,6 +411,148 @@ final class QuartetUITests: XCTestCase {
         XCTAssertFalse(app.buttons["复制"].exists && app.buttons["关闭"].exists)
     }
 
+    func testLiveBackendScheduledTaskCRUD() throws {
+        #if !LIVE_SCHEDULE_E2E
+            throw XCTSkip("Set QUARTET_LIVE_E2E=1 to run against the configured real backend.")
+        #endif
+
+        let originalName = "IOS_E2E_SCHEDULE_\(Int(Date().timeIntervalSince1970))"
+        let updatedName = originalName + "_EDITED"
+        app.launch()
+
+        guard app.buttons["main-tab-1"].waitForExistence(timeout: 30) else {
+            if app.buttons["connection-submit"].exists {
+                throw XCTSkip("The device has no reusable Quartet login session.")
+            }
+            return XCTFail("The live Quartet dashboard did not become available.")
+        }
+
+        app.buttons["main-tab-1"].tap()
+        XCTAssertTrue(app.navigationBars["定时任务"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["schedule-add"].waitForExistence(timeout: 15))
+        removeLiveScheduleArtifacts(prefix: "IOS_E2E_SCHEDULE_")
+        removeLiveScheduleJobs(prefix: "IOS_E2E_SCHEDULE_")
+        addTeardownBlock { [self] in
+            removeLiveScheduleArtifacts(prefix: "IOS_E2E_SCHEDULE_")
+            removeLiveScheduleJobs(prefix: "IOS_E2E_SCHEDULE_")
+        }
+        app.buttons["schedule-add"].tap()
+
+        XCTAssertTrue(app.navigationBars["新增定时任务"].waitForExistence(timeout: 5))
+        let nameField = app.textFields["schedule-name"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        nameField.tap()
+        nameField.typeText(originalName)
+
+        app.buttons["schedule-workflow-picker"].tap()
+        let workflow = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'schedule-workflow-option-'")
+        ).firstMatch
+        guard workflow.waitForExistence(timeout: 10) else {
+            throw XCTSkip("The live backend has no saved Graph Workflow available for schedule creation.")
+        }
+        workflow.tap()
+
+        let save = app.buttons["schedule-save"]
+        XCTAssertTrue(save.isEnabled)
+        save.tap()
+        XCTAssertTrue(app.staticTexts[originalName].waitForExistence(timeout: 20))
+
+        app.buttons["schedule-more-\(originalName)"].tap()
+        XCTAssertTrue(app.buttons["schedule-action-edit"].waitForExistence(timeout: 5))
+        app.buttons["schedule-action-edit"].tap()
+        XCTAssertTrue(app.navigationBars["编辑定时任务"].waitForExistence(timeout: 5))
+        let editName = app.textFields["schedule-name"]
+        editName.clearAndTypeText(updatedName)
+        app.buttons["schedule-save"].tap()
+        XCTAssertTrue(app.staticTexts[updatedName].waitForExistence(timeout: 20))
+
+        app.buttons["schedule-more-\(updatedName)"].tap()
+        app.buttons["schedule-action-toggle"].tap()
+        let updatedRow = app.buttons["schedule-row-\(updatedName)"]
+        XCTAssertTrue(updatedRow.waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForLabel(updatedRow, toContain: "已停用"))
+
+        app.buttons["schedule-more-\(updatedName)"].tap()
+        app.buttons["schedule-action-toggle"].tap()
+        XCTAssertTrue(waitForLabel(updatedRow, toContain: "已启用"))
+
+        app.buttons["schedule-more-\(updatedName)"].tap()
+        XCTAssertTrue(app.buttons["schedule-action-run"].waitForExistence(timeout: 5))
+        app.buttons["schedule-action-run"].tap()
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH '已触发'")
+        ).firstMatch.waitForExistence(timeout: 30))
+
+        app.buttons["schedule-more-\(updatedName)"].tap()
+        app.buttons["schedule-action-delete"].tap()
+        XCTAssertTrue(app.buttons["schedule-delete-confirm"].waitForExistence(timeout: 5))
+        app.buttons["schedule-delete-confirm"].tap()
+        XCTAssertFalse(app.staticTexts[updatedName].waitForExistence(timeout: 15))
+    }
+
+    private func waitForLabel(_ element: XCUIElement, toContain text: String, timeout: TimeInterval = 15) -> Bool {
+        let predicate = NSPredicate(format: "label CONTAINS %@", text)
+        return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: timeout) == .completed
+    }
+
+    private func removeLiveScheduleArtifacts(prefix: String) {
+        if !app.navigationBars["定时任务"].exists {
+            app.terminate()
+            app.launch()
+            guard app.buttons["main-tab-1"].waitForExistence(timeout: 20) else { return }
+            app.buttons["main-tab-1"].tap()
+            guard app.navigationBars["定时任务"].waitForExistence(timeout: 10) else { return }
+        }
+
+        for _ in 0..<10 {
+            let menu = app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", "schedule-more-" + prefix)
+            ).firstMatch
+            guard menu.waitForExistence(timeout: 2) else { break }
+            menu.tap()
+            guard app.buttons["schedule-action-delete"].waitForExistence(timeout: 3) else { break }
+            app.buttons["schedule-action-delete"].tap()
+            guard app.buttons["schedule-delete-confirm"].waitForExistence(timeout: 3) else { break }
+            app.buttons["schedule-delete-confirm"].tap()
+            _ = menu.waitForNonExistence(timeout: 10)
+        }
+    }
+
+    private func removeLiveScheduleJobs(prefix: String) {
+        if !app.buttons["main-tab-0"].exists {
+            app.terminate()
+            app.launch()
+            guard app.buttons["main-tab-0"].waitForExistence(timeout: 20) else { return }
+        }
+        app.buttons["main-tab-0"].tap()
+        let scheduledVisibility = app.buttons["hide-scheduled-jobs-toggle"]
+        if scheduledVisibility.waitForExistence(timeout: 5), scheduledVisibility.label.contains("显示定时任务") {
+            scheduledVisibility.tap()
+        }
+
+        for _ in 0..<10 {
+            let actions = app.buttons.matching(
+                NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", prefix, "任务操作")
+            ).firstMatch
+            guard actions.waitForExistence(timeout: 2) else { break }
+            actions.tap()
+            guard app.buttons["job-action-delete"].waitForExistence(timeout: 3) else { break }
+            app.buttons["job-action-delete"].tap()
+            guard app.buttons["job-delete-confirm"].waitForExistence(timeout: 3) else { break }
+            app.buttons["job-delete-confirm"].tap()
+            _ = actions.waitForNonExistence(timeout: 10)
+        }
+        if scheduledVisibility.exists, scheduledVisibility.label.contains("隐藏定时任务") {
+            scheduledVisibility.tap()
+        }
+
+        if app.buttons["main-tab-1"].exists {
+            app.buttons["main-tab-1"].tap()
+            _ = app.navigationBars["定时任务"].waitForExistence(timeout: 10)
+        }
+    }
+
     private func launchDashboard() {
         app.launchArguments = ["--ui-testing-dashboard"]
         app.launch()

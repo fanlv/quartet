@@ -410,7 +410,12 @@ function CopyMessageFooterButton({ content }: { content: string }) {
  */
 function ThinkingBlock({ message }: { message: AssistantMessage }) {
   const { t } = useTranslation();
-  const isThinking = !!message.isThinking;
+  // "Thought is live" = still flagged thinking AND the bubble has not been
+  // finalised. Watching `isThinking` alone would leave the block stuck open
+  // if a run ends through a path that finalises the message without flipping
+  // the flag (stream torn down, tool call taking over, RUN_ERROR); either
+  // signal now triggers the collapse.
+  const isThinking = !!message.isThinking && message.status !== MessageStatusEnum.Finished;
   const [isExpanded, setIsExpanded] = useState(isThinking);
   // "Derived state on prop change" rather than useEffect — same reasoning as
   // ToolMessageContent below: it collapses within the render that observes

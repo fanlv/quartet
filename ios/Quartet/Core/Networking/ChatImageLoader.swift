@@ -43,13 +43,12 @@ final class ChatImageLoader {
         if let existing = inFlight[key] {
             return try await existing.value
         }
+        // 屏幕缩放只能在主线程读，先取出来交给下面的解码用。
+        let scale = max(UITraitCollection.current.displayScale, 1)
 
         let task = Task<UIImage, Error> {
             let data = try await loader()
-            guard let decoded = Self.decode(data, maxPixelSize: maxPixelSize) else {
-                throw APIError(summary: "图片数据无效", detail: "无法将 \(path) 解码为图片。")
-            }
-            return decoded
+            return try await Self.decode(data, maxPixelSize: maxPixelSize, scale: scale, path: path)
         }
         inFlight[key] = task
 
@@ -64,13 +63,6 @@ final class ChatImageLoader {
         }
     }
 
-    /// 切换服务器或退出登录后清空，避免跨服务串图。
-    func removeAll() {
-        cache.removeAllObjects()
-        for task in inFlight.values { task.cancel() }
-        inFlight.removeAll()
-    }
-
     private func cacheKey(path: String, namespace: String, maxPixelSize: PixelSize?) -> String {
         let size = maxPixelSize.map { String(Int($0)) } ?? "orig"
         return "\(namespace)|\(size)|\(path)"
@@ -82,12 +74,25 @@ final class ChatImageLoader {
     }
 
     /// 用 ImageIO 直接解出目标尺寸的缩略图：比 `UIImage(data:)` 之后再缩放少一次全尺寸位图。
-    private static func decode(_ data: Data, maxPixelSize: PixelSize?) -> UIImage? {
-        guard let maxPixelSize else { return UIImage(data: data) }
-        let scale = max(UIScreen.main.scale, 1)
+    ///
+    /// 标成 `nonisolated async` 是为了让解码离开主线程 —— 原实现在 `.task` 里解码，
+    /// 继承的是 MainActor，大图会直接卡住滚动。
+    private nonisolated static func decode(
+        _ data: Data,
+        maxPixelSize: PixelSize?,
+        scale: CGFloat,
+        path: String
+    ) async throws -> UIImage {
+        func fallback() throws -> UIImage {
+            guard let image = UIImage(data: data) else {
+                throw APIError(summary: "图片数据无效", detail: "无法将 \(path) 解码为图片。")
+            }
+            return image
+        }
+        guard let maxPixelSize else { return try fallback() }
         let pixelLimit = max(Int((maxPixelSize * scale).rounded()), 1)
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
-            return UIImage(data: data)
+            return try fallback()
         }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -96,7 +101,7 @@ final class ChatImageLoader {
             kCGImageSourceThumbnailMaxPixelSize: pixelLimit,
         ]
         guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            return UIImage(data: data)
+            return try fallback()
         }
         return UIImage(cgImage: thumbnail, scale: scale, orientation: .up)
     }

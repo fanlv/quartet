@@ -167,6 +167,50 @@ struct WorkspacesResponse: Decodable, Sendable {
     let workspaces: [WorkspaceSummary]
 }
 
+struct ScheduleInfo: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    var name: String
+    var enabled: Bool
+    var cronExpr: String
+    var graphWorkflowId: String?
+    var workspaceId: String?
+    var workdir: String?
+    var maxConcurrent: Int?
+    var timeout: Int?
+    var lastRunAt: Int64?
+    var lastRunJobID: String?
+    var lastStatus: String?
+    var lastTriggerError: String?
+    var nextRunAt: Int64?
+    var runCount: Int
+    var createdAt: Int64
+    var updatedAt: Int64
+}
+
+struct ScheduleListResponse: Decodable, Sendable {
+    let schedules: [ScheduleInfo]
+}
+
+struct ScheduleCreateResponse: Decodable, Sendable {
+    let schedule: ScheduleInfo
+}
+
+struct ScheduleMutationRequest: Encodable, Sendable {
+    let name: String
+    let cronExpr: String
+    let enabled: Bool
+    let graphWorkflowId: String
+    let workspaceId: String
+    let workdir: String
+    let maxConcurrent: Int
+    let timeout: Int
+}
+
+struct ScheduleRunResponse: Decodable, Sendable {
+    let status: String
+    let jobId: String?
+}
+
 struct GitBranchResponse: Decodable, Sendable {
     let code: Int
     let branch: String

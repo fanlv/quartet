@@ -335,6 +335,37 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/graph/workflow/list")
     }
 
+    func schedules() async throws -> ScheduleListResponse {
+        try await request(path: "api/v1/schedule/list")
+    }
+
+    func createSchedule(_ body: ScheduleMutationRequest) async throws -> ScheduleInfo {
+        let response: ScheduleCreateResponse = try await request(
+            path: "api/v1/schedule/create",
+            method: "POST",
+            body: body
+        )
+        return response.schedule
+    }
+
+    func updateSchedule(id: String, body: ScheduleMutationRequest) async throws -> ScheduleInfo {
+        try await request(path: "api/v1/schedule/\(id)", method: "PUT", body: body)
+    }
+
+    func toggleSchedule(id: String) async throws -> ScheduleInfo {
+        let body = EmptyRequest()
+        return try await request(path: "api/v1/schedule/\(id)/toggle", method: "POST", body: body)
+    }
+
+    func runSchedule(id: String) async throws -> ScheduleRunResponse {
+        let body = EmptyRequest()
+        return try await request(path: "api/v1/schedule/\(id)/run", method: "POST", body: body)
+    }
+
+    func deleteSchedule(id: String) async throws {
+        let _: StatusResponse = try await request(path: "api/v1/schedule/\(id)", method: "DELETE")
+    }
+
     func graphWorkflow(id: String) async throws -> GraphWorkflow {
         let response: GraphWorkflowResponse = try await request(path: "api/v1/graph/workflow/\(id)")
         guard let workflow = response.workflow else {
