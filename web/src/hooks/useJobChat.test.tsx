@@ -68,7 +68,7 @@ function installFetchMock(api: MockApi) {
       return jsonResponse({ code: 0, status: 'started' })
     }
     if (url.includes(`/job/${JOB_ID}/message-queue`)) {
-      return jsonResponse({ code: 0, queue: { jobId: JOB_ID, version: 0, paused: false, willContinue: false, items: [] } })
+      return jsonResponse({ code: 0, queue: { jobId: JOB_ID, version: 0, paused: false, willContinue: api.job.status === 'running', items: [] } })
     }
     if (url.includes(`/job/${JOB_ID}/stop`)) return jsonResponse({ code: 0 })
     if (url.includes(`/job/${JOB_ID}/graph-run`)) return jsonResponse(api.graphRun ?? {})

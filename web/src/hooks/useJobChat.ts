@@ -509,6 +509,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const messageQueueWillContinueRef = useRef(false);
   const queuedMessagesRef = useRef<QueuedMessage[]>([]);
   const knownQueuedMessagesRef = useRef<Map<string, QueuedMessage>>(new Map());
+  // A message submitted while this tab considers the Job idle is already
+  // rendered as an optimistic user bubble. The durable queue necessarily
+  // persists that message as `queued` before its async dispatcher can claim
+  // it, but that implementation transition is not a user-visible waiting
+  // state. Keep those foreground IDs out of ChatInput's queue projection
+  // for this page lifetime so a slower, older queue refresh cannot re-show
+  // one after RUN_STARTED. Messages explicitly submitted while a run is in
+  // flight are not added here and continue to render as queue pills.
+  const foregroundMessageIdsRef = useRef<Set<string>>(new Set());
   const activeClientMessageIdRef = useRef<string | null>(null);
 
   const applyMessageQueueSnapshot = useCallback((snapshot: MessageQueueSnapshot | null | undefined) => {
@@ -528,8 +537,26 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       state: item.state,
       error: item.error,
     });
-    const items = (snapshot.items || []).map(projectItem);
-    for (const item of items) knownQueuedMessagesRef.current.set(item.id, item);
+    const projectedItems = (snapshot.items || []).map(projectItem);
+    for (const item of projectedItems) knownQueuedMessagesRef.current.set(item.id, item);
+    // A foreground dispatch can lose its immediate slot if another sender
+    // wins the race, the queue is paused, or preparation fails. Those are
+    // real waiting states: move the message out of the conversation and show
+    // the queue pill (including the complete blocked error).
+    const surfacedForegroundIds = new Set(
+      projectedItems
+        .filter((item, index) => foregroundMessageIdsRef.current.has(item.id) && (
+          item.state === 'blocked' || snapshot.paused || !!snapshot.active || index > 0
+        ))
+        .map((item) => item.id),
+    );
+    if (surfacedForegroundIds.size > 0) {
+      for (const id of surfacedForegroundIds) foregroundMessageIdsRef.current.delete(id);
+      setMessages((prev) => prev.filter((message) =>
+        !message.clientMessageId || !surfacedForegroundIds.has(message.clientMessageId)
+      ));
+    }
+    const items = projectedItems.filter((item) => !foregroundMessageIdsRef.current.has(item.id));
     if (snapshot.active) {
       const active = projectItem(snapshot.active);
       knownQueuedMessagesRef.current.set(active.id, active);
@@ -816,6 +843,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setQueuedMessages([]);
     queuedMessagesRef.current = [];
     knownQueuedMessagesRef.current.clear();
+    foregroundMessageIdsRef.current.clear();
     messageQueueVersionRef.current = -1;
     messageQueueWillContinueRef.current = false;
     setMessageQueuePaused(false);
@@ -2852,7 +2880,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // server to skip its command-dispatch branch. Used by the home-page path
   // where the user typed `/help` as the very first message so the text becomes
   // the Job's first message, not a command.
-  const sendMessage = useCallback(async (content: string, modelId?: string | null, targetSessionId?: string | null, imageUrls?: string[], fileAttachments?: FileAttachment[], acpMode?: string, agentType?: string, acpThoughtLevel?: string, options?: { bypassCommand?: boolean; optimisticMessageId?: string }) => {
+  const sendMessage = useCallback(async (content: string, modelId?: string | null, targetSessionId?: string | null, imageUrls?: string[], fileAttachments?: FileAttachment[], acpMode?: string, agentType?: string, acpThoughtLevel?: string, options?: { bypassCommand?: boolean; optimisticMessageId?: string; presentAsQueued?: boolean }) => {
     if (!jobId || isPublic) return;
     // We're about to flip the buffering flag so handleEvent will route
     // incoming SSE events straight to state. Any events that were buffered
@@ -2938,6 +2966,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       ?? crypto.randomUUID?.()
       ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
     const clientMessageId = userMessageId;
+    if (!options?.presentAsQueued) {
+      foregroundMessageIdsRef.current.add(clientMessageId);
+    }
     const userMessage: Message = {
       id: userMessageId,
       role: MessageRoleEnum.USER,
@@ -3012,7 +3043,28 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       // case the response carries `command_dispatched` (plus the inline
       // `event`); clean up the optimistic user bubble and render the result.
       const body = await response.json().catch(() => null);
+      const applyQueuedSubmission = (snapshot: MessageQueueSnapshot | undefined, forceQueued: boolean) => {
+        const queuedIndex = snapshot?.items?.findIndex((item) => item.id === userMessageId) ?? -1;
+        const queuedItem = queuedIndex >= 0 ? snapshot?.items?.[queuedIndex] : undefined;
+        const waitingBehindAnother = !!snapshot?.active && snapshot.active.id !== userMessageId;
+        const presentAsQueued = forceQueued
+          || !!snapshot?.paused
+          || queuedItem?.state === 'blocked'
+          || waitingBehindAnother
+          || queuedIndex > 0;
+        if (presentAsQueued) {
+          foregroundMessageIdsRef.current.delete(userMessageId);
+          setMessages((prev) => prev.filter((message) => message.id !== userMessageId));
+        } else {
+          setMessages((prev) => prev.map((message) =>
+            message.id === userMessageId ? { ...message, deliveryStatus: 'sent', sendError: undefined } : message
+          ));
+        }
+        applyMessageQueueSnapshot(snapshot);
+        setIsLoading(!!snapshot?.willContinue);
+      };
       if (body?.status === 'command_dispatched' || body?.status === 'command_duplicate') {
+        foregroundMessageIdsRef.current.delete(userMessageId);
         setMessages((prev) => prev.filter((m) => m.id !== userMessageId));
         setIsLoading(messageQueueWillContinueRef.current);
         const event = body?.event as CommandSystemMessageEvent | undefined;
@@ -3021,12 +3073,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         const messageState = typeof body?.messageState === 'string' ? body.messageState : '';
         if (messageState === 'queued' || messageState === 'blocked' || messageState === 'deleted') {
           if (activeClientMessageIdRef.current === userMessageId) return;
-          setMessages((prev) => prev.filter((message) => message.id !== userMessageId || message.pending === false));
-          applyMessageQueueSnapshot(body?.queue as MessageQueueSnapshot);
-          setIsLoading(!!body?.queue?.willContinue);
+          const snapshot = body?.queue as MessageQueueSnapshot | undefined;
+          applyQueuedSubmission(snapshot, !!options?.presentAsQueued || messageState !== 'queued');
           return;
         }
         const stillProcessing = messageState === 'processing';
+        if (!stillProcessing) foregroundMessageIdsRef.current.delete(userMessageId);
         // This 200 acknowledges the original delivery; it did not start a new
         // run. A processing receipt can keep following that original run's SSE,
         // while a terminal/interrupted receipt must reconcile from disk because
@@ -3052,10 +3104,10 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         }
       } else if (body?.status === 'queued') {
         if (activeClientMessageIdRef.current === userMessageId) return;
-        setMessages((prev) => prev.filter((message) => message.id !== userMessageId || message.pending === false));
-        applyMessageQueueSnapshot(body?.queue as MessageQueueSnapshot);
-        setIsLoading(!!body?.queue?.willContinue);
+        const snapshot = body?.queue as MessageQueueSnapshot | undefined;
+        applyQueuedSubmission(snapshot, !!options?.presentAsQueued);
       } else if (body?.status === 'deleted') {
+        foregroundMessageIdsRef.current.delete(userMessageId);
         setMessages((prev) => prev.filter((message) => message.id !== userMessageId));
         applyMessageQueueSnapshot(body?.queue as MessageQueueSnapshot);
         setIsLoading(!!body?.queue?.willContinue);
@@ -3077,6 +3129,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       console.error('[sendMessage] error:', err);
       const errorMessage = err instanceof Error ? err.message : String(err || 'Failed to send message');
       const ignoreNetworkError = isIgnorableNetworkError(err);
+      if (!ignoreNetworkError) foregroundMessageIdsRef.current.delete(userMessageId);
       if (ignoreNetworkError) {
         reportDisconnect();
       }
@@ -3104,7 +3157,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
   const queueMessage = useCallback((msg: Omit<QueuedMessage, 'id'>) => {
     if (isLoop || isGraph) return;
-    void sendMessage(msg.content, msg.modelId ?? null, null, msg.imageUrls, msg.fileAttachments, msg.acpMode, msg.agentType, msg.acpThoughtLevel);
+    void sendMessage(msg.content, msg.modelId ?? null, null, msg.imageUrls, msg.fileAttachments, msg.acpMode, msg.agentType, msg.acpThoughtLevel, { presentAsQueued: true });
   }, [isGraph, isLoop, sendMessage]);
 
   const cancelQueuedMessage = useCallback(async (id: string) => {

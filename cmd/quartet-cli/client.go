@@ -86,7 +86,11 @@ func (c *client) do(ctx context.Context, method, path string, body any) ([]byte,
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return respBody, fmt.Errorf("backend returned %s for %s %s: %s", resp.Status, method, path, strings.TrimSpace(string(respBody)))
+		err := fmt.Errorf("backend returned %s for %s %s: %s", resp.Status, method, path, strings.TrimSpace(string(respBody)))
+		if resp.StatusCode == http.StatusUnauthorized {
+			return respBody, fmt.Errorf("%w; run quartet-cli auth login for %s", err, c.baseURL)
+		}
+		return respBody, err
 	}
 	return respBody, nil
 }
@@ -355,7 +359,7 @@ func (c *client) wechatAccounts(ctx context.Context) (*wechatAccountsResponse, e
 func (c *client) verifyWeChatOutbox(ctx context.Context) error {
 	_, err := c.do(ctx, http.MethodGet, "/api/v1/wechat/outbox/status", nil)
 	if err != nil {
-		return fmt.Errorf("backend does not expose the durable WeChat outbox; restart the updated quartet-web before sending: %w", err)
+		return fmt.Errorf("verify durable WeChat outbox: %w", err)
 	}
 	return nil
 }
