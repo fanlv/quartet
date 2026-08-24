@@ -5,6 +5,7 @@
 | `LOCAL_MEMORY` | 无，必填 | 持久数据、配置和运行状态根目录 |
 | `QUARTET_LISTEN_ADDR` | 无证书时 `0.0.0.0:8090`，有证书时 `0.0.0.0:443` | 覆盖监听地址 |
 | `QUARTET_CORS_ORIGINS` | 空，仅同源 | 跨域来源白名单 |
+| `QUARTET_TRUSTED_PROXIES` | `127.0.0.0/8,::1/128` | 可提供客户端 IP 转发头的反向代理 IP/CIDR，逗号分隔；`none` 表示不信任任何代理 |
 | `QUARTET_CERTS_DIR` | `certs` | TLS 证书目录 |
 | `QUARTET_LOG_HTTP_BODY` | 关闭 | 调试请求和响应正文；认证请求始终脱敏 |
 

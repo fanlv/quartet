@@ -286,6 +286,7 @@ Quartet requires both `claude` and `claude-agent-acp` for Claude Code, and both
 | `LOCAL_MEMORY` | Yes | Absolute path used for Quartet's persistent data and runtime state |
 | `QUARTET_LISTEN_ADDR` | No | Overrides the default listen address |
 | `QUARTET_CORS_ORIGINS` | No | Comma-separated cross-origin allowlist; unset means same-origin only |
+| `QUARTET_TRUSTED_PROXIES` | No | Comma-separated reverse-proxy IPs/CIDRs trusted to supply client-IP headers; defaults to loopback only; use `none` to disable |
 | `QUARTET_LOG_LEVEL` | No | Initial log level: `debug`, `info`, `warn`, or `error` |
 | `QUARTET_STATIC_DIR` | No | Built frontend directory; defaults to `static` |
 | `QUARTET_CERTS_DIR` | No | Directory containing `cert.pem` and `key.pem`; defaults to `certs` |

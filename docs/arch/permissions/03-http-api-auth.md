@@ -16,7 +16,7 @@
 
 - `/api/v1/health` 匿名可访问，通过 `authState` 返回 `uninitialized`、`ready` 或 `recovery`。
 - `uninitialized` 状态下，`POST /api/v1/auth/init` 创建首个管理员。
-- `POST /api/v1/auth/login` 使用用户名和密码登录。连续失败会触发短时限流。
+- `POST /api/v1/auth/login` 使用用户名和密码登录。同一账号或同一客户端 IP 连续失败会触发短时锁定，防止单 IP 扫描多个用户名以及多 IP 集中破解一个账号。
 - 认证配置损坏或缺少有效管理员时进入 `recovery`，不重新开放匿名初始化。
 
 ## 3. 权限
@@ -38,3 +38,4 @@ Cookie 会自动随请求发送，因此所有修改状态的私有请求必须�
 - 默认同源访问。跨域来源由 `QUARTET_CORS_ORIGINS` 显式配置。
 - Cookie 登录的跨域部署还必须允许 credentials，且来源不能使用通配符。
 - `QUARTET_LISTEN_ADDR` 可以覆盖监听地址。暴露到不可信网络时应使用 HTTPS，并结合反向代理限流。
+- 客户端 IP 默认只信任来自本机反向代理的转发头；代理部署在其他地址时，通过 `QUARTET_TRUSTED_PROXIES` 显式配置代理 IP 或网段。

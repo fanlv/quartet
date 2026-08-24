@@ -32,6 +32,13 @@ const (
 	// Auth sessions themselves do not expire and remain valid until explicitly
 	// revoked (logout, password reset/change, user disable, or user deletion).
 	PersistentCookieMaxAge = 10 * 365 * 24 * time.Hour
+
+	loginFailureWindow        = 10 * time.Minute
+	loginFailureBlockDuration = 10 * time.Minute
+	loginIPFailureLimit       = 10
+	loginAccountFailureLimit  = 5
+	loginFailureCleanupPeriod = time.Minute
+	maxTrackedLoginFailures   = 8192
 )
 
 type State string
@@ -127,20 +134,40 @@ var permissionDependencies = map[Permission][]Permission{
 }
 
 type Service struct {
-	mu            sync.RWMutex
-	repo          *repository.AuthRepo
-	state         State
-	stateErr      error
-	system        *model.AuthSystem
-	users         map[string]*model.User
-	roles         map[string]*model.Role
-	loginFailures map[string]*loginFailure
+	mu             sync.RWMutex
+	repo           *repository.AuthRepo
+	state          State
+	stateErr       error
+	system         *model.AuthSystem
+	users          map[string]*model.User
+	roles          map[string]*model.Role
+	loginFailures  map[string]*loginFailure
+	loginCleanupAt time.Time
 }
 
 type loginFailure struct {
 	Count        int
 	WindowStart  time.Time
 	BlockedUntil time.Time
+	LastAttempt  time.Time
+}
+
+type loginFailureScope struct {
+	key   string
+	limit int
+}
+
+type loginRateLimitError struct {
+	retryAt time.Time
+}
+
+func (e *loginRateLimitError) Error() string {
+	return fmt.Sprintf("%s; retry after %s", ErrRateLimited, e.retryAt.Format(time.RFC3339))
+}
+
+func (e *loginRateLimitError) Unwrap() error { return ErrRateLimited }
+func (e *loginRateLimitError) RetryAfter() time.Time {
+	return e.retryAt
 }
 
 func NewService() (*Service, error) {
@@ -314,10 +341,10 @@ func (s *Service) Login(username, password, source string) (string, *model.AuthP
 		return "", nil, err
 	}
 	username = strings.ToLower(strings.TrimSpace(username))
-	failureKey := username + "|" + strings.TrimSpace(source)
 	now := time.Now().UTC()
-	if failure := s.loginFailures[failureKey]; failure != nil && now.Before(failure.BlockedUntil) {
-		return "", nil, fmt.Errorf("%w; retry after %s", ErrRateLimited, failure.BlockedUntil.Format(time.RFC3339))
+	failureScopes := loginFailureScopes(username, source)
+	if retryAt := s.loginBlockedUntilLocked(failureScopes, now); !retryAt.IsZero() {
+		return "", nil, &loginRateLimitError{retryAt: retryAt}
 	}
 	var user *model.User
 	for _, candidate := range s.users {
@@ -327,13 +354,17 @@ func (s *Service) Login(username, password, source string) (string, *model.AuthP
 		}
 	}
 	if user == nil || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
-		s.recordLoginFailureLocked(failureKey, now)
+		s.recordLoginFailureLocked(failureScopes, now)
 		return "", nil, ErrInvalidCredentials
 	}
 	if user.Status != UserStatusActive {
+		s.recordLoginFailureLocked(failureScopes, now)
 		return "", nil, ErrUserDisabled
 	}
-	delete(s.loginFailures, failureKey)
+	// A valid login proves the account credential, so clear the account scope.
+	// Keep the source-IP history: otherwise one known credential could reset the
+	// IP bucket between password-spraying attempts against other accounts.
+	delete(s.loginFailures, loginAccountFailureKey(username))
 	return s.createSessionLocked(user)
 }
 
@@ -381,16 +412,88 @@ func (s *Service) Authenticate(token string) (*model.AuthPrincipal, error) {
 	return s.principalLocked(user, session.CSRFToken)
 }
 
-func (s *Service) recordLoginFailureLocked(key string, now time.Time) {
+func loginFailureScopes(username, source string) []loginFailureScope {
+	return []loginFailureScope{
+		{key: loginIPFailureKey(source), limit: loginIPFailureLimit},
+		{key: loginAccountFailureKey(username), limit: loginAccountFailureLimit},
+	}
+}
+
+func loginIPFailureKey(source string) string {
+	return "ip:" + tokenHash(strings.TrimSpace(source))
+}
+
+func loginAccountFailureKey(username string) string {
+	return "account:" + tokenHash(strings.ToLower(strings.TrimSpace(username)))
+}
+
+func (s *Service) loginBlockedUntilLocked(scopes []loginFailureScope, now time.Time) time.Time {
+	s.cleanupLoginFailuresLocked(now)
+	var retryAt time.Time
+	for _, scope := range scopes {
+		failure := s.activeLoginFailureLocked(scope.key, now)
+		if failure != nil && now.Before(failure.BlockedUntil) && failure.BlockedUntil.After(retryAt) {
+			retryAt = failure.BlockedUntil
+		}
+	}
+	return retryAt
+}
+
+func (s *Service) recordLoginFailureLocked(scopes []loginFailureScope, now time.Time) {
+	for _, scope := range scopes {
+		failure := s.activeLoginFailureLocked(scope.key, now)
+		if failure == nil {
+			s.makeLoginFailureCapacityLocked(now)
+			failure = &loginFailure{WindowStart: now}
+			s.loginFailures[scope.key] = failure
+		}
+		failure.Count++
+		failure.LastAttempt = now
+		if failure.Count >= scope.limit {
+			failure.BlockedUntil = now.Add(loginFailureBlockDuration)
+		}
+	}
+}
+
+func (s *Service) activeLoginFailureLocked(key string, now time.Time) *loginFailure {
 	failure := s.loginFailures[key]
-	if failure == nil || now.Sub(failure.WindowStart) > 10*time.Minute {
-		failure = &loginFailure{WindowStart: now}
-		s.loginFailures[key] = failure
+	if failure == nil {
+		return nil
 	}
-	failure.Count++
-	if failure.Count >= 5 {
-		failure.BlockedUntil = now.Add(time.Minute)
+	if !now.Before(failure.BlockedUntil) && now.Sub(failure.WindowStart) >= loginFailureWindow {
+		delete(s.loginFailures, key)
+		return nil
 	}
+	return failure
+}
+
+func (s *Service) cleanupLoginFailuresLocked(now time.Time) {
+	if len(s.loginFailures) < maxTrackedLoginFailures && now.Before(s.loginCleanupAt) {
+		return
+	}
+	for key := range s.loginFailures {
+		s.activeLoginFailureLocked(key, now)
+	}
+	s.loginCleanupAt = now.Add(loginFailureCleanupPeriod)
+}
+
+func (s *Service) makeLoginFailureCapacityLocked(now time.Time) {
+	if len(s.loginFailures) < maxTrackedLoginFailures {
+		return
+	}
+	s.cleanupLoginFailuresLocked(now)
+	if len(s.loginFailures) < maxTrackedLoginFailures {
+		return
+	}
+	var oldestKey string
+	var oldestAttempt time.Time
+	for key, failure := range s.loginFailures {
+		if oldestKey == "" || failure.LastAttempt.Before(oldestAttempt) {
+			oldestKey = key
+			oldestAttempt = failure.LastAttempt
+		}
+	}
+	delete(s.loginFailures, oldestKey)
 }
 
 func (s *Service) Logout(token string) error {

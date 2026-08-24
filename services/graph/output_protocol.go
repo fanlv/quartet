@@ -9,7 +9,8 @@ import (
 // Prompt output variable protocol (§1 输出变量契约). Unlike Shell, Agent nodes
 // have no control file, so declared output variables are carried in the model's
 // raw output via QUARTET_OUTPUT markers matched as a substring anywhere within a
-// line.
+// line. A line can contain more than one marker because adjacent assistant
+// messages are accumulated without an injected newline.
 
 const quartetOutputMarker = "QUARTET_OUTPUT:"
 
@@ -33,12 +34,15 @@ func (e *OutputProtocolError) Error() string { return e.Message }
 //
 // Rules (§1):
 //   - substring match: the marker "QUARTET_OUTPUT:" is located anywhere within a
-//     line (it need not start the line); everything before the marker on that
-//     line is ignored, so a marker glued onto preceding text (e.g.
+//     line (it need not start the line); everything before the first marker is
+//     ignored, so a marker glued onto preceding text (e.g.
 //     "2QUARTET_OUTPUT:answer=2") is still recognized;
-//   - the value runs from after the marker to the end of the line; split on the
-//     FIRST '=' after the marker; the name is trimmed, the value is kept verbatim
-//     (may be empty, may contain '=', not trimmed);
+//   - every marker on a line starts a separate entry. This matters when adjacent
+//     assistant messages are concatenated without a newline, and also prevents
+//     an earlier prose mention of the protocol from swallowing the real entry;
+//   - each value runs from after its marker to the next marker or the end of the
+//     line; split on the FIRST '=' after the marker; the name is trimmed, the
+//     value is kept verbatim (may be empty, may contain '=', not trimmed);
 //   - variable name must match [A-Za-z_][A-Za-z0-9_]* and must not be reserved
 //     (leading '_'); single-line scalar only;
 //   - same name on multiple lines → last line wins;
@@ -62,36 +66,50 @@ func (e *OutputProtocolError) Error() string { return e.Message }
 func ParseQuartetOutput(rawOutput string, declared []string) (*OutputParseResult, *OutputProtocolError) {
 	parsed := make(map[string]string)
 	for _, line := range strings.Split(rawOutput, "\n") {
-		idx := strings.Index(line, quartetOutputMarker)
-		if idx < 0 {
-			continue
-		}
-		body := line[idx+len(quartetOutputMarker):]
-		// Strip a trailing CR so CRLF inputs don't leak '\r' into the value.
-		body = strings.TrimRight(body, "\r")
-		name, value, ok := strings.Cut(body, "=")
-		if !ok {
-			return nil, &OutputProtocolError{
-				Message: fmt.Sprintf("malformed %s entry (missing '='): %q", quartetOutputMarker, line),
+		for searchFrom := 0; ; {
+			relMarker := strings.Index(line[searchFrom:], quartetOutputMarker)
+			if relMarker < 0 {
+				break
 			}
-		}
-		name = strings.TrimSpace(name)
-		if isReservedVar(name) {
-			return nil, &OutputProtocolError{
-				Variable: name,
-				Message:  fmt.Sprintf("model output wrote reserved variable name %q (names starting with '_' or 'QUARTET_' are reserved)", name),
+			markerStart := searchFrom + relMarker
+			bodyStart := markerStart + len(quartetOutputMarker)
+			bodyEnd := len(line)
+			if relNext := strings.Index(line[bodyStart:], quartetOutputMarker); relNext >= 0 {
+				bodyEnd = bodyStart + relNext
 			}
-		}
-		if !isValidVarName(name) {
-			return nil, &OutputProtocolError{
-				Variable: name,
-				Message:  fmt.Sprintf("model output declared invalid variable name %q (must match [A-Za-z_][A-Za-z0-9_]*)", name),
+
+			body := line[bodyStart:bodyEnd]
+			// Strip a trailing CR so CRLF inputs don't leak '\r' into the value.
+			body = strings.TrimRight(body, "\r")
+			name, value, ok := strings.Cut(body, "=")
+			if !ok {
+				return nil, &OutputProtocolError{
+					Message: fmt.Sprintf("malformed %s entry (missing '='): %q", quartetOutputMarker, line[markerStart:bodyEnd]),
+				}
 			}
+			name = strings.TrimSpace(name)
+			if isReservedVar(name) {
+				return nil, &OutputProtocolError{
+					Variable: name,
+					Message:  fmt.Sprintf("model output wrote reserved variable name %q (names starting with '_' or 'QUARTET_' are reserved)", name),
+				}
+			}
+			if !isValidVarName(name) {
+				return nil, &OutputProtocolError{
+					Variable: name,
+					Message:  fmt.Sprintf("model output declared invalid variable name %q (must match [A-Za-z_][A-Za-z0-9_]*)", name),
+				}
+			}
+			// Permissive contract: every produced variable flows downstream, declared
+			// or not. Declaration is optional and only drives the completeness check
+			// below. Same name on multiple entries: last wins.
+			parsed[name] = value
+
+			if bodyEnd == len(line) {
+				break
+			}
+			searchFrom = bodyEnd
 		}
-		// Permissive contract: every produced variable flows downstream, declared
-		// or not. Declaration is optional and only drives the completeness check
-		// below. Same name on multiple lines: last wins.
-		parsed[name] = value
 	}
 
 	// Every declared variable must be produced.

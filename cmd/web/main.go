@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/config"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
@@ -266,8 +267,12 @@ func main() {
 	// server construction, the pre-bind probe, and the readiness self-check —
 	// shares this single result so address/protocol is a single-point change.
 	lc := resolveListen(ctx)
+	trustedProxies, err := resolveTrustedProxies()
+	if err != nil {
+		logger.Fatalf(ctx, "Invalid %s: %v", consts.EnvKeyTrustedProxies, err)
+	}
 
-	s := newServer(lc)
+	s := newServer(lc, trustedProxies)
 	registerRoutes(s, h)
 
 	// When TLS is active on the public address, additionally serve plaintext
@@ -277,7 +282,7 @@ func main() {
 	// hostname/cert, and 8090 is dark.
 	var local *server.Hertz
 	if lc.tlsCfg != nil {
-		local = newServer(listenConfig{addr: localHTTPAddr})
+		local = newServer(listenConfig{addr: localHTTPAddr}, trustedProxies)
 		registerRoutes(local, h)
 	}
 
@@ -439,7 +444,7 @@ func main() {
 	logger.Info("Server stopped")
 }
 
-func newServer(lc listenConfig) *server.Hertz {
+func newServer(lc listenConfig, trustedProxies []*net.IPNet) *server.Hertz {
 	// Route Hertz's own logs through pkg/logger so timestamps and levels match
 	// the rest of the backend log. Default hlog emits `2026/05/07 17:19:17.873 ...
 	// [Info] HERTZ: ...` which would interleave with our own
@@ -466,6 +471,12 @@ func newServer(lc listenConfig) *server.Hertz {
 		opts = append(opts, server.WithTLS(lc.tlsCfg))
 	}
 	h := server.Default(opts...)
+	// Hertz trusts forwarding headers from every peer by default. Restrict them
+	// so login throttling cannot be bypassed with a forged X-Forwarded-For.
+	h.SetClientIPFunc(app.ClientIPWithOption(app.ClientIPOptions{
+		RemoteIPHeaders: []string{"X-Forwarded-For", "X-Real-IP"},
+		TrustedCIDRs:    trustedProxies,
+	}))
 
 	origins := corsOrigins()
 	if len(origins) > 0 {
@@ -494,4 +505,38 @@ func newServer(lc listenConfig) *server.Hertz {
 	h.Use(loggerMiddleware())
 
 	return h
+}
+
+func resolveTrustedProxies() ([]*net.IPNet, error) {
+	value := strings.TrimSpace(os.Getenv(consts.EnvKeyTrustedProxies))
+	if strings.EqualFold(value, "none") {
+		return nil, nil
+	}
+	if value == "" {
+		value = "127.0.0.0/8,::1/128"
+	}
+
+	items := strings.Split(value, ",")
+	trusted := make([]*net.IPNet, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			return nil, fmt.Errorf("trusted proxy entries cannot be empty")
+		}
+		if ip := net.ParseIP(item); ip != nil {
+			bits := 128
+			if ip.To4() != nil {
+				ip = ip.To4()
+				bits = 32
+			}
+			trusted = append(trusted, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+			continue
+		}
+		_, network, err := net.ParseCIDR(item)
+		if err != nil {
+			return nil, fmt.Errorf("invalid IP or CIDR %q: %w", item, err)
+		}
+		trusted = append(trusted, network)
+	}
+	return trusted, nil
 }

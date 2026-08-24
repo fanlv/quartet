@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -276,6 +277,12 @@ func writeAuthError(c *app.RequestContext, err error) {
 	case errors.Is(err, auth.ErrConflict):
 		httputil.Conflict(c, err.Error())
 	case errors.Is(err, auth.ErrRateLimited):
+		var retryable interface{ RetryAfter() time.Time }
+		if errors.As(err, &retryable) {
+			remaining := time.Until(retryable.RetryAfter())
+			seconds := max(int64(1), int64((remaining+time.Second-1)/time.Second))
+			c.Header("Retry-After", strconv.FormatInt(seconds, 10))
+		}
 		c.JSON(http.StatusTooManyRequests, httputil.ErrResponse{Code: -1, Msg: err.Error()})
 	case errors.Is(err, auth.ErrNotFound):
 		httputil.NotFound(c, err.Error())
