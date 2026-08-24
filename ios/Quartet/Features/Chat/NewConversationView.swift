@@ -190,6 +190,7 @@ struct NewConversationView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                    .sharedBackgroundVisibility(.hidden)
             }
             .task(id: creationMode) {
                 if creationMode == .chat, agents.isEmpty {
@@ -956,8 +957,8 @@ struct NewConversationView: View {
                 acpMode: payload.modeID,
                 acpThoughtLevel: payload.thoughtLevelID
             )
-            await model.reloadJobs()
             model.beginOptimisticJobExecution(id: jobID, fallback: summary)
+            await model.reloadJobs()
             onCreated(ChatRoute(
                 summary: summary,
                 initialMessage: message.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1198,6 +1199,7 @@ struct MessagePresetHistorySheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
             .alert(
                 "输入框已有内容",

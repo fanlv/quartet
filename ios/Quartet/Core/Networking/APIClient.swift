@@ -116,6 +116,13 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/workspace/list")
     }
 
+    func gitBranch(path: String) async throws -> GitBranchResponse {
+        try await request(
+            path: "api/v1/git-branch",
+            query: [URLQueryItem(name: "path", value: path)]
+        )
+    }
+
     func usageStats(
         from: String?,
         to: String?,

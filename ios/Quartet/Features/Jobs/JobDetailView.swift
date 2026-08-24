@@ -31,6 +31,7 @@ struct JobDetailView: View {
         .background(QuartetTheme.canvas)
         .navigationTitle(summary.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .quartetPlainNavigationBackButton()
         .task {
             if model.agentCatalogSnapshot.isEmpty {
                 await model.refreshAgentCatalog()
@@ -56,6 +57,7 @@ struct JobDetailView: View {
                             UIPasteboard.general.string = detail?.latestRunLastError ?? graphState?.lastError
                         }
                     }
+                    .sharedBackgroundVisibility(.hidden)
                 }
             }
             .quartetSheetStyle()

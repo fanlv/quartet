@@ -167,6 +167,11 @@ struct WorkspacesResponse: Decodable, Sendable {
     let workspaces: [WorkspaceSummary]
 }
 
+struct GitBranchResponse: Decodable, Sendable {
+    let code: Int
+    let branch: String
+}
+
 struct UpdateWorkspaceRequest: Encodable, Sendable {
     let expectedVersion: UInt64
     let defaultAgent: String
@@ -238,7 +243,7 @@ struct AgentThoughtLevelState: Decodable, Hashable, Sendable {
     let currentThoughtLevelId: String
 }
 
-enum ACPConfigTarget: String, Encodable, Sendable {
+enum ACPConfigTarget: String, Encodable, Equatable, Sendable {
     case model
     case mode
     case thoughtLevel

@@ -65,21 +65,37 @@ final class QuartetUITests: XCTestCase {
     func testConversationAndSettingsFlows() {
         launchDashboard()
 
-        XCTAssertTrue(app.tabBars.buttons["最近任务"].exists)
+        XCTAssertTrue(app.buttons["main-tab-0"].exists)
         app.buttons["job-job-chat-running"].tap()
         XCTAssertTrue(app.navigationBars["优化 iOS 交互体验"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["main-tab-bar"].exists)
         XCTAssertTrue(app.textFields["chat-composer"].exists)
         XCTAssertTrue(app.staticTexts["已完成第一轮检查。运行状态和操作反馈都已同步。"].exists)
         XCTAssertTrue(app.staticTexts["TraeCode"].exists)
         XCTAssertFalse(app.staticTexts["ASSISTANT"].exists)
         XCTAssertTrue(app.staticTexts["AI 正在思考..."].exists)
         XCTAssertFalse(app.staticTexts["当前轮次运行中，新消息会保存到服务端队列并按顺序发送。"].exists)
+        XCTAssertTrue(app.buttons["chat-message-history"].exists)
+        XCTAssertFalse(app.staticTexts["历史会话"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["workspace-footer"].exists)
+        XCTAssertTrue(app.staticTexts["Workspace(Quartet Studio) :"].exists)
+        XCTAssertTrue(app.staticTexts["/workspace/quartet"].exists)
+        XCTAssertTrue(app.staticTexts["main"].exists)
+
+        app.buttons["chat-model-selector"].tap()
+        XCTAssertTrue(app.buttons["GPT-5.4"].waitForExistence(timeout: 2))
+        app.buttons["GPT-5.4"].tap()
+        XCTAssertTrue(app.staticTexts["GPT-5.4"].waitForExistence(timeout: 2))
+
+        app.buttons["chat-thought-level-selector"].tap()
+        XCTAssertTrue(app.buttons["深入"].waitForExistence(timeout: 2))
+        app.buttons["深入"].tap()
+        XCTAssertTrue(app.staticTexts["深入"].waitForExistence(timeout: 2))
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.tabBars.buttons["最近任务"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 2))
 
-        app.tabBars.buttons["设置"].tap()
+        app.buttons["main-tab-2"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["https://quartet.example.test/"].exists)
         app.buttons["settings-edit-connection"].tap()
@@ -112,7 +128,7 @@ final class QuartetUITests: XCTestCase {
     func testUsageStatsTabShowsDashboard() {
         launchDashboard()
 
-        app.tabBars.buttons["统计"].tap()
+        app.buttons["main-tab-1"].tap()
         XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.otherElements["stats-kpis"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["总耗时"].exists)
@@ -120,6 +136,36 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["账号"].exists)
         XCTAssertTrue(app.otherElements["stats-trend"].exists)
         XCTAssertTrue(app.staticTexts["按工作区"].exists)
+    }
+
+    func testRecentJobsScrollBehindTransparentTabBar() {
+        app.launchArguments = ["--ui-testing-transparent-tabbar"]
+        app.launch()
+
+        let recentTab = app.buttons["main-tab-0"]
+        let targetJob = app.buttons["job-job-tabbar-10"]
+        XCTAssertTrue(recentTab.waitForExistence(timeout: 5))
+
+        let scrollView = app.scrollViews.firstMatch
+        XCTAssertTrue(scrollView.exists)
+        for _ in 0..<8 where !targetJob.isHittable {
+            scrollView.swipeUp()
+        }
+        XCTAssertTrue(targetJob.waitForExistence(timeout: 2))
+
+        let start = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72))
+        let end = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.86))
+        start.press(forDuration: 0.05, thenDragTo: end)
+
+        XCTAssertGreaterThan(
+            targetJob.frame.maxY,
+            recentTab.frame.minY,
+            "任务行应该能够滚动到透明 TabBar 后方"
+        )
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = "最近任务从透明 TabBar 后方划过"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     func testCreatesANewConversationFromPrimaryAction() {
@@ -208,7 +254,7 @@ final class QuartetUITests: XCTestCase {
         }
 
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["最近任务"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 30))
         app.buttons["new-conversation-button"].tap()
         XCTAssertTrue(app.navigationBars["新任务"].waitForExistence(timeout: 15))
 
@@ -225,6 +271,44 @@ final class QuartetUITests: XCTestCase {
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "IOS_E2E_STREAM_OK")).firstMatch
                 .waitForExistence(timeout: 180)
         )
+    }
+
+    func testLiveBackendOpensExistingChatWithoutError() throws {
+        guard ProcessInfo.processInfo.environment["QUARTET_LIVE_E2E"] == "1" else {
+            throw XCTSkip("Set QUARTET_LIVE_E2E=1 to run against the configured real backend.")
+        }
+
+        app.launch()
+        guard app.buttons["main-tab-0"].waitForExistence(timeout: 30) else {
+            if app.buttons["connection-submit"].exists {
+                throw XCTSkip("The device has no reusable Quartet login session.")
+            }
+            XCTFail("The live Quartet dashboard did not become available.")
+            return
+        }
+
+        let jobButtons = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'job-' AND NOT identifier BEGINSWITH 'job-more-'")
+        )
+        XCTAssertTrue(jobButtons.firstMatch.waitForExistence(timeout: 30))
+
+        var openedChat = false
+        for index in 0..<jobButtons.count {
+            jobButtons.element(boundBy: index).tap()
+            if app.textFields["chat-composer"].waitForExistence(timeout: 8) {
+                openedChat = true
+                break
+            }
+            if app.buttons["复制"].exists && app.buttons["关闭"].exists {
+                XCTFail("Opening an existing Job presented an error detail sheet.")
+                return
+            }
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 5))
+        }
+
+        XCTAssertTrue(openedChat, "No interactive chat was available in the live Job list.")
+        XCTAssertFalse(app.buttons["复制"].exists && app.buttons["关闭"].exists)
     }
 
     private func launchDashboard() {

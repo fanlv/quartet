@@ -43,7 +43,9 @@ struct GraphRunView: View {
                 }
                 .accessibilityLabel("Job 详情")
             }
+            .sharedBackgroundVisibility(.hidden)
         }
+        .quartetPlainNavigationBackButton()
         .refreshable { await refresh() }
         .task {
             await refresh()
@@ -611,6 +613,7 @@ private struct GraphNodeSessionView: View {
         .background(QuartetTheme.canvas)
         .navigationTitle(sessionTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .quartetPlainNavigationBackButton()
         .refreshable { await load() }
         .task(id: sessionID) { await load() }
     }

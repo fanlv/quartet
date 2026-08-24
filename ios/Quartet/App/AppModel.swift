@@ -49,6 +49,7 @@ final class AppModel: ObservableObject {
             username = ""
             password = ""
             csrfToken = ""
+            permissions = []
             agentCatalogSnapshot = []
         }
     }
@@ -71,6 +72,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var graphJobStates: [String: GraphJobState] = [:]
     @Published private(set) var isRestartingWeb = false
     @Published var presentedError: PresentedError?
+    @Published private(set) var permissions: Set<String> = []
 
     private let defaults: UserDefaults
     private let cacheStore: DashboardCacheStore
@@ -231,6 +233,7 @@ final class AppModel: ObservableObject {
             }
             serverAddress = client.baseURL.absoluteString
             csrfToken = principal.csrfToken
+            permissions = Set(principal.permissions)
             password = ""
             defaults.set(serverAddress, forKey: StorageKey.serverAddress)
             defaults.set(true, forKey: StorageKey.connectionValidated)
@@ -645,7 +648,11 @@ final class AppModel: ObservableObject {
                         currentModeId: "default"
                     ),
                     thoughtLevels: AgentThoughtLevelState(
-                        availableThoughtLevels: [AgentOption(id: "medium", name: "标准", description: nil)],
+                        availableThoughtLevels: [
+                            AgentOption(id: "low", name: "快速", description: nil),
+                            AgentOption(id: "medium", name: "标准", description: nil),
+                            AgentOption(id: "high", name: "深入", description: nil)
+                        ],
                         currentThoughtLevelId: "medium"
                     )
                 )
@@ -742,6 +749,40 @@ final class AppModel: ObservableObject {
         )
     }
 
+    func setACPConfig(_ request: SetACPConfigRequest) async throws -> SetACPConfigResponse {
+        if isRunningUITests {
+            let models = AgentModelState(
+                availableModels: [
+                    AgentModel(modelId: "gpt-5.6", name: "GPT-5.6", description: "默认模型"),
+                    AgentModel(modelId: "gpt-5.4", name: "GPT-5.4", description: "快速模型")
+                ],
+                currentModelId: request.model ?? "gpt-5.6"
+            )
+            let thoughtLevels = AgentThoughtLevelState(
+                availableThoughtLevels: [
+                    AgentOption(id: "low", name: "快速", description: nil),
+                    AgentOption(id: "medium", name: "标准", description: nil),
+                    AgentOption(id: "high", name: "深入", description: nil)
+                ],
+                currentThoughtLevelId: request.thoughtLevel ?? "medium"
+            )
+            return SetACPConfigResponse(
+                code: 0,
+                models: request.target == .model ? models : nil,
+                modes: nil,
+                thoughtLevels: thoughtLevels
+            )
+        }
+        let response = try await makeClient().setACPConfig(request)
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法切换 Agent 配置",
+                detail: "POST /api/v1/agent/config 返回 code=\(response.code)。"
+            )
+        }
+        return response
+    }
+
     func createJob(request: CreateJobRequest) async throws -> String {
         if isRunningUITests {
             hasPendingSync = true
@@ -756,7 +797,7 @@ final class AppModel: ObservableObject {
         guard let current = jobs.first(where: { $0.id == id }) ?? fallback else { return }
         let now = Int64(Date().timeIntervalSince1970 * 1_000)
         let baseline = optimisticJobExecutions[id]?.baseline ?? current
-        let display = current.updating(updatedAt: max(current.updatedAt, now))
+        let display = current.updating(status: "running", updatedAt: max(current.updatedAt, now))
         optimisticJobExecutions[id] = OptimisticJobExecution(
             baseline: baseline,
             display: display
@@ -772,7 +813,7 @@ final class AppModel: ObservableObject {
         } else {
             jobs.removeAll { $0.id == id }
         }
-        hasPendingSync = !optimisticJobExecutions.isEmpty
+        hasPendingSync = isDataStale || !optimisticJobExecutions.isEmpty
     }
 
     func sentMessageHistory(workspaceID: String?) throws -> [SentMessageHistoryItem] {
@@ -802,6 +843,10 @@ final class AppModel: ObservableObject {
 
     func apiClient() throws -> APIClient {
         try makeClient()
+    }
+
+    func can(_ permission: String) -> Bool {
+        isRunningUITests || permissions.contains(permission)
     }
 
     func saveWorkspaceDefaults(workspaceID: String, agent: String, model: String) async throws {
@@ -990,6 +1035,7 @@ final class AppModel: ObservableObject {
         username = ""
         password = ""
         csrfToken = ""
+        permissions = []
         rotateCredentialCacheNamespace()
         Task { await cacheStore.advanceGeneration(to: generation, clearingExistingCache: true) }
     }
@@ -1090,6 +1136,28 @@ final class AppModel: ObservableObject {
                 agentId: "trae", acpMode: "default", acpThoughtLevel: "medium"
             )
         ]
+        if uiTestScenario == "--ui-testing-transparent-tabbar" {
+            uiTestJobs.append(contentsOf: (1...14).map { index in
+                JobSummary(
+                    id: "job-tabbar-\(index)",
+                    title: String(format: "透明栏滚动验证 %02d", index),
+                    modelId: "gpt-5.6",
+                    status: "completed",
+                    mode: "interactive",
+                    workspaceId: "ws-studio",
+                    workdir: "/workspace/quartet",
+                    createdAt: now - Int64(index) * 60_000,
+                    updatedAt: now - Int64(index) * 60_000,
+                    pinnedAt: nil,
+                    sessionCount: 1,
+                    scheduleId: nil,
+                    shareToken: nil,
+                    agentId: "trae",
+                    acpMode: "default",
+                    acpThoughtLevel: "medium"
+                )
+            })
+        }
         jobs = filteredUITestJobs(workspaceID: nil)
         selectedWorkspaceID = nil
         lastSuccessfulSyncAt = Date()
@@ -1331,7 +1399,10 @@ final class AppModel: ObservableObject {
             optimisticJobExecutions.removeValue(forKey: fresh.id)
             return fresh
         }
-        return optimistic.display
+        return fresh.updating(
+            status: "running",
+            updatedAt: max(fresh.updatedAt, optimistic.display.updatedAt)
+        )
     }
 
     private func appendMissingOptimisticJobs(to merged: inout [JobSummary]) {

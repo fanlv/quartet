@@ -2,24 +2,24 @@ import SwiftUI
 import UIKit
 
 enum QuartetTheme {
-    // Warm paper and carbon surfaces keep orange and terminal green crisp in both appearances.
-    static let canvas = dynamic(light: 0xF6F2EC, dark: 0x080907)
-    static let surface = dynamic(light: 0xFFFDFC, dark: 0x11130F)
-    static let elevated = dynamic(light: 0xECE5DC, dark: 0x1B1F18)
-    static let primaryText = dynamic(light: 0x181410, dark: 0xF7F2EA)
-    static let secondaryText = dynamic(light: 0x685E54, dark: 0xABA297)
-    static let divider = dynamic(light: 0xD8CEC3, dark: 0x33382F)
+    // Cool botanical neutrals keep the green hierarchy crisp in both appearances.
+    static let canvas = dynamic(light: 0xF3F7F4, dark: 0x070D09)
+    static let surface = dynamic(light: 0xFCFEFC, dark: 0x0F1712)
+    static let elevated = dynamic(light: 0xE7EEE9, dark: 0x18221B)
+    static let primaryText = dynamic(light: 0x142019, dark: 0xF0F7F2)
+    static let secondaryText = dynamic(light: 0x5D6C62, dark: 0xA3B2A7)
+    static let divider = dynamic(light: 0xCDD9D0, dark: 0x2C3A30)
 
-    // Orange owns brand and primary actions. Green is reserved for live, healthy, and terminal states.
-    static let accent = dynamic(light: 0xC64B00, dark: 0xFF7A1A)
-    static let accentDeep = dynamic(light: 0x8F3500, dark: 0xFF9D52)
-    static let accentSoft = dynamic(light: 0xE46A16, dark: 0xD85D0B)
-    static let onAccent = dynamic(light: 0xFFFFFF, dark: 0x160A02)
-    static let terminalGreen = dynamic(light: 0x08783E, dark: 0x4DFF88)
-    static let terminalGreenMuted = dynamic(light: 0x3E704D, dark: 0x79C98F)
-    static let success = terminalGreenMuted
+    // Forest green owns brand and primary actions; amber remains semantic warning.
+    static let accent = dynamic(light: 0x16A34A, dark: 0x4ADE80)
+    static let accentDeep = dynamic(light: 0x047857, dark: 0x22C55E)
+    static let accentSoft = dynamic(light: 0x22C55E, dark: 0x16A34A)
+    static let onAccent = dynamic(light: 0xFFFFFF, dark: 0x052E16)
+    static let terminalGreen = dynamic(light: 0x059669, dark: 0x34D399)
+    static let terminalGreenMuted = dynamic(light: 0x4D7C0F, dark: 0xA3E635)
+    static let success = dynamic(light: 0x16A34A, dark: 0x4ADE80)
     static let running = terminalGreen
-    static let warning = accent
+    static let warning = dynamic(light: 0xA16207, dark: 0xFACC15)
     static let failed = dynamic(light: 0xB62435, dark: 0xFF5364)
     static let onDanger = dynamic(light: 0xFFFFFF, dark: 0x190205)
     static let stopped = dynamic(light: 0x686159, dark: 0xA39B91)
@@ -29,10 +29,10 @@ enum QuartetTheme {
     static let terminalText = dynamic(light: 0x42E978, dark: 0x62FF98)
     static let terminalBorder = dynamic(light: 0x285F39, dark: 0x245D36)
 
-    // Charts use approved hues only; line shape and labels remain the primary differentiators.
-    static let chartOrange = accent
-    static let chartDeepOrange = accentDeep
-    static let chartSoftOrange = accentSoft
+    // Charts stay within the botanical palette; line shape and labels remain the primary differentiators.
+    static let chartPrimary = accent
+    static let chartForest = accentDeep
+    static let chartMint = accentSoft
     static let chartGreen = terminalGreen
     static let chartMutedGreen = terminalGreenMuted
     static let chartRed = failed
@@ -51,8 +51,29 @@ enum QuartetTheme {
     static func workspaceTint(_ seed: String?) -> Color {
         guard let seed, !seed.isEmpty else { return accent }
         let checksum = seed.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0x7fffffff }
-        let palette = [chartOrange, chartGreen, chartDeepOrange, chartMutedGreen, chartGraphite]
+        let palette = [chartPrimary, chartGreen, chartForest, chartMutedGreen, chartGraphite]
         return palette[checksum % palette.count]
+    }
+
+    static func workspaceTint(_ workspace: WorkspaceSummary) -> Color {
+        guard let configuredColor = workspace.color,
+              let color = color(hex: configuredColor) else {
+            return workspaceTint(workspace.id)
+        }
+        return color
+    }
+
+    private static func color(hex value: String) -> Color? {
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digits = value.hasPrefix("#") ? String(value.dropFirst()) : value
+        guard digits.count == 6, let rgb = UInt32(digits, radix: 16) else { return nil }
+        return Color(
+            .sRGB,
+            red: Double((rgb >> 16) & 0xff) / 255,
+            green: Double((rgb >> 8) & 0xff) / 255,
+            blue: Double(rgb & 0xff) / 255,
+            opacity: 1
+        )
     }
 
     private static func dynamic(light: UInt32, dark: UInt32) -> Color {
@@ -143,6 +164,29 @@ extension View {
         presentationDragIndicator(.visible)
             .presentationCornerRadius(28)
             .presentationBackground(QuartetTheme.canvas)
+    }
+
+    func quartetPlainNavigationBackButton() -> some View {
+        modifier(QuartetPlainNavigationBackButtonModifier())
+    }
+}
+
+private struct QuartetPlainNavigationBackButtonModifier: ViewModifier {
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.body.weight(.semibold))
+                    }
+                    .accessibilityLabel("返回")
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
     }
 }
 

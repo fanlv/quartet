@@ -23,7 +23,12 @@ struct JobChatView: View {
     @State private var globalMessagePresets: [MessagePreset] = []
     @State private var messagePresetLoadErrors: [String] = []
     @State private var loadingMessagePresets = false
-    @State private var linkedThoughtLevelsForDisplay: AgentThoughtLevelState?
+    @State private var userScrolledAwayFromBottom = false
+    @State private var userIsScrollingMessages = false
+    @State private var configuredModels: AgentModelState?
+    @State private var configuredThoughtLevels: AgentThoughtLevelState?
+    @State private var changingACPConfiguration = false
+    @State private var gitBranch = ""
     @FocusState private var composerFocused: Bool
 
     var body: some View {
@@ -31,6 +36,7 @@ struct JobChatView: View {
             messageList
             composer
         }
+        .ignoresSafeArea(.container, edges: .bottom)
         .background(QuartetTheme.canvas)
         .navigationTitle(chat.title.isEmpty ? route.summary.displayTitle : chat.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -43,7 +49,9 @@ struct JobChatView: View {
                 }
                 .accessibilityLabel("Job 详情")
             }
+            .sharedBackgroundVisibility(.hidden)
         }
+        .quartetPlainNavigationBackButton()
         .task(id: route.summary.id) {
             if appModel.isRunningUITests {
                 chat.startUITestPreview(route: route)
@@ -61,8 +69,8 @@ struct JobChatView: View {
                 await appModel.refreshAgentCatalog()
             }
         }
-        .task(id: thoughtLevelDisplayConfigurationKey) {
-            await refreshThoughtLevelDisplayOptions()
+        .task(id: workspaceContextKey) {
+            await loadGitBranch()
         }
         .onDisappear { chat.stopStreaming() }
         .onChange(of: scenePhase) { _, phase in
@@ -92,8 +100,8 @@ struct JobChatView: View {
             guard route.summary.mode != "graph" else { return }
             Task { await appModel.reloadJobs() }
         }
-        .onChange(of: chat.sending) { wasSending, isSending in
-            guard wasSending, !isSending, !chat.isRunning else { return }
+        .onChange(of: chat.expectsExecution) { wasExpected, isExpected in
+            guard wasExpected, !isExpected else { return }
             appModel.cancelOptimisticJobExecution(id: route.summary.id)
             Task { await appModel.reloadJobs() }
         }
@@ -207,7 +215,27 @@ struct JobChatView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
+            .onScrollPhaseChange { _, newPhase in
+                userIsScrollingMessages = newPhase.isScrolling && newPhase != .animating
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                let distanceToBottom = geometry.contentSize.height
+                    - geometry.contentOffset.y
+                    - geometry.containerSize.height
+                return distanceToBottom < 80
+            } action: { _, isNearBottom in
+                guard userIsScrollingMessages else { return }
+                userScrolledAwayFromBottom = !isNearBottom
+            }
             .onChange(of: chat.scrollAnchor) { _, _ in
+                guard !userScrolledAwayFromBottom else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo("chat-bottom", anchor: .bottom)
+                }
+            }
+            .onChange(of: chat.isRunning) { wasRunning, isRunning in
+                guard !wasRunning, isRunning else { return }
+                userScrolledAwayFromBottom = false
                 withAnimation(.easeOut(duration: 0.2)) {
                     proxy.scrollTo("chat-bottom", anchor: .bottom)
                 }
@@ -328,11 +356,10 @@ struct JobChatView: View {
                         loadingMessagePresets = true
                         showsMessageLibrary = true
                     } label: {
-                        Label("历史会话", systemImage: "clock.arrow.circlepath")
+                        Image(systemName: "clock.arrow.circlepath")
                             .font(.quartet(.compact, weight: .semibold))
                             .foregroundStyle(QuartetTheme.secondaryText)
-                            .padding(.horizontal, 10)
-                            .frame(height: 36)
+                            .frame(width: 36, height: 36)
                             .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .buttonStyle(.plain)
@@ -421,6 +448,12 @@ struct JobChatView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 9)
                 .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
+
+                if workspaceName != nil || workspaceWorkdir != nil {
+                    Divider()
+                        .overlay(QuartetTheme.divider.opacity(0.7))
+                    workspaceFooter
+                }
             }
             .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(
@@ -438,7 +471,7 @@ struct JobChatView: View {
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
-        .padding(.bottom, 8)
+        .padding(.bottom, 20)
         .background(.thinMaterial)
     }
 
@@ -449,22 +482,57 @@ struct JobChatView: View {
                 text: chat.agentDisplayLabel,
                 accessibilityLabel: "Agent，\(chat.agentDisplayLabel)"
             )
-            ComposerMetadataChip(
-                icon: "cpu",
-                text: modelDisplayLabel,
-                accessibilityLabel: "模型，\(modelDisplayLabel)"
-            )
+            Menu {
+                ForEach(availableModels) { model in
+                    Button {
+                        Task { await selectModel(model.modelId) }
+                    } label: {
+                        if model.modelId == chat.modelIDForDisplay {
+                            Label(model.name, systemImage: "checkmark")
+                        } else {
+                            Text(model.name)
+                        }
+                    }
+                }
+            } label: {
+                ComposerMetadataChip(
+                    icon: changingACPConfiguration ? "arrow.trianglehead.2.clockwise.rotate.90" : "cpu",
+                    text: modelDisplayLabel,
+                    accessibilityLabel: "模型，\(modelDisplayLabel)"
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(availableModels.isEmpty || changingACPConfiguration)
+            .accessibilityIdentifier("chat-model-selector")
             ComposerMetadataChip(
                 icon: "slider.horizontal.3",
                 text: modeDisplayLabel,
                 accessibilityLabel: "模式，\(modeDisplayLabel)"
             )
-            if let thoughtLevel = thoughtLevelDisplayLabel {
-                ComposerMetadataChip(
-                    icon: "brain.head.profile",
-                    text: thoughtLevel,
-                    accessibilityLabel: "思考等级，\(thoughtLevel)"
-                )
+            if !availableThoughtLevels.isEmpty || thoughtLevelDisplayLabel != nil {
+                let thoughtLevel = thoughtLevelDisplayLabel ?? "思考等级"
+                Menu {
+                    ForEach(availableThoughtLevels) { level in
+                        Button {
+                            Task { await selectThoughtLevel(level.id) }
+                        } label: {
+                            if level.id == chat.thoughtLevelIDForDisplay {
+                                Label(level.name, systemImage: "checkmark")
+                            } else {
+                                Text(level.name)
+                            }
+                        }
+                    }
+                } label: {
+                    ComposerMetadataChip(
+                        icon: changingACPConfiguration ? "arrow.trianglehead.2.clockwise.rotate.90" : "brain.head.profile",
+                        text: thoughtLevel,
+                        accessibilityLabel: "思考等级，\(thoughtLevel)"
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(availableThoughtLevels.isEmpty || changingACPConfiguration)
+                .accessibilityIdentifier("chat-thought-level-selector")
             }
             ComposerMetadataChip(
                 icon: "text.word.spacing",
@@ -486,12 +554,49 @@ struct JobChatView: View {
                     )
                 }
             }
-            if let workspace = appModel.workspaces.first(where: { $0.id == route.summary.workspaceId }) {
-                ComposerMetadataChip(
-                    icon: "folder",
-                    text: workspace.displayName,
-                    accessibilityLabel: "工作空间，\(workspace.displayName)"
-                )
+        }
+    }
+
+    private var workspaceFooter: some View {
+        ViewThatFits(in: .horizontal) {
+            workspaceFooterLine(path: workspaceWorkdir ?? "—")
+                .fixedSize(horizontal: true, vertical: false)
+            workspaceFooterLine(path: abbreviatedWorkspacePath)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "工作空间，\(workspaceName ?? route.summary.workspaceId ?? "未指定")，"
+                + "目录，\(workspaceWorkdir ?? "未指定")"
+                + (gitBranch.isEmpty ? "" : "，Git 分支，\(gitBranch)")
+        )
+        .accessibilityIdentifier("workspace-footer")
+    }
+
+    private func workspaceFooterLine(path: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "square.stack.3d.up")
+                .foregroundStyle(QuartetTheme.accent)
+            Text("Workspace(\(workspaceName ?? route.summary.workspaceId ?? "—")) :")
+                .font(.quartet(.compact, weight: .semibold))
+                .foregroundStyle(QuartetTheme.primaryText)
+                .lineLimit(1)
+            Text(path)
+                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+            if !gitBranch.isEmpty {
+                Label(gitBranch, systemImage: "point.3.connected.trianglepath.dotted")
+                    .font(.quartet(.compact, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.accent)
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .frame(height: 22)
+                    .background(QuartetTheme.accent.opacity(0.1), in: Capsule())
             }
         }
     }
@@ -501,7 +606,12 @@ struct JobChatView: View {
     }
 
     private var modelDisplayLabel: String {
-        AgentConfigurationDisplay.modelName(
+        if let modelID = chat.modelIDForDisplay,
+           let name = configuredModels?.availableModels.first(where: { $0.modelId == modelID })?.name,
+           !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return name
+        }
+        return AgentConfigurationDisplay.modelName(
             chat.modelIDForDisplay,
             agentReference: chat.agentReferenceForDisplay,
             agents: appModel.agentCatalogSnapshot
@@ -525,7 +635,7 @@ struct JobChatView: View {
 
     private var thoughtLevelDisplayLabel: String? {
         if let thoughtLevelID = chat.thoughtLevelIDForDisplay,
-           let name = linkedThoughtLevelsForDisplay?.availableThoughtLevels
+           let name = configuredThoughtLevels?.availableThoughtLevels
             .first(where: { $0.id == thoughtLevelID })?.name,
            !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return name
@@ -537,10 +647,141 @@ struct JobChatView: View {
         )
     }
 
-    private var thoughtLevelDisplayConfigurationKey: String {
-        [chat.agentReferenceForDisplay, chat.modelIDForDisplay, chat.thoughtLevelIDForDisplay]
-            .compactMap { $0 }
-            .joined(separator: "::")
+    private var selectedAgent: AgentSummary? {
+        guard let reference = chat.agentReferenceForDisplay else { return nil }
+        return appModel.agentCatalogSnapshot.first { agent in
+            agent.agentId == reference || agent.type == reference
+        }
+    }
+
+    private var availableModels: [AgentModel] {
+        configuredModels?.availableModels ?? selectedAgent?.models?.availableModels ?? []
+    }
+
+    private var availableThoughtLevels: [AgentOption] {
+        configuredThoughtLevels?.availableThoughtLevels
+            ?? selectedAgent?.thoughtLevels?.availableThoughtLevels
+            ?? []
+    }
+
+    private var workspaceName: String? {
+        appModel.workspaces.first(where: { $0.id == route.summary.workspaceId })?.displayName
+    }
+
+    private var workspaceWorkdir: String? {
+        let value = route.summary.workdir
+            ?? appModel.workspaces.first(where: { $0.id == route.summary.workspaceId })?.workdir
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private var abbreviatedWorkspacePath: String {
+        guard let path = workspaceWorkdir else { return "—" }
+        let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        guard components.count > 2, let first = components.first, let last = components.last else {
+            return path
+        }
+        let leadingSlash = path.hasPrefix("/") ? "/" : ""
+        return "\(leadingSlash)\(first)/.../\(last)"
+    }
+
+    private var workspaceContextKey: String {
+        [
+            route.summary.workspaceId,
+            workspaceWorkdir,
+            appModel.can("file.read") ? "file.read" : "no-file.read"
+        ]
+        .compactMap { $0 }
+        .joined(separator: "::")
+    }
+
+    private func selectModel(_ modelID: String) async {
+        guard modelID != chat.modelIDForDisplay else { return }
+        await applyACPConfiguration(target: .model, modelID: modelID, thoughtLevelID: nil)
+    }
+
+    private func selectThoughtLevel(_ thoughtLevelID: String) async {
+        guard thoughtLevelID != chat.thoughtLevelIDForDisplay else { return }
+        await applyACPConfiguration(
+            target: .thoughtLevel,
+            modelID: chat.modelIDForDisplay,
+            thoughtLevelID: thoughtLevelID
+        )
+    }
+
+    private func applyACPConfiguration(
+        target: ACPConfigTarget,
+        modelID: String?,
+        thoughtLevelID: String?
+    ) async {
+        guard !changingACPConfiguration else { return }
+        let sessionID = chat.configurationSessionID
+        guard sessionID != nil || selectedAgent != nil else {
+            appModel.present(APIError(
+                summary: "无法切换 Agent 配置",
+                detail: "当前会话没有可用的 sessionId，也无法从 Agent 列表解析 \(chat.agentReferenceForDisplay ?? "<empty>")。"
+            ))
+            return
+        }
+
+        changingACPConfiguration = true
+        defer { changingACPConfiguration = false }
+        do {
+            let response = try await appModel.setACPConfig(SetACPConfigRequest(
+                target: target,
+                sessionId: sessionID,
+                agentType: sessionID == nil ? selectedAgent?.type : nil,
+                model: modelID,
+                mode: target == .model ? nil : chat.modeIDForDisplay,
+                thoughtLevel: target == .model ? nil : thoughtLevelID
+            ))
+            if let models = response.models { configuredModels = models }
+            if target == .model {
+                configuredThoughtLevels = response.thoughtLevels ?? AgentThoughtLevelState(
+                    availableThoughtLevels: [],
+                    currentThoughtLevelId: ""
+                )
+            } else if let thoughtLevels = response.thoughtLevels {
+                configuredThoughtLevels = thoughtLevels
+            }
+            chat.applyACPConfiguration(
+                response,
+                target: target,
+                selectedModelID: modelID,
+                selectedThoughtLevelID: thoughtLevelID
+            )
+        } catch is CancellationError {
+            return
+        } catch {
+            appModel.present(error)
+        }
+    }
+
+    private func loadGitBranch() async {
+        gitBranch = ""
+        guard let workspaceWorkdir else { return }
+        guard appModel.can("file.read") else { return }
+        if appModel.isRunningUITests {
+            gitBranch = "main"
+            return
+        }
+        do {
+            let response = try await appModel.apiClient().gitBranch(path: workspaceWorkdir)
+            guard response.code == 0 else {
+                throw APIError(
+                    summary: "无法读取 Git 分支",
+                    detail: "GET /api/v1/git-branch?path=\(workspaceWorkdir) 返回 code=\(response.code)。"
+                )
+            }
+            guard !Task.isCancelled else { return }
+            gitBranch = response.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch is CancellationError {
+            return
+        } catch {
+            appModel.present(error)
+        }
     }
 
     private func enqueueDraft() {
@@ -595,29 +836,6 @@ struct JobChatView: View {
             messagePresetLoadErrors = ["\(error.summary)\n\n\(error.detail)"]
         } catch {
             messagePresetLoadErrors = [String(reflecting: error)]
-        }
-    }
-
-    private func refreshThoughtLevelDisplayOptions() async {
-        guard let agentReference = chat.agentReferenceForDisplay,
-              let modelID = chat.modelIDForDisplay,
-              chat.thoughtLevelIDForDisplay != nil else {
-            linkedThoughtLevelsForDisplay = nil
-            return
-        }
-        let agentType = appModel.agentCatalogSnapshot.first { agent in
-            agent.agentId == agentReference || agent.type == agentReference
-        }?.type ?? agentReference
-        linkedThoughtLevelsForDisplay = nil
-        do {
-            linkedThoughtLevelsForDisplay = try await appModel.relinkACPThoughtLevels(
-                agentType: agentType,
-                modelID: modelID
-            )
-        } catch is CancellationError {
-            return
-        } catch {
-            appModel.present(error)
         }
     }
 
@@ -2447,6 +2665,17 @@ private final class ChatViewModel: ObservableObject {
     private var graphRunLive = false
 
     var isRunning: Bool { isTurnRunning }
+    var expectsExecution: Bool {
+        if isTurnRunning { return true }
+        return outbox.contains { item in
+            switch item.state {
+            case .queued, .uploading, .sending, .awaitingEcho:
+                return true
+            case .failed:
+                return false
+            }
+        }
+    }
     var hasQueuedMessages: Bool {
         outbox.contains { if case .queued = $0.state { return true } else { return false } }
     }
@@ -2472,6 +2701,7 @@ private final class ChatViewModel: ObservableObject {
     }
     var agentDisplayIconUrl: String? { displayValue(agentIconUrl) }
     var agentRuntimeType: String? { displayValue(agentType) }
+    var configurationSessionID: String? { displayValue(preferredSessionID) ?? displayValue(sessionID) }
     var modelIDForDisplay: String? { displayValue(modelID) }
     var agentReferenceForDisplay: String? { displayValue(agentType) }
     var modeIDForDisplay: String? { displayValue(modeID) }
@@ -2491,6 +2721,27 @@ private final class ChatViewModel: ObservableObject {
             currentDuration = 0
         }
         return Self.formatDuration(accumulatedDurationMs + currentDuration)
+    }
+
+    func applyACPConfiguration(
+        _ response: SetACPConfigResponse,
+        target: ACPConfigTarget,
+        selectedModelID: String?,
+        selectedThoughtLevelID: String?
+    ) {
+        if let models = response.models {
+            modelID = displayValue(models.currentModelId) ?? modelID
+        } else if target == .model {
+            modelID = displayValue(selectedModelID) ?? modelID
+        }
+
+        if let thoughtLevels = response.thoughtLevels {
+            thoughtLevelID = displayValue(thoughtLevels.currentThoughtLevelId)
+        } else if target == .model {
+            thoughtLevelID = nil
+        } else if target == .thoughtLevel {
+            thoughtLevelID = displayValue(selectedThoughtLevelID) ?? thoughtLevelID
+        }
     }
 
     func start(route: ChatRoute, client: APIClient) async {

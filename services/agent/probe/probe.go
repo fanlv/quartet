@@ -963,7 +963,10 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command, preferredModelID 
 		currentModelID(models), countModels(models),
 		currentModeID(modes), countModes(modes),
 		currentThoughtLevelID(thoughtLevels), countThoughtLevels(thoughtLevels))
-	logger.Infof(ctx, "[probe] %s ACP session info: %v", command, json.String(sessResp))
+	// The full ACP response can include every model and config option. Keep it
+	// available for diagnostics without flooding normal logs with a successful
+	// response that resembles a user-facing error payload.
+	logger.Debugf(ctx, "[probe] %s ACP session info: %v", command, json.String(sessResp))
 
 	return &acpSessionInfoCache{
 		models:               models,

@@ -4,10 +4,15 @@ import UIKit
 struct JobsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    @Binding private var showsMainTabBar: Bool
     @State private var path: [ChatRoute] = []
     @State private var presentsNewConversation = false
     @State private var actionJob: JobSummary?
     @State private var presentsConnectionStatus = false
+
+    init(showsMainTabBar: Binding<Bool>) {
+        _showsMainTabBar = showsMainTabBar
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -17,8 +22,10 @@ struct JobsView: View {
                     sectionHeader
                     jobList
                 }
+                .padding(.bottom, 104)
             }
-            .background(QuartetTheme.canvas)
+            .ignoresSafeArea(.container, edges: .bottom)
+            .background(QuartetTheme.canvas.ignoresSafeArea(edges: .bottom))
             .navigationTitle("运行台")
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await model.refreshDashboard() }
@@ -57,6 +64,7 @@ struct JobsView: View {
                     .accessibilityLabel(connectionStatusAccessibilityLabel)
                     .accessibilityIdentifier("connection-status-button")
                 }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { presentsNewConversation = true } label: {
                         Image(systemName: "plus")
@@ -64,6 +72,7 @@ struct JobsView: View {
                     .accessibilityLabel("新建任务")
                     .accessibilityIdentifier("new-conversation-button")
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
             .sheet(isPresented: $presentsNewConversation) {
                 NewConversationView { route in
@@ -102,7 +111,10 @@ struct JobsView: View {
                 .quartetSheetStyle()
             }
         }
-        .toolbar(path.isEmpty ? .visible : .hidden, for: .tabBar)
+        .onAppear { showsMainTabBar = path.isEmpty }
+        .onChange(of: path.isEmpty) { _, isAtRoot in
+            showsMainTabBar = isAtRoot
+        }
     }
 
     @ViewBuilder
@@ -146,7 +158,7 @@ struct JobsView: View {
 
     private var workspaceSelector: some View {
         Menu {
-            workspaceMenuButton(id: nil, title: "全部工作空间", color: QuartetTheme.accent)
+            workspaceMenuButton(id: nil, title: "ALL", color: QuartetTheme.accent)
             if !model.workspaces.isEmpty {
                 Divider()
             }
@@ -229,7 +241,6 @@ struct JobsView: View {
                                 .font(.quartet(.control, weight: .semibold))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                                 .frame(width: 44, height: 44)
-                                .background(QuartetTheme.elevated.opacity(0.72), in: Circle())
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -321,7 +332,7 @@ struct JobsView: View {
     }
 
     private var selectedWorkspaceTitle: String {
-        model.selectedWorkspace?.displayName ?? "全部工作空间"
+        model.selectedWorkspace?.displayName ?? "ALL"
     }
 
     private func workspace(for job: JobSummary) -> WorkspaceSummary? {
@@ -422,56 +433,47 @@ private struct JobActionsSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            header
-
-            Group {
-                switch content {
-                case .actions:
-                    actions
-                case .rename:
-                    renameForm
-                case .deleteConfirmation:
-                    deleteConfirmation
+        NavigationStack {
+            VStack(spacing: 20) {
+                Group {
+                    switch content {
+                    case .actions:
+                        actions
+                    case .rename:
+                        renameForm
+                    case .deleteConfirmation:
+                        deleteConfirmation
+                    }
                 }
-            }
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .background(QuartetTheme.canvas)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("完成") {}
+                        .hidden()
+                        .accessibilityHidden(true)
+                }
+                ToolbarItem(placement: .principal) {
+                    Text(job.displayTitle)
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
         .animation(.snappy(duration: 0.28), value: content)
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            JobModeIcon(mode: job.mode, color: modeColor)
-                .frame(width: 42, height: 42)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(headerTitle)
-                    .font(.quartet(.detail, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-
-                Text(job.displayTitle)
-                    .font(.quartet(.regular, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.primaryText)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 8)
-
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.quartet(.detail, weight: .bold))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .frame(width: 36, height: 36)
-                    .background(QuartetTheme.elevated, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("关闭")
-        }
     }
 
     private var actions: some View {
@@ -693,22 +695,6 @@ private struct JobActionsSheet: View {
     private var isPinned: Bool {
         (job.pinnedAt ?? 0) > 0
     }
-
-    private var headerTitle: String {
-        switch content {
-        case .actions: "任务操作"
-        case .rename: "重命名任务"
-        case .deleteConfirmation: "删除任务"
-        }
-    }
-
-    private var modeColor: Color {
-        switch job.mode {
-        case "graph": QuartetTheme.terminalGreen
-        case "loop": QuartetTheme.running
-        default: QuartetTheme.accent
-        }
-    }
 }
 
 private struct JobRow: View {
@@ -815,7 +801,7 @@ private struct JobRow: View {
     }
 
     private var workspaceColor: Color {
-        workspace.map { QuartetTheme.workspaceTint($0.id) } ?? modeColor
+        workspace.map(QuartetTheme.workspaceTint) ?? modeColor
     }
 
     private var modeColor: Color {
@@ -931,39 +917,85 @@ private struct JobStatusIcon: View {
             if isLive {
                 ProgressView()
                     .controlSize(.small)
-                    .tint(statusColor)
+                    .tint(Self.runningStroke)
             } else {
                 ZStack {
                     Circle()
-                        .fill(statusColor.opacity(0.12))
+                        .fill(iconPalette.fill)
                     Circle()
-                        .stroke(statusColor.opacity(0.7), lineWidth: 1.2)
-                    Image(systemName: statusSymbol)
-                        .font(.quartet(.compact, weight: .bold))
-                        .foregroundStyle(statusColor)
+                        .stroke(iconPalette.border, lineWidth: 1.25)
+                    if let statusSymbol {
+                        Image(systemName: statusSymbol)
+                            .font(.quartet(.compact, weight: .bold))
+                            .foregroundStyle(iconPalette.foreground)
+                    }
                 }
             }
         }
     }
 
     private var isLive: Bool {
-        status == "pending" || status == "running" || status == "stepStopping"
+        normalizedStatus == "running" || normalizedStatus == "stepstopping"
     }
 
-    private var statusColor: Color {
-        QuartetTheme.statusColor(status)
-    }
-
-    private var statusSymbol: String {
-        switch status {
+    private var statusSymbol: String? {
+        switch normalizedStatus {
         case "completed": "checkmark"
         case "failed": "xmark"
-        case "timedOut": "clock"
-        case "pending": "clock.fill"
-        case "awaitingInput": "pause.fill"
-        case "stepStopped", "stopped": "stop.fill"
-        default: "circle.fill"
+        case "timedout": "clock"
+        case "pending": "clock"
+        case "awaitinginput": "pause.fill"
+        case "stepstopped", "stopped": "stop.fill"
+        default: nil
         }
+    }
+
+    private var iconPalette: IconPalette {
+        switch normalizedStatus {
+        case "completed":
+            IconPalette(fill: Self.completedFill, border: Self.completedBorder, foreground: Self.completedForeground)
+        case "failed", "timedout":
+            IconPalette(fill: Self.failedFill, border: Self.failedBorder, foreground: Self.failedForeground)
+        case "pending", "awaitinginput":
+            IconPalette(fill: Self.pendingFill, border: Self.pendingBorder, foreground: Self.pendingForeground)
+        case "stepstopped", "stopped":
+            IconPalette(fill: Self.stoppedFill, border: Self.stoppedBorder, foreground: Self.stoppedForeground)
+        default:
+            IconPalette(fill: Self.defaultFill, border: Self.defaultBorder, foreground: Self.defaultBorder)
+        }
+    }
+
+    private var normalizedStatus: String { status.lowercased() }
+
+    private struct IconPalette {
+        let fill: Color
+        let border: Color
+        let foreground: Color
+    }
+
+    // Keep the dashboard status language in sync with the Web home page.
+    private static let runningStroke = color(0x2563EB)
+    private static let completedFill = color(0xDCFCE7)
+    private static let completedBorder = color(0x22C55E)
+    private static let completedForeground = color(0x16A34A)
+    private static let failedFill = color(0xFEE2E2)
+    private static let failedBorder = color(0xEF4444)
+    private static let failedForeground = color(0xDC2626)
+    private static let pendingFill = color(0xFEF9C3)
+    private static let pendingBorder = color(0xEAB308)
+    private static let pendingForeground = color(0xA16207)
+    private static let stoppedFill = color(0xF3F4F6)
+    private static let stoppedBorder = color(0x9CA3AF)
+    private static let stoppedForeground = color(0x9CA3AF)
+    private static let defaultFill = color(0xF1F5F9)
+    private static let defaultBorder = color(0xCBD5E1)
+
+    private static func color(_ rgb: UInt32) -> Color {
+        Color(
+            red: Double((rgb >> 16) & 0xff) / 255,
+            green: Double((rgb >> 8) & 0xff) / 255,
+            blue: Double(rgb & 0xff) / 255
+        )
     }
 }
 
@@ -1132,6 +1164,7 @@ private struct DashboardConnectionView: View {
                     Button("完成") { dismiss() }
                         .accessibilityIdentifier("connection-status-close")
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .presentationDetents([.medium, .large])

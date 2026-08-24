@@ -85,6 +85,53 @@ func TestStreamConnectionStateRemainsInternalToChat(t *testing.T) {
 	}
 }
 
+func TestOpeningChatDoesNotMutateACPConfigurationForDisplayMetadata(t *testing.T) {
+	source := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
+	for _, forbidden := range []string{
+		"thoughtLevelDisplayConfigurationKey",
+		"refreshThoughtLevelDisplayOptions",
+		"relinkACPThoughtLevels(",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("opening an existing chat must not probe or mutate ACP config just to render metadata: found %q", forbidden)
+		}
+	}
+	if !strings.Contains(source, "AgentConfigurationDisplay.thoughtLevelName(") {
+		t.Fatal("chat metadata must resolve the thought-level label from the cached Agent catalog")
+	}
+}
+
+func TestExistingChatCanSwitchModelAndThoughtLevelAndShowsWorkspaceContext(t *testing.T) {
+	chat := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
+	client := chatSource(t, "Quartet/Core/Networking/APIClient.swift")
+	models := chatSource(t, "Quartet/Core/Models/APIModels.swift")
+
+	for _, contract := range []string{
+		`Menu {`,
+		`accessibilityIdentifier("chat-model-selector")`,
+		`accessibilityIdentifier("chat-thought-level-selector")`,
+		`appModel.setACPConfig(SetACPConfigRequest(`,
+		`sessionId: sessionID`,
+		`Workspace(`,
+		`workspaceWorkdir`,
+		`accessibilityIdentifier("workspace-footer")`,
+		`gitBranch = response.branch`,
+	} {
+		if !strings.Contains(chat, contract) {
+			t.Fatalf("existing-chat composer contract missing %q", contract)
+		}
+	}
+	if !strings.Contains(client, `path: "api/v1/git-branch"`) {
+		t.Fatal("iOS client must expose the workspace git-branch endpoint")
+	}
+	if !strings.Contains(models, "struct GitBranchResponse") {
+		t.Fatal("iOS models must decode the workspace git-branch response")
+	}
+	if strings.Contains(chat, `Label("历史会话", systemImage: "clock.arrow.circlepath")`) {
+		t.Fatal("the chat history action must render as an icon-only button")
+	}
+}
+
 func TestJobRouteAndIdempotentSendUsePersistedServerState(t *testing.T) {
 	handler := chatSource(t, "../cmd/web/handler/job.go")
 	models := chatSource(t, "Quartet/Core/Models/APIModels.swift")
