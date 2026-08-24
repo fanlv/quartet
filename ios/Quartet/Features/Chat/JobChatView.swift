@@ -22,6 +22,29 @@ private struct ChatConfigurationOption: Identifiable {
     let detail: String?
 }
 
+/// markdown 链接拦截器。
+///
+/// `OpenURLAction` 必须是一个**稳定**的值：原实现在每个 `ChatBubble` 的 body 里现场新建一个，
+/// 于是每次重绘都往 environment 写入一个新动作，把消息子树的跳过优化打掉。这里由
+/// `JobChatView` 用 `@State` 持有一个实例，动作只创建一次，注入点也上提到列表这一层。
+@MainActor
+private final class ChatLinkOpener {
+    /// 由视图注入，用于上报被拦截的链接。
+    var presentError: ((APIError) -> Void)?
+
+    private(set) lazy var action = OpenURLAction { [weak self] url in
+        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else {
+            self?.presentError?(APIError(
+                summary: "链接已拦截",
+                detail: "仅允许打开 http/https 链接。\n当前链接：\(url.absoluteString)"
+            ))
+            return .handled
+        }
+        UIApplication.shared.open(url)
+        return .handled
+    }
+}
+
 struct JobChatView: View {
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.scenePhase) private var scenePhase
@@ -51,6 +74,7 @@ struct JobChatView: View {
     @State private var changingACPConfiguration = false
     @State private var configurationPicker: ChatConfigurationPicker?
     @State private var gitBranch = ""
+    @State private var linkOpener = ChatLinkOpener()
     @FocusState private var composerFocused: Bool
 
     var body: some View {
@@ -240,6 +264,7 @@ struct JobChatView: View {
                             fallbackAgentName: chat.agentDisplayLabel,
                             fallbackAgentIconUrl: chat.agentDisplayIconUrl
                         )
+                            .equatable()
                             .id(message.id)
                     }
                     ForEach(chat.timelineOutboxItems) { item in
@@ -268,6 +293,11 @@ struct JobChatView: View {
                 .padding(.vertical, 18)
             }
             .scrollDismissesKeyboard(.interactively)
+            // 链接拦截统一在列表这一层注入，动作由 `linkOpener` 持有、全程同一个值。
+            .environment(\.openURL, linkOpener.action)
+            .onAppear {
+                linkOpener.presentError = { [appModel] error in appModel.present(error) }
+            }
             .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
             .onScrollPhaseChange { _, newPhase in
                 userIsScrollingMessages = newPhase.isScrolling && newPhase != .animating
@@ -283,8 +313,13 @@ struct JobChatView: View {
             }
             .onChange(of: chat.scrollAnchor) { _, _ in
                 guard !userScrolledAwayFromBottom else { return }
-                withAnimation(.easeOut(duration: 0.2)) {
+                // 流式输出时锚点会持续 bump，动画会一层层叠加成抖动；跟随滚动直接无动画。
+                if chat.isRunning {
                     proxy.scrollTo("chat-bottom", anchor: .bottom)
+                } else {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("chat-bottom", anchor: .bottom)
+                    }
                 }
             }
             .onChange(of: chat.isRunning) { wasRunning, isRunning in
@@ -586,15 +621,26 @@ struct JobChatView: View {
                 )
             }
             if chat.showsDuration {
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    ComposerMetadataChip(
-                        icon: "clock",
-                        text: chat.durationLabel(at: timeline.date),
-                        accessibilityLabel: "耗时，\(chat.durationLabel(at: timeline.date))"
-                    )
+                // 只在运行中挂 TimelineView：运行结束后 `runFinishedAt` 已定，标签与时间无关，
+                // 再让它每秒重算会连带整行胶囊（自定义 WrappingHStack Layout）每秒重排一次。
+                if chat.isRunning {
+                    TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                        durationChip(at: timeline.date)
+                    }
+                } else {
+                    durationChip(at: .now)
                 }
             }
         }
+    }
+
+    private func durationChip(at date: Date) -> some View {
+        let label = chat.durationLabel(at: date)
+        return ComposerMetadataChip(
+            icon: "clock",
+            text: label,
+            accessibilityLabel: "耗时，\(label)"
+        )
     }
 
     private var workspaceFooter: some View {

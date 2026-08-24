@@ -624,6 +624,32 @@
   font-weight: 500;
   color: #3b82f6;
   margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Collapsed the block is a single header bar, so its bottom margin would
+ * otherwise pad the card with dead space. */
+.thinking-block.collapsed .thinking-header {
+  margin-bottom: 0;
+}
+
+.thinking-header:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Pushes the chevron to the right edge, the way .tool-status-badge does in
+ * the tool-call header. */
+.thinking-expand-icon {
+  margin-left: auto;
+  color: #3b82f6;
+  opacity: 0.75;
+}
+
+.thinking-header:hover .thinking-expand-icon {
+  opacity: 1;
 }
 
 .thinking-icon {

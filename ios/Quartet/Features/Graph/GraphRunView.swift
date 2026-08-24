@@ -819,11 +819,11 @@ private struct GraphAuthenticatedImage: View {
         }
         .task(id: path) {
             do {
-                let data = try await appModel.apiClient().fileData(path: path)
-                guard let decoded = UIImage(data: data) else {
-                    throw APIError(summary: "图片数据无效", detail: "无法将 \(path) 解码为图片。")
-                }
-                image = decoded
+                let client = try appModel.apiClient()
+                // 与聊天页共用缓存：同一张图重复出现时只发一个请求，并按 280pt 展示上限降采样。
+                image = try await ChatImageLoader.shared.image(
+                    path: path, namespace: appModel.serverAddress, maxPixelSize: 280
+                ) { try await client.fileData(path: path) }
                 error = nil
             } catch let apiError as APIError {
                 error = apiError.detail

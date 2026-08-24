@@ -1,8 +1,16 @@
 import SwiftUI
 import UIKit
 
-struct ChatBubble: View {
-    @EnvironmentObject private var appModel: AppModel
+/// 每一行消息。
+///
+/// 这里刻意**不**持有 `@EnvironmentObject appModel`：`JobsView` 在有活跃 Job 时每 5 秒
+/// 轮询一次 dashboard，而本视图是它的 `navigationDestination` 子树 —— 一旦订阅 `AppModel`，
+/// 每次轮询都会重建全部气泡、把整条会话的 markdown 重新解析一遍。链接拦截所需的
+/// `openURL` 由 `JobChatView` 在列表层统一注入。
+///
+/// 显式 `Equatable` 配合 `ForEach` 里的 `.equatable()`：流式输出只改动最后一条消息，
+/// 其余行比较相等后直接跳过 body 求值。
+struct ChatBubble: View, Equatable {
     let message: ChatMessage
     let fallbackAgentName: String
     let fallbackAgentIconUrl: String?
@@ -26,9 +34,6 @@ struct ChatBubble: View {
                 centeredEvent
             }
         }
-        .environment(\.openURL, OpenURLAction { url in
-            openSafely(url)
-        })
     }
 
     private var centeredEvent: some View {
@@ -44,16 +49,6 @@ struct ChatBubble: View {
         .background(QuartetTheme.elevated.opacity(0.8), in: Capsule())
         .frame(maxWidth: .infinity)
     }
-
-    private func openSafely(_ url: URL) -> OpenURLAction.Result {
-        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else {
-            appModel.present(APIError(summary: "链接已拦截", detail: "仅允许打开 http/https 链接。\n当前链接：\(url.absoluteString)"))
-            return .handled
-        }
-        UIApplication.shared.open(url)
-        return .handled
-    }
-
 }
 
 struct UserMessageBubble: View {
@@ -144,12 +139,13 @@ struct AssistantMessageCard: View {
                     Divider().overlay(QuartetTheme.divider.opacity(0.7))
 
                     if message.isShellOutput {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            Text(message.content)
-                                .font(.quartet(.detail, design: .monospaced))
-                                .foregroundStyle(QuartetTheme.primaryText)
-                                .textSelection(.enabled)
-                        }
+                        // 与代码块一致：软换行，不再内嵌横向 ScrollView。
+                        Text(message.content)
+                            .font(.quartet(.detail, design: .monospaced))
+                            .foregroundStyle(QuartetTheme.primaryText)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         MarkdownMessageView(text: message.content, tone: .standard)
                     }
@@ -188,10 +184,20 @@ struct AgentIdentityIcon: View {
         .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         .accessibilityHidden(true)
         .task(id: iconUrl) {
-            image = nil
-            guard textIcon == nil, let iconUrl, !iconUrl.isEmpty else { return }
-            guard let data = try? await appModel.apiClient().fileData(path: iconUrl) else { return }
-            image = UIImage(data: data)
+            guard textIcon == nil, let iconUrl, !iconUrl.isEmpty else {
+                image = nil
+                return
+            }
+            guard let client = try? appModel.apiClient() else { return }
+            // 同一个 Agent 的头像会出现在每条 assistant 消息上，交给共享缓存去重：
+            // 命中直接同步返回，未命中时多条消息也只合并成一个请求。
+            image = try? await ChatImageLoader.shared.image(
+                path: iconUrl,
+                namespace: appModel.serverAddress,
+                maxPixelSize: 20
+            ) {
+                try await client.fileData(path: iconUrl)
+            }
         }
     }
 
@@ -217,35 +223,66 @@ struct ThoughtMessageCard: View {
     }
 }
 
+/// 深度思考面板。折叠策略跟 `ToolCallCard` 一致：流式输出时展开，方便边生成边读；
+/// 思考一结束（`isStreaming` 由 true 变 false）自动收起，只留下标题栏。历史回放进来
+/// 时 `isStreaming` 本来就是 false，所以直接以折叠态出现。
 struct ThoughtPanel: View {
     let text: String
     let isStreaming: Bool
     let timestamp: Int64?
+    @State private var isExpanded: Bool
+
+    init(text: String, isStreaming: Bool, timestamp: Int64?) {
+        self.text = text
+        self.isStreaming = isStreaming
+        self.timestamp = timestamp
+        _isExpanded = State(initialValue: isStreaming)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 8) {
-                Image(systemName: "brain.head.profile")
-                    .font(.quartet(.detail, weight: .semibold))
-                Text("深度思考")
-                    .font(.quartet(.detail, weight: .semibold))
-                if isStreaming { StreamingDot(color: QuartetTheme.accent) }
-                Spacer(minLength: 8)
-                if let timestamp, !isStreaming {
-                    Text(chatTimeLabel(timestamp))
-                        .font(.quartet(.compact))
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.quartet(.detail, weight: .semibold))
+                    Text("深度思考")
+                        .font(.quartet(.detail, weight: .semibold))
+                    if isStreaming { StreamingDot(color: QuartetTheme.accent) }
+                    Spacer(minLength: 8)
+                    if let timestamp, !isStreaming {
+                        Text(chatTimeLabel(timestamp))
+                            .font(.quartet(.compact))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                    }
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.quartet(.detail, weight: .semibold))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
+                .foregroundStyle(QuartetTheme.accent)
+                .contentShape(Rectangle())
             }
-            .foregroundStyle(QuartetTheme.accent)
+            .buttonStyle(.plain)
+            .accessibilityLabel("深度思考")
+            .accessibilityHint(isExpanded ? "轻点收起思考内容" : "轻点展开思考内容")
 
-            MarkdownMessageView(text: text, tone: .thought)
+            if isExpanded {
+                MarkdownMessageView(text: text, tone: .thought)
+                    .padding(.top, 9)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
         .background(QuartetTheme.accent.opacity(0.075), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(QuartetTheme.accent.opacity(0.24), lineWidth: 1))
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: isStreaming) { wasStreaming, streaming in
+            if wasStreaming, !streaming {
+                withAnimation(.easeOut(duration: 0.2)) { isExpanded = false }
+            }
+        }
     }
 }
 
@@ -334,24 +371,44 @@ struct ToolCallCard: View {
         return value.isEmpty || value == "undefined" ? "Tool" : value
     }
 
+    /// 精确匹配表与前缀表都是 `static let`：原实现每次渲染都会重建这 40 个元组并做两次线性扫描。
+    private static let toolIcons: [String: String] = [
+        "Agent": "🤖", "Read": "📖", "Edit": "✏️", "Write": "📝",
+        "Glob": "🗂️", "Grep": "🔍", "WebSearch": "🌐", "WebFetch": "⬇️",
+        "Bash": "💻", "Terminal": "💻", "Task": "📝", "TaskOutput": "📤",
+        "TaskStop": "🛑", "TaskCreate": "📝", "TaskGet": "🔎", "TaskUpdate": "🛠️",
+        "TaskList": "📋", "EnterPlanMode": "🗺️", "ExitPlanMode": "🚪",
+        "NotebookEdit": "📓", "AskUserQuestion": "❓", "Skill": "🧠", "LSP": "🧩",
+        "EnterWorktree": "🌿", "ExitWorktree": "🍂", "TeamCreate": "👥➕",
+        "TeamDelete": "👥❌", "SendMessage": "✉️", "CronCreate": "⏰",
+        "CronDelete": "⏰", "CronList": "⏰", "browser_click": "🖱️",
+        "browser_evaluate": "⚙️", "browser_get_html": "📄", "browser_get_page_info": "ℹ️",
+        "browser_get_title": "📑", "browser_get_url": "🔗", "browser_navigate": "🧭",
+        "browser_pdf": "📋", "browser_screenshot": "📸", "browser_scroll": "📜",
+        "browser_type": "⌨️", "browser_wait_visible": "👁️",
+    ]
+
+    /// 前缀回退保持原有的声明顺序语义（先来先匹配）。
+    private static let toolIconPrefixes: [(String, String)] = [
+        ("Agent", "🤖"), ("Read", "📖"), ("Edit", "✏️"), ("Write", "📝"),
+        ("Glob", "🗂️"), ("Grep", "🔍"), ("WebSearch", "🌐"), ("WebFetch", "⬇️"),
+        ("Bash", "💻"), ("Terminal", "💻"), ("Task", "📝"), ("TaskOutput", "📤"),
+        ("TaskStop", "🛑"), ("TaskCreate", "📝"), ("TaskGet", "🔎"), ("TaskUpdate", "🛠️"),
+        ("TaskList", "📋"), ("EnterPlanMode", "🗺️"), ("ExitPlanMode", "🚪"),
+        ("NotebookEdit", "📓"), ("AskUserQuestion", "❓"), ("Skill", "🧠"), ("LSP", "🧩"),
+        ("EnterWorktree", "🌿"), ("ExitWorktree", "🍂"), ("TeamCreate", "👥➕"),
+        ("TeamDelete", "👥❌"), ("SendMessage", "✉️"), ("CronCreate", "⏰"),
+        ("CronDelete", "⏰"), ("CronList", "⏰"), ("browser_click", "🖱️"),
+        ("browser_evaluate", "⚙️"), ("browser_get_html", "📄"), ("browser_get_page_info", "ℹ️"),
+        ("browser_get_title", "📑"), ("browser_get_url", "🔗"), ("browser_navigate", "🧭"),
+        ("browser_pdf", "📋"), ("browser_screenshot", "📸"), ("browser_scroll", "📜"),
+        ("browser_type", "⌨️"), ("browser_wait_visible", "👁️"),
+    ]
+
     private var toolIcon: String {
-        let mappings = [
-            ("Agent", "🤖"), ("Read", "📖"), ("Edit", "✏️"), ("Write", "📝"),
-            ("Glob", "🗂️"), ("Grep", "🔍"), ("WebSearch", "🌐"), ("WebFetch", "⬇️"),
-            ("Bash", "💻"), ("Terminal", "💻"), ("Task", "📝"), ("TaskOutput", "📤"),
-            ("TaskStop", "🛑"), ("TaskCreate", "📝"), ("TaskGet", "🔎"), ("TaskUpdate", "🛠️"),
-            ("TaskList", "📋"), ("EnterPlanMode", "🗺️"), ("ExitPlanMode", "🚪"),
-            ("NotebookEdit", "📓"), ("AskUserQuestion", "❓"), ("Skill", "🧠"), ("LSP", "🧩"),
-            ("EnterWorktree", "🌿"), ("ExitWorktree", "🍂"), ("TeamCreate", "👥➕"),
-            ("TeamDelete", "👥❌"), ("SendMessage", "✉️"), ("CronCreate", "⏰"),
-            ("CronDelete", "⏰"), ("CronList", "⏰"), ("browser_click", "🖱️"),
-            ("browser_evaluate", "⚙️"), ("browser_get_html", "📄"), ("browser_get_page_info", "ℹ️"),
-            ("browser_get_title", "📑"), ("browser_get_url", "🔗"), ("browser_navigate", "🧭"),
-            ("browser_pdf", "📋"), ("browser_screenshot", "📸"), ("browser_scroll", "📜"),
-            ("browser_type", "⌨️"), ("browser_wait_visible", "👁️")
-        ]
-        if let exact = mappings.first(where: { $0.0 == displayName }) { return exact.1 }
-        return mappings.first(where: { displayName.hasPrefix($0.0) })?.1 ?? "💻"
+        let name = displayName
+        if let exact = Self.toolIcons[name] { return exact }
+        return Self.toolIconPrefixes.first(where: { name.hasPrefix($0.0) })?.1 ?? "💻"
     }
 
     @ViewBuilder private var toolStatusBadge: some View {
@@ -415,14 +472,11 @@ struct ToolPayloadSection: View {
                 Spacer()
                 CopyIconButton(text: text)
             }
-            if prettyPrintedJSON(text) == nil {
-                MarkdownMessageView(text: text, tone: .tool)
-                    .padding(12)
-                    .background(QuartetTheme.canvas, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(QuartetTheme.divider.opacity(0.8)))
-            } else {
+            // 走缓存，且只算一次：原实现在 body 里调了两遍 prettyPrintedJSON，
+            // 也就是每次渲染都要完整解析 + 序列化 JSON 两次。
+            if let formatted = ChatTextCache.prettyPrintedJSON(from: text) {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    Text(prettyPrintedJSON(text) ?? text)
+                    Text(formatted)
                         .font(.quartet(.detail, design: .monospaced))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .textSelection(.enabled)
@@ -431,6 +485,11 @@ struct ToolPayloadSection: View {
                 .padding(12)
                 .background(QuartetTheme.canvas, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(QuartetTheme.divider.opacity(0.8)))
+            } else {
+                MarkdownMessageView(text: text, tone: .tool)
+                    .padding(12)
+                    .background(QuartetTheme.canvas, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(QuartetTheme.divider.opacity(0.8)))
             }
         }
     }
@@ -487,8 +546,21 @@ struct StreamingDot: View {
     }
 }
 
+/// 复用同一个 formatter：`Date.formatted(date:time:)` 每次调用都要走一遍格式解析，
+/// 而这个标签会出现在每条消息上。`DateFormatter` 非 Sendable，靠 `@MainActor` 隔离
+/// —— 三处调用点都在视图 body 里。
+@MainActor
+private let chatTimeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .autoupdatingCurrent
+    formatter.timeStyle = .short
+    formatter.dateStyle = .none
+    return formatter
+}()
+
+@MainActor
 func chatTimeLabel(_ timestamp: Int64) -> String {
-    timestamp.quartetDate.formatted(date: .omitted, time: .shortened)
+    chatTimeFormatter.string(from: timestamp.quartetDate)
 }
 
 func prettyPrintedJSON(_ text: String) -> String? {
@@ -660,11 +732,15 @@ struct AuthenticatedImage: View {
         }
         .task(id: path) {
             do {
-                let data = try await appModel.apiClient().fileData(path: path)
-                guard let decoded = UIImage(data: data) else {
-                    throw APIError(summary: "图片数据无效", detail: "无法将 \(path) 解码为图片。")
+                let client = try appModel.apiClient()
+                // 按 280pt 展示上限降采样，别把原图整张位图留在内存里。
+                image = try await ChatImageLoader.shared.image(
+                    path: path,
+                    namespace: appModel.serverAddress,
+                    maxPixelSize: 280
+                ) {
+                    try await client.fileData(path: path)
                 }
-                image = decoded
             } catch let apiError as APIError {
                 error = apiError.detail
             } catch {

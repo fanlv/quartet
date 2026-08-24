@@ -66,6 +66,11 @@
 		A2000000000000000000000F /* GraphRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphRunView.swift; sourceTree = "<group>"; };
 		A20000000000000000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000011 /* ChatAttachmentSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentSupport.swift; sourceTree = "<group>"; };
+		A20000000000000000000030 /* ChatMessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageViews.swift; sourceTree = "<group>"; };
+		A20000000000000000000031 /* MarkdownRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownRendering.swift; sourceTree = "<group>"; };
+		A20000000000000000000032 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000033 /* ChatComposerChips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatComposerChips.swift; sourceTree = "<group>"; };
+		A20000000000000000000034 /* ChatImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatImageLoader.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* DashboardCacheStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardCacheStore.swift; sourceTree = "<group>"; };
 		A20000000000000000000013 /* StatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* GraphWorkflowLaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphWorkflowLaunchView.swift; sourceTree = "<group>"; };
@@ -180,6 +185,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000006 /* APIClient.swift */,
+				A20000000000000000000034 /* ChatImageLoader.swift */,
 			);
 			path = Networking;
 			sourceTree = "<group>";
@@ -245,6 +251,10 @@
 			children = (
 				A2000000000000000000000D /* NewConversationView.swift */,
 				A2000000000000000000000E /* JobChatView.swift */,
+				A20000000000000000000030 /* ChatMessageViews.swift */,
+				A20000000000000000000031 /* MarkdownRendering.swift */,
+				A20000000000000000000032 /* ChatViewModel.swift */,
+				A20000000000000000000033 /* ChatComposerChips.swift */,
 				A20000000000000000000011 /* ChatAttachmentSupport.swift */,
 			);
 			path = Chat;
@@ -430,6 +440,11 @@
 				A1000000000000000000000B /* SettingsView.swift in Sources */,
 				A1000000000000000000000D /* NewConversationView.swift in Sources */,
 				A1000000000000000000000E /* JobChatView.swift in Sources */,
+				A10000000000000000000030 /* ChatMessageViews.swift in Sources */,
+				A10000000000000000000031 /* MarkdownRendering.swift in Sources */,
+				A10000000000000000000032 /* ChatViewModel.swift in Sources */,
+				A10000000000000000000033 /* ChatComposerChips.swift in Sources */,
+				A10000000000000000000034 /* ChatImageLoader.swift in Sources */,
 				A10000000000000000000010 /* ChatAttachmentSupport.swift in Sources */,
 				A1000000000000000000000F /* GraphRunView.swift in Sources */,
 				A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */,

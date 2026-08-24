@@ -401,8 +401,79 @@ function CopyMessageFooterButton({ content }: { content: string }) {
   );
 }
 
-function AssistantMessageContent({ message, agentIconUrl, agentDisplayName }: { message: AssistantMessage; agentIconUrl?: string; agentDisplayName?: string }) {
+/**
+ * Deep-thinking panel. Auto-collapses the same way a tool call does: the
+ * thought streams open so it can be read live, then folds itself down to
+ * its header the moment thinking ends (`isThinking` flips false — either
+ * because body text started or the run finished). History rows arrive with
+ * `isThinking` already false and therefore mount collapsed.
+ */
+function ThinkingBlock({ message }: { message: AssistantMessage }) {
   const { t } = useTranslation();
+  const isThinking = !!message.isThinking;
+  const [isExpanded, setIsExpanded] = useState(isThinking);
+  // "Derived state on prop change" rather than useEffect — same reasoning as
+  // ToolMessageContent below: it collapses within the render that observes
+  // the transition, without an extra commit or a key-based remount (a remount
+  // would reset DurationBadge's monotonic clamp and make the elapsed time jump).
+  const [prevIsThinking, setPrevIsThinking] = useState(isThinking);
+  const becameDone = prevIsThinking && !isThinking;
+  if (prevIsThinking !== isThinking) {
+    setPrevIsThinking(isThinking);
+    // Collapse when the thought ends; re-open when a message resumes thinking
+    // after body text, so a live thought is never hidden behind a header.
+    setIsExpanded(!becameDone);
+  }
+  // The final thinking delta and the flip to done can land in the same batch,
+  // so gate this render too instead of waiting for React to retry.
+  const expanded = isExpanded && !becameDone;
+
+  return (
+    <div
+      className={`thinking-block ${expanded ? 'expanded' : 'collapsed'}`}
+      data-testid="message-thinking-block"
+      data-expanded={expanded ? 'true' : 'false'}
+    >
+      <div
+        className="thinking-header"
+        onClick={() => setIsExpanded((value) => !value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setIsExpanded((value) => !value);
+          }
+        }}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        data-testid="message-thinking-header"
+      >
+        <span className="thinking-icon">💭</span>
+        <span>{t('chat.deepThinking')}</span>
+        {message.isThinking && <span className="thinking-indicator" />}
+        <DurationBadge
+          // Backward-compat: old history messages may miss `thinkingFinishedAt`.
+          // Only show a running badge while the message is actively thinking.
+          startedAt={message.isThinking || message.thinkingFinishedAt != null ? message.createdAt : undefined}
+          endedAt={message.thinkingFinishedAt}
+          variant="thinking"
+        />
+        <span className="expand-icon thinking-expand-icon">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points={expanded ? '18 15 12 9 6 15' : '6 9 12 15 18 9'} />
+          </svg>
+        </span>
+      </div>
+      {expanded && (
+        <div className="thinking-content markdown-content">
+          {renderMarkdown(message.thinkingContent ?? '')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssistantMessageContent({ message, agentIconUrl, agentDisplayName }: { message: AssistantMessage; agentIconUrl?: string; agentDisplayName?: string }) {
   // The icon may be a proxied /api/v1/icon URL, which is auth-gated. On a
   // shared page there is no agent token, so resolveIconSrc needs the share
   // info to rewrite the src onto the shareToken-validated public route.
@@ -473,25 +544,7 @@ function AssistantMessageContent({ message, agentIconUrl, agentDisplayName }: { 
       data-session-id={message.sessionId || ''}
     >
       <div className="assistant-content-wrapper">
-        {message.thinkingContent && (
-          <div className="thinking-block" data-testid="message-thinking-block">
-            <div className="thinking-header">
-              <span className="thinking-icon">💭</span>
-              <span>{t('chat.deepThinking')}</span>
-              {message.isThinking && <span className="thinking-indicator" />}
-              <DurationBadge
-                // Backward-compat: old history messages may miss `thinkingFinishedAt`.
-                // Only show a running badge while the message is actively thinking.
-                startedAt={message.isThinking || message.thinkingFinishedAt != null ? message.createdAt : undefined}
-                endedAt={message.thinkingFinishedAt}
-                variant="thinking"
-              />
-            </div>
-            <div className="thinking-content markdown-content">
-              {renderMarkdown(message.thinkingContent)}
-            </div>
-          </div>
-        )}
+        {message.thinkingContent && <ThinkingBlock message={message} />}
         {message.content?.trim() && (
           <div className="assistant-bubble" data-testid="assistant-message-bubble">
             <div className="assistant-bubble-header">

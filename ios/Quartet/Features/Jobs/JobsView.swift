@@ -8,6 +8,9 @@ struct JobsView: View {
     @Binding private var showsMainTabBar: Bool
     @State private var path: [ChatRoute] = []
     @State private var presentsNewConversation = false
+    /// Route the new-conversation sheet asked to open, parked until the sheet has actually gone away.
+    /// Dismissing and pushing in the same state update is the classic way to lose the push.
+    @State private var pendingRoute: ChatRoute?
     @State private var actionPresentation: JobActionPresentation?
     @State private var presentsConnectionStatus = false
 
@@ -81,11 +84,18 @@ struct JobsView: View {
                 }
                 .sharedBackgroundVisibility(.hidden)
             }
-            .sheet(isPresented: $presentsNewConversation) {
+            .sheet(isPresented: $presentsNewConversation, onDismiss: {
+                guard let route = pendingRoute else { return }
+                pendingRoute = nil
+                path.append(route)
+            }) {
                 NewConversationView { route in
-                    presentsNewConversation = false
+                    pendingRoute = route
+                    // Hidden here rather than in `onDismiss`: the bar is still covered by the sheet at
+                    // this point, whereas hiding it after dismissal completes flashes it for a frame
+                    // before the push begins.
                     setMainTabBarVisible(false)
-                    path.append(route)
+                    presentsNewConversation = false
                 }
                 .quartetSheetStyle()
             }
@@ -221,9 +231,12 @@ struct JobsView: View {
                     }
                 }
             }
+            // The enclosing LazyVStack is leading-aligned, so without this the empty state hugs the
+            // left edge instead of centering the way `ContentUnavailableView` is meant to.
+            .frame(maxWidth: .infinity)
             .padding(.top, 54)
         } else {
-            ForEach(Array(model.jobs.enumerated()), id: \.element.id) { index, job in
+            ForEach(model.jobs) { job in
                 VStack(spacing: 0) {
                     JobRow(
                         job: job,
@@ -250,7 +263,9 @@ struct JobsView: View {
                         presentActions(for: job, initialContent: .deleteConfirmation)
                     }
 
-                    if index < model.jobs.count - 1 {
+                    // Every row but the last gets a separator — and the last one does too when the
+                    // "load more" button follows it, which otherwise butts straight against the row.
+                    if job.id != model.jobs.last?.id || model.hasMoreJobs {
                         Divider()
                             .overlay(QuartetTheme.divider)
                             .padding(.leading, 60)
@@ -303,7 +318,10 @@ struct JobsView: View {
             if model.activeJobCount > 0 {
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(QuartetTheme.running)
+                        // Matches the row tiles this counts rather than `QuartetTheme.running`, which is
+                        // the theme green and would leave the dot a different colour from the very rows
+                        // it is summarising.
+                        .fill(JobStatusPalette.runningAccent)
                         .frame(width: 7, height: 7)
                     Text("\(model.activeJobCount) 个进行中")
                 }
@@ -419,7 +437,10 @@ struct JobsView: View {
 
     private var dashboardPollingConfiguration: DashboardPollingConfiguration {
         DashboardPollingConfiguration(
-            isActive: scenePhase == .active,
+            // Inactive while a chat or graph run is pushed: those screens hold an SSE connection and
+            // already call `reloadJobs()` when a round reaches a terminal state, so polling underneath
+            // them is duplicate traffic competing for the same handful of HTTP/1.1 sockets as the stream.
+            isActive: scenePhase == .active && path.isEmpty,
             hasActiveJobs: model.activeJobCount > 0,
             workspaceID: model.selectedWorkspaceID,
             hidesScheduledJobs: model.hideScheduledJobs
@@ -1093,11 +1114,20 @@ private struct JobRunningIndicator: View {
     }
 }
 
+/// Job status hues for the dashboard rows. These deliberately do NOT come from
+/// `QuartetTheme.statusColor`: the theme's `running` is the ambient app green, and a green tile reads as
+/// "nothing to see here" for the one status that most needs to stand out — worse, it would collide with
+/// `completed`, which is also green, and cost the list its at-a-glance running/finished distinction.
+/// `completed` and `pending` already match `QuartetTheme.success`/`warning` exactly; only `running` and
+/// the two neutrals diverge, and that divergence is the point.
 private struct JobStatusPalette {
     let fill: Color
     let border: Color
     let primary: Color
     let badgeForeground: Color
+
+    /// The "a run is in flight" hue, exposed so chrome outside the tiles can match them.
+    static var runningAccent: Color { running.primary }
 
     init(status: String) {
         switch status {

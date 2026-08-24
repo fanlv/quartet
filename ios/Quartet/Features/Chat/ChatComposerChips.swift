@@ -428,10 +428,25 @@ struct AgentUsageStrip: View {
         return formatDate(Int64(seconds), includesDate: window.limitWindowSeconds >= 86_400)
     }
 
-    private func formatDate(_ unixSeconds: Int64, includesDate: Bool) -> String {
+    /// 两个 formatter 复用，不再每次调用新建 —— 用量胶囊会随 composer 一起频繁重排。
+    @MainActor
+    private static let dateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = includesDate ? "MM-dd HH:mm" : "HH:mm"
+        formatter.dateFormat = "MM-dd HH:mm"
+        return formatter
+    }()
+
+    @MainActor
+    private static let timeOnlyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    private func formatDate(_ unixSeconds: Int64, includesDate: Bool) -> String {
+        let formatter = includesDate ? Self.dateTimeFormatter : Self.timeOnlyFormatter
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(unixSeconds)))
     }
 

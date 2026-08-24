@@ -127,6 +127,8 @@ final class ChatViewModel: ObservableObject {
     private var lastEventID: UInt64 = 0
     private var lastGraphEventID: UInt64 = 0
     private var streamTask: Task<Void, Never>?
+    private var pendingDeltas: [PendingDelta] = []
+    private var deltaFlushTask: Task<Void, Never>?
     private var graphReconcileTask: Task<Void, Never>?
     private var graphMonitorTask: Task<Void, Never>?
     private var didSeedInitialDraft = false
@@ -154,10 +156,13 @@ final class ChatViewModel: ObservableObject {
         outbox.contains { if case .queued = $0.state { return true } else { return false } }
     }
     var timelineOutboxItems: [LocalOutboxItem] {
+        // 常态下 outbox 是空的，先短路掉全量 ID Set 的构造 —— 这两个属性都在 body 里读。
+        guard !outbox.isEmpty else { return [] }
         let optimisticMessageIDs = Set(messages.map(\.id))
         return outbox.filter { $0.isVisibleInTimeline && !optimisticMessageIDs.contains($0.id) }
     }
     var composerOutboxItems: [LocalOutboxItem] {
+        guard !outbox.isEmpty else { return [] }
         let optimisticMessageIDs = Set(messages.map(\.id))
         return outbox.filter { item in
             switch item.state {
@@ -471,6 +476,10 @@ final class ChatViewModel: ObservableObject {
     }
 
     func stopStreaming() {
+        // 先把缓冲落地再停：否则最后 40ms 内到达的文本会随 flush task 一起被丢掉。
+        flushPendingDeltas()
+        deltaFlushTask?.cancel()
+        deltaFlushTask = nil
         streamTask?.cancel()
         streamTask = nil
         graphReconcileTask?.cancel()
@@ -527,6 +536,8 @@ final class ChatViewModel: ObservableObject {
         let agentInfo = await resolveAgentDisplayInfo(for: response)
         applySessionMetadata(response, agentInfo: agentInfo)
         let historyMessages = convertHistoryMessages(response.messages, agentInfo: agentInfo)
+        // 上面有 await，缓冲里可能又攒了新 delta；紧贴写入点 flush，别让它们在替换之后才落地。
+        flushPendingDeltas()
         if isGraph && graphRunLive && preservesLiveMessages {
             mergeGraphHistory(historyMessages)
         } else {
@@ -553,6 +564,7 @@ final class ChatViewModel: ObservableObject {
                 applySessionMetadata(response, agentInfo: agentInfo)
             }
         }
+        flushPendingDeltas()
         messages = combined
         removeEchoedOutboxItems()
         bumpScrollAnchor()
@@ -963,7 +975,8 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func upsertOptimisticUserMessage(for item: LocalOutboxItem) {
-        if let index = messages.firstIndex(where: { $0.id == item.id }) {
+        flushPendingDeltas()
+        if let index = messages.lastIndex(where: { $0.id == item.id }) {
             messages[index].content = item.draft.text
             messages[index].imagePaths = item.remoteImagePaths
             messages[index].fileAttachments = item.remoteFileAttachments
@@ -993,7 +1006,7 @@ final class ChatViewModel: ObservableObject {
         if let index = outbox.firstIndex(where: { $0.id == itemID }) {
             outbox[index].state = .failed(detail: detail, requiresNewMessageID: requiresNewMessageID)
             publishRestore(outbox[index].draft)
-            if let messageIndex = messages.firstIndex(where: { $0.id == itemID }) {
+            if let messageIndex = messages.lastIndex(where: { $0.id == itemID }) {
                 messages[messageIndex].isFailed = true
             }
         } else if let fallback {
@@ -1061,6 +1074,10 @@ final class ChatViewModel: ObservableObject {
         let eventSessionID = payload["sessionId"]
         let belongsToVisibleSession = eventSessionID == nil || sessionID == nil || eventSessionID == sessionID
 
+        // 收敛点：除纯 delta 之外的任何事件都可能读 `messages`，统一在分发前把缓冲落地，
+        // 免得每个分支各自记得 flush。
+        if !Self.deltaEventTypes.contains(event.type) { flushPendingDeltas() }
+
         switch event.type {
         case "agentMessageStart":
             guard belongsToVisibleSession, let messageID = payload["messageId"], !messageID.isEmpty else { return }
@@ -1104,7 +1121,7 @@ final class ChatViewModel: ObservableObject {
             appendToolArguments(id: toolID, text: payload["delta"] ?? "", replace: payload["replace"] == "true")
         case "agentToolResult":
             guard belongsToVisibleSession, let toolID = payload["toolCallId"], !toolID.isEmpty else { return }
-            if payload["stitched"] == "true", let index = messages.firstIndex(where: { $0.id == toolID }) {
+            if payload["stitched"] == "true", let index = messages.lastIndex(where: { $0.id == toolID }) {
                 messages[index].content = payload["delta"] ?? event.message ?? messages[index].content
                 messages[index].isFinished = true
                 messages[index].isFailed = payload["status"] == "Error"
@@ -1116,14 +1133,16 @@ final class ChatViewModel: ObservableObject {
                     id: toolID, kind: .tool,
                     text: payload["delta"] ?? event.message ?? "", timestamp: event.createdAt
                 )
-                if let index = messages.firstIndex(where: { $0.id == toolID }) {
+                // 紧接着要按 id 读回这条消息，所以这里必须让上面的追加立即落地。
+                flushPendingDeltas()
+                if let index = messages.lastIndex(where: { $0.id == toolID }) {
                     messages[index].isFailed = payload["status"] == "Error"
                     messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: payload["status"])
                 }
             }
         case "agentToolEnd":
             guard belongsToVisibleSession else { return }
-            if let toolID = payload["toolCallId"], let index = messages.firstIndex(where: { $0.id == toolID }) {
+            if let toolID = payload["toolCallId"], let index = messages.lastIndex(where: { $0.id == toolID }) {
                 messages[index].isFailed = payload["status"] == "Error"
                 messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: payload["status"])
                 if let reason = payload["placeholderReason"], !reason.isEmpty {
@@ -1241,6 +1260,8 @@ final class ChatViewModel: ObservableObject {
         if let sessionId = event.sessionId, !sessionId.isEmpty {
             sessionID = sessionId
         }
+        // 同上：非 delta 事件统一先把缓冲落地。
+        if !Self.deltaEventTypes.contains(event.type) { flushPendingDeltas() }
         switch event.type {
         case "JOB_STARTED":
             status = "running"
@@ -1332,18 +1353,20 @@ final class ChatViewModel: ObservableObject {
         case "TOOL_CALL_RESULT":
             guard let toolID = event.toolCallId else { return }
             append(id: toolID, kind: .tool, text: event.delta ?? "", timestamp: event.timestamp)
-            if let index = messages.firstIndex(where: { $0.id == toolID }) {
+            // 紧接着要按 id 读回这条消息，所以这里必须让上面的追加立即落地。
+            flushPendingDeltas()
+            if let index = messages.lastIndex(where: { $0.id == toolID }) {
                 messages[index].isFailed = event.toolCallStatus == "Error"
                 messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: event.toolCallStatus)
             }
         case "TOOL_CALL_END":
-            if let toolID = event.toolCallId, let index = messages.firstIndex(where: { $0.id == toolID }) {
+            if let toolID = event.toolCallId, let index = messages.lastIndex(where: { $0.id == toolID }) {
                 messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: event.toolCallStatus ?? (messages[index].isFailed ? "Error" : "Success"))
             }
             finish(id: event.toolCallId, timestamp: event.timestamp)
         case "TOOL_CALL_STITCHED":
             guard let toolID = event.toolCallId else { return }
-            if let index = messages.firstIndex(where: { $0.id == toolID }) {
+            if let index = messages.lastIndex(where: { $0.id == toolID }) {
                 messages[index].content = event.delta ?? messages[index].content
                 messages[index].isFinished = true
                 messages[index].isFailed = event.toolCallStatus == "Error"
@@ -1399,7 +1422,8 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func upsert(id: String, kind: ChatMessage.Kind, content: String, detail: String?, finished: Bool, failed: Bool, timestamp: Int64?) {
-        if let index = messages.firstIndex(where: { $0.id == id }) {
+        flushPendingDeltas()
+        if let index = messages.lastIndex(where: { $0.id == id }) {
             guard !messages[index].isFinished else { return }
             messages[index].kind = kind
             messages[index].detail = detail ?? messages[index].detail
@@ -1418,7 +1442,11 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func append(id: String, kind: ChatMessage.Kind, text: String, timestamp: Int64?) {
-        if let index = messages.firstIndex(where: { $0.id == id }) {
+        enqueueDelta(.text(id: id, kind: kind, text: text, timestamp: timestamp))
+    }
+
+    private func applyAppend(id: String, kind: ChatMessage.Kind, text: String, timestamp: Int64?) {
+        if let index = messages.lastIndex(where: { $0.id == id }) {
             guard !messages[index].isFinished else { return }
             messages[index].content += text
         } else {
@@ -1432,24 +1460,99 @@ final class ChatViewModel: ObservableObject {
                 timestamp: timestamp
             ))
         }
+    }
+
+    // MARK: - SSE delta 合流
+
+    /// 每个 delta 原本都直接改 `@Published messages` 并 bump 一次滚动锚点，于是几十个
+    /// delta/秒 就是几十次全列表发布加几十个互相叠加的滚动动画。这里把纯文本追加按到达
+    /// 顺序攒进缓冲，由一个 40ms 的 flush 一次性应用并只 bump 一次 —— 把 UI 更新频率钉在
+    /// ≤25Hz，与 delta 到达速率解耦。
+    ///
+    /// 所有依赖 `messages` 一致状态的操作都必须先调 `flushPendingDeltas()`。
+    private enum PendingDelta {
+        case text(id: String, kind: ChatMessage.Kind, text: String, timestamp: Int64?)
+        case toolArguments(id: String, text: String, replace: Bool)
+    }
+
+    /// 可以进缓冲的纯 delta 事件；其余事件一律先 flush 再处理。
+    static let deltaEventTypes: Set<String> = [
+        "agentMessageDelta", "agentThoughtDelta", "agentToolArgs",
+        "TEXT_MESSAGE_CONTENT", "TOOL_CALL_ARGS",
+    ]
+
+    private func enqueueDelta(_ delta: PendingDelta) {
+        switch delta {
+        case .text(let id, let kind, let text, let timestamp):
+            // 相邻的同目标追加并成一条，flush 时少一轮字符串拷贝。
+            if case .text(let lastID, _, let lastText, _) = pendingDeltas.last, lastID == id {
+                pendingDeltas[pendingDeltas.count - 1] = .text(
+                    id: id, kind: kind, text: lastText + text, timestamp: timestamp
+                )
+            } else {
+                pendingDeltas.append(delta)
+            }
+        case .toolArguments(let id, let text, let replace):
+            // replace 语义会丢弃之前的内容，不能和前面的追加合并。
+            if !replace,
+               case .toolArguments(let lastID, let lastText, let lastReplace) = pendingDeltas.last,
+               lastID == id {
+                pendingDeltas[pendingDeltas.count - 1] = .toolArguments(
+                    id: id, text: lastText + text, replace: lastReplace
+                )
+            } else {
+                pendingDeltas.append(delta)
+            }
+        }
+        scheduleDeltaFlush()
+    }
+
+    private func scheduleDeltaFlush() {
+        guard deltaFlushTask == nil else { return }
+        deltaFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(40))
+            guard let self else { return }
+            self.deltaFlushTask = nil
+            self.flushPendingDeltas()
+        }
+    }
+
+    private func flushPendingDeltas() {
+        guard !pendingDeltas.isEmpty else { return }
+        let deltas = pendingDeltas
+        pendingDeltas.removeAll(keepingCapacity: true)
+        for delta in deltas {
+            switch delta {
+            case .text(let id, let kind, let text, let timestamp):
+                applyAppend(id: id, kind: kind, text: text, timestamp: timestamp)
+            case .toolArguments(let id, let text, let replace):
+                applyToolArguments(id: id, text: text, replace: replace)
+            }
+        }
         bumpScrollAnchor()
     }
 
     private func configureTool(id: String, name: String?, status: String?) {
-        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        flushPendingDeltas()
+        guard let index = messages.lastIndex(where: { $0.id == id }) else { return }
         messages[index].toolCallID = id
         if let name, !name.isEmpty { messages[index].toolName = name }
         messages[index].toolStatus = ChatMessage.ToolStatus(serverValue: status)
     }
 
     private func appendToolArguments(id: String, text: String, replace: Bool) {
-        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        enqueueDelta(.toolArguments(id: id, text: text, replace: replace))
+    }
+
+    private func applyToolArguments(id: String, text: String, replace: Bool) {
+        guard let index = messages.lastIndex(where: { $0.id == id }) else { return }
         messages[index].toolArguments = replace ? text : (messages[index].toolArguments ?? "") + text
-        bumpScrollAnchor()
     }
 
     private func finish(id: String?, timestamp: Int64? = nil) {
-        guard let id, let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        // 必须先 flush：`applyAppend` 会跳过已 finished 的消息，顺序反了会丢掉尾部文本。
+        flushPendingDeltas()
+        guard let id, let index = messages.lastIndex(where: { $0.id == id }) else { return }
         messages[index].isFinished = true
         messages[index].finishedAt = timestamp ?? messages[index].finishedAt
         if messages[index].kind == .tool, messages[index].toolStatus == .processing {
@@ -1459,6 +1562,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func finishOpenMessages(outcome: String = "completed", timestamp: Int64? = nil) {
+        flushPendingDeltas()
         for index in messages.indices {
             guard !messages[index].isFinished else { continue }
             messages[index].isFinished = true
@@ -1508,6 +1612,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func removeEchoedOutboxItems() {
+        flushPendingDeltas()
         let serverIDs = Set(messages.filter { !$0.isOptimistic }.map(\.id))
         outbox.removeAll { item in
             switch item.state {
@@ -1520,6 +1625,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func reconcileAwaitingEchoIfNeeded() {
+        flushPendingDeltas()
         let serverIDs = Set(messages.filter { !$0.isOptimistic }.map(\.id))
         for index in outbox.indices {
             guard case .awaitingEcho = outbox[index].state else { continue }
@@ -1552,7 +1658,7 @@ final class ChatViewModel: ObservableObject {
         guard let index = outbox.firstIndex(where: { $0.state == .awaitingEcho }) else { return }
         let failedItem = outbox[index]
         outbox[index].state = .failed(detail: detail, requiresNewMessageID: true)
-        if let messageIndex = messages.firstIndex(where: { $0.id == failedItem.id && $0.isOptimistic }) {
+        if let messageIndex = messages.lastIndex(where: { $0.id == failedItem.id && $0.isOptimistic }) {
             messages[messageIndex].isFailed = true
         }
         publishRestore(failedItem.draft)

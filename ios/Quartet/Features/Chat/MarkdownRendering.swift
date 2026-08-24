@@ -1,13 +1,121 @@
 import SwiftUI
 import UIKit
 
+/// Markdown 块拆分、`AttributedString(markdown:)` 与 JSON 美化都是完整解析，成本远高于
+/// 一次视图求值。而 SwiftUI 会在任何一次状态变更后重新求值 body，聊天时间线里已完成的
+/// 消息文本却永不改变 —— 所以按源文本记忆化，把重复解析压成一次。
+///
+/// 流式输出中的那一条消息每个 delta 都是新文本，必然 miss；但同一时刻只有一条，
+/// 其余历史消息全部命中。
+@MainActor
+enum ChatTextCache {
+    private final class Entry<Value>: NSObject {
+        let value: Value
+        init(_ value: Value) { self.value = value }
+    }
+
+    private static let blockCache: NSCache<NSString, Entry<[MarkdownRenderer.Block]>> = {
+        let cache = NSCache<NSString, Entry<[MarkdownRenderer.Block]>>()
+        cache.countLimit = 256
+        return cache
+    }()
+
+    private static let attributedCache: NSCache<NSString, Entry<AttributedString?>> = {
+        let cache = NSCache<NSString, Entry<AttributedString?>>()
+        cache.countLimit = 512
+        return cache
+    }()
+
+    private static let jsonCache: NSCache<NSString, Entry<String?>> = {
+        let cache = NSCache<NSString, Entry<String?>>()
+        cache.countLimit = 128
+        return cache
+    }()
+
+    static func blocks(from text: String) -> [MarkdownRenderer.Block] {
+        cached(key: text, in: blockCache) { MarkdownRenderer.blocks(from: text) }
+    }
+
+    /// 行内代码的字体与底色随 role/tone 变化，所以缓存键要带上样式标记。
+    static func attributedString(from text: String, role: MarkdownTextRole, tone: MarkdownTone) -> AttributedString? {
+        cached(key: "\(role.rawValue)|\(tone.cacheToken)\u{1}\(text)", in: attributedCache) {
+            MarkdownRenderer.attributedString(from: text, role: role, tone: tone)
+        }
+    }
+
+    static func prettyPrintedJSON(from text: String) -> String? {
+        // Module-qualified: unqualified lookup resolves to this very method, not the global builder.
+        cached(key: text, in: jsonCache) { Quartet.prettyPrintedJSON(text) }
+    }
+
+    private static func cached<Value>(
+        key: String,
+        in cache: NSCache<NSString, Entry<Value>>,
+        build: () -> Value
+    ) -> Value {
+        let key = key as NSString
+        if let hit = cache.object(forKey: key) { return hit.value }
+        let value = build()
+        cache.setObject(Entry(value), forKey: key)
+        return value
+    }
+}
+
+/// 段落的排版角色。标题层级必须在这里落到 `Text` 上 —— 外层 `.font()` 会被
+/// `Text` 自身的 `.font()` 覆盖，这是此前 `#`/`##` 全部渲染成正文的原因。
+enum MarkdownTextRole: String {
+    case body
+    case headingLarge
+    case headingMedium
+    case headingSmall
+    case tableHeader
+
+    func font(for tone: MarkdownTone) -> Font {
+        switch self {
+        case .body: .quartet(tone.contentFontSize)
+        case .headingLarge: .quartet(.large, weight: .bold)
+        case .headingMedium: .quartet(.regular, weight: .semibold)
+        case .headingSmall: .quartet(.control, weight: .semibold)
+        case .tableHeader: .quartet(tone.contentFontSize, weight: .semibold)
+        }
+    }
+
+    /// 行内 `code` 用等宽体，但字号跟随所在段落，避免标题里的代码突然缩小。
+    func codeFont(for tone: MarkdownTone) -> Font {
+        switch self {
+        case .body, .tableHeader: .quartet(tone.contentFontSize, design: .monospaced)
+        case .headingLarge: .quartet(.large, weight: .bold, design: .monospaced)
+        case .headingMedium: .quartet(.regular, weight: .semibold, design: .monospaced)
+        case .headingSmall: .quartet(.control, weight: .semibold, design: .monospaced)
+        }
+    }
+
+    /// 标题的段前间距，让长回复形成视觉分组。
+    var topSpacing: CGFloat {
+        switch self {
+        case .headingLarge: 10
+        case .headingMedium: 6
+        case .headingSmall: 3
+        case .body, .tableHeader: 0
+        }
+    }
+
+    static func heading(level: Int) -> Self {
+        switch level {
+        case 1, 2: .headingLarge
+        case 3: .headingMedium
+        default: .headingSmall
+        }
+    }
+}
+
 struct MarkdownMessageView: View {
     let text: String
     var tone: MarkdownTone = .standard
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(MarkdownRenderer.blocks(from: text)) { block in
+            ForEach(ChatTextCache.blocks(from: text)) { block in
                 switch block.kind {
                 case .markdown(let content):
                     MarkdownTextBlock(text: content, tone: tone)
@@ -16,9 +124,9 @@ struct MarkdownMessageView: View {
                 case .table(let headers, let rows):
                     MarkdownTableView(headers: headers, rows: rows, tone: tone)
                 case .heading(let level, let content):
-                    MarkdownTextBlock(text: content, tone: tone)
-                        .font(headingFont(level))
-                        .fontWeight(.bold)
+                    let role = MarkdownTextRole.heading(level: level)
+                    MarkdownTextBlock(text: content, tone: tone, role: role)
+                        .padding(.top, role.topSpacing)
                 case .quote(let content):
                     HStack(alignment: .top, spacing: 10) {
                         Capsule()
@@ -31,14 +139,15 @@ struct MarkdownMessageView: View {
                     .background(tone.codeBackground.opacity(0.7), in: RoundedRectangle(cornerRadius: 7))
                 case .list(let ordered, let items):
                     VStack(alignment: .leading, spacing: 7) {
-                        ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(ordered ? "\(index + 1)." : "•")
+                                Text(ordered ? "\(item.ordinal)." : Self.bullet(level: item.level))
                                     .font(.quartet(tone.contentFontSize, weight: .semibold))
                                     .foregroundStyle(tone.secondaryForeground)
                                     .frame(minWidth: ordered ? 20 : 10, alignment: .trailing)
-                                MarkdownTextBlock(text: item, tone: tone)
+                                MarkdownTextBlock(text: item.content, tone: tone)
                             }
+                            .padding(.leading, CGFloat(item.level) * 16)
                         }
                     }
                 case .divider:
@@ -49,11 +158,11 @@ struct MarkdownMessageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func headingFont(_ level: Int) -> Font {
+    private static func bullet(level: Int) -> String {
         switch level {
-        case 1, 2: .quartet(.large)
-        case 3: .quartet(.regular)
-        default: .quartet(.control)
+        case 0: "•"
+        case 1: "◦"
+        default: "▪"
         }
     }
 }
@@ -61,22 +170,22 @@ struct MarkdownMessageView: View {
 struct MarkdownTextBlock: View {
     let text: String
     let tone: MarkdownTone
+    var role: MarkdownTextRole = .body
 
     var body: some View {
-        if let attributed = MarkdownRenderer.attributedString(from: text) {
+        content
+            .font(role.font(for: tone))
+            .foregroundStyle(tone.foreground)
+            .lineSpacing(4)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var content: Text {
+        if let attributed = ChatTextCache.attributedString(from: text, role: role, tone: tone) {
             Text(attributed)
-                .font(.quartet(tone.contentFontSize))
-                .foregroundStyle(tone.foreground)
-                .lineSpacing(4)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(text)
-                .font(.quartet(tone.contentFontSize))
-                .foregroundStyle(tone.foreground)
-                .lineSpacing(4)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -99,13 +208,14 @@ struct CodeBlockView: View {
                 .font(.quartet(.detail))
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
-                    .font(.quartet(.detail, design: .monospaced))
-                    .foregroundStyle(codeForeground)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            // 软换行而不是内嵌横向 ScrollView：手机上长行更易读，同时避免在竖向
+            // 滚动列表里塞进几十个 UIScrollView 与外层争抢手势。
+            Text(code)
+                .font(.quartet(.detail, design: .monospaced))
+                .foregroundStyle(codeForeground)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
         .background(codeBackground, in: RoundedRectangle(cornerRadius: 10))
@@ -165,6 +275,29 @@ enum MarkdownTone: Equatable {
     var codeBorder: Color {
         self == .user ? QuartetTheme.onAccent.opacity(0.16) : QuartetTheme.divider
     }
+
+    /// 行内 `code` 的淡底色，沿用绿色主题。
+    var inlineCodeBackground: Color {
+        switch self {
+        case .user: QuartetTheme.onAccent.opacity(0.18)
+        case .thought: QuartetTheme.accent.opacity(0.13)
+        case .standard, .tool: QuartetTheme.accent.opacity(0.11)
+        }
+    }
+
+    /// 用户气泡是绿底，行内代码保持 `onAccent` 才读得清；其余用深绿区分。
+    var inlineCodeForeground: Color? {
+        self == .user ? nil : QuartetTheme.accentDeep
+    }
+
+    var cacheToken: String {
+        switch self {
+        case .standard: "s"
+        case .user: "u"
+        case .thought: "t"
+        case .tool: "o"
+        }
+    }
 }
 
 struct MarkdownTableView: View {
@@ -177,19 +310,20 @@ struct MarkdownTableView: View {
             Grid(horizontalSpacing: 0, verticalSpacing: 0) {
                 GridRow {
                     ForEach(Array(headers.enumerated()), id: \.offset) { _, value in
-                        MarkdownTextBlock(text: value, tone: tone)
-                            .fontWeight(.semibold)
+                        MarkdownTextBlock(text: value, tone: tone, role: .tableHeader)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
                             .background(tone.codeBackground)
                     }
                 }
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
                     GridRow {
                         ForEach(0..<headers.count, id: \.self) { index in
                             MarkdownTextBlock(text: index < row.count ? row[index] : "", tone: tone)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 8)
+                                // 斑马纹，长表格里更容易横向对齐读行。
+                                .background(rowIndex.isMultiple(of: 2) ? Color.clear : tone.codeBackground.opacity(0.5))
                         }
                     }
                 }
@@ -202,13 +336,20 @@ struct MarkdownTableView: View {
 
 enum MarkdownRenderer {
     struct Block: Identifiable {
+        /// 列表项带上缩进层级与该层级下的序号，都在解析期算好，渲染时不再推导。
+        struct ListItem {
+            let level: Int
+            let ordinal: Int
+            let content: String
+        }
+
         enum Kind {
             case markdown(String)
             case code(language: String?, content: String)
             case table(headers: [String], rows: [[String]])
             case heading(level: Int, content: String)
             case quote(String)
-            case list(ordered: Bool, items: [String])
+            case list(ordered: Bool, items: [ListItem])
             case divider
         }
 
@@ -310,20 +451,62 @@ enum MarkdownRenderer {
             }
             if let firstItem = listItem(in: trimmed) {
                 flushMarkdown()
-                var items = [firstItem.content]
                 let ordered = firstItem.ordered
+                // 缩进宽度必须在 trim 之前量，否则嵌套层级信息就丢了。
+                var indents = [indentWidth(of: lines[index])]
+                var contents = [firstItem.content]
                 index += 1
-                while index < lines.count, let next = listItem(in: lines[index].trimmingCharacters(in: .whitespaces)), next.ordered == ordered {
-                    items.append(next.content)
+                while index < lines.count,
+                      let next = listItem(in: lines[index].trimmingCharacters(in: .whitespaces)),
+                      next.ordered == ordered {
+                    indents.append(indentWidth(of: lines[index]))
+                    contents.append(next.content)
                     index += 1
                 }
-                result.append(.list(ordered: ordered, items: items))
+                result.append(.list(ordered: ordered, items: listItems(indents: indents, contents: contents)))
                 continue
             }
             markdownLines.append(lines[index])
             index += 1
         }
         flushMarkdown()
+    }
+
+    /// 把出现过的缩进宽度按大小排名映射成层级，这样 2 空格和 4 空格两种写法都能正确分层。
+    /// 有序列表的序号按层级各自计数，进入更深一层时从 1 重新开始。
+    private static func listItems(indents: [Int], contents: [String]) -> [Block.ListItem] {
+        let ranking = Dictionary(
+            uniqueKeysWithValues: Set(indents).sorted().enumerated().map { ($1, min($0, 3)) }
+        )
+        var counters: [Int] = []
+        var items: [Block.ListItem] = []
+        items.reserveCapacity(contents.count)
+
+        for (offset, content) in contents.enumerated() {
+            let level = ranking[indents[offset]] ?? 0
+            if level >= counters.count {
+                counters.append(contentsOf: Array(repeating: 0, count: level - counters.count + 1))
+            } else {
+                counters.removeSubrange((level + 1)...)
+            }
+            counters[level] += 1
+            items.append(Block.ListItem(level: level, ordinal: counters[level], content: content))
+        }
+        return items
+    }
+
+    private static func indentWidth(of line: String) -> Int {
+        var width = 0
+        for character in line {
+            if character == " " {
+                width += 1
+            } else if character == "\t" {
+                width += 4
+            } else {
+                break
+            }
+        }
+        return width
     }
 
     private static func isTableRow(_ line: String) -> Bool {
@@ -372,14 +555,40 @@ enum MarkdownRenderer {
             .map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
-    static func attributedString(from text: String) -> AttributedString? {
-        do {
-            return try AttributedString(
-                markdown: text,
-                options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .full)
-            )
-        } catch {
+    static func attributedString(from text: String, role: MarkdownTextRole, tone: MarkdownTone) -> AttributedString? {
+        guard var attributed = try? AttributedString(
+            markdown: text,
+            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .full)
+        ) else {
             return nil
+        }
+        applyInlineCodeStyle(to: &attributed, role: role, tone: tone)
+        return attributed
+    }
+
+    /// 行内 `code` 此前和正文没有任何视觉差别。run 上的 `font` 优先级高于 `Text.font()`，
+    /// 正好用来给这些片段单独换等宽体加底色。
+    private static func applyInlineCodeStyle(
+        to attributed: inout AttributedString,
+        role: MarkdownTextRole,
+        tone: MarkdownTone
+    ) {
+        // 先收集范围再改写：边遍历 runs 边改属性会让迭代器失效。
+        let ranges = attributed.runs.compactMap { run -> Range<AttributedString.Index>? in
+            guard let intent = run.inlinePresentationIntent, intent.contains(.code) else { return nil }
+            return run.range
+        }
+        guard !ranges.isEmpty else { return }
+
+        let font = role.codeFont(for: tone)
+        let background = tone.inlineCodeBackground
+        let foreground = tone.inlineCodeForeground
+        for range in ranges {
+            attributed[range].font = font
+            attributed[range].backgroundColor = background
+            if let foreground {
+                attributed[range].foregroundColor = foreground
+            }
         }
     }
 }
