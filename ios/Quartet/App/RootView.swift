@@ -53,7 +53,7 @@ private struct MainView: View {
 
             if showsTabBar {
                 MainTabBar(selection: $selectedTab)
-                    .padding(.bottom, -6)
+                    .padding(.bottom, -14)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }

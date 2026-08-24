@@ -107,7 +107,12 @@ func TestExistingChatCanSwitchModelAndThoughtLevelAndShowsWorkspaceContext(t *te
 	models := chatSource(t, "Quartet/Core/Models/APIModels.swift")
 
 	for _, contract := range []string{
-		`Menu {`,
+		`ChatConfigurationSelectionSheet(`,
+		`agentPreferences = try await appModel.agentPreferences()`,
+		`Section("收藏")`,
+		`Section("其他模型")`,
+		`.listStyle(.plain)`,
+		`.contentMargins(.top, 8, for: .scrollContent)`,
 		`accessibilityIdentifier("chat-model-selector")`,
 		`accessibilityIdentifier("chat-thought-level-selector")`,
 		`appModel.setACPConfig(SetACPConfigRequest(`,
