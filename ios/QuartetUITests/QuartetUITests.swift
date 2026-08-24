@@ -635,3 +635,193 @@ private extension XCUIScreenshot {
         return luminance / CGFloat(sampleCount)
     }
 }
+import XCTest
+import UIKit
+
+/// Temporary README screenshot capture. Drives the real app against a live
+/// backend supplied through TEST_RUNNER_* environment variables and writes PNGs
+/// into the runner's temporary directory, printing every path it wrote.
+@MainActor
+final class QuartetScreenshotCapture: XCTestCase {
+    private let app = XCUIApplication()
+
+    private var outputDirectory: URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quartet-shots", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func capture(_ name: String, settle: TimeInterval = 1.6) {
+        Thread.sleep(forTimeInterval: settle)
+        let shot = XCUIScreen.main.screenshot()
+        let url = outputDirectory.appendingPathComponent("\(name).png")
+        do {
+            try shot.pngRepresentation.write(to: url)
+            print("QUARTET_SHOT_WROTE \(url.path)")
+        } catch {
+            print("QUARTET_SHOT_FAILED \(name) \(error)")
+        }
+        let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testCaptureReadmeScreenshots() throws {
+        let env = ProcessInfo.processInfo.environment
+        let server = env["QUARTET_SHOT_SERVER"] ?? "http://127.0.0.1:8090/"
+        let user = env["QUARTET_SHOT_USER"] ?? "demo"
+        let pass = env["QUARTET_SHOT_PASS"] ?? "QuartetDemo!2026"
+        continueAfterFailure = true
+        app.launch()
+
+        let serverField = app.textFields["connection-server"]
+        if serverField.waitForExistence(timeout: 20) {
+            serverField.tap()
+            serverField.press(forDuration: 0.9)
+            if app.menuItems["全选"].waitForExistence(timeout: 1.2) {
+                app.menuItems["全选"].tap()
+            } else if app.menuItems["Select All"].waitForExistence(timeout: 1.2) {
+                app.menuItems["Select All"].tap()
+            }
+            serverField.typeText(server)
+
+            let userField = app.textFields["connection-username"]
+            userField.tap()
+            userField.typeText(user)
+
+            let passField = app.secureTextFields["connection-password"]
+            passField.tap()
+            passField.typeText(pass)
+
+            capture("ios-connect", settle: 0.8)
+
+            app.buttons["connection-submit"].tap()
+            let httpConfirm = app.buttons["继续连接"]
+            if httpConfirm.waitForExistence(timeout: 4) {
+                httpConfirm.tap()
+            }
+        }
+
+        XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 90), "dashboard did not load")
+        Thread.sleep(forTimeInterval: 4)
+        capture("ios-home")
+
+        // Workspace filter sheet.
+        if app.buttons["workspace-selector"].exists {
+            app.buttons["workspace-selector"].tap()
+            capture("ios-workspaces", settle: 1.2)
+            if app.buttons["workspace-filter-all"].waitForExistence(timeout: 3) {
+                app.buttons["workspace-filter-all"].tap()
+            }
+            Thread.sleep(forTimeInterval: 1)
+        }
+
+        // First interactive chat in the list.
+        let jobButtons = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'job-' AND NOT identifier BEGINSWITH 'job-time-'")
+        )
+        var openedChat = false
+        for index in 0..<min(jobButtons.count, 6) {
+            let job = jobButtons.element(boundBy: index)
+            guard job.exists, job.isHittable else { continue }
+            job.tap()
+            if app.textFields["chat-composer"].waitForExistence(timeout: 12) {
+                openedChat = true
+                Thread.sleep(forTimeInterval: 3)
+                capture("ios-chat")
+                app.swipeUp()
+                capture("ios-chat-detail", settle: 1.2)
+                break
+            }
+            if app.navigationBars.buttons.count > 0 {
+                app.navigationBars.buttons.element(boundBy: 0).tap()
+            }
+            _ = app.buttons["main-tab-0"].waitForExistence(timeout: 5)
+        }
+        XCTAssertTrue(openedChat, "no interactive chat could be opened")
+        if app.navigationBars.buttons.count > 0 {
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+        _ = app.buttons["main-tab-0"].waitForExistence(timeout: 8)
+
+        // Graph run: scheduled jobs are hidden by default, so reveal them first.
+        let scheduledToggle = app.buttons["hide-scheduled-jobs-toggle"]
+        if scheduledToggle.waitForExistence(timeout: 5), scheduledToggle.label.contains("显示定时任务") {
+            scheduledToggle.tap()
+            Thread.sleep(forTimeInterval: 2)
+        }
+        let graphJobs = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'job-' AND NOT identifier BEGINSWITH 'job-time-'")
+        )
+        for index in 0..<min(graphJobs.count, 8) {
+            let job = graphJobs.element(boundBy: index)
+            guard job.exists, job.isHittable, job.label.contains("巡检") else { continue }
+            job.tap()
+            Thread.sleep(forTimeInterval: 4)
+            capture("ios-graph")
+            app.swipeUp()
+            capture("ios-graph-detail", settle: 1.4)
+            if app.navigationBars.buttons.count > 0 {
+                app.navigationBars.buttons.element(boundBy: 0).tap()
+            }
+            _ = app.buttons["main-tab-0"].waitForExistence(timeout: 8)
+            break
+        }
+
+        // Scheduled tasks.
+        app.buttons["main-tab-1"].tap()
+        Thread.sleep(forTimeInterval: 3)
+        capture("ios-schedules")
+
+        // Usage statistics.
+        app.buttons["main-tab-2"].tap()
+        Thread.sleep(forTimeInterval: 4)
+        capture("ios-stats")
+        app.swipeUp()
+        capture("ios-stats-detail", settle: 1.4)
+
+        // Settings.
+        app.buttons["main-tab-3"].tap()
+        Thread.sleep(forTimeInterval: 2.5)
+        capture("ios-settings")
+
+        // New conversation composer (a sheet, so capture it last).
+        app.buttons["main-tab-0"].tap()
+        if app.buttons["new-conversation-button"].waitForExistence(timeout: 6) {
+            app.buttons["new-conversation-button"].tap()
+            Thread.sleep(forTimeInterval: 3)
+            capture("ios-new-task")
+            let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.10))
+            let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98))
+            top.press(forDuration: 0.05, thenDragTo: bottom)
+            _ = app.buttons["main-tab-0"].waitForExistence(timeout: 8)
+        }
+
+        print("QUARTET_SHOT_DIR \(outputDirectory.path)")
+    }
+
+    /// Short follow-up pass for the root tabs. Assumes the app already holds a
+    /// stored connection from a previous capture run.
+    func testCaptureTabScreenshots() throws {
+        continueAfterFailure = true
+        app.launch()
+
+        XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 60), "dashboard did not load")
+        Thread.sleep(forTimeInterval: 3)
+
+        app.buttons["main-tab-1"].tap()
+        Thread.sleep(forTimeInterval: 3)
+        capture("ios-schedules")
+
+        app.buttons["main-tab-2"].tap()
+        Thread.sleep(forTimeInterval: 4)
+        capture("ios-stats")
+
+        app.buttons["main-tab-3"].tap()
+        Thread.sleep(forTimeInterval: 2.5)
+        capture("ios-settings")
+
+        print("QUARTET_SHOT_DIR \(outputDirectory.path)")
+    }
+}

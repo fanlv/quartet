@@ -70,6 +70,10 @@ private enum NewConversationMode: String, CaseIterable, Identifiable {
     var icon: String { self == .chat ? "bubble.left.and.bubble.right" : "point.3.connected.trianglepath.dotted" }
 }
 
+/// 表单自身的坐标空间：用它把“输入框以外的点击”和输入框内的点击区分开。
+/// 空间锚在滚动内容上，滚动时输入框在该空间里的位置不变，不会每帧写 State。
+private let newConversationFormSpace = "new-conversation-form"
+
 struct NewConversationView: View {
     @EnvironmentObject private var model: AppModel
     let onCreated: (ChatRoute) -> Void
@@ -107,6 +111,7 @@ struct NewConversationView: View {
     @State private var savesDefaults = false
     @State private var localError: PresentedError?
     @State private var createIntent: CreateJobIntent?
+    @State private var messageEditorFrame: CGRect = .zero
     @FocusState private var composerFocused: Bool
 
     private var workspace: WorkspaceSummary? { model.workspaces.first { $0.id == workspaceID } }
@@ -179,6 +184,17 @@ struct NewConversationView: View {
                         .padding(.horizontal, 18)
                         .padding(.top, 12)
                         .padding(.bottom, 24)
+                        // 让空隙和留白也参与命中测试，点在卡片之间同样能收起键盘。
+                        .contentShape(Rectangle())
+                        .coordinateSpace(.named(newConversationFormSpace))
+                        .simultaneousGesture(
+                            SpatialTapGesture(coordinateSpace: .named(newConversationFormSpace))
+                                .onEnded { value in
+                                    // 落在输入框里的点击交给 TextEditor 自己处理，否则会先收起再弹出、出现闪烁。
+                                    guard !messageEditorFrame.contains(value.location) else { return }
+                                    composerFocused = false
+                                }
+                        )
                     }
                     .scrollDismissesKeyboard(.interactively)
                 } else {
@@ -293,6 +309,8 @@ struct NewConversationView: View {
         .padding(.horizontal, 18)
         .padding(.top, 10)
         .padding(.bottom, 2)
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
     }
 
     private var loadingState: some View {
@@ -383,6 +401,11 @@ struct NewConversationView: View {
                         }
                     })
                     .frame(minHeight: 148)
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .named(newConversationFormSpace))
+                    } action: { frame in
+                        messageEditorFrame = frame
+                    }
                     .accessibilityIdentifier("new-conversation-message")
             }
 
@@ -696,6 +719,8 @@ struct NewConversationView: View {
         .padding(.bottom, 8)
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Rectangle().fill(QuartetTheme.divider).frame(height: 0.5) }
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
     }
 
     private func contextPill(_ value: String, icon: String) -> some View {

@@ -1,6 +1,8 @@
 import SwiftUI
 import UIKit
 
+private let chatCollapsibleHeaderMinHeight: CGFloat = 44
+
 /// 每一行消息。
 ///
 /// 这里刻意**不**持有 `@EnvironmentObject appModel`：`JobsView` 在有活跃 Job 时每 5 秒
@@ -261,6 +263,7 @@ struct ThoughtPanel: View {
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
                 .foregroundStyle(QuartetTheme.accent)
+                .frame(minHeight: isExpanded ? 0 : chatCollapsibleHeaderMinHeight)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -274,7 +277,7 @@ struct ThoughtPanel: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 13)
+        .padding(.vertical, isExpanded ? 13 : 0)
         .background(QuartetTheme.accent.opacity(0.075), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(QuartetTheme.accent.opacity(0.24), lineWidth: 1))
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -315,7 +318,8 @@ struct ToolCallCard: View {
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
                 .padding(.horizontal, 15)
-                .padding(.vertical, 13)
+                .padding(.vertical, isExpanded ? 13 : 0)
+                .frame(minHeight: isExpanded ? 0 : chatCollapsibleHeaderMinHeight)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -655,6 +659,7 @@ struct OutboxRow: View {
 struct ServerQueueRow: View {
     let index: Int
     let item: QueuedJobMessage
+    let showsDivider: Bool
     let deleting: Bool
     let onShowError: () -> Void
     let onDelete: () -> Void
@@ -701,7 +706,9 @@ struct ServerQueueRow: View {
         .padding(.leading, 12)
         .padding(.trailing, 8)
         .padding(.vertical, 7)
-        .overlay(alignment: .bottom) { Divider().overlay(QuartetTheme.divider) }
+        .overlay(alignment: .bottom) {
+            if showsDivider { Divider().overlay(QuartetTheme.divider) }
+        }
         .accessibilityHint(item.error ?? "等待发送")
     }
 }

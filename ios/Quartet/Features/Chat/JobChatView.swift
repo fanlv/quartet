@@ -76,6 +76,7 @@ struct JobChatView: View {
     @State private var gitBranch = ""
     @State private var linkOpener = ChatLinkOpener()
     @FocusState private var composerFocused: Bool
+    @ScaledMetric(relativeTo: .body) private var composerFontSize: CGFloat = 15
 
     var body: some View {
         VStack(spacing: 0) {
@@ -380,10 +381,11 @@ struct JobChatView: View {
                         .padding(.vertical, 9)
                     }
                     ScrollView {
-                        LazyVStack(spacing: 0) {
+                        VStack(spacing: 0) {
                             ForEach(Array(chat.serverQueue.items.enumerated()), id: \.element.id) { index, item in
                                 ServerQueueRow(
                                     index: index + 1, item: item,
+                                    showsDivider: index < chat.serverQueue.items.count - 1,
                                     deleting: chat.deletingQueueIDs.contains(item.id),
                                     onShowError: { chat.showQueueError(item) },
                                     onDelete: { Task { await chat.deleteQueuedMessage(id: item.id) } }
@@ -391,7 +393,14 @@ struct JobChatView: View {
                             }
                         }
                     }
+                    // 队列面板必须按行数收缩：ScrollView 在竖直方向是贪心的，只写 maxHeight
+                    // 会让一条排队消息也撑满上限，在输入框上方留出一大片空白。fixedSize 让它
+                    // 先取内容理想高度，再由 maxHeight 截断成可滚动列表。
                     .frame(maxHeight: 156)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .scrollBounceBehavior(.basedOnSize)
+                    // 面板底部 10pt 会被下面的输入框卡片盖住（见负 padding），补齐避免裁掉最后一行。
+                    .padding(.bottom, 10)
                 }
                 .background(QuartetTheme.surface)
                 .clipShape(UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 16))
@@ -425,7 +434,7 @@ struct JobChatView: View {
                 }
 
                 TextField("继续对话…", text: $draft, axis: .vertical)
-                    .font(.quartet(.regular))
+                    .font(.system(size: composerFontSize))
                     .lineLimit(1...6)
                     .focused($composerFocused)
                     .padding(.horizontal, 15)

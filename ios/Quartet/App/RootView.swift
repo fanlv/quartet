@@ -20,6 +20,7 @@ struct RootView: View {
             }
         }
         .tint(QuartetTheme.accent)
+        .background(QuartetKeyboardDismissInstaller())
         .task {
             await model.bootstrap()
         }
@@ -28,6 +29,72 @@ struct RootView: View {
         }
         .sheet(item: $model.presentedError) { error in
             ErrorDetailView(error: error)
+        }
+    }
+}
+
+/// Installs one non-blocking tap recognizer on the app window so every current and
+/// future text input follows the same keyboard-dismissal behavior. Taps inside a
+/// text field or text view are left alone, including their internal UIKit subviews.
+private struct QuartetKeyboardDismissInstaller: UIViewRepresentable {
+    func makeUIView(context: Context) -> ResolverView {
+        ResolverView()
+    }
+
+    func updateUIView(_ uiView: ResolverView, context: Context) {
+        uiView.installGestureRecognizerIfPossible()
+    }
+
+    static func dismantleUIView(_ uiView: ResolverView, coordinator: Void) {
+        uiView.removeGestureRecognizer()
+    }
+
+    final class ResolverView: UIView, UIGestureRecognizerDelegate {
+        private weak var gestureContainer: UIWindow?
+        private lazy var gestureRecognizer: UITapGestureRecognizer = {
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+            recognizer.cancelsTouchesInView = false
+            recognizer.delegate = self
+            return recognizer
+        }()
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            installGestureRecognizerIfPossible()
+        }
+
+        fileprivate func installGestureRecognizerIfPossible() {
+            guard gestureContainer !== window else { return }
+            removeGestureRecognizer()
+            window?.addGestureRecognizer(gestureRecognizer)
+            gestureContainer = window
+        }
+
+        fileprivate func removeGestureRecognizer() {
+            gestureContainer?.removeGestureRecognizer(gestureRecognizer)
+            gestureContainer = nil
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            var touchedView = touch.view
+            while let view = touchedView {
+                if view is UITextField || view is UITextView {
+                    return false
+                }
+                touchedView = view.superview
+            }
+            return true
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+
+        @objc private func dismissKeyboard() {
+            gestureContainer?.endEditing(true)
         }
     }
 }

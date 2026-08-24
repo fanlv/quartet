@@ -290,6 +290,16 @@ enum MarkdownTone: Equatable {
         self == .user ? nil : QuartetTheme.accentDeep
     }
 
+    /// 链接色必须显式写到 run 上。SwiftUI 用环境 tint 渲染 `.link`，而全局 tint 正好是
+    /// accent 绿、用户气泡底色也是 accent 绿 —— 不覆盖就是绿字压绿底，看着像透明。
+    /// 绿底上没有第二个既够对比又不刺眼的颜色，所以链接跟气泡正文同色，靠下划线区分。
+    var linkForeground: Color {
+        switch self {
+        case .user: QuartetTheme.onAccent
+        case .standard, .thought, .tool: QuartetTheme.accentDeep
+        }
+    }
+
     var cacheToken: String {
         switch self {
         case .standard: "s"
@@ -563,6 +573,7 @@ enum MarkdownRenderer {
             return nil
         }
         applyInlineCodeStyle(to: &attributed, role: role, tone: tone)
+        applyLinkStyle(to: &attributed, tone: tone)
         return attributed
     }
 
@@ -589,6 +600,23 @@ enum MarkdownRenderer {
             if let foreground {
                 attributed[range].foregroundColor = foreground
             }
+        }
+    }
+
+    /// 链接的显式配色 + 下划线。run 上的 `foregroundColor` 优先级高于 SwiftUI 给 `.link`
+    /// 套的环境 tint，这是把绿底气泡里“隐形”的链接抢回来的唯一入口；下划线负责在颜色
+    /// 跟正文一致时仍然保留“可点”的暗示。在 inline code 之后跑，让链接色赢下重叠片段。
+    private static func applyLinkStyle(to attributed: inout AttributedString, tone: MarkdownTone) {
+        // 同样先收集范围：边遍历 runs 边改属性会让迭代器失效。
+        let ranges = attributed.runs.compactMap { run -> Range<AttributedString.Index>? in
+            run.link == nil ? nil : run.range
+        }
+        guard !ranges.isEmpty else { return }
+
+        let foreground = tone.linkForeground
+        for range in ranges {
+            attributed[range].foregroundColor = foreground
+            attributed[range].underlineStyle = Text.LineStyle.single
         }
     }
 }
