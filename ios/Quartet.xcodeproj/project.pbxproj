@@ -23,6 +23,11 @@
 		A1000000000000000000000E /* JobChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* JobChatView.swift */; };
 		A1000000000000000000000F /* GraphRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* GraphRunView.swift */; };
 		A10000000000000000000010 /* ChatAttachmentSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* ChatAttachmentSupport.swift */; };
+		A10000000000000000000030 /* ChatMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000030 /* ChatMessageViews.swift */; };
+		A10000000000000000000031 /* MarkdownRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000031 /* MarkdownRendering.swift */; };
+		A10000000000000000000032 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000032 /* ChatViewModel.swift */; };
+		A10000000000000000000033 /* ChatComposerChips.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000033 /* ChatComposerChips.swift */; };
+		A10000000000000000000034 /* ChatImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000034 /* ChatImageLoader.swift */; };
 		A10000000000000000000011 /* DashboardCacheStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* DashboardCacheStore.swift */; };
 		A10000000000000000000012 /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* StatsView.swift */; };
 		A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* GraphWorkflowLaunchView.swift */; };

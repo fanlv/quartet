@@ -5,6 +5,7 @@ import UIKit
 struct StatsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.mainTabBarInset) private var mainTabBarInset
 
     @State private var preset: StatsRangePreset = .thirtyDays
     @State private var customFrom = Calendar.current.date(byAdding: .day, value: -29, to: Date()) ?? Date()
@@ -45,6 +46,7 @@ struct StatsView: View {
                 .padding(.vertical, 14)
             }
             .background(QuartetTheme.canvas)
+            .mainTabBarBottomInset(mainTabBarInset)
             .navigationTitle("使用统计")
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await loadStats() }

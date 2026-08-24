@@ -71,14 +71,6 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.buttons["job-action-pin"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.buttons["job-action-rename"].exists)
         XCTAssertTrue(app.buttons["job-action-delete"].exists)
-        app.swipeDown()
-
-        let job = app.buttons["job-job-chat-running"]
-        XCTAssertTrue(job.waitForExistence(timeout: 2))
-        job.swipeLeft()
-        XCTAssertTrue(app.buttons["job-swipe-pin-job-chat-running"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.buttons["job-swipe-rename-job-chat-running"].exists)
-        XCTAssertTrue(app.buttons["job-swipe-delete-job-chat-running"].exists)
     }
 
     func testConversationAndSettingsFlows() {
@@ -135,20 +127,35 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 2))
         XCTAssertFalse(app.descendants(matching: .any)["main-tab-bar"].exists)
 
-        let screenshot = XCUIScreen.main.screenshot()
-        let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = "聊天页底部背景"
+        // The bug this guards was transient: the chat was laid out correctly from the first frame,
+        // but the bottom strip stayed clipped to the old (tab bar era) height for a few frames and
+        // rendered as bare canvas. A single settled screenshot cannot see it, so sample a burst.
+        let rects = [
+            CGRect(x: 0.05, y: 0.955, width: 0.25, height: 0.03),
+            CGRect(x: 0.70, y: 0.955, width: 0.25, height: 0.03)
+        ]
+        var darkest: (index: Int, luminance: CGFloat, screenshot: XCUIScreenshot)?
+        for index in 0..<12 {
+            let shot = XCUIScreen.main.screenshot()
+            let luminance = shot.averageLuminance(inNormalizedRects: rects)
+            if darkest == nil || luminance < darkest!.luminance {
+                darkest = (index, luminance, shot)
+            }
+        }
+
+        guard let darkest else {
+            return XCTFail("未能采集到聊天页截图")
+        }
+
+        let attachment = XCTAttachment(screenshot: darkest.screenshot)
+        attachment.name = "聊天页底部最暗帧 #\(darkest.index)"
         attachment.lifetime = .keepAlways
         add(attachment)
 
-        let bottomLuminance = screenshot.averageLuminance(inNormalizedRects: [
-            CGRect(x: 0.05, y: 0.955, width: 0.25, height: 0.03),
-            CGRect(x: 0.70, y: 0.955, width: 0.25, height: 0.03)
-        ])
         XCTAssertGreaterThan(
-            bottomLuminance,
-            0.02,
-            "聊天页底部安全区不应露出纯黑窗口背景"
+            darkest.luminance,
+            0.10,
+            "聊天页底部安全区在进入过程中露出了窗口背景（最暗帧 #\(darkest.index)，亮度 \(darkest.luminance)）"
         )
     }
 
@@ -381,7 +388,7 @@ final class QuartetUITests: XCTestCase {
         }
 
         let jobButtons = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH 'job-' AND NOT identifier BEGINSWITH 'job-time-' AND NOT identifier BEGINSWITH 'job-swipe-'")
+            NSPredicate(format: "identifier BEGINSWITH 'job-' AND NOT identifier BEGINSWITH 'job-time-'")
         )
         XCTAssertTrue(jobButtons.firstMatch.waitForExistence(timeout: 30))
 

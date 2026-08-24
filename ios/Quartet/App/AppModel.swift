@@ -25,12 +25,18 @@ final class AppModel: ObservableObject {
     struct GraphJobState: Equatable, Sendable {
         let status: String
         let lastError: String?
+        /// `JobSummary.updatedAt` of the newest Job record this Graph status was observed against.
+        /// The detailed Graph status is only trusted while the Job record has not advanced past it:
+        /// every Graph transition also rewrites the Job (bumping `updatedAt`), so a newer Job record
+        /// means this entry describes a superseded run state and must not override `job.status`.
+        let jobUpdatedAt: Int64
         let updatedAt: Date
     }
 
     private struct OptimisticJobExecution {
         let baseline: JobSummary
         let display: JobSummary
+        let startedAt: Date
     }
 
     static let defaultServerAddress = "https://devbox.fanlv.fun/"
@@ -579,6 +585,7 @@ final class AppModel: ObservableObject {
         guard job.mode == "graph" else { return }
         if !force,
            let current = graphJobStates[job.id],
+           current.jobUpdatedAt >= job.updatedAt,
            Date().timeIntervalSince(current.updatedAt) < 10 {
             return
         }
@@ -590,10 +597,14 @@ final class AppModel: ObservableObject {
     }
 
     func displayedStatus(for job: JobSummary) -> String {
-        optimisticJobExecutions[job.id] != nil
-            ? "running"
-            : graphJobStates[job.id]?.status
-            ?? job.status
+        if optimisticJobExecutions[job.id] != nil {
+            return "running"
+        }
+        guard let graphState = graphJobStates[job.id],
+              graphState.jobUpdatedAt >= job.updatedAt else {
+            return job.status
+        }
+        return graphState.status
     }
 
     func displayedStatusLabel(for job: JobSummary) -> String {
@@ -800,7 +811,8 @@ final class AppModel: ObservableObject {
         let display = current.updating(status: "running", updatedAt: max(current.updatedAt, now))
         optimisticJobExecutions[id] = OptimisticJobExecution(
             baseline: baseline,
-            display: display
+            display: display,
+            startedAt: Date()
         )
         upsertVisibleJob(display)
         hasPendingSync = true
@@ -1165,11 +1177,14 @@ final class AppModel: ObservableObject {
         isDataStale = false
         hasPendingSync = false
         isUsingCachedData = false
-        graphJobStates["job-graph-waiting"] = GraphJobState(
-            status: "awaitingInput",
-            lastError: nil,
-            updatedAt: Date()
-        )
+        if let waitingGraphJob = uiTestJobs.first(where: { $0.id == "job-graph-waiting" }) {
+            graphJobStates[waitingGraphJob.id] = GraphJobState(
+                status: "awaitingInput",
+                lastError: nil,
+                jobUpdatedAt: waitingGraphJob.updatedAt,
+                updatedAt: Date()
+            )
+        }
         phase = .connected
     }
 
@@ -1343,6 +1358,7 @@ final class AppModel: ObservableObject {
     }
 
     private func applyFirstPage(_ response: JobsPage) {
+        pruneExpiredOptimisticJobExecutions()
         var merged = response.jobs.map(reconcileOptimisticJobExecution)
         appendMissingOptimisticJobs(to: &merged)
         merged.sort(by: jobComesBefore)
@@ -1352,6 +1368,7 @@ final class AppModel: ObservableObject {
     }
 
     private func applyPolledFirstPage(_ response: JobsPage) {
+        pruneExpiredOptimisticJobExecutions()
         let previousJobs = jobs
         let previousByID = Dictionary(uniqueKeysWithValues: previousJobs.map { ($0.id, $0) })
         let fetchedIDs = Set(response.jobs.map(\.id))
@@ -1412,6 +1429,22 @@ final class AppModel: ObservableObject {
             merged.append(optimistic.display)
         }
     }
+
+    /// Bounds how long an optimistic "running" overlay may outlive the sync that should have replaced
+    /// it. `reconcileOptimisticJobExecution` needs the server to report either `running` or a state
+    /// newer than the baseline, and neither arrives when a run starts and finishes inside a single poll
+    /// interval, or when the baseline was stamped from a device clock running ahead of the server's.
+    /// Without an expiry that row would show a spinning "running" for the rest of the session, keeping
+    /// the pending-sync notice up and the dashboard pinned to the 5 second poll interval with it.
+    private func pruneExpiredOptimisticJobExecutions() {
+        guard !optimisticJobExecutions.isEmpty else { return }
+        let now = Date()
+        optimisticJobExecutions = optimisticJobExecutions.filter { _, optimistic in
+            now.timeIntervalSince(optimistic.startedAt) <= Self.optimisticJobExecutionLifetime
+        }
+    }
+
+    private static let optimisticJobExecutionLifetime: TimeInterval = 120
 
     private func upsertVisibleJob(_ job: JobSummary) {
         guard shouldDisplayJob(job) else { return }
@@ -1549,9 +1582,14 @@ final class AppModel: ObservableObject {
     ) {
         guard let run = response.run else { return }
         let jobID = job.id
+        // The response was just fetched from the server, so it is at least as fresh as every Job record
+        // already in hand: stamp it with the newest known revision so an older route snapshot (a pushed
+        // GraphRunView holds a frozen `JobSummary`) cannot make the entry look outdated right away.
+        let observedJobUpdatedAt = max(job.updatedAt, jobSummary(id: jobID)?.updatedAt ?? 0)
         let state = GraphJobState(
             status: run.status,
             lastError: run.lastError?.fullDetail ?? response.progress?.lastError,
+            jobUpdatedAt: observedJobUpdatedAt,
             updatedAt: Date()
         )
         graphStates[jobID] = state

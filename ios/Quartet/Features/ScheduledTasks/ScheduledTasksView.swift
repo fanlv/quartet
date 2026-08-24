@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ScheduledTasksView: View {
+    @Environment(\.mainTabBarInset) private var mainTabBarInset
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 12) {
@@ -20,6 +22,7 @@ struct ScheduledTasksView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, 24)
             .background(QuartetTheme.canvas)
+            .mainTabBarBottomInset(mainTabBarInset)
             .navigationTitle("定时任务")
             .navigationBarTitleDisplayMode(.inline)
         }

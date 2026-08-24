@@ -4,11 +4,11 @@ import UIKit
 struct JobsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.mainTabBarInset) private var mainTabBarInset
     @Binding private var showsMainTabBar: Bool
     @State private var path: [ChatRoute] = []
     @State private var presentsNewConversation = false
     @State private var actionPresentation: JobActionPresentation?
-    @State private var swipedActionJobID: String?
     @State private var presentsConnectionStatus = false
 
     init(showsMainTabBar: Binding<Bool>) {
@@ -22,18 +22,21 @@ struct JobsView: View {
                     connectionNotice
                     sectionHeader
                     jobList
-                    if showsMainTabBar {
-                        Color.clear
-                            .frame(height: 96)
-                            .accessibilityHidden(true)
-                    }
                 }
             }
             .background(QuartetTheme.canvas)
+            .mainTabBarBottomInset(mainTabBarInset)
             .navigationTitle("运行台")
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await model.refreshDashboard() }
-            .task { await model.refreshAgentCatalog() }
+            // Keyed on connectivity rather than a bare `.task`: launching offline with cached jobs used
+            // to raise a modal error sheet for a secondary concern on top of the non-modal connection
+            // notice, and it never retried afterwards, so agent/model names stayed as raw ids for the
+            // rest of the session. The unreachable-server error itself stays visible in that notice.
+            .task(id: model.connectionState.isConnected) {
+                guard model.connectionState.isConnected else { return }
+                await model.refreshAgentCatalog()
+            }
             .task(id: dashboardPollingConfiguration) {
                 let configuration = dashboardPollingConfiguration
                 guard configuration.isActive, !model.isRunningUITests else { return }
@@ -232,13 +235,20 @@ struct JobsView: View {
                             agentReference: job.agentId,
                             agents: model.agentCatalogSnapshot
                         ),
-                        isShowingSwipeActions: isShowingActionsBinding(for: job),
                         onOpen: { openJob(job) },
-                        onShowActions: { presentActions(for: job) },
-                        onTogglePinned: { togglePinned(job) },
-                        onRename: { presentActions(for: job, initialContent: .rename) },
-                        onDelete: { presentActions(for: job, initialContent: .deleteConfirmation) }
+                        onShowActions: { presentActions(for: job) }
                     )
+                    // Replacing the swipe gesture with the timestamp button left VoiceOver users with
+                    // no rotor entries for these three, only the sheet behind that button.
+                    .accessibilityAction(named: (job.pinnedAt ?? 0) > 0 ? "取消置顶" : "置顶") {
+                        togglePinned(job)
+                    }
+                    .accessibilityAction(named: "重命名") {
+                        presentActions(for: job, initialContent: .rename)
+                    }
+                    .accessibilityAction(named: "删除任务") {
+                        presentActions(for: job, initialContent: .deleteConfirmation)
+                    }
 
                     if index < model.jobs.count - 1 {
                         Divider()
@@ -247,7 +257,7 @@ struct JobsView: View {
                     }
                 }
                 .background(QuartetTheme.surface)
-                .task(id: job.id) {
+                .task(id: GraphStatusRefreshKey(job: job)) {
                     await model.refreshGraphStatusIfNeeded(for: job)
                 }
             }
@@ -331,7 +341,6 @@ struct JobsView: View {
     }
 
     private func openJob(_ job: JobSummary) {
-        swipedActionJobID = nil
         setMainTabBarVisible(false)
         path.append(ChatRoute(
             summary: job,
@@ -365,7 +374,6 @@ struct JobsView: View {
     }
 
     private func togglePinned(_ job: JobSummary) {
-        swipedActionJobID = nil
         Task {
             do { try await model.setJobPinned(id: job.id, pinned: (job.pinnedAt ?? 0) == 0) }
             catch { model.present(error) }
@@ -376,21 +384,7 @@ struct JobsView: View {
         for job: JobSummary,
         initialContent: JobActionSheetContent = .actions
     ) {
-        swipedActionJobID = nil
         actionPresentation = JobActionPresentation(job: job, initialContent: initialContent)
-    }
-
-    private func isShowingActionsBinding(for job: JobSummary) -> Binding<Bool> {
-        Binding(
-            get: { swipedActionJobID == job.id },
-            set: { isShowing in
-                if isShowing {
-                    swipedActionJobID = job.id
-                } else if swipedActionJobID == job.id {
-                    swipedActionJobID = nil
-                }
-            }
-        )
     }
 
     private func connectionHeadline(_ state: AppModel.ConnectionState) -> String {
@@ -446,6 +440,20 @@ private struct DashboardPollingConfiguration: Equatable {
     let hasActiveJobs: Bool
     let workspaceID: String?
     let hidesScheduledJobs: Bool
+}
+
+/// Identity of a row's Graph status fetch. Keyed on the Job revision as well as the id so a row
+/// refetches whenever the poll brings a newer Job record — every Graph transition rewrites the Job,
+/// and a `job.id`-only key would leave the first fetch cached for the lifetime of the row.
+/// Non-graph rows carry a constant revision so their (no-op) task is not restarted on every poll.
+private struct GraphStatusRefreshKey: Equatable {
+    let jobID: String
+    let revision: Int64
+
+    init(job: JobSummary) {
+        jobID = job.id
+        revision = job.mode == "graph" ? job.updatedAt : 0
+    }
 }
 
 private struct JobActionPresentation: Identifiable {
@@ -754,50 +762,15 @@ private struct JobActionsSheet: View {
 }
 
 private struct JobRow: View {
-    private let actionButtonWidth: CGFloat = 58
-    private let actionButtonSpacing: CGFloat = 8
-    private let trailingPadding: CGFloat = 12
-
     let job: JobSummary
     let workspace: WorkspaceSummary?
     let displayedStatus: String
     let agentName: String?
     let modelName: String?
-    @Binding var isShowingSwipeActions: Bool
     let onOpen: () -> Void
     let onShowActions: () -> Void
-    let onTogglePinned: () -> Void
-    let onRename: () -> Void
-    let onDelete: () -> Void
-
-    @GestureState private var dragTranslation: CGFloat = 0
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            if isShowingSwipeActions || dragTranslation < 0 {
-                swipeActions
-                    .padding(.trailing, trailingPadding)
-            }
-
-            content
-                .offset(x: rowOffset)
-                .simultaneousGesture(rowDragGesture)
-                .animation(.snappy(duration: 0.22), value: isShowingSwipeActions)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .clipped()
-        .accessibilityAction(named: isPinned ? "取消置顶" : "置顶") {
-            onTogglePinned()
-        }
-        .accessibilityAction(named: "重命名") {
-            onRename()
-        }
-        .accessibilityAction(named: "删除任务") {
-            onDelete()
-        }
-    }
-
-    private var content: some View {
         HStack(alignment: .top, spacing: 8) {
             Button(action: handleOpen) {
                 HStack(alignment: .top, spacing: 12) {
@@ -842,7 +815,6 @@ private struct JobRow: View {
             .accessibilityIdentifier("job-\(job.id)")
 
             timeButton
-                .padding(.top, 25)
         }
         .padding(.leading, 16)
         .padding(.trailing, 12)
@@ -855,117 +827,20 @@ private struct JobRow: View {
         Button(action: onShowActions) {
             JobSentTime(timestamp: job.updatedAt)
                 .foregroundStyle(QuartetTheme.secondaryText)
-                .fixedSize(horizontal: true, vertical: false)
+                .fixedSize(horizontal: true, vertical: true)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(job.displayTitle) 的任务操作")
+        // The timestamp this button renders is the row's only copy of the update time, and the button's
+        // own label would otherwise swallow it, leaving VoiceOver no way to hear when the Job changed.
+        .accessibilityValue("更新于 \(FormattedJobTime.make(timestamp: job.updatedAt, relativeTo: .now).accessibility)")
         .accessibilityHint("点按打开任务操作")
         .accessibilityIdentifier("job-time-\(job.id)")
     }
 
-    private var swipeActions: some View {
-        HStack(spacing: actionButtonSpacing) {
-            swipeActionButton(
-                systemImage: isPinned ? "pin.slash.fill" : "pin.fill",
-                label: isPinned ? "取消置顶" : "置顶",
-                tint: QuartetTheme.accent,
-                identifier: "job-swipe-pin-\(job.id)",
-                action: onTogglePinned
-            )
-            swipeActionButton(
-                systemImage: "pencil",
-                label: "重命名",
-                tint: QuartetTheme.accentDeep,
-                identifier: "job-swipe-rename-\(job.id)",
-                action: onRename
-            )
-            swipeActionButton(
-                systemImage: "trash.fill",
-                label: "删除任务",
-                tint: QuartetTheme.failed,
-                identifier: "job-swipe-delete-\(job.id)",
-                action: onDelete
-            )
-        }
-        .opacity(swipeActionsProgress)
-        .animation(nil, value: dragTranslation)
-        .allowsHitTesting(isShowingSwipeActions)
-        .accessibilityHidden(!isShowingSwipeActions)
-    }
-
-    private func swipeActionButton(
-        systemImage: String,
-        label: String,
-        tint: Color,
-        identifier: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button {
-            closeSwipeActions()
-            action()
-        } label: {
-            Image(systemName: systemImage)
-                .font(.quartet(.control, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 42, height: 42)
-                .background(tint, in: Circle())
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .frame(width: actionButtonWidth, height: 58)
-        .accessibilityLabel(label)
-        .accessibilityIdentifier(identifier)
-    }
-
-    private var rowDragGesture: some Gesture {
-        DragGesture(minimumDistance: 18, coordinateSpace: .local)
-            .updating($dragTranslation) { value, state, _ in
-                let horizontal = value.translation.width
-                let vertical = abs(value.translation.height)
-                guard abs(horizontal) > vertical * 1.3, horizontal < 0 || isShowingSwipeActions else { return }
-                state = value.translation.width
-            }
-            .onEnded { value in
-                let horizontal = value.translation.width
-                let vertical = abs(value.translation.height)
-                guard abs(horizontal) > vertical * 1.3 else { return }
-                withAnimation(.snappy(duration: 0.22)) {
-                    if horizontal < -44 || value.predictedEndTranslation.width < -100 {
-                        isShowingSwipeActions = true
-                    } else if horizontal > 28 || value.predictedEndTranslation.width > 70 {
-                        isShowingSwipeActions = false
-                    }
-                }
-            }
-    }
-
-    private var rowOffset: CGFloat {
-        let base = isShowingSwipeActions ? -swipeActionsWidth : 0
-        let proposed = base + dragTranslation
-        return min(0, max(-swipeActionsWidth, proposed))
-    }
-
-    private var swipeActionsWidth: CGFloat {
-        actionButtonWidth * 3 + actionButtonSpacing * 2 + trailingPadding
-    }
-
-    private var swipeActionsProgress: Double {
-        Double(abs(rowOffset) / swipeActionsWidth)
-    }
-
     private func handleOpen() {
-        if isShowingSwipeActions {
-            closeSwipeActions()
-        } else {
-            onOpen()
-        }
-    }
-
-    private func closeSwipeActions() {
-        withAnimation(.snappy(duration: 0.22)) {
-            isShowingSwipeActions = false
-        }
+        onOpen()
     }
 
     private var metadataTopLine: some View {
@@ -1227,63 +1102,77 @@ private struct JobStatusPalette {
     init(status: String) {
         switch status {
         case "running", "stepstopping":
-            fill = Self.runningFill
-            border = Self.runningBorder
-            primary = Self.runningPrimary
-            badgeForeground = .white
+            self = .running
         case "completed":
-            fill = Self.completedFill
-            border = Self.completedBorder
-            primary = Self.completedPrimary
-            badgeForeground = .white
+            self = .completed
         case "failed", "timedout":
-            fill = Self.failedFill
-            border = Self.failedBorder
-            primary = Self.failedPrimary
-            badgeForeground = .white
+            self = .failed
         case "pending", "awaitinginput":
-            fill = Self.pendingFill
-            border = Self.pendingBorder
-            primary = Self.pendingPrimary
-            badgeForeground = .white
+            self = .pending
         case "stepstopped", "stopped":
-            fill = Self.stoppedFill
-            border = Self.stoppedBorder
-            primary = Self.stoppedPrimary
-            badgeForeground = .white
+            self = .stopped
         default:
-            fill = Self.defaultFill
-            border = Self.defaultBorder
-            primary = Self.defaultPrimary
-            badgeForeground = .white
+            self = .unknown
         }
     }
 
-    private static let runningFill = color(0xDBEAFE)
-    private static let runningBorder = color(0x93C5FD)
-    private static let runningPrimary = color(0x2563EB)
-    private static let completedFill = color(0xDCFCE7)
-    private static let completedBorder = color(0x86EFAC)
-    private static let completedPrimary = color(0x16A34A)
-    private static let failedFill = color(0xFEE2E2)
-    private static let failedBorder = color(0xFCA5A5)
-    private static let failedPrimary = color(0xDC2626)
-    private static let pendingFill = color(0xFEF9C3)
-    private static let pendingBorder = color(0xFDE68A)
-    private static let pendingPrimary = color(0xA16207)
-    private static let stoppedFill = color(0xF3F4F6)
-    private static let stoppedBorder = color(0xD1D5DB)
-    private static let stoppedPrimary = color(0x6B7280)
-    private static let defaultFill = color(0xF1F5F9)
-    private static let defaultBorder = color(0xCBD5E1)
-    private static let defaultPrimary = color(0x64748B)
+    private init(
+        fillLight: UInt32, fillDark: UInt32,
+        borderLight: UInt32, borderDark: UInt32,
+        primaryLight: UInt32, primaryDark: UInt32
+    ) {
+        fill = Self.dynamic(light: fillLight, dark: fillDark)
+        border = Self.dynamic(light: borderLight, dark: borderDark)
+        primary = Self.dynamic(light: primaryLight, dark: primaryDark)
+        // The status glyph sits on a `primary` disc, which is a deep hue in light mode and a bright one
+        // in dark mode, so the glyph has to flip with it to stay readable.
+        badgeForeground = Self.dynamic(light: 0xFFFFFF, dark: 0x07120B)
+    }
 
-    private static func color(_ rgb: UInt32) -> Color {
-        Color(
-            red: Double((rgb >> 16) & 0xff) / 255,
-            green: Double((rgb >> 8) & 0xff) / 255,
-            blue: Double(rgb & 0xff) / 255
-        )
+    // Light values are the original palette, unchanged. The dark values were missing entirely, which
+    // left these tiles rendering as pastel blocks on a near-black row; they keep the same hue at the
+    // depth the rest of the theme uses.
+    private static let running = JobStatusPalette(
+        fillLight: 0xDBEAFE, fillDark: 0x12253F,
+        borderLight: 0x93C5FD, borderDark: 0x1E4E8C,
+        primaryLight: 0x2563EB, primaryDark: 0x60A5FA
+    )
+    private static let completed = JobStatusPalette(
+        fillLight: 0xDCFCE7, fillDark: 0x0E2A19,
+        borderLight: 0x86EFAC, borderDark: 0x1E5B34,
+        primaryLight: 0x16A34A, primaryDark: 0x4ADE80
+    )
+    private static let failed = JobStatusPalette(
+        fillLight: 0xFEE2E2, fillDark: 0x341315,
+        borderLight: 0xFCA5A5, borderDark: 0x7F2A2E,
+        primaryLight: 0xDC2626, primaryDark: 0xFF6B6B
+    )
+    private static let pending = JobStatusPalette(
+        fillLight: 0xFEF9C3, fillDark: 0x2E2708,
+        borderLight: 0xFDE68A, borderDark: 0x6B5410,
+        primaryLight: 0xA16207, primaryDark: 0xFACC15
+    )
+    private static let stopped = JobStatusPalette(
+        fillLight: 0xF3F4F6, fillDark: 0x1C211E,
+        borderLight: 0xD1D5DB, borderDark: 0x39413B,
+        primaryLight: 0x6B7280, primaryDark: 0x9AA3A0
+    )
+    private static let unknown = JobStatusPalette(
+        fillLight: 0xF1F5F9, fillDark: 0x1A1F24,
+        borderLight: 0xCBD5E1, borderDark: 0x39424B,
+        primaryLight: 0x64748B, primaryDark: 0x94A3B8
+    )
+
+    private static func dynamic(light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            let rgb = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(
+                red: CGFloat((rgb >> 16) & 0xff) / 255,
+                green: CGFloat((rgb >> 8) & 0xff) / 255,
+                blue: CGFloat(rgb & 0xff) / 255,
+                alpha: 1
+            )
+        })
     }
 }
 
@@ -1346,49 +1235,54 @@ private struct JobModeGlyph: Shape {
 
 private struct JobSentTime: View {
     let timestamp: Int64
+    /// Lifts the clock down onto the row's metadata line. `@ScaledMetric` because the line it has to
+    /// meet is laid out from the title and metadata fonts, so the offset has to grow with Dynamic Type
+    /// too — a fixed 25pt collides with the title at the larger accessibility text sizes.
+    @ScaledMetric(relativeTo: .subheadline) private var clockTopPadding: CGFloat = 25
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: refreshInterval)) { context in
-            Text(formattedTime(relativeTo: context.date))
+        // `.everyMinute` rather than `.periodic(from: .now, by: 60)`: the rendered text can only change
+        // when the day rolls over, and a `.now` anchor restarts the schedule on every re-render — which
+        // is every 5 seconds while the dashboard is polling active jobs.
+        TimelineView(.everyMinute) { context in
+            let time = FormattedJobTime.make(timestamp: timestamp, relativeTo: context.date)
+            ZStack(alignment: .topTrailing) {
+                if let date = time.date {
+                    Text(date)
+                }
+
+                Text(time.clock)
+                    .padding(.top, clockTopPadding)
+            }
                 .font(.quartet(.detail).monospacedDigit())
-                .lineLimit(1)
-                .accessibilityLabel("发送时间，\(formattedTime(relativeTo: context.date))")
         }
+        // The enclosing button owns the accessibility element, so an inner label here would be dropped.
+        .accessibilityHidden(true)
+    }
+}
+
+private struct FormattedJobTime {
+    let date: String?
+    let clock: String
+
+    var accessibility: String {
+        if let date {
+            return "\(date) \(clock)"
+        }
+        return clock
     }
 
-    private var sentAt: Date {
-        timestamp.quartetDate
-    }
-
-    private var refreshInterval: TimeInterval {
-        let elapsed = Date.now.timeIntervalSince(sentAt)
-        if elapsed < 60 { return 1 }
-        if elapsed < 3_600 { return 30 }
-        return 60
-    }
-
-    private func formattedTime(relativeTo now: Date) -> String {
-        let elapsed = max(0, now.timeIntervalSince(sentAt))
-        if elapsed < 60 {
-            return "Just now"
-        }
-        if elapsed < 3_600 {
-            return "\(Int(elapsed / 60))m ago"
-        }
-
+    static func make(timestamp: Int64, relativeTo now: Date) -> FormattedJobTime {
+        let sentAt = timestamp.quartetDate
         let calendar = Calendar.autoupdatingCurrent
         let components = calendar.dateComponents([.month, .day, .hour, .minute], from: sentAt)
-        let time = String(format: "%02d:%02d", components.hour ?? 0, components.minute ?? 0)
+        let clock = String(format: "%02d:%02d", components.hour ?? 0, components.minute ?? 0)
         if calendar.isDate(sentAt, inSameDayAs: now) {
-            return time
+            return FormattedJobTime(date: nil, clock: clock)
         }
 
-        return String(
-            format: "%02d-%02d %@",
-            components.month ?? 0,
-            components.day ?? 0,
-            time
-        )
+        let date = String(format: "%02d-%02d", components.month ?? 0, components.day ?? 0)
+        return FormattedJobTime(date: date, clock: clock)
     }
 }
 

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.mainTabBarInset) private var mainTabBarInset
     @State private var confirmsClear = false
     @State private var confirmsRestartWeb = false
     @State private var showsRestartSuccess = false
@@ -73,6 +74,7 @@ struct SettingsView: View {
                 .padding(20)
             }
             .background(QuartetTheme.canvas)
+            .mainTabBarBottomInset(mainTabBarInset)
             .navigationTitle("设置")
         }
         .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)

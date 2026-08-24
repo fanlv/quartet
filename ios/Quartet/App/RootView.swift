@@ -32,36 +32,72 @@ struct RootView: View {
     }
 }
 
+private struct MainTabBarInsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    /// Height the docked main tab bar covers at the bottom of the screen, or 0 while it is hidden.
+    /// The tab bar is drawn as an overlay, so scrollable tab content has to reserve this itself.
+    var mainTabBarInset: CGFloat {
+        get { self[MainTabBarInsetKey.self] }
+        set { self[MainTabBarInsetKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Reserves room for the docked main tab bar below `self`.
+    func mainTabBarBottomInset(_ inset: CGFloat) -> some View {
+        safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear
+                .frame(height: max(inset, 0))
+                .accessibilityHidden(true)
+        }
+    }
+}
+
 private struct MainView: View {
     @Binding var selectedTab: Int
     @State private var showsTabBar = true
 
     var body: some View {
         GeometryReader { proxy in
+            let bottomSafeAreaHeight = max(proxy.safeAreaInsets.bottom, 0)
             ZStack {
                 QuartetTheme.canvas.ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    Group {
-                        switch selectedTab {
-                        case 1:
-                            ScheduledTasksView()
-                        case 2:
-                            StatsView()
-                        case 3:
-                            SettingsView()
-                        default:
-                            JobsView(showsMainTabBar: $showsTabBar)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    if showsTabBar {
-                        MainTabBar(selection: $selectedTab, bottomSafeAreaHeight: proxy.safeAreaInsets.bottom)
+                // The tab bar is an overlay rather than a `VStack` sibling on purpose: keeping it out of
+                // the layout flow makes the content region a constant full-screen rect, so pushing the
+                // chat (which hides the tab bar) never resizes the region. Resizing it left the bottom
+                // strip clipped to the old height — rendered as bare canvas — until an unrelated state
+                // change re-dirtied the view a few frames later.
+                Group {
+                    switch selectedTab {
+                    case 1:
+                        ScheduledTasksView()
+                    case 2:
+                        StatsView()
+                    case 3:
+                        SettingsView()
+                    default:
+                        JobsView(showsMainTabBar: $showsTabBar)
                     }
                 }
-                .ignoresSafeArea(.container, edges: showsTabBar ? .bottom : Edge.Set())
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // A `safeAreaInset` here would not reach the ScrollViews inside each tab's
+                // NavigationStack, so the reserved height is published instead and each tab applies
+                // it to its own scrollable content via `mainTabBarInset`.
+                .environment(
+                    \.mainTabBarInset,
+                    showsTabBar ? MainTabBar.height(bottomSafeAreaHeight: bottomSafeAreaHeight) : 0
+                )
+                .overlay(alignment: .bottom) {
+                    if showsTabBar {
+                        MainTabBar(selection: $selectedTab, bottomSafeAreaHeight: bottomSafeAreaHeight)
+                    }
+                }
             }
+            .ignoresSafeArea(.container, edges: .bottom)
         }
         .onChange(of: selectedTab) { _, _ in
             setTabBarVisible(true)
@@ -87,8 +123,12 @@ private struct MainTabBar: View {
         TabItem(id: 2, title: "统计", systemImage: "chart.xyaxis.line"),
         TabItem(id: 3, title: "设置", systemImage: "slider.horizontal.3")
     ]
-    private let contentHeight: CGFloat = 49
+    private static let contentHeight: CGFloat = 49
     private let itemContentVerticalOffset: CGFloat = 5
+
+    static func height(bottomSafeAreaHeight: CGFloat) -> CGFloat {
+        contentHeight + max(bottomSafeAreaHeight, 0)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -108,7 +148,7 @@ private struct MainTabBar: View {
                         .foregroundStyle(selection == item.id ? QuartetTheme.accent : QuartetTheme.secondaryText)
                         .offset(y: itemContentVerticalOffset)
                         .frame(maxWidth: .infinity)
-                        .frame(height: contentHeight)
+                        .frame(height: Self.contentHeight)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -117,7 +157,7 @@ private struct MainTabBar: View {
                     .accessibilityIdentifier("main-tab-\(item.id)")
                 }
             }
-            .frame(height: contentHeight)
+            .frame(height: Self.contentHeight)
             .padding(.horizontal, 4)
 
             if bottomSafeAreaHeight > 0 {
@@ -126,7 +166,7 @@ private struct MainTabBar: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: contentHeight + max(bottomSafeAreaHeight, 0))
+        .frame(height: Self.height(bottomSafeAreaHeight: bottomSafeAreaHeight))
         .background(QuartetTheme.surface)
         .overlay(alignment: .top) {
             Rectangle()
