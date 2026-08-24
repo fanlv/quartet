@@ -64,6 +64,8 @@ struct StatsView: View {
                 .sharedBackgroundVisibility(.hidden)
             }
         }
+        .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .task(id: loadKey) {
             await loadStats()
         }

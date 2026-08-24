@@ -47,6 +47,7 @@ struct JobChatView: View {
     @State private var userIsScrollingMessages = false
     @State private var configuredModels: AgentModelState?
     @State private var configuredThoughtLevels: AgentThoughtLevelState?
+    @State private var agentPreferences: [String: AgentPreferences] = [:]
     @State private var changingACPConfiguration = false
     @State private var configurationPicker: ChatConfigurationPicker?
     @State private var gitBranch = ""
@@ -90,6 +91,16 @@ struct JobChatView: View {
                 await appModel.refreshAgentCatalog()
             }
         }
+        .task(id: route.summary.id) {
+            do {
+                agentPreferences = try await appModel.agentPreferences()
+            } catch is CancellationError {
+                return
+            } catch {
+                agentPreferences = [:]
+                appModel.present(error)
+            }
+        }
         .task(id: workspaceContextKey) {
             await loadGitBranch()
         }
@@ -128,7 +139,7 @@ struct JobChatView: View {
             Task { await appModel.reloadJobs() }
         }
         .alert("停止当前执行？", isPresented: $confirmsStop) {
-            Button("取消", role: .cancel) {}
+            Button("关闭", role: .cancel) {}
             Button("停止", role: .destructive) {
                 Task {
                     do {
@@ -192,6 +203,7 @@ struct JobChatView: View {
                 title: picker.title,
                 options: configurationOptions(for: picker),
                 selectedID: configurationSelectionID(for: picker),
+                favoriteIDs: picker == .model ? favoriteModelIDs : [],
                 onSelect: { id in
                     configurationPicker = nil
                     Task {
@@ -490,6 +502,7 @@ struct JobChatView: View {
                     .accessibilityLabel("发送消息")
                     .accessibilityIdentifier("chat-send")
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 9)
                 .simultaneousGesture(TapGesture().onEnded { composerFocused = false })

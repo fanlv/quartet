@@ -86,6 +86,44 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.buttons["connection-submit"].waitForExistence(timeout: 3))
     }
 
+    func testChatEdgeSwipeBackThenOpensStats() {
+        launchDashboard()
+
+        for _ in 0..<3 {
+            app.buttons["job-job-chat-running"].tap()
+            XCTAssertTrue(app.navigationBars["优化 iOS 交互体验"].waitForExistence(timeout: 5))
+            XCTAssertFalse(app.descendants(matching: .any)["main-tab-bar"].exists)
+
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+            start.press(forDuration: 0.05, thenDragTo: end)
+
+            XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 3))
+            XCTAssertFalse(app.navigationBars["优化 iOS 交互体验"].exists)
+
+            app.buttons["main-tab-1"].tap()
+            XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 3))
+            XCTAssertTrue(app.otherElements["stats-kpis"].exists)
+            app.buttons["main-tab-0"].tap()
+            XCTAssertTrue(app.buttons["job-job-chat-running"].waitForExistence(timeout: 3))
+        }
+    }
+
+    func testRootStatsDoesNotSwipeBackToRecentJobs() {
+        launchDashboard()
+
+        app.buttons["main-tab-1"].tap()
+        XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 3))
+
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: end)
+
+        XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.otherElements["stats-kpis"].exists)
+        XCTAssertFalse(app.buttons["new-conversation-button"].exists)
+    }
+
     func testChatComposerConfigurationAndWorkspaceFooter() {
         launchDashboard()
 

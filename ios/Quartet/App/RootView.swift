@@ -17,6 +17,9 @@ struct RootView: View {
                 MainView(selectedTab: $selectedTab)
             }
         }
+        .background {
+            QuartetTheme.canvas.ignoresSafeArea()
+        }
         .tint(QuartetTheme.accent)
         .task {
             await model.bootstrap()
@@ -35,20 +38,22 @@ private struct MainView: View {
     @State private var showsTabBar = true
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            JobsView(showsMainTabBar: $showsTabBar)
-                .tag(0)
+        VStack(spacing: 0) {
+            Group {
+                switch selectedTab {
+                case 1:
+                    StatsView()
+                case 2:
+                    SettingsView()
+                default:
+                    JobsView(showsMainTabBar: $showsTabBar)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            StatsView()
-                .tag(1)
-
-            SettingsView()
-                .tag(2)
-        }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .safeAreaInset(edge: .bottom, spacing: 0) {
             if showsTabBar {
                 MainTabBar(selection: $selectedTab)
+                    .padding(.bottom, -6)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -80,7 +85,7 @@ private struct MainTabBar: View {
                             .font(.caption2.weight(selection == item.id ? .bold : .semibold))
                     }
                     .foregroundStyle(selection == item.id ? QuartetTheme.accent : QuartetTheme.primaryText)
-                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .frame(maxWidth: .infinity, minHeight: 48)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -90,8 +95,6 @@ private struct MainTabBar: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 4)
         .background(QuartetTheme.surface.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) {
             Rectangle()

@@ -75,6 +75,8 @@ struct SettingsView: View {
             .background(QuartetTheme.canvas)
             .navigationTitle("设置")
         }
+        .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .alert("清除当前连接？", isPresented: $confirmsClear) {
             Button("取消", role: .cancel) {}
             Button("清除连接", role: .destructive) { model.clearConnection() }

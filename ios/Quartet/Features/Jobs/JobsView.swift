@@ -109,6 +109,8 @@ struct JobsView: View {
                 .quartetSheetStyle()
             }
         }
+        .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .onAppear { showsMainTabBar = path.isEmpty }
         .onChange(of: path.isEmpty) { _, isAtRoot in
             showsMainTabBar = isAtRoot
