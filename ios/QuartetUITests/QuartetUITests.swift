@@ -491,6 +491,21 @@ final class QuartetUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts[updatedName].waitForExistence(timeout: 15))
     }
 
+    func testCleanupLiveScheduledTaskArtifacts() throws {
+        #if !LIVE_SCHEDULE_E2E
+            throw XCTSkip("Compile with LIVE_SCHEDULE_E2E to clean real-backend test artifacts.")
+        #endif
+
+        app.launch()
+        guard app.buttons["main-tab-1"].waitForExistence(timeout: 30) else {
+            throw XCTSkip("The device has no reusable Quartet login session.")
+        }
+        app.buttons["main-tab-1"].tap()
+        guard app.navigationBars["定时任务"].waitForExistence(timeout: 10) else { return }
+        removeLiveScheduleArtifacts(prefix: "IOS_E2E_SCHEDULE_")
+        removeLiveScheduleJobs(prefix: "IOS_E2E_SCHEDULE_")
+    }
+
     private func waitForLabel(_ element: XCUIElement, toContain text: String, timeout: TimeInterval = 15) -> Bool {
         let predicate = NSPredicate(format: "label CONTAINS %@", text)
         return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: timeout) == .completed
@@ -520,11 +535,9 @@ final class QuartetUITests: XCTestCase {
     }
 
     private func removeLiveScheduleJobs(prefix: String) {
-        if !app.buttons["main-tab-0"].exists {
-            app.terminate()
-            app.launch()
-            guard app.buttons["main-tab-0"].waitForExistence(timeout: 20) else { return }
-        }
+        app.terminate()
+        app.launch()
+        guard app.buttons["main-tab-0"].waitForExistence(timeout: 20) else { return }
         app.buttons["main-tab-0"].tap()
         let scheduledVisibility = app.buttons["hide-scheduled-jobs-toggle"]
         if scheduledVisibility.waitForExistence(timeout: 5), scheduledVisibility.label.contains("显示定时任务") {
