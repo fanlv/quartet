@@ -773,8 +773,6 @@ private struct GraphGlobalConfigurationView: View {
             .navigationTitle("全局配置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                    .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) { Button("保存") { save() } }
                     .sharedBackgroundVisibility(.hidden)
             }
@@ -926,8 +924,6 @@ private struct GraphNodeConfigurationView: View {
                 await refreshThoughtLevels(for: thoughtLevelSelection)
             }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                    .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") { save() }
                         .disabled(isLinkingThoughtLevels)

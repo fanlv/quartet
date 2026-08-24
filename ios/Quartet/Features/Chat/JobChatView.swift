@@ -698,6 +698,34 @@ struct JobChatView: View {
         configuredModels?.availableModels ?? selectedAgent?.models?.availableModels ?? []
     }
 
+    private var selectedAgentPreferences: AgentPreferences? {
+        if let selectedAgent {
+            return agentPreferences[selectedAgent.agentId] ?? agentPreferences[selectedAgent.type]
+        }
+        guard let reference = chat.agentReferenceForDisplay else { return nil }
+        return agentPreferences[reference]
+    }
+
+    private var favoriteModelIDs: Set<String> {
+        Set(selectedAgentPreferences?.favoriteModelIDs ?? [])
+    }
+
+    private var orderedModels: [AgentModel] {
+        let favoriteOrder = selectedAgentPreferences?.favoriteModelIDs ?? []
+        guard !favoriteOrder.isEmpty else { return availableModels }
+
+        let modelsByID = Dictionary(
+            availableModels.map { ($0.modelId, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var appended = Set<String>()
+        let favorites = favoriteOrder.compactMap { modelID -> AgentModel? in
+            guard appended.insert(modelID).inserted else { return nil }
+            return modelsByID[modelID]
+        }
+        return favorites + availableModels.filter { !appended.contains($0.modelId) }
+    }
+
     private var availableThoughtLevels: [AgentOption] {
         configuredThoughtLevels?.availableThoughtLevels
             ?? selectedAgent?.thoughtLevels?.availableThoughtLevels
@@ -707,7 +735,7 @@ struct JobChatView: View {
     private func configurationOptions(for picker: ChatConfigurationPicker) -> [ChatConfigurationOption] {
         switch picker {
         case .model:
-            return availableModels.map {
+            return orderedModels.map {
                 ChatConfigurationOption(id: $0.modelId, name: $0.name, detail: $0.description)
             }
         case .thoughtLevel:
@@ -1550,55 +1578,91 @@ private struct ChatConfigurationSelectionSheet: View {
     let title: String
     let options: [ChatConfigurationOption]
     let selectedID: String?
+    let favoriteIDs: Set<String>
     let onSelect: (String) -> Void
+
+    private var favoriteOptions: [ChatConfigurationOption] {
+        options.filter { favoriteIDs.contains($0.id) }
+    }
+
+    private var otherOptions: [ChatConfigurationOption] {
+        options.filter { !favoriteIDs.contains($0.id) }
+    }
 
     var body: some View {
         NavigationStack {
-            List(options) { option in
-                Button {
-                    onSelect(option.id)
-                    dismiss()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: option.id == selectedID ? "checkmark.circle.fill" : "circle")
-                            .font(.quartet(.regular, weight: .semibold))
-                            .foregroundStyle(option.id == selectedID ? QuartetTheme.accent : QuartetTheme.secondaryText)
-                            .frame(width: 28)
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(option.name)
-                                .font(.quartet(.control, weight: .semibold))
-                                .foregroundStyle(QuartetTheme.primaryText)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            if let detail = option.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
-                               !detail.isEmpty {
-                                Text(detail)
-                                    .font(.quartet(.detail))
-                                    .foregroundStyle(QuartetTheme.secondaryText)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+            List {
+                if favoriteOptions.isEmpty {
+                    ForEach(options) { option in
+                        optionRow(option)
+                    }
+                } else {
+                    Section("收藏") {
+                        ForEach(favoriteOptions) { option in
+                            optionRow(option)
+                        }
+                    }
+                    if !otherOptions.isEmpty {
+                        Section("其他模型") {
+                            ForEach(otherOptions) { option in
+                                optionRow(option)
                             }
                         }
                     }
-                    .padding(.vertical, 5)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(option.name)
-                .accessibilityAddTraits(option.id == selectedID ? .isSelected : [])
-                .accessibilityIdentifier("chat-configuration-option-\(option.id)")
-                .listRowBackground(QuartetTheme.surface)
             }
+            .listStyle(.plain)
+            .contentMargins(.top, 8, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .background(QuartetTheme.canvas)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-                .sharedBackgroundVisibility(.hidden)
-            }
         }
+    }
+
+    private func optionRow(_ option: ChatConfigurationOption) -> some View {
+        Button {
+            onSelect(option.id)
+            dismiss()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: optionIcon(for: option))
+                    .font(.quartet(.regular, weight: .semibold))
+                    .foregroundStyle(
+                        option.id == selectedID || favoriteIDs.contains(option.id)
+                            ? QuartetTheme.accent
+                            : QuartetTheme.secondaryText
+                    )
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(option.name)
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if let detail = option.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !detail.isEmpty {
+                        Text(detail)
+                            .font(.quartet(.detail))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(option.name)
+        .accessibilityAddTraits(option.id == selectedID ? .isSelected : [])
+        .accessibilityIdentifier("chat-configuration-option-\(option.id)")
+        .listRowBackground(QuartetTheme.surface)
+    }
+
+    private func optionIcon(for option: ChatConfigurationOption) -> String {
+        if option.id == selectedID { return "checkmark.circle.fill" }
+        if favoriteIDs.contains(option.id) { return "star.fill" }
+        return "circle"
     }
 }
 

@@ -78,13 +78,13 @@ struct SettingsView: View {
         .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .alert("清除当前连接？", isPresented: $confirmsClear) {
-            Button("取消", role: .cancel) {}
+            Button("关闭", role: .cancel) {}
             Button("清除连接", role: .destructive) { model.clearConnection() }
         } message: {
             Text("服务地址和本机 Cookie 登录状态都会被删除。")
         }
         .alert("重启 Web？", isPresented: $confirmsRestartWeb) {
-            Button("取消", role: .cancel) {}
+            Button("关闭", role: .cancel) {}
             Button("重启 Web", role: .destructive) {
                 Task {
                     do {

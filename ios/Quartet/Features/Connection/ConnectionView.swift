@@ -33,7 +33,7 @@ struct ConnectionView: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .alert("使用未加密连接？", isPresented: $confirmsHTTP) {
-            Button("取消", role: .cancel) {}
+            Button("关闭", role: .cancel) {}
             Button("继续连接", role: .destructive) {
                 Task { await model.connect() }
             }

@@ -70,7 +70,7 @@ struct GraphRunView: View {
             )
         ) {
             if let confirmation {
-                Button("取消", role: .cancel) {}
+                Button("关闭", role: .cancel) {}
                 Button(confirmation.label, role: confirmation.isDestructive ? .destructive : nil) {
                     Task { await perform(confirmation) }
                 }

@@ -71,7 +71,6 @@ private enum NewConversationMode: String, CaseIterable, Identifiable {
 }
 
 struct NewConversationView: View {
-    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: AppModel
     let onCreated: (ChatRoute) -> Void
 
@@ -189,10 +188,6 @@ struct NewConversationView: View {
             .background(QuartetTheme.canvas)
             .navigationTitle("新任务")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                    .sharedBackgroundVisibility(.hidden)
-            }
             .task(id: creationMode) {
                 if creationMode == .chat, agents.isEmpty {
                     await load()
@@ -1186,12 +1181,6 @@ private struct NewConversationWorkspacePicker: View {
             .background(QuartetTheme.canvas)
             .navigationTitle("选择工作空间")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-                .sharedBackgroundVisibility(.hidden)
-            }
         }
     }
 }
@@ -1289,7 +1278,7 @@ struct MessagePresetHistorySheet: View {
             ) {
                 Button("追加") { applyPendingPreset(append: true) }
                 Button("替换") { applyPendingPreset(append: false) }
-                Button("取消", role: .cancel) { pendingPreset = nil }
+                Button("关闭", role: .cancel) { pendingPreset = nil }
             } message: {
                 Text("请选择替换当前草稿，或把预置消息追加到草稿末尾。")
             }
