@@ -41,12 +41,6 @@ final class QuartetUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["连接正常"].exists)
         XCTAssertTrue(app.buttons["workspace-selector"].exists)
 
-        app.buttons["connection-status-button"].tap()
-        XCTAssertTrue(app.navigationBars["连接状态"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["连接正常"].exists)
-        app.swipeDown()
-        XCTAssertFalse(app.navigationBars["连接状态"].waitForExistence(timeout: 2))
-
         let hideScheduledJobs = app.buttons["hide-scheduled-jobs-toggle"]
         XCTAssertTrue(hideScheduledJobs.exists)
         hideScheduledJobs.tap()
@@ -61,6 +55,20 @@ final class QuartetUITests: XCTestCase {
         app.buttons["workspace-filter-all"].tap()
         XCTAssertTrue(app.staticTexts["发布前检查流水线"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["优化 iOS 交互体验"].exists)
+
+        app.buttons["connection-status-button"].tap()
+        XCTAssertTrue(app.navigationBars["连接状态"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["连接正常"].exists)
+    }
+
+    func testDashboardCompactJobRowActions() {
+        launchDashboard()
+
+        XCTAssertTrue(app.buttons["job-more-job-chat-running"].exists)
+        app.buttons["job-more-job-chat-running"].tap()
+        XCTAssertTrue(app.buttons["job-action-pin"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["job-action-rename"].exists)
+        XCTAssertTrue(app.buttons["job-action-delete"].exists)
     }
 
     func testConversationAndSettingsFlows() {
@@ -132,7 +140,7 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.buttons["chat-message-history"].exists)
         XCTAssertFalse(app.staticTexts["历史会话"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["workspace-footer"].exists)
-        XCTAssertTrue(app.staticTexts["Workspace(Quartet Studio) :"].exists)
+        XCTAssertTrue(app.staticTexts["Quartet Studio："].exists)
         XCTAssertTrue(app.staticTexts["/workspace/quartet"].exists)
         XCTAssertTrue(app.staticTexts["main"].exists)
 

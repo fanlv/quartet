@@ -21,6 +21,11 @@ struct JobsView: View {
                     connectionNotice
                     sectionHeader
                     jobList
+                    if showsMainTabBar {
+                        Color.clear
+                            .frame(height: 96)
+                            .accessibilityHidden(true)
+                    }
                 }
             }
             .background(QuartetTheme.canvas)
@@ -75,6 +80,7 @@ struct JobsView: View {
             .sheet(isPresented: $presentsNewConversation) {
                 NewConversationView { route in
                     presentsNewConversation = false
+                    showsMainTabBar = false
                     path.append(route)
                 }
                 .quartetSheetStyle()
@@ -213,41 +219,19 @@ struct JobsView: View {
         } else {
             ForEach(Array(model.jobs.enumerated()), id: \.element.id) { index, job in
                 VStack(spacing: 0) {
-                    HStack(alignment: .center, spacing: 0) {
-                        NavigationLink(value: ChatRoute(
-                            summary: job,
-                            agentType: job.agentId,
-                            modelID: job.modelId,
-                            modeID: job.acpMode,
-                            thoughtLevelID: job.acpThoughtLevel
-                        )) {
-                            JobRow(
-                                job: job,
-                                workspace: workspace(for: job),
-                                displayedStatus: model.displayedStatus(for: job),
-                                modelName: AgentConfigurationDisplay.modelName(
-                                    job.modelId,
-                                    agentReference: job.agentId,
-                                    agents: model.agentCatalogSnapshot
-                                )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityIdentifier("job-\(job.id)")
-
-                        Button { actionJob = job } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.quartet(.control, weight: .semibold))
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(job.displayTitle) 的更多操作")
-                        .accessibilityIdentifier("job-more-\(job.id)")
-                        .padding(.trailing, 8)
-                    }
+                    JobRow(
+                        job: job,
+                        workspace: workspace(for: job),
+                        displayedStatus: model.displayedStatus(for: job),
+                        agentName: agentName(for: job.agentId),
+                        modelName: AgentConfigurationDisplay.modelName(
+                            job.modelId,
+                            agentReference: job.agentId,
+                            agents: model.agentCatalogSnapshot
+                        ),
+                        onOpen: { openJob(job) },
+                        onActions: { actionJob = job }
+                    )
 
                     if index < model.jobs.count - 1 {
                         Divider()
@@ -337,6 +321,31 @@ struct JobsView: View {
 
     private func workspace(for job: JobSummary) -> WorkspaceSummary? {
         model.workspaces.first { $0.id == job.workspaceId }
+    }
+
+    private func openJob(_ job: JobSummary) {
+        showsMainTabBar = false
+        path.append(ChatRoute(
+            summary: job,
+            agentType: job.agentId,
+            modelID: job.modelId,
+            modeID: job.acpMode,
+            thoughtLevelID: job.acpThoughtLevel
+        ))
+    }
+
+    private func agentName(for reference: String?) -> String? {
+        guard let reference = displayValue(reference) else { return nil }
+        if let agent = model.agentCatalogSnapshot.first(where: { $0.agentId == reference || $0.type == reference }) {
+            return displayValue(agent.displayName) ?? displayValue(agent.type) ?? agent.agentId
+        }
+        return reference
+    }
+
+    private func displayValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 
     private func togglePinned(_ job: JobSummary) {
@@ -691,70 +700,126 @@ private struct JobRow: View {
     let job: JobSummary
     let workspace: WorkspaceSummary?
     let displayedStatus: String
+    let agentName: String?
     let modelName: String?
+    let onOpen: () -> Void
+    let onActions: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            JobModeIcon(mode: job.mode, color: modeColor)
-                .frame(width: 32, height: 32)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(modeText)
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 7) {
-                    Text(job.displayTitle)
-                        .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.primaryText)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if (job.pinnedAt ?? 0) > 0 {
-                        Image(systemName: "pin.fill")
-                            .font(.quartet(.compact, weight: .bold))
-                            .foregroundStyle(QuartetTheme.accent)
-                            .accessibilityHidden(true)
-                    }
-
-                    JobStatusIcon(status: displayedStatus)
-                        .frame(width: 20, height: 20)
+        HStack(alignment: .top, spacing: 8) {
+            Button(action: onOpen) {
+                HStack(alignment: .top, spacing: 12) {
+                    JobModeIcon(mode: job.mode, status: displayedStatus)
+                        .frame(width: 34, height: 34)
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(statusText)
-                }
+                        .accessibilityLabel("\(modeText)，\(statusText)")
+                        .padding(.top, 1)
 
-                HStack(spacing: 6) {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(workspaceColor)
-                            .frame(width: 6, height: 6)
-                        Text(workspaceName)
-                            .lineLimit(1)
-                    }
-                    .layoutPriority(1)
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Text(job.displayTitle)
+                                .font(.quartet(.control, weight: .semibold))
+                                .foregroundStyle(QuartetTheme.primaryText)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Text("·")
+                            if (job.pinnedAt ?? 0) > 0 {
+                                Image(systemName: "pin.fill")
+                                    .font(.quartet(.compact, weight: .bold))
+                                    .foregroundStyle(QuartetTheme.accent)
+                                    .accessibilityHidden(true)
+                            }
+                        }
 
-                    Text(modelName ?? fallbackModelName)
+                        HStack(alignment: .center, spacing: 6) {
+                            metadataTopLine
+                            metadataSeparator
+                            metadataBottomLine
+                            Spacer(minLength: 2)
+                            JobSentTime(timestamp: job.updatedAt)
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .font(.quartet(.detail))
                         .lineLimit(1)
-
-                    Spacer(minLength: 2)
-
-                    if job.scheduleId != nil {
-                        Image(systemName: "calendar.badge.clock")
-                            .accessibilityLabel("定时任务")
+                        .minimumScaleFactor(0.82)
+                        .foregroundStyle(QuartetTheme.secondaryText)
                     }
-
-                    JobSentTime(timestamp: job.updatedAt)
                 }
-                .font(.quartet(.detail))
-                .foregroundStyle(QuartetTheme.secondaryText)
-                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("job-\(job.id)")
+
+            Button(action: onActions) {
+                Image(systemName: "ellipsis")
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .frame(width: 30, height: 30)
+                    .background(QuartetTheme.elevated.opacity(0.7), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(job.displayTitle) 的更多操作")
+            .accessibilityIdentifier("job-more-\(job.id)")
+            .padding(.top, -4)
+            .padding(.trailing, -2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 16)
-        .padding(.trailing, 6)
-        .padding(.vertical, 16)
-        .contentShape(Rectangle())
+        .padding(.trailing, 12)
+        .padding(.vertical, 12)
+    }
+
+    private var metadataTopLine: some View {
+        HStack(spacing: 6) {
+            JobMetadataLabel(
+                text: workspaceName,
+                systemImage: nil,
+                color: workspaceColor,
+                accessibilityLabel: "工作空间，\(workspaceName)"
+            )
+            .layoutPriority(1)
+
+            if let agentDisplayName {
+                metadataSeparator
+
+                JobMetadataLabel(
+                    text: agentDisplayName,
+                    systemImage: "command",
+                    color: QuartetTheme.secondaryText,
+                    accessibilityLabel: "Agent，\(agentDisplayName)"
+                )
+                .layoutPriority(1)
+            }
+        }
+    }
+
+    private var metadataBottomLine: some View {
+        HStack(spacing: 6) {
+            JobMetadataLabel(
+                text: modelName ?? fallbackModelName,
+                systemImage: "cpu",
+                color: QuartetTheme.secondaryText,
+                accessibilityLabel: "模型，\(modelName ?? fallbackModelName)"
+            )
+            .layoutPriority(1)
+
+            if job.scheduleId != nil {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .accessibilityLabel("定时任务")
+            }
+        }
+    }
+
+    private var metadataSeparator: some View {
+        Text("·")
+            .foregroundStyle(QuartetTheme.secondaryText.opacity(0.72))
+            .accessibilityHidden(true)
     }
 
     private var modeText: String {
@@ -790,6 +855,18 @@ private struct JobRow: View {
         return job.mode == "graph" ? "按节点配置" : "未记录模型"
     }
 
+    private var agentDisplayName: String? {
+        if let agentName = agentName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !agentName.isEmpty {
+            return agentName
+        }
+        if let agentID = job.agentId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !agentID.isEmpty {
+            return agentID
+        }
+        return nil
+    }
+
     private var workspaceColor: Color {
         workspace.map(QuartetTheme.workspaceTint) ?? modeColor
     }
@@ -817,28 +894,197 @@ private struct JobRow: View {
     }
 }
 
+private struct JobMetadataLabel: View {
+    let text: String
+    let systemImage: String?
+    let color: Color
+    let accessibilityLabel: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.quartet(.compact, weight: .semibold))
+                    .foregroundStyle(color)
+                    .frame(width: 12)
+            } else {
+                Circle()
+                    .fill(color)
+                    .frame(width: 6, height: 6)
+            }
+            Text(text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .minimumScaleFactor(0.82)
+        }
+        .frame(minWidth: 0, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
 private struct JobModeIcon: View {
     let mode: String?
-    let color: Color
+    let status: String
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(color.opacity(0.11))
+                .fill(palette.fill)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(palette.border, lineWidth: 1)
+                }
 
-            if mode == "loop" {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.quartet(.control, weight: .semibold))
-                    .foregroundStyle(color)
-            } else {
-                JobModeGlyph(mode: mode)
-                    .stroke(
-                        color,
-                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
-                    )
-                    .frame(width: 18, height: 18)
+            if isLive {
+                JobRunningIndicator(color: palette.primary, track: palette.border)
+                    .frame(width: 25, height: 25)
+            }
+
+            modeSymbol
+                .frame(width: 18, height: 18)
+                .foregroundStyle(palette.primary)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if !isLive, let statusSymbol {
+                ZStack {
+                    Circle()
+                        .fill(QuartetTheme.surface)
+                    Circle()
+                        .fill(palette.primary)
+                        .padding(1.5)
+                    Image(systemName: statusSymbol)
+                        .font(.system(size: 6.5, weight: .bold))
+                        .foregroundStyle(palette.badgeForeground)
+                }
+                .frame(width: 13, height: 13)
             }
         }
+    }
+
+    @ViewBuilder
+    private var modeSymbol: some View {
+        if mode == "loop" {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.quartet(.control, weight: .semibold))
+        } else {
+            JobModeGlyph(mode: mode)
+                .stroke(
+                    palette.primary,
+                    style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+                )
+        }
+    }
+
+    private var isLive: Bool {
+        normalizedStatus == "running" || normalizedStatus == "stepstopping"
+    }
+
+    private var statusSymbol: String? {
+        switch normalizedStatus {
+        case "completed": "checkmark"
+        case "failed": "xmark"
+        case "timedout", "pending": "clock"
+        case "awaitinginput": "pause.fill"
+        case "stepstopped", "stopped": "stop.fill"
+        default: nil
+        }
+    }
+
+    private var palette: JobStatusPalette {
+        JobStatusPalette(status: normalizedStatus)
+    }
+
+    private var normalizedStatus: String {
+        status.lowercased()
+    }
+}
+
+private struct JobRunningIndicator: View {
+    let color: Color
+    let track: Color
+    @State private var rotates = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(track.opacity(0.48), lineWidth: 2.4)
+            Circle()
+                .trim(from: 0.08, to: 0.36)
+                .stroke(color, style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
+                .rotationEffect(.degrees(rotates ? 360 : 0))
+        }
+        .onAppear { rotates = true }
+        .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: rotates)
+    }
+}
+
+private struct JobStatusPalette {
+    let fill: Color
+    let border: Color
+    let primary: Color
+    let badgeForeground: Color
+
+    init(status: String) {
+        switch status {
+        case "running", "stepstopping":
+            fill = Self.runningFill
+            border = Self.runningBorder
+            primary = Self.runningPrimary
+            badgeForeground = .white
+        case "completed":
+            fill = Self.completedFill
+            border = Self.completedBorder
+            primary = Self.completedPrimary
+            badgeForeground = .white
+        case "failed", "timedout":
+            fill = Self.failedFill
+            border = Self.failedBorder
+            primary = Self.failedPrimary
+            badgeForeground = .white
+        case "pending", "awaitinginput":
+            fill = Self.pendingFill
+            border = Self.pendingBorder
+            primary = Self.pendingPrimary
+            badgeForeground = .white
+        case "stepstopped", "stopped":
+            fill = Self.stoppedFill
+            border = Self.stoppedBorder
+            primary = Self.stoppedPrimary
+            badgeForeground = .white
+        default:
+            fill = Self.defaultFill
+            border = Self.defaultBorder
+            primary = Self.defaultPrimary
+            badgeForeground = .white
+        }
+    }
+
+    private static let runningFill = color(0xDBEAFE)
+    private static let runningBorder = color(0x93C5FD)
+    private static let runningPrimary = color(0x2563EB)
+    private static let completedFill = color(0xDCFCE7)
+    private static let completedBorder = color(0x86EFAC)
+    private static let completedPrimary = color(0x16A34A)
+    private static let failedFill = color(0xFEE2E2)
+    private static let failedBorder = color(0xFCA5A5)
+    private static let failedPrimary = color(0xDC2626)
+    private static let pendingFill = color(0xFEF9C3)
+    private static let pendingBorder = color(0xFDE68A)
+    private static let pendingPrimary = color(0xA16207)
+    private static let stoppedFill = color(0xF3F4F6)
+    private static let stoppedBorder = color(0xD1D5DB)
+    private static let stoppedPrimary = color(0x6B7280)
+    private static let defaultFill = color(0xF1F5F9)
+    private static let defaultBorder = color(0xCBD5E1)
+    private static let defaultPrimary = color(0x64748B)
+
+    private static func color(_ rgb: UInt32) -> Color {
+        Color(
+            red: Double((rgb >> 16) & 0xff) / 255,
+            green: Double((rgb >> 8) & 0xff) / 255,
+            blue: Double(rgb & 0xff) / 255
+        )
     }
 }
 
@@ -896,96 +1142,6 @@ private struct JobModeGlyph: Shape {
             path.closeSubpath()
         }
         return path
-    }
-}
-
-private struct JobStatusIcon: View {
-    let status: String
-
-    var body: some View {
-        Group {
-            if isLive {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(Self.runningStroke)
-            } else {
-                ZStack {
-                    Circle()
-                        .fill(iconPalette.fill)
-                    Circle()
-                        .stroke(iconPalette.border, lineWidth: 1.25)
-                    if let statusSymbol {
-                        Image(systemName: statusSymbol)
-                            .font(.quartet(.compact, weight: .bold))
-                            .foregroundStyle(iconPalette.foreground)
-                    }
-                }
-            }
-        }
-    }
-
-    private var isLive: Bool {
-        normalizedStatus == "running" || normalizedStatus == "stepstopping"
-    }
-
-    private var statusSymbol: String? {
-        switch normalizedStatus {
-        case "completed": "checkmark"
-        case "failed": "xmark"
-        case "timedout": "clock"
-        case "pending": "clock"
-        case "awaitinginput": "pause.fill"
-        case "stepstopped", "stopped": "stop.fill"
-        default: nil
-        }
-    }
-
-    private var iconPalette: IconPalette {
-        switch normalizedStatus {
-        case "completed":
-            IconPalette(fill: Self.completedFill, border: Self.completedBorder, foreground: Self.completedForeground)
-        case "failed", "timedout":
-            IconPalette(fill: Self.failedFill, border: Self.failedBorder, foreground: Self.failedForeground)
-        case "pending", "awaitinginput":
-            IconPalette(fill: Self.pendingFill, border: Self.pendingBorder, foreground: Self.pendingForeground)
-        case "stepstopped", "stopped":
-            IconPalette(fill: Self.stoppedFill, border: Self.stoppedBorder, foreground: Self.stoppedForeground)
-        default:
-            IconPalette(fill: Self.defaultFill, border: Self.defaultBorder, foreground: Self.defaultBorder)
-        }
-    }
-
-    private var normalizedStatus: String { status.lowercased() }
-
-    private struct IconPalette {
-        let fill: Color
-        let border: Color
-        let foreground: Color
-    }
-
-    // Keep the dashboard status language in sync with the Web home page.
-    private static let runningStroke = color(0x2563EB)
-    private static let completedFill = color(0xDCFCE7)
-    private static let completedBorder = color(0x22C55E)
-    private static let completedForeground = color(0x16A34A)
-    private static let failedFill = color(0xFEE2E2)
-    private static let failedBorder = color(0xEF4444)
-    private static let failedForeground = color(0xDC2626)
-    private static let pendingFill = color(0xFEF9C3)
-    private static let pendingBorder = color(0xEAB308)
-    private static let pendingForeground = color(0xA16207)
-    private static let stoppedFill = color(0xF3F4F6)
-    private static let stoppedBorder = color(0x9CA3AF)
-    private static let stoppedForeground = color(0x9CA3AF)
-    private static let defaultFill = color(0xF1F5F9)
-    private static let defaultBorder = color(0xCBD5E1)
-
-    private static func color(_ rgb: UInt32) -> Color {
-        Color(
-            red: Double((rgb >> 16) & 0xff) / 255,
-            green: Double((rgb >> 8) & 0xff) / 255,
-            blue: Double(rgb & 0xff) / 255
-        )
     }
 }
 

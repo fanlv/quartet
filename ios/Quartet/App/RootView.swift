@@ -38,26 +38,27 @@ private struct MainView: View {
     @State private var showsTabBar = true
 
     var body: some View {
-        VStack(spacing: 0) {
-            Group {
-                switch selectedTab {
-                case 1:
-                    StatsView()
-                case 2:
-                    SettingsView()
-                default:
-                    JobsView(showsMainTabBar: $showsTabBar)
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                Group {
+                    switch selectedTab {
+                    case 1:
+                        StatsView()
+                    case 2:
+                        SettingsView()
+                    default:
+                        JobsView(showsMainTabBar: $showsTabBar)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if showsTabBar {
+                    MainTabBar(selection: $selectedTab, bottomSafeAreaHeight: proxy.safeAreaInsets.bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if showsTabBar {
-                MainTabBar(selection: $selectedTab)
-                    .padding(.bottom, -14)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+            .ignoresSafeArea(.container, edges: showsTabBar ? .bottom : Edge.Set())
         }
-        .animation(.snappy(duration: 0.24), value: showsTabBar)
         .onChange(of: selectedTab) { _, _ in
             showsTabBar = true
         }
@@ -66,36 +67,54 @@ private struct MainView: View {
 
 private struct MainTabBar: View {
     @Binding var selection: Int
+    let bottomSafeAreaHeight: CGFloat
 
     private let items = [
         TabItem(id: 0, title: "最近任务", systemImage: "clock.arrow.circlepath"),
         TabItem(id: 1, title: "统计", systemImage: "chart.xyaxis.line"),
         TabItem(id: 2, title: "设置", systemImage: "slider.horizontal.3")
     ]
+    private let contentHeight: CGFloat = 49
+    private let itemContentVerticalOffset: CGFloat = 5
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(items) { item in
-                Button { selection = item.id } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: item.systemImage)
-                            .font(.system(size: 21, weight: selection == item.id ? .semibold : .medium))
-                            .symbolVariant(selection == item.id ? .fill : .none)
-                        Text(item.title)
-                            .font(.caption2.weight(selection == item.id ? .bold : .semibold))
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(items) { item in
+                    Button { selection = item.id } label: {
+                        VStack(spacing: 1) {
+                            Image(systemName: item.systemImage)
+                                .font(.system(size: 22, weight: selection == item.id ? .semibold : .regular))
+                                .symbolVariant(selection == item.id ? .fill : .none)
+                                .frame(height: 25)
+                            Text(item.title)
+                                .font(.quartet(.compact, weight: selection == item.id ? .semibold : .regular))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.86)
+                        }
+                        .foregroundStyle(selection == item.id ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                        .offset(y: itemContentVerticalOffset)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: contentHeight)
+                        .contentShape(Rectangle())
                     }
-                    .foregroundStyle(selection == item.id ? QuartetTheme.accent : QuartetTheme.primaryText)
-                    .frame(maxWidth: .infinity, minHeight: 48)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(item.title)
+                    .accessibilityAddTraits(selection == item.id ? .isSelected : [])
+                    .accessibilityIdentifier("main-tab-\(item.id)")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(item.title)
-                .accessibilityAddTraits(selection == item.id ? .isSelected : [])
-                .accessibilityIdentifier("main-tab-\(item.id)")
+            }
+            .frame(height: contentHeight)
+            .padding(.horizontal, 4)
+
+            if bottomSafeAreaHeight > 0 {
+                Color.clear
+                    .frame(height: bottomSafeAreaHeight)
             }
         }
-        .padding(.horizontal, 12)
-        .background(QuartetTheme.surface.ignoresSafeArea(edges: .bottom))
+        .frame(maxWidth: .infinity)
+        .frame(height: contentHeight + max(bottomSafeAreaHeight, 0))
+        .background(QuartetTheme.surface)
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(QuartetTheme.divider)

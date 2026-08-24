@@ -619,7 +619,7 @@ struct JobChatView: View {
         HStack(spacing: 6) {
             Image(systemName: "square.stack.3d.up")
                 .foregroundStyle(QuartetTheme.accent)
-            Text("Workspace(\(workspaceName ?? route.summary.workspaceId ?? "—")) :")
+            Text("\(workspaceName ?? route.summary.workspaceId ?? "—")：")
                 .font(.quartet(.compact, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
                 .lineLimit(1)
@@ -1591,32 +1591,59 @@ private struct ChatConfigurationSelectionSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if favoriteOptions.isEmpty {
-                    ForEach(options) { option in
-                        optionRow(option)
-                    }
-                } else {
-                    Section("收藏") {
-                        ForEach(favoriteOptions) { option in
-                            optionRow(option)
-                        }
-                    }
-                    if !otherOptions.isEmpty {
-                        Section("其他模型") {
-                            ForEach(otherOptions) { option in
-                                optionRow(option)
-                            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if favoriteOptions.isEmpty {
+                        optionGroup(options)
+                    } else {
+                        optionGroup(favoriteOptions, title: "收藏")
+                        if !otherOptions.isEmpty {
+                            optionGroup(otherOptions, title: "其他模型")
                         }
                     }
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
-            .listStyle(.plain)
-            .contentMargins(.top, 8, for: .scrollContent)
-            .scrollContentBackground(.hidden)
             .background(QuartetTheme.canvas)
-            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(title)
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .accessibilityAddTraits(.isHeader)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func optionGroup(_ groupOptions: [ChatConfigurationOption], title: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let title {
+                Text(title)
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .padding(.horizontal, 4)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(groupOptions.enumerated()), id: \.element.id) { index, option in
+                    optionRow(option)
+                    if index < groupOptions.count - 1 {
+                        Divider()
+                            .overlay(QuartetTheme.divider)
+                            .padding(.leading, 56)
+                    }
+                }
+            }
+            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 1)
+            }
         }
     }
 
@@ -1649,14 +1676,14 @@ private struct ChatConfigurationSelectionSheet: View {
                     }
                 }
             }
-            .padding(.vertical, 5)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(option.name)
         .accessibilityAddTraits(option.id == selectedID ? .isSelected : [])
         .accessibilityIdentifier("chat-configuration-option-\(option.id)")
-        .listRowBackground(QuartetTheme.surface)
     }
 
     private func optionIcon(for option: ChatConfigurationOption) -> String {
