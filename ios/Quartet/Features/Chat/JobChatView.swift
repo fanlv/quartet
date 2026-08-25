@@ -433,6 +433,12 @@ struct JobChatView: View {
                 WrappingHStack(spacing: 7) {
                     composerContext
 
+                    ComposerMetadataChip(
+                        icon: "text.word.spacing",
+                        text: chat.tokenCountLabel,
+                        accessibilityLabel: chat.tokenCountAccessibilityLabel
+                    )
+
                     Button {
                         composerFocused = false
                         loadSentMessageHistory()
@@ -531,7 +537,7 @@ struct JobChatView: View {
                     .accessibilityLabel("发送消息")
                     .accessibilityIdentifier("chat-send")
 
-                    composerUsage
+                    composerAgentUsage
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
@@ -614,13 +620,8 @@ struct JobChatView: View {
         }
     }
 
-    private var composerUsage: some View {
+    private var composerAgentUsage: some View {
         Group {
-            ComposerMetadataChip(
-                icon: "text.word.spacing",
-                text: chat.tokenCountLabel,
-                accessibilityLabel: chat.tokenCountAccessibilityLabel
-            )
             if let agentType = agentRuntimeType {
                 AgentUsageStrip(
                     command: agentType,

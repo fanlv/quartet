@@ -4,6 +4,7 @@ import UIKit
 
 struct JobDetailView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.openURL) private var openURL
     let summary: JobSummary
 
     @State private var detail: JobDetail?
@@ -22,7 +23,7 @@ struct JobDetailView: View {
                     HStack { Spacer(); ProgressView(); Spacer() }.padding(.top, 40)
                 } else if let detail {
                     metadata(detail)
-                    webLinkButton(detail)
+                    webLinkActions(detail)
                     if let latestError = detail.latestRunLastError ?? graphState?.lastError, !latestError.isEmpty {
                         latestErrorCard(latestError)
                     }
@@ -139,29 +140,58 @@ struct JobDetailView: View {
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
     }
 
-    private func webLinkButton(_ detail: JobDetail) -> some View {
-        Button { copyWebLink(for: detail) } label: {
-            HStack(spacing: 12) {
-                Image(systemName: copiedWebLink ? "checkmark.circle.fill" : "link")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(copiedWebLink ? "Web 链接已复制" : "获取 Web 链接")
-                        .font(.quartet(.control, weight: .semibold))
-                    Text("复制后可在浏览器中直接打开此 Job")
-                        .font(.quartet(.detail))
-                        .opacity(0.82)
+    private func webLinkActions(_ detail: JobDetail) -> some View {
+        VStack(spacing: 10) {
+            Button { copyWebLink(for: detail) } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: copiedWebLink ? "checkmark.circle.fill" : "link")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(copiedWebLink ? "Web 链接已复制" : "获取 Web 链接")
+                            .font(.quartet(.control, weight: .semibold))
+                        Text("复制后可在浏览器中直接打开此 Job")
+                            .font(.quartet(.detail))
+                            .opacity(0.82)
+                    }
+                    Spacer()
+                    Image(systemName: "doc.on.doc")
                 }
-                Spacer()
-                Image(systemName: "doc.on.doc")
+                .foregroundStyle(QuartetTheme.onAccent)
+                .padding(.horizontal, 18)
+                .frame(minHeight: 58)
+                .background(QuartetTheme.accentDeep, in: RoundedRectangle(cornerRadius: 14))
             }
-            .foregroundStyle(QuartetTheme.onAccent)
-            .padding(.horizontal, 18)
-            .frame(minHeight: 58)
-            .background(QuartetTheme.accentDeep, in: RoundedRectangle(cornerRadius: 14))
+            .buttonStyle(.plain)
+            .accessibilityLabel(copiedWebLink ? "Web 链接已复制" : "获取 Web 链接")
+            .accessibilityHint("复制可在 Quartet Web 端打开当前 Job 的链接")
+            .accessibilityIdentifier("job-web-link")
+
+            Button { openWebLink(for: detail) } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "safari")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("在浏览器中打开")
+                            .font(.quartet(.control, weight: .semibold))
+                        Text("通过 Quartet Web 查看当前 Job")
+                            .font(.quartet(.detail))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.up.right.square")
+                }
+                .foregroundStyle(QuartetTheme.accentDeep)
+                .padding(.horizontal, 18)
+                .frame(minHeight: 58)
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(QuartetTheme.accentDeep, lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("在浏览器中打开")
+            .accessibilityHint("使用系统浏览器打开当前 Job 的 Quartet Web 页面")
+            .accessibilityIdentifier("job-open-in-browser")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(copiedWebLink ? "Web 链接已复制" : "获取 Web 链接")
-        .accessibilityHint("复制可在 Quartet Web 端打开当前 Job 的链接")
-        .accessibilityIdentifier("job-web-link")
     }
 
     private var stopButton: some View {
@@ -214,6 +244,21 @@ struct JobDetailView: View {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
                 copiedWebLink = false
+            }
+        } catch {
+            model.present(error)
+        }
+    }
+
+    private func openWebLink(for detail: JobDetail) {
+        do {
+            let url = try webURL(for: detail)
+            openURL(url) { accepted in
+                guard !accepted else { return }
+                model.present(APIError(
+                    summary: "无法打开 Web 链接",
+                    detail: "系统浏览器未接受当前 URL。\nURL：\n\(url.absoluteString)\n工作空间：\n\(detail.workspaceId)\nJob ID：\n\(detail.id)"
+                ))
             }
         } catch {
             model.present(error)
