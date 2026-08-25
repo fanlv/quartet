@@ -48,6 +48,12 @@
     </dict>
     <key>UIApplicationSupportsIndirectInputEvents</key>
     <true/>
+    <key>UIAppFonts</key>
+    <array>
+        <string>NotoSansSC-Regular.ttf</string>
+        <string>NotoSansSC-Medium.ttf</string>
+        <string>NotoSansSC-Bold.ttf</string>
+    </array>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>

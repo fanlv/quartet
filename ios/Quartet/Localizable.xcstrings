@@ -8498,6 +8498,22 @@
           }
         }
       }
+    },
+    "统计工作区": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -668,7 +668,7 @@ struct JobChatView: View {
                 .foregroundStyle(QuartetTheme.primaryText)
                 .lineLimit(1)
             Text(path)
-                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                .font(.chat(.compact, weight: .medium, design: .monospaced))
                 .foregroundStyle(QuartetTheme.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)

@@ -32,6 +32,9 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
 
     static var currentLocale: Locale {
 #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-language-en") {
+            return Locale(identifier: "en")
+        }
         if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--ui-testing-") }) {
             return Locale(identifier: "zh-Hans")
         }
@@ -43,7 +46,17 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
     }
 
     static func localized(_ key: String) -> String {
-        String(localized: String.LocalizationValue(key), locale: currentLocale)
+        localized(key, locale: currentLocale)
+    }
+
+    static func localized(_ key: String, locale: Locale) -> String {
+        let languageCode = locale.language.languageCode?.identifier.lowercased()
+        let resourceName = languageCode == "zh" ? "zh-Hans" : "en"
+        guard let path = Bundle.main.path(forResource: resourceName, ofType: "lproj"),
+              let localizedBundle = Bundle(path: path) else {
+            return key
+        }
+        return localizedBundle.localizedString(forKey: key, value: key, table: nil)
     }
 
     static func localizedFormat(_ key: String, _ arguments: CVarArg...) -> String {
@@ -53,4 +66,8 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
 
 extension String {
     var localizedForApp: String { AppLanguage.localized(self) }
+
+    func localized(in locale: Locale) -> String {
+        AppLanguage.localized(self, locale: locale)
+    }
 }

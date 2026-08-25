@@ -32,6 +32,9 @@
 		A10000000000000000000036 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000036 /* AppLanguage.swift */; };
 		A10000000000000000000037 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000037 /* Localizable.xcstrings */; };
 		A10000000000000000000038 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000038 /* InfoPlist.xcstrings */; };
+		A10000000000000000000039 /* NotoSansSC-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000039 /* NotoSansSC-Regular.ttf */; };
+		A1000000000000000000003A /* NotoSansSC-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003A /* NotoSansSC-Medium.ttf */; };
+		A1000000000000000000003B /* NotoSansSC-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003B /* NotoSansSC-Bold.ttf */; };
 		A10000000000000000000011 /* DashboardCacheStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* DashboardCacheStore.swift */; };
 		A10000000000000000000012 /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* StatsView.swift */; };
 		A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* GraphWorkflowLaunchView.swift */; };
@@ -79,6 +82,10 @@
 		A20000000000000000000036 /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		A20000000000000000000037 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		A20000000000000000000038 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		A20000000000000000000039 /* NotoSansSC-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "NotoSansSC-Regular.ttf"; sourceTree = "<group>"; };
+		A2000000000000000000003A /* NotoSansSC-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "NotoSansSC-Medium.ttf"; sourceTree = "<group>"; };
+		A2000000000000000000003B /* NotoSansSC-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "NotoSansSC-Bold.ttf"; sourceTree = "<group>"; };
+		A2000000000000000000003C /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		A20000000000000000000012 /* DashboardCacheStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardCacheStore.swift; sourceTree = "<group>"; };
 		A20000000000000000000013 /* StatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* GraphWorkflowLaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphWorkflowLaunchView.swift; sourceTree = "<group>"; };
@@ -147,6 +154,7 @@
 				A20000000000000000000015 /* Assets.xcassets */,
 				A20000000000000000000037 /* Localizable.xcstrings */,
 				A20000000000000000000038 /* InfoPlist.xcstrings */,
+				A40000000000000000000014 /* Fonts */,
 				A40000000000000000000003 /* App */,
 				A40000000000000000000004 /* Core */,
 				A40000000000000000000008 /* Features */,
@@ -161,6 +169,17 @@
 				A20000000000000000000003 /* RootView.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000014 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000039 /* NotoSansSC-Regular.ttf */,
+				A2000000000000000000003A /* NotoSansSC-Medium.ttf */,
+				A2000000000000000000003B /* NotoSansSC-Bold.ttf */,
+				A2000000000000000000003C /* OFL.txt */,
+			);
+			path = Resources/Fonts;
 			sourceTree = "<group>";
 		};
 		A40000000000000000000004 /* Core */ = {
@@ -408,6 +427,9 @@
 				A10000000000000000000014 /* Assets.xcassets in Resources */,
 				A10000000000000000000037 /* Localizable.xcstrings in Resources */,
 				A10000000000000000000038 /* InfoPlist.xcstrings in Resources */,
+				A10000000000000000000039 /* NotoSansSC-Regular.ttf in Resources */,
+				A1000000000000000000003A /* NotoSansSC-Medium.ttf in Resources */,
+				A1000000000000000000003B /* NotoSansSC-Bold.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -186,8 +186,9 @@ struct MarkdownTextBlock: View {
 
     /// 含汉字的行自然行高约 1.40em、纯拉丁行只有约 1.18em（苹方与 SF Pro 的 asc+desc
     /// 实测值），补上这一档行距后中文段落落在 1.7em 左右 —— 手机上读长回复的舒适区间。
+    /// 行距跟着聊天页字号一起收，不然字变小了、行间的空反而显得更空。
     /// `@ScaledMetric` 让行距跟着动态字号一起长，不然放大字号后行会黏在一起。
-    @ScaledMetric(relativeTo: .body) private var lineSpacing: CGFloat = 5
+    @ScaledMetric(relativeTo: .body) private var lineSpacing: CGFloat = 4
 
     var body: some View {
         content
@@ -213,7 +214,7 @@ struct CodeBlockView: View {
     let tone: MarkdownTone
 
     /// 等宽字重的行距比正文小一档：代码靠缩进读结构，行距太大反而拆散了块。
-    @ScaledMetric(relativeTo: .footnote) private var lineSpacing: CGFloat = 3
+    @ScaledMetric(relativeTo: .footnote) private var lineSpacing: CGFloat = 2.5
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

@@ -107,7 +107,7 @@ struct AssistantMessageCard: View {
     let agentIconUrl: String?
 
     /// 与 `CodeBlockView` 同一档行距，让 shell 输出和代码块看起来是同一种“终端”文本。
-    @ScaledMetric(relativeTo: .footnote) private var shellLineSpacing: CGFloat = 3
+    @ScaledMetric(relativeTo: .footnote) private var shellLineSpacing: CGFloat = 2.5
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

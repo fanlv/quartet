@@ -237,6 +237,24 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["按工作区"].exists)
     }
 
+    func testUsageStatsEnglishLocalization() {
+        app.launchArguments = ["--ui-testing-dashboard", "--ui-testing-language-en"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["main-tab-2"].waitForExistence(timeout: 5))
+        app.buttons["main-tab-2"].tap()
+        XCTAssertTrue(app.navigationBars["Usage Statistics"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.otherElements["stats-kpis"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Total time"].exists)
+        XCTAssertTrue(app.staticTexts["Turns"].exists)
+        XCTAssertTrue(app.staticTexts["Workspaces"].exists)
+        XCTAssertTrue(app.staticTexts["By Workspace"].exists)
+        XCTAssertTrue(app.staticTexts["Usage Trend"].exists)
+        XCTAssertTrue(app.staticTexts["Total"].exists)
+        XCTAssertFalse(app.staticTexts["总耗时"].exists)
+        XCTAssertFalse(app.staticTexts["总计"].exists)
+    }
+
     func testRecentJobsScrollAboveDockedTabBar() {
         app.launchArguments = ["--ui-testing-docked-tabbar"]
         app.launch()

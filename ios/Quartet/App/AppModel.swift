@@ -130,7 +130,9 @@ final class AppModel: ObservableObject {
         } else {
             // Existing UI tests assert the original Chinese copy. Keep their fixture
             // deterministic while production installs follow the device by default.
-            appLanguage = detectedUITestScenario == nil ? .system : .simplifiedChinese
+            appLanguage = processArguments.contains("--ui-testing-language-en")
+                ? .english
+                : (detectedUITestScenario == nil ? .system : .simplifiedChinese)
         }
         let storedServerAddress = effectiveDefaults.string(forKey: StorageKey.serverAddress) ?? Self.defaultServerAddress
         let storedCredentialNamespace = effectiveDefaults.string(forKey: StorageKey.credentialCacheNamespace) ?? UUID().uuidString

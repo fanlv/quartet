@@ -170,18 +170,45 @@ extension Font {
     }
 }
 
-/// 中英混排的字体栈：拉丁字形取 SF Pro / SF Mono，汉字经 cascade list 显式指向苹方。
+/// 中英混排的字体栈。
 ///
-/// 系统默认回退最终也会落到苹方，但有两件事必须自己接管：
-/// 1. 回退结果取决于设备的语言偏好顺序 —— 日文优先的设备会把汉字渲染成 Hiragino 的
-///    字形，同一段中文在不同人手机上长相不同；
-/// 2. 回退把拉丁字重原样套给汉字，`semibold` 的中文在手机尺寸下明显发胖。这里让
-///    semibold 落到苹方 Medium、bold 落到苹方 Semibold —— 公开家族里最重的就是
-///    Semibold，`PingFangSC-Bold` 并不存在，直接引用会被静默替换成 Helvetica。
+/// 混排“不好看”的根因不是某一种字体丑，而是拉丁和汉字来自两套互不相干的设计：SF Pro 的
+/// x 高度、字重曲线和竖直居中都跟苹方对不上，同一段里英文显得偏小偏高、中文偏大偏低；
+/// 实测纯拉丁行的自然行高只有汉字行的 84%（1.18em vs 1.40em），中英交替的段落基线一直在跳。
+/// 所以正文换成中英同源的字族：思源黑体 SC（Noto Sans SC，SIL OFL）的拉丁与汉字出自同一
+/// 套设计，整段的 x 高度、字重和行高是一条线，混排的节奏才对得上。
+///
+/// 想换字体只改 `family` 一行。字族没装上（打包漏文件、文件损坏）时自动退回系统的
+/// SF Pro + 苹方，不会出现豆腐块。
 ///
 /// 注意：给字体描述符追加符号特征（`.bold`/`.italic`）会丢掉 cascade list，汉字随即
 /// 退回系统回退。所以需要加粗的地方要在这里按字重取字体，而不是在 `Text` 上套 `.bold()`。
 enum QuartetTypeface {
+    /// 正文字族。
+    private static let family: Family = .notoSansSC
+
+    enum Family {
+        /// SF Pro + 苹方，系统默认栈。
+        case system
+        /// 思源黑体 SC，随 App 打包；GB2312 子集，约 2.4MB/字重。
+        case notoSansSC
+
+        /// 该字族在此字重下的字面名，`nil` 表示走系统栈。
+        fileprivate func face(for weight: UIFont.Weight) -> String? {
+            switch self {
+            case .system:
+                nil
+            case .notoSansSC:
+                // 只打包了 400/500/700 三个字重：常规、强调（标题与 semibold）、加粗。
+                switch weight.rawValue {
+                case ..<UIFont.Weight.medium.rawValue: "NotoSansSC-Regular"
+                case ..<UIFont.Weight.bold.rawValue: "NotoSansSC-Medium"
+                default: "NotoSansSC-Bold"
+                }
+            }
+        }
+    }
+
     static func uiFont(
         _ size: QuartetFontSize,
         weight: UIFont.Weight = .regular,
@@ -204,20 +231,43 @@ enum QuartetTypeface {
         weight: UIFont.Weight,
         design: UIFontDescriptor.SystemDesign
     ) -> UIFont {
-        let latin = UIFont.systemFont(ofSize: pointSize, weight: weight)
-        // withDesign 会保留字重，`.default` 时等价于原描述符。
-        let base = latin.fontDescriptor.withDesign(design) ?? latin.fontDescriptor
-        guard let han = hanFace(for: weight) else { return UIFont(descriptor: base, size: pointSize) }
+        // `.default` 之外的设计（等宽、圆体）是拉丁字形本身的诉求，正文字族没有对应字面，
+        // 所以拉丁保留 SF Mono / SF Rounded，只把汉字接到正文字族上。
+        guard design == .default, let face = family.face(for: weight), cache.isInstalled(face) else {
+            let latin = UIFont.systemFont(ofSize: pointSize, weight: weight)
+            // withDesign 会保留字重，`.default` 时等价于原描述符。
+            let base = latin.fontDescriptor.withDesign(design) ?? latin.fontDescriptor
+            return cascading(base, to: hanCascade(for: weight), pointSize: pointSize)
+        }
+        // 字族已经同时覆盖中英文，cascade 只用来兜住子集里没有的生僻字和繁体。
+        let base = UIFontDescriptor(fontAttributes: [.name: face])
+        return cascading(base, to: [pingFangFace(for: weight)], pointSize: pointSize)
+    }
+
+    /// 汉字的回退顺序：先用正文字族，字族取不到或子集缺字时落到苹方。
+    private static func hanCascade(for weight: UIFont.Weight) -> [String] {
+        [family.face(for: weight), pingFangFace(for: weight)].compactMap { $0 }
+    }
+
+    /// 只保留确认装机的字面。名字匹配不上时 CoreText 会替换成 Helvetica 之类完全没有
+    /// 汉字的字体，所以宁可丢掉这一级、把汉字交回系统回退。
+    private static func cascading(
+        _ base: UIFontDescriptor,
+        to faces: [String],
+        pointSize: CGFloat
+    ) -> UIFont {
+        let installed = faces.filter { cache.isInstalled($0) }
+        guard !installed.isEmpty else { return UIFont(descriptor: base, size: pointSize) }
         let descriptor = base.addingAttributes([
-            .cascadeList: [UIFontDescriptor(fontAttributes: [.name: han])]
+            .cascadeList: installed.map { UIFontDescriptor(fontAttributes: [.name: $0]) }
         ])
         return UIFont(descriptor: descriptor, size: pointSize)
     }
 
-    /// 只返回确认装机的字面。名字匹配不上时 CoreText 会替换成 Helvetica 之类完全没有
-    /// 汉字的字体，所以宁可返回 nil、把汉字交回系统回退。
-    private static func hanFace(for weight: UIFont.Weight) -> String? {
-        let face: String = switch weight.rawValue {
+    /// 最后一级汉字兜底。苹方一定装机，但公开家族里最重的只有 Semibold ——
+    /// `PingFangSC-Bold` 并不存在，直接引用会被静默替换成 Helvetica。
+    private static func pingFangFace(for weight: UIFont.Weight) -> String {
+        switch weight.rawValue {
         case ..<UIFont.Weight.thin.rawValue: "PingFangSC-Ultralight"
         case ..<UIFont.Weight.light.rawValue: "PingFangSC-Thin"
         case ..<UIFont.Weight.regular.rawValue: "PingFangSC-Light"
@@ -226,7 +276,6 @@ enum QuartetTypeface {
         case ..<UIFont.Weight.bold.rawValue: "PingFangSC-Medium"
         default: "PingFangSC-Semibold"
         }
-        return cache.isInstalled(face) ? face : nil
     }
 
     fileprivate struct Key: Hashable {

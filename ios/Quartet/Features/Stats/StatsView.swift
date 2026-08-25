@@ -5,6 +5,7 @@ import UIKit
 struct StatsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.locale) private var locale
     @Environment(\.mainTabBarInset) private var mainTabBarInset
 
     @State private var preset: StatsRangePreset = .thirtyDays
@@ -96,7 +97,7 @@ struct StatsView: View {
                 HStack(spacing: 8) {
                     ForEach(StatsRangePreset.allCases) { item in
                         Button { preset = item } label: {
-                            Text(item.title)
+                            Text(item.title.localized(in: locale))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(preset == item ? QuartetTheme.onAccent : QuartetTheme.secondaryText)
                                 .padding(.horizontal, 13)
@@ -237,7 +238,7 @@ struct StatsView: View {
     }
 
     private func rangeLabel(_ range: UsageStatsRange) -> String {
-        guard !range.from.isEmpty, !range.to.isEmpty else { return "全部".localizedForApp }
+        guard !range.from.isEmpty, !range.to.isEmpty else { return "全部".localized(in: locale) }
         return "\(String(range.from.dropFirst(5))) – \(String(range.to.dropFirst(5)))"
     }
 
@@ -258,11 +259,11 @@ private enum StatsRangePreset: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .sevenDays: "7 天".localizedForApp
-        case .thirtyDays: "30 天".localizedForApp
-        case .ninetyDays: "90 天".localizedForApp
-        case .allTime: "全部".localizedForApp
-        case .custom: "自定义".localizedForApp
+        case .sevenDays: "7 天"
+        case .thirtyDays: "30 天"
+        case .ninetyDays: "90 天"
+        case .allTime: "全部"
+        case .custom: "自定义"
         }
     }
 
@@ -285,14 +286,15 @@ private enum StatsTrendMetric: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .duration: "耗时".localizedForApp
-        case .turns: "轮次".localizedForApp
+        case .duration: "耗时"
+        case .turns: "轮次"
         case .tokens: "Token"
         }
     }
 }
 
 private struct StatsKPIGrid: View {
+    @Environment(\.locale) private var locale
     let report: UsageStatsReport
     let periodDays: Int
 
@@ -303,7 +305,7 @@ private struct StatsKPIGrid: View {
                     HStack {
                         Image(systemName: card.icon)
                             .foregroundStyle(card.color)
-                        Text(card.title)
+                        Text(card.title.localized(in: locale))
                             .font(.caption.weight(.medium))
                             .foregroundStyle(QuartetTheme.secondaryText)
                         Spacer(minLength: 0)
@@ -335,11 +337,11 @@ private struct StatsKPIGrid: View {
             tools += row.toolCallCount
         }
         return [
-            StatsKPICard(id: "duration", title: "总耗时".localizedForApp, value: StatsFormat.duration(totalMs), current: Double(totalMs), previous: report.previous.map { Double($0.totalMs) }, icon: "clock", color: QuartetTheme.accent),
-            StatsKPICard(id: "turns", title: "总轮次".localizedForApp, value: StatsFormat.count(turns), current: Double(turns), previous: report.previous.map { Double($0.turnCount) }, icon: "bubble.left.and.bubble.right", color: QuartetTheme.chartGreen),
+            StatsKPICard(id: "duration", title: "总耗时", value: StatsFormat.duration(totalMs), current: Double(totalMs), previous: report.previous.map { Double($0.totalMs) }, icon: "clock", color: QuartetTheme.accent),
+            StatsKPICard(id: "turns", title: "总轮次", value: StatsFormat.count(turns), current: Double(turns), previous: report.previous.map { Double($0.turnCount) }, icon: "bubble.left.and.bubble.right", color: QuartetTheme.chartGreen),
             StatsKPICard(id: "tokens", title: "Token", value: StatsFormat.count(tokens), current: Double(tokens), previous: report.previous.map { Double(StatsFormat.displayedTokens($0.tokensTotal)) }, icon: "text.word.spacing", color: QuartetTheme.running),
-            StatsKPICard(id: "tools", title: "工具调用".localizedForApp, value: StatsFormat.count(tools), current: Double(tools), previous: report.previous.map { Double($0.toolCallCount) }, icon: "wrench.and.screwdriver", color: QuartetTheme.chartForest),
-            StatsKPICard(id: "workspaces", title: "工作区".localizedForApp, value: StatsFormat.count(report.byWorkspace.count), current: Double(report.byWorkspace.count), previous: report.previous.map { Double($0.workspaceCount) }, icon: "square.grid.2x2", color: QuartetTheme.chartGraphite)
+            StatsKPICard(id: "tools", title: "工具调用", value: StatsFormat.count(tools), current: Double(tools), previous: report.previous.map { Double($0.toolCallCount) }, icon: "wrench.and.screwdriver", color: QuartetTheme.chartForest),
+            StatsKPICard(id: "workspaces", title: "统计工作区", value: StatsFormat.count(report.byWorkspace.count), current: Double(report.byWorkspace.count), previous: report.previous.map { Double($0.workspaceCount) }, icon: "square.grid.2x2", color: QuartetTheme.chartGraphite)
         ]
     }
 }
@@ -355,6 +357,7 @@ private struct StatsKPICard: Identifiable {
 }
 
 private struct StatsDeltaLabel: View {
+    @Environment(\.locale) private var locale
     let current: Double
     let previous: Double?
     let periodDays: Int
@@ -369,8 +372,9 @@ private struct StatsDeltaLabel: View {
                     systemImage: delta >= 0 ? "arrow.up.right" : "arrow.down.right"
                 )
                 .foregroundStyle(delta >= 0 ? QuartetTheme.accent : QuartetTheme.secondaryText)
-                .accessibilityLabel(AppLanguage.localizedFormat(
-                    delta >= 0 ? "较前 %lld 天增加 %lld%%" : "较前 %lld 天减少 %lld%%",
+                .accessibilityLabel(String(
+                    format: (delta >= 0 ? "较前 %lld 天增加 %lld%%" : "较前 %lld 天减少 %lld%%").localized(in: locale),
+                    locale: locale,
                     Int64(periodDays),
                     Int64(roundedDelta)
                 ))
@@ -391,6 +395,7 @@ private struct StatsDeltaLabel: View {
 }
 
 private struct StatsTrendCard: View {
+    @Environment(\.locale) private var locale
     let report: UsageStatsReport
     @Binding var metric: StatsTrendMetric
     @State private var selectedDate: Date?
@@ -406,15 +411,15 @@ private struct StatsTrendCard: View {
                     ForEach(StatsTrendMetric.allCases) { item in
                         Button { metric = item } label: {
                             if metric == item {
-                                Label(item.title, systemImage: "checkmark")
+                                Label(item.title.localized(in: locale), systemImage: "checkmark")
                             } else {
-                                Text(item.title)
+                                Text(item.title.localized(in: locale))
                             }
                         }
                     }
                 } label: {
                     HStack(spacing: 5) {
-                        Text(metric.title)
+                        Text(metric.title.localized(in: locale))
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.caption2.weight(.bold))
                     }
@@ -424,7 +429,11 @@ private struct StatsTrendCard: View {
                     .frame(height: 30)
                     .background(QuartetTheme.accent.opacity(0.1), in: Capsule())
                 }
-                .accessibilityLabel(AppLanguage.localizedFormat("趋势指标，当前为%@", metric.title))
+                .accessibilityLabel(String(
+                    format: "趋势指标，当前为%@".localized(in: locale),
+                    locale: locale,
+                    metric.title.localized(in: locale)
+                ))
                 .accessibilityIdentifier("stats-trend-metric")
             }
 
@@ -437,9 +446,9 @@ private struct StatsTrendCard: View {
                 Chart(series) { line in
                     ForEach(line.points) { point in
                         LineMark(
-                            x: .value("日期".localizedForApp, point.date),
-                            y: .value(metric.title, point.value),
-                            series: .value("系列".localizedForApp, line.id)
+                            x: .value("日期".localized(in: locale), point.date),
+                            y: .value(metric.title.localized(in: locale), point.value),
+                            series: .value("系列".localized(in: locale), line.id)
                         )
                         .foregroundStyle(line.color)
                         .lineStyle(StrokeStyle(lineWidth: line.isTotal ? 2.7 : 1.8, lineCap: .round, lineJoin: .round))
@@ -447,8 +456,8 @@ private struct StatsTrendCard: View {
 
                         if line.isTotal {
                             PointMark(
-                                x: .value("日期".localizedForApp, point.date),
-                                y: .value(metric.title, point.value)
+                                x: .value("日期".localized(in: locale), point.date),
+                                y: .value(metric.title.localized(in: locale), point.value)
                             )
                             .foregroundStyle(line.color)
                             .symbolSize(18)
@@ -456,7 +465,7 @@ private struct StatsTrendCard: View {
                     }
 
                     if let selectedDate {
-                        RuleMark(x: .value("选中日期".localizedForApp, selectedDate))
+                        RuleMark(x: .value("选中日期".localized(in: locale), selectedDate))
                             .foregroundStyle(QuartetTheme.secondaryText.opacity(0.55))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                     }
@@ -481,7 +490,11 @@ private struct StatsTrendCard: View {
                 }
                 .chartXSelection(value: $selectedDate)
                 .frame(height: 220)
-                .accessibilityLabel(AppLanguage.localizedFormat("%@使用趋势图", metric.title))
+                .accessibilityLabel(String(
+                    format: "%@使用趋势图".localized(in: locale),
+                    locale: locale,
+                    metric.title.localized(in: locale)
+                ))
 
                 if let selectedDay {
                     HStack {
@@ -532,7 +545,7 @@ private struct StatsTrendCard: View {
         guard !days.isEmpty else { return [] }
         var result = [StatsTrendSeries(
             id: "__total__",
-            name: "总计".localizedForApp,
+            name: "总计".localized(in: locale),
             color: QuartetTheme.accent,
             isTotal: true,
             points: days.compactMap { row in
@@ -560,7 +573,8 @@ private struct StatsTrendCard: View {
             QuartetTheme.chartGraphite
         ]
         for (index, modelID) in modelIDs.enumerated() {
-            let name = days.compactMap { $0.modelNames?[modelID] }.first ?? StatsFormat.modelName(modelID)
+            let name = days.compactMap { $0.modelNames?[modelID] }.first
+                ?? StatsFormat.modelName(modelID, locale: locale)
             let points = days.compactMap { row -> StatsTrendPoint? in
                 guard let date = StatsFormat.date(row.date) else { return nil }
                 var value = row.models?[modelID].map { StatsFormat.metricValue($0, metric: metric) } ?? 0
@@ -573,7 +587,7 @@ private struct StatsTrendCard: View {
                 return StatsTrendPoint(dateKey: row.date, date: date, value: value)
             }
             result.append(StatsTrendSeries(
-                id: modelID, name: StatsFormat.modelName(name),
+                id: modelID, name: StatsFormat.modelName(name, locale: locale),
                 color: palette[index % palette.count], isTotal: false, points: points
             ))
         }
@@ -616,6 +630,7 @@ private struct StatsTrendPoint: Identifiable {
 }
 
 private struct StatsWorkspaceRankCard: View {
+    @Environment(\.locale) private var locale
     let rows: [UsageStatsWorkspaceRow]
 
     var body: some View {
@@ -626,7 +641,7 @@ private struct StatsWorkspaceRankCard: View {
                 StatsRankItem(
                     id: row.workspaceId,
                     label: (row.workspaceName?.isEmpty == false ? row.workspaceName! : row.workspaceId)
-                        + (row.deleted == true ? "（已删除）".localizedForApp : ""),
+                        + (row.deleted == true ? "（已删除）".localized(in: locale) : ""),
                     value: StatsFormat.duration(row.totalMs),
                     raw: Double(row.totalMs)
                 )
@@ -636,6 +651,7 @@ private struct StatsWorkspaceRankCard: View {
 }
 
 private struct StatsModelRankCard: View {
+    @Environment(\.locale) private var locale
     let rows: [UsageStatsModelRow]
 
     var body: some View {
@@ -645,7 +661,10 @@ private struct StatsModelRankCard: View {
             items: rows.map { row in
                 StatsRankItem(
                     id: row.modelId,
-                    label: StatsFormat.modelName(row.modelName?.isEmpty == false ? row.modelName! : row.modelId),
+                    label: StatsFormat.modelName(
+                        row.modelName?.isEmpty == false ? row.modelName! : row.modelId,
+                        locale: locale
+                    ),
                     value: StatsFormat.duration(row.totalMs),
                     raw: Double(row.totalMs)
                 )
@@ -669,6 +688,7 @@ private struct StatsToolRankCard: View {
 }
 
 private struct StatsRankCard: View {
+    @Environment(\.locale) private var locale
     let title: String
     let emptyText: String
     let items: [StatsRankItem]
@@ -681,12 +701,12 @@ private struct StatsRankCard: View {
         let maximum = ranked.map(\.raw).max() ?? 0
 
         VStack(alignment: .leading, spacing: 14) {
-            Text(title.localizedForApp)
+            Text(title.localized(in: locale))
                 .font(.headline)
                 .foregroundStyle(QuartetTheme.primaryText)
 
             if ranked.isEmpty {
-                Text(emptyText.localizedForApp)
+                Text(emptyText.localized(in: locale))
                     .font(.subheadline)
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, minHeight: 72)
@@ -716,7 +736,12 @@ private struct StatsRankCard: View {
                         .accessibilityHidden(true)
                     }
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel(AppLanguage.localizedFormat("%@，%@", item.label, item.value))
+                    .accessibilityLabel(String(
+                        format: "%@，%@".localized(in: locale),
+                        locale: locale,
+                        item.label,
+                        item.value
+                    ))
                 }
 
                 if hiddenCount > 0 {
@@ -793,9 +818,9 @@ private enum StatsFormat {
         return Calendar.current.date(from: DateComponents(year: values[0], month: values[1], day: values[2]))
     }
 
-    static func modelName(_ value: String) -> String {
+    static func modelName(_ value: String, locale: Locale = AppLanguage.currentLocale) -> String {
         value.isEmpty || value == unknownModelID || value == "__unknown_model__"
-            ? "未知模型".localizedForApp
+            ? "未知模型".localized(in: locale)
             : value
     }
 
