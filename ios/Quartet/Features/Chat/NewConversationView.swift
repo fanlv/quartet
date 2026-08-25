@@ -286,7 +286,8 @@ struct NewConversationView: View {
                     title: picker.title,
                     choices: choices(for: picker),
                     selection: selectionBinding(for: picker),
-                    accessibilityPrefix: "new-task-\(picker.rawValue)-option"
+                    accessibilityPrefix: "new-task-\(picker.rawValue)-option",
+                    favoriteIDs: picker == .model ? favoriteModelIDs : []
                 )
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()

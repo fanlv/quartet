@@ -149,11 +149,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    var activeJobCount: Int {
+    var activeJobs: [JobSummary] {
         jobs.filter { job in
             let status = displayedStatus(for: job)
             return status == "running" || status == "pending" || status == "stepStopping"
-        }.count
+        }
+    }
+
+    var activeJobCount: Int {
+        activeJobs.count
     }
 
     var selectedWorkspace: WorkspaceSummary? {

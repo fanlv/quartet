@@ -14,6 +14,7 @@ struct JobsView: View {
     @State private var actionPresentation: JobActionPresentation?
     @State private var presentsConnectionStatus = false
     @State private var presentsWorkspaceSelector = false
+    @State private var showsOnlyActiveJobs = false
 
     init(showsMainTabBar: Binding<Bool>) {
         _showsMainTabBar = showsMainTabBar
@@ -217,20 +218,41 @@ struct JobsView: View {
         if model.jobs.isEmpty && model.isRefreshing {
             HStack { Spacer(); ProgressView(); Spacer() }
                 .padding(.top, 80)
-        } else if model.jobs.isEmpty {
+        } else if visibleJobs.isEmpty {
             ContentUnavailableView {
-                Label("暂无 Job", systemImage: "waveform.path")
+                Label(
+                    LocalizedStringKey(showsOnlyActiveJobs ? "暂无进行中的 Job" : "暂无 Job"),
+                    systemImage: showsOnlyActiveJobs ? "line.3.horizontal.decrease.circle" : "waveform.path"
+                )
             } description: {
-                Text((model.selectedWorkspace == nil ? "当前筛选下还没有任务。" : "这个工作空间在当前筛选下还没有任务。").localizedForApp)
+                Text((showsOnlyActiveJobs
+                    ? "当前没有进行中的任务。"
+                    : model.selectedWorkspace == nil
+                        ? "当前筛选下还没有任务。"
+                        : "这个工作空间在当前筛选下还没有任务。").localizedForApp)
             } actions: {
-                if model.selectedWorkspace != nil {
-                    Button("查看全部工作空间") {
-                        Task { await model.selectWorkspace(nil) }
+                if showsOnlyActiveJobs {
+                    Button("查看全部任务") {
+                        withAnimation(.snappy(duration: 0.24)) {
+                            showsOnlyActiveJobs = false
+                        }
                     }
-                }
-                if model.hideScheduledJobs {
-                    Button("显示定时任务") {
-                        Task { await model.setHideScheduledJobs(false) }
+                    if model.hasMoreJobs {
+                        Button("加载更多") {
+                            Task { await model.loadMoreJobs() }
+                        }
+                        .disabled(model.isLoadingMore)
+                    }
+                } else {
+                    if model.selectedWorkspace != nil {
+                        Button("查看全部工作空间") {
+                            Task { await model.selectWorkspace(nil) }
+                        }
+                    }
+                    if model.hideScheduledJobs {
+                        Button("显示定时任务") {
+                            Task { await model.setHideScheduledJobs(false) }
+                        }
                     }
                 }
             }
@@ -239,7 +261,7 @@ struct JobsView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 54)
         } else {
-            ForEach(model.jobs) { job in
+            ForEach(visibleJobs) { job in
                 VStack(spacing: 0) {
                     JobRow(
                         job: job,
@@ -268,7 +290,7 @@ struct JobsView: View {
 
                     // Every row but the last gets a separator — and the last one does too when the
                     // "load more" button follows it, which otherwise butts straight against the row.
-                    if job.id != model.jobs.last?.id || model.hasMoreJobs {
+                    if job.id != visibleJobs.last?.id || model.hasMoreJobs {
                         Divider()
                             .overlay(QuartetTheme.divider)
                             .padding(.leading, 60)
@@ -318,18 +340,41 @@ struct JobsView: View {
             .accessibilityIdentifier("hide-scheduled-jobs-toggle")
 
             Spacer()
-            if model.activeJobCount > 0 {
-                HStack(spacing: 6) {
-                    Circle()
-                        // Matches the row tiles this counts rather than `QuartetTheme.running`, which is
-                        // the theme green and would leave the dot a different colour from the very rows
-                        // it is summarising.
-                        .fill(JobStatusPalette.runningAccent)
-                        .frame(width: 7, height: 7)
-                    Text("\(model.activeJobCount) 个进行中")
+            if model.activeJobCount > 0 || showsOnlyActiveJobs {
+                Button {
+                    withAnimation(.snappy(duration: 0.24)) {
+                        showsOnlyActiveJobs.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle()
+                            // Matches the row tiles this counts rather than `QuartetTheme.running`, which is
+                            // the theme green and would leave the dot a different colour from the very rows
+                            // it is summarising.
+                            .fill(JobStatusPalette.runningAccent)
+                            .frame(width: 7, height: 7)
+                        Text("\(model.activeJobCount) 个进行中")
+                        if showsOnlyActiveJobs {
+                            Image(systemName: "checkmark")
+                                .font(.quartet(.compact, weight: .bold))
+                        }
+                    }
+                    .font(.quartet(.detail, weight: .medium))
+                    .foregroundStyle(showsOnlyActiveJobs ? JobStatusPalette.runningAccent : QuartetTheme.secondaryText)
+                    .padding(.horizontal, 9)
+                    .frame(minHeight: 44)
+                    .background(
+                        showsOnlyActiveJobs ? JobStatusPalette.runningAccent.opacity(0.1) : Color.clear,
+                        in: Capsule()
+                    )
+                    .contentShape(Capsule())
                 }
-                .font(.quartet(.detail, weight: .medium))
-                .foregroundStyle(QuartetTheme.secondaryText)
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("\(model.activeJobCount) 个进行中"))
+                .accessibilityValue(Text((showsOnlyActiveJobs ? "筛选已开启" : "筛选未开启").localizedForApp))
+                .accessibilityHint(Text((showsOnlyActiveJobs ? "点按查看全部任务" : "点按只看进行中的任务").localizedForApp))
+                .accessibilityAddTraits(showsOnlyActiveJobs ? .isSelected : [])
+                .accessibilityIdentifier("active-jobs-filter")
             }
         }
         .padding(.horizontal, 20)
@@ -339,6 +384,10 @@ struct JobsView: View {
 
     private var selectedWorkspaceTitle: String {
         model.selectedWorkspace?.displayName ?? "ALL"
+    }
+
+    private var visibleJobs: [JobSummary] {
+        showsOnlyActiveJobs ? model.activeJobs : model.jobs
     }
 
     private func workspace(for job: JobSummary) -> WorkspaceSummary? {
@@ -1085,19 +1134,37 @@ private struct JobModeIcon: View {
 private struct JobRunningIndicator: View {
     let color: Color
     let track: Color
-    @State private var rotates = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var animates = false
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(track.opacity(0.48), lineWidth: 2.4)
+                .fill(color.opacity(animates && !reduceMotion ? 0.13 : 0.07))
+                .frame(width: 19, height: 19)
+                .scaleEffect(animates && !reduceMotion ? 1 : 0.82)
+                .animation(
+                    reduceMotion ? nil : .easeInOut(duration: 1.6).repeatForever(autoreverses: true),
+                    value: animates
+                )
+
             Circle()
-                .trim(from: 0.08, to: 0.36)
-                .stroke(color, style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
-                .rotationEffect(.degrees(rotates ? 360 : 0))
+                .stroke(track.opacity(0.34), lineWidth: 1)
+
+            Circle()
+                .fill(color)
+                .frame(width: 4.5, height: 4.5)
+                .shadow(color: color.opacity(0.28), radius: 2)
+                .offset(y: -10.5)
+                .rotationEffect(.degrees(animates && !reduceMotion ? 360 : 0))
+                .animation(
+                    reduceMotion ? nil : .linear(duration: 1.45).repeatForever(autoreverses: false),
+                    value: animates
+                )
         }
-        .onAppear { rotates = true }
-        .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: rotates)
+        .onAppear { animates = true }
+        .onDisappear { animates = false }
     }
 }
 

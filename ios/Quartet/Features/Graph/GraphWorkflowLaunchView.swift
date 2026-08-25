@@ -11,6 +11,7 @@ struct GraphWorkflowLaunchView: View {
     @State private var config: GraphConfig?
     @State private var workspaceID = ""
     @State private var agents: [AgentSummary] = []
+    @State private var agentPreferences: [String: AgentPreferences] = [:]
     @State private var loading = true
     @State private var loadingWorkflow = false
     @State private var starting = false
@@ -117,7 +118,11 @@ struct GraphWorkflowLaunchView: View {
             set: { if !$0 { editingNodeID = nil } }
         )) {
             if let nodeID = editingNodeID, let nodeBinding = binding(forNodeID: nodeID) {
-                GraphNodeConfigurationView(node: nodeBinding, agents: agents)
+                GraphNodeConfigurationView(
+                    node: nodeBinding,
+                    agents: agents,
+                    agentPreferences: agentPreferences
+                )
                     .quartetSheetStyle()
             }
         }
@@ -407,6 +412,14 @@ struct GraphWorkflowLaunchView: View {
     private func load() async {
         loading = true
         defer { loading = false }
+        do {
+            agentPreferences = try await appModel.agentPreferences()
+        } catch is CancellationError {
+            return
+        } catch {
+            agentPreferences = [:]
+            present(error)
+        }
         do {
             let client = try appModel.apiClient()
             async let workflowResponse = client.graphWorkflows()
@@ -1177,6 +1190,7 @@ private struct GraphNodeConfigurationView: View {
     @EnvironmentObject private var appModel: AppModel
     @Binding var node: GraphNode
     let agents: [AgentSummary]
+    let agentPreferences: [String: AgentPreferences]
 
     @State private var draft: GraphNode
     @State private var timeoutSeconds: String
@@ -1190,9 +1204,14 @@ private struct GraphNodeConfigurationView: View {
     @State private var thoughtLevelRequestID: UUID?
     @State private var thoughtLevelLinkError: String?
 
-    init(node: Binding<GraphNode>, agents: [AgentSummary]) {
+    init(
+        node: Binding<GraphNode>,
+        agents: [AgentSummary],
+        agentPreferences: [String: AgentPreferences]
+    ) {
         _node = node
         self.agents = agents
+        self.agentPreferences = agentPreferences
         let value = node.wrappedValue
         _draft = State(initialValue: value)
         let config = value.config ?? GraphNodeConfiguration()
@@ -1262,7 +1281,8 @@ private struct GraphNodeConfigurationView: View {
                     title: picker.title,
                     choices: choices(for: picker),
                     selection: selectionBinding(for: picker),
-                    accessibilityPrefix: "graph-node-\(picker.rawValue)-option"
+                    accessibilityPrefix: "graph-node-\(picker.rawValue)-option",
+                    favoriteIDs: picker == .model ? favoriteModelIDs : []
                 )
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()
@@ -1541,7 +1561,7 @@ private struct GraphNodeConfigurationView: View {
             return items
         case .model:
             guard let agent = selectedAgent else { return [] }
-            var items = (agent.models?.availableModels ?? []).map { model in
+            var items = orderedModels(for: agent).map { model in
                 QuartetChoice(id: model.modelId, title: model.name.isEmpty ? model.modelId : model.name, detail: model.modelId)
             }
             if let modelID = config.modelId, !modelID.isEmpty,
@@ -1586,6 +1606,32 @@ private struct GraphNodeConfigurationView: View {
     private var selectedAgent: AgentSummary? {
         guard let reference = config.agentType else { return nil }
         return agents.first { $0.type == reference || $0.agentId == reference }
+    }
+
+    private var selectedAgentPreferences: AgentPreferences? {
+        guard let selectedAgent else { return nil }
+        return agentPreferences[selectedAgent.agentId] ?? agentPreferences[selectedAgent.type]
+    }
+
+    private var favoriteModelIDs: Set<String> {
+        Set(selectedAgentPreferences?.favoriteModelIDs ?? [])
+    }
+
+    private func orderedModels(for agent: AgentSummary) -> [AgentModel] {
+        let availableModels = agent.models?.availableModels ?? []
+        let favoriteOrder = selectedAgentPreferences?.favoriteModelIDs ?? []
+        guard !favoriteOrder.isEmpty else { return availableModels }
+
+        let modelsByID = Dictionary(
+            availableModels.map { ($0.modelId, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var appended = Set<String>()
+        let favorites = favoriteOrder.compactMap { modelID -> AgentModel? in
+            guard appended.insert(modelID).inserted else { return nil }
+            return modelsByID[modelID]
+        }
+        return favorites + availableModels.filter { !appended.contains($0.modelId) }
     }
 
     private func selectAgent(_ reference: String) {

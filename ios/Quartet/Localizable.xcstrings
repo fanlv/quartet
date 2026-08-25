@@ -3435,6 +3435,86 @@
         }
       }
     },
+    "当前没有进行中的任务。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There are no active jobs right now."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前没有进行中的任务。"
+          }
+        }
+      }
+    },
+    "筛选未开启" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter off"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "筛选未开启"
+          }
+        }
+      }
+    },
+    "筛选已开启" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter on"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "筛选已开启"
+          }
+        }
+      }
+    },
+    "点按查看全部任务" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Double-tap to view all jobs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点按查看全部任务"
+          }
+        }
+      }
+    },
+    "点按只看进行中的任务" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Double-tap to show active jobs only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点按只看进行中的任务"
+          }
+        }
+      }
+    },
     "当前节点" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4284,6 +4364,22 @@
         }
       }
     },
+    "暂无进行中的 Job" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Active Jobs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无进行中的 Job"
+          }
+        }
+      }
+    },
     "暂无初始变量" : {
       "localizations" : {
         "en" : {
@@ -4924,6 +5020,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "查看全部工作空间"
+          }
+        }
+      }
+    },
+    "查看全部任务" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View All Jobs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看全部任务"
           }
         }
       }

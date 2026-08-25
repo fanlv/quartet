@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -11,6 +12,7 @@ struct JobDetailView: View {
     @State private var stopping = false
     @State private var confirmsStop = false
     @State private var presentsLatestError = false
+    @State private var copiedWebLink = false
 
     var body: some View {
         ScrollView {
@@ -20,6 +22,7 @@ struct JobDetailView: View {
                     HStack { Spacer(); ProgressView(); Spacer() }.padding(.top, 40)
                 } else if let detail {
                     metadata(detail)
+                    webLinkButton(detail)
                     if let latestError = detail.latestRunLastError ?? graphState?.lastError, !latestError.isEmpty {
                         latestErrorCard(latestError)
                     }
@@ -136,6 +139,31 @@ struct JobDetailView: View {
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
     }
 
+    private func webLinkButton(_ detail: JobDetail) -> some View {
+        Button { copyWebLink(for: detail) } label: {
+            HStack(spacing: 12) {
+                Image(systemName: copiedWebLink ? "checkmark.circle.fill" : "link")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(copiedWebLink ? "Web 链接已复制" : "获取 Web 链接")
+                        .font(.quartet(.control, weight: .semibold))
+                    Text("复制后可在浏览器中直接打开此 Job")
+                        .font(.quartet(.detail))
+                        .opacity(0.82)
+                }
+                Spacer()
+                Image(systemName: "doc.on.doc")
+            }
+            .foregroundStyle(QuartetTheme.onAccent)
+            .padding(.horizontal, 18)
+            .frame(minHeight: 58)
+            .background(QuartetTheme.accentDeep, in: RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(copiedWebLink ? "Web 链接已复制" : "获取 Web 链接")
+        .accessibilityHint("复制可在 Quartet Web 端打开当前 Job 的链接")
+        .accessibilityIdentifier("job-web-link")
+    }
+
     private var stopButton: some View {
         Button(role: .destructive) { confirmsStop = true } label: {
             HStack {
@@ -175,6 +203,46 @@ struct JobDetailView: View {
         } catch {
             model.present(error)
         }
+    }
+
+    private func copyWebLink(for detail: JobDetail) {
+        do {
+            let url = try webURL(for: detail)
+            UIPasteboard.general.string = url.absoluteString
+            copiedWebLink = true
+            UIAccessibility.post(notification: .announcement, argument: "Web 链接已复制")
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                copiedWebLink = false
+            }
+        } catch {
+            model.present(error)
+        }
+    }
+
+    private func webURL(for detail: JobDetail) throws -> URL {
+        let baseURL = try model.apiClient().baseURL
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw APIError(
+                summary: "无法生成 Web 链接",
+                detail: "Quartet 服务地址无法转换为 Web URL。\n服务地址：\n\(baseURL.absoluteString)\n工作空间：\n\(detail.workspaceId)\nJob ID：\n\(detail.id)"
+            )
+        }
+        if components.path.isEmpty {
+            components.path = "/"
+        }
+        components.queryItems = [
+            URLQueryItem(name: "workspaceId", value: detail.workspaceId),
+            URLQueryItem(name: "jobId", value: detail.id)
+        ]
+        components.fragment = nil
+        guard let url = components.url else {
+            throw APIError(
+                summary: "无法生成 Web 链接",
+                detail: "无法为当前 Job 生成有效的 Web URL。\n服务地址：\n\(baseURL.absoluteString)\n工作空间：\n\(detail.workspaceId)\nJob ID：\n\(detail.id)"
+            )
+        }
+        return url
     }
 
     private func isActive(_ status: String) -> Bool {

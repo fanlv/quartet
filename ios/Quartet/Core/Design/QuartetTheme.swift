@@ -560,28 +560,46 @@ struct QuartetChoiceSheet: View {
     let choices: [QuartetChoice]
     @Binding var selection: String
     let accessibilityPrefix: String
+    let favoriteIDs: Set<String>
+
+    init(
+        title: String,
+        choices: [QuartetChoice],
+        selection: Binding<String>,
+        accessibilityPrefix: String,
+        favoriteIDs: Set<String> = []
+    ) {
+        self.title = title
+        self.choices = choices
+        _selection = selection
+        self.accessibilityPrefix = accessibilityPrefix
+        self.favoriteIDs = favoriteIDs
+    }
+
+    private var favoriteChoices: [QuartetChoice] {
+        choices.filter { favoriteIDs.contains($0.id) }
+    }
+
+    private var otherChoices: [QuartetChoice] {
+        choices.filter { !favoriteIDs.contains($0.id) }
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(choices.enumerated()), id: \.element.id) { index, choice in
-                        if index > 0 {
-                            Divider()
-                                .overlay(QuartetTheme.divider)
-                                .padding(.leading, 54)
+                VStack(alignment: .leading, spacing: 12) {
+                    if favoriteChoices.isEmpty {
+                        choiceGroup(choices)
+                    } else {
+                        choiceGroup(favoriteChoices, title: "收藏".localizedForApp)
+                        if !otherChoices.isEmpty {
+                            choiceGroup(otherChoices, title: "其他模型".localizedForApp)
                         }
-                        choiceRow(choice)
                     }
-                }
-                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 1)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
-                .padding(.bottom, 20)
+                .padding(.bottom, 24)
             }
             .background(QuartetTheme.canvas)
             .navigationBarTitleDisplayMode(.inline)
@@ -596,6 +614,34 @@ struct QuartetChoiceSheet: View {
         }
     }
 
+    @ViewBuilder
+    private func choiceGroup(_ groupChoices: [QuartetChoice], title: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let title {
+                Text(title)
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .padding(.horizontal, 4)
+            }
+
+            LazyVStack(spacing: 0) {
+                ForEach(Array(groupChoices.enumerated()), id: \.element.id) { index, choice in
+                    choiceRow(choice)
+                    if index < groupChoices.count - 1 {
+                        Divider()
+                            .overlay(QuartetTheme.divider)
+                            .padding(.leading, 54)
+                    }
+                }
+            }
+            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 1)
+            }
+        }
+    }
+
     private func choiceRow(_ choice: QuartetChoice) -> some View {
         let selected = choice.id == selection
         return Button {
@@ -603,9 +649,13 @@ struct QuartetChoiceSheet: View {
             dismiss()
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                Image(systemName: choiceIcon(choice, selected: selected))
                     .font(.quartet(.regular, weight: .semibold))
-                    .foregroundStyle(selected ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                    .foregroundStyle(
+                        selected || favoriteIDs.contains(choice.id)
+                            ? QuartetTheme.accent
+                            : QuartetTheme.secondaryText
+                    )
                     .frame(width: 28)
                     .accessibilityHidden(true)
 
@@ -636,6 +686,12 @@ struct QuartetChoiceSheet: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityHint("选择此项并关闭弹窗".localizedForApp)
         .accessibilityIdentifier("\(accessibilityPrefix)-\(choice.id)")
+    }
+
+    private func choiceIcon(_ choice: QuartetChoice, selected: Bool) -> String {
+        if selected { return "checkmark.circle.fill" }
+        if favoriteIDs.contains(choice.id) { return "star.fill" }
+        return "circle"
     }
 }
 
