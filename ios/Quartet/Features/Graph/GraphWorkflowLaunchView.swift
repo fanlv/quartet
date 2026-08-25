@@ -1017,8 +1017,8 @@ private struct GraphGlobalConfigurationView: View {
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
 
-            ForEach($variables) { $variable in
-                variableBlock($variable)
+            ForEach(variables) { variable in
+                variableBlock(binding(for: variable.id))
             }
 
             Button { variables.append(GraphVariableDraft()) } label: {
@@ -1031,6 +1031,17 @@ private struct GraphGlobalConfigurationView: View {
 
             graphFieldHint("变量名需匹配 [A-Za-z_][A-Za-z0-9_]*；以下划线或 QUARTET_ 开头的名称由系统保留。")
         }
+    }
+
+    private func binding(for id: UUID) -> Binding<GraphVariableDraft> {
+        let list = $variables
+        return Binding(
+            get: { list.wrappedValue.first { $0.id == id } ?? GraphVariableDraft() },
+            set: { newValue in
+                guard let index = list.wrappedValue.firstIndex(where: { $0.id == id }) else { return }
+                list.wrappedValue[index] = newValue
+            }
+        )
     }
 
     private func variableBlock(_ variable: Binding<GraphVariableDraft>) -> some View {
@@ -1052,6 +1063,7 @@ private struct GraphGlobalConfigurationView: View {
                         .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     Button {
                         let id = variable.wrappedValue.id
+                        quartetDismissKeyboard()
                         variables.removeAll { $0.id == id }
                     } label: {
                         Image(systemName: "trash")

@@ -234,8 +234,16 @@ struct AgentSummary: Decodable, Identifiable, Hashable, Sendable {
     let models: AgentModelState?
     let modes: AgentModeState?
     let thoughtLevels: AgentThoughtLevelState?
+    /// ACP 环境变量的存储键。内置 Agent 用 serve 命令派生，自定义 Agent 就是 AgentID；
+    /// 缺失时回退到 `type`，与 Web 端的读取顺序一致。
+    var envKey: String? = nil
 
     var id: String { agentId }
+    /// 环境变量设置页按这个键读写；后端保存时仍以 AgentID 为路径参数。
+    var environmentKey: String {
+        guard let envKey, !envKey.isEmpty else { return type }
+        return envKey
+    }
     var isValidationPending: Bool {
         availability == "pending_validation" || availability == "validating" || refreshing == true
     }
@@ -262,6 +270,7 @@ struct AgentSummary: Decodable, Identifiable, Hashable, Sendable {
         case models
         case modes
         case thoughtLevels
+        case envKey = "env_key"
     }
 }
 
@@ -542,7 +551,7 @@ struct AgentVersionResponse: Codable, Hashable, Sendable {
     let version: String?
 }
 
-struct AgentPreferences: Decodable, Hashable, Sendable {
+struct AgentPreferences: Codable, Hashable, Sendable {
     let favoriteModelIDs: [String]?
     let defaultModelID: String?
     let defaultMode: String?
@@ -558,9 +567,12 @@ struct AgentPreferences: Decodable, Hashable, Sendable {
 
 struct AgentPreferencesSettings: Decodable, Sendable {
     let agentPreferences: [String: AgentPreferences]?
+    /// ACP 环境变量按环境键分组；键与 `AgentSummary.environmentKey` 对应。
+    let acpEnvVars: [String: [AgentEnvironmentItem]]?
 
     enum CodingKeys: String, CodingKey {
         case agentPreferences = "agent_prefs"
+        case acpEnvVars = "acp_env_vars"
     }
 }
 
@@ -1582,4 +1594,503 @@ struct GraphHookResult: Decodable, Identifiable, Sendable {
 
 extension Int64 {
     var quartetDate: Date { Date(timeIntervalSince1970: TimeInterval(self) / 1_000) }
+}
+
+// MARK: - Agent 管理
+
+/// ACP 服务端的启动定义。参数按顺序原样传给 argv，不经过 shell。
+struct AgentRuntimeDefinition: Codable, Hashable, Sendable {
+    let bin: String
+    let acpProgram: String
+    let acpArgs: [String]
+
+    init(bin: String, acpProgram: String, acpArgs: [String]) {
+        self.bin = bin
+        self.acpProgram = acpProgram
+        self.acpArgs = acpArgs
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case bin
+        case acpProgram = "acp_program"
+        case acpArgs = "acp_args"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        bin = try values.decodeIfPresent(String.self, forKey: .bin) ?? ""
+        acpProgram = try values.decodeIfPresent(String.self, forKey: .acpProgram) ?? ""
+        acpArgs = try values.decodeIfPresent([String].self, forKey: .acpArgs) ?? []
+    }
+
+    /// 卡片上展示的一行启动命令。
+    var commandLine: String {
+        ([acpProgram] + acpArgs).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+}
+
+struct AgentRuntimeRevision: Decodable, Identifiable, Hashable, Sendable {
+    let revision: String
+    let definition: AgentRuntimeDefinition
+
+    var id: String { revision }
+}
+
+/// Agent 目录里的一条记录，内置与自定义共用同一投影。
+struct AgentCatalogItem: Decodable, Identifiable, Hashable, Sendable {
+    let agentId: String
+    let source: String
+    let displayName: String
+    let iconUrl: String
+    let definition: AgentRuntimeDefinition
+    let supportsHeadlessPrint: Bool
+    let deprecated: Bool
+    let lifecycle: String
+    let currentRevision: String?
+    let installMethod: String?
+    let installCommands: [String]
+    let installInstructions: String?
+    let autoInstallable: Bool
+    let autoUninstallable: Bool
+    let installed: Bool
+    let availability: String
+    let availabilityError: String?
+    let lastValidationStatus: String?
+    let lastValidationError: String?
+    let lastValidationAt: Int64?
+    let deleteError: String?
+    let refreshing: Bool
+
+    var id: String { agentId }
+    var isBuiltin: Bool { source == "builtin" }
+    var isCustom: Bool { source == "custom" }
+
+    var sourceLabel: String {
+        isCustom ? "自定义".localizedForApp : "内置".localizedForApp
+    }
+
+    var availabilityLabel: String {
+        switch availability {
+        case "available": "可用".localizedForApp
+        case "unavailable": "不可用".localizedForApp
+        case "not_installed": "未安装".localizedForApp
+        case "pending_validation": "等待验证".localizedForApp
+        case "validating": "正在验证".localizedForApp
+        case "deprecated": "已废弃".localizedForApp
+        case "deleting": "正在删除".localizedForApp
+        case "deleted": "已删除".localizedForApp
+        default: availability
+        }
+    }
+
+    var installMethodLabel: String? {
+        guard let installMethod, !installMethod.isEmpty else { return nil }
+        switch installMethod {
+        case "npm": return "npm 安装".localizedForApp
+        case "script": return "脚本安装".localizedForApp
+        case "manual": return "手动安装".localizedForApp
+        default: return installMethod
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case agentId = "agent_id"
+        case source
+        case displayName = "display_name"
+        case iconUrl = "icon_url"
+        case definition
+        case supportsHeadlessPrint = "supports_headless_print"
+        case deprecated
+        case lifecycle
+        case currentRevision = "current_revision"
+        case installMethod = "install_method"
+        case installCommands = "install_commands"
+        case installInstructions = "install_instructions"
+        case autoInstallable = "auto_installable"
+        case autoUninstallable = "auto_uninstallable"
+        case installed
+        case availability
+        case availabilityError = "availability_error"
+        case lastValidationStatus = "last_validation_status"
+        case lastValidationError = "last_validation_error"
+        case lastValidationAt = "last_validation_at"
+        case deleteError = "delete_error"
+        case refreshing
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        agentId = try values.decode(String.self, forKey: .agentId)
+        source = try values.decodeIfPresent(String.self, forKey: .source) ?? "builtin"
+        displayName = try values.decodeIfPresent(String.self, forKey: .displayName) ?? ""
+        iconUrl = try values.decodeIfPresent(String.self, forKey: .iconUrl) ?? ""
+        definition = try values.decodeIfPresent(AgentRuntimeDefinition.self, forKey: .definition)
+            ?? AgentRuntimeDefinition(bin: "", acpProgram: "", acpArgs: [])
+        supportsHeadlessPrint = try values.decodeIfPresent(Bool.self, forKey: .supportsHeadlessPrint) ?? false
+        deprecated = try values.decodeIfPresent(Bool.self, forKey: .deprecated) ?? false
+        lifecycle = try values.decodeIfPresent(String.self, forKey: .lifecycle) ?? "active"
+        currentRevision = try values.decodeIfPresent(String.self, forKey: .currentRevision)
+        installMethod = try values.decodeIfPresent(String.self, forKey: .installMethod)
+        installCommands = try values.decodeIfPresent([String].self, forKey: .installCommands) ?? []
+        installInstructions = try values.decodeIfPresent(String.self, forKey: .installInstructions)
+        autoInstallable = try values.decodeIfPresent(Bool.self, forKey: .autoInstallable) ?? false
+        autoUninstallable = try values.decodeIfPresent(Bool.self, forKey: .autoUninstallable) ?? false
+        installed = try values.decodeIfPresent(Bool.self, forKey: .installed) ?? false
+        availability = try values.decodeIfPresent(String.self, forKey: .availability) ?? ""
+        availabilityError = try values.decodeIfPresent(String.self, forKey: .availabilityError)
+        lastValidationStatus = try values.decodeIfPresent(String.self, forKey: .lastValidationStatus)
+        lastValidationError = try values.decodeIfPresent(String.self, forKey: .lastValidationError)
+        lastValidationAt = try values.decodeIfPresent(Int64.self, forKey: .lastValidationAt)
+        deleteError = try values.decodeIfPresent(String.self, forKey: .deleteError)
+        refreshing = try values.decodeIfPresent(Bool.self, forKey: .refreshing) ?? false
+    }
+}
+
+struct AgentCatalogListResponse: Decodable, Sendable {
+    let code: Int
+    let agents: [AgentCatalogItem]?
+}
+
+struct AgentCatalogDetailResponse: Decodable, Sendable {
+    let code: Int
+    let agent: AgentCatalogItem?
+    let revisions: [AgentRuntimeRevision]?
+}
+
+struct AgentVersionComponent: Decodable, Hashable, Sendable, Identifiable {
+    let name: String
+    let kind: String
+    let currentVersion: String?
+    let latestVersion: String?
+    let updateAvailable: Bool
+    let error: String?
+
+    var id: String { "\(kind)-\(name)" }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case kind
+        case currentVersion = "current_version"
+        case latestVersion = "latest_version"
+        case updateAvailable = "update_available"
+        case error
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        name = try values.decodeIfPresent(String.self, forKey: .name) ?? ""
+        kind = try values.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        currentVersion = try values.decodeIfPresent(String.self, forKey: .currentVersion)
+        latestVersion = try values.decodeIfPresent(String.self, forKey: .latestVersion)
+        updateAvailable = try values.decodeIfPresent(Bool.self, forKey: .updateAvailable) ?? false
+        error = try values.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+struct AgentVersionInfo: Decodable, Hashable, Sendable, Identifiable {
+    let agentId: String
+    let components: [AgentVersionComponent]
+    let updateAvailable: Bool
+    let upgradeSupported: Bool
+
+    var id: String { agentId }
+    var hasKnownLatest: Bool { components.contains { !($0.latestVersion ?? "").isEmpty } }
+
+    enum CodingKeys: String, CodingKey {
+        case agentId = "agent_id"
+        case components
+        case updateAvailable = "update_available"
+        case upgradeSupported = "upgrade_supported"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        agentId = try values.decode(String.self, forKey: .agentId)
+        components = try values.decodeIfPresent([AgentVersionComponent].self, forKey: .components) ?? []
+        updateAvailable = try values.decodeIfPresent(Bool.self, forKey: .updateAvailable) ?? false
+        upgradeSupported = try values.decodeIfPresent(Bool.self, forKey: .upgradeSupported) ?? false
+    }
+}
+
+struct AgentVersionCheckResponse: Decodable, Sendable {
+    let code: Int
+    let checkedAt: Int64?
+    let agents: [AgentVersionInfo]?
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case checkedAt = "checked_at"
+        case agents
+    }
+}
+
+struct AgentInstallStepResult: Decodable, Hashable, Sendable {
+    let display: String
+    let stdout: String
+    let stderr: String
+    let exitCode: Int
+    let timedOut: Bool
+    let error: String?
+    let durationMs: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case display
+        case stdout
+        case stderr
+        case exitCode = "exit_code"
+        case timedOut = "timed_out"
+        case error
+        case durationMs = "duration_ms"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        display = try values.decodeIfPresent(String.self, forKey: .display) ?? ""
+        stdout = try values.decodeIfPresent(String.self, forKey: .stdout) ?? ""
+        stderr = try values.decodeIfPresent(String.self, forKey: .stderr) ?? ""
+        exitCode = try values.decodeIfPresent(Int.self, forKey: .exitCode) ?? 0
+        timedOut = try values.decodeIfPresent(Bool.self, forKey: .timedOut) ?? false
+        error = try values.decodeIfPresent(String.self, forKey: .error)
+        durationMs = try values.decodeIfPresent(Int64.self, forKey: .durationMs) ?? 0
+    }
+
+    var succeeded: Bool { exitCode == 0 && !timedOut && (error ?? "").isEmpty }
+}
+
+struct AgentValidationResult: Decodable, Hashable, Sendable {
+    let ok: Bool
+    let error: String?
+}
+
+struct AgentInstallResult: Decodable, Hashable, Sendable {
+    let agentId: String
+    let steps: [AgentInstallStepResult]
+    let installed: Bool
+    let installError: String?
+    let validation: AgentValidationResult?
+
+    enum CodingKeys: String, CodingKey {
+        case agentId = "agent_id"
+        case steps
+        case installed
+        case installError = "install_error"
+        case validation
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        agentId = try values.decodeIfPresent(String.self, forKey: .agentId) ?? ""
+        steps = try values.decodeIfPresent([AgentInstallStepResult].self, forKey: .steps) ?? []
+        installed = try values.decodeIfPresent(Bool.self, forKey: .installed) ?? false
+        installError = try values.decodeIfPresent(String.self, forKey: .installError)
+        validation = try values.decodeIfPresent(AgentValidationResult.self, forKey: .validation)
+    }
+
+    var stepsSucceeded: Bool { steps.allSatisfy(\.succeeded) }
+}
+
+struct AgentInstallResponse: Decodable, Sendable {
+    let code: Int
+    let result: AgentInstallResult?
+}
+
+struct AgentInstallRequest: Encodable, Sendable {
+    let agentId: String
+
+    enum CodingKeys: String, CodingKey {
+        case agentId = "agent_id"
+    }
+}
+
+struct AgentEnvironmentItem: Codable, Hashable, Sendable {
+    let key: String
+    let value: String
+    let enabled: Bool
+}
+
+struct CustomAgentUpsertRequest: Encodable, Sendable {
+    let displayName: String
+    let iconUrl: String
+    let supportsHeadlessPrint: Bool
+    let definition: AgentRuntimeDefinition
+    /// 只有新建和恢复时才允许一并写入环境变量；编辑走环境变量标签页。
+    let environment: [AgentEnvironmentItem]?
+
+    enum CodingKeys: String, CodingKey {
+        case displayName = "display_name"
+        case iconUrl = "icon_url"
+        case supportsHeadlessPrint = "supports_headless_print"
+        case definition
+        case environment
+    }
+}
+
+struct CustomAgentResponse: Decodable, Sendable {
+    let code: Int
+    let agent: AgentCatalogItem?
+    let warning: String?
+}
+
+struct AgentRevalidateResponse: Decodable, Sendable {
+    let code: Int
+    let validation: AgentValidationResult?
+    let warning: String?
+}
+
+struct AgentDeleteImpact: Decodable, Hashable, Sendable {
+    let agentId: String
+    let clearedSettings: [String]
+    let retainedWorkflows: [String]
+    let retainedSchedules: [String]
+    let retainedJobs: [String]
+    let retainedSessions: [String]
+    let blockingJobIds: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case agentId = "agent_id"
+        case clearedSettings = "cleared_settings"
+        case retainedWorkflows = "retained_workflows"
+        case retainedSchedules = "retained_schedules"
+        case retainedJobs = "retained_jobs"
+        case retainedSessions = "retained_sessions"
+        case blockingJobIds = "blocking_job_ids"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        agentId = try values.decodeIfPresent(String.self, forKey: .agentId) ?? ""
+        clearedSettings = try values.decodeIfPresent([String].self, forKey: .clearedSettings) ?? []
+        retainedWorkflows = try values.decodeIfPresent([String].self, forKey: .retainedWorkflows) ?? []
+        retainedSchedules = try values.decodeIfPresent([String].self, forKey: .retainedSchedules) ?? []
+        retainedJobs = try values.decodeIfPresent([String].self, forKey: .retainedJobs) ?? []
+        retainedSessions = try values.decodeIfPresent([String].self, forKey: .retainedSessions) ?? []
+        blockingJobIds = try values.decodeIfPresent([String].self, forKey: .blockingJobIds) ?? []
+    }
+}
+
+struct AgentDeleteImpactResponse: Decodable, Sendable {
+    let code: Int
+    let impact: AgentDeleteImpact?
+}
+
+struct AgentDeleteStopResult: Decodable, Hashable, Sendable, Identifiable {
+    let jobId: String
+    let graphRunId: String?
+    let stopped: Bool
+    let error: String?
+
+    var id: String { jobId }
+
+    enum CodingKeys: String, CodingKey {
+        case jobId = "job_id"
+        case graphRunId = "graph_run_id"
+        case stopped
+        case error
+    }
+}
+
+struct AgentDeleteResult: Decodable, Hashable, Sendable {
+    let status: String
+    let stopResults: [AgentDeleteStopResult]?
+    let impact: AgentDeleteImpact?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case stopResults = "stop_results"
+        case impact
+    }
+}
+
+struct AgentDeleteResponse: Decodable, Sendable {
+    let code: Int
+    let result: AgentDeleteResult?
+}
+
+struct AgentDeleteRequest: Encodable, Sendable {
+    let force: Bool
+}
+
+struct AgentEnvSaveRequest: Encodable, Sendable {
+    let entries: [AgentEnvironmentItem]
+}
+
+struct AgentEnvSaveResponse: Decodable, Sendable {
+    let code: Int
+    let version: Int64?
+    let changed: Bool?
+    let warning: String?
+}
+
+struct AgentPrefsSaveRequest: Encodable, Sendable {
+    let prefs: AgentPreferences
+}
+
+struct AgentCodeResponse: Decodable, Sendable {
+    let code: Int
+    let warning: String?
+}
+
+/// 标题生成 / 群回复 / IM 会话三个角色共用的配置载体。
+struct AgentRoleConfig: Decodable, Hashable, Sendable {
+    var agentId: String
+    var modelId: String
+    var acpMode: String
+    var acpThoughtLevel: String
+
+    init(agentId: String = "", modelId: String = "", acpMode: String = "", acpThoughtLevel: String = "") {
+        self.agentId = agentId
+        self.modelId = modelId
+        self.acpMode = acpMode
+        self.acpThoughtLevel = acpThoughtLevel
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case agentId = "agent_id"
+        case modelId = "model_id"
+        case acpMode = "acp_mode"
+        case acpThoughtLevel = "acp_thought_level"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        agentId = try values.decodeIfPresent(String.self, forKey: .agentId) ?? ""
+        modelId = try values.decodeIfPresent(String.self, forKey: .modelId) ?? ""
+        acpMode = try values.decodeIfPresent(String.self, forKey: .acpMode) ?? ""
+        acpThoughtLevel = try values.decodeIfPresent(String.self, forKey: .acpThoughtLevel) ?? ""
+    }
+}
+
+/// 保存角色配置的请求体。标题生成与群回复走 `bin -p` 无会话路径，没有 mode，
+/// 所以只有 IM 会话角色会带上 `acp_mode`。
+struct AgentRoleSaveRequest: Encodable, Sendable {
+    let agentId: String
+    let modelId: String
+    let acpMode: String?
+    let acpThoughtLevel: String
+
+    init(config: AgentRoleConfig, includeMode: Bool) {
+        agentId = config.agentId
+        modelId = config.modelId
+        acpMode = includeMode ? config.acpMode : nil
+        acpThoughtLevel = config.acpThoughtLevel
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case agentId = "agent_id"
+        case modelId = "model_id"
+        case acpMode = "acp_mode"
+        case acpThoughtLevel = "acp_thought_level"
+    }
+}
+
+struct AgentRoleConfigResponse: Decodable, Sendable {
+    let code: Int
+    let config: AgentRoleConfig?
+    let migrationErrors: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case config
+        case migrationErrors = "migration_errors"
+    }
 }

@@ -232,6 +232,124 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/config/settings/get")
     }
 
+    // MARK: - Agent 管理
+
+    func agentCatalogItems() async throws -> AgentCatalogListResponse {
+        try await request(path: "api/v1/agent/catalog")
+    }
+
+    func deletedAgentCatalogItems() async throws -> AgentCatalogListResponse {
+        try await request(path: "api/v1/agent/catalog/deleted")
+    }
+
+    func agentCatalogDetail(agentID: String) async throws -> AgentCatalogDetailResponse {
+        try await request(path: "api/v1/agent/catalog/\(agentID)")
+    }
+
+    /// `force` 跳过后端的版本检查缓存，对应设置页的“检查更新”按钮。
+    func agentVersionCheck(force: Bool) async throws -> AgentVersionCheckResponse {
+        try await request(
+            path: "api/v1/agent/versions",
+            query: force ? [URLQueryItem(name: "force", value: "1")] : []
+        )
+    }
+
+    func installAgent(agentID: String) async throws -> AgentInstallResponse {
+        try await request(
+            path: "api/v1/agent/install",
+            method: "POST",
+            body: AgentInstallRequest(agentId: agentID)
+        )
+    }
+
+    func upgradeAgent(agentID: String) async throws -> AgentInstallResponse {
+        try await request(path: "api/v1/agent/\(agentID)/upgrade", method: "POST", body: EmptyRequest())
+    }
+
+    func uninstallAgent(agentID: String) async throws -> AgentInstallResponse {
+        try await request(path: "api/v1/agent/\(agentID)/uninstall", method: "POST", body: EmptyRequest())
+    }
+
+    func revalidateAgent(agentID: String) async throws -> AgentRevalidateResponse {
+        try await request(path: "api/v1/agent/\(agentID)/revalidate", method: "POST", body: EmptyRequest())
+    }
+
+    func createCustomAgent(_ body: CustomAgentUpsertRequest) async throws -> CustomAgentResponse {
+        try await request(path: "api/v1/agent/custom", method: "POST", body: body)
+    }
+
+    func updateCustomAgent(agentID: String, body: CustomAgentUpsertRequest) async throws -> CustomAgentResponse {
+        try await request(path: "api/v1/agent/custom/\(agentID)", method: "PUT", body: body)
+    }
+
+    func restoreCustomAgent(agentID: String, body: CustomAgentUpsertRequest) async throws -> CustomAgentResponse {
+        try await request(path: "api/v1/agent/custom/\(agentID)/restore", method: "POST", body: body)
+    }
+
+    func customAgentDeleteImpact(agentID: String) async throws -> AgentDeleteImpactResponse {
+        try await request(path: "api/v1/agent/custom/\(agentID)/delete-impact")
+    }
+
+    func deleteCustomAgent(agentID: String, force: Bool) async throws -> AgentDeleteResponse {
+        try await request(
+            path: "api/v1/agent/custom/\(agentID)/delete",
+            method: "POST",
+            body: AgentDeleteRequest(force: force)
+        )
+    }
+
+    func saveAgentEnvVars(agentID: String, entries: [AgentEnvironmentItem]) async throws -> AgentEnvSaveResponse {
+        try await request(
+            path: "api/v1/config/settings/agent/\(agentID)/env",
+            method: "PUT",
+            body: AgentEnvSaveRequest(entries: entries)
+        )
+    }
+
+    func saveAgentPrefs(agentID: String, prefs: AgentPreferences) async throws -> AgentCodeResponse {
+        try await request(
+            path: "api/v1/config/settings/agent/\(agentID)/prefs",
+            method: "PUT",
+            body: AgentPrefsSaveRequest(prefs: prefs)
+        )
+    }
+
+    func titleGenerationAgent() async throws -> AgentRoleConfigResponse {
+        try await request(path: "api/v1/config/settings/title-generation-agent")
+    }
+
+    func groupReplyAgent() async throws -> AgentRoleConfigResponse {
+        try await request(path: "api/v1/config/settings/group-reply-agent")
+    }
+
+    func imSessionAgent() async throws -> AgentRoleConfigResponse {
+        try await request(path: "api/v1/config/settings/im-session-agent")
+    }
+
+    func saveTitleGenerationAgent(_ config: AgentRoleConfig) async throws -> AgentCodeResponse {
+        try await request(
+            path: "api/v1/config/settings/title-generation-agent",
+            method: "PUT",
+            body: AgentRoleSaveRequest(config: config, includeMode: false)
+        )
+    }
+
+    func saveGroupReplyAgent(_ config: AgentRoleConfig) async throws -> AgentCodeResponse {
+        try await request(
+            path: "api/v1/config/settings/group-reply-agent",
+            method: "PUT",
+            body: AgentRoleSaveRequest(config: config, includeMode: false)
+        )
+    }
+
+    func saveIMSessionAgent(_ config: AgentRoleConfig) async throws -> AgentCodeResponse {
+        try await request(
+            path: "api/v1/config/settings/im-session-agent",
+            method: "PUT",
+            body: AgentRoleSaveRequest(config: config, includeMode: true)
+        )
+    }
+
     func effectiveMessagePresets(workspaceID: String) async throws -> EffectiveMessagePresetsResponse {
         try await request(
             path: "api/v1/config/message-presets/effective",

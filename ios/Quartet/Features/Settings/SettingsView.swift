@@ -45,6 +45,16 @@ struct SettingsView: View {
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
 
                     VStack(spacing: 0) {
+                        if model.can("agent.read") {
+                            NavigationLink {
+                                AgentManagementView()
+                            } label: {
+                                settingsRow("Agent 管理", icon: "cpu")
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("settings-agent-management")
+                            Divider().overlay(QuartetTheme.divider).padding(.leading, 54)
+                        }
                         Button { showsLanguagePicker = true } label: {
                             HStack(spacing: 14) {
                                 Image(systemName: "globe").frame(width: 22)
