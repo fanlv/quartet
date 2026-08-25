@@ -12,11 +12,14 @@ import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { useFileViewer } from '../hooks/useFileViewer';
 import { DurationBadge } from './DurationBadge';
 import { FileViewer } from './FileViewer/FileViewer';
+import { ImageViewer } from './ImageViewer';
 import './MessageItem.css';
 
 type OpenFileViewerFn = (filePath: string, line?: number, endLine?: number) => void;
 const FileViewerContext = createContext<OpenFileViewerFn | null>(null);
 const WorkdirContext = createContext<string>('');
+type OpenImageViewerFn = (image: { src: string; alt?: string }) => void;
+const ImageViewerContext = createContext<OpenImageViewerFn | null>(null);
 
 // Module-level cache of /api/v1/file-exists results. A single message can
 // reference the same file multiple times (e.g. a code review listing 15
@@ -299,7 +302,9 @@ function getMessageImageLayoutWidth(img: HTMLImageElement): number | null {
 }
 
 function MessageImage({ path, alt }: { path: string; alt?: string }) {
+  const { t } = useTranslation();
   const shareInfo = useContext(ShareInfoContext);
+  const openImageViewer = useContext(ImageViewerContext);
   const [failed, setFailed] = useState(false);
   const [layoutWidth, setLayoutWidth] = useState<number | null>(null);
   const url = buildMessageImageUrl(path, shareInfo);
@@ -331,7 +336,17 @@ function MessageImage({ path, alt }: { path: string; alt?: string }) {
         setLayoutWidth(getMessageImageLayoutWidth(event.currentTarget));
       }}
       onError={() => setFailed(true)}
-      onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+      onClick={() => openImageViewer?.({ src: url, alt })}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openImageViewer?.({ src: url, alt });
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      title={alt ? t('chat.imageViewer.openNamed', { name: alt }) : t('chat.imageViewer.open')}
+      aria-label={alt ? t('chat.imageViewer.openNamed', { name: alt }) : t('chat.imageViewer.open')}
     />
   );
 }
@@ -1308,15 +1323,20 @@ export const MessageItem = memo(function MessageItem({ message, agentIconUrl, ag
     [shareToken, jobId]
   );
   const { file: viewingFile, open: openFile, close: closeFile } = useFileViewer(jobId);
+  const [viewingImage, setViewingImage] = useState<{ src: string; alt?: string } | null>(null);
 
   const openFileViewer: OpenFileViewerFn = useCallback((filePath: string, line?: number, endLine?: number) => {
     void openFile(filePath, { line, endLine });
   }, [openFile]);
+  const openImageViewer: OpenImageViewerFn = useCallback((image) => {
+    setViewingImage(image);
+  }, []);
 
   const content = (
     <ShareInfoContext.Provider value={shareInfo}>
     <WorkdirContext.Provider value={workdir || ''}>
     <FileViewerContext.Provider value={openFileViewer}>
+    <ImageViewerContext.Provider value={openImageViewer}>
       {(() => {
         switch (message.role) {
           case MessageRoleEnum.USER:
@@ -1344,6 +1364,15 @@ export const MessageItem = memo(function MessageItem({ message, agentIconUrl, ag
         </>,
         document.body
       )}
+      {viewingImage && createPortal(
+        <ImageViewer
+          src={viewingImage.src}
+          alt={viewingImage.alt}
+          onClose={() => setViewingImage(null)}
+        />,
+        document.body
+      )}
+    </ImageViewerContext.Provider>
     </FileViewerContext.Provider>
     </WorkdirContext.Provider>
     </ShareInfoContext.Provider>

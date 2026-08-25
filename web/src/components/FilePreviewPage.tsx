@@ -6,6 +6,7 @@ import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import { copyToClipboard } from '../utils/clipboard';
+import { detectLanguage, getLanguageLabel, tokenizeLine } from '../utils/syntaxHighlight';
 import { useAuthPrincipal } from '../auth';
 import './FilePreviewPage.css';
 
@@ -100,6 +101,36 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function SyntaxHighlightedSource({ content, path, wrapText }: { content: string; path: string; wrapText: boolean }) {
+  const language = useMemo(() => detectLanguage(path), [path]);
+  const lines = useMemo(() => (content || '').split('\n').map((line) => ({
+    source: line,
+    tokens: tokenizeLine(line, language),
+  })), [content, language]);
+
+  return (
+    <div
+      className={`file-preview-source-code${wrapText ? ' is-wrapped' : ''}`}
+      role="table"
+      aria-label={language ? `${getLanguageLabel(path)} 源代码` : '文件源文'}
+    >
+      {lines.map(({ source, tokens }, lineIndex) => (
+        <div className="file-preview-source-line" role="row" key={lineIndex}>
+          <span className="file-preview-source-line-number" role="cell" aria-hidden="true">
+            {lineIndex + 1}
+          </span>
+          <span className="file-preview-source-line-content" role="cell">
+            {tokens.map((token, tokenIndex) => token.type
+              ? <span className={`hl-${token.type}`} key={tokenIndex}>{token.value}</span>
+              : token.value)}
+            {source === '' && '\u00a0'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function normalizeLocalPath(baseFilePath: string, target: string): string {
@@ -489,7 +520,10 @@ export function FilePreviewPage() {
   }, [jobId, path]);
 
   const lineCount = data?.content ? data.content.split('\n').length : 0;
-  const typeLabel = markdown ? 'Markdown' : html ? 'HTML' : (extensionFromPath(path).slice(1).toUpperCase() || 'Text');
+  const sourceLanguage = detectLanguage(path);
+  const typeLabel = sourceLanguage
+    ? getLanguageLabel(path)
+    : (extensionFromPath(path).slice(1).toUpperCase() || 'Text');
 
   const handleCopy = useCallback(() => {
     if (!data) return;
@@ -670,7 +704,7 @@ export function FilePreviewPage() {
 
         {!loading && data && !data.binary && showSource && (
           <section className="file-preview-source" aria-label="文件源文">
-            <pre className={wrapText ? 'is-wrapped' : ''}>{data.content || ' '}</pre>
+            <SyntaxHighlightedSource content={data.content} path={path} wrapText={wrapText} />
           </section>
         )}
       </main>

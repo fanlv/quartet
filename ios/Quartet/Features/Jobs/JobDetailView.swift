@@ -290,7 +290,7 @@ private struct DetailRow: View {
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(width: 82, alignment: .leading)
                 Text(value)
-                    .font(.quartet(.control, design: .monospaced))
+                    .font(.quartet(.control))
                     .foregroundStyle(QuartetTheme.primaryText)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)

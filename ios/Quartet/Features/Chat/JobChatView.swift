@@ -388,16 +388,12 @@ struct JobChatView: View {
                     .frame(maxHeight: 156)
                     .fixedSize(horizontal: false, vertical: true)
                     .scrollBounceBehavior(.basedOnSize)
-                    // 面板底部 10pt 会被下面的输入框卡片盖住（见负 padding），补齐避免裁掉最后一行。
-                    .padding(.bottom, 10)
                 }
-                .background(QuartetTheme.surface)
-                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 16))
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(
-                    UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 16)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(QuartetTheme.divider, lineWidth: 1)
                 )
-                .padding(.bottom, -10)
             }
 
             VStack(spacing: 0) {

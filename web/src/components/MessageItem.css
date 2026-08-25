@@ -234,6 +234,11 @@
   opacity: 0.85;
 }
 
+.user-message-image:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .assistant-message {
   flex-direction: row;
 }

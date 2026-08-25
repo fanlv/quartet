@@ -536,23 +536,84 @@
   overflow: auto;
 }
 
-.file-preview-source pre {
+.file-preview-source-code {
+  display: block;
+  width: max-content;
   min-width: 100%;
   min-height: 100%;
-  margin: 0;
-  padding: 30px 34px 64px;
+  padding: 30px 0 64px;
   color: #253047;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   font-size: 13px;
   line-height: 1.72;
   tab-size: 2;
+}
+
+.file-preview-source-line {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+}
+
+.file-preview-source-line:hover {
+  background: #f8fafc;
+}
+
+.file-preview-source-line-number {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 1px;
+  padding: 0 18px;
+  border-right: 1px solid #e8edf3;
+  color: #a2acba;
+  background: #ffffff;
+  text-align: right;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.file-preview-source-line:hover .file-preview-source-line-number {
+  color: #667085;
+  background: #f8fafc;
+}
+
+.file-preview-source-line-content {
+  display: block;
+  flex: 1;
+  padding: 0 30px;
   white-space: pre;
 }
 
-.file-preview-source pre.is-wrapped {
+.file-preview-source-code.is-wrapped,
+.file-preview-source-code.is-wrapped .file-preview-source-line {
+  width: 100%;
+}
+
+.file-preview-source-code.is-wrapped .file-preview-source-line-content {
+  min-width: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* The shared highlighter defaults to the dark file-viewer palette. The
+   standalone source view uses an editorial light canvas, so keep the same
+   tokens with accessible light-theme colors here. */
+.file-preview-source .hl-keyword { color: #7c3aed; }
+.file-preview-source .hl-string { color: #15803d; }
+.file-preview-source .hl-comment { color: #6b7280; }
+.file-preview-source .hl-number { color: #c2410c; }
+.file-preview-source .hl-operator { color: #0369a1; }
+.file-preview-source .hl-function,
+.file-preview-source .hl-property { color: #1d4ed8; }
+.file-preview-source .hl-type,
+.file-preview-source .hl-attribute { color: #a16207; }
+.file-preview-source .hl-builtin,
+.file-preview-source .hl-tag,
+.file-preview-source .hl-regexp { color: #be123c; }
+.file-preview-source .hl-punctuation { color: #64748b; }
+.file-preview-source .hl-variable { color: #9d174d; }
+.file-preview-source .hl-decorator { color: #7c3aed; }
 
 .file-preview-stage.html-mode {
   overflow: hidden;
@@ -649,7 +710,9 @@
   .file-preview-mermaid { margin-right: -12px; margin-left: -12px; }
   .file-preview-mermaid-canvas { padding: 20px; }
   .file-preview-source { width: calc(100% - 20px); min-height: calc(100% - 24px); margin: 12px auto; }
-  .file-preview-source pre { padding: 22px 18px 48px; font-size: 12px; }
+  .file-preview-source-code { padding: 22px 0 48px; font-size: 12px; }
+  .file-preview-source-line-number { padding: 0 12px; }
+  .file-preview-source-line-content { padding: 0 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
