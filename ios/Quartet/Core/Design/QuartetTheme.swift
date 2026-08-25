@@ -127,6 +127,28 @@ enum QuartetFontSize {
     }
 }
 
+/// 同一套档位在不同页面上的整体大小。聊天页文字密度远高于其它页面，全局梯放在那里偏大，
+/// 所以给它单独一档整体缩小的刻度 —— 想再调聊天页字号，只改 `chatReduction` 一个数字，
+/// 不必逐个调用点改档，也不会波及任务列表、设置和统计页。
+enum QuartetTypeScale {
+    /// 除聊天页以外的全部页面。
+    case app
+    /// 聊天页。
+    case chat
+
+    /// 聊天页相对全局梯收掉的磅值。
+    private static let chatReduction: CGFloat = 2.5
+    /// 收缩后的下限。再小时间戳和角标就不可读了，`.compact` 会撞到这个下限。
+    private static let chatFloor: CGFloat = 9
+
+    fileprivate func pointSize(for size: QuartetFontSize) -> CGFloat {
+        switch self {
+        case .app: size.pointSize
+        case .chat: max(size.pointSize - Self.chatReduction, Self.chatFloor)
+        }
+    }
+}
+
 extension Font {
     /// 全 App 的字体入口。`weight`/`design` 收的是 UIKit 类型，调用点照旧写
     /// `.semibold`、`.monospaced` 这样的字面量。
@@ -136,6 +158,15 @@ extension Font {
         design: UIFontDescriptor.SystemDesign = .default
     ) -> Font {
         Font(QuartetTypeface.uiFont(size, weight: weight, design: design))
+    }
+
+    /// 聊天页的字体入口：档位语义与 `quartet` 完全一致，只是整体小一号。
+    static func chat(
+        _ size: QuartetFontSize,
+        weight: UIFont.Weight = .regular,
+        design: UIFontDescriptor.SystemDesign = .default
+    ) -> Font {
+        Font(QuartetTypeface.uiFont(size, weight: weight, design: design, scale: .chat))
     }
 }
 
@@ -154,10 +185,13 @@ enum QuartetTypeface {
     static func uiFont(
         _ size: QuartetFontSize,
         weight: UIFont.Weight = .regular,
-        design: UIFontDescriptor.SystemDesign = .default
+        design: UIFontDescriptor.SystemDesign = .default,
+        scale: QuartetTypeScale = .app
     ) -> UIFont {
         // 每次求值都要重建描述符的话，一屏聊天要造上百个字体；档位组合本身很少，缓存住。
-        let pointSize = UIFontMetrics(forTextStyle: size.textStyle).scaledValue(for: size.pointSize)
+        // 缓存键里存的是缩放后的磅值，所以两套刻度天然不会互相命中。
+        let pointSize = UIFontMetrics(forTextStyle: size.textStyle)
+            .scaledValue(for: scale.pointSize(for: size))
         let key = Key(pointSize: pointSize, weight: weight.rawValue, design: design.rawValue)
         if let hit = cache.font(for: key) { return hit }
         let font = build(pointSize: pointSize, weight: weight, design: design)
