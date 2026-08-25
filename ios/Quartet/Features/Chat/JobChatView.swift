@@ -534,6 +534,8 @@ struct JobChatView: View {
                     .opacity(chat.sending ? 0.55 : 1)
                     .accessibilityLabel("发送消息")
                     .accessibilityIdentifier("chat-send")
+
+                    composerUsage
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
@@ -607,17 +609,6 @@ struct JobChatView: View {
                 .disabled(availableThoughtLevels.isEmpty || changingACPConfiguration)
                 .accessibilityIdentifier("chat-thought-level-selector")
             }
-            ComposerMetadataChip(
-                icon: "text.word.spacing",
-                text: chat.tokenCountLabel,
-                accessibilityLabel: chat.tokenCountAccessibilityLabel
-            )
-            if let agentType = agentRuntimeType {
-                AgentUsageStrip(
-                    command: agentType,
-                    displayName: chat.agentDisplayLabel
-                )
-            }
             if chat.showsDuration {
                 // 只在运行中挂 TimelineView：运行结束后 `runFinishedAt` 已定，标签与时间无关，
                 // 再让它每秒重算会连带整行胶囊（自定义 WrappingHStack Layout）每秒重排一次。
@@ -628,6 +619,22 @@ struct JobChatView: View {
                 } else {
                     durationChip(at: .now)
                 }
+            }
+        }
+    }
+
+    private var composerUsage: some View {
+        Group {
+            ComposerMetadataChip(
+                icon: "text.word.spacing",
+                text: chat.tokenCountLabel,
+                accessibilityLabel: chat.tokenCountAccessibilityLabel
+            )
+            if let agentType = agentRuntimeType {
+                AgentUsageStrip(
+                    command: agentType,
+                    displayName: chat.agentDisplayLabel
+                )
             }
         }
     }

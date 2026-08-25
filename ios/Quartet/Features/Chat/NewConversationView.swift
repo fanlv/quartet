@@ -101,6 +101,7 @@ struct NewConversationView: View {
     @State private var showsDocumentPicker = false
     @State private var showsMessageLibrary = false
     @State private var showsWorkspacePicker = false
+    @State private var showsModelPicker = false
     @State private var focusesComposerAfterMessageLibrary = false
     @State private var showsAdvancedOptions = false
     @State private var loading = true
@@ -238,6 +239,19 @@ struct NewConversationView: View {
                         guard let id else { return }
                         workspaceID = id
                     }
+                )
+                .presentationDetents([.medium, .large])
+                .quartetSheetStyle()
+            }
+            .sheet(isPresented: $showsModelPicker) {
+                QuartetChoiceSheet(
+                    title: "选择模型",
+                    choices: modelChoices,
+                    selection: Binding(
+                        get: { modelID },
+                        set: { selectModel($0) }
+                    ),
+                    accessibilityPrefix: "new-task-model-option"
                 )
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()
@@ -614,23 +628,17 @@ struct NewConversationView: View {
     }
 
     private var modelPicker: some View {
-        Menu {
-            ForEach(orderedModels) { item in
-                Button { selectModel(item.modelId) } label: {
-                    if item.modelId == modelID {
-                        Label(item.name, systemImage: "checkmark")
-                    } else if favoriteModelIDs.contains(item.modelId) {
-                        Label(item.name, systemImage: "star.fill")
-                    } else {
-                        Text(item.name)
-                    }
-                }
-            }
+        Button {
+            composerFocused = false
+            showsModelPicker = true
         } label: {
             configurationRow(title: "模型", value: modelName, icon: "cpu")
         }
         .buttonStyle(.plain)
         .disabled(orderedModels.isEmpty)
+        .accessibilityLabel("模型，当前为\(modelName)")
+        .accessibilityHint("点按弹出模型列表")
+        .accessibilityIdentifier("new-task-model-picker")
     }
 
     private var modePicker: some View {
@@ -943,6 +951,18 @@ struct NewConversationView: View {
         let favorites = favoriteOrder.compactMap { byID[$0] }
         let favoriteSet = Set(favoriteOrder)
         return favorites + available.filter { !favoriteSet.contains($0.modelId) }
+    }
+
+    private var modelChoices: [QuartetChoice] {
+        orderedModels.map { item in
+            let name = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let description = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return QuartetChoice(
+                id: item.modelId,
+                title: name.isEmpty ? item.modelId : name,
+                detail: description?.isEmpty == false ? description : item.modelId
+            )
+        }
     }
 
     private func create() async {
