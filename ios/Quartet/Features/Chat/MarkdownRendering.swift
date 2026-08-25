@@ -74,31 +74,31 @@ enum MarkdownTextRole: String {
 
     func font(for tone: MarkdownTone) -> Font {
         switch self {
-        case .body: .quartet(tone.contentFontSize)
-        case .headingLarge: .quartet(.large, weight: .bold)
-        case .headingMedium: .quartet(.headline, weight: .semibold)
+        case .body: .chat(tone.contentFontSize)
+        case .headingLarge: .chat(.large, weight: .bold)
+        case .headingMedium: .chat(.headline, weight: .semibold)
         // 正文已经是 `.reading`，标题再用更小的档就会比正文还小，这里只靠字重区分。
-        case .headingSmall: .quartet(tone.contentFontSize, weight: .semibold)
-        case .tableHeader: .quartet(tone.contentFontSize, weight: .semibold)
+        case .headingSmall: .chat(tone.contentFontSize, weight: .semibold)
+        case .tableHeader: .chat(tone.contentFontSize, weight: .semibold)
         }
     }
 
     /// 行内 `code` 用等宽体，但字号跟随所在段落，避免标题里的代码突然缩小。
     func codeFont(for tone: MarkdownTone) -> Font {
         switch self {
-        case .body: .quartet(tone.contentFontSize, design: .monospaced)
-        case .headingLarge: .quartet(.large, weight: .bold, design: .monospaced)
-        case .headingMedium: .quartet(.headline, weight: .semibold, design: .monospaced)
-        case .headingSmall, .tableHeader: .quartet(tone.contentFontSize, weight: .semibold, design: .monospaced)
+        case .body: .chat(tone.contentFontSize, design: .monospaced)
+        case .headingLarge: .chat(.large, weight: .bold, design: .monospaced)
+        case .headingMedium: .chat(.headline, weight: .semibold, design: .monospaced)
+        case .headingSmall, .tableHeader: .chat(tone.contentFontSize, weight: .semibold, design: .monospaced)
         }
     }
 
     /// `**加粗**` 的字重必须在这里显式落到字体上，见 `applyStrongEmphasisStyle`。
     func strongFont(for tone: MarkdownTone) -> Font {
         switch self {
-        case .body, .headingSmall, .tableHeader: .quartet(tone.contentFontSize, weight: .bold)
-        case .headingLarge: .quartet(.large, weight: .bold)
-        case .headingMedium: .quartet(.headline, weight: .bold)
+        case .body, .headingSmall, .tableHeader: .chat(tone.contentFontSize, weight: .bold)
+        case .headingLarge: .chat(.large, weight: .bold)
+        case .headingMedium: .chat(.headline, weight: .bold)
         }
     }
 
@@ -154,7 +154,7 @@ struct MarkdownMessageView: View {
                         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text(ordered ? "\(item.ordinal)." : Self.bullet(level: item.level))
-                                    .font(.quartet(tone.contentFontSize, weight: .semibold))
+                                    .font(.chat(tone.contentFontSize, weight: .semibold))
                                     .foregroundStyle(tone.secondaryForeground)
                                     .frame(minWidth: ordered ? 20 : 10, alignment: .trailing)
                                 MarkdownTextBlock(text: item.content, tone: tone)
@@ -219,19 +219,19 @@ struct CodeBlockView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text((language?.isEmpty == false ? language! : "code").uppercased())
-                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
+                    .font(.chat(.compact, weight: .bold, design: .monospaced))
                     .foregroundStyle(codeSecondaryForeground)
                 Spacer()
                 Button("复制代码") {
                     UIPasteboard.general.string = code
                 }
-                .font(.quartet(.detail))
+                .font(.chat(.detail))
             }
 
             // 软换行而不是内嵌横向 ScrollView：手机上长行更易读，同时避免在竖向
             // 滚动列表里塞进几十个 UIScrollView 与外层争抢手势。
             Text(code)
-                .font(.quartet(.detail, design: .monospaced))
+                .font(.chat(.detail, design: .monospaced))
                 .foregroundStyle(codeForeground)
                 .lineSpacing(lineSpacing)
                 .textSelection(.enabled)

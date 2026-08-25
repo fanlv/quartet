@@ -44,7 +44,7 @@ struct ChatBubble: View, Equatable {
             Text(message.content.isEmpty ? "系统事件".localizedForApp : message.content)
                 .textSelection(.enabled)
         }
-        .font(.quartet(.detail))
+        .font(.chat(.detail))
         .foregroundStyle(message.isFailed ? QuartetTheme.failed : QuartetTheme.secondaryText)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -72,7 +72,7 @@ struct UserMessageBubble: View {
                     }
                     if let timestamp = message.timestamp {
                         Text(chatTimeLabel(timestamp))
-                            .font(.quartet(.compact))
+                            .font(.chat(.compact))
                             .foregroundStyle(QuartetTheme.secondaryText)
                     }
                 }
@@ -119,20 +119,20 @@ struct AssistantMessageCard: View {
                     HStack(spacing: 8) {
                         if message.isShellOutput {
                             Text("💻")
-                                .font(.quartet(.control))
+                                .font(.chat(.control))
                                 .accessibilityHidden(true)
                         } else {
                             AgentIdentityIcon(iconUrl: agentIconUrl)
                         }
                         Text(message.isShellOutput ? "Shell" : agentName)
-                            .font(.quartet(.detail, weight: .semibold))
+                            .font(.chat(.detail, weight: .semibold))
                         if !message.isFinished {
                             StreamingDot(color: QuartetTheme.accent)
                         }
                         Spacer(minLength: 8)
                         if let timestamp = message.timestamp, message.isFinished {
                             Text(chatTimeLabel(timestamp))
-                                .font(.quartet(.compact))
+                                .font(.chat(.compact))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                         }
                         if message.isFinished, !message.content.isEmpty {
@@ -146,7 +146,7 @@ struct AssistantMessageCard: View {
                     if message.isShellOutput {
                         // 与代码块一致：软换行，不再内嵌横向 ScrollView。
                         Text(message.content)
-                            .font(.quartet(.detail, design: .monospaced))
+                            .font(.chat(.detail, design: .monospaced))
                             .foregroundStyle(QuartetTheme.primaryText)
                             .lineSpacing(shellLineSpacing)
                             .textSelection(.enabled)
@@ -180,10 +180,10 @@ struct AgentIdentityIcon: View {
                     .scaledToFill()
             } else if let icon = textIcon {
                 Text(icon)
-                    .font(.quartet(.control))
+                    .font(.chat(.control))
             } else {
                 Image(systemName: "sparkles")
-                    .font(.quartet(.detail, weight: .semibold))
+                    .font(.chat(.detail, weight: .semibold))
             }
         }
         .frame(width: 20, height: 20)
@@ -252,18 +252,18 @@ struct ThoughtPanel: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "brain.head.profile")
-                        .font(.quartet(.detail, weight: .semibold))
+                        .font(.chat(.detail, weight: .semibold))
                     Text("深度思考")
-                        .font(.quartet(.detail, weight: .semibold))
+                        .font(.chat(.detail, weight: .semibold))
                     if isStreaming { StreamingDot(color: QuartetTheme.accent) }
                     Spacer(minLength: 8)
                     if let timestamp, !isStreaming {
                         Text(chatTimeLabel(timestamp))
-                            .font(.quartet(.compact))
+                            .font(.chat(.compact))
                             .foregroundStyle(QuartetTheme.secondaryText)
                     }
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.quartet(.detail, weight: .semibold))
+                        .font(.chat(.detail, weight: .semibold))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
                 .foregroundStyle(QuartetTheme.accent)
@@ -309,16 +309,16 @@ struct ToolCallCard: View {
             } label: {
                 HStack(spacing: 11) {
                     Text(toolIcon)
-                        .font(.quartet(.control))
+                        .font(.chat(.control))
                         .frame(width: 20)
                     Text(displayName)
-                        .font(.quartet(.control, weight: .medium))
+                        .font(.chat(.control, weight: .medium))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .lineLimit(1)
                     Spacer(minLength: 6)
                     toolStatusBadge
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.quartet(.detail, weight: .semibold))
+                        .font(.chat(.detail, weight: .semibold))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
                 .padding(.horizontal, 15)
@@ -345,13 +345,13 @@ struct ToolCallCard: View {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
                             Text("工具正在执行，结果会实时显示在这里…")
-                                .font(.quartet(.detail))
+                                .font(.chat(.detail))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                         }
                     }
                     if status == .placeholder, let reason = message.placeholderReason, !reason.isEmpty {
                         Label("未完成：\(reason)", systemImage: "minus.circle")
-                            .font(.quartet(.detail))
+                            .font(.chat(.detail))
                             .foregroundStyle(QuartetTheme.secondaryText)
                             .textSelection(.enabled)
                     }
@@ -426,7 +426,7 @@ struct ToolCallCard: View {
                 ProgressView().controlSize(.mini).tint(statusColor)
             } else {
                 Image(systemName: statusIcon)
-                    .font(.quartet(.compact, weight: .bold))
+                    .font(.chat(.compact, weight: .bold))
                     .foregroundStyle(statusColor)
             }
         }
@@ -474,7 +474,7 @@ struct ToolPayloadSection: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 7) {
                 Text(title)
-                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
+                    .font(.chat(.compact, weight: .bold, design: .monospaced))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .tracking(0.5)
                 Spacer()
@@ -485,7 +485,7 @@ struct ToolPayloadSection: View {
             if let formatted = ChatTextCache.prettyPrintedJSON(from: text) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(formatted)
-                        .font(.quartet(.detail, design: .monospaced))
+                        .font(.chat(.detail, design: .monospaced))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -523,7 +523,7 @@ struct CopyIconButton: View {
             }
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(.quartet(.detail, weight: .semibold))
+                .font(.chat(.detail, weight: .semibold))
                 .foregroundStyle(copied ? QuartetTheme.accent : QuartetTheme.secondaryText)
                 .frame(width: 26, height: 26)
                 .background {
@@ -590,7 +590,7 @@ struct OutboxBubble: View {
                 Text("YOU")
                 Text(item.statusTitle)
             }
-            .font(.quartet(.compact, weight: .bold, design: .monospaced))
+            .font(.chat(.compact, weight: .bold, design: .monospaced))
             .foregroundStyle(item.isFailed ? QuartetTheme.failed : QuartetTheme.onAccent.opacity(0.76))
 
             MarkdownMessageView(text: item.displayText, tone: .user)
@@ -601,7 +601,7 @@ struct OutboxBubble: View {
 
             if let detail = item.failureDetail {
                 Text(detail)
-                    .font(.quartet(.detail, design: .monospaced))
+                    .font(.chat(.detail, design: .monospaced))
                     .foregroundStyle(QuartetTheme.failed)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -625,18 +625,18 @@ struct OutboxRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(item.summaryLine)
-                    .font(.quartet(.detail, weight: .semibold))
+                    .font(.chat(.detail, weight: .semibold))
                     .foregroundStyle(item.isFailed ? QuartetTheme.failed : QuartetTheme.primaryText)
                     .lineLimit(1)
                 Spacer()
                 Text(item.statusTitle)
-                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
+                    .font(.chat(.compact, weight: .bold, design: .monospaced))
                     .foregroundStyle(item.isFailed ? QuartetTheme.failed : QuartetTheme.secondaryText)
             }
 
             if let detail = item.failureDetail {
                 Text(detail)
-                    .font(.quartet(.compact, design: .monospaced))
+                    .font(.chat(.compact, design: .monospaced))
                     .foregroundStyle(QuartetTheme.failed)
                     .lineLimit(3)
             }
@@ -652,7 +652,7 @@ struct OutboxRow: View {
                 }
                 Spacer()
             }
-            .font(.quartet(.detail))
+            .font(.chat(.detail))
         }
         .padding(12)
         .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 14))
@@ -671,21 +671,21 @@ struct ServerQueueRow: View {
     var body: some View {
         HStack(spacing: 9) {
             Text("\(index)")
-                .font(.quartet(.compact, design: .monospaced))
+                .font(.chat(.compact, design: .monospaced))
                 .foregroundStyle(QuartetTheme.secondaryText)
             Text(item.summaryLine)
-                .font(.quartet(.detail))
+                .font(.chat(.detail))
                 .foregroundStyle(item.state == "blocked" ? QuartetTheme.failed : QuartetTheme.primaryText)
                 .lineLimit(1)
             Spacer(minLength: 6)
             if !item.imagePaths.isEmpty {
                 Image(systemName: "photo")
-                    .font(.quartet(.compact))
+                    .font(.chat(.compact))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
             if !item.fileAttachments.isEmpty {
                 Image(systemName: "paperclip")
-                    .font(.quartet(.compact))
+                    .font(.chat(.compact))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
             if item.error?.isEmpty == false {
@@ -700,7 +700,7 @@ struct ServerQueueRow: View {
             Button(role: .destructive, action: onDelete) {
                 Group {
                     if deleting { ProgressView() }
-                    else { Image(systemName: "xmark").font(.quartet(.compact, weight: .bold)) }
+                    else { Image(systemName: "xmark").font(.chat(.compact, weight: .bold)) }
                 }.frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
@@ -734,7 +734,7 @@ struct AuthenticatedImage: View {
             } else if let error {
                 Button { appModel.present(APIError(summary: "图片加载失败", detail: error)) } label: {
                     Label("图片加载失败，查看详情", systemImage: "photo.badge.exclamationmark")
-                        .font(.quartet(.detail))
+                        .font(.chat(.detail))
                         .foregroundStyle(QuartetTheme.failed)
                 }
             } else {
@@ -777,13 +777,13 @@ struct AuthenticatedFile: View {
             HStack(spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 8).fill(QuartetTheme.onAccent.opacity(0.12))
-                    Image(systemName: "doc.fill").font(.quartet(.control, weight: .semibold))
+                    Image(systemName: "doc.fill").font(.chat(.control, weight: .semibold))
                 }
                 .frame(width: 40, height: 44)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(attachment.name).font(.quartet(.control, weight: .semibold)).lineLimit(1)
+                    Text(attachment.name).font(.chat(.control, weight: .semibold)).lineLimit(1)
                     if !fileMeta.isEmpty {
-                        Text(fileMeta).font(.quartet(.compact)).foregroundStyle(QuartetTheme.onAccent.opacity(0.68)).lineLimit(1)
+                        Text(fileMeta).font(.chat(.compact)).foregroundStyle(QuartetTheme.onAccent.opacity(0.68)).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 6)

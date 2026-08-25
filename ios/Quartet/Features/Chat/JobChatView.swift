@@ -240,7 +240,7 @@ struct JobChatView: View {
                         VStack(spacing: 12) {
                             ProgressView()
                             Text("正在同步对话…")
-                                .font(.quartet(.detail))
+                                .font(.chat(.detail))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                         }
                         .padding(.top, 80)
@@ -265,7 +265,7 @@ struct JobChatView: View {
                                 .controlSize(.small)
                                 .tint(QuartetTheme.accent)
                             Text("AI 正在思考...")
-                                .font(.quartet(.control, weight: .medium))
+                                .font(.chat(.control, weight: .medium))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                             Spacer(minLength: 0)
                         }
@@ -335,7 +335,7 @@ struct JobChatView: View {
                         Spacer()
                         Text("详情")
                     }
-                    .font(.quartet(.detail))
+                    .font(.chat(.detail))
                     .foregroundStyle(QuartetTheme.failed)
                 }
             }
@@ -358,12 +358,12 @@ struct JobChatView: View {
                     if chat.serverQueue.paused {
                         HStack {
                             Text(chat.serverQueue.pauseReason == "blocked" ? "队列已阻塞，请删除失败消息" : "队列已暂停")
-                                .font(.quartet(.detail, weight: .semibold))
+                                .font(.chat(.detail, weight: .semibold))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                             Spacer()
                             if chat.serverQueue.pauseReason != "blocked" {
                                 Button("继续队列") { Task { await chat.continueQueue() } }
-                                    .font(.quartet(.detail, weight: .semibold))
+                                    .font(.chat(.detail, weight: .semibold))
                             }
                         }
                         .padding(.horizontal, 12)
@@ -411,7 +411,7 @@ struct JobChatView: View {
                                 selectedPhoto = nil
                             } label: {
                                 Image(systemName: "xmark")
-                                    .font(.quartet(.compact, weight: .bold))
+                                    .font(.chat(.compact, weight: .bold))
                                     .foregroundStyle(QuartetTheme.primaryText)
                                     .frame(width: 28, height: 28)
                                     .background(.thinMaterial, in: Circle())
@@ -423,7 +423,7 @@ struct JobChatView: View {
                 }
 
                 TextField("继续对话…", text: $draft, axis: .vertical)
-                    .font(.quartet(.reading))
+                    .font(.chat(.reading))
                     .lineLimit(1...6)
                     .focused($composerFocused)
                     .padding(.horizontal, 15)
@@ -444,7 +444,7 @@ struct JobChatView: View {
                         showsMessageLibrary = true
                     } label: {
                         Image(systemName: "clock.arrow.circlepath")
-                            .font(.quartet(.compact, weight: .semibold))
+                            .font(.chat(.compact, weight: .semibold))
                             .foregroundStyle(QuartetTheme.secondaryText)
                             .frame(width: 30, height: 30)
                             .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -459,7 +459,7 @@ struct JobChatView: View {
                         showsAttachmentMenu = true
                     } label: {
                         Image(systemName: "plus")
-                            .font(.quartet(.compact, weight: .bold))
+                            .font(.chat(.compact, weight: .bold))
                             .foregroundStyle(hasPendingAttachment ? QuartetTheme.accent : QuartetTheme.secondaryText)
                             .frame(width: 30, height: 30)
                             .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -503,7 +503,7 @@ struct JobChatView: View {
                             confirmsStop = true
                         } label: {
                             Image(systemName: "stop.fill")
-                                .font(.quartet(.compact, weight: .bold))
+                                .font(.chat(.compact, weight: .bold))
                                 .foregroundStyle(QuartetTheme.onAccent)
                                 .frame(width: 30, height: 30)
                                 .background(
@@ -521,7 +521,7 @@ struct JobChatView: View {
                         enqueueDraft()
                     } label: {
                         Image(systemName: "arrow.up")
-                            .font(.quartet(.compact, weight: .bold))
+                            .font(.chat(.compact, weight: .bold))
                             .foregroundStyle(sendDisabled ? QuartetTheme.secondaryText : QuartetTheme.onAccent)
                             .frame(width: 30, height: 30)
                             .background(
@@ -555,7 +555,7 @@ struct JobChatView: View {
 
             if !chat.isRunning && (!chat.serverQueue.items.isEmpty || chat.hasQueuedMessages) {
                 Text(chat.serverQueue.paused ? "服务端队列已暂停，继续后会按顺序发送。" : "队列中的消息会由服务端依次发送，可在执行前删除。")
-                    .font(.quartet(.detail))
+                    .font(.chat(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -664,7 +664,7 @@ struct JobChatView: View {
             Image(systemName: "square.stack.3d.up")
                 .foregroundStyle(QuartetTheme.accent)
             Text("\(workspaceName ?? route.summary.workspaceId ?? "—")：")
-                .font(.quartet(.compact, weight: .semibold))
+                .font(.chat(.compact, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
                 .lineLimit(1)
             Text(path)
@@ -675,7 +675,7 @@ struct JobChatView: View {
             Spacer(minLength: 0)
             if !gitBranch.isEmpty {
                 Label(gitBranch, systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.quartet(.compact, weight: .semibold))
+                    .font(.chat(.compact, weight: .semibold))
                     .foregroundStyle(QuartetTheme.accent)
                     .lineLimit(1)
                     .padding(.horizontal, 8)
@@ -1104,7 +1104,7 @@ private struct ChatConfigurationSelectionSheet: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text(title)
-                        .font(.quartet(.regular, weight: .semibold))
+                        .font(.chat(.regular, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .accessibilityAddTraits(.isHeader)
                 }
@@ -1117,7 +1117,7 @@ private struct ChatConfigurationSelectionSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             if let title {
                 Text(title)
-                    .font(.quartet(.detail, weight: .semibold))
+                    .font(.chat(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .padding(.horizontal, 4)
             }
@@ -1147,7 +1147,7 @@ private struct ChatConfigurationSelectionSheet: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: optionIcon(for: option))
-                    .font(.quartet(.regular, weight: .semibold))
+                    .font(.chat(.regular, weight: .semibold))
                     .foregroundStyle(
                         option.id == selectedID || favoriteIDs.contains(option.id)
                             ? QuartetTheme.accent
@@ -1157,13 +1157,13 @@ private struct ChatConfigurationSelectionSheet: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(option.name)
-                        .font(.quartet(.control, weight: .semibold))
+                        .font(.chat(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let detail = option.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
                        !detail.isEmpty {
                         Text(detail)
-                            .font(.quartet(.detail))
+                            .font(.chat(.detail))
                             .foregroundStyle(QuartetTheme.secondaryText)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }

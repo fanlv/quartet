@@ -25,12 +25,12 @@ struct ComposerMetadataChip: View {
         HStack(spacing: 5) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.quartet(.compact, weight: .semibold))
+                    .font(.chat(.compact, weight: .semibold))
             } else {
                 AgentIdentityIcon(iconUrl: agentIconUrl)
             }
             Text(text)
-                .font(.quartet(.compact, weight: .medium))
+                .font(.chat(.compact, weight: .medium))
                 .lineLimit(1)
         }
         .foregroundStyle(QuartetTheme.secondaryText)
@@ -167,11 +167,11 @@ struct AgentUsageStrip: View {
         .popover(item: $detail, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) { value in
             VStack(alignment: .leading, spacing: 6) {
                 Text(value.title)
-                    .font(.quartet(.detail, weight: .semibold))
+                    .font(.chat(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 ForEach(Array(value.lines.enumerated()), id: \.offset) { _, line in
                     Text(line)
-                        .font(.quartet(.compact, design: .monospaced))
+                        .font(.chat(.compact, design: .monospaced))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
             }
@@ -293,7 +293,7 @@ struct AgentUsageStrip: View {
                     }
                     .frame(width: 38, height: 4)
                 }
-                .font(.quartet(.compact))
+                .font(.chat(.compact))
                 .foregroundStyle(QuartetTheme.secondaryText)
             }
             .buttonStyle(.plain)
@@ -303,7 +303,7 @@ struct AgentUsageStrip: View {
 
     private func versionLabel(_ value: String) -> some View {
         Text(value)
-            .font(.quartet(.compact, weight: .medium, design: .monospaced))
+            .font(.chat(.compact, weight: .medium, design: .monospaced))
             .foregroundStyle(QuartetTheme.secondaryText.opacity(0.74))
             .lineLimit(1)
             .accessibilityLabel("Agent 版本 \(value)")
@@ -317,7 +317,7 @@ struct AgentUsageStrip: View {
                 .fontWeight(.bold)
                 .foregroundStyle(emphasis)
         }
-        .font(.quartet(.compact, design: .monospaced))
+        .font(.chat(.compact, design: .monospaced))
         .foregroundStyle(QuartetTheme.secondaryText)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
