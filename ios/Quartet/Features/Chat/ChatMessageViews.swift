@@ -80,7 +80,7 @@ struct UserMessageBubble: View {
             }
             VStack(alignment: .leading, spacing: 9) {
                 ForEach(message.imagePaths, id: \.self) { path in
-                    AuthenticatedImage(path: path)
+                    AuthenticatedMessageImage(path: path)
                 }
                 ForEach(message.fileAttachments, id: \.path) { attachment in
                     AuthenticatedFile(attachment: attachment)
@@ -97,7 +97,7 @@ struct UserMessageBubble: View {
             ))
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -114,7 +114,7 @@ struct AssistantMessageCard: View {
             if let thought = message.thinkingContent, !thought.isEmpty {
                 ThoughtPanel(text: thought, isStreaming: false, timestamp: message.timestamp)
             }
-            if !message.content.isEmpty {
+            if !message.content.isEmpty || !message.imagePaths.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 8) {
                         if message.isShellOutput {
@@ -143,7 +143,11 @@ struct AssistantMessageCard: View {
 
                     Divider().overlay(QuartetTheme.divider.opacity(0.7))
 
-                    if message.isShellOutput {
+                    ForEach(message.imagePaths, id: \.self) { path in
+                        AuthenticatedMessageImage(path: path)
+                    }
+
+                    if message.isShellOutput, !message.content.isEmpty {
                         // 与代码块一致：软换行，不再内嵌横向 ScrollView。
                         Text(message.content)
                             .font(.chat(.detail, design: .monospaced))
@@ -152,7 +156,7 @@ struct AssistantMessageCard: View {
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
+                    } else if !message.content.isEmpty {
                         MarkdownMessageView(text: message.content, tone: .standard)
                     }
                 }
@@ -354,6 +358,9 @@ struct ToolCallCard: View {
                             .font(.chat(.detail))
                             .foregroundStyle(QuartetTheme.secondaryText)
                             .textSelection(.enabled)
+                    }
+                    ForEach(message.imagePaths, id: \.self) { path in
+                        AuthenticatedMessageImage(path: path)
                     }
                 }
                 .padding(15)
@@ -714,50 +721,6 @@ struct ServerQueueRow: View {
             if showsDivider { Divider().overlay(QuartetTheme.divider) }
         }
         .accessibilityHint(item.error ?? "等待发送")
-    }
-}
-
-struct AuthenticatedImage: View {
-    @EnvironmentObject private var appModel: AppModel
-    let path: String
-    @State private var image: UIImage?
-    @State private var error: String?
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 280)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else if let error {
-                Button { appModel.present(APIError(summary: "图片加载失败", detail: error)) } label: {
-                    Label("图片加载失败，查看详情", systemImage: "photo.badge.exclamationmark")
-                        .font(.chat(.detail))
-                        .foregroundStyle(QuartetTheme.failed)
-                }
-            } else {
-                ProgressView().frame(maxWidth: .infinity).frame(height: 80)
-            }
-        }
-        .task(id: path) {
-            do {
-                let client = try appModel.apiClient()
-                // 按 280pt 展示上限降采样，别把原图整张位图留在内存里。
-                image = try await ChatImageLoader.shared.image(
-                    path: path,
-                    namespace: appModel.serverAddress,
-                    maxPixelSize: 280
-                ) {
-                    try await client.fileData(path: path)
-                }
-            } catch let apiError as APIError {
-                error = apiError.detail
-            } catch {
-                self.error = String(describing: error)
-            }
-        }
     }
 }
 

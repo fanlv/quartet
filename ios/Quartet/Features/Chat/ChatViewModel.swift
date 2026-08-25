@@ -636,6 +636,7 @@ final class ChatViewModel: ObservableObject {
                     converted[index].toolStatus = finalStatus
                     converted[index].placeholderReason = item.placeholderReason
                     converted[index].finishedAt = item.finishedAt
+                    converted[index].imagePaths = item.imageUrls ?? []
                     if let startedAt = item.startedAt { converted[index].timestamp = startedAt }
                 } else {
                     var orphan = baseMessages[offset]

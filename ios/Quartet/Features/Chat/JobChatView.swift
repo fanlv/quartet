@@ -584,11 +584,6 @@ struct JobChatView: View {
             .buttonStyle(.plain)
             .disabled(availableModels.isEmpty || changingACPConfiguration)
             .accessibilityIdentifier("chat-model-selector")
-            ComposerMetadataChip(
-                icon: "slider.horizontal.3",
-                text: modeDisplayLabel,
-                accessibilityLabel: "模式，\(modeDisplayLabel)"
-            )
             if !availableThoughtLevels.isEmpty || thoughtLevelDisplayLabel != nil {
                 let thoughtLevel = thoughtLevelDisplayLabel ?? "思考等级"
                 Button {
@@ -710,14 +705,6 @@ struct JobChatView: View {
         return appModel.agentCatalogSnapshot.first {
             $0.agentId == reference || $0.type == reference
         }?.type ?? reference
-    }
-
-    private var modeDisplayLabel: String {
-        AgentConfigurationDisplay.modeName(
-            chat.modeIDForDisplay,
-            agentReference: chat.agentReferenceForDisplay,
-            agents: appModel.agentCatalogSnapshot
-        ) ?? "默认模式".localizedForApp
     }
 
     private var thoughtLevelDisplayLabel: String? {

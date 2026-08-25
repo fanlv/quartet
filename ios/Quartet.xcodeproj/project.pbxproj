@@ -29,6 +29,7 @@
 		A10000000000000000000033 /* ChatComposerChips.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000033 /* ChatComposerChips.swift */; };
 		A10000000000000000000034 /* ChatImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000034 /* ChatImageLoader.swift */; };
 		A10000000000000000000035 /* ChatWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000035 /* ChatWebView.swift */; };
+		A1000000000000000000003D /* MessageImageViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003D /* MessageImageViewer.swift */; };
 		A10000000000000000000036 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000036 /* AppLanguage.swift */; };
 		A10000000000000000000037 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000037 /* Localizable.xcstrings */; };
 		A10000000000000000000038 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000038 /* InfoPlist.xcstrings */; };
@@ -79,6 +80,7 @@
 		A20000000000000000000033 /* ChatComposerChips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatComposerChips.swift; sourceTree = "<group>"; };
 		A20000000000000000000034 /* ChatImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatImageLoader.swift; sourceTree = "<group>"; };
 		A20000000000000000000035 /* ChatWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWebView.swift; sourceTree = "<group>"; };
+		A2000000000000000000003D /* MessageImageViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageImageViewer.swift; sourceTree = "<group>"; };
 		A20000000000000000000036 /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		A20000000000000000000037 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		A20000000000000000000038 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
@@ -294,6 +296,7 @@
 				A20000000000000000000032 /* ChatViewModel.swift */,
 				A20000000000000000000033 /* ChatComposerChips.swift */,
 				A20000000000000000000035 /* ChatWebView.swift */,
+				A2000000000000000000003D /* MessageImageViewer.swift */,
 				A20000000000000000000011 /* ChatAttachmentSupport.swift */,
 			);
 			path = Chat;
@@ -492,6 +495,7 @@
 				A10000000000000000000034 /* ChatImageLoader.swift in Sources */,
 				A10000000000000000000036 /* AppLanguage.swift in Sources */,
 				A10000000000000000000035 /* ChatWebView.swift in Sources */,
+				A1000000000000000000003D /* MessageImageViewer.swift in Sources */,
 				A10000000000000000000010 /* ChatAttachmentSupport.swift in Sources */,
 				A1000000000000000000000F /* GraphRunView.swift in Sources */,
 				A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */,

@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 struct GraphRunView: View {
     @EnvironmentObject private var appModel: AppModel
@@ -724,7 +723,7 @@ private struct GraphSessionBubble: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             ForEach(message.imageUrls ?? [], id: \.self) { path in
-                GraphAuthenticatedImage(path: path)
+                AuthenticatedMessageImage(path: path, typography: .app)
             }
 
             if let detail = detailText, !detail.isEmpty {
@@ -784,53 +783,6 @@ private struct GraphSessionBubble: View {
             return toolCalls.map { "\($0.name)\n\($0.arguments)" }.joined(separator: "\n\n")
         }
         return nil
-    }
-}
-
-private struct GraphAuthenticatedImage: View {
-    @EnvironmentObject private var appModel: AppModel
-    let path: String
-
-    @State private var image: UIImage?
-    @State private var error: String?
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 280)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else if let error {
-                Button {
-                    appModel.present(APIError(summary: "图片加载失败", detail: error))
-                } label: {
-                    Label("图片加载失败，查看详情", systemImage: "photo.badge.exclamationmark")
-                        .font(.caption)
-                        .foregroundStyle(QuartetTheme.failed)
-                }
-                .buttonStyle(.plain)
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 80)
-            }
-        }
-        .task(id: path) {
-            do {
-                let client = try appModel.apiClient()
-                // 与聊天页共用缓存：同一张图重复出现时只发一个请求，并按 280pt 展示上限降采样。
-                image = try await ChatImageLoader.shared.image(
-                    path: path, namespace: appModel.serverAddress, maxPixelSize: 280
-                ) { try await client.fileData(path: path) }
-                error = nil
-            } catch let apiError as APIError {
-                error = apiError.detail
-            } catch {
-                self.error = String(describing: error)
-            }
-        }
     }
 }
 
