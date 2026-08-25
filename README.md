@@ -43,6 +43,9 @@ release.
   views by workspace, model, tool, and time range.
 - **Messaging integrations** - can receive and reply to tasks through
   Feishu/Lark and personal WeChat after they are configured in Settings.
+- **Native iOS client** - Sophia, the SwiftUI app in `ios/`, talks to the same
+  backend over your LAN for conversations, attachments, graph runs, scheduled
+  tasks, and usage statistics.
 - **Agent-extensible workflows** - ships a `quartet-cli` and
   `quartet-workflow` skill so compatible coding agents can create and validate
   workflows without modifying workflows authored by the user.
@@ -68,6 +71,20 @@ release.
 ### Settings
 
 ![Quartet settings](./docs/images/setttings.png)
+
+### iOS client (Sophia)
+
+| Recent jobs | Agent conversation |
+|---|---|
+| ![Sophia recent jobs list](./docs/images/ios-home.png) | ![Sophia agent conversation with tool activity](./docs/images/ios-chat.png) |
+
+| New task | Graph run |
+|---|---|
+| ![Sophia new task composer](./docs/images/ios-new-task.png) | ![Sophia graph run overview and node trace](./docs/images/ios-graph.png) |
+
+| Scheduled tasks | Usage statistics |
+|---|---|
+| ![Sophia scheduled task list](./docs/images/ios-schedules.png) | ![Sophia usage statistics](./docs/images/ios-stats.png) |
 
 ## Graph Workflows
 
@@ -164,6 +181,67 @@ configuration.
 The scheduler runs inside the Quartet backend. Keep the backend running for
 scheduled automation; `make web-watch` can monitor the service and revive it
 when its port goes down.
+
+## iOS Client
+
+[`ios/`](./ios) contains **Sophia**, a native SwiftUI client for the same
+backend. It targets personal use over a LAN: no agent runs on the phone, and the
+app never reaches the host filesystem directly. Every capability goes through
+the same authenticated HTTP and SSE APIs the web UI uses, so both clients see one
+shared set of workspaces, jobs, and sessions.
+
+- **Connect and sign in** - point the app at one Quartet address and log in with
+  a Quartet username and password. Health and session checks run before the
+  dashboard opens, a plaintext `http://` endpoint requires explicit
+  confirmation, the password is never stored on the device, and role
+  permissions decide which actions appear.
+- **Recent jobs** - a paginated job list with workspace filter, pin, rename,
+  delete, and stop actions, plus a toggle that hides or reveals
+  schedule-generated runs. Workspace and job summaries are cached, so the list
+  still opens when the backend is unreachable and marks itself as out of date.
+- **Agent conversations** - start a conversation by choosing workspace, agent,
+  model, mode, and reasoning level, or continue an existing one. Answers,
+  thoughts, tool calls, images, Markdown, tables, and individually copyable code
+  blocks stream in over SSE, with token totals, elapsed time, and the active
+  working directory and Git branch in the composer.
+- **Attachments** - send photos, camera captures, and image files from the
+  system picker; oversized images are compressed before upload.
+- **Presets and history** - reuse message presets scoped to the current
+  workspace, presets shared across all workspaces, and recently sent messages.
+- **Graph workflows** - launch a saved workflow after reviewing and overriding
+  its workspace, global run limits, initial variables, and per-node Prompt,
+  Shell, Clarify, and If/Else settings. The run view shows progress, the
+  execution trace, per-node agent sessions and shell output, and supports stop,
+  stop after the current step, cancel a pending stop, resume, and completing a
+  clarify discussion.
+- **Scheduled tasks** - create, edit, enable, disable, delete, and manually
+  trigger cron schedules bound to saved workflows, with next run time, run
+  count, latest status, and the complete trigger error.
+- **Usage statistics** - 7/30/90-day, all-time, and custom ranges with totals,
+  trends, and rankings by workspace, model, and tool.
+- **Connection management** - inspect the active endpoint and last successful
+  sync, restart the web service, reconfigure the connection, or sign out and
+  clear it.
+- **Background behavior** - event streams stop when the app is backgrounded and
+  the server snapshot is re-read on return, so the UI does not silently display
+  stale progress.
+
+API errors keep the request method, URL, HTTP status, and full response body,
+and can be copied out of the app.
+
+Building requires macOS with Xcode 26 or newer, an iOS 26 or newer target, and
+CocoaPods 1.15 or newer:
+
+```bash
+make pod-install   # install or refresh CocoaPods dependencies and the workspace
+make build-ios     # build the device Debug configuration
+make test-ios      # build the Simulator target without signing
+make e2e-ios       # run the native XCUITest end-to-end suite in Simulator
+```
+
+Open `ios/Quartet.xcworkspace` rather than `ios/Quartet.xcodeproj`, select a
+signing team, and run. [`ios/README.md`](./ios/README.md) documents the current
+scope and verification boundaries in more detail.
 
 ## Agent Support
 
@@ -278,6 +356,8 @@ Quartet requires both `claude` and `claude-agent-acp` for Claude Code, and both
 | `make build-frontend` | Rebuild the SPA into `static/` without restarting the backend |
 | `make build-ios` | Build the iOS app on macOS with Xcode |
 | `make test-ios` | Build the iOS app for Simulator without signing |
+| `make pod-install` | Install or refresh the iOS CocoaPods dependencies |
+| `make e2e-ios` | Run the native iOS UI tests in Simulator |
 
 ## Configuration
 
@@ -352,7 +432,7 @@ and event pipeline.
 | `types` | Shared domain and protocol types |
 | `pkg` | ACP, messaging, sandbox, logging, and common infrastructure |
 | `web` | React frontend |
-| `ios` | Native SwiftUI client for personal LAN use |
+| `ios` | Native SwiftUI client (Sophia) for personal LAN use |
 | `skill/workflow` | CLI-driven workflow skill for coding agents |
 
 ## Workflow Skill

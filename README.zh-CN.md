@@ -32,6 +32,8 @@ Quartet 面向在个人电脑或开发沙箱中运行的可信共享实例。多
 - **本地持久化与统计**：将工作区、任务、会话、工作流、定时任务和用量统计保存为本地文件；
   可按工作区、模型、工具和时间范围查看使用情况。
 - **即时通讯接入**：在设置中完成配置后，可通过飞书/Lark 和个人微信接收任务并回复结果。
+- **原生 iOS 客户端**：`ios/` 下的 SwiftUI 应用 Sophia 在局域网内连接同一个后端，支持对话、
+  附件、Graph 运行、定时任务和用量统计。
 - **可由 Agent 扩展的工作流**：内置 `quartet-cli` 和 `quartet-workflow` Skill，让兼容的
   编程 Agent 创建和校验工作流，同时避免修改用户手工编排的工作流。
 
@@ -56,6 +58,20 @@ Quartet 面向在个人电脑或开发沙箱中运行的可信共享实例。多
 ### 设置
 
 ![Quartet 设置](./docs/images/setttings.png)
+
+### iOS 客户端（Sophia）
+
+| 最近任务 | Agent 对话 |
+|---|---|
+| ![Sophia 最近任务列表](./docs/images/ios-home.png) | ![Sophia Agent 对话与工具调用](./docs/images/ios-chat.png) |
+
+| 新任务 | Graph 运行 |
+|---|---|
+| ![Sophia 新任务面板](./docs/images/ios-new-task.png) | ![Sophia Graph 运行概览与执行轨迹](./docs/images/ios-graph.png) |
+
+| 定时任务 | 用量统计 |
+|---|---|
+| ![Sophia 定时任务列表](./docs/images/ios-schedules.png) | ![Sophia 用量统计](./docs/images/ios-stats.png) |
 
 ## Graph Workflow
 
@@ -128,6 +144,49 @@ quartet-cli workflow create --name "Code Review" \
 
 调度器运行在 Quartet 后端进程中，因此定时自动化要求后端保持运行。可以使用
 `make web-watch` 监控服务，并在端口不可用时自动拉起后端。
+
+## iOS 客户端
+
+[`ios/`](./ios) 目录是原生 SwiftUI 客户端 **Sophia**，连接同一个 Quartet 后端，面向个人在
+局域网内使用：手机上不运行任何 Agent，也不直接访问后端机器的文件系统，所有能力都通过 Web 端
+同样的登录态 HTTP 与 SSE 接口完成，因此两个客户端看到的是同一份工作区、任务和会话。
+
+- **连接与登录**：配置一个 Quartet 服务地址，使用 Quartet 用户名和密码登录。进入主界面前
+  会先做健康检查和会话校验；明文 `http://` 地址需要显式确认；密码不会保存在设备上；界面上
+  出现哪些操作由角色权限决定。
+- **最近任务**：分页任务列表，支持按工作区筛选，以及置顶、重命名、删除和停止；可以切换隐藏
+  或显示由定时任务生成的运行。工作区与任务摘要有本地缓存，后端不可达时仍能打开列表并标记
+  数据已过期。
+- **Agent 对话**：新建对话时选择工作区、Agent、模型、运行模式和思考等级，也可以继续已有
+  对话。回答、思考过程、工具调用、图片、Markdown、表格和可单独复制的代码块通过 SSE 实时
+  展示，输入区同时显示 Token 累计、耗时、当前工作目录和 Git 分支。
+- **附件**：支持发送照片、相机拍摄和系统文件选择器中的图片，过大的图片会在上传前压缩。
+- **预置消息与历史**：可以复用当前工作区的预置消息、全部工作区共享的预置消息，以及最近
+  发送过的内容。
+- **Graph Workflow**：启动已保存的工作流前，可以查看并调整运行空间、全局执行限制、初始变量，
+  以及 Prompt、Shell、澄清和条件节点的逐节点配置。运行页展示进度、执行轨迹、节点会话和
+  Shell 输出，并支持停止、步骤后停止、取消停止、恢复运行和结束澄清讨论。
+- **定时任务**：创建、编辑、启用、停用、删除和手动触发绑定工作流的 Cron 任务，展示下次运行
+  时间、累计运行次数、最近状态和完整触发错误。
+- **用量统计**：支持 7/30/90 天、全部和自定义范围，展示总览、趋势以及按工作区、模型和工具
+  的排行。
+- **连接管理**：查看当前服务地址和最后成功同步时间，重启 Web 服务、重新配置连接，或退出并
+  清除连接。
+- **后台行为**：应用进入后台后停止事件流，回到前台重新读取服务端快照，不会静默展示过期进度。
+
+接口错误会保留请求方法、URL、HTTP 状态和完整响应正文，并支持在应用内复制。
+
+构建需要 macOS、Xcode 26 或更新版本、iOS 26 或更新版本，以及 CocoaPods 1.15 或更新版本：
+
+```bash
+make pod-install   # 安装或同步 iOS CocoaPods 依赖与 workspace
+make build-ios     # 构建真机 Debug 版本
+make test-ios      # 无签名构建 iOS Simulator 版本
+make e2e-ios       # 在模拟器运行原生 XCUITest 端到端测试
+```
+
+请打开 `ios/Quartet.xcworkspace`，不要直接打开 `ios/Quartet.xcodeproj`；选择签名团队后即可
+运行。更详细的能力范围和验证边界见 [`ios/README.md`](./ios/README.md)。
 
 ## Agent 支持
 
@@ -233,6 +292,8 @@ Claude Code 要求后端的 `PATH` 中同时能找到 `claude` 和 `claude-agent
 | `make build-frontend` | 将 SPA 重新构建到 `static/`，不重启后端 |
 | `make build-ios` | 在 macOS/Xcode 上构建 iOS 应用 |
 | `make test-ios` | 无签名构建 iOS Simulator 目标 |
+| `make pod-install` | 安装或同步 iOS CocoaPods 依赖 |
+| `make e2e-ios` | 在模拟器运行原生 iOS UI 测试 |
 
 ## 配置
 
@@ -297,7 +358,7 @@ ACP 会话与事件链路接入。
 | `types` | 共享领域类型与协议类型 |
 | `pkg` | ACP、即时通讯、沙箱、日志和通用基础设施 |
 | `web` | React 前端 |
-| `ios` | 面向个人局域网使用的原生 SwiftUI 客户端 |
+| `ios` | 面向个人局域网使用的原生 SwiftUI 客户端（Sophia） |
 | `skill/workflow` | 供编程 Agent 使用的 CLI 工作流 Skill |
 
 ## 工作流 Skill
