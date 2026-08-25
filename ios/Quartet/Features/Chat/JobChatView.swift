@@ -664,18 +664,18 @@ struct JobChatView: View {
             Image(systemName: "square.stack.3d.up")
                 .foregroundStyle(QuartetTheme.accent)
             Text("\(workspaceName ?? route.summary.workspaceId ?? "—")：")
-                .font(.chat(.compact, weight: .semibold))
+                .font(.chat(.detail, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
                 .lineLimit(1)
             Text(path)
-                .font(.chat(.compact, weight: .medium, design: .monospaced))
+                .font(.chat(.detail, weight: .medium, design: .monospaced))
                 .foregroundStyle(QuartetTheme.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
             if !gitBranch.isEmpty {
                 Label(gitBranch, systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.chat(.compact, weight: .semibold))
+                    .font(.chat(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.accent)
                     .lineLimit(1)
                     .padding(.horizontal, 8)
@@ -1104,7 +1104,7 @@ private struct ChatConfigurationSelectionSheet: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text(title)
-                        .font(.chat(.regular, weight: .semibold))
+                        .font(.quartet(.regular, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .accessibilityAddTraits(.isHeader)
                 }
@@ -1117,7 +1117,7 @@ private struct ChatConfigurationSelectionSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             if let title {
                 Text(title)
-                    .font(.chat(.detail, weight: .semibold))
+                    .font(.quartet(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .padding(.horizontal, 4)
             }
@@ -1147,7 +1147,7 @@ private struct ChatConfigurationSelectionSheet: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: optionIcon(for: option))
-                    .font(.chat(.regular, weight: .semibold))
+                    .font(.quartet(.regular, weight: .semibold))
                     .foregroundStyle(
                         option.id == selectedID || favoriteIDs.contains(option.id)
                             ? QuartetTheme.accent
@@ -1157,13 +1157,13 @@ private struct ChatConfigurationSelectionSheet: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(option.name)
-                        .font(.chat(.control, weight: .semibold))
+                        .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let detail = option.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
                        !detail.isEmpty {
                         Text(detail)
-                            .font(.chat(.detail))
+                            .font(.quartet(.detail))
                             .foregroundStyle(QuartetTheme.secondaryText)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }

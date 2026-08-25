@@ -809,7 +809,7 @@ private struct JobRow: View {
                             metadataSeparator
                             metadataBottomLine
                         }
-                        .font(.quartet(.detail))
+                        .font(.quartet(.compact))
                         .lineLimit(1)
                         .minimumScaleFactor(0.82)
                         .foregroundStyle(QuartetTheme.secondaryText)
@@ -887,7 +887,7 @@ private struct JobRow: View {
 
             if job.scheduleId != nil {
                 Image(systemName: "calendar.badge.clock")
-                    .font(.quartet(.detail, weight: .semibold))
+                    .font(.quartet(.compact, weight: .semibold))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .accessibilityLabel("定时任务")
             }

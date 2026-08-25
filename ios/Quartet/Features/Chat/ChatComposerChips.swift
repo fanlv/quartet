@@ -25,12 +25,12 @@ struct ComposerMetadataChip: View {
         HStack(spacing: 5) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.chat(.compact, weight: .semibold))
+                    .font(.chat(.detail, weight: .semibold))
             } else {
                 AgentIdentityIcon(iconUrl: agentIconUrl)
             }
             Text(text)
-                .font(.chat(.compact, weight: .medium))
+                .font(.chat(.detail, weight: .medium))
                 .lineLimit(1)
         }
         .foregroundStyle(QuartetTheme.secondaryText)
@@ -293,7 +293,7 @@ struct AgentUsageStrip: View {
                     }
                     .frame(width: 38, height: 4)
                 }
-                .font(.chat(.compact))
+                .font(.chat(.detail))
                 .foregroundStyle(QuartetTheme.secondaryText)
             }
             .buttonStyle(.plain)
@@ -303,7 +303,7 @@ struct AgentUsageStrip: View {
 
     private func versionLabel(_ value: String) -> some View {
         Text(value)
-            .font(.chat(.compact, weight: .medium, design: .monospaced))
+            .font(.chat(.detail, weight: .medium, design: .monospaced))
             .foregroundStyle(QuartetTheme.secondaryText.opacity(0.74))
             .lineLimit(1)
             .accessibilityLabel("Agent 版本 \(value)")
@@ -317,7 +317,7 @@ struct AgentUsageStrip: View {
                 .fontWeight(.bold)
                 .foregroundStyle(emphasis)
         }
-        .font(.chat(.compact, design: .monospaced))
+        .font(.chat(.detail, design: .monospaced))
         .foregroundStyle(QuartetTheme.secondaryText)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
