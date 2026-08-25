@@ -43,7 +43,7 @@ struct JobDetailView: View {
             NavigationStack {
                 ScrollView {
                     Text(detail?.latestRunLastError ?? graphState?.lastError ?? "暂无错误详情")
-                        .font(.system(.footnote, design: .monospaced))
+                        .font(.quartet(.detail, design: .monospaced))
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(20)
@@ -183,14 +183,14 @@ struct JobDetailView: View {
 
     private func statusLabel(_ status: String) -> String {
         switch status {
-        case "pending": "等待中"
-        case "running": "运行中"
-        case "awaitingInput": "等待人工"
-        case "stepStopping": "步骤后停止中"
-        case "stepStopped": "已在步骤后停止"
-        case "completed": "已完成"
-        case "failed", "timedOut": "失败"
-        case "stopped": "已停止"
+        case "pending": "等待中".localizedForApp
+        case "running": "运行中".localizedForApp
+        case "awaitingInput": "等待人工".localizedForApp
+        case "stepStopping": "步骤后停止中".localizedForApp
+        case "stepStopped": "已在步骤后停止".localizedForApp
+        case "completed": "已完成".localizedForApp
+        case "failed", "timedOut": "失败".localizedForApp
+        case "stopped": "已停止".localizedForApp
         default: status
         }
     }
@@ -222,7 +222,7 @@ private struct DetailRow: View {
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(width: 82, alignment: .leading)
                 Text(value)
-                    .font(.system(.subheadline, design: .monospaced))
+                    .font(.quartet(.control, design: .monospaced))
                     .foregroundStyle(QuartetTheme.primaryText)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)

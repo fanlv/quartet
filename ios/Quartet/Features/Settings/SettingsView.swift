@@ -6,6 +6,7 @@ struct SettingsView: View {
     @State private var confirmsClear = false
     @State private var confirmsRestartWeb = false
     @State private var showsRestartSuccess = false
+    @State private var showsLanguagePicker = false
 
     var body: some View {
         NavigationStack {
@@ -16,7 +17,7 @@ struct SettingsView: View {
                             .font(.system(.caption, design: .monospaced).weight(.bold))
                             .foregroundStyle(QuartetTheme.accent)
                         Text(model.serverAddress)
-                            .font(.system(.body, design: .monospaced))
+                            .font(.quartet(.regular, design: .monospaced))
                             .foregroundStyle(QuartetTheme.primaryText)
                             .textSelection(.enabled)
                         HStack(spacing: 7) {
@@ -27,7 +28,7 @@ struct SettingsView: View {
                                         : (model.connectionState.isStale ? QuartetTheme.warning : QuartetTheme.terminalGreen)
                                 )
                                 .frame(width: 8, height: 8)
-                            Text(model.connectionState.isConnected ? (model.connectionState.isStale ? "缓存中" : "已连接") : "未连接")
+                            Text((model.connectionState.isConnected ? (model.connectionState.isStale ? "缓存中" : "已连接") : "未连接").localizedForApp)
                             if let buildTime = model.health?.buildTime { Text("· \(buildTime)") }
                         }
                         .font(.caption)
@@ -40,6 +41,29 @@ struct SettingsView: View {
                     }
                     .padding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
+
+                    VStack(spacing: 0) {
+                        Button { showsLanguagePicker = true } label: {
+                            HStack(spacing: 14) {
+                                Image(systemName: "globe").frame(width: 22)
+                                Text("显示语言")
+                                Spacer()
+                                Text(LocalizedStringKey(model.appLanguage.localizationKey))
+                                    .foregroundStyle(QuartetTheme.secondaryText)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(QuartetTheme.secondaryText)
+                            }
+                            .foregroundStyle(QuartetTheme.primaryText)
+                            .padding(.horizontal, 16)
+                            .frame(height: 54)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("settings-language")
+                    }
                     .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
 
@@ -79,6 +103,14 @@ struct SettingsView: View {
         }
         .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .sheet(isPresented: $showsLanguagePicker) {
+            LanguagePickerSheet(selection: model.appLanguage) { language in
+                model.setAppLanguage(language)
+                showsLanguagePicker = false
+            }
+            .presentationDetents([.height(270)])
+            .quartetSheetStyle()
+        }
         .alert("清除当前连接？", isPresented: $confirmsClear) {
             Button("关闭", role: .cancel) {}
             Button("清除连接", role: .destructive) { model.clearConnection() }
@@ -117,7 +149,7 @@ struct SettingsView: View {
     ) -> some View {
         HStack(spacing: 14) {
             Image(systemName: icon).frame(width: 22)
-            Text(title)
+            Text(LocalizedStringKey(title))
             Spacer()
             if loading {
                 ProgressView()
@@ -129,5 +161,50 @@ struct SettingsView: View {
         .padding(.horizontal, 16)
         .frame(height: 54)
         .contentShape(Rectangle())
+    }
+}
+
+private struct LanguagePickerSheet: View {
+    let selection: AppLanguage
+    let onSelect: (AppLanguage) -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ForEach(Array(AppLanguage.allCases.enumerated()), id: \.element.id) { index, language in
+                    if index > 0 {
+                        Divider().overlay(QuartetTheme.divider).padding(.leading, 54)
+                    }
+                    Button { onSelect(language) } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: selection == language ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selection == language ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                                .frame(width: 28)
+                            Text(LocalizedStringKey(language.localizationKey))
+                                .font(.quartet(.control, weight: .semibold))
+                                .foregroundStyle(QuartetTheme.primaryText)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 60)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selection == language ? .isSelected : [])
+                    .accessibilityIdentifier("settings-language-\(language.rawValue)")
+                }
+            }
+            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 1)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .background(QuartetTheme.canvas)
+            .navigationTitle("显示语言")
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 }

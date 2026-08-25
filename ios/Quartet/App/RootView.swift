@@ -207,7 +207,7 @@ private struct MainTabBar: View {
                                 .font(.system(size: 22, weight: selection == item.id ? .semibold : .regular))
                                 .symbolVariant(selection == item.id ? .fill : .none)
                                 .frame(height: 25)
-                            Text(item.title)
+                            Text(LocalizedStringKey(item.title))
                                 .font(.quartet(.compact, weight: selection == item.id ? .semibold : .regular))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.86)
@@ -219,7 +219,7 @@ private struct MainTabBar: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(item.title)
+                    .accessibilityLabel(Text(LocalizedStringKey(item.title)))
                     .accessibilityAddTraits(selection == item.id ? .isSelected : [])
                     .accessibilityIdentifier("main-tab-\(item.id)")
                 }
@@ -276,13 +276,13 @@ struct ErrorDetailView: View {
         NavigationStack {
             ScrollView {
                 Text(error.detail)
-                    .font(.system(.footnote, design: .monospaced))
+                    .font(.quartet(.detail, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(20)
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle(error.title)
+            .navigationTitle(error.title.localizedForApp)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

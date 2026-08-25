@@ -81,8 +81,8 @@ struct LocalOutboxItem: Identifiable, Hashable, Sendable {
     var summaryLine: String {
         let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
-        if let attachment = draft.attachment { return attachment.isImage ? "[image]" : "[file]" }
-        return "空消息"
+        if let attachment = draft.attachment { return (attachment.isImage ? "[image]" : "[file]").localizedForApp }
+        return "空消息".localizedForApp
     }
 }
 
@@ -176,7 +176,7 @@ final class ChatViewModel: ObservableObject {
         }
     }
     var agentDisplayLabel: String {
-        displayValue(agentDisplayName) ?? displayValue(agentType) ?? "未指定 Agent"
+        displayValue(agentDisplayName) ?? displayValue(agentType) ?? "未指定 Agent".localizedForApp
     }
     var agentDisplayIconUrl: String? { displayValue(agentIconUrl) }
     var agentRuntimeType: String? { displayValue(agentType) }
@@ -1726,9 +1726,13 @@ final class ChatViewModel: ObservableObject {
         return trimmed
     }
 
+    // 与 Web 端 formatTokenCount 保持一致：保留两位小数让数字在每一轮之间可见地增长，
+    // 过百万切 M，否则长上下文模型会显示成 "1234.57K"。
     private static func compactCount(_ value: Int) -> String {
+        guard value > 0 else { return "0" }
         guard value >= 1_000 else { return String(value) }
-        return String(format: "%.2fK", Double(value) / 1_000)
+        guard value >= 1_000_000 else { return String(format: "%.2fK", Double(value) / 1_000) }
+        return String(format: "%.2fM", Double(value) / 1_000_000)
     }
 
     private static func formatDuration(_ milliseconds: Int64) -> String {

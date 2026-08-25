@@ -116,6 +116,7 @@
     "continueQueue": "Continue queue",
     "commandUnavailableWhileRunning": "This command cannot be queued while a message is running. Try again when it finishes.",
     "uploadAttachment": "Upload image or file",
+    "tokenUsageHint": "Context size of the current session, estimated by the local tokenizer — not an API billing value.",
     "attachmentUploadFailed": "Attachment upload failed: {{error}}. Remove the failed attachment before sending.",
     "filesCount": "{{count}} file(s)",
     "stopGeneration": "Stop generation",
@@ -794,7 +795,7 @@
   "stats": {
     "title": "Usage Statistics",
     "topbarTooltip": "Statistics",
-    "tokensLocalEstimateNote": "Token counts are local tokenizer estimates, not API billing values.",
+    "tokensLocalEstimateNote": "Token counts are local tokenizer estimates, not API billing values. As an approximate input allowance, recorded output estimates are multiplied by 2.",
     "rangeLabel": "Range",
     "range7d": "7 days",
     "range30d": "30 days",

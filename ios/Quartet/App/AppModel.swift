@@ -67,6 +67,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var agentCatalogSnapshot: [AgentSummary] = []
     @Published private(set) var selectedWorkspaceID: String?
     @Published private(set) var hideScheduledJobs: Bool
+    @Published private(set) var appLanguage: AppLanguage
     @Published private(set) var isRefreshing = false
     @Published private(set) var isLoadingMore = false
     @Published private(set) var hasMoreJobs = false
@@ -123,6 +124,14 @@ final class AppModel: ObservableObject {
             : DashboardCacheStore(directoryName: "QuartetUITests")
         uiTestScenario = detectedUITestScenario
         hideScheduledJobs = effectiveDefaults.object(forKey: StorageKey.hideScheduledJobs) as? Bool ?? true
+        if let storedLanguage = effectiveDefaults.string(forKey: StorageKey.appLanguage),
+           let language = AppLanguage(rawValue: storedLanguage) {
+            appLanguage = language
+        } else {
+            // Existing UI tests assert the original Chinese copy. Keep their fixture
+            // deterministic while production installs follow the device by default.
+            appLanguage = detectedUITestScenario == nil ? .system : .simplifiedChinese
+        }
         let storedServerAddress = effectiveDefaults.string(forKey: StorageKey.serverAddress) ?? Self.defaultServerAddress
         let storedCredentialNamespace = effectiveDefaults.string(forKey: StorageKey.credentialCacheNamespace) ?? UUID().uuidString
         serverAddress = storedServerAddress
@@ -408,6 +417,12 @@ final class AppModel: ObservableObject {
         nextCursor = nil
         hasMoreJobs = false
         await refreshDashboard(userInitiated: false, clearCachedSnapshot: true)
+    }
+
+    func setAppLanguage(_ language: AppLanguage) {
+        guard appLanguage != language else { return }
+        defaults.set(language.rawValue, forKey: StorageKey.appLanguage)
+        appLanguage = language
     }
 
     func reloadJobs() async {
@@ -840,11 +855,32 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var lastSentMessageWorkspaceID: String? {
+        defaults.string(forKey: StorageKey.lastSentMessageWorkspaceID(for: serverAddress))
+    }
+
+    /// Graph 启动页记住的运行空间，和聊天页的最近发送空间分开：两条流程的空间选择互不影响。
+    var lastGraphWorkspaceID: String? {
+        defaults.string(forKey: StorageKey.lastGraphWorkspaceID(for: serverAddress))
+    }
+
+    func recordGraphWorkspace(_ workspaceID: String) {
+        guard !workspaceID.isEmpty else { return }
+        defaults.set(workspaceID, forKey: StorageKey.lastGraphWorkspaceID(for: serverAddress))
+    }
+
     @discardableResult
     func recordSentMessage(_ content: String, workspaceID: String?) throws -> [SentMessageHistoryItem] {
         let scope = sentMessageHistoryScope(workspaceID: workspaceID)
         do {
-            return try sentMessageHistoryStore.append(content: content, scope: scope)
+            let history = try sentMessageHistoryStore.append(content: content, scope: scope)
+            if let workspaceID, !workspaceID.isEmpty {
+                defaults.set(
+                    workspaceID,
+                    forKey: StorageKey.lastSentMessageWorkspaceID(for: serverAddress)
+                )
+            }
+            return history
         } catch {
             throw APIError(
                 summary: "无法保存发送历史",
@@ -1618,15 +1654,15 @@ final class AppModel: ObservableObject {
 
     private func statusLabel(_ status: String) -> String {
         switch status {
-        case "pending": "等待中"
-        case "running": "运行中"
-        case "awaitingInput": "等待人工"
-        case "stepStopping": "步骤后停止中"
-        case "stepStopped": "已在步骤后停止"
-        case "completed": "已完成"
-        case "failed": "失败"
-        case "timedOut": "已超时"
-        case "stopped": "已停止"
+        case "pending": "等待中".localizedForApp
+        case "running": "运行中".localizedForApp
+        case "awaitingInput": "等待人工".localizedForApp
+        case "stepStopping": "步骤后停止中".localizedForApp
+        case "stepStopped": "已在步骤后停止".localizedForApp
+        case "completed": "已完成".localizedForApp
+        case "failed": "失败".localizedForApp
+        case "timedOut": "已超时".localizedForApp
+        case "stopped": "已停止".localizedForApp
         default: status
         }
     }
@@ -1658,9 +1694,22 @@ final class AppModel: ObservableObject {
         static let connectionValidated = "quartet.connectionValidated"
         static let selectedWorkspaceID = "quartet.selectedWorkspaceID"
         static let hideScheduledJobs = "quartet.hideScheduledJobs"
+        static let appLanguage = "quartet.appLanguage"
         static let lastSuccessfulSyncAt = "quartet.lastSuccessfulSyncAt"
         static let credentialCacheNamespace = "quartet.credentialCacheNamespace"
         static let legacyTokenAccount = "agent-auth-token"
+
+        static func lastSentMessageWorkspaceID(for serverAddress: String) -> String {
+            let server = connectionIdentity(for: serverAddress) ?? serverAddress
+            let encodedServer = Data(server.utf8).base64EncodedString()
+            return "quartet.lastSentMessageWorkspaceID.\(encodedServer)"
+        }
+
+        static func lastGraphWorkspaceID(for serverAddress: String) -> String {
+            let server = connectionIdentity(for: serverAddress) ?? serverAddress
+            let encodedServer = Data(server.utf8).base64EncodedString()
+            return "quartet.lastGraphWorkspaceID.\(encodedServer)"
+        }
 
         static func legacyTokenAccount(for serverAddress: String) -> String {
             "agent-auth-token|\(connectionIdentity(for: serverAddress) ?? "invalid-server")"

@@ -245,16 +245,16 @@ struct GraphRunView: View {
 
     private func statusLabel(_ status: String) -> String {
         switch status {
-        case "pending": "等待调度"
-        case "running": "运行中"
-        case "stepStopping": "当前步骤后停止中"
-        case "stepStopped": "已在步骤后停止"
-        case "stopped": "已停止"
-        case "completed": "已完成"
-        case "failed": "失败"
-        case "timedOut": "已超时"
-        case "recovering": "等待恢复"
-        case "awaitingInput": "等待人工讨论"
+        case "pending": "等待调度".localizedForApp
+        case "running": "运行中".localizedForApp
+        case "stepStopping": "当前步骤后停止中".localizedForApp
+        case "stepStopped": "已在步骤后停止".localizedForApp
+        case "stopped": "已停止".localizedForApp
+        case "completed": "已完成".localizedForApp
+        case "failed": "失败".localizedForApp
+        case "timedOut": "已超时".localizedForApp
+        case "recovering": "等待恢复".localizedForApp
+        case "awaitingInput": "等待人工讨论".localizedForApp
         default: status
         }
     }
@@ -402,11 +402,11 @@ private enum GraphAction: String, Identifiable, Equatable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .stepStop: "步骤后停止"
-        case .cancelStop: "继续运行"
-        case .stop: "立即停止"
-        case .resume: "恢复运行"
-        case .completeDiscussion: "讨论完成"
+        case .stepStop: "步骤后停止".localizedForApp
+        case .cancelStop: "继续运行".localizedForApp
+        case .stop: "立即停止".localizedForApp
+        case .resume: "恢复运行".localizedForApp
+        case .completeDiscussion: "讨论完成".localizedForApp
         }
     }
     var icon: String {
@@ -481,13 +481,13 @@ private enum GraphRunSelection {
 
     static func statusLabel(for status: String) -> String {
         switch status {
-        case "pending": "等待中"
-        case "running": "运行中"
-        case "succeeded": "已完成"
-        case "failed": "失败"
-        case "skipped": "已跳过"
-        case "interrupted": "已中断"
-        case "awaitingInput": "等待讨论"
+        case "pending": "等待中".localizedForApp
+        case "running": "运行中".localizedForApp
+        case "succeeded": "已完成".localizedForApp
+        case "failed": "失败".localizedForApp
+        case "skipped": "已跳过".localizedForApp
+        case "interrupted": "已中断".localizedForApp
+        case "awaitingInput": "等待讨论".localizedForApp
         default: status
         }
     }
@@ -538,7 +538,7 @@ private struct GraphMetaTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
+            Text(title.localizedForApp)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundStyle(QuartetTheme.secondaryText)
             Text(value)
@@ -559,7 +559,7 @@ private struct GraphInfoChip: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title)
+            Text(title.localizedForApp)
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(QuartetTheme.secondaryText)
             Text(value)
@@ -708,7 +708,7 @@ private struct GraphSessionBubble: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 7) {
-                Text(label)
+                Text(label.localizedForApp)
                 Spacer()
                 if let startedAt = message.startedAt {
                     Text(GraphFormatters.dateTime(startedAt))
@@ -718,7 +718,7 @@ private struct GraphSessionBubble: View {
             .foregroundStyle(labelColor)
 
             Text(primaryContent.isEmpty ? "…" : primaryContent)
-                .font(message.role == "tool" || message.isShellOutput == true ? .system(.footnote, design: .monospaced) : .body)
+                .font(message.role == "tool" || message.isShellOutput == true ? .quartet(.detail, design: .monospaced) : .quartet(.regular))
                 .foregroundStyle(QuartetTheme.primaryText)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

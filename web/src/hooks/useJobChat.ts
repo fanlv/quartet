@@ -655,6 +655,16 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // Per-session agent metadata (populated during loadHistory for loop sessions)
   const sessionMetaMapRef = useRef<Map<string, { modelId: string | null; type: string | null; acpMode: string | null; acpThoughtLevel: string | null }>>(new Map());
 
+  // Per-session context size in tokens, keyed by session id. The composer
+  // badge must show the size of the session the user is looking at — the
+  // selected session in loop / graph mode, the newest one otherwise — so both
+  // the live usage events and the history loads land here first and only the
+  // displayed session's value is promoted to `totalTokens`. Without the map a
+  // background session's usage event (loop iteration N+1 while the user reads
+  // iteration N) or an out-of-order parallel history load paints a foreign
+  // number over the badge.
+  const sessionTokensRef = useRef<Map<string, number>>(new Map());
+
   const [eventsReady, setEventsReady] = useState(false);
   const eventsReadyRef = useRef(false);
   const eventSseRef = useRef<SSEClient | null>(null);
@@ -797,6 +807,27 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     );
   }, [applyActiveSessionSelection]);
 
+  // Record a session's context size and promote it to the composer badge when
+  // that session is the one on screen. `activeSessionIdRef` is only ever set in
+  // loop / graph mode, so a null active session means single-conversation mode
+  // where every usage report belongs to the session being displayed.
+  //
+  // 0 is a legal value (a freshly created session has an empty context), so the
+  // caller-side checks are `!= null`, not truthiness — otherwise switching to a
+  // brand-new session leaves the previous session's number on the badge.
+  const recordSessionTokens = useCallback((sessionId: string | null | undefined, tokens: number) => {
+    if (!Number.isFinite(tokens) || tokens < 0) return;
+    if (!sessionId) {
+      // Defensive: every backend usage event carries a session id. With
+      // nothing to key on, treat it as the current conversation's count.
+      setTotalTokens(tokens);
+      return;
+    }
+    sessionTokensRef.current.set(sessionId, tokens);
+    const displayedSessionId = activeSessionIdRef.current;
+    if (!displayedSessionId || displayedSessionId === sessionId) setTotalTokens(tokens);
+  }, []);
+
   // Mirror isLoading -> ref so the SSE idle-watchdog interval can read the
   // current value without re-subscribing the SSE effect on every flip.
   useEffect(() => {
@@ -870,6 +901,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     // [TRACE-SEQ0] gate initial state on jobId change.
     console.debug(`[JobEvents][TRACE-SEQ0] gate-init existingJobId=${existingJobId ?? '(none)'} snapshotReadyInitial=${!existingJobId} lastEventSeqRef=${JSON.stringify(lastEventSeqRef.current)}`);
     sessionMetaMapRef.current = new Map();
+    sessionTokensRef.current = new Map();
     setTotalTokens(0);
     setError(null);
     setIsLoading(false);
@@ -1709,7 +1741,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         }
         if (event.name === 'token_usage') {
           const usage = event.value as { totalTokens?: number };
-          if (usage?.totalTokens) setTotalTokens(usage.totalTokens);
+          if (usage?.totalTokens != null) recordSessionTokens(event.sessionId, usage.totalTokens);
         }
         if (event.name === 'job_title_updated') {
           const payload = event.value as { title?: string } | string | null;
@@ -1774,7 +1806,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       default:
         break;
     }
-  }, [applyActiveSessionSelection, applyCommandEvent, finalizeInFlightMessages, markEventStreamReady, refreshMessageQueue, setLoopSessions, updateServerClock]);
+  }, [applyActiveSessionSelection, applyCommandEvent, finalizeInFlightMessages, markEventStreamReady, recordSessionTokens, refreshMessageQueue, setLoopSessions, updateServerClock]);
 
   // Keep ref in sync so the SSE effect always uses the latest handler
   handleEventRef.current = handleEvent;
@@ -1783,6 +1815,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const loadHistory = useCallback((sid: string, tagSessionId?: string): Promise<Message[]> => {
     const inFlight = historyLoadsInFlightRef.current.get(sid);
     if (inFlight) return inFlight;
+
+    // Read synchronously so a response landing after the user switched jobs is
+    // recognisable as stale — see the token bookkeeping below. Call-site
+    // generation / cancelled guards cover the message merge, but this runs
+    // inside the request.
+    const requestJobId = jobIdRef.current;
 
     const request = (async () => {
       const response = await fetch(apiUrl(`/sessions/${sid}/messages`));
@@ -1809,13 +1847,21 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         acpMode: data.acpMode || null,
         acpThoughtLevel: data.acpThoughtLevel || null,
       });
+      // Keyed by the real session id (not metaKey) and recorded for EVERY
+      // session, tagged or not: loop / graph pages only ever load tagged
+      // sessions, so gating this on `!tagSessionId` like the metadata below
+      // left their badge stuck at 0 until a live usage event arrived — i.e.
+      // permanently for a finished run. Skipped when the job changed under us
+      // so a late response can't paint the previous job's number.
+      if (jobIdRef.current === requestJobId) {
+        recordSessionTokens(sid, data.tokenUsage?.totalTokens ?? 0);
+      }
 
       if (!tagSessionId) {
         setSessionModelId(data.modelId || null);
         if (data.type) setSessionType(data.type);
         if (data.acpMode) setSessionACPMode(data.acpMode);
         if (data.acpThoughtLevel) setSessionACPThoughtLevel(data.acpThoughtLevel);
-        if (data.tokenUsage?.totalTokens) setTotalTokens(data.tokenUsage.totalTokens);
         if (data.workdir) setSessionWorkdir(data.workdir);
       }
 
@@ -1903,7 +1949,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     };
     void request.then(clearInFlight, clearInFlight);
     return request;
-  }, [apiUrl, isPublic]);
+  }, [apiUrl, isPublic, recordSessionTokens]);
 
   // Re-sync job state after SSE reconnect to recover from missed events.
   // When called during the initial connection (historyLoadedRef is still false),
@@ -2266,6 +2312,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         if (allMessages.length > 0) {
           setMessages((prev) => mergeMessages(prev, allMessages, { deduplicateToolCallIds: true }));
         }
+        // These loads run concurrently, so whichever response landed last had
+        // set the badge — a coin flip between sessions. The composer always
+        // sends into the newest session, so pin the badge to that one.
+        const newestSid = sessionIds[sessionIds.length - 1];
+        const newestTokens = sessionTokensRef.current.get(newestSid);
+        if (newestTokens != null) setTotalTokens(newestTokens);
         // Sync loadedSessionIds so UI doesn't show "Loading session messages..."
         // for sessions whose messages we just loaded.
         setLoadedSessionIds((prev) => {
@@ -3735,6 +3787,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // newly available metadata.
   useEffect(() => {
     if ((!isLoop && !isGraph) || !activeSessionId) return;
+    // The token badge follows the selected session too. Kept outside the
+    // `meta` guard below: a session can have a recorded context size before
+    // (or without) metadata, and leaving the previous session's number on
+    // screen misreports the context the next message would be sent into.
+    const tokens = sessionTokensRef.current.get(activeSessionId);
+    if (tokens != null) setTotalTokens(tokens);
     const meta = sessionMetaMapRef.current.get(activeSessionId);
     if (!meta) return;
     if (meta.modelId != null) setSessionModelId(meta.modelId);

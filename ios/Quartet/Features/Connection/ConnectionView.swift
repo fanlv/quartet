@@ -70,7 +70,7 @@ struct ConnectionView: View {
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
                     .autocorrectionDisabled()
-                    .font(.system(.body, design: .monospaced))
+                    .font(.quartet(.regular, design: .monospaced))
                     .submitLabel(.next)
                     .accessibilityIdentifier("connection-server")
                     .padding(14)
@@ -82,7 +82,7 @@ struct ConnectionView: View {
                 TextField("请输入用户名", text: $model.username)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .font(.system(.body, design: .monospaced))
+                    .font(.quartet(.regular, design: .monospaced))
                     .submitLabel(.next)
                     .accessibilityIdentifier("connection-username")
                     .padding(14)
@@ -101,7 +101,7 @@ struct ConnectionView: View {
                     }
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .font(.system(.body, design: .monospaced))
+                    .font(.quartet(.regular, design: .monospaced))
                     .submitLabel(.go)
                     .onSubmit(startConnection)
                     .accessibilityIdentifier("connection-password")
@@ -146,7 +146,7 @@ struct ConnectionView: View {
     private func fieldLabel(_ text: String, index: String) -> some View {
         HStack(spacing: 8) {
             Text(index).font(.system(.caption, design: .monospaced).weight(.bold)).foregroundStyle(QuartetTheme.accent)
-            Text(text).font(.subheadline.weight(.semibold)).foregroundStyle(QuartetTheme.primaryText)
+            Text(text.localizedForApp).font(.subheadline.weight(.semibold)).foregroundStyle(QuartetTheme.primaryText)
         }
     }
 

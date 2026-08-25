@@ -66,7 +66,7 @@ private enum NewConversationMode: String, CaseIterable, Identifiable {
     case graph
 
     var id: String { rawValue }
-    var title: String { self == .chat ? "对话" : "Graph Workflow" }
+    var title: String { (self == .chat ? "对话" : "Graph Workflow").localizedForApp }
     var icon: String { self == .chat ? "bubble.left.and.bubble.right" : "point.3.connected.trianglepath.dotted" }
 }
 
@@ -230,10 +230,14 @@ struct NewConversationView: View {
                 ErrorDetailView(error: $0)
             }
             .sheet(isPresented: $showsWorkspacePicker) {
-                NewConversationWorkspacePicker(
+                WorkspaceLaunchPicker(
                     workspaces: model.workspaces,
                     selectedWorkspaceID: workspaceID,
-                    onSelect: { workspaceID = $0 }
+                    accessibilityIdentifierPrefix: "new-task-workspace-",
+                    onSelect: { id in
+                        guard let id else { return }
+                        workspaceID = id
+                    }
                 )
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()
@@ -291,7 +295,7 @@ struct NewConversationView: View {
                     composerFocused = false
                     withAnimation(.easeInOut(duration: 0.2)) { creationMode = item }
                 } label: {
-                    Label(item.title, systemImage: item.icon)
+                    Label(item.title.localizedForApp, systemImage: item.icon)
                         .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(selected ? QuartetTheme.primaryText : QuartetTheme.secondaryText)
                         .frame(maxWidth: .infinity)
@@ -432,11 +436,11 @@ struct NewConversationView: View {
                     PhotosPicker(selection: $selectedPhoto, matching: .images) {
                         Label("照片", systemImage: hasPendingImage ? "photo.fill" : "photo")
                             .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.accent)
                             .padding(.horizontal, 12)
                             .frame(height: 36)
                             .background(QuartetTheme.elevated, in: Capsule())
                     }
-                    .foregroundStyle(hasPendingImage ? QuartetTheme.accent : QuartetTheme.secondaryText)
                     Button { requestCameraAccess() } label: {
                         attachmentActionLabel("相机", icon: "camera")
                     }
@@ -457,8 +461,9 @@ struct NewConversationView: View {
     }
 
     private func attachmentActionLabel(_ title: String, icon: String) -> some View {
-        Label(title, systemImage: icon)
+        Label(title.localizedForApp, systemImage: icon)
             .font(.quartet(.control, weight: .semibold))
+            .foregroundStyle(QuartetTheme.accent)
             .padding(.horizontal, 12)
             .frame(height: 36)
             .background(QuartetTheme.elevated, in: Capsule())
@@ -658,7 +663,7 @@ struct NewConversationView: View {
         HStack(spacing: 12) {
             configurationIcon(icon)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(title.localizedForApp)
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
                 Text(value)
@@ -791,7 +796,7 @@ struct NewConversationView: View {
                 let selectedWasAvailable = agent?.available == true
                 agents = snapshot
                 if !didInitializeSelection || !snapshot.contains(where: { $0.id == agentID }) {
-                    workspaceID = model.selectedWorkspaceID ?? model.workspaces.first?.id ?? ""
+                    workspaceID = initialWorkspaceID
                     applyWorkspaceDefaults()
                     didInitializeSelection = true
                 } else if !selectedWasAvailable, agent?.available == true {
@@ -816,6 +821,13 @@ struct NewConversationView: View {
             waitingForValidation = false
             present(error)
         }
+    }
+
+    private var initialWorkspaceID: String {
+        let candidates = [model.lastSentMessageWorkspaceID, model.selectedWorkspaceID]
+        return candidates.compactMap { $0 }.first(where: { candidate in
+            model.workspaces.contains { $0.id == candidate }
+        }) ?? model.workspaces.first?.id ?? ""
     }
 
     private func applyWorkspaceDefaults() {
@@ -1145,68 +1157,128 @@ struct NewConversationView: View {
     }
 }
 
-private struct NewConversationWorkspacePicker: View {
+/// 首页筛选与新任务两个 tab 共用的工作空间弹窗，样式与首页“任务操作”弹窗保持一致。
+struct WorkspaceLaunchPicker: View {
     @Environment(\.dismiss) private var dismiss
 
     let workspaces: [WorkspaceSummary]
-    let selectedWorkspaceID: String
-    let onSelect: (String) -> Void
+    let selectedWorkspaceID: String?
+    /// 传 true 时在列表首位插入“全部工作空间”一行，选中它会回调 nil。
+    var includesAllOption: Bool = false
+    let accessibilityIdentifierPrefix: String
+    let onSelect: (String?) -> Void
 
     var body: some View {
         NavigationStack {
             Group {
-                if workspaces.isEmpty {
+                if workspaces.isEmpty, !includesAllOption {
                     ContentUnavailableView(
                         "没有可用的工作空间",
                         systemImage: "square.stack.3d.up.slash",
                         description: Text("请先在 Web 端创建工作空间。")
                     )
                 } else {
-                    List(workspaces) { workspace in
-                        Button {
-                            onSelect(workspace.id)
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 12) {
-                                Circle()
-                                    .fill(QuartetTheme.workspaceTint(workspace))
-                                    .frame(width: 12, height: 12)
-                                    .accessibilityHidden(true)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(workspace.displayName)
-                                        .font(.quartet(.control, weight: .semibold))
-                                        .foregroundStyle(QuartetTheme.primaryText)
-                                    Text(workspace.workdir)
-                                        .font(.quartet(.detail))
-                                        .foregroundStyle(QuartetTheme.secondaryText)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                                Spacer(minLength: 8)
-                                if workspace.id == selectedWorkspaceID {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.quartet(.regular, weight: .semibold))
-                                        .foregroundStyle(QuartetTheme.accent)
-                                        .accessibilityHidden(true)
-                                }
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            if includesAllOption {
+                                workspaceRow(
+                                    id: nil,
+                                    title: "ALL",
+                                    detail: "显示所有工作空间的任务",
+                                    tint: QuartetTheme.accent
+                                )
                             }
-                            .padding(.vertical, 4)
-                            .contentShape(Rectangle())
+
+                            ForEach(Array(workspaces.enumerated()), id: \.element.id) { index, workspace in
+                                if index > 0 || includesAllOption {
+                                    Divider()
+                                        .overlay(QuartetTheme.divider)
+                                        .padding(.leading, 62)
+                                }
+                                workspaceRow(
+                                    id: workspace.id,
+                                    title: workspace.displayName,
+                                    detail: workspace.workdir,
+                                    tint: QuartetTheme.workspaceTint(workspace)
+                                )
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(workspace.displayName)，\(workspace.workdir)")
-                        .accessibilityValue(workspace.id == selectedWorkspaceID ? "已选择" : "")
-                        .accessibilityHint("选择此工作空间并关闭弹窗")
-                        .accessibilityIdentifier("new-task-workspace-\(workspace.id)")
-                        .listRowBackground(QuartetTheme.surface)
+                        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 1)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        .padding(.bottom, 20)
                     }
-                    .scrollContentBackground(.hidden)
                 }
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle("选择工作空间")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("选择工作空间")
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .accessibilityAddTraits(.isHeader)
+                }
+            }
         }
+    }
+
+    private func workspaceRow(
+        id: String?,
+        title: String,
+        detail: String,
+        tint: Color
+    ) -> some View {
+        let selected = id == selectedWorkspaceID
+        return Button {
+            onSelect(id)
+            dismiss()
+        } label: {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(tint.opacity(0.11))
+                    .frame(width: 38, height: 38)
+                    .overlay {
+                        Circle()
+                            .fill(tint)
+                            .frame(width: 10, height: 10)
+                    }
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title.localizedForApp)
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .lineLimit(1)
+                    Text(detail.localizedForApp)
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 8)
+
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, 13)
+            .frame(minHeight: 64)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title)，\(detail)")
+        .accessibilityValue(selected ? "已选择" : "")
+        .accessibilityHint("选择此工作空间并关闭弹窗")
+        .accessibilityIdentifier("\(accessibilityIdentifierPrefix)\(id ?? "all")")
     }
 }
 
@@ -1371,7 +1443,7 @@ struct MessagePresetHistorySheet: View {
         let value = content
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
-        guard !value.isEmpty else { return "（空）" }
+        guard !value.isEmpty else { return "（空）".localizedForApp }
         return value.count > 120 ? "\(value.prefix(120))…" : value
     }
 }

@@ -15,6 +15,7 @@ import { uploadChatAttachment, usePendingAttachments, type UploadedAttachment } 
 import { PendingAttachmentPreviews, UploadedFilePreviews } from './AttachmentPreviews';
 import type { FileAttachment } from '../types';
 import { workspaceColor } from '../utils/workspace';
+import { formatTokenCount } from '../utils/statsFormat';
 import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { showToast } from '../utils/toast';
@@ -1094,8 +1095,8 @@ export function ChatInput({
                 )}
               </div>
             )}
-            <span className="token-usage" data-testid="chat-token-usage">
-              Tokens: {totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(2)}K` : totalTokens}
+            <span className="token-usage" data-testid="chat-token-usage" title={t('chat.tokenUsageHint')}>
+              Tokens: {formatTokenCount(totalTokens)}
             </span>
             {/* Duration badge:
                - Loop mode passes `totalDuration*` so the badge reflects the

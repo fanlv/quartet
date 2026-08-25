@@ -10,8 +10,8 @@ private enum ChatConfigurationPicker: String, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .model: "选择模型"
-        case .thoughtLevel: "选择思考等级"
+        case .model: "选择模型".localizedForApp
+        case .thoughtLevel: "选择思考等级".localizedForApp
         }
     }
 }
@@ -20,29 +20,6 @@ private struct ChatConfigurationOption: Identifiable {
     let id: String
     let name: String
     let detail: String?
-}
-
-/// markdown 链接拦截器。
-///
-/// `OpenURLAction` 必须是一个**稳定**的值：原实现在每个 `ChatBubble` 的 body 里现场新建一个，
-/// 于是每次重绘都往 environment 写入一个新动作，把消息子树的跳过优化打掉。这里由
-/// `JobChatView` 用 `@State` 持有一个实例，动作只创建一次，注入点也上提到列表这一层。
-@MainActor
-private final class ChatLinkOpener {
-    /// 由视图注入，用于上报被拦截的链接。
-    var presentError: ((APIError) -> Void)?
-
-    private(set) lazy var action = OpenURLAction { [weak self] url in
-        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else {
-            self?.presentError?(APIError(
-                summary: "链接已拦截",
-                detail: "仅允许打开 http/https 链接。\n当前链接：\(url.absoluteString)"
-            ))
-            return .handled
-        }
-        UIApplication.shared.open(url)
-        return .handled
-    }
 }
 
 struct JobChatView: View {
@@ -75,8 +52,8 @@ struct JobChatView: View {
     @State private var configurationPicker: ChatConfigurationPicker?
     @State private var gitBranch = ""
     @State private var linkOpener = ChatLinkOpener()
+    @State private var webDestination: ChatWebDestination?
     @FocusState private var composerFocused: Bool
-    @ScaledMetric(relativeTo: .body) private var composerFontSize: CGFloat = 15
 
     var body: some View {
         VStack(spacing: 0) {
@@ -176,9 +153,9 @@ struct JobChatView: View {
                 }
             }
         } message: {
-            Text(chat.serverQueue.items.isEmpty
+            Text((chat.serverQueue.items.isEmpty
                 ? "正在执行的 Agent 将收到停止请求。"
-                : "正在执行的 Agent 将收到停止请求，后续排队消息会保留并暂停，需手动继续。")
+                : "正在执行的 Agent 将收到停止请求，后续排队消息会保留并暂停，需手动继续。").localizedForApp)
         }
         .sheet(isPresented: $showsCameraPicker) {
             CameraImagePicker(
@@ -244,6 +221,15 @@ struct JobChatView: View {
             .presentationDetents([.medium, .large])
             .quartetSheetStyle()
         }
+        .fullScreenCover(item: $webDestination) { destination in
+            NavigationStack {
+                ChatWebViewPage(
+                    destination: destination,
+                    onError: { appModel.present($0) }
+                )
+            }
+            .quartetSheetStyle()
+        }
     }
 
     private var messageList: some View {
@@ -298,7 +284,10 @@ struct JobChatView: View {
             .environment(\.openURL, linkOpener.action)
             .onAppear {
                 linkOpener.presentError = { [appModel] error in appModel.present(error) }
+                linkOpener.presentDestination = { destination in webDestination = destination }
+                configureLinkOpener()
             }
+            .onChange(of: workspaceContextKey) { _, _ in configureLinkOpener() }
             .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
             .onScrollPhaseChange { _, newPhase in
                 userIsScrollingMessages = newPhase.isScrolling && newPhase != .animating
@@ -434,7 +423,7 @@ struct JobChatView: View {
                 }
 
                 TextField("继续对话…", text: $draft, axis: .vertical)
-                    .font(.system(size: composerFontSize))
+                    .font(.quartet(.reading))
                     .lineLimit(1...6)
                     .focused($composerFocused)
                     .padding(.horizontal, 15)
@@ -710,7 +699,7 @@ struct JobChatView: View {
             chat.modelIDForDisplay,
             agentReference: chat.agentReferenceForDisplay,
             agents: appModel.agentCatalogSnapshot
-        ) ?? "未指定 Model"
+        ) ?? "未指定 Model".localizedForApp
     }
 
     private var agentRuntimeType: String? {
@@ -725,7 +714,7 @@ struct JobChatView: View {
             chat.modeIDForDisplay,
             agentReference: chat.agentReferenceForDisplay,
             agents: appModel.agentCatalogSnapshot
-        ) ?? "默认模式"
+        ) ?? "默认模式".localizedForApp
     }
 
     private var thoughtLevelDisplayLabel: String? {
@@ -840,6 +829,15 @@ struct JobChatView: View {
         ]
         .compactMap { $0 }
         .joined(separator: "::")
+    }
+
+    private func configureLinkOpener() {
+        linkOpener.configure(
+            baseURL: try? appModel.apiClient().baseURL,
+            workdir: workspaceWorkdir,
+            jobID: route.summary.id,
+            canReadFiles: appModel.can("file.read")
+        )
     }
 
     private func selectModel(_ modelID: String) async {
@@ -1091,9 +1089,9 @@ private struct ChatConfigurationSelectionSheet: View {
                     if favoriteOptions.isEmpty {
                         optionGroup(options)
                     } else {
-                        optionGroup(favoriteOptions, title: "收藏")
+                        optionGroup(favoriteOptions, title: "收藏".localizedForApp)
                         if !otherOptions.isEmpty {
-                            optionGroup(otherOptions, title: "其他模型")
+                            optionGroup(otherOptions, title: "其他模型".localizedForApp)
                         }
                     }
                 }

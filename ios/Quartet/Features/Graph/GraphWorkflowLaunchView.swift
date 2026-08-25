@@ -14,6 +14,8 @@ struct GraphWorkflowLaunchView: View {
     @State private var loading = true
     @State private var loadingWorkflow = false
     @State private var starting = false
+    @State private var showsWorkflowPicker = false
+    @State private var showsWorkspacePicker = false
     @State private var showsGlobalEditor = false
     @State private var editingNodeID: String?
     @State private var localError: PresentedError?
@@ -58,9 +60,8 @@ struct GraphWorkflowLaunchView: View {
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 32)
-                    } else if let workflow, let config {
-                        overview(workflow: workflow, config: config)
-                        workspaceSection(config: config)
+                    } else if workflow != nil, let config {
+                        workspaceSection
                         globalSection(config: config)
                         nodeSection(config: config)
                     }
@@ -82,6 +83,28 @@ struct GraphWorkflowLaunchView: View {
             workflow = nil
             config = nil
             Task { await loadWorkflow(id: id) }
+        }
+        .sheet(isPresented: $showsWorkflowPicker) {
+            GraphWorkflowTemplatePicker(
+                workflows: workflows,
+                selectedWorkflowID: selectedWorkflowID,
+                onSelect: { selectedWorkflowID = $0 }
+            )
+            .presentationDetents([.medium, .large])
+            .quartetSheetStyle()
+        }
+        .sheet(isPresented: $showsWorkspacePicker) {
+            WorkspaceLaunchPicker(
+                workspaces: appModel.workspaces,
+                selectedWorkspaceID: workspaceID,
+                accessibilityIdentifierPrefix: "graph-workspace-",
+                onSelect: { id in
+                    guard let id, let workspace = appModel.workspaces.first(where: { $0.id == id }) else { return }
+                    selectWorkspace(workspace)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .quartetSheetStyle()
         }
         .sheet(isPresented: $showsGlobalEditor) {
             if let binding = configBinding {
@@ -134,79 +157,47 @@ struct GraphWorkflowLaunchView: View {
                 .font(.quartet(.regular, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
 
-            Menu {
-                ForEach(workflows) { item in
-                    Button { selectedWorkflowID = item.id } label: {
-                        if item.id == selectedWorkflowID {
-                            Label(item.name, systemImage: "checkmark")
-                        } else {
-                            Text(item.name)
-                        }
-                    }
-                }
-            } label: {
+            Button { showsWorkflowPicker = true } label: {
                 HStack(spacing: 12) {
                     configurationIcon("point.3.connected.trianglepath.dotted")
                     VStack(alignment: .leading, spacing: 3) {
                         Text(selectedSummary?.name ?? "选择工作流")
                             .font(.quartet(.control, weight: .semibold))
                             .foregroundStyle(QuartetTheme.primaryText)
+                            .lineLimit(2)
                         if let summary = selectedSummary {
-                            Text("\(summary.nodeCount) 个节点 · \(summary.edgeCount) 条连线")
+                            Text("\(summary.nodeCount) 个节点 · \(summary.edgeCount) 条连线 · \((summary.type ?? "user").uppercased())")
                                 .font(.quartet(.detail))
                                 .foregroundStyle(QuartetTheme.secondaryText)
+                            if let description = summary.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+                               !description.isEmpty {
+                                Text(description)
+                                    .font(.quartet(.detail))
+                                    .foregroundStyle(QuartetTheme.secondaryText)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                            }
                         }
                     }
-                    Spacer()
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.quartet(.compact, weight: .bold))
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.quartet(.detail, weight: .bold))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
                 .padding(14)
-                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
+            .accessibilityLabel("工作流模板，当前为\(selectedSummary?.name ?? "未选择")")
+            .accessibilityHint("点按弹出工作流模板列表")
             .accessibilityIdentifier("graph-workflow-picker")
         }
     }
 
-    private func overview(workflow: GraphWorkflow, config: GraphConfig) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(workflow.name)
-                    .font(.quartet(.large, weight: .bold))
-                    .foregroundStyle(QuartetTheme.primaryText)
-                Spacer()
-                Text((workflow.type ?? "user").uppercased())
-                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
-                    .foregroundStyle(QuartetTheme.accent)
-            }
-            if let description = workflow.description, !description.isEmpty {
-                Text(description)
-                    .font(.quartet(.control))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 8) {
-                metric("NODE", config.nodes.count)
-                metric("EDGE", config.edges.count)
-                metric("VAR", config.variables?.count ?? 0)
-            }
-        }
-        .padding(16)
-        .background(
-            LinearGradient(
-                colors: [QuartetTheme.accent.opacity(0.16), QuartetTheme.surface],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-        )
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(QuartetTheme.accent.opacity(0.25)))
-    }
 
-    private func workspaceSection(config: GraphConfig) -> some View {
+    private var workspaceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("运行空间")
@@ -218,33 +209,42 @@ struct GraphWorkflowLaunchView: View {
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(appModel.workspaces) { item in
-                        let selected = item.id == workspaceID
-                        Button { selectWorkspace(item) } label: {
-                            HStack(spacing: 9) {
-                                Circle().fill(workspaceTint(item)).frame(width: 10, height: 10)
-                                Text(item.displayName).font(.quartet(.control, weight: .semibold)).lineLimit(1)
-                                if selected { Image(systemName: "checkmark").font(.quartet(.detail, weight: .bold)) }
-                            }
-                            .foregroundStyle(selected ? QuartetTheme.primaryText : QuartetTheme.secondaryText)
-                            .padding(.horizontal, 14)
-                            .frame(height: 44)
-                            .background(selected ? QuartetTheme.accent.opacity(0.14) : QuartetTheme.surface, in: Capsule())
-                            .overlay(Capsule().stroke(selected ? QuartetTheme.accent.opacity(0.7) : QuartetTheme.divider))
+            Button { showsWorkspacePicker = true } label: {
+                HStack(spacing: 12) {
+                    configurationIcon("square.stack.3d.up")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("工作空间")
+                            .font(.quartet(.detail))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                        Text(selectedWorkspace?.displayName ?? "未选择工作空间")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.primaryText)
+                            .lineLimit(1)
+                        if let effectiveWorkdir {
+                            Text(effectiveWorkdir)
+                                .font(.quartet(.compact))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
-                        .buttonStyle(.plain)
                     }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.quartet(.detail, weight: .bold))
+                        .foregroundStyle(QuartetTheme.secondaryText)
                 }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 68)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
+            .accessibilityLabel("运行空间，当前为\(selectedWorkspace?.displayName ?? "未选择")")
+            .accessibilityHint("点按弹出工作空间列表")
+            .accessibilityIdentifier("graph-workspace-picker")
 
-            if let effectiveWorkdir {
-                Label(effectiveWorkdir, systemImage: "folder")
-                    .font(.quartet(.detail))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .textSelection(.enabled)
-            } else if !workspaceID.isEmpty {
+            if effectiveWorkdir == nil, !workspaceID.isEmpty {
                 Label("工作空间 \(workspaceID) 不存在，请选择可用空间。", systemImage: "exclamationmark.triangle.fill")
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.failed)
@@ -254,27 +254,31 @@ struct GraphWorkflowLaunchView: View {
 
     private func globalSection(config: GraphConfig) -> some View {
         Button { showsGlobalEditor = true } label: {
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 configurationIcon("slider.horizontal.3")
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text("全局配置")
-                        .font(.quartet(.regular, weight: .semibold))
+                        .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                     Text(globalConfigurationSummary(config))
                         .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
-                        .lineLimit(2)
+                        .lineLimit(1)
                 }
-                Spacer()
+                Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
                     .font(.quartet(.detail, weight: .bold))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
-            .padding(16)
-            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
+            .padding(.horizontal, 14)
+            .frame(minHeight: 68)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
+        .accessibilityLabel("全局配置，\(globalConfigurationSummary(config))")
+        .accessibilityHint("点按编辑初始变量与运行限制")
         .accessibilityIdentifier("graph-global-config")
     }
 
@@ -516,7 +520,13 @@ struct GraphWorkflowLaunchView: View {
     }
 
     private func preferredWorkspaceID(for workflow: GraphWorkflow, config: GraphConfig) -> String {
-        let candidates = [config.workspaceId, workflow.workspaceId, appModel.selectedWorkspaceID]
+        // 上次在这里选过的空间优先，其次是运行台的当前筛选，最后才回落到工作流自带的配置。
+        let candidates = [
+            appModel.lastGraphWorkspaceID,
+            appModel.selectedWorkspaceID,
+            config.workspaceId,
+            workflow.workspaceId
+        ]
         for candidate in candidates {
             if let candidate, appModel.workspaces.contains(where: { $0.id == candidate }) {
                 return candidate
@@ -527,6 +537,7 @@ struct GraphWorkflowLaunchView: View {
 
     private func selectWorkspace(_ workspace: WorkspaceSummary) {
         workspaceID = workspace.id
+        appModel.recordGraphWorkspace(workspace.id)
         guard var next = config else { return }
         next.workspaceId = workspace.id
         next.workdir = workspace.workdir
@@ -556,7 +567,7 @@ struct GraphWorkflowLaunchView: View {
     private func globalConfigurationSummary(_ config: GraphConfig) -> String {
         let runConfig = config.runConfig ?? GraphRunConfiguration()
         let concurrency = runConfig.concurrencyLimit.map(String.init) ?? "默认"
-        return "并发 \(concurrency) · \(config.variables?.count ?? 0) 个变量 · 点击编辑全部运行限制"
+        return "并发 \(concurrency) · \(config.variables?.count ?? 0) 个变量"
     }
 
     private func nodeSummary(_ node: GraphNode) -> String {
@@ -591,19 +602,10 @@ struct GraphWorkflowLaunchView: View {
 
     private func endHookLabel(_ mode: String?) -> String {
         switch mode {
-        case "custom": "自定义结束脚本"
-        case "off": "结束脚本关闭"
-        default: "使用全局结束脚本"
+        case "custom": "自定义结束脚本".localizedForApp
+        case "off": "结束脚本关闭".localizedForApp
+        default: "使用全局结束脚本".localizedForApp
         }
-    }
-
-    private func metric(_ label: String, _ value: Int) -> some View {
-        Text("\(label) \(value)")
-            .font(.quartet(.compact, weight: .bold, design: .monospaced))
-            .foregroundStyle(QuartetTheme.secondaryText)
-            .padding(.horizontal, 9)
-            .frame(height: 26)
-            .background(QuartetTheme.elevated, in: Capsule())
     }
 
     private func contextPill(_ value: String, icon: String) -> some View {
@@ -623,9 +625,96 @@ struct GraphWorkflowLaunchView: View {
             .frame(width: 32, height: 32)
             .background(QuartetTheme.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
+}
 
-    private func workspaceTint(_ item: WorkspaceSummary) -> Color {
-        QuartetTheme.workspaceTint(item.id)
+/// 工作流模板弹窗，样式与首页“任务操作”弹窗保持一致。
+private struct GraphWorkflowTemplatePicker: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let workflows: [GraphWorkflowSummary]
+    let selectedWorkflowID: String
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(workflows.enumerated()), id: \.element.id) { index, workflow in
+                        if index > 0 {
+                            Divider()
+                                .overlay(QuartetTheme.divider)
+                                .padding(.leading, 62)
+                        }
+                        workflowRow(workflow)
+                    }
+                }
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 1)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+            }
+            .background(QuartetTheme.canvas)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("选择工作流模板")
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .accessibilityAddTraits(.isHeader)
+                }
+            }
+        }
+    }
+
+    private func workflowRow(_ workflow: GraphWorkflowSummary) -> some View {
+        let selected = workflow.id == selectedWorkflowID
+        let detail = "\(workflow.nodeCount) 个节点 · \(workflow.edgeCount) 条连线 · \((workflow.type ?? "user").uppercased())"
+        return Button {
+            onSelect(workflow.id)
+            dismiss()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.accent)
+                    .frame(width: 38, height: 38)
+                    .background(QuartetTheme.accent.opacity(0.11), in: Circle())
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(workflow.name)
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Text(detail)
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, 13)
+            .frame(minHeight: 64)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(workflow.name)，\(detail)")
+        .accessibilityValue(selected ? "已选择" : "")
+        .accessibilityHint("选择此工作流模板并关闭弹窗")
+        .accessibilityIdentifier("graph-workflow-\(workflow.id)")
     }
 }
 
@@ -656,13 +745,13 @@ private struct GraphNodeBadge: View {
 
     private var label: String {
         switch type {
-        case "start": "开始节点"
-        case "end": "结束节点"
-        case "shell": "Shell 节点"
-        case "prompt": "Prompt 节点"
-        case "clarify": "澄清节点"
-        case "ifElse": "条件节点"
-        case "loop": "循环节点"
+        case "start": "开始节点".localizedForApp
+        case "end": "结束节点".localizedForApp
+        case "shell": "Shell 节点".localizedForApp
+        case "prompt": "Prompt 节点".localizedForApp
+        case "clarify": "澄清节点".localizedForApp
+        case "ifElse": "条件节点".localizedForApp
+        case "loop": "循环节点".localizedForApp
         default: type
         }
     }
@@ -678,6 +767,172 @@ private struct GraphNodeBadge: View {
         default: QuartetTheme.secondaryText
         }
     }
+}
+
+/// Graph 编辑弹窗共用的卡片容器，样式跟随定时任务编辑器与首页弹窗。
+private struct GraphEditorCard<Content: View>: View {
+    let title: String
+    let systemImage: String
+    let content: Content
+
+    init(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.systemImage = systemImage
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(title.localizedForApp, systemImage: systemImage)
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(QuartetTheme.primaryText)
+            content
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // 卡片底色自己接收点击：落在输入控件之外的位置都收起键盘，输入控件本身仍然优先命中。
+        .background {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(QuartetTheme.surface)
+                .onTapGesture { quartetDismissKeyboard() }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider.opacity(0.8)))
+    }
+}
+
+private func graphFieldLabel(_ title: String) -> some View {
+    Text(title.localizedForApp)
+        .font(.quartet(.detail, weight: .semibold))
+        .foregroundStyle(QuartetTheme.secondaryText)
+        .frame(maxWidth: .infinity, alignment: .leading)
+}
+
+private func graphFieldHint(_ text: String) -> some View {
+    Text(text.localizedForApp)
+        .font(.quartet(.detail))
+        .foregroundStyle(QuartetTheme.secondaryText)
+        .frame(maxWidth: .infinity, alignment: .leading)
+}
+
+private var graphFieldDivider: some View {
+    Divider().overlay(QuartetTheme.divider)
+}
+
+private func graphSingleLineField(
+    _ title: String,
+    text: Binding<String>,
+    prompt: String = "",
+    monospaced: Bool = false,
+    numeric: Bool = false,
+    hint: String? = nil,
+    identifier: String? = nil
+) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+        graphFieldLabel(title)
+        TextField(prompt.isEmpty ? title : prompt, text: text)
+            .font(monospaced ? .quartet(.regular, design: .monospaced) : .quartet(.regular))
+            .keyboardType(numeric ? .numberPad : .default)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .padding(.horizontal, 14)
+            .frame(height: 48)
+            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .accessibilityIdentifier(identifier ?? "")
+        if let hint { graphFieldHint(hint) }
+    }
+}
+
+private func graphMultilineField(
+    _ title: String,
+    text: Binding<String>,
+    prompt: String,
+    hint: String? = nil,
+    identifier: String? = nil
+) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+        graphFieldLabel(title)
+        TextField(prompt, text: text, axis: .vertical)
+            .lineLimit(4...12)
+            .font(.quartet(.regular, design: .monospaced))
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .accessibilityIdentifier(identifier ?? "")
+        if let hint { graphFieldHint(hint) }
+    }
+}
+
+private func graphSelectionField(
+    _ title: String,
+    value: String,
+    placeholder: Bool = false,
+    identifier: String,
+    action: @escaping () -> Void
+) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+        graphFieldLabel(title)
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(value.localizedForApp)
+                    .font(.quartet(.control, weight: .medium))
+                    .foregroundStyle(placeholder ? QuartetTheme.secondaryText : QuartetTheme.primaryText)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.quartet(.compact, weight: .bold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 48)
+            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title)，当前为\(value)")
+        .accessibilityHint("点按弹出可选项列表")
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+private func graphValidationCard(_ message: String) -> some View {
+    HStack(alignment: .top, spacing: 10) {
+        Image(systemName: "exclamationmark.triangle.fill")
+            .font(.quartet(.control, weight: .semibold))
+            .foregroundStyle(QuartetTheme.failed)
+        Text(message)
+            .font(.quartet(.detail))
+            .foregroundStyle(QuartetTheme.failed)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .padding(14)
+    .background(QuartetTheme.failed.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(QuartetTheme.failed.opacity(0.2)))
+}
+
+private func graphSaveBar(
+    title: String,
+    disabled: Bool,
+    identifier: String,
+    action: @escaping () -> Void
+) -> some View {
+    Button(action: action) {
+        Text(title.localizedForApp)
+            .font(.quartet(.control, weight: .semibold))
+            .foregroundStyle(QuartetTheme.onAccent)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .disabled(disabled)
+    .opacity(disabled ? 0.45 : 1)
+    .accessibilityIdentifier(identifier)
+    .padding(.horizontal, 18)
+    .padding(.vertical, 10)
+    .background(.ultraThinMaterial)
 }
 
 private struct GraphGlobalConfigurationView: View {
@@ -711,79 +966,127 @@ private struct GraphGlobalConfigurationView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    if variables.isEmpty {
-                        Text("暂无初始变量")
-                            .foregroundStyle(QuartetTheme.secondaryText)
-                    }
-                    ForEach($variables) { $variable in
-                        let isBuiltIn = variable.name == "Code" || variable.name == "Doc"
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                if isBuiltIn {
-                                    Label(variable.name, systemImage: "lock.fill")
-                                        .font(.quartet(.control, weight: .semibold))
-                                        .foregroundStyle(QuartetTheme.primaryText)
-                                } else {
-                                    TextField("变量名", text: $variable.name)
-                                        .textInputAutocapitalization(.never)
-                                        .autocorrectionDisabled()
-                                    Button(role: .destructive) {
-                                        variables.removeAll { $0.id == variable.id }
-                                    } label: {
-                                        Image(systemName: "trash")
-                                    }
-                                    .accessibilityLabel("删除变量 \(variable.name)")
-                                }
-                            }
-                            TextField("变量值", text: $variable.value, axis: .vertical)
-                                .lineLimit(2...5)
-                            Toggle("禁用此变量", isOn: $variable.disabled)
-                        }
-                    }
-                    Button { variables.append(GraphVariableDraft()) } label: {
-                        Label("添加变量", systemImage: "plus.circle.fill")
-                    }
-                } header: {
-                    Text("初始变量")
-                } footer: {
-                    Text("变量名需匹配 [A-Za-z_][A-Za-z0-9_]*；以下划线或 QUARTET_ 开头的名称由系统保留。")
+            ScrollView {
+                VStack(spacing: 14) {
+                    variablesCard
+                    limitsCard
+                    if let validationMessage { graphValidationCard(validationMessage) }
                 }
-
-                Section("执行限制") {
-                    integerField("并发数", text: $concurrencyLimit, hint: "0 = 默认，最大 16")
-                    integerField("默认节点超时（秒）", text: $defaultNodeTimeoutSec, hint: "0 = 不限")
-                    integerField("Job 超时（秒）", text: $jobTimeoutSec, hint: "0 = 不限")
-                    integerField("默认循环上限", text: $defaultLoopMaxIters, hint: "0 = 默认，最大 1000")
-                    integerField("实例数量上限", text: $instanceLimit, hint: "0 = 默认")
-                    integerField("快照字节上限", text: $snapshotByteLimit, hint: "0 = 默认")
-                }
-
-                if let validationMessage {
-                    Section {
-                        Text(validationMessage)
-                            .foregroundStyle(QuartetTheme.failed)
-                            .textSelection(.enabled)
-                    }
-                }
+                .padding(.horizontal, 18)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
             }
-            .scrollContentBackground(.hidden)
-            .background(QuartetTheme.canvas)
+            .scrollDismissesKeyboard(.interactively)
+            .background(
+                QuartetTheme.canvas
+                    .contentShape(Rectangle())
+                    .onTapGesture { quartetDismissKeyboard() }
+            )
             .navigationTitle("全局配置")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("保存") { save() } }
-                    .sharedBackgroundVisibility(.hidden)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                graphSaveBar(
+                    title: "保存全局配置",
+                    disabled: false,
+                    identifier: "graph-global-config-save"
+                ) {
+                    save()
+                }
             }
         }
     }
 
-    private func integerField(_ title: String, text: Binding<String>, hint: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            TextField(title, text: text)
-                .keyboardType(.numberPad)
-            Text(hint).font(.quartet(.detail)).foregroundStyle(QuartetTheme.secondaryText)
+    private var variablesCard: some View {
+        GraphEditorCard("初始变量", systemImage: "curlybraces") {
+            if variables.isEmpty {
+                Text("暂无初始变量")
+                    .font(.quartet(.control))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+
+            ForEach($variables) { $variable in
+                variableBlock($variable)
+            }
+
+            Button { variables.append(GraphVariableDraft()) } label: {
+                Label("添加变量", systemImage: "plus.circle.fill")
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.accent)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("graph-global-config-add-variable")
+
+            graphFieldHint("变量名需匹配 [A-Za-z_][A-Za-z0-9_]*；以下划线或 QUARTET_ 开头的名称由系统保留。")
+        }
+    }
+
+    private func variableBlock(_ variable: Binding<GraphVariableDraft>) -> some View {
+        let isBuiltIn = variable.wrappedValue.name == "Code" || variable.wrappedValue.name == "Doc"
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                if isBuiltIn {
+                    Label(variable.wrappedValue.name, systemImage: "lock.fill")
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                    Spacer(minLength: 8)
+                } else {
+                    TextField("变量名", text: variable.name)
+                        .font(.quartet(.control, weight: .medium))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .padding(.horizontal, 12)
+                        .frame(height: 42)
+                        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    Button {
+                        let id = variable.wrappedValue.id
+                        variables.removeAll { $0.id == id }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.failed)
+                            .frame(width: 42, height: 42)
+                            .background(QuartetTheme.failed.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("删除变量 \(variable.wrappedValue.name)")
+                }
+            }
+
+            TextField("变量值", text: variable.value, axis: .vertical)
+                .lineLimit(2...5)
+                .font(.quartet(.regular))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            Toggle("禁用此变量", isOn: variable.disabled)
+                .font(.quartet(.detail, weight: .medium))
+                .foregroundStyle(QuartetTheme.primaryText)
+                .tint(QuartetTheme.accent)
+        }
+        .padding(12)
+        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var limitsCard: some View {
+        GraphEditorCard("执行限制", systemImage: "slider.horizontal.3") {
+            VStack(alignment: .leading, spacing: 12) {
+                graphSingleLineField("并发数", text: $concurrencyLimit, prompt: "留空使用默认", numeric: true, hint: "0 = 默认，最大 16")
+                graphFieldDivider
+                graphSingleLineField("默认节点超时（秒）", text: $defaultNodeTimeoutSec, prompt: "留空使用默认", numeric: true, hint: "0 = 不限")
+                graphFieldDivider
+                graphSingleLineField("Job 超时（秒）", text: $jobTimeoutSec, prompt: "留空使用默认", numeric: true, hint: "0 = 不限")
+                graphFieldDivider
+                graphSingleLineField("默认循环上限", text: $defaultLoopMaxIters, prompt: "留空使用默认", numeric: true, hint: "0 = 默认，最大 1000")
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                graphFieldDivider
+                graphSingleLineField("实例数量上限", text: $instanceLimit, prompt: "留空使用默认", numeric: true, hint: "0 = 默认")
+                graphFieldDivider
+                graphSingleLineField("快照字节上限", text: $snapshotByteLimit, prompt: "留空使用默认", numeric: true, hint: "0 = 默认")
+            }
         }
     }
 
@@ -846,6 +1149,29 @@ private struct GraphAgentModelSelection: Hashable {
     let modelID: String
 }
 
+/// 节点编辑弹窗里的“选一个”入口，统一走 `QuartetChoiceSheet`。
+private enum GraphNodePicker: String, Identifiable {
+    case sessionStrategy
+    case agent
+    case model
+    case mode
+    case thoughtLevel
+    case endHook
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .sessionStrategy: "会话策略".localizedForApp
+        case .agent: "选择 Agent".localizedForApp
+        case .model: "选择模型".localizedForApp
+        case .mode: "选择模式".localizedForApp
+        case .thoughtLevel: "选择思考等级".localizedForApp
+        case .endHook: "结束 Hook".localizedForApp
+        }
+    }
+}
+
 private struct GraphNodeConfigurationView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var appModel: AppModel
@@ -858,6 +1184,7 @@ private struct GraphNodeConfigurationView: View {
     @State private var maxIterations: String
     @State private var outputVariables: String
     @State private var validationMessage: String?
+    @State private var picker: GraphNodePicker?
     @State private var linkedThoughtLevels: AgentThoughtLevelState?
     @State private var linkedThoughtLevelSelection: GraphAgentModelSelection?
     @State private var thoughtLevelRequestID: UUID?
@@ -894,160 +1221,210 @@ private struct GraphNodeConfigurationView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    HStack(spacing: 12) {
-                        GraphNodeBadge(type: draft.type)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(nodeTypeLabel(draft.type)).font(.quartet(.regular, weight: .semibold))
-                            Text(draft.id).font(.quartet(.detail, design: .monospaced)).foregroundStyle(QuartetTheme.secondaryText)
-                        }
-                    }
-                    TextField("节点名称", text: binding(\.title, default: ""))
+            ScrollView {
+                VStack(spacing: 14) {
+                    identityCard
+                    nodeSpecificCards
+                    if let validationMessage { graphValidationCard(validationMessage) }
                 }
-
-                nodeSpecificFields
-
-                if let validationMessage {
-                    Section {
-                        Text(validationMessage)
-                            .foregroundStyle(QuartetTheme.failed)
-                            .textSelection(.enabled)
-                    }
-                }
+                .padding(.horizontal, 18)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
             }
-            .scrollContentBackground(.hidden)
-            .background(QuartetTheme.canvas)
+            .scrollDismissesKeyboard(.interactively)
+            .background(
+                QuartetTheme.canvas
+                    .contentShape(Rectangle())
+                    .onTapGesture { quartetDismissKeyboard() }
+            )
             .navigationTitle(draft.displayName)
             .navigationBarTitleDisplayMode(.inline)
             .task(id: thoughtLevelSelection) {
                 await refreshThoughtLevels(for: thoughtLevelSelection)
             }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { save() }
-                        .disabled(isLinkingThoughtLevels)
+            .onChange(of: config.agentType) { _, reference in
+                selectAgent(reference ?? "")
+            }
+            .onChange(of: config.modelId) { _, _ in
+                clearThoughtLevelForNewSelection()
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                graphSaveBar(
+                    title: isLinkingThoughtLevels ? "正在刷新思考等级…" : "保存节点配置",
+                    disabled: isLinkingThoughtLevels,
+                    identifier: "graph-node-config-save"
+                ) {
+                    save()
                 }
-                .sharedBackgroundVisibility(.hidden)
+            }
+            .sheet(item: $picker) { picker in
+                QuartetChoiceSheet(
+                    title: picker.title,
+                    choices: choices(for: picker),
+                    selection: selectionBinding(for: picker),
+                    accessibilityPrefix: "graph-node-\(picker.rawValue)-option"
+                )
+                .presentationDetents([.medium, .large])
+                .quartetSheetStyle()
             }
         }
     }
 
+    private var identityCard: some View {
+        GraphEditorCard("节点", systemImage: "square.on.square") {
+            HStack(spacing: 12) {
+                GraphNodeBadge(type: draft.type)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(nodeTypeLabel(draft.type))
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                    Text(draft.id)
+                        .font(.quartet(.detail, design: .monospaced))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .textSelection(.enabled)
+                }
+                Spacer(minLength: 8)
+            }
+            graphFieldDivider
+            graphSingleLineField(
+                "节点名称",
+                text: binding(\.title, default: ""),
+                prompt: "输入节点名称",
+                identifier: "graph-node-title"
+            )
+        }
+    }
+
     @ViewBuilder
-    private var nodeSpecificFields: some View {
+    private var nodeSpecificCards: some View {
         switch draft.type {
         case "shell":
-            Section("Shell") {
-                multiline("脚本", text: configBinding(\.script), prompt: "输入 Shell 脚本")
+            GraphEditorCard("Shell", systemImage: "terminal") {
+                graphMultilineField("脚本", text: configBinding(\.script), prompt: "输入 Shell 脚本")
+                graphFieldDivider
                 outputFields
-                integerField("节点超时（秒）", text: $timeoutSeconds, hint: "留空则使用全局配置，0 = 不限")
+                graphFieldDivider
+                timeoutField
             }
         case "prompt":
-            agentSection
-            Section("Prompt") {
-                multiline("提示词", text: configBinding(\.prompt), prompt: "输入节点提示词")
+            agentCard
+            GraphEditorCard("Prompt", systemImage: "text.bubble") {
+                graphMultilineField("提示词", text: configBinding(\.prompt), prompt: "输入节点提示词")
+                graphFieldDivider
                 outputFields
-                integerField("节点超时（秒）", text: $timeoutSeconds, hint: "留空则使用全局配置，0 = 不限")
-                multiline("完成后 Hook", text: configBinding(\.hookScript), prompt: "可选 Shell 脚本")
+                graphFieldDivider
+                timeoutField
+                graphFieldDivider
+                graphMultilineField("完成后 Hook", text: configBinding(\.hookScript), prompt: "可选 Shell 脚本")
             }
         case "clarify":
-            agentSection
-            Section("澄清") {
-                multiline("提示词", text: configBinding(\.prompt), prompt: "可选，描述需要用户确认的内容")
+            agentCard
+            GraphEditorCard("澄清", systemImage: "questionmark.bubble") {
+                graphMultilineField("提示词", text: configBinding(\.prompt), prompt: "可选，描述需要用户确认的内容")
+                graphFieldDivider
                 outputFields
-                integerField("节点超时（秒）", text: $timeoutSeconds, hint: "留空则使用全局配置，0 = 不限")
+                graphFieldDivider
+                timeoutField
             }
         case "ifElse":
-            Section {
-                multiline("条件表达式", text: configBinding(\.condition), prompt: "例如：status == \"ready\"")
-            } footer: {
-                Text("条件为真走 yes 分支，为假走 no 分支。")
+            GraphEditorCard("条件", systemImage: "arrow.triangle.branch") {
+                graphMultilineField(
+                    "条件表达式",
+                    text: configBinding(\.condition),
+                    prompt: "例如：status == \"ready\"",
+                    hint: "条件为真走 yes 分支，为假走 no 分支。"
+                )
             }
         case "loop":
-            loopSection
+            loopCard
         case "end":
-            endSection
+            endCard
         case "start":
-            Section { Text("开始节点只作为工作流入口，没有业务执行配置。") }
+            GraphEditorCard("说明", systemImage: "info.circle") {
+                Text("开始节点只作为工作流入口，没有业务执行配置。")
+                    .font(.quartet(.control))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         default:
-            Section { Text("未知节点类型：\(draft.type)") }
+            GraphEditorCard("说明", systemImage: "questionmark.circle") {
+                Text("未知节点类型：\(draft.type)")
+                    .font(.quartet(.control))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
-    @ViewBuilder
-    private var agentSection: some View {
-        Section("Agent 会话") {
-            Picker("会话策略", selection: configBinding(\.sessionStrategy, default: "new")) {
-                Text("新建会话").tag("new")
-                Text("继承上游").tag("inherit")
+    private var agentCard: some View {
+        GraphEditorCard("Agent 会话", systemImage: "person.crop.square") {
+            graphSelectionField(
+                "会话策略",
+                value: displayTitle(for: .sessionStrategy),
+                identifier: "graph-node-sessionStrategy"
+            ) {
+                picker = .sessionStrategy
             }
+
             if !inheritsSession {
-                Picker("Agent", selection: configBinding(\.agentType, default: "")) {
-                    Text("请选择").tag("")
-                    ForEach(agents) { agent in
-                        Text(agent.displayName.isEmpty ? agent.type : agent.displayName)
-                            .tag(agent.type)
-                            .disabled(!agent.available && agent.type != config.agentType && agent.agentId != config.agentType)
-                    }
-                    if let reference = config.agentType, !reference.isEmpty,
-                       !agents.contains(where: { $0.type == reference || $0.agentId == reference }) {
-                        Text("\(reference)（未解析）").tag(reference)
-                    }
-                }
-                .onChange(of: config.agentType) { _, reference in
-                    selectAgent(reference ?? "")
+                graphFieldDivider
+                graphSelectionField(
+                    "Agent",
+                    value: displayTitle(for: .agent),
+                    placeholder: (config.agentType ?? "").isEmpty,
+                    identifier: "graph-node-agent"
+                ) {
+                    picker = .agent
                 }
 
                 if let agent = selectedAgent {
-                    Picker("模型", selection: configBinding(\.modelId, default: "")) {
-                        ForEach(agent.models?.availableModels ?? []) { model in
-                            Text(model.name.isEmpty ? model.modelId : model.name).tag(model.modelId)
-                        }
-                        if let modelID = config.modelId, !modelID.isEmpty,
-                           agent.models?.availableModels.contains(where: { $0.modelId == modelID }) != true {
-                            Text("\(modelID)（当前）").tag(modelID)
-                        }
+                    graphFieldDivider
+                    graphSelectionField(
+                        "模型",
+                        value: displayTitle(for: .model),
+                        placeholder: (config.modelId ?? "").isEmpty,
+                        identifier: "graph-node-model"
+                    ) {
+                        picker = .model
                     }
-                    .onChange(of: config.modelId) { _, _ in
-                        clearThoughtLevelForNewSelection()
-                    }
+
                     if !(agent.modes?.availableModes ?? []).isEmpty {
-                        Picker("模式", selection: configBinding(\.acpMode, default: "")) {
-                            Text("跟随 Agent").tag("")
-                            ForEach(agent.modes?.availableModes ?? []) { option in
-                                Text(option.name).tag(option.id)
-                            }
-                            if let mode = config.acpMode, !mode.isEmpty,
-                               agent.modes?.availableModes.contains(where: { $0.id == mode }) != true {
-                                Text("\(mode)（当前）").tag(mode)
-                            }
+                        graphFieldDivider
+                        graphSelectionField(
+                            "模式",
+                            value: displayTitle(for: .mode),
+                            identifier: "graph-node-mode"
+                        ) {
+                            picker = .mode
                         }
                     }
+
                     if isLinkingThoughtLevels {
-                        HStack {
-                            Text("思考等级")
-                            Spacer()
-                            ProgressView()
+                        graphFieldDivider
+                        HStack(spacing: 8) {
+                            graphFieldLabel("思考等级")
+                            ProgressView().controlSize(.small)
                             Text("正在刷新…")
-                                .foregroundStyle(.secondary)
+                                .font(.quartet(.detail))
+                                .foregroundStyle(QuartetTheme.secondaryText)
                         }
                     } else if !(linkedThoughtLevels?.availableThoughtLevels ?? []).isEmpty {
-                        Picker("思考等级", selection: configBinding(\.acpThoughtLevel, default: "")) {
-                            Text("跟随 Agent").tag("")
-                            ForEach(linkedThoughtLevels?.availableThoughtLevels ?? []) { option in
-                                Text(option.name).tag(option.id)
-                            }
-                            if let level = config.acpThoughtLevel, !level.isEmpty,
-                               linkedThoughtLevels?.availableThoughtLevels.contains(where: { $0.id == level }) != true {
-                                Text("\(level)（当前）").tag(level)
-                            }
+                        graphFieldDivider
+                        graphSelectionField(
+                            "思考等级",
+                            value: displayTitle(for: .thoughtLevel),
+                            identifier: "graph-node-thoughtLevel"
+                        ) {
+                            picker = .thoughtLevel
                         }
                     }
+
                     if let thoughtLevelLinkError {
                         Text(thoughtLevelLinkError)
                             .font(.quartet(.detail))
                             .foregroundStyle(QuartetTheme.failed)
                             .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
@@ -1056,43 +1433,154 @@ private struct GraphNodeConfigurationView: View {
 
     @ViewBuilder
     private var outputFields: some View {
-        TextField("输出变量（逗号分隔）", text: $outputVariables)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-        TextField("最后回复别名", text: configBinding(\.lastAssistantAlias))
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
+        graphSingleLineField(
+            "输出变量",
+            text: $outputVariables,
+            prompt: "逗号分隔，例如：result, summary",
+            identifier: "graph-node-output-variables"
+        )
+        graphSingleLineField(
+            "最后回复别名",
+            text: configBinding(\.lastAssistantAlias),
+            prompt: "可选，为最后一条回复命名"
+        )
     }
 
-    private var loopSection: some View {
-        Section("循环") {
-            Picker("循环模式", selection: configBinding(\.loopMode, default: "fixed")) {
-                Text("固定次数").tag("fixed")
-                Text("满足条件前持续").tag("until")
+    private var timeoutField: some View {
+        graphSingleLineField(
+            "节点超时（秒）",
+            text: $timeoutSeconds,
+            prompt: "留空使用全局配置",
+            numeric: true,
+            hint: "0 = 不限"
+        )
+    }
+
+    private var loopCard: some View {
+        GraphEditorCard("循环", systemImage: "arrow.triangle.2.circlepath") {
+            VStack(alignment: .leading, spacing: 6) {
+                graphFieldLabel("循环模式")
+                Picker("循环模式", selection: configBinding(\.loopMode, default: "fixed")) {
+                    Text("固定次数").tag("fixed")
+                    Text("满足条件前持续").tag("until")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
-            .pickerStyle(.segmented)
+            graphFieldDivider
             if config.loopMode == "until" {
-                multiline("终止条件", text: configBinding(\.untilCondition), prompt: "输入条件表达式")
-                integerField("最大迭代次数", text: $maxIterations, hint: "0 = 使用全局默认，最大 1000")
+                graphMultilineField("终止条件", text: configBinding(\.untilCondition), prompt: "输入条件表达式")
+                graphFieldDivider
+                graphSingleLineField(
+                    "最大迭代次数",
+                    text: $maxIterations,
+                    prompt: "留空使用全局默认",
+                    numeric: true,
+                    hint: "0 = 使用全局默认，最大 1000"
+                )
             } else {
-                integerField("固定次数", text: $fixedCount, hint: "0 = 跳过子图")
+                graphSingleLineField(
+                    "固定次数",
+                    text: $fixedCount,
+                    prompt: "留空使用全局默认",
+                    numeric: true,
+                    hint: "0 = 跳过子图"
+                )
             }
         }
     }
 
-    private var endSection: some View {
-        Section {
-            Picker("结束 Hook", selection: configBinding(\.endHookMode, default: "default")) {
-                Text("使用全局默认脚本").tag("default")
-                Text("使用自定义脚本").tag("custom")
-                Text("关闭").tag("off")
+    private var endCard: some View {
+        GraphEditorCard("结束 Hook", systemImage: "flag.checkered") {
+            graphSelectionField(
+                "Hook 模式",
+                value: displayTitle(for: .endHook),
+                identifier: "graph-node-endHook"
+            ) {
+                picker = .endHook
             }
             if config.endHookMode == "custom" {
-                multiline("Hook 脚本", text: configBinding(\.hookScript), prompt: "输入 Shell 脚本")
+                graphFieldDivider
+                graphMultilineField("Hook 脚本", text: configBinding(\.hookScript), prompt: "输入 Shell 脚本")
             }
-        } footer: {
-            Text("结束 Hook 的输出会被忽略，失败只记录日志，不改变工作流结果。")
+            graphFieldHint("结束 Hook 的输出会被忽略，失败只记录日志，不改变工作流结果。")
         }
+    }
+
+    private func selectionBinding(for picker: GraphNodePicker) -> Binding<String> {
+        switch picker {
+        case .sessionStrategy: configBinding(\.sessionStrategy, default: "new")
+        case .agent: configBinding(\.agentType, default: "")
+        case .model: configBinding(\.modelId, default: "")
+        case .mode: configBinding(\.acpMode, default: "")
+        case .thoughtLevel: configBinding(\.acpThoughtLevel, default: "")
+        case .endHook: configBinding(\.endHookMode, default: "default")
+        }
+    }
+
+    private func choices(for picker: GraphNodePicker) -> [QuartetChoice] {
+        switch picker {
+        case .sessionStrategy:
+            return [
+                QuartetChoice(id: "new", title: "新建会话", detail: "为该节点单独创建 Agent 会话"),
+                QuartetChoice(id: "inherit", title: "继承上游", detail: "复用上游节点的 Agent 会话与上下文")
+            ]
+        case .agent:
+            var items = agents.map { agent in
+                QuartetChoice(
+                    id: agent.type,
+                    title: agent.displayName.isEmpty ? agent.type : agent.displayName,
+                    detail: agent.available ? agent.type : "\(agent.type) · 未安装",
+                    disabled: !agent.available && agent.type != config.agentType && agent.agentId != config.agentType
+                )
+            }
+            if let reference = config.agentType, !reference.isEmpty,
+               !agents.contains(where: { $0.type == reference || $0.agentId == reference }) {
+                items.append(QuartetChoice(id: reference, title: reference, detail: "未解析"))
+            }
+            return items
+        case .model:
+            guard let agent = selectedAgent else { return [] }
+            var items = (agent.models?.availableModels ?? []).map { model in
+                QuartetChoice(id: model.modelId, title: model.name.isEmpty ? model.modelId : model.name, detail: model.modelId)
+            }
+            if let modelID = config.modelId, !modelID.isEmpty,
+               agent.models?.availableModels.contains(where: { $0.modelId == modelID }) != true {
+                items.append(QuartetChoice(id: modelID, title: modelID, detail: "当前"))
+            }
+            return items
+        case .mode:
+            guard let agent = selectedAgent else { return [] }
+            var items = [QuartetChoice(id: "", title: "跟随 Agent", detail: "使用 Agent 自身的默认模式")]
+            items += (agent.modes?.availableModes ?? []).map { QuartetChoice(id: $0.id, title: $0.name) }
+            if let mode = config.acpMode, !mode.isEmpty,
+               agent.modes?.availableModes.contains(where: { $0.id == mode }) != true {
+                items.append(QuartetChoice(id: mode, title: mode, detail: "当前"))
+            }
+            return items
+        case .thoughtLevel:
+            var items = [QuartetChoice(id: "", title: "跟随 Agent", detail: "使用 Agent 自身的默认思考等级")]
+            items += (linkedThoughtLevels?.availableThoughtLevels ?? []).map { QuartetChoice(id: $0.id, title: $0.name) }
+            if let level = config.acpThoughtLevel, !level.isEmpty,
+               linkedThoughtLevels?.availableThoughtLevels.contains(where: { $0.id == level }) != true {
+                items.append(QuartetChoice(id: level, title: level, detail: "当前"))
+            }
+            return items
+        case .endHook:
+            return [
+                QuartetChoice(id: "default", title: "使用全局默认脚本", detail: "跟随工作流的默认结束 Hook"),
+                QuartetChoice(id: "custom", title: "使用自定义脚本", detail: "只在该节点执行自定义 Shell 脚本"),
+                QuartetChoice(id: "off", title: "关闭", detail: "结束时不执行任何 Hook")
+            ]
+        }
+    }
+
+    private func displayTitle(for picker: GraphNodePicker) -> String {
+        let current = selectionBinding(for: picker).wrappedValue
+        if let match = choices(for: picker).first(where: { $0.id == current }) {
+            return match.title
+        }
+        return current.isEmpty ? "请选择" : current
     }
 
     private var selectedAgent: AgentSummary? {
@@ -1226,32 +1714,15 @@ private struct GraphNodeConfigurationView: View {
         )
     }
 
-    private func multiline(_ title: String, text: Binding<String>, prompt: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.quartet(.detail)).foregroundStyle(QuartetTheme.secondaryText)
-            TextField(prompt, text: text, axis: .vertical)
-                .lineLimit(4...12)
-                .font(.quartet(.regular, design: .monospaced))
-        }
-    }
-
-    private func integerField(_ title: String, text: Binding<String>, hint: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            TextField(title, text: text)
-                .keyboardType(.numberPad)
-            Text(hint).font(.quartet(.detail)).foregroundStyle(QuartetTheme.secondaryText)
-        }
-    }
-
     private func nodeTypeLabel(_ type: String) -> String {
         switch type {
-        case "start": "开始节点"
-        case "end": "结束节点"
-        case "shell": "Shell 节点"
-        case "prompt": "Prompt 节点"
-        case "clarify": "澄清节点"
-        case "ifElse": "条件节点"
-        case "loop": "循环节点"
+        case "start": "开始节点".localizedForApp
+        case "end": "结束节点".localizedForApp
+        case "shell": "Shell 节点".localizedForApp
+        case "prompt": "Prompt 节点".localizedForApp
+        case "clarify": "澄清节点".localizedForApp
+        case "ifElse": "条件节点".localizedForApp
+        case "loop": "循环节点".localizedForApp
         default: type
         }
     }

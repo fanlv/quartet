@@ -242,11 +242,11 @@ struct AgentSummary: Decodable, Identifiable, Hashable, Sendable {
 
     var availabilityLabel: String {
         switch availability {
-        case "pending_validation": "等待验证"
-        case "validating": "正在验证"
-        case "available": "可用"
-        case "unavailable": "不可用"
-        default: available ? "可用" : "状态未知"
+        case "pending_validation": "等待验证".localizedForApp
+        case "validating": "正在验证".localizedForApp
+        case "available": "可用".localizedForApp
+        case "unavailable": "不可用".localizedForApp
+        default: (available ? "可用" : "状态未知").localizedForApp
         }
     }
 
@@ -670,7 +670,7 @@ struct JobSummary: Decodable, Identifiable, Hashable, Sendable {
     }
 
     var displayTitle: String {
-        title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未命名 Job" : title
+        title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未命名 Job".localizedForApp : title
     }
 
     var isActive: Bool {
@@ -679,11 +679,11 @@ struct JobSummary: Decodable, Identifiable, Hashable, Sendable {
 
     var statusLabel: String {
         switch status {
-        case "pending": "等待中"
-        case "running": "运行中"
-        case "completed": "已完成"
-        case "failed": "失败"
-        case "stopped": "已停止"
+        case "pending": "等待中".localizedForApp
+        case "running": "运行中".localizedForApp
+        case "completed": "已完成".localizedForApp
+        case "failed": "失败".localizedForApp
+        case "stopped": "已停止".localizedForApp
         default: status
         }
     }
@@ -1207,8 +1207,8 @@ struct QueuedJobMessage: Decodable, Identifiable, Hashable, Sendable {
     var summaryLine: String {
         let text = messages.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n")
         if !text.isEmpty { return text }
-        if !imagePaths.isEmpty { return "[图片]" }
-        return fileAttachments.isEmpty ? "空消息" : "[文件]"
+        if !imagePaths.isEmpty { return "[图片]".localizedForApp }
+        return (fileAttachments.isEmpty ? "空消息" : "[文件]").localizedForApp
     }
 
     var imagePaths: [String] { messages.flatMap { $0.imageUrls ?? [] } }

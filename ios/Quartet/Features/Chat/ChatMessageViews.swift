@@ -41,7 +41,7 @@ struct ChatBubble: View, Equatable {
     private var centeredEvent: some View {
         HStack(spacing: 8) {
             Image(systemName: message.isFailed ? "exclamationmark.triangle.fill" : "info.circle.fill")
-            Text(message.content.isEmpty ? "系统事件" : message.content)
+            Text(message.content.isEmpty ? "系统事件".localizedForApp : message.content)
                 .textSelection(.enabled)
         }
         .font(.quartet(.detail))
@@ -106,6 +106,9 @@ struct AssistantMessageCard: View {
     let agentName: String
     let agentIconUrl: String?
 
+    /// 与 `CodeBlockView` 同一档行距，让 shell 输出和代码块看起来是同一种“终端”文本。
+    @ScaledMetric(relativeTo: .footnote) private var shellLineSpacing: CGFloat = 3
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let thought = message.thinkingContent, !thought.isEmpty {
@@ -145,6 +148,7 @@ struct AssistantMessageCard: View {
                         Text(message.content)
                             .font(.quartet(.detail, design: .monospaced))
                             .foregroundStyle(QuartetTheme.primaryText)
+                            .lineSpacing(shellLineSpacing)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -441,10 +445,10 @@ struct ToolCallCard: View {
 
     private var statusLabel: String {
         switch status {
-        case .processing: "运行中"
-        case .success: "已完成"
-        case .error: "执行失败"
-        case .placeholder: "未完成"
+        case .processing: "运行中".localizedForApp
+        case .success: "已完成".localizedForApp
+        case .error: "执行失败".localizedForApp
+        case .placeholder: "未完成".localizedForApp
         }
     }
 

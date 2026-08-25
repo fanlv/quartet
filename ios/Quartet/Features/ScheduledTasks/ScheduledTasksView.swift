@@ -178,7 +178,7 @@ struct ScheduledTasksView: View {
             do {
                 let updated = try await model.apiClient().toggleSchedule(id: schedule.id)
                 upsert(updated)
-                operationMessage = updated.enabled ? "已启用“\(updated.name)”" : "已停用“\(updated.name)”"
+                operationMessage = AppLanguage.localizedFormat(updated.enabled ? "已启用“%@”" : "已停用“%@”", updated.name)
             } catch { present(error, summary: "切换任务状态失败") }
         }
     }
@@ -214,7 +214,7 @@ struct ScheduledTasksView: View {
     }
 
     private func workflowName(for schedule: ScheduleInfo) -> String {
-        guard let id = schedule.graphWorkflowId, !id.isEmpty else { return "未绑定工作流" }
+        guard let id = schedule.graphWorkflowId, !id.isEmpty else { return "未绑定工作流".localizedForApp }
         return workflows.first(where: { $0.id == id })?.name ?? id
     }
 
@@ -451,10 +451,10 @@ private struct ScheduleActionsSheet: View {
                     .frame(width: 38, height: 38)
                     .background(tint.opacity(0.11), in: Circle())
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
+                    Text(title.localizedForApp)
                         .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(isDestructive ? QuartetTheme.failed : QuartetTheme.primaryText)
-                    Text(detail)
+                    Text(detail.localizedForApp)
                         .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .lineLimit(1)
@@ -647,7 +647,7 @@ private struct ScheduleEditorView: View {
 
     private func editorCard<Content: View>(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: systemImage)
+            Label(title.localizedForApp, systemImage: systemImage)
                 .font(.quartet(.control, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
             content()
@@ -660,11 +660,11 @@ private struct ScheduleEditorView: View {
 
     private func editorTextField(_ title: String, text: Binding<String>, identifier: String, monospaced: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
+            Text(title.localizedForApp)
                 .font(.quartet(.detail, weight: .semibold))
                 .foregroundStyle(QuartetTheme.secondaryText)
             TextField(title, text: text)
-                .font(monospaced ? .system(.body, design: .monospaced) : .quartet(.regular))
+                .font(monospaced ? .quartet(.regular, design: .monospaced) : .quartet(.regular))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(.horizontal, 14)
@@ -681,12 +681,12 @@ private struct ScheduleEditorView: View {
         action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
+            Text(title.localizedForApp)
                 .font(.quartet(.detail, weight: .semibold))
                 .foregroundStyle(QuartetTheme.secondaryText)
             Button(action: action) {
                 HStack {
-                    Text(value)
+                    Text(value.localizedForApp)
                         .font(.quartet(.control, weight: .medium))
                         .foregroundStyle(graphWorkflowId.isEmpty && title == "Graph Workflow" ? QuartetTheme.secondaryText : QuartetTheme.primaryText)
                         .lineLimit(1)
@@ -824,7 +824,7 @@ private struct ScheduleChoiceSheet: View {
                 .padding(.top, 8)
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle(title)
+            .navigationTitle(Text(LocalizedStringKey(title)))
             .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -873,7 +873,7 @@ private struct ScheduleErrorSheet: View {
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .background(QuartetTheme.canvas)
-            .navigationTitle(error.title)
+            .navigationTitle(error.title.localizedForApp)
             .navigationBarTitleDisplayMode(.inline)
         }
     }

@@ -1,6 +1,6 @@
-// Format helpers shared by the Job List day header and the Usage Stats
-// page. Kept close to the i18n / display layer so the same conventions
-// govern every place where stats appear.
+// Format helpers shared by the Job List day header, the Usage Stats page and
+// the chat composer's context badge. Kept close to the i18n / display layer so
+// the same conventions govern every place where stats appear.
 
 /**
  * Format a duration (ms) for the usage-stats display.
@@ -38,4 +38,19 @@ export function formatStatsCount(n: number): string {
   if (n < 1000) return String(Math.floor(n));
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}K`;
   return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`;
+}
+
+/**
+ * Format a context size (tokens) for the chat composer badge.
+ *
+ * Keeps two decimals so the number visibly moves round to round — a context
+ * badge that only shows "128K" looks frozen while the conversation grows —
+ * and switches to M past a million rather than printing "1234.57K", which
+ * modern long-context models reach.
+ */
+export function formatTokenCount(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0';
+  if (n < 1000) return String(Math.floor(n));
+  if (n < 1_000_000) return `${(n / 1000).toFixed(2)}K`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
 }

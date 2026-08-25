@@ -32,11 +32,11 @@
         <true/>
     </dict>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Sophia 需要连接同一局域网中的个人 Quartet 服务。</string>
+    <string>Connect to your personal Quartet service on the local network.</string>
     <key>NSCameraUsageDescription</key>
-    <string>Sophia 需要使用相机拍摄图片并发送到当前对话。</string>
+    <string>Take photos to send in the current conversation.</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Sophia 需要读取你选择的图片并发送到当前对话。</string>
+    <string>Choose photos to send in the current conversation.</string>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UIApplicationSceneManifest</key>

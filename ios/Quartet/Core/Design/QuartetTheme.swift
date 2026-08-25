@@ -84,17 +84,42 @@ enum QuartetTheme {
     }
 }
 
+/// 排版档位。每一档同时给出基准磅值和动态字体的缩放基准；磅值刻意等于对应 text style
+/// 在默认字号档下的系统尺寸，所以从 `.system(textStyle)` 换成 `UIFontMetrics` 缩放之后，
+/// 各档在任何辅助功能字号下的实际大小都与过去保持一致。
 enum QuartetFontSize {
+    /// 卡片与弹窗标题。
     case large
+    /// 段落标题，对应 Markdown `###`。
+    case headline
+    /// 聊天正文。中英混排的阅读档，也是用户气泡与 Agent 气泡唯一的正文尺寸 ——
+    /// 两侧此前分别用 `.control` 和 `.regular`，同一条会话里一大一小。
+    case reading
+    /// 常规正文与列表主标题。
     case regular
+    /// 控件与次级标题。
     case control
+    /// 辅助说明。
     case detail
+    /// 角标与时间戳。
     case compact
 
-    fileprivate var textStyle: Font.TextStyle {
+    fileprivate var pointSize: CGFloat {
         switch self {
-        case .large: .title3
-        case .regular: .body
+        case .large: 20
+        case .headline: 18
+        case .reading: 16.5
+        case .regular: 17
+        case .control: 15
+        case .detail: 13
+        case .compact: 11
+        }
+    }
+
+    fileprivate var textStyle: UIFont.TextStyle {
+        switch self {
+        case .large, .headline: .title3
+        case .reading, .regular: .body
         case .control: .subheadline
         case .detail: .footnote
         case .compact: .caption2
@@ -103,12 +128,109 @@ enum QuartetFontSize {
 }
 
 extension Font {
+    /// 全 App 的字体入口。`weight`/`design` 收的是 UIKit 类型，调用点照旧写
+    /// `.semibold`、`.monospaced` 这样的字面量。
     static func quartet(
         _ size: QuartetFontSize,
-        weight: Font.Weight? = nil,
-        design: Font.Design = .default
+        weight: UIFont.Weight = .regular,
+        design: UIFontDescriptor.SystemDesign = .default
     ) -> Font {
-        .system(size.textStyle, design: design, weight: weight)
+        Font(QuartetTypeface.uiFont(size, weight: weight, design: design))
+    }
+}
+
+/// 中英混排的字体栈：拉丁字形取 SF Pro / SF Mono，汉字经 cascade list 显式指向苹方。
+///
+/// 系统默认回退最终也会落到苹方，但有两件事必须自己接管：
+/// 1. 回退结果取决于设备的语言偏好顺序 —— 日文优先的设备会把汉字渲染成 Hiragino 的
+///    字形，同一段中文在不同人手机上长相不同；
+/// 2. 回退把拉丁字重原样套给汉字，`semibold` 的中文在手机尺寸下明显发胖。这里让
+///    semibold 落到苹方 Medium、bold 落到苹方 Semibold —— 公开家族里最重的就是
+///    Semibold，`PingFangSC-Bold` 并不存在，直接引用会被静默替换成 Helvetica。
+///
+/// 注意：给字体描述符追加符号特征（`.bold`/`.italic`）会丢掉 cascade list，汉字随即
+/// 退回系统回退。所以需要加粗的地方要在这里按字重取字体，而不是在 `Text` 上套 `.bold()`。
+enum QuartetTypeface {
+    static func uiFont(
+        _ size: QuartetFontSize,
+        weight: UIFont.Weight = .regular,
+        design: UIFontDescriptor.SystemDesign = .default
+    ) -> UIFont {
+        // 每次求值都要重建描述符的话，一屏聊天要造上百个字体；档位组合本身很少，缓存住。
+        let pointSize = UIFontMetrics(forTextStyle: size.textStyle).scaledValue(for: size.pointSize)
+        let key = Key(pointSize: pointSize, weight: weight.rawValue, design: design.rawValue)
+        if let hit = cache.font(for: key) { return hit }
+        let font = build(pointSize: pointSize, weight: weight, design: design)
+        cache.store(font, for: key)
+        return font
+    }
+
+    private static func build(
+        pointSize: CGFloat,
+        weight: UIFont.Weight,
+        design: UIFontDescriptor.SystemDesign
+    ) -> UIFont {
+        let latin = UIFont.systemFont(ofSize: pointSize, weight: weight)
+        // withDesign 会保留字重，`.default` 时等价于原描述符。
+        let base = latin.fontDescriptor.withDesign(design) ?? latin.fontDescriptor
+        guard let han = hanFace(for: weight) else { return UIFont(descriptor: base, size: pointSize) }
+        let descriptor = base.addingAttributes([
+            .cascadeList: [UIFontDescriptor(fontAttributes: [.name: han])]
+        ])
+        return UIFont(descriptor: descriptor, size: pointSize)
+    }
+
+    /// 只返回确认装机的字面。名字匹配不上时 CoreText 会替换成 Helvetica 之类完全没有
+    /// 汉字的字体，所以宁可返回 nil、把汉字交回系统回退。
+    private static func hanFace(for weight: UIFont.Weight) -> String? {
+        let face: String = switch weight.rawValue {
+        case ..<UIFont.Weight.thin.rawValue: "PingFangSC-Ultralight"
+        case ..<UIFont.Weight.light.rawValue: "PingFangSC-Thin"
+        case ..<UIFont.Weight.regular.rawValue: "PingFangSC-Light"
+        case ..<UIFont.Weight.medium.rawValue: "PingFangSC-Regular"
+        // medium 与 semibold 都落到 Medium：中文的“强调”字重就是它。
+        case ..<UIFont.Weight.bold.rawValue: "PingFangSC-Medium"
+        default: "PingFangSC-Semibold"
+        }
+        return cache.isInstalled(face) ? face : nil
+    }
+
+    fileprivate struct Key: Hashable {
+        let pointSize: CGFloat
+        let weight: CGFloat
+        let design: String
+    }
+
+    private static let cache = Cache()
+}
+
+/// `Font.quartet` 是非隔离的静态方法，聊天时间线里 Markdown 解析也会在主线程之外的
+/// 上下文里取字体，所以缓存自己上锁。
+private final class Cache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var fonts: [QuartetTypeface.Key: UIFont] = [:]
+    private var installed: [String: Bool] = [:]
+
+    func font(for key: QuartetTypeface.Key) -> UIFont? {
+        lock.lock()
+        defer { lock.unlock() }
+        return fonts[key]
+    }
+
+    func store(_ font: UIFont, for key: QuartetTypeface.Key) {
+        lock.lock()
+        defer { lock.unlock() }
+        fonts[key] = font
+    }
+
+    func isInstalled(_ face: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if let known = installed[face] { return known }
+        // UIFont(name:) 对不存在的字面返回 nil，正好用来做装机校验。
+        let known = UIFont(name: face, size: 12) != nil
+        installed[face] = known
+        return known
     }
 }
 
@@ -326,6 +448,114 @@ private final class QuartetNavigationSwipeBackGestureDelegate: NSObject, UIGestu
     }
 }
 
+/// 收起键盘：卡片式表单里点击输入控件以外的任意位置都调用它。
+@MainActor
+func quartetDismissKeyboard() {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+
+/// 标准“选一个”弹窗里的一行。`disabled` 用于当前不可选、但仍需要让用户看到的选项。
+struct QuartetChoice: Identifiable {
+    let id: String
+    let title: String
+    let detail: String?
+    let disabled: Bool
+
+    init(id: String, title: String, detail: String? = nil, disabled: Bool = false) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.disabled = disabled
+    }
+}
+
+/// 全局统一的“选一个”弹窗，样式、布局与间距跟随首页“任务操作”弹窗。
+struct QuartetChoiceSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let title: String
+    let choices: [QuartetChoice]
+    @Binding var selection: String
+    let accessibilityPrefix: String
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(choices.enumerated()), id: \.element.id) { index, choice in
+                        if index > 0 {
+                            Divider()
+                                .overlay(QuartetTheme.divider)
+                                .padding(.leading, 54)
+                        }
+                        choiceRow(choice)
+                    }
+                }
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 1)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+            }
+            .background(QuartetTheme.canvas)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(title.localizedForApp)
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .accessibilityAddTraits(.isHeader)
+                }
+            }
+        }
+    }
+
+    private func choiceRow(_ choice: QuartetChoice) -> some View {
+        let selected = choice.id == selection
+        return Button {
+            selection = choice.id
+            dismiss()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.quartet(.regular, weight: .semibold))
+                    .foregroundStyle(selected ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                    .frame(width: 28)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(choice.title.localizedForApp)
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if let detail = choice.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !detail.isEmpty {
+                        Text(detail.localizedForApp)
+                            .font(.quartet(.detail))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                Spacer(minLength: 8)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 60)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(choice.disabled)
+        .opacity(choice.disabled ? 0.45 : 1)
+        .accessibilityLabel(choice.detail.map { "\(choice.title.localizedForApp), \($0.localizedForApp)" } ?? choice.title.localizedForApp)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityHint("选择此项并关闭弹窗".localizedForApp)
+        .accessibilityIdentifier("\(accessibilityPrefix)-\(choice.id)")
+    }
+}
+
 struct AttachmentSourcePopover: View {
     let onPhotoLibrary: () -> Void
     let onCamera: () -> Void
@@ -397,10 +627,10 @@ struct AttachmentSourcePopover: View {
                     .background(QuartetTheme.accent.opacity(0.12), in: Circle())
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
+                    Text(title.localizedForApp)
                         .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
-                    Text(detail)
+                    Text(detail.localizedForApp)
                         .font(.quartet(.compact))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
@@ -416,7 +646,7 @@ struct AttachmentSourcePopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityHint(detail)
+        .accessibilityLabel(title.localizedForApp)
+        .accessibilityHint(detail.localizedForApp)
     }
 }

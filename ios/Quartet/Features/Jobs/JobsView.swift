@@ -13,6 +13,7 @@ struct JobsView: View {
     @State private var pendingRoute: ChatRoute?
     @State private var actionPresentation: JobActionPresentation?
     @State private var presentsConnectionStatus = false
+    @State private var presentsWorkspaceSelector = false
 
     init(showsMainTabBar: Binding<Bool>) {
         _showsMainTabBar = showsMainTabBar
@@ -103,6 +104,19 @@ struct JobsView: View {
                 DashboardConnectionView()
                     .environmentObject(model)
             }
+            .sheet(isPresented: $presentsWorkspaceSelector) {
+                WorkspaceLaunchPicker(
+                    workspaces: model.workspaces,
+                    selectedWorkspaceID: model.selectedWorkspaceID,
+                    includesAllOption: true,
+                    accessibilityIdentifierPrefix: "workspace-filter-",
+                    onSelect: { workspaceID in
+                        Task { await model.selectWorkspace(workspaceID) }
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .quartetSheetStyle()
+            }
             .sheet(item: $actionPresentation) { presentation in
                 let job = presentation.job
                 JobActionsSheet(
@@ -179,19 +193,7 @@ struct JobsView: View {
     }
 
     private var workspaceSelector: some View {
-        Menu {
-            workspaceMenuButton(id: nil, title: "ALL", color: QuartetTheme.accent)
-            if !model.workspaces.isEmpty {
-                Divider()
-            }
-            ForEach(model.workspaces) { workspace in
-                workspaceMenuButton(
-                    id: workspace.id,
-                    title: workspace.displayName,
-                    color: QuartetTheme.workspaceTint(workspace.id)
-                )
-            }
-        } label: {
+        Button { presentsWorkspaceSelector = true } label: {
             HStack(spacing: 6) {
                 Text(selectedWorkspaceTitle)
                     .font(.quartet(.regular, weight: .semibold))
@@ -204,6 +206,7 @@ struct JobsView: View {
             .frame(maxWidth: 190)
             .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("工作空间，当前为\(selectedWorkspaceTitle)")
         .accessibilityHint("点按选择其他工作空间")
         .accessibilityIdentifier("workspace-selector")
@@ -218,7 +221,7 @@ struct JobsView: View {
             ContentUnavailableView {
                 Label("暂无 Job", systemImage: "waveform.path")
             } description: {
-                Text(model.selectedWorkspace == nil ? "当前筛选下还没有任务。" : "这个工作空间在当前筛选下还没有任务。")
+                Text((model.selectedWorkspace == nil ? "当前筛选下还没有任务。" : "这个工作空间在当前筛选下还没有任务。").localizedForApp)
             } actions: {
                 if model.selectedWorkspace != nil {
                     Button("查看全部工作空间") {
@@ -301,7 +304,7 @@ struct JobsView: View {
                 Task { await model.setHideScheduledJobs(!model.hideScheduledJobs) }
             } label: {
                 Label(
-                    model.hideScheduledJobs ? "显示定时任务" : "隐藏定时任务",
+                    (model.hideScheduledJobs ? "显示定时任务" : "隐藏定时任务").localizedForApp,
                     systemImage: model.hideScheduledJobs ? "eye" : "eye.slash"
                 )
                 .font(.quartet(.detail, weight: .semibold))
@@ -332,22 +335,6 @@ struct JobsView: View {
         .padding(.horizontal, 20)
         .padding(.top, 14)
         .padding(.bottom, 10)
-    }
-
-    private func workspaceMenuButton(id: String?, title: String, color: Color) -> some View {
-        let selected = model.selectedWorkspaceID == id
-        return Button { Task { await model.selectWorkspace(id) } } label: {
-            HStack {
-                Circle().fill(color).frame(width: 8, height: 8)
-                Text(title)
-                Spacer()
-                if selected {
-                    Image(systemName: "checkmark")
-                }
-            }
-        }
-        .accessibilityValue(selected ? "已选择" : "")
-        .accessibilityIdentifier("workspace-filter-\(id ?? "all")")
     }
 
     private var selectedWorkspaceTitle: String {
@@ -407,22 +394,22 @@ struct JobsView: View {
 
     private func connectionHeadline(_ state: AppModel.ConnectionState) -> String {
         if state.phase == .connecting {
-            return "正在重新连接"
+            return "正在重新连接".localizedForApp
         }
         if state.isStale {
-            return state.isConnected ? "数据可能已过期" : "连接已中断"
+            return (state.isConnected ? "数据可能已过期" : "连接已中断").localizedForApp
         }
         if state.hasPendingSync {
-            return "等待同步"
+            return "等待同步".localizedForApp
         }
-        return "连接中断"
+        return "连接中断".localizedForApp
     }
 
     private func connectionNoticeDetail(_ state: AppModel.ConnectionState) -> String {
         if state.isUsingCachedData || state.isStale {
-            return "正在展示本地缓存，点按查看详情"
+            return "正在展示本地缓存，点按查看详情".localizedForApp
         }
-        return "有状态等待刷新，点按立即同步"
+        return "有状态等待刷新，点按立即同步".localizedForApp
     }
 
     private func connectionNoticeIcon(_ state: AppModel.ConnectionState) -> String {
@@ -449,10 +436,10 @@ struct JobsView: View {
 
     private var connectionStatusAccessibilityLabel: String {
         let state = model.connectionState
-        if model.isRefreshing || state.phase == .connecting { return "正在同步" }
-        if !state.isConnected { return "连接中断，查看连接状态" }
-        if state.isStale || state.hasPendingSync { return "数据待同步，查看连接状态" }
-        return "连接正常，查看连接状态"
+        if model.isRefreshing || state.phase == .connecting { return "正在同步".localizedForApp }
+        if !state.isConnected { return "连接中断，查看连接状态".localizedForApp }
+        if state.isStale || state.hasPendingSync { return "数据待同步，查看连接状态".localizedForApp }
+        return "连接正常，查看连接状态".localizedForApp
     }
 }
 
@@ -734,10 +721,10 @@ private struct JobActionsSheet: View {
                     .background(tint.opacity(0.11), in: Circle())
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
+                    Text(title.localizedForApp)
                         .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(isDestructive ? QuartetTheme.failed : QuartetTheme.primaryText)
-                    Text(detail)
+                    Text(detail.localizedForApp)
                         .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .lineLimit(1)

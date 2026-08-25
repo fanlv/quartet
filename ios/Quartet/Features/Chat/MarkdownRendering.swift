@@ -36,9 +36,11 @@ enum ChatTextCache {
         cached(key: text, in: blockCache) { MarkdownRenderer.blocks(from: text) }
     }
 
-    /// 行内代码的字体与底色随 role/tone 变化，所以缓存键要带上样式标记。
+    /// 行内代码和加粗的字体随 role/tone 变化，所以缓存键要带上样式标记。字号档也必须进键：
+    /// 这些 run 上落的是按动态字号算出的固定磅值，系统字号改了而键不变，旧 run 会一直用老磅值。
     static func attributedString(from text: String, role: MarkdownTextRole, tone: MarkdownTone) -> AttributedString? {
-        cached(key: "\(role.rawValue)|\(tone.cacheToken)\u{1}\(text)", in: attributedCache) {
+        let sizeCategory = UITraitCollection.current.preferredContentSizeCategory.rawValue
+        return cached(key: "\(role.rawValue)|\(tone.cacheToken)|\(sizeCategory)\u{1}\(text)", in: attributedCache) {
             MarkdownRenderer.attributedString(from: text, role: role, tone: tone)
         }
     }
@@ -74,8 +76,9 @@ enum MarkdownTextRole: String {
         switch self {
         case .body: .quartet(tone.contentFontSize)
         case .headingLarge: .quartet(.large, weight: .bold)
-        case .headingMedium: .quartet(.regular, weight: .semibold)
-        case .headingSmall: .quartet(.control, weight: .semibold)
+        case .headingMedium: .quartet(.headline, weight: .semibold)
+        // 正文已经是 `.reading`，标题再用更小的档就会比正文还小，这里只靠字重区分。
+        case .headingSmall: .quartet(tone.contentFontSize, weight: .semibold)
         case .tableHeader: .quartet(tone.contentFontSize, weight: .semibold)
         }
     }
@@ -83,10 +86,19 @@ enum MarkdownTextRole: String {
     /// 行内 `code` 用等宽体，但字号跟随所在段落，避免标题里的代码突然缩小。
     func codeFont(for tone: MarkdownTone) -> Font {
         switch self {
-        case .body, .tableHeader: .quartet(tone.contentFontSize, design: .monospaced)
+        case .body: .quartet(tone.contentFontSize, design: .monospaced)
         case .headingLarge: .quartet(.large, weight: .bold, design: .monospaced)
-        case .headingMedium: .quartet(.regular, weight: .semibold, design: .monospaced)
-        case .headingSmall: .quartet(.control, weight: .semibold, design: .monospaced)
+        case .headingMedium: .quartet(.headline, weight: .semibold, design: .monospaced)
+        case .headingSmall, .tableHeader: .quartet(tone.contentFontSize, weight: .semibold, design: .monospaced)
+        }
+    }
+
+    /// `**加粗**` 的字重必须在这里显式落到字体上，见 `applyStrongEmphasisStyle`。
+    func strongFont(for tone: MarkdownTone) -> Font {
+        switch self {
+        case .body, .headingSmall, .tableHeader: .quartet(tone.contentFontSize, weight: .bold)
+        case .headingLarge: .quartet(.large, weight: .bold)
+        case .headingMedium: .quartet(.headline, weight: .bold)
         }
     }
 
@@ -172,11 +184,16 @@ struct MarkdownTextBlock: View {
     let tone: MarkdownTone
     var role: MarkdownTextRole = .body
 
+    /// 含汉字的行自然行高约 1.40em、纯拉丁行只有约 1.18em（苹方与 SF Pro 的 asc+desc
+    /// 实测值），补上这一档行距后中文段落落在 1.7em 左右 —— 手机上读长回复的舒适区间。
+    /// `@ScaledMetric` 让行距跟着动态字号一起长，不然放大字号后行会黏在一起。
+    @ScaledMetric(relativeTo: .body) private var lineSpacing: CGFloat = 5
+
     var body: some View {
         content
             .font(role.font(for: tone))
             .foregroundStyle(tone.foreground)
-            .lineSpacing(4)
+            .lineSpacing(lineSpacing)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -194,6 +211,9 @@ struct CodeBlockView: View {
     let language: String?
     let code: String
     let tone: MarkdownTone
+
+    /// 等宽字重的行距比正文小一档：代码靠缩进读结构，行距太大反而拆散了块。
+    @ScaledMetric(relativeTo: .footnote) private var lineSpacing: CGFloat = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -213,6 +233,7 @@ struct CodeBlockView: View {
             Text(code)
                 .font(.quartet(.detail, design: .monospaced))
                 .foregroundStyle(codeForeground)
+                .lineSpacing(lineSpacing)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -246,10 +267,9 @@ enum MarkdownTone: Equatable {
     case tool
 
     var contentFontSize: QuartetFontSize {
-        switch self {
-        case .standard, .thought: .control
-        case .user, .tool: .regular
-        }
+        // 四种气泡共用一个正文档：此前 Agent 回复用 `.control`、用户气泡用 `.regular`，
+        // 同一屏里中文一大一小，混排的字号节奏先垮在这一步。
+        .reading
     }
 
     var foreground: Color {
@@ -572,9 +592,37 @@ enum MarkdownRenderer {
         ) else {
             return nil
         }
+        ChatLinkTarget.decorateFileLinks(in: &attributed)
+        applyStrongEmphasisStyle(to: &attributed, role: role, tone: tone)
         applyInlineCodeStyle(to: &attributed, role: role, tone: tone)
         applyLinkStyle(to: &attributed, tone: tone)
         return attributed
+    }
+
+    /// `**加粗**` 的字重必须自己接管。SwiftUI 是靠给字体加 bold 符号特征来实现强调的，
+    /// 而追加符号特征会连带丢掉字体描述符上的 cascade list —— 汉字随即退回系统回退，
+    /// 拿到比苹方 Semibold 更重的字面，同一句里中文的加粗比英文重出一档。
+    /// 这里直接换成目标字重的字体，并摘掉 strong 标记，避免 SwiftUI 再加一次特征。
+    private static func applyStrongEmphasisStyle(
+        to attributed: inout AttributedString,
+        role: MarkdownTextRole,
+        tone: MarkdownTone
+    ) {
+        // 同样先收集再改写：边遍历 runs 边改属性会让迭代器失效。
+        let strong = attributed.runs.compactMap { run -> (Range<AttributedString.Index>, InlinePresentationIntent)? in
+            guard let intent = run.inlinePresentationIntent,
+                  intent.contains(.stronglyEmphasized) else { return nil }
+            return (run.range, intent)
+        }
+        guard !strong.isEmpty else { return }
+
+        let font = role.strongFont(for: tone)
+        for (range, intent) in strong {
+            attributed[range].font = font
+            // 只摘 strong 位：斜体和行内代码的语义还要留给后面的处理和 SwiftUI。
+            let rest = intent.subtracting(.stronglyEmphasized)
+            attributed[range].inlinePresentationIntent = rest.isEmpty ? nil : rest
+        }
     }
 
     /// 行内 `code` 此前和正文没有任何视觉差别。run 上的 `font` 优先级高于 `Text.font()`，
