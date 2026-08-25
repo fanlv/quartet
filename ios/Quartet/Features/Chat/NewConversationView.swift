@@ -61,6 +61,44 @@ private struct NewConversationAgentModelSelection: Hashable {
     let modelID: String
 }
 
+/// 运行配置里的“选一个”入口，统一走 `QuartetChoiceSheet`。
+private enum NewConversationPicker: String, Identifiable {
+    case agent
+    case model
+    case mode
+    case thoughtLevel
+
+    var id: String { rawValue }
+
+    /// 弹窗标题；`QuartetChoiceSheet` 内部负责本地化。
+    var title: String {
+        switch self {
+        case .agent: "选择 Agent"
+        case .model: "选择模型"
+        case .mode: "选择模式"
+        case .thoughtLevel: "选择思考等级"
+        }
+    }
+
+    var rowTitle: String {
+        switch self {
+        case .agent: "Agent"
+        case .model: "模型"
+        case .mode: "模式"
+        case .thoughtLevel: "思考等级"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .agent: "command"
+        case .model: "cpu"
+        case .mode: "point.3.connected.trianglepath.dotted"
+        case .thoughtLevel: "brain"
+        }
+    }
+}
+
 private enum NewConversationMode: String, CaseIterable, Identifiable {
     case chat
     case graph
@@ -101,7 +139,7 @@ struct NewConversationView: View {
     @State private var showsDocumentPicker = false
     @State private var showsMessageLibrary = false
     @State private var showsWorkspacePicker = false
-    @State private var showsModelPicker = false
+    @State private var picker: NewConversationPicker?
     @State private var focusesComposerAfterMessageLibrary = false
     @State private var showsAdvancedOptions = false
     @State private var loading = true
@@ -243,15 +281,12 @@ struct NewConversationView: View {
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()
             }
-            .sheet(isPresented: $showsModelPicker) {
+            .sheet(item: $picker) { picker in
                 QuartetChoiceSheet(
-                    title: "选择模型",
-                    choices: modelChoices,
-                    selection: Binding(
-                        get: { modelID },
-                        set: { selectModel($0) }
-                    ),
-                    accessibilityPrefix: "new-task-model-option"
+                    title: picker.title,
+                    choices: choices(for: picker),
+                    selection: selectionBinding(for: picker),
+                    accessibilityPrefix: "new-task-\(picker.rawValue)-option"
                 )
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()
@@ -609,62 +644,34 @@ struct NewConversationView: View {
     }
 
     private var agentPicker: some View {
-        Menu {
-            ForEach(agents) { item in
-                let name = item.displayName.isEmpty ? item.type : item.displayName
-                Button { selectAgent(item.id) } label: {
-                    if item.id == agentID {
-                        Label(name, systemImage: "checkmark")
-                    } else {
-                        Text(item.available ? name : "\(name) · \(item.availabilityLabel)")
-                    }
-                }
-                .disabled(!item.available && item.id != agentID)
-            }
-        } label: {
-            configurationRow(title: "Agent", value: agentName, icon: "command")
-        }
-        .buttonStyle(.plain)
+        pickerRow(.agent, value: agentName)
+            .disabled(agents.isEmpty)
     }
 
     private var modelPicker: some View {
-        Button {
-            composerFocused = false
-            showsModelPicker = true
-        } label: {
-            configurationRow(title: "模型", value: modelName, icon: "cpu")
-        }
-        .buttonStyle(.plain)
-        .disabled(orderedModels.isEmpty)
-        .accessibilityLabel("模型，当前为\(modelName)")
-        .accessibilityHint("点按弹出模型列表")
-        .accessibilityIdentifier("new-task-model-picker")
+        pickerRow(.model, value: modelName)
+            .disabled(orderedModels.isEmpty)
     }
 
     private var modePicker: some View {
-        Menu {
-            ForEach(agent?.modes?.availableModes ?? []) { item in
-                Button { modeID = item.id } label: {
-                    item.id == modeID ? Label(item.name, systemImage: "checkmark") : Label(item.name, systemImage: "circle")
-                }
-            }
-        } label: {
-            configurationRow(title: "模式", value: modeName, icon: "point.3.connected.trianglepath.dotted")
-        }
-        .buttonStyle(.plain)
+        pickerRow(.mode, value: modeName)
     }
 
     private var thoughtLevelPicker: some View {
-        Menu {
-            ForEach(linkedThoughtLevels?.availableThoughtLevels ?? []) { item in
-                Button { thoughtLevelID = item.id } label: {
-                    item.id == thoughtLevelID ? Label(item.name, systemImage: "checkmark") : Label(item.name, systemImage: "circle")
-                }
-            }
+        pickerRow(.thoughtLevel, value: thoughtLevelName)
+    }
+
+    private func pickerRow(_ target: NewConversationPicker, value: String) -> some View {
+        Button {
+            composerFocused = false
+            picker = target
         } label: {
-            configurationRow(title: "思考等级", value: thoughtLevelName, icon: "brain")
+            configurationRow(title: target.rowTitle, value: value, icon: target.icon)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(target.rowTitle)，当前为\(value)")
+        .accessibilityHint("点按弹出可选项列表")
+        .accessibilityIdentifier("new-task-\(target.rawValue)-picker")
     }
 
     private func configurationRow(title: String, value: String, icon: String) -> some View {
@@ -674,7 +681,7 @@ struct NewConversationView: View {
                 Text(title.localizedForApp)
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
-                Text(value)
+                Text(value.localizedForApp)
                     .font(.quartet(.control, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                     .lineLimit(1)
@@ -852,6 +859,7 @@ struct NewConversationView: View {
     }
 
     private func selectAgent(_ id: String) {
+        guard agentID != id else { return }
         let previousSelection = thoughtLevelSelection
         agentID = id
         applyAgentDefaults(includeWorkspaceDefault: false)
@@ -953,15 +961,47 @@ struct NewConversationView: View {
         return favorites + available.filter { !favoriteSet.contains($0.modelId) }
     }
 
-    private var modelChoices: [QuartetChoice] {
-        orderedModels.map { item in
-            let name = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let description = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return QuartetChoice(
-                id: item.modelId,
-                title: name.isEmpty ? item.modelId : name,
-                detail: description?.isEmpty == false ? description : item.modelId
-            )
+    private func choices(for picker: NewConversationPicker) -> [QuartetChoice] {
+        switch picker {
+        case .agent:
+            return agents.map { item in
+                let name = item.displayName.isEmpty ? item.type : item.displayName
+                return QuartetChoice(
+                    id: item.id,
+                    title: name,
+                    detail: item.available ? item.type : "\(item.type) · \(item.availabilityLabel)",
+                    disabled: !item.available && item.id != agentID
+                )
+            }
+        case .model:
+            return orderedModels.map { item in
+                let name = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                let description = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return QuartetChoice(
+                    id: item.modelId,
+                    title: name.isEmpty ? item.modelId : name,
+                    detail: description?.isEmpty == false ? description : item.modelId
+                )
+            }
+        case .mode:
+            return [QuartetChoice(id: "", title: "跟随 Agent", detail: "使用 Agent 自身的默认模式")]
+                + (agent?.modes?.availableModes ?? []).map { QuartetChoice(id: $0.id, title: $0.name) }
+        case .thoughtLevel:
+            return [QuartetChoice(id: "", title: "跟随 Agent", detail: "使用 Agent 自身的默认思考等级")]
+                + (linkedThoughtLevels?.availableThoughtLevels ?? []).map { QuartetChoice(id: $0.id, title: $0.name) }
+        }
+    }
+
+    private func selectionBinding(for picker: NewConversationPicker) -> Binding<String> {
+        switch picker {
+        case .agent:
+            return Binding(get: { agentID }, set: { selectAgent($0) })
+        case .model:
+            return Binding(get: { modelID }, set: { selectModel($0) })
+        case .mode:
+            return Binding(get: { modeID }, set: { modeID = $0 })
+        case .thoughtLevel:
+            return Binding(get: { thoughtLevelID }, set: { thoughtLevelID = $0 })
         }
     }
 
