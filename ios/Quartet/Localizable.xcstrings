@@ -3947,6 +3947,9 @@
         }
       }
     },
+    "Web 链接已复制" : {
+
+    },
     "YOU" : {
 
     },
@@ -4660,6 +4663,23 @@
         }
       }
     },
+    "关闭图片查看器" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close image viewer"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭图片查看器"
+          }
+        }
+      }
+    },
     "其他模型" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5099,6 +5119,40 @@
         }
       }
     },
+    "原图加载失败，查看详情" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full-resolution image failed to load. View details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原图加载失败，查看详情"
+          }
+        }
+      }
+    },
+    "双指缩放 · 放大后拖动 · 双击切换" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pinch to zoom · Drag when enlarged · Double-tap to toggle"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "双指缩放 · 放大后拖动 · 双击切换"
+          }
+        }
+      }
+    },
     "发布前检查流水线" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5430,6 +5484,23 @@
         }
       }
     },
+    "图片" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片"
+          }
+        }
+      }
+    },
     "图片为空" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5465,6 +5536,7 @@
       }
     },
     "图片加载失败，查看详情" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5594,6 +5666,12 @@
           }
         }
       }
+    },
+    "复制可在 Quartet Web 端打开当前 Job 的链接" : {
+
+    },
+    "复制后可在浏览器中直接打开此 Job" : {
+
     },
     "复制完整错误" : {
       "localizations" : {
@@ -6474,24 +6552,8 @@
         }
       }
     },
-    "当前筛选下还没有任务。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No tasks match the current filters."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前筛选下还没有任务。"
-          }
-        }
-      }
-    },
     "当前没有进行中的任务。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6507,66 +6569,19 @@
         }
       }
     },
-    "筛选未开启" : {
+    "当前筛选下还没有任务。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Filter off"
+            "value" : "No tasks match the current filters."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "筛选未开启"
-          }
-        }
-      }
-    },
-    "筛选已开启" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Filter on"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "筛选已开启"
-          }
-        }
-      }
-    },
-    "点按查看全部任务" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Double-tap to view all jobs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "点按查看全部任务"
-          }
-        }
-      }
-    },
-    "点按只看进行中的任务" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Double-tap to show active jobs only"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "点按只看进行中的任务"
+            "value" : "当前筛选下还没有任务。"
           }
         }
       }
@@ -6874,6 +6889,23 @@
         }
       }
     },
+    "恢复适合屏幕" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit to screen"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复适合屏幕"
+          }
+        }
+      }
+    },
     "所选范围内没有工具调用" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6919,6 +6951,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "打开后可从分组列表中选择"
+          }
+        }
+      }
+    },
+    "打开支持缩放的图片查看器" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open an image viewer with zoom controls"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开支持缩放的图片查看器"
           }
         }
       }
@@ -7174,6 +7223,23 @@
         }
       }
     },
+    "放大" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom in"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "放大"
+          }
+        }
+      }
+    },
     "数据可能已过期" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7405,6 +7471,7 @@
       }
     },
     "暂无 Job" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7416,22 +7483,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暂无 Job"
-          }
-        }
-      }
-    },
-    "暂无进行中的 Job" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No Active Jobs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "暂无进行中的 Job"
           }
         }
       }
@@ -7512,6 +7563,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暂无节点状态"
+          }
+        }
+      }
+    },
+    "暂无进行中的 Job" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Active Jobs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无进行中的 Job"
           }
         }
       }
@@ -8064,6 +8132,22 @@
         }
       }
     },
+    "查看全部任务" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View All Jobs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看全部任务"
+          }
+        }
+      }
+    },
     "查看全部工作空间" : {
       "localizations" : {
         "en" : {
@@ -8080,18 +8164,19 @@
         }
       }
     },
-    "查看全部任务" : {
+    "查看图片" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "View All Jobs"
+            "value" : "View image"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "查看全部任务"
+            "value" : "查看图片"
           }
         }
       }
@@ -8304,6 +8389,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在加载使用统计…"
+          }
+        }
+      }
+    },
+    "正在加载图片" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading image"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载图片"
           }
         }
       }
@@ -8566,6 +8668,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在读取预置消息…"
+          }
+        }
+      }
+    },
+    "正在载入原图…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading full-resolution image…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在载入原图…"
           }
         }
       }
@@ -8868,6 +8987,23 @@
         }
       }
     },
+    "点按只看进行中的任务" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Double-tap to show active jobs only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点按只看进行中的任务"
+          }
+        }
+      }
+    },
     "点按弹出可选项列表" : {
       "localizations" : {
         "en" : {
@@ -8928,6 +9064,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "点按打开任务操作"
+          }
+        }
+      }
+    },
+    "点按查看全部任务" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Double-tap to view all jobs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点按查看全部任务"
           }
         }
       }
@@ -9483,6 +9636,40 @@
         }
       }
     },
+    "筛选已开启" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter on"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "筛选已开启"
+          }
+        }
+      }
+    },
+    "筛选未开启" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter off"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "筛选未开启"
+          }
+        }
+      }
+    },
     "简体中文" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -9851,6 +10038,23 @@
         }
       }
     },
+    "缩小" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom out"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缩小"
+          }
+        }
+      }
+    },
     "网页" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -10153,6 +10357,9 @@
           }
         }
       }
+    },
+    "获取 Web 链接" : {
+
     },
     "认证配置需要恢复" : {
       "extractionState" : "stale",
@@ -11665,182 +11872,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高级选项"
-          }
-        }
-      }
-    },
-    "关闭图片查看器" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Close image viewer"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关闭图片查看器"
-          }
-        }
-      }
-    },
-    "原图加载失败，查看详情" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Full-resolution image failed to load. View details"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "原图加载失败，查看详情"
-          }
-        }
-      }
-    },
-    "双指缩放 · 放大后拖动 · 双击切换" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pinch to zoom · Drag when enlarged · Double-tap to toggle"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "双指缩放 · 放大后拖动 · 双击切换"
-          }
-        }
-      }
-    },
-    "图片" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Image"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "图片"
-          }
-        }
-      }
-    },
-    "打开支持缩放的图片查看器" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open an image viewer with zoom controls"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "打开支持缩放的图片查看器"
-          }
-        }
-      }
-    },
-    "恢复适合屏幕" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Fit to screen"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "恢复适合屏幕"
-          }
-        }
-      }
-    },
-    "查看图片" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "View image"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "查看图片"
-          }
-        }
-      }
-    },
-    "正在加载图片" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading image"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在加载图片"
-          }
-        }
-      }
-    },
-    "正在载入原图…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading full-resolution image…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在载入原图…"
-          }
-        }
-      }
-    },
-    "放大" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zoom in"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "放大"
-          }
-        }
-      }
-    },
-    "缩小" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zoom out"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "缩小"
           }
         }
       }
