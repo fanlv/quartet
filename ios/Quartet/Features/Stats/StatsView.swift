@@ -523,13 +523,13 @@ private struct StatsTrendCard: View {
                         .lineStyle(StrokeStyle(lineWidth: line.isTotal ? 2.7 : 1.8, lineCap: .round, lineJoin: .round))
                         .interpolationMethod(.catmullRom)
 
-                        if line.isTotal {
+                        if line.isTotal || metric == .cache {
                             PointMark(
                                 x: .value("日期".localized(in: locale), point.date),
                                 y: .value(metric.title.localized(in: locale), point.value)
                             )
                             .foregroundStyle(line.color)
-                            .symbolSize(18)
+                            .symbolSize(line.isTotal ? 22 : 14)
                         }
                     }
 
@@ -539,6 +539,7 @@ private struct StatsTrendCard: View {
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                     }
                 }
+                .chartXScale(domain: chartDateDomain)
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 5)) {
                         AxisGridLine().foregroundStyle(QuartetTheme.divider.opacity(0.45))
@@ -623,6 +624,19 @@ private struct StatsTrendCard: View {
             abs((StatsFormat.date(lhs.date) ?? .distantPast).timeIntervalSince(selectedDate))
                 < abs((StatsFormat.date(rhs.date) ?? .distantPast).timeIntervalSince(selectedDate))
         }
+    }
+
+    private var chartDateDomain: ClosedRange<Date> {
+        let dates = filledDays.compactMap { StatsFormat.date($0.date) }
+        guard let first = dates.first, let last = dates.last else {
+            let today = Calendar.current.startOfDay(for: Date())
+            return today ... Calendar.current.date(byAdding: .day, value: 1, to: today)!
+        }
+        guard first < last else {
+            let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: first) ?? first.addingTimeInterval(86_400)
+            return first ... nextDay
+        }
+        return first ... last
     }
 
     private var trendTitle: String {
