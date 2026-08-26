@@ -70,8 +70,8 @@ struct JobChatView: View {
         }
         .ignoresSafeArea(.container, edges: .bottom)
         .background(QuartetTheme.canvas)
-        .navigationTitle(chat.title.isEmpty ? route.summary.displayTitle : chat.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .font(.chat(.regular))
+        .quartetNavigationTitle(chat.title.isEmpty ? route.summary.displayTitle : chat.title)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 NavigationLink {
@@ -1307,4 +1307,3 @@ private struct ChatConfigurationSelectionSheet: View {
         return "circle"
     }
 }
-

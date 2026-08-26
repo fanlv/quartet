@@ -49,37 +49,58 @@ struct ScheduledTasksView: View {
                     .accessibilityIdentifier("schedule-empty")
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 10) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
                             if let operationMessage {
                                 Label(operationMessage, systemImage: "checkmark.circle.fill")
                                     .font(.quartet(.control, weight: .semibold))
                                     .foregroundStyle(QuartetTheme.success)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 4)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 10)
                                     .accessibilityIdentifier("schedule-operation-status")
                             }
+
+                            HStack(alignment: .firstTextBaseline) {
+                                Text("全部任务")
+                                    .font(.quartet(.regular, weight: .semibold))
+                                    .foregroundStyle(QuartetTheme.primaryText)
+                                Spacer()
+                                Text("\(schedules.count) 个")
+                                    .font(.quartet(.detail))
+                                    .foregroundStyle(QuartetTheme.secondaryText)
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, operationMessage == nil ? 14 : 4)
+                            .padding(.bottom, 10)
+
                             ForEach(schedules) { schedule in
-                                ScheduleCard(
-                                    schedule: schedule,
-                                    workflowName: workflowName(for: schedule),
-                                    isOpeningLatestJob: openingJobID == schedule.lastRunJobID,
-                                    onOpenLatestJob: model.can("job.read") && schedule.lastRunJobID?.isEmpty == false
-                                        ? { openLatestJob(for: schedule) }
-                                        : nil,
-                                    onShowActions: { actionSchedule = schedule }
-                                )
+                                VStack(spacing: 0) {
+                                    ScheduleCard(
+                                        schedule: schedule,
+                                        workflowName: workflowName(for: schedule),
+                                        isOpeningLatestJob: openingJobID == schedule.lastRunJobID,
+                                        onOpenLatestJob: model.can("job.read") && schedule.lastRunJobID?.isEmpty == false
+                                            ? { openLatestJob(for: schedule) }
+                                            : nil,
+                                        onShowActions: { actionSchedule = schedule }
+                                    )
+
+                                    if schedule.id != schedules.last?.id {
+                                        Divider()
+                                            .overlay(QuartetTheme.divider)
+                                            .padding(.leading, 62)
+                                    }
+                                }
+                                .background(QuartetTheme.surface)
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
                     }
                     .refreshable { await load() }
                 }
             }
             .background(QuartetTheme.canvas)
             .mainTabBarBottomInset(mainTabBarInset)
-            .navigationTitle("定时任务")
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle("定时任务")
             .navigationDestination(for: JobSummary.self) { summary in
                 GraphRunView(summary: summary)
             }
@@ -306,82 +327,123 @@ private struct ScheduleCard: View {
     let onShowActions: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 8) {
             Button(action: onShowActions) {
-                HStack(alignment: .top, spacing: 10) {
-                    Circle()
-                        .fill(statusColor)
-                        .frame(width: 9, height: 9)
-                        .padding(.top, 6)
-                    VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(statusColor.opacity(0.11))
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(statusColor.opacity(0.28), lineWidth: 1)
+                        Image(systemName: schedule.enabled ? "calendar.badge.clock" : "calendar.badge.minus")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(statusColor)
+                    }
+                    .frame(width: 34, height: 34)
+                    .padding(.top, 1)
+                    .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(schedule.name)
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.primaryText)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(schedule.name)
-                                .font(.quartet(.regular, weight: .semibold))
-                                .foregroundStyle(QuartetTheme.primaryText)
-                                .lineLimit(2)
-                            Text(workflowName)
-                                .font(.quartet(.detail))
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                                .lineLimit(1)
-                        }
-                        HStack(spacing: 12) {
-                            Label(schedule.cronExpr, systemImage: "clock")
-                            if schedule.runCount > 0 {
-                                Label("\(schedule.runCount) 次", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                            HStack(spacing: 5) {
+                                Text(workflowName)
+                                    .lineLimit(1)
+                                    .layoutPriority(1)
+                                metadataSeparator
+                                Label(schedule.cronExpr, systemImage: "clock")
+                                    .lineLimit(1)
+                                    .font(.quartet(.compact, design: .monospaced))
                             }
-                            Spacer()
-                            Text(schedule.enabled ? "已启用" : "已停用")
-                                .foregroundStyle(schedule.enabled ? QuartetTheme.success : QuartetTheme.secondaryText)
+
+                            HStack(spacing: 5) {
+                                Text(schedule.enabled ? "已启用" : "已停用")
+                                    .foregroundStyle(schedule.enabled ? QuartetTheme.success : QuartetTheme.secondaryText)
+                                if let nextRunAt = schedule.nextRunAt, schedule.enabled {
+                                    metadataSeparator
+                                    Text("下次 \(scheduleDate(nextRunAt))")
+                                        .lineLimit(1)
+                                } else if schedule.runCount > 0 {
+                                    metadataSeparator
+                                    Text("已运行 \(schedule.runCount) 次")
+                                        .lineLimit(1)
+                                }
+                            }
+                            .accessibilityElement(children: .combine)
                         }
-                        .font(.quartet(.compact, design: .monospaced))
+                        .font(.quartet(.compact))
                         .foregroundStyle(QuartetTheme.secondaryText)
-                        if let nextRunAt = schedule.nextRunAt, schedule.enabled {
-                            Text("下次运行：\(scheduleDate(nextRunAt))")
-                                .font(.quartet(.detail))
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel(scheduleAccessibilityLabel)
+            .accessibilityHint("点按打开任务操作")
             .accessibilityIdentifier("schedule-row-\(schedule.name)")
 
-            if let onOpenLatestJob {
-                Button(action: onOpenLatestJob) {
-                    Group {
-                        if isOpeningLatestJob {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.quartet(.control, weight: .semibold))
-                        }
-                    }
-                    .foregroundStyle(QuartetTheme.accentDeep)
-                    .frame(width: 40, height: 40)
-                    .background(QuartetTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(spacing: 0) {
+                Button(action: onShowActions) {
+                    Image(systemName: "ellipsis")
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(isOpeningLatestJob)
-                .accessibilityLabel(AppLanguage.localizedFormat("查看%@最近执行的 Job", schedule.name))
-                .accessibilityIdentifier("schedule-latest-job-\(schedule.id)")
-            }
+                .accessibilityLabel("\(schedule.name) 的任务操作")
+                .accessibilityIdentifier("schedule-more-\(schedule.name)")
 
-            Button(action: onShowActions) {
-                Image(systemName: "ellipsis.circle")
-                    .font(.title3)
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .frame(width: 40, height: 40)
+                if let onOpenLatestJob {
+                    Button(action: onOpenLatestJob) {
+                        Group {
+                            if isOpeningLatestJob {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.quartet(.control, weight: .semibold))
+                            }
+                        }
+                        .foregroundStyle(QuartetTheme.accentDeep)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isOpeningLatestJob)
+                    .accessibilityLabel(AppLanguage.localizedFormat("查看%@最近执行的 Job", schedule.name))
+                    .accessibilityIdentifier("schedule-latest-job-\(schedule.id)")
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(schedule.name) 的任务操作")
-            .accessibilityIdentifier("schedule-more-\(schedule.name)")
         }
-        .padding(14)
-        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
+        .padding(.leading, 16)
+        .padding(.trailing, 12)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(QuartetTheme.surface)
+    }
+
+    private var metadataSeparator: some View {
+        Text("·")
+            .foregroundStyle(QuartetTheme.secondaryText.opacity(0.72))
+            .accessibilityHidden(true)
+    }
+
+    private var scheduleAccessibilityLabel: String {
+        var values = [schedule.name, workflowName, schedule.cronExpr, schedule.enabled ? "已启用" : "已停用"]
+        if let nextRunAt = schedule.nextRunAt, schedule.enabled {
+            values.append("下次运行 \(scheduleDate(nextRunAt))")
+        } else if schedule.runCount > 0 {
+            values.append("已运行 \(schedule.runCount) 次")
+        }
+        return values.joined(separator: "，")
     }
 
     private var statusColor: Color {
@@ -622,7 +684,7 @@ private struct ScheduleEditorView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 14) {
+                VStack(spacing: 12) {
                     editorCard("任务", systemImage: "calendar.badge.clock") {
                         editorTextField("任务名称", text: $name, identifier: "schedule-name")
                         cardDivider
@@ -654,31 +716,42 @@ private struct ScheduleEditorView: View {
                         ) { picker = .workspace }
                         if let selectedWorkspace {
                             Text(selectedWorkspace.workdir)
-                                .font(.system(.caption, design: .monospaced))
+                                .font(.quartet(.detail, design: .monospaced))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
 
                     editorCard("执行策略", systemImage: "slider.horizontal.3") {
-                        Stepper("最大并发：\(maxConcurrent)", value: $maxConcurrent, in: 1...32)
-                            .accessibilityIdentifier("schedule-max-concurrent")
+                        strategyControl(
+                            title: "最大并发",
+                            detail: "允许同时运行的任务数",
+                            valueText: "\(maxConcurrent)",
+                            value: $maxConcurrent,
+                            range: 1...32,
+                            identifier: "schedule-max-concurrent"
+                        )
                         cardDivider
-                        Stepper(timeout == 0 ? "超时：不限制" : "超时：\(timeout) 分钟", value: $timeout, in: 0...1440)
-                            .accessibilityIdentifier("schedule-timeout")
+                        strategyControl(
+                            title: "运行超时",
+                            detail: "设为 0 时不限制运行时间",
+                            valueText: timeout == 0 ? "不限制" : "\(timeout) 分钟",
+                            value: $timeout,
+                            range: 0...1440,
+                            identifier: "schedule-timeout"
+                        )
                     }
 
                     if let schedule { runHistoryCard(schedule) }
                     if !warnings.isEmpty { warningsCard }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 16)
                 .padding(.top, 10)
                 .padding(.bottom, 18)
             }
             .scrollDismissesKeyboard(.interactively)
             .background(QuartetTheme.canvas)
-            .navigationTitle(schedule == nil ? "新增定时任务" : "编辑定时任务")
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle(schedule == nil ? "新增定时任务" : "编辑定时任务")
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Button { save() } label: {
                     HStack(spacing: 8) {
@@ -695,7 +768,7 @@ private struct ScheduleEditorView: View {
                 .disabled(!isValid || isSaving)
                 .opacity(!isValid || isSaving ? 0.45 : 1)
                 .accessibilityIdentifier("schedule-save")
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(.ultraThinMaterial)
             }
@@ -742,7 +815,7 @@ private struct ScheduleEditorView: View {
     private func editorCard<Content: View>(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(title.localizedForApp, systemImage: systemImage)
-                .font(.quartet(.control, weight: .semibold))
+                .font(.quartet(.regular, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
             content()
         }
@@ -758,7 +831,8 @@ private struct ScheduleEditorView: View {
                 .font(.quartet(.detail, weight: .semibold))
                 .foregroundStyle(QuartetTheme.secondaryText)
             TextField(title, text: text)
-                .font(monospaced ? .quartet(.regular, design: .monospaced) : .quartet(.regular))
+                .font(monospaced ? .quartet(.control, weight: .medium, design: .monospaced) : .quartet(.control, weight: .medium))
+                .foregroundStyle(QuartetTheme.primaryText)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(.horizontal, 14)
@@ -798,6 +872,94 @@ private struct ScheduleEditorView: View {
         }
     }
 
+    private func strategyControl(
+        title: String,
+        detail: String,
+        valueText: String,
+        value: Binding<Int>,
+        range: ClosedRange<Int>,
+        identifier: String
+    ) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                strategyDescription(title: title, detail: detail)
+                Spacer(minLength: 8)
+                strategyValueControl(valueText: valueText, value: value, range: range, title: title)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                strategyDescription(title: title, detail: detail)
+                strategyValueControl(valueText: valueText, value: value, range: range, title: title)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .frame(minHeight: 52)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func strategyDescription(title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title.localizedForApp)
+                .font(.quartet(.control, weight: .medium))
+                .foregroundStyle(QuartetTheme.primaryText)
+            Text(detail.localizedForApp)
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func strategyValueControl(
+        valueText: String,
+        value: Binding<Int>,
+        range: ClosedRange<Int>,
+        title: String
+    ) -> some View {
+        HStack(spacing: 0) {
+            strategyButton(
+                systemImage: "minus",
+                accessibilityLabel: "减少\(title)",
+                isEnabled: value.wrappedValue > range.lowerBound
+            ) {
+                value.wrappedValue = max(range.lowerBound, value.wrappedValue - 1)
+            }
+
+            Text(valueText.localizedForApp)
+                .font(.quartet(.control, weight: .semibold, design: .monospaced))
+                .foregroundStyle(QuartetTheme.primaryText)
+                .multilineTextAlignment(.center)
+                .frame(minWidth: 54)
+
+            strategyButton(
+                systemImage: "plus",
+                accessibilityLabel: "增加\(title)",
+                isEnabled: value.wrappedValue < range.upperBound
+            ) {
+                value.wrappedValue = min(range.upperBound, value.wrappedValue + 1)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func strategyButton(
+        systemImage: String,
+        accessibilityLabel: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(QuartetTheme.accentDeep)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.3)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
     private func runHistoryCard(_ schedule: ScheduleInfo) -> some View {
         editorCard("运行记录", systemImage: "clock.arrow.circlepath") {
             LabeledContent("运行次数", value: "\(schedule.runCount)")
@@ -807,7 +969,7 @@ private struct ScheduleEditorView: View {
             if let detail = schedule.lastTriggerError, !detail.isEmpty {
                 cardDivider
                 Text(detail)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.quartet(.detail, design: .monospaced))
                     .foregroundStyle(QuartetTheme.failed)
                     .textSelection(.enabled)
             }
@@ -819,7 +981,7 @@ private struct ScheduleEditorView: View {
         editorCard("工作流读取警告", systemImage: "exclamationmark.triangle.fill") {
             ForEach(warnings, id: \.self) { warning in
                 Text("\(warning.file)：\(warning.error)")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.quartet(.detail, design: .monospaced))
                     .foregroundStyle(QuartetTheme.warning)
             }
         }
@@ -886,7 +1048,7 @@ private struct ScheduleChoiceSheet: View {
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: selection == choice.id ? "checkmark.circle.fill" : "circle")
-                                    .font(.title3)
+                                    .font(.quartet(.regular, weight: .medium))
                                     .foregroundStyle(selection == choice.id ? QuartetTheme.accent : QuartetTheme.secondaryText)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(choice.title)
@@ -918,8 +1080,7 @@ private struct ScheduleChoiceSheet: View {
                 .padding(.top, 8)
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle(Text(LocalizedStringKey(title)))
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle(title)
         }
     }
 }
@@ -939,7 +1100,7 @@ private struct ScheduleErrorSheet: View {
                         .background(QuartetTheme.failed.opacity(0.12), in: Circle())
                     ScrollView {
                         Text(error.detail)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.quartet(.detail, design: .monospaced))
                             .foregroundStyle(QuartetTheme.primaryText)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -967,8 +1128,7 @@ private struct ScheduleErrorSheet: View {
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .background(QuartetTheme.canvas)
-            .navigationTitle(error.title.localizedForApp)
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle(error.title.localizedForApp)
         }
     }
 }

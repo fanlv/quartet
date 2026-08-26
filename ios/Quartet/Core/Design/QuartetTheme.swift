@@ -94,6 +94,8 @@ enum QuartetTheme {
 /// 在默认字号档下的系统尺寸，所以从 `.system(textStyle)` 换成 `UIFontMetrics` 缩放之后，
 /// 各档在任何辅助功能字号下的实际大小都与过去保持一致。
 enum QuartetFontSize {
+    /// 品牌页的大标题。
+    case display
     /// 卡片与弹窗标题。
     case large
     /// 段落标题，对应 Markdown `###`。
@@ -109,9 +111,14 @@ enum QuartetFontSize {
     case detail
     /// 角标与时间戳。
     case compact
+    /// 极小的状态标签；不用于段落正文。
+    case tiny
+    /// 小尺寸状态图标；不承载可阅读正文。
+    case micro
 
     fileprivate var pointSize: CGFloat {
         switch self {
+        case .display: 34
         case .large: 20
         case .headline: 18
         case .reading: 16.5
@@ -119,16 +126,19 @@ enum QuartetFontSize {
         case .control: 15
         case .detail: 13
         case .compact: 11
+        case .tiny: 9
+        case .micro: 7
         }
     }
 
     fileprivate var textStyle: UIFont.TextStyle {
         switch self {
+        case .display: .largeTitle
         case .large, .headline: .title3
         case .reading, .regular: .body
         case .control: .subheadline
         case .detail: .footnote
-        case .compact: .caption2
+        case .compact, .tiny, .micro: .caption2
         }
     }
 }
@@ -347,27 +357,123 @@ struct PulseMark: View {
     }
 }
 
-struct RunningPulseLine: View {
-    let active: Bool
-    @State private var moving = false
+/// One shared rhythm for every "a run is in flight" cue: the dashboard's mode tiles, the "N 个进行中" pill
+/// and the job detail header move to this beat instead of each inventing its own timing. These are
+/// CoreAnimation repeat cycles rather than readings off an absolute clock, so surfaces that appear at
+/// different moments share the *period*, not the phase — two indicators on screen breathe at the same rate,
+/// though not necessarily on the same in-breath.
+enum QuartetRunningMotion {
+    /// One inhale plus exhale of a breathing cue.
+    static let breathPeriod: Double = 1.5
+    /// One lap of a highlight travelling around a border.
+    static let sweepPeriod: Double = 1.4
+
+    static var breath: Animation {
+        .easeInOut(duration: breathPeriod / 2).repeatForever(autoreverses: true)
+    }
+
+    static var sweep: Animation {
+        .linear(duration: sweepPeriod).repeatForever(autoreverses: false)
+    }
+}
+
+/// A status dot that breathes while a run is in flight, for the places where one small mark stands in for a
+/// whole list or card. Scale and opacity carry the motion, so the dot keeps the layout footprint of the
+/// static dot it replaces and nothing beside it shifts as it moves.
+struct RunningBreathDot: View {
+    let color: Color
+    var diameter: CGFloat = 7
+    var active = true
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var breathes = false
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Rectangle().fill(QuartetTheme.divider)
-                if active {
-                    Capsule()
-                        .fill(QuartetTheme.running)
-                        .frame(width: max(48, proxy.size.width * 0.25))
-                        .offset(x: moving ? proxy.size.width : -proxy.size.width * 0.25)
-                }
+        Circle()
+            .fill(color)
+            .frame(width: diameter, height: diameter)
+            .scaleEffect(moves ? (breathes ? 1.16 : 0.78) : 1)
+            .opacity(moves ? (breathes ? 1 : 0.4) : 1)
+            .animation(moves ? QuartetRunningMotion.breath : nil, value: breathes)
+            .onAppear { breathes = true }
+            .onDisappear { breathes = false }
+            .accessibilityHidden(true)
+    }
+
+    private var moves: Bool { active && !reduceMotion }
+}
+
+/// The "a run is in flight" motion for a bordered surface: the border the surface already has becomes the
+/// track for a travelling highlight, so a running card or tile reads as the same component, lit, rather than
+/// as a spinner bolted on top of it. Nothing inside the border is touched.
+struct RunningBorderSweep: View {
+    let color: Color
+    let track: Color
+    var cornerRadius: CGFloat
+    /// Matches the corner style of the surface being lit — a card built from a plain `RoundedRectangle`
+    /// needs `.circular` here, or the highlight rides a slightly different contour than the card it traces.
+    var cornerStyle: RoundedCornerStyle = .continuous
+    var lineWidth: CGFloat = 1.5
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var sweeps = false
+
+    var body: some View {
+        ZStack {
+            // The full-perimeter border is the track the highlight travels along, and it keeps the weight and
+            // hue the resting surface uses so the lit state is recognisably the same border.
+            shape.strokeBorder(
+                reduceMotion ? color.opacity(0.85) : track,
+                lineWidth: lineWidth
+            )
+
+            if !reduceMotion {
+                comet
             }
-            .clipShape(Capsule())
         }
-        .frame(height: 2)
-        .onAppear { moving = true }
-        .animation(active ? .linear(duration: 1.8).repeatForever(autoreverses: false) : .default, value: moving)
-        .accessibilityHidden(true)
+        .onAppear { sweeps = true }
+        .onDisappear { sweeps = false }
+    }
+
+    /// A bright head with a long fading tail, produced by rotating an angular gradient behind a fixed
+    /// border-shaped mask. Rotating the stroked shape itself would spin the square; rotating only the
+    /// light leaves the surface still and sends the highlight around the corners.
+    ///
+    /// The gradient is uniform in *angle*, and a rounded rectangle is not, so its stops cover uneven amounts
+    /// of perimeter as they pass a corner. Two consequences shape the stops below. The tail is spread over
+    /// most of the loop, because a short comet would visibly shrink to a nub at the corners. And the head
+    /// peaks just before the wrap and fades back to clear at it, so the seam joins clear to clear: taking
+    /// the head to full brightness *at* the wrap left a hard radial cut behind it, which landed on the
+    /// corners as a chopped blob rather than a leading edge.
+    private var comet: some View {
+        Rectangle()
+            .fill(
+                AngularGradient(
+                    stops: [
+                        .init(color: color.opacity(0), location: 0),
+                        .init(color: color.opacity(0), location: 0.34),
+                        .init(color: color.opacity(0.12), location: 0.6),
+                        .init(color: color.opacity(0.34), location: 0.79),
+                        .init(color: color.opacity(0.72), location: 0.9),
+                        .init(color: color, location: 0.94),
+                        .init(color: color.opacity(0), location: 1)
+                    ],
+                    center: .center
+                )
+            )
+            // Overscaled so the mask's corners stay covered once the gradient's square is off-axis.
+            .scaleEffect(1.5)
+            .rotationEffect(.degrees(sweeps ? 360 : 0))
+            .animation(QuartetRunningMotion.sweep, value: sweeps)
+            // The moving stroke is heavier than the track and straddles the edge rather than sitting inside
+            // it, so with the glow the highlight reads as light spilling off the surface. Confined to the
+            // track's own width it stayed a faint unevenness in the border at a glance.
+            .mask { shape.inset(by: -0.5).stroke(lineWidth: lineWidth + 1) }
+            .shadow(color: color.opacity(0.4), radius: 2.5)
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius, style: cornerStyle)
     }
 }
 
@@ -376,8 +482,33 @@ extension View {
         modifier(QuartetSheetStyleModifier())
     }
 
+    /// Keeps navigation titles on the same typeface and size as the dashboard's
+    /// workspace title while retaining a real navigation title for accessibility.
+    func quartetNavigationTitle(_ title: String) -> some View {
+        modifier(QuartetNavigationTitleModifier(title: title))
+    }
+
     func quartetPlainNavigationBackButton() -> some View {
         modifier(QuartetPlainNavigationBackButtonModifier())
+    }
+}
+
+private struct QuartetNavigationTitleModifier: ViewModifier {
+    let title: String
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle(Text(LocalizedStringKey(title)))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(LocalizedStringKey(title))
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .lineLimit(1)
+                        .accessibilityAddTraits(.isHeader)
+                }
+            }
     }
 }
 
@@ -392,7 +523,7 @@ private struct QuartetPlainNavigationBackButtonModifier: ViewModifier {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { dismiss() } label: {
                         Image(systemName: "chevron.left")
-                            .font(.body.weight(.semibold))
+                            .font(.quartet(.regular, weight: .semibold))
                     }
                     .accessibilityLabel("返回")
                 }

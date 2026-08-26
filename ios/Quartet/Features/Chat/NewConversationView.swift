@@ -244,8 +244,7 @@ struct NewConversationView: View {
                 }
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle("新任务")
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle("新任务")
             .task(id: creationMode) {
                 if creationMode == .chat, agents.isEmpty {
                     await load()
@@ -1408,7 +1407,7 @@ struct MessagePresetHistorySheet: View {
                             Section("加载错误") {
                                 ForEach(Array(errors.enumerated()), id: \.offset) { _, error in
                                     Text(error)
-                                        .font(.system(.caption, design: .monospaced))
+                                        .font(.quartet(.detail, design: .monospaced))
                                         .foregroundStyle(QuartetTheme.failed)
                                         .textSelection(.enabled)
                                 }
@@ -1441,8 +1440,7 @@ struct MessagePresetHistorySheet: View {
                 }
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle("预置消息与历史")
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle("预置消息与历史")
             .alert(
                 "输入框已有内容",
                 isPresented: Binding(

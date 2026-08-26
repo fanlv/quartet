@@ -372,12 +372,10 @@ struct JobsView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Circle()
-                        // Matches the row tiles this counts rather than `QuartetTheme.running`, which is
-                        // the theme green and would leave the dot a different colour from the very rows
-                        // it is summarising.
-                        .fill(JobStatusPalette.runningAccent)
-                        .frame(width: 7, height: 7)
+                    // Breathes on the same rhythm as the running tiles it counts, and takes their hue rather
+                    // than `QuartetTheme.running` — the theme green would leave the dot a different colour
+                    // from the very rows it is summarising.
+                    RunningBreathDot(color: JobStatusPalette.runningAccent)
                     Text("\(model.activeJobCount) 个进行中")
                     if showsOnlyActiveJobs {
                         Image(systemName: "checkmark")
@@ -1083,39 +1081,66 @@ private struct JobModeIcon: View {
     let mode: String?
     let status: String
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var breathes = false
+
+    private static let cornerRadius: CGFloat = 8
+
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                 .fill(palette.fill)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(palette.border, lineWidth: 1)
-                }
 
-            if isLive {
-                JobRunningIndicator(color: palette.primary, track: palette.border)
-                    .frame(width: 25, height: 25)
+            if animates {
+                // The border sweep alone lights a 1.5pt hairline, which on a 34pt tile is a shimmer you have
+                // to be looking for. Breathing the tint gives the same motion the tile's whole area, so a
+                // running row is legible while scrolling past — and it breathes in the fill's own hue instead
+                // of introducing a second colour.
+                RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                    .fill(palette.primary.opacity(breathes ? 0.22 : 0.03))
             }
 
             modeSymbol
                 .frame(width: 18, height: 18)
                 .foregroundStyle(palette.primary)
         }
+        .overlay {
+            // A live run animates the tile's own border; every other status keeps the plain hairline.
+            if isLive {
+                RunningBorderSweep(
+                    color: palette.primary,
+                    track: palette.border,
+                    cornerRadius: Self.cornerRadius
+                )
+            } else {
+                RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                    .strokeBorder(palette.border, lineWidth: 1)
+            }
+        }
+        // The halo breathes with the tint, which puts a trace of the motion outside the tile's own bounds —
+        // enough for the row to register in peripheral vision, and it costs nothing on resting rows.
+        .shadow(
+            color: animates ? palette.primary.opacity(breathes ? 0.34 : 0) : .clear,
+            radius: 5
+        )
         .overlay(alignment: .bottomTrailing) {
-            if !isLive, let statusSymbol {
+            if let badgeSymbol {
                 ZStack {
                     Circle()
                         .fill(QuartetTheme.surface)
                     Circle()
                         .fill(palette.primary)
                         .padding(1.5)
-                    Image(systemName: statusSymbol)
-                        .font(.system(size: 6.5, weight: .bold))
+                    Image(systemName: badgeSymbol)
+                        .font(.quartet(.micro, weight: .bold))
                         .foregroundStyle(palette.badgeForeground)
                 }
                 .frame(width: 13, height: 13)
             }
         }
+        .animation(animates ? QuartetRunningMotion.breath : nil, value: breathes)
+        .onAppear { breathes = true }
+        .onDisappear { breathes = false }
     }
 
     @ViewBuilder
@@ -1129,6 +1154,20 @@ private struct JobModeIcon: View {
 
     private var isLive: Bool {
         normalizedStatus == "running" || normalizedStatus == "stepstopping"
+    }
+
+    private var animates: Bool {
+        isLive && !reduceMotion
+    }
+
+    private var badgeSymbol: String? {
+        // A running tile normally says so by moving, so it keeps the badge corner empty. With motion
+        // suppressed the border sweep never plays, which would leave tile hue as the only running cue —
+        // the badge stands in for the animation there.
+        if isLive {
+            return reduceMotion ? "ellipsis" : nil
+        }
+        return statusSymbol
     }
 
     private var statusSymbol: String? {
@@ -1148,43 +1187,6 @@ private struct JobModeIcon: View {
 
     private var normalizedStatus: String {
         status.lowercased()
-    }
-}
-
-private struct JobRunningIndicator: View {
-    let color: Color
-    let track: Color
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var animates = false
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(color.opacity(animates && !reduceMotion ? 0.13 : 0.07))
-                .frame(width: 19, height: 19)
-                .scaleEffect(animates && !reduceMotion ? 1 : 0.82)
-                .animation(
-                    reduceMotion ? nil : .easeInOut(duration: 1.6).repeatForever(autoreverses: true),
-                    value: animates
-                )
-
-            Circle()
-                .stroke(track.opacity(0.34), lineWidth: 1)
-
-            Circle()
-                .fill(color)
-                .frame(width: 4.5, height: 4.5)
-                .shadow(color: color.opacity(0.28), radius: 2)
-                .offset(y: -10.5)
-                .rotationEffect(.degrees(animates && !reduceMotion ? 360 : 0))
-                .animation(
-                    reduceMotion ? nil : .linear(duration: 1.45).repeatForever(autoreverses: false),
-                    value: animates
-                )
-        }
-        .onAppear { animates = true }
-        .onDisappear { animates = false }
     }
 }
 
@@ -1499,8 +1501,7 @@ private struct DashboardConnectionView: View {
                 .padding(20)
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle("连接状态")
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle("连接状态")
         }
         .presentationDetents([.medium, .large])
         .quartetSheetStyle()

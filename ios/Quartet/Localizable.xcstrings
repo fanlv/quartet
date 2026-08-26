@@ -383,6 +383,9 @@
     "%lld / 200" : {
 
     },
+    "%lld 个" : {
+
+    },
     "%lld 个节点" : {
       "localizations" : {
         "en" : {
@@ -448,6 +451,7 @@
       }
     },
     "%lld 次" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1094,22 +1098,6 @@
         }
       }
     },
-    "全部 %lld 轮均由 Provider 上报。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "All %lld turns are provider-reported."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "全部 %lld 轮均由 Provider 上报。"
-          }
-        }
-      }
-    },
     "Provider 上报覆盖 %lld/%lld 轮（%lld%%），本地估算 %lld 轮。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1306,6 +1294,9 @@
         }
       }
     },
+    "下次 %@" : {
+
+    },
     "下次运行" : {
       "localizations" : {
         "en" : {
@@ -1323,6 +1314,7 @@
       }
     },
     "下次运行：%@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1651,6 +1643,7 @@
       }
     },
     "使用统计" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2350,6 +2343,26 @@
         }
       }
     },
+    "全部 %lld 轮均由 Provider 上报。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All %lld turns are provider-reported."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部 %lld 轮均由 Provider 上报。"
+          }
+        }
+      }
+    },
+    "全部任务" : {
+
+    },
     "全部项目" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2536,6 +2549,7 @@
       }
     },
     "最大并发：%lld" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2569,6 +2583,7 @@
       }
     },
     "最新运行错误" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2580,38 +2595,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最新运行错误"
-          }
-        }
-      }
-    },
-    "最近执行 Job 加载失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to Load Latest Job"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最近执行 Job 加载失败"
-          }
-        }
-      }
-    },
-    "最近执行记录不是 Graph Job" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The latest run is not a Graph Job"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最近执行记录不是 Graph Job"
           }
         }
       }
@@ -2660,6 +2643,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最近发送"
+          }
+        }
+      }
+    },
+    "最近执行 Job 加载失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to Load Latest Job"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近执行 Job 加载失败"
+          }
+        }
+      }
+    },
+    "最近执行记录不是 Graph Job" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The latest run is not a Graph Job"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近执行记录不是 Graph Job"
           }
         }
       }
@@ -2911,6 +2928,7 @@
       }
     },
     "删除结果" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3171,6 +3189,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "卸载 Agent"
+          }
+        }
+      }
+    },
+    "卸载命令" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstall commands"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卸载命令"
           }
         }
       }
@@ -4277,22 +4312,6 @@
         }
       }
     },
-    "卸载命令" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uninstall commands"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "卸载命令"
-          }
-        }
-      }
-    },
     "安装失败" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4646,6 +4665,7 @@
       }
     },
     "将按目录预置流程卸载“%@”：\n%@\n\n只移除程序文件；Agent 的凭据、配置、会话、Job 和工作流记录会保留，但在重新安装前无法再运行。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5227,6 +5247,9 @@
           }
         }
       }
+    },
+    "已运行 %lld 次" : {
+
     },
     "已连接" : {
       "extractionState" : "stale",
@@ -6590,6 +6613,7 @@
       }
     },
     "新任务" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7750,22 +7774,6 @@
         }
       }
     },
-    "查看%@最近执行的 Job" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open the latest Job for %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "查看%@最近执行的 Job"
-          }
-        }
-      }
-    },
     "查看 Agent 用量错误" : {
       "localizations" : {
         "en" : {
@@ -7778,6 +7786,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "查看 Agent 用量错误"
+          }
+        }
+      }
+    },
+    "查看%@最近执行的 Job" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the latest Job for %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看%@最近执行的 Job"
           }
         }
       }
@@ -10425,6 +10450,7 @@
       }
     },
     "编辑定时任务" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -10913,6 +10939,7 @@
       }
     },
     "设置" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11159,6 +11186,7 @@
       }
     },
     "超时：%lld 分钟" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11175,6 +11203,7 @@
       }
     },
     "超时：不限制" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

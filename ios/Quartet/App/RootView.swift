@@ -222,7 +222,7 @@ private struct MainTabBar: View {
                     Button { selection = item.id } label: {
                         VStack(spacing: 1) {
                             Image(systemName: item.systemImage)
-                                .font(.system(size: 22, weight: selection == item.id ? .semibold : .regular))
+                                .font(.quartet(.large, weight: selection == item.id ? .semibold : .regular))
                                 .symbolVariant(selection == item.id ? .fill : .none)
                                 .frame(height: 25)
                             Text(LocalizedStringKey(item.title))
@@ -276,7 +276,7 @@ private struct LaunchView: View {
             VStack(spacing: 16) {
                 PulseMark()
                 Text("QUARTET")
-                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                    .font(.quartet(.control, weight: .semibold, design: .monospaced))
                     .tracking(4)
                     .foregroundStyle(QuartetTheme.secondaryText)
                 ProgressView()
@@ -300,8 +300,7 @@ struct ErrorDetailView: View {
                     .padding(20)
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle(error.title.localizedForApp)
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle(error.title.localizedForApp)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("复制") { UIPasteboard.general.string = error.detail }

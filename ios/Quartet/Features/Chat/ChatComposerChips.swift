@@ -571,7 +571,7 @@ struct AgentUsageStrip: View {
                             Task { await refresh() }
                         } label: {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(.chat(.detail, weight: .semibold))
                                 .foregroundStyle(QuartetTheme.secondaryText.opacity(0.72))
                                 .frame(width: 22, height: 22)
                         }
@@ -584,7 +584,7 @@ struct AgentUsageStrip: View {
                             appModel.present(requestError)
                         } label: {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(.chat(.detail, weight: .semibold))
                                 .foregroundStyle(QuartetTheme.failed)
                                 .frame(width: 22, height: 22)
                         }
@@ -717,9 +717,9 @@ struct AgentUsageStrip: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "dollarsign.circle")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.chat(.detail, weight: .medium))
                     Text(credits(value.used))
-                        .fontWeight(.bold)
+                        .font(.chat(.detail, weight: .bold))
                         .foregroundStyle(usageColor(value.usedPercent))
                     Text("/ \(credits(value.total))")
                         .foregroundStyle(QuartetTheme.secondaryText.opacity(0.75))
@@ -752,9 +752,9 @@ struct AgentUsageStrip: View {
     private func usageMetric(icon: String, text: String, emphasis: Color, label: String) -> some View {
         HStack(spacing: 3) {
             Image(systemName: icon)
-                .font(.system(size: 10, weight: .medium))
+                .font(.chat(.detail, weight: .medium))
             Text(text)
-                .fontWeight(.bold)
+                .font(.chat(.detail, weight: .bold, design: .monospaced))
                 .foregroundStyle(emphasis)
         }
         .font(.chat(.detail, design: .monospaced))
@@ -766,7 +766,7 @@ struct AgentUsageStrip: View {
     private func usageGroup(mark: String, windows: [(String, AgentUsageWindow?)]) -> some View {
         HStack(spacing: 2) {
             Text(mark)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .font(.chat(.compact, weight: .bold, design: .monospaced))
                 .foregroundStyle(QuartetTheme.secondaryText)
                 .padding(.trailing, 2)
             ForEach(Array(windows.enumerated()), id: \.offset) { _, item in
@@ -801,7 +801,7 @@ struct AgentUsageStrip: View {
                     .stroke(color, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 Text(label)
-                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .font(.chat(.compact, weight: .semibold, design: .monospaced))
                     .foregroundStyle(color)
                     .minimumScaleFactor(0.7)
             }
@@ -952,4 +952,3 @@ struct WrappingHStack: Layout {
         let size: CGSize
     }
 }
-

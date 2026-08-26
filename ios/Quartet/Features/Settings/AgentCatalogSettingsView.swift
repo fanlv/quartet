@@ -529,7 +529,7 @@ struct AgentCatalogSettingsView: View {
             }
             Button { present(.actions(item)) } label: {
                 Image(systemName: "ellipsis.circle")
-                    .font(.title3)
+                    .font(.quartet(.large))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
@@ -1725,8 +1725,7 @@ private struct AgentCatalogConfirmationSheet: View {
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .background(QuartetTheme.canvas)
-            .navigationTitle(confirmation.title.localizedForApp)
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle(confirmation.title.localizedForApp)
         }
     }
 }
@@ -1761,8 +1760,7 @@ private struct AgentInstallResultSheet: View {
                 .padding(.vertical, 12)
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle(title)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 HStack(spacing: 10) {
                     Button("复制全部输出") { UIPasteboard.general.string = fullOutput }
@@ -1874,8 +1872,7 @@ private struct AgentDeleteOutcomeSheet: View {
                 .padding(.vertical, 12)
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle("删除结果")
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle("删除结果")
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Button("关闭") { dismiss() }
                     .font(.quartet(.control, weight: .semibold))
@@ -1970,8 +1967,7 @@ private struct CustomAgentEditorSheet: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .background(QuartetTheme.canvas)
-            .navigationTitle(form.title.localizedForApp)
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle(form.title.localizedForApp)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 AgentSettingsSaveBar(
                     title: "保存 Agent",

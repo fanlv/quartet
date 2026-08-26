@@ -33,8 +33,7 @@ struct JobDetailView: View {
             .padding(20)
         }
         .background(QuartetTheme.canvas)
-        .navigationTitle(summary.displayTitle)
-        .navigationBarTitleDisplayMode(.inline)
+        .quartetNavigationTitle(summary.displayTitle)
         .quartetPlainNavigationBackButton()
         .task {
             if model.agentCatalogSnapshot.isEmpty {
@@ -53,8 +52,7 @@ struct JobDetailView: View {
                         .padding(20)
                 }
                 .background(QuartetTheme.canvas)
-                .navigationTitle("最新运行错误")
-                .navigationBarTitleDisplayMode(.inline)
+                .quartetNavigationTitle("最新运行错误")
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("复制") {
@@ -76,26 +74,52 @@ struct JobDetailView: View {
 
     private var statusHeader: some View {
         let currentStatus = graphState?.status ?? detail?.status ?? summary.status
+        let active = isActive(currentStatus)
+        let statusColor = QuartetTheme.statusColor(colorKey(currentStatus))
         return VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text(summary.modeLabel)
-                    .font(.system(.caption, design: .monospaced).weight(.bold))
+                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
                     .foregroundStyle(QuartetTheme.secondaryText)
                 Spacer()
-                Label(statusLabel(currentStatus), systemImage: isActive(currentStatus) ? "bolt.fill" : "circle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(QuartetTheme.statusColor(colorKey(currentStatus)))
+                // The dashboard says "this run is live" by breathing, so the detail header says it the same
+                // way rather than with a static bolt.
+                Label {
+                    Text(statusLabel(currentStatus))
+                } icon: {
+                    if active {
+                        RunningBreathDot(color: statusColor, diameter: 8)
+                    } else {
+                        Image(systemName: "circle.fill")
+                    }
+                }
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(statusColor)
             }
             if summary.scheduleId != nil || detail?.scheduleId != nil {
                 Text("SCHEDULE \(detail?.scheduleId ?? summary.scheduleId ?? "—")")
-                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .font(.quartet(.compact, weight: .semibold, design: .monospaced))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
-            RunningPulseLine(active: isActive(currentStatus))
         }
         .padding(18)
         .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
+        .overlay {
+            // The card's own border carries the run, the same way a dashboard row's tile border does. The
+            // sliding pulse bar this replaces was a second, unrelated loading idiom for the same state, and
+            // it sat inside the card while the border it shares with every other card stayed dead.
+            if active {
+                RunningBorderSweep(
+                    color: statusColor,
+                    track: QuartetTheme.divider,
+                    cornerRadius: 18,
+                    cornerStyle: .circular,
+                    lineWidth: 1
+                )
+            } else {
+                RoundedRectangle(cornerRadius: 18).strokeBorder(QuartetTheme.divider, lineWidth: 1)
+            }
+        }
     }
 
     private func metadata(_ detail: JobDetail) -> some View {
@@ -121,19 +145,19 @@ struct JobDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Label("LATEST RUN ERROR", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(.caption, design: .monospaced).weight(.bold))
+                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
                     .foregroundStyle(QuartetTheme.failed)
                 Spacer()
                 Button("复制") { UIPasteboard.general.string = latestError }
-                    .font(.caption.weight(.semibold))
+                    .font(.quartet(.compact, weight: .semibold))
             }
             Text(latestError)
-                .font(.footnote)
+                .font(.quartet(.detail))
                 .foregroundStyle(QuartetTheme.secondaryText)
                 .lineLimit(5)
                 .textSelection(.enabled)
             Button("展开完整错误") { presentsLatestError = true }
-                .font(.subheadline.weight(.semibold))
+                .font(.quartet(.control, weight: .semibold))
         }
         .padding(18)
         .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
@@ -211,7 +235,7 @@ struct JobDetailView: View {
                 Spacer()
                 Image(systemName: "stop.fill")
             }
-            .font(.headline)
+            .font(.quartet(.regular, weight: .semibold))
             .padding(.horizontal, 18)
             .frame(height: 52)
             .background(QuartetTheme.failed.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
@@ -340,7 +364,7 @@ private struct DetailRow: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 16) {
                 Text(label)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(width: 82, alignment: .leading)
                 Text(value)

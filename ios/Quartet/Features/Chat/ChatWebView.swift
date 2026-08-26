@@ -224,8 +224,7 @@ struct ChatWebViewPage: View {
     var body: some View {
         ChatWebView(url: destination.url, onError: onError)
             .ignoresSafeArea(.container, edges: .bottom)
-            .navigationTitle(destination.title)
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle(destination.title)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("关闭") { dismiss() }

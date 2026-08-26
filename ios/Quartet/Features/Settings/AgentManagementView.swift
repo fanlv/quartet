@@ -16,8 +16,7 @@ struct AgentSettingsDestination<Content: View>: View {
     var body: some View {
         content
             .mainTabBarBottomInset(mainTabBarInset)
-            .navigationTitle(LocalizedStringKey(title))
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle(title)
             .quartetPlainNavigationBackButton()
             .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
@@ -361,7 +360,7 @@ struct AgentSettingsErrorSheet: View {
                         .background(QuartetTheme.failed.opacity(0.12), in: Circle())
                     ScrollView {
                         Text(error.detail)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.quartet(.detail, design: .monospaced))
                             .foregroundStyle(QuartetTheme.primaryText)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -389,8 +388,7 @@ struct AgentSettingsErrorSheet: View {
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .background(QuartetTheme.canvas)
-            .navigationTitle(error.title.localizedForApp)
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle(error.title.localizedForApp)
         }
     }
 }

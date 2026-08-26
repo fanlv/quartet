@@ -47,16 +47,16 @@ struct ConnectionView: View {
             HStack(spacing: 14) {
                 PulseMark()
                 Text("QUARTET / IOS")
-                    .font(.system(.caption, design: .monospaced).weight(.bold))
+                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
                     .tracking(2.4)
                     .foregroundStyle(QuartetTheme.accent)
             }
             Text("连接运行工作台")
-                .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                .font(.quartet(.display, weight: .bold, design: .rounded))
                 .foregroundStyle(QuartetTheme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Text("随时查看 Job、继续对话、处理等待中的工作流。")
-                .font(.body)
+                .font(.quartet(.regular))
                 .foregroundStyle(QuartetTheme.secondaryText)
                 .lineSpacing(4)
         }
@@ -123,7 +123,7 @@ struct ConnectionView: View {
                     Spacer()
                     Image(systemName: "arrow.up.right")
                 }
-                .font(.headline)
+                .font(.quartet(.regular, weight: .semibold))
                 .foregroundStyle(QuartetTheme.onAccent)
                 .padding(.horizontal, 18)
                 .frame(height: 54)
@@ -139,14 +139,14 @@ struct ConnectionView: View {
 
     private var boundaryNote: some View {
         Label("密码不会保存在设备上；登录状态由系统 Cookie 管理。应用不会在 iPhone 上运行 Agent。", systemImage: "lock.shield")
-            .font(.footnote)
+            .font(.quartet(.detail))
             .foregroundStyle(QuartetTheme.secondaryText)
     }
 
     private func fieldLabel(_ text: String, index: String) -> some View {
         HStack(spacing: 8) {
-            Text(index).font(.system(.caption, design: .monospaced).weight(.bold)).foregroundStyle(QuartetTheme.accent)
-            Text(text.localizedForApp).font(.subheadline.weight(.semibold)).foregroundStyle(QuartetTheme.primaryText)
+            Text(index).font(.quartet(.compact, weight: .bold, design: .monospaced)).foregroundStyle(QuartetTheme.accent)
+            Text(text.localizedForApp).font(.quartet(.control, weight: .semibold)).foregroundStyle(QuartetTheme.primaryText)
         }
     }
 

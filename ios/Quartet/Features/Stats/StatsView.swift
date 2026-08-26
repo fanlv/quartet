@@ -48,8 +48,7 @@ struct StatsView: View {
             }
             .background(QuartetTheme.canvas)
             .mainTabBarBottomInset(mainTabBarInset)
-            .navigationTitle("使用统计")
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle("使用统计")
             .refreshable { await loadStats() }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -173,10 +172,13 @@ struct StatsView: View {
     private var emptyState: some View {
         ContentUnavailableView {
             Label("所选范围暂无数据", systemImage: "chart.xyaxis.line")
+                .font(.quartet(.headline, weight: .semibold))
         } description: {
             Text("完成一次 Agent 运行后，这里会显示耗时、Token、工具调用和趋势。")
+                .font(.quartet(.control))
         } actions: {
             Button("刷新") { refreshRevision &+= 1 }
+                .font(.quartet(.control, weight: .semibold))
         }
         .frame(maxWidth: .infinity, minHeight: 300)
         .statsCard()
@@ -294,34 +296,26 @@ private enum StatsTrendMetric: String, CaseIterable, Identifiable {
 }
 
 private struct StatsKPIGrid: View {
-    @Environment(\.locale) private var locale
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let report: UsageStatsReport
     let periodDays: Int
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 144), spacing: 12)], spacing: 12) {
-            ForEach(cards) { card in
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: card.icon)
-                            .foregroundStyle(card.color)
-                        Text(card.title.localized(in: locale))
-                            .font(.quartet(.detail, weight: .medium))
-                            .foregroundStyle(QuartetTheme.secondaryText)
-                        Spacer(minLength: 0)
+        VStack(spacing: 0) {
+            if dynamicTypeSize.isAccessibilitySize {
+                ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
+                    StatsKPIAccessibilityRow(card: card, periodDays: periodDays)
+                    if index < cards.count - 1 {
+                        Divider().overlay(QuartetTheme.divider)
                     }
-                    Text(card.value)
-                        .font(.quartet(.large, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(QuartetTheme.primaryText)
-                        .minimumScaleFactor(0.72)
-                        .lineLimit(1)
-                    StatsDeltaLabel(current: card.current, previous: card.previous, periodDays: periodDays)
                 }
-                .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
-                .statsCard()
+            } else {
+                StatsKPIRow(cards: Array(cards.prefix(3)), periodDays: periodDays)
+                Divider().overlay(QuartetTheme.divider)
+                StatsKPIRow(cards: Array(cards.suffix(2)), periodDays: periodDays)
             }
         }
+        .statsCard(contentPadding: 4)
         .accessibilityIdentifier("stats-kpis")
     }
 
@@ -343,6 +337,88 @@ private struct StatsKPIGrid: View {
             StatsKPICard(id: "tools", title: "工具调用", value: StatsFormat.count(tools), current: Double(tools), previous: report.previous.map { Double($0.toolCallCount) }, icon: "wrench.and.screwdriver", color: QuartetTheme.chartForest),
             StatsKPICard(id: "workspaces", title: "统计工作区", value: StatsFormat.count(report.byWorkspace.count), current: Double(report.byWorkspace.count), previous: report.previous.map { Double($0.workspaceCount) }, icon: "square.grid.2x2", color: QuartetTheme.chartGraphite)
         ]
+    }
+}
+
+private struct StatsKPIRow: View {
+    let cards: [StatsKPICard]
+    let periodDays: Int
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
+                StatsKPICell(card: card, periodDays: periodDays)
+                if index < cards.count - 1 {
+                    Divider()
+                        .overlay(QuartetTheme.divider)
+                        .padding(.vertical, 10)
+                }
+            }
+        }
+    }
+}
+
+private struct StatsKPICell: View {
+    @Environment(\.locale) private var locale
+    let card: StatsKPICard
+    let periodDays: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+                Image(systemName: card.icon)
+                    .font(.quartet(.compact, weight: .semibold))
+                    .foregroundStyle(card.color)
+                    .accessibilityHidden(true)
+                Text(card.title.localized(in: locale))
+                    .font(.quartet(.compact, weight: .medium))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+
+            Text(card.value)
+                .font(.quartet(.headline, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(QuartetTheme.primaryText)
+                .minimumScaleFactor(0.72)
+                .lineLimit(1)
+
+            StatsDeltaLabel(current: card.current, previous: card.previous, periodDays: periodDays)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+    }
+}
+
+private struct StatsKPIAccessibilityRow: View {
+    @Environment(\.locale) private var locale
+    let card: StatsKPICard
+    let periodDays: Int
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: card.icon)
+                .foregroundStyle(card.color)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(card.title.localized(in: locale))
+                    .font(.quartet(.detail, weight: .medium))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                StatsDeltaLabel(current: card.current, previous: card.previous, periodDays: periodDays)
+            }
+            Spacer(minLength: 12)
+            Text(card.value)
+                .font(.quartet(.large, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(QuartetTheme.primaryText)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }
 
@@ -461,6 +537,7 @@ private struct StatsTrendCard: View {
                     AxisMarks(values: .automatic(desiredCount: 5)) {
                         AxisGridLine().foregroundStyle(QuartetTheme.divider.opacity(0.45))
                         AxisValueLabel(format: .dateTime.month(.twoDigits).day(.twoDigits))
+                            .font(.quartet(.compact))
                             .foregroundStyle(QuartetTheme.secondaryText)
                     }
                 }
@@ -470,6 +547,7 @@ private struct StatsTrendCard: View {
                         AxisValueLabel {
                             if let raw = value.as(Double.self) {
                                 Text(StatsFormat.trend(raw, metric: metric))
+                                    .font(.quartet(.compact))
                                     .foregroundStyle(QuartetTheme.secondaryText)
                             }
                         }
@@ -1019,8 +1097,11 @@ private enum StatsFormat {
 }
 
 private extension View {
-    func statsCard(stroke: Color = QuartetTheme.divider) -> some View {
-        padding(16)
+    func statsCard(
+        stroke: Color = QuartetTheme.divider,
+        contentPadding: CGFloat = 16
+    ) -> some View {
+        padding(contentPadding)
             .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)

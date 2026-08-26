@@ -995,8 +995,7 @@ private struct GraphGlobalConfigurationView: View {
                     .contentShape(Rectangle())
                     .onTapGesture { quartetDismissKeyboard() }
             )
-            .navigationTitle("全局配置")
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle("全局配置")
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 graphSaveBar(
                     title: "保存全局配置",
@@ -1271,8 +1270,7 @@ private struct GraphNodeConfigurationView: View {
                     .contentShape(Rectangle())
                     .onTapGesture { quartetDismissKeyboard() }
             )
-            .navigationTitle(draft.displayName)
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle(draft.displayName)
             .task(id: thoughtLevelSelection) {
                 await refreshThoughtLevels(for: thoughtLevelSelection)
             }

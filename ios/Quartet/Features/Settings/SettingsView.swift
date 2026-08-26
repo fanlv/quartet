@@ -91,9 +91,10 @@ struct SettingsView: View {
                                 Text(LocalizedStringKey(model.appLanguage.localizationKey))
                                     .foregroundStyle(QuartetTheme.secondaryText)
                                 Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.bold))
+                                    .font(.quartet(.compact, weight: .bold))
                                     .foregroundStyle(QuartetTheme.secondaryText)
                             }
+                            .font(.quartet(.regular))
                             .foregroundStyle(QuartetTheme.primaryText)
                             .padding(.horizontal, 16)
                             .frame(height: 54)
@@ -129,7 +130,7 @@ struct SettingsView: View {
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
 
                     Text("Sophia 仅在可访问后端的局域网内工作。应用进入后台后不保证持续接收运行事件，重新打开时会同步最新状态。")
-                        .font(.footnote)
+                        .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .lineSpacing(3)
                 }
@@ -137,7 +138,7 @@ struct SettingsView: View {
             }
             .background(QuartetTheme.canvas)
             .mainTabBarBottomInset(mainTabBarInset)
-            .navigationTitle("设置")
+            .quartetNavigationTitle("设置")
         }
         .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
@@ -190,7 +191,7 @@ struct SettingsView: View {
                     .frame(width: 8, height: 8)
                     .accessibilityHidden(true)
                 Text(connectionStatusText)
-                    .fontWeight(.semibold)
+                    .font(.quartet(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
             }
         }
@@ -302,9 +303,11 @@ struct SettingsView: View {
             if loading {
                 ProgressView()
             } else {
-                Image(systemName: "chevron.right").font(.caption.weight(.bold))
+                Image(systemName: "chevron.right")
+                    .font(.quartet(.compact, weight: .bold))
             }
         }
+        .font(.quartet(.regular))
         .foregroundStyle(destructive ? QuartetTheme.failed : QuartetTheme.primaryText)
         .padding(.horizontal, 16)
         .frame(height: 54)
@@ -370,8 +373,7 @@ private struct LanguagePickerSheet: View {
             .padding(.top, 8)
             .frame(maxHeight: .infinity, alignment: .top)
             .background(QuartetTheme.canvas)
-            .navigationTitle("显示语言")
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle("显示语言")
         }
     }
 }

@@ -494,8 +494,7 @@ private struct AgentFavoriteModelsSheet: View {
                 .padding(.bottom, 24)
             }
             .background(QuartetTheme.canvas)
-            .navigationTitle("管理收藏模型")
-            .navigationBarTitleDisplayMode(.inline)
+            .quartetNavigationTitle("管理收藏模型")
         }
     }
 
