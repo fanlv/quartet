@@ -138,6 +138,8 @@ final class ChatViewModel: ObservableObject {
     private var knownQueuedItems: [String: QueuedJobMessage] = [:]
     private var agentDisplayInfoByReference: [String: AgentDisplayInfo] = [:]
     private var currentTurnIncludedInAccumulatedDuration = true
+    private var interactiveAccumulatedDurationMs: Int64 = 0
+    private var graphBaseDurationMs: Int64 = 0
     private var graphRunningStartedAts: [Int64] = []
     private var serverClockAnchor: (serverTimeMs: Int64, uptime: TimeInterval)?
     private var isTurnRunning = false
@@ -252,6 +254,8 @@ final class ChatViewModel: ObservableObject {
             runFinishedAt = nil
             accumulatedDurationMs = 0
             currentTurnIncludedInAccumulatedDuration = true
+            interactiveAccumulatedDurationMs = 0
+            graphBaseDurationMs = 0
             graphRunningStartedAts = []
             serverClockAnchor = nil
             knownQueuedItems = [:]
@@ -282,7 +286,7 @@ final class ChatViewModel: ObservableObject {
             }
             applyAuthoritativeTitle(detail.title)
             status = detail.status
-            accumulatedDurationMs = detail.totalTurnDurationMs
+            applyInteractiveAccumulatedDuration(detail.totalTurnDurationMs)
             runStartedAt = detail.status == "running" ? detail.startedAt : nil
             runFinishedAt = nil
             currentTurnIncludedInAccumulatedDuration = detail.status != "running"
@@ -364,6 +368,8 @@ final class ChatViewModel: ObservableObject {
         runStartedAt = Int64(Date().addingTimeInterval(-83).timeIntervalSince1970 * 1_000)
         runFinishedAt = isGraph || route.summary.status == "running" ? nil : Int64(Date().timeIntervalSince1970 * 1_000)
         accumulatedDurationMs = 0
+        interactiveAccumulatedDurationMs = 0
+        graphBaseDurationMs = 0
         currentTurnIncludedInAccumulatedDuration = false
         var previewMessages = [
             ChatMessage(
@@ -515,16 +521,11 @@ final class ChatViewModel: ObservableObject {
 
     func markStopped() {
         status = "stopped"
-        let now = Int64(Date().timeIntervalSince1970 * 1_000)
+        let now = estimatedServerNow()
         runFinishedAt = now
         finishOpenMessages(outcome: "stopped", timestamp: now)
         isTurnRunning = false
-        Task { [weak self] in
-            guard let self, let client = self.client else { return }
-            do { self.applyServerQueue(try await client.messageQueue(jobID: self.jobID)) }
-            catch { self.errorDetail = self.errorText(error) }
-            self.scheduleOutboxProcessing()
-        }
+        scheduleSnapshotRefresh()
     }
 
     private func seedInitialDraftIfNeeded(route: ChatRoute) -> String? {
@@ -1067,7 +1068,7 @@ final class ChatViewModel: ObservableObject {
         }
         applyAuthoritativeTitle(snapshot.title)
         status = snapshot.status
-        accumulatedDurationMs = snapshot.totalTurnDurationMs
+        applyInteractiveAccumulatedDuration(snapshot.totalTurnDurationMs)
         runStartedAt = snapshot.status == "running" ? snapshot.startedAt : nil
         runFinishedAt = nil
         currentTurnIncludedInAccumulatedDuration = snapshot.status != "running"
@@ -1786,7 +1787,7 @@ final class ChatViewModel: ObservableObject {
 
     private func applyTerminalDuration(_ event: ServerEvent) {
         if let total = event.totalTurnDurationMs {
-            accumulatedDurationMs = max(0, total)
+            applyInteractiveAccumulatedDuration(total)
             currentTurnIncludedInAccumulatedDuration = true
         }
         guard currentTurnIncludedInAccumulatedDuration else { return }
@@ -1805,7 +1806,8 @@ final class ChatViewModel: ObservableObject {
             ["prompt", "clarify", "shell"].contains(instance.nodeType.lowercased())
                 && instance.preferredSessionID != nil
         }
-        accumulatedDurationMs = timed.reduce(Int64(0)) { $0 + max(0, $1.durationMs ?? 0) }
+        graphBaseDurationMs = timed.reduce(Int64(0)) { $0 + max(0, $1.durationMs ?? 0) }
+        refreshAccumulatedDuration()
         graphRunningStartedAts = timed.compactMap { instance in
             instance.status == "running" ? instance.startedAt : nil
         }
@@ -1819,9 +1821,18 @@ final class ChatViewModel: ObservableObject {
         let uptime = ProcessInfo.processInfo.systemUptime
         if let anchor = serverClockAnchor {
             let projected = anchor.serverTimeMs + Int64((uptime - anchor.uptime) * 1_000)
-            guard serverTimeMs >= projected - 30_000 else { return }
+            guard serverTimeMs > projected else { return }
         }
         serverClockAnchor = (serverTimeMs, uptime)
+    }
+
+    private func applyInteractiveAccumulatedDuration(_ milliseconds: Int64) {
+        interactiveAccumulatedDurationMs = max(0, milliseconds)
+        refreshAccumulatedDuration()
+    }
+
+    private func refreshAccumulatedDuration() {
+        accumulatedDurationMs = interactiveAccumulatedDurationMs + graphBaseDurationMs
     }
 
     private func estimatedServerNow() -> Int64 {

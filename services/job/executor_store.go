@@ -397,10 +397,9 @@ func (s *serviceImpl) reconcileLoadedJob(ctx context.Context, repo repository.Jo
 		interruptedAt := s.nowMillis()
 		j.Status = model.JobStatusFailed
 		j.FinishedAt = interruptedAt
-		if j.Mode == model.JobModeInteractive && j.StartedAt > 0 && !j.TurnDurationPending {
-			j.TurnDurationPending = true
-		}
-		accumulateInteractiveTurnDuration(j, interruptedAt)
+		// The process crash time is unknown. Do not count the server's offline
+		// interval as turn execution time when repairing the stale run.
+		j.TurnDurationPending = false
 		j.Progress.LastError = "interrupted: process restarted while running"
 		if clientMessageID := j.ActiveClientMessageID; clientMessageID != "" {
 			if receipt, ok := j.ClientMessageReceipts[clientMessageID]; ok {

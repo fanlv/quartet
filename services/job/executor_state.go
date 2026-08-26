@@ -232,7 +232,7 @@ func captureTerminalSnapshotLocked(job *model.Job, runOutcome model.RunOutcome, 
 		terminalAt = nowMillis()
 		job.FinishedAt = terminalAt
 	}
-	accumulateInteractiveTurnDuration(job, terminalAt)
+	accumulateTurnDuration(job, terminalAt)
 	finishActiveClientMessageLocked(job, runOutcome, terminalAt)
 	return terminalSnapshot{
 		terminalAt:          terminalAt,
@@ -241,12 +241,12 @@ func captureTerminalSnapshotLocked(job *model.Job, runOutcome model.RunOutcome, 
 	}
 }
 
-func accumulateInteractiveTurnDuration(job *model.Job, terminalAt int64) {
+func accumulateTurnDuration(job *model.Job, terminalAt int64) {
 	if !job.TurnDurationPending {
 		return
 	}
 	job.TurnDurationPending = false
-	if job.Mode != model.JobModeInteractive || job.StartedAt <= 0 || terminalAt < job.StartedAt {
+	if job.StartedAt <= 0 || terminalAt < job.StartedAt {
 		return
 	}
 	job.TotalTurnDurationMs += terminalAt - job.StartedAt

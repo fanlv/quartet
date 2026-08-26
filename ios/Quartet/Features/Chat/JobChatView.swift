@@ -51,6 +51,7 @@ struct JobChatView: View {
     @State private var loadingMessagePresets = false
     @State private var userScrolledAwayFromBottom = false
     @State private var userIsScrollingMessages = false
+    @State private var messagesAreNearBottom = true
     @State private var messagesScrolledOffContent = false
     @State private var configuredModels: AgentModelState?
     @State private var configuredThoughtLevels: AgentThoughtLevelState?
@@ -270,6 +271,7 @@ struct JobChatView: View {
     /// 用户看到的是一条卡住的时间线。自愈已经把视口强行放回底部，跟随状态必须跟着对齐。
     private func recoverMessagesScroll(_ proxy: ScrollViewProxy) {
         messagesScrolledOffContent = false
+        messagesAreNearBottom = true
         userScrolledAwayFromBottom = false
         proxy.scrollTo("chat-bottom", anchor: .bottom)
     }
@@ -331,21 +333,36 @@ struct JobChatView: View {
             }
             .onChange(of: workspaceContextKey) { _, _ in configureLinkOpener() }
             .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
-            .onScrollPhaseChange { _, newPhase in
-                userIsScrollingMessages = newPhase.isScrolling && newPhase != .animating
+            .onScrollPhaseChange { oldPhase, newPhase in
+                let wasUserScrolling = oldPhase.isScrolling && oldPhase != .animating
+                let isUserScrolling = newPhase.isScrolling && newPhase != .animating
+                userIsScrollingMessages = isUserScrolling
+
+                // 用户一开始拖动就暂停跟随，避免流式增量在手势过程中抢走滚动位置。
+                // 松手后按最终位置决定是否恢复；只有回到底部才重新开启自动跟随。
+                if isUserScrolling {
+                    userScrolledAwayFromBottom = true
+                    return
+                }
+                if newPhase == .idle, wasUserScrolling {
+                    userScrolledAwayFromBottom = !messagesAreNearBottom
+                }
+
                 // 越界是在滚动静止后才看得见的白屏，手势结束的这一刻补一次判断，
                 // 免得越界标记翻转时刚好卡在手势里、之后再没有几何变化来触发纠正。
-                guard newPhase == .idle, messagesScrolledOffContent else { return }
+                guard newPhase == .idle,
+                      messagesScrolledOffContent,
+                      !userScrolledAwayFromBottom else { return }
                 recoverMessagesScroll(proxy)
             }
             .onScrollGeometryChange(for: Bool.self) { geometry in
-                let distanceToBottom = geometry.contentSize.height
-                    - geometry.contentOffset.y
-                    - geometry.containerSize.height
-                return distanceToBottom < 80
+                let maxOffset = max(0, geometry.contentSize.height - geometry.containerSize.height)
+                let distanceToBottom = maxOffset - geometry.contentOffset.y
+                // 大幅越过内容底部时 distance 会是很大的负数，不能把这种异常偏移
+                // 当成“已回到底部”，否则用户松手时会错误恢复自动跟随。
+                return abs(distanceToBottom) < 80
             } action: { _, isNearBottom in
-                guard userIsScrollingMessages else { return }
-                userScrolledAwayFromBottom = !isNearBottom
+                messagesAreNearBottom = isNearBottom
             }
             // 白屏自愈：偏移落到内容之外整整一屏时，把它拉回底部。
             //
@@ -359,7 +376,9 @@ struct JobChatView: View {
                 return geometry.contentOffset.y - maxOffset > geometry.containerSize.height
             } action: { _, isOffContent in
                 messagesScrolledOffContent = isOffContent
-                guard isOffContent, !userIsScrollingMessages else { return }
+                guard isOffContent,
+                      !userIsScrollingMessages,
+                      !userScrolledAwayFromBottom else { return }
                 recoverMessagesScroll(proxy)
             }
             .onChange(of: chat.scrollAnchor) { _, _ in
@@ -374,8 +393,7 @@ struct JobChatView: View {
                 }
             }
             .onChange(of: chat.isRunning) { wasRunning, isRunning in
-                guard !wasRunning, isRunning else { return }
-                userScrolledAwayFromBottom = false
+                guard !wasRunning, isRunning, !userScrolledAwayFromBottom else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
                     proxy.scrollTo("chat-bottom", anchor: .bottom)
                 }
