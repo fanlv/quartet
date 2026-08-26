@@ -131,6 +131,7 @@ struct NewConversationView: View {
     @State private var linkedThoughtLevelSelection: NewConversationAgentModelSelection?
     @State private var thoughtLevelRequestID: UUID?
     @State private var message = ""
+    @State private var restoredMessageDraft = false
     @State private var sentMessageHistory: [SentMessageHistoryItem] = []
     @State private var projectMessagePresets: [MessagePreset] = []
     @State private var globalMessagePresets: [MessagePreset] = []
@@ -262,6 +263,15 @@ struct NewConversationView: View {
                 if createIntent?.payload != payload {
                     createIntent = nil
                 }
+            }
+            .onAppear {
+                guard !restoredMessageDraft else { return }
+                restoredMessageDraft = true
+                message = model.newConversationDraft
+            }
+            .onChange(of: message) { _, content in
+                guard restoredMessageDraft else { return }
+                model.saveNewConversationDraft(content)
             }
             .onChange(of: selectedPhoto) { _, item in
                 guard let item else { return }
@@ -1052,9 +1062,11 @@ struct NewConversationView: View {
             )
             let jobID = try await model.createJob(request: request)
             self.createIntent = nil
+            let submittedMessage = message
+            model.clearNewConversationDraft()
             do {
                 sentMessageHistory = try model.recordSentMessage(
-                    message,
+                    submittedMessage,
                     workspaceID: payload.workspaceID
                 )
             } catch {
@@ -1083,7 +1095,7 @@ struct NewConversationView: View {
             await model.reloadJobs()
             onCreated(ChatRoute(
                 summary: summary,
-                initialMessage: message.trimmingCharacters(in: .whitespacesAndNewlines),
+                initialMessage: submittedMessage.trimmingCharacters(in: .whitespacesAndNewlines),
                 initialAttachment: pendingImage,
                 agentType: payload.agentType,
                 modelID: payload.modelID,

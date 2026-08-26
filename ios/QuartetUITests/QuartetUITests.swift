@@ -92,8 +92,12 @@ final class QuartetUITests: XCTestCase {
         app.buttons["main-tab-3"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["https://quartet.example.test/"].exists)
-        app.buttons["settings-edit-connection"].tap()
+        app.buttons["settings-logout"].tap()
+        app.alerts.buttons["退出"].tap()
         XCTAssertTrue(app.buttons["connection-submit"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.textFields["connection-server"].value as? String, "https://quartet.example.test/")
+        XCTAssertEqual(app.textFields["connection-username"].value as? String, "admin")
+        XCTAssertEqual(app.secureTextFields["connection-password"].value as? String, "请输入密码")
     }
 
     func testAgentManagementMoreMenuAndSingleUpgrade() {

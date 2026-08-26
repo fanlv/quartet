@@ -7269,18 +7269,18 @@
         }
       }
     },
-    "服务地址和本机 Cookie 登录状态都会被删除。" : {
+    "将清除本机登录状态和密码，服务地址与账号会保留。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The server address and local cookie session will both be deleted."
+            "value" : "Your local sign-in session and password will be cleared. The server address and account will be kept."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "服务地址和本机 Cookie 登录状态都会被删除。"
+            "value" : "将清除本机登录状态和密码，服务地址与账号会保留。"
           }
         }
       }
@@ -9161,34 +9161,18 @@
         }
       }
     },
-    "清除当前连接？" : {
+    "退出当前账号？" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Clear Current Connection?"
+            "value" : "Sign Out?"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "清除当前连接？"
-          }
-        }
-      }
-    },
-    "清除连接" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear Connection"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "清除连接"
+            "value" : "退出当前账号？"
           }
         }
       }
@@ -12149,19 +12133,18 @@
         }
       }
     },
-    "退出并清除连接" : {
-      "extractionState" : "stale",
+    "退出" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sign Out and Clear Connection"
+            "value" : "Sign Out"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "退出并清除连接"
+            "value" : "退出"
           }
         }
       }
@@ -12592,23 +12575,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重新连接"
-          }
-        }
-      }
-    },
-    "重新配置连接" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reconfigure Connection"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重新配置连接"
           }
         }
       }

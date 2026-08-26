@@ -284,8 +284,8 @@ struct JobsView: View {
                         presentActions(for: job, initialContent: .deleteConfirmation)
                     }
 
-                    // Every row but the last gets a separator — and the last one does too when the
-                    // "load more" button follows it, which otherwise butts straight against the row.
+                    // Keep the final separator when another page is available so the loading
+                    // indicator does not run directly into the last row.
                     if job.id != visibleJobs.last?.id || showsLoadMoreJobs {
                         Divider()
                             .overlay(QuartetTheme.divider)
@@ -296,18 +296,21 @@ struct JobsView: View {
                 .task(id: GraphStatusRefreshKey(job: job)) {
                     await model.refreshGraphStatusIfNeeded(for: job)
                 }
-            }
-            if showsLoadMoreJobs {
-                Button { Task { await model.loadMoreJobs() } } label: {
-                    HStack {
-                        Spacer()
-                        if model.isLoadingMore { ProgressView() } else { Text("加载更多") }
-                        Spacer()
-                    }
-                    .padding(.vertical, 18)
+                .onAppear {
+                    guard job.id == visibleJobs.last?.id, showsLoadMoreJobs else { return }
+                    Task { await model.loadMoreJobs() }
                 }
-                .disabled(model.isLoadingMore)
+            }
+            if model.isLoadingMore && !showsOnlyActiveJobs {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+                .frame(height: 60)
                 .background(QuartetTheme.surface)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("加载更多")
             }
         }
     }

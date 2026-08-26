@@ -4,7 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.mainTabBarInset) private var mainTabBarInset
     @Environment(\.locale) private var locale
-    @State private var confirmsClear = false
+    @State private var confirmsLogout = false
     @State private var confirmsRestartWeb = false
     @State private var showsRestartSuccess = false
     @State private var showsLanguagePicker = false
@@ -117,14 +117,10 @@ struct SettingsView: View {
                         .disabled(model.isRestartingWeb)
                         .accessibilityIdentifier("settings-restart-web")
                         Divider().overlay(QuartetTheme.divider).padding(.leading, 54)
-                        Button { model.editConnection() } label: {
-                            settingsRow("重新配置连接", icon: "network")
+                        Button(role: .destructive) { confirmsLogout = true } label: {
+                            settingsRow("退出", icon: "rectangle.portrait.and.arrow.right", destructive: true)
                         }
-                        .accessibilityIdentifier("settings-edit-connection")
-                        Divider().overlay(QuartetTheme.divider).padding(.leading, 54)
-                        Button(role: .destructive) { confirmsClear = true } label: {
-                            settingsRow("退出并清除连接", icon: "trash", destructive: true)
-                        }
+                        .accessibilityIdentifier("settings-logout")
                     }
                     .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
@@ -150,11 +146,11 @@ struct SettingsView: View {
             .presentationDetents([.height(270)])
             .quartetSheetStyle()
         }
-        .alert("清除当前连接？", isPresented: $confirmsClear) {
+        .alert("退出当前账号？", isPresented: $confirmsLogout) {
             Button("关闭", role: .cancel) {}
-            Button("清除连接", role: .destructive) { model.clearConnection() }
+            Button("退出", role: .destructive) { model.logout() }
         } message: {
-            Text("服务地址和本机 Cookie 登录状态都会被删除。")
+            Text("将清除本机登录状态和密码，服务地址与账号会保留。")
         }
         .alert("重启 Web？", isPresented: $confirmsRestartWeb) {
             Button("关闭", role: .cancel) {}

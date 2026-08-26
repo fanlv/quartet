@@ -144,6 +144,7 @@ final class AppModel: ObservableObject {
         serverAddress = storedServerAddress
         credentialCacheNamespace = storedCredentialNamespace
         effectiveDefaults.set(storedCredentialNamespace, forKey: StorageKey.credentialCacheNamespace)
+        username = effectiveDefaults.string(forKey: StorageKey.username) ?? ""
         if detectedUITestScenario == nil {
             try? KeychainStore.delete(account: StorageKey.legacyTokenAccount)
             try? KeychainStore.delete(account: StorageKey.legacyTokenAccount(for: storedServerAddress))
@@ -278,8 +279,10 @@ final class AppModel: ObservableObject {
             resolvedServerAddress = client.baseURL.absoluteString
             csrfToken = principal.csrfToken
             permissions = Set(principal.permissions)
+            username = principal.user.username
             password = ""
             defaults.set(serverAddress, forKey: StorageKey.serverAddress)
+            defaults.set(username, forKey: StorageKey.username)
             defaults.set(true, forKey: StorageKey.connectionValidated)
             self.health = health
             lastSyncFailureMessage = nil
@@ -959,6 +962,27 @@ final class AppModel: ObservableObject {
         defaults.string(forKey: StorageKey.lastSentMessageWorkspaceID(for: serverAddress))
     }
 
+    var newConversationDraft: String {
+        defaults.string(
+            forKey: StorageKey.newConversationDraft(for: serverAddress, username: username)
+        ) ?? ""
+    }
+
+    func saveNewConversationDraft(_ content: String) {
+        let key = StorageKey.newConversationDraft(for: serverAddress, username: username)
+        if content.isEmpty {
+            defaults.removeObject(forKey: key)
+        } else {
+            defaults.set(content, forKey: key)
+        }
+    }
+
+    func clearNewConversationDraft() {
+        defaults.removeObject(
+            forKey: StorageKey.newConversationDraft(for: serverAddress, username: username)
+        )
+    }
+
     /// Graph 启动页记住的运行空间，和聊天页的最近发送空间分开：两条流程的空间选择互不影响。
     var lastGraphWorkspaceID: String? {
         defaults.string(forKey: StorageKey.lastGraphWorkspaceID(for: serverAddress))
@@ -1140,17 +1164,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func editConnection() {
-        Task { await leaveConnection(clearAddress: false) }
+    func logout() {
+        Task { await leaveConnection() }
     }
 
-    func clearConnection() {
-        Task { await leaveConnection(clearAddress: true) }
-    }
-
-    private func leaveConnection(clearAddress: Bool, revokeServerSession: Bool = true) async {
-        if revokeServerSession, phase == .connected {
-            try? await makeClient(notifyUnauthorized: false).logout()
+    private func leaveConnection(revokeServerSession: Bool = true) async {
+        var logoutError: Error?
+        if revokeServerSession, phase == .connected, !isRunningUITests {
+            do {
+                try await makeClient(notifyUnauthorized: false).logout()
+            } catch {
+                logoutError = error
+            }
         }
         let generation = invalidateDashboardRequests()
         connectionGeneration &+= 1
@@ -1159,9 +1184,6 @@ final class AppModel: ObservableObject {
             clearSessionCookies(for: resolvedServerAddress)
         }
         resolvedServerAddress = nil
-        if clearAddress {
-            defaults.removeObject(forKey: StorageKey.serverAddress)
-        }
         defaults.set(false, forKey: StorageKey.connectionValidated)
         defaults.removeObject(forKey: StorageKey.selectedWorkspaceID)
         defaults.removeObject(forKey: StorageKey.lastSuccessfulSyncAt)
@@ -1178,16 +1200,15 @@ final class AppModel: ObservableObject {
         isUsingCachedData = false
         lastSuccessfulSyncAt = nil
         lastSyncFailureMessage = nil
-        if clearAddress {
-            serverAddress = Self.defaultServerAddress
-        }
         phase = .disconnected
-        username = ""
         password = ""
         csrfToken = ""
         permissions = []
         rotateCredentialCacheNamespace()
         Task { await cacheStore.advanceGeneration(to: generation, clearingExistingCache: true) }
+        if let logoutError {
+            present(logoutError)
+        }
     }
 
     func present(_ error: Error) {
@@ -1242,7 +1263,7 @@ final class AppModel: ObservableObject {
               requestConnectionIdentity == StorageKey.connectionIdentity(for: serverAddress) else {
             return
         }
-        await leaveConnection(clearAddress: false, revokeServerSession: false)
+        await leaveConnection(revokeServerSession: false)
         present(error)
     }
 
@@ -1250,7 +1271,7 @@ final class AppModel: ObservableObject {
         let now = Int64(Date().timeIntervalSince1970 * 1_000)
         serverAddress = "https://quartet.example.test/"
         resolvedServerAddress = serverAddress
-        username = ""
+        username = "admin"
         password = ""
         health = HealthResponse(
             status: "ok",
@@ -1907,6 +1928,7 @@ final class AppModel: ObservableObject {
 
     private enum StorageKey {
         static let serverAddress = "quartet.serverAddress"
+        static let username = "quartet.username"
         static let connectionValidated = "quartet.connectionValidated"
         static let selectedWorkspaceID = "quartet.selectedWorkspaceID"
         static let hideScheduledJobs = "quartet.hideScheduledJobs"
@@ -1919,6 +1941,13 @@ final class AppModel: ObservableObject {
             let server = connectionIdentity(for: serverAddress) ?? serverAddress
             let encodedServer = Data(server.utf8).base64EncodedString()
             return "quartet.lastSentMessageWorkspaceID.\(encodedServer)"
+        }
+
+        static func newConversationDraft(for serverAddress: String, username: String) -> String {
+            let server = connectionIdentity(for: serverAddress) ?? serverAddress
+            let scope = "\(server)|\(username)"
+            let encodedScope = Data(scope.utf8).base64EncodedString()
+            return "quartet.newConversationDraft.\(encodedScope)"
         }
 
         static func lastGraphWorkspaceID(for serverAddress: String) -> String {
