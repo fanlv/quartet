@@ -66,9 +66,9 @@
 
 .agent-upgrade-all-btn:disabled {
   cursor: not-allowed;
-  color: var(--update-fg);
+  color: var(--update-fg-disabled);
   background: var(--update-action-disabled);
-  border-color: var(--update-action-disabled);
+  border-color: var(--update-border);
 }
 
 .agent-batch-upgrade-progress {
@@ -415,22 +415,25 @@
 .agent-install-btn {
   flex-shrink: 0;
   padding: 6px 16px;
-  border: none;
+  border: 1px solid var(--update-action);
   border-radius: 6px;
-  background: #0066ff;
-  color: #fff;
+  background: var(--update-action);
+  color: var(--update-fg);
   font-size: 13px;
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .agent-install-btn:hover:not(:disabled) {
-  background: #0052cc;
+  border-color: var(--update-action-hover);
+  background: var(--update-action-hover);
 }
 
 .agent-install-btn:disabled {
-  opacity: 0.5;
   cursor: not-allowed;
+  color: var(--update-fg-disabled);
+  background: var(--update-action-disabled);
+  border-color: var(--update-border);
 }
 
 .agent-install-card-body {
@@ -593,9 +596,9 @@
 }
 
 .agent-install-progress {
-  color: #1e4f91;
-  background: #f3f7fc;
-  border-color: #c9d9ee;
+  color: var(--update-text);
+  background: var(--update-soft);
+  border-color: var(--update-border);
 }
 
 .agent-install-progress > .agent-check-spinner {
@@ -615,7 +618,7 @@
 }
 
 .agent-install-progress span:last-child {
-  color: #58708f;
+  color: var(--update-text);
 }
 
 .agent-install-progress.upgrade {
@@ -629,9 +632,9 @@
 }
 
 .agent-install-request-feedback.busy {
-  color: #7c4b11;
-  background: #fffaf0;
-  border-color: #ead7b4;
+  color: var(--update-text);
+  background: var(--update-soft);
+  border-color: var(--update-border);
 }
 
 .agent-install-request-feedback.error {
@@ -650,7 +653,7 @@
   margin-top: 1px;
   border-radius: 50%;
   color: #fff;
-  background: #a8681a;
+  background: var(--update-action);
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
@@ -667,7 +670,7 @@
 
 .agent-install-request-content p {
   margin: 1px 0 7px;
-  color: #745b3c;
+  color: var(--update-text);
 }
 
 .agent-install-request-feedback.error .agent-install-request-content p {
@@ -835,9 +838,9 @@
 
 .agent-upgrade-btn:disabled {
   cursor: not-allowed;
-  color: var(--update-fg);
+  color: var(--update-fg-disabled);
   background: var(--update-action-disabled);
-  border-color: var(--update-action-disabled);
+  border-color: var(--update-border);
 }
 
 .agent-install-method.method-custom {
@@ -877,8 +880,8 @@
 }
 
 .agent-status.agent-status-not_installed {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--update-soft-strong);
+  color: var(--update-text);
 }
 
 .agent-status.agent-status-unavailable,

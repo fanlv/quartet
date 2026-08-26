@@ -1159,7 +1159,9 @@ export function AgentInstallSettings() {
                       onClick={() => void install(agent.agent_id)}
                       data-testid="agent-install-button"
                     >
-                      {busy && installBusy?.action === 'install' ? t('common.installing') : t('common.install')}
+                      {busy && installBusy?.action === 'install'
+                        ? t('settings.agents.installing')
+                        : t('settings.agents.install')}
                     </button>
                   )}
                   {agent.source === 'builtin' && !agent.deprecated && agent.installed

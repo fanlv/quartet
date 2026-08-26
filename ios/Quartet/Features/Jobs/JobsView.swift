@@ -239,12 +239,6 @@ struct JobsView: View {
                             showsOnlyActiveJobs = false
                         }
                     }
-                    if model.hasMoreJobs {
-                        Button("加载更多") {
-                            Task { await model.loadMoreJobs() }
-                        }
-                        .disabled(model.isLoadingMore)
-                    }
                 } else {
                     if model.selectedWorkspace != nil {
                         Button("查看全部工作空间") {
@@ -292,7 +286,7 @@ struct JobsView: View {
 
                     // Every row but the last gets a separator — and the last one does too when the
                     // "load more" button follows it, which otherwise butts straight against the row.
-                    if job.id != visibleJobs.last?.id || model.hasMoreJobs {
+                    if job.id != visibleJobs.last?.id || showsLoadMoreJobs {
                         Divider()
                             .overlay(QuartetTheme.divider)
                             .padding(.leading, 60)
@@ -303,7 +297,7 @@ struct JobsView: View {
                     await model.refreshGraphStatusIfNeeded(for: job)
                 }
             }
-            if model.hasMoreJobs {
+            if showsLoadMoreJobs {
                 Button { Task { await model.loadMoreJobs() } } label: {
                     HStack {
                         Spacer()
@@ -319,69 +313,95 @@ struct JobsView: View {
     }
 
     private var sectionHeader: some View {
-        HStack(spacing: 10) {
-            Text("最近任务")
-                .font(.quartet(.regular, weight: .semibold))
-                .foregroundStyle(QuartetTheme.primaryText)
-
-            Button {
-                Task { await model.setHideScheduledJobs(!model.hideScheduledJobs) }
-            } label: {
-                Label(
-                    (model.hideScheduledJobs ? "显示定时任务" : "隐藏定时任务").localizedForApp,
-                    systemImage: model.hideScheduledJobs ? "eye" : "eye.slash"
-                )
-                .font(.quartet(.detail, weight: .semibold))
-                .labelStyle(.titleAndIcon)
-                .foregroundStyle(QuartetTheme.accent)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-                .background(QuartetTheme.accent.opacity(0.1), in: Capsule())
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                sectionTitle
+                scheduledJobsToggle
+                Spacer(minLength: 0)
+                activeJobsFilter
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("hide-scheduled-jobs-toggle")
 
-            Spacer()
-            if model.activeJobCount > 0 || showsOnlyActiveJobs {
-                Button {
-                    withAnimation(.snappy(duration: 0.24)) {
-                        showsOnlyActiveJobs.toggle()
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Circle()
-                            // Matches the row tiles this counts rather than `QuartetTheme.running`, which is
-                            // the theme green and would leave the dot a different colour from the very rows
-                            // it is summarising.
-                            .fill(JobStatusPalette.runningAccent)
-                            .frame(width: 7, height: 7)
-                        Text("\(model.activeJobCount) 个进行中")
-                        if showsOnlyActiveJobs {
-                            Image(systemName: "checkmark")
-                                .font(.quartet(.compact, weight: .bold))
-                        }
-                    }
-                    .font(.quartet(.detail, weight: .medium))
-                    .foregroundStyle(showsOnlyActiveJobs ? JobStatusPalette.runningAccent : QuartetTheme.secondaryText)
-                    .padding(.horizontal, 9)
-                    .frame(minHeight: 44)
-                    .background(
-                        showsOnlyActiveJobs ? JobStatusPalette.runningAccent.opacity(0.1) : Color.clear,
-                        in: Capsule()
-                    )
-                    .contentShape(Capsule())
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    sectionTitle
+                    Spacer(minLength: 8)
+                    activeJobsFilter
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("\(model.activeJobCount) 个进行中"))
-                .accessibilityValue(Text((showsOnlyActiveJobs ? "筛选已开启" : "筛选未开启").localizedForApp))
-                .accessibilityHint(Text((showsOnlyActiveJobs ? "点按查看全部任务" : "点按只看进行中的任务").localizedForApp))
-                .accessibilityAddTraits(showsOnlyActiveJobs ? .isSelected : [])
-                .accessibilityIdentifier("active-jobs-filter")
+                scheduledJobsToggle
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)
         .padding(.bottom, 10)
+    }
+
+    private var sectionTitle: some View {
+        Text("最近任务")
+            .font(.quartet(.regular, weight: .semibold))
+            .foregroundStyle(QuartetTheme.primaryText)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var scheduledJobsToggle: some View {
+        Button {
+            Task { await model.setHideScheduledJobs(!model.hideScheduledJobs) }
+        } label: {
+            Label(
+                (model.hideScheduledJobs ? "显示定时任务" : "隐藏定时任务").localizedForApp,
+                systemImage: model.hideScheduledJobs ? "eye" : "eye.slash"
+            )
+            .font(.quartet(.detail, weight: .semibold))
+            .labelStyle(.titleAndIcon)
+            .foregroundStyle(QuartetTheme.accent)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(QuartetTheme.accent.opacity(0.1), in: Capsule())
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: 44)
+        .accessibilityIdentifier("hide-scheduled-jobs-toggle")
+    }
+
+    @ViewBuilder
+    private var activeJobsFilter: some View {
+        if model.activeJobCount > 0 || showsOnlyActiveJobs {
+            Button {
+                withAnimation(.snappy(duration: 0.24)) {
+                    showsOnlyActiveJobs.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Circle()
+                        // Matches the row tiles this counts rather than `QuartetTheme.running`, which is
+                        // the theme green and would leave the dot a different colour from the very rows
+                        // it is summarising.
+                        .fill(JobStatusPalette.runningAccent)
+                        .frame(width: 7, height: 7)
+                    Text("\(model.activeJobCount) 个进行中")
+                    if showsOnlyActiveJobs {
+                        Image(systemName: "checkmark")
+                            .font(.quartet(.compact, weight: .bold))
+                    }
+                }
+                .font(.quartet(.detail, weight: .medium))
+                .foregroundStyle(showsOnlyActiveJobs ? JobStatusPalette.runningAccent : QuartetTheme.secondaryText)
+                .padding(.horizontal, 9)
+                .frame(minHeight: 44)
+                .background(
+                    showsOnlyActiveJobs ? JobStatusPalette.runningAccent.opacity(0.1) : Color.clear,
+                    in: Capsule()
+                )
+                .contentShape(Capsule())
+                .fixedSize(horizontal: true, vertical: false)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("\(model.activeJobCount) 个进行中"))
+            .accessibilityValue(Text((showsOnlyActiveJobs ? "筛选已开启" : "筛选未开启").localizedForApp))
+            .accessibilityHint(Text((showsOnlyActiveJobs ? "点按查看全部任务" : "点按只看进行中的任务").localizedForApp))
+            .accessibilityAddTraits(showsOnlyActiveJobs ? .isSelected : [])
+            .accessibilityIdentifier("active-jobs-filter")
+        }
     }
 
     private var selectedWorkspaceTitle: String {
@@ -390,6 +410,12 @@ struct JobsView: View {
 
     private var visibleJobs: [JobSummary] {
         showsOnlyActiveJobs ? model.activeJobs : model.jobs
+    }
+
+    /// The server cursor describes the unfiltered Job list. Reusing it while the local active-only
+    /// filter is selected suggests there are more active rows even when only older terminal Jobs remain.
+    private var showsLoadMoreJobs: Bool {
+        model.hasMoreJobs && !showsOnlyActiveJobs
     }
 
     private func workspace(for job: JobSummary) -> WorkspaceSummary? {

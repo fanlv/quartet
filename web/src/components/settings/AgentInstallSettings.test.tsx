@@ -152,7 +152,7 @@ describe('AgentInstallSettings batch upgrades', () => {
 
     const updateAll = await screen.findByTestId('agent-upgrade-all-button');
     expect(updateAll).toBeEnabled();
-    expect(updateAll).toHaveTextContent('Update all available Agents');
+    expect(updateAll).toHaveTextContent('Update all');
     expect(screen.getByText('1 Agent update available')).toBeInTheDocument();
     expect(screen.getAllByTestId('agent-upgrade-button')).toHaveLength(1);
     expect(within(screen.getByText('Eligible Agent').closest('[data-testid="agent-install-card"]')!).getByTestId('agent-upgrade-button')).toBeInTheDocument();

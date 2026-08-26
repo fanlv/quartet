@@ -420,12 +420,20 @@ struct AgentCatalogSettingsView: View {
                     Button { requestUpgradeAll() } label: {
                         HStack(spacing: 6) {
                             if batchProgress != nil {
-                                ProgressView().controlSize(.small).tint(QuartetTheme.onSoftwareUpdate)
+                                ProgressView().controlSize(.small).tint(
+                                    upgradeAllDisabled
+                                        ? QuartetTheme.onSoftwareUpdateDisabled
+                                        : QuartetTheme.onSoftwareUpdate
+                                )
                             }
                             Text((batchProgress == nil ? "更新全部" : "正在更新…").localizedForApp)
                         }
                         .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.onSoftwareUpdate)
+                        .foregroundStyle(
+                            upgradeAllDisabled
+                                ? QuartetTheme.onSoftwareUpdateDisabled
+                                : QuartetTheme.onSoftwareUpdate
+                        )
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
                         .background(
@@ -476,7 +484,11 @@ struct AgentCatalogSettingsView: View {
                     Button { requestUpgrade(item) } label: {
                         Label("升级 Agent", systemImage: "arrow.up.circle.fill")
                             .font(.quartet(.control, weight: .semibold))
-                            .foregroundStyle(QuartetTheme.onSoftwareUpdate)
+                            .foregroundStyle(
+                                upgradeDisabled
+                                    ? QuartetTheme.onSoftwareUpdateDisabled
+                                    : QuartetTheme.onSoftwareUpdate
+                            )
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
                             .background(
@@ -584,7 +596,7 @@ struct AgentCatalogSettingsView: View {
             badge(item.sourceLabel, tint: item.isCustom ? QuartetTheme.accentDeep : QuartetTheme.secondaryText)
             badge(
                 item.installed ? "已安装" : "未安装",
-                tint: item.installed ? QuartetTheme.success : QuartetTheme.secondaryText
+                tint: item.installed ? QuartetTheme.success : QuartetTheme.softwareUpdate
             )
             if item.availability != "not_installed", !item.availabilityLabel.isEmpty {
                 badge(item.availabilityLabel, tint: availabilityTint(item))
@@ -679,13 +691,14 @@ struct AgentCatalogSettingsView: View {
     }
 
     private func busyIndicator(_ busy: AgentCatalogBusy) -> some View {
-        let tint = busy.action == .upgrade ? QuartetTheme.softwareUpdate : QuartetTheme.accent
+        let usesSetupTint = busy.action == .install || busy.action == .upgrade
+        let tint = usesSetupTint ? QuartetTheme.softwareUpdate : QuartetTheme.accent
         return HStack(spacing: 8) {
             ProgressView().controlSize(.small).tint(tint)
             VStack(alignment: .leading, spacing: 2) {
                 Text(LocalizedStringKey(busy.action.progressTitle))
                     .font(.quartet(.detail, weight: .semibold))
-                    .foregroundStyle(busy.action == .upgrade ? tint : QuartetTheme.primaryText)
+                    .foregroundStyle(usesSetupTint ? tint : QuartetTheme.primaryText)
                 Text("请求会一直等到命令跑完，请不要退出页面。")
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
@@ -709,7 +722,8 @@ struct AgentCatalogSettingsView: View {
         switch item.availability {
         case "available": QuartetTheme.success
         case "unavailable", "deleted": QuartetTheme.failed
-        case "not_installed", "deprecated": QuartetTheme.secondaryText
+        case "not_installed": QuartetTheme.softwareUpdate
+        case "deprecated": QuartetTheme.secondaryText
         case "pending_validation", "validating", "deleting": QuartetTheme.warning
         default: QuartetTheme.secondaryText
         }
@@ -1459,7 +1473,8 @@ private struct AgentCatalogActionsSheet: View {
                     title: "安装 Agent",
                     detail: "按目录预置的安装命令执行",
                     systemImage: "arrow.down.circle.fill",
-                    tint: QuartetTheme.accent,
+                    tint: QuartetTheme.softwareUpdate,
+                    titleColor: QuartetTheme.softwareUpdate,
                     identifier: "agent-catalog-action-install",
                     disabled: installLocked,
                     action: onInstall
