@@ -1090,8 +1090,6 @@ private struct JobModeIcon: View {
     let mode: String?
     let status: String
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     private static let cornerRadius: CGFloat = 8
 
     var body: some View {
@@ -1174,15 +1172,12 @@ private struct JobModeIcon: View {
     }
 
     private var animates: Bool {
-        isLive && !reduceMotion
+        isLive
     }
 
     private var badgeSymbol: String? {
-        // A running tile normally says so by moving, so it keeps the badge corner empty. With motion
-        // suppressed the border sweep never plays, which would leave tile hue as the only running cue —
-        // the badge stands in for the animation there.
         if isLive {
-            return reduceMotion ? "ellipsis" : nil
+            return nil
         }
         return statusSymbol
     }
@@ -1252,13 +1247,12 @@ private struct JobStatusPalette {
         badgeForeground = Self.dynamic(light: 0xFFFFFF, dark: 0x07120B)
     }
 
-    // Light values are the original palette, unchanged. The dark values were missing entirely, which
-    // left these tiles rendering as pastel blocks on a near-black row; they keep the same hue at the
-    // depth the rest of the theme uses.
+    // Every state has an explicit light/dark palette so the tiles retain their semantic hue without
+    // becoming pastel blocks on a near-black row.
     private static let running = JobStatusPalette(
-        fillLight: 0xDBEAFE, fillDark: 0x12253F,
-        borderLight: 0x93C5FD, borderDark: 0x1E4E8C,
-        primaryLight: 0x2563EB, primaryDark: 0x60A5FA
+        fillLight: 0xF3E8FF, fillDark: 0x251238,
+        borderLight: 0xD8B4FE, borderDark: 0x6B3FA0,
+        primaryLight: 0x7C3AED, primaryDark: 0xC084FC
     )
     private static let completed = JobStatusPalette(
         fillLight: 0xDCFCE7, fillDark: 0x0E2A19,

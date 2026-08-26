@@ -393,8 +393,6 @@ struct RunningBreathDot: View {
     var diameter: CGFloat = 7
     var active = true
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         TimelineView(.animation(
             minimumInterval: QuartetRunningMotion.minimumFrameInterval,
@@ -410,7 +408,7 @@ struct RunningBreathDot: View {
         .accessibilityHidden(true)
     }
 
-    private var moves: Bool { active && !reduceMotion }
+    private var moves: Bool { active }
 }
 
 /// The "a run is in flight" motion for a bordered surface: the border the surface already has becomes the
@@ -427,8 +425,6 @@ struct RunningBorderSweep: View {
     /// A parent already driven by an animation timeline can supply its date to avoid nesting another live
     /// schedule. Standalone cards leave this nil and receive their own resilient timeline.
     var timelineDate: Date? = nil
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The comet is a stack of short segments, brightest at the head, each trailing the one in front of it by
     /// `segmentStep` of the perimeter. The length is an exact multiple of the step on purpose: every point of the
@@ -447,7 +443,7 @@ struct RunningBorderSweep: View {
         } else {
             TimelineView(.animation(
                 minimumInterval: QuartetRunningMotion.minimumFrameInterval,
-                paused: reduceMotion
+                paused: false
             )) { context in
                 border(at: context.date)
             }
@@ -459,13 +455,11 @@ struct RunningBorderSweep: View {
             // The full-perimeter border is the track the highlight travels along, and it keeps the weight and
             // hue the resting surface uses so the lit state is recognisably the same border.
             shape.strokeBorder(
-                reduceMotion ? color.opacity(0.85) : track,
+                track,
                 lineWidth: lineWidth
             )
 
-            if !reduceMotion {
-                comet(phase: QuartetRunningMotion.sweepProgress(at: date))
-            }
+            comet(phase: QuartetRunningMotion.sweepProgress(at: date))
         }
     }
 
