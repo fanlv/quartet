@@ -483,7 +483,7 @@ struct AgentCatalogSettingsView: View {
                 cardExpandedDiagnostics(item)
                 if canUpgrade(item) {
                     Button { requestUpgrade(item) } label: {
-                        Label("升级 Agent", systemImage: "arrow.up.circle.fill")
+                        Label("升级", systemImage: "arrow.up.circle.fill")
                             .font(.quartet(.control, weight: .semibold))
                             .foregroundStyle(
                                 upgradeDisabled
@@ -1477,11 +1477,11 @@ private struct AgentCatalogActionsSheet: View {
         VStack(spacing: 0) {
             if canInstall {
                 row(
-                    title: "安装 Agent",
+                    title: "安装",
                     detail: "按目录预置的安装命令执行",
                     systemImage: "arrow.down.circle.fill",
-                    tint: QuartetTheme.softwareUpdate,
-                    titleColor: QuartetTheme.softwareUpdate,
+                    tint: QuartetTheme.success,
+                    titleColor: QuartetTheme.success,
                     identifier: "agent-catalog-action-install",
                     disabled: installLocked,
                     action: onInstall
@@ -1490,7 +1490,7 @@ private struct AgentCatalogActionsSheet: View {
             if canUpgrade {
                 if canInstall { divider }
                 row(
-                    title: "升级 Agent",
+                    title: "升级",
                     detail: upgradeDetail,
                     systemImage: "arrow.up.circle.fill",
                     tint: QuartetTheme.softwareUpdate,
@@ -1557,7 +1557,7 @@ private struct AgentCatalogActionsSheet: View {
         VStack(spacing: 0) {
             if canUninstall {
                 row(
-                    title: "卸载 Agent",
+                    title: "卸载",
                     detail: "按目录预置的卸载命令执行",
                     systemImage: "trash.fill",
                     tint: QuartetTheme.failed,

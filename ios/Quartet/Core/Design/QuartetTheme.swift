@@ -20,7 +20,7 @@ enum QuartetTheme {
     static let success = dynamic(light: 0x16A34A, dark: 0x4ADE80)
     static let running = terminalGreen
     static let warning = dynamic(light: 0xA16207, dark: 0xFACC15)
-    /// Agent 安装与升级专用语义色。正文在深色界面提亮，实心按钮保持较深橘色以承载白字。
+    /// Agent 升级专用语义色。正文在深色界面提亮，实心按钮保持较深橘色以承载白字。
     static let softwareUpdate = dynamic(light: 0xC2410C, dark: 0xFB923C)
     static let softwareUpdateAction = Color(red: 194 / 255, green: 65 / 255, blue: 12 / 255)
     static let softwareUpdateActionDisabled = Color(red: 154 / 255, green: 72 / 255, blue: 42 / 255)

@@ -1215,7 +1215,7 @@ export function AgentInstallSettings() {
                   {agent.source === 'builtin' && !agent.deprecated && agent.installed && agent.auto_uninstallable && (
                     <button
                       type="button"
-                      className="settings-btn settings-btn-danger"
+                      className="settings-btn agent-uninstall-btn"
                       disabled={installBusy !== null || managementPending !== '' || form !== null}
                       onClick={() => void uninstall(agent)}
                       data-testid="agent-uninstall-button"

@@ -502,25 +502,23 @@
 .agent-install-btn {
   flex-shrink: 0;
   padding: 6px 16px;
-  border: 1px solid var(--update-action);
+  border: 1px solid var(--success);
   border-radius: 6px;
-  background: var(--update-action);
-  color: var(--update-fg);
+  background: var(--success);
+  color: var(--accent-fg);
   font-size: 13px;
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .agent-install-btn:hover:not(:disabled) {
-  border-color: var(--update-action-hover);
-  background: var(--update-action-hover);
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
 }
 
 .agent-install-btn:disabled {
   cursor: not-allowed;
-  color: var(--update-fg-disabled);
-  background: var(--update-action-disabled);
-  border-color: var(--update-border);
+  opacity: 0.55;
 }
 
 .agent-install-card-body {
@@ -936,6 +934,23 @@
   color: var(--update-fg-disabled);
   background: var(--update-action-disabled);
   border-color: var(--update-border);
+}
+
+.agent-uninstall-btn {
+  border: 1px solid var(--danger);
+  color: var(--on-danger);
+  background: var(--danger);
+}
+
+.agent-uninstall-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 82%, black);
+  color: var(--on-danger);
+  background: color-mix(in srgb, var(--danger) 82%, black);
+}
+
+.agent-uninstall-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .agent-install-method.method-custom {

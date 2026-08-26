@@ -56,6 +56,7 @@
   --success: #16a34a;
   --running: #059669;
   --danger: #b62435;
+  --on-danger: #ffffff;
   --warn: #a16207;
   --info: #059669;
   --stopped: #686159;
@@ -84,7 +85,7 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
 
-  /* Agent installation and updates, shared with the native iOS Agent directory. */
+  /* Agent upgrades, shared with the native iOS Agent directory. */
   --update-action: #c2410c;
   --update-action-hover: #9a3412;
   --update-action-disabled: #9a482a;
@@ -131,6 +132,7 @@
   --success: #4ade80;
   --running: #34d399;
   --danger: #ff5364;
+  --on-danger: #190205;
   --warn: #facc15;
   --info: #34d399;
   --stopped: #a39b91;

@@ -265,7 +265,7 @@
         "warning": "Check passed, but the result was not saved",
         "error": "Check failed"
       },
-      "install": "Install agent",
+      "install": "Install",
       "installing": "Installing agent…",
       "uninstall": "Uninstall",
       "uninstalling": "Uninstalling…",
@@ -279,7 +279,7 @@
         "checkedAt": "Checked {{value}}",
         "notInstalled": "not installed",
         "updateAvailable": "Update available",
-        "upgrade": "Upgrade agent",
+        "upgrade": "Upgrade",
         "upgrading": "Upgrading agent…",
         "upgradeAll": "Update all",
         "upgradeAllConfirm_one": "Update this {{count}} Agent in catalog order?\n\n{{agents}}\n\nIts result and complete error will be retained.",
