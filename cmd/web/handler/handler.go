@@ -143,6 +143,17 @@ type Handler struct {
 }
 
 func NewHandler(ctx context.Context) (*Handler, error) {
+	return newHandler(ctx, false)
+}
+
+// NewHandlerForStartupCheck constructs the startup-critical service graph but
+// skips asynchronous discovery and reconciliation. The caller runs it against
+// isolated storage, so checking a candidate cannot mutate live state.
+func NewHandlerForStartupCheck(ctx context.Context) (*Handler, error) {
+	return newHandler(ctx, true)
+}
+
+func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 	authSvc, err := auth.NewService()
 	if err != nil {
 		return nil, fmt.Errorf("initialize auth service: %w", err)
@@ -235,6 +246,10 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		return nil, err
 	}
 
+	var skillsSvc *skills.Service
+	if !startupCheck {
+		skillsSvc = skills.NewService(ctx)
+	}
 	h := &Handler{
 		rootCtx:              ctx,
 		sessionServices:      make(map[string]*sessionEntry),
@@ -256,14 +271,16 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		agentVersions:        agentversion.NewService(agentCatalog),
 		acpProbeCache:        acpProbeCache,
 		einoCLI:              einocli.NewService(),
-		skillsService:        skills.NewService(ctx),
+		skillsService:        skillsSvc,
 		authService:          authSvc,
 	}
-	if err := h.initializeEinoUsageModels(ctx); err != nil {
-		// Eino is optional, so a missing/broken local eino-cli must not make the
-		// whole web service unavailable. The raw ACP model ID remains a safe
-		// fallback attribution key and the full error is kept in the log.
-		logger.Warnf(ctx, "[usagestats] initialize Eino model aliases failed: %v", err)
+	if !startupCheck {
+		if err := h.initializeEinoUsageModels(ctx); err != nil {
+			// Eino is optional, so a missing/broken local eino-cli must not make the
+			// whole web service unavailable. The raw ACP model ID remains a safe
+			// fallback attribution key and the full error is kept in the log.
+			logger.Warnf(ctx, "[usagestats] initialize Eino model aliases failed: %v", err)
+		}
 	}
 	wechatOutbox, err := wechatoutbox.NewService(func() messaging.Replier {
 		h.imGatewayMu.RLock()
@@ -312,18 +329,20 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 	// Functionality does not depend on the cache being warm — the lookup
 	// path scans jobService.List() / job.SessionIDs to locate the owner job
 	// and reloads the service from disk on first access.
-	if err := h.reconcileOrphanedAgentSettings(ctx); err != nil {
-		return nil, err
-	}
+	if !startupCheck {
+		if err := h.reconcileOrphanedAgentSettings(ctx); err != nil {
+			return nil, err
+		}
 
-	if err := h.acpProbeCache.Warmup(ctx); err != nil {
-		return nil, err
+		if err := h.acpProbeCache.Warmup(ctx); err != nil {
+			return nil, err
+		}
+		h.reconcileDeletingAgents(ctx)
+		if err := h.pruneUnreferencedAgentRevisions(ctx); err != nil {
+			logger.Warnf(ctx, "[agent.catalog] skip custom revision pruning: %v", err)
+		}
+		h.refreshCustomAgentValidations(ctx)
 	}
-	h.reconcileDeletingAgents(ctx)
-	if err := h.pruneUnreferencedAgentRevisions(ctx); err != nil {
-		logger.Warnf(ctx, "[agent.catalog] skip custom revision pruning: %v", err)
-	}
-	h.refreshCustomAgentValidations(ctx)
 	if queueService, ok := js.(job.MessageQueueService); ok {
 		queueService.SetMessageQueueDispatcher(h.prepareQueuedJobDispatch)
 	}
@@ -341,7 +360,9 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 
 	// Start periodic eviction of idle session service entries. The goroutine
 	// exits when the root ctx is cancelled (i.e. during shutdown).
-	go h.evictIdleSessionServices(h.rootCtx)
+	if !startupCheck {
+		go h.evictIdleSessionServices(h.rootCtx)
+	}
 
 	return h, nil
 }

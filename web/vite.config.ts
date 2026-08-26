@@ -11,6 +11,7 @@ const hasCerts = fs.existsSync(certPath) && fs.existsSync(keyPath)
 const e2eBackendURL = process.env.VITE_E2E_BACKEND_URL?.trim()
 const e2ePortRaw = process.env.VITE_E2E_PORT?.trim()
 const viteCacheDir = process.env.VITE_CACHE_DIR?.trim()
+const buildOutDir = process.env.VITE_BUILD_OUT_DIR?.trim() || '../static'
 const isE2EMode = Boolean(e2eBackendURL || e2ePortRaw)
 const e2ePort = (() => {
   if (!e2ePortRaw) {
@@ -32,7 +33,7 @@ export default defineConfig({
   // it sits outside the vite root, also silences Vite's out-of-root warning.
   // Only affects `vite build`; the dev server (`npm run dev`) is untouched.
   build: {
-    outDir: '../static',
+    outDir: buildOutDir,
     emptyOutDir: true,
   },
   server: {

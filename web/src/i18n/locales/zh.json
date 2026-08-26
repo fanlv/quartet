@@ -196,7 +196,7 @@
     "restartWebFailed": "重启失败：{{message}}",
     "restartWebTimeout": "等待重启后的 Web 服务就绪超时。完整重启日志：{{logPath}}",
     "restartWebConfirmTitle": "确认重启 Web？",
-    "restartWebConfirmMessage": "将执行 `make web`，当前页面会短暂断开连接。确认继续吗？",
+    "restartWebConfirmMessage": "将先构建并验证候选版本，全部通过后才重启，届时当前页面会短暂断开连接。确认继续吗？",
     "restartWebCancel": "取消",
     "restartWebConfirm": "重启"
   },

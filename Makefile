@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend pod-install build-ios test test-web test-ios e2e e2e-ios clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
+.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend stage-web activate-web-stage pod-install build-ios test test-web test-ios e2e e2e-ios clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
 
 CERTS_DIR := $(CURDIR)/certs
 # Serving model, derived ONCE at parse time so every target below
@@ -21,6 +21,7 @@ BACKEND_PORT := 8090
 BACKEND_PROTO := http
 endif
 WEB_BINARY := $(CURDIR)/bin/quartet-web
+WEB_STAGE_DIR ?=
 BACKEND_LOG := /tmp/quartet-backend.log
 WATCHDOG_LOG := /tmp/quartet-watchdog.log
 WATCHDOG_PID := /tmp/quartet-watchdog.pid
@@ -163,6 +164,38 @@ build-frontend:
 	cd web || exit 1; \
 	npm run build || { echo "❌ Frontend build failed"; exit 1; }; \
 	echo "✅ Frontend built into static/"
+
+# Build a complete Web release without touching the binary or static assets
+# currently served by the running process. The restart API creates a fresh,
+# same-filesystem WEB_STAGE_DIR and promotes it only after this target and the
+# candidate binary's startup check both succeed.
+stage-web:
+	@if [ -z "$(WEB_STAGE_DIR)" ]; then \
+		echo "❌ WEB_STAGE_DIR is required"; \
+		exit 1; \
+	fi
+	@mkdir -p "$(WEB_STAGE_DIR)/static"
+	@echo "🎨 Building candidate frontend into $(WEB_STAGE_DIR)/static ..."; \
+	bash "$(FRONTEND_ENV_CHECK)" "$(CURDIR)/web" || exit 1; \
+	bash "$(FRONTEND_DEPS)" "$(CURDIR)/web" || exit 1; \
+	cd web || exit 1; \
+	VITE_BUILD_OUT_DIR="$(WEB_STAGE_DIR)/static" npm run build || { echo "❌ Candidate frontend build failed"; exit 1; }; \
+	test -f "$(WEB_STAGE_DIR)/static/index.html" || { echo "❌ Candidate frontend is missing index.html"; exit 1; }; \
+	echo "✅ Candidate frontend built successfully"
+	@echo "📦 Building candidate backend..."; \
+	go build -ldflags "$(WEB_LDFLAGS)" -o "$(WEB_STAGE_DIR)/quartet-web" ./cmd/web || exit 1; \
+	test -x "$(WEB_STAGE_DIR)/quartet-web" || { echo "❌ Candidate backend is not executable"; exit 1; }; \
+	echo "✅ Candidate backend built successfully"
+
+# Internal hand-off used only by services/runtime after stage-web and the
+# candidate startup check have completed. It never compiles source and rolls
+# back to the running release if the promoted process cannot bind the port.
+activate-web-stage:
+	@if [ -z "$(WEB_STAGE_DIR)" ]; then \
+		echo "❌ WEB_STAGE_DIR is required"; \
+		exit 1; \
+	fi
+	@bash "$(CURDIR)/scripts/activate-web-release.sh" "$(CURDIR)" "$(WEB_STAGE_DIR)" "$(BACKEND_PORT)" "$(SUDO)" "$(BACKEND_PROTO)"
 
 pod-install:
 	@if ! command -v pod >/dev/null 2>&1; then \

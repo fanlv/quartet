@@ -49,6 +49,7 @@ const (
 const maxRequestBodySize = 16 << 20 // 16 MiB: 10 MiB upload cap + multipart overhead.
 const httpShutdownTimeout = 5 * time.Second
 const sandboxShutdownTimeout = 2 * time.Minute
+const startupCheckEnv = "QUARTET_STARTUP_CHECK"
 
 // Filled by `go build -ldflags` in Makefile. Keep defaults explicit so
 // `go run ./cmd/web` and ad-hoc builds still produce a useful startup log
@@ -96,7 +97,7 @@ func certsDir() string {
 // HTTPS when certs exist. A cert that exists but fails to load is a hard error
 // (never a silent downgrade to HTTP) so operators aren't fooled into thinking
 // HTTPS is up when it isn't.
-func resolveListen(ctx context.Context) listenConfig {
+func resolveListenConfig() (listenConfig, error) {
 	dir := certsDir()
 	certPath := filepath.Join(dir, certFileName)
 	keyPath := filepath.Join(dir, keyFileName)
@@ -106,7 +107,7 @@ func resolveListen(ctx context.Context) listenConfig {
 	if fileExists(certPath) && fileExists(keyPath) {
 		cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 		if err != nil {
-			logger.Fatalf(ctx, "TLS certs found under %s but failed to load (cert=%s key=%s): %v", dir, certPath, keyPath, err)
+			return listenConfig{}, fmt.Errorf("TLS certs found under %s but failed to load (cert=%s key=%s): %w", dir, certPath, keyPath, err)
 		}
 		tlsCfg = &tls.Config{Certificates: []tls.Certificate{cert}}
 		defaultAddr = defaultHTTPSAddr
@@ -116,7 +117,15 @@ func resolveListen(ctx context.Context) listenConfig {
 	if v := strings.TrimSpace(os.Getenv(consts.EnvKeyListenAddr)); v != "" {
 		addr = v
 	}
-	return listenConfig{addr: addr, tlsCfg: tlsCfg}
+	return listenConfig{addr: addr, tlsCfg: tlsCfg}, nil
+}
+
+func resolveListen(ctx context.Context) listenConfig {
+	lc, err := resolveListenConfig()
+	if err != nil {
+		logger.Fatalf(ctx, "resolve Web listener failed: %v", err)
+	}
+	return lc
 }
 
 // fileExists reports whether p exists and is a regular file.
@@ -232,6 +241,7 @@ func main() {
 	if os.Getenv("LOCAL_MEMORY") == "" {
 		logger.Fatalf(context.Background(), "LOCAL_MEMORY environment variable is required")
 	}
+	startupCheck := os.Getenv(startupCheckEnv) == "1"
 	// Root context is cancellable by SIGINT/SIGTERM and is the parent of all
 	// long-running background tasks (eviction loops, schedulers, IM listeners,
 	// etc.). When main returns, every descendant ctx is cancelled, which lets
@@ -256,9 +266,17 @@ func main() {
 	// creating any new connections. Must run BEFORE handler.NewHandler,
 	// which initializes the ACP probe cache and may spawn fresh ACP
 	// subprocesses — racing the cleanup window otherwise.
-	acpagent.CleanupOrphanedConns()
+	if !startupCheck {
+		acpagent.CleanupOrphanedConns()
+	}
 
-	h, err := handler.NewHandler(ctx)
+	var h *handler.Handler
+	var err error
+	if startupCheck {
+		h, err = handler.NewHandlerForStartupCheck(ctx)
+	} else {
+		h, err = handler.NewHandler(ctx)
+	}
 	if err != nil {
 		logger.Fatalf(ctx, "Failed to initialize handler: %v", err)
 	}
@@ -300,12 +318,15 @@ func main() {
 	}
 
 	// Initialize and start the scheduler (reuse handler's schedule service to share state)
-	schSvc := h.GetScheduleService()
-	trigger := h.ScheduleTrigger
-	scheduler := schedule.NewScheduler(schSvc, trigger)
-	h.SetScheduler(scheduler)
-	scheduler.Start(ctx)
-	defer scheduler.Stop()
+	var scheduler *schedule.Scheduler
+	if !startupCheck {
+		schSvc := h.GetScheduleService()
+		trigger := h.ScheduleTrigger
+		scheduler = schedule.NewScheduler(schSvc, trigger)
+		h.SetScheduler(scheduler)
+		scheduler.Start(ctx)
+		defer scheduler.Stop()
+	}
 
 	// Spin() swallows Run() errors and then returns silently; if the listener
 	// fails (e.g. port already in use) main would block on <-ctx.Done() with
@@ -340,13 +361,37 @@ func main() {
 	// so a failure here is unusual and points at a real problem (listener goroutine
 	// panicked between probe.Close and Hertz's Listen) rather than a transient.
 	if err := waitForListenReady(ctx, addr, 5*time.Second, serverErr); err != nil {
+		if startupCheck {
+			logger.Fatalf(ctx, "startup check failed: HTTP server is not ready on %s: %v", addr, err)
+		}
 		logger.Errorf(ctx, "HTTP server readiness self-check failed on %s: %v", addr, err)
 		cancel()
 	} else {
 		logger.Infof(ctx, "Server is running on %s://%s", lc.scheme(), addr)
 	}
+	if startupCheck {
+		logger.Infof(ctx, "startup check passed")
+		cancel()
+	}
 	authState, _ := h.AuthStatus()
 	logger.Infof(ctx, "[security] user session authentication state=%s", authState)
+
+	if startupCheck {
+		select {
+		case <-ctx.Done():
+		case err := <-serverErr:
+			if err != nil {
+				logger.Errorf(ctx, "HTTP server exited during startup check: %v", err)
+			}
+		}
+		httpShutdownCtx, httpShutdownCancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
+		defer httpShutdownCancel()
+		if err := s.Shutdown(httpShutdownCtx); err != nil {
+			logger.Errorf(ctx, "startup-check server shutdown error: %v", err)
+		}
+		logger.Infof(ctx, "startup check stopped cleanly")
+		return
+	}
 
 	// Start the loopback plaintext companion listener (constructed above).
 	// Non-fatal: if 127.0.0.1:8090 is unavailable the public TLS server keeps
