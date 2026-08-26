@@ -410,10 +410,10 @@ function getJobIcon(job: JobInfo) {
 
 const STATUS_ICON_RUNNING = (
   <svg className="status-icon-spinning" width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="2.5" strokeLinecap="round">
-    <path d="M12 2a10 10 0 0 1 10 10" stroke="#2563eb" />
-    <path d="M12 2a10 10 0 0 0-10 10" stroke="#bfdbfe" />
-    <path d="M2 12a10 10 0 0 0 10 10" stroke="#93c5fd" />
-    <path d="M22 12a10 10 0 0 1-10 10" stroke="#60a5fa" />
+    <path d="M12 2a10 10 0 0 1 10 10" stroke="#16a34a" />
+    <path d="M12 2a10 10 0 0 0-10 10" stroke="#b7dfc1" />
+    <path d="M2 12a10 10 0 0 0 10 10" stroke="#9bd3aa" />
+    <path d="M22 12a10 10 0 0 1-10 10" stroke="#34d399" />
   </svg>
 );
 

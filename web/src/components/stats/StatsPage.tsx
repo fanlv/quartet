@@ -103,52 +103,24 @@ const API_UNKNOWN_MODEL_ID = '(unknown model)';
 const TOTAL_SERIES_KEY = '__total__';
 const TOP_N = 8;
 
-// Color lock for KPI band + rank lists: a single accent (the product blue)
-// expressed as a lightness ladder, plus one neutral fallback. Keeps the
-// overview/ranking surfaces reading as one accent.
-// Distinct color for the aggregate "Total" trend line. A dark slate reads as
-// the summary line against the multi-hue per-model lines, without a dashed
-// stroke or extra weight.
-const TOTAL_COLOR = '#22c55e';
-const SERIES_LADDER = ['#2563eb', '#3b82f6', '#60a5fa', '#7ba9f7', '#93c5fd', '#b3d3fc', '#bfdbfe'];
-const NEUTRAL_SERIES = '#94a3b8';
+// Color lock for KPI band + rank lists: the same botanical ladder used by
+// QuartetTheme on iOS, plus one neutral fallback.
+const TOTAL_COLOR = '#16a34a';
+const SERIES_LADDER = ['#047857', '#059669', '#16a34a', '#22c55e', '#4d7c0f', '#84cc16', '#a3e635'];
+const NEUTRAL_SERIES = '#738077';
 
 function seriesColor(idx: number): string {
   if (idx < SERIES_LADDER.length) return SERIES_LADDER[idx];
   return NEUTRAL_SERIES;
 }
 
-// The trend chart overlays one line per model, so distinct hues read far
-// better than a same-hue ladder. A curated 24-hue palette (anchored on the
-// product blue) keeps every line tellable apart even when many models are
-// active. Hues are interleaved so adjacent indices stay far apart on the
-// color wheel, and the Total line's lime green (#22c55e) is intentionally
-// absent so the summary line never collides with a model line.
+// The trend chart stays in a broad botanical family. Line shape, labels and
+// tooltips remain the primary differentiators, matching the iOS chart rules.
 const TREND_PALETTE = [
-  '#2563eb', // blue (accent)
-  '#0d9488', // teal
-  '#9333ea', // violet
-  '#dc2626', // red
-  '#ea580c', // orange
-  '#db2777', // pink
-  '#0891b2', // cyan
-  '#ca8a04', // gold
-  '#7c3aed', // purple
-  '#16a34a', // green
-  '#e11d48', // rose
-  '#0284c7', // sky
-  '#a16207', // bronze
-  '#4f46e5', // indigo
-  '#15803d', // forest
-  '#be123c', // crimson
-  '#2dd4bf', // aqua
-  '#c026d3', // fuchsia
-  '#1d4ed8', // deep blue
-  '#d97706', // amber
-  '#9f1239', // maroon
-  '#0e7490', // dark cyan
-  '#7e22ce', // grape
-  '#475569', // slate
+  '#047857', '#059669', '#22c55e', '#4d7c0f', '#65a30d', '#84cc16',
+  '#15803d', '#047857', '#34d399', '#166534', '#3f6212', '#10b981',
+  '#52b788', '#2d6a4f', '#74c69d', '#386641', '#6a994e', '#588157',
+  '#a3b18a', '#4f4942', '#686159', '#a16207', '#b62435', '#95a168',
 ];
 
 function trendColor(idx: number): string {

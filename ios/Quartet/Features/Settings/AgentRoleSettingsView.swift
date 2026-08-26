@@ -115,9 +115,6 @@ struct AgentRoleSettingsView: View {
                 ForEach(AgentRole.allCases) { role in
                     roleCard(role)
                 }
-                if let message {
-                    AgentSettingsMessageView(message)
-                }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
@@ -129,6 +126,7 @@ struct AgentRoleSettingsView: View {
                     savingTitle: "正在保存…",
                     isSaving: isSaving,
                     isEnabled: true,
+                    message: message,
                     identifier: "agent-role-save",
                     action: { save() }
                 )
@@ -347,6 +345,7 @@ struct AgentRoleSettingsView: View {
         var current = configs[role.rawValue] ?? AgentRoleConfig()
         transform(&current)
         configs[role.rawValue] = current
+        message = nil
         refreshThoughtLevels(role)
     }
 
@@ -355,6 +354,7 @@ struct AgentRoleSettingsView: View {
         let pool = agentPool(for: role)
         guard let agent = pool.first(where: { $0.agentId == agentId }) else {
             configs[role.rawValue] = AgentRoleConfig(agentId: agentId)
+            message = nil
             return
         }
         configs[role.rawValue] = AgentRoleConfig(
@@ -363,6 +363,7 @@ struct AgentRoleSettingsView: View {
             acpMode: role.supportsMode ? (agent.modes?.currentModeId ?? "") : "",
             acpThoughtLevel: agent.thoughtLevels?.currentThoughtLevelId ?? ""
         )
+        message = nil
         refreshThoughtLevels(role)
     }
 

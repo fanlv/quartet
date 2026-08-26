@@ -9,7 +9,7 @@
   z-index: 12000;
   display: grid;
   grid-template-rows: 58px minmax(0, 1fr) 42px;
-  color: #f8fafc;
+  color: #f8fbf8;
   background: rgba(7, 10, 16, 0.94);
   backdrop-filter: blur(12px);
   outline: none;

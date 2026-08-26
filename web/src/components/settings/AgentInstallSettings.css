@@ -102,7 +102,7 @@
 }
 
 .agent-directory-list {
-  border-top: 1px solid #e5e5e5;
+  border-top: 1px solid #cdd9d0;
 }
 
 .agent-directory-row {
@@ -111,7 +111,7 @@
   gap: 10px;
   align-items: start;
   padding: 12px 0;
-  border-bottom: 1px solid #e5e5e5;
+  border-bottom: 1px solid #cdd9d0;
 }
 
 .agent-directory-main {
@@ -147,7 +147,7 @@
 .agent-directory-revisions {
   margin-top: 6px;
   font-size: 12px;
-  color: #666;
+  color: #5d6c62;
 }
 
 .agent-directory-revisions summary {
@@ -164,7 +164,7 @@
 
 .agent-directory-revision code {
   padding: 1px 5px;
-  background: #f5f5f5;
+  background: #f3f7f4;
   border-radius: 4px;
   word-break: break-all;
 }
@@ -177,7 +177,7 @@
 
 .agent-custom-form {
   padding-top: 12px;
-  border-top: 1px solid #e5e5e5;
+  border-top: 1px solid #cdd9d0;
 }
 
 .agent-custom-checkbox {
@@ -210,7 +210,7 @@
 
 .agent-install-desc {
   font-size: 13px;
-  color: #666;
+  color: #5d6c62;
   line-height: 1.5;
 }
 
@@ -218,7 +218,7 @@
 .agent-install-empty {
   padding: 24px 0;
   text-align: center;
-  color: #888;
+  color: #738077;
   font-size: 13px;
 }
 
@@ -239,18 +239,18 @@
 .agent-install-retry {
   flex-shrink: 0;
   padding: 4px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid #d5dfd7;
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
   font-size: 13px;
 }
 
 .agent-install-card {
-  border: 1px solid #e5e5e5;
+  border: 1px solid #cdd9d0;
   border-radius: 10px;
   padding: 12px 14px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .agent-install-card-head {
@@ -302,9 +302,9 @@
 }
 
 .agent-check-feedback.checking {
-  color: #1d4ed8;
-  background: #eff6ff;
-  border-color: #bfdbfe;
+  color: var(--accent-hover);
+  background: var(--accent-soft-surface);
+  border-color: #b7dfc1;
 }
 
 .agent-check-feedback.success {
@@ -392,8 +392,8 @@
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #f0f0f0;
-  color: #555;
+  background: #e7eee9;
+  color: #526158;
   white-space: nowrap;
 }
 
@@ -446,10 +446,10 @@
 .agent-version-panel {
   margin-top: 10px;
   padding: 9px 11px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d5dfd7;
   border-radius: 8px;
-  background: #f8fafc;
-  color: #475569;
+  background: #f8fbf8;
+  color: #46564b;
   font-size: 12px;
 }
 
@@ -511,7 +511,7 @@
 }
 
 .agent-version-kind {
-  color: #64748b;
+  color: #5d6c62;
   background: rgba(148, 163, 184, 0.16);
 }
 
@@ -540,12 +540,12 @@
 .agent-install-label {
   flex-shrink: 0;
   width: 96px;
-  color: #888;
+  color: #738077;
 }
 
 .agent-install-row code {
   font-size: 12px;
-  color: #333;
+  color: #29362d;
   background: #f6f6f6;
   padding: 1px 6px;
   border-radius: 4px;
@@ -561,9 +561,9 @@
 
 .agent-install-instructions {
   font-size: 12px;
-  color: #555;
+  color: #526158;
   line-height: 1.6;
-  background: #fafafa;
+  background: #f8fbf8;
   border: 1px dashed #e0e0e0;
   border-radius: 6px;
   padding: 8px 10px;
@@ -725,6 +725,12 @@
   color: #166534;
 }
 
+.agent-install-result.upgrade {
+  background: var(--update-soft);
+  border-color: var(--update-border);
+  color: var(--update-text);
+}
+
 .agent-install-result.failure {
   background: #fff5f5;
   border-color: #f5c2c2;
@@ -761,7 +767,7 @@
 .agent-install-result-details summary {
   cursor: pointer;
   font-size: 12px;
-  color: #666;
+  color: #5d6c62;
   user-select: none;
 }
 
@@ -785,7 +791,7 @@
 }
 
 .agent-install-step-meta {
-  color: #888;
+  color: #738077;
   font-size: 11px;
 }
 
@@ -844,8 +850,8 @@
 }
 
 .agent-install-method.method-custom {
-  background: #f0edfe;
-  color: #6d28d9;
+  background: #e6f7ee;
+  color: #047857;
 }
 
 .agent-install-meta {
@@ -854,12 +860,12 @@
   gap: 10px;
   flex-wrap: wrap;
   font-size: 11px;
-  color: #888;
+  color: #738077;
 }
 
 .agent-install-rev {
   font-size: 11px;
-  color: #666;
+  color: #5d6c62;
   background: #f6f6f6;
   padding: 1px 6px;
   border-radius: 4px;
@@ -869,8 +875,8 @@
 .agent-status {
   padding: 2px 8px;
   border-radius: 999px;
-  background: #f0f0f0;
-  color: #555;
+  background: #e7eee9;
+  color: #526158;
   white-space: nowrap;
 }
 
@@ -898,8 +904,8 @@
 }
 
 .agent-status.agent-status-deleted {
-  background: #f3f4f6;
-  color: #9ca3af;
+  background: #edf3ee;
+  color: #89968d;
 }
 
 /* Add/edit custom agent modal */
@@ -919,7 +925,7 @@
   max-width: 520px;
   max-height: 90vh;
   overflow: auto;
-  background: #fff;
+  background: var(--surface);
   border-radius: 12px;
   padding: 16px 20px 20px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);

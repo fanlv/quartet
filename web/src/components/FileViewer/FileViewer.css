@@ -74,7 +74,7 @@
 
 .file-viewer-file-icon {
   flex-shrink: 0;
-  color: #89b4fa;
+  color: #34d399;
   display: flex;
   align-items: center;
 }
@@ -96,9 +96,9 @@
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.3px;
-  background: rgba(137, 180, 250, 0.12);
-  color: #89b4fa;
-  border: 1px solid rgba(137, 180, 250, 0.15);
+  background: rgba(52, 211, 153, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.15);
 }
 
 .file-viewer-size {
@@ -169,7 +169,7 @@
   left: -40%;
   width: 40%;
   height: 100%;
-  background: #89b4fa;
+  background: #34d399;
   border-radius: 2px;
   animation: file-viewer-loading-slide 1.2s ease-in-out infinite;
 }

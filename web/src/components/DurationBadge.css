@@ -13,7 +13,7 @@
 }
 
 .duration-badge--running {
-  color: #6366f1;
+  color: var(--accent);
   animation: duration-pulse 1.5s ease-in-out infinite;
 }
 

@@ -11,8 +11,8 @@
 .agents-editor {
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border-left: 1px solid #e5e5e5;
+  background: var(--surface);
+  border-left: 1px solid #cdd9d0;
   overflow: hidden;
   flex-shrink: 0;
   min-width: 300px;
@@ -33,23 +33,23 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid #e7eee9;
   flex-shrink: 0;
 }
 
 .agents-editor-target-tabs {
   display: inline-flex;
-  border: 1px solid #ddd;
+  border: 1px solid #d5dfd7;
   border-radius: 6px;
   overflow: hidden;
-  background: #f5f5f5;
+  background: #f3f7f4;
 }
 
 .agents-editor-target-tab {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
-  color: #666;
+  color: #5d6c62;
   border: none;
   padding: 4px 12px;
   background: transparent;
@@ -58,16 +58,16 @@
 }
 
 .agents-editor-target-tab + .agents-editor-target-tab {
-  border-left: 1px solid #ddd;
+  border-left: 1px solid #d5dfd7;
 }
 
 .agents-editor-target-tab:hover:not(.active):not(:disabled) {
-  color: #1a1a1a;
+  color: #142019;
 }
 
 .agents-editor-target-tab.active {
-  background: #fff;
-  color: #1a1a1a;
+  background: var(--surface);
+  color: #142019;
 }
 
 .agents-editor-target-tab:disabled {
@@ -86,14 +86,14 @@
   font-size: 13px;
   font-weight: 500;
   color: #fff;
-  background: #2563eb;
+  background: var(--accent);
   border: none;
   border-radius: 6px;
   cursor: pointer;
 }
 
 .agents-editor-save-btn:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--accent-hover);
 }
 
 .agents-editor-save-btn:disabled {
@@ -112,12 +112,12 @@
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #666;
+  color: #5d6c62;
 }
 
 .agents-editor-close-btn:hover {
-  background: #f0f0f0;
-  color: #333;
+  background: #e7eee9;
+  color: #29362d;
 }
 
 .agents-editor-loading {
@@ -125,7 +125,7 @@
   align-items: center;
   justify-content: center;
   flex: 1;
-  color: #999;
+  color: #87958b;
   font-size: 13px;
 }
 
@@ -138,8 +138,8 @@
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 13px;
   line-height: 1.6;
-  color: #333;
-  background: #fafafa;
+  color: #29362d;
+  background: #f8fbf8;
   tab-size: 4;
   min-height: 0;
 }
@@ -149,7 +149,7 @@
 }
 
 .agents-editor-textarea::-webkit-scrollbar-thumb {
-  background: #ddd;
+  background: #d5dfd7;
   border-radius: 3px;
 }
 
@@ -157,8 +157,8 @@
   padding: 6px 14px;
   padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
   font-size: 12px;
-  color: #999;
-  border-top: 1px solid #eee;
+  color: #87958b;
+  border-top: 1px solid #e7eee9;
   flex-shrink: 0;
   min-height: 28px;
 }

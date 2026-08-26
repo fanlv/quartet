@@ -1457,6 +1457,11 @@ struct StartGraphRunResponse: Decodable, Sendable {
     let errors: [GraphValidationError]?
 }
 
+struct UpdateGraphRunVersionRequest: Encodable, Sendable {
+    let config: GraphConfig
+    let reason: String?
+}
+
 struct GraphRunStatusResponse: Decodable, Sendable {
     let run: GraphRunSummary?
     let progress: GraphProgressSummary?
@@ -1523,11 +1528,33 @@ struct GraphRunSummary: Decodable, Sendable {
     let jobId: String
     let workspaceId: String?
     let status: String
+    let baseSnapshot: GraphRunSnapshot?
+    let versions: [GraphRunVersion]?
+    let archivedInstances: [String: GraphInstanceSummary]?
     let currentVersion: Int
     let startedAt: Int64?
     let finishedAt: Int64?
     let lastError: GraphRuntimeErrorSummary?
     let progress: GraphProgressSummary?
+
+    var effectiveConfig: GraphConfig? {
+        versions?.first(where: { $0.version == currentVersion })?.config ?? baseSnapshot?.config
+    }
+}
+
+struct GraphRunSnapshot: Decodable, Sendable {
+    let workflowId: String?
+    let workflowName: String?
+    let config: GraphConfig
+    let capturedAt: Int64
+}
+
+struct GraphRunVersion: Decodable, Sendable {
+    let version: Int
+    let config: GraphConfig
+    let reason: String?
+    let createdAt: Int64
+    let createdBy: String?
 }
 
 struct GraphProgressSummary: Decodable, Sendable {

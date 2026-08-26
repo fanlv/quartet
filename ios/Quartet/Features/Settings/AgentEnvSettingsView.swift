@@ -66,6 +66,7 @@ struct AgentEnvSettingsView: View {
         }
         .background(QuartetTheme.canvas)
         .task { await initialLoad() }
+        .onChange(of: activeKey) { _, _ in message = nil }
         .sheet(isPresented: $showsTargetPicker) {
             QuartetChoiceSheet(
                 title: "选择 Agent",
@@ -116,9 +117,6 @@ struct AgentEnvSettingsView: View {
 
                 variablesCard
 
-                if let message {
-                    AgentSettingsMessageView(message)
-                }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
@@ -131,6 +129,7 @@ struct AgentEnvSettingsView: View {
                     savingTitle: "正在保存…",
                     isSaving: isSaving,
                     isEnabled: activeTarget != nil,
+                    message: message,
                     identifier: "agent-env-save",
                     action: { save() }
                 )
@@ -151,6 +150,7 @@ struct AgentEnvSettingsView: View {
                 Button {
                     quartetDismissKeyboard()
                     envMap[activeKey, default: []].append(AgentEnvRow(key: "", value: "", enabled: true))
+                    message = nil
                 } label: {
                     Label("添加变量", systemImage: "plus")
                         .font(.quartet(.control, weight: .semibold))
@@ -189,6 +189,7 @@ struct AgentEnvSettingsView: View {
                     Button {
                         quartetDismissKeyboard()
                         envMap[activeKey]?.removeAll { $0.id == row.id }
+                        message = nil
                     } label: {
                         Image(systemName: "trash")
                             .font(.quartet(.control, weight: .semibold))
@@ -221,6 +222,7 @@ struct AgentEnvSettingsView: View {
             set: { newValue in
                 guard let index = envMap[activeKey]?.firstIndex(where: { $0.id == id }) else { return }
                 envMap[activeKey]?[index].key = newValue
+                message = nil
             }
         )
         let value = Binding<String>(
@@ -228,6 +230,7 @@ struct AgentEnvSettingsView: View {
             set: { newValue in
                 guard let index = envMap[activeKey]?.firstIndex(where: { $0.id == id }) else { return }
                 envMap[activeKey]?[index].value = newValue
+                message = nil
             }
         )
         let enabled = Binding<Bool>(
@@ -235,6 +238,7 @@ struct AgentEnvSettingsView: View {
             set: { newValue in
                 guard let index = envMap[activeKey]?.firstIndex(where: { $0.id == id }) else { return }
                 envMap[activeKey]?[index].enabled = newValue
+                message = nil
             }
         )
         return (key, value, enabled)

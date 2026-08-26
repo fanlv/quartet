@@ -1755,7 +1755,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
           target: connection.target!,
           sourceHandle: connection.sourceHandle ?? undefined,
           data: { port },
-          markerEnd: { type: MarkerType.ArrowClosed, color: '#4c5663' },
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#526158' },
           ...(port
             ? { label: port === 'yes' ? 'YES' : 'NO', labelStyle: { fill: port === 'yes' ? '#2ea043' : '#f85149', fontWeight: 700 } }
             : {}),

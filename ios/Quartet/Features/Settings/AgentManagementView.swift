@@ -310,37 +310,69 @@ struct AgentSettingsLoadingView: View {
     }
 }
 
-/// 底部保存条，样式与定时任务编辑页保持一致。
+/// 底部保存条，样式与定时任务编辑页保持一致。保存反馈固定显示在按钮上方，
+/// 避免长表单把成功或失败消息留在当前视口之外。
 struct AgentSettingsSaveBar: View {
     let title: String
     let savingTitle: String
     let isSaving: Bool
     let isEnabled: Bool
+    let message: AgentSettingsMessage?
     let identifier: String
     let action: () -> Void
 
+    init(
+        title: String,
+        savingTitle: String,
+        isSaving: Bool,
+        isEnabled: Bool,
+        message: AgentSettingsMessage? = nil,
+        identifier: String,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.savingTitle = savingTitle
+        self.isSaving = isSaving
+        self.isEnabled = isEnabled
+        self.message = message
+        self.identifier = identifier
+        self.action = action
+    }
+
     var body: some View {
-        Button {
-            quartetDismissKeyboard()
-            action()
-        } label: {
-            HStack(spacing: 8) {
-                if isSaving { ProgressView().tint(QuartetTheme.onAccent) }
-                Text(LocalizedStringKey(isSaving ? savingTitle : title))
-                    .font(.quartet(.control, weight: .semibold))
+        VStack(spacing: 8) {
+            if let message {
+                AgentSettingsMessageView(message)
+                    .padding(.horizontal, 18)
+                    .accessibilityIdentifier("\(identifier)-feedback")
             }
-            .foregroundStyle(QuartetTheme.onAccent)
-            .frame(maxWidth: .infinity)
-            .frame(height: 50)
-            .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+            Button {
+                quartetDismissKeyboard()
+                action()
+            } label: {
+                HStack(spacing: 8) {
+                    if isSaving { ProgressView().tint(QuartetTheme.onAccent) }
+                    Text(LocalizedStringKey(isSaving ? savingTitle : title))
+                        .font(.quartet(.control, weight: .semibold))
+                }
+                .foregroundStyle(QuartetTheme.onAccent)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isSaving || !isEnabled)
+            .opacity(isSaving || !isEnabled ? 0.45 : 1)
+            .accessibilityIdentifier(identifier)
+            .padding(.horizontal, 18)
         }
-        .buttonStyle(.plain)
-        .disabled(isSaving || !isEnabled)
-        .opacity(isSaving || !isEnabled ? 0.45 : 1)
-        .accessibilityIdentifier(identifier)
-        .padding(.horizontal, 18)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial)
+        .onChange(of: message) { _, message in
+            guard UIAccessibility.isVoiceOverRunning, let message else { return }
+            UIAccessibility.post(notification: .announcement, argument: message.text)
+        }
     }
 }
 

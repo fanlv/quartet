@@ -1,24 +1,24 @@
-.preset-settings { padding: 16px 24px; color: #1f2937; }
+.preset-settings { padding: 16px 24px; color: #1b2920; }
 .preset-settings-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .preset-settings-header h3 { margin: 0; font-size: 17px; }
-.preset-settings-header p { margin: 5px 0 0; color: #6b7280; font-size: 13px; line-height: 1.5; }
-.preset-settings-header select, .preset-orphan-actions select { min-width: 260px; max-width: 440px; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; }
+.preset-settings-header p { margin: 5px 0 0; color: #66746b; font-size: 13px; line-height: 1.5; }
+.preset-settings-header select, .preset-orphan-actions select { min-width: 260px; max-width: 440px; padding: 8px 10px; border: 1px solid #cdd9d0; border-radius: 8px; background: var(--surface); }
 .preset-notice { padding: 10px 12px; margin-bottom: 12px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .preset-notice.success { background: #ecfdf5; color: #047857; }
 .preset-notice.error { background: #fef2f2; color: #b91c1c; }
 .preset-list { display: flex; flex-direction: column; gap: 10px; }
-.preset-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fafafa; }
+.preset-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid #d5dfd7; border-radius: 10px; background: #f8fbf8; }
 .preset-fields { display: grid; gap: 8px; }
-.preset-fields input, .preset-fields textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 7px; background: #fff; font: inherit; }
+.preset-fields input, .preset-fields textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #cdd9d0; border-radius: 7px; background: var(--surface); font: inherit; }
 .preset-fields textarea { resize: vertical; font-family: ui-monospace, 'SF Mono', monospace; line-height: 1.45; }
 .preset-order { display: flex; flex-direction: column; gap: 5px; }
-.preset-order button, .preset-row > button, .preset-footer button, .preset-orphan-actions button { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 7px; background: #fff; cursor: pointer; }
+.preset-order button, .preset-row > button, .preset-footer button, .preset-orphan-actions button { padding: 6px 10px; border: 1px solid #cdd9d0; border-radius: 7px; background: var(--surface); cursor: pointer; }
 .preset-order button:disabled, .preset-footer button:disabled { opacity: .45; cursor: not-allowed; }
 .preset-row button.danger, .preset-orphan-actions button.danger { color: #b91c1c; border-color: #fecaca; }
 .preset-footer { display: flex; justify-content: space-between; margin-top: 16px; }
-.preset-footer button.primary { color: #fff; background: #2563eb; border-color: #2563eb; }
-.preset-empty { padding: 32px 16px; text-align: center; color: #9ca3af; }
+.preset-footer button.primary { color: #fff; background: var(--accent); border-color: var(--accent); }
+.preset-empty { padding: 32px 16px; text-align: center; color: #89968d; }
 .preset-orphan-actions { display: flex; align-items: center; gap: 10px; padding: 12px; margin-bottom: 12px; border: 1px solid #fcd34d; border-radius: 9px; background: #fffbeb; }
 .preset-orphan-actions > div { flex: 1; min-width: 0; display: grid; gap: 3px; }
-.preset-orphan-actions span { overflow: hidden; color: #6b7280; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.preset-orphan-actions span { overflow: hidden; color: #66746b; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 720px) { .preset-settings { padding: 12px; } .preset-settings-header { flex-direction: column; } .preset-settings-header select { min-width: 0; width: 100%; } .preset-row { grid-template-columns: auto minmax(0, 1fr); } .preset-row > button { grid-column: 2; justify-self: end; } .preset-orphan-actions { align-items: stretch; flex-direction: column; } .preset-orphan-actions select { min-width: 0; width: 100%; } }

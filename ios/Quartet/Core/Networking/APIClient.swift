@@ -45,6 +45,54 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/health", authenticated: false)
     }
 
+    func resolvedBaseURL() async throws -> URL {
+        var request = URLRequest(
+            url: baseURL,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 15
+        )
+        request.httpMethod = "GET"
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.setValue("ios", forHTTPHeaderField: "X-Quartet-Client")
+
+        let response: URLResponse
+        do {
+            (_, response) = try await session.data(for: request)
+        } catch {
+            throw APIError(
+                summary: "无法解析服务地址",
+                detail: "GET \(baseURL.absoluteString)\n\n\(String(describing: error))"
+            )
+        }
+
+        guard let http = response as? HTTPURLResponse,
+              let responseURL = http.url else {
+            throw APIError(
+                summary: "响应无效",
+                detail: "GET \(baseURL.absoluteString)\n\n服务入口未返回 HTTP 响应。"
+            )
+        }
+
+        let resolvedClient: APIClient
+        do {
+            resolvedClient = try APIClient(serverAddress: responseURL.absoluteString, session: session)
+        } catch {
+            throw APIError(
+                summary: "跳转地址无效",
+                detail: "GET \(baseURL.absoluteString)\nHTTP \(http.statusCode)\n\n最终地址：\n\(responseURL.absoluteString)\n\n\(String(describing: error))"
+            )
+        }
+
+        if baseURL.scheme?.lowercased() == "https",
+           resolvedClient.baseURL.scheme?.lowercased() != "https" {
+            throw APIError(
+                summary: "拒绝不安全的地址跳转",
+                detail: "GET \(baseURL.absoluteString)\nHTTP \(http.statusCode)\n\nHTTPS 服务入口跳转到了未加密地址：\n\(resolvedClient.baseURL.absoluteString)"
+            )
+        }
+        return resolvedClient.baseURL
+    }
+
     func restartHealthProbe() async throws -> HealthResponse {
         let query = [
             URLQueryItem(
@@ -674,6 +722,14 @@ struct APIClient: @unchecked Sendable {
             path: "api/v1/job/\(jobID)/graph-run/\(action)",
             method: "POST",
             body: EmptyRequest()
+        )
+    }
+
+    func updateGraphRunVersion(jobID: String, config: GraphConfig) async throws -> GraphRunActionResponse {
+        try await request(
+            path: "api/v1/job/\(jobID)/graph-run/version",
+            method: "PUT",
+            body: UpdateGraphRunVersionRequest(config: config, reason: "iOS run configuration edit")
         )
     }
 

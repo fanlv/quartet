@@ -103,7 +103,10 @@ struct AgentDefaultsSettingsView: View {
         }
         .background(QuartetTheme.canvas)
         .task { await initialLoad() }
-        .onChange(of: activeAgentID) { _, _ in refreshThoughtLevels() }
+        .onChange(of: activeAgentID) { _, _ in
+            message = nil
+            refreshThoughtLevels()
+        }
         .onChange(of: effectiveModelID) { _, _ in refreshThoughtLevels() }
         .onChange(of: availableThoughtLevels) { _, levels in dropUnavailableThoughtLevel(levels) }
         .sheet(isPresented: $showsAgentPicker) {
@@ -207,9 +210,6 @@ struct AgentDefaultsSettingsView: View {
                 agentCard
                 favoritesCard
                 defaultsCard
-                if let message {
-                    AgentSettingsMessageView(message)
-                }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
@@ -221,6 +221,7 @@ struct AgentDefaultsSettingsView: View {
                     savingTitle: "正在保存…",
                     isSaving: isSaving,
                     isEnabled: !dirtyAgentIDs.isEmpty,
+                    message: message,
                     identifier: "agent-defaults-save",
                     action: { save() }
                 )
@@ -373,6 +374,7 @@ struct AgentDefaultsSettingsView: View {
         guard current != before else { return }
         drafts[activeAgentID] = current
         dirtyAgentIDs.insert(activeAgentID)
+        message = nil
     }
 
     private func modelName(_ modelID: String) -> String {

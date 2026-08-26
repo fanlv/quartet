@@ -1,8 +1,8 @@
 .graph-session-sidebar {
   width: 220px;
   min-width: 220px;
-  background: #fff;
-  border-right: 1px solid #e2e8f0;
+  background: var(--surface);
+  border-right: 1px solid #dbe4dd;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -13,19 +13,19 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid #e7eee9;
 }
 
 .graph-session-sidebar-title {
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: #2d3d32;
 }
 
 .graph-session-sidebar-count {
   font-size: 11px;
-  background: #f1f5f9;
-  color: #64748b;
+  background: #edf3ee;
+  color: #5d6c62;
   padding: 1px 6px;
   border-radius: 10px;
   font-weight: 500;
@@ -46,12 +46,12 @@
 }
 
 .graph-session-sidebar-item:hover {
-  background: #f8fafc;
+  background: #f8fbf8;
 }
 
 .graph-session-sidebar-item.active {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
+  background: var(--accent-soft-surface);
+  border: 1px solid #b7dfc1;
 }
 
 .graph-session-sidebar-item:not(.active) {
@@ -81,19 +81,19 @@
 }
 
 .graph-session-sidebar-item.running .graph-session-sidebar-item-icon {
-  color: #2563eb;
+  color: var(--accent);
 }
 
 .graph-session-sidebar-item-label {
   font-size: 13px;
   font-weight: 500;
-  color: #1e293b;
+  color: #1c2b21;
   flex: 1;
 }
 
 .graph-session-sidebar-item-rounds {
   font-size: 11px;
-  color: #94a3b8;
+  color: #7a897f;
   font-weight: 400;
 }
 
@@ -107,14 +107,14 @@
 .graph-session-sidebar-item-duration,
 .graph-session-sidebar-item-tokens {
   font-size: 11px;
-  color: #94a3b8;
+  color: #7a897f;
 }
 
 .graph-session-sidebar-empty {
   padding: 20px 14px;
   text-align: center;
   font-size: 12px;
-  color: #94a3b8;
+  color: #7a897f;
 }
 
 @media (max-width: 768px) {

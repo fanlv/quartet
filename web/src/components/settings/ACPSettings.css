@@ -10,20 +10,20 @@
   border-radius: 6px;
   font-size: 13px;
   font-weight: 500;
-  color: #555;
-  background: #f0f0f0;
+  color: #526158;
+  background: #e7eee9;
   cursor: pointer;
   transition: all 0.15s;
   user-select: none;
 }
 
 .acp-agent-tab:hover {
-  background: #e5e5e5;
-  color: #333;
+  background: #cdd9d0;
+  color: #29362d;
 }
 
 .acp-agent-tab.active {
-  background: #0066ff;
+  background: var(--accent);
   color: #fff;
 }
 
@@ -65,7 +65,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: #ccc;
+  background: #c1cdc4;
   border-radius: 20px;
   transition: background 0.2s;
 }
@@ -77,13 +77,13 @@
   height: 16px;
   left: 2px;
   bottom: 2px;
-  background: #fff;
+  background: var(--surface);
   border-radius: 50%;
   transition: transform 0.2s;
 }
 
 .acp-env-toggle input:checked + .acp-env-toggle-slider {
-  background: #0066ff;
+  background: var(--accent);
 }
 
 .acp-env-toggle input:checked + .acp-env-toggle-slider::before {
@@ -98,7 +98,7 @@
 .acp-env-eq {
   font-size: 16px;
   font-weight: 600;
-  color: #888;
+  color: #738077;
   flex-shrink: 0;
 }
 

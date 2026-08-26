@@ -1,11 +1,11 @@
 .auth-admin { display: grid; grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.4fr); gap: 24px; }
 .auth-admin-list { display: flex; flex-direction: column; gap: 8px; }
-.auth-admin-list button { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid #e5e5e5; border-radius: 8px; background: #fff; text-align: left; cursor: pointer; }
-.auth-admin-list button.active { border-color: #0066ff; background: #f2f7ff; }
+.auth-admin-list button { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid #cdd9d0; border-radius: 8px; background: var(--surface); text-align: left; cursor: pointer; }
+.auth-admin-list button.active { border-color: var(--accent); background: #edf9f0; }
 .auth-admin-list span { color: #777; font-size: 12px; }
 .auth-admin-checks { display: flex; flex-wrap: wrap; gap: 10px 16px; }
 .auth-admin-permissions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
-.auth-admin-permissions label { display: flex; gap: 8px; padding: 10px; border: 1px solid #e8e8e8; border-radius: 8px; }
+.auth-admin-permissions label { display: flex; gap: 8px; padding: 10px; border: 1px solid #d5dfd7; border-radius: 8px; }
 .auth-admin-permissions span { display: flex; flex-direction: column; gap: 3px; }
 .auth-admin-permissions small { color: #777; }
 .auth-admin-message { padding: 10px; overflow: auto; border-radius: 6px; background: #f6f8fa; white-space: pre-wrap; }

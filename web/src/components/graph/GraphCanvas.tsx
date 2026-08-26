@@ -34,11 +34,11 @@ const edgeTypes = { deletable: DeletableEdge };
 //   pruned  -> dim grey dashed, branch not taken
 //   pending -> muted grey, not run yet
 // Outside a run the edges keep their default look (no run status map present).
-const DONE_EDGE_STYLE = { stroke: '#4493f8', strokeWidth: 2.5, opacity: 1 };
-const FLOWING_EDGE_STYLE = { stroke: '#2ea043', strokeWidth: 3, opacity: 1 };
+const DONE_EDGE_STYLE = { stroke: '#16a34a', strokeWidth: 2.5, opacity: 1 };
+const FLOWING_EDGE_STYLE = { stroke: '#42e978', strokeWidth: 3, opacity: 1 };
 const PRUNED_EDGE_STYLE = { stroke: '#4c5663', strokeDasharray: '4 4', strokeWidth: 1.5, opacity: 0.45 };
 // Not run yet: muted neutral so it clearly recedes behind done/flowing edges.
-const PENDING_EDGE_STYLE = { stroke: '#8b949e', strokeWidth: 1.5, opacity: 0.8 };
+const PENDING_EDGE_STYLE = { stroke: '#a3b2a7', strokeWidth: 1.5, opacity: 0.8 };
 const DEFAULT_FIT_VIEW_OPTIONS = { padding: 0.38, maxZoom: 0.85 };
 type ConnectPort = 'default' | 'yes' | 'no';
 
@@ -228,13 +228,13 @@ function CanvasInner({
           markerEnd = withMarkerColor(markerEnd, '#4c5663');
         } else if (display === 'flowing') {
           style = { ...style, ...FLOWING_EDGE_STYLE };
-          markerEnd = withMarkerColor(markerEnd, '#2ea043');
+          markerEnd = withMarkerColor(markerEnd, '#42e978');
         } else if (display === 'done') {
           style = { ...style, ...DONE_EDGE_STYLE };
-          markerEnd = withMarkerColor(markerEnd, '#4493f8');
+          markerEnd = withMarkerColor(markerEnd, '#16a34a');
         } else if (display === 'pending') {
           style = { ...style, ...PENDING_EDGE_STYLE };
-          markerEnd = withMarkerColor(markerEnd, '#8b949e');
+          markerEnd = withMarkerColor(markerEnd, '#a3b2a7');
         }
         if (hasError) {
           style = { ...style, stroke: '#f85149', strokeWidth: 2, opacity: 1 };
@@ -747,7 +747,7 @@ function CanvasInner({
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
         >
-          <Background gap={18} color="#2d3643" />
+          <Background gap={18} color="#285f39" />
           <Controls showInteractive={false} />
           {showMiniMap && <MiniMap className="graph-minimap" />}
         </ReactFlow>

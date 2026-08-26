@@ -12,7 +12,7 @@
   margin: 0;
   font-size: 17px;
   font-weight: 600;
-  color: #111827;
+  color: #0f1812;
 }
 .ws-settings-header-actions {
   display: flex;
@@ -24,7 +24,7 @@
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
-  background: #2563eb;
+  background: var(--accent);
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -33,26 +33,26 @@
   font-weight: 500;
   transition: background .15s, transform .1s;
 }
-.ws-settings-create:hover { background: #1d4ed8; }
+.ws-settings-create:hover { background: var(--accent-hover); }
 .ws-settings-create:active { transform: scale(0.97); }
 .ws-settings-regen {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
-  background: #fff;
-  color: #374151;
-  border: 1px solid #e5e7eb;
+  background: var(--surface);
+  color: #344338;
+  border: 1px solid #d5dfd7;
   border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   transition: background .15s, border-color .15s, transform .1s;
 }
-.ws-settings-regen:hover:not(:disabled) { background: #f9fafb; border-color: #d1d5db; }
+.ws-settings-regen:hover:not(:disabled) { background: #f9fafb; border-color: #cdd9d0; }
 .ws-settings-regen:active:not(:disabled) { transform: scale(0.97); }
-.ws-settings-regen:disabled { color: #9ca3af; cursor: not-allowed; opacity: 0.6; }
-.ws-settings-empty { padding: 40px 16px; text-align: center; color: #9ca3af; font-size: 14px; }
+.ws-settings-regen:disabled { color: #89968d; cursor: not-allowed; opacity: 0.6; }
+.ws-settings-empty { padding: 40px 16px; text-align: center; color: #89968d; font-size: 14px; }
 
 .ws-settings-list { display: flex; flex-direction: column; gap: 10px; }
 .ws-settings-row {
@@ -61,13 +61,13 @@
   gap: 14px;
   align-items: center;
   padding: 14px 16px;
-  border: 1px solid #f0f0f0;
+  border: 1px solid #e7eee9;
   border-radius: 8px;
   background: #fafbfc;
   transition: box-shadow .15s, border-color .15s, background .15s;
 }
 .ws-settings-row:hover {
-  background: #fff;
+  background: var(--surface);
   border-color: #e0e4ea;
   box-shadow: 0 2px 8px rgba(0,0,0,.04);
 }
@@ -81,7 +81,7 @@
 .ws-settings-row-title {
   font-weight: 600;
   font-size: 14px;
-  color: #1f2937;
+  color: #1b2920;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -90,14 +90,14 @@
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: #dcf2e2;
+  color: var(--accent-hover);
   font-weight: 500;
 }
 .ws-settings-row-path {
   font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
   font-size: 12px;
-  color: #6b7280;
+  color: #66746b;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -105,7 +105,7 @@
 }
 .ws-settings-row-prefs {
   font-size: 12px;
-  color: #9ca3af;
+  color: #89968d;
   margin-top: 3px;
 }
 .ws-settings-row-actions {
@@ -125,22 +125,22 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid #e5e7eb;
-  background: #fff;
+  border: 1px solid #d5dfd7;
+  background: var(--surface);
   border-radius: 6px;
-  color: #6b7280;
+  color: #66746b;
   cursor: pointer;
   font-size: 15px;
   line-height: 1;
   transition: background .15s, border-color .15s, color .15s;
 }
 .ws-settings-row-order button:hover:not(:disabled) {
-  background: #f3f4f6;
-  border-color: #d1d5db;
-  color: #111827;
+  background: #edf3ee;
+  border-color: #cdd9d0;
+  color: #0f1812;
 }
 .ws-settings-row-order button:disabled {
-  color: #d1d5db;
+  color: #cdd9d0;
   cursor: not-allowed;
 }
 .ws-settings-row-order .ws-settings-favorite.active {
@@ -150,25 +150,25 @@
 }
 .ws-settings-row-actions button {
   padding: 5px 12px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
+  border: 1px solid #d5dfd7;
+  background: var(--surface);
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
-  color: #4b5563;
+  color: #4a5a4f;
   transition: background .15s, border-color .15s, color .15s;
 }
 .ws-settings-row-actions button:hover:not(:disabled) {
-  background: #f3f4f6;
-  border-color: #d1d5db;
-  color: #111827;
+  background: #edf3ee;
+  border-color: #cdd9d0;
+  color: #0f1812;
 }
-.ws-settings-row-actions button:disabled { color: #9ca3af; cursor: not-allowed; opacity: 0.5; }
+.ws-settings-row-actions button:disabled { color: #89968d; cursor: not-allowed; opacity: 0.5; }
 .ws-settings-row-actions .danger {
   color: #dc2626;
   border-color: #fecaca;
-  background: #fff;
+  background: var(--surface);
 }
 .ws-settings-row-actions .danger:hover:not(:disabled) {
   background: #fef2f2;
@@ -187,7 +187,7 @@
   z-index: 1000;
 }
 .ws-settings-modal {
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 24px;
   min-width: 340px;
@@ -195,8 +195,8 @@
   box-shadow: 0 20px 60px rgba(0,0,0,.15);
 }
 .ws-form-modal { width: 480px; max-width: calc(100vw - 32px); }
-.ws-settings-modal h3 { margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #111827; }
-.ws-settings-modal p { color: #4b5563; font-size: 14px; margin: 0 0 12px; line-height: 1.5; }
+.ws-settings-modal h3 { margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f1812; }
+.ws-settings-modal p { color: #4a5a4f; font-size: 14px; margin: 0 0 12px; line-height: 1.5; }
 .ws-settings-modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -205,21 +205,21 @@
 }
 .ws-settings-modal-actions button {
   padding: 8px 18px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
+  border: 1px solid #d5dfd7;
+  background: var(--surface);
   border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   transition: background .15s, border-color .15s;
 }
-.ws-settings-modal-actions button:hover { background: #f9fafb; border-color: #d1d5db; }
+.ws-settings-modal-actions button:hover { background: #f9fafb; border-color: #cdd9d0; }
 .ws-settings-modal-actions button.primary {
-  background: #2563eb;
+  background: var(--accent);
   color: #fff;
-  border-color: #2563eb;
+  border-color: var(--accent);
 }
-.ws-settings-modal-actions button.primary:hover { background: #1d4ed8; }
+.ws-settings-modal-actions button.primary:hover { background: var(--accent-hover); }
 .ws-settings-modal-actions button.primary:disabled { opacity: .5; cursor: not-allowed; }
 .ws-settings-modal-actions button.danger {
   background: #ef4444;
@@ -234,7 +234,7 @@
   display: block;
   font-size: 12px;
   font-weight: 500;
-  color: #4b5563;
+  color: #4a5a4f;
   margin-bottom: 5px;
 }
 .ws-form-field input,
@@ -242,37 +242,37 @@
 .ws-form-field select {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d5dfd7;
   border-radius: 8px;
   font-size: 13px;
   box-sizing: border-box;
   transition: border-color .15s, box-shadow .15s;
-  background: #fff;
+  background: var(--surface);
 }
 .ws-form-field input:focus,
 .ws-form-field textarea:focus,
 .ws-form-field select:focus {
   outline: none;
-  border-color: #93c5fd;
-  box-shadow: 0 0 0 3px rgba(59,130,246,.1);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, .1);
 }
 .ws-form-workdir { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .ws-form-workdir button {
   padding: 8px 14px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
+  border: 1px solid #d5dfd7;
+  background: var(--surface);
   border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   transition: background .15s, border-color .15s;
 }
-.ws-form-workdir button:hover { background: #f9fafb; border-color: #d1d5db; }
+.ws-form-workdir button:hover { background: #f9fafb; border-color: #cdd9d0; }
 .ws-form-hint {
   display: block;
   margin-top: 4px;
   font-size: 11px;
-  color: #9ca3af;
+  color: #89968d;
   line-height: 1.4;
 }
 .ws-form-error {

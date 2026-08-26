@@ -1,6 +1,6 @@
 /* ScheduleEditModal
    Visual language aligned with the rest of the app (Settings / Workspaces):
-   blue primary (#2563eb), neutral grays, blue focus rings, soft shadows. */
+   forest-green primary, botanical neutrals, green focus rings, soft shadows. */
 .schedule-modal-overlay {
   position: fixed;
   top: 0;
@@ -20,7 +20,7 @@
 }
 
 .schedule-modal {
-  background: #fff;
+  background: var(--surface);
   border-radius: 16px;
   width: 100%;
   max-width: 720px;
@@ -38,14 +38,14 @@
   align-items: center;
   justify-content: space-between;
   padding: 20px 24px 16px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid #e7eee9;
 }
 
 .schedule-modal-header h2 {
   margin: 0;
   font-size: 17px;
   font-weight: 600;
-  color: #111827;
+  color: #0f1812;
   letter-spacing: -0.01em;
 }
 
@@ -56,7 +56,7 @@
   background: transparent;
   font-size: 22px;
   line-height: 1;
-  color: #9ca3af;
+  color: #89968d;
   cursor: pointer;
   border-radius: 8px;
   display: flex;
@@ -66,8 +66,8 @@
 }
 
 .schedule-modal-close:hover {
-  background: #f3f4f6;
-  color: #374151;
+  background: #edf3ee;
+  color: #344338;
 }
 
 .schedule-modal-body {
@@ -98,19 +98,19 @@
 .schedule-field > label {
   font-size: 12px;
   font-weight: 600;
-  color: #4b5563;
+  color: #4a5a4f;
   letter-spacing: 0.01em;
 }
 
 .schedule-field input[type="text"],
 .schedule-field input[type="number"] {
   padding: 9px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d5dfd7;
   border-radius: 9px;
   font-size: 14px;
-  color: #1f2937;
+  color: #1b2920;
   outline: none;
-  background: #fff;
+  background: var(--surface);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
@@ -119,8 +119,8 @@
 }
 
 .schedule-field input:focus {
-  border-color: #93c5fd;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
 }
 
 .schedule-field-row {
@@ -131,7 +131,7 @@
 
 .schedule-field-hint {
   font-size: 12px;
-  color: #9ca3af;
+  color: #89968d;
   line-height: 1.4;
 }
 
@@ -149,11 +149,11 @@
 }
 
 .schedule-toggle.on {
-  background: #2563eb;
+  background: var(--accent);
 }
 
 .schedule-toggle.off {
-  background: #d1d5db;
+  background: #cdd9d0;
 }
 
 .schedule-toggle-thumb {
@@ -161,7 +161,7 @@
   top: 2px;
   width: 20px;
   height: 20px;
-  background: #fff;
+  background: var(--surface);
   border-radius: 50%;
   transition: left 0.2s;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
@@ -181,7 +181,7 @@
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #4b5563;
+  color: #4a5a4f;
   cursor: pointer;
   max-width: 60%;
   text-align: right;
@@ -191,7 +191,7 @@
 .schedule-ws-bind input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: #2563eb;
+  accent-color: var(--accent);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -204,27 +204,27 @@
 /* Select */
 .schedule-select {
   padding: 9px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d5dfd7;
   border-radius: 9px;
   font-size: 14px;
-  color: #1f2937;
+  color: #1b2920;
   outline: none;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .schedule-select:focus {
-  border-color: #93c5fd;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
 }
 
 .schedule-no-templates {
-  color: #9ca3af;
+  color: #89968d;
   font-size: 13px;
   padding: 10px 12px;
   background: #f9fafb;
-  border: 1px dashed #e5e7eb;
+  border: 1px dashed #d5dfd7;
   border-radius: 9px;
 }
 
@@ -282,16 +282,16 @@
 
 .schedule-config-preview {
   font-size: 12px;
-  color: #1d4ed8;
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
+  color: var(--accent-hover);
+  background: var(--accent-soft-surface);
+  border: 1px solid #dcf2e2;
   padding: 7px 11px;
   border-radius: 8px;
 }
 
 .schedule-config-preview-workspace {
   margin-top: 3px;
-  color: #475569;
+  color: #46564b;
 }
 
 /* Bound workspace (edit view) */
@@ -300,9 +300,9 @@
   align-items: center;
   gap: 9px;
   font-size: 13px;
-  color: #374151;
+  color: #344338;
   background: #fafbfc;
-  border: 1px solid #f0f0f0;
+  border: 1px solid #e7eee9;
   padding: 10px 12px;
   border-radius: 9px;
 }
@@ -316,11 +316,11 @@
 
 .schedule-ws-bound-name {
   font-weight: 600;
-  color: #1f2937;
+  color: #1b2920;
 }
 
 .schedule-ws-bound-workdir {
-  color: #9ca3af;
+  color: #89968d;
   font-size: 12px;
   font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
   overflow: hidden;
@@ -330,7 +330,7 @@
 
 /* Advanced */
 .schedule-advanced {
-  border: 1px solid #f0f0f0;
+  border: 1px solid #e7eee9;
   border-radius: 10px;
   padding: 0;
   background: #fafbfc;
@@ -338,14 +338,14 @@
 }
 
 .schedule-advanced[open] {
-  border-color: #e5e7eb;
+  border-color: #d5dfd7;
 }
 
 .schedule-advanced > summary {
   padding: 11px 14px;
   font-size: 13px;
   font-weight: 500;
-  color: #4b5563;
+  color: #4a5a4f;
   cursor: pointer;
   user-select: none;
   list-style: none;
@@ -362,8 +362,8 @@
   content: '';
   width: 6px;
   height: 6px;
-  border-right: 1.5px solid #9ca3af;
-  border-bottom: 1.5px solid #9ca3af;
+  border-right: 1.5px solid #89968d;
+  border-bottom: 1.5px solid #89968d;
   transform: rotate(-45deg);
   transition: transform 0.15s;
 }
@@ -388,21 +388,21 @@
 .schedule-advanced-fields input[type="number"] {
   width: 100%;
   padding: 7px 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d5dfd7;
   border-radius: 8px;
   font-size: 13px;
-  background: #fff;
+  background: var(--surface);
 }
 
 /* Run info — paired half-width next to the bound workspace; stacked lines. */
 .schedule-run-info {
   font-size: 13px;
-  color: #4b5563;
+  color: #4a5a4f;
   display: flex;
   flex-direction: column;
   gap: 5px;
   background: #fafbfc;
-  border: 1px solid #f0f0f0;
+  border: 1px solid #e7eee9;
   padding: 10px 14px;
   border-radius: 10px;
 }
@@ -446,7 +446,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: #1d4ed8;
+  color: var(--accent-hover);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -472,7 +472,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid #e7eee9;
   background: #fcfcfd;
 }
 
@@ -497,23 +497,23 @@
 }
 
 .schedule-btn-cancel {
-  background: #fff;
-  color: #374151;
-  border-color: #e5e7eb;
+  background: var(--surface);
+  color: #344338;
+  border-color: #d5dfd7;
 }
 
 .schedule-btn-cancel:hover {
   background: #f9fafb;
-  border-color: #d1d5db;
+  border-color: #cdd9d0;
 }
 
 .schedule-btn-save {
-  background: #2563eb;
+  background: var(--accent);
   color: #fff;
 }
 
 .schedule-btn-save:hover {
-  background: #1d4ed8;
+  background: var(--accent-hover);
 }
 
 .schedule-btn-save:disabled {
@@ -526,14 +526,14 @@
 }
 
 .schedule-btn-trigger {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border-color: #dbeafe;
+  background: var(--accent-soft-surface);
+  color: var(--accent-hover);
+  border-color: #dcf2e2;
 }
 
 .schedule-btn-trigger:hover {
-  background: #dbeafe;
-  border-color: #bfdbfe;
+  background: #dcf2e2;
+  border-color: #b7dfc1;
 }
 
 /* CronInput */
@@ -550,29 +550,29 @@
 
 .cron-tab {
   padding: 4px 14px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d5dfd7;
   border-radius: 7px;
-  background: #fff;
+  background: var(--surface);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  color: #6b7280;
+  color: #66746b;
   transition: all 0.15s;
 }
 
 .cron-tab:hover {
-  border-color: #d1d5db;
+  border-color: #cdd9d0;
   background: #f9fafb;
 }
 
 .cron-tab.active {
-  background: #2563eb;
+  background: var(--accent);
   color: #fff;
-  border-color: #2563eb;
+  border-color: var(--accent);
 }
 
 .cron-tab.active:hover {
-  background: #1d4ed8;
+  background: var(--accent-hover);
 }
 
 .cron-presets {
@@ -586,33 +586,33 @@
   flex-direction: column;
   align-items: flex-start;
   padding: 6px 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d5dfd7;
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
   transition: all 0.15s;
   min-width: 0;
 }
 
 .cron-preset-btn:hover {
-  border-color: #bfdbfe;
+  border-color: #b7dfc1;
   background: #f9fafb;
 }
 
 .cron-preset-btn.active {
-  border-color: #2563eb;
-  background: #eff6ff;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--accent);
+  background: var(--accent-soft-surface);
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1);
 }
 
 .cron-preset-label {
   font-size: 12.5px;
   font-weight: 500;
-  color: #1f2937;
+  color: #1b2920;
 }
 
 .cron-preset-btn.active .cron-preset-label {
-  color: #1d4ed8;
+  color: var(--accent-hover);
 }
 
 /* Description hidden in the modal to keep preset cards single-line and the
@@ -630,7 +630,7 @@
 
 .cron-custom-input {
   padding: 9px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d5dfd7;
   border-radius: 9px;
   font-size: 14px;
   font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
@@ -639,8 +639,8 @@
 }
 
 .cron-custom-input:focus {
-  border-color: #93c5fd;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
 }
 
 .cron-custom-input.error {
@@ -658,12 +658,12 @@
 
 .cron-help {
   font-size: 11px;
-  color: #9ca3af;
+  color: #89968d;
 }
 
 .cron-human-label {
   font-size: 13px;
-  color: #1d4ed8;
+  color: var(--accent-hover);
   font-weight: 500;
 }
 

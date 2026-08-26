@@ -3,13 +3,13 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
-  --graph-panel: #161b22;
-  --graph-panel-2: #1c2430;
-  --graph-border: #2d3643;
-  --graph-border-strong: #3d4856;
-  --graph-text: #e6edf3;
-  --graph-text-dim: #8b949e;
-  --graph-accent: #4493f8;
+  --graph-panel: var(--terminal-surface);
+  --graph-panel-2: #18221b;
+  --graph-border: var(--terminal-border);
+  --graph-border-strong: #39764b;
+  --graph-text: #f0f7f2;
+  --graph-text-dim: #a3b2a7;
+  --graph-accent: var(--terminal-text);
 }
 
 .graph-palette {
@@ -89,7 +89,7 @@
 }
 
 .graph-canvas-wrap .react-flow {
-  background: #0d1117;
+  background: var(--terminal-bg);
 }
 
 .graph-minimap {
@@ -215,8 +215,8 @@
 
 .qg-connect-source .qg-node,
 .qg-connect-source .qg-loop {
-  border-color: var(--graph-accent, #4493f8) !important;
-  box-shadow: 0 0 0 3px #4493f855, 0 6px 22px #00000060 !important;
+  border-color: var(--graph-accent, #42e978) !important;
+  box-shadow: 0 0 0 3px rgba(66, 233, 120, 0.33), 0 6px 22px #00000060 !important;
 }
 
 .qg-connect-candidate .qg-node,

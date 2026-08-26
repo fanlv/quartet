@@ -41,7 +41,7 @@
   justify-content: center;
   gap: 8px;
   padding: 16px;
-  color: #888;
+  color: #738077;
   font-size: 13px;
 }
 
@@ -53,7 +53,7 @@
 .loading-dots span {
   width: 6px;
   height: 6px;
-  background: #888;
+  background: #738077;
   border-radius: 50%;
   animation: bounce 1.4s infinite ease-in-out both;
 }

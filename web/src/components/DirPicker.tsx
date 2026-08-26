@@ -370,7 +370,7 @@ export function DirPicker({ initialPath, basePath, selectFile, title, onConfirm,
               )}
               {newFolderMode && (
                 <div className="dirpicker-item dirpicker-newfolderrow">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2">
                     <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
                   </svg>
                   <input

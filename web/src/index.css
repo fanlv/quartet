@@ -12,49 +12,84 @@
   line-height: 1.5;
   font-weight: 400;
   color-scheme: light;
-  color: #1a1a1a;
-  background-color: #f5f5f5;
+  color: #142019;
+  background-color: #f3f7f4;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* ── Design tokens ──────────────────────────────────────────────
-     Single source of truth for color. Prefer these over hardcoded
-     hex in component CSS. Named by purpose, never by hue, so a dark
-     theme (see [data-theme="dark"] below) can override them wholesale.
-     One accent only — a restrained product blue, NOT indigo #6366f1. */
+  /* ── Quartet botanical design tokens ────────────────────────────
+     This palette mirrors QuartetTheme on iOS. Components should use
+     semantic tokens so the cool botanical neutrals, forest accent,
+     status colors and terminal surfaces stay consistent everywhere. */
 
-  /* Surfaces & neutrals */
-  --bg: #f3f6fa;
-  --surface: #ffffff;
-  --surface-2: #f1f5f9;
-  --fg: #1e293b;          /* primary text */
-  --muted: #64748b;       /* secondary text — 4.5:1 on white */
-  --muted-2: #8a94a3;     /* tertiary text — still ≥4.5:1 on white */
-  --faint: #cbd5e1;       /* decorative only, never for text */
-  --border: rgba(15, 23, 42, 0.09);
-  --border-strong: #cbd5e1;
+  /* iOS: canvas / surface / elevated */
+  --canvas: #f3f7f4;
+  --surface: #fcfefc;
+  --elevated: #e7eee9;
+  --bg: var(--canvas);
+  --surface-2: var(--elevated);
 
-  /* Accent (one, used at most twice per screen) */
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
+  /* iOS: primaryText / secondaryText / divider */
+  --fg: #142019;
+  --muted: #5d6c62;
+  --muted-2: #738077;
+  --faint: #a8b6ac;
+  --border: rgba(44, 58, 48, 0.13);
+  --border-strong: #cdd9d0;
+
+  /* iOS: accent / accentDeep / accentSoft / onAccent */
+  --accent: #16a34a;
+  --accent-hover: #047857;
+  --accent-deep: #047857;
+  --accent-bright: #22c55e;
+  --accent-muted: #4d7c0f;
   --accent-fg: #ffffff;
-  --accent-soft: rgba(37, 99, 235, 0.10);   /* tinted fills / active rows */
-  --accent-ring: rgba(37, 99, 235, 0.16);   /* focus ring */
+  --accent-soft: rgba(22, 163, 74, 0.11);
+  --accent-soft-strong: rgba(22, 163, 74, 0.17);
+  --accent-soft-surface: #edf9f0;
+  --accent-border: #9bd3aa;
+  --accent-ring: rgba(22, 163, 74, 0.20);
 
-  /* Status */
+  /* iOS status semantics */
   --success: #16a34a;
-  --danger: #ef4444;
-  --warn: #f59e0b;
-  --info: #0369a1;
+  --running: #059669;
+  --danger: #b62435;
+  --warn: #a16207;
+  --info: #059669;
+  --stopped: #686159;
+  --success-soft: #ecf8ef;
+  --danger-soft: #fff1f2;
+  --warn-soft: #fff8e6;
+
+  /* Focused code and console surfaces intentionally stay dark. */
+  --terminal-bg: #10130f;
+  --terminal-surface: #171c16;
+  --terminal-text: #42e978;
+  --terminal-text-muted: #9cc8a8;
+  --terminal-border: #285f39;
+
+  /* Shadows carry the same cool green tint as the surfaces. */
+  --shadow-soft: 0 8px 24px rgba(20, 32, 25, 0.08);
+  --shadow-raised: 0 18px 54px rgba(20, 32, 25, 0.16);
+
+  /* Compatibility aliases used by the authentication shell. */
+  --color-bg: var(--canvas);
+  --color-bg-card: var(--surface);
+  --color-bg-input: var(--elevated);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--muted);
+  --color-border: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
 
   /* Agent installation and updates, shared with the native iOS Agent directory. */
   --update-action: #c2410c;
   --update-action-hover: #9a3412;
-  --update-action-disabled: #fed7aa;
+  --update-action-disabled: #9a482a;
   --update-fg: #ffffff;
-  --update-fg-disabled: #9a3412;
+  --update-fg-disabled: #ffffff;
   --update-text: #c2410c;
   --update-soft: #fff7ed;
   --update-soft-strong: #ffedd5;
@@ -68,35 +103,55 @@
    leave un-tokenized surfaces light. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  color: #e6ebf2;
-  background-color: #0f141b;
+  color: #f0f7f2;
+  background-color: #070d09;
 
-  --bg: #0f141b;
-  --surface: #171d26;
-  --surface-2: #1e2632;
-  --fg: #e6ebf2;
-  --muted: #9aa7b8;
-  --muted-2: #7d8a9c;
-  --faint: #3a4453;
-  --border: rgba(255, 255, 255, 0.09);
-  --border-strong: #3a4453;
+  --canvas: #070d09;
+  --surface: #0f1712;
+  --elevated: #18221b;
+  --fg: #f0f7f2;
+  --muted: #a3b2a7;
+  --muted-2: #839188;
+  --faint: #526158;
+  --border: rgba(240, 247, 242, 0.10);
+  --border-strong: #2c3a30;
 
-  --accent: #5b9bff;
-  --accent-hover: #7cb0ff;
-  --accent-fg: #0f141b;
-  --accent-soft: rgba(91, 155, 255, 0.14);
-  --accent-ring: rgba(91, 155, 255, 0.22);
+  --accent: #4ade80;
+  --accent-hover: #22c55e;
+  --accent-deep: #22c55e;
+  --accent-bright: #62ff98;
+  --accent-muted: #a3e635;
+  --accent-fg: #052e16;
+  --accent-soft: rgba(74, 222, 128, 0.14);
+  --accent-soft-strong: rgba(74, 222, 128, 0.22);
+  --accent-soft-surface: #102a19;
+  --accent-border: #245d36;
+  --accent-ring: rgba(74, 222, 128, 0.24);
 
-  --success: #34d399;
-  --danger: #f87171;
-  --warn: #fbbf24;
-  --info: #38bdf8;
+  --success: #4ade80;
+  --running: #34d399;
+  --danger: #ff5364;
+  --warn: #facc15;
+  --info: #34d399;
+  --stopped: #a39b91;
+  --success-soft: rgba(74, 222, 128, 0.12);
+  --danger-soft: rgba(255, 83, 100, 0.12);
+  --warn-soft: rgba(250, 204, 21, 0.12);
+
+  --terminal-bg: #040704;
+  --terminal-surface: #0a100b;
+  --terminal-text: #62ff98;
+  --terminal-text-muted: #a3b2a7;
+  --terminal-border: #245d36;
+
+  --shadow-soft: 0 8px 24px rgba(0, 8, 3, 0.28);
+  --shadow-raised: 0 18px 54px rgba(0, 8, 3, 0.42);
 
   --update-action: #c2410c;
   --update-action-hover: #9a3412;
-  --update-action-disabled: rgba(251, 146, 60, 0.24);
+  --update-action-disabled: #9a482a;
   --update-fg: #ffffff;
-  --update-fg-disabled: #fdba74;
+  --update-fg-disabled: #ffffff;
   --update-text: #fb923c;
   --update-soft: rgba(194, 65, 12, 0.16);
   --update-soft-strong: rgba(194, 65, 12, 0.24);
@@ -113,6 +168,20 @@ select {
 input::placeholder,
 textarea::placeholder {
   font-size: 14px;
+}
+
+body {
+  color: var(--fg);
+  background: var(--canvas);
+}
+
+::selection {
+  color: var(--fg);
+  background: var(--accent-soft-strong);
+}
+
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline-color: var(--accent);
 }
 
 html,

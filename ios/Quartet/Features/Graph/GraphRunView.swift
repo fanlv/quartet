@@ -9,12 +9,19 @@ struct GraphRunView: View {
     @State private var loading = true
     @State private var pendingAction: GraphAction?
     @State private var confirmation: GraphAction?
+    @State private var configurationDraft: GraphConfig?
 
     private var status: String { snapshot?.run?.status ?? summary.status }
     private var progress: GraphProgressSummary? { snapshot?.progress ?? snapshot?.run?.progress }
     private var run: GraphRunSummary? { snapshot?.run }
     private var instancesList: [GraphInstanceSummary] { snapshot?.instances ?? [] }
     private var currentInstance: GraphInstanceSummary? { GraphRunSelection.currentInstance(from: instancesList) }
+    private var sessionGroups: [GraphSessionGroup] {
+        GraphSessionGroup.makeGroups(
+            live: instancesList,
+            archived: run?.archivedInstances ?? [:]
+        )
+    }
     private var refreshPolicy: GraphRefreshPolicy { GraphRefreshPolicy(status: status) }
 
     var body: some View {
@@ -22,10 +29,11 @@ struct GraphRunView: View {
             VStack(alignment: .leading, spacing: 20) {
                 runHeader
                 actions
+                runConfiguration
                 if loading && snapshot == nil {
                     HStack { Spacer(); ProgressView(); Spacer() }.padding(.top, 50)
                 } else {
-                    instances
+                    sessions
                 }
             }
             .padding(20)
@@ -59,6 +67,25 @@ struct GraphRunView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task { await refresh(silent: snapshot != nil) }
+        }
+        .sheet(isPresented: Binding(
+            get: { configurationDraft != nil },
+            set: { if !$0 { configurationDraft = nil } }
+        )) {
+            if let configurationDraft, let run {
+                GraphRunConfigurationEditorView(
+                    jobID: summary.id,
+                    runID: run.id,
+                    version: run.currentVersion,
+                    initialConfig: configurationDraft,
+                    instances: instancesList
+                ) { updatedRun in
+                    apply(updatedRun: updatedRun)
+                    self.configurationDraft = nil
+                }
+                .environmentObject(appModel)
+                .quartetSheetStyle()
+            }
         }
         .alert(
             confirmation?.confirmationTitle ?? "控制工作流",
@@ -102,9 +129,7 @@ struct GraphRunView: View {
             }
             HStack(spacing: 10) {
                 GraphInfoChip(title: "RUN ID", value: run?.id ?? "—")
-                if let currentInstance {
-                    GraphInfoChip(title: "当前节点", value: currentInstance.displayNameWithPath)
-                }
+                GraphInfoChip(title: "VERSION", value: run.map { "V\($0.currentVersion)" } ?? "—")
             }
             ProgressView(value: completionFraction)
                 .tint(QuartetTheme.statusColor(colorStatus(status)))
@@ -113,7 +138,7 @@ struct GraphRunView: View {
                 metric("FAIL", progress?.failedCount ?? 0, QuartetTheme.failed)
                 metric("SKIP", progress?.skippedCount ?? 0, QuartetTheme.stopped)
             }
-            GraphRunMetaGrid(run: run, currentInstance: currentInstance)
+            GraphRunMetaGrid(run: run, sessionCount: sessionGroups.count)
             if let error = currentInstance?.error ?? snapshot?.run?.lastError {
                 Button {
                     appModel.present(APIError(summary: "Graph 节点错误", detail: error.fullDetail))
@@ -140,6 +165,41 @@ struct GraphRunView: View {
     }
 
     @ViewBuilder
+    private var runConfiguration: some View {
+        if GraphRunEditing.isEditable(status), let config = run?.effectiveConfig, let run {
+            Button { configurationDraft = config } label: {
+                HStack(spacing: 13) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                        .frame(width: 40, height: 40)
+                        .background(QuartetTheme.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 12))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("编辑运行配置")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.primaryText)
+                        Text("当前版本 V\(run.currentVersion) · \(config.nodes.count) 个节点 · 保存后作用于尚未执行的节点")
+                            .font(.quartet(.detail))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .multilineTextAlignment(.leading)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.quartet(.detail, weight: .bold))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+                .padding(15)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
+            .accessibilityHint("编辑 Prompt、Loop 和其他尚未冻结的节点配置")
+            .accessibilityIdentifier("graph-run-edit-configuration")
+        }
+    }
+
+    @ViewBuilder
     private var actions: some View {
         let available = GraphAction.available(for: status)
         if !available.isEmpty {
@@ -162,26 +222,48 @@ struct GraphRunView: View {
     }
 
     @ViewBuilder
-    private var instances: some View {
-        let rows = instancesList
-        if rows.isEmpty {
+    private var sessions: some View {
+        let groups = sessionGroups
+        if groups.isEmpty {
             ContentUnavailableView {
-                Label("暂无节点状态", systemImage: "point.3.connected.trianglepath.dotted")
+                Label("暂无 Session", systemImage: "bubble.left.and.text.bubble.right")
                     .font(.quartet(.control, weight: .semibold))
+            } description: {
+                Text(GraphSessionGroup.emptyMessage(for: status))
+                    .font(.quartet(.detail))
             }
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                Text("EXECUTION TRACE")
-                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .padding(.bottom, 10)
-                ForEach(rows) { instance in
-                    GraphInstanceRow(summary: summary, instance: instance)
-                        .environmentObject(appModel)
-                    if instance.id != rows.last?.id { Divider().overlay(QuartetTheme.divider).padding(.leading, 32) }
+                HStack(alignment: .firstTextBaseline) {
+                    Text("SESSIONS")
+                        .font(.quartet(.compact, weight: .bold, design: .monospaced))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                    Spacer()
+                    Text("\(groups.count) 个")
+                        .font(.quartet(.compact, weight: .medium))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 8)
+
+                ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                    NavigationLink {
+                        GraphSessionDetailView(
+                            summary: summary,
+                            sessionNumber: index + 1,
+                            group: group
+                        )
+                    } label: {
+                        GraphSessionRow(number: index + 1, group: group)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("graph-session-\(group.id)")
+                    if group.id != groups.last?.id {
+                        Divider().overlay(QuartetTheme.divider).padding(.leading, 66)
+                    }
                 }
             }
-            .padding(16)
             .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
         }
@@ -221,18 +303,22 @@ struct GraphRunView: View {
         do {
             let response = try await appModel.performGraphAction(jobID: summary.id, action: action.rawValue)
             if let run = response.run {
-                snapshot = GraphRunStatusResponse(
-                    run: run,
-                    progress: run.progress ?? snapshot?.progress,
-                    instances: snapshot?.instances,
-                    edges: snapshot?.edges,
-                    eventCount: snapshot?.eventCount,
-                    agents: snapshot?.agents
-                )
+                apply(updatedRun: run)
             }
             await refresh(silent: true)
             await appModel.reloadJobs()
         } catch { appModel.present(error) }
+    }
+
+    private func apply(updatedRun: GraphRunSummary) {
+        snapshot = GraphRunStatusResponse(
+            run: updatedRun,
+            progress: updatedRun.progress ?? snapshot?.progress,
+            instances: snapshot?.instances,
+            edges: snapshot?.edges,
+            eventCount: snapshot?.eventCount,
+            agents: snapshot?.agents
+        )
     }
 
     private func colorStatus(_ status: String) -> String {
@@ -263,7 +349,7 @@ struct GraphRunView: View {
 
 private struct GraphRunMetaGrid: View {
     let run: GraphRunSummary?
-    let currentInstance: GraphInstanceSummary?
+    let sessionCount: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -271,10 +357,7 @@ private struct GraphRunMetaGrid: View {
                 GraphMetaTile(title: "开始时间", value: GraphFormatters.dateTime(run?.startedAt))
                 GraphMetaTile(title: "持续时长", value: runDurationValue)
             }
-            HStack(alignment: .top, spacing: 12) {
-                GraphMetaTile(title: "当前节点类型", value: currentInstance?.nodeType.uppercased() ?? "—")
-                GraphMetaTile(title: "当前节点状态", value: currentInstance.map { GraphRunSelection.statusLabel(for: $0.status) } ?? "—")
-            }
+            GraphMetaTile(title: "SESSION", value: "\(sessionCount) 个")
         }
     }
 
@@ -288,108 +371,649 @@ private struct GraphRunMetaGrid: View {
     }
 }
 
-private struct GraphInstanceRow: View {
+private struct GraphRunConfigurationEditorView: View {
     @EnvironmentObject private var appModel: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    let jobID: String
+    let runID: String
+    let version: Int
+    let initialConfig: GraphConfig
+    let instances: [GraphInstanceSummary]
+    let onSaved: (GraphRunSummary) -> Void
+
+    @State private var config: GraphConfig
+    @State private var agents: [AgentSummary] = []
+    @State private var agentPreferences: [String: AgentPreferences] = [:]
+    @State private var editingNodeID: String?
+    @State private var showsGlobalEditor = false
+    @State private var saving = false
+
+    init(
+        jobID: String,
+        runID: String,
+        version: Int,
+        initialConfig: GraphConfig,
+        instances: [GraphInstanceSummary],
+        onSaved: @escaping (GraphRunSummary) -> Void
+    ) {
+        self.jobID = jobID
+        self.runID = runID
+        self.version = version
+        self.initialConfig = initialConfig
+        self.instances = instances
+        self.onSaved = onSaved
+        _config = State(initialValue: initialConfig)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    editNotice
+                    globalConfiguration
+                    nodeList
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
+            }
+            .background(QuartetTheme.canvas)
+            .quartetNavigationTitle("编辑运行配置")
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button { Task { await save() } } label: {
+                    HStack(spacing: 9) {
+                        if saving { ProgressView().tint(QuartetTheme.onAccent) }
+                        Text(saving ? "正在保存…" : "保存为新版本")
+                        Spacer()
+                        Text("V\(version + 1)")
+                            .font(.quartet(.compact, weight: .bold, design: .monospaced))
+                    }
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.onAccent)
+                    .padding(.horizontal, 18)
+                    .frame(minHeight: 52)
+                    .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .disabled(saving || config == initialConfig)
+                .opacity(saving || config == initialConfig ? 0.45 : 1)
+                .accessibilityIdentifier("graph-run-save-version")
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
+            }
+            .sheet(isPresented: Binding(
+                get: { editingNodeID != nil },
+                set: { if !$0 { editingNodeID = nil } }
+            )) {
+                if let nodeID = editingNodeID, let nodeBinding = binding(forNodeID: nodeID),
+                   let node = config.nodes.first(where: { $0.id == nodeID }) {
+                    GraphNodeConfigurationView(
+                        node: nodeBinding,
+                        agents: agents,
+                        agentPreferences: agentPreferences,
+                        editingRestriction: restriction(for: node)
+                    )
+                    .quartetSheetStyle()
+                }
+            }
+            .sheet(isPresented: $showsGlobalEditor) {
+                GraphGlobalConfigurationView(config: $config, locksExecutionLimits: true)
+                    .quartetSheetStyle()
+            }
+        }
+        .task { await loadAgentConfiguration() }
+    }
+
+    private var globalConfiguration: some View {
+        Button { showsGlobalEditor = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "curlybraces")
+                    .font(.quartet(.regular, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.accent)
+                    .frame(width: 38, height: 38)
+                    .background(QuartetTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 11))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("全局变量")
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                    Text("\(config.variables?.count ?? 0) 个变量 · 执行限制已锁定")
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.quartet(.detail, weight: .bold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+            .padding(15)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
+        .accessibilityIdentifier("graph-run-global-configuration")
+    }
+
+    private var editNotice: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Label("RUN \(runID) · V\(version)", systemImage: "clock.arrow.circlepath")
+                .font(.quartet(.compact, weight: .bold, design: .monospaced))
+                .foregroundStyle(QuartetTheme.accentDeep)
+            Text("保存会创建新的运行版本。尚未执行的节点会使用新配置；Loop 内节点从下一轮开始使用新配置。已经完成或正在执行的节点会锁定，Loop 容器只允许调整固定次数。")
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(QuartetTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.accent.opacity(0.2)))
+    }
+
+    private var nodeList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("节点配置")
+                    .font(.quartet(.control, weight: .semibold))
+                Spacer()
+                Text("\(config.nodes.count) 个节点")
+                    .font(.quartet(.compact))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+
+            ForEach(Array(config.nodes.enumerated()), id: \.element.id) { index, node in
+                Button { editingNodeID = node.id } label: {
+                    HStack(spacing: 12) {
+                        GraphNodeBadge(type: node.type)
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 7) {
+                                Text(node.displayName)
+                                    .font(.quartet(.control, weight: .semibold))
+                                    .foregroundStyle(QuartetTheme.primaryText)
+                                    .lineLimit(1)
+                                restrictionBadge(for: node)
+                            }
+                            Text(nodeSummary(node))
+                                .font(.quartet(.detail))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .font(.quartet(.detail, weight: .bold))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 72)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("graph-run-node-\(node.id)")
+
+                if index < config.nodes.count - 1 {
+                    Divider().overlay(QuartetTheme.divider).padding(.leading, 62)
+                }
+            }
+        }
+        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(QuartetTheme.divider))
+    }
+
+    @ViewBuilder
+    private func restrictionBadge(for node: GraphNode) -> some View {
+        switch restriction(for: node) {
+        case .none:
+            EmptyView()
+        case .frozen:
+            Label("已冻结", systemImage: "lock.fill")
+                .font(.quartet(.tiny, weight: .semibold))
+                .foregroundStyle(QuartetTheme.secondaryText)
+        case .loopFixedCountOnly:
+            Text("仅次数")
+                .font(.quartet(.tiny, weight: .semibold))
+                .foregroundStyle(QuartetTheme.running)
+        }
+    }
+
+    private func binding(forNodeID id: String) -> Binding<GraphNode>? {
+        guard config.nodes.contains(where: { $0.id == id }) else { return nil }
+        return Binding(
+            get: {
+                config.nodes.first(where: { $0.id == id })
+                    ?? GraphNode(id: id, type: "unknown", title: nil, parentId: nil, config: nil, layout: nil, metadata: nil)
+            },
+            set: { node in
+                guard let index = config.nodes.firstIndex(where: { $0.id == id }) else { return }
+                config.nodes[index] = node
+            }
+        )
+    }
+
+    private func restriction(for node: GraphNode) -> GraphNodeEditingRestriction {
+        let frozen = instances.contains { instance in
+            instance.nodeId == node.id && ["succeeded", "skipped", "running"].contains(instance.status)
+        }
+        guard frozen, !nodeIsInsideLoop(node) else { return .none }
+        if node.type == "loop", node.config?.loopMode != "until" {
+            return .loopFixedCountOnly
+        }
+        return .frozen
+    }
+
+    private func nodeIsInsideLoop(_ node: GraphNode) -> Bool {
+        var parentID = node.parentId
+        var visited = Set<String>()
+        while let id = parentID, !id.isEmpty, visited.insert(id).inserted {
+            guard let parent = config.nodes.first(where: { $0.id == id }) else { return false }
+            if parent.type == "loop" { return true }
+            parentID = parent.parentId
+        }
+        return false
+    }
+
+    private func nodeSummary(_ node: GraphNode) -> String {
+        let value = node.config ?? GraphNodeConfiguration()
+        switch node.type {
+        case "shell": return concise(value.script, fallback: "未配置 Shell 脚本")
+        case "prompt": return concise(value.prompt, fallback: "未配置 Prompt")
+        case "clarify": return concise(value.prompt, fallback: "等待用户讨论")
+        case "ifElse": return concise(value.condition, fallback: "未配置条件")
+        case "loop":
+            return value.loopMode == "until"
+                ? "条件循环 · 最多 \(value.maxIterations ?? 0) 次"
+                : "固定循环 · \(value.fixedCount ?? 0) 次"
+        case "start": return "工作流入口"
+        case "end": return "工作流出口"
+        default: return node.type
+        }
+    }
+
+    private func concise(_ text: String?, fallback: String) -> String {
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? fallback : trimmed.replacingOccurrences(of: "\n", with: " ")
+    }
+
+    private func loadAgentConfiguration() async {
+        do {
+            async let loadedAgents = appModel.agentCatalog()
+            async let loadedPreferences = appModel.agentPreferences()
+            agents = try await loadedAgents
+            agentPreferences = try await loadedPreferences
+        } catch is CancellationError {
+            return
+        } catch {
+            appModel.present(error)
+        }
+    }
+
+    private func save() async {
+        guard !saving, config != initialConfig else { return }
+        saving = true
+        defer { saving = false }
+        do {
+            let validation = try await appModel.apiClient().validateGraphWorkflow(config: config)
+            guard validation.valid else {
+                let detail = (validation.errors ?? []).enumerated().map { index, error in
+                    let location = error.location.map { " [\($0)]" } ?? ""
+                    return "\(index + 1). [\(error.type)]\(location) \(error.message)"
+                }.joined(separator: "\n")
+                throw APIError(
+                    summary: "工作流配置校验失败",
+                    detail: "POST /api/v1/graph/workflow/validate\nHTTP 200\n\n\(detail.isEmpty ? "服务端返回 valid=false，但没有错误详情。" : detail)",
+                    requestWasRejected: true
+                )
+            }
+            let response = try await appModel.updateGraphRunVersion(jobID: jobID, config: config)
+            guard let updatedRun = response.run else {
+                throw APIError(
+                    summary: "运行配置保存失败",
+                    detail: "PUT /api/v1/job/\(jobID)/graph-run/version\nHTTP 200\n\n响应中缺少 run。"
+                )
+            }
+            onSaved(updatedRun)
+            dismiss()
+        } catch {
+            appModel.present(error)
+        }
+    }
+}
+
+private struct GraphSessionGroup: Identifiable {
+    let id: String
+    let entries: [GraphInstanceSummary]
+
+    var status: String {
+        if entries.contains(where: { ["running", "pending"].contains($0.status) }) { return "running" }
+        if entries.contains(where: { $0.status == "failed" }) { return "failed" }
+        if entries.contains(where: { $0.status == "interrupted" }) { return "interrupted" }
+        return "completed"
+    }
+
+    var statusLabel: String {
+        switch status {
+        case "running": return "运行中".localizedForApp
+        case "failed": return "失败".localizedForApp
+        case "interrupted": return "已中断".localizedForApp
+        default: return "已完成".localizedForApp
+        }
+    }
+
+    var title: String {
+        let names = entries.map(\.displayName).reduce(into: [String]()) { result, name in
+            if !result.contains(name) { result.append(name) }
+        }
+        return names.prefix(2).joined(separator: " · ")
+    }
+
+    var totalDurationMs: Int64 { entries.reduce(0) { $0 + ($1.durationMs ?? 0) } }
+    var firstStartedAt: Int64? { entries.compactMap(\.startedAt).min() }
+
+    static func makeGroups(
+        live: [GraphInstanceSummary],
+        archived: [String: GraphInstanceSummary]
+    ) -> [GraphSessionGroup] {
+        let liveKeys = Set(live.map { $0.key.backendKey })
+        let restored = archived.compactMap { key, instance in liveKeys.contains(key) ? nil : instance }
+        let ordered = (live + restored)
+            .filter { ["prompt", "clarify", "shell"].contains($0.nodeType.lowercased()) && $0.preferredSessionID != nil }
+            .sorted { lhs, rhs in
+                let left = lhs.startedAt ?? Int64.max
+                let right = rhs.startedAt ?? Int64.max
+                return left == right ? lhs.id < rhs.id : left < right
+            }
+
+        var order: [String] = []
+        var grouped: [String: [GraphInstanceSummary]] = [:]
+        for instance in ordered {
+            guard let sessionID = instance.preferredSessionID else { continue }
+            if grouped[sessionID] == nil { order.append(sessionID) }
+            grouped[sessionID, default: []].append(instance)
+        }
+        return order.compactMap { id in grouped[id].map { GraphSessionGroup(id: id, entries: $0) } }
+    }
+
+    static func emptyMessage(for status: String) -> String {
+        switch status {
+        case "running", "pending": return "工作流正在等待第一个可查看的 Session。"
+        case "failed": return "工作流在创建 Session 前失败。"
+        case "stopped", "stepStopped": return "工作流在创建 Session 前停止。"
+        default: return "本次运行没有记录可查看的 Session。"
+        }
+    }
+}
+
+private struct GraphSessionRow: View {
+    let number: Int
+    let group: GraphSessionGroup
+
+    var body: some View {
+        HStack(spacing: 13) {
+            Image(systemName: icon)
+                .font(.quartet(.control, weight: .bold))
+                .foregroundStyle(statusColor)
+                .frame(width: 38, height: 38)
+                .background(statusColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 7) {
+                    Text("Session #\(number)")
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                    Text("\(group.entries.count) \(group.entries.count == 1 ? "Job" : "Jobs")")
+                        .font(.quartet(.tiny, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+                Text(group.title)
+                    .font(.quartet(.detail))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(group.statusLabel)
+                    if let startedAt = group.firstStartedAt {
+                        Text(GraphFormatters.dateTime(startedAt))
+                    }
+                    if group.totalDurationMs > 0 {
+                        Text(GraphFormatters.formattedDuration(milliseconds: group.totalDurationMs))
+                    }
+                }
+                .font(.quartet(.compact, weight: .medium, design: .monospaced))
+                .foregroundStyle(statusColor)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.quartet(.detail, weight: .bold))
+                .foregroundStyle(QuartetTheme.secondaryText)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+    }
+
+    private var icon: String {
+        switch group.status {
+        case "running": "hourglass"
+        case "failed": "xmark"
+        case "interrupted": "pause.fill"
+        default: "checkmark"
+        }
+    }
+
+    private var statusColor: Color {
+        switch group.status {
+        case "running": QuartetTheme.running
+        case "failed": QuartetTheme.failed
+        case "interrupted": QuartetTheme.stopped
+        default: QuartetTheme.success
+        }
+    }
+}
+
+private struct GraphSessionDetailView: View {
+    @EnvironmentObject private var appModel: AppModel
+
     let summary: JobSummary
+    let sessionNumber: Int
+    let group: GraphSessionGroup
+
+    @State private var loading = true
+    @State private var errorDetail: String?
+    @State private var response: SessionMessagesResponse?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                sessionHeader
+                executionJobs
+                conversation
+            }
+            .padding(18)
+        }
+        .background(QuartetTheme.canvas)
+        .quartetNavigationTitle("Session #\(sessionNumber)")
+        .quartetPlainNavigationBackButton()
+        .refreshable { await load() }
+        .task(id: group.id) { await load() }
+    }
+
+    private var sessionHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("SESSION")
+                        .font(.quartet(.compact, weight: .bold, design: .monospaced))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                    Text(group.title)
+                        .font(.quartet(.regular, weight: .bold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                }
+                Spacer()
+                Text("\(group.entries.count) \(group.entries.count == 1 ? "JOB" : "JOBS")")
+                    .font(.quartet(.compact, weight: .bold, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.accentDeep)
+            }
+            GraphMetaTile(title: "SESSION ID", value: group.id)
+            if let response {
+                HStack(alignment: .top, spacing: 12) {
+                    GraphMetaTile(title: "AGENT", value: response.type ?? "—")
+                    GraphMetaTile(title: "MODEL", value: AgentConfigurationDisplay.modelName(
+                        response.modelId,
+                        agentReference: response.type,
+                        agents: appModel.agentCatalogSnapshot
+                    ) ?? response.modelId)
+                }
+            }
+            if let errorDetail {
+                Button {
+                    appModel.present(APIError(summary: "Session 加载失败", detail: errorDetail))
+                } label: {
+                    Label("Session 加载失败，查看完整错误", systemImage: "exclamationmark.triangle.fill")
+                        .font(.quartet(.detail, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.failed)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(17)
+        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
+    }
+
+    private var executionJobs: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("执行 Jobs")
+                .font(.quartet(.control, weight: .semibold))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            ForEach(group.entries) { entry in
+                GraphSessionJobRow(instance: entry)
+                if entry.id != group.entries.last?.id {
+                    Divider().overlay(QuartetTheme.divider).padding(.leading, 50)
+                }
+            }
+        }
+        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
+    }
+
+    @ViewBuilder
+    private var conversation: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("SESSION 内容")
+                    .font(.quartet(.control, weight: .semibold))
+                Spacer()
+                if loading { ProgressView().controlSize(.small) }
+                if group.entries.contains(where: { $0.nodeType.lowercased() != "shell" }) {
+                    NavigationLink {
+                        JobChatView(route: ChatRoute(summary: summary, targetSessionID: group.id))
+                    } label: {
+                        Label("进入会话", systemImage: "arrow.up.right")
+                            .font(.quartet(.compact, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.accent)
+                    }
+                }
+            }
+
+            if !loading, (response?.messages.isEmpty ?? true) {
+                ContentUnavailableView {
+                    Label("暂无 Session 内容", systemImage: "text.bubble")
+                        .font(.quartet(.control, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                ForEach(response?.messages ?? []) { message in
+                    GraphSessionBubble(message: message)
+                }
+            }
+        }
+    }
+
+    private func load() async {
+        loading = true
+        defer { loading = false }
+        if appModel.agentCatalogSnapshot.isEmpty { await appModel.refreshAgentCatalog() }
+        do {
+            response = try await appModel.apiClient().sessionMessages(id: group.id)
+            errorDetail = nil
+        } catch let error as APIError {
+            errorDetail = error.detail
+        } catch {
+            errorDetail = String(describing: error)
+        }
+    }
+}
+
+private struct GraphSessionJobRow: View {
+    @EnvironmentObject private var appModel: AppModel
     let instance: GraphInstanceSummary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Circle().fill(QuartetTheme.statusColor(mappedStatus)).frame(width: 8, height: 8)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(instance.displayName)
-                        .font(.quartet(.control, weight: .semibold))
-                        .lineLimit(2)
-                    if !instance.pathSummary.isEmpty {
-                        Text(instance.pathSummary)
-                            .font(.quartet(.compact, weight: .medium, design: .monospaced))
-                            .foregroundStyle(QuartetTheme.secondaryText)
-                    }
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 9) {
+                Circle().fill(statusColor).frame(width: 8, height: 8)
+                Text(instance.displayName)
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
                 Spacer()
-                VStack(alignment: .trailing, spacing: 6) {
-                    Text(GraphRunSelection.statusLabel(for: instance.status).uppercased())
-                        .font(.quartet(.tiny, weight: .bold, design: .monospaced))
-                        .foregroundStyle(QuartetTheme.statusColor(mappedStatus))
-                    if let sessionID = instance.preferredSessionID {
-                        NavigationLink {
-                            if instance.nodeType.lowercased() == "shell" {
-                                GraphNodeSessionView(
-                                    sessionID: sessionID,
-                                    nodeTitle: instance.displayName,
-                                    nodeType: instance.nodeType,
-                                    displayPath: instance.pathSummary
-                                )
-                            } else {
-                                JobChatView(route: ChatRoute(
-                                    summary: summary,
-                                    targetSessionID: sessionID
-                                ))
-                            }
-                        } label: {
-                            Label(instance.sessionEntryLabel, systemImage: instance.sessionEntryIcon)
-                                .font(.quartet(.compact, weight: .semibold))
-                                .foregroundStyle(QuartetTheme.accent)
-                        }
-                    }
-                }
+                Text(GraphRunSelection.statusLabel(for: instance.status))
+                    .font(.quartet(.compact, weight: .semibold))
+                    .foregroundStyle(statusColor)
             }
-            HStack(spacing: 10) {
+            HStack(spacing: 9) {
                 Text(instance.nodeType.uppercased())
                 Text("V\(instance.version)")
-                if let startedAt = instance.startedAt {
-                    Text(GraphFormatters.dateTime(startedAt))
-                }
-                Text(instanceDurationText)
+                if !instance.pathSummary.isEmpty { Text(instance.pathSummary) }
+                Spacer(minLength: 0)
+                Text(GraphFormatters.durationLabel(
+                    startedAt: instance.startedAt,
+                    finishedAt: instance.finishedAt,
+                    fallbackDurationMs: instance.durationMs
+                ))
             }
             .font(.quartet(.compact, design: .monospaced))
             .foregroundStyle(QuartetTheme.secondaryText)
-            if let sessionID = instance.preferredSessionID {
-                Text("SESSION \(sessionID)")
-                    .font(.quartet(.compact, design: .monospaced))
+            Text("JOB \(instance.key.backendKey)")
+                .font(.quartet(.compact, design: .monospaced))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            if let startedAt = instance.startedAt {
+                Text("开始于 \(GraphFormatters.dateTime(startedAt))")
+                    .font(.quartet(.compact))
                     .foregroundStyle(QuartetTheme.secondaryText)
-                    .textSelection(.enabled)
             }
             if let error = instance.error {
                 Button {
                     appModel.present(APIError(summary: "节点执行错误", detail: error.fullDetail))
                 } label: {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                        Text(error.message)
-                            .font(.quartet(.compact))
-                            .foregroundStyle(QuartetTheme.failed)
-                            .multilineTextAlignment(.leading)
-                        Spacer()
-                        Text("完整错误")
-                            .font(.quartet(.compact, weight: .semibold))
-                            .foregroundStyle(QuartetTheme.failed)
-                    }
+                    Label(error.message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.quartet(.compact))
+                        .foregroundStyle(QuartetTheme.failed)
+                        .lineLimit(3)
                 }
                 .buttonStyle(.plain)
             } else if let reason = instance.blockedReason, !reason.isEmpty {
-                Text(reason).font(.quartet(.compact)).foregroundStyle(QuartetTheme.secondaryText)
+                Text(reason)
+                    .font(.quartet(.compact))
+                    .foregroundStyle(QuartetTheme.secondaryText)
             }
         }
+        .padding(.horizontal, 16)
         .padding(.vertical, 13)
     }
 
-    private var mappedStatus: String {
+    private var statusColor: Color {
         switch instance.status {
-        case "succeeded": "completed"
-        case "failed": "failed"
-        case "running", "awaitingInput", "pending": "running"
-        default: "stopped"
+        case "succeeded": QuartetTheme.success
+        case "failed": QuartetTheme.failed
+        case "running", "awaitingInput", "pending": QuartetTheme.running
+        default: QuartetTheme.stopped
         }
-    }
-
-    private var instanceDurationText: String {
-        GraphFormatters.durationLabel(
-            startedAt: instance.startedAt,
-            finishedAt: instance.finishedAt,
-            fallbackDurationMs: instance.durationMs
-        )
     }
 }
 
@@ -452,6 +1076,15 @@ private struct GraphRefreshPolicy: Equatable {
             id = "idle"
             interval = nil
         }
+    }
+}
+
+private enum GraphRunEditing {
+    static func isEditable(_ status: String) -> Bool {
+        [
+            "running", "stepStopping", "recovering", "stepStopped",
+            "stopped", "failed", "timedOut", "awaitingInput"
+        ].contains(status)
     }
 }
 
@@ -575,136 +1208,6 @@ private struct GraphInfoChip: View {
     }
 }
 
-private struct GraphNodeSessionView: View {
-    @EnvironmentObject private var appModel: AppModel
-
-    let sessionID: String
-    let nodeTitle: String
-    let nodeType: String
-    let displayPath: String
-
-    @State private var loading = true
-    @State private var errorDetail: String?
-    @State private var messages: [HistoryMessage] = []
-    @State private var modelID = ""
-    @State private var agentType: String?
-    @State private var workdir: String?
-    @State private var acpMode: String?
-    @State private var thoughtLevel: String?
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                sessionHeader
-                if loading && messages.isEmpty {
-                    HStack { Spacer(); ProgressView(); Spacer() }
-                        .padding(.top, 50)
-                } else if messages.isEmpty {
-                    ContentUnavailableView {
-                        Label("暂无节点会话内容", systemImage: "text.bubble")
-                            .font(.quartet(.control, weight: .semibold))
-                    }
-                } else {
-                    LazyVStack(spacing: 14) {
-                        ForEach(messages) { message in
-                            GraphSessionBubble(message: message)
-                        }
-                    }
-                }
-            }
-            .padding(16)
-        }
-        .background(QuartetTheme.canvas)
-        .quartetNavigationTitle(sessionTitle)
-        .quartetPlainNavigationBackButton()
-        .refreshable { await load() }
-        .task(id: sessionID) { await load() }
-    }
-
-    private var sessionTitle: String {
-        switch nodeType.lowercased() {
-        case "shell": return "节点输出"
-        case "clarify": return "澄清会话"
-        default: return "节点会话"
-        }
-    }
-
-    private var sessionHeader: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(nodeTitle)
-                .font(.quartet(.regular, weight: .bold))
-                .foregroundStyle(QuartetTheme.primaryText)
-            HStack(spacing: 10) {
-                GraphInfoChip(title: "节点类型", value: nodeType.uppercased())
-                if !displayPath.isEmpty {
-                    GraphInfoChip(title: "执行路径", value: displayPath)
-                }
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                GraphMetaTile(title: "SESSION ID", value: sessionID)
-                HStack(alignment: .top, spacing: 12) {
-                    GraphMetaTile(title: "模型", value: AgentConfigurationDisplay.modelName(
-                        modelID,
-                        agentReference: agentType,
-                        agents: appModel.agentCatalogSnapshot
-                    ) ?? "—")
-                    GraphMetaTile(title: "Agent", value: agentType ?? "—")
-                }
-                HStack(alignment: .top, spacing: 12) {
-                    GraphMetaTile(title: "模式", value: AgentConfigurationDisplay.modeName(
-                        acpMode,
-                        agentReference: agentType,
-                        agents: appModel.agentCatalogSnapshot
-                    ) ?? "—")
-                    GraphMetaTile(title: "思考等级", value: AgentConfigurationDisplay.thoughtLevelName(
-                        thoughtLevel,
-                        agentReference: agentType,
-                        agents: appModel.agentCatalogSnapshot
-                    ) ?? "—")
-                }
-                if let workdir, !workdir.isEmpty {
-                    GraphMetaTile(title: "Workdir", value: workdir)
-                }
-                if let errorDetail, !errorDetail.isEmpty {
-                    Button {
-                        appModel.present(APIError(summary: "节点会话加载失败", detail: errorDetail))
-                    } label: {
-                        Label("节点会话加载失败，查看详情", systemImage: "exclamationmark.triangle.fill")
-                            .font(.quartet(.compact))
-                            .foregroundStyle(QuartetTheme.failed)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(18)
-        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
-    }
-
-    private func load() async {
-        loading = true
-        defer { loading = false }
-        if appModel.agentCatalogSnapshot.isEmpty {
-            await appModel.refreshAgentCatalog()
-        }
-        do {
-            let response = try await appModel.apiClient().sessionMessages(id: sessionID)
-            messages = response.messages
-            modelID = response.modelId
-            agentType = response.type
-            workdir = response.workdir
-            acpMode = response.acpMode
-            thoughtLevel = response.acpThoughtLevel
-            errorDetail = nil
-        } catch let apiError as APIError {
-            errorDetail = apiError.detail
-        } catch {
-            errorDetail = String(describing: error)
-        }
-    }
-}
-
 private struct GraphSessionBubble: View {
     let message: HistoryMessage
 
@@ -805,19 +1308,11 @@ private extension GraphInstanceSummary {
     var displayNameWithPath: String {
         pathSummary.isEmpty ? displayName : "\(displayName) · \(pathSummary)"
     }
+}
 
-    var sessionEntryLabel: String {
-        switch nodeType.lowercased() {
-        case "shell": "查看输出"
-        default: "查看会话"
-        }
-    }
-
-    var sessionEntryIcon: String {
-        switch nodeType.lowercased() {
-        case "shell": "terminal"
-        case "clarify": "text.bubble"
-        default: "bubble.left.and.text.bubble.right"
-        }
+private extension GraphInstanceKeySummary {
+    var backendKey: String {
+        let scope = (iterations ?? []).map { "\($0.loopNodeId)#\($0.index)" }
+        return (scope + [nodeId]).joined(separator: "/")
     }
 }

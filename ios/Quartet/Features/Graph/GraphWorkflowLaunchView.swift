@@ -734,7 +734,7 @@ private struct GraphWorkflowTemplatePicker: View {
     }
 }
 
-private struct GraphNodeBadge: View {
+struct GraphNodeBadge: View {
     let type: String
 
     var body: some View {
@@ -1016,9 +1016,10 @@ private func graphSaveBar(
     .background(.ultraThinMaterial)
 }
 
-private struct GraphGlobalConfigurationView: View {
+struct GraphGlobalConfigurationView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var config: GraphConfig
+    let locksExecutionLimits: Bool
 
     @State private var variables: [GraphVariableDraft]
     @State private var concurrencyLimit: String
@@ -1029,8 +1030,9 @@ private struct GraphGlobalConfigurationView: View {
     @State private var snapshotByteLimit: String
     @State private var validationMessage: String?
 
-    init(config: Binding<GraphConfig>) {
+    init(config: Binding<GraphConfig>, locksExecutionLimits: Bool = false) {
         _config = config
+        self.locksExecutionLimits = locksExecutionLimits
         let value = config.wrappedValue
         let disabled = Set(value.disabledVars ?? [])
         _variables = State(initialValue: (value.variables ?? [:])
@@ -1050,7 +1052,23 @@ private struct GraphGlobalConfigurationView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     variablesCard
-                    limitsCard
+                    if locksExecutionLimits {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "lock.fill")
+                                .font(.quartet(.control, weight: .semibold))
+                                .foregroundStyle(QuartetTheme.running)
+                            Text("运行已经开始，执行限制保持锁定；仍可调整提供给后续节点的全局变量。")
+                                .font(.quartet(.detail))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(QuartetTheme.running.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(QuartetTheme.running.opacity(0.22)))
+                    } else {
+                        limitsCard
+                    }
                     if let validationMessage { graphValidationCard(validationMessage) }
                 }
                 .padding(.horizontal, 18)
@@ -1248,6 +1266,12 @@ private struct GraphAgentModelSelection: Hashable {
     let modelID: String
 }
 
+enum GraphNodeEditingRestriction: Equatable {
+    case none
+    case frozen
+    case loopFixedCountOnly
+}
+
 /// 节点编辑弹窗里的“选一个”入口，统一走 `QuartetChoiceSheet`。
 private enum GraphNodePicker: String, Identifiable {
     case sessionStrategy
@@ -1271,12 +1295,13 @@ private enum GraphNodePicker: String, Identifiable {
     }
 }
 
-private struct GraphNodeConfigurationView: View {
+struct GraphNodeConfigurationView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var appModel: AppModel
     @Binding var node: GraphNode
     let agents: [AgentSummary]
     let agentPreferences: [String: AgentPreferences]
+    let editingRestriction: GraphNodeEditingRestriction
 
     /// “选择 Agent”弹窗副标题要显示的版本号与用量。全局单例，跨弹窗复用缓存与节流。
     @ObservedObject private var agentUsageSummaries = AgentUsageSummaryStore.shared
@@ -1296,11 +1321,13 @@ private struct GraphNodeConfigurationView: View {
     init(
         node: Binding<GraphNode>,
         agents: [AgentSummary],
-        agentPreferences: [String: AgentPreferences]
+        agentPreferences: [String: AgentPreferences],
+        editingRestriction: GraphNodeEditingRestriction = .none
     ) {
         _node = node
         self.agents = agents
         self.agentPreferences = agentPreferences
+        self.editingRestriction = editingRestriction
         let value = node.wrappedValue
         _draft = State(initialValue: value)
         let config = value.config ?? GraphNodeConfiguration()
@@ -1318,7 +1345,7 @@ private struct GraphNodeConfigurationView: View {
     private var isAgentNode: Bool { draft.type == "prompt" || draft.type == "clarify" }
     private var inheritsSession: Bool { config.sessionStrategy == "inherit" }
     private var thoughtLevelSelection: GraphAgentModelSelection? {
-        guard isAgentNode, !inheritsSession, let agent = selectedAgent, agent.available,
+        guard editingRestriction != .frozen, isAgentNode, !inheritsSession, let agent = selectedAgent, agent.available,
               agent.models != nil, let modelID = config.modelId, !modelID.isEmpty else { return nil }
         return GraphAgentModelSelection(agentID: agent.agentId, agentType: agent.type, modelID: modelID)
     }
@@ -1332,7 +1359,12 @@ private struct GraphNodeConfigurationView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     identityCard
+                    if editingRestriction != .none {
+                        frozenConfigurationNotice
+                    }
                     nodeSpecificCards
+                        .disabled(editingRestriction == .frozen)
+                        .opacity(editingRestriction == .frozen ? 0.58 : 1)
                     if let validationMessage { graphValidationCard(validationMessage) }
                 }
                 .padding(.horizontal, 18)
@@ -1350,9 +1382,11 @@ private struct GraphNodeConfigurationView: View {
                 await refreshThoughtLevels(for: thoughtLevelSelection)
             }
             .onChange(of: config.agentType) { _, reference in
+                guard editingRestriction != .frozen else { return }
                 selectAgent(reference ?? "")
             }
             .onChange(of: config.modelId) { _, _ in
+                guard editingRestriction != .frozen else { return }
                 clearThoughtLevelForNewSelection()
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -1380,6 +1414,24 @@ private struct GraphNodeConfigurationView: View {
                 }
             }
         }
+    }
+
+    private var frozenConfigurationNotice: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "lock.fill")
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(QuartetTheme.running)
+            Text(editingRestriction == .loopFixedCountOnly
+                ? "这个 Loop 已经开始执行，只能修改固定次数；新值会在下一轮边界生效。"
+                : "这个节点已执行或正在执行，运行配置已经冻结；仍可修改仅用于显示的节点名称。")
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(QuartetTheme.running.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(QuartetTheme.running.opacity(0.22)))
     }
 
     private var identityCard: some View {
@@ -1449,7 +1501,19 @@ private struct GraphNodeConfigurationView: View {
                 )
             }
         case "loop":
-            loopCard
+            if editingRestriction == .loopFixedCountOnly {
+                GraphEditorCard("循环", systemImage: "arrow.triangle.2.circlepath") {
+                    graphSingleLineField(
+                        "固定次数",
+                        text: $fixedCount,
+                        prompt: "留空使用全局默认",
+                        numeric: true,
+                        hint: "0 = 跳过子图；保存后从下一轮边界生效"
+                    )
+                }
+            } else {
+                loopCard
+            }
         case "end":
             endCard
         case "start":

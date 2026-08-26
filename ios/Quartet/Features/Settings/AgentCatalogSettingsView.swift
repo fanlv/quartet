@@ -259,6 +259,7 @@ struct AgentCatalogSettingsView: View {
                 title: result.displayName,
                 summary: result.summary,
                 ok: result.ok,
+                action: result.action,
                 result: result.result
             )
             .presentationDetents([.large])
@@ -881,7 +882,9 @@ struct AgentCatalogSettingsView: View {
     }
 
     private func resultBanner(_ result: AgentCatalogActionResult) -> some View {
-        let tint = result.ok ? QuartetTheme.success : QuartetTheme.failed
+        let tint = result.ok
+            ? (result.action == .upgrade ? QuartetTheme.softwareUpdate : QuartetTheme.success)
+            : QuartetTheme.failed
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: result.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
                 .font(.quartet(.control, weight: .semibold))
@@ -894,7 +897,7 @@ struct AgentCatalogSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button("查看命令输出") { present(.result(result)) }
                     .font(.quartet(.detail, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.accent)
+                    .foregroundStyle(result.action == .upgrade ? QuartetTheme.softwareUpdate : QuartetTheme.accent)
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("agent-catalog-result-detail-\(result.agentId)")
             }
@@ -1208,7 +1211,7 @@ struct AgentCatalogSettingsView: View {
                 ? "检测到另一个安装任务正在执行，已停止剩余更新。".localizedForApp
                 : AppLanguage.localizedFormat("批量更新完成：%d 个成功，%d 个失败。", succeeded, failed)
             batchMessage = AgentSettingsMessage(
-                kind: failed == 0 && !stoppedByConflict ? .success : .failure,
+                kind: failed == 0 && !stoppedByConflict ? .update : .failure,
                 text: summary
             )
             await load(showLoading: false)
@@ -1737,13 +1740,17 @@ private struct AgentInstallResultSheet: View {
     let title: String
     let summary: String
     let ok: Bool
+    let action: AgentCatalogAction
     let result: AgentInstallResult
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    AgentSettingsMessageView(kind: ok ? .success : .failure, text: summary)
+                    AgentSettingsMessageView(
+                        kind: ok ? (action == .upgrade ? .update : .success) : .failure,
+                        text: summary
+                    )
                     ForEach(Array(result.steps.enumerated()), id: \.offset) { index, step in
                         stepCard(step, index: index)
                     }

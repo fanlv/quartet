@@ -1,12 +1,12 @@
 .graph-inspector {
   width: 300px;
   flex-shrink: 0;
-  background: var(--graph-panel, #161b22);
-  border-left: 1px solid var(--graph-border, #2d3643);
+  background: var(--graph-panel, #0f1712);
+  border-left: 1px solid var(--graph-border, #285f39);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  color: var(--graph-text, #e6edf3);
+  color: var(--graph-text, #f0f7f2);
 }
 
 .gi-scroll {
@@ -35,16 +35,16 @@
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   margin: 4px 0 10px;
 }
 
 .gi-empty-hint {
   font-size: 13px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   text-align: center;
   padding: 20px 0;
-  border-bottom: 1px dashed var(--graph-border, #2d3643);
+  border-bottom: 1px dashed var(--graph-border, #285f39);
   margin-bottom: 14px;
 }
 
@@ -68,15 +68,15 @@
 }
 .gi-field label {
   font-size: 12px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
 }
 .gi-field input,
 .gi-field textarea,
 .gi-field select {
-  background: var(--graph-panel-2, #1c2430);
-  border: 1px solid var(--graph-border-strong, #3d4856);
+  background: var(--graph-panel-2, #18221b);
+  border: 1px solid var(--graph-border-strong, #39764b);
   border-radius: 6px;
-  color: var(--graph-text, #e6edf3);
+  color: var(--graph-text, #f0f7f2);
   padding: 7px 9px;
   font-size: 13px;
   font-family: inherit;
@@ -91,12 +91,12 @@
 .gi-field input:focus,
 .gi-field textarea:focus,
 .gi-field select:focus {
-  border-color: var(--graph-accent, #4493f8);
+  border-color: var(--graph-accent, #42e978);
 }
 .gi-field input:focus-visible,
 .gi-field textarea:focus-visible,
 .gi-field select:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--graph-accent, #4493f8) 72%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--graph-accent, #42e978) 72%, transparent);
   outline-offset: 2px;
 }
 .gi-field input:disabled,
@@ -108,7 +108,7 @@
 
 .gi-desc {
   font-size: 11px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   line-height: 1.5;
 }
 
@@ -122,21 +122,21 @@
 .gi-seg {
   display: flex;
   gap: 0;
-  border: 1px solid var(--graph-border-strong, #3d4856);
+  border: 1px solid var(--graph-border-strong, #39764b);
   border-radius: 6px;
   overflow: hidden;
 }
 .gi-seg button {
   flex: 1;
-  background: var(--graph-panel-2, #1c2430);
+  background: var(--graph-panel-2, #18221b);
   border: none;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   padding: 7px 0;
   font-size: 12px;
   cursor: pointer;
 }
 .gi-seg button.active {
-  background: var(--graph-accent, #4493f8);
+  background: var(--graph-accent, #42e978);
   color: #fff;
 }
 .gi-seg button:disabled {
@@ -184,7 +184,7 @@
 }
 
 .gi-section {
-  border-top: 1px dashed var(--graph-border, #2d3643);
+  border-top: 1px dashed var(--graph-border, #285f39);
   padding-top: 14px;
   margin-top: 6px;
 }
@@ -204,7 +204,7 @@
 .gi-builtin-name {
   font-size: 12px;
   font-weight: 600;
-  color: var(--graph-text, #e6edf3);
+  color: var(--graph-text, #f0f7f2);
   padding: 5px 4px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -215,26 +215,26 @@
   place-items: center;
   width: 28px;
   height: 28px;
-  background: var(--graph-panel-2, #1c2430);
-  border: 1px solid var(--graph-border-strong, #3d4856);
+  background: var(--graph-panel-2, #18221b);
+  border: 1px solid var(--graph-border-strong, #39764b);
   border-radius: 6px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s, background-color 0.15s;
 }
 .gi-var-browse:hover:not(:disabled) {
-  border-color: var(--graph-accent, #4493f8);
-  color: var(--graph-text, #e6edf3);
+  border-color: var(--graph-accent, #42e978);
+  color: var(--graph-text, #f0f7f2);
 }
 .gi-var-browse:disabled {
   opacity: 0.4;
   cursor: default;
 }
 .gi-var-row input {
-  background: var(--graph-panel-2, #1c2430);
-  border: 1px solid var(--graph-border-strong, #3d4856);
+  background: var(--graph-panel-2, #18221b);
+  border: 1px solid var(--graph-border-strong, #39764b);
   border-radius: 6px;
-  color: var(--graph-text, #e6edf3);
+  color: var(--graph-text, #f0f7f2);
   padding: 5px 7px;
   font-size: 12px;
   min-width: 0;
@@ -246,7 +246,7 @@
 .gi-var-del {
   background: transparent;
   border: none;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   font-size: 16px;
   cursor: pointer;
   line-height: 1;
@@ -257,22 +257,22 @@
 
 .gi-add-btn {
   width: 100%;
-  background: var(--graph-panel-2, #1c2430);
-  border: 1px dashed var(--graph-border-strong, #3d4856);
-  color: var(--graph-text-dim, #8b949e);
+  background: var(--graph-panel-2, #18221b);
+  border: 1px dashed var(--graph-border-strong, #39764b);
+  color: var(--graph-text-dim, #a3b2a7);
   padding: 7px 0;
   border-radius: 6px;
   font-size: 12px;
   cursor: pointer;
 }
 .gi-add-btn:hover {
-  border-color: var(--graph-accent, #4493f8);
-  color: var(--graph-text, #e6edf3);
+  border-color: var(--graph-accent, #42e978);
+  color: var(--graph-text, #f0f7f2);
 }
 
 .gi-empty {
   font-size: 12px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   padding: 4px 0 8px;
 }
 
@@ -293,19 +293,19 @@
 }
 .gi-cond-modelabel {
   font-size: 11px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
 }
 .gi-cond-modeswitch {
   background: transparent;
   border: none;
-  color: var(--graph-accent, #4493f8);
+  color: var(--graph-accent, #42e978);
   font-size: 11px;
   cursor: pointer;
   padding: 2px 4px;
   white-space: nowrap;
 }
 .gi-cond-modeswitch:disabled {
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   cursor: not-allowed;
 }
 .gi-cond-modeswitch:not(:disabled):hover {
@@ -317,9 +317,9 @@
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  border: 1px solid var(--graph-border, #2d3643);
+  border: 1px solid var(--graph-border, #285f39);
   border-radius: 6px;
-  background: var(--graph-panel-2, #1c2430);
+  background: var(--graph-panel-2, #18221b);
 }
 .gi-cond-rule-top {
   display: flex;
@@ -332,10 +332,10 @@
 }
 .gi-cond-rule input,
 .gi-cond-rule select {
-  background: var(--graph-panel, #161b22);
-  border: 1px solid var(--graph-border-strong, #3d4856);
+  background: var(--graph-panel, #0f1712);
+  border: 1px solid var(--graph-border-strong, #39764b);
   border-radius: 6px;
-  color: var(--graph-text, #e6edf3);
+  color: var(--graph-text, #f0f7f2);
   padding: 6px 7px;
   font-size: 12px;
   min-width: 0;
@@ -343,11 +343,11 @@
 }
 .gi-cond-rule input:focus,
 .gi-cond-rule select:focus {
-  border-color: var(--graph-accent, #4493f8);
+  border-color: var(--graph-accent, #42e978);
 }
 .gi-cond-rule input:focus-visible,
 .gi-cond-rule select:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--graph-accent, #4493f8) 72%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--graph-accent, #42e978) 72%, transparent);
   outline-offset: 2px;
 }
 .gi-cond-op,
@@ -357,7 +357,7 @@
 .gi-cond-del {
   background: transparent;
   border: none;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -375,7 +375,7 @@
   align-items: center;
   gap: 5px;
   font-size: 11px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   cursor: pointer;
 }
 .gi-cond-rightvar input {
@@ -395,7 +395,7 @@
   align-items: center;
   gap: 5px;
   font-size: 12px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   cursor: pointer;
 }
 .gi-cond-opts input {
@@ -419,14 +419,14 @@
 }
 .gi-cond-preview-label {
   font-size: 11px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
 }
 .gi-cond-preview code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  color: var(--graph-text, #e6edf3);
-  background: var(--graph-panel-2, #1c2430);
-  border: 1px solid var(--graph-border, #2d3643);
+  color: var(--graph-text, #f0f7f2);
+  background: var(--graph-panel-2, #18221b);
+  border: 1px solid var(--graph-border, #285f39);
   border-radius: 6px;
   padding: 6px 8px;
   word-break: break-all;
@@ -434,10 +434,10 @@
 }
 
 .gi-cond-advanced {
-  background: var(--graph-panel-2, #1c2430);
-  border: 1px solid var(--graph-border-strong, #3d4856);
+  background: var(--graph-panel-2, #18221b);
+  border: 1px solid var(--graph-border-strong, #39764b);
   border-radius: 6px;
-  color: var(--graph-text, #e6edf3);
+  color: var(--graph-text, #f0f7f2);
   padding: 7px 9px;
   font-size: 13px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -447,10 +447,10 @@
   box-sizing: border-box;
 }
 .gi-cond-advanced:focus {
-  border-color: var(--graph-accent, #4493f8);
+  border-color: var(--graph-accent, #42e978);
 }
 .gi-cond-advanced:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--graph-accent, #4493f8) 72%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--graph-accent, #42e978) 72%, transparent);
   outline-offset: 2px;
 }
 .gi-cond-advanced:disabled {
@@ -476,9 +476,9 @@
   margin: 8px 0 4px;
 }
 .gi-workdir-note {
-  background: #4493f81a;
-  border: 1px solid #4493f844;
-  color: var(--graph-text-dim, #8b949e);
+  background: rgba(66, 233, 120, 0.10);
+  border: 1px solid rgba(66, 233, 120, 0.27);
+  color: var(--graph-text-dim, #a3b2a7);
   border-radius: 6px;
   padding: 8px 10px;
   font-size: 12px;
@@ -501,7 +501,7 @@
     z-index: 1200;
     width: 100%;
     border-left: none;
-    border-top: 1px solid var(--graph-border, #2d3643);
+    border-top: 1px solid var(--graph-border, #285f39);
     border-radius: 14px 14px 0 0;
     max-height: min(50vh, 480px);
     /* Clamp to the area left above the keyboard so a tall drawer can't run off
@@ -530,8 +530,8 @@
   .gi-drawer-bar {
     display: flex;
     align-items: stretch;
-    background: var(--graph-panel, #161b22);
-    border-bottom: 1px solid var(--graph-border, #2d3643);
+    background: var(--graph-panel, #0f1712);
+    border-bottom: 1px solid var(--graph-border, #285f39);
   }
 
   .gi-drawer-bar .gi-drawer-handle {
@@ -547,14 +547,14 @@
     width: 48px;
     flex-shrink: 0;
     border: none;
-    border-left: 1px solid var(--graph-border, #2d3643);
+    border-left: 1px solid var(--graph-border, #285f39);
     background: transparent;
-    color: var(--graph-text-dim, #8b949e);
+    color: var(--graph-text-dim, #a3b2a7);
     cursor: pointer;
   }
 
   .gi-drawer-expand:active {
-    color: var(--graph-text, #e6edf3);
+    color: var(--graph-text, #f0f7f2);
     background: rgba(255, 255, 255, 0.04);
   }
 
@@ -567,9 +567,9 @@
     min-height: var(--gi-drawer-peek);
     padding: 8px 14px max(8px, env(safe-area-inset-bottom, 0px));
     border: none;
-    border-bottom: 1px solid var(--graph-border, #2d3643);
-    background: var(--graph-panel, #161b22);
-    color: var(--graph-text, #e6edf3);
+    border-bottom: 1px solid var(--graph-border, #285f39);
+    background: var(--graph-panel, #0f1712);
+    color: var(--graph-text, #f0f7f2);
     text-align: left;
     cursor: pointer;
   }
@@ -578,7 +578,7 @@
     width: 28px;
     height: 4px;
     border-radius: 999px;
-    background: var(--graph-border-strong, #3d4856);
+    background: var(--graph-border-strong, #39764b);
     justify-self: center;
   }
 
@@ -602,14 +602,14 @@
   }
 
   .gi-drawer-title small {
-    color: var(--graph-text-dim, #8b949e);
+    color: var(--graph-text-dim, #a3b2a7);
     font-size: 11px;
     font-weight: 500;
   }
 
   .gi-drawer-chevron {
     justify-self: end;
-    color: var(--graph-text-dim, #8b949e);
+    color: var(--graph-text-dim, #a3b2a7);
     font-size: 18px;
     line-height: 1;
   }
@@ -651,16 +651,16 @@
   border-color: #f8514955;
 }
 .gri-status.status-running {
-  background: #58a6ff22;
-  color: #58a6ff;
-  border-color: #58a6ff55;
+  background: rgba(98, 255, 152, 0.13);
+  color: #62ff98;
+  border-color: rgba(98, 255, 152, 0.33);
 }
 .gri-status.status-skipped,
 .gri-status.status-interrupted,
 .gri-status.status-pending,
 .gri-status.status-awaitingInput {
   background: #8b949e22;
-  color: #8b949e;
+  color: #a3b2a7;
   border-color: #8b949e55;
 }
 
@@ -669,20 +669,20 @@
 }
 .gri-output > summary {
   font-size: 12px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   cursor: pointer;
   user-select: none;
 }
 .gri-pre {
   margin: 6px 0 0;
   padding: 8px 9px;
-  background: var(--graph-panel-2, #1c2430);
-  border: 1px solid var(--graph-border-strong, #3d4856);
+  background: var(--graph-panel-2, #18221b);
+  border: 1px solid var(--graph-border-strong, #39764b);
   border-radius: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--graph-text, #e6edf3);
+  color: var(--graph-text, #f0f7f2);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 240px;

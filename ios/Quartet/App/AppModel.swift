@@ -47,6 +47,7 @@ final class AppModel: ObservableObject {
             guard StorageKey.connectionIdentity(for: serverAddress) != StorageKey.connectionIdentity(for: oldValue) else {
                 return
             }
+            resolvedServerAddress = nil
             connectionGeneration &+= 1
             _ = invalidateDashboardRequests()
             if phase == .connecting {
@@ -86,6 +87,7 @@ final class AppModel: ObservableObject {
     private let sentMessageHistoryStore: SentMessageHistoryStore
     private let uiTestScenario: String?
     private var csrfToken: String = ""
+    private var resolvedServerAddress: String?
     private var credentialCacheNamespace: String
     private var nextCursor: String?
     private var hasLoadedCachedDashboard = false
@@ -215,16 +217,33 @@ final class AppModel: ObservableObject {
         guard phase != .connecting else { return }
         connectionGeneration &+= 1
         let generation = connectionGeneration
+        _ = invalidateDashboardRequests()
+        let requestedServerAddress = serverAddress
+        resolvedServerAddress = nil
         let requestedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let hadRequestedCredentials = !requestedUsername.isEmpty && !password.isEmpty
         phase = .connecting
         hasPendingSync = true
         do {
-            let client = try makeClient(notifyUnauthorized: false)
+            let entryClient = try APIClient(serverAddress: requestedServerAddress)
+            let resolvedBaseURL = try await entryClient.resolvedBaseURL()
+            guard isCurrentConnectionRequest(
+                generation: generation,
+                requestedServerAddress: requestedServerAddress,
+                requestedUsername: requestedUsername
+            ) else {
+                finishSupersededConnectionIfNeeded(generation: generation)
+                return
+            }
+            resolvedServerAddress = resolvedBaseURL.absoluteString
+            let client = try makeClient(
+                serverAddress: resolvedBaseURL.absoluteString,
+                notifyUnauthorized: false
+            )
             let health = try await client.health()
             guard isCurrentConnectionRequest(
                 generation: generation,
-                client: client,
+                requestedServerAddress: requestedServerAddress,
                 requestedUsername: requestedUsername
             ) else {
                 finishSupersededConnectionIfNeeded(generation: generation)
@@ -246,7 +265,7 @@ final class AppModel: ObservableObject {
             }
             guard isCurrentConnectionRequest(
                 generation: generation,
-                client: client,
+                requestedServerAddress: requestedServerAddress,
                 requestedUsername: requestedUsername
             ) else {
                 finishSupersededConnectionIfNeeded(generation: generation)
@@ -255,7 +274,8 @@ final class AppModel: ObservableObject {
             if principal.user.mustChangePassword {
                 throw APIError(summary: "需要修改密码", detail: "该账号使用临时密码，请先在 Web 页面修改密码后再连接 iOS。")
             }
-            serverAddress = client.baseURL.absoluteString
+            serverAddress = entryClient.baseURL.absoluteString
+            resolvedServerAddress = client.baseURL.absoluteString
             csrfToken = principal.csrfToken
             permissions = Set(principal.permissions)
             password = ""
@@ -580,6 +600,15 @@ final class AppModel: ObservableObject {
             return uiTestGraphRunStatus(jobID: jobID)
         }
         return try await makeClient().graphRunStatus(jobID: jobID)
+    }
+
+    func updateGraphRunVersion(jobID: String, config: GraphConfig) async throws -> GraphRunActionResponse {
+#if DEBUG
+        if isRunningUITests {
+            return GraphRunActionResponse(run: uiTestGraphRunStatus(jobID: jobID).run)
+        }
+#endif
+        return try await makeClient().updateGraphRunVersion(jobID: jobID, config: config)
     }
 
     func performGraphAction(jobID: String, action: String) async throws -> GraphRunActionResponse {
@@ -1088,10 +1117,8 @@ final class AppModel: ObservableObject {
         switch phase {
         case .active:
             if defaults.bool(forKey: StorageKey.connectionValidated) {
-                if self.phase == .disconnected {
+                if self.phase == .disconnected || self.phase == .connected {
                     await connect()
-                } else if self.phase == .connected {
-                    await refreshDashboard(userInitiated: false)
                 }
             }
         case .background:
@@ -1128,6 +1155,10 @@ final class AppModel: ObservableObject {
         let generation = invalidateDashboardRequests()
         connectionGeneration &+= 1
         clearSessionCookies(for: serverAddress)
+        if let resolvedServerAddress {
+            clearSessionCookies(for: resolvedServerAddress)
+        }
+        resolvedServerAddress = nil
         if clearAddress {
             defaults.removeObject(forKey: StorageKey.serverAddress)
         }
@@ -1170,7 +1201,16 @@ final class AppModel: ObservableObject {
         )
     }
 
-    private func makeClient(notifyUnauthorized: Bool = true) throws -> APIClient {
+    private func makeClient(
+        serverAddress clientServerAddress: String? = nil,
+        notifyUnauthorized: Bool = true
+    ) throws -> APIClient {
+        guard let effectiveServerAddress = clientServerAddress ?? resolvedServerAddress else {
+            throw APIError(
+                summary: "服务地址尚未解析",
+                detail: "请先重新连接 Quartet，以获取当前实际服务地址。\n服务入口：\n\(serverAddress)"
+            )
+        }
         let requestGeneration = connectionGeneration
         let requestConnectionIdentity = StorageKey.connectionIdentity(for: serverAddress)
         let unauthorizedHandler: (@MainActor @Sendable (APIError) async -> Void)?
@@ -1187,7 +1227,7 @@ final class AppModel: ObservableObject {
             unauthorizedHandler = nil
         }
         return try APIClient(
-            serverAddress: serverAddress,
+            serverAddress: effectiveServerAddress,
             csrfToken: csrfToken,
             onUnauthorized: unauthorizedHandler
         )
@@ -1209,6 +1249,7 @@ final class AppModel: ObservableObject {
     private func seedUITestDashboard() {
         let now = Int64(Date().timeIntervalSince1970 * 1_000)
         serverAddress = "https://quartet.example.test/"
+        resolvedServerAddress = serverAddress
         username = ""
         password = ""
         health = HealthResponse(
@@ -1528,7 +1569,12 @@ final class AppModel: ObservableObject {
         return GraphRunStatusResponse(
             run: GraphRunSummary(
                 id: "run-e2e", workflowId: "release-check", jobId: jobID,
-                workspaceId: "ws-studio", status: "awaitingInput", currentVersion: 3,
+                workspaceId: "ws-studio", status: "awaitingInput",
+                baseSnapshot: GraphRunSnapshot(
+                    workflowId: "release-check", workflowName: "发布检查",
+                    config: GraphConfig(nodes: [], edges: []), capturedAt: 0
+                ),
+                versions: nil, archivedInstances: nil, currentVersion: 3,
                 startedAt: Int64(Date().timeIntervalSince1970 * 1_000) - 180_000,
                 finishedAt: nil, lastError: nil, progress: progress
             ),
@@ -1547,11 +1593,12 @@ final class AppModel: ObservableObject {
 
     private func isCurrentConnectionRequest(
         generation: UInt64,
-        client: APIClient,
+        requestedServerAddress: String,
         requestedUsername: String
     ) -> Bool {
         generation == connectionGeneration
-            && StorageKey.connectionIdentity(for: serverAddress) == client.baseURL.absoluteString
+            && StorageKey.connectionIdentity(for: serverAddress)
+                == StorageKey.connectionIdentity(for: requestedServerAddress)
             && username.trimmingCharacters(in: .whitespacesAndNewlines) == requestedUsername
     }
 

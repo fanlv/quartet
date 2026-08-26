@@ -10,7 +10,7 @@
   gap: 4px 5px;
   margin-left: 4px;
   font-size: 12px;
-  color: #64748b;
+  color: #5d6c62;
   min-width: 0;
 }
 
@@ -31,7 +31,7 @@
   width: 12px;
   height: 12px;
   flex-shrink: 0;
-  color: #94a3b8;
+  color: #7a897f;
 }
 
 .agent-usage-inline .usage-metric-icon.today {
@@ -40,7 +40,7 @@
 
 .agent-usage-inline .usage-inline-metric b {
   font-weight: 700;
-  color: #1a1a1a;
+  color: #142019;
 }
 
 .agent-usage-inline .usage-inline-metric b.today {
@@ -75,7 +75,7 @@
 }
 
 .agent-usage-inline .usage-ring .usage-ring-track {
-  stroke: #e2e8f0;
+  stroke: #dbe4dd;
 }
 
 .agent-usage-inline .usage-ring .usage-ring-arc {
@@ -92,7 +92,7 @@
   line-height: 1;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
-  color: #64748b;
+  color: #5d6c62;
 }
 
 .agent-usage-inline .usage-window-group {
@@ -100,9 +100,9 @@
   align-items: center;
   gap: 2px;
   padding: 2px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #dbe4dd;
   border-radius: 6px;
-  background: #f8fafc;
+  background: #f8fbf8;
   flex-shrink: 0;
 }
 
@@ -111,7 +111,7 @@
   padding-right: 2px;
   border-right: 1px solid #dbe2ea;
   box-sizing: border-box;
-  color: #64748b;
+  color: #5d6c62;
   font-size: 9px;
   font-weight: 700;
   line-height: 1;
@@ -135,7 +135,7 @@
 }
 
 .agent-usage-inline .usage-qoder-total {
-  color: #94a3b8;
+  color: #7a897f;
   font-variant-numeric: tabular-nums;
 }
 
@@ -144,7 +144,7 @@
   width: 40px;
   height: 4px;
   border-radius: 2px;
-  background: #e2e8f0;
+  background: #dbe4dd;
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -182,17 +182,15 @@
   color: #dc2626;
 }
 
-/* Reset-credit ring: color semantics differ from the usage tiers (more credits
- * is better, not worse), so it uses its own indigo accent. `credit-empty` (zero
- * credits) stays muted. */
+/* Reset-credit ring uses the product accent; `credit-empty` stays muted. */
 .agent-usage-inline .usage-ring.credit .usage-ring-arc {
-  stroke: #6366f1;
+  stroke: var(--accent);
 }
 .agent-usage-inline .usage-ring.credit .usage-ring-label {
-  color: #6366f1;
+  color: var(--accent);
 }
 .agent-usage-inline .usage-ring.credit-empty .usage-ring-label {
-  color: #94a3b8;
+  color: #7a897f;
 }
 
 /* Portaled to document.body and positioned via fixed coords computed from the
@@ -204,8 +202,8 @@
   white-space: nowrap;
   padding: 4px 8px;
   border-radius: 6px;
-  background: #1e293b;
-  color: #f8fafc;
+  background: #1c2b21;
+  color: #f8fbf8;
   font-size: 11px;
   font-weight: 500;
   line-height: 1.3;
@@ -222,7 +220,7 @@
   left: 50%;
   transform: translateX(-50%);
   border: 4px solid transparent;
-  border-top-color: #1e293b;
+  border-top-color: #1c2b21;
 }
 
 /* Multi-line tooltip body (reset-credit ring): each entry on its own line,
@@ -237,7 +235,7 @@
 }
 
 .agent-usage-inline .usage-inline-ver {
-  color: #94a3b8;
+  color: #7a897f;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -260,7 +258,7 @@
 
 .agent-usage-inline .usage-inline-refresh:hover:not(:disabled) {
   background: #f4f6f9;
-  color: #64748b;
+  color: #5d6c62;
 }
 
 .agent-usage-inline .usage-inline-refresh:disabled {
@@ -279,8 +277,8 @@
 .agent-usage-inline .usage-spin {
   width: 13px;
   height: 13px;
-  border: 2px solid #e2e8f0;
-  border-top-color: #94a3b8;
+  border: 2px solid #dbe4dd;
+  border-top-color: #7a897f;
   border-radius: 50%;
   animation: usage-spin 1s linear infinite;
   flex-shrink: 0;

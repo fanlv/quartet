@@ -105,7 +105,7 @@ private struct MainTabBarInsetKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// Height the docked main tab bar covers at the bottom of the screen, or 0 while it is hidden.
+    /// Height the docked main tab bar covers above the existing bottom safe area, or 0 while hidden.
     /// The tab bar is drawn as an overlay, so scrollable tab content has to reserve this itself.
     var mainTabBarInset: CGFloat {
         get { self[MainTabBarInsetKey.self] }
@@ -114,7 +114,7 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// Reserves room for the docked main tab bar below `self`.
+    /// Reserves the part of the docked main tab bar not already covered by the system safe area.
     func mainTabBarBottomInset(_ inset: CGFloat) -> some View {
         safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear
@@ -134,6 +134,10 @@ private struct MainView: View {
     var body: some View {
         GeometryReader { proxy in
             let bottomSafeAreaHeight = max(proxy.safeAreaInsets.bottom, 0)
+            let tabBarContentInset = max(
+                MainTabBar.height(bottomSafeAreaHeight: bottomSafeAreaHeight) - bottomSafeAreaHeight,
+                0
+            )
             ZStack {
                 QuartetTheme.canvas.ignoresSafeArea()
 
@@ -156,11 +160,11 @@ private struct MainView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // A `safeAreaInset` here would not reach the ScrollViews inside each tab's
-                // NavigationStack, so the reserved height is published instead and each tab applies
-                // it to its own scrollable content via `mainTabBarInset`.
+                // NavigationStack, so the overlap above the system safe area is published instead
+                // and each tab applies it to its own scrollable content via `mainTabBarInset`.
                 .environment(
                     \.mainTabBarInset,
-                    displaysTabBar ? MainTabBar.height(bottomSafeAreaHeight: bottomSafeAreaHeight) : 0
+                    displaysTabBar ? tabBarContentInset : 0
                 )
                 .overlay(alignment: .bottom) {
                     if displaysTabBar {

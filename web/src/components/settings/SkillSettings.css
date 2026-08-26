@@ -6,7 +6,7 @@
 .skill-error {
   text-align: center;
   padding: 40px 20px;
-  color: #888;
+  color: #738077;
 }
 
 .skill-error p {
@@ -79,7 +79,7 @@
 }
 
 .skill-header-actions .settings-btn:focus-visible {
-  outline: 2px solid rgba(0, 102, 255, 0.28);
+  outline: 2px solid rgba(22, 163, 74, 0.28);
   outline-offset: 2px;
 }
 
@@ -91,13 +91,13 @@
 .settings-btn.skill-project-install-btn {
   color: #0057c7;
   background: #edf5ff;
-  border: 1px solid #b8d4ff;
+  border: 1px solid #9bd3aa;
 }
 
 .settings-btn.skill-project-install-btn:hover:not(:disabled) {
   color: #0047a6;
-  background: #dfeeff;
-  border-color: #8bbaff;
+  background: #dcf2e2;
+  border-color: #72bd87;
 }
 
 /* Scope tabs */
@@ -113,7 +113,7 @@
   font-size: 13px;
   border: none;
   background: transparent;
-  color: #666;
+  color: #5d6c62;
   cursor: pointer;
   border-radius: 6px;
   transition: all 0.15s;
@@ -121,12 +121,12 @@
 }
 
 .skill-scope-tab:hover {
-  color: #333;
+  color: #29362d;
 }
 
 .skill-scope-tab.active {
-  background: #fff;
-  color: #0066ff;
+  background: var(--surface);
+  color: var(--accent);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
@@ -154,8 +154,8 @@
 }
 
 .skill-filter-input:focus {
-  border-color: #0066ff;
-  background: #fff;
+  border-color: var(--accent);
+  background: var(--surface);
 }
 
 .skill-filter-clear {
@@ -211,7 +211,7 @@
   border-bottom: 1px solid #e1e8ed;
   font-size: 13px;
   font-weight: 500;
-  color: #374151;
+  color: #344338;
 }
 
 .skill-check-actions {
@@ -238,7 +238,7 @@
   padding: 12px 14px;
   margin: 0;
   font-size: 12px;
-  color: #374151;
+  color: #344338;
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 200px;
@@ -271,7 +271,7 @@
 
 /* Skill card */
 .skill-card {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #e1e8ed;
   border-radius: 10px;
   padding: 14px 16px;
@@ -302,7 +302,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f0f4ff;
+  background: #edf9f0;
   border-radius: 8px;
   flex-shrink: 0;
 }
@@ -345,7 +345,7 @@
 
 .skill-scope-global {
   background: #e8f4fd;
-  color: #0369a1;
+  color: #047857;
 }
 
 .skill-scope-project {
@@ -389,7 +389,7 @@
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #374151;
+  color: #344338;
   cursor: pointer;
   user-select: none;
 }

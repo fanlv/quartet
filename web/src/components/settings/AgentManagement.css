@@ -1,7 +1,7 @@
 .agent-management-tabs {
   display: flex;
   gap: 0;
-  border-bottom: 1px solid #e5e5e5;
+  border-bottom: 1px solid #cdd9d0;
   margin-bottom: 20px;
 }
 
@@ -9,7 +9,7 @@
   padding: 10px 20px;
   font-size: 14px;
   font-weight: 500;
-  color: #666;
+  color: #5d6c62;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: color 0.15s, border-color 0.15s;
@@ -17,12 +17,12 @@
 }
 
 .agent-management-tab:hover {
-  color: #333;
+  color: #29362d;
 }
 
 .agent-management-tab.active {
-  color: #0066ff;
-  border-bottom-color: #0066ff;
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 .agent-management-content {

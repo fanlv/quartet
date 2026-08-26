@@ -1,10 +1,10 @@
 .graph-run-progress {
-  background: #f8fafc;
+  background: #f8fbf8;
   border: 1px solid #dbe3ea;
   border-radius: 8px;
   padding: 12px 16px;
   margin: 8px 16px;
-  color: #172033;
+  color: #142019;
   cursor: pointer;
 }
 
@@ -31,12 +31,12 @@
   flex-wrap: wrap;
   min-width: 0;
   font-size: 12px;
-  color: #475569;
+  color: #46564b;
 }
 
 .graph-run-session,
 .graph-run-step {
-  color: #334155;
+  color: #2d3d32;
   font-size: 13px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -44,12 +44,12 @@
 }
 
 .graph-run-step {
-  color: #64748b;
+  color: #5d6c62;
   font-weight: 500;
 }
 
 .graph-run-progress-empty {
-  color: #64748b;
+  color: #5d6c62;
 }
 
 .graph-run-status {
@@ -58,15 +58,15 @@
   padding: 2px 8px;
   border-radius: 4px;
   background: #edf2f7;
-  color: #475569;
+  color: #46564b;
 }
 
 .graph-run-status.status-running,
 .graph-run-status.status-pending,
 .graph-run-status.status-recovering,
 .graph-run-status.status-stepStopping {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: #dcf2e2;
+  color: var(--accent-hover);
 }
 
 .graph-run-status.status-completed {
@@ -86,11 +86,11 @@
   color: #92400e;
 }
 
-/* awaitingInput (§ 交互澄清结点): a purple "waiting for human" tint matching the
-   clarify node color, distinct from the gray paused/stopped states. */
+/* awaitingInput (§ 交互澄清结点): a moss-green "waiting for human" tint matching
+   the botanical status family, distinct from paused/stopped states. */
 .graph-run-status.status-awaitingInput {
-  background: #ede9fe;
-  color: #6d28d9;
+  background: #edf9f0;
+  color: #047857;
 }
 
 .graph-run-actions {
@@ -105,10 +105,10 @@
 .graph-run-actions-toggle {
   display: none;
   height: 30px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #cdd9d0;
   border-radius: 4px;
-  background: #fff;
-  color: #475569;
+  background: var(--surface);
+  color: #46564b;
   font-size: 12px;
   font-weight: 600;
   align-items: center;
@@ -120,7 +120,7 @@
 }
 
 .graph-run-actions-toggle:active {
-  background: #f1f5f9;
+  background: #edf3ee;
 }
 
 .graph-run-actions-toggle svg {
@@ -135,10 +135,10 @@
 
 .graph-run-action {
   height: 30px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #cdd9d0;
   border-radius: 4px;
-  background: #fff;
-  color: #475569;
+  background: var(--surface);
+  color: #46564b;
   font-size: 12px;
   font-weight: 600;
   display: inline-flex;
@@ -150,7 +150,7 @@
 }
 
 .graph-run-action:hover:not(:disabled) {
-  background: #f1f5f9;
+  background: #edf3ee;
 }
 
 .graph-run-action:disabled {
@@ -174,8 +174,8 @@
 }
 
 .graph-run-action.primary {
-  border-color: #93c5fd;
-  color: #1d4ed8;
+  border-color: var(--accent-border);
+  color: var(--accent-hover);
 }
 
 .graph-run-action.warn {
@@ -191,14 +191,14 @@
 .graph-run-bar-wrapper {
   height: 6px;
   border-radius: 3px;
-  background: #e2e8f0;
+  background: #dbe4dd;
   overflow: hidden;
 }
 
 .graph-run-bar {
   height: 100%;
   border-radius: 3px;
-  background: #64748b;
+  background: #5d6c62;
   transition: width 0.25s ease;
 }
 
@@ -206,7 +206,7 @@
 .graph-run-bar.status-pending,
 .graph-run-bar.status-stepStopping,
 .graph-run-bar.status-recovering {
-  background: #2563eb;
+  background: var(--accent);
 }
 
 .graph-run-bar.status-completed {
@@ -224,7 +224,7 @@
 }
 
 .graph-run-bar.status-awaitingInput {
-  background: #8b5cf6;
+  background: #22c55e;
 }
 
 .graph-run-stats {
@@ -233,7 +233,7 @@
   gap: 10px;
   margin-top: 8px;
   font-size: 12px;
-  color: #475569;
+  color: #46564b;
 }
 
 .graph-run-canvas {
@@ -241,10 +241,10 @@
   position: relative;
   height: 280px;
   margin-top: 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #dbe4dd;
   border-radius: 6px;
   overflow: hidden;
-  background: #f8fafc;
+  background: #f8fbf8;
 }
 
 /* ---- In-place run-version editing (config-only) ---- */
@@ -259,15 +259,14 @@
   font-weight: 600;
 }
 
-/* awaitingInput hint (§ 交互澄清结点): purple to match the parked-state badge,
-   telling the user to discuss in the clarify session then click「讨论完成」. */
+/* awaitingInput hint (§ 交互澄清结点): moss green matches the parked-state badge. */
 .graph-run-awaiting-hint {
   margin-top: 10px;
   padding: 7px 10px;
   border-radius: 6px;
-  border: 1px solid #ddd6fe;
-  background: #f5f3ff;
-  color: #6d28d9;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft-surface);
+  color: #047857;
   font-size: 12px;
   font-weight: 600;
 }
@@ -276,10 +275,10 @@
   display: flex;
   margin-top: 10px;
   height: 440px;
-  border: 1px solid #2d3643;
+  border: 1px solid #285f39;
   border-radius: 6px;
   overflow: hidden;
-  background: #0d1117;
+  background: #040704;
 }
 
 .graph-run-edit-canvas {
@@ -376,7 +375,7 @@
 
 .graph-run-legend-title {
   font-weight: 700;
-  color: #8b949e;
+  color: #a3b2a7;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-right: 2px;
@@ -398,7 +397,7 @@
 }
 
 .graph-run-legend-line.done {
-  border-top-color: #4493f8;
+  border-top-color: #42e978;
 }
 
 .graph-run-legend-line.flowing {
@@ -407,7 +406,7 @@
 }
 
 .graph-run-legend-line.pending {
-  border-top-color: #8b949e;
+  border-top-color: #a3b2a7;
   border-top-style: solid;
   opacity: 0.85;
 }
@@ -436,8 +435,8 @@
 
 .graph-run-section {
   min-width: 0;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid #dbe4dd;
+  background: var(--surface);
   border-radius: 6px;
   padding: 8px;
 }
@@ -445,7 +444,7 @@
 .graph-run-section-title {
   font-size: 11px;
   font-weight: 700;
-  color: #64748b;
+  color: #5d6c62;
   text-transform: uppercase;
   margin-bottom: 6px;
 }
@@ -456,7 +455,7 @@
   gap: 2px;
   border-radius: 5px;
   padding: 6px 8px;
-  background: #eff6ff;
+  background: var(--accent-soft-surface);
   color: #1e3a8a;
 }
 
@@ -471,7 +470,7 @@
 
 .graph-run-node-meta {
   font-size: 11px;
-  color: #64748b;
+  color: #5d6c62;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -484,7 +483,7 @@
   justify-content: space-between;
   gap: 8px;
   font-size: 12px;
-  color: #334155;
+  color: #2d3d32;
 }
 
 .graph-run-metric + .graph-run-metric {
@@ -492,7 +491,7 @@
 }
 
 .graph-run-metric strong {
-  color: #0f172a;
+  color: #101b13;
 }
 
 .graph-run-waiting {
@@ -504,8 +503,8 @@
 
 .graph-run-waiting span {
   font-size: 11px;
-  color: #1d4ed8;
-  background: #eff6ff;
+  color: var(--accent-hover);
+  background: var(--accent-soft-surface);
   border-radius: 4px;
   padding: 2px 6px;
 }
@@ -513,7 +512,7 @@
 .graph-run-muted,
 .graph-run-empty {
   font-size: 12px;
-  color: #64748b;
+  color: #5d6c62;
 }
 
 .graph-run-error {

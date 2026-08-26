@@ -922,7 +922,7 @@ export function AgentInstallSettings() {
     return (
       <div
         key={agentId}
-        className={`agent-install-result ${ok ? 'success' : 'failure'}`}
+        className={`agent-install-result ${ok ? action === 'upgrade' ? 'upgrade' : 'success' : 'failure'}`}
         role={ok ? 'status' : 'alert'}
         aria-live={ok ? 'polite' : 'assertive'}
       >
@@ -1366,7 +1366,7 @@ export function AgentInstallSettings() {
                     </button>
                     <button
                       type="button"
-                      className="settings-btn settings-btn-primary"
+                      className={`settings-btn ${requestError.action === 'upgrade' ? 'agent-upgrade-btn' : 'settings-btn-primary'}`}
                       disabled={installBusy !== null
                         || managementPending !== ''
                         || batchUpgrade !== null

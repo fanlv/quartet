@@ -2,8 +2,8 @@
   width: 260px;
   height: 100vh;
   height: 100dvh;
-  background: #fafafa;
-  border-right: 1px solid #e8e8e8;
+  background: var(--surface);
+  border-right: 1px solid var(--border-strong);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -11,7 +11,7 @@
 
 .sidebar-header {
   padding: 16px;
-  border-bottom: 1px solid #e8e8e8;
+  border-bottom: 1px solid #d5dfd7;
 }
 
 .sidebar-logo {
@@ -27,7 +27,7 @@
 .logo-text {
   font-size: 18px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: #142019;
 }
 
 .sidebar-new-chat {
@@ -36,18 +36,19 @@
   gap: 10px;
   margin: 12px;
   padding: 12px 16px;
-  background: #fff;
-  border: 1px solid #e5e5e5;
+  background: var(--accent-soft-surface);
+  border: 1px solid var(--accent-border);
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
-  color: #333;
+  color: #29362d;
   transition: all 0.2s;
 }
 
 .sidebar-new-chat:hover {
-  background: #f5f5f5;
-  border-color: #d5d5d5;
+  background: var(--accent-soft-strong);
+  border-color: var(--accent);
+  color: var(--accent-deep);
 }
 
 .new-chat-icon {
@@ -65,7 +66,7 @@
 .sidebar-section-title {
   font-size: 11px;
   font-weight: 600;
-  color: #888;
+  color: #738077;
   text-transform: uppercase;
   padding: 12px 4px 8px;
   letter-spacing: 0.5px;
@@ -88,8 +89,8 @@
   padding: 6px 14px;
   border-radius: 8px;
   border: 1px solid #d4dbe3;
-  background: #ffffff;
-  color: #334155;
+  background: var(--surface);
+  color: #2d3d32;
   font-size: 12px;
   cursor: pointer;
 }
@@ -107,7 +108,7 @@
 .sidebar-empty {
   padding: 16px;
   text-align: center;
-  color: #888;
+  color: #738077;
   font-size: 13px;
 }
 
@@ -144,17 +145,18 @@
 }
 
 .sidebar-session-item:hover {
-  background: #f0f0f0;
+  background: #e7eee9;
 }
 
 .sidebar-session-item.active {
-  background: #e8e8e8;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
 }
 
 .session-title {
   flex: 1;
   font-size: 13px;
-  color: #333;
+  color: #29362d;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -165,17 +167,17 @@
   min-width: 0;
   height: 26px;
   padding: 3px 6px;
-  border: 1px solid #94a3b8;
+  border: 1px solid #7a897f;
   border-radius: 5px;
-  background: #fff;
-  color: #1f2937;
+  background: var(--surface);
+  color: #1b2920;
   font-size: 13px;
   outline: none;
 }
 
 .session-title-input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.14);
 }
 
 .sidebar-error {
@@ -196,7 +198,7 @@
   height: 20px;
   border: none;
   background: transparent;
-  color: #888;
+  color: #738077;
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
@@ -226,7 +228,7 @@
 
 .sidebar-footer {
   padding: 12px;
-  border-top: 1px solid #e8e8e8;
+  border-top: 1px solid #d5dfd7;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -243,7 +245,7 @@
 }
 
 .sidebar-settings:hover {
-  background: #f0f0f0;
+  background: #e7eee9;
 }
 
 .settings-icon {
@@ -252,7 +254,7 @@
 
 .settings-text {
   font-size: 14px;
-  color: #555;
+  color: #526158;
 }
 
 .sidebar-user {
@@ -266,7 +268,8 @@
 .user-avatar {
   width: 32px;
   height: 32px;
-  background: #10b981;
+  background: var(--accent);
+  color: var(--accent-fg);
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -283,7 +286,7 @@
 
 .user-name {
   font-size: 14px;
-  color: #333;
+  color: #29362d;
   font-weight: 500;
 }
 
@@ -302,7 +305,7 @@
 }
 
 .delete-confirm-dialog {
-  background: #fff;
+  background: var(--surface);
   border-radius: 12px;
   padding: 24px;
   width: 100%;
@@ -313,13 +316,13 @@
 .delete-confirm-title {
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: #142019;
   margin-bottom: 12px;
 }
 
 .delete-confirm-message {
   font-size: 14px;
-  color: #555;
+  color: #526158;
   line-height: 1.5;
   margin-bottom: 20px;
   word-break: break-word;
@@ -343,8 +346,8 @@
 }
 
 .delete-confirm-cancel {
-  background: #f0f0f0;
-  color: #333;
+  background: #e7eee9;
+  color: #29362d;
 }
 
 .delete-confirm-cancel:hover {

@@ -2,18 +2,18 @@
 
 .qg-node {
   width: 200px;
-  background: var(--graph-panel, #161b22);
-  border: 1.5px solid var(--graph-border-strong, #3d4856);
+  background: var(--graph-panel, #0f1712);
+  border: 1.5px solid var(--graph-border-strong, #39764b);
   border-radius: 11px;
   box-shadow: 0 4px 16px #00000050;
   overflow: hidden;
   transition: box-shadow 0.15s, border-color 0.15s;
-  color: var(--graph-text, #e6edf3);
+  color: var(--graph-text, #f0f7f2);
 }
 
 .qg-node.selected {
-  border-color: var(--graph-accent, #4493f8);
-  box-shadow: 0 0 0 2px #4493f855, 0 6px 22px #00000060;
+  border-color: var(--graph-accent, #42e978);
+  box-shadow: 0 0 0 2px rgba(66, 233, 120, 0.33), 0 6px 22px #00000060;
 }
 
 .qg-node.has-error,
@@ -52,7 +52,7 @@
   align-items: center;
   gap: 8px;
   padding: 9px 11px;
-  border-bottom: 1px solid var(--graph-border, #2d3643);
+  border-bottom: 1px solid var(--graph-border, #285f39);
 }
 .qg-node-ico {
   width: 22px;
@@ -74,14 +74,14 @@
 }
 .qg-node-kind {
   font-size: 10px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 .qg-node-body {
   padding: 9px 11px;
   font-size: 12px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
   line-height: 1.5;
   max-height: 60px;
   overflow: hidden;
@@ -105,7 +105,7 @@
 }
 .qg-node-vars {
   padding: 7px 11px;
-  border-top: 1px dashed var(--graph-border, #2d3643);
+  border-top: 1px dashed var(--graph-border, #285f39);
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -125,9 +125,9 @@
   border-color: #2ea04344;
 }
 .qg-var-pill.alias {
-  background: #a371f722;
-  color: #d2a8ff;
-  border-color: #a371f744;
+  background: rgba(163, 230, 53, 0.13);
+  color: #a3e635;
+  border-color: rgba(163, 230, 53, 0.27);
 }
 .qg-port-tag {
   position: absolute;
@@ -155,8 +155,8 @@
   position: relative;
 }
 .qg-loop.selected {
-  border-color: var(--graph-accent, #4493f8);
-  box-shadow: 0 0 0 2px #4493f855;
+  border-color: var(--graph-accent, #42e978);
+  box-shadow: 0 0 0 2px rgba(66, 233, 120, 0.33);
 }
 
 /* loop entry / exit markers — rendered as port tabs mounted ON the container
@@ -173,7 +173,7 @@
   width: 100%;
   height: 100%;
   padding: 0 9px;
-  background: var(--graph-panel, #161b22);
+  background: var(--graph-panel, #0f1712);
   border: 1.5px solid #56d4dd;
   color: #56d4dd;
   font-size: 10px;
@@ -204,7 +204,7 @@
   transform: translateX(1.5px);
 }
 .qg-loop-port.selected {
-  box-shadow: 0 0 0 2px #4493f855;
+  box-shadow: 0 0 0 2px rgba(66, 233, 120, 0.33);
 }
 .qg-loop-port.has-error {
   border-color: #f85149 !important;
@@ -234,7 +234,7 @@
   height: 9px;
   border-radius: 2px;
   background: #56d4dd;
-  border: 1.5px solid #0d1117;
+  border: 1.5px solid #040704;
 }
 .qg-loop-resize-line.react-flow__resize-control.line {
   border-color: #56d4dd88;
@@ -253,12 +253,12 @@
 }
 .qg-loop-meta {
   font-size: 11px;
-  color: var(--graph-text-dim, #8b949e);
+  color: var(--graph-text-dim, #a3b2a7);
 }
 .qg-loop-cap {
   font-size: 10px;
-  color: var(--graph-text-dim, #8b949e);
-  border: 1px solid var(--graph-border, #2d3643);
+  color: var(--graph-text-dim, #a3b2a7);
+  border: 1px solid var(--graph-border, #285f39);
   border-radius: 8px;
   padding: 1px 6px;
 }
@@ -269,8 +269,8 @@
 .graph-canvas-wrap .react-flow__handle {
   width: 11px;
   height: 11px;
-  background: var(--graph-accent, #4493f8);
-  border: 2px solid #0d1117;
+  background: var(--graph-accent, #42e978);
+  border: 2px solid #040704;
   z-index: 1;
 }
 .graph-canvas-wrap .react-flow__handle::after {
@@ -309,9 +309,9 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  border: 1px solid var(--graph-border-strong, #3d4856);
-  background: var(--graph-panel, #161b22);
-  color: var(--graph-text-dim, #8b949e);
+  border: 1px solid var(--graph-border-strong, #39764b);
+  background: var(--graph-panel, #0f1712);
+  color: var(--graph-text-dim, #a3b2a7);
   font-size: 15px;
   line-height: 1;
   cursor: pointer;

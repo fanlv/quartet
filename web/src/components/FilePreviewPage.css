@@ -1,10 +1,10 @@
 .file-preview-page {
   --preview-canvas: #eef2f6;
   --preview-paper: #ffffff;
-  --preview-ink: #172033;
+  --preview-ink: #142019;
   --preview-muted: #667085;
   --preview-rule: #dce3ec;
-  --preview-accent: #2563eb;
+  --preview-accent: var(--accent);
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -43,7 +43,7 @@
   flex: 0 0 34px;
   border-radius: 9px;
   color: var(--preview-accent);
-  background: #edf4ff;
+  background: #edf9f0;
 }
 
 .file-preview-icon svg {
@@ -66,7 +66,7 @@
 .file-preview-title-group strong {
   max-width: min(36vw, 520px);
   overflow: hidden;
-  color: #111827;
+  color: #0f1812;
   font-size: 14px;
   font-weight: 650;
   text-overflow: ellipsis;
@@ -86,10 +86,10 @@
 
 .file-preview-type {
   padding: 3px 7px;
-  border: 1px solid #cfe0ff;
+  border: 1px solid #b7dfc1;
   border-radius: 5px;
   color: #2556a8;
-  background: #f3f7ff;
+  background: #f3f7f4;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -117,7 +117,7 @@
   min-height: 34px;
   border: 1px solid #d5dce6;
   color: #455166;
-  background: #ffffff;
+  background: var(--surface);
   font: inherit;
   font-size: 12px;
   font-weight: 550;
@@ -137,27 +137,27 @@
 .file-preview-button.active,
 .file-preview-segmented button:hover,
 .file-preview-segmented button.active {
-  border-color: #aac4f5;
-  color: #174da6;
-  background: #edf4ff;
+  border-color: #9bd3aa;
+  color: #047857;
+  background: #edf9f0;
 }
 
 .file-preview-button:focus-visible,
 .file-preview-segmented button:focus-visible {
-  outline: 3px solid rgba(37, 99, 235, 0.2);
+  outline: 3px solid rgba(22, 163, 74, 0.2);
   outline-offset: 1px;
 }
 
 .file-preview-return {
-  border-color: #1f2937;
+  border-color: #1b2920;
   color: #ffffff;
-  background: #1f2937;
+  background: #1b2920;
 }
 
 .file-preview-return:hover {
-  border-color: #111827;
+  border-color: #0f1812;
   color: #ffffff;
-  background: #111827;
+  background: #0f1812;
 }
 
 .file-preview-segmented {
@@ -177,8 +177,8 @@
 }
 
 .file-preview-segmented button.active {
-  color: #174da6;
-  background: #ffffff;
+  color: #047857;
+  background: var(--surface);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
 }
 
@@ -208,7 +208,7 @@
   border-radius: 2px 2px 10px 10px;
   background: var(--preview-paper);
   box-shadow: 0 22px 60px rgba(30, 41, 59, 0.11), 0 1px 2px rgba(30, 41, 59, 0.06);
-  color: #263247;
+  color: #29362d;
   font-family: Charter, 'Noto Serif SC', 'Songti SC', 'STSong', Georgia, serif;
   font-size: 17px;
   line-height: 1.82;
@@ -261,7 +261,7 @@
 
 .file-preview-document a {
   color: #1f5dbf;
-  text-decoration-color: #9bbbf0;
+  text-decoration-color: #86efac;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
@@ -273,9 +273,9 @@
 .file-preview-document blockquote {
   margin: 28px 0;
   padding: 16px 22px;
-  border-left: 4px solid #8db1ed;
+  border-left: 4px solid #72bd87;
   color: #4c5c73;
-  background: #f5f8fc;
+  background: #f8fbf8;
 }
 
 .file-preview-document blockquote > *:last-child { margin-bottom: 0; }
@@ -324,7 +324,7 @@
   overflow: hidden;
   border: 1px solid #dce3ec;
   border-radius: 8px;
-  background: #fbfcfe;
+  background: #fcfefc;
 }
 
 .file-preview-mermaid-toolbar {
@@ -369,12 +369,12 @@
 .file-preview-mermaid-zoom button:hover:not(:disabled),
 .file-preview-mermaid-zoom button:focus-visible {
   border-color: #cbd7e8;
-  color: #174da6;
-  background: #ffffff;
+  color: #047857;
+  background: var(--surface);
 }
 
 .file-preview-mermaid-zoom button:focus-visible {
-  outline: 3px solid rgba(37, 99, 235, 0.18);
+  outline: 3px solid rgba(22, 163, 74, 0.18);
   outline-offset: 1px;
 }
 
@@ -421,7 +421,7 @@
   justify-content: center;
   gap: 10px;
   color: #667085;
-  background: #fbfcfe;
+  background: #fcfefc;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
   font-size: 13px;
 }
@@ -452,7 +452,7 @@
   padding: 13px;
   border: 1px solid #f2c5ca;
   color: #7f1d1d;
-  background: #ffffff;
+  background: var(--surface);
   font-size: 11px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -489,7 +489,7 @@
 .file-preview-document td:last-child { border-right: 0; }
 .file-preview-document tr:last-child td { border-bottom: 0; }
 .file-preview-document th { color: #273449; background: #f4f7fa; font-weight: 700; }
-.file-preview-document tbody tr:hover { background: #f8fafc; }
+.file-preview-document tbody tr:hover { background: #f8fbf8; }
 
 .file-preview-document img {
   display: block;
@@ -531,7 +531,7 @@
   margin: 32px auto;
   border-top: 4px solid var(--preview-accent);
   border-radius: 2px 2px 9px 9px;
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: 0 16px 44px rgba(30, 41, 59, 0.1);
   overflow: auto;
 }
@@ -556,7 +556,7 @@
 }
 
 .file-preview-source-line:hover {
-  background: #f8fafc;
+  background: #f8fbf8;
 }
 
 .file-preview-source-line-number {
@@ -567,7 +567,7 @@
   padding: 0 18px;
   border-right: 1px solid #e8edf3;
   color: #a2acba;
-  background: #ffffff;
+  background: var(--surface);
   text-align: right;
   user-select: none;
   white-space: nowrap;
@@ -575,7 +575,7 @@
 
 .file-preview-source-line:hover .file-preview-source-line-number {
   color: #667085;
-  background: #f8fafc;
+  background: #f8fbf8;
 }
 
 .file-preview-source-line-content {
@@ -599,25 +599,25 @@
 /* The shared highlighter defaults to the dark file-viewer palette. The
    standalone source view uses an editorial light canvas, so keep the same
    tokens with accessible light-theme colors here. */
-.file-preview-source .hl-keyword { color: #7c3aed; }
+.file-preview-source .hl-keyword { color: #059669; }
 .file-preview-source .hl-string { color: #15803d; }
-.file-preview-source .hl-comment { color: #6b7280; }
+.file-preview-source .hl-comment { color: #66746b; }
 .file-preview-source .hl-number { color: #c2410c; }
-.file-preview-source .hl-operator { color: #0369a1; }
+.file-preview-source .hl-operator { color: #047857; }
 .file-preview-source .hl-function,
-.file-preview-source .hl-property { color: #1d4ed8; }
+.file-preview-source .hl-property { color: var(--accent-hover); }
 .file-preview-source .hl-type,
 .file-preview-source .hl-attribute { color: #a16207; }
 .file-preview-source .hl-builtin,
 .file-preview-source .hl-tag,
 .file-preview-source .hl-regexp { color: #be123c; }
-.file-preview-source .hl-punctuation { color: #64748b; }
+.file-preview-source .hl-punctuation { color: #5d6c62; }
 .file-preview-source .hl-variable { color: #9d174d; }
-.file-preview-source .hl-decorator { color: #7c3aed; }
+.file-preview-source .hl-decorator { color: #059669; }
 
 .file-preview-stage.html-mode {
   overflow: hidden;
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .file-preview-html-frame {
@@ -625,7 +625,7 @@
   width: 100%;
   height: 100%;
   border: 0;
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .file-preview-state,
@@ -635,7 +635,7 @@
   padding: 40px;
   border-top: 4px solid var(--preview-accent);
   border-radius: 2px 2px 10px 10px;
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: 0 16px 40px rgba(30, 41, 59, 0.1);
 }
 

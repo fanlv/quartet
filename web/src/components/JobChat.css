@@ -4,9 +4,9 @@
   height: 100%;
   min-height: 0;
   background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(99, 102, 241, 0.06), transparent 60%),
-    radial-gradient(1000px 500px at 100% 0%, rgba(59, 130, 246, 0.05), transparent 55%),
-    linear-gradient(160deg, #fbfcfe 0%, #f3f6fa 45%, #eef2f7 100%);
+    radial-gradient(1100px 540px at 12% -12%, rgba(34, 197, 94, 0.10), transparent 62%),
+    radial-gradient(900px 460px at 100% 0%, rgba(5, 150, 105, 0.06), transparent 58%),
+    linear-gradient(160deg, var(--surface) 0%, var(--canvas) 48%, var(--elevated) 100%);
   overflow: hidden;
 }
 
@@ -17,11 +17,11 @@
   position: sticky;
   top: 0;
   padding: calc(env(safe-area-inset-top) + 12px) 24px 12px;
-  background: rgba(255, 255, 255, 0.78);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(18px);
   backdrop-filter: saturate(180%) blur(18px);
-  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
-  box-shadow: 0 1px 12px rgba(15, 23, 42, 0.04);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 12px rgba(20, 32, 25, 0.05);
   flex-shrink: 0;
   z-index: 500;
   overflow: visible;
@@ -47,7 +47,7 @@
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  color: #64748b;
+  color: #5d6c62;
   transition: all 0.15s;
   /* Never let the nav toolbar squeeze the back button out of view: with many
      header icons on a narrow phone the overflow-hidden .header-left could
@@ -56,14 +56,14 @@
 }
 
 .back-button:hover {
-  background: #f1f5f9;
-  color: #1e293b;
+  background: #edf3ee;
+  color: #1c2b21;
 }
 
 .header-logo {
   font-size: 16px;
   font-weight: 700;
-  color: #1e293b;
+  color: #1c2b21;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -90,7 +90,7 @@
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
-  color: #94a3b8;
+  color: #7a897f;
   opacity: 0;
   transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
 }
@@ -101,9 +101,9 @@
 }
 
 .header-edit-title-btn:hover {
-  background: #f1f5f9;
-  border-color: #e2e8f0;
-  color: #1e293b;
+  background: #edf3ee;
+  border-color: #dbe4dd;
+  color: #1c2b21;
 }
 
 .header-title-edit {
@@ -123,17 +123,17 @@
   padding: 0 8px;
   font-size: 15px;
   font-weight: 600;
-  color: #1e293b;
-  background: #fff;
-  border: 1px solid #cbd5e1;
+  color: #1c2b21;
+  background: var(--surface);
+  border: 1px solid #cdd9d0;
   border-radius: 6px;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .header-title-input:focus {
-  border-color: #93b4f5;
-  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15);
+  border-color: #9bd3aa;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15);
 }
 
 .header-title-input.has-error {
@@ -142,8 +142,8 @@
 }
 
 .header-title-input:disabled {
-  background: #f8fafc;
-  color: #64748b;
+  background: #f8fbf8;
+  color: #5d6c62;
   cursor: not-allowed;
 }
 
@@ -155,16 +155,16 @@
   height: 26px;
   padding: 0;
   background: transparent;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #dbe4dd;
   border-radius: 6px;
   cursor: pointer;
-  color: #64748b;
+  color: #5d6c62;
   transition: all 0.15s;
 }
 
 .header-title-action:hover:not(:disabled) {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
+  background: #edf3ee;
+  border-color: #cdd9d0;
 }
 
 .header-title-action.save:hover:not(:disabled) {
@@ -261,7 +261,7 @@
   padding: 4px 6px 10px;
   font-size: 12px;
   font-weight: 600;
-  color: #64748b;
+  color: #5d6c62;
 }
 
 .header-joblist-items {
@@ -275,7 +275,7 @@
 .header-joblist-empty {
   padding: 12px 10px;
   font-size: 13px;
-  color: #94a3b8;
+  color: #7a897f;
 }
 
 .header-joblist-loadmore {
@@ -288,8 +288,8 @@
   padding: 6px 14px;
   border-radius: 8px;
   border: 1px solid #d4dbe3;
-  background: #ffffff;
-  color: #334155;
+  background: var(--surface);
+  color: #2d3d32;
   font-size: 12px;
   cursor: pointer;
 }
@@ -320,11 +320,11 @@
 }
 
 .header-joblist-item:hover {
-  background: #f8fafc;
+  background: #f8fbf8;
 }
 
 .header-joblist-item.active {
-  background: #eef4ff;
+  background: #edf9f0;
 }
 
 .header-joblist-item-icon {
@@ -332,7 +332,7 @@
   font-size: 14px;
   display: flex;
   align-items: center;
-  color: #6366f1;
+  color: var(--accent);
 }
 
 .header-joblist-item-title {
@@ -341,7 +341,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: #334155;
+  color: #2d3d32;
 }
 
 .header-settings-btn {
@@ -352,22 +352,22 @@
   height: 32px;
   padding: 0;
   background: transparent;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #dbe4dd;
   border-radius: 10px;
   cursor: pointer;
-  color: #64748b;
+  color: #5d6c62;
   font-size: 16px;
   transition: all 0.15s;
 }
 
 .header-settings-btn:hover:not(:disabled) {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #1e293b;
+  background: #edf3ee;
+  border-color: #cdd9d0;
+  color: #1c2b21;
 }
 
 .header-settings-btn:active {
-  background: #f1f5f9;
+  background: #edf3ee;
 }
 
 .header-settings-btn:disabled {
@@ -376,8 +376,8 @@
 }
 
 .header-restart-btn:hover:not(:disabled) {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
+  background: #edf3ee;
+  border-color: #cdd9d0;
 }
 
 .header-restart-btn.restarting {
@@ -398,16 +398,16 @@
   height: 32px;
   padding: 0;
   background: transparent;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #dbe4dd;
   border-radius: 10px;
   cursor: pointer;
-  color: #64748b;
+  color: #5d6c62;
   transition: all 0.15s;
 }
 
 .header-filebrowser-btn:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
+  background: #edf3ee;
+  border-color: #cdd9d0;
 }
 
 .header-filebrowser-btn.active {
@@ -447,7 +447,7 @@
   background: transparent;
   border: none;
   border-radius: 8px;
-  color: #334155;
+  color: #2d3d32;
   font-size: 13px;
   font-weight: 500;
   line-height: 1.3;
@@ -458,14 +458,14 @@
 
 .header-more-item:hover,
 .header-more-item:focus-visible {
-  background: #f1f5f9;
-  color: #0f172a;
+  background: #edf3ee;
+  color: #101b13;
   outline: none;
 }
 
 .header-more-item.active {
   background: #e8f0fe;
-  color: #1a73e8;
+  color: var(--accent);
 }
 
 .header-more-icon {
@@ -518,17 +518,17 @@
   gap: 12px;
   flex: 1;
   min-height: 0;
-  color: #94a3b8;
+  color: #7a897f;
 }
 
 .jobchat-loading-spinner {
-  color: #6366f1;
+  color: var(--accent);
   animation: spin 0.9s linear infinite;
 }
 
 .jobchat-loading-text {
   font-size: 13px;
-  color: #64748b;
+  color: #5d6c62;
   letter-spacing: 0.2px;
 }
 
@@ -604,8 +604,8 @@
   justify-content: center;
   padding: 8px 24px;
   background: #f0f9ff;
-  border-top: 1px solid #bae6fd;
-  color: #0369a1;
+  border-top: 1px solid #bbf7d0;
+  color: #047857;
   font-size: 13px;
   font-weight: 500;
 }
@@ -736,17 +736,17 @@
     justify-content: center;
     width: 36px;
     height: 36px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #dbe4dd;
     border-radius: 8px;
-    background: #fff;
-    color: #475569;
+    background: var(--surface);
+    color: #46564b;
     cursor: pointer;
     font-size: 14px;
     flex-shrink: 0;
   }
 
   .graph-session-sidebar-toggle:active {
-    background: #f1f5f9;
+    background: #edf3ee;
   }
 
   .graph-session-sidebar-overlay {

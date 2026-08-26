@@ -11,8 +11,8 @@
 .filebrowser-panel {
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border-left: 1px solid #e5e5e5;
+  background: var(--surface);
+  border-left: 1px solid #cdd9d0;
   overflow: hidden;
   flex-shrink: 0;
   position: fixed;
@@ -37,7 +37,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid #e7eee9;
   flex-shrink: 0;
 }
 
@@ -45,7 +45,7 @@
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: #142019;
 }
 
 .filebrowser-close-btn {
@@ -59,12 +59,12 @@
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #666;
+  color: #5d6c62;
 }
 
 .filebrowser-close-btn:hover {
-  background: #f0f0f0;
-  color: #333;
+  background: #e7eee9;
+  color: #29362d;
 }
 
 .filebrowser-content {
@@ -88,7 +88,7 @@
 }
 
 .filebrowser-tree::-webkit-scrollbar-thumb {
-  background: #ddd;
+  background: #d5dfd7;
   border-radius: 3px;
 }
 
@@ -100,18 +100,18 @@
   padding: 5px 10px;
   cursor: pointer;
   font-size: 13px;
-  color: #333;
+  color: #29362d;
   white-space: nowrap;
   user-select: none;
 }
 
 .fb-tree-item:hover {
-  background: #f5f5f5;
+  background: #f3f7f4;
 }
 
 .fb-tree-item.active {
   background: #e8f0fe;
-  color: #1a73e8;
+  color: var(--accent);
 }
 
 .fb-tree-item .fb-icon {
@@ -149,13 +149,13 @@
   padding: 2px;
   margin-left: auto;
   cursor: pointer;
-  color: #999;
+  color: #87958b;
   border-radius: 4px;
   flex-shrink: 0;
 }
 
 .fb-tree-item .fb-copy-path-btn:hover {
-  color: #333;
+  color: #29362d;
   background: #e0e0e0;
 }
 
@@ -166,7 +166,7 @@
 .fb-tree-item .fb-size {
   margin-left: 8px;
   font-size: 11px;
-  color: #999;
+  color: #87958b;
   flex-shrink: 0;
 }
 
@@ -177,7 +177,7 @@
 .fb-tree-loading {
   padding: 6px 10px 6px 40px;
   font-size: 12px;
-  color: #999;
+  color: #87958b;
 }
 
 /* Desktop modal viewer */
@@ -245,7 +245,7 @@
 
 .filebrowser-resize-handle:hover,
 .filebrowser-resize-handle.active {
-  background: #2563eb;
+  background: var(--accent);
   opacity: 0.3;
 }
 
