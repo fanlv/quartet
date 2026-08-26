@@ -20,10 +20,10 @@ type JobRunner interface {
 	// Agent events are delivered via the handler callback.
 	RunIteration(ctx context.Context, sessionID string, messages []*schema.Message, handler agui.EventHandler) error
 
-	// SessionModelID returns the model id currently bound to sessionID. Used by
-	// usage-stats to attribute a turn to its real-time session model. Returns "" when the session
-	// is unknown or has no model — the caller treats empty as "skip model
-	// bucket" rather than fabricating an attribution.
+	// SessionModelID returns the canonical usage-attribution model currently
+	// bound to sessionID. Returns "" when the session is unknown or has no
+	// model — the caller treats empty as "skip model bucket" rather than
+	// fabricating an attribution.
 	SessionModelID(sessionID string) string
 }
 

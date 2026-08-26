@@ -3,8 +3,10 @@
 package install
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -26,15 +28,17 @@ type ExecutableStatus struct {
 	ResolvedPath string
 	PathBased    bool
 	Installed    bool
+	Missing      bool
 	Error        string
 }
 
 // Status is the complete installation result for one ACP runtime definition.
 type Status struct {
-	Installed  bool
-	Bin        ExecutableStatus
-	ACPProgram ExecutableStatus
-	Error      string
+	Installed          bool
+	MissingExecutables bool
+	Bin                ExecutableStatus
+	ACPProgram         ExecutableStatus
+	Error              string
 }
 
 // Checker performs installation checks against the backend process environment.
@@ -48,7 +52,10 @@ func (c Checker) Check(def Definition) Status {
 	}
 
 	status := Status{
-		Installed:  bin.Installed && program.Installed,
+		Installed: bin.Installed && program.Installed,
+		MissingExecutables: (!bin.Installed || !program.Installed) &&
+			(bin.Installed || bin.Missing) &&
+			(program.Installed || program.Missing),
 		Bin:        bin,
 		ACPProgram: program,
 	}
@@ -89,6 +96,7 @@ func (c Checker) checkExecutable(executable string) ExecutableStatus {
 	if status.PathBased {
 		info, err := os.Stat(executable)
 		if err != nil {
+			status.Missing = errors.Is(err, os.ErrNotExist)
 			status.Error = fmt.Sprintf("stat executable path %q failed: %v", executable, err)
 			return status
 		}
@@ -115,6 +123,7 @@ func (c Checker) checkExecutable(executable string) ExecutableStatus {
 
 	resolved, err := executil.LookPath(executable)
 	if err != nil {
+		status.Missing = errors.Is(err, exec.ErrNotFound)
 		status.Error = fmt.Sprintf(
 			"executable %q not found in $PATH",
 			executable,

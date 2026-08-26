@@ -59,6 +59,7 @@ import { GraphInspector, BUILTIN_VARS } from './graph/GraphInspector';
 import { GraphRunInspector } from './graph/GraphRunInspector';
 import { registerWorkspaceColors, workspaceColor } from '../utils/workspace';
 import { useAuthPrincipal } from '../auth';
+import { HomeNavigation } from './HomeNavigation';
 import './GraphWorkflowPage.css';
 
 // Workspace list item shape, mirrored from ChatPage's /workspace/list usage.
@@ -70,6 +71,10 @@ interface GraphWorkflowPageProps {
   workspaceWorkdir?: string;
   onClose: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  navigationRefreshKey?: number;
+  onOpenSettings?: () => void;
+  onOpenStats?: () => void;
+  onOpenGraph?: () => void;
   // Called after a run is started so the app can jump into the Chat page for the
   // bound Graph Job, mirroring the normal Graph run launch flow.
   onRunStarted: (jobId: string) => void;
@@ -588,7 +593,18 @@ function upsertWorkflow(list: GraphWorkflowSummary[], workflow: GraphWorkflow | 
   return [summary, ...list];
 }
 
-export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdir, onClose, onDirtyChange, onRunStarted }: GraphWorkflowPageProps) {
+export function GraphWorkflowPage({
+  workspaceId,
+  workspaceTitle,
+  workspaceWorkdir,
+  onClose,
+  onDirtyChange,
+  navigationRefreshKey,
+  onOpenSettings,
+  onOpenStats,
+  onOpenGraph,
+  onRunStarted,
+}: GraphWorkflowPageProps) {
   const { t } = useTranslation();
   const principal = useAuthPrincipal();
   const canWriteWorkflows = principal?.permissions.includes('workflow.write') ?? false;
@@ -2116,20 +2132,17 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
 
   return (
     <div className="graph-page">
-      <header className="chatbot-header graph-page-header">
-        <div className="header-left">
-          <button className="back-button" onClick={() => { if (guardDiscard()) onClose(); }} aria-label={t('graph.header.back')}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </button>
-          <span className="header-logo">
-            <span className="graph-header-mark">◇</span>
-            <span className="header-logo-text">{t('graph.header.title')}</span>
-          </span>
-        </div>
-        <nav className="header-nav">
-          {isMobile && (
+      <HomeNavigation
+        className="graph-page-header"
+        workspaceTitle={workspaceTitle}
+        workdir={workspaceWorkdir}
+        refreshKey={navigationRefreshKey}
+        activeView="graph"
+        pageTitle={t('graph.header.title')}
+        pageMark={<span className="graph-header-mark">◇</span>}
+        onBack={() => { if (guardDiscard()) onClose(); }}
+        backLabel={t('graph.header.back')}
+        pageActions={isMobile ? (
             <button
               className="header-settings-btn"
               onClick={() => setLibraryOpen(true)}
@@ -2143,9 +2156,11 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
                 <line x1="3" y1="18" x2="21" y2="18" />
               </svg>
             </button>
-          )}
-        </nav>
-      </header>
+        ) : undefined}
+        onOpenSettings={onOpenSettings}
+        onOpenStats={onOpenStats}
+        onOpenGraph={onOpenGraph}
+      />
 
       <main className="graph-page-main">
         <aside className={`graph-sidebar${isMobile && libraryOpen ? ' graph-sidebar-open' : ''}`}>

@@ -46,6 +46,7 @@ func (h *Handler) CreateEinoModel(ctx context.Context, c *app.RequestContext) {
 		httputil.InternalError(c, err.Error())
 		return
 	}
+	h.rememberEinoUsageModel(created)
 	c.JSON(200, map[string]any{
 		"code":  0,
 		"model": created,

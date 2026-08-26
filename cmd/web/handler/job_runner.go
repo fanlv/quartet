@@ -246,9 +246,10 @@ func (r *jobRunnerImpl) SessionLastAssistantMessage(ctx context.Context, jobID, 
 	return "", false, nil
 }
 
-// SessionModelID resolves the bound model id for sessionID, going through the
-// shared session-service lookup so an evicted entry is reloaded from disk
-// before we give up.
+// SessionModelID resolves the usage-attribution model for sessionID, going
+// through the shared session-service lookup so an evicted entry is reloaded
+// from disk before we give up. Eino's short catalog IDs are translated to the
+// provider-facing connection model; other ACP model IDs pass through unchanged.
 func (r *jobRunnerImpl) SessionModelID(sessionID string) string {
 	if sessionID == "" {
 		return ""
@@ -257,7 +258,7 @@ func (r *jobRunnerImpl) SessionModelID(sessionID string) string {
 	if !ok || s == nil {
 		return ""
 	}
-	return s.ModelID
+	return r.h.usageModelID(s)
 }
 
 type sessionNotFoundError struct {

@@ -212,11 +212,12 @@ func (h *Handler) enrichWorkspaceRows(rows []usagestats.WorkspaceAggregate) []st
 	return out
 }
 
-// enrichModelRows fills in the display name for each model id. Recorded ids
-// are ACP model identifiers, which are already display-ready; the empty
-// bucket (the "couldn't attribute" pile) is surfaced with the special id
-// "(unknown model)" so the UI can render it as a labelled row rather than a
-// silent gap.
+// enrichModelRows fills in the display name for each model id. Usage recording
+// already canonicalizes provider-specific catalog IDs (notably Eino's random
+// short IDs) to their actual model names. Other ACP model identifiers are
+// already display-ready; the empty bucket (the "couldn't attribute" pile) is
+// surfaced with the special id "(unknown model)" so the UI can render it as
+// a labelled row rather than a silent gap.
 func (h *Handler) enrichModelRows(ctx context.Context, rows []usagestats.ModelAggregate) []statsModelRow {
 	if len(rows) == 0 {
 		return []statsModelRow{}
@@ -230,7 +231,7 @@ func (h *Handler) enrichModelRows(ctx context.Context, rows []usagestats.ModelAg
 		if entry.ModelID == "" {
 			entry.ModelID = unknownModelID
 		}
-		entry.ModelName = entry.ModelID
+		entry.ModelName = h.canonicalUsageModelID(entry.ModelID)
 		out = append(out, entry)
 	}
 	return out
@@ -253,7 +254,7 @@ func (h *Handler) enrichDailyRows(ctx context.Context, rows []usagestats.DailyAg
 			for rawID, totals := range row.Models {
 				name, ok := nameCache[rawID]
 				if !ok {
-					name = rawID
+					name = h.canonicalUsageModelID(rawID)
 					if name == "" {
 						name = unknownModelID
 					}

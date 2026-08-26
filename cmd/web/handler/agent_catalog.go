@@ -41,7 +41,7 @@ func (h *Handler) AgentCatalog(ctx context.Context, c *app.RequestContext) {
 			revision,
 			h.settingsService.GetACPEnvVersion(item.AgentID),
 		)
-		if validation.RefreshedAt > 0 {
+		if status.Installed && validation.RefreshedAt > 0 {
 			if validation.Success {
 				item.LastValidationStatus = "available"
 			} else {
@@ -59,7 +59,12 @@ func (h *Handler) AgentCatalog(ctx context.Context, c *app.RequestContext) {
 			item.Availability = "deleted"
 		case !status.Installed:
 			item.Availability = "not_installed"
-			item.AvailabilityError = status.Error
+			// A missing executable is the ordinary not-installed state shown by
+			// Agent management, not a validation failure. Preserve diagnostics
+			// for malformed paths and other actionable installation problems.
+			if !status.MissingExecutables {
+				item.AvailabilityError = status.Error
+			}
 		default:
 			switch {
 			case !matched:

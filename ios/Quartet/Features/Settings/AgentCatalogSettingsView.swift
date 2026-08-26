@@ -665,10 +665,6 @@ struct AgentCatalogSettingsView: View {
         if let detail = item.availabilityError ?? item.deleteError, !detail.isEmpty {
             AgentSettingsMessageView(kind: .failure, text: detail)
         }
-        if item.availability == "not_installed",
-           let detail = item.lastValidationError, !detail.isEmpty {
-            AgentSettingsMessageView(kind: .failure, text: detail)
-        }
         if let feedback = checkFeedback[item.agentId] {
             checkFeedbackView(feedback)
         }
@@ -692,7 +688,7 @@ struct AgentCatalogSettingsView: View {
            item.isBuiltin, !item.deprecated, !item.installed, !item.autoInstallable {
             agentSettingsHint(instructions)
         }
-        if let status = item.lastValidationStatus, let at = item.lastValidationAt, at > 0 {
+        if item.installed, let status = item.lastValidationStatus, let at = item.lastValidationAt, at > 0 {
             agentSettingsHint(AppLanguage.localizedFormat(
                 "最近校验：%@ · %@",
                 validationStatusLabel(status),

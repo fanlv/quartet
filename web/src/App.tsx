@@ -1018,21 +1018,16 @@ function WorkspaceApp() {
         </div>
       ) : showGraph && principal?.permissions.includes('workflow.read') ? (
         <div className="app-main">
-          <HomeNavigation
-            workspaceTitle={currentWorkspace?.title}
-            workdir={currentWorkspace?.workdir}
-            refreshKey={homeRefreshKey}
-            activeView="graph"
-            onOpenSettings={handleOpenSettings}
-            onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
-            onOpenGraph={handleOpenGraph}
-          />
           <GraphWorkflowPage
             workspaceId={currentWorkspace?.id}
             workspaceTitle={currentWorkspace?.title}
             workspaceWorkdir={currentWorkspace?.workdir}
             onClose={handleCloseGraph}
             onDirtyChange={handleGraphDirtyChange}
+            navigationRefreshKey={homeRefreshKey}
+            onOpenSettings={handleOpenSettings}
+            onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
+            onOpenGraph={handleOpenGraph}
             onRunStarted={handleGraphRunStarted}
           />
         </div>

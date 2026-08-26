@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthPrincipal } from '../auth';
@@ -22,6 +22,12 @@ export interface HomeNavigationProps {
   workdir?: string;
   refreshKey?: number;
   activeView?: 'home' | 'stats' | 'graph';
+  className?: string;
+  pageTitle?: string;
+  pageMark?: ReactNode;
+  onBack?: () => void;
+  backLabel?: string;
+  pageActions?: ReactNode;
   onOpenSettings?: () => void;
   onOpenStats?: () => void;
   onOpenGraph?: () => void;
@@ -92,6 +98,12 @@ export function HomeNavigation({
   workdir = '',
   refreshKey,
   activeView = 'home',
+  className,
+  pageTitle,
+  pageMark,
+  onBack,
+  backLabel,
+  pageActions,
   onOpenSettings,
   onOpenStats,
   onOpenGraph,
@@ -110,7 +122,7 @@ export function HomeNavigation({
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
 
   useEffect(() => {
-    if (!canReadConfig) {
+    if (pageTitle || !canReadConfig) {
       setUserAvatarUrl('');
       return;
     }
@@ -119,7 +131,7 @@ export function HomeNavigation({
       if (!cancelled) setUserAvatarUrl(avatarUrl);
     });
     return () => { cancelled = true; };
-  }, [canReadConfig, refreshKey]);
+  }, [canReadConfig, pageTitle, refreshKey]);
 
   const localizedBuildTime = useMemo(() => {
     if (!buildTime) return { full: '', compact: '' };
@@ -166,10 +178,19 @@ export function HomeNavigation({
 
   return (
     <>
-      <header className="chatbot-header" data-testid={activeView === 'home' ? 'home-header' : 'home-navigation'}>
+      <header className={`chatbot-header${className ? ` ${className}` : ''}`} data-testid={activeView === 'home' ? 'home-header' : 'home-navigation'}>
         <div className="header-left">
+          {onBack && (
+            <button className="back-button" onClick={onBack} aria-label={backLabel}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+          )}
           <span className="header-logo">
-            {userAvatarUrl ? (
+            {pageTitle ? (
+              pageMark
+            ) : userAvatarUrl ? (
               <img src={userAvatarUrl} alt="" className="header-user-avatar" referrerPolicy="no-referrer" />
             ) : (
               <svg className="header-logo-mark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -179,8 +200,8 @@ export function HomeNavigation({
                 <path d="M9.5 13h.01M14.5 13h.01" />
               </svg>
             )}
-            {' '}<span className="header-logo-text">{workspaceTitle || principal?.user.displayName || 'Quartet'}</span>
-            {localizedBuildTime.full && (
+            {' '}<span className="header-logo-text">{pageTitle || workspaceTitle || principal?.user.displayName || 'Quartet'}</span>
+            {!pageTitle && localizedBuildTime.full && (
               <span className="home-build-time" title={`${t('home.buildTime')}: ${buildTime}`} data-testid="home-build-time">
                 <span className="home-build-time-full">{t('home.buildTimeValue', { time: localizedBuildTime.full })}</span>
                 <span className="home-build-time-compact">{localizedBuildTime.compact}</span>
@@ -189,6 +210,7 @@ export function HomeNavigation({
           </span>
         </div>
         <nav className="header-nav" aria-label={t('chat.headerActions.navigation')}>
+          {pageActions}
           {canManageSystem && (
             <button
               className={`header-settings-btn header-restart-btn ${webRestarting ? 'restarting' : ''}`}

@@ -89,6 +89,11 @@ type Service interface {
 	Recorder
 	Reader
 
+	// MigrateModelIDs rewrites historical per-model buckets according to the
+	// supplied aliases. When both the old and canonical IDs exist in one day,
+	// their counters are merged. Day-level totals are unchanged.
+	MigrateModelIDs(ctx context.Context, aliases map[string]string) error
+
 	// Flush blocks until any pending writes are durable. Used at shutdown
 	// to avoid losing the last debounced batch.
 	Flush(ctx context.Context)

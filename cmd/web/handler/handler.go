@@ -119,6 +119,8 @@ type Handler struct {
 	scheduleService      schedule.Service
 	scheduler            *schedule.Scheduler
 	usageStats           usagestats.Service
+	usageModelMu         sync.RWMutex
+	usageModelAliases    map[string]string
 	usageService         usage.Service
 	agentVersions        *agentversion.Service
 	acpProbeCache        *probe.CacheService
@@ -249,12 +251,19 @@ func NewHandler(ctx context.Context) (*Handler, error) {
 		workspaceService:     wss,
 		scheduleService:      schSvc,
 		usageStats:           usageStats,
+		usageModelAliases:    make(map[string]string),
 		usageService:         usage.NewService(ss),
 		agentVersions:        agentversion.NewService(agentCatalog),
 		acpProbeCache:        acpProbeCache,
 		einoCLI:              einocli.NewService(),
 		skillsService:        skills.NewService(ctx),
 		authService:          authSvc,
+	}
+	if err := h.initializeEinoUsageModels(ctx); err != nil {
+		// Eino is optional, so a missing/broken local eino-cli must not make the
+		// whole web service unavailable. The raw ACP model ID remains a safe
+		// fallback attribution key and the full error is kept in the log.
+		logger.Warnf(ctx, "[usagestats] initialize Eino model aliases failed: %v", err)
 	}
 	wechatOutbox, err := wechatoutbox.NewService(func() messaging.Replier {
 		h.imGatewayMu.RLock()

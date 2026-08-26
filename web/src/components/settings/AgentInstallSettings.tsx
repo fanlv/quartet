@@ -1265,9 +1265,6 @@ export function AgentInstallSettings() {
               {(agent.availability_error || agent.delete_error) && (
                 <pre className="agent-directory-error">{agent.availability_error || agent.delete_error}</pre>
               )}
-              {agent.availability === 'not_installed' && agent.last_validation_error && (
-                <pre className="agent-directory-error">{agent.last_validation_error}</pre>
-              )}
               {versionInfo?.components.filter((component) => !!component.error).map((component) => (
                 <pre key={`${component.kind}-${component.name}`} className="agent-directory-error">
                   {component.name}
@@ -1386,7 +1383,7 @@ export function AgentInstallSettings() {
                   {showManual && (
                     <div className="agent-install-instructions">{agent.install_instructions}</div>
                   )}
-                  {agent.last_validation_status && agent.last_validation_at ? (
+                  {agent.installed && agent.last_validation_status && agent.last_validation_at ? (
                     <div className="agent-install-meta">
                       <span>
                         {t('settings.agents.lastValidation')}: {t(`settings.agents.status.${agent.last_validation_status}`)}
