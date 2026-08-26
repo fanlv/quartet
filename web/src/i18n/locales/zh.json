@@ -199,24 +199,6 @@
     "restartWebCancel": "取消",
     "restartWebConfirm": "重启"
   },
-  "loop": {
-    "progress": {
-      "lastError": "最近失败原因",
-      "persistWarnings": "持久化警告",
-      "session": "会话 {{current}} / {{total}}",
-      "step": "步骤 {{current}} / {{total}}",
-      "currentPath": "当前：{{path}}",
-      "failedCount": "失败 {{count}} 个",
-      "skippedCount": "已跳过 {{count}} 步",
-      "status": {
-        "idle": "等待中",
-        "running": "运行中",
-        "completed": "已完成",
-        "stopped": "已停止",
-        "failed": "已失败"
-      }
-    }
-  },
   "settings": {
     "title": "设置",
     "tabs": {
@@ -817,6 +799,8 @@
     "disabled": "已禁用",
     "lastRun": "上次执行",
     "neverRun": "未执行",
+    "openLatestJob": "查看最近执行的 Job",
+    "openLatestJobForSchedule": "查看定时任务“{{name}}”最近执行的 Job",
     "runCount_other": "共 {{count}} 次",
     "lastStatus": {
       "success": "成功",
@@ -1043,7 +1027,7 @@
       "loading": "加载中",
       "notLoaded": "未加载"
     },
-    "loop": {
+    "runPanel": {
       "notBound": "该任务尚未绑定 GraphRun。",
       "controls": "Graph 运行控制",
       "showControls": "控制面板",

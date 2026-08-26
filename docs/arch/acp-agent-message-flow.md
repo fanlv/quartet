@@ -8,7 +8,7 @@
 ## 1. 整体时序
 
 ```
-┌──────────────┐  POST /api/v1/job/create            创建 Job（首条消息塞进 loopConfig.flow[0].message）
+┌──────────────┐  POST /api/v1/job/create            创建 interactive Job
 │   前端       │ ──────────────────────────────────► ← 返回 jobId，切到 JobChat 页
 │  (ChatPage / │  POST /api/v1/job/:jobId/message     投递首条消息（带 agentType / acpMode / acpThoughtLevel）
 │   JobChat)   │  GET  /api/v1/job/:jobId/events      SSE 订阅流式响应（带 Last-Event-ID）
@@ -41,7 +41,7 @@
 
 首页是 `ChatPage`（无活跃 job 时渲染，有 job 时切 `JobChat`）。点发送 / 回车触发 `handleSubmit`，转调 `App` 的 `handleStartChat`。
 
-- **创建 Job**：`POST /api/v1/job/create`，`mode=interactive`，首条消息放进 `loopConfig.flow[0].message`，随请求带上 `agentType / modelId / workspaceId / workdir`，ACP agent 还带 `acpMode / acpThoughtLevel`。返回 jobId 后切到 `JobChat`。
+- **创建 Job**：`POST /api/v1/job/create`，`mode=interactive`，随请求带上 `agentType / modelId / workspaceId / workdir`，ACP agent 还带 `acpMode / acpThoughtLevel`。返回 jobId 后切到 `JobChat`，再投递首条消息。
 - **投递消息**：`JobChat` 就绪后调 `sendMessage` → `POST /api/v1/job/:jobId/message`。
 - **订阅 SSE**：`useJobChat` 用自研 `SSEClient`（fetch + ReadableStream，非原生 EventSource）连 `GET /api/v1/job/:jobId/events`，以便携带鉴权 token、支持 `Last-Event-ID` 续传。
 
@@ -51,7 +51,7 @@
 
 `JobMessage`（`cmd/web/handler/job_message.go`）：校验 job、解析请求、`/command` 快速路径分流（命令直接执行、不落库不转发 Agent），`prepareJobSend → prepareInteractiveRun` 构建运行参数并做 `resolveSessionID`——**若已有 session 的 `Type` 与本次 `agentType` 不一致，则新建 session 让新类型生效**。随后落 `user_input`，调 `jobService.SendMessage`。
 
-`jobService.SendMessage`（`services/job/executor_run.go`）置 `Status=Running`、持久化 job，异步 `runInteractive` → `executeRepeat` → `JobRunner.RunIteration`。
+`jobService.SendMessage`（`services/job/executor_run.go`）置 `Status=Running`、持久化 job，异步 `runInteractive` → `executeAgentTurn` → `JobRunner.RunIteration`。
 
 **判定 ACP 还是 eino 的唯一依据是 `session.Type`**（`cmd/web/handler/job_runner.go` `RunIteration`）：等于 `consts.AgentTypeEino`（`"eino"`）走内置 runner，其它一律走 `runACPInternal`。session 的 `Type` 就是创建时传入的 `agentType`；ACP agent 的 `agentType` 是它的 **serve 命令字符串**（如 `claude-agent-acp` / `codex-acp`，来自 agent 列表探测）。
 

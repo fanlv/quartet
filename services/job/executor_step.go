@@ -10,7 +10,7 @@ import (
 	"github.com/fanlv/quartet/types/model"
 )
 
-func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner JobRunner, msg string, sessionID string, opts *SendMessageOptions) {
+func (s *serviceImpl) executeAgentTurn(ctx context.Context, job *model.Job, runner JobRunner, msg string, sessionID string, opts *SendMessageOptions) {
 	logger.Debugf(ctx, "[step] run: jobId=%s msg=%s", job.ID, strutil.TruncateRunesWithEllipsis(msg, 200))
 
 	clientMessageID := ""
@@ -21,7 +21,7 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 	if messages == nil {
 		messages = []*schema.Message{schema.UserMessage(msg)}
 	}
-	handler := newLoopEventHandler(ctx, job.ID, sessionID, clientMessageID, messages, s)
+	handler := newAgentEventHandler(ctx, job.ID, sessionID, clientMessageID, messages, s)
 	// An interactive send treats RUN_STARTED as the run's semantic boundary
 	// used by the UI for per-round duration. It MUST share the same clock read
 	// as the persisted job.StartedAt to keep live vs reload consistent.
@@ -53,7 +53,7 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 	// Resolve usage attribution from the session after the run: the session is
 	// the source of truth for the model that actually executed.
 	stepModelID := resolveUsageSessionModelID(runner, sessionID)
-	fin := repeatFinalization{
+	fin := agentTurnFinalization{
 		ctx:         ctx,
 		job:         job,
 		sessionID:   sessionID,
@@ -64,24 +64,24 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 		stepModelID: stepModelID,
 	}
 	if isInterruptedRun(err) {
-		s.finalizeInterruptedRepeat(fin)
+		s.finalizeInterruptedAgentTurn(fin)
 		return
 	}
-	s.finalizeRepeat(fin)
+	s.finalizeAgentTurn(fin)
 }
 
-type repeatFinalization struct {
+type agentTurnFinalization struct {
 	ctx         context.Context
 	job         *model.Job
 	sessionID   string
-	handler     *loopEventHandler
+	handler     *agentEventHandler
 	start       time.Time
 	duration    time.Duration
 	err         error
 	stepModelID string
 }
 
-func (s *serviceImpl) finalizeInterruptedRepeat(fin repeatFinalization) {
+func (s *serviceImpl) finalizeInterruptedAgentTurn(fin agentTurnFinalization) {
 	// err distinguishes user Stop (context.Canceled) from job-level
 	// deadline (context.DeadlineExceeded) — both fall under "interrupted"
 	// but the operator cause is different and the bare log without err
@@ -101,7 +101,7 @@ func (s *serviceImpl) finalizeInterruptedRepeat(fin repeatFinalization) {
 	s.publishRunOutcome(fin.job.ID, fin.sessionID, fin.handler.runID, fin.err, interruptedAt)
 }
 
-func (s *serviceImpl) finalizeRepeat(fin repeatFinalization) {
+func (s *serviceImpl) finalizeAgentTurn(fin agentTurnFinalization) {
 	runFinishedAt := s.nowMillis()
 	s.mu.Lock()
 	fin.job.FinishedAt = runFinishedAt

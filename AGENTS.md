@@ -101,7 +101,7 @@ Go tests: `go test ./...`
   - 更新类接口主要使用 `PUT`，局部更新可使用 `PATCH`（如 workspace）
   - 删除类接口使用 `DELETE`
 - 文件类接口既有 JSON body，也有 multipart 上传，不要再假设“所有接口都走 POST + JSON”
-- SSE 连接模型：graph 工作流任务页面同一时刻只保留一条长连接——run live（pending/running/stepStopping）时只订阅 `/api/v1/job/:id/graph-run/events`，run 非 live（terminal/awaitingInput）时只订阅 `/api/v1/job/:id/events`；GraphLoopProgress 等组件不得再开第二条流。站点当前全链路 HTTP/1.1，浏览器单域名仅约 6 条连接，SSE 占满会让 stop 等普通 POST 在 socket 池里饿死
+- SSE 连接模型：graph 工作流任务页面同一时刻只保留一条长连接——run live（pending/running/stepStopping）时只订阅 `/api/v1/job/:id/graph-run/events`，run 非 live（terminal/awaitingInput）时只订阅 `/api/v1/job/:id/events`；GraphRunProgress 等组件不得再开第二条流。站点当前全链路 HTTP/1.1，浏览器单域名仅约 6 条连接，SSE 占满会让 stop 等普通 POST 在 socket 池里饿死
 
 ### agent-browser 页面鉴权
 

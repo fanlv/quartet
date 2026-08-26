@@ -139,7 +139,6 @@ export function Sidebar({ currentJobId, workspaceId, onNewChat, onSelectJob, onO
 
   const getJobIcon = (job: JobInfo) => {
     if (job.mode === 'graph') return '◇';
-    if (job.mode === 'loop') return '🔄';
     return '💬';
   };
 

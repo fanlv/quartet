@@ -11,6 +11,7 @@ import (
 func TestPersistedJobRoundTripKeepsPrivateMessageReceipts(t *testing.T) {
 	original := &model.Job{
 		ID:                    "job-1",
+		Mode:                  model.JobModeInteractive,
 		ActiveClientMessageID: "client-1",
 		ClientMessageReceipts: map[string]model.ClientMessageReceipt{
 			"client-1": {
@@ -82,5 +83,12 @@ func TestJobPublicJSONOmitsMessageReceipts(t *testing.T) {
 		if bytes.Contains(data, privateValue) {
 			t.Fatalf("public Job JSON leaked private receipt data %q: %s", privateValue, data)
 		}
+	}
+}
+
+func TestUnmarshalPersistedJobRejectsUnsupportedMode(t *testing.T) {
+	_, err := unmarshalPersistedJob([]byte(`{"id":"job-old","mode":"loop"}`))
+	if err == nil || err.Error() != `unsupported job mode "loop"` {
+		t.Fatalf("unmarshalPersistedJob error = %v, want unsupported loop mode", err)
 	}
 }

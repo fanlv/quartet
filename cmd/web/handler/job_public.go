@@ -40,7 +40,7 @@ func (h *Handler) PublicGetSessionMessages(ctx context.Context, c *app.RequestCo
 		return
 	}
 
-	// Verify sessionId belongs to this job (loop/interactive or graph node session)
+	// Verify sessionId belongs to this job (interactive or graph node session).
 	if !sessionBelongsToJob(job, sessionID) {
 		c.JSON(http.StatusForbidden, map[string]string{"error": "session does not belong to this job"})
 		return

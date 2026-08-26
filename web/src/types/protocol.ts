@@ -21,9 +21,6 @@ export enum EventTypeEnum {
   JOB_COMPLETED = 'JOB_COMPLETED',
   JOB_STOPPED = 'JOB_STOPPED',
   JOB_FAILED = 'JOB_FAILED',
-  ITERATION_STARTED = 'ITERATION_STARTED',
-  ITERATION_COMPLETED = 'ITERATION_COMPLETED',
-  ITERATION_FAILED = 'ITERATION_FAILED',
   // Chat-page slash-command feedback (方向一-2). Transient: not persisted.
   COMMAND_SYSTEM_MESSAGE = 'COMMAND_SYSTEM_MESSAGE',
 }
@@ -63,9 +60,7 @@ export interface BaseEvent {
   stepId?: string;
   timestamp: number;
   external?: Record<string, unknown>;
-  // Loop context
   jobId?: string;
-  path?: number[];
 }
 
 export interface RunStartedEvent extends BaseEvent {
@@ -180,61 +175,12 @@ export interface CustomEvent extends BaseEvent {
   value: unknown;
 }
 
-// Job-level event interfaces
-export interface IterationResult {
-  path: number[];
-  sessionId: string;
-  success: boolean;
-  durationMs: number;
-  tokens: number;
-  error?: string;
-  content?: string;
-}
-
-export interface JobProgress {
-  totalSteps: number;
-  currentPath?: number[];
-  /** Unix-ms timestamp for the currently running iteration, persisted by the backend. */
-  currentStartedAt?: number;
-  completedCount: number;
-  failedCount: number;
-  results?: IterationResult[];
-  lastError?: string;
-  persistWarnings?: string[];
-  // groupActualIterations maps a group's dot-joined node path (e.g. "0.0") to
-  // the number of rounds it actually ran when it broke early via stepStopLoop
-  // (evaluator STOP or Shell STOP_LOOP). Used to recompute the session/step
-  // plan denominator so the progress text and bar reflect the real run instead
-  // of the static iteration cap.
-  groupActualIterations?: Record<string, number>;
-  // groupActualLeafCounts maps the same group path to the exact number of leaf
-  // steps the group CONSUMED before STOP — executed plus empty-prompt-skipped.
-  // Unlike iteration counts, this also trims sibling steps skipped after STOP
-  // within the final iteration. The session plan keeps this slot prefix, then
-  // filters skippedPaths leaves out of it.
-  groupActualLeafCounts?: Record<string, number>;
-  // skippedPaths records leaf slots (dot-joined full step paths, iteration and
-  // repeat indices included, e.g. "0.1.2.0") whose rendered prompt was empty
-  // and were therefore skipped without running — no session, no round, no chat
-  // messages. Each entry already decremented totalSteps on the backend; the
-  // session plan filters these leaves out so session/step numbering matches
-  // the real run.
-  skippedPaths?: Record<string, boolean>;
-  // gracefulStopPending reports a "stop after step" was requested and not yet
-  // consumed at a step boundary. Runtime-only (never persisted): the backend
-  // synthesizes it onto the GET /job/:id snapshot and broadcasts changes via a
-  // transient graceful_stop_pending custom event, so a refresh / second tab can
-  // restore the "keep running" affordance.
-  gracefulStopPending?: boolean;
-}
-
 export interface JobStartedEvent extends BaseEvent {
   type: EventTypeEnum.JOB_STARTED;
-  totalSteps: number;
 }
 
 // RunOutcome describes what actually happened in the run that just
-// ended (loop run, or interactive send). Distinct from the event type
+// ended. Distinct from the event type
 // because an interactive send on an already-terminal job restores the
 // prior job status, so JOB_* may reflect prior-state; runOutcome
 // always reflects this run's actual result.
@@ -242,41 +188,18 @@ export type RunOutcome = 'completed' | 'stopped' | 'failed';
 
 export interface JobCompletedEvent extends BaseEvent {
   type: EventTypeEnum.JOB_COMPLETED;
-  progress: JobProgress;
   runOutcome?: RunOutcome;
 }
 
 export interface JobStoppedEvent extends BaseEvent {
   type: EventTypeEnum.JOB_STOPPED;
-  progress: JobProgress;
   runOutcome?: RunOutcome;
 }
 
 export interface JobFailedEvent extends BaseEvent {
   type: EventTypeEnum.JOB_FAILED;
   message: string;
-  progress?: JobProgress;
   runOutcome?: RunOutcome;
-}
-
-export interface IterationStartedEvent extends BaseEvent {
-  type: EventTypeEnum.ITERATION_STARTED;
-  message?: string;
-  clientMessageId?: string;
-  modelId?: string;
-  agentType?: string;
-  acpMode?: string;
-  acpThoughtLevel?: string;
-}
-
-export interface IterationCompletedEvent extends BaseEvent {
-  type: EventTypeEnum.ITERATION_COMPLETED;
-  result: IterationResult;
-}
-
-export interface IterationFailedEvent extends BaseEvent {
-  type: EventTypeEnum.ITERATION_FAILED;
-  result: IterationResult;
 }
 
 export interface CommandAction {
@@ -312,7 +235,4 @@ export type AgentEvent =
   | JobCompletedEvent
   | JobStoppedEvent
   | JobFailedEvent
-  | IterationStartedEvent
-  | IterationCompletedEvent
-  | IterationFailedEvent
   | CommandSystemMessageEvent;

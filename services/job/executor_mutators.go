@@ -18,7 +18,7 @@ import (
 //     not been swapped out by a concurrent reload.
 //
 // A targeted mutator must never replace a run-owned field (Status,
-// Progress, LoopConfig as a whole, Resume, SessionIDs); see the ownership
+// Progress and SessionIDs); see the ownership
 // model on serviceImpl.
 //
 // UpdateTitle / UpdatePinned / SetFirstModelID share the simple "snapshot →
@@ -414,8 +414,8 @@ func (s *serviceImpl) ClearGraphRunLinkage(_ context.Context, jobID, graphRunID 
 // It reuses failJob — the same terminal path interactive runs use — so status flip,
 // persistence and the terminal SSE event all stay consistent. failJob never emits
 // notifyJobDone (graph runs fire it via SetGraphRunState; FailGraphJob must not);
-// a Graph Job carries no Resume and no
-// interactive prior status, so applyTerminalStatusLocked writes Failed directly.
+// a Graph Job carries no interactive prior status, so
+// applyTerminalStatusLocked writes Failed directly.
 func (s *serviceImpl) FailGraphJob(ctx context.Context, jobID, message string) error {
 	s.mu.Lock()
 	existing, ok := s.jobs[jobID]

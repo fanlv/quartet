@@ -953,7 +953,6 @@ private struct JobRow: View {
     private var modeText: String {
         switch job.mode {
         case "graph": "Graph 工作流"
-        case "loop": "循环任务"
         default: "交互任务"
         }
     }
@@ -1002,7 +1001,6 @@ private struct JobRow: View {
     private var modeColor: Color {
         switch job.mode {
         case "graph": QuartetTheme.terminalGreen
-        case "loop": QuartetTheme.running
         default: QuartetTheme.accent
         }
     }
@@ -1096,16 +1094,11 @@ private struct JobModeIcon: View {
 
     @ViewBuilder
     private var modeSymbol: some View {
-        if mode == "loop" {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.quartet(.control, weight: .semibold))
-        } else {
-            JobModeGlyph(mode: mode)
-                .stroke(
-                    palette.primary,
-                    style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
-                )
-        }
+        JobModeGlyph(mode: mode)
+            .stroke(
+                palette.primary,
+                style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+            )
     }
 
     private var isLive: Bool {

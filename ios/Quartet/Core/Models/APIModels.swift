@@ -768,7 +768,6 @@ struct JobSummary: Decodable, Identifiable, Hashable, Sendable {
     var modeLabel: String {
         switch mode {
         case "graph": "GRAPH"
-        case "loop": "LOOP"
         default: "CHAT"
         }
     }
@@ -881,28 +880,8 @@ struct JobDetail: Decodable, Identifiable, Sendable {
 }
 
 struct JobRunProgress: Decodable, Sendable {
-    let totalSteps: Int?
-    let currentPath: [Int]?
-    let currentStartedAt: Int64?
-    let completedCount: Int?
-    let failedCount: Int?
-    let results: [JobIterationResult]?
     let lastError: String?
     let persistWarnings: [String]?
-    let groupActualIterations: [String: Int]?
-    let groupActualLeafCounts: [String: Int]?
-    let skippedPaths: [String: Bool]?
-    let gracefulStopPending: Bool?
-}
-
-struct JobIterationResult: Decodable, Sendable {
-    let path: [Int]
-    let sessionId: String
-    let success: Bool
-    let durationMs: Int64
-    let tokens: Int
-    let error: String?
-    let content: String?
 }
 
 struct SessionMessagesResponse: Decodable, Sendable {

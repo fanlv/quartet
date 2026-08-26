@@ -6,9 +6,8 @@ import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { MessageList } from './MessageList';
 import { phaseLabel } from '../utils/chatPhase';
 import { ChatInput } from './ChatInput';
-import { LoopProgress } from './LoopProgress';
-import { GraphLoopProgress } from './GraphLoopProgress';
-import { LoopSessionSidebar } from './LoopSessionSidebar';
+import { GraphRunProgress } from './GraphRunProgress';
+import { GraphSessionSidebar } from './GraphSessionSidebar';
 import { StepOutline } from './StepOutline';
 import { FileBrowser } from './FileBrowser';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
@@ -97,7 +96,7 @@ interface JobInfo {
   id: string;
   title: string;
   status: string;
-  mode?: 'interactive' | 'loop' | 'graph';
+  mode?: 'interactive' | 'graph';
   workdir?: string;
   updatedAt: number;
   scheduleId?: string;
@@ -199,16 +198,13 @@ export function JobChat(props: JobChatProps) {
     roundFinishedAt,
     interactiveAccumulatedMs,
     sessionWorkdir,
-    isLoop,
     isGraph,
     graphRunId,
     graphRunStatusSnapshot,
     graphStreamError,
     applyGraphRunStatusSnapshot,
-    loopProgress,
-    loopStatus,
-    loopFlow,
-    loopSessions,
+    graphSessionStatus,
+    graphSessions,
     activeSessionId,
     setActiveSessionId,
     endedSessionIds,
@@ -243,7 +239,7 @@ export function JobChat(props: JobChatProps) {
   const [acpConfigError, setAcpConfigError] = useState<string | null>(null);
   const [initialAgentRefreshPending, setInitialAgentRefreshPending] = useState(false);
   const [jobEnable, setJobEnable] = useState(false);
-  const [loopSidebarOpen, setLoopSidebarOpen] = useState(false);
+  const [graphSessionSidebarOpen, setGraphSessionSidebarOpen] = useState(false);
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const [agentsEditorOpen, setAgentsEditorOpen] = useState(false);
   const [jobListOpen, setJobListOpen] = useState(false);
@@ -359,13 +355,11 @@ export function JobChat(props: JobChatProps) {
         const text = firstUserMsg.content.trim();
         const short = text.length > 50 ? text.slice(0, 50) + '...' : text;
         document.title = `${short} - Quartet`;
-      } else if (isLoop) {
-        document.title = 'Loop Task - Quartet';
       } else {
         document.title = 'Chat - Quartet';
       }
     }
-  }, [messages, isLoop, jobTitle]);
+  }, [messages, jobTitle]);
 
   // When the job's title changes in the chat header we patch the cached list
   // so the menu reflects the new title without waiting for the next poll.
@@ -565,9 +559,7 @@ export function JobChat(props: JobChatProps) {
   }, [headerMoreOpen]);
 
   useEffect(() => {
-    // In loop mode, always update agent index when active session changes.
-    // In interactive mode, skip if user has manually selected an agent.
-    if (hasUserSelected && !isLoop) return;
+    if (hasUserSelected && !isGraph) return;
     if (agents.length === 0) return;
 
     let matched = false;
@@ -588,7 +580,7 @@ export function JobChat(props: JobChatProps) {
       const idx = agents.findIndex((a) => a.model_id === sessionModelId || a.models?.availableModels.some((m) => m.modelId === sessionModelId));
       if (idx >= 0) setSelectedAgentIndex(idx);
     }
-  }, [existingJobId, hasUserSelected, sessionModelId, sessionType, agents, isLoop]);
+  }, [existingJobId, hasUserSelected, sessionModelId, sessionType, agents, isGraph]);
 
   const headerTitle = (() => {
     if (jobTitle) {
@@ -599,7 +591,6 @@ export function JobChat(props: JobChatProps) {
       const text = firstUserMsg.content.trim();
       return text.length > 40 ? text.slice(0, 40) + '...' : text;
     }
-    if (isLoop) return 'Loop Task';
     return 'Quartet';
   })();
 
@@ -866,13 +857,13 @@ export function JobChat(props: JobChatProps) {
     });
   }, [agents, selectedAgentIndex, applyACPConfig]);
 
-  const latestLoopSessionId = loopSessions.length > 0 ? loopSessions[loopSessions.length - 1].sessionId : null;
-  const shouldFollowMessageListBottom = (!isLoop && !isGraph) || !activeSessionId || activeSessionId === latestLoopSessionId;
-  const messageListScrollContextKey = (isLoop || isGraph)
-    ? `${isGraph ? 'graph' : 'loop'}:${existingJobId}:${activeSessionId ?? 'none'}`
+  const latestGraphSessionId = graphSessions.length > 0 ? graphSessions[graphSessions.length - 1].sessionId : null;
+  const shouldFollowMessageListBottom = !isGraph || !activeSessionId || activeSessionId === latestGraphSessionId;
+  const messageListScrollContextKey = isGraph
+    ? `graph:${existingJobId}:${activeSessionId ?? 'none'}`
     : `chat:${existingJobId}`;
 
-  // In Loop / Graph mode the footer duration badge should reflect the whole
+  // In Graph mode the footer duration badge should reflect the whole
   // job, not just the current run that `roundStartedAt` anchors to. Aggregate
   // the same way the Sessions sidebar header does: sum of finished session
   // durations plus a live delta for any still-running session. This keeps the
@@ -881,18 +872,18 @@ export function JobChat(props: JobChatProps) {
   // job-level roundStartedAt/roundFinishedAt fallback greys out as soon as a
   // single node session sets jobFinishedAt, even if other sessions are still
   // running.
-  const loopAggregateDuration = useMemo(() => {
-    if (!isLoop && !isGraph) return null;
+  const graphAggregateDuration = useMemo(() => {
+    if (!isGraph) return null;
     let baseMs = 0;
     const runningStartedAts: number[] = [];
-    for (const s of loopSessions) {
+    for (const s of graphSessions) {
       if (s.durationMs != null) baseMs += s.durationMs;
       if (s.status === 'running' && s.startedAt != null) {
         runningStartedAts.push(s.startedAt);
       }
     }
     return { baseMs, runningStartedAts };
-  }, [isLoop, isGraph, loopSessions]);
+  }, [isGraph, graphSessions]);
 
   const agentEffectiveModelId = selectedAgent ? (selectedAgent.models?.currentModelId || selectedAgent.model_id) : null;
   const effectiveModelId = hasUserSelected
@@ -901,10 +892,10 @@ export function JobChat(props: JobChatProps) {
 
   const handleSendMessage = useCallback(
     (content: string, imageUrls?: string[], fileAttachments?: FileAttachment[]) => {
-      const targetSessionId = (isLoop || isGraph) ? activeSessionId : null;
+      const targetSessionId = isGraph ? activeSessionId : null;
       // Only interactive mode queues. Graph discussion sends must keep their
       // explicit node sessionId, which the generic queue does not retain.
-      if (!isLoop && !isGraph && isLoading) {
+      if (!isGraph && isLoading) {
         queueMessage({
           content,
           imageUrls,
@@ -918,7 +909,7 @@ export function JobChat(props: JobChatProps) {
       }
       sendMessage(content, effectiveModelId, targetSessionId, imageUrls, fileAttachments, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId);
     },
-    [sendMessage, queueMessage, isLoading, effectiveModelId, isLoop, isGraph, activeSessionId, selectedAgent]
+    [sendMessage, queueMessage, isLoading, effectiveModelId, isGraph, activeSessionId, selectedAgent]
   );
 
   // Send initial message — only after SSE connection is ready
@@ -1113,13 +1104,6 @@ export function JobChat(props: JobChatProps) {
         <path d="M8.5 6h7" />
       </svg>
     );
-    if (job.mode === 'loop') return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="23 4 23 10 17 10" />
-        <polyline points="1 20 1 14 7 14" />
-        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-      </svg>
-    );
     return (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
@@ -1129,7 +1113,7 @@ export function JobChat(props: JobChatProps) {
 
   return (
     <ServerClockProvider getServerNow={getServerNow}>
-    <div className="chatbot-container" data-testid="job-chat" data-job-id={jobId || existingJobId || ''} data-job-mode={isGraph ? 'graph' : isLoop ? 'loop' : 'interactive'} data-loading={isLoading ? 'true' : 'false'}>
+    <div className="chatbot-container" data-testid="job-chat" data-job-id={jobId || existingJobId || ''} data-job-mode={isGraph ? 'graph' : 'interactive'} data-loading={isLoading ? 'true' : 'false'}>
       <header className="chatbot-header" data-testid="job-chat-header">
         <div className="header-left">
           {!isReadonly && (
@@ -1229,8 +1213,8 @@ export function JobChat(props: JobChatProps) {
           {!isReadonly && (
             <>
               {/* Page-specific buttons (left), kept in their existing relative order. */}
-              {(isLoop || isGraph) && (
-                <button className="loop-sidebar-toggle" onClick={() => setLoopSidebarOpen(!loopSidebarOpen)} title="Sessions" data-testid="loop-session-toggle">
+              {isGraph && (
+                <button className="graph-session-sidebar-toggle" onClick={() => setGraphSessionSidebarOpen(!graphSessionSidebarOpen)} title="Sessions" data-testid="graph-session-toggle">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <rect x="3" y="3" width="18" height="18" rx="2" />
                     <line x1="9" y1="3" x2="9" y2="21" />
@@ -1680,9 +1664,7 @@ export function JobChat(props: JobChatProps) {
         </nav>
       </header>
 
-      {/* Non-loop: top error banner. Loop mode surfaces hook-level errors via
-          LoopProgress's `error` prop instead, so the banner stays hidden here. */}
-      {error && !isLoop && (
+      {error && (
         <div className="error-banner" data-testid="job-error-banner">
           <span>{error}</span>
           <button onClick={() => { window.location.href = '/'; }}>Back</button>
@@ -1695,18 +1677,8 @@ export function JobChat(props: JobChatProps) {
         </div>
       )}
 
-      {/* Loop progress bar (read-only archive of historical loop jobs) */}
-      {isLoop && loopProgress && (
-        <LoopProgress
-          progress={loopProgress}
-          status={loopStatus}
-          flow={loopFlow ?? undefined}
-          error={error ?? undefined}
-        />
-      )}
-
       {isGraph && (
-        <GraphLoopProgress
+        <GraphRunProgress
           jobId={existingJobId}
           runId={graphRunId}
           snapshot={graphRunStatusSnapshot}
@@ -1736,18 +1708,18 @@ export function JobChat(props: JobChatProps) {
       )}
 
       {(!isLoadingHistory || initialUserMessage) && (
-      <div className={`chatbot-body ${(isLoop || isGraph) ? 'loop-layout' : ''} ${loopSidebarOpen ? 'loop-sidebar-open' : ''}`} data-testid="job-chat-body">
-        {/* Session sidebar for loop + graph modes (per-iteration / per-node) */}
-        {(isLoop || isGraph) && (
+      <div className={`chatbot-body ${isGraph ? 'graph-layout' : ''} ${graphSessionSidebarOpen ? 'graph-session-sidebar-open' : ''}`} data-testid="job-chat-body">
+        {/* Session sidebar for Graph node conversations. */}
+        {isGraph && (
           <>
-            <div className="loop-sidebar-overlay" onClick={() => setLoopSidebarOpen(false)} />
-            <LoopSessionSidebar
-              sessions={loopSessions}
-              loopStatus={loopStatus}
+            <div className="graph-session-sidebar-overlay" onClick={() => setGraphSessionSidebarOpen(false)} />
+            <GraphSessionSidebar
+              sessions={graphSessions}
+              status={graphSessionStatus}
               activeSessionId={activeSessionId}
               onSelectSession={(id) => {
                 setActiveSessionId(id);
-                setLoopSidebarOpen(false);
+                setGraphSessionSidebarOpen(false);
                 // Update URL with sessionId for sharing
                 const url = new URL(window.location.href);
                 url.searchParams.set('sessionId', id);
@@ -1757,7 +1729,7 @@ export function JobChat(props: JobChatProps) {
           </>
         )}
         <div className="chatbot-main">
-          {(isLoop || isGraph) && activeSessionId && !loadedSessionIds.has(activeSessionId) ? (
+          {isGraph && activeSessionId && !loadedSessionIds.has(activeSessionId) ? (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#888' }}>
               Loading session messages...
             </div>
@@ -1803,7 +1775,7 @@ export function JobChat(props: JobChatProps) {
             //
             // activeAgentBlock DOES disable the composer: a session whose Agent
             // was deleted (or no longer resolves) cannot execute anymore.
-            disabled={initialDispatchPending || !!activeAgentBlock || ((isLoop || isGraph) && !(activeSessionId && endedSessionIds.has(activeSessionId)))}
+            disabled={initialDispatchPending || !!activeAgentBlock || (isGraph && !(activeSessionId && endedSessionIds.has(activeSessionId)))}
             readOnly={!canExecuteJobs}
             placeholder={activeAgentBlockHint ?? (isGraph && !(activeSessionId && endedSessionIds.has(activeSessionId)) ? 'Graph workflow run' : !canExecuteJobs ? 'Read-only mode' : undefined)}
             localHistoryKey={`${workspaceId || 'default'}`}
@@ -1811,13 +1783,13 @@ export function JobChat(props: JobChatProps) {
             roundStartedAt={interactiveAccumulatedMs > 0 ? undefined : roundStartedAt}
             roundFinishedAt={interactiveAccumulatedMs > 0 ? undefined : roundFinishedAt}
             totalDurationBaseMs={
-              loopAggregateDuration?.baseMs ??
+              graphAggregateDuration?.baseMs ??
               (interactiveAccumulatedMs > 0
                 ? interactiveAccumulatedMs + (roundFinishedAt && roundStartedAt ? roundFinishedAt - roundStartedAt : 0)
                 : undefined)
             }
             totalDurationRunningStartedAts={
-              loopAggregateDuration?.runningStartedAts ??
+              graphAggregateDuration?.runningStartedAts ??
               (interactiveAccumulatedMs > 0 && isLoading && roundStartedAt ? [roundStartedAt] : undefined)
             }
             agents={agents}
@@ -1839,7 +1811,7 @@ export function JobChat(props: JobChatProps) {
                 console.error('[messageQueue] continue failed:', err);
               });
             } : undefined}
-            canQueueWhileRunning={!isLoop && !isGraph && canExecuteJobs}
+            canQueueWhileRunning={!isGraph && canExecuteJobs}
             onSelectModel={selectedAgent?.models ? handleSelectModel : undefined}
             onSelectMode={selectedAgent?.modes ? handleSelectMode : undefined}
             onSelectThoughtLevel={selectedAgent?.thoughtLevels ? handleSelectThoughtLevel : undefined}

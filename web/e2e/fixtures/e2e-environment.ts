@@ -22,7 +22,6 @@ export async function installE2EAuthCookie(page: { context(): { addCookies(cooki
 export const e2eLegacyFirstModelJobID = 'job-e2e-legacy-first-model'
 export const e2eLegacyFirstModelID = 'e2e-legacy-first-model'
 export const e2eInterruptedRunningJobID = 'job-e2e-interrupted-running'
-export const e2ePersistWarningJobID = 'job-e2e-persist-warning-without-last-error'
 
 const backendPort = Number(process.env.QUARTET_E2E_BACKEND_PORT || 18090)
 const frontendPort = Number(process.env.VITE_E2E_PORT || 5174)
@@ -220,7 +219,6 @@ function createRunDir() {
 function prepareLocalMemory(localMemory: string) {
   for (const dir of [
     'quartet/config/prompts',
-    'quartet/config/templates',
     'quartet/config/graph-workflows',
     'quartet/config/schedules',
     'quartet/usage-stats',
@@ -350,70 +348,12 @@ function seedInterruptedRunningJobFixture(localMemory: string) {
     title: 'E2E Interrupted Running Job',
     createdAt: now,
     updatedAt: now,
-    mode: 'loop',
+    mode: 'interactive',
     workspaceId: 'ws-1',
     status: 'running',
     sessionIds: [],
-    loopConfig: {
-      flow: [
-        {
-          id: 'e2e-interrupted-step',
-          type: 'step',
-          message: 'This job was running before backend startup',
-          repeatCount: 1,
-          roundMode: 'beforeRound',
-          roundType: 'prompt',
-        },
-      ],
-    },
-    // Deliberately omit progress to exercise startup reconciliation of legacy
-    // records and interrupted in-flight jobs.
-  }, null, 2)}\n`)
-}
-
-function seedPersistWarningJobFixture(localMemory: string) {
-  const now = new Date().toISOString()
-  const warning = 'persist failed after iteration_started: injected e2e disk warning'
-  const jobMetaDir = path.join(localMemory, 'quartet', 'data', 'workspaces', 'ws-1', 'jobs', e2ePersistWarningJobID, '.meta')
-  fs.mkdirSync(jobMetaDir, { recursive: true })
-  fs.writeFileSync(path.join(jobMetaDir, 'job.json'), `${JSON.stringify({
-    id: e2ePersistWarningJobID,
-    title: 'E2E Persist Warning Without LastError',
-    createdAt: now,
-    updatedAt: now,
-    mode: 'loop',
-    workspaceId: 'ws-1',
-    status: 'completed',
-    sessionIds: [],
-    loopConfig: {
-      flow: [
-        {
-          id: 'e2e-persist-warning-step',
-          type: 'step',
-          message: 'This fixture has a persistence warning but no run failure',
-          repeatCount: 1,
-          roundMode: 'beforeRound',
-          roundType: 'prompt',
-        },
-      ],
-    },
-    progress: {
-      totalSteps: 1,
-      currentPath: [0, 0],
-      completedCount: 1,
-      failedCount: 0,
-      results: [
-        {
-          path: [0, 0],
-          success: true,
-          durationMs: 0,
-          content: 'completed before a best-effort persist warning was recorded',
-        },
-      ],
-      persistWarnings: [warning],
-      // Deliberately omit lastError: persistence warnings must stay separate
-      // from the user-visible run failure reason.
-    },
+    // Deliberately omit progress to exercise startup reconciliation of
+    // interrupted in-flight jobs.
   }, null, 2)}\n`)
 }
 
@@ -488,7 +428,6 @@ async function globalSetup() {
   seedAgentConfig(localMemory)
   seedLegacyFirstModelIDFixture(localMemory)
   seedInterruptedRunningJobFixture(localMemory)
-  seedPersistWarningJobFixture(localMemory)
 
   fs.writeFileSync(path.join(runDir, 'env.json'), `${JSON.stringify({
     backendURL,

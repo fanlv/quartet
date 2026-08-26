@@ -84,7 +84,7 @@ import { useGitBranch } from '../hooks/useGitBranch';
 import { uploadChatAttachment, usePendingAttachments, type UploadedAttachment } from '../hooks/usePendingAttachments';
 import { PendingAttachmentPreviews, UploadedFilePreviews } from './AttachmentPreviews';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
-import { workspaceColor, loadWorkspacePrefs, migrateWorkspacePrefsToServer, registerWorkspaceColors } from '../utils/workspace';
+import { DEFAULT_WORKSPACE_ID, workspaceColor, loadWorkspacePrefs, migrateWorkspacePrefsToServer, registerWorkspaceColors } from '../utils/workspace';
 import { relinkACPThoughtLevels, setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
 import { fetchAgentPrefs, splitFavoriteModels, resolveAgentDefaults, applyDefaultsToAgent, prefsForAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { formatStatsDuration } from '../utils/statsFormat';
@@ -386,14 +386,6 @@ function formatJobDayLabel(dayKey: string, locale?: string): string {
   });
 }
 
-const LOOP_ICON = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="23 4 23 10 17 10" />
-    <polyline points="1 20 1 14 7 14" />
-    <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-  </svg>
-);
-
 const GRAPH_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="6" cy="6" r="2.5" />
@@ -413,7 +405,7 @@ const CHAT_ICON = (
 
 function getJobIcon(job: JobInfo) {
   if (job.mode === 'graph') return GRAPH_ICON;
-  return job.mode === 'loop' ? LOOP_ICON : CHAT_ICON;
+  return CHAT_ICON;
 }
 
 const STATUS_ICON_RUNNING = (
@@ -1732,6 +1724,23 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                     ? new Date(s.nextRunAt).toLocaleString(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                     : ''}
                 </span>
+                {canReadJobs && onSelectJob && s.lastRunJobID && <button
+                  type="button"
+                  className="home-schedule-row-job"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectJob(s.lastRunJobID!, s.workspaceId || DEFAULT_WORKSPACE_ID);
+                  }}
+                  title={t('home.openLatestJob')}
+                  aria-label={t('home.openLatestJobForSchedule', { name: s.name })}
+                  data-testid={`schedule-latest-job-${s.id}`}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M7 17 17 7" />
+                    <path d="M7 7h10v10" />
+                  </svg>
+                  <span className="home-schedule-row-job-label">Job</span>
+                </button>}
                 {canWriteSchedules && <button
                   className={`home-schedule-row-toggle ${s.enabled ? 'on' : ''}`}
                   onClick={(e) => { e.stopPropagation(); handleScheduleToggle(s.id); }}

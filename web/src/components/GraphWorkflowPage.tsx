@@ -354,7 +354,7 @@ function isGraphRunLive(status?: GraphRunStatus): boolean {
 
 // A GraphRun accepts version edits while it is still actively scheduling or in a
 // resumable static state. A naturally completed run is frozen (read-only
-// replay). Mirrors GraphLoopProgress and the backend editable set.
+// replay). Mirrors GraphRunProgress and the backend editable set.
 function isGraphRunEditable(status?: GraphRunStatus): boolean {
   return (
     status === 'running' ||
@@ -524,7 +524,7 @@ async function readError(res: Response): Promise<string> {
 }
 
 // Resolve the config a GraphRun executed against lives in graphFlowAdapter
-// (runConfigSnapshot), shared with GraphLoopProgress.
+// (runConfigSnapshot), shared with GraphRunProgress.
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(',')}]`;
@@ -707,7 +707,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   // the SSE that would carry it is already torn down). See refreshHookResults.
   const [hookResults, setHookResults] = useState<Record<string, GraphHookResult>>({});
   // Edge run states for the selected run, so replay can show active/pruned/done
-  // branch edges (GraphCanvas consumes edgeStatusById, same as GraphLoopProgress).
+  // branch edges (GraphCanvas consumes edgeStatusById, same as GraphRunProgress).
   const [runEdges, setRunEdges] = useState<GraphEdgeState[]>([]);
   const [runMessage, setRunMessage] = useState('');
   // editingRun overlays an editable canvas on top of the run-view: the run's
@@ -1032,7 +1032,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     })();
   }, [canReadAgents, canReadWorkspaces, t]);
 
-  // Close the workspace dropdown on outside click (mirrors LoopConfigPanel).
+  // Close the workspace dropdown on outside click (mirrors the former editor).
   useEffect(() => {
     if (!wsDropdownOpen) return;
     const handler = (e: MouseEvent) => {
@@ -1998,7 +1998,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingRun, viewingRun, selectedRun?.id, selectedRun?.currentVersion]);
   const replayRunStatus = useMemo(() => runStatusByNode(runInstances), [runInstances]);
-  // Edge active/pruned/done overlay for replay, mirroring GraphLoopProgress's
+  // Edge active/pruned/done overlay for replay, mirroring GraphRunProgress's
   // mini-canvas. Only meaningful while viewing a run (runEdges is reset on exit).
   const replayEdgeStatus = useMemo(() => edgeStatusByEdge(runEdges), [runEdges]);
   // Pure replay restores the run's own saved viewport so it matches what ran.

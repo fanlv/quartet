@@ -31,7 +31,7 @@
 └──────────────┘
        ▲                                                      │
        │                                                      ▼
-[8] SSE Writer ◄── [7] EventBus / Buffer ◄── [6] loopEventHandler ◄── [5] ACP runner
+[8] SSE Writer ◄── [7] EventBus / Buffer ◄── [6] agentEventHandler ◄── [5] ACP runner
                                                   (agui.EventHandler   异步 goroutine
                                                    的实现)
 ```
@@ -62,8 +62,8 @@
 | 步骤 | 位置 | 职责 |
 |---|---|---|
 | 入口 | `services/job/executor_run.go` `SendMessage` | 校验 Job 状态、置 Running、按写入顺序契约先落 `job.json` 再发布 `JOB_STARTED` |
-| 起 goroutine | `launchLoop → runLoop` | 真正的 agent 执行从这里开始 **异步运行** |
-| 主循环 | `services/job/executor_loop.go` `runLoop / runFlowNodes` | 串起每一轮 `RunIteration`，按写入顺序契约维护 `job.json` 与事件 buffer |
+| 起 goroutine | `runInteractive` | 真正的 agent 执行从这里开始 **异步运行** |
+| 单轮执行 | `services/job/executor_step.go` `executeAgentTurn` | 执行一次 Agent turn，按写入顺序契约维护 `job.json` 与事件 buffer |
 
 ### ③ Iteration 收敛到 ACP
 
@@ -72,7 +72,7 @@
 | 入口 | `cmd/web/handler/job_runner.go` `RunIteration` | 取 Session（必要时从磁盘 reload），统一走 ACP 路径 |
 | ACP 执行 | `cmd/web/handler/agent_run.go` `runACPInternal` | 取 ACP agent lease → 按 modelId / acpMode / jobId 执行 |
 
-**关键约定**：所有 agent（含 eino-cli）都是 ACP 子进程，注入同一个 `loopEventHandler` 实例，产出的事件 schema 完全一致，前端无需区分 agent 类型。
+**关键约定**：所有 agent（含 eino-cli）都是 ACP 子进程，注入同一个 `agentEventHandler` 实例，产出的事件 schema 完全一致，前端无需区分 agent 类型。
 
 ### ④ eino-cli 子进程内部（参考）
 
@@ -87,7 +87,7 @@ eino-cli 是仓库内自带的 ACP agent（入口 `cmd/eino-cli`，实现集中�
 
 ### ⑤ EventHandler → model.Event
 
-`services/job/loop_event_handler.go` 实现 `agui.EventHandler` 接口，把回调转换成统一的 `model.Event`：
+`services/job/agent_event_handler.go` 实现 `agui.EventHandler` 接口，把回调转换成统一的 `model.Event`：
 
 | EventHandler 回调 | 对应 model.Event 类型 |
 |---|---|
@@ -106,7 +106,7 @@ eino-cli 是仓库内自带的 ACP agent（入口 `cmd/eino-cli`，实现集中�
 2. **订阅者**：`Subscribe(jobID, startSeq)` 注册一个独占 reader，仅持有一个 cursor；不再为每个订阅者准备独立队列。`startSeq` 不在 `[headSeq, nextSeq]` 区间时返回 `ErrSeqGone`，handler 映射为 410。
 3. **事件分类**：
    - **A 类**（流式 token / 思考 / 工具流）：buffer 是唯一真源，整轮 GC——轮次结束 + `messages.jsonl` 该轮已落盘 + 所有活跃 cursor 越过 round end → 整轮释放
-   - **B 类**（`JOB_*` / `ITERATION_*` / `RUN_*` / `TOKEN_USAGE`）：state 真源在 `job.json`，所有活跃 cursor 越过即释放
+   - **B 类**（`JOB_*` / `RUN_*` / `TOKEN_USAGE`）：state 真源在 `job.json`，所有活跃 cursor 越过即释放
    - **Transient 类**（`COMMAND_SYSTEM_MESSAGE`）：通过 `PublishTransient` 仅广播给当前活跃订阅者一次，不入 append-only 序列、不占序号、刷新页面不重现
 4. **无终端特殊路径**：终态事件（`JOB_COMPLETED / STOPPED / FAILED`）走与其他事件相同的发布 / 投递 / cursor 推进流程；不再有 5s 超时强制交付与"超时丢弃"。
 5. **无慢订阅者驱逐**：慢订阅者只让自己的 cursor 推进慢，不影响其他订阅者、不反压 producer；GC 等所有 cursor 越过即可。
@@ -130,7 +130,7 @@ eino-cli 是仓库内自带的 ACP agent（入口 `cmd/eino-cli`，实现集中�
 ### ⑧ 前端消费
 
 - `web/src/utils/sse-client.ts` —— 用 fetch + ReadableStream 自实现 SSE：手动维护 `Last-Event-ID`、指数退避重连、心跳监测、`[DONE]` 终止识别、`410` 触发 fallback。
-- `web/src/hooks/useJobChat.ts` —— `onEvent` 按 `event.type` 分发：更新 message 列表、loop 进度、token 计数、tool call 状态等。
+- `web/src/hooks/useJobChat.ts` —— `onEvent` 按 `event.type` 分发：更新 message 列表、token 计数、tool call 状态等。
 - 进入页面 / 刷新 / 410 fallback：先调 `GET /api/v1/job/:jobId` 拿 `(messages, job, lastEventSeq)`，UI 据此完整重建；以 `lastEventSeq` 作为初始 `Last-Event-ID` 订阅 SSE。
 - 短暂断线重连：直接用本地保存的最后一条事件 id 重连，不再拉快照。
 
@@ -139,7 +139,7 @@ eino-cli 是仓库内自带的 ACP agent（入口 `cmd/eino-cli`，实现集中�
 ## 3. 关键约束 & 易踩坑点
 
 1. **HTTP 200 与执行解耦**：发送消息接口立即返回，agent 在后台 goroutine 中跑；前端必须先订阅好 SSE 才能看到推送，否则只能靠下次刷新走快照路径补回首屏 state。
-2. **handler 共用**：所有 agent 共用同一个 `loopEventHandler`，前端拿到的事件 schema 完全一致，不区分 agent 类型。
+2. **handler 共用**：所有 agent 共用同一个 `agentEventHandler`，前端拿到的事件 schema 完全一致，不区分 agent 类型。
 3. **流式来源**：真正吐 token 的是各 ACP 子进程；quartet 侧只负责把 ACP 事件翻译成 UI 语义。
 4. **thought 没有独立事件类型**：复用 `TEXT_MESSAGE_*`，靠 `external.isThinking` 区分；前端渲染时必须读这个字段。
 5. **写入顺序契约**（关键）：
@@ -165,10 +165,10 @@ eino-cli 是仓库内自带的 ACP agent（入口 `cmd/eino-cli`，实现集中�
 | Job Runner 适配 | `cmd/web/handler/job_runner.go` |
 | Agent 入口 | `cmd/web/handler/agent_run.go` |
 | Job Service - 异步调度 | `services/job/executor_run.go` |
-| Job Service - 主循环 | `services/job/executor_loop.go` |
+| Job Service - Agent turn | `services/job/executor_step.go` |
 | ACP Agent 会话与运行 | `services/agent/acp/` |
 | eino-cli（自带 ACP agent） | `cmd/eino-cli` + `einocli/` |
-| EventHandler 实现 | `services/job/loop_event_handler.go` |
+| EventHandler 实现 | `services/job/agent_event_handler.go` |
 | Event Buffer / 分类 GC | `services/job/event_buffer.go` |
 | EventBus / Pub/Sub | `services/job/executor_pubsub.go` |
 | SSE Handler | `cmd/web/handler/job_lifecycle.go` |

@@ -85,19 +85,29 @@ func TestStreamConnectionStateRemainsInternalToChat(t *testing.T) {
 	}
 }
 
-func TestOpeningChatDoesNotMutateACPConfigurationForDisplayMetadata(t *testing.T) {
+func TestOpeningChatRefreshesThoughtLevelsForTheRestoredAgentAndModel(t *testing.T) {
 	source := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
-	for _, forbidden := range []string{
-		"thoughtLevelDisplayConfigurationKey",
-		"refreshThoughtLevelDisplayOptions",
-		"relinkACPThoughtLevels(",
+	appModel := chatSource(t, "Quartet/App/AppModel.swift")
+	for _, contract := range []string{
+		".task(id: thoughtLevelSelection)",
+		"await refreshThoughtLevels(for: thoughtLevelSelection)",
+		"appModel.relinkACPThoughtLevels(",
+		"guard thoughtLevelSelection == selection, thoughtLevelRequestID == requestID",
+		"chat.reconcileThoughtLevelID(currentThoughtLevelID)",
 	} {
-		if strings.Contains(source, forbidden) {
-			t.Fatalf("opening an existing chat must not probe or mutate ACP config just to render metadata: found %q", forbidden)
+		if !strings.Contains(source, contract) {
+			t.Fatalf("restored chat thought-level refresh contract missing %q", contract)
 		}
 	}
-	if !strings.Contains(source, "AgentConfigurationDisplay.thoughtLevelName(") {
-		t.Fatal("chat metadata must resolve the thought-level label from the cached Agent catalog")
+	for _, contract := range []string{
+		"func relinkACPThoughtLevels(agentType: String, modelID: String)",
+		"target: .model",
+		"agentType: agentType",
+		"model: modelID",
+	} {
+		if !strings.Contains(appModel, contract) {
+			t.Fatalf("thought-level refresh must use the Agent/model preview path: missing %q", contract)
+		}
 	}
 }
 

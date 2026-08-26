@@ -762,7 +762,7 @@
   background: #fff;
 }
 
-/* ---- Workspace selector (mirrors LoopConfigPanel's loop-ws-* styles) ---- */
+/* ---- Workspace selector (mirrors the former editor's loop-ws-* styles) ---- */
 .graph-ws-selector {
   position: relative;
   flex-shrink: 0;

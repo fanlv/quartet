@@ -1276,7 +1276,7 @@ type graphEventHandler struct {
 	// content bubble instead of emitting it as its own ordered entry, and the
 	// frontend's mergeMessages then appends every live thought bubble to the
 	// END of the conversation on reload. Tracking the last-started id (matching
-	// services/job loopEventHandler's single-id semantics) keeps thought and
+	// services/job agentEventHandler's single-id semantics) keeps thought and
 	// content correlatable across live SSE and history reload.
 	lastStartedID     string
 	currentMessageBuf strings.Builder

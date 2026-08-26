@@ -20,8 +20,8 @@ import (
 // leaves a visible breadcrumb on the job instead of vanishing into the log.
 
 // saveJobWithRetry persists a job and returns the error so callers that
-// update recovery-critical state (terminal status, resume cursor, iteration
-// result, etc.) can log or annotate the divergence between in-memory/event
+// update recovery-critical state (terminal status, message receipt, etc.) can
+// log or annotate the divergence between in-memory/event
 // state and on-disk state. Best-effort callers pair this with
 // recordPersistWarning instead of swallowing the error.
 //
@@ -89,7 +89,7 @@ func (s *serviceImpl) saveJobWithRetryUnderPersistLock(ctx context.Context, job 
 // best-effort save fails. The original saveJobWithRetry call already logged at
 // ERROR; this marker keeps the degraded state observable on the live Job and
 // is naturally flushed to disk by the next successful save (terminal status
-// transition, next iteration, etc.). Re-saving here is intentionally avoided
+// transition, next turn, etc.). Re-saving here is intentionally avoided
 // — when persistence is genuinely failing (disk full, EROFS) it just amplifies
 // IO and ERROR-log noise without ever succeeding.
 func (s *serviceImpl) recordPersistWarning(_ context.Context, job *model.Job, action string, err error) {

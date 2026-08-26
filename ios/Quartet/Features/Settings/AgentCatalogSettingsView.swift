@@ -176,6 +176,7 @@ struct AgentCatalogSettingsView: View {
     @State private var actionFailures: [String: AgentCatalogActionFailure] = [:]
     @State private var checkFeedback: [String: AgentCatalogCheckFeedback] = [:]
     @State private var revisions: [String: [AgentRuntimeRevision]] = [:]
+    @State private var expandedAgentIds: Set<String> = []
     @State private var expandedRevisions: Set<String> = []
     @State private var statusMessage: String?
     @State private var batchMessage: AgentSettingsMessage?
@@ -463,30 +464,34 @@ struct AgentCatalogSettingsView: View {
 
     private func card(_ item: AgentCatalogItem) -> some View {
         let upgradeDisabled = busy != nil || pendingAgentId != nil || batchProgress != nil
+        let expanded = expandedAgentIds.contains(item.agentId)
         return AgentSettingsCard {
-            cardHeader(item)
-            agentSettingsDivider()
-            cardIdentity(item)
-            cardDiagnostics(item)
-            if canUpgrade(item) {
-                Button { requestUpgrade(item) } label: {
-                    Label("升级 Agent", systemImage: "arrow.up.circle.fill")
-                        .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.onSoftwareUpdate)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(
-                            upgradeDisabled
-                                ? QuartetTheme.softwareUpdateActionDisabled
-                                : QuartetTheme.softwareUpdateAction,
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        )
+            cardHeader(item, expanded: expanded)
+            cardPersistentDiagnostics(item)
+            if expanded {
+                agentSettingsDivider()
+                cardIdentity(item)
+                cardExpandedDiagnostics(item)
+                if canUpgrade(item) {
+                    Button { requestUpgrade(item) } label: {
+                        Label("升级 Agent", systemImage: "arrow.up.circle.fill")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.onSoftwareUpdate)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                upgradeDisabled
+                                    ? QuartetTheme.softwareUpdateActionDisabled
+                                    : QuartetTheme.softwareUpdateAction,
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(upgradeDisabled)
+                    .accessibilityIdentifier("agent-catalog-upgrade-\(item.agentId)")
                 }
-                .buttonStyle(.plain)
-                .disabled(upgradeDisabled)
-                .accessibilityIdentifier("agent-catalog-upgrade-\(item.agentId)")
+                revisionSection(item)
             }
-            revisionSection(item)
         }
     }
 
@@ -497,21 +502,18 @@ struct AgentCatalogSettingsView: View {
     }
 
     @ViewBuilder
-    private func cardHeader(_ item: AgentCatalogItem) -> some View {
+    private func cardHeader(_ item: AgentCatalogItem, expanded: Bool) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(item.displayName.isEmpty ? item.agentId : item.displayName)
                     .font(.quartet(.regular, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 6) {
-                    badge(item.sourceLabel, tint: item.isCustom ? QuartetTheme.accentDeep : QuartetTheme.secondaryText)
-                    if item.isBuiltin, let method = item.installMethodLabel {
-                        badge(method, tint: QuartetTheme.secondaryText)
-                    }
-                    badge(item.availabilityLabel, tint: availabilityTint(item))
-                    Spacer(minLength: 0)
-                }
+                Text(cardIdentitySummary(item))
+                    .font(.quartet(.compact, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Button { present(.actions(item)) } label: {
                 Image(systemName: "ellipsis.circle")
@@ -527,7 +529,37 @@ struct AgentCatalogSettingsView: View {
             .opacity(busy != nil || pendingAgentId != nil || batchProgress != nil ? 0.45 : 1)
             .accessibilityLabel(AppLanguage.localizedFormat("%@ 的 Agent 操作", item.displayName))
             .accessibilityIdentifier("agent-catalog-more-\(item.agentId)")
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if expanded {
+                        expandedAgentIds.remove(item.agentId)
+                    } else {
+                        expandedAgentIds.insert(item.agentId)
+                    }
+                }
+            } label: {
+                VStack(spacing: 2) {
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.quartet(.detail, weight: .bold))
+                    Text((expanded ? "收起" : "展开").localizedForApp)
+                        .font(.quartet(.compact, weight: .semibold))
+                }
+                .foregroundStyle(QuartetTheme.accent)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+            .accessibilityLabel(AppLanguage.localizedFormat(
+                expanded ? "收起 %@ 详情" : "展开 %@ 详情",
+                item.displayName.isEmpty ? item.agentId : item.displayName
+            ))
+            .accessibilityValue((expanded ? "已展开" : "已折叠").localizedForApp)
+            .accessibilityIdentifier("agent-catalog-toggle-\(item.agentId)")
         }
+        cardStatusSummary(item)
         if item.refreshing {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small).tint(QuartetTheme.secondaryText)
@@ -536,6 +568,43 @@ struct AgentCatalogSettingsView: View {
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
         }
+    }
+
+    private func cardIdentitySummary(_ item: AgentCatalogItem) -> String {
+        var parts = [item.agentId]
+        if item.isBuiltin, let method = item.installMethodLabel {
+            parts.append(method)
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private func cardStatusSummary(_ item: AgentCatalogItem) -> some View {
+        WrappingHStack(spacing: 6) {
+            badge(item.sourceLabel, tint: item.isCustom ? QuartetTheme.accentDeep : QuartetTheme.secondaryText)
+            badge(
+                item.installed ? "已安装" : "未安装",
+                tint: item.installed ? QuartetTheme.success : QuartetTheme.secondaryText
+            )
+            if item.availability != "not_installed", !item.availabilityLabel.isEmpty {
+                badge(item.availabilityLabel, tint: availabilityTint(item))
+            }
+            if item.installed, let version = versions[item.agentId] {
+                if version.updateAvailable {
+                    badge(
+                        version.upgradeSupported ? "可更新" : "有新版本",
+                        tint: QuartetTheme.softwareUpdate
+                    )
+                } else if version.hasKnownLatest {
+                    badge("已是最新", tint: QuartetTheme.success)
+                }
+            } else if item.installed && isCheckingVersions {
+                badge("正在检查版本", tint: QuartetTheme.secondaryText)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("agent-catalog-summary-\(item.agentId)")
     }
 
     @ViewBuilder
@@ -559,18 +628,36 @@ struct AgentCatalogSettingsView: View {
     }
 
     @ViewBuilder
-    private func cardDiagnostics(_ item: AgentCatalogItem) -> some View {
-        if let instructions = item.installInstructions,
-           !instructions.isEmpty,
-           item.isBuiltin, !item.deprecated, !item.installed, !item.autoInstallable {
-            agentSettingsHint(instructions)
-        }
+    private func cardPersistentDiagnostics(_ item: AgentCatalogItem) -> some View {
         if let detail = item.availabilityError ?? item.deleteError, !detail.isEmpty {
             AgentSettingsMessageView(kind: .failure, text: detail)
         }
         if item.availability == "not_installed",
            let detail = item.lastValidationError, !detail.isEmpty {
             AgentSettingsMessageView(kind: .failure, text: detail)
+        }
+        if let feedback = checkFeedback[item.agentId] {
+            checkFeedbackView(feedback)
+        }
+        if let version = versions[item.agentId] {
+            ForEach(version.components.filter { !($0.error ?? "").isEmpty }) { component in
+                AgentSettingsMessageView(
+                    kind: .failure,
+                    text: "\(component.name)\n\(component.error ?? "")"
+                )
+            }
+        }
+        if let busy, busy.agentId == item.agentId {
+            busyIndicator(busy)
+        }
+    }
+
+    @ViewBuilder
+    private func cardExpandedDiagnostics(_ item: AgentCatalogItem) -> some View {
+        if let instructions = item.installInstructions,
+           !instructions.isEmpty,
+           item.isBuiltin, !item.deprecated, !item.installed, !item.autoInstallable {
+            agentSettingsHint(instructions)
         }
         if let status = item.lastValidationStatus, let at = item.lastValidationAt, at > 0 {
             agentSettingsHint(AppLanguage.localizedFormat(
@@ -579,11 +666,8 @@ struct AgentCatalogSettingsView: View {
                 agentSettingsTimestamp(at)
             ))
         }
-        if let feedback = checkFeedback[item.agentId] {
-            checkFeedbackView(feedback)
-        }
         if item.installed, let version = versions[item.agentId] {
-            versionPanel(version)
+            versionPanel(version, showsComponentErrors: false)
         } else if item.installed && isCheckingVersions {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small).tint(QuartetTheme.secondaryText)
@@ -591,9 +675,6 @@ struct AgentCatalogSettingsView: View {
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
-        }
-        if let busy, busy.agentId == item.agentId {
-            busyIndicator(busy)
         }
     }
 
@@ -677,7 +758,7 @@ struct AgentCatalogSettingsView: View {
         .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private func versionPanel(_ version: AgentVersionInfo) -> some View {
+    private func versionPanel(_ version: AgentVersionInfo, showsComponentErrors: Bool = true) -> some View {
         let tint: Color = version.updateAvailable
             ? QuartetTheme.softwareUpdate
             : version.hasKnownLatest ? QuartetTheme.success : QuartetTheme.secondaryText
@@ -689,7 +770,7 @@ struct AgentCatalogSettingsView: View {
                 .font(.quartet(.detail, weight: .semibold))
                 .foregroundStyle(tint)
             ForEach(version.components) { component in
-                versionComponentRow(component)
+                versionComponentRow(component, showsError: showsComponentErrors)
             }
         }
         .padding(12)
@@ -697,7 +778,7 @@ struct AgentCatalogSettingsView: View {
         .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private func versionComponentRow(_ component: AgentVersionComponent) -> some View {
+    private func versionComponentRow(_ component: AgentVersionComponent, showsError: Bool) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Text(component.name)
@@ -711,7 +792,7 @@ struct AgentCatalogSettingsView: View {
                     .font(.quartet(.detail, design: .monospaced))
                     .foregroundStyle(component.updateAvailable ? QuartetTheme.softwareUpdate : QuartetTheme.secondaryText)
             }
-            if let detail = component.error, !detail.isEmpty {
+            if showsError, let detail = component.error, !detail.isEmpty {
                 Text(detail)
                     .font(.quartet(.compact, design: .monospaced))
                     .foregroundStyle(QuartetTheme.failed)

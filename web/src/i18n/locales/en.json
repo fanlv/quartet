@@ -200,26 +200,6 @@
     "restartWebCancel": "Cancel",
     "restartWebConfirm": "Restart"
   },
-  "loop": {
-    "progress": {
-      "lastError": "Last error",
-      "persistWarnings": "Persistence warnings",
-      "session": "Session {{current}} / {{total}}",
-      "step": "Step {{current}} / {{total}}",
-      "currentPath": "Current: {{path}}",
-      "failedCount_one": "{{count}} failed",
-      "failedCount_other": "{{count}} failed",
-      "skippedCount_one": "{{count}} step skipped",
-      "skippedCount_other": "{{count}} steps skipped",
-      "status": {
-        "idle": "Waiting",
-        "running": "Running",
-        "completed": "Completed",
-        "stopped": "Stopped",
-        "failed": "Failed"
-      }
-    }
-  },
   "settings": {
     "title": "Settings",
     "tabs": {
@@ -822,6 +802,8 @@
     "disabled": "Disabled",
     "lastRun": "Last run",
     "neverRun": "Never run",
+    "openLatestJob": "Open latest Job",
+    "openLatestJobForSchedule": "Open the latest Job for scheduled task “{{name}}”",
     "runCount_one": "{{count}} run",
     "runCount_other": "{{count}} runs",
     "lastStatus": {
@@ -1051,7 +1033,7 @@
       "loading": "Loading",
       "notLoaded": "Not loaded"
     },
-    "loop": {
+    "runPanel": {
       "notBound": "GraphRun is not bound to this job yet.",
       "controls": "Graph run controls",
       "showControls": "Controls",

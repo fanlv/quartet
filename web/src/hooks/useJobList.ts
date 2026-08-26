@@ -5,7 +5,7 @@ export interface JobSummary {
   title: string;
   modelId?: string;
   status: string;
-  mode?: 'interactive' | 'loop' | 'graph';
+  mode?: 'interactive' | 'graph';
   workspaceId?: string;
   workdir?: string;
   createdAt: number;
@@ -102,7 +102,7 @@ function dayKeyFromTimestamp(ts?: number): string | null {
  *
  * Previously the three pages that showed a job list (ChatPage / JobChat
  * dropdown / Sidebar) each fetched the full unpaginated list every 60s and
- * received the entire LoopConfig + Progress.Results tree for every job. For
+ * received the entire Job payload for every job. For
  * workspaces with thousands of jobs that produced multi-megabyte responses
  * and rendered hundreds of unused DOM nodes.
  *

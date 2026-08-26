@@ -85,7 +85,7 @@ const titleCircuitBreakerThreshold = 3
 // breaker enters half-open state and allows a single probe request through.
 const titleCircuitBreakerCooldown = 5 * time.Minute
 
-// asyncUpdateJobTitle schedules title generation for a chat/loop Job using the
+// asyncUpdateJobTitle schedules title generation for an interactive Job using the
 // default title prompt, falling back to the raw message when generation fails.
 func (h *Handler) asyncUpdateJobTitle(ctx context.Context, jobID string, userMessage string) {
 	h.asyncUpdateJobTitleWith(ctx, jobID, userMessage, titleCreatePrompt, fallbackTitleFromMessage(userMessage))
@@ -361,31 +361,4 @@ func fallbackTitleFromMessage(msg string) string {
 		return line
 	}
 	return ""
-}
-
-func replaceJobTitleVariables(message string, loopConfig *model.LoopConfig) string {
-	if message == "" || loopConfig == nil || len(loopConfig.Variables) == 0 {
-		return message
-	}
-
-	disabled := make(map[string]struct{}, len(loopConfig.DisabledVars))
-	for _, k := range loopConfig.DisabledVars {
-		disabled[k] = struct{}{}
-	}
-
-	result := message
-	for k, v := range loopConfig.Variables {
-		if _, off := disabled[k]; off {
-			v = ""
-		}
-		result = strings.ReplaceAll(result, "{{"+k+"}}", v)
-	}
-
-	// If the result is still purely unresolved template variables, return empty
-	// so the caller can skip title generation rather than send garbage to the LLM.
-	if model.IsTemplateVar(result) {
-		return ""
-	}
-
-	return result
 }

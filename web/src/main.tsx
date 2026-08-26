@@ -113,7 +113,7 @@ function setupViewportFixes() {
   // ④ Prevent window-level scroll drift on iPad.
   //    On iPad Safari/Chrome, the outer window can scroll even when
   //    html/body have overflow:hidden, especially during rapid content
-  //    updates (loop mode). Immediately reset any window scroll.
+  //    updates. Immediately reset any window scroll.
   let scrollResetRaf = 0
   window.addEventListener('scroll', () => {
     if (window.scrollY !== 0 || window.scrollX !== 0) {

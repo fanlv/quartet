@@ -16,7 +16,7 @@ import (
 )
 
 // jobRunnerImpl implements job.JobRunner using Handler's internal methods.
-// It handles both interactive (single message) and loop (preconfigured) modes.
+// It handles interactive messages and Graph Agent node execution.
 type jobRunnerImpl struct {
 	h                        *Handler
 	workdir                  string
@@ -121,8 +121,8 @@ func (r *jobRunnerImpl) RunIteration(ctx context.Context, sessionID string, mess
 
 // BeginShellSession mints a fresh session for a Graph Shell node and appends the
 // executed script as the user message of a shell-output transcript, mirroring
-// the legacy Loop shell persistence (services/job persistShellMessages) so the
-// Chat session sidebar renders it identically. It is called when the node is
+// the Agent-node transcript shape so the Chat session sidebar renders it
+// consistently. It is called when the node is
 // enqueued (before the shell runs) so the session — and the script — surface
 // immediately rather than only after a slow shell exits. The combined output is
 // appended later by FinishShellSession. The session is for display only — it is

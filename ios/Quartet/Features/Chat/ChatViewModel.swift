@@ -224,6 +224,10 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+    func reconcileThoughtLevelID(_ refreshedThoughtLevelID: String) {
+        thoughtLevelID = displayValue(refreshedThoughtLevelID)
+    }
+
     func start(route: ChatRoute, client: APIClient) async {
         stopStreaming()
         let changesJob = !jobID.isEmpty && jobID != route.summary.id

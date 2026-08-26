@@ -57,13 +57,13 @@ Graph 事件分两类，分界点是 `isPersistableGraphEvent`（`services/graph
 
 前端有**两条 SSE**（`web/src/hooks/useJobChat.ts`）：
 
-1. `/job/:id/events` —— loop / 交互聊天主流
+1. `/job/:id/events` —— interactive Job 事件流
 2. `/job/:id/graph-run/events` —— **graph 专用**（后端 `cmd/web/handler/graph.go:392` `JobGraphRunEvents`）
 
 Graph SSE 前端消费逻辑（`web/src/hooks/useJobChat.ts:2415-2443`）：
 
 - **结构事件**（`instanceStarted/Completed/Failed/Skipped/progressUpdated`）→ 触发 `reconcile()`。
-- **agent token 事件** → `translateGraphEvent`（`web/src/utils/translateGraphEvent.ts:33`）翻译成 loop 模式的 `TEXT_MESSAGE_START/CONTENT/END`、`TOOL_CALL_*`，再喂给 `handleEvent` → **逐字更新气泡**，复用整套 loop 流式渲染管线。
+- **agent token 事件** → `translateGraphEvent`（`web/src/utils/translateGraphEvent.ts:33`）翻译成共享的 `TEXT_MESSAGE_START/CONTENT/END`、`TOOL_CALL_*`，再喂给 `handleEvent` → **逐字更新气泡**，复用 Agent 消息流式渲染管线。
 
 后端 `JobGraphRunEvents`：
 - 单 writer 循环从 buffer reader 读事件，`WriteEvent(id, ...)`，**SSE `id` = buffer 的 seq**。

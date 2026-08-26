@@ -23,6 +23,12 @@ import (
 // executor_store.go: persist shard before s.mu when both are needed.
 
 func (s *serviceImpl) Create(job *model.Job) error {
+	if job == nil {
+		return fmt.Errorf("job is nil")
+	}
+	if job.Mode != model.JobModeInteractive && job.Mode != model.JobModeGraph {
+		return fmt.Errorf("unsupported job mode %q", job.Mode)
+	}
 	// Establish the "Progress is never nil in s.jobs" invariant at the only
 	// other entry point besides load(). Subsequent code paths (SendMessage,
 	// finishJob, ...) can then dereference
@@ -70,6 +76,9 @@ func (s *serviceImpl) Create(job *model.Job) error {
 func (s *serviceImpl) CreateIdempotent(job *model.Job) (*model.Job, bool, error) {
 	if job == nil {
 		return nil, false, fmt.Errorf("job is nil")
+	}
+	if job.Mode != model.JobModeInteractive && job.Mode != model.JobModeGraph {
+		return nil, false, fmt.Errorf("unsupported job mode %q", job.Mode)
 	}
 	if job.CreationClientMessageID == "" {
 		if err := s.Create(job); err != nil {

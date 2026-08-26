@@ -553,7 +553,7 @@ func (h *Handler) planJobTitleUpdate(j *model.Job, req *model.JobMessageRequest)
 		var parts []string
 		for _, m := range req.Messages {
 			if m.Content != "" {
-				parts = append(parts, replaceJobTitleVariables(m.Content, j.LoopConfig))
+				parts = append(parts, m.Content)
 			}
 		}
 		userMessage = strings.Join(parts, "\n")
@@ -707,7 +707,7 @@ func (h *Handler) sameAgentReference(ctx context.Context, session *model.Session
 // returned when the caller supplies a session ID that is not associated with the job.
 //
 // A requested session is accepted if it appears in either SessionIDs
-// (loop/interactive) or GraphSessionIDs (graph node sessions) — the latter lets
+// SessionIDs (interactive) or GraphSessionIDs (graph node sessions) — the latter lets
 // a user keep chatting in a finished graph node's session after the run stops.
 // The empty-request fallback deliberately reads only SessionIDs[last] so graph's
 // non-linear, concurrent node sessions never hijack the default target; a graph

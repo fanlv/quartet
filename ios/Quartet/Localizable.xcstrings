@@ -2584,6 +2584,38 @@
         }
       }
     },
+    "最近执行 Job 加载失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to Load Latest Job"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近执行 Job 加载失败"
+          }
+        }
+      }
+    },
+    "最近执行记录不是 Graph Job" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The latest run is not a Graph Job"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近执行记录不是 Graph Job"
+          }
+        }
+      }
+    },
     "最近一次错误" : {
       "localizations" : {
         "en" : {
@@ -5704,40 +5736,6 @@
         }
       }
     },
-    "循环" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loop"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "循环"
-          }
-        }
-      }
-    },
-    "循环任务" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loop Task"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "循环任务"
-          }
-        }
-      }
-    },
     "循环模式" : {
       "localizations" : {
         "en" : {
@@ -7733,6 +7731,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "来源与明细"
+          }
+        }
+      }
+    },
+    "查看%@最近执行的 Job" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the latest Job for %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看%@最近执行的 Job"
           }
         }
       }

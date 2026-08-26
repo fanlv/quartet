@@ -25,8 +25,8 @@ func (s *serviceImpl) SetUsageRecorder(r usagestats.Recorder) {
 // "first session" denormalisation and would mis-attribute model time when
 // the per-step or session model has moved on.
 //
-// Called from interactive / loop iteration / shell finalize positions.
-func (s *serviceImpl) recordUsageSnapshot(job *model.Job, handler *loopEventHandler, modelID string, finishedAtMs, durationMs int64) {
+// Called when an interactive or Graph Agent turn finishes.
+func (s *serviceImpl) recordUsageSnapshot(job *model.Job, handler *agentEventHandler, modelID string, finishedAtMs, durationMs int64) {
 	s.mu.RLock()
 	recorder := s.usageRecorder
 	s.mu.RUnlock()

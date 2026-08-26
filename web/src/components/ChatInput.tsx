@@ -145,12 +145,12 @@ interface ChatInputProps {
   roundStartedAt?: number;
   /** Timestamp when the last message in the current round finished. Undefined = still running. */
   roundFinishedAt?: number;
-  /** Loop mode: accumulated duration in ms from all completed sessions.
+  /** Graph mode: accumulated duration in ms from all completed sessions.
    *  When provided (together with {@link totalDurationRunningStartedAts}),
-   *  the footer badge shows the aggregate across the whole Loop job instead
+   *  the footer badge shows the aggregate across the whole Graph run instead
    *  of a single run's elapsed — matching the Sessions sidebar header. */
   totalDurationBaseMs?: number;
-  /** Loop mode: startedAt timestamps of currently-running session entries.
+  /** Graph mode: startedAt timestamps of currently-running session entries.
    *  Each value contributes a live delta on top of {@link totalDurationBaseMs}. */
   totalDurationRunningStartedAts?: number[];
   workdir?: string;
@@ -1099,8 +1099,8 @@ export function ChatInput({
               Tokens: {formatTokenCount(totalTokens)}
             </span>
             {/* Duration badge:
-               - Loop mode passes `totalDuration*` so the badge reflects the
-                 whole Loop job (sum of session durations + live delta of any
+               - Graph mode passes `totalDuration*` so the badge reflects the
+                 whole Graph run (sum of session durations + live delta of any
                  running sessions) — matches the Sessions sidebar header.
                - Interactive mode falls back to the per-round start/finish,
                  which is what the old badge always showed.

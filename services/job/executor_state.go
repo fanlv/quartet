@@ -43,7 +43,7 @@ func (s *serviceImpl) finishJob(ctx context.Context, job *model.Job) {
 	lock.Lock()
 	defer lock.Unlock()
 	s.mu.Lock()
-	resolution := s.applyTerminalStatusLocked(job, model.JobStatusCompleted, true)
+	resolution := s.applyTerminalStatusLocked(job, model.JobStatusCompleted)
 	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeCompleted, s.nowMillis)
 	s.mu.Unlock()
 	// Publish the terminal event that matches the final status; runOutcome
@@ -75,7 +75,7 @@ func (s *serviceImpl) stopJob(ctx context.Context, job *model.Job) {
 	lock.Lock()
 	defer lock.Unlock()
 	s.mu.Lock()
-	resolution := s.applyTerminalStatusLocked(job, model.JobStatusStopped, false)
+	resolution := s.applyTerminalStatusLocked(job, model.JobStatusStopped)
 	snap := captureTerminalSnapshotLocked(job, model.RunOutcomeStopped, s.nowMillis)
 	s.mu.Unlock()
 	finalStatus := s.persistAndPublishTerminalUnderPersistLock(ctx, job, snap, jobRunActionStop, "", model.RunOutcomeStopped)
@@ -83,17 +83,12 @@ func (s *serviceImpl) stopJob(ctx context.Context, job *model.Job) {
 }
 
 // failJob marks a job as failed and publishes the matching terminal event.
-//
-// The failure is recorded with Resume cleared: interactive runs never carry a
-// resumable cursor, and the prior-status / paused-run branches of
-// applyTerminalStatusLocked return before Resume would be touched, so
-// historical (legacy loop) Resume data survives an interactive failure.
 func (s *serviceImpl) failJob(ctx context.Context, job *model.Job, message string) {
 	lock := s.persistLock(job.ID)
 	lock.Lock()
 	defer lock.Unlock()
 	s.mu.Lock()
-	resolution := s.applyTerminalStatusLocked(job, model.JobStatusFailed, true)
+	resolution := s.applyTerminalStatusLocked(job, model.JobStatusFailed)
 	// Defensive: ensure Progress is non-nil before recording LastError.
 	// A panic-recovery caller would otherwise re-panic here, leaving the
 	// Job stuck in Running until the next process load() reset.
@@ -113,32 +108,26 @@ func (s *serviceImpl) failJob(ctx context.Context, job *model.Job, message strin
 }
 
 type terminalStatusResolution struct {
-	targetStatus          model.JobStatus
-	statusReason          string
-	priorStatus           model.JobStatus
-	restoredPriorStatus   bool
-	resumePresentAtFinish bool
-	resumeCleared         bool
+	targetStatus        model.JobStatus
+	statusReason        string
+	priorStatus         model.JobStatus
+	restoredPriorStatus bool
 }
 
 // applyTerminalStatusLocked decides and writes the final job.Status for a
 // terminal transition. Caller MUST hold s.mu.
 //
 // Resolution order:
-//  1. A stored prior status recorded by SendMessage → restore it; leave Resume
-//     untouched. For non-graph jobs this only fires for a terminal prior
+//  1. A stored prior status recorded by SendMessage → restore it. For
+//     interactive jobs this only fires for a terminal prior
 //     (Completed/Failed/Stopped); for graph jobs it fires for ANY prior, because
 //     a graph job's status is owned by the graph run lifecycle and an
 //     interactive discussion turn must never write it.
-//  2. job.Resume != nil (paused run, legacy loop job)
-//     → JobStatusStopped;
-//     leave Resume untouched.
-//  3. otherwise                  → targetStatus, clearing Resume iff clearResume.
-func (s *serviceImpl) applyTerminalStatusLocked(job *model.Job, targetStatus model.JobStatus, clearResume bool) terminalStatusResolution {
+//  2. otherwise → targetStatus.
+func (s *serviceImpl) applyTerminalStatusLocked(job *model.Job, targetStatus model.JobStatus) terminalStatusResolution {
 	resolution := terminalStatusResolution{
-		targetStatus:          targetStatus,
-		statusReason:          "target_status",
-		resumePresentAtFinish: job.Resume != nil,
+		targetStatus: targetStatus,
+		statusReason: "target_status",
 	}
 	if prior, ok := s.consumeInteractivePriorStatusLocked(job.ID); ok && (isTerminalJobStatus(prior) || job.Mode == model.JobModeGraph) {
 		job.Status = prior
@@ -147,16 +136,7 @@ func (s *serviceImpl) applyTerminalStatusLocked(job *model.Job, targetStatus mod
 		resolution.statusReason = "restored_prior_status"
 		return resolution
 	}
-	if job.Resume != nil {
-		job.Status = model.JobStatusStopped
-		resolution.statusReason = "resume_present"
-		return resolution
-	}
 	job.Status = targetStatus
-	if clearResume {
-		job.Resume = nil
-		resolution.resumeCleared = resolution.resumePresentAtFinish
-	}
 	return resolution
 }
 
@@ -165,12 +145,12 @@ func logLifecycleTerminal(ctx context.Context, jobID, action string, finalStatus
 	// Interactive run terminals stay at INFO so operators can always correlate
 	// the "run starting" / "run finished" pair without switching to DEBUG.
 	if message != "" {
-		logger.Infof(ctx, "[job.lifecycle] run %s: jobId=%s action=%s targetStatus=%s finalStatus=%s runOutcome=%s statusReason=%s priorStatus=%s restoredPriorStatus=%t resumePresentAtFinish=%t resumeCleared=%t err=%q",
-			verb, jobID, action, resolution.targetStatus, finalStatus, runOutcome, resolution.statusReason, statusLogValue(resolution.priorStatus), resolution.restoredPriorStatus, resolution.resumePresentAtFinish, resolution.resumeCleared, message)
+		logger.Infof(ctx, "[job.lifecycle] run %s: jobId=%s action=%s targetStatus=%s finalStatus=%s runOutcome=%s statusReason=%s priorStatus=%s restoredPriorStatus=%t err=%q",
+			verb, jobID, action, resolution.targetStatus, finalStatus, runOutcome, resolution.statusReason, statusLogValue(resolution.priorStatus), resolution.restoredPriorStatus, message)
 		return
 	}
-	logger.Infof(ctx, "[job.lifecycle] run %s: jobId=%s action=%s targetStatus=%s finalStatus=%s runOutcome=%s statusReason=%s priorStatus=%s restoredPriorStatus=%t resumePresentAtFinish=%t resumeCleared=%t",
-		verb, jobID, action, resolution.targetStatus, finalStatus, runOutcome, resolution.statusReason, statusLogValue(resolution.priorStatus), resolution.restoredPriorStatus, resolution.resumePresentAtFinish, resolution.resumeCleared)
+	logger.Infof(ctx, "[job.lifecycle] run %s: jobId=%s action=%s targetStatus=%s finalStatus=%s runOutcome=%s statusReason=%s priorStatus=%s restoredPriorStatus=%t",
+		verb, jobID, action, resolution.targetStatus, finalStatus, runOutcome, resolution.statusReason, statusLogValue(resolution.priorStatus), resolution.restoredPriorStatus)
 }
 
 // lifecycleStartContext carries the snapshot needed to emit the run-start
@@ -178,7 +158,6 @@ func logLifecycleTerminal(ctx context.Context, jobID, action string, finalStatus
 // the log line reflects the exact state that the goroutine is about to run on.
 type lifecycleStartContext struct {
 	action      string // "send_message"
-	hasResume   bool
 	priorStatus model.JobStatus
 	scheduleID  string
 }
@@ -196,8 +175,8 @@ func logLifecycleStart(ctx context.Context, jobID string, sc lifecycleStartConte
 	if sc.scheduleID != "" {
 		logFn = logger.Debugf
 	}
-	logFn(ctx, "[job.lifecycle] run starting: jobId=%s action=%s hasResume=%t priorStatus=%s scheduleId=%s",
-		jobID, sc.action, sc.hasResume, statusLogValue(sc.priorStatus), scheduleID)
+	logFn(ctx, "[job.lifecycle] run starting: jobId=%s action=%s priorStatus=%s scheduleId=%s",
+		jobID, sc.action, statusLogValue(sc.priorStatus), scheduleID)
 }
 
 func lifecycleActionVerb(action string) string {
@@ -328,7 +307,7 @@ func (s *serviceImpl) recordTerminalPersistError(job *model.Job, err error) bool
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Only stamp LastError if it's empty — a real iteration error is more
+	// Only stamp LastError if it's empty — a real run error is more
 	// informative than "terminal persist failed", so don't clobber it.
 	if job.Progress.LastError == "" {
 		job.Progress.LastError = fmt.Sprintf("terminal persist failed: %v", err)
@@ -368,7 +347,7 @@ func (s *serviceImpl) publishTerminalEvent(jobID string, status model.JobStatus,
 }
 
 // closePanicRoundIfOpen publishes RUN_ERROR to close any in-flight buffer
-// round when a panic interrupts a run before executeRepeat could publish its
+// round when a panic interrupts a run before executeAgentTurn could publish its
 // own closing event. Without it the round stays closed=false; once the next
 // SendMessage flips terminal off via ResumeGC, gcLocked's `r.closed &&
 // minCursor >= r.endSeq` predicate is never satisfied and the round's
@@ -377,8 +356,8 @@ func (s *serviceImpl) publishTerminalEvent(jobID string, status model.JobStatus,
 //
 // Panic recovery doesn't have direct access to the in-flight run's runID, so
 // it uses the most recent SessionIDs entry as best-effort attribution.
-// Callers must NOT also touch Progress.Results from the panic path —
-// interactive runs never write Progress.Results. publish only.
+// The panic path only closes the stream boundary; it does not alter other
+// persisted run diagnostics.
 func (s *serviceImpl) closePanicRoundIfOpen(job *model.Job, panicErr error) {
 	buf := s.bus.get(job.ID)
 	if buf == nil || !buf.HasOpenRound() {

@@ -4,6 +4,8 @@ import UIKit
 struct ScheduledTasksView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.mainTabBarInset) private var mainTabBarInset
+    @Binding private var showsMainTabBar: Bool
+    @State private var path: [JobSummary] = []
     @State private var schedules: [ScheduleInfo] = []
     @State private var workflows: [GraphWorkflowSummary] = []
     @State private var warnings: [GraphWorkflowWarning] = []
@@ -15,9 +17,14 @@ struct ScheduledTasksView: View {
     @State private var pendingEditSchedule: ScheduleInfo?
     @State private var operationMessage: String?
     @State private var error: PresentedError?
+    @State private var openingJobID: String?
+
+    init(showsMainTabBar: Binding<Bool>) {
+        _showsMainTabBar = showsMainTabBar
+    }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if isLoading, schedules.isEmpty {
                     VStack(spacing: 12) {
@@ -55,6 +62,10 @@ struct ScheduledTasksView: View {
                                 ScheduleCard(
                                     schedule: schedule,
                                     workflowName: workflowName(for: schedule),
+                                    isOpeningLatestJob: openingJobID == schedule.lastRunJobID,
+                                    onOpenLatestJob: model.can("job.read") && schedule.lastRunJobID?.isEmpty == false
+                                        ? { openLatestJob(for: schedule) }
+                                        : nil,
                                     onShowActions: { actionSchedule = schedule }
                                 )
                             }
@@ -69,6 +80,9 @@ struct ScheduledTasksView: View {
             .mainTabBarBottomInset(mainTabBarInset)
             .navigationTitle("定时任务")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: JobSummary.self) { summary in
+                GraphRunView(summary: summary)
+            }
             .toolbar {
                 if model.can("schedule.write") {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -82,6 +96,10 @@ struct ScheduledTasksView: View {
         }
         .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .onAppear { setMainTabBarVisible(path.isEmpty) }
+        .onChange(of: path.isEmpty) { _, isAtRoot in
+            setMainTabBarVisible(isAtRoot)
+        }
         .task(id: refreshRevision) { await load() }
         .sheet(isPresented: $isCreating) {
             editor(schedule: nil)
@@ -218,6 +236,59 @@ struct ScheduledTasksView: View {
         return workflows.first(where: { $0.id == id })?.name ?? id
     }
 
+    private func openLatestJob(for schedule: ScheduleInfo) {
+        guard let jobID = schedule.lastRunJobID, !jobID.isEmpty, openingJobID == nil else { return }
+        openingJobID = jobID
+        Task { @MainActor in
+            defer { openingJobID = nil }
+            do {
+                let summary: JobSummary
+                if let cached = model.jobSummary(id: jobID) {
+                    summary = cached
+                } else {
+                    let detail = try await model.jobDetail(id: jobID)
+                    guard detail.mode == "graph" else {
+                        throw APIError(
+                            summary: "最近执行记录不是 Graph Job".localizedForApp,
+                            detail: "GET /api/v1/job/\(jobID) 返回 mode=\(detail.mode)，无法打开 Graph Job 页面。"
+                        )
+                    }
+                    let runTime = schedule.lastRunAt ?? 0
+                    summary = JobSummary(
+                        id: detail.id,
+                        title: detail.title,
+                        modelId: detail.firstModelId,
+                        status: detail.status,
+                        mode: detail.mode,
+                        workspaceId: detail.workspaceId,
+                        workdir: detail.workdir,
+                        createdAt: runTime,
+                        updatedAt: runTime,
+                        pinnedAt: nil,
+                        sessionCount: detail.sessionCount,
+                        scheduleId: detail.scheduleId ?? schedule.id,
+                        shareToken: nil,
+                        agentId: detail.initialAgentId,
+                        acpMode: detail.initialAcpMode,
+                        acpThoughtLevel: detail.initialAcpThoughtLevel
+                    )
+                }
+                setMainTabBarVisible(false)
+                path.append(summary)
+            } catch {
+                present(error, summary: "最近执行 Job 加载失败".localizedForApp)
+            }
+        }
+    }
+
+    private func setMainTabBarVisible(_ isVisible: Bool) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            showsMainTabBar = isVisible
+        }
+    }
+
     private func present(_ caught: Error, summary: String) {
         if let apiError = caught as? APIError {
             error = PresentedError(title: apiError.summary, detail: apiError.detail)
@@ -230,6 +301,8 @@ struct ScheduledTasksView: View {
 private struct ScheduleCard: View {
     let schedule: ScheduleInfo
     let workflowName: String
+    let isOpeningLatestJob: Bool
+    let onOpenLatestJob: (() -> Void)?
     let onShowActions: () -> Void
 
     var body: some View {
@@ -274,6 +347,27 @@ private struct ScheduleCard: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("schedule-row-\(schedule.name)")
+
+            if let onOpenLatestJob {
+                Button(action: onOpenLatestJob) {
+                    Group {
+                        if isOpeningLatestJob {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.quartet(.control, weight: .semibold))
+                        }
+                    }
+                    .foregroundStyle(QuartetTheme.accentDeep)
+                    .frame(width: 40, height: 40)
+                    .background(QuartetTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(isOpeningLatestJob)
+                .accessibilityLabel(AppLanguage.localizedFormat("查看%@最近执行的 Job", schedule.name))
+                .accessibilityIdentifier("schedule-latest-job-\(schedule.id)")
+            }
 
             Button(action: onShowActions) {
                 Image(systemName: "ellipsis.circle")

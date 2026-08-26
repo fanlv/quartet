@@ -82,7 +82,7 @@ func TestRunStartedTimestampInteractiveUsesJobStartedAt(t *testing.T) {
 	defer reader.Close()
 
 	job := &model.Job{ID: jobID, StartedAt: 123456789, Progress: &model.JobProgress{}}
-	s.executeRepeat(context.Background(), job, stubRunner{}, "hi", "sess", nil)
+	s.executeAgentTurn(context.Background(), job, stubRunner{}, "hi", "sess", nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -132,7 +132,7 @@ func TestInteractiveRunPublishesRunEnd(t *testing.T) {
 			defer reader.Close()
 
 			job := &model.Job{ID: jobID, StartedAt: 1, Progress: &model.JobProgress{}}
-			s.executeRepeat(context.Background(), job, tt.runner, "hi", "sess", nil)
+			s.executeAgentTurn(context.Background(), job, tt.runner, "hi", "sess", nil)
 
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
@@ -220,7 +220,7 @@ func (r cancelStubRunner) SessionModelID(sessionID string) string { return "" }
 // TestInterruptedRunClosesBufferRound asserts that an interrupted run
 // (RunIteration returns context.Canceled / DeadlineExceeded) still publishes
 // a run-end event so the buffer's openRoundID is cleared. Before the fix,
-// executeRepeat's isInterruptedRun branch returned early, leaving openRoundID
+// executeAgentTurn's isInterruptedRun branch returned early, leaving openRoundID
 // set — the next run's ResumeGC then failed to reclaim the orphan round
 // forever (round.closed stayed false, gc condition never met).
 //
@@ -237,7 +237,7 @@ func TestInterruptedRunClosesBufferRound(t *testing.T) {
 	defer reader.Close()
 
 	job := &model.Job{ID: jobID, StartedAt: 1, Progress: &model.JobProgress{}}
-	s.executeRepeat(context.Background(), job, cancelStubRunner{}, "hi", "sess", nil)
+	s.executeAgentTurn(context.Background(), job, cancelStubRunner{}, "hi", "sess", nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -297,7 +297,7 @@ func TestInterruptedThenSendReclaimsOrphanRound(t *testing.T) {
 
 	// Run #1: interrupted. Publishes RunStarted + RunFinished (cancel is not
 	// an error — see publishRunOutcome).
-	s.executeRepeat(context.Background(), job, cancelStubRunner{}, "hi", "sess", nil)
+	s.executeAgentTurn(context.Background(), job, cancelStubRunner{}, "hi", "sess", nil)
 
 	// Simulate the terminal transition (Stop → JOB_STOPPED → MarkTerminal),
 	// then the next SendMessage (ResumeGC + new run).
@@ -309,7 +309,7 @@ func TestInterruptedThenSendReclaimsOrphanRound(t *testing.T) {
 	buf.ResumeGC()
 
 	// Run #2: succeeds.
-	s.executeRepeat(context.Background(), job, stubRunner{}, "hi", "sess", nil)
+	s.executeAgentTurn(context.Background(), job, stubRunner{}, "hi", "sess", nil)
 
 	// Drain everything and ack so the cursor crosses both rounds' end events.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

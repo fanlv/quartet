@@ -1459,7 +1459,7 @@ test('graph review #13: GraphLoop Step Stop button calls the bound job endpoint'
   const jobId: string = (await startResp.json()).run?.jobId
   expect(jobId).toMatch(/^job-/)
 
-  await expect(page.getByTestId('graph-loop-progress')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-run-progress')).toBeVisible({ timeout: 10_000 })
   await expect(page.getByRole('button', { name: 'Step Stop' })).toBeEnabled({ timeout: 10_000 })
 
   const [stepResp] = await Promise.all([
@@ -1760,16 +1760,16 @@ test('graph review #19: embedded run-version editor adds loop entry and exit mar
   const { status } = await waitForRunStatus(request, jobId, ['failed', 'completed', 'timedOut'])
   expect(status).toBe('failed')
 
-  // Open the Chat page for the Graph Job and use GraphLoopProgress' embedded
+  // Open the Chat page for the Graph Job and use GraphRunProgress' embedded
   // run-version editor, not the full GraphWorkflowPage edit deep-link.
   await page.goto(`/?workspaceId=${workspace.workspaceId}&jobId=${jobId}`)
   await expect(page.getByTestId('job-chat')).toHaveAttribute('data-job-mode', 'graph', { timeout: 10_000 })
-  await expect(page.getByTestId('graph-loop-progress')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-run-progress')).toBeVisible({ timeout: 10_000 })
   await page.getByRole('button', { name: 'Edit' }).click()
-  await expect(page.getByTestId('graph-loop-editor')).toBeVisible()
+  await expect(page.getByTestId('graph-run-editor')).toBeVisible()
 
-  await page.getByTestId('graph-loop-editor').getByRole('button', { name: /Loop/ }).click()
-  const embeddedLoop = page.getByTestId('graph-loop-editor')
+  await page.getByTestId('graph-run-editor').getByRole('button', { name: /Loop/ }).click()
+  const embeddedLoop = page.getByTestId('graph-run-editor')
   await expect(embeddedLoop.locator('[data-testid^="graph-loop-port-start-"]')).toBeVisible()
   await expect(embeddedLoop.locator('[data-testid^="graph-loop-port-end-"]')).toBeVisible()
 })
@@ -2018,10 +2018,10 @@ test('graph review #25: embedded editor handles loop nesting, deletion cascade, 
 
   await page.goto(`/?workspaceId=${workspace.workspaceId}&jobId=${jobId}`)
   await expect(page.getByTestId('job-chat')).toHaveAttribute('data-job-mode', 'graph', { timeout: 10_000 })
-  await expect(page.getByTestId('graph-loop-progress')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-run-progress')).toBeVisible({ timeout: 10_000 })
   await page.getByRole('button', { name: 'Edit' }).click()
-  await expect(page.getByTestId('graph-loop-editor')).toBeVisible()
-  const embedded = page.getByTestId('graph-loop-editor')
+  await expect(page.getByTestId('graph-run-editor')).toBeVisible()
+  const embedded = page.getByTestId('graph-run-editor')
 
   await dropNodeOnElement(page, /Shell Script/, '[data-testid="graph-loop-loop-1"]', 'shell')
   const addedShell = embedded.locator('[data-testid^="graph-node-shell-"]').filter({ hasNotText: 'Loop shell' }).last()
@@ -2422,13 +2422,13 @@ test('graph review #35: embedded edit shows clickable validation errors and guar
 
   await page.goto(`/?workspaceId=${workspace.workspaceId}&jobId=${jobId}`)
   await expect(page.getByTestId('job-chat')).toHaveAttribute('data-job-mode', 'graph', { timeout: 10_000 })
-  await expect(page.getByTestId('graph-loop-progress')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-run-progress')).toBeVisible({ timeout: 10_000 })
   await page.getByRole('button', { name: 'Edit' }).click()
-  await expect(page.getByTestId('graph-loop-editor')).toBeVisible()
+  await expect(page.getByTestId('graph-run-editor')).toBeVisible()
 
   // Dirty cancel: editing a node config and pressing Cancel must ask first.
-  await page.getByTestId('graph-loop-editor').getByTestId('graph-node-boom').click()
-  await page.locator('.graph-loop-inspector .gi-field', { hasText: 'Shell script' }).locator('textarea').fill('echo dirty')
+  await page.getByTestId('graph-run-editor').getByTestId('graph-node-boom').click()
+  await page.locator('.graph-run-inspector .gi-field', { hasText: 'Shell script' }).locator('textarea').fill('echo dirty')
   let cancelDialogSeen = false
   page.once('dialog', (d) => {
     cancelDialogSeen = true
@@ -2436,21 +2436,21 @@ test('graph review #35: embedded edit shows clickable validation errors and guar
   })
   await page.getByRole('button', { name: 'Cancel edit' }).click()
   await expect.poll(() => cancelDialogSeen).toBe(true)
-  await expect(page.getByTestId('graph-loop-editor')).toBeVisible()
+  await expect(page.getByTestId('graph-run-editor')).toBeVisible()
 
   // Re-enter a known-invalid graph by deleting the edge to end, then save.
-  await page.locator('.graph-loop-inspector .gi-field', { hasText: 'Shell script' }).locator('textarea').fill('exit 1')
+  await page.locator('.graph-run-inspector .gi-field', { hasText: 'Shell script' }).locator('textarea').fill('exit 1')
   await page.getByTestId('graph-edge-delete-edge-boom-end').click()
   const [versionResp] = await Promise.all([
     page.waitForResponse((r) => r.url().includes(`/api/v1/job/${jobId}/graph-run/version`) && r.request().method() === 'PUT'),
     page.getByRole('button', { name: 'Save run version' }).click(),
   ])
   expect(versionResp.status(), `expected embedded invalid save 400, got ${versionResp.status()}: ${await versionResp.text()}`).toBe(400)
-  await expect(page.getByTestId('graph-loop-error-list')).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByTestId('graph-loop-error-link').first()).toContainText(/node=boom|edge=/)
+  await expect(page.getByTestId('graph-run-error-list')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-run-error-link').first()).toContainText(/node=boom|edge=/)
 
-  await page.getByTestId('graph-loop-error-link').first().click()
-  await expect(page.getByTestId('graph-loop-editor').getByTestId('graph-node-boom')).toHaveClass(/has-error|selected/)
+  await page.getByTestId('graph-run-error-link').first().click()
+  await expect(page.getByTestId('graph-run-editor').getByTestId('graph-node-boom')).toHaveClass(/has-error|selected/)
 })
 
 // ---------------------------------------------------------------------------
@@ -2507,15 +2507,15 @@ test('graph review #37: embedded run-version editor edits global variables and l
 
   await page.goto(`/?workspaceId=${workspace.workspaceId}&jobId=${jobId}`)
   await expect(page.getByTestId('job-chat')).toHaveAttribute('data-job-mode', 'graph', { timeout: 10_000 })
-  await expect(page.getByTestId('graph-loop-progress')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-run-progress')).toBeVisible({ timeout: 10_000 })
   await page.getByRole('button', { name: 'Edit' }).click()
-  await expect(page.getByTestId('graph-loop-editor')).toBeVisible()
+  await expect(page.getByTestId('graph-run-editor')).toBeVisible()
 
   // No selected node -> GraphInspector shows the global variables/run config
   // panel. Global variables are part of the run-version payload; run config
   // remains locked because it has separate runtime semantics.
-  await page.getByTestId('graph-loop-editor').locator('.react-flow__pane').click({ position: { x: 10, y: 10 } })
-  const inspector = page.locator('.graph-loop-inspector')
+  await page.getByTestId('graph-run-editor').locator('.react-flow__pane').click({ position: { x: 10, y: 10 } })
+  const inspector = page.locator('.graph-run-inspector')
   await expect(inspector.getByRole('spinbutton', { name: 'Concurrency' })).toBeDisabled()
   const customValue = inspector.getByLabel('Variable custom value')
   await expect(customValue).toBeEnabled()

@@ -77,7 +77,7 @@ Job / Session 元数据写：各自 `Save` 做 `json.Marshal` → `AtomicWriteFi
 
 - **`messages.jsonl` 逐行容错**：读时（`loadAllMessagesLocked` `chat_context.go:203`）遇到无法解析的行 Warn 后跳过；`ReplacePlaceholderToolResult` 对坏行原样保留、绝不重写丢弃（否则一处局部损坏会被整文件重写永久放大成历史丢失）。
 - **单文件 JSON**：settings / recent-dirs 等解析失败时 `backupCorruptFile` 改名备份为 `<path>.corrupt.<ns>` 再重建；但 `job.json` / `meta.json` 解析失败是直接返回 error（`LoadAll` 对单个坏 job 记 Error 后跳过，不阻塞其它）。
-- **进程重启恢复**：启动时把仍是 `Running` 的 job 重置为 `Failed` 并写 `LastError="interrupted: process restarted while running"`，只保留最后一条迭代结果的内容以省内存。
+- **进程重启恢复**：启动时把仍是 `Running` 的 job 重置为 `Failed` 并写 `LastError="interrupted: process restarted while running"`。
 
 ## 内存缓存
 
@@ -86,7 +86,7 @@ Job / Session 元数据写：各自 `Save` 做 `json.Marshal` → `AtomicWriteFi
 - 键 = 文件绝对路径；有效性用 `(size, mtime)` 校验，不匹配即 miss，绝不返回过期内容。
 - 默认预算 64MiB（`QUARTET_MESSAGES_CACHE_BYTES` 可覆盖，设 0 关闭）；单会话超预算不缓存。
 - 写路径（append/replace/stitch）写完显式 invalidate，作为 mtime 亚秒粒度别名的兜底。
-- **持久化是唯一事实源，缓存只是读加速**：动机是长 loop 的 jsonl 可达数 MB，web reload / SSE reconcile 每次都读整段历史，反复 Unmarshal 主导繁忙 job 的加载耗时。
+- **持久化是唯一事实源，缓存只是读加速**：长会话的 jsonl 可达数 MB，web reload / SSE reconcile 每次都读整段历史，反复 Unmarshal 会主导繁忙 job 的加载耗时。
 
 ## 已知坑
 

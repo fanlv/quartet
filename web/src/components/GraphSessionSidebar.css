@@ -1,4 +1,4 @@
-.loop-sidebar {
+.graph-session-sidebar {
   width: 220px;
   min-width: 220px;
   background: #fff;
@@ -8,7 +8,7 @@
   overflow: hidden;
 }
 
-.loop-sidebar-header {
+.graph-session-sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -16,13 +16,13 @@
   border-bottom: 1px solid #f0f0f0;
 }
 
-.loop-sidebar-title {
+.graph-session-sidebar-title {
   font-size: 13px;
   font-weight: 600;
   color: #334155;
 }
 
-.loop-sidebar-count {
+.graph-session-sidebar-count {
   font-size: 11px;
   background: #f1f5f9;
   color: #64748b;
@@ -31,13 +31,13 @@
   font-weight: 500;
 }
 
-.loop-sidebar-list {
+.graph-session-sidebar-list {
   flex: 1;
   overflow-y: auto;
   padding: 6px;
 }
 
-.loop-sidebar-item {
+.graph-session-sidebar-item {
   padding: 8px 10px;
   border-radius: 6px;
   cursor: pointer;
@@ -45,72 +45,72 @@
   transition: background 0.15s;
 }
 
-.loop-sidebar-item:hover {
+.graph-session-sidebar-item:hover {
   background: #f8fafc;
 }
 
-.loop-sidebar-item.active {
+.graph-session-sidebar-item.active {
   background: #eff6ff;
   border: 1px solid #bfdbfe;
 }
 
-.loop-sidebar-item:not(.active) {
+.graph-session-sidebar-item:not(.active) {
   border: 1px solid transparent;
 }
 
-.loop-sidebar-item-header {
+.graph-session-sidebar-item-header {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.loop-sidebar-item-icon {
+.graph-session-sidebar-item-icon {
   font-size: 12px;
   width: 16px;
   text-align: center;
 }
 
-.loop-sidebar-item.completed .loop-sidebar-item-icon {
+.graph-session-sidebar-item.completed .graph-session-sidebar-item-icon {
   color: #15803d;
   font-weight: 700;
 }
 
-.loop-sidebar-item.failed .loop-sidebar-item-icon {
+.graph-session-sidebar-item.failed .graph-session-sidebar-item-icon {
   color: #b91c1c;
   font-weight: 700;
 }
 
-.loop-sidebar-item.running .loop-sidebar-item-icon {
+.graph-session-sidebar-item.running .graph-session-sidebar-item-icon {
   color: #2563eb;
 }
 
-.loop-sidebar-item-label {
+.graph-session-sidebar-item-label {
   font-size: 13px;
   font-weight: 500;
   color: #1e293b;
   flex: 1;
 }
 
-.loop-sidebar-item-rounds {
+.graph-session-sidebar-item-rounds {
   font-size: 11px;
   color: #94a3b8;
   font-weight: 400;
 }
 
-.loop-sidebar-item-meta {
+.graph-session-sidebar-item-meta {
   display: flex;
   gap: 8px;
   margin-top: 2px;
   padding-left: 22px;
 }
 
-.loop-sidebar-item-duration,
-.loop-sidebar-item-tokens {
+.graph-session-sidebar-item-duration,
+.graph-session-sidebar-item-tokens {
   font-size: 11px;
   color: #94a3b8;
 }
 
-.loop-sidebar-empty {
+.graph-session-sidebar-empty {
   padding: 20px 14px;
   text-align: center;
   font-size: 12px;
@@ -118,7 +118,7 @@
 }
 
 @media (max-width: 768px) {
-  .loop-sidebar {
+  .graph-session-sidebar {
     width: 260px;
     min-width: 260px;
   }

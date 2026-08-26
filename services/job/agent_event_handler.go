@@ -13,11 +13,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// loopEventHandler implements agui.EventHandler and forwards agent events
+// agentEventHandler implements agui.EventHandler and forwards agent events
 // to the Job's SSE subscribers (stamped with jobID/sessionID/runID).
 // It is intentionally not goroutine-safe: a single agent runner callback stream
 // must invoke its methods sequentially for one turn.
-type loopEventHandler struct {
+type agentEventHandler struct {
 	// ctx is the run context captured at construction. It is
 	// passed to logger.*f calls and usage accumulator methods so that:
 	//   - log entries inherit the run's source attribution
@@ -53,7 +53,7 @@ type loopEventHandler struct {
 
 	// usage accumulates per-turn usage statistics (counts, tokens, per-
 	// tool durations). Snapshot()'d at turn finalize and handed to the
-	// Recorder. Lifetime: same as the loopEventHandler (one per turn).
+	// Recorder. Lifetime: same as the agentEventHandler (one per turn).
 	usage *usagestats.Accumulator
 }
 
@@ -62,10 +62,10 @@ type eventPublisher interface {
 	nowMillis() int64
 }
 
-var _ agui.EventHandler = (*loopEventHandler)(nil)
-var _ agui.BoundaryTimestampSetter = (*loopEventHandler)(nil)
+var _ agui.EventHandler = (*agentEventHandler)(nil)
+var _ agui.BoundaryTimestampSetter = (*agentEventHandler)(nil)
 
-func newLoopEventHandler(ctx context.Context, jobID, sessionID, clientMessageID string, messages []*schema.Message, publisher eventPublisher) *loopEventHandler {
+func newAgentEventHandler(ctx context.Context, jobID, sessionID, clientMessageID string, messages []*schema.Message, publisher eventPublisher) *agentEventHandler {
 	runID := uuid.New().String()
 	eventID := "job:" + jobID + ":run:" + runID
 	if clientMessageID != "" {
@@ -73,7 +73,7 @@ func newLoopEventHandler(ctx context.Context, jobID, sessionID, clientMessageID 
 	}
 	usage := usagestats.NewAccumulator()
 	usage.SetImageEstimate(tokenizer.MessagesImageTokenCounter(ctx, messages))
-	return &loopEventHandler{
+	return &agentEventHandler{
 		ctx:           ctx,
 		jobID:         jobID,
 		sessionID:     sessionID,
@@ -85,7 +85,7 @@ func newLoopEventHandler(ctx context.Context, jobID, sessionID, clientMessageID 
 	}
 }
 
-func (h *loopEventHandler) finalizeUsageEstimate() {
+func (h *agentEventHandler) finalizeUsageEstimate() {
 	if h.usage == nil || h.sawTokenUsage {
 		return
 	}
@@ -95,11 +95,11 @@ func (h *loopEventHandler) finalizeUsageEstimate() {
 // SetNextBoundaryTimestamp pins the timestamp the next baseEvent() will
 // use. Intended for the Builder to share its persist-side clock read
 // with the SSE event for the same semantic boundary. Consumed once.
-func (h *loopEventHandler) SetNextBoundaryTimestamp(ts int64) {
+func (h *agentEventHandler) SetNextBoundaryTimestamp(ts int64) {
 	h.nextBoundaryTs = ts
 }
 
-func (h *loopEventHandler) baseEvent(eventType model.EventType) model.BaseEvent {
+func (h *agentEventHandler) baseEvent(eventType model.EventType) model.BaseEvent {
 	ts := h.nextBoundaryTs
 	if ts == 0 {
 		ts = h.publisher.nowMillis()
@@ -115,12 +115,12 @@ func (h *loopEventHandler) baseEvent(eventType model.EventType) model.BaseEvent 
 	return be
 }
 
-func (h *loopEventHandler) OnMessageStart() error {
+func (h *agentEventHandler) OnMessageStart() error {
 	h.publishTextStart(false)
 	return nil
 }
 
-func (h *loopEventHandler) publishTextStart(isThinking bool) {
+func (h *agentEventHandler) publishTextStart(isThinking bool) {
 	h.msgID = uuid.New().String()
 	h.currentMessageBuf.Reset()
 	event := model.TextMessageStartEvent{
@@ -132,12 +132,12 @@ func (h *loopEventHandler) publishTextStart(isThinking bool) {
 	h.publisher.Publish(h.jobID, &event)
 }
 
-func (h *loopEventHandler) OnMessageDelta(content string) error {
+func (h *agentEventHandler) OnMessageDelta(content string) error {
 	h.publishTextDelta(content, false, true)
 	return nil
 }
 
-func (h *loopEventHandler) publishTextDelta(content string, isThinking, appendToContent bool) {
+func (h *agentEventHandler) publishTextDelta(content string, isThinking, appendToContent bool) {
 	if appendToContent {
 		h.content.WriteString(content)
 	}
@@ -152,7 +152,7 @@ func (h *loopEventHandler) publishTextDelta(content string, isThinking, appendTo
 	h.publisher.Publish(h.jobID, &event)
 }
 
-func (h *loopEventHandler) OnMessageEnd() error {
+func (h *agentEventHandler) OnMessageEnd() error {
 	if h.usage != nil {
 		// Tokenize the assistant text segment that just finished. Uses the
 		// per-message buffer (reset at Start) so multiple messages within
@@ -168,21 +168,21 @@ func (h *loopEventHandler) OnMessageEnd() error {
 	return nil
 }
 
-func (h *loopEventHandler) LastMessageID() string {
+func (h *agentEventHandler) LastMessageID() string {
 	return h.msgID
 }
 
-func (h *loopEventHandler) OnThoughtStart() error {
+func (h *agentEventHandler) OnThoughtStart() error {
 	h.publishTextStart(true)
 	return nil
 }
 
-func (h *loopEventHandler) OnThoughtDelta(content string) error {
+func (h *agentEventHandler) OnThoughtDelta(content string) error {
 	h.publishTextDelta(content, true, false)
 	return nil
 }
 
-func (h *loopEventHandler) OnThoughtEnd() error {
+func (h *agentEventHandler) OnThoughtEnd() error {
 	if h.usage != nil {
 		h.usage.OnThoughtText(h.ctx, h.currentMessageBuf.String())
 	}
@@ -195,7 +195,7 @@ func (h *loopEventHandler) OnThoughtEnd() error {
 	return nil
 }
 
-func (h *loopEventHandler) markThinking(event *model.BaseEvent, isThinking bool) {
+func (h *agentEventHandler) markThinking(event *model.BaseEvent, isThinking bool) {
 	if !isThinking {
 		return
 	}
@@ -205,8 +205,8 @@ func (h *loopEventHandler) markThinking(event *model.BaseEvent, isThinking bool)
 	event.External["isThinking"] = true
 }
 
-func (h *loopEventHandler) OnToolCallStart(id, name string) error {
-	logger.Debugf(h.ctx, "[loopEventHandler.OnToolCallStart] jobId=%s id=%s name=%s", h.jobID, id, name)
+func (h *agentEventHandler) OnToolCallStart(id, name string) error {
+	logger.Debugf(h.ctx, "[agentEventHandler.OnToolCallStart] jobId=%s id=%s name=%s", h.jobID, id, name)
 	if h.usage != nil {
 		h.usage.OnToolCallStart(id, name, h.publisher.nowMillis())
 	}
@@ -219,7 +219,7 @@ func (h *loopEventHandler) OnToolCallStart(id, name string) error {
 	return nil
 }
 
-func (h *loopEventHandler) OnToolCallArgs(id, args string, replace bool) error {
+func (h *agentEventHandler) OnToolCallArgs(id, args string, replace bool) error {
 	if h.usage != nil {
 		if replace {
 			h.usage.OnToolCallArgsSnapshot(id, args)
@@ -237,7 +237,7 @@ func (h *loopEventHandler) OnToolCallArgs(id, args string, replace bool) error {
 	return nil
 }
 
-func (h *loopEventHandler) OnToolCallResult(id, content string, success bool) error {
+func (h *agentEventHandler) OnToolCallResult(id, content string, success bool) error {
 	status := model.ToolCallStatusSuccess
 	if !success {
 		status = model.ToolCallStatusError
@@ -251,7 +251,7 @@ func (h *loopEventHandler) OnToolCallResult(id, content string, success bool) er
 	return nil
 }
 
-func (h *loopEventHandler) OnToolCallEnd(id string, success bool) error {
+func (h *agentEventHandler) OnToolCallEnd(id string, success bool) error {
 	if h.usage != nil {
 		h.usage.OnToolCallEnd(h.ctx, id, h.publisher.nowMillis())
 	}
@@ -272,7 +272,7 @@ func (h *loopEventHandler) OnToolCallEnd(id string, success bool) error {
 // nor a red Error). Matches how history reload paints synthesised
 // placeholder tool results, keeping pre/post-refresh state consistent.
 // reason is passed through in External so the UI can surface a tooltip.
-func (h *loopEventHandler) OnToolCallInterrupted(id string, reason string) error {
+func (h *agentEventHandler) OnToolCallInterrupted(id string, reason string) error {
 	base := h.baseEvent(model.EventTypeToolCallEnd)
 	if reason != "" {
 		if base.External == nil {
@@ -294,7 +294,7 @@ func (h *loopEventHandler) OnToolCallInterrupted(id string, reason string) error
 // after a refresh. Unlike OnToolCallResult/OnToolCallEnd this targets a
 // bubble that the UI has already finalised, so the frontend handler for
 // this event explicitly bypasses the "skip if already Finished" guard.
-func (h *loopEventHandler) OnToolCallStitched(id string, content string, success bool, supersededAgoMs int64) error {
+func (h *agentEventHandler) OnToolCallStitched(id string, content string, success bool, supersededAgoMs int64) error {
 	if h.usage != nil {
 		// The ordinary OnToolCallEnd path bumps tool runtime stats; the
 		// stitch path replaces a Placeholder bubble that never made it
@@ -316,7 +316,7 @@ func (h *loopEventHandler) OnToolCallStitched(id string, content string, success
 	return nil
 }
 
-func (h *loopEventHandler) OnTokenUsage(totalTokens int) error {
+func (h *agentEventHandler) OnTokenUsage(totalTokens int) error {
 	h.tokens = totalTokens
 	h.sawTokenUsage = true
 	if h.usage != nil {
@@ -330,7 +330,7 @@ func (h *loopEventHandler) OnTokenUsage(totalTokens int) error {
 	return nil
 }
 
-func (h *loopEventHandler) OnPromptUsage(usage agui.PromptUsage) error {
+func (h *agentEventHandler) OnPromptUsage(usage agui.PromptUsage) error {
 	if h.usage != nil {
 		h.usage.SetProviderUsage(usagestats.ProviderTokenUsage{
 			Total:       nonNegativeUsageInt(usage.TotalTokens),
@@ -362,15 +362,15 @@ func nonNegativeUsageInt(value int64) int {
 	return int(value)
 }
 
-func (h *loopEventHandler) OnError(err error) {
+func (h *agentEventHandler) OnError(err error) {
 	// User-initiated stop / cancel / timeout is expected control flow, not a system error.
 	// The upstream executor handles terminal transitions; suppress duplicate error events here.
 	if ctxErr := h.ctx.Err(); ctxErr != nil {
-		logger.Debugf(h.ctx, "[loopEventHandler] context done, suppressing error event: jobId=%s sessionId=%s ctxErr=%v err=%v",
+		logger.Debugf(h.ctx, "[agentEventHandler] context done, suppressing error event: jobId=%s sessionId=%s ctxErr=%v err=%v",
 			h.jobID, h.sessionID, ctxErr, err)
 		return
 	}
-	logger.Errorf(h.ctx, "[loopEventHandler] error: jobId=%s sessionId=%s err=%v", h.jobID, h.sessionID, err)
+	logger.Errorf(h.ctx, "[agentEventHandler] error: jobId=%s sessionId=%s err=%v", h.jobID, h.sessionID, err)
 	h.publisher.Publish(h.jobID, &model.RunErrorEvent{
 		BaseEvent: h.baseEvent(model.EventTypeRunError),
 		Message:   err.Error(),
@@ -379,6 +379,6 @@ func (h *loopEventHandler) OnError(err error) {
 }
 
 // AccumulatedContent returns the accumulated assistant message content.
-func (h *loopEventHandler) AccumulatedContent() string {
+func (h *agentEventHandler) AccumulatedContent() string {
 	return h.content.String()
 }

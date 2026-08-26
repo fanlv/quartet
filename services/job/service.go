@@ -78,7 +78,7 @@ type Service interface {
 	SetFirstModelID(jobID string, modelID string) error
 	// SetGraphRunState updates the Job fields owned by a Graph run. It is the
 	// narrow bridge that lets the independent graph engine keep the Job list /
-	// history entry in sync without sharing Loop runtime state. Terminal graph
+	// history entry in sync without sharing Graph runtime state. Terminal graph
 	// statuses also emit the normal OnJobDone callback so scheduled graph runs
 	// release their scheduler concurrency slot and update their owning schedule.
 	SetGraphRunState(ctx context.Context, jobID, graphRunID string, status model.JobStatus, graphStatus model.GraphRunStatus, startedAt, finishedAt int64, graphSessionID string) error

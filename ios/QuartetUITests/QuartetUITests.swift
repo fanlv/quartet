@@ -112,7 +112,16 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["目录"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["agent-catalog-upgrade-all"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["2 个可更新"].exists)
-        XCTAssertTrue(app.buttons["agent-catalog-upgrade-trae"].exists)
+
+        let summary = app.descendants(matching: .any)["agent-catalog-summary-trae"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 3))
+        XCTAssertTrue(summary.label.contains("已安装"))
+        XCTAssertFalse(app.buttons["agent-catalog-upgrade-trae"].exists)
+
+        let toggle = app.buttons["agent-catalog-toggle-trae"]
+        XCTAssertTrue(toggle.exists)
+        toggle.tap()
+        XCTAssertTrue(app.buttons["agent-catalog-upgrade-trae"].waitForExistence(timeout: 3))
 
         let more = app.buttons["agent-catalog-more-trae"]
         XCTAssertTrue(more.waitForExistence(timeout: 3))

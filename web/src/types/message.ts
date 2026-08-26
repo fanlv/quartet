@@ -90,69 +90,6 @@ export interface RunAgentInput {
   state?: Record<string, unknown>;
 }
 
-// Job-related types
-export type RoundMode = 'beforeRound' | 'eachRepeat' | 'none';
-export type RoundType = 'prompt' | 'shell' | 'evaluator';
-
-// FlowNode recursive tree types
-export type FlowNodeType = 'step' | 'group';
-
-export interface FlowNode {
-  id: string;
-  type: FlowNodeType;
-  label?: string;
-  // Step fields
-  message?: string;
-  repeatCount?: number;
-  roundMode?: RoundMode;
-  roundType?: RoundType;
-  // Per-step agent/model overrides (only meaningful when roundMode != 'none')
-  agentType?: string;
-  modelId?: string;
-  acpMode?: string;
-  acpThoughtLevel?: string;
-  // Group fields
-  iterationCount?: number;
-  children?: FlowNode[];
-}
-
-// Legacy round definition (kept for backward compatibility)
-export interface LoopRound {
-  message: string;
-  repeatCount: number;
-  roundMode: RoundMode;
-  roundType?: RoundType;
-}
-
-export interface LoopConfig {
-  flow?: FlowNode[];
-  variables?: Record<string, string>;
-  // disabledVars lists user-variable keys toggled off. A disabled variable
-  // keeps its value in `variables` but is substituted as an empty string.
-  disabledVars?: string[];
-  // Deprecated legacy fields
-  iterationCount?: number;
-  rounds?: LoopRound[];
-}
-
-export interface JobInfo {
-  id: string;
-  title: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
-  mode?: 'interactive' | 'loop';
-  createdAt: number;
-  updatedAt: number;
-  loopConfig?: LoopConfig;
-  progress?: {
-    totalSteps: number;
-    currentPath?: number[];
-    completedCount: number;
-    failedCount: number;
-  };
-  sessionCount: number;
-  scheduleId?: string;
-}
-
 export interface ScheduleInfo {
   id: string;
   name: string;

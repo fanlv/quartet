@@ -240,7 +240,7 @@ func TestClosePanicRoundIfOpen_ClosesAndAllowsReclaim(t *testing.T) {
 	svc := newStateTestService()
 	job := &model.Job{
 		ID:         "job-panic",
-		Progress:   &model.JobProgress{CurrentPath: []int{0, 0}},
+		Progress:   &model.JobProgress{},
 		SessionIDs: []string{"sess-1"},
 	}
 
@@ -250,7 +250,7 @@ func TestClosePanicRoundIfOpen_ClosesAndAllowsReclaim(t *testing.T) {
 	}
 	defer reader.Close()
 
-	// Open a round and emit one in-flight chunk (mirrors executeRepeat
+	// Open a round and emit one in-flight chunk (mirrors executeAgentTurn
 	// publishing RUN_STARTED + a streaming text delta).
 	svc.Publish(job.ID, &model.RunStartedEvent{
 		BaseEvent: model.BaseEvent{

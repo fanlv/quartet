@@ -10,7 +10,6 @@ import {
   e2eLegacyFirstModelJobID,
   e2eModelID,
   e2ePassword,
-  e2ePersistWarningJobID,
   e2eUsername,
   installE2EAuthCookie,
 } from '../fixtures/e2e-environment'
@@ -519,28 +518,6 @@ test('startup load reconciles interrupted running jobs and persists the repair',
   const persisted = JSON.parse(raw)
   expect(persisted.status).toBe('failed')
   expect(persisted.progress?.lastError).toBe('interrupted: process restarted while running')
-})
-
-test('startup load preserves persistence warnings without promoting them to LastError', async ({ page, request }) => {
-  const headers = e2eAuthHeaders()
-  const expectedWarning = 'persist failed after iteration_started: injected e2e disk warning'
-
-  const detail = await getJobSnapshot(request, e2ePersistWarningJobID, headers)
-  expect(detail.status).toBe('completed')
-  expect(detail.progress?.lastError || '').toBe('')
-  expect(detail.progress?.persistWarnings).toEqual([expectedWarning])
-
-  await openAppWithAuth(page, `/?workspaceId=ws-1&jobId=${encodeURIComponent(e2ePersistWarningJobID)}`)
-
-  await expect(page.getByTestId('job-chat')).toHaveAttribute('data-job-id', e2ePersistWarningJobID)
-  await expect(page.getByTestId('job-chat')).toHaveAttribute('data-job-mode', 'loop')
-  await expect(page.getByTestId('loop-progress')).toBeVisible()
-  await expect(page.getByTestId('loop-progress-error')).toHaveCount(0)
-
-  const warningBox = page.getByTestId('loop-progress-persist-warning')
-  await expect(warningBox).toBeVisible()
-  await expect(warningBox).toContainText('Persistence warnings')
-  await expect(warningBox).toContainText(expectedWarning)
 })
 
 test('home job history rename persists through the real API', async ({ page, request }) => {

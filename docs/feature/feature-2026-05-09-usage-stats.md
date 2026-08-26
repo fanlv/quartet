@@ -317,7 +317,7 @@ step 的最终状态（Completed / Failed / Stopped）都计入。失败也消�
 
 ### Recorder 辅助：本步累加器（Accumulator）
 
-供调用方在 step 执行期间临时持有，挂在 `loop_event_handler` 上：
+供调用方在 Agent turn 执行期间临时持有，挂在 `agent_event_handler` 上：
 
 - 收到 `OnMessageEnd` → assistantCount +1，accumulator 把消息文本走本地 tokenizer 累加到 assistantTokens。
 - 收到 `OnThoughtEnd` → 同理，落到 thoughtCount / thoughtTokens。
@@ -334,7 +334,7 @@ step 的最终状态（Completed / Failed / Stopped）都计入。失败也消�
 ## 与上层模块的解耦
 
 - **`services/job/executor_*`**：只负责"step 完成时调用 Recorder"，不感知存储格式与文件位置。
-- **`services/job/loop_event_handler`**：只负责"事件出现时调用 Accumulator"，不感知数据落地与口径定义。
+- **`services/job/agent_event_handler`**：只负责"事件出现时调用 Accumulator"，不感知数据落地与口径定义。
 - **HTTP handler**：
   - Job List handler 调 Reader 的日级查询，把结果塞到 `JobListResponse.dailyStats`。
   - Stats handler 调 Reader 的范围聚合查询，直接返回。

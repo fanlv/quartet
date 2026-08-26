@@ -163,6 +163,9 @@ func unmarshalPersistedJob(data []byte) (*model.Job, error) {
 	if err := json.Unmarshal(data, &stored); err != nil {
 		return nil, err
 	}
+	if stored.Job.Mode != model.JobModeInteractive && stored.Job.Mode != model.JobModeGraph {
+		return nil, fmt.Errorf("unsupported job mode %q", stored.Job.Mode)
+	}
 	stored.Job.ActiveClientMessageID = stored.ActiveClientMessageID
 	stored.Job.ClientMessageReceipts = stored.ClientMessageReceipts
 	stored.Job.CommandReceipts = stored.CommandReceipts

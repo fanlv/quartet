@@ -15,21 +15,19 @@ import (
 
 // SendMessage sends a message to an existing job session.
 //
-// Interactive messages vs a preserved (legacy loop) Resume:
+// Interactive messages on an existing terminal Job preserve the Job's prior
+// lifecycle state while recording the outcome of the new turn separately:
 //
-//	Scenario                              | Status after | Resume
-//	---                                   | ---          | ---
-//	Stopped (paused) → send → msg done    | stopped      | preserved
-//	Stopped (paused) → send → msg fails   | stopped      | preserved
-//	Stopped (paused) → send → Stop msg    | stopped      | preserved
-//	Completed → send → any outcome        | completed    | nil (unchanged)
-//	Failed → send → any outcome           | failed       | preserved
-//	Pending (never ran) → send → msg done | completed    | nil
-//	Pending (never ran) → send → Stop msg | stopped      | nil
+//	Scenario                              | Status after
+//	---                                   | ---
+//	Completed → send → any outcome        | completed
+//	Failed → send → any outcome           | failed
+//	Pending (never ran) → send → msg done | completed
+//	Pending (never ran) → send → Stop msg | stopped
 //
-// Core rule: interactive messages never touch Resume, and any pre-existing
-// terminal status (Completed/Failed/Stopped) is restored when the interactive
-// run ends so an ad-hoc message never regresses it.
+// Core rule: a pre-existing Completed/Failed status is restored when the
+// interactive run ends so an ad-hoc message never regresses it. A Stopped
+// interactive Job can be advanced by a new send.
 func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobRunner, opts *SendMessageOptions) (SendMessageResult, error) {
 	var result SendMessageResult
 	if runner == nil {
@@ -111,12 +109,10 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 			queuedClaim = true
 		}
 	}
-	// Don't clear Resume — preserve any legacy (loop) resume cursor.
 	// Remember the prior status so that terminal states (Completed/Failed/
 	// Stopped) are restored when the interactive run ends, instead of being
 	// overwritten by the interactive run's outcome.
 	priorStatus := job.Status
-	priorResume := job.Resume
 	job.Status = model.JobStatusRunning
 	job.StartedAt = s.nowMillis()
 	job.FinishedAt = 0
@@ -145,7 +141,6 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	}
 	startCtx := lifecycleStartContext{
 		action:      jobRunActionSendMessage,
-		hasResume:   priorResume != nil,
 		priorStatus: priorStatus,
 		scheduleID:  job.ScheduleID,
 	}
@@ -167,17 +162,15 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	// terminal status, MarkTerminal disabled GC; flip it back so the
 	// interactive run's events get reclaimed.
 	s.bus.resumeGC(job.ID)
-	// Stopped without Resume is a chat-style stop (no continuability) — let
-	// the new send's outcome drive the next status (success → Completed,
-	// failure → Failed). Only preserve Stopped when there's a Resume (a
-	// paused legacy run).
+	// A stopped chat has no separate resumable workflow state; let the new
+	// send's outcome drive its next status.
 	//
 	// A graph job is the exception: its status is owned by the graph run
 	// lifecycle (SetGraphRunState), so an interactive discussion turn in one of
 	// its node sessions must be status-neutral — always remember the prior
 	// status so the terminal path restores it instead of promoting the parked
 	// run to Completed (which would desync job.status from the still-running /
-	if job.Mode == model.JobModeGraph || shouldPreservePriorStatus(priorStatus, priorResume) {
+	if job.Mode == model.JobModeGraph || shouldPreservePriorStatus(priorStatus) {
 		s.setInteractivePriorStatus(job.ID, priorStatus)
 	}
 
@@ -268,8 +261,8 @@ func duplicateSendMessageResult(clientMessageID string, receipt model.ClientMess
 }
 
 // runInteractive executes a single user-initiated message round against the
-// job's existing session (or a freshly created one). It does not touch Resume,
-// and the prior terminal status (if any) is restored by the deferred
+// job's existing session (or a freshly created one). The prior terminal status
+// (if any) is restored by the deferred
 // finish/stop/fail path.
 func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner JobRunner, opts *SendMessageOptions, cancelEntry *cancelEntry) {
 	if prepared, ok := runner.(PreparedExecutionReleaser); ok {
@@ -331,7 +324,7 @@ func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner
 		sessionID = sid
 	}
 
-	// Extract the user message text so executeRepeat can publish RUN_STARTED /
+	// Extract the user message text so executeAgentTurn can publish RUN_STARTED /
 	// RunOutcome for the round.
 	msg := opts.Messages[0].Content
 	if msg == "" && len(opts.Messages[0].UserInputMultiContent) > 0 {
@@ -343,7 +336,7 @@ func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner
 		}
 	}
 
-	s.executeRepeat(ctx, job, runner, msg, sessionID, opts)
+	s.executeAgentTurn(ctx, job, runner, msg, sessionID, opts)
 }
 
 func (s *serviceImpl) publishJobStarted(job *model.Job) {

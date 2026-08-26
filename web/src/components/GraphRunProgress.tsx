@@ -48,7 +48,7 @@ import {
   primeAgentDisplays,
   useAgentDisplayVersion,
 } from '../utils/agentDisplay';
-import './GraphLoopProgress.css';
+import './GraphRunProgress.css';
 
 // The embedded mini canvas visualizes run state. Outside edit mode structural
 // edits are inert; in run-version edit mode, unfrozen structure can be repaired
@@ -84,11 +84,11 @@ function mintId(prefix: string, taken: Set<string>): string {
   return id;
 }
 
-interface GraphLoopProgressProps {
+interface GraphRunProgressProps {
   jobId: string | null;
   runId: string | null;
   // Authoritative snapshots produced by useJobChat's single page-level Graph
-  // SSE subscription. GraphLoopProgress also reports snapshots fetched by its
+  // SSE subscription. GraphRunProgress also reports snapshots fetched by its
   // own actions/initial load back to the page so Resume can re-open that same
   // subscription without creating a component-local stream.
   snapshot?: GraphRunStatusResponse | null;
@@ -204,7 +204,7 @@ function statusLabel(t: TFunction, status?: GraphRunStatus): string {
   }
 }
 
-export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnapshot, readOnly, shareToken, agents = [], canEdit, executionBlocked, executionBlockedHint, getSessionAgentReference }: GraphLoopProgressProps) {
+export function GraphRunProgress({ jobId, runId, snapshot, streamError, onSnapshot, readOnly, shareToken, agents = [], canEdit, executionBlocked, executionBlockedHint, getSessionAgentReference }: GraphRunProgressProps) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   // On phones the control panel (expand / edit / step-stop / stop / resume)
@@ -341,7 +341,7 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
 
   const canStepStop = !readOnly && run?.status === 'running';
   // A pending step-stop (not yet settled) can be cancelled, releasing
-  // the held dispatch frontier back to running — mirrors Loop's "keep running".
+  // the held dispatch frontier back to running.
   const canCancelStop = !readOnly && run?.status === 'stepStopping';
   const canStop = !readOnly && !!run?.status && LIVE_STATUSES.has(run.status);
   // Resume / continue are execution entries: a session whose Agent was deleted
@@ -374,7 +374,7 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
 
   const handleProgressClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
     const target = event.target;
-    if (target instanceof Element && target.closest('button, a, input, textarea, select, [role="button"], .graph-loop-canvas, .graph-loop-editor, .graph-loop-edit-hint, .graph-loop-stats, .graph-loop-error')) {
+    if (target instanceof Element && target.closest('button, a, input, textarea, select, [role="button"], .graph-run-canvas, .graph-run-editor, .graph-run-edit-hint, .graph-run-stats, .graph-run-error')) {
       return;
     }
     toggleExpanded();
@@ -408,7 +408,7 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
       onSnapshot?.(data);
       setError('');
     } catch (err) {
-      setError(isActionRequestTimeout(err) ? t('graph.loop.actionTimeout') : err instanceof Error ? err.message : String(err));
+      setError(isActionRequestTimeout(err) ? t('graph.runPanel.actionTimeout') : err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -454,7 +454,7 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
       }
       await refresh();
     } catch (err) {
-      setError(isActionRequestTimeout(err) ? t('graph.loop.actionTimeout') : err instanceof Error ? err.message : String(err));
+      setError(isActionRequestTimeout(err) ? t('graph.runPanel.actionTimeout') : err instanceof Error ? err.message : String(err));
     } finally {
       setActionPending(null);
     }
@@ -831,37 +831,37 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
 
   if (!jobId || !runId) {
     return (
-      <div className="graph-loop-progress" data-testid="graph-loop-progress">
-        <div className="graph-loop-empty">{t('graph.loop.notBound')}</div>
+      <div className="graph-run-progress" data-testid="graph-run-progress">
+        <div className="graph-run-empty">{t('graph.runPanel.notBound')}</div>
       </div>
     );
   }
 
   return (
     <div
-      className="graph-loop-progress"
-      data-testid="graph-loop-progress"
+      className="graph-run-progress"
+      data-testid="graph-run-progress"
       data-graph-status={run?.status || 'loading'}
       onClick={handleProgressClick}
     >
-      <div className="graph-loop-header">
-        <div className="graph-loop-title">
-          <span className={`graph-loop-status status-${run?.status || 'loading'}`}>{loading ? t('graph.status.loading') : statusLabel(t, run?.status)}</span>
-          <span className="graph-loop-info">
+      <div className="graph-run-header">
+        <div className="graph-run-title">
+          <span className={`graph-run-status status-${run?.status || 'loading'}`}>{loading ? t('graph.status.loading') : statusLabel(t, run?.status)}</span>
+          <span className="graph-run-info">
             {sessionProgress ? (
               <>
-                <span className="graph-loop-session" data-testid="graph-loop-session">
-                  {t('graph.loop.session', {
+                <span className="graph-run-session" data-testid="graph-run-session">
+                  {t('graph.runPanel.session', {
                     current: sessionProgress.sessionNumber,
                     total: sessionProgress.totalSessions,
                   })}
                 </span>
-                <span className="graph-loop-step" data-testid="graph-loop-step">
-                  {t('graph.loop.step', { current: sessionProgress.stepNumber })}
+                <span className="graph-run-step" data-testid="graph-run-step">
+                  {t('graph.runPanel.step', { current: sessionProgress.stepNumber })}
                 </span>
               </>
             ) : (
-              <span className="graph-loop-progress-empty">{t('graph.progress.none')}</span>
+              <span className="graph-run-progress-empty">{t('graph.progress.none')}</span>
             )}
           </span>
         </div>
@@ -871,22 +871,22 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
         {isMobile && !editing && (
           <button
             type="button"
-            className="graph-loop-actions-toggle"
+            className="graph-run-actions-toggle"
             onClick={() => setActionsOpen((v) => !v)}
             aria-expanded={actionsOpen}
-            title={actionsOpen ? t('graph.loop.hideControls') : t('graph.loop.showControls')}
+            title={actionsOpen ? t('graph.runPanel.hideControls') : t('graph.runPanel.showControls')}
           >
             <GraphActionIcon type={actionsOpen ? 'collapse' : 'controls'} />
-            <span>{actionsOpen ? t('graph.loop.hideControls') : t('graph.loop.showControls')}</span>
+            <span>{actionsOpen ? t('graph.runPanel.hideControls') : t('graph.runPanel.showControls')}</span>
           </button>
         )}
         {(!isMobile || actionsOpen || editing) && (
-        <div className="graph-loop-actions" aria-label={t('graph.loop.controls')}>
+        <div className="graph-run-actions" aria-label={t('graph.runPanel.controls')}>
           {editing ? (
             <>
               <button
                 type="button"
-                className="graph-loop-action primary"
+                className="graph-run-action primary"
                 onClick={() => void saveRunVersion()}
                 disabled={saving}
                 title={t('graph.editor.saveRunVersion')}
@@ -897,18 +897,18 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
               {selectedGraphNode && (selectedGraphNode.type === 'prompt' || selectedGraphNode.type === 'clarify') && !frozenNodeIds.has(selectedGraphNode.id) && (
                 <button
                   type="button"
-                  className="graph-loop-action"
+                  className="graph-run-action"
                   onClick={() => void updateSelectedAgentRevision()}
                   disabled={saving}
-                  title={t('graph.loop.updateAgentRevisionTitle')}
+                  title={t('graph.runPanel.updateAgentRevisionTitle')}
                 >
                   <GraphActionIcon type="refresh" />
-                  <span>{t('graph.loop.updateAgentRevision')}</span>
+                  <span>{t('graph.runPanel.updateAgentRevision')}</span>
                 </button>
               )}
               <button
                 type="button"
-                className="graph-loop-action"
+                className="graph-run-action"
                 onClick={cancelEdit}
                 disabled={saving}
                 title={t('graph.editor.cancelEdit')}
@@ -921,52 +921,52 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
             <>
               <button
                 type="button"
-                className="graph-loop-action"
+                className="graph-run-action"
                 onClick={toggleExpanded}
                 aria-expanded={expanded}
-                title={expanded ? t('graph.loop.collapse') : t('graph.loop.expand')}
+                title={expanded ? t('graph.runPanel.collapse') : t('graph.runPanel.expand')}
               >
                 <GraphActionIcon type={expanded ? 'collapse' : 'expand'} />
-                <span>{expanded ? t('graph.loop.collapse') : t('graph.loop.expand')}</span>
+                <span>{expanded ? t('graph.runPanel.collapse') : t('graph.runPanel.expand')}</span>
               </button>
               {canEditRun && (
-                <button type="button" className="graph-loop-action" onClick={enterEdit} disabled={!!actionPending} title={t('graph.loop.editTitle')}>
+                <button type="button" className="graph-run-action" onClick={enterEdit} disabled={!!actionPending} title={t('graph.runPanel.editTitle')}>
                   <GraphActionIcon type="edit" />
-                  <span>{t('graph.loop.edit')}</span>
+                  <span>{t('graph.runPanel.edit')}</span>
                 </button>
               )}
               {run?.status === 'stepStopping' ? (
-                <button type="button" className="graph-loop-action primary" onClick={() => void doAction('cancel-stop')} disabled={!canCancelStop || !!actionPending} title={t('graph.loop.cancelStopTitle')}>
+                <button type="button" className="graph-run-action primary" onClick={() => void doAction('cancel-stop')} disabled={!canCancelStop || !!actionPending} title={t('graph.runPanel.cancelStopTitle')}>
                   <GraphActionIcon type="keepRunning" />
-                  <span>{t('graph.loop.cancelStop')}</span>
+                  <span>{t('graph.runPanel.cancelStop')}</span>
                 </button>
               ) : (
-                <button type="button" className="graph-loop-action warn" onClick={() => void doAction('step-stop')} disabled={!canStepStop || !!actionPending} title={t('graph.loop.stepStopTitle')}>
+                <button type="button" className="graph-run-action warn" onClick={() => void doAction('step-stop')} disabled={!canStepStop || !!actionPending} title={t('graph.runPanel.stepStopTitle')}>
                   <GraphActionIcon type="stepStop" />
-                  <span>{t('graph.loop.stepStop')}</span>
+                  <span>{t('graph.runPanel.stepStop')}</span>
                 </button>
               )}
-              <button type="button" className="graph-loop-action danger" onClick={() => void doAction('stop')} disabled={!canStop || !!actionPending} title={t('graph.loop.stopTitle')}>
+              <button type="button" className="graph-run-action danger" onClick={() => void doAction('stop')} disabled={!canStop || !!actionPending} title={t('graph.runPanel.stopTitle')}>
                 <GraphActionIcon type="stop" />
-                <span>{t('graph.loop.stop')}</span>
+                <span>{t('graph.runPanel.stop')}</span>
               </button>
               {canContinue && (
-                <button type="button" className="graph-loop-action primary" onClick={() => void doAction('continue')} disabled={!!actionPending} title={t('graph.loop.continueTitle')}>
+                <button type="button" className="graph-run-action primary" onClick={() => void doAction('continue')} disabled={!!actionPending} title={t('graph.runPanel.continueTitle')}>
                   <GraphActionIcon type="continue" />
-                  <span>{t('graph.loop.continue')}</span>
+                  <span>{t('graph.runPanel.continue')}</span>
                 </button>
               )}
               {!canContinue && !readOnly && effectiveExecutionBlocked && run?.status === 'awaitingInput' && (
                 // Blocked continue: keep the button visible but greyed out,
                 // with the reason as its tooltip.
-                <button type="button" className="graph-loop-action primary" disabled title={effectiveExecutionBlockedHint || t('graph.loop.continueTitle')}>
+                <button type="button" className="graph-run-action primary" disabled title={effectiveExecutionBlockedHint || t('graph.runPanel.continueTitle')}>
                   <GraphActionIcon type="continue" />
-                  <span>{t('graph.loop.continue')}</span>
+                  <span>{t('graph.runPanel.continue')}</span>
                 </button>
               )}
-              <button type="button" className="graph-loop-action primary" onClick={() => void doAction('resume')} disabled={!canResume || !!actionPending} title={effectiveExecutionBlocked && effectiveExecutionBlockedHint && run?.status && RESUMABLE_STATUSES.has(run.status) ? effectiveExecutionBlockedHint : t('graph.loop.resumeTitle')}>
+              <button type="button" className="graph-run-action primary" onClick={() => void doAction('resume')} disabled={!canResume || !!actionPending} title={effectiveExecutionBlocked && effectiveExecutionBlockedHint && run?.status && RESUMABLE_STATUSES.has(run.status) ? effectiveExecutionBlockedHint : t('graph.runPanel.resumeTitle')}>
                 <GraphActionIcon type="resume" />
-                <span>{t('graph.loop.resume')}</span>
+                <span>{t('graph.runPanel.resume')}</span>
               </button>
             </>
           )}
@@ -974,25 +974,25 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
         )}
       </div>
 
-      <div className="graph-loop-bar-wrapper">
-        <div className={`graph-loop-bar status-${run?.status || 'loading'}`} style={{ width: `${percent}%` }} />
+      <div className="graph-run-bar-wrapper">
+        <div className={`graph-run-bar status-${run?.status || 'loading'}`} style={{ width: `${percent}%` }} />
       </div>
 
       {run?.status === 'awaitingInput' && !editing && (
-        <div className="graph-loop-awaiting-hint" data-testid="graph-loop-awaiting-hint">
-          {t('graph.loop.awaitingInputHint')}
+        <div className="graph-run-awaiting-hint" data-testid="graph-run-awaiting-hint">
+          {t('graph.runPanel.awaitingInputHint')}
         </div>
       )}
 
       {editing ? (
         <>
-          <div className="graph-loop-edit-hint" data-testid="graph-loop-edit-hint">
-            {t('graph.loop.editConfigHint')}
+          <div className="graph-run-edit-hint" data-testid="graph-run-edit-hint">
+            {t('graph.runPanel.editConfigHint')}
           </div>
-          <div className="graph-loop-editor" data-testid="graph-loop-editor">
-            <div className="graph-loop-edit-canvas">
+          <div className="graph-run-editor" data-testid="graph-run-editor">
+            <div className="graph-run-edit-canvas">
               <GraphCanvas
-                key="graph-loop-edit"
+                key="graph-run-edit"
                 nodes={editNodes}
                 edges={editEdges}
                 readOnly={false}
@@ -1015,7 +1015,7 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
                 onReparent={onEditReparent}
               />
             </div>
-            <div className="graph-loop-inspector graph-dark">
+            <div className="graph-run-inspector graph-dark">
               <GraphInspector
                 node={selectedGraphNode}
                 config={inspectorConfig}
@@ -1033,10 +1033,10 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
             </div>
           </div>
           {validationErrors.length > 0 && (
-            <ul className="graph-loop-validation-list" data-testid="graph-loop-error-list">
+            <ul className="graph-run-validation-list" data-testid="graph-run-error-list">
               {validationErrors.map((err, index) => (
                 <li key={`${err.type}-${err.nodeId || err.edgeId || err.variable || err.configKey || index}`}>
-                  <button type="button" className="graph-loop-error-link" data-testid="graph-loop-error-link" onClick={() => focusValidationError(err)}>
+                  <button type="button" className="graph-run-error-link" data-testid="graph-run-error-link" onClick={() => focusValidationError(err)}>
                     {makeValidationLabel(err)}
                   </button>
                 </li>
@@ -1046,15 +1046,15 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
         </>
       ) : expanded ? (
         <>
-          <div className="graph-loop-stats">
-            <span>{t('graph.loop.done', { count: progress?.completedCount ?? 0, total: progress?.totalCount ?? 0 })}</span>
-            <span>{t('graph.loop.running', { count: progress?.runningCount ?? 0 })}</span>
-            <span>{t('graph.loop.failed', { count: progress?.failedCount ?? 0 })}</span>
-            <span>{t('graph.loop.skipped', { count: progress?.skippedCount ?? 0 })}</span>
-            <span>{t('graph.loop.interrupted', { count: progress?.interruptedCount ?? 0 })}</span>
+          <div className="graph-run-stats">
+            <span>{t('graph.runPanel.done', { count: progress?.completedCount ?? 0, total: progress?.totalCount ?? 0 })}</span>
+            <span>{t('graph.runPanel.running', { count: progress?.runningCount ?? 0 })}</span>
+            <span>{t('graph.runPanel.failed', { count: progress?.failedCount ?? 0 })}</span>
+            <span>{t('graph.runPanel.skipped', { count: progress?.skippedCount ?? 0 })}</span>
+            <span>{t('graph.runPanel.interrupted', { count: progress?.interruptedCount ?? 0 })}</span>
           </div>
 
-          <div className="graph-loop-canvas" data-testid="graph-loop-canvas">
+          <div className="graph-run-canvas" data-testid="graph-run-canvas">
             <GraphCanvas
               nodes={canvasNodes}
               edges={miniFlow.edges}
@@ -1071,23 +1071,23 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
               onPaneClick={NOOP}
               onAddNode={NOOP}
             />
-            <div className="graph-loop-legend" aria-label={t('graph.loop.legendTitle')}>
-              <span className="graph-loop-legend-title">{t('graph.loop.legendTitle')}</span>
-              <span className="graph-loop-legend-item">
-                <i className="graph-loop-legend-line done" />
-                {t('graph.loop.legendDone')}
+            <div className="graph-run-legend" aria-label={t('graph.runPanel.legendTitle')}>
+              <span className="graph-run-legend-title">{t('graph.runPanel.legendTitle')}</span>
+              <span className="graph-run-legend-item">
+                <i className="graph-run-legend-line done" />
+                {t('graph.runPanel.legendDone')}
               </span>
-              <span className="graph-loop-legend-item">
-                <i className="graph-loop-legend-line flowing" />
-                {t('graph.loop.legendFlowing')}
+              <span className="graph-run-legend-item">
+                <i className="graph-run-legend-line flowing" />
+                {t('graph.runPanel.legendFlowing')}
               </span>
-              <span className="graph-loop-legend-item">
-                <i className="graph-loop-legend-line pending" />
-                {t('graph.loop.legendPending')}
+              <span className="graph-run-legend-item">
+                <i className="graph-run-legend-line pending" />
+                {t('graph.runPanel.legendPending')}
               </span>
-              <span className="graph-loop-legend-item">
-                <i className="graph-loop-legend-line pruned" />
-                {t('graph.loop.legendPruned')}
+              <span className="graph-run-legend-item">
+                <i className="graph-run-legend-line pruned" />
+                {t('graph.runPanel.legendPruned')}
               </span>
             </div>
           </div>
@@ -1096,7 +1096,7 @@ export function GraphLoopProgress({ jobId, runId, snapshot, streamError, onSnaps
       ) : null}
 
       {lastError && (
-        <pre className="graph-loop-error" data-testid="graph-loop-error">{lastError}</pre>
+        <pre className="graph-run-error" data-testid="graph-run-error">{lastError}</pre>
       )}
     </div>
   );

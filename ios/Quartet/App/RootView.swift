@@ -145,7 +145,7 @@ private struct MainView: View {
                 Group {
                     switch selectedTab {
                     case 1:
-                        ScheduledTasksView()
+                        ScheduledTasksView(showsMainTabBar: $showsTabBar)
                     case 2:
                         StatsView()
                     case 3:

@@ -1,4 +1,4 @@
-.graph-loop-progress {
+.graph-run-progress {
   background: #f8fafc;
   border: 1px solid #dbe3ea;
   border-radius: 8px;
@@ -8,7 +8,7 @@
   cursor: pointer;
 }
 
-.graph-loop-header {
+.graph-run-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -16,7 +16,7 @@
   margin-bottom: 8px;
 }
 
-.graph-loop-title {
+.graph-run-title {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -24,7 +24,7 @@
   flex-wrap: wrap;
 }
 
-.graph-loop-info {
+.graph-run-info {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -34,8 +34,8 @@
   color: #475569;
 }
 
-.graph-loop-session,
-.graph-loop-step {
+.graph-run-session,
+.graph-run-step {
   color: #334155;
   font-size: 13px;
   font-weight: 600;
@@ -43,16 +43,16 @@
   white-space: nowrap;
 }
 
-.graph-loop-step {
+.graph-run-step {
   color: #64748b;
   font-weight: 500;
 }
 
-.graph-loop-progress-empty {
+.graph-run-progress-empty {
   color: #64748b;
 }
 
-.graph-loop-status {
+.graph-run-status {
   font-size: 12px;
   font-weight: 700;
   padding: 2px 8px;
@@ -61,39 +61,39 @@
   color: #475569;
 }
 
-.graph-loop-status.status-running,
-.graph-loop-status.status-pending,
-.graph-loop-status.status-recovering,
-.graph-loop-status.status-stepStopping {
+.graph-run-status.status-running,
+.graph-run-status.status-pending,
+.graph-run-status.status-recovering,
+.graph-run-status.status-stepStopping {
   background: #dbeafe;
   color: #1d4ed8;
 }
 
-.graph-loop-status.status-completed {
+.graph-run-status.status-completed {
   background: #dcfce7;
   color: #15803d;
 }
 
-.graph-loop-status.status-failed,
-.graph-loop-status.status-timedOut {
+.graph-run-status.status-failed,
+.graph-run-status.status-timedOut {
   background: #fee2e2;
   color: #b91c1c;
 }
 
-.graph-loop-status.status-stepStopped,
-.graph-loop-status.status-stopped {
+.graph-run-status.status-stepStopped,
+.graph-run-status.status-stopped {
   background: #fef3c7;
   color: #92400e;
 }
 
 /* awaitingInput (§ 交互澄清结点): a purple "waiting for human" tint matching the
    clarify node color, distinct from the gray paused/stopped states. */
-.graph-loop-status.status-awaitingInput {
+.graph-run-status.status-awaitingInput {
   background: #ede9fe;
   color: #6d28d9;
 }
 
-.graph-loop-actions {
+.graph-run-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -102,7 +102,7 @@
 
 /* Mobile-only toggle that shows / hides the action panel. Hidden on desktop
    (the media query below flips it on) so the panel is always visible there. */
-.graph-loop-actions-toggle {
+.graph-run-actions-toggle {
   display: none;
   height: 30px;
   border: 1px solid #cbd5e1;
@@ -119,11 +119,11 @@
   flex-shrink: 0;
 }
 
-.graph-loop-actions-toggle:active {
+.graph-run-actions-toggle:active {
   background: #f1f5f9;
 }
 
-.graph-loop-actions-toggle svg {
+.graph-run-actions-toggle svg {
   width: 15px;
   height: 15px;
   fill: none;
@@ -133,7 +133,7 @@
   stroke-linejoin: round;
 }
 
-.graph-loop-action {
+.graph-run-action {
   height: 30px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
@@ -149,16 +149,16 @@
   cursor: pointer;
 }
 
-.graph-loop-action:hover:not(:disabled) {
+.graph-run-action:hover:not(:disabled) {
   background: #f1f5f9;
 }
 
-.graph-loop-action:disabled {
+.graph-run-action:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 
-.graph-loop-action svg {
+.graph-run-action svg {
   width: 15px;
   height: 15px;
   fill: none;
@@ -168,66 +168,66 @@
   stroke-linejoin: round;
 }
 
-.graph-loop-action svg rect {
+.graph-run-action svg rect {
   fill: currentColor;
   stroke: none;
 }
 
-.graph-loop-action.primary {
+.graph-run-action.primary {
   border-color: #93c5fd;
   color: #1d4ed8;
 }
 
-.graph-loop-action.warn {
+.graph-run-action.warn {
   border-color: #fdba74;
   color: #c2410c;
 }
 
-.graph-loop-action.danger {
+.graph-run-action.danger {
   border-color: #fca5a5;
   color: #dc2626;
 }
 
-.graph-loop-bar-wrapper {
+.graph-run-bar-wrapper {
   height: 6px;
   border-radius: 3px;
   background: #e2e8f0;
   overflow: hidden;
 }
 
-.graph-loop-bar {
+.graph-run-bar {
   height: 100%;
   border-radius: 3px;
   background: #64748b;
   transition: width 0.25s ease;
 }
 
-.graph-loop-bar.status-running,
-.graph-loop-bar.status-pending,
-.graph-loop-bar.status-stepStopping,
-.graph-loop-bar.status-recovering {
+.graph-run-bar.status-running,
+.graph-run-bar.status-pending,
+.graph-run-bar.status-stepStopping,
+.graph-run-bar.status-recovering {
   background: #2563eb;
 }
 
-.graph-loop-bar.status-completed {
+.graph-run-bar.status-completed {
   background: #22c55e;
 }
 
-.graph-loop-bar.status-failed,
-.graph-loop-bar.status-timedOut {
+.graph-run-bar.status-failed,
+.graph-run-bar.status-timedOut {
   background: #ef4444;
 }
 
-.graph-loop-bar.status-stepStopped,
-.graph-loop-bar.status-stopped {
+.graph-run-bar.status-stepStopped,
+.graph-run-bar.status-stopped {
   background: #f59e0b;
 }
 
-.graph-loop-bar.status-awaitingInput {
+.graph-run-bar.status-awaitingInput {
   background: #8b5cf6;
 }
 
-.graph-loop-stats {
+.graph-run-stats {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -236,7 +236,7 @@
   color: #475569;
 }
 
-.graph-loop-canvas {
+.graph-run-canvas {
   display: flex;
   position: relative;
   height: 280px;
@@ -248,7 +248,7 @@
 }
 
 /* ---- In-place run-version editing (config-only) ---- */
-.graph-loop-edit-hint {
+.graph-run-edit-hint {
   margin-top: 10px;
   padding: 7px 10px;
   border-radius: 6px;
@@ -261,7 +261,7 @@
 
 /* awaitingInput hint (§ 交互澄清结点): purple to match the parked-state badge,
    telling the user to discuss in the clarify session then click「讨论完成」. */
-.graph-loop-awaiting-hint {
+.graph-run-awaiting-hint {
   margin-top: 10px;
   padding: 7px 10px;
   border-radius: 6px;
@@ -272,7 +272,7 @@
   font-weight: 600;
 }
 
-.graph-loop-editor {
+.graph-run-editor {
   display: flex;
   margin-top: 10px;
   height: 440px;
@@ -282,7 +282,7 @@
   background: #0d1117;
 }
 
-.graph-loop-edit-canvas {
+.graph-run-edit-canvas {
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -290,23 +290,23 @@
   display: flex;
 }
 
-.graph-loop-edit-canvas .graph-canvas {
+.graph-run-edit-canvas .graph-canvas {
   flex: 1;
   min-width: 0;
 }
 
-.graph-loop-inspector {
+.graph-run-inspector {
   width: 300px;
   flex-shrink: 0;
   min-height: 0;
   display: flex;
 }
 
-.graph-loop-inspector .graph-inspector {
+.graph-run-inspector .graph-inspector {
   flex: 1;
 }
 
-.graph-loop-validation-list {
+.graph-run-validation-list {
   margin: 10px 0 0;
   padding: 8px 10px 8px 24px;
   border-radius: 6px;
@@ -318,11 +318,11 @@
   overflow: auto;
 }
 
-.graph-loop-validation-list li + li {
+.graph-run-validation-list li + li {
   margin-top: 4px;
 }
 
-.graph-loop-error-link {
+.graph-run-error-link {
   border: 0;
   padding: 0;
   background: transparent;
@@ -334,27 +334,27 @@
   text-underline-offset: 2px;
 }
 
-.graph-loop-error-link:hover {
+.graph-run-error-link:hover {
   color: #7f1d1d;
 }
 
 @media (max-width: 768px) {
-  .graph-loop-editor {
+  .graph-run-editor {
     flex-direction: column;
     height: auto;
   }
 
-  .graph-loop-edit-canvas {
+  .graph-run-edit-canvas {
     height: 300px;
   }
 
-  .graph-loop-inspector {
+  .graph-run-inspector {
     width: 100%;
     max-height: 320px;
   }
 }
 
-.graph-loop-legend {
+.graph-run-legend {
   position: absolute;
   z-index: 5;
   right: 10px;
@@ -374,7 +374,7 @@
   pointer-events: none;
 }
 
-.graph-loop-legend-title {
+.graph-run-legend-title {
   font-weight: 700;
   color: #8b949e;
   text-transform: uppercase;
@@ -382,14 +382,14 @@
   margin-right: 2px;
 }
 
-.graph-loop-legend-item {
+.graph-run-legend-item {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
 }
 
-.graph-loop-legend-line {
+.graph-run-legend-line {
   width: 20px;
   height: 0;
   border-top-width: 2.5px;
@@ -397,29 +397,29 @@
   border-radius: 2px;
 }
 
-.graph-loop-legend-line.done {
+.graph-run-legend-line.done {
   border-top-color: #4493f8;
 }
 
-.graph-loop-legend-line.flowing {
+.graph-run-legend-line.flowing {
   border-top-color: #2ea043;
   border-top-width: 3px;
 }
 
-.graph-loop-legend-line.pending {
+.graph-run-legend-line.pending {
   border-top-color: #8b949e;
   border-top-style: solid;
   opacity: 0.85;
 }
 
-.graph-loop-legend-line.pruned {
+.graph-run-legend-line.pruned {
   border-top-color: #6b7685;
   border-top-style: dashed;
   opacity: 0.7;
 }
 
 @media (max-width: 768px) {
-  .graph-loop-legend {
+  .graph-run-legend {
     right: 6px;
     bottom: 6px;
     padding: 5px 8px;
@@ -427,14 +427,14 @@
   }
 }
 
-.graph-loop-grid {
+.graph-run-grid {
   display: grid;
   grid-template-columns: 1.1fr 1fr 1fr;
   gap: 10px;
   margin-top: 12px;
 }
 
-.graph-loop-section {
+.graph-run-section {
   min-width: 0;
   border: 1px solid #e2e8f0;
   background: #fff;
@@ -442,7 +442,7 @@
   padding: 8px;
 }
 
-.graph-loop-section-title {
+.graph-run-section-title {
   font-size: 11px;
   font-weight: 700;
   color: #64748b;
@@ -450,7 +450,7 @@
   margin-bottom: 6px;
 }
 
-.graph-loop-node {
+.graph-run-node {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -460,16 +460,16 @@
   color: #1e3a8a;
 }
 
-.graph-loop-node + .graph-loop-node {
+.graph-run-node + .graph-run-node {
   margin-top: 5px;
 }
 
-.graph-loop-node-title {
+.graph-run-node-title {
   font-size: 12px;
   font-weight: 700;
 }
 
-.graph-loop-node-meta {
+.graph-run-node-meta {
   font-size: 11px;
   color: #64748b;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -478,7 +478,7 @@
   white-space: nowrap;
 }
 
-.graph-loop-metric {
+.graph-run-metric {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -487,22 +487,22 @@
   color: #334155;
 }
 
-.graph-loop-metric + .graph-loop-metric {
+.graph-run-metric + .graph-run-metric {
   margin-top: 5px;
 }
 
-.graph-loop-metric strong {
+.graph-run-metric strong {
   color: #0f172a;
 }
 
-.graph-loop-waiting {
+.graph-run-waiting {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
   margin-top: 6px;
 }
 
-.graph-loop-waiting span {
+.graph-run-waiting span {
   font-size: 11px;
   color: #1d4ed8;
   background: #eff6ff;
@@ -510,13 +510,13 @@
   padding: 2px 6px;
 }
 
-.graph-loop-muted,
-.graph-loop-empty {
+.graph-run-muted,
+.graph-run-empty {
   font-size: 12px;
   color: #64748b;
 }
 
-.graph-loop-error {
+.graph-run-error {
   margin: 10px 0 0;
   padding: 8px 10px;
   border-radius: 6px;
@@ -531,34 +531,34 @@
 }
 
 @media (max-width: 768px) {
-  .graph-loop-progress {
+  .graph-run-progress {
     margin: 8px;
     padding: 12px;
   }
 
-  .graph-loop-header {
+  .graph-run-header {
     flex-direction: column;
   }
 
-  .graph-loop-actions-toggle {
+  .graph-run-actions-toggle {
     display: inline-flex;
     align-self: flex-start;
   }
 
-  .graph-loop-actions {
+  .graph-run-actions {
     width: 100%;
     justify-content: flex-start;
   }
 
-  .graph-loop-action {
+  .graph-run-action {
     flex: 1 1 120px;
   }
 
-  .graph-loop-grid {
+  .graph-run-grid {
     grid-template-columns: 1fr;
   }
 
-  .graph-loop-info {
+  .graph-run-info {
     max-width: 100%;
   }
 }

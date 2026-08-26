@@ -179,9 +179,9 @@ test('graph canvas: run a pure-Shell workflow to completion', async ({ page, req
   // progress panel (with its embedded mini canvas) renders there.
   await expect(page).toHaveURL(new RegExp(`jobId=${jobId}`), { timeout: 10_000 })
   await expect(page).toHaveURL(/^(?!.*view=graph).*$/)
-  await expect(page.getByTestId('graph-loop-progress')).toBeVisible({ timeout: 10_000 })
-  await page.getByTestId('graph-loop-progress').click()
-  await expect(page.getByTestId('graph-loop-canvas')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('graph-run-progress')).toBeVisible({ timeout: 10_000 })
+  await page.getByTestId('graph-run-progress').click()
+  await expect(page.getByTestId('graph-run-canvas')).toBeVisible({ timeout: 10_000 })
 
   // The run reaches `completed`; a pure-Shell graph needs no credentials.
   const { status, progress } = await waitForRunStatus(request, jobId, ['completed', 'failed', 'timedOut'])
@@ -192,7 +192,7 @@ test('graph canvas: run a pure-Shell workflow to completion', async ({ page, req
 
   // The embedded mini canvas highlights the shell node as succeeded once the
   // run finishes (live SSE refresh drives the per-node run status).
-  const miniShell = page.getByTestId('graph-loop-canvas').getByTestId('graph-node-shell')
+  const miniShell = page.getByTestId('graph-run-canvas').getByTestId('graph-node-shell')
   await expect(miniShell).toBeAttached({ timeout: 15_000 })
   await expect(miniShell).toHaveClass(/run-succeeded/, { timeout: 15_000 })
 })

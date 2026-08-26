@@ -503,9 +503,7 @@ function WorkspaceApp() {
     //    Filters:
     //      - excludeScheduled=true: skip scheduled-task-triggered Jobs; users
     //        don't want /ws to drop them into a cron-owned chat
-    //      - mode === 'interactive': loop Jobs have their own lifecycle and
-    //        often have sessionCount===0 for brief windows after Create but
-    //        before Start populates sessions; reusing one would hijack it
+    //      - mode === 'interactive': Graph jobs own a separate lifecycle
     //      - sessionCount === 0: treat "no session created yet" as "no
     //        messages yet". This approximates an empty message list closely
     //        enough for the reuse-or-create flow.

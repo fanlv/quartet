@@ -109,7 +109,7 @@ type MonthFile struct {
 }
 
 // Snapshot is the unit the Recorder consumes — one step's worth of usage.
-// All fields are filled by the caller (typically the loop_event_handler
+// All fields are filled by the caller (typically the agent event handler
 // Accumulator); the SDK does not synthesise any field from any other.
 type Snapshot struct {
 	// EventID is a stable, globally unique completion identifier. Re-recording

@@ -243,7 +243,7 @@ export function GraphInspector({
   // visible height (--gi-vv-height) as CSS custom properties the stylesheet uses
   // to lift the drawer above the keyboard and clamp its height, and we scroll
   // the focused field into view. Mirrors the pattern in ScheduleEditModal /
-  // LoopConfigPanel / AgentsLocalEditor. No-op on desktop (inset stays 0).
+  // AgentsLocalEditor. No-op on desktop (inset stays 0).
   const asideRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const vv = window.visualViewport;

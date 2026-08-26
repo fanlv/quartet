@@ -152,7 +152,7 @@ func (b *jobEventBuffer) gcLocked() {
 			// Buffer exceeds hardcap but no events could be evicted — readers
 			// are connected but their cursors haven't advanced past the oldest
 			// event yet. Evict the most lagging reader to unblock GC and prevent
-			// unbounded memory growth (OOM risk for long-running Loop jobs).
+			// unbounded memory growth (OOM risk for long-running jobs).
 			var stuckReader *bufferReader
 			var stuckCursor uint64 = ^uint64(0)
 			for r := range b.readers {

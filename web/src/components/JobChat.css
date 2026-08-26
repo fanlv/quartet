@@ -501,11 +501,11 @@
   min-height: 0;
 }
 
-.chatbot-body.loop-layout {
-  /* In loop mode, sidebar + main fill the space */
+.chatbot-body.graph-layout {
+  /* In Graph mode, the session sidebar and main panel fill the space. */
 }
 
-.chatbot-body.loop-layout .chatbot-main {
+.chatbot-body.graph-layout .chatbot-main {
   max-width: none;
   margin: 0;
 }
@@ -611,7 +611,7 @@
 }
 
 /* Mobile loop sidebar toggle button */
-.loop-sidebar-toggle {
+.graph-session-sidebar-toggle {
   display: none;
 }
 
@@ -634,7 +634,7 @@
 
   .header-filebrowser-btn,
   .header-settings-btn,
-  .loop-sidebar-toggle {
+  .graph-session-sidebar-toggle {
     width: 34px;
     height: 34px;
   }
@@ -709,16 +709,16 @@
   .header-more {
     display: block;
   }
-  .chatbot-body.loop-layout {
+  .chatbot-body.graph-layout {
     flex-direction: column;
     position: relative;
   }
 
-  .chatbot-body.loop-layout .loop-sidebar {
+  .chatbot-body.graph-layout .graph-session-sidebar {
     display: none;
   }
 
-  .chatbot-body.loop-layout.loop-sidebar-open .loop-sidebar {
+  .chatbot-body.graph-layout.graph-session-sidebar-open .graph-session-sidebar {
     display: flex;
     position: fixed;
     top: 0;
@@ -730,7 +730,7 @@
     box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
   }
 
-  .loop-sidebar-toggle {
+  .graph-session-sidebar-toggle {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -745,11 +745,11 @@
     flex-shrink: 0;
   }
 
-  .loop-sidebar-toggle:active {
+  .graph-session-sidebar-toggle:active {
     background: #f1f5f9;
   }
 
-  .loop-sidebar-overlay {
+  .graph-session-sidebar-overlay {
     display: none;
     position: fixed;
     top: 0;
@@ -760,7 +760,7 @@
     z-index: 799;
   }
 
-  .chatbot-body.loop-layout.loop-sidebar-open .loop-sidebar-overlay {
+  .chatbot-body.graph-layout.graph-session-sidebar-open .graph-session-sidebar-overlay {
     display: block;
   }
 

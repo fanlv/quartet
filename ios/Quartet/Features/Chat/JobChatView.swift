@@ -22,6 +22,12 @@ private struct ChatConfigurationOption: Identifiable {
     let detail: String?
 }
 
+private struct ChatAgentModelSelection: Hashable {
+    let jobID: String
+    let agentType: String
+    let modelID: String
+}
+
 struct JobChatView: View {
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.scenePhase) private var scenePhase
@@ -47,6 +53,8 @@ struct JobChatView: View {
     @State private var userIsScrollingMessages = false
     @State private var configuredModels: AgentModelState?
     @State private var configuredThoughtLevels: AgentThoughtLevelState?
+    @State private var configuredThoughtLevelSelection: ChatAgentModelSelection?
+    @State private var thoughtLevelRequestID: UUID?
     @State private var agentPreferences: [String: AgentPreferences] = [:]
     @State private var changingACPConfiguration = false
     @State private var configurationPicker: ChatConfigurationPicker?
@@ -92,6 +100,9 @@ struct JobChatView: View {
             if appModel.agentCatalogSnapshot.isEmpty {
                 await appModel.refreshAgentCatalog()
             }
+        }
+        .task(id: thoughtLevelSelection) {
+            await refreshThoughtLevels(for: thoughtLevelSelection)
         }
         .task(id: route.summary.id) {
             do {
@@ -603,19 +614,21 @@ struct JobChatView: View {
             .disabled(availableModels.isEmpty || changingACPConfiguration)
             .accessibilityIdentifier("chat-model-selector")
             if !availableThoughtLevels.isEmpty || thoughtLevelDisplayLabel != nil {
-                let thoughtLevel = thoughtLevelDisplayLabel ?? "思考等级"
+                let thoughtLevel = isRefreshingThoughtLevels
+                    ? "正在刷新思考等级…".localizedForApp
+                    : thoughtLevelDisplayLabel ?? "思考等级"
                 Button {
                     composerFocused = false
                     configurationPicker = .thoughtLevel
                 } label: {
                     ComposerMetadataChip(
-                        icon: changingACPConfiguration ? "arrow.trianglehead.2.clockwise.rotate.90" : "brain.head.profile",
+                        icon: changingACPConfiguration ? "arrow.trianglehead.2.clockwise.rotate.90" : thoughtLevelIcon,
                         text: thoughtLevel,
-                        accessibilityLabel: "思考等级，\(thoughtLevel)"
+                        accessibilityLabel: thoughtLevelAccessibilityLabel
                     )
                 }
                 .buttonStyle(.plain)
-                .disabled(availableThoughtLevels.isEmpty || changingACPConfiguration)
+                .disabled(!canSelectThoughtLevel)
                 .accessibilityIdentifier("chat-thought-level-selector")
             }
             if chat.showsDuration {
@@ -722,16 +735,72 @@ struct JobChatView: View {
 
     private var thoughtLevelDisplayLabel: String? {
         if let thoughtLevelID = chat.thoughtLevelIDForDisplay,
+           configuredThoughtLevelSelection == thoughtLevelSelection,
            let name = configuredThoughtLevels?.availableThoughtLevels
             .first(where: { $0.id == thoughtLevelID })?.name,
            !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return name
         }
-        return AgentConfigurationDisplay.thoughtLevelName(
-            chat.thoughtLevelIDForDisplay,
-            agentReference: chat.agentReferenceForDisplay,
-            agents: appModel.agentCatalogSnapshot
+        if catalogThoughtLevelsMatchCurrentModel {
+            return AgentConfigurationDisplay.thoughtLevelName(
+                chat.thoughtLevelIDForDisplay,
+                agentReference: chat.agentReferenceForDisplay,
+                agents: appModel.agentCatalogSnapshot
+            )
+        }
+        return chat.thoughtLevelIDForDisplay
+    }
+
+    private var thoughtLevelSelection: ChatAgentModelSelection? {
+        guard !chat.loading,
+              let agent = selectedAgent,
+              let modelID = chat.modelIDForDisplay,
+              agent.models != nil else {
+            return nil
+        }
+        return ChatAgentModelSelection(
+            jobID: route.summary.id,
+            agentType: agent.type,
+            modelID: modelID
         )
+    }
+
+    private var catalogThoughtLevelsMatchCurrentModel: Bool {
+        guard !chat.loading, let modelID = chat.modelIDForDisplay else { return false }
+        return selectedAgent?.models?.currentModelId == modelID
+    }
+
+    private var currentConfiguredThoughtLevels: AgentThoughtLevelState? {
+        guard configuredThoughtLevelSelection == thoughtLevelSelection else { return nil }
+        return configuredThoughtLevels
+    }
+
+    private var fallbackThoughtLevels: AgentThoughtLevelState? {
+        guard catalogThoughtLevelsMatchCurrentModel else { return nil }
+        return selectedAgent?.thoughtLevels
+    }
+
+    private var displayedThoughtLevels: AgentThoughtLevelState? {
+        currentConfiguredThoughtLevels ?? fallbackThoughtLevels
+    }
+
+    private var isRefreshingThoughtLevels: Bool {
+        thoughtLevelSelection != nil && configuredThoughtLevelSelection != thoughtLevelSelection
+    }
+
+    private var thoughtLevelIcon: String {
+        isRefreshingThoughtLevels ? "arrow.trianglehead.2.clockwise.rotate.90" : "brain.head.profile"
+    }
+
+    private var canSelectThoughtLevel: Bool {
+        !availableThoughtLevels.isEmpty && !changingACPConfiguration && !isRefreshingThoughtLevels
+    }
+
+    private var thoughtLevelAccessibilityLabel: String {
+        if isRefreshingThoughtLevels {
+            return "正在刷新思考等级"
+        }
+        return thoughtLevelDisplayLabel.map { "思考等级，\($0)" } ?? "思考等级"
     }
 
     private var selectedAgent: AgentSummary? {
@@ -774,9 +843,7 @@ struct JobChatView: View {
     }
 
     private var availableThoughtLevels: [AgentOption] {
-        configuredThoughtLevels?.availableThoughtLevels
-            ?? selectedAgent?.thoughtLevels?.availableThoughtLevels
-            ?? []
+        displayedThoughtLevels?.availableThoughtLevels ?? []
     }
 
     private func configurationOptions(for picker: ChatConfigurationPicker) -> [ChatConfigurationOption] {
@@ -857,6 +924,56 @@ struct JobChatView: View {
         )
     }
 
+    private func refreshThoughtLevels(for selection: ChatAgentModelSelection?) async {
+        guard let selection else {
+            configuredThoughtLevels = nil
+            configuredThoughtLevelSelection = nil
+            thoughtLevelRequestID = nil
+            return
+        }
+        guard configuredThoughtLevelSelection != selection else { return }
+
+        configuredThoughtLevels = nil
+        configuredThoughtLevelSelection = nil
+        let requestID = UUID()
+        thoughtLevelRequestID = requestID
+        do {
+            // Agent 目录只保存最近一次探测的模型联动结果；用无 session 的预览链路
+            // 按当前聊天恢复出的 Agent + 模型重新关联，避免改动正在使用的 ACP 会话。
+            let state = try await appModel.relinkACPThoughtLevels(
+                agentType: selection.agentType,
+                modelID: selection.modelID
+            )
+            try Task.checkCancellation()
+            guard thoughtLevelSelection == selection, thoughtLevelRequestID == requestID else { return }
+
+            let availableIDs = Set(state.availableThoughtLevels.map(\.id))
+            let persistedThoughtLevelID = chat.thoughtLevelIDForDisplay
+            let currentThoughtLevelID = persistedThoughtLevelID.flatMap {
+                availableIDs.contains($0) ? $0 : nil
+            } ?? state.currentThoughtLevelId
+            let refreshed = AgentThoughtLevelState(
+                availableThoughtLevels: state.availableThoughtLevels,
+                currentThoughtLevelId: currentThoughtLevelID
+            )
+            configuredThoughtLevels = refreshed
+            configuredThoughtLevelSelection = selection
+            thoughtLevelRequestID = nil
+            chat.reconcileThoughtLevelID(currentThoughtLevelID)
+        } catch is CancellationError {
+            return
+        } catch {
+            guard thoughtLevelSelection == selection, thoughtLevelRequestID == requestID else { return }
+            configuredThoughtLevels = AgentThoughtLevelState(
+                availableThoughtLevels: [],
+                currentThoughtLevelId: ""
+            )
+            configuredThoughtLevelSelection = selection
+            thoughtLevelRequestID = nil
+            appModel.present(error)
+        }
+    }
+
     private func applyACPConfiguration(
         target: ACPConfigTarget,
         modelID: String?,
@@ -884,6 +1001,12 @@ struct JobChatView: View {
                 thoughtLevel: target == .model ? nil : thoughtLevelID
             ))
             if let models = response.models { configuredModels = models }
+            chat.applyACPConfiguration(
+                response,
+                target: target,
+                selectedModelID: modelID,
+                selectedThoughtLevelID: thoughtLevelID
+            )
             if target == .model {
                 configuredThoughtLevels = response.thoughtLevels ?? AgentThoughtLevelState(
                     availableThoughtLevels: [],
@@ -892,12 +1015,8 @@ struct JobChatView: View {
             } else if let thoughtLevels = response.thoughtLevels {
                 configuredThoughtLevels = thoughtLevels
             }
-            chat.applyACPConfiguration(
-                response,
-                target: target,
-                selectedModelID: modelID,
-                selectedThoughtLevelID: thoughtLevelID
-            )
+            configuredThoughtLevelSelection = thoughtLevelSelection
+            thoughtLevelRequestID = nil
         } catch is CancellationError {
             return
         } catch {

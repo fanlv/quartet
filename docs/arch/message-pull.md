@@ -56,7 +56,6 @@ ACP 时代 `messages.jsonl` 是从 agent 事件重建的**镜像**（与 claude 
 1. **主键 = 消息 `id`**：incoming 命中 existing 同 ID 时，若 existing 内容更长（流式还在累积）则保留 existing，避免历史短内容覆盖实时长内容。
 2. **语义 key 兜底**（处理短暂 ID 不一致）：
    - 乐观用户消息：existing 的 `clientMessageId` 出现在 incoming 即丢弃。
-   - 合成 loop-user 消息：按 `sessionId + content`。
    - **纯思考气泡**：按 `sessionId + thinkingContent`（`mergeMessages.ts:23`）——live 思考气泡 ID 与持久化 `thought_msg_id` 短暂不一致时的兜底。
    - tool 消息：按 `toolCallId`。
 3. **最终 `dedupeById`**：保证结果按 ID 唯一，连 incoming 内部重复 ID（reconnect 重放的 `call_*`）也清掉。

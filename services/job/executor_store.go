@@ -59,7 +59,7 @@ func (s *serviceImpl) nowMillis() int64 {
 // avoid data races, fields are split by ownership:
 //
 //   - Handler-owned (mutated by targeted methods): Title, Mode, Workdir, ShareToken, Deleted
-//   - Run-owned: Status, StartedAt, FinishedAt, LoopConfig, Progress, Resume, SessionIDs
+//   - Run-owned: Status, StartedAt, FinishedAt, Progress, SessionIDs
 //   - Service-owned denormalized cache (targeted mutator only): FirstModelID
 //
 // All reads and writes of job fields MUST hold s.mu. Targeted mutators
@@ -100,7 +100,7 @@ type serviceImpl struct {
 	// Sharded by FNV-1a(jobID) so saves on different jobs don't block each
 	// other — the previous global persistMu serialized every job's saves
 	// across the whole process, which became visible when several scheduled
-	// loops fanned out at the same time. Within a single job the order is
+	// graph runs fanned out at the same time. Within a single job the order is
 	// still preserved, and Delete cannot remove a directory while an older
 	// Save is able to recreate it.
 	persistShards [persistShardCount]sync.Mutex
@@ -251,20 +251,11 @@ func isTerminalJobStatus(s model.JobStatus) bool {
 	return s == model.JobStatusCompleted || s == model.JobStatusFailed || s == model.JobStatusStopped
 }
 
-// shouldPreservePriorStatus reports whether a job's pre-SendMessage status
-// should be restored after the interactive run ends. Completed/Failed are
-// terminal outcomes that ad-hoc messages must not regress. Stopped is
-// only worth preserving when the job has a Resume (a paused run, legacy
-// loop jobs) — a Stopped chat job (Resume==nil) should
-// instead be promoted by the new send's outcome.
-func shouldPreservePriorStatus(s model.JobStatus, resume *model.JobResume) bool {
-	if !isTerminalJobStatus(s) {
-		return false
-	}
-	if s == model.JobStatusStopped && resume == nil {
-		return false
-	}
-	return true
+// shouldPreservePriorStatus reports whether an interactive send should restore
+// the Job's prior terminal status. A stopped chat can start a new turn, while
+// completed and failed records remain historical terminal outcomes.
+func shouldPreservePriorStatus(s model.JobStatus) bool {
+	return s == model.JobStatusCompleted || s == model.JobStatusFailed
 }
 
 func (s *serviceImpl) SetOnJobDone(fn func(job *model.Job)) {
@@ -398,10 +389,8 @@ func (s *serviceImpl) reconcileLoadedJob(ctx context.Context, repo repository.Jo
 	if j.Deleted {
 		return false
 	}
-	// Establish the in-memory invariant: every Job in s.jobs has a
-	// non-nil Progress. Pre-LoopConfig legacy records persisted with
-	// Progress=nil, so we lazy-init here once at load — every other
-	// access path can then dereference Progress without a guard.
+	// Establish the in-memory invariant: every Job in s.jobs has a non-nil
+	// Progress so every other access path can dereference it without a guard.
 	ensureProgress(j)
 	// Reset running jobs to failed on startup (they were interrupted)
 	if j.Status == model.JobStatusRunning {
@@ -418,15 +407,6 @@ func (s *serviceImpl) reconcileLoadedJob(ctx context.Context, repo repository.Jo
 		}
 		if err := repo.Save(j.ID, j); err != nil {
 			logger.Errorf(ctx, "[job.Service] reset running->failed persist failed: workspace=%s jobId=%s err=%v", j.WorkspaceID, j.ID, err)
-		}
-	}
-	// Clear Content from older loaded results to save memory.
-	// Preserve the LAST result's Content so the job detail view can still
-	// render the final recorded result after a process restart (historical
-	// loop jobs may carry many results; only the latest keeps Content).
-	if n := len(j.Progress.Results); n > 1 {
-		for i := 0; i < n-1; i++ {
-			j.Progress.Results[i].Content = ""
 		}
 	}
 	// Prefill FirstModelID for legacy jobs so the list endpoint never
@@ -481,7 +461,6 @@ type jobRunStateSnapshot struct {
 	FinishedAt              int64
 	SessionIDs              []string
 	Progress                *model.JobProgress
-	Resume                  *model.JobResume
 	LastRunOutcome          model.RunOutcome
 	ActiveClientMessageID   string
 	ClientMessageReceipts   map[string]model.ClientMessageReceipt
@@ -501,7 +480,6 @@ func snapshotRunStateLocked(job *model.Job) jobRunStateSnapshot {
 		FinishedAt:              cp.FinishedAt,
 		SessionIDs:              cp.SessionIDs,
 		Progress:                cp.Progress,
-		Resume:                  cp.Resume,
 		LastRunOutcome:          cp.LastRunOutcome,
 		ActiveClientMessageID:   cp.ActiveClientMessageID,
 		ClientMessageReceipts:   cp.ClientMessageReceipts,
@@ -520,7 +498,6 @@ func restoreRunStateLocked(job *model.Job, snap jobRunStateSnapshot) {
 	job.FinishedAt = snap.FinishedAt
 	job.SessionIDs = snap.SessionIDs
 	job.Progress = snap.Progress
-	job.Resume = snap.Resume
 	job.LastRunOutcome = snap.LastRunOutcome
 	job.ActiveClientMessageID = snap.ActiveClientMessageID
 	job.ClientMessageReceipts = snap.ClientMessageReceipts

@@ -65,7 +65,7 @@ func (a *Accumulator) OnThoughtMessageEnd(ctx context.Context, msg *schema.Messa
 }
 
 // OnAssistantText / OnThoughtText are the no-message fallbacks used when
-// the loop_event_handler does not have a schema.Message to pass (e.g.
+// the Agent event handler does not have a schema.Message to pass (e.g.
 // during streaming the text is concatenated locally). The cost is one
 // tokenize pass over the raw text.
 func (a *Accumulator) OnAssistantText(ctx context.Context, text string) {

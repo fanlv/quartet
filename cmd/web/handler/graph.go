@@ -258,7 +258,7 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Generate a Job title for freshly launched runs, mirroring chat/loop Jobs.
+	// Generate a Job title for freshly launched runs, mirroring interactive Jobs.
 	// The LLM sees only the distilled Prompt-node prompts (in execution order),
 	// not the whole config JSON: layout/ID/edge noise dominated the old input and
 	// pushed the model toward vague, structural titles. effectiveConfig is the
