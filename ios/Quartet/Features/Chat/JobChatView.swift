@@ -51,6 +51,7 @@ struct JobChatView: View {
     @State private var loadingMessagePresets = false
     @State private var userScrolledAwayFromBottom = false
     @State private var userIsScrollingMessages = false
+    @State private var messagesScrolledOffContent = false
     @State private var configuredModels: AgentModelState?
     @State private var configuredThoughtLevels: AgentThoughtLevelState?
     @State private var configuredThoughtLevelSelection: ChatAgentModelSelection?
@@ -255,6 +256,16 @@ struct JobChatView: View {
         appModel.jobSummary(id: route.summary.id) ?? route.summary
     }
 
+    /// 把滚偏到内容之外的列表带回底部，并让跟随状态回到“就在底部”。
+    ///
+    /// 只重置偏移不够：`userScrolledAwayFromBottom` 留在 `true` 的话，后续内容照样不跟随，
+    /// 用户看到的是一条卡住的时间线。自愈已经把视口强行放回底部，跟随状态必须跟着对齐。
+    private func recoverMessagesScroll(_ proxy: ScrollViewProxy) {
+        messagesScrolledOffContent = false
+        userScrolledAwayFromBottom = false
+        proxy.scrollTo("chat-bottom", anchor: .bottom)
+    }
+
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -314,6 +325,10 @@ struct JobChatView: View {
             .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
             .onScrollPhaseChange { _, newPhase in
                 userIsScrollingMessages = newPhase.isScrolling && newPhase != .animating
+                // 越界是在滚动静止后才看得见的白屏，手势结束的这一刻补一次判断，
+                // 免得越界标记翻转时刚好卡在手势里、之后再没有几何变化来触发纠正。
+                guard newPhase == .idle, messagesScrolledOffContent else { return }
+                recoverMessagesScroll(proxy)
             }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 let distanceToBottom = geometry.contentSize.height
@@ -323,6 +338,21 @@ struct JobChatView: View {
             } action: { _, isNearBottom in
                 guard userIsScrollingMessages else { return }
                 userScrolledAwayFromBottom = !isNearBottom
+            }
+            // 白屏自愈：偏移落到内容之外整整一屏时，把它拉回底部。
+            //
+            // `LazyVStack` 只物化视口附近的 cell，其余按估算高度参与 contentSize。估算和
+            // 实际布局失配得足够狠时（长工具输出收起、离屏 cell 重新物化），偏移会停在没有
+            // 任何 cell 的区域，于是整个列表是空白的 —— 连非 lazy 的“AI 正在思考”一起看不见。
+            // 橡皮筋和减速都拉不出一整屏，也都不在静止阶段，所以这两个条件叠起来只会命中失配。
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                guard geometry.containerSize.height > 0 else { return false }
+                let maxOffset = max(0, geometry.contentSize.height - geometry.containerSize.height)
+                return geometry.contentOffset.y - maxOffset > geometry.containerSize.height
+            } action: { _, isOffContent in
+                messagesScrolledOffContent = isOffContent
+                guard isOffContent, !userIsScrollingMessages else { return }
+                recoverMessagesScroll(proxy)
             }
             .onChange(of: chat.scrollAnchor) { _, _ in
                 guard !userScrolledAwayFromBottom else { return }

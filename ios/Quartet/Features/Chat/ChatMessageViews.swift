@@ -290,9 +290,10 @@ struct ThoughtPanel: View {
         .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(QuartetTheme.accent.opacity(0.24), lineWidth: 1))
         .frame(maxWidth: .infinity, alignment: .leading)
         .onChange(of: isStreaming) { wasStreaming, streaming in
-            if wasStreaming, !streaming {
-                withAnimation(.easeOut(duration: 0.2)) { isExpanded = false }
-            }
+            guard wasStreaming, !streaming else { return }
+            // 自动收起刻意不加动画，理由同 `ToolCallCard`：思考内容可以很长，动画会让
+            // ScrollView 的 contentSize 连续几十帧塌缩，和跟随滚动竞争。
+            isExpanded = false
         }
     }
 }
@@ -371,9 +372,13 @@ struct ToolCallCard: View {
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(borderColor, lineWidth: message.isFailed ? 1.25 : 1))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onChange(of: message.toolStatus) { oldStatus, newStatus in
-            if oldStatus == .processing, newStatus != .processing {
-                withAnimation(.easeOut(duration: 0.2)) { isExpanded = false }
-            }
+            guard oldStatus == .processing, newStatus != .processing else { return }
+            // 自动收起刻意不加动画：工具输出可以是几千行，展开时这张卡片高几千点，收起
+            // 动画等于让 ScrollView 的 contentSize 连续几十帧剧烈缩水。跟随滚动同时在按
+            // contentSize 反算“滚到底”的目标偏移，两者一竞争就会把偏移甩到内容之外，
+            // LazyVStack 于是一个 cell 都不物化，整屏空白。一次性收起只产生一次高度变化，
+            // 滚动纠正一次就到位。用户手动点开/收起仍然带动画。
+            isExpanded = false
         }
     }
 

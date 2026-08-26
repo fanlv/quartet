@@ -130,6 +130,7 @@ final class ChatViewModel: ObservableObject {
     private var streamTask: Task<Void, Never>?
     private var pendingDeltas: [PendingDelta] = []
     private var deltaFlushTask: Task<Void, Never>?
+    private var scrollAnchorThrottleTask: Task<Void, Never>?
     private var graphReconcileTask: Task<Void, Never>?
     private var graphMonitorTask: Task<Void, Never>?
     private var didSeedInitialDraft = false
@@ -485,6 +486,8 @@ final class ChatViewModel: ObservableObject {
         flushPendingDeltas()
         deltaFlushTask?.cancel()
         deltaFlushTask = nil
+        scrollAnchorThrottleTask?.cancel()
+        scrollAnchorThrottleTask = nil
         streamTask?.cancel()
         streamTask = nil
         graphReconcileTask?.cancel()
@@ -1541,7 +1544,7 @@ final class ChatViewModel: ObservableObject {
                 applyToolArguments(id: id, text: text, replace: replace)
             }
         }
-        bumpScrollAnchor()
+        bumpScrollAnchorThrottled()
     }
 
     private func configureTool(id: String, name: String?, status: String?) {
@@ -1679,7 +1682,29 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func bumpScrollAnchor() {
+        scrollAnchorThrottleTask?.cancel()
+        scrollAnchorThrottleTask = nil
         scrollAnchor &+= 1
+    }
+
+    /// 流式追加专用的跟随滚动提示，按 240ms 节流。
+    ///
+    /// 视图侧收到锚点变化就得在 `LazyVStack` 上按当次 contentSize 反算“滚到底”的目标偏移。
+    /// delta 合流已经是 25Hz，如果每次 flush 都请求一次滚动，就有 25 次/秒的机会撞上内容
+    /// 高度的剧烈变化（长工具输出收起时卡片会从几千点塌到一行），一撞上就会算出内容之外的
+    /// 偏移，`LazyVStack` 一个 cell 都不物化，整屏空白。肉眼分不出 25Hz 和 4Hz 的跟随，
+    /// 把频率降下来就把撞上的窗口缩小了一个量级。
+    ///
+    /// 用户能感知的离散跳转（发送、历史加载完、运行收尾）继续走 `bumpScrollAnchor()`，
+    /// 它会取消挂起的节流，立刻到底。
+    private func bumpScrollAnchorThrottled() {
+        guard scrollAnchorThrottleTask == nil else { return }
+        scrollAnchorThrottleTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(240))
+            guard let self, !Task.isCancelled else { return }
+            self.scrollAnchorThrottleTask = nil
+            self.scrollAnchor &+= 1
+        }
     }
 
     private func hasPriorConversation(_ detail: JobDetail) -> Bool {
