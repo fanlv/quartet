@@ -137,7 +137,9 @@ final class ChatViewModel: ObservableObject {
     private var didSeedInitialDraft = false
     private var knownQueuedItems: [String: QueuedJobMessage] = [:]
     private var agentDisplayInfoByReference: [String: AgentDisplayInfo] = [:]
-    private var accumulatedRoundBoundaries: Set<String> = []
+    private var currentTurnIncludedInAccumulatedDuration = true
+    private var graphRunningStartedAts: [Int64] = []
+    private var serverClockAnchor: (serverTimeMs: Int64, uptime: TimeInterval)?
     private var isTurnRunning = false
     private var isProcessingOutbox = false
     private var isGraph = false
@@ -191,18 +193,22 @@ final class ChatViewModel: ObservableObject {
     var tokenCountLabel: String { "Tokens: \(Self.compactCount(totalTokens))" }
     var tokenCountAccessibilityLabel: String { "Token 数量，\(totalTokens)" }
     var showsDuration: Bool {
-        accumulatedDurationMs > 0 || (runStartedAt != nil && (isTurnRunning || runFinishedAt != nil))
+        accumulatedDurationMs > 0 || !graphRunningStartedAts.isEmpty
+            || (runStartedAt != nil && !currentTurnIncludedInAccumulatedDuration)
     }
 
-    func durationLabel(at date: Date) -> String {
-        let currentDuration: Int64
-        if let runStartedAt {
-            let end = runFinishedAt ?? Int64(date.timeIntervalSince1970 * 1_000)
-            currentDuration = max(0, end - runStartedAt)
-        } else {
-            currentDuration = 0
+    func durationLabel(at _: Date) -> String {
+        let now = estimatedServerNow()
+        let graphLiveDuration = graphRunningStartedAts.reduce(Int64(0)) { total, start in
+            total + max(0, now - start)
         }
-        return Self.formatDuration(accumulatedDurationMs + currentDuration)
+        let currentTurnDuration: Int64
+        if let runStartedAt, !currentTurnIncludedInAccumulatedDuration {
+            currentTurnDuration = max(0, (runFinishedAt ?? now) - runStartedAt)
+        } else {
+            currentTurnDuration = 0
+        }
+        return Self.formatDuration(accumulatedDurationMs + graphLiveDuration + currentTurnDuration)
     }
 
     func applyACPConfiguration(
@@ -245,7 +251,9 @@ final class ChatViewModel: ObservableObject {
             runStartedAt = nil
             runFinishedAt = nil
             accumulatedDurationMs = 0
-            accumulatedRoundBoundaries = []
+            currentTurnIncludedInAccumulatedDuration = true
+            graphRunningStartedAts = []
+            serverClockAnchor = nil
             knownQueuedItems = [:]
         }
         self.client = client
@@ -264,6 +272,7 @@ final class ChatViewModel: ObservableObject {
 
         do {
             let detail = try await client.job(id: jobID)
+            updateServerClock(detail.serverTime)
             if !isGraph {
                 do {
                     applyServerQueue(try await client.messageQueue(jobID: jobID))
@@ -273,13 +282,16 @@ final class ChatViewModel: ObservableObject {
             }
             applyAuthoritativeTitle(detail.title)
             status = detail.status
-            runStartedAt = detail.startedAt
-            runFinishedAt = detail.finishedAt
+            accumulatedDurationMs = detail.totalTurnDurationMs
+            runStartedAt = detail.status == "running" ? detail.startedAt : nil
+            runFinishedAt = nil
+            currentTurnIncludedInAccumulatedDuration = detail.status != "running"
             lastEventID = detail.lastEventSeq
             lastGraphEventID = 0
             var graphDefaultSessionID: String?
             if isGraph {
                 let graphSnapshot = try await client.graphRunStatus(jobID: jobID)
+                applyGraphDuration(graphSnapshot)
                 let graphStatus = graphSnapshot.run?.status
                 graphRunLive = graphStatus.map(isLiveGraphStatus) ?? false
                 graphDefaultSessionID = latestGraphSessionID(in: graphSnapshot)
@@ -351,6 +363,8 @@ final class ChatViewModel: ObservableObject {
         totalTokens = 12_480
         runStartedAt = Int64(Date().addingTimeInterval(-83).timeIntervalSince1970 * 1_000)
         runFinishedAt = isGraph || route.summary.status == "running" ? nil : Int64(Date().timeIntervalSince1970 * 1_000)
+        accumulatedDurationMs = 0
+        currentTurnIncludedInAccumulatedDuration = false
         var previewMessages = [
             ChatMessage(
                 id: "preview-user", kind: .user,
@@ -792,7 +806,6 @@ final class ChatViewModel: ObservableObject {
     private func dispatchOutboxItem(at index: Int) async {
         guard outbox.indices.contains(index), let client else { return }
         let itemID = outbox[index].id
-        archiveFinishedRoundIfNeeded()
         sending = true
         defer { sending = false }
 
@@ -1047,17 +1060,21 @@ final class ChatViewModel: ObservableObject {
     private func refreshSnapshotAndHistory() async throws {
         guard let client else { return }
         let snapshot = try await client.job(id: jobID)
+        updateServerClock(snapshot.serverTime)
         if !isGraph {
             do { applyServerQueue(try await client.messageQueue(jobID: jobID)) }
             catch { errorDetail = errorText(error) }
         }
         applyAuthoritativeTitle(snapshot.title)
         status = snapshot.status
-        runStartedAt = snapshot.startedAt
-        runFinishedAt = snapshot.finishedAt
+        accumulatedDurationMs = snapshot.totalTurnDurationMs
+        runStartedAt = snapshot.status == "running" ? snapshot.startedAt : nil
+        runFinishedAt = nil
+        currentTurnIncludedInAccumulatedDuration = snapshot.status != "running"
         lastEventID = snapshot.lastEventSeq
         if isGraph {
             let graphSnapshot = try await client.graphRunStatus(jobID: jobID)
+            applyGraphDuration(graphSnapshot)
             let graphStatus = graphSnapshot.run?.status
             graphRunLive = graphStatus.map(isLiveGraphStatus) ?? false
             if snapshot.status != "running", let graphStatus {
@@ -1089,6 +1106,7 @@ final class ChatViewModel: ObservableObject {
 
     private func applyGraph(_ event: GraphStreamEvent, id: UInt64?) {
         if let id { lastGraphEventID = id }
+        updateServerClock(event.createdAt)
 
         let payload = event.payload ?? [:]
         let eventSessionID = payload["sessionId"]
@@ -1224,6 +1242,7 @@ final class ChatViewModel: ObservableObject {
         guard let client else { return }
         let snapshot = try await client.graphRunStatus(jobID: jobID)
         guard let run = snapshot.run else { return }
+        applyGraphDuration(snapshot)
         status = run.status
         graphRunLive = isLiveGraphStatus(run.status)
         isTurnRunning = graphRunLive
@@ -1277,6 +1296,7 @@ final class ChatViewModel: ObservableObject {
 
     private func apply(_ event: ServerEvent, id: UInt64?) {
         if let id { lastEventID = id }
+        updateServerClock(event.timestamp)
         if let sessionId = event.sessionId, !sessionId.isEmpty {
             sessionID = sessionId
         }
@@ -1288,10 +1308,12 @@ final class ChatViewModel: ObservableObject {
             isTurnRunning = true
             runStartedAt = event.timestamp ?? runStartedAt
             runFinishedAt = nil
+            currentTurnIncludedInAccumulatedDuration = false
         case "RUN_STARTED":
             isTurnRunning = true
             runStartedAt = event.timestamp ?? runStartedAt
             runFinishedAt = nil
+            currentTurnIncludedInAccumulatedDuration = false
             if let clientMessageID = event.clientMessageId {
                 let queued = knownQueuedItems[clientMessageID]
                 if let queued,
@@ -1323,6 +1345,7 @@ final class ChatViewModel: ObservableObject {
             status = "completed"
             isTurnRunning = false
             runFinishedAt = event.timestamp ?? runFinishedAt
+            applyTerminalDuration(event)
             let outcome = event.runOutcome ?? "completed"
             publishTerminalStateChange()
             applyRunOutcome(outcome)
@@ -1332,6 +1355,7 @@ final class ChatViewModel: ObservableObject {
             status = "failed"
             isTurnRunning = false
             runFinishedAt = event.timestamp ?? runFinishedAt
+            applyTerminalDuration(event)
             let outcome = event.runOutcome ?? "failed"
             publishTerminalStateChange()
             applyRunOutcome(outcome)
@@ -1342,6 +1366,7 @@ final class ChatViewModel: ObservableObject {
             status = "stopped"
             isTurnRunning = false
             runFinishedAt = event.timestamp ?? runFinishedAt
+            applyTerminalDuration(event)
             let outcome = event.runOutcome ?? "stopped"
             publishTerminalStateChange()
             applyRunOutcome(outcome)
@@ -1759,14 +1784,52 @@ final class ChatViewModel: ObservableObject {
         return info.deleted ? "\(name)（已删除）" : name
     }
 
-    private func archiveFinishedRoundIfNeeded() {
-        guard let start = runStartedAt, let end = runFinishedAt, end >= start else { return }
-        let boundary = "\(start):\(end)"
-        if accumulatedRoundBoundaries.insert(boundary).inserted {
-            accumulatedDurationMs += end - start
+    private func applyTerminalDuration(_ event: ServerEvent) {
+        if let total = event.totalTurnDurationMs {
+            accumulatedDurationMs = max(0, total)
+            currentTurnIncludedInAccumulatedDuration = true
+        }
+        guard currentTurnIncludedInAccumulatedDuration else { return }
+        runStartedAt = nil
+        runFinishedAt = nil
+    }
+
+    private func applyGraphDuration(_ snapshot: GraphRunStatusResponse) {
+        guard isGraph else { return }
+        let live = snapshot.instances ?? []
+        let liveKeys = Set(live.map { $0.key.backendKey })
+        let archived = snapshot.run?.archivedInstances?.compactMap { key, instance in
+            liveKeys.contains(key) ? nil : instance
+        } ?? []
+        let timed = (live + archived).filter { instance in
+            ["prompt", "clarify", "shell"].contains(instance.nodeType.lowercased())
+                && instance.preferredSessionID != nil
+        }
+        accumulatedDurationMs = timed.reduce(Int64(0)) { $0 + max(0, $1.durationMs ?? 0) }
+        graphRunningStartedAts = timed.compactMap { instance in
+            instance.status == "running" ? instance.startedAt : nil
         }
         runStartedAt = nil
         runFinishedAt = nil
+        currentTurnIncludedInAccumulatedDuration = true
+    }
+
+    private func updateServerClock(_ serverTimeMs: Int64?) {
+        guard let serverTimeMs, serverTimeMs > 0 else { return }
+        let uptime = ProcessInfo.processInfo.systemUptime
+        if let anchor = serverClockAnchor {
+            let projected = anchor.serverTimeMs + Int64((uptime - anchor.uptime) * 1_000)
+            guard serverTimeMs >= projected - 30_000 else { return }
+        }
+        serverClockAnchor = (serverTimeMs, uptime)
+    }
+
+    private func estimatedServerNow() -> Int64 {
+        guard let anchor = serverClockAnchor else {
+            return Int64(Date().timeIntervalSince1970 * 1_000)
+        }
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - anchor.uptime)
+        return anchor.serverTimeMs + Int64(elapsed * 1_000)
     }
 
     private func displayValue(_ value: String?) -> String? {

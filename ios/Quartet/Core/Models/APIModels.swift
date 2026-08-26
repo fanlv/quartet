@@ -817,6 +817,8 @@ struct JobDetail: Decodable, Identifiable, Sendable {
     let updatedAt: String
     let startedAt: Int64?
     let finishedAt: Int64?
+    let totalTurnDurationMs: Int64
+    let serverTime: Int64?
     let graphRunId: String?
     let sessionIds: [String]?
     let graphSessionIds: [String]?
@@ -847,7 +849,7 @@ struct JobDetail: Decodable, Identifiable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, status, mode, workspaceId, workdir, scheduleId
-        case createdAt, updatedAt, startedAt, finishedAt, graphRunId
+        case createdAt, updatedAt, startedAt, finishedAt, totalTurnDurationMs, serverTime, graphRunId
         case sessionIds, graphSessionIds, progress, lastRunOutcome, firstModelId
         case initialAgentId, initialAcpMode, initialAcpThoughtLevel, lastEventSeq
     }
@@ -865,6 +867,8 @@ struct JobDetail: Decodable, Identifiable, Sendable {
         updatedAt = try values.decode(String.self, forKey: .updatedAt)
         startedAt = try values.decodeIfPresent(Int64.self, forKey: .startedAt)
         finishedAt = try values.decodeIfPresent(Int64.self, forKey: .finishedAt)
+        totalTurnDurationMs = try values.decodeIfPresent(Int64.self, forKey: .totalTurnDurationMs) ?? 0
+        serverTime = try values.decodeIfPresent(Int64.self, forKey: .serverTime)
         graphRunId = try values.decodeIfPresent(String.self, forKey: .graphRunId)
         sessionIds = try values.decodeIfPresent([String].self, forKey: .sessionIds)
         graphSessionIds = try values.decodeIfPresent([String].self, forKey: .graphSessionIds)
@@ -1097,10 +1101,11 @@ struct ServerEvent: Decodable, Sendable {
     let replace: Bool?
     let external: EventExternal?
     let runOutcome: String?
+    let totalTurnDurationMs: Int64?
 
     private enum CodingKeys: String, CodingKey {
         case type, sessionId, clientMessageId, name, value, timestamp, messageId, role, delta, message, text
-        case code, toolCallId, toolCallName, toolCallStatus, replace, external, runOutcome
+        case code, toolCallId, toolCallName, toolCallStatus, replace, external, runOutcome, totalTurnDurationMs
     }
 
     init(from decoder: Decoder) throws {
@@ -1123,6 +1128,7 @@ struct ServerEvent: Decodable, Sendable {
         replace = try values.decodeIfPresent(Bool.self, forKey: .replace)
         external = try values.decodeIfPresent(EventExternal.self, forKey: .external)
         runOutcome = try values.decodeIfPresent(String.self, forKey: .runOutcome)
+        totalTurnDurationMs = try values.decodeIfPresent(Int64.self, forKey: .totalTurnDurationMs)
     }
 }
 

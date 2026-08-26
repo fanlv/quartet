@@ -999,7 +999,7 @@ private struct GraphInfoChip: View {
     }
 }
 
-private extension GraphInstanceSummary {
+extension GraphInstanceSummary {
     var preferredSessionID: String? {
         let candidate = displaySessionId ?? sessionId
         guard let candidate, !candidate.isEmpty else { return nil }
@@ -1016,7 +1016,7 @@ private extension GraphInstanceSummary {
     }
 }
 
-private extension GraphInstanceKeySummary {
+extension GraphInstanceKeySummary {
     var backendKey: String {
         let scope = (iterations ?? []).map { "\($0.loopNodeId)#\($0.index)" }
         return (scope + [nodeId]).joined(separator: "/")
