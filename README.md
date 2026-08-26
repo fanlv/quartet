@@ -23,12 +23,15 @@ release.
 
 ## Highlights
 
-- **One interface for multiple agents** - discovers supported ACP agents on
-  `PATH`, probes their available models and modes, and lets you switch agent,
+- **One interface for multiple agents** - maintains a catalog of built-in and
+  custom ACP agents, probes their models and modes, and lets you switch agent,
   model, mode, and reasoning level from the conversation.
+- **Managed agent lifecycle** - checks availability and versions and can run
+  the catalog's explicit install, upgrade, and uninstall flows from Web or iOS.
 - **Interactive agent sessions** - streams answers, thoughts, tool calls,
   images, and errors in real time; preserves session history and supports
-  stopping, resuming, renaming, pinning, and sharing jobs.
+  stopping, resuming, renaming, pinning, and sharing jobs. Follow-up messages
+  sent while a job is running enter a durable queue shared by Web and iOS.
 - **Workspace-aware execution** - organizes jobs around project directories,
   remembers per-workspace defaults, exposes files to the conversation, and
   shows the active Git branch.
@@ -40,15 +43,16 @@ release.
   links to the latest run.
 - **Local persistence and observability** - stores workspaces, jobs, sessions,
   workflows, schedules, and usage statistics as local files; includes usage
-  views by workspace, model, tool, and time range.
+  views by workspace, model, tool, and time range, plus daily token details and
+  provider-reported cache hit rates.
 - **Messaging integrations** - can receive and reply to tasks through
   Feishu/Lark and personal WeChat after they are configured in Settings.
 - **Native iOS client** - Sophia, the SwiftUI app in `ios/`, talks to the same
   backend over your LAN for conversations, attachments, graph runs, scheduled
   tasks, and usage statistics.
-- **Agent-extensible workflows** - ships a `quartet-cli` and
-  `quartet-workflow` skill so compatible coding agents can create and validate
-  workflows without modifying workflows authored by the user.
+- **Agent-operated automation** - ships `quartet-cli` plus workflow, schedule,
+  and WeChat skills, so compatible coding agents can manage automation without
+  modifying workflows authored by the user.
 
 ## Screenshots
 
@@ -74,17 +78,17 @@ release.
 
 ### iOS client (Sophia)
 
-| Recent jobs | Agent conversation |
+| Recent tasks | New task |
 |---|---|
-| ![Sophia recent jobs list](./docs/images/ios-home.png) | ![Sophia agent conversation with tool activity](./docs/images/ios-chat.png) |
+| ![Sophia recent tasks list](./docs/images/ios-recent-tasks.png) | ![Sophia new task composer](./docs/images/ios-new-task-composer.png) |
 
-| New task | Graph run |
+| Agent conversation | Scheduled tasks |
 |---|---|
-| ![Sophia new task composer](./docs/images/ios-new-task.png) | ![Sophia graph run overview and node trace](./docs/images/ios-graph.png) |
+| ![Sophia agent conversation with streamed tool activity](./docs/images/ios-agent-conversation.png) | ![Sophia scheduled tasks list](./docs/images/ios-scheduled-tasks.png) |
 
-| Scheduled tasks | Usage statistics |
+| Usage statistics | Settings |
 |---|---|
-| ![Sophia scheduled task list](./docs/images/ios-schedules.png) | ![Sophia usage statistics](./docs/images/ios-stats.png) |
+| ![Sophia usage statistics](./docs/images/ios-usage-statistics.png) | ![Sophia settings](./docs/images/ios-settings.png) |
 
 ## Graph Workflows
 
@@ -195,7 +199,7 @@ shared set of workspaces, jobs, and sessions.
   dashboard opens, a plaintext `http://` endpoint requires explicit
   confirmation, the password is never stored on the device, and role
   permissions decide which actions appear.
-- **Recent jobs** - a paginated job list with workspace filter, pin, rename,
+- **Recent tasks** - a paginated job list with workspace filter, pin, rename,
   delete, and stop actions, plus a toggle that hides or reveals
   schedule-generated runs. Workspace and job summaries are cached, so the list
   still opens when the backend is unreachable and marks itself as out of date.
@@ -203,7 +207,9 @@ shared set of workspaces, jobs, and sessions.
   model, mode, and reasoning level, or continue an existing one. Answers,
   thoughts, tool calls, images, Markdown, tables, and individually copyable code
   blocks stream in over SSE, with token totals, elapsed time, and the active
-  working directory and Git branch in the composer.
+  working directory and Git branch in the composer. Messages sent while an
+  agent is busy remain in the server-backed queue across app restarts and stay
+  synchronized with the Web client.
 - **Attachments** - send photos, camera captures, and image files from the
   system picker; oversized images are compressed before upload.
 - **Presets and history** - reuse message presets scoped to the current
@@ -218,7 +224,11 @@ shared set of workspaces, jobs, and sessions.
   trigger cron schedules bound to saved workflows, with next run time, run
   count, latest status, and the complete trigger error.
 - **Usage statistics** - 7/30/90-day, all-time, and custom ranges with totals,
-  trends, and rankings by workspace, model, and tool.
+  duration, turns, daily token details, provider-reported cache hit rates, and
+  rankings by workspace, model, and tool.
+- **Agent management** - inspect built-in and custom agents, check availability
+  and versions, run supported install/upgrade/uninstall flows, and configure
+  environment variables, defaults, favorite models, and role-specific agents.
 - **Connection management** - inspect the active endpoint and last successful
   sync, restart the web service, reconfigure the connection, or sign out and
   clear it.
@@ -249,8 +259,10 @@ Quartet includes the source for **Eino**, a standalone ACP agent that can be
 configured with Ark, OpenAI-compatible, Claude, DeepSeek, Gemini, Ollama, and
 Qwen model providers.
 
-Quartet currently discovers the following ACP CLIs from the `PATH` of the
-backend process:
+Quartet's built-in catalog currently supports the following ACP CLIs. The Agent
+management page can install, upgrade, uninstall, and validate entries whose
+catalog definitions provide those operations; custom ACP launch definitions can
+be added alongside them.
 
 | Agent | Required CLI | ACP command used by Quartet | ACP setup |
 |---|---|---|---|
@@ -267,7 +279,7 @@ backend process:
 | Codex | `codex` | `codex-acp` | **Requires the separate `@agentclientprotocol/codex-acp` package** |
 | Kiro | `kiro-cli` | `kiro-cli acp` | Provided by the CLI |
 | OpenCode | `opencode` | `opencode acp` | Provided by the CLI |
-| KiloCode | `kilocode` | `npx -y @kilocode/cli acp` | Requires Node.js and `npx` |
+| KiloCode | `kilocode` | `kilocode acp` | Installable from the Agent catalog through npm |
 | QCode | `qoderclicn` | `qoderclicn --acp` | Provided by the CLI |
 
 External tools, accounts, subscriptions, and authentication remain managed by
@@ -284,7 +296,8 @@ agents are skipped without preventing the rest of the application from loading.
 - Node.js `>=22.18.0 <23`
 - npm `>=10.9.0 <11`
 - Git, GNU Make, Bash, and common Unix tools such as `lsof`
-- At least one supported ACP agent installed and authenticated
+- Credentials for at least one supported ACP agent; its CLI can be installed
+  before startup or later from **Settings > Agents**
 
 The current build and service scripts target Linux and other Unix-like
 environments.
@@ -321,15 +334,19 @@ process, and writes logs to `/tmp/quartet-backend.log`.
 
 ### 3. Open the UI
 
-Create or select a workspace, choose an available agent and model, then send a
-message. Agent-specific environment variables and defaults can be managed from
-**Settings > ACP** and **Settings > Agent Defaults**.
+On first launch, create the administrator account; later visits require a
+Quartet login. Create or select a workspace, choose an available agent and
+model, then send a message. Agent installation, environment variables, favorite
+models, defaults, and role-specific agents are managed under
+**Settings > Agents**.
 
 ## External ACP Agents
 
-Install and authenticate external agents with their official tooling, then
-ensure both the agent CLI and its ACP adapter are available on the same `PATH`
-used to start Quartet. Restart the backend after changing `PATH`.
+The easiest setup path is **Settings > Agents > Install & Upgrade**, which shows
+the exact catalog-defined commands before running them and retains complete
+results. You can also install and authenticate an external agent manually; in
+that case, ensure its CLI and ACP adapter are available on the same `PATH` used
+to start Quartet, then restart the backend.
 
 Claude Code and Codex do not expose the ACP commands used by Quartet through
 their main CLI packages alone. After installing the `claude` or `codex` CLI,
@@ -351,9 +368,14 @@ Quartet requires both `claude` and `claude-agent-acp` for Claude Code, and both
 | `make web-status` | Show backend and watchdog status |
 | `make web-logs` | Follow `/tmp/quartet-backend.log` |
 | `make web-stop` | Stop the backend and clean up orphaned `quartet-web` processes |
+| `make backend-stop` | Stop only the backend and leave the watchdog running |
 | `make web-watch` | Start a detached watchdog that revives the backend if its port goes down |
 | `make web-watch-stop` | Stop the watchdog without stopping the backend |
+| `make web-watch-logs` | Follow `/tmp/quartet-watchdog.log` |
 | `make build-frontend` | Rebuild the SPA into `static/` without restarting the backend |
+| `make build-cli` | Build `bin/quartet-cli` |
+| `make build-eino-cli` | Build and install the standalone Eino ACP agent |
+| `make install-project-tools` | Install `quartet-cli` and all project skills |
 | `make build-ios` | Build the iOS app on macOS with Xcode |
 | `make test-ios` | Build the iOS app for Simulator without signing |
 | `make pod-install` | Install or refresh the iOS CocoaPods dependencies |
@@ -373,7 +395,10 @@ Quartet requires both `claude` and `claude-agent-acp` for Claude Code, and both
 
 Without certificates, Quartet binds to `0.0.0.0:8090` over HTTP. When both
 `cert.pem` and `key.pem` exist in the certificate directory, it enables HTTPS
-and defaults to `0.0.0.0:443`.
+and defaults to `0.0.0.0:443`; it also exposes a loopback-only plaintext
+listener at `127.0.0.1:8090` for `quartet-cli` and local workflow scripts.
+`QUARTET_LISTEN_ADDR` overrides the backend address but does not change whether
+certificate-based TLS is enabled.
 
 Quartet always protects private APIs with user login sessions. On first start,
 use the Web setup page to create the first administrator. Administrators can
@@ -389,13 +414,18 @@ Quartet's own state is file-based and local:
 ```text
 $LOCAL_MEMORY/
 ├── quartet/
-│   ├── config/       # prompts, workflows, and schedules
-│   └── data/         # workspaces, jobs, sessions, uploads, and statistics
-└── var/quartet/      # runtime state, caches, and temporary files
+│   ├── config/       # auth, prompts, workflows, schedules, and message presets
+│   ├── data/         # settings, Agent catalog, workspaces, jobs, uploads, IM, and shares
+│   └── usage-stats/  # month-sharded usage statistics
+└── var/quartet/
+    ├── state/        # sessions, schedule state, and sandbox state
+    ├── cache/        # reconstructable caches
+    └── tmp/          # process-owned temporary files
 ```
 
 Writes to important records are atomic. Backing up `LOCAL_MEMORY` backs up the
-Quartet state for a single-user installation.
+complete state of the Quartet instance. Login accounts share its workspaces and
+business data; roles control capabilities rather than providing data isolation.
 
 Messages and files are still sent to whichever agent and model provider you
 select. Review that provider's privacy policy and the permissions granted to
@@ -407,6 +437,7 @@ its local CLI.
 flowchart LR
     UI["React + Vite web app"]
     IOS["SwiftUI iOS app"]
+    CLI["quartet-cli + project skills"]
     API["Go + Hertz backend"]
     ACP["ACP agent processes"]
     DATA["Local file storage"]
@@ -414,46 +445,66 @@ flowchart LR
 
     UI <-->|HTTP + SSE| API
     IOS <-->|HTTP + SSE| API
+    CLI <-->|authenticated HTTP| API
     API <-->|ACP over stdio| ACP
     API <-->|atomic reads and writes| DATA
     IM <-->|messages and media| API
 ```
 
-The backend keeps HTTP handling, business services, and local repositories in
-separate layers. All agents, including Eino, enter through the same ACP session
-and event pipeline.
+HTTP handlers validate and authorize requests, business services own behavior,
+repositories own persistence, and `types/path` owns the storage layout. All
+agents, including Eino, enter through the same ACP session and event pipeline.
 
 | Path | Purpose |
 |---|---|
 | `cmd/web` | Web server, API routes, middleware, and application assembly |
+| `cmd/quartet-cli` | Authenticated workflow, schedule, workspace, job, agent, and WeChat CLI |
 | `cmd/eino-cli`, `einocli` | Bundled standalone Eino ACP agent |
-| `services` | Agent, job, graph, schedule, workspace, and statistics behavior |
+| `types/model` | Shared request, response, and domain models |
+| `types/path` | Canonical paths for configuration, business data, and runtime state |
 | `repository` | Local persistence |
-| `types` | Shared domain and protocol types |
+| `services` | Auth, agent, job, graph, schedule, workspace, IM, skills, and statistics behavior |
 | `pkg` | ACP, messaging, sandbox, logging, and common infrastructure |
 | `web` | React frontend |
 | `ios` | Native SwiftUI client (Sophia) for personal LAN use |
-| `skill/workflow` | CLI-driven workflow skill for coding agents |
+| `skill` | Workflow, schedule, and WeChat skills driven by `quartet-cli` |
 
-## Workflow Skill
+## CLI and Project Skills
 
-Quartet can install its workflow-management skill for supported coding agents:
+Install `quartet-cli` and all three project skills for supported coding agents:
 
 ```bash
-make install-skill
+make install-project-tools
 ```
 
-This builds `quartet-cli`, installs it to `~/.local/bin` by default, and
-registers the `quartet-workflow` skill through the `skills` CLI. The skill can
-create, list, inspect, update, delete, and validate workflows in a separate
-agent-managed library. User-authored workflows remain read-only to the CLI.
+The command installs `quartet-cli` to `~/.local/bin` by default and registers:
+
+- `quartet-workflow` for creating, inspecting, validating, updating, deleting,
+  and running workflows in the agent-managed library. User-authored workflows
+  remain read-only to the CLI.
+- `quartet-schedule` for creating and operating cron schedules backed by saved
+  Graph Workflows.
+- `quartet-wechat` for listing connected iLink accounts and sending proactive
+  text messages through the durable WeChat outbox.
+
+The CLI also lists workspaces and installed agents and can inspect or stop Jobs.
+To install only one project skill, set its name explicitly:
+
+```bash
+make install-skill SKILL_NAME=quartet-workflow
+```
+
+`quartet-schedule` and `quartet-wechat` are the other valid project skill names.
 
 ## Development
 
 ```bash
 make build-all       # Build all Go applications
+make build-cli       # Build quartet-cli
+make build-eino-cli  # Build and install the standalone Eino ACP agent
 make build-frontend  # Type-check and build the React application
 make test-ios        # Build the iOS Simulator target on macOS without signing
+make e2e-ios         # Run native iOS UI tests in Simulator
 make test-web        # Run frontend component tests
 make e2e             # Run Playwright end-to-end tests
 make test            # Run Go build, frontend tests, and E2E tests

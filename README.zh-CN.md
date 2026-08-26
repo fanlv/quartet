@@ -19,10 +19,13 @@ Quartet 面向在个人电脑或开发沙箱中运行的可信共享实例。多
 
 ## 核心功能
 
-- **统一接入多个 Agent**：自动发现 `PATH` 中受支持的 ACP Agent，探测可用模型和模式，
-  并支持在对话中切换 Agent、模型、运行模式和思考等级。
+- **统一接入多个 Agent**：维护内置与自定义 ACP Agent 目录，探测可用模型和模式，并支持在
+  对话中切换 Agent、模型、运行模式和思考等级。
+- **Agent 生命周期管理**：检查可用性和版本，并可从 Web 或 iOS 执行目录中明确声明的安装、
+  升级与卸载流程。
 - **实时 Agent 对话**：实时展示回答、思考过程、工具调用、图片和完整错误信息；保存会话历史，
-  支持停止、恢复、重命名、置顶和只读分享任务。
+  支持停止、恢复、重命名、置顶和只读分享任务。任务运行期间发送的后续消息会进入 Web 与
+  iOS 共享的服务端持久队列。
 - **面向项目的工作区**：以项目目录组织任务，记忆每个工作区的默认配置，在对话中使用文件，
   并展示当前 Git 分支。
 - **可视化 Graph 工作流**：通过画布连接 Prompt、Clarify、Shell、If/Else 和 Loop 节点，
@@ -30,12 +33,13 @@ Quartet 面向在个人电脑或开发沙箱中运行的可信共享实例。多
 - **定时自动化**：使用 Cron 表达式运行 Graph 工作流，支持启停、超时、并发上限、立即运行，
   并可跳转到最近一次任务。
 - **本地持久化与统计**：将工作区、任务、会话、工作流、定时任务和用量统计保存为本地文件；
-  可按工作区、模型、工具和时间范围查看使用情况。
+  可按工作区、模型、工具和时间范围查看使用情况，并提供每日 Token 明细与模型提供方上报的
+  缓存命中率。
 - **即时通讯接入**：在设置中完成配置后，可通过飞书/Lark 和个人微信接收任务并回复结果。
 - **原生 iOS 客户端**：`ios/` 下的 SwiftUI 应用 Sophia 在局域网内连接同一个后端，支持对话、
   附件、Graph 运行、定时任务和用量统计。
-- **可由 Agent 扩展的工作流**：内置 `quartet-cli` 和 `quartet-workflow` Skill，让兼容的
-  编程 Agent 创建和校验工作流，同时避免修改用户手工编排的工作流。
+- **可由 Agent 操作的自动化**：内置 `quartet-cli` 以及工作流、定时任务和微信 Skill，让兼容
+  的编程 Agent 管理自动化，同时避免修改用户手工编排的工作流。
 
 ## 界面预览
 
@@ -61,17 +65,17 @@ Quartet 面向在个人电脑或开发沙箱中运行的可信共享实例。多
 
 ### iOS 客户端（Sophia）
 
-| 最近任务 | Agent 对话 |
+| 最近任务 | 新任务 |
 |---|---|
-| ![Sophia 最近任务列表](./docs/images/ios-home.png) | ![Sophia Agent 对话与工具调用](./docs/images/ios-chat.png) |
+| ![Sophia 最近任务列表](./docs/images/ios-recent-tasks.png) | ![Sophia 新任务面板](./docs/images/ios-new-task-composer.png) |
 
-| 新任务 | Graph 运行 |
+| Agent 对话 | 定时任务 |
 |---|---|
-| ![Sophia 新任务面板](./docs/images/ios-new-task.png) | ![Sophia Graph 运行概览与执行轨迹](./docs/images/ios-graph.png) |
+| ![Sophia Agent 对话与实时工具调用](./docs/images/ios-agent-conversation.png) | ![Sophia 定时任务列表](./docs/images/ios-scheduled-tasks.png) |
 
-| 定时任务 | 用量统计 |
+| 用量统计 | 设置 |
 |---|---|
-| ![Sophia 定时任务列表](./docs/images/ios-schedules.png) | ![Sophia 用量统计](./docs/images/ios-stats.png) |
+| ![Sophia 用量统计](./docs/images/ios-usage-statistics.png) | ![Sophia 设置](./docs/images/ios-settings.png) |
 
 ## Graph Workflow
 
@@ -159,7 +163,8 @@ quartet-cli workflow create --name "Code Review" \
   数据已过期。
 - **Agent 对话**：新建对话时选择工作区、Agent、模型、运行模式和思考等级，也可以继续已有
   对话。回答、思考过程、工具调用、图片、Markdown、表格和可单独复制的代码块通过 SSE 实时
-  展示，输入区同时显示 Token 累计、耗时、当前工作目录和 Git 分支。
+  展示，输入区同时显示 Token 累计、耗时、当前工作目录和 Git 分支。Agent 忙碌时发送的消息
+  会保留在服务端队列中，App 重启后仍可恢复，并与 Web 端同步。
 - **附件**：支持发送照片、相机拍摄和系统文件选择器中的图片，过大的图片会在上传前压缩。
 - **预置消息与历史**：可以复用当前工作区的预置消息、全部工作区共享的预置消息，以及最近
   发送过的内容。
@@ -168,8 +173,10 @@ quartet-cli workflow create --name "Code Review" \
   Shell 输出，并支持停止、步骤后停止、取消停止、恢复运行和结束澄清讨论。
 - **定时任务**：创建、编辑、启用、停用、删除和手动触发绑定工作流的 Cron 任务，展示下次运行
   时间、累计运行次数、最近状态和完整触发错误。
-- **用量统计**：支持 7/30/90 天、全部和自定义范围，展示总览、趋势以及按工作区、模型和工具
-  的排行。
+- **用量统计**：支持 7/30/90 天、全部和自定义范围，展示耗时、轮次、每日 Token 明细、模型
+  提供方上报的缓存命中率，以及按工作区、模型和工具的排行。
+- **Agent 管理**：查看内置与自定义 Agent，检查可用性和版本，执行受支持的安装、升级和卸载
+  流程，并配置环境变量、默认参数、收藏模型与角色分工。
 - **连接管理**：查看当前服务地址和最后成功同步时间，重启 Web 服务、重新配置连接，或退出并
   清除连接。
 - **后台行为**：应用进入后台后停止事件流，回到前台重新读取服务端快照，不会静默展示过期进度。
@@ -193,7 +200,8 @@ make e2e-ios       # 在模拟器运行原生 XCUITest 端到端测试
 Quartet 仓库内置 **Eino** 的源码。Eino 是一个独立 ACP Agent，可配置 Ark、OpenAI
 兼容接口、Claude、DeepSeek、Gemini、Ollama 和 Qwen 等模型提供方。
 
-Quartet 当前会从后端进程的 `PATH` 中发现以下 ACP CLI：
+Quartet 的内置目录目前支持以下 ACP CLI。Agent 管理页面可对目录中声明了对应能力的条目执行
+安装、升级、卸载和可用性检查，也可以在同一目录中添加自定义 ACP 启动定义。
 
 | Agent | 必需的 CLI | Quartet 使用的 ACP 命令 | ACP 接入方式 |
 |---|---|---|---|
@@ -210,7 +218,7 @@ Quartet 当前会从后端进程的 `PATH` 中发现以下 ACP CLI：
 | Codex | `codex` | `codex-acp` | **需要额外安装 `@agentclientprotocol/codex-acp` 包** |
 | Kiro | `kiro-cli` | `kiro-cli acp` | CLI 内置 |
 | OpenCode | `opencode` | `opencode acp` | CLI 内置 |
-| KiloCode | `kilocode` | `npx -y @kilocode/cli acp` | 需要 Node.js 和 `npx` |
+| KiloCode | `kilocode` | `kilocode acp` | 可通过 Agent 目录使用 npm 安装 |
 | QCode | `qoderclicn` | `qoderclicn --acp` | CLI 内置 |
 
 外部工具的账号、订阅和认证仍由对应厂商的工具自行管理。
@@ -226,7 +234,8 @@ Quartet 当前会从后端进程的 `PATH` 中发现以下 ACP CLI：
 - Node.js `>=22.18.0 <23`
 - npm `>=10.9.0 <11`
 - Git、GNU Make、Bash，以及 `lsof` 等常用 Unix 工具
-- 至少一个已经安装并登录的受支持 ACP Agent
+- 至少一个受支持 ACP Agent 的可用账号；对应 CLI 可在启动前安装，也可以稍后从
+  **设置 > Agent 管理**安装
 
 当前构建和服务脚本主要面向 Linux 与其他类 Unix 环境。
 
@@ -260,13 +269,15 @@ http://127.0.0.1:8090
 
 ### 3. 打开页面
 
-创建或选择工作区，选择可用的 Agent 和模型，然后发送消息。Agent 专属环境变量和默认项可以
-在 **设置 > ACP** 与 **设置 > Agent 默认值** 中管理。
+首次打开时先创建管理员账号，后续访问需要登录 Quartet。创建或选择工作区，选择可用的 Agent
+和模型，然后发送消息。Agent 安装、环境变量、收藏模型、默认参数和角色分工统一在
+**设置 > Agent 管理**中维护。
 
 ## 外部 ACP Agent
 
-请使用外部 Agent 的官方工具完成安装和登录，并确保 Agent CLI 及其 ACP 适配器都位于
-启动 Quartet 时使用的同一个 `PATH` 中。修改 `PATH` 后需要重启后端。
+最直接的方式是使用**设置 > Agent 管理 > 安装与升级**；执行前会展示目录中预置的完整命令，
+执行后会保留完整结果。也可以使用外部 Agent 的官方工具手工安装和登录；此时需要确保 Agent
+CLI 及其 ACP 适配器都位于启动 Quartet 时使用的同一个 `PATH` 中，修改 `PATH` 后重启后端。
 
 Claude Code 和 Codex 的主 CLI 包本身不提供 Quartet 使用的 ACP 命令。安装 `claude` 或
 `codex` CLI 后，还需要分别安装对应的 ACP 适配器：
@@ -287,9 +298,14 @@ Claude Code 要求后端的 `PATH` 中同时能找到 `claude` 和 `claude-agent
 | `make web-status` | 查看后端与 watchdog 状态 |
 | `make web-logs` | 持续查看 `/tmp/quartet-backend.log` |
 | `make web-stop` | 停止后端并清理游离的 `quartet-web` 进程 |
+| `make backend-stop` | 只停止后端，保留 watchdog |
 | `make web-watch` | 启动独立 watchdog，在端口不可用时拉起后端 |
 | `make web-watch-stop` | 只停止 watchdog，不停止后端 |
+| `make web-watch-logs` | 持续查看 `/tmp/quartet-watchdog.log` |
 | `make build-frontend` | 将 SPA 重新构建到 `static/`，不重启后端 |
+| `make build-cli` | 构建 `bin/quartet-cli` |
+| `make build-eino-cli` | 构建并安装独立 Eino ACP Agent |
+| `make install-project-tools` | 安装 `quartet-cli` 与全部项目 Skill |
 | `make build-ios` | 在 macOS/Xcode 上构建 iOS 应用 |
 | `make test-ios` | 无签名构建 iOS Simulator 目标 |
 | `make pod-install` | 安装或同步 iOS CocoaPods 依赖 |
@@ -302,12 +318,15 @@ Claude Code 要求后端的 `PATH` 中同时能找到 `claude` 和 `claude-agent
 | `LOCAL_MEMORY` | 是 | Quartet 持久化数据和运行状态使用的绝对路径 |
 | `QUARTET_LISTEN_ADDR` | 否 | 覆盖默认监听地址 |
 | `QUARTET_CORS_ORIGINS` | 否 | 以逗号分隔的跨域来源白名单；未设置时仅允许同源 |
+| `QUARTET_TRUSTED_PROXIES` | 否 | 可提供客户端 IP 请求头的反向代理 IP/CIDR，默认只信任 loopback；设为 `none` 可禁用 |
 | `QUARTET_LOG_LEVEL` | 否 | 初始日志级别：`debug`、`info`、`warn` 或 `error` |
 | `QUARTET_STATIC_DIR` | 否 | 构建后的前端目录，默认为 `static` |
 | `QUARTET_CERTS_DIR` | 否 | 存放 `cert.pem` 和 `key.pem` 的目录，默认为 `certs` |
 
 没有证书时，Quartet 默认通过 HTTP 监听 `0.0.0.0:8090`。证书目录中同时存在
-`cert.pem` 和 `key.pem` 时，会启用 HTTPS，并默认监听 `0.0.0.0:443`。
+`cert.pem` 和 `key.pem` 时，会启用 HTTPS 并默认监听 `0.0.0.0:443`，同时在
+`127.0.0.1:8090` 提供仅本机可访问的明文监听，供 `quartet-cli` 和本地工作流脚本调用。
+`QUARTET_LISTEN_ADDR` 可以覆盖后端地址，但不会改变是否根据证书启用 TLS。
 
 Quartet 始终使用用户登录会话保护私有 API。首次启动时，在 Web 初始化页创建首个管理员。后续由管理员在设置中创建用户和分配角色。Web、iOS 和 `quartet-cli` 均通过 Cookie 登录，不再使用共享 Token。完整边界请查看[权限与访问控制文档](docs/arch/permissions/README.md)。
 
@@ -318,12 +337,17 @@ Quartet 自身状态使用本地文件保存：
 ```text
 $LOCAL_MEMORY/
 ├── quartet/
-│   ├── config/       # Prompt、工作流和定时任务
-│   └── data/         # 工作区、任务、会话、上传文件和统计
-└── var/quartet/      # 运行状态、缓存和临时文件
+│   ├── config/       # 认证、Prompt、工作流、定时任务和预置消息
+│   ├── data/         # 设置、Agent 目录、工作区、任务、上传、IM 与分享数据
+│   └── usage-stats/  # 按月分片的用量统计
+└── var/quartet/
+    ├── state/        # 会话、定时任务与沙箱运行状态
+    ├── cache/        # 可重建缓存
+    └── tmp/          # 进程临时文件
 ```
 
-重要记录采用原子写入。对于单用户安装，备份 `LOCAL_MEMORY` 即可备份 Quartet 状态。
+重要记录采用原子写入。备份 `LOCAL_MEMORY` 即可备份整个 Quartet 实例的状态。登录账号共享工作区
+与业务数据，角色只控制功能能力，不提供数据隔离。
 
 消息和文件仍会发送给你选择的 Agent 与模型提供方。请查看对应提供方的隐私政策，并了解其
 本地 CLI 获得的权限。
@@ -334,6 +358,7 @@ $LOCAL_MEMORY/
 flowchart LR
     UI["React + Vite 前端"]
     IOS["SwiftUI iOS 客户端"]
+    CLI["quartet-cli + 项目 Skill"]
     API["Go + Hertz 后端"]
     ACP["ACP Agent 子进程"]
     DATA["本地文件存储"]
@@ -341,44 +366,63 @@ flowchart LR
 
     UI <-->|HTTP + SSE| API
     IOS <-->|HTTP + SSE| API
+    CLI <-->|认证 HTTP| API
     API <-->|ACP stdio| ACP
     API <-->|原子读写| DATA
     IM <-->|消息与媒体| API
 ```
 
-后端将 HTTP 处理、业务服务与本地持久化分层维护。包括 Eino 在内的所有 Agent 都通过同一套
-ACP 会话与事件链路接入。
+HTTP handler 只负责参数校验、鉴权与服务编排，业务规则由 service 维护，repository 负责
+持久化，`types/path` 统一管理存储布局。包括 Eino 在内的所有 Agent 都通过同一套 ACP 会话与
+事件链路接入。
 
 | 路径 | 作用 |
 |---|---|
 | `cmd/web` | Web 服务、API 路由、中间件和应用装配 |
+| `cmd/quartet-cli` | 通过认证 API 管理工作流、定时任务、工作区、Job、Agent 与微信 |
 | `cmd/eino-cli`、`einocli` | 内置的独立 Eino ACP Agent |
-| `services` | Agent、任务、Graph、定时任务、工作区和统计业务逻辑 |
+| `types/model` | 共享请求、响应与领域模型 |
+| `types/path` | 配置、业务数据和运行状态的统一路径规则 |
 | `repository` | 本地数据持久化 |
-| `types` | 共享领域类型与协议类型 |
+| `services` | 认证、Agent、任务、Graph、调度、工作区、IM、Skill 与统计业务逻辑 |
 | `pkg` | ACP、即时通讯、沙箱、日志和通用基础设施 |
 | `web` | React 前端 |
 | `ios` | 面向个人局域网使用的原生 SwiftUI 客户端（Sophia） |
-| `skill/workflow` | 供编程 Agent 使用的 CLI 工作流 Skill |
+| `skill` | 由 `quartet-cli` 驱动的工作流、定时任务与微信 Skill |
 
-## 工作流 Skill
+## CLI 与项目 Skill
 
-Quartet 可以为受支持的编程 Agent 安装工作流管理 Skill：
+为受支持的编程 Agent 安装 `quartet-cli` 与全部三套项目 Skill：
 
 ```bash
-make install-skill
+make install-project-tools
 ```
 
-该命令会构建 `quartet-cli`，默认安装到 `~/.local/bin`，并通过 `skills` CLI 注册
-`quartet-workflow` Skill。该 Skill 可以在独立的 Agent 工作流库中创建、列出、查看、更新、
-删除和校验工作流。用户手工编排的工作流对 CLI 保持只读。
+该命令会将 `quartet-cli` 默认安装到 `~/.local/bin`，并注册：
+
+- `quartet-workflow`：在 Agent 工作流库中创建、查看、校验、更新、删除和运行工作流；用户
+  手工编排的工作流对 CLI 保持只读。
+- `quartet-schedule`：创建和操作基于 Graph Workflow 的 Cron 定时任务。
+- `quartet-wechat`：列出已连接的 iLink 账号，并通过持久化微信 outbox 主动发送文本消息。
+
+CLI 还可以列出工作区和已安装 Agent，并查看或停止 Job。只安装一套项目 Skill 时，显式指定
+其名称：
+
+```bash
+make install-skill SKILL_NAME=quartet-workflow
+```
+
+另外两个有效的项目 Skill 名称是 `quartet-schedule` 和 `quartet-wechat`。
 
 ## 开发
 
 ```bash
 make build-all       # 构建所有 Go 应用
+make build-cli       # 构建 quartet-cli
+make build-eino-cli  # 构建并安装独立 Eino ACP Agent
 make build-frontend  # 类型检查并构建 React 应用
 make test-ios        # 在 macOS 上无签名构建 iOS Simulator 目标
+make e2e-ios         # 在模拟器运行原生 iOS UI 测试
 make test-web        # 运行前端组件测试
 make e2e             # 运行 Playwright 端到端测试
 make test            # 运行 Go 构建、前端测试和端到端测试
