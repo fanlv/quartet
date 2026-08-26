@@ -1091,12 +1091,22 @@ private struct JobModeIcon: View {
     let status: String
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var breathes = false
 
     private static let cornerRadius: CGFloat = 8
 
     var body: some View {
-        ZStack {
+        TimelineView(.animation(
+            minimumInterval: QuartetRunningMotion.minimumFrameInterval,
+            paused: !animates
+        )) { context in
+            icon(at: context.date)
+        }
+    }
+
+    private func icon(at date: Date) -> some View {
+        let breath = animates ? QuartetRunningMotion.breathProgress(at: date) : 0
+
+        return ZStack {
             RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                 .fill(palette.fill)
 
@@ -1106,7 +1116,7 @@ private struct JobModeIcon: View {
                 // running row is legible while scrolling past — and it breathes in the fill's own hue instead
                 // of introducing a second colour.
                 RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                    .fill(palette.primary.opacity(breathes ? 0.22 : 0.03))
+                    .fill(palette.primary.opacity(0.03 + 0.19 * breath))
             }
 
             modeSymbol
@@ -1119,7 +1129,8 @@ private struct JobModeIcon: View {
                 RunningBorderSweep(
                     color: palette.primary,
                     track: palette.border,
-                    cornerRadius: Self.cornerRadius
+                    cornerRadius: Self.cornerRadius,
+                    timelineDate: date
                 )
             } else {
                 RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
@@ -1129,8 +1140,8 @@ private struct JobModeIcon: View {
         // The halo breathes with the tint, which puts a trace of the motion outside the tile's own bounds —
         // enough for the row to register in peripheral vision, and it costs nothing on resting rows.
         .shadow(
-            color: animates ? palette.primary.opacity(breathes ? 0.34 : 0) : .clear,
-            radius: 5
+            color: animates ? palette.primary.opacity(0.04 + 0.3 * breath) : .clear,
+            radius: 3 + 2 * breath
         )
         .overlay(alignment: .bottomTrailing) {
             if let badgeSymbol {
@@ -1147,9 +1158,6 @@ private struct JobModeIcon: View {
                 .frame(width: 13, height: 13)
             }
         }
-        .animation(animates ? QuartetRunningMotion.breath : nil, value: breathes)
-        .onAppear { breathes = true }
-        .onDisappear { breathes = false }
     }
 
     @ViewBuilder

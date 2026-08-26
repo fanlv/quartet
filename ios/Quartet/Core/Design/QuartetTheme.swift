@@ -356,23 +356,32 @@ struct PulseMark: View {
     }
 }
 
-/// One shared rhythm for every "a run is in flight" cue: the dashboard's mode tiles, the "N 个进行中" pill
-/// and the job detail header move to this beat instead of each inventing its own timing. These are
-/// CoreAnimation repeat cycles rather than readings off an absolute clock, so surfaces that appear at
-/// different moments share the *period*, not the phase — two indicators on screen breathe at the same rate,
-/// though not necessarily on the same in-breath.
+/// One shared rhythm for every "a run is in flight" cue. Motion is derived from the timeline's date instead
+/// of a one-shot `onAppear` state change: list refreshes, disabled-animation transactions and foregrounding
+/// can interrupt an implicit `repeatForever` animation and leave it frozen forever, while a timeline simply
+/// resumes at the current point in the cycle.
 enum QuartetRunningMotion {
     /// One inhale plus exhale of a breathing cue.
     static let breathPeriod: Double = 1.5
     /// One lap of a highlight travelling around a border.
     static let sweepPeriod: Double = 1.4
+    /// 30 fps keeps the small status marks fluid without making every live row redraw at 120 fps.
+    static let minimumFrameInterval: Double = 1.0 / 30.0
 
-    static var breath: Animation {
-        .easeInOut(duration: breathPeriod / 2).repeatForever(autoreverses: true)
+    static func breathProgress(at date: Date) -> Double {
+        let phase = cycleProgress(at: date, period: breathPeriod)
+        let mirrored = phase < 0.5 ? phase * 2 : (1 - phase) * 2
+        // Smoothstep produces a soft inhale/exhale with no velocity jump at either end.
+        return mirrored * mirrored * (3 - 2 * mirrored)
     }
 
-    static var sweep: Animation {
-        .linear(duration: sweepPeriod).repeatForever(autoreverses: false)
+    static func sweepProgress(at date: Date) -> Double {
+        cycleProgress(at: date, period: sweepPeriod)
+    }
+
+    private static func cycleProgress(at date: Date, period: Double) -> Double {
+        let elapsed = date.timeIntervalSinceReferenceDate
+        return elapsed.truncatingRemainder(dividingBy: period) / period
     }
 }
 
@@ -385,18 +394,20 @@ struct RunningBreathDot: View {
     var active = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var breathes = false
 
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: diameter, height: diameter)
-            .scaleEffect(moves ? (breathes ? 1.16 : 0.78) : 1)
-            .opacity(moves ? (breathes ? 1 : 0.4) : 1)
-            .animation(moves ? QuartetRunningMotion.breath : nil, value: breathes)
-            .onAppear { breathes = true }
-            .onDisappear { breathes = false }
-            .accessibilityHidden(true)
+        TimelineView(.animation(
+            minimumInterval: QuartetRunningMotion.minimumFrameInterval,
+            paused: !moves
+        )) { context in
+            let progress = moves ? QuartetRunningMotion.breathProgress(at: context.date) : 1
+            Circle()
+                .fill(color)
+                .frame(width: diameter, height: diameter)
+                .scaleEffect(moves ? 0.78 + 0.38 * progress : 1)
+                .opacity(moves ? 0.4 + 0.6 * progress : 1)
+        }
+        .accessibilityHidden(true)
     }
 
     private var moves: Bool { active && !reduceMotion }
@@ -413,9 +424,11 @@ struct RunningBorderSweep: View {
     /// needs `.circular` here, or the highlight rides a slightly different contour than the card it traces.
     var cornerStyle: RoundedCornerStyle = .continuous
     var lineWidth: CGFloat = 1.5
+    /// A parent already driven by an animation timeline can supply its date to avoid nesting another live
+    /// schedule. Standalone cards leave this nil and receive their own resilient timeline.
+    var timelineDate: Date? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase: Double = 0
 
     /// The comet is a stack of short segments, brightest at the head, each trailing the one in front of it by
     /// `segmentStep` of the perimeter. The length is an exact multiple of the step on purpose: every point of the
@@ -427,7 +440,21 @@ struct RunningBorderSweep: View {
     private static let segmentLength: Double = 0.05
     private static let segmentStep: Double = 0.0125
 
+    @ViewBuilder
     var body: some View {
+        if let timelineDate {
+            border(at: timelineDate)
+        } else {
+            TimelineView(.animation(
+                minimumInterval: QuartetRunningMotion.minimumFrameInterval,
+                paused: reduceMotion
+            )) { context in
+                border(at: context.date)
+            }
+        }
+    }
+
+    private func border(at date: Date) -> some View {
         ZStack {
             // The full-perimeter border is the track the highlight travels along, and it keeps the weight and
             // hue the resting surface uses so the lit state is recognisably the same border.
@@ -437,11 +464,9 @@ struct RunningBorderSweep: View {
             )
 
             if !reduceMotion {
-                comet
+                comet(phase: QuartetRunningMotion.sweepProgress(at: date))
             }
         }
-        .onAppear { phase = 1 }
-        .onDisappear { phase = 0 }
     }
 
     /// A bright head with a fading tail, walked along the border by *arc length*.
@@ -452,7 +477,7 @@ struct RunningBorderSweep: View {
     /// and the tail surfaces on the opposite edge at the same time, which reads as two dashes floating near
     /// the card rather than as one highlight tracing it. Trimming the border path instead is parameterised by
     /// length, so the highlight keeps its size and speed on a 34pt tile and on a full-width card alike.
-    private var comet: some View {
+    private func comet(phase: Double) -> some View {
         ZStack {
             // Tail first, head last: a ZStack draws later views on top, and the dim tail painted over the head
             // muddies exactly the part of the streak that should be brightest.
@@ -473,7 +498,6 @@ struct RunningBorderSweep: View {
                 )
             }
         }
-        .animation(QuartetRunningMotion.sweep, value: phase)
         // Softens the seams between segments, which are otherwise visible as faint beads along the tail on a
         // long border — a segment count fine enough to hide them on a full-width card would be several times
         // what a list row should be paying per frame. Kept under a point so the head stays a crisp core.
@@ -502,8 +526,8 @@ private struct RunningSweepSegment: Shape {
     let cornerStyle: RoundedCornerStyle
     let inset: CGFloat
 
-    /// Animating the phase itself keeps the walk continuous: the wrap from 1 back to 0 lands on the same point
-    /// of the border, so a plain repeating 0→1 animation loops seamlessly.
+    /// The phase comes directly from the animation timeline. The wrap from 1 back to 0 lands on the same point
+    /// of the border, so no persisted animation state is needed.
     var animatableData: Double {
         get { phase }
         set { phase = newValue }
