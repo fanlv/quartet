@@ -744,30 +744,6 @@ final class QuartetUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons["new-conversation-button"].waitForExistence(timeout: 5))
     }
-
-    // TEMPORARY probe: captures a burst of dashboard frames so the running indicator's motion can be
-    // inspected and measured off-device. Delete once the animation is settled.
-    func testCaptureRunningIndicatorFrames() throws {
-        launchDashboard()
-        captureFrames(prefix: "dash", count: 40)
-
-        app.buttons["job-job-chat-running"].tap()
-        XCTAssertTrue(app.navigationBars["优化 iOS 交互体验"].waitForExistence(timeout: 5))
-        app.buttons["Job 详情"].tap()
-        XCTAssertTrue(app.staticTexts["运行中"].waitForExistence(timeout: 5))
-        captureFrames(prefix: "detail", count: 40)
-    }
-
-    private func captureFrames(prefix: String, count: Int) {
-        let start = Date()
-        for index in 0..<count {
-            let shot = XCUIScreen.main.screenshot()
-            let attachment = XCTAttachment(screenshot: shot)
-            attachment.name = String(format: "%@-f%03d_%06.3fs", prefix, index, Date().timeIntervalSince(start))
-            attachment.lifetime = .keepAlways
-            add(attachment)
-        }
-    }
 }
 
 private extension XCUIElement {
