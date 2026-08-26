@@ -170,6 +170,7 @@
       "empty": "暂无步骤"
     },
     "headerActions": {
+      "navigation": "主导航",
       "more": "更多操作",
       "share": "分享",
       "copyShareLink": "复制分享链接",

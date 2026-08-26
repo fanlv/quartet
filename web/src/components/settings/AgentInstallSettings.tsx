@@ -158,6 +158,24 @@ const emptyCustomForm: CustomFormState = {
   environmentText: '',
 };
 
+const prioritizedCatalogAgentIds = ['claude', 'codex', 'opencode', 'qoderclicn'];
+
+function prioritizeCatalogAgents(agents: CatalogAgent[]): CatalogAgent[] {
+  const priority = new Map(prioritizedCatalogAgentIds.map((agentId, index) => [agentId, index]));
+  return agents
+    .map((agent, index) => ({ agent, index }))
+    .sort((left, right) => {
+      const leftPriority = priority.get(left.agent.agent_id);
+      const rightPriority = priority.get(right.agent.agent_id);
+      if (leftPriority !== undefined || rightPriority !== undefined) {
+        return (leftPriority ?? prioritizedCatalogAgentIds.length)
+          - (rightPriority ?? prioritizedCatalogAgentIds.length);
+      }
+      return left.index - right.index;
+    })
+    .map(({ agent }) => agent);
+}
+
 type JSONResponseParser<T> = (
   data: Record<string, unknown>,
   context: string,
@@ -470,7 +488,7 @@ export function AgentInstallSettings() {
           readCatalogAgents(t, data, context, raw, 'settings.agents.diagnostics.shape.catalogDeletedAgentsArray')
         )),
       ]);
-      setCatalog([...catalogData, ...deletedData]);
+      setCatalog(prioritizeCatalogAgents([...catalogData, ...deletedData]));
       setHasLoadedCatalog(true);
       setCatalogRefreshError('');
     } catch (err) {

@@ -44,6 +44,23 @@ private struct AgentCatalogActionFailure: Identifiable {
     var id: String { agentId }
 }
 
+private let prioritizedCatalogAgentIds = ["claude", "codex", "opencode", "qoderclicn"]
+
+private func prioritizeCatalogItems(_ items: [AgentCatalogItem]) -> [AgentCatalogItem] {
+    let priority = Dictionary(
+        uniqueKeysWithValues: prioritizedCatalogAgentIds.enumerated().map { ($0.element, $0.offset) }
+    )
+    return items.enumerated().sorted { left, right in
+        let leftPriority = priority[left.element.agentId]
+        let rightPriority = priority[right.element.agentId]
+        if leftPriority != nil || rightPriority != nil {
+            return (leftPriority ?? prioritizedCatalogAgentIds.count)
+                < (rightPriority ?? prioritizedCatalogAgentIds.count)
+        }
+        return left.offset < right.offset
+    }.map { $0.element }
+}
+
 /// 一次安装 / 升级 / 卸载的完整结果。刷新目录后仍然保留，方便继续查看步骤输出。
 private struct AgentCatalogActionResult: Identifiable {
     let id = UUID()
@@ -974,7 +991,7 @@ struct AgentCatalogSettingsView: View {
         if showLoading { isLoading = true }
         loadError = ""
         do {
-            items = try await model.managedAgentCatalogItems()
+            items = prioritizeCatalogItems(try await model.managedAgentCatalogItems())
         } catch {
             loadError = agentSettingsErrorDetail(error)
         }

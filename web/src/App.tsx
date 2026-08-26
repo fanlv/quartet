@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { JobChat, ChatPage, GraphWorkflowPage, Settings } from './components';
+import { JobChat, ChatPage, GraphWorkflowPage, HomeNavigation, Settings } from './components';
 import type { CommandAction, FileAttachment } from './types';
 import type { SettingsTab } from './components/settings/Settings';
 import { StatsPage } from './components/stats/StatsPage';
@@ -877,10 +877,13 @@ function WorkspaceApp() {
     setHomeRefreshKey((key) => key + 1);
   }, []);
   const handleOpenStats = useCallback(() => {
+    if (showGraph && graphDirtyRef.current && !window.confirm(t('graph.messages.discardUnsavedConfirm'))) {
+      return;
+    }
     setShowGraph(false);
     setShowStats(true);
     updateUrlWithStats(true);
-  }, []);
+  }, [showGraph, t]);
   const handleCloseStats = useCallback(() => {
     setShowStats(false);
     updateUrlWithStats(false);
@@ -998,6 +1001,15 @@ function WorkspaceApp() {
       )}
       {showStats && principal?.permissions.includes('stats.read') ? (
         <div className="app-main">
+          <HomeNavigation
+            workspaceTitle={currentWorkspace?.title}
+            workdir={currentWorkspace?.workdir}
+            refreshKey={homeRefreshKey}
+            activeView="stats"
+            onOpenSettings={handleOpenSettings}
+            onOpenStats={handleOpenStats}
+            onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
+          />
           <StatsPage
             onClose={handleCloseStats}
             currentWorkspaceId={currentWorkspace?.id}
@@ -1006,6 +1018,15 @@ function WorkspaceApp() {
         </div>
       ) : showGraph && principal?.permissions.includes('workflow.read') ? (
         <div className="app-main">
+          <HomeNavigation
+            workspaceTitle={currentWorkspace?.title}
+            workdir={currentWorkspace?.workdir}
+            refreshKey={homeRefreshKey}
+            activeView="graph"
+            onOpenSettings={handleOpenSettings}
+            onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
+            onOpenGraph={handleOpenGraph}
+          />
           <GraphWorkflowPage
             workspaceId={currentWorkspace?.id}
             workspaceTitle={currentWorkspace?.title}

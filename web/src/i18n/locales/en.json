@@ -171,6 +171,7 @@
       "empty": "No steps yet"
     },
     "headerActions": {
+      "navigation": "Main navigation",
       "more": "More actions",
       "share": "Share",
       "copyShareLink": "Copy share link",

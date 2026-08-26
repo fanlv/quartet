@@ -7,62 +7,6 @@ import './ChatPage.css';
 import './JobChat.css';
 import './ChatInput.css';
 
-const WEB_RESTART_POLL_INTERVAL_MS = 500;
-const WEB_RESTART_PROBE_TIMEOUT_MS = 3000;
-const WEB_RESTART_TIMEOUT_MS = 180_000;
-
-interface WebHealthProbe {
-  ok: boolean;
-  instanceId: string;
-}
-
-async function probeWebHealth(): Promise<WebHealthProbe> {
-  try {
-    const probeUrl = `/api/v1/health?restartProbe=${Date.now()}`;
-    const res = await fetch(probeUrl, {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(WEB_RESTART_PROBE_TIMEOUT_MS),
-    });
-    if (!res.ok) return { ok: false, instanceId: '' };
-
-    const body = await res.json().catch(() => null);
-    return {
-      ok: true,
-      instanceId: typeof body?.instanceId === 'string' ? body.instanceId : '',
-    };
-  } catch {
-    return { ok: false, instanceId: '' };
-  }
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function waitForWebRestart(previousHealth: WebHealthProbe): Promise<boolean> {
-  const deadline = Date.now() + WEB_RESTART_TIMEOUT_MS;
-  let sawUnavailable = false;
-
-  while (Date.now() < deadline) {
-    await wait(WEB_RESTART_POLL_INTERVAL_MS);
-    const currentHealth = await probeWebHealth();
-    if (!currentHealth.ok) {
-      sawUnavailable = true;
-      continue;
-    }
-
-    const instanceChanged = !!previousHealth.instanceId
-      && !!currentHealth.instanceId
-      && currentHealth.instanceId !== previousHealth.instanceId;
-    const instanceAdded = previousHealth.ok
-      && !previousHealth.instanceId
-      && !!currentHealth.instanceId;
-    if (instanceChanged || instanceAdded || sawUnavailable) return true;
-  }
-
-  return false;
-}
-
 function toImagePreviewUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:') || path.startsWith('blob:')) return path;
   return `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
@@ -72,11 +16,10 @@ import { ScheduleInfo, type FileAttachment } from '../types';
 import { FileMention, FileResult } from './FileMention';
 import { SlashFloater, SkillBackdrop } from './SlashCompletion';
 import { slashCompletionKeyDown, useSlashCompletion } from '../utils/slashCompletion';
-import { FileBrowser } from './FileBrowser';
 import { ScheduleEditModal } from './ScheduleEditModal';
 import { cronToHuman } from './CronInput';
-import { AgentsLocalEditor } from './AgentsLocalEditor';
 import { AgentUsageCard } from './AgentUsageCard';
+import { HomeNavigation } from './HomeNavigation';
 import { MessagePresetHistoryMenu, type SentMessageHistoryItem } from './MessagePresetHistoryMenu';
 import { copyToClipboard } from '../utils/clipboard';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -237,19 +180,6 @@ interface ChatPageProps {
   onOpenAgentSettings?: () => void;
   onOpenStats?: () => void;
   onOpenGraph?: () => void;
-}
-
-async function fetchUserSettings(): Promise<{ avatarUrl: string }> {
-  try {
-    const res = await fetch('/api/v1/config/settings/get');
-    const data = await res.json().catch(() => null);
-    if (data?.code === 0 && data.settings) {
-      return { avatarUrl: data.settings.avatar_url || '' };
-    }
-  } catch (err) {
-    console.error('Failed to fetch user settings:', err);
-  }
-  return { avatarUrl: '' };
 }
 
 async function fetchAgentList(): Promise<{ agents: AgentInfo[]; workdir: string; jobEnable: boolean }> {
@@ -570,8 +500,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   const canWriteSchedules = principal?.permissions.includes('schedule.write') ?? false;
   const canReadFiles = principal?.permissions.includes('file.read') ?? false;
   const canWriteFiles = principal?.permissions.includes('file.write') ?? false;
-  const canManageSystem = principal?.permissions.includes('system.manage') ?? false;
-  const { connected, buildTime } = useConnectionStatus();
+  const { connected } = useConnectionStatus();
   const { t, i18n } = useTranslation();
   const [input, setInput] = useState('');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -594,9 +523,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { pendingAttachments, addAttachments, removeAttachment, clearAttachments } = usePendingAttachments(uploadChatAttachment);
   const isMobile = useIsMobile();
-  // User avatar state
-  const [userAvatarUrl, setUserAvatarUrl] = useState('');
-
   // Local cache of "sent" messages (recorded on click send, regardless of server success/failure)
   const localHistoryStorageKey = `quartet:sent_history:${workspaceId || 'default'}`;
   const [historyItems, setHistoryItems] = useState<LocalSentMessage[]>(() => readLocalSentMessages(localHistoryStorageKey));
@@ -722,7 +648,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     return m;
   }, [allWorkspaces]);
 
-  // Header toolbar state
+  // Header-adjacent home data state
   const {
     jobs,
     hasMore: hasMoreJobs,
@@ -738,11 +664,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     excludeScheduled: hideScheduledJobs,
     disabled: !canReadJobs,
   });
-  const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
-  const [agentsEditorOpen, setAgentsEditorOpen] = useState(false);
-  const [webRestarting, setWebRestarting] = useState(false);
-  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
-
   // Scheduled tasks state
   const [schedules, setSchedules] = useState<ScheduleInfo[]>([]);
   // Flips to true after the first fetchSchedules attempt completes (success or
@@ -813,14 +734,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
       handleImageSelect(dt.files);
     }
   }, [canWriteFiles, handleImageSelect]);
-
-  useEffect(() => {
-    if (!canReadConfig) {
-      setUserAvatarUrl('');
-      return;
-    }
-    fetchUserSettings().then(({ avatarUrl }) => setUserAvatarUrl(avatarUrl));
-  }, [canReadConfig, refreshKey]);
 
   useEffect(() => {
     if (!canExecuteJobs || !canReadAgents) {
@@ -1443,31 +1356,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     }
   };
 
-  const handleRestartWeb = async () => {
-    if (webRestarting) return;
-    setRestartConfirmOpen(false);
-    setWebRestarting(true);
-    try {
-      const previousHealth = await probeWebHealth();
-      const res = await fetch('/api/v1/system/restart-web', { method: 'POST' });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || data?.code !== 0) {
-        throw new Error(data?.msg || `HTTP ${res.status}`);
-      }
-      const restarted = await waitForWebRestart(previousHealth);
-      if (!restarted) {
-        throw new Error(t('system.restartWebTimeout', {
-          logPath: data?.log_path || '/tmp/quartet-web-restart.log',
-        }));
-      }
-      window.location.reload();
-    } catch (err) {
-      console.error('Failed to restart web services:', err);
-      setWebRestarting(false);
-      window.alert(t('system.restartWebFailed', { message: err instanceof Error ? err.message : String(err) }));
-    }
-  };
-
   // Home composer model dropdown: split into pinned favorites + the rest when
   // the selected agent has favorites configured. renderHomeModelItem keeps a
   // single source of truth across the favorites/rest groups and mobile/desktop.
@@ -1516,130 +1404,16 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   // now renders below Job History, and suppresses the "no jobs" body message so
   // the loading state doesn't read as an empty workspace.
   const homeLoadingOrOffline = jobs.length === 0 && (!schedulesLoaded || isLoadingJobs || !connected);
-  const localizedBuildTime = useMemo(() => {
-    if (!buildTime) return { full: '', compact: '' };
-    const parsed = new Date(buildTime);
-    if (Number.isNaN(parsed.getTime())) return { full: buildTime, compact: buildTime };
-    const locale = i18n.resolvedLanguage || i18n.language;
-    return {
-      full: new Intl.DateTimeFormat(locale, {
-        dateStyle: 'short',
-        timeStyle: 'medium',
-      }).format(parsed),
-      compact: new Intl.DateTimeFormat(locale, {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      }).format(parsed),
-    };
-  }, [buildTime, i18n.language, i18n.resolvedLanguage]);
-
   return (
     <div className="home-page" data-testid="home-page">
-      <header className="chatbot-header" data-testid="home-header">
-        <div className="header-left">
-          <span className="header-logo">
-            {userAvatarUrl ? (
-              <img src={userAvatarUrl} alt="" className="header-user-avatar" referrerPolicy="no-referrer" />
-            ) : (
-              <svg className="header-logo-mark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="4" y="8" width="16" height="12" rx="3" />
-                <path d="M12 4v4" />
-                <circle cx="12" cy="3" r="1" />
-                <path d="M9.5 13h.01M14.5 13h.01" />
-              </svg>
-            )}
-            {' '}<span className="header-logo-text">{workspaceTitle || principal?.user.displayName || 'Quartet'}</span>
-            {localizedBuildTime.full && (
-              <span className="home-build-time" title={`${t('home.buildTime')}: ${buildTime}`} data-testid="home-build-time">
-                <span className="home-build-time-full">{t('home.buildTimeValue', { time: localizedBuildTime.full })}</span>
-                <span className="home-build-time-compact">{localizedBuildTime.compact}</span>
-              </span>
-            )}
-          </span>
-        </div>
-        <nav className="header-nav">
-          {/* Page-specific button (left): restarting web services only makes
-              sense from the home page. */}
-          {canManageSystem && <button
-            className={`header-settings-btn header-restart-btn ${webRestarting ? 'restarting' : ''}`}
-            onClick={() => setRestartConfirmOpen(true)}
-            disabled={webRestarting}
-            title={webRestarting ? t('system.restartWebRunning') : t('system.restartWeb')}
-            aria-label={webRestarting ? t('system.restartWebRunning') : t('system.restartWeb')}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-              <polyline points="21 3 21 9 15 9" />
-            </svg>
-          </button>}
-          {/* Shared buttons (right): kept in the same order as the chat page's
-              header so the two toolbars stay consistent. */}
-          {onOpenStats && (
-            <button
-              className="header-settings-btn"
-              onClick={onOpenStats}
-              title={t('stats.topbarTooltip')}
-              aria-label={t('stats.topbarTooltip')}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="20" x2="18" y2="10" />
-                <line x1="12" y1="20" x2="12" y2="4" />
-                <line x1="6" y1="20" x2="6" y2="14" />
-              </svg>
-            </button>
-          )}
-          {onOpenGraph && (
-            <button
-              className="header-filebrowser-btn"
-              onClick={onOpenGraph}
-              title="Graph Workflows"
-              aria-label="Graph Workflows"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="5" cy="12" r="2" />
-                <circle cx="12" cy="5" r="2" />
-                <circle cx="19" cy="12" r="2" />
-                <circle cx="12" cy="19" r="2" />
-                <path d="M6.5 10.5 10.5 6.5" />
-                <path d="M13.5 6.5 17.5 10.5" />
-                <path d="M17.5 13.5 13.5 17.5" />
-                <path d="M10.5 17.5 6.5 13.5" />
-              </svg>
-            </button>
-          )}
-          {canWriteFiles && <button
-            className={`header-filebrowser-btn ${agentsEditorOpen ? 'active' : ''}`}
-            onClick={() => setAgentsEditorOpen(!agentsEditorOpen)}
-            title="AGENTS.md"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-              <polyline points="10 9 9 9 8 9" />
-            </svg>
-          </button>}
-          {canReadFiles && <button
-            className={`header-filebrowser-btn ${fileBrowserOpen ? 'active' : ''}`}
-            onClick={() => setFileBrowserOpen(!fileBrowserOpen)}
-            title="File Browser"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-            </svg>
-          </button>}
-          {onOpenSettings && (
-            <button className="header-settings-btn" onClick={onOpenSettings} title="设置" aria-label="设置" data-testid="settings-open-button">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </button>
-          )}
-        </nav>
-      </header>
+      <HomeNavigation
+        workspaceTitle={workspaceTitle}
+        workdir={workdir}
+        refreshKey={refreshKey}
+        onOpenSettings={onOpenSettings}
+        onOpenStats={onOpenStats}
+        onOpenGraph={onOpenGraph}
+      />
 
       <div
         className="home-content"
@@ -2462,22 +2236,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         />
       )}
 
-      {canReadFiles && fileBrowserOpen && createPortal(
-        <FileBrowser
-          rootPath={workdir}
-          onClose={() => setFileBrowserOpen(false)}
-        />,
-        document.body
-      )}
-
-      {canWriteFiles && agentsEditorOpen && workdir && createPortal(
-        <AgentsLocalEditor
-          workdir={workdir}
-          onClose={() => setAgentsEditorOpen(false)}
-        />,
-        document.body
-      )}
-
       {deleteConfirm && (
         <div className="delete-confirm-overlay" onClick={() => setDeleteConfirm(null)} data-testid="delete-confirm-overlay">
           <div className="delete-confirm-dialog" onClick={(e) => e.stopPropagation()} data-testid="delete-confirm-dialog">
@@ -2488,25 +2246,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
             <div className="delete-confirm-actions">
               <button className="delete-confirm-cancel" onClick={() => setDeleteConfirm(null)} data-testid="delete-confirm-cancel">Cancel</button>
               <button className="delete-confirm-ok" onClick={handleJobDeleteConfirm} data-testid="delete-confirm-ok">Delete</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {canManageSystem && restartConfirmOpen && (
-        <div className="delete-confirm-overlay" onClick={() => setRestartConfirmOpen(false)}>
-          <div className="delete-confirm-dialog restart-confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="delete-confirm-title">{t('system.restartWebConfirmTitle')}</div>
-            <div className="delete-confirm-message">
-              {t('system.restartWebConfirmMessage')}
-            </div>
-            <div className="delete-confirm-actions">
-              <button className="delete-confirm-cancel" onClick={() => setRestartConfirmOpen(false)}>
-                {t('system.restartWebCancel')}
-              </button>
-              <button className="delete-confirm-ok restart-confirm-ok" onClick={handleRestartWeb}>
-                {t('system.restartWebConfirm')}
-              </button>
             </div>
           </div>
         </div>
