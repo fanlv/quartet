@@ -273,6 +273,19 @@ function isCatalogAgent(value: unknown): value is CatalogAgent {
     && hasOptionalBoolean(value, 'refreshing');
 }
 
+function normalizeCatalogAgent(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.definition) || value.definition.acp_args !== null) {
+    return value;
+  }
+  return {
+    ...value,
+    definition: {
+      ...value.definition,
+      acp_args: [],
+    },
+  };
+}
+
 function readCatalogAgents(
   t: TFunction,
   data: Record<string, unknown>,
@@ -283,12 +296,13 @@ function readCatalogAgents(
   if (!Array.isArray(data.agents)) {
     throw invalidResponseShape(t, context, raw, { key: listShapeKey });
   }
-  if (!data.agents.every(isCatalogAgent)) {
+  const agents = data.agents.map(normalizeCatalogAgent);
+  if (!agents.every(isCatalogAgent)) {
     throw invalidResponseShape(t, context, raw, {
       key: 'settings.agents.diagnostics.shape.catalogAgentFields',
     });
   }
-  return data.agents;
+  return agents;
 }
 
 function isVersionComponent(value: unknown): value is AgentVersionComponent {
@@ -1238,7 +1252,7 @@ export function AgentInstallSettings() {
               {renderVersionInfo(agent, versionInfo)}
 
               {busy && installBusy && (
-                <div className="agent-install-progress" role="status" aria-live="polite">
+                <div className={`agent-install-progress ${installBusy.action === 'upgrade' ? 'upgrade' : ''}`} role="status" aria-live="polite">
                   <span className="agent-check-spinner" aria-hidden="true" />
                   <div>
                     <strong>{t(`settings.agents.request.progress.${installBusy.action}`)}</strong>

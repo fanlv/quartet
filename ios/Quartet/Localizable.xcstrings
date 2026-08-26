@@ -26,9 +26,6 @@
     "·" : {
 
     },
-    "· %@" : {
-
-    },
     "（已删除）" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -583,9 +580,6 @@
           }
         }
       }
-    },
-    "ACTIVE ENDPOINT" : {
-
     },
     "Agent %@，正在自动重试" : {
       "localizations" : {
@@ -2491,7 +2485,25 @@
         }
       }
     },
+    "最后成功同步" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last successful sync"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最后成功同步"
+          }
+        }
+      }
+    },
     "最后成功同步：%@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4200,6 +4212,23 @@
         }
       }
     },
+    "安装与升级" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install & Upgrade"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装与升级"
+          }
+        }
+      }
+    },
     "安装后复检" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4616,6 +4645,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "将按顺序更新以下 %d 个 Agent；单个 Agent 失败时会保留完整结果并继续更新其余项目：\n\n%@"
+          }
+        }
+      }
+    },
+    "尚未同步" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not yet synced"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未同步"
           }
         }
       }
@@ -7188,23 +7234,6 @@
         }
       }
     },
-    "服务端编译时间" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Server build time"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "服务端编译时间"
-          }
-        }
-      }
-    },
     "服务端状态：%@" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7218,6 +7247,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "服务端状态：%@"
+          }
+        }
+      }
+    },
+    "服务端编译时间" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server build time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务端编译时间"
           }
         }
       }
@@ -7272,6 +7318,22 @@
         }
       }
     },
+    "服务连接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server Connection"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务连接"
+          }
+        }
+      }
+    },
     "未关联工作空间" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7319,23 +7381,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未安装"
-          }
-        }
-      }
-    },
-    "未知" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unknown"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未知"
           }
         }
       }
@@ -7403,6 +7448,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未指定 Model"
+          }
+        }
+      }
+    },
+    "未知" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unknown"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未知"
           }
         }
       }
@@ -7709,23 +7771,6 @@
         }
       }
     },
-    "查看错误详情" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "View error details"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "查看错误详情"
-          }
-        }
-      }
-    },
     "查看会话" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7837,6 +7882,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "查看输出"
+          }
+        }
+      }
+    },
+    "查看错误详情" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View error details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看错误详情"
           }
         }
       }

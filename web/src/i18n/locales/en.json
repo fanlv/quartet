@@ -555,7 +555,7 @@
     },
     "agentManagement": {
       "tabs": {
-        "catalog": "Catalog",
+        "catalog": "Install & Upgrade",
         "env": "Environment",
         "defaults": "Defaults",
         "roles": "Roles"
@@ -807,7 +807,7 @@
     "loadingAgents": "Loading Agents…",
     "agentSetupNeeded": "Install an Agent first",
     "agentSetupAction": "Set up",
-    "agentSetupHint": "No Agent is installed yet. Open Settings → Agents → Catalog.",
+    "agentSetupHint": "No Agent is installed yet. Open Settings → Agents → Install & Upgrade.",
     "buildTime": "Build time",
     "buildTimeValue": "Built {{time}}",
     "filterByWorkspace": "Filter by workspace",

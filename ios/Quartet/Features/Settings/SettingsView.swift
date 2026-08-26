@@ -14,50 +14,34 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("ACTIVE ENDPOINT")
-                            .font(.system(.caption, design: .monospaced).weight(.bold))
-                            .foregroundStyle(QuartetTheme.accent)
-                        Text(model.serverAddress)
-                            .font(.quartet(.regular, design: .monospaced))
-                            .foregroundStyle(QuartetTheme.primaryText)
-                            .textSelection(.enabled)
-                        HStack(spacing: 7) {
-                            Circle()
-                                .fill(
-                                    !model.connectionState.isConnected
-                                        ? QuartetTheme.failed
-                                        : (model.connectionState.isStale ? QuartetTheme.warning : QuartetTheme.terminalGreen)
-                                )
-                                .frame(width: 8, height: 8)
-                            Text((model.connectionState.isConnected ? (model.connectionState.isStale ? "缓存中" : "已连接") : "未连接").localizedForApp)
-                        }
-                        .font(.caption)
-                        .foregroundStyle(QuartetTheme.secondaryText)
-                        if let buildTime = formattedServerBuildTime {
-                            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                                Text("服务端编译时间")
-                                Spacer(minLength: 8)
-                                Text(buildTime)
-                                    .font(.quartet(.detail, design: .monospaced))
-                                    .foregroundStyle(QuartetTheme.primaryText)
-                                    .multilineTextAlignment(.trailing)
-                                    .textSelection(.enabled)
-                            }
-                            .font(.quartet(.detail))
+                        Text("服务连接")
+                            .font(.quartet(.detail, weight: .bold))
                             .foregroundStyle(QuartetTheme.secondaryText)
-                            .accessibilityElement(children: .combine)
-                            .accessibilityIdentifier("settings-server-build-time")
+                            .padding(.horizontal, 4)
+
+                        VStack(spacing: 0) {
+                            connectionStatusRow
+                            serviceInfoDivider
+                            serverAddressRow
+                            serviceInfoDivider
+                            serviceInfoRow(
+                                title: "服务端编译时间",
+                                value: formattedServerBuildTime,
+                                identifier: "settings-server-build-time"
+                            )
+                            serviceInfoDivider
+                            serviceInfoRow(
+                                title: "最后成功同步",
+                                value: formattedLastSuccessfulSyncTime,
+                                identifier: "settings-last-successful-sync"
+                            )
                         }
-                        if let lastSuccessfulSyncAt = model.connectionState.lastSuccessfulSyncAt {
-                            Text("最后成功同步：\(lastSuccessfulSyncAt.formatted(date: .omitted, time: .shortened))")
-                                .font(.caption)
-                                .foregroundStyle(QuartetTheme.secondaryText)
+                        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(QuartetTheme.divider.opacity(0.8))
                         }
                     }
-                    .padding(20)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
 
                     if model.can("agent.read") {
                         VStack(alignment: .leading, spacing: 10) {
@@ -68,8 +52,8 @@ struct SettingsView: View {
 
                             VStack(spacing: 0) {
                                 agentManagementLink(
-                                    title: "目录",
-                                    icon: "square.grid.2x2",
+                                    title: "安装与升级",
+                                    icon: "arrow.down.circle",
                                     identifier: "settings-agent-catalog"
                                 ) { AgentCatalogSettingsView() }
                                 if model.can("config.read") {
@@ -195,10 +179,88 @@ struct SettingsView: View {
         }
     }
 
-    private var formattedServerBuildTime: String? {
+    private var connectionStatusRow: some View {
+        HStack(spacing: 12) {
+            Text("连接状态")
+                .foregroundStyle(QuartetTheme.secondaryText)
+            Spacer(minLength: 8)
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(connectionStatusColor)
+                    .frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+                Text(connectionStatusText)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(QuartetTheme.primaryText)
+            }
+        }
+        .font(.quartet(.detail))
+        .padding(.horizontal, 16)
+        .frame(minHeight: 52)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("settings-connection-status")
+    }
+
+    private var serverAddressRow: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("服务地址")
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+            Text(model.serverAddress)
+                .font(.quartet(.detail, design: .monospaced))
+                .foregroundStyle(QuartetTheme.primaryText)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("settings-server-address")
+    }
+
+    private var serviceInfoDivider: some View {
+        Divider()
+            .overlay(QuartetTheme.divider)
+            .padding(.leading, 16)
+    }
+
+    private func serviceInfoRow(title: String, value: String, identifier: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(LocalizedStringKey(title))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .layoutPriority(1)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.quartet(.detail, design: .monospaced))
+                .foregroundStyle(QuartetTheme.primaryText)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.quartet(.detail))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(minHeight: 52)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private var connectionStatusText: String {
+        (model.connectionState.isConnected
+            ? (model.connectionState.isStale ? "缓存中" : "已连接")
+            : "未连接").localizedForApp
+    }
+
+    private var connectionStatusColor: Color {
+        guard model.connectionState.isConnected else { return QuartetTheme.failed }
+        return model.connectionState.isStale ? QuartetTheme.warning : QuartetTheme.terminalGreen
+    }
+
+    private var formattedServerBuildTime: String {
         guard let rawValue = model.health?.buildTime?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
-            return nil
+            return "未知".localizedForApp
         }
         guard rawValue.lowercased() != "unknown" else {
             return "未知".localizedForApp
@@ -208,11 +270,22 @@ struct SettingsView: View {
         let date = parser.date(from: rawValue)
         guard let date else { return rawValue }
 
+        return formattedDate(date)
+    }
+
+    private var formattedLastSuccessfulSyncTime: String {
+        guard let date = model.connectionState.lastSuccessfulSyncAt else {
+            return "尚未同步".localizedForApp
+        }
+        return formattedDate(date)
+    }
+
+    private func formattedDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = locale
         formatter.timeZone = .autoupdatingCurrent
         formatter.dateStyle = .short
-        formatter.timeStyle = .medium
+        formatter.timeStyle = .short
         return formatter.string(from: date)
     }
 

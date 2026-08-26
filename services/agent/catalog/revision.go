@@ -99,6 +99,6 @@ func LegacyDefinition(command string) (model.AgentRuntimeDefinition, error) {
 	return model.AgentRuntimeDefinition{
 		Bin:        parts[0],
 		ACPProgram: parts[0],
-		ACPArgs:    append([]string(nil), parts[1:]...),
+		ACPArgs:    append([]string{}, parts[1:]...),
 	}, nil
 }

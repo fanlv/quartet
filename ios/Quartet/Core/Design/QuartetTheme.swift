@@ -20,6 +20,11 @@ enum QuartetTheme {
     static let success = dynamic(light: 0x16A34A, dark: 0x4ADE80)
     static let running = terminalGreen
     static let warning = dynamic(light: 0xA16207, dark: 0xFACC15)
+    /// 软件更新专用语义色。正文在深色界面提亮，实心按钮保持较深橘色以承载白字。
+    static let softwareUpdate = dynamic(light: 0xC2410C, dark: 0xFB923C)
+    static let softwareUpdateAction = Color(red: 194 / 255, green: 65 / 255, blue: 12 / 255)
+    static let softwareUpdateActionDisabled = Color(red: 124 / 255, green: 45 / 255, blue: 18 / 255)
+    static let onSoftwareUpdate = Color.white
     static let failed = dynamic(light: 0xB62435, dark: 0xFF5364)
     static let chatStop = Color(red: 239 / 255, green: 68 / 255, blue: 68 / 255)
     static let onDanger = dynamic(light: 0xFFFFFF, dark: 0x190205)
@@ -542,7 +547,7 @@ struct QuartetChoice: Identifiable {
     let id: String
     let title: String
     let detail: String?
-    /// 第三行补充信息（如 Agent 的版本号与用量摘要），等宽显示、比 `detail` 更淡。
+    /// 补充信息（如 Agent 的版本号与用量摘要），与 `detail` 在同一条副标题中显示。
     /// 内容由调用方拼好并本地化，弹窗不再二次查表。
     let footnote: String?
     /// `footnote` 承载的是失败原因，按警示色渲染。
@@ -673,6 +678,8 @@ struct QuartetChoiceSheet: View {
 
     private func choiceRow(_ choice: QuartetChoice) -> some View {
         let selected = choice.id == selection
+        let detail = resolvedDetail(choice)
+        let footnote = resolvedFootnote(choice)
         // 选中按钮和错误入口必须是兄弟节点：嵌在 Button label 里的按钮收不到点击。
         return HStack(spacing: 0) {
             Button {
@@ -695,22 +702,31 @@ struct QuartetChoiceSheet: View {
                             .font(.quartet(.control, weight: .semibold))
                             .foregroundStyle(QuartetTheme.primaryText)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        if let detail = resolvedDetail(choice) {
-                            Text(detail)
-                                .font(.quartet(.detail))
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        if let footnote = choice.footnote?.trimmingCharacters(in: .whitespacesAndNewlines),
-                           !footnote.isEmpty {
-                            Text(footnote)
-                                .font(.quartet(.compact, design: .monospaced))
-                                .foregroundStyle(
-                                    choice.footnoteIsFailure
-                                        ? QuartetTheme.failed
-                                        : QuartetTheme.secondaryText.opacity(0.78)
-                                )
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                        if detail != nil || footnote != nil {
+                            HStack(spacing: 4) {
+                                if let detail {
+                                    Text(detail)
+                                        .font(.quartet(.detail))
+                                        .foregroundStyle(QuartetTheme.secondaryText)
+                                }
+                                if detail != nil, footnote != nil {
+                                    Text("·")
+                                        .font(.quartet(.compact))
+                                        .foregroundStyle(QuartetTheme.secondaryText.opacity(0.78))
+                                }
+                                if let footnote {
+                                    Text(footnote)
+                                        .font(.quartet(.compact, design: .monospaced))
+                                        .foregroundStyle(
+                                            choice.footnoteIsFailure
+                                                ? QuartetTheme.failed
+                                                : QuartetTheme.secondaryText.opacity(0.78)
+                                        )
+                                }
+                            }
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
 
@@ -775,6 +791,12 @@ struct QuartetChoiceSheet: View {
         let localized = detail.localizedForApp
         let title = choice.title.localizedForApp.trimmingCharacters(in: .whitespacesAndNewlines)
         return localized.trimmingCharacters(in: .whitespacesAndNewlines) == title ? nil : localized
+    }
+
+    private func resolvedFootnote(_ choice: QuartetChoice) -> String? {
+        guard let footnote = choice.footnote?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !footnote.isEmpty else { return nil }
+        return footnote
     }
 
     private func choiceLabel(_ choice: QuartetChoice) -> String {

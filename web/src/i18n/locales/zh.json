@@ -551,7 +551,7 @@
     },
     "agentManagement": {
       "tabs": {
-        "catalog": "目录",
+        "catalog": "安装与升级",
         "env": "环境变量",
         "defaults": "默认参数",
         "roles": "角色分工"
@@ -803,7 +803,7 @@
     "loadingAgents": "正在加载 Agent…",
     "agentSetupNeeded": "请先安装 Agent",
     "agentSetupAction": "去安装",
-    "agentSetupHint": "尚未安装可用的 Agent。点击打开“设置 → Agent 管理 → 目录”。",
+    "agentSetupHint": "尚未安装可用的 Agent。点击打开“设置 → Agent 管理 → 安装与升级”。",
     "buildTime": "编译时间",
     "buildTimeValue": "编译于 {{time}}",
     "filterByWorkspace": "按工作空间筛选",

@@ -43,7 +43,7 @@ func (a BuiltinAgent) RuntimeDefinition() model.AgentRuntimeDefinition {
 	return model.AgentRuntimeDefinition{
 		Bin:        a.Bin,
 		ACPProgram: a.ACPProgram,
-		ACPArgs:    append([]string(nil), a.ACPArgs...),
+		ACPArgs:    append([]string{}, a.ACPArgs...),
 	}
 }
 
@@ -249,7 +249,7 @@ func BuiltinSnapshot() []BuiltinAgent {
 }
 
 func cloneBuiltin(agent BuiltinAgent) BuiltinAgent {
-	agent.ACPArgs = append([]string(nil), agent.ACPArgs...)
+	agent.ACPArgs = append([]string{}, agent.ACPArgs...)
 	agent.HistoricalIdentifiers = append([]HistoricalIdentifier(nil), agent.HistoricalIdentifiers...)
 	agent.Install.Steps = append([]agentinstall.InstallStep(nil), agent.Install.Steps...)
 	for index := range agent.Install.Steps {

@@ -48,6 +48,16 @@
   --danger: #ef4444;
   --warn: #f59e0b;
   --info: #0369a1;
+
+  /* Software updates: shared with the native iOS Agent directory. */
+  --update-action: #c2410c;
+  --update-action-hover: #9a3412;
+  --update-action-disabled: #7c2d12;
+  --update-fg: #ffffff;
+  --update-text: #c2410c;
+  --update-soft: #fff7ed;
+  --update-soft-strong: #ffedd5;
+  --update-border: #fdba74;
 }
 
 /* Opt-in dark theme. Tokens are defined; flip it on with
@@ -80,6 +90,15 @@
   --danger: #f87171;
   --warn: #fbbf24;
   --info: #38bdf8;
+
+  --update-action: #c2410c;
+  --update-action-hover: #9a3412;
+  --update-action-disabled: #7c2d12;
+  --update-fg: #ffffff;
+  --update-text: #fb923c;
+  --update-soft: rgba(194, 65, 12, 0.16);
+  --update-soft-strong: rgba(194, 65, 12, 0.24);
+  --update-border: rgba(251, 146, 60, 0.55);
 }
 
 input,

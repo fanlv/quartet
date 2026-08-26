@@ -194,6 +194,7 @@ struct AgentSettingsTextEditor: View {
 struct AgentSettingsMessage: Equatable {
     enum Kind {
         case info
+        case update
         case success
         case failure
     }
@@ -229,11 +230,13 @@ struct AgentSettingsMessageView: View {
     var body: some View {
         let tint: Color = switch kind {
         case .info: QuartetTheme.accent
+        case .update: QuartetTheme.softwareUpdate
         case .success: QuartetTheme.success
         case .failure: QuartetTheme.failed
         }
         let icon = switch kind {
         case .info: "arrow.triangle.2.circlepath"
+        case .update: "arrow.up.circle.fill"
         case .success: "checkmark.circle.fill"
         case .failure: "exclamationmark.triangle.fill"
         }

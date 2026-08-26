@@ -291,7 +291,7 @@ struct AgentCatalogSettingsView: View {
                 }
                 if let batchProgress {
                     AgentSettingsMessageView(
-                        kind: .info,
+                        kind: .update,
                         text: AppLanguage.localizedFormat(
                             "正在更新 %@（%d/%d）",
                             batchProgress.currentName,
@@ -367,7 +367,7 @@ struct AgentCatalogSettingsView: View {
     // MARK: 工具条
 
     private var toolbar: some View {
-        AgentSettingsCard("Agent 目录", systemImage: "square.grid.2x2") {
+        AgentSettingsCard("安装与升级", systemImage: "arrow.down.circle") {
             agentSettingsHint("内置 Agent 只能按目录预置的流程安装、升级和卸载；自定义 Agent 由本机手动登记的启动命令组成。")
             HStack(spacing: 10) {
                 Text(AppLanguage.localizedFormat("已登记 %d 个", items.count))
@@ -376,7 +376,7 @@ struct AgentCatalogSettingsView: View {
                 if updatableCount > 0 {
                     Text(AppLanguage.localizedFormat("%d 个可更新", updatableCount))
                         .font(.quartet(.detail, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.warning)
+                        .foregroundStyle(QuartetTheme.softwareUpdate)
                 }
                 Spacer(minLength: 0)
             }
@@ -391,7 +391,9 @@ struct AgentCatalogSettingsView: View {
     }
 
     private var toolbarButtons: some View {
-        VStack(spacing: 10) {
+        let upgradeAllDisabled = upgradeCandidates.isEmpty || isCheckingVersions || busy != nil
+            || pendingAgentId != nil || batchProgress != nil
+        return VStack(spacing: 10) {
             HStack(spacing: 10) {
                 Button {
                     Task { await loadVersions(force: true) }
@@ -417,19 +419,23 @@ struct AgentCatalogSettingsView: View {
                     Button { requestUpgradeAll() } label: {
                         HStack(spacing: 6) {
                             if batchProgress != nil {
-                                ProgressView().controlSize(.small).tint(QuartetTheme.onAccent)
+                                ProgressView().controlSize(.small).tint(QuartetTheme.onSoftwareUpdate)
                             }
                             Text((batchProgress == nil ? "更新全部" : "正在更新…").localizedForApp)
                         }
                         .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.onAccent)
+                        .foregroundStyle(QuartetTheme.onSoftwareUpdate)
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
-                        .background(QuartetTheme.warning, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(
+                            upgradeAllDisabled
+                                ? QuartetTheme.softwareUpdateActionDisabled
+                                : QuartetTheme.softwareUpdateAction,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
                     }
                     .buttonStyle(.plain)
-                    .disabled(upgradeCandidates.isEmpty || isCheckingVersions || busy != nil || pendingAgentId != nil || batchProgress != nil)
-                    .opacity(upgradeCandidates.isEmpty || isCheckingVersions || busy != nil || pendingAgentId != nil || batchProgress != nil ? 0.5 : 1)
+                    .disabled(upgradeAllDisabled)
                     .accessibilityIdentifier("agent-catalog-upgrade-all")
                 }
             }
@@ -456,7 +462,8 @@ struct AgentCatalogSettingsView: View {
     // MARK: 卡片
 
     private func card(_ item: AgentCatalogItem) -> some View {
-        AgentSettingsCard {
+        let upgradeDisabled = busy != nil || pendingAgentId != nil || batchProgress != nil
+        return AgentSettingsCard {
             cardHeader(item)
             agentSettingsDivider()
             cardIdentity(item)
@@ -465,14 +472,18 @@ struct AgentCatalogSettingsView: View {
                 Button { requestUpgrade(item) } label: {
                     Label("升级 Agent", systemImage: "arrow.up.circle.fill")
                         .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.onAccent)
+                        .foregroundStyle(QuartetTheme.onSoftwareUpdate)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
-                        .background(QuartetTheme.warning, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(
+                            upgradeDisabled
+                                ? QuartetTheme.softwareUpdateActionDisabled
+                                : QuartetTheme.softwareUpdateAction,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
                 }
                 .buttonStyle(.plain)
-                .disabled(busy != nil || pendingAgentId != nil || batchProgress != nil)
-                .opacity(busy != nil || pendingAgentId != nil || batchProgress != nil ? 0.5 : 1)
+                .disabled(upgradeDisabled)
                 .accessibilityIdentifier("agent-catalog-upgrade-\(item.agentId)")
             }
             revisionSection(item)
@@ -587,12 +598,13 @@ struct AgentCatalogSettingsView: View {
     }
 
     private func busyIndicator(_ busy: AgentCatalogBusy) -> some View {
-        HStack(spacing: 8) {
-            ProgressView().controlSize(.small).tint(QuartetTheme.accent)
+        let tint = busy.action == .upgrade ? QuartetTheme.softwareUpdate : QuartetTheme.accent
+        return HStack(spacing: 8) {
+            ProgressView().controlSize(.small).tint(tint)
             VStack(alignment: .leading, spacing: 2) {
                 Text(LocalizedStringKey(busy.action.progressTitle))
                     .font(.quartet(.detail, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.primaryText)
+                    .foregroundStyle(busy.action == .upgrade ? tint : QuartetTheme.primaryText)
                 Text("请求会一直等到命令跑完，请不要退出页面。")
                     .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
@@ -667,7 +679,7 @@ struct AgentCatalogSettingsView: View {
 
     private func versionPanel(_ version: AgentVersionInfo) -> some View {
         let tint: Color = version.updateAvailable
-            ? QuartetTheme.warning
+            ? QuartetTheme.softwareUpdate
             : version.hasKnownLatest ? QuartetTheme.success : QuartetTheme.secondaryText
         let title = version.updateAvailable
             ? "有新版本可用"
@@ -697,7 +709,7 @@ struct AgentCatalogSettingsView: View {
                 Spacer(minLength: 0)
                 Text(componentVersionText(component))
                     .font(.quartet(.detail, design: .monospaced))
-                    .foregroundStyle(component.updateAvailable ? QuartetTheme.warning : QuartetTheme.secondaryText)
+                    .foregroundStyle(component.updateAvailable ? QuartetTheme.softwareUpdate : QuartetTheme.secondaryText)
             }
             if let detail = component.error, !detail.isEmpty {
                 Text(detail)
@@ -1378,7 +1390,8 @@ private struct AgentCatalogActionsSheet: View {
                     title: "升级 Agent",
                     detail: upgradeDetail,
                     systemImage: "arrow.up.circle.fill",
-                    tint: QuartetTheme.warning,
+                    tint: QuartetTheme.softwareUpdate,
+                    titleColor: QuartetTheme.softwareUpdate,
                     identifier: "agent-catalog-action-upgrade",
                     disabled: installLocked,
                     action: onUpgrade
@@ -1510,6 +1523,7 @@ private struct AgentCatalogActionsSheet: View {
         detail: String,
         systemImage: String,
         tint: Color,
+        titleColor: Color? = nil,
         identifier: String,
         disabled: Bool,
         isDestructive: Bool = false,
@@ -1525,7 +1539,7 @@ private struct AgentCatalogActionsSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title.localizedForApp)
                         .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(isDestructive ? QuartetTheme.failed : QuartetTheme.primaryText)
+                        .foregroundStyle(isDestructive ? QuartetTheme.failed : (titleColor ?? QuartetTheme.primaryText))
                     Text(detail.localizedForApp)
                         .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
@@ -1551,7 +1565,17 @@ private struct AgentCatalogConfirmationSheet: View {
     let confirmation: AgentCatalogConfirmation
     let onConfirm: (AgentCatalogIntent) -> Void
 
-    private var tint: Color { confirmation.destructive ? QuartetTheme.failed : QuartetTheme.accent }
+    private var isSoftwareUpdate: Bool {
+        switch confirmation.intent {
+        case .upgrade, .upgradeAll: true
+        case .uninstall, .delete: false
+        }
+    }
+
+    private var tint: Color {
+        if confirmation.destructive { return QuartetTheme.failed }
+        return isSoftwareUpdate ? QuartetTheme.softwareUpdateAction : QuartetTheme.accent
+    }
 
     var body: some View {
         NavigationStack {
@@ -1585,7 +1609,11 @@ private struct AgentCatalogConfirmationSheet: View {
                         dismiss()
                         onConfirm(confirmation.intent)
                     }
-                    .foregroundStyle(confirmation.destructive ? QuartetTheme.onDanger : QuartetTheme.onAccent)
+                    .foregroundStyle(
+                        confirmation.destructive
+                            ? QuartetTheme.onDanger
+                            : (isSoftwareUpdate ? QuartetTheme.onSoftwareUpdate : QuartetTheme.onAccent)
+                    )
                     .frame(maxWidth: .infinity).frame(height: 50)
                     .background(tint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .accessibilityIdentifier("agent-catalog-confirm")

@@ -776,10 +776,15 @@ func (s *Service) PruneUnreferencedBuiltinRevisions(
 func currentRuntimeDefinition(agent model.CustomAgent) model.AgentRuntimeDefinition {
 	for _, revision := range agent.Revisions {
 		if revision.Revision == agent.CurrentRevision {
-			return revision.Definition
+			return cloneRuntimeDefinition(revision.Definition)
 		}
 	}
-	return model.AgentRuntimeDefinition{}
+	return cloneRuntimeDefinition(model.AgentRuntimeDefinition{})
+}
+
+func cloneRuntimeDefinition(definition model.AgentRuntimeDefinition) model.AgentRuntimeDefinition {
+	definition.ACPArgs = append([]string{}, definition.ACPArgs...)
+	return definition
 }
 
 func runtimeDefinitionKey(definition model.AgentRuntimeDefinition) string {
@@ -816,8 +821,8 @@ func cloneCustomAgents(agents []model.CustomAgent) []model.CustomAgent {
 		result[agentIndex].Revisions = make([]model.AgentRuntimeRevision, len(agent.Revisions))
 		for revisionIndex, revision := range agent.Revisions {
 			result[agentIndex].Revisions[revisionIndex] = revision
-			result[agentIndex].Revisions[revisionIndex].Definition.ACPArgs =
-				append([]string(nil), revision.Definition.ACPArgs...)
+			result[agentIndex].Revisions[revisionIndex].Definition =
+				cloneRuntimeDefinition(revision.Definition)
 		}
 	}
 	return result
@@ -830,7 +835,7 @@ func cloneRuntimeRevisions(revisions []model.AgentRuntimeRevision) []model.Agent
 	result := make([]model.AgentRuntimeRevision, len(revisions))
 	for index, revision := range revisions {
 		result[index] = revision
-		result[index].Definition.ACPArgs = append([]string(nil), revision.Definition.ACPArgs...)
+		result[index].Definition = cloneRuntimeDefinition(revision.Definition)
 	}
 	return result
 }
