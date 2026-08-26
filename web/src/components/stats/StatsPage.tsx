@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatStatsCount, formatStatsDuration } from '../../utils/statsFormat';
 import './StatsPage.css';
@@ -12,12 +22,27 @@ interface SectionTotals {
   assistantCount: number;
   thoughtCount: number;
   toolCallCount: number;
-  tokens: {
-    total: number;
-    assistant: number;
-    thought: number;
-    toolCall: number;
-  };
+  tokens: TokenTotals;
+}
+
+interface TokenTotals {
+  // `total` is the backend-computed display total. Provider details and the
+  // estimate fields below explain that value; they must never be added to it.
+  total: number;
+  reported?: number;
+  input?: number;
+  output?: number;
+  cachedRead?: number;
+  cachedWrite?: number;
+  reasoning?: number;
+  imageEstimate?: number;
+  estimated?: number;
+  reportedTurns?: number;
+  estimatedTurns?: number;
+  legacyTotal?: number;
+  assistant: number;
+  thought: number;
+  toolCall: number;
 }
 
 interface WorkspaceRow extends SectionTotals {
@@ -88,15 +113,6 @@ const TOP_N = 8;
 const TOTAL_COLOR = '#22c55e';
 const SERIES_LADDER = ['#2563eb', '#3b82f6', '#60a5fa', '#7ba9f7', '#93c5fd', '#b3d3fc', '#bfdbfe'];
 const NEUTRAL_SERIES = '#94a3b8';
-
-// Usage stats currently only keep an output-side token estimate. The stats
-// page is intentionally rough, so include an equally-sized input allowance by
-// doubling the stored total instead of trying to reconstruct prompts/history.
-const TOTAL_TOKEN_DISPLAY_MULTIPLIER = 2;
-
-function approximateDisplayedTotalTokens(tokens: number): number {
-  return tokens * TOTAL_TOKEN_DISPLAY_MULTIPLIER;
-}
 
 function seriesColor(idx: number): string {
   if (idx < SERIES_LADDER.length) return SERIES_LADDER[idx];
@@ -192,7 +208,7 @@ export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: St
   const [preset, setPreset] = useState<RangePreset>('30d');
   const [customFrom, setCustomFrom] = useState<string>(shiftDate(29));
   const [customTo, setCustomTo] = useState<string>(todayDateKey());
-  const [trendMetric, setTrendMetric] = useState<TrendMetric>('duration');
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>('tokens');
   const [report, setReport] = useState<UsageReport | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -377,7 +393,7 @@ function computeKpis(report: UsageReport | null): Kpis {
   for (const ws of report.byWorkspace) {
     out.totalMs += ws.totalMs;
     out.turnCount += ws.turnCount;
-    out.tokensTotal += approximateDisplayedTotalTokens(ws.tokens.total);
+    out.tokensTotal += ws.tokens.total;
     out.toolCallCount += ws.toolCallCount;
   }
   return out;
@@ -396,7 +412,7 @@ function KpiBand({ kpis, previous, periodDays }: { kpis: Kpis; previous?: Previo
   const cards: KpiCardSpec[] = [
     { key: 'duration', label: t('stats.kpi.duration'), value: formatStatsDuration(kpis.totalMs), current: kpis.totalMs, previous: previous?.totalMs },
     { key: 'turns', label: t('stats.kpi.turns'), value: formatStatsCount(kpis.turnCount), current: kpis.turnCount, previous: previous?.turnCount },
-    { key: 'tokens', label: t('stats.kpi.tokens'), value: formatStatsCount(kpis.tokensTotal), current: kpis.tokensTotal, previous: previous ? approximateDisplayedTotalTokens(previous.tokensTotal) : undefined },
+    { key: 'tokens', label: t('stats.kpi.tokens'), value: formatStatsCount(kpis.tokensTotal), current: kpis.tokensTotal, previous: previous?.tokensTotal },
     { key: 'toolCalls', label: t('stats.kpi.toolCalls'), value: formatStatsCount(kpis.toolCallCount), current: kpis.toolCallCount, previous: previous?.toolCallCount },
     { key: 'workspaces', label: t('stats.kpi.workspaces'), value: formatStatsCount(kpis.workspaceCount), current: kpis.workspaceCount, previous: previous?.workspaceCount },
   ];
@@ -647,12 +663,18 @@ function ByToolRank({ rows }: { rows: ToolRow[] }) {
 function pickTrendValue(row: SectionTotals, metric: TrendMetric): number {
   if (metric === 'duration') return row.totalMs;
   if (metric === 'turns') return row.turnCount;
-  return approximateDisplayedTotalTokens(row.tokens.total);
+  return row.tokens.total;
 }
 
 function formatTrendValue(value: number, metric: TrendMetric): string {
   if (metric === 'duration') return formatStatsDuration(value);
   return formatStatsCount(value);
+}
+
+function tokenCount(tokens: TokenTotals | undefined, field: keyof TokenTotals): number {
+  if (!tokens) return 0;
+  const value = tokens[field];
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 function trendAxisUnitKey(value: number, metric: TrendMetric): string {
@@ -668,8 +690,121 @@ function emptySectionTotals(): SectionTotals {
     assistantCount: 0,
     thoughtCount: 0,
     toolCallCount: 0,
-    tokens: { total: 0, assistant: 0, thought: 0, toolCall: 0 },
+    tokens: {
+      total: 0,
+      reported: 0,
+      input: 0,
+      output: 0,
+      cachedRead: 0,
+      cachedWrite: 0,
+      reasoning: 0,
+      imageEstimate: 0,
+      estimated: 0,
+      reportedTurns: 0,
+      estimatedTurns: 0,
+      legacyTotal: 0,
+      assistant: 0,
+      thought: 0,
+      toolCall: 0,
+    },
   };
+}
+
+function TokenDetails({ tokens }: { tokens: TokenTotals }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <div className="stats-trend-tooltip-row stats-trend-tooltip-total">
+        <span>{t('stats.table.tokenTotal')}</span>
+        <strong>{formatStatsCount(tokenCount(tokens, 'total'))}</strong>
+      </div>
+      <div className="stats-trend-tooltip-hint">{t('stats.tokens.totalIncludedHint')}</div>
+      <div className="stats-trend-tooltip-divider" />
+      <div className="stats-trend-tooltip-section">{t('stats.tokens.detailsSection')}</div>
+      {([
+        ['reported', 'reported'],
+        ['input', 'input'],
+        ['output', 'output'],
+        ['cachedRead', 'cachedRead'],
+        ['cachedWrite', 'cachedWrite'],
+        ['reasoning', 'reasoning'],
+        ['imageEstimate', 'imageEstimate'],
+      ] as const).map(([field, label]) => (
+        <Fragment key={field}>
+          <div className="stats-trend-tooltip-row stats-trend-tooltip-detail">
+            <span>{t(`stats.tokens.${label}`)}</span>
+            <strong>{formatStatsCount(tokenCount(tokens, field))}</strong>
+          </div>
+          {field === 'imageEstimate' && (
+            <div className="stats-trend-tooltip-hint stats-trend-tooltip-image-hint">
+              {t('stats.tokens.imageEstimateHint')}
+            </div>
+          )}
+        </Fragment>
+      ))}
+      <div className="stats-trend-tooltip-divider" />
+      <div className="stats-trend-tooltip-row">
+        <span>{t('stats.tokens.estimated')}</span>
+        <strong>{formatStatsCount(tokenCount(tokens, 'estimated'))}</strong>
+      </div>
+      <div className="stats-trend-tooltip-row">
+        <span>{t('stats.tokens.legacy')}</span>
+        <strong>{formatStatsCount(tokenCount(tokens, 'legacyTotal'))}</strong>
+      </div>
+    </>
+  );
+}
+
+interface TokenCoverage {
+  totalTurns: number;
+  reportedTurns: number;
+  estimatedTurns: number;
+  unclassifiedTurns: number;
+  reportedPercent: number;
+}
+
+function computeTokenCoverage(rows: SectionTotals[]): TokenCoverage {
+  let totalTurns = 0;
+  let reportedTurns = 0;
+  let estimatedTurns = 0;
+  for (const row of rows) {
+    totalTurns += Math.max(0, row.turnCount || 0);
+    reportedTurns += tokenCount(row.tokens, 'reportedTurns');
+    estimatedTurns += tokenCount(row.tokens, 'estimatedTurns');
+  }
+  // Prefer the complete turn count as the denominator. The max guards older
+  // or partially migrated payloads whose source counters exceed turnCount.
+  totalTurns = Math.max(totalTurns, reportedTurns + estimatedTurns);
+  const unclassifiedTurns = Math.max(0, totalTurns - reportedTurns - estimatedTurns);
+  const reportedPercent = totalTurns > 0 ? Math.round((reportedTurns / totalTurns) * 100) : 0;
+  return { totalTurns, reportedTurns, estimatedTurns, unclassifiedTurns, reportedPercent };
+}
+
+function TokenCoverageNote({ coverage, compact = false }: { coverage: TokenCoverage; compact?: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <div className={`stats-token-coverage ${compact ? 'compact' : ''}`} role="note">
+      {!compact && <span className="stats-token-coverage-label">{t('stats.tokens.coverageLabel')}</span>}
+      <span>
+        {coverage.totalTurns > 0
+          ? t('stats.tokens.coverageSummary', {
+            count: coverage.totalTurns,
+            reported: formatStatsCount(coverage.reportedTurns),
+            total: formatStatsCount(coverage.totalTurns),
+            percent: coverage.reportedPercent,
+            estimated: formatStatsCount(coverage.estimatedTurns),
+          })
+          : t('stats.tokens.coverageUnavailable')}
+        {coverage.unclassifiedTurns > 0 && (
+          <> {t('stats.tokens.coverageUnclassified', {
+            count: coverage.unclassifiedTurns,
+            value: formatStatsCount(coverage.unclassifiedTurns),
+          })}</>
+        )}
+      </span>
+      {!compact && <span className="stats-token-coverage-hint">{t('stats.tokens.coverageHint')}</span>}
+    </div>
+  );
 }
 
 function parseDateKey(dateKey: string): Date | null {
@@ -711,8 +846,8 @@ interface TrendSegment {
 }
 
 interface TrendTooltipState {
-  x: number;
-  y: number;
+  anchorX: number;
+  anchorY: number;
   day: DailyRow;
   segments: TrendSegment[];
 }
@@ -750,8 +885,52 @@ function TrendCard({
   const [hiddenModels, setHiddenModels] = useState<Set<string>>(() => new Set());
   const [tooltip, setTooltip] = useState<TrendTooltipState | null>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [focusedDayIndex, setFocusedDayIndex] = useState(0);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const dayHitboxRefs = useRef<Array<SVGRectElement | null>>([]);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const tooltipCloseTimerRef = useRef<number | null>(null);
   const [wrapWidth, setWrapWidth] = useState<number>(0);
+
+  const cancelTooltipClose = useCallback(() => {
+    if (tooltipCloseTimerRef.current !== null) {
+      window.clearTimeout(tooltipCloseTimerRef.current);
+      tooltipCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const closeTooltipSoon = useCallback(() => {
+    cancelTooltipClose();
+    tooltipCloseTimerRef.current = window.setTimeout(() => {
+      setTooltip(null);
+      setHoverIdx(null);
+      tooltipCloseTimerRef.current = null;
+    }, 160);
+  }, [cancelTooltipClose]);
+
+  useEffect(() => () => cancelTooltipClose(), [cancelTooltipClose]);
+
+  // The tooltip uses viewport coordinates. Clamp the rendered element after
+  // measuring it so long token/model breakdowns remain inside the viewport.
+  useLayoutEffect(() => {
+    const element = tooltipRef.current;
+    if (!tooltip || !element) return;
+    const edge = 8;
+    const gap = 12;
+    const rect = element.getBoundingClientRect();
+    let left = tooltip.anchorX + gap;
+    let top = tooltip.anchorY + gap;
+    if (left + rect.width > window.innerWidth - edge) {
+      left = tooltip.anchorX - gap - rect.width;
+    }
+    if (top + rect.height > window.innerHeight - edge) {
+      top = tooltip.anchorY - gap - rect.height;
+    }
+    left = Math.max(edge, Math.min(left, window.innerWidth - edge - rect.width));
+    top = Math.max(edge, Math.min(top, window.innerHeight - edge - rect.height));
+    element.style.left = `${Math.round(left)}px`;
+    element.style.top = `${Math.round(top)}px`;
+  }, [metric, t, tooltip]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -768,6 +947,11 @@ function TrendCard({
   }, []);
 
   const filledDaily = useMemo(() => fillDailyRange(daily, range), [daily, range]);
+  useEffect(() => {
+    dayHitboxRefs.current.length = filledDaily.length;
+    setFocusedDayIndex((current) => Math.min(current, Math.max(0, filledDaily.length - 1)));
+  }, [filledDaily.length]);
+  const tokenCoverage = useMemo(() => computeTokenCoverage(filledDaily), [filledDaily]);
   const dailySegments = useMemo(
     () => filledDaily.map((day) => trendSegments(day, metric)),
     [filledDaily, metric],
@@ -824,12 +1008,14 @@ function TrendCard({
   }, [dailySegments, totalSeries, effectiveHiddenModels]);
 
   const metricSwitch = (
-    <div className="stats-segmented stats-segmented-sm">
+    <div className="stats-segmented stats-segmented-sm" aria-label={t('stats.metric.selectorLabel')}>
       {(['duration', 'turns', 'tokens'] as TrendMetric[]).map((m) => (
         <button
           key={m}
+          type="button"
           className={`stats-segmented-btn ${metric === m ? 'active' : ''}`}
           onClick={() => onMetricChange(m)}
+          aria-pressed={metric === m}
         >
           {t(`stats.metric.${m}`)}
         </button>
@@ -841,9 +1027,10 @@ function TrendCard({
     return (
       <section className="stats-card stats-trend">
         <div className="stats-card-head">
-          <h3 className="stats-card-title">{t('stats.view.trend')}</h3>
+          <h3 className="stats-card-title">{t(metric === 'tokens' ? 'stats.view.dailyTokens' : 'stats.view.trend')}</h3>
           {metricSwitch}
         </div>
+        {metric === 'tokens' && <TokenCoverageNote coverage={tokenCoverage} />}
         <div className="stats-rank-empty stats-trend-empty">{t('stats.noDataInRange')}</div>
       </section>
     );
@@ -874,8 +1061,27 @@ function TrendCard({
       return next;
     });
   };
+  const showTooltip = (anchorX: number, anchorY: number, day: DailyRow, segments: TrendSegment[]) => {
+    cancelTooltipClose();
+    setTooltip({ anchorX, anchorY, day, segments });
+  };
   const moveTooltip = (e: ReactMouseEvent<SVGRectElement>, day: DailyRow, segments: TrendSegment[]) => {
-    setTooltip({ x: e.clientX + 12, y: e.clientY + 12, day, segments });
+    showTooltip(e.clientX, e.clientY, day, segments);
+  };
+  const focusDay = (index: number) => {
+    const nextIndex = Math.max(0, Math.min(index, filledDaily.length - 1));
+    setFocusedDayIndex(nextIndex);
+    dayHitboxRefs.current[nextIndex]?.focus();
+  };
+  const handleDayKeyDown = (event: ReactKeyboardEvent<SVGRectElement>, index: number) => {
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowLeft') nextIndex = index - 1;
+    if (event.key === 'ArrowRight') nextIndex = index + 1;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = filledDaily.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    focusDay(nextIndex);
   };
   const formatModelLabel = (modelId: string) => {
     if (isUnknownModelLabel(modelId)) return t('stats.unknownModel');
@@ -887,15 +1093,18 @@ function TrendCard({
   return (
     <section className="stats-card stats-trend">
       <div className="stats-card-head">
-        <h3 className="stats-card-title">{t('stats.view.trend')}</h3>
+        <h3 className="stats-card-title">{t(metric === 'tokens' ? 'stats.view.dailyTokens' : 'stats.view.trend')}</h3>
         {metricSwitch}
       </div>
+      {metric === 'tokens' && <TokenCoverageNote coverage={tokenCoverage} />}
       <div className="stats-trend-chart-wrap" ref={wrapRef}>
         <svg
           width={virtualWidth}
           height={height}
           viewBox={`0 0 ${virtualWidth} ${height}`}
           className="stats-trend-chart"
+          role="group"
+          aria-label={t('stats.trend.chartAriaLabel')}
         >
           <text x={4} y={padding.top + 4} className="stats-trend-axis">{formatTrendValue(max, metric)}</text>
           <text x={virtualWidth - padding.right} y={padding.top + 4} textAnchor="end" className="stats-trend-axis stats-trend-axis-unit">
@@ -982,15 +1191,32 @@ function TrendCard({
           {filledDaily.map((day, idx) => (
             <g key={day.date}>
               <rect
+                ref={(node) => { dayHitboxRefs.current[idx] = node; }}
                 x={padding.left + idx * colWidth}
                 y={padding.top}
                 width={colWidth}
                 height={innerHeight}
                 fill="transparent"
                 className="stats-trend-hitbox"
+                tabIndex={idx === focusedDayIndex ? 0 : -1}
+                role="img"
+                aria-label={t('stats.trend.dayAriaLabel', {
+                  date: day.date,
+                  metric: t(`stats.metric.${metric}`),
+                  value: formatTrendValue(pickTrendValue(day, metric), metric),
+                })}
                 onMouseEnter={(e) => { setHoverIdx(idx); moveTooltip(e, day, dailySegments[idx]); }}
                 onMouseMove={(e) => { setHoverIdx(idx); moveTooltip(e, day, dailySegments[idx]); }}
-                onMouseLeave={() => { setHoverIdx(null); setTooltip(null); }}
+                onMouseLeave={closeTooltipSoon}
+                onFocus={(e) => {
+                  cancelTooltipClose();
+                  setFocusedDayIndex(idx);
+                  setHoverIdx(idx);
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  showTooltip(rect.left + rect.width / 2, rect.top + rect.height / 2, day, dailySegments[idx]);
+                }}
+                onBlur={closeTooltipSoon}
+                onKeyDown={(event) => handleDayKeyDown(event, idx)}
               />
               <text x={xAt(idx)} y={height - 8} textAnchor="middle" className="stats-trend-tick">{day.date.slice(5)}</text>
             </g>
@@ -1021,17 +1247,33 @@ function TrendCard({
         ))}
       </div>
       {tooltip && (
-        <div className="stats-trend-tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
+        <div
+          ref={tooltipRef}
+          className="stats-trend-tooltip"
+          role="status"
+          style={{ left: tooltip.anchorX + 12, top: tooltip.anchorY + 12 }}
+          tabIndex={-1}
+          onMouseEnter={cancelTooltipClose}
+          onMouseLeave={closeTooltipSoon}
+          onFocus={cancelTooltipClose}
+          onBlur={closeTooltipSoon}
+        >
           <div className="stats-trend-tooltip-title">{tooltip.day.date}</div>
-          <div className="stats-trend-tooltip-row">
-            <span>{t(`stats.metric.${metric}`)}</span>
-            <strong>{formatTrendValue(pickTrendValue(tooltip.day, metric), metric)}</strong>
-          </div>
+          {metric === 'tokens' ? (
+            <TokenDetails tokens={tooltip.day.tokens} />
+          ) : (
+            <div className="stats-trend-tooltip-row">
+              <span>{t(`stats.metric.${metric}`)}</span>
+              <strong>{formatTrendValue(pickTrendValue(tooltip.day, metric), metric)}</strong>
+            </div>
+          )}
           <div className="stats-trend-tooltip-row">
             <span>{t('stats.table.turns')}</span>
             <strong>{formatStatsCount(tooltip.day.turnCount)}</strong>
           </div>
+          {metric === 'tokens' && <TokenCoverageNote coverage={computeTokenCoverage([tooltip.day])} compact />}
           <div className="stats-trend-tooltip-divider" />
+          {metric === 'tokens' && <div className="stats-trend-tooltip-section">{t('stats.tokens.modelBreakdown')}</div>}
           {tooltip.segments.length === 0 ? (
             <div className="stats-trend-tooltip-muted">{t('stats.noDataInRange')}</div>
           ) : tooltip.segments.map((seg) => (

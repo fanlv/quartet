@@ -89,6 +89,345 @@ enum AgentUsageCache {
     }
 }
 
+/// 用量窗口的短标签：聊天页用量条和“选择 Agent”弹窗副标题共用同一套推导规则。
+extension AgentUsageWindow {
+    /// 窗口长度（5h / 7d）。上游没给窗口长度（如 Kimi 的累计额度池）时返回空串，
+    /// 由调用方决定怎么退化。
+    var durationLabel: String {
+        guard limitWindowSeconds > 0 else { return "" }
+        if limitWindowSeconds % 86_400 == 0 { return "\(limitWindowSeconds / 86_400)d" }
+        if limitWindowSeconds % 3_600 == 0 { return "\(limitWindowSeconds / 3_600)h" }
+        if limitWindowSeconds % 60 == 0 { return "\(limitWindowSeconds / 60)m" }
+        return "\(limitWindowSeconds)s"
+    }
+
+    var percentLabel: String { "\(Int(usedPercent.rounded()))%" }
+
+    /// “窗口长度 + 已用百分比”，窗口长度未知时只留百分比。
+    var usageLabel: String {
+        let duration = durationLabel
+        return duration.isEmpty ? percentLabel : "\(duration) \(percentLabel)"
+    }
+}
+
+/// 用量数字的统一格式化入口。
+enum AgentUsageFormat {
+    static func money(_ value: Double) -> String { String(format: "$%.2f", value) }
+
+    static func credits(_ value: Double) -> String {
+        value.rounded() == value ? String(Int64(value)) : String(format: "%.1f", value)
+    }
+
+    /// 去掉首尾空白，空串按“没有值”处理。
+    static func trimmed(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
+}
+
+/// “选择 Agent”弹窗里一行的版本 + 用量副标题。`isFailure` 时整行按警示色渲染。
+struct AgentUsageSummaryLine: Equatable, Sendable {
+    let text: String
+    let isFailure: Bool
+}
+
+/// “选择 Agent”弹窗副标题（版本号 + Usage）的数据源。
+///
+/// 弹窗一次要显示所有 Agent，而版本号要 exec 一次 CLI、用量还可能在宿主机上拉起进程，
+/// 所以策略是：先用聊天页用量条留下的本地缓存立即出字，再按 provider 去重、限并发刷新，
+/// 同一个命令在 `refreshInterval` 内不重复探测。换服务地址时内存态整体作废。
+@MainActor
+final class AgentUsageSummaryStore: ObservableObject {
+    /// 节流与内存缓存要跨弹窗多次打开复用，所以是全局单例。
+    static let shared = AgentUsageSummaryStore()
+
+    /// 单个 Agent 命令的探测结果。有 provider 的 Agent 版本号来自用量响应，
+    /// 其余 Agent 只读版本接口。
+    struct Entry: Sendable {
+        var usage: AgentUsageResponse?
+        var version = ""
+        var loading = false
+        var failure: APIError?
+    }
+
+    private struct ProbeTarget: Sendable {
+        let command: String
+        let displayName: String
+    }
+
+    /// 一次探测：要么按 provider 拉用量（映射到同一 provider 的命令共用一次请求），
+    /// 要么按命令读 CLI 版本。
+    private struct ProbeJob: Sendable {
+        let provider: AgentUsageProvider?
+        let commands: [String]
+
+        var versionCommand: String { commands[0] }
+    }
+
+    private struct ProbeResult: Sendable {
+        let job: ProbeJob
+        let usage: AgentUsageResponse?
+        let version: String?
+        let failure: APIError?
+    }
+
+    private static let refreshInterval: TimeInterval = 60
+    /// 探测都落在宿主机上，放开并发会同时 fork 出一堆 CLI 进程。
+    private static let maxConcurrentProbes = 3
+
+    @Published private(set) var entries: [String: Entry] = [:]
+
+    private var lastProbedAt: [String: Date] = [:]
+    private var inFlight: Set<String> = []
+    private var namespace = ""
+
+    /// 弹窗打开时调用：先把本地缓存补进内存，再刷新过期的命令。
+    func refresh(agents: [AgentSummary], namespace: String, client: APIClient) async {
+        if namespace != self.namespace {
+            self.namespace = namespace
+            entries = [:]
+            lastProbedAt = [:]
+        }
+
+        let targets = probeTargets(agents)
+        restoreCache(targets)
+
+        let jobs = plannedJobs(targets)
+        guard !jobs.isEmpty else { return }
+        beginProbing(jobs)
+        defer { endProbing(jobs) }
+        await runProbes(jobs, client: client)
+    }
+
+    /// 副标题文本。没有任何可显示内容（既没缓存也没在读）时返回 nil，行内不占位。
+    func summary(command: String, displayName: String) -> AgentUsageSummaryLine? {
+        guard let entry = entries[command] else { return nil }
+
+        var parts: [String] = []
+        if let provider = AgentUsageProvider.resolve(command: command, displayName: displayName),
+           let usage = entry.usage {
+            parts = Self.usageParts(provider: provider, usage: usage)
+        } else if let version = AgentUsageFormat.trimmed(entry.version) {
+            parts = [version]
+        }
+
+        if parts.isEmpty {
+            if entry.loading {
+                return AgentUsageSummaryLine(text: "正在读取版本与用量…".localizedForApp, isFailure: false)
+            }
+            if let failure = entry.failure {
+                return AgentUsageSummaryLine(
+                    text: "\("版本与用量读取失败".localizedForApp)：\(failure.summary)",
+                    isFailure: true
+                )
+            }
+            return nil
+        }
+
+        // 有旧数据时刷新失败不清空，改成在行尾标一下，避免把已经读到的信息又抹掉。
+        if entry.failure != nil { parts.append("⚠︎ \("刷新失败".localizedForApp)") }
+        return AgentUsageSummaryLine(text: parts.joined(separator: " · "), isFailure: false)
+    }
+
+    private func probeTargets(_ agents: [AgentSummary]) -> [ProbeTarget] {
+        var seen: Set<String> = []
+        var targets: [ProbeTarget] = []
+        // 只探测可用的 Agent：不可用的行本身已经写着不可用原因，再探测一次只会白等超时。
+        for agent in agents where agent.available && !agent.type.isEmpty {
+            guard seen.insert(agent.type).inserted else { continue }
+            targets.append(
+                ProbeTarget(
+                    command: agent.type,
+                    displayName: agent.displayName.isEmpty ? agent.type : agent.displayName
+                )
+            )
+        }
+        return targets
+    }
+
+    private func restoreCache(_ targets: [ProbeTarget]) {
+        for target in targets where entries[target.command] == nil {
+            var entry = Entry()
+            if let provider = AgentUsageProvider.resolve(command: target.command, displayName: target.displayName) {
+                entry.usage = AgentUsageCache.usage(provider: provider, namespace: namespace)
+            } else {
+                entry.version = AgentUsageCache.version(command: target.command, namespace: namespace)
+            }
+            entries[target.command] = entry
+        }
+    }
+
+    /// 按 provider（没有 provider 时按命令）分组，只保留还需要刷新的那几组。
+    private func plannedJobs(_ targets: [ProbeTarget]) -> [ProbeJob] {
+        var keys: [String] = []
+        var providers: [String: AgentUsageProvider?] = [:]
+        var commands: [String: [String]] = [:]
+
+        for target in targets {
+            let provider = AgentUsageProvider.resolve(command: target.command, displayName: target.displayName)
+            let key = provider.map { "usage:\($0.rawValue)" } ?? "version:\(target.command)"
+            if commands[key] == nil {
+                keys.append(key)
+                providers[key] = provider
+                commands[key] = []
+            }
+            if !(commands[key] ?? []).contains(target.command) {
+                commands[key]?.append(target.command)
+            }
+        }
+
+        return keys.compactMap { key in
+            guard let list = commands[key], !list.isEmpty else { return nil }
+            guard !list.contains(where: inFlight.contains) else { return nil }
+            guard list.contains(where: isDue) else { return nil }
+            return ProbeJob(provider: providers[key] ?? nil, commands: list)
+        }
+    }
+
+    private func isDue(_ command: String) -> Bool {
+        guard let stamp = lastProbedAt[command] else { return true }
+        return Date().timeIntervalSince(stamp) >= Self.refreshInterval
+    }
+
+    private func beginProbing(_ jobs: [ProbeJob]) {
+        for command in jobs.flatMap(\.commands) {
+            inFlight.insert(command)
+            var entry = entries[command] ?? Entry()
+            entry.loading = true
+            entries[command] = entry
+        }
+    }
+
+    private func endProbing(_ jobs: [ProbeJob]) {
+        for command in jobs.flatMap(\.commands) {
+            inFlight.remove(command)
+            guard var entry = entries[command] else { continue }
+            entry.loading = false
+            entries[command] = entry
+        }
+    }
+
+    private func runProbes(_ jobs: [ProbeJob], client: APIClient) async {
+        var next = 0
+        await withTaskGroup(of: ProbeResult.self) { group in
+            while next < jobs.count, next < Self.maxConcurrentProbes {
+                let job = jobs[next]
+                group.addTask { await Self.probe(job: job, client: client) }
+                next += 1
+            }
+            while let result = await group.next() {
+                apply(result)
+                guard !Task.isCancelled, next < jobs.count else { continue }
+                let job = jobs[next]
+                group.addTask { await Self.probe(job: job, client: client) }
+                next += 1
+            }
+        }
+    }
+
+    private nonisolated static func probe(job: ProbeJob, client: APIClient) async -> ProbeResult {
+        do {
+            if let provider = job.provider {
+                let response = try await client.agentUsage(provider: provider.rawValue)
+                return ProbeResult(job: job, usage: response, version: nil, failure: nil)
+            }
+            let response = try await client.agentVersion(command: job.versionCommand)
+            return ProbeResult(
+                job: job,
+                usage: nil,
+                version: response.version?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                failure: nil
+            )
+        } catch let error as APIError {
+            return ProbeResult(job: job, usage: nil, version: nil, failure: error)
+        } catch {
+            return ProbeResult(
+                job: job,
+                usage: nil,
+                version: nil,
+                failure: APIError(summary: "Agent 用量加载失败", detail: String(describing: error))
+            )
+        }
+    }
+
+    private func apply(_ result: ProbeResult) {
+        for command in result.job.commands {
+            var entry = entries[command] ?? Entry()
+            entry.loading = false
+            entry.failure = result.failure
+            if let usage = result.usage { entry.usage = usage }
+            if let version = result.version { entry.version = version }
+            entries[command] = entry
+            // 失败不占用节流窗口：下次打开弹窗仍然重试，成功了才开始计时。
+            lastProbedAt[command] = result.failure == nil ? Date() : nil
+        }
+
+        // 成功结果写回和聊天页用量条共用的本地缓存。
+        if let provider = result.job.provider, let usage = result.usage {
+            AgentUsageCache.setUsage(usage, provider: provider, namespace: namespace)
+        }
+        if let version = result.version {
+            AgentUsageCache.setVersion(version, command: result.job.versionCommand, namespace: namespace)
+        }
+    }
+
+    /// 每个 provider 的摘要片段：版本号在前，后面按“压力最直观”的顺序排用量。
+    private static func usageParts(provider: AgentUsageProvider, usage: AgentUsageResponse) -> [String] {
+        switch provider {
+        case .codex:
+            guard let value = usage.codex else { return [] }
+            var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
+            if let window = value.primaryWindow { parts.append(window.usageLabel) }
+            if let window = value.secondaryWindow { parts.append(window.usageLabel) }
+            if value.resetCredits > 0 {
+                parts.append("\("重置额度".localizedForApp) \(value.resetCredits)")
+            }
+            return parts
+        case .claude:
+            guard let value = usage.claude else { return [] }
+            var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
+            parts.append("\("今日".localizedForApp) \(AgentUsageFormat.money(value.todayCost))")
+            parts.append("\("累计".localizedForApp) \(AgentUsageFormat.money(value.totalCost))")
+            return parts
+        case .antigravity:
+            guard let value = usage.antigravity else { return [] }
+            var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
+            // agy 的窗口不带 limit_window_seconds，5h / 7d 由 bucket 本身的语义写死。
+            let claude = [("5h", value.claude5h), ("7d", value.claudeWeekly)]
+            let gemini = [("5h", value.gemini5h), ("7d", value.geminiWeekly)]
+            if let group = Self.windowGroup("Claude", claude) { parts.append(group) }
+            if let group = Self.windowGroup("Gemini", gemini) { parts.append(group) }
+            return parts
+        case .kimi:
+            guard let value = usage.kimi else { return [] }
+            var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
+            if let window = value.fiveHour { parts.append(window.usageLabel) }
+            if let window = value.weekly { parts.append(window.usageLabel) }
+            if let window = value.total {
+                parts.append("\("累计".localizedForApp) \(window.percentLabel)")
+            }
+            return parts
+        case .qoder:
+            guard let value = usage.qoder else { return [] }
+            var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
+            parts.append(
+                "\("已用".localizedForApp) \(AgentUsageFormat.credits(value.used))"
+                    + "/\(AgentUsageFormat.credits(value.total))"
+            )
+            if value.quotaExceeded { parts.append("额度已用尽".localizedForApp) }
+            return parts
+        }
+    }
+
+    private static func windowGroup(_ mark: String, _ windows: [(String, AgentUsageWindow?)]) -> String? {
+        let labels = windows.compactMap { item -> String? in
+            guard let window = item.1 else { return nil }
+            return "\(item.0) \(window.percentLabel)"
+        }
+        return labels.isEmpty ? nil : "\(mark) \(labels.joined(separator: " / "))"
+    }
+}
+
 struct AgentUsageDetail: Identifiable {
     let id = UUID()
     let title: String
@@ -250,7 +589,7 @@ struct AgentUsageStrip: View {
                     percent: window.usedPercent,
                     color: usageColor(window.usedPercent),
                     detail: AgentUsageDetail(
-                        title: "累计额度 \(Int(window.usedPercent.rounded()))%",
+                        title: "累计额度 \(window.percentLabel)",
                         lines: value.parallelLimit.map { ["并发上限 \($0)"] } ?? []
                     )
                 )
@@ -345,7 +684,7 @@ struct AgentUsageStrip: View {
             percent: window.usedPercent,
             color: usageColor(window.usedPercent),
             detail: AgentUsageDetail(
-                title: "\(label) \(Int(window.usedPercent.rounded()))%",
+                title: "\(label) \(window.percentLabel)",
                 lines: ["\(formatReset(window)) 重置"]
             )
         )
@@ -414,11 +753,8 @@ struct AgentUsageStrip: View {
     }
 
     private func windowLabel(_ window: AgentUsageWindow) -> String {
-        let seconds = window.limitWindowSeconds
-        if seconds > 0, seconds % 86_400 == 0 { return "\(seconds / 86_400)d" }
-        if seconds > 0, seconds % 3_600 == 0 { return "\(seconds / 3_600)h" }
-        if seconds > 0, seconds % 60 == 0 { return "\(seconds / 60)m" }
-        return "\(max(0, seconds))s"
+        let label = window.durationLabel
+        return label.isEmpty ? "\(max(0, window.limitWindowSeconds))s" : label
     }
 
     private func formatReset(_ window: AgentUsageWindow) -> String {
@@ -450,16 +786,11 @@ struct AgentUsageStrip: View {
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(unixSeconds)))
     }
 
-    private func money(_ value: Double) -> String { String(format: "$%.2f", value) }
+    private func money(_ value: Double) -> String { AgentUsageFormat.money(value) }
 
-    private func credits(_ value: Double) -> String {
-        value.rounded() == value ? String(Int64(value)) : String(format: "%.1f", value)
-    }
+    private func credits(_ value: Double) -> String { AgentUsageFormat.credits(value) }
 
-    private func displayValue(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
-        return value
-    }
+    private func displayValue(_ value: String?) -> String? { AgentUsageFormat.trimmed(value) }
 }
 
 struct WrappingHStack: Layout {

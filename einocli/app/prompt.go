@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
@@ -29,6 +30,8 @@ const maxImageBytes = 32 * 1024 * 1024
 // imageTagRe matches the `![image](<path>)` tags the quartet client embeds in
 // prompt text. The captured path is trimmed before use.
 var imageTagRe = regexp.MustCompile(`!\[image\]\(([^)]+)\)`)
+
+const promptErrorUsageKey = "quartetPromptUsage"
 
 // Prompt runs one prompt turn: build the user message (text + images),
 // get-or-create the session runtime, stream the run as session/update
@@ -66,15 +69,97 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	// events (interrupted placeholders, final usage) still flow after cancel.
 	translator := newEventTranslator(context.WithoutCancel(promptCtx), a.agentConn, st.meta.SessionID)
 
-	runErr := rt.Run(promptCtx, []*schema.Message{msg}, translator)
+	usage, runErr := rt.RunWithUsage(promptCtx, []*schema.Message{msg}, translator)
+	promptUsage, usageErr := addSessionPromptUsage(st, usage)
 	if promptCtx.Err() != nil || errors.Is(runErr, context.Canceled) {
-		return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
+		if usageErr != nil {
+			logger.Errorf(context.WithoutCancel(ctx), "[acp] persist cumulative usage after cancelled prompt failed: session=%s err=%v", st.meta.SessionID, usageErr)
+		}
+		return acp.PromptResponse{
+			StopReason: acp.StopReasonCancelled,
+			Usage:      promptUsage,
+		}, nil
 	}
 	if runErr != nil {
+		if usageErr != nil {
+			runErr = fmt.Errorf("%w; additionally, %v", runErr, usageErr)
+		}
 		// Full error text: the client shows it to the user verbatim.
+		// JSON-RPC error responses cannot also carry PromptResponse.Usage. Put
+		// any partial provider accounting in error.data so the Quartet ACP
+		// client can recover it without weakening or replacing the original
+		// error message. Other ACP clients safely ignore this vendor field.
+		if promptUsage != nil {
+			return acp.PromptResponse{}, acp.ErrInternalError(runErr.Error(), map[string]any{
+				promptErrorUsageKey: promptUsage,
+			})
+		}
 		return acp.PromptResponse{}, acp.ErrInternalError(runErr.Error(), nil)
 	}
-	return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
+	if usageErr != nil {
+		return acp.PromptResponse{}, acp.ErrInternalError(usageErr.Error(), map[string]any{
+			promptErrorUsageKey: promptUsage,
+		})
+	}
+	return acp.PromptResponse{
+		StopReason: acp.StopReasonEndTurn,
+		Usage:      promptUsage,
+	}, nil
+}
+
+func addSessionPromptUsage(st *sessionState, usage *runtime.ProviderUsage) (*acp.Usage, error) {
+	if usage == nil {
+		return nil, nil
+	}
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	previousPersisted := st.meta.ProviderUsage
+	previous := previousPersisted
+	if previous == nil {
+		previous = &sessionProviderUsage{}
+	}
+	next := &sessionProviderUsage{
+		InputTokens:      saturatingUsageAdd(previous.InputTokens, usage.InputTokens),
+		OutputTokens:     saturatingUsageAdd(previous.OutputTokens, usage.OutputTokens),
+		TotalTokens:      saturatingUsageAdd(previous.TotalTokens, usage.TotalTokens),
+		CachedReadTokens: saturatingUsageAdd(previous.CachedReadTokens, usage.CachedReadTokens),
+		ThoughtTokens:    saturatingUsageAdd(previous.ThoughtTokens, usage.ThoughtTokens),
+	}
+	st.meta.ProviderUsage = next
+	st.meta.UpdatedAt = time.Now().Unix()
+	promptUsage := &acp.Usage{
+		InputTokens:      next.InputTokens,
+		OutputTokens:     next.OutputTokens,
+		TotalTokens:      next.TotalTokens,
+		CachedReadTokens: optionalCount(next.CachedReadTokens),
+		ThoughtTokens:    optionalCount(next.ThoughtTokens),
+	}
+	if err := writeMetaLocked(st.dir, st.meta); err != nil {
+		// Keep the in-memory counter monotonic so a transient disk failure does
+		// not make the next response go backwards. The caller still surfaces
+		// the persistence error, while returning this cumulative sample in
+		// error.data so Quartet can advance its per-session cursor exactly once.
+		return promptUsage, fmt.Errorf("persist cumulative prompt usage failed: %w", err)
+	}
+	return promptUsage, nil
+}
+
+func saturatingUsageAdd(left, right int64) int64 {
+	left = max(0, left)
+	right = max(0, right)
+	if left > math.MaxInt64-right {
+		return math.MaxInt64
+	}
+	return left + right
+}
+
+func optionalCount(value int64) *int64 {
+	if value == 0 {
+		return nil
+	}
+	return &value
 }
 
 // extractPromptText concatenates the text of every text block, ignoring

@@ -44,17 +44,46 @@ struct SettingsView: View {
                     .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
 
-                    VStack(spacing: 0) {
-                        if model.can("agent.read") {
-                            NavigationLink {
-                                AgentManagementView()
-                            } label: {
-                                settingsRow("Agent 管理", icon: "cpu")
+                    if model.can("agent.read") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Agent 管理")
+                                .font(.quartet(.detail, weight: .bold))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                                .padding(.horizontal, 4)
+
+                            VStack(spacing: 0) {
+                                agentManagementLink(
+                                    title: "目录",
+                                    icon: "square.grid.2x2",
+                                    identifier: "settings-agent-catalog"
+                                ) { AgentCatalogSettingsView() }
+                                if model.can("config.read") {
+                                    settingsDivider
+                                    agentManagementLink(
+                                        title: "环境变量",
+                                        icon: "key",
+                                        identifier: "settings-agent-environment"
+                                    ) { AgentEnvSettingsView() }
+                                    settingsDivider
+                                    agentManagementLink(
+                                        title: "默认参数",
+                                        icon: "slider.horizontal.3",
+                                        identifier: "settings-agent-defaults"
+                                    ) { AgentDefaultsSettingsView() }
+                                    settingsDivider
+                                    agentManagementLink(
+                                        title: "角色分工",
+                                        icon: "person.2.badge.gearshape",
+                                        identifier: "settings-agent-roles"
+                                    ) { AgentRoleSettingsView() }
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("settings-agent-management")
-                            Divider().overlay(QuartetTheme.divider).padding(.leading, 54)
+                            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
                         }
+                    }
+
+                    VStack(spacing: 0) {
                         Button { showsLanguagePicker = true } label: {
                             HStack(spacing: 14) {
                                 Image(systemName: "globe").frame(width: 22)
@@ -171,6 +200,25 @@ struct SettingsView: View {
         .padding(.horizontal, 16)
         .frame(height: 54)
         .contentShape(Rectangle())
+    }
+
+    private var settingsDivider: some View {
+        Divider().overlay(QuartetTheme.divider).padding(.leading, 54)
+    }
+
+    private func agentManagementLink<Destination: View>(
+        title: String,
+        icon: String,
+        identifier: String,
+        @ViewBuilder destination: () -> Destination
+    ) -> some View {
+        NavigationLink {
+            AgentSettingsDestination(title: title, content: destination)
+        } label: {
+            settingsRow(title, icon: icon)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
 }
 

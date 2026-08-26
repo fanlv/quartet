@@ -47,6 +47,57 @@
   gap: 7px;
 }
 
+.agent-upgrade-all-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-color: #d97706;
+  color: #78350f;
+  background: #fef3c7;
+  font-weight: 600;
+}
+
+.agent-upgrade-all-btn:hover:not(:disabled) {
+  border-color: #b45309;
+  background: #fde68a;
+}
+
+.agent-upgrade-all-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.agent-batch-upgrade-progress {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 11px 13px;
+  border: 1px solid #f3cf73;
+  border-radius: 8px;
+  color: #78350f;
+  background: #fffbeb;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-batch-upgrade-progress > .agent-check-spinner {
+  margin-top: 2px;
+}
+
+.agent-batch-upgrade-progress > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-batch-upgrade-progress code {
+  color: #9a5b12;
+  font-size: 11px;
+  word-break: break-all;
+}
+
 .agent-directory-list {
   border-top: 1px solid #e5e5e5;
 }
@@ -766,6 +817,11 @@
 .agent-upgrade-btn:hover:not(:disabled) {
   border-color: #b45309;
   background: #fef3c7;
+}
+
+.agent-upgrade-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 .agent-install-method.method-custom {

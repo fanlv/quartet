@@ -30,6 +30,20 @@ private struct AgentCatalogBusy: Equatable {
     let action: AgentCatalogAction
 }
 
+private struct AgentCatalogBatchProgress: Equatable {
+    let completed: Int
+    let total: Int
+    let currentName: String
+}
+
+private struct AgentCatalogActionFailure: Identifiable {
+    let agentId: String
+    let displayName: String
+    let detail: String
+
+    var id: String { agentId }
+}
+
 /// 一次安装 / 升级 / 卸载的完整结果。刷新目录后仍然保留，方便继续查看步骤输出。
 private struct AgentCatalogActionResult: Identifiable {
     let id = UUID()
@@ -86,16 +100,9 @@ private struct AgentCatalogCheckFeedback {
 /// 需要二次确认的目录操作。确认弹窗只携带意图，真正的执行留在页面里。
 private enum AgentCatalogIntent: Hashable {
     case upgrade(agentId: String)
+    case upgradeAll(agentIds: [String])
     case uninstall(agentId: String)
     case delete(agentId: String, force: Bool)
-
-    var agentId: String {
-        switch self {
-        case .upgrade(let agentId): agentId
-        case .uninstall(let agentId): agentId
-        case .delete(let agentId, _): agentId
-        }
-    }
 }
 
 private struct AgentCatalogConfirmation: Identifiable, Hashable {
@@ -131,17 +138,21 @@ struct CustomAgentFormState: Identifiable {
 }
 
 private enum AgentCatalogPresentation: Identifiable {
+    case actions(AgentCatalogItem)
     case editor(CustomAgentFormState)
     case confirmation(AgentCatalogConfirmation)
     case result(AgentCatalogActionResult)
     case deleteOutcome(AgentDeleteResult, String)
+    case error(PresentedError)
 
     var id: String {
         switch self {
+        case .actions(let item): "actions-\(item.agentId)"
         case .editor(let form): "editor-\(form.id)"
         case .confirmation(let confirmation): "confirmation-\(confirmation.intent)"
         case .result(let result): "result-\(result.id)"
         case .deleteOutcome(_, let agentId): "delete-outcome-\(agentId)"
+        case .error(let error): "error-\(error.id)"
         }
     }
 }
@@ -160,16 +171,18 @@ struct AgentCatalogSettingsView: View {
     @State private var isCheckingVersions = false
     @State private var versionError = ""
     @State private var busy: AgentCatalogBusy?
+    @State private var batchProgress: AgentCatalogBatchProgress?
     @State private var results: [String: AgentCatalogActionResult] = [:]
+    @State private var actionFailures: [String: AgentCatalogActionFailure] = [:]
     @State private var checkFeedback: [String: AgentCatalogCheckFeedback] = [:]
     @State private var revisions: [String: [AgentRuntimeRevision]] = [:]
     @State private var expandedRevisions: Set<String> = []
     @State private var statusMessage: String?
+    @State private var batchMessage: AgentSettingsMessage?
     @State private var pendingAgentId: String?
-    @State private var actionTarget: AgentCatalogItem?
     @State private var presentation: AgentCatalogPresentation?
+    @State private var presentationIsActive = false
     @State private var pendingPresentation: AgentCatalogPresentation?
-    @State private var error: PresentedError?
 
     private var canManage: Bool { model.can("agent.manage") }
 
@@ -185,16 +198,8 @@ struct AgentCatalogSettingsView: View {
         }
         .background(QuartetTheme.canvas)
         .task { await initialLoad() }
-        .sheet(item: $actionTarget, onDismiss: { promotePendingPresentation() }) { item in
-            actionsSheet(item)
-        }
-        .sheet(item: $presentation) { presentation in
+        .sheet(item: $presentation, onDismiss: { presentationDidDismiss() }) { presentation in
             presentationSheet(presentation)
-        }
-        .sheet(item: $error) {
-            AgentSettingsErrorSheet(error: $0)
-                .presentationDetents([.medium, .large])
-                .quartetSheetStyle()
         }
     }
 
@@ -207,18 +212,18 @@ struct AgentCatalogSettingsView: View {
             pending: pendingAgentId != nil,
             result: results[item.agentId].map { AgentCatalogResultBadge(summary: $0.summary, ok: $0.ok) },
             onInstall: {
-                actionTarget = nil
+                presentation = nil
                 install(item)
             },
             onUpgrade: { requestUpgrade(item) },
             onUninstall: { requestUninstall(item) },
             onRevalidate: {
-                actionTarget = nil
+                presentation = nil
                 revalidate(item)
             },
             onEdit: { queue(.editor(editorForm(item))) },
             onDelete: { force in
-                actionTarget = nil
+                presentation = nil
                 requestDelete(item, force: force)
             },
             onRestore: { queue(.editor(editorForm(item, restore: true))) },
@@ -234,6 +239,8 @@ struct AgentCatalogSettingsView: View {
     @ViewBuilder
     private func presentationSheet(_ presentation: AgentCatalogPresentation) -> some View {
         switch presentation {
+        case .actions(let item):
+            actionsSheet(item)
         case .editor(let form):
             CustomAgentEditorSheet(form: form) { submitted in
                 try await submitCustomAgent(submitted)
@@ -259,6 +266,10 @@ struct AgentCatalogSettingsView: View {
             AgentDeleteOutcomeSheet(outcome: outcome)
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()
+        case .error(let error):
+            AgentSettingsErrorSheet(error: error)
+                .presentationDetents([.medium, .large])
+                .quartetSheetStyle()
         }
     }
 
@@ -274,6 +285,29 @@ struct AgentCatalogSettingsView: View {
                 }
                 if let statusMessage {
                     AgentSettingsMessageView(kind: .success, text: statusMessage)
+                }
+                if let batchMessage {
+                    AgentSettingsMessageView(batchMessage)
+                }
+                if let batchProgress {
+                    AgentSettingsMessageView(
+                        kind: .info,
+                        text: AppLanguage.localizedFormat(
+                            "正在更新 %@（%d/%d）",
+                            batchProgress.currentName,
+                            min(batchProgress.completed + 1, batchProgress.total),
+                            batchProgress.total
+                        )
+                    )
+                    .accessibilityIdentifier("agent-catalog-upgrade-all-progress")
+                }
+                ForEach(actionFailures.keys.sorted(), id: \.self) { agentId in
+                    if let failure = actionFailures[agentId] {
+                        AgentSettingsMessageView(
+                            kind: .failure,
+                            text: "\(failure.displayName)\n\(failure.detail)"
+                        )
+                    }
                 }
                 ForEach(sortedResults) { result in
                     resultBanner(result)
@@ -291,8 +325,17 @@ struct AgentCatalogSettingsView: View {
             .padding(.vertical, 12)
         }
         .refreshable {
+            guard busy == nil, pendingAgentId == nil, batchProgress == nil, !isCheckingVersions else { return }
             await load(showLoading: false)
             await loadVersions(force: false)
+        }
+        .onChange(of: batchProgress) { _, progress in
+            guard UIAccessibility.isVoiceOverRunning, let progress else { return }
+            UIAccessibility.post(notification: .announcement, argument: batchProgressText(progress))
+        }
+        .onChange(of: batchMessage) { _, message in
+            guard UIAccessibility.isVoiceOverRunning, let message else { return }
+            UIAccessibility.post(notification: .announcement, argument: message.text)
         }
     }
 
@@ -301,7 +344,24 @@ struct AgentCatalogSettingsView: View {
     }
 
     private var updatableCount: Int {
-        versions.values.filter(\.updateAvailable).count
+        upgradeCandidates.count
+    }
+
+    private var upgradeCandidates: [AgentCatalogItem] {
+        items.filter { item in
+            guard item.isBuiltin, !item.deprecated, item.installed,
+                  let version = versions[item.agentId] else { return false }
+            return version.updateAvailable && version.upgradeSupported
+        }
+    }
+
+    private func batchProgressText(_ progress: AgentCatalogBatchProgress) -> String {
+        AppLanguage.localizedFormat(
+            "正在更新 %@（%d/%d）",
+            progress.currentName,
+            min(progress.completed + 1, progress.total),
+            progress.total
+        )
     }
 
     // MARK: 工具条
@@ -331,30 +391,52 @@ struct AgentCatalogSettingsView: View {
     }
 
     private var toolbarButtons: some View {
-        HStack(spacing: 10) {
-            Button {
-                Task { await loadVersions(force: true) }
-            } label: {
-                HStack(spacing: 6) {
-                    if isCheckingVersions {
-                        ProgressView().controlSize(.small).tint(QuartetTheme.primaryText)
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Button {
+                    Task { await loadVersions(force: true) }
+                } label: {
+                    HStack(spacing: 6) {
+                        if isCheckingVersions {
+                            ProgressView().controlSize(.small).tint(QuartetTheme.primaryText)
+                        }
+                        Text((isCheckingVersions ? "正在检查更新…" : "检查更新").localizedForApp)
                     }
-                    Text(isCheckingVersions ? "正在检查更新…" : "检查更新")
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 46)
+                    .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-                .font(.quartet(.control, weight: .semibold))
-                .foregroundStyle(QuartetTheme.primaryText)
-                .frame(maxWidth: .infinity)
-                .frame(height: 46)
-                .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .buttonStyle(.plain)
+                .disabled(isCheckingVersions || busy != nil || batchProgress != nil)
+                .opacity(isCheckingVersions || busy != nil || batchProgress != nil ? 0.5 : 1)
+                .accessibilityIdentifier("agent-catalog-check-versions")
+
+                if canManage {
+                    Button { requestUpgradeAll() } label: {
+                        HStack(spacing: 6) {
+                            if batchProgress != nil {
+                                ProgressView().controlSize(.small).tint(QuartetTheme.onAccent)
+                            }
+                            Text((batchProgress == nil ? "更新全部" : "正在更新…").localizedForApp)
+                        }
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.onAccent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(QuartetTheme.warning, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(upgradeCandidates.isEmpty || isCheckingVersions || busy != nil || pendingAgentId != nil || batchProgress != nil)
+                    .opacity(upgradeCandidates.isEmpty || isCheckingVersions || busy != nil || pendingAgentId != nil || batchProgress != nil ? 0.5 : 1)
+                    .accessibilityIdentifier("agent-catalog-upgrade-all")
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(isCheckingVersions || busy != nil)
-            .opacity(isCheckingVersions || busy != nil ? 0.5 : 1)
-            .accessibilityIdentifier("agent-catalog-check-versions")
 
             if canManage {
                 Button {
-                    presentation = .editor(CustomAgentFormState())
+                    present(.editor(CustomAgentFormState()))
                 } label: {
                     Text("新增自定义 Agent")
                         .font(.quartet(.control, weight: .semibold))
@@ -364,6 +446,8 @@ struct AgentCatalogSettingsView: View {
                         .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .disabled(busy != nil || pendingAgentId != nil || batchProgress != nil)
+                .opacity(busy != nil || pendingAgentId != nil || batchProgress != nil ? 0.5 : 1)
                 .accessibilityIdentifier("agent-catalog-add-custom")
             }
         }
@@ -377,8 +461,28 @@ struct AgentCatalogSettingsView: View {
             agentSettingsDivider()
             cardIdentity(item)
             cardDiagnostics(item)
+            if canUpgrade(item) {
+                Button { requestUpgrade(item) } label: {
+                    Label("升级 Agent", systemImage: "arrow.up.circle.fill")
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.onAccent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(QuartetTheme.warning, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(busy != nil || pendingAgentId != nil || batchProgress != nil)
+                .opacity(busy != nil || pendingAgentId != nil || batchProgress != nil ? 0.5 : 1)
+                .accessibilityIdentifier("agent-catalog-upgrade-\(item.agentId)")
+            }
             revisionSection(item)
         }
+    }
+
+    private func canUpgrade(_ item: AgentCatalogItem) -> Bool {
+        guard canManage, item.isBuiltin, !item.deprecated, item.installed,
+              let version = versions[item.agentId] else { return false }
+        return version.updateAvailable && version.upgradeSupported
     }
 
     @ViewBuilder
@@ -398,13 +502,18 @@ struct AgentCatalogSettingsView: View {
                     Spacer(minLength: 0)
                 }
             }
-            Button { actionTarget = item } label: {
+            Button { present(.actions(item)) } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.title3)
                     .foregroundStyle(QuartetTheme.secondaryText)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+            .disabled(busy != nil || pendingAgentId != nil || batchProgress != nil)
+            .opacity(busy != nil || pendingAgentId != nil || batchProgress != nil ? 0.45 : 1)
             .accessibilityLabel(AppLanguage.localizedFormat("%@ 的 Agent 操作", item.displayName))
             .accessibilityIdentifier("agent-catalog-more-\(item.agentId)")
         }
@@ -673,7 +782,7 @@ struct AgentCatalogSettingsView: View {
                     .font(.quartet(.detail, weight: .semibold))
                     .foregroundStyle(tint)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("查看命令输出") { presentation = .result(result) }
+                Button("查看命令输出") { present(.result(result)) }
                     .font(.quartet(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.accent)
                     .buttonStyle(.plain)
@@ -694,24 +803,36 @@ struct AgentCatalogSettingsView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityIdentifier("agent-catalog-result-\(result.agentId)")
     }
 
     // MARK: 弹窗调度
 
     /// 操作弹窗必须先关掉，下一个弹窗才能弹出来，否则 SwiftUI 会吞掉后一个。
     private func queue(_ next: AgentCatalogPresentation) {
-        guard actionTarget != nil else {
-            presentation = next
+        guard presentationIsActive else {
+            present(next)
             return
         }
-        pendingPresentation = next
-        actionTarget = nil
+        if pendingPresentation == nil { pendingPresentation = next }
+        presentation = nil
     }
 
-    private func promotePendingPresentation() {
+    private func present(_ next: AgentCatalogPresentation) {
+        guard !presentationIsActive else {
+            if pendingPresentation == nil { pendingPresentation = next }
+            presentation = nil
+            return
+        }
+        presentationIsActive = true
+        presentation = next
+    }
+
+    private func presentationDidDismiss() {
+        presentationIsActive = false
         guard let pending = pendingPresentation else { return }
         pendingPresentation = nil
-        presentation = pending
+        present(pending)
     }
 
     private func editorForm(_ item: AgentCatalogItem, restore: Bool = false) -> CustomAgentFormState {
@@ -740,11 +861,7 @@ struct AgentCatalogSettingsView: View {
         if showLoading { isLoading = true }
         loadError = ""
         do {
-            let client = try model.apiClient()
-            async let active = client.agentCatalogItems()
-            async let deleted = client.deletedAgentCatalogItems()
-            let (activeResponse, deletedResponse) = try await (active, deleted)
-            items = (activeResponse.agents ?? []) + (deletedResponse.agents ?? [])
+            items = try await model.managedAgentCatalogItems()
         } catch {
             loadError = agentSettingsErrorDetail(error)
         }
@@ -752,16 +869,19 @@ struct AgentCatalogSettingsView: View {
     }
 
     private func loadVersions(force: Bool) async {
+        guard !isCheckingVersions else { return }
         isCheckingVersions = true
         versionError = ""
         do {
-            let response = try await model.apiClient().agentVersionCheck(force: force)
+            let response = try await model.managedAgentVersions(force: force)
             versions = Dictionary(
                 (response.agents ?? []).map { ($0.agentId, $0) },
                 uniquingKeysWith: { _, latest in latest }
             )
             versionsCheckedAt = response.checkedAt
         } catch {
+            versions = [:]
+            versionsCheckedAt = nil
             versionError = agentSettingsErrorDetail(error)
         }
         isCheckingVersions = false
@@ -773,24 +893,28 @@ struct AgentCatalogSettingsView: View {
             let response = try await model.apiClient().agentCatalogDetail(agentID: agentId)
             revisions[agentId] = response.revisions ?? []
         } catch {
-            self.error = agentSettingsPresentedError(error, summary: "读取修订历史失败")
+            presentError(error, summary: "读取修订历史失败")
         }
     }
 
     // MARK: 安装 / 升级 / 卸载
 
     private func perform(_ intent: AgentCatalogIntent) {
-        guard let item = items.first(where: { $0.agentId == intent.agentId }) else { return }
         switch intent {
-        case .upgrade:
+        case .upgrade(let agentId):
+            guard let item = items.first(where: { $0.agentId == agentId }) else { return }
             runInstallAction(item, action: .upgrade) { client in
-                try await client.upgradeAgent(agentID: item.agentId)
+                try await model.upgradeManagedAgent(agentID: item.agentId, client: client)
             }
-        case .uninstall:
+        case .upgradeAll(let agentIds):
+            runUpgradeAll(agentIds: agentIds)
+        case .uninstall(let agentId):
+            guard let item = items.first(where: { $0.agentId == agentId }) else { return }
             runInstallAction(item, action: .uninstall) { client in
                 try await client.uninstallAgent(agentID: item.agentId)
             }
-        case .delete(_, let force):
+        case .delete(let agentId, let force):
+            guard let item = items.first(where: { $0.agentId == agentId }) else { return }
             performDelete(item, force: force)
         }
     }
@@ -819,6 +943,26 @@ struct AgentCatalogSettingsView: View {
         )))
     }
 
+    private func requestUpgradeAll() {
+        let candidates = upgradeCandidates
+        guard !candidates.isEmpty else { return }
+        let names = candidates
+            .map { "• \($0.displayName.isEmpty ? $0.agentId : $0.displayName)" }
+            .joined(separator: "\n")
+        queue(.confirmation(AgentCatalogConfirmation(
+            intent: .upgradeAll(agentIds: candidates.map(\.agentId)),
+            title: "更新全部 Agent？",
+            message: AppLanguage.localizedFormat(
+                "将按顺序更新以下 %d 个 Agent；单个 Agent 失败时会保留完整结果并继续更新其余项目：\n\n%@",
+                candidates.count,
+                names
+            ),
+            confirmTitle: "确认全部更新",
+            cancelTitle: "关闭",
+            destructive: false
+        )))
+    }
+
     private func requestUninstall(_ item: AgentCatalogItem) {
         queue(.confirmation(AgentCatalogConfirmation(
             intent: .uninstall(agentId: item.agentId),
@@ -838,9 +982,12 @@ struct AgentCatalogSettingsView: View {
         action: AgentCatalogAction,
         request: @escaping @Sendable (APIClient) async throws -> AgentInstallResponse
     ) {
-        guard busy == nil else { return }
+        guard busy == nil, pendingAgentId == nil, batchProgress == nil else { return }
         busy = AgentCatalogBusy(agentId: item.agentId, action: action)
         statusMessage = nil
+        batchMessage = nil
+        actionFailures.removeValue(forKey: item.agentId)
+        results.removeValue(forKey: item.agentId)
         let displayName = item.displayName.isEmpty ? item.agentId : item.displayName
         let agentId = item.agentId
         Task { @MainActor in
@@ -862,17 +1009,102 @@ struct AgentCatalogSettingsView: View {
                     action: action,
                     result: result
                 )
-                busy = nil
                 await load(showLoading: false)
                 await loadVersions(force: true)
                 await model.refreshAgentCatalog()
+                busy = nil
             } catch {
                 busy = nil
-                self.error = agentSettingsPresentedError(
-                    error,
-                    summary: AppLanguage.localizedFormat("%@ Agent 失败", action.name)
+                results.removeValue(forKey: agentId)
+                presentError(error, summary: AppLanguage.localizedFormat("%@ Agent 失败", action.name))
+            }
+        }
+    }
+
+    private func runUpgradeAll(agentIds: [String]) {
+        guard busy == nil, pendingAgentId == nil, batchProgress == nil else { return }
+        let candidates = agentIds.compactMap { agentId in
+            items.first { $0.agentId == agentId }
+        }
+        guard !candidates.isEmpty else { return }
+
+        let firstName = candidates[0].displayName.isEmpty ? candidates[0].agentId : candidates[0].displayName
+        batchProgress = AgentCatalogBatchProgress(completed: 0, total: candidates.count, currentName: firstName)
+        busy = AgentCatalogBusy(agentId: candidates[0].agentId, action: .upgrade)
+        statusMessage = nil
+        batchMessage = nil
+        actionFailures.removeAll()
+        Task { @MainActor in
+            var succeeded = 0
+            var failed = 0
+            var stoppedByConflict = false
+
+            do {
+                let client = try model.apiClient()
+                for (index, item) in candidates.enumerated() {
+                    let displayName = item.displayName.isEmpty ? item.agentId : item.displayName
+                    batchProgress = AgentCatalogBatchProgress(
+                        completed: index,
+                        total: candidates.count,
+                        currentName: displayName
+                    )
+                    busy = AgentCatalogBusy(agentId: item.agentId, action: .upgrade)
+                    actionFailures.removeValue(forKey: item.agentId)
+                    results.removeValue(forKey: item.agentId)
+
+                    do {
+                        let response = try await model.upgradeManagedAgent(agentID: item.agentId, client: client)
+                        guard let result = response.result else {
+                            throw APIError(
+                                summary: "升级 Agent 失败",
+                                detail: AppLanguage.localizedFormat(
+                                    "服务端返回 code=%d，但没有带回执行结果。",
+                                    response.code
+                                )
+                            )
+                        }
+                        let actionResult = AgentCatalogActionResult(
+                            agentId: item.agentId,
+                            displayName: displayName,
+                            action: .upgrade,
+                            result: result
+                        )
+                        results[item.agentId] = actionResult
+                        if actionResult.ok { succeeded += 1 } else { failed += 1 }
+                    } catch {
+                        failed += 1
+                        actionFailures[item.agentId] = AgentCatalogActionFailure(
+                            agentId: item.agentId,
+                            displayName: displayName,
+                            detail: agentSettingsErrorDetail(error)
+                        )
+                        if let apiError = error as? APIError, apiError.httpStatusCode == 409 {
+                            stoppedByConflict = true
+                            break
+                        }
+                    }
+                }
+            } catch {
+                failed = candidates.count
+                actionFailures["batch"] = AgentCatalogActionFailure(
+                    agentId: "batch",
+                    displayName: "批量更新".localizedForApp,
+                    detail: agentSettingsErrorDetail(error)
                 )
             }
+
+            let summary = stoppedByConflict
+                ? "检测到另一个安装任务正在执行，已停止剩余更新。".localizedForApp
+                : AppLanguage.localizedFormat("批量更新完成：%d 个成功，%d 个失败。", succeeded, failed)
+            batchMessage = AgentSettingsMessage(
+                kind: failed == 0 && !stoppedByConflict ? .success : .failure,
+                text: summary
+            )
+            await load(showLoading: false)
+            await loadVersions(force: true)
+            await model.refreshAgentCatalog()
+            busy = nil
+            batchProgress = nil
         }
     }
 
@@ -984,17 +1216,17 @@ struct AgentCatalogSettingsView: View {
                         detail: AppLanguage.localizedFormat("服务端返回 code=%d，但没有带回影响范围。", response.code)
                     )
                 }
-                presentation = .confirmation(AgentCatalogConfirmation(
+                queue(.confirmation(AgentCatalogConfirmation(
                     intent: .delete(agentId: agentId, force: force),
                     title: force ? "强制删除这个 Agent？" : "删除这个 Agent？",
                     message: deleteMessage(item, impact: impact, force: force),
                     confirmTitle: force ? "确认强制删除" : "确认删除",
                     cancelTitle: "保留 Agent",
                     destructive: true
-                ))
+                )))
             } catch {
                 pendingAgentId = nil
-                self.error = agentSettingsPresentedError(error, summary: "读取删除影响失败")
+                presentError(error, summary: "读取删除影响失败")
             }
         }
     }
@@ -1027,15 +1259,19 @@ struct AgentCatalogSettingsView: View {
                 await loadVersions(force: true)
                 await model.refreshAgentCatalog()
                 if let outcome = response.result {
-                    presentation = .deleteOutcome(outcome, agentId)
+                    queue(.deleteOutcome(outcome, agentId))
                 }
             } catch {
                 pendingAgentId = nil
                 statusMessage = nil
-                self.error = agentSettingsPresentedError(error, summary: "删除 Agent 失败")
+                presentError(error, summary: "删除 Agent 失败")
                 await load(showLoading: false)
             }
         }
+    }
+
+    private func presentError(_ caught: Error, summary: String) {
+        queue(.error(agentSettingsPresentedError(caught, summary: summary)))
     }
 }
 
@@ -1156,7 +1392,7 @@ private struct AgentCatalogActionsSheet: View {
                     systemImage: "checkmark.seal.fill",
                     tint: QuartetTheme.accentDeep,
                     identifier: "agent-catalog-action-revalidate",
-                    disabled: pending,
+                    disabled: installLocked || pending,
                     action: onRevalidate
                 )
             }
@@ -1168,7 +1404,7 @@ private struct AgentCatalogActionsSheet: View {
                     systemImage: "pencil",
                     tint: QuartetTheme.accentDeep,
                     identifier: "agent-catalog-action-edit",
-                    disabled: pending,
+                    disabled: installLocked || pending,
                     action: onEdit
                 )
             }
@@ -1180,7 +1416,7 @@ private struct AgentCatalogActionsSheet: View {
                     systemImage: "arrow.uturn.backward.circle.fill",
                     tint: QuartetTheme.accent,
                     identifier: "agent-catalog-action-restore",
-                    disabled: pending,
+                    disabled: installLocked || pending,
                     action: onRestore
                 )
             }
@@ -1223,7 +1459,7 @@ private struct AgentCatalogActionsSheet: View {
                     systemImage: "trash.fill",
                     tint: QuartetTheme.failed,
                     identifier: "agent-catalog-action-delete",
-                    disabled: pending,
+                    disabled: installLocked || pending,
                     isDestructive: true,
                     action: { onDelete(false) }
                 )
@@ -1234,7 +1470,7 @@ private struct AgentCatalogActionsSheet: View {
                     systemImage: "exclamationmark.triangle.fill",
                     tint: QuartetTheme.failed,
                     identifier: "agent-catalog-action-force-delete",
-                    disabled: pending,
+                    disabled: installLocked || pending,
                     isDestructive: true,
                     action: { onDelete(true) }
                 )
@@ -1247,7 +1483,7 @@ private struct AgentCatalogActionsSheet: View {
                     systemImage: "arrow.clockwise",
                     tint: QuartetTheme.failed,
                     identifier: "agent-catalog-action-retry-delete",
-                    disabled: pending,
+                    disabled: installLocked || pending,
                     isDestructive: true,
                     action: { onDelete(true) }
                 )

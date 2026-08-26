@@ -542,12 +542,26 @@ struct QuartetChoice: Identifiable {
     let id: String
     let title: String
     let detail: String?
+    /// 第三行补充信息（如 Agent 的版本号与用量摘要），等宽显示、比 `detail` 更淡。
+    /// 内容由调用方拼好并本地化，弹窗不再二次查表。
+    let footnote: String?
+    /// `footnote` 承载的是失败原因，按警示色渲染。
+    let footnoteIsFailure: Bool
     let disabled: Bool
 
-    init(id: String, title: String, detail: String? = nil, disabled: Bool = false) {
+    init(
+        id: String,
+        title: String,
+        detail: String? = nil,
+        footnote: String? = nil,
+        footnoteIsFailure: Bool = false,
+        disabled: Bool = false
+    ) {
         self.id = id
         self.title = title
         self.detail = detail
+        self.footnote = footnote
+        self.footnoteIsFailure = footnoteIsFailure
         self.disabled = disabled
     }
 }
@@ -671,6 +685,17 @@ struct QuartetChoiceSheet: View {
                             .foregroundStyle(QuartetTheme.secondaryText)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    if let footnote = choice.footnote?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !footnote.isEmpty {
+                        Text(footnote)
+                            .font(.quartet(.compact, design: .monospaced))
+                            .foregroundStyle(
+                                choice.footnoteIsFailure
+                                    ? QuartetTheme.failed
+                                    : QuartetTheme.secondaryText.opacity(0.78)
+                            )
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
 
                 Spacer(minLength: 8)
@@ -682,10 +707,17 @@ struct QuartetChoiceSheet: View {
         .buttonStyle(.plain)
         .disabled(choice.disabled)
         .opacity(choice.disabled ? 0.45 : 1)
-        .accessibilityLabel(choice.detail.map { "\(choice.title.localizedForApp), \($0.localizedForApp)" } ?? choice.title.localizedForApp)
+        .accessibilityLabel(choiceLabel(choice))
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityHint("选择此项并关闭弹窗".localizedForApp)
         .accessibilityIdentifier("\(accessibilityPrefix)-\(choice.id)")
+    }
+
+    private func choiceLabel(_ choice: QuartetChoice) -> String {
+        [choice.title.localizedForApp, choice.detail?.localizedForApp, choice.footnote]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
     }
 
     private func choiceIcon(_ choice: QuartetChoice, selected: Bool) -> String {

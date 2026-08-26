@@ -54,9 +54,14 @@ const (
 	// ACP-compatible attachment prefix added to Message.Content.
 	KeyOriginalUserContent = "original_user_content"
 
-	// KeyTokenCountCache is the per-message token-count cache written by
-	// the tokenizer. Private prefix reserved for middleware internals.
+	// KeyTokenCountCache is the legacy per-message cache used before text and
+	// image accounting were separated. Kept so persisted messages still decode.
 	KeyTokenCountCache = "_agent_middleware_token_count"
+
+	// KeyTextTokenCountCacheV2 caches text-only tokens. The legacy cache may
+	// include generated image-path markup, so image-aware counting must not
+	// reuse it before adding the independently calculated image-token subset.
+	KeyTextTokenCountCacheV2 = "_agent_middleware_text_token_count_v2"
 
 	// KeyPlaceholderToolResult marks a role=tool message as a synthetic
 	// placeholder inserted by the round builder when a round is flushed

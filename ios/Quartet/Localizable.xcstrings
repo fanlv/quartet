@@ -1,3062 +1,6 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
-    "Agent 管理" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent management"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent 管理"
-          }
-        }
-      }
-    },
-    "Agent 目录" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent catalog"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent 目录"
-          }
-        }
-      }
-    },
-    "环境变量" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Environment variables"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "环境变量"
-          }
-        }
-      }
-    },
-    "默认参数" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Defaults"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "默认参数"
-          }
-        }
-      }
-    },
-    "Agent 角色" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent roles"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent 角色"
-          }
-        }
-      }
-    },
-    "无" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "None"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无"
-          }
-        }
-      }
-    },
-    "未设置" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Not set"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未设置"
-          }
-        }
-      }
-    },
-    "跟随默认" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use default"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "跟随默认"
-          }
-        }
-      }
-    },
-    "当前不可用" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Currently unavailable"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前不可用"
-          }
-        }
-      }
-    },
-    "已保存" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Saved"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已保存"
-          }
-        }
-      }
-    },
-    "通过" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Passed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "通过"
-          }
-        }
-      }
-    },
-    "内置" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Built-in"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "内置"
-          }
-        }
-      }
-    },
-    "已废弃" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deprecated"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已废弃"
-          }
-        }
-      }
-    },
-    "正在删除" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deleting"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在删除"
-          }
-        }
-      }
-    },
-    "已删除" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deleted"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已删除"
-          }
-        }
-      }
-    },
-    "未安装" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Not installed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未安装"
-          }
-        }
-      }
-    },
-    "npm 安装" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "npm install"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "npm 安装"
-          }
-        }
-      }
-    },
-    "脚本安装" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Script install"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "脚本安装"
-          }
-        }
-      }
-    },
-    "手动安装" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Manual install"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "手动安装"
-          }
-        }
-      }
-    },
-    "存储键" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Storage key"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "存储键"
-          }
-        }
-      }
-    },
-    "基本信息" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Basics"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "基本信息"
-          }
-        }
-      }
-    },
-    "显示名称" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Display name"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "显示名称"
-          }
-        }
-      }
-    },
-    "图标" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Icon"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "图标"
-          }
-        }
-      }
-    },
-    "emoji 或图片地址" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Emoji or image URL"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "emoji 或图片地址"
-          }
-        }
-      }
-    },
-    "启动定义" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Launch definition"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "启动定义"
-          }
-        }
-      }
-    },
-    "ACP 启动程序" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ACP program"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ACP 启动程序"
-          }
-        }
-      }
-    },
-    "启动参数" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Arguments"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "启动参数"
-          }
-        }
-      }
-    },
-    "启动命令" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Launch command"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "启动命令"
-          }
-        }
-      }
-    },
-    "可执行文件" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Executable"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可执行文件"
-          }
-        }
-      }
-    },
-    "当前修订" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Current revision"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前修订"
-          }
-        }
-      }
-    },
-    "安装命令" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Install commands"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安装命令"
-          }
-        }
-      }
-    },
-    "修订历史" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Revision history"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "修订历史"
-          }
-        }
-      }
-    },
-    "暂无修订记录。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No revisions recorded."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "暂无修订记录。"
-          }
-        }
-      }
-    },
-    "影响范围" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Impact"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "影响范围"
-          }
-        }
-      }
-    },
-    "删除结果" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deletion result"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "删除结果"
-          }
-        }
-      }
-    },
-    "安装后复检" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Post-install recheck"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安装后复检"
-          }
-        }
-      }
-    },
-    "ACP 校验" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ACP validation"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ACP 校验"
-          }
-        }
-      }
-    },
-    "复制全部输出" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copy all output"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "复制全部输出"
-          }
-        }
-      }
-    },
-    "查看命令输出" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "View command output"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "查看命令输出"
-          }
-        }
-      }
-    },
-    "关闭结果提示" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dismiss result"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关闭结果提示"
-          }
-        }
-      }
-    },
-    "变量列表" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Variable list"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "变量列表"
-          }
-        }
-      }
-    },
-    "收藏模型" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favorite models"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "收藏模型"
-          }
-        }
-      }
-    },
-    "默认选择" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Default selection"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "默认选择"
-          }
-        }
-      }
-    },
-    "默认模型" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Default model"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "默认模型"
-          }
-        }
-      }
-    },
-    "默认思考等级" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Default thought level"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "默认思考等级"
-          }
-        }
-      }
-    },
-    "管理收藏模型" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Manage favorite models"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "管理收藏模型"
-          }
-        }
-      }
-    },
-    "安装" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Install"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安装"
-          }
-        }
-      }
-    },
-    "升级" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Upgrade"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "升级"
-          }
-        }
-      }
-    },
-    "卸载" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uninstall"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "卸载"
-          }
-        }
-      }
-    },
-    "安装 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Install agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安装 Agent"
-          }
-        }
-      }
-    },
-    "升级 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Upgrade agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "升级 Agent"
-          }
-        }
-      }
-    },
-    "卸载 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uninstall agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "卸载 Agent"
-          }
-        }
-      }
-    },
-    "删除 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "删除 Agent"
-          }
-        }
-      }
-    },
-    "强制删除 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Force delete agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "强制删除 Agent"
-          }
-        }
-      }
-    },
-    "重试强制删除" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Retry force delete"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重试强制删除"
-          }
-        }
-      }
-    },
-    "检查可用性" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Check availability"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "检查可用性"
-          }
-        }
-      }
-    },
-    "检查更新" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Check for updates"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "检查更新"
-          }
-        }
-      }
-    },
-    "新增自定义 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add custom agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新增自定义 Agent"
-          }
-        }
-      }
-    },
-    "恢复自定义 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restore custom agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "恢复自定义 Agent"
-          }
-        }
-      }
-    },
-    "编辑自定义 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit custom agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "编辑自定义 Agent"
-          }
-        }
-      }
-    },
-    "保存 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存 Agent"
-          }
-        }
-      }
-    },
-    "保存环境变量" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save environment variables"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存环境变量"
-          }
-        }
-      }
-    },
-    "保存默认参数" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save defaults"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存默认参数"
-          }
-        }
-      }
-    },
-    "保存角色配置" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save role configuration"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存角色配置"
-          }
-        }
-      }
-    },
-    "确认升级" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Confirm upgrade"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "确认升级"
-          }
-        }
-      }
-    },
-    "确认卸载" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Confirm uninstall"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "确认卸载"
-          }
-        }
-      }
-    },
-    "保留安装" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keep installed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留安装"
-          }
-        }
-      }
-    },
-    "确认强制删除" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Confirm force delete"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "确认强制删除"
-          }
-        }
-      }
-    },
-    "保留 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keep agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留 Agent"
-          }
-        }
-      }
-    },
-    "正在安装 Agent…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installing agent…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在安装 Agent…"
-          }
-        }
-      }
-    },
-    "正在升级 Agent…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Upgrading agent…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在升级 Agent…"
-          }
-        }
-      }
-    },
-    "正在卸载 Agent…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uninstalling agent…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在卸载 Agent…"
-          }
-        }
-      }
-    },
-    "正在删除 Agent…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deleting agent…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在删除 Agent…"
-          }
-        }
-      }
-    },
-    "已删除 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent deleted"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已删除 Agent"
-          }
-        }
-      }
-    },
-    "正在检查" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Checking"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在检查"
-          }
-        }
-      }
-    },
-    "检查通过" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Check passed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "检查通过"
-          }
-        }
-      }
-    },
-    "检查有告警" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Check passed with warnings"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "检查有告警"
-          }
-        }
-      }
-    },
-    "检查失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Check failed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "检查失败"
-          }
-        }
-      }
-    },
-    "正在检查更新…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Checking for updates…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在检查更新…"
-          }
-        }
-      }
-    },
-    "正在检查版本…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Checking versions…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在检查版本…"
-          }
-        }
-      }
-    },
-    "正在后台刷新校验结果" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Refreshing validation in the background"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在后台刷新校验结果"
-          }
-        }
-      }
-    },
-    "正在加载 Agent 目录…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading agent catalog…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在加载 Agent 目录…"
-          }
-        }
-      }
-    },
-    "正在加载环境变量…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading environment variables…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在加载环境变量…"
-          }
-        }
-      }
-    },
-    "正在加载 Agent 默认参数…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading agent defaults…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在加载 Agent 默认参数…"
-          }
-        }
-      }
-    },
-    "正在加载 Agent 角色…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading agent roles…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在加载 Agent 角色…"
-          }
-        }
-      }
-    },
-    "正在读取该模型的思考等级…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading thought levels for this model…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在读取该模型的思考等级…"
-          }
-        }
-      }
-    },
-    "正在重新拉起 ACP 会话验证可用性…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Starting a fresh ACP session to verify availability…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在重新拉起 ACP 会话验证可用性…"
-          }
-        }
-      }
-    },
-    "Agent 可用，ACP 会话已成功建立。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent is available; the ACP session was established."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent 可用，ACP 会话已成功建立。"
-          }
-        }
-      }
-    },
-    "停止失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stop failed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "停止失败"
-          }
-        }
-      }
-    },
-    "有新版本可用" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Update available"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "有新版本可用"
-          }
-        }
-      }
-    },
-    "已是最新版本" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Up to date"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已是最新版本"
-          }
-        }
-      }
-    },
-    "只读到本机版本" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Local version only"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "只读到本机版本"
-          }
-        }
-      }
-    },
-    "卸载成功" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uninstalled"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "卸载成功"
-          }
-        }
-      }
-    },
-    "卸载失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uninstall failed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "卸载失败"
-          }
-        }
-      }
-    },
-    "安装成功" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安装成功"
-          }
-        }
-      }
-    },
-    "安装完成，但校验失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installed, but validation failed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安装完成，但校验失败"
-          }
-        }
-      }
-    },
-    "安装失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Install failed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安装失败"
-          }
-        }
-      }
-    },
-    "升级成功" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Upgraded"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "升级成功"
-          }
-        }
-      }
-    },
-    "升级完成，但校验失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Upgraded, but validation failed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "升级完成，但校验失败"
-          }
-        }
-      }
-    },
-    "升级失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Upgrade failed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "升级失败"
-          }
-        }
-      }
-    },
-    "Agent 目录为空。安装内置 Agent 或新增一个自定义 Agent 后会出现在这里。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The agent catalog is empty. Install a built-in agent or add a custom one and it will show up here."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent 目录为空。安装内置 Agent 或新增一个自定义 Agent 后会出现在这里。"
-          }
-        }
-      }
-    },
-    "内置 Agent 只能按目录预置的流程安装、升级和卸载；自定义 Agent 由本机手动登记的启动命令组成。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Built-in agents can only be installed, upgraded and uninstalled through the preset catalog flows; custom agents are launch commands you register on this machine."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "内置 Agent 只能按目录预置的流程安装、升级和卸载；自定义 Agent 由本机手动登记的启动命令组成。"
-          }
-        }
-      }
-    },
-    "支持 bin -p 单次执行，可用于标题生成和群回复角色。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Supports one-shot bin -p execution, so it can serve the title and group-reply roles."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "支持 bin -p 单次执行，可用于标题生成和群回复角色。"
-          }
-        }
-      }
-    },
-    "请求会一直等到命令跑完，请不要退出页面。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The request waits until the command finishes — please stay on this page."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请求会一直等到命令跑完，请不要退出页面。"
-          }
-        }
-      }
-    },
-    "当前账号没有 agent.manage 权限，只能查看 Agent 目录。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This account lacks the agent.manage permission and can only view the catalog."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前账号没有 agent.manage 权限，只能查看 Agent 目录。"
-          }
-        }
-      }
-    },
-    "已有安装 / 升级 / 卸载在执行，后端会串行处理，请等它跑完。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "An install / upgrade / uninstall is already running; the backend serializes them, so wait for it to finish."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已有安装 / 升级 / 卸载在执行，后端会串行处理，请等它跑完。"
-          }
-        }
-      }
-    },
-    "这个 Agent 当前没有可执行的管理操作。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No management actions are available for this agent right now."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这个 Agent 当前没有可执行的管理操作。"
-          }
-        }
-      }
-    },
-    "按目录预置的安装命令执行" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Runs the install commands preset in the catalog"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按目录预置的安装命令执行"
-          }
-        }
-      }
-    },
-    "按目录预置的卸载命令执行" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Runs the uninstall commands preset in the catalog"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按目录预置的卸载命令执行"
-          }
-        }
-      }
-    },
-    "按目录预置的升级命令执行" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Runs the upgrade commands preset in the catalog"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按目录预置的升级命令执行"
-          }
-        }
-      }
-    },
-    "重新拉起 ACP 会话验证" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Starts a fresh ACP session to verify"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重新拉起 ACP 会话验证"
-          }
-        }
-      }
-    },
-    "修改名称、启动命令与参数" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit the name, launch command and arguments"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "修改名称、启动命令与参数"
-          }
-        }
-      }
-    },
-    "沿用原 AgentID 重新登记" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Re-register under the original AgentID"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "沿用原 AgentID 重新登记"
-          }
-        }
-      }
-    },
-    "有运行中的 Job 时会被拒绝" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rejected while any job is still running"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "有运行中的 Job 时会被拒绝"
-          }
-        }
-      }
-    },
-    "先停止运行中的 Job 再删除" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stops running jobs first, then deletes"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "先停止运行中的 Job 再删除"
-          }
-        }
-      }
-    },
-    "上次删除没有跑完，重新执行清理" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The previous deletion did not finish; run the cleanup again"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "上次删除没有跑完，重新执行清理"
-          }
-        }
-      }
-    },
-    "可以填一个 emoji，也可以填图片地址；留空时列表只显示名称。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enter an emoji or an image URL; leave it empty to show the name only."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可以填一个 emoji，也可以填图片地址；留空时列表只显示名称。"
-          }
-        }
-      }
-    },
-    "后端用它判断这个 Agent 是否已安装。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The backend uses this to decide whether the agent is installed."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "后端用它判断这个 Agent 是否已安装。"
-          }
-        }
-      }
-    },
-    "每行一个参数，按顺序原样传给进程，不经过 shell。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "One argument per line, passed to the process in order without a shell."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每行一个参数，按顺序原样传给进程，不经过 shell。"
-          }
-        }
-      }
-    },
-    "支持 bin -p 单次执行" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Supports one-shot bin -p execution"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "支持 bin -p 单次执行"
-          }
-        }
-      }
-    },
-    "打开后这个 Agent 才能被标题生成和群回复这类无会话角色选用。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Only agents with this enabled can serve session-less roles such as title generation and group replies."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "打开后这个 Agent 才能被标题生成和群回复这类无会话角色选用。"
-          }
-        }
-      }
-    },
-    "每行一条 KEY=value，保存后可在“环境变量”标签里继续调整。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "One KEY=value per line. After saving you can keep editing them on the Environment variables tab."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每行一条 KEY=value，保存后可在“环境变量”标签里继续调整。"
-          }
-        }
-      }
-    },
-    "编辑已有 Agent 时不改动环境变量，请到“环境变量”标签里维护。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Editing an existing agent leaves its environment variables untouched — manage them on the Environment variables tab."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "编辑已有 Agent 时不改动环境变量，请到“环境变量”标签里维护。"
-          }
-        }
-      }
-    },
-    "当前没有可配置的 Agent。先在“Agent 目录”里安装或新增一个 Agent。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "There is no configurable agent yet. Install or add one on the Agent catalog tab first."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前没有可配置的 Agent。先在“Agent 目录”里安装或新增一个 Agent。"
-          }
-        }
-      }
-    },
-    "这些变量只在启动对应 Agent 的 ACP 进程时注入；关闭的条目会被保留但不生效。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "These variables are injected only when the agent’s ACP process starts; disabled entries are kept but not applied."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这些变量只在启动对应 Agent 的 ACP 进程时注入；关闭的条目会被保留但不生效。"
-          }
-        }
-      }
-    },
-    "还没有变量。点下面的按钮添加一条 KEY=value。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No variables yet. Use the button below to add a KEY=value entry."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "还没有变量。点下面的按钮添加一条 KEY=value。"
-          }
-        }
-      }
-    },
-    "当前账号没有 config.write 权限，只能查看环境变量。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This account lacks the config.write permission and can only view environment variables."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前账号没有 config.write 权限，只能查看环境变量。"
-          }
-        }
-      }
-    },
-    "当前账号没有 config.write 权限，只能查看默认参数。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This account lacks the config.write permission and can only view the defaults."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前账号没有 config.write 权限，只能查看默认参数。"
-          }
-        }
-      }
-    },
-    "当前账号没有 config.write 权限，只能查看角色配置。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This account lacks the config.write permission and can only view the role configuration."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前账号没有 config.write 权限，只能查看角色配置。"
-          }
-        }
-      }
-    },
-    "启用这条变量" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enable this variable"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "启用这条变量"
-          }
-        }
-      }
-    },
-    "Agent 默认参数" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent defaults"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent 默认参数"
-          }
-        }
-      }
-    },
-    "当前没有可用的 Agent。先在“Agent 目录”里安装并通过可用性检查。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No agent is available yet. Install one on the Agent catalog tab and let it pass the availability check."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前没有可用的 Agent。先在“Agent 目录”里安装并通过可用性检查。"
-          }
-        }
-      }
-    },
-    "新建对话选中这个 Agent 时会套用这里的默认值；保存的值如果已经不在实时列表里，运行时会自动回退。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "These defaults apply when a new conversation selects this agent; if a saved value is no longer in the live list, the runtime falls back automatically."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新建对话选中这个 Agent 时会套用这里的默认值；保存的值如果已经不在实时列表里，运行时会自动回退。"
-          }
-        }
-      }
-    },
-    "收藏的模型会排在模型选择器最前面。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favorite models are pinned to the top of the model picker."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "收藏的模型会排在模型选择器最前面。"
-          }
-        }
-      }
-    },
-    "这个 Agent 没有上报可用模型。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This agent does not report any available model."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这个 Agent 没有上报可用模型。"
-          }
-        }
-      }
-    },
-    "还没有收藏任何模型。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No favorite models yet."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "还没有收藏任何模型。"
-          }
-        }
-      }
-    },
-    "这个 Agent 没有可设置的默认项。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This agent has nothing to configure."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这个 Agent 没有可设置的默认项。"
-          }
-        }
-      }
-    },
-    "选择默认模型" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Select default model"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择默认模型"
-          }
-        }
-      }
-    },
-    "选择默认模式" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Select default mode"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择默认模式"
-          }
-        }
-      }
-    },
-    "选择默认思考等级" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Select default thought level"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择默认思考等级"
-          }
-        }
-      }
-    },
-    "标题生成 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Title generation agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "标题生成 Agent"
-          }
-        }
-      }
-    },
-    "群聊回复 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Group reply agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "群聊回复 Agent"
-          }
-        }
-      }
-    },
-    "IM 会话 Agent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "IM session agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "IM 会话 Agent"
-          }
-        }
-      }
-    },
-    "为新对话生成标题，走一次性无会话执行。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Generates titles for new conversations through one-shot session-less execution."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "为新对话生成标题，走一次性无会话执行。"
-          }
-        }
-      }
-    },
-    "群聊里被 @ 时回复，走一次性无会话执行。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Replies when mentioned in a group chat, through one-shot session-less execution."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "群聊里被 @ 时回复，走一次性无会话执行。"
-          }
-        }
-      }
-    },
-    "IM 私聊创建或续接交互式 Job 时使用。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Used when an IM direct message creates or continues an interactive job."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "IM 私聊创建或续接交互式 Job 时使用。"
-          }
-        }
-      }
-    },
-    "这三个角色由后端自动触发，和手动新建对话时的选择互不影响。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "These three roles are triggered by the backend and are independent of what you pick when starting a conversation manually."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这三个角色由后端自动触发，和手动新建对话时的选择互不影响。"
-          }
-        }
-      }
-    },
-    "当前没有支持 bin -p 单次执行的可用 Agent。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No available agent supports one-shot bin -p execution."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前没有支持 bin -p 单次执行的可用 Agent。"
-          }
-        }
-      }
-    },
-    "当前没有可用的 Agent。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No agent is available."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前没有可用的 Agent。"
-          }
-        }
-      }
-    },
-    "ACP 环境变量" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ACP environment variables"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ACP 环境变量"
-          }
-        }
-      }
-    },
-    "已清空的设置" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cleared settings"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已清空的设置"
-          }
-        }
-      }
-    },
-    "保留引用的工作流" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workflows that keep the reference"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留引用的工作流"
-          }
-        }
-      }
-    },
-    "保留引用的定时任务" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schedules that keep the reference"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留引用的定时任务"
-          }
-        }
-      }
-    },
-    "保留引用的 Job" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jobs that keep the reference"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留引用的 Job"
-          }
-        }
-      }
-    },
-    "保留引用的会话" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sessions that keep the reference"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留引用的会话"
-          }
-        }
-      }
-    },
-    "停止运行中的 Job" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stopping running jobs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "停止运行中的 Job"
-          }
-        }
-      }
-    },
-    "升级这个 Agent？" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Upgrade this agent?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "升级这个 Agent？"
-          }
-        }
-      }
-    },
-    "卸载这个 Agent？" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uninstall this agent?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "卸载这个 Agent？"
-          }
-        }
-      }
-    },
-    "删除这个 Agent？" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete this agent?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "删除这个 Agent？"
-          }
-        }
-      }
-    },
-    "强制删除这个 Agent？" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Force delete this agent?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "强制删除这个 Agent？"
-          }
-        }
-      }
-    },
-    "将按目录预置流程卸载“%@”。已有的 Job、会话和工作流记录会保留，但在重新安装前无法再运行。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This uninstalls “%@” through the preset catalog flow. Existing jobs, sessions and workflow records are kept, but cannot run again until it is reinstalled."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将按目录预置流程卸载“%@”。已有的 Job、会话和工作流记录会保留，但在重新安装前无法再运行。"
-          }
-        }
-      }
-    },
-    "读取修订历史失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to read the revision history"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "读取修订历史失败"
-          }
-        }
-      }
-    },
-    "读取删除影响失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to read the deletion impact"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "读取删除影响失败"
-          }
-        }
-      }
-    },
-    "删除 Agent 失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to delete the agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "删除 Agent 失败"
-          }
-        }
-      }
-    },
-    "保存自定义 Agent 失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to save the custom agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存自定义 Agent 失败"
-          }
-        }
-      }
-    },
-    "环境变量格式错误" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Invalid environment variable format"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "环境变量格式错误"
-          }
-        }
-      }
-    },
-    "已登记 %d 个" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%d registered"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已登记 %d 个"
-          }
-        }
-      }
-    },
-    "%d 个可更新" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%d can be updated"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%d 个可更新"
-          }
-        }
-      }
-    },
-    "版本检查时间：%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Versions checked at %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "版本检查时间：%@"
-          }
-        }
-      }
-    },
-    "%@ 的 Agent 操作" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent actions for %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 的 Agent 操作"
-          }
-        }
-      }
-    },
-    "最近校验：%@ · %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Last validation: %@ · %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最近校验：%@ · %@"
-          }
-        }
-      }
-    },
-    "将按目录预置流程升级“%@”。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This upgrades “%@” through the preset catalog flow."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将按目录预置流程升级“%@”。"
-          }
-        }
-      }
-    },
-    "将按目录预置流程升级“%@”：\n%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This upgrades “%@” through the preset catalog flow:\n%@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将按目录预置流程升级“%@”：\n%@"
-          }
-        }
-      }
-    },
-    "%@ Agent 失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to %@ the agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ Agent 失败"
-          }
-        }
-      }
-    },
-    "服务端返回 code=%d，但没有带回执行结果。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The server returned code=%d without an execution result."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "服务端返回 code=%d，但没有带回执行结果。"
-          }
-        }
-      }
-    },
-    "服务端返回 code=%d，但没有带回影响范围。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The server returned code=%d without an impact summary."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "服务端返回 code=%d，但没有带回影响范围。"
-          }
-        }
-      }
-    },
-    "每行需要写成 KEY=value，下面这行无法解析：\n%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Each line must be KEY=value. This line could not be parsed:\n%@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每行需要写成 KEY=value，下面这行无法解析：\n%@"
-          }
-        }
-      }
-    },
-    "将强制删除“%@”，正在运行的 Job 会先被停止。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This force deletes “%@”; running jobs are stopped first."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将强制删除“%@”，正在运行的 Job 会先被停止。"
-          }
-        }
-      }
-    },
-    "将删除“%@”。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This deletes “%@”."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将删除“%@”。"
-          }
-        }
-      }
-    },
-    "会清空的设置：%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Settings that will be cleared: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "会清空的设置：%@"
-          }
-        }
-      }
-    },
-    "保留引用的工作流：%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workflows that keep the reference: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留引用的工作流：%@"
-          }
-        }
-      }
-    },
-    "保留引用的定时任务：%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schedules that keep the reference: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留引用的定时任务：%@"
-          }
-        }
-      }
-    },
-    "保留引用的 Job：%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jobs that keep the reference: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留引用的 Job：%@"
-          }
-        }
-      }
-    },
-    "保留引用的会话：%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sessions that keep the reference: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保留引用的会话：%@"
-          }
-        }
-      }
-    },
-    "阻塞删除的 Job：%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jobs blocking the deletion: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "阻塞删除的 Job：%@"
-          }
-        }
-      }
-    },
-    "步骤 %d" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Step %d"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "步骤 %d"
-          }
-        }
-      }
-    },
-    "退出码 %d" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Exit code %d"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "退出码 %d"
-          }
-        }
-      }
-    },
-    "服务端状态：%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Server status: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "服务端状态：%@"
-          }
-        }
-      }
-    },
-    "启用 %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enable %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "启用 %@"
-          }
-        }
-      }
-    },
-    "取消收藏 %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove %@ from favorites"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "取消收藏 %@"
-          }
-        }
-      }
-    },
-    "有 %d 个 Agent 的改动尚未保存。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%d agents have unsaved changes."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "有 %d 个 Agent 的改动尚未保存。"
-          }
-        }
-      }
-    },
     "" : {
 
     },
@@ -3186,6 +130,40 @@
         }
       }
     },
+    "%@ Agent 失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to %@ the agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ Agent 失败"
+          }
+        }
+      }
+    },
+    "%@ Token 明细，总 Token %@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ token details, %2$@ total tokens"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ Token 明细，总 Token %@"
+          }
+        }
+      }
+    },
     "%@ 个节点" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3233,6 +211,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ 个进行中"
+          }
+        }
+      }
+    },
+    "%@ 的 Agent 操作" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent actions for %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 的 Agent 操作"
           }
         }
       }
@@ -3364,6 +359,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@使用趋势图"
+          }
+        }
+      }
+    },
+    "%d 个可更新" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d can be updated"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d 个可更新"
           }
         }
       }
@@ -3521,6 +533,57 @@
         }
       }
     },
+    "ACP 启动程序" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ACP program"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ACP 启动程序"
+          }
+        }
+      }
+    },
+    "ACP 校验" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ACP validation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ACP 校验"
+          }
+        }
+      }
+    },
+    "ACP 环境变量" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ACP environment variables"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ACP 环境变量"
+          }
+        }
+      }
+    },
     "ACTIVE ENDPOINT" : {
 
     },
@@ -3553,6 +616,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Agent 会话"
+          }
+        }
+      }
+    },
+    "Agent 可用，ACP 会话已成功建立。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent is available; the ACP session was established."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent 可用，ACP 会话已成功建立。"
           }
         }
       }
@@ -3606,6 +686,73 @@
         }
       }
     },
+    "Agent 目录" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent catalog"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent 目录"
+          }
+        }
+      }
+    },
+    "Agent 目录为空。安装内置 Agent 或新增一个自定义 Agent 后会出现在这里。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The agent catalog is empty. Install a built-in agent or add a custom one and it will show up here."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent 目录为空。安装内置 Agent 或新增一个自定义 Agent 后会出现在这里。"
+          }
+        }
+      }
+    },
+    "Agent 管理" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent management"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent 管理"
+          }
+        }
+      }
+    },
+    "Agent 角色" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent roles"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent 角色"
+          }
+        }
+      }
+    },
     "Agent 验证尚未完成" : {
       "localizations" : {
         "en" : {
@@ -3618,6 +765,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Agent 验证尚未完成"
+          }
+        }
+      }
+    },
+    "Agent 默认参数" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent defaults"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent 默认参数"
           }
         }
       }
@@ -3667,6 +831,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cron 表达式"
+          }
+        }
+      }
+    },
+    "emoji 或图片地址" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emoji or image URL"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "emoji 或图片地址"
           }
         }
       }
@@ -3781,6 +962,40 @@
     "https://devbox.fanlv.fun/" : {
 
     },
+    "IM 会话 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IM session agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IM 会话 Agent"
+          }
+        }
+      }
+    },
+    "IM 私聊创建或续接交互式 Job 时使用。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Used when an IM direct message creates or continues an interactive job."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IM 私聊创建或续接交互式 Job 时使用。"
+          }
+        }
+      }
+    },
     "Job 详情" : {
       "localizations" : {
         "en" : {
@@ -3834,6 +1049,23 @@
     "LATEST RUN ERROR" : {
 
     },
+    "npm 安装" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "npm install"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "npm 安装"
+          }
+        }
+      }
+    },
     "Prompt 节点" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3847,6 +1079,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Prompt 节点"
+          }
+        }
+      }
+    },
+    "Provider 上报" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provider reported"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provider 上报"
+          }
+        }
+      }
+    },
+    "Provider 上报覆盖 %lld/%lld 轮（%lld%%），本地估算 %lld 轮。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provider usage covers %1$lld of %2$lld turns (%3$lld%%); %4$lld turns use local estimates."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provider 上报覆盖 %lld/%lld 轮（%lld%%），本地估算 %lld 轮。"
           }
         }
       }
@@ -3913,6 +1179,7 @@
       }
     },
     "Token 数为本地分词器估算值，非 API 计费口径。统计页沿用 Web 端展示口径，将已记录的输出侧估算值乘以 2。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3928,8 +1195,34 @@
         }
       }
     },
+    "Token 来源" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token 来源"
+          }
+        }
+      }
+    },
     "V%lld" : {
 
+    },
+    "Web 端访问" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Web Access"
+          }
+        }
+      }
     },
     "Web 重启完成" : {
       "localizations" : {
@@ -3948,10 +1241,44 @@
       }
     },
     "Web 链接已复制" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Web link copied"
+          }
+        }
+      }
     },
     "YOU" : {
 
+    },
+    "上下轻扫以逐日浏览" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swipe up or down to browse by day"
+          }
+        }
+      }
+    },
+    "上次删除没有跑完，重新执行清理" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The previous deletion did not finish; run the cleanup again"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次删除没有跑完，重新执行清理"
+          }
+        }
+      }
     },
     "上次运行" : {
       "localizations" : {
@@ -4031,6 +1358,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "不绑定（使用默认工作区）"
+          }
+        }
+      }
+    },
+    "为新对话生成标题，走一次性无会话执行。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generates titles for new conversations through one-shot session-less execution."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为新对话生成标题，走一次性无会话执行。"
           }
         }
       }
@@ -4147,6 +1491,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "任务名称"
+          }
+        }
+      }
+    },
+    "会清空的设置：%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings that will be cleared: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会清空的设置：%@"
           }
         }
       }
@@ -4270,7 +1631,14 @@
       }
     },
     "使用系统浏览器打开当前 Job 的 Quartet Web 页面" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the current job's Quartet Web page in your system browser"
+          }
+        }
+      }
     },
     "使用统计" : {
       "localizations" : {
@@ -4354,6 +1722,23 @@
         }
       }
     },
+    "保存 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存 Agent"
+          }
+        }
+      }
+    },
     "保存全局配置" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4420,6 +1805,40 @@
         }
       }
     },
+    "保存环境变量" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save environment variables"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存环境变量"
+          }
+        }
+      }
+    },
+    "保存自定义 Agent 失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to save the custom agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存自定义 Agent 失败"
+          }
+        }
+      }
+    },
     "保存节点配置" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4437,6 +1856,57 @@
         }
       }
     },
+    "保存角色配置" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save role configuration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存角色配置"
+          }
+        }
+      }
+    },
+    "保存默认参数" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save defaults"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存默认参数"
+          }
+        }
+      }
+    },
+    "保留 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留 Agent"
+          }
+        }
+      }
+    },
     "保留任务" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4450,6 +1920,192 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保留任务"
+          }
+        }
+      }
+    },
+    "保留安装" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep installed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留安装"
+          }
+        }
+      }
+    },
+    "保留引用的 Job" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jobs that keep the reference"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留引用的 Job"
+          }
+        }
+      }
+    },
+    "保留引用的 Job：%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jobs that keep the reference: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留引用的 Job：%@"
+          }
+        }
+      }
+    },
+    "保留引用的会话" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sessions that keep the reference"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留引用的会话"
+          }
+        }
+      }
+    },
+    "保留引用的会话：%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sessions that keep the reference: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留引用的会话：%@"
+          }
+        }
+      }
+    },
+    "保留引用的定时任务" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schedules that keep the reference"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留引用的定时任务"
+          }
+        }
+      }
+    },
+    "保留引用的定时任务：%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schedules that keep the reference: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留引用的定时任务：%@"
+          }
+        }
+      }
+    },
+    "保留引用的工作流" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workflows that keep the reference"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留引用的工作流"
+          }
+        }
+      }
+    },
+    "保留引用的工作流：%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workflows that keep the reference: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留引用的工作流：%@"
+          }
+        }
+      }
+    },
+    "修改名称、启动命令与参数" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit the name, launch command and arguments"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修改名称、启动命令与参数"
+          }
+        }
+      }
+    },
+    "修订历史" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revision history"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修订历史"
           }
         }
       }
@@ -4519,6 +2175,23 @@
         }
       }
     },
+    "停止失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止失败"
+          }
+        }
+      }
+    },
     "停止当前执行？" : {
       "localizations" : {
         "en" : {
@@ -4547,6 +2220,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "停止生成"
+          }
+        }
+      }
+    },
+    "停止运行中的 Job" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stopping running jobs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止运行中的 Job"
           }
         }
       }
@@ -4580,6 +2270,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "停用任务"
+          }
+        }
+      }
+    },
+    "先停止运行中的 Job 再删除" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stops running jobs first, then deletes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先停止运行中的 Job 再删除"
           }
         }
       }
@@ -4650,6 +2357,23 @@
         }
       }
     },
+    "共 %lld 天" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld days"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "共 %lld 天"
+          }
+        }
+      }
+    },
     "关闭" : {
       "localizations" : {
         "en" : {
@@ -4683,6 +2407,22 @@
         }
       }
     },
+    "关闭结果提示" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dismiss result"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭结果提示"
+          }
+        }
+      }
+    },
     "其他模型" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4696,6 +2436,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "其他模型"
+          }
+        }
+      }
+    },
+    "内置" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Built-in"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内置"
+          }
+        }
+      }
+    },
+    "内置 Agent 只能按目录预置的流程安装、升级和卸载；自定义 Agent 由本机手动登记的启动命令组成。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Built-in agents can only be installed, upgraded and uninstalled through the preset catalog flows; custom agents are launch commands you register on this machine."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内置 Agent 只能按目录预置的流程安装、升级和卸载；自定义 Agent 由本机手动登记的启动命令组成。"
           }
         }
       }
@@ -4826,6 +2600,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最近发送"
+          }
+        }
+      }
+    },
+    "最近校验：%@ · %@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last validation: %@ · %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近校验：%@ · %@"
           }
         }
       }
@@ -4977,6 +2768,40 @@
         }
       }
     },
+    "删除 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除 Agent"
+          }
+        }
+      }
+    },
+    "删除 Agent 失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to delete the agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除 Agent 失败"
+          }
+        }
+      }
+    },
     "删除任务" : {
       "localizations" : {
         "en" : {
@@ -5025,6 +2850,22 @@
         }
       }
     },
+    "删除结果" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deletion result"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除结果"
+          }
+        }
+      }
+    },
     "删除调度规则，不删除历史运行记录" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5038,6 +2879,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "删除调度规则，不删除历史运行记录"
+          }
+        }
+      }
+    },
+    "删除这个 Agent？" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete this agent?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除这个 Agent？"
           }
         }
       }
@@ -5118,6 +2976,209 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "加载错误"
+          }
+        }
+      }
+    },
+    "升级" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upgrade"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "升级"
+          }
+        }
+      }
+    },
+    "升级 Agent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upgrade agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "升级 Agent"
+          }
+        }
+      }
+    },
+    "升级失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upgrade failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "升级失败"
+          }
+        }
+      }
+    },
+    "升级完成，但校验失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upgraded, but validation failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "升级完成，但校验失败"
+          }
+        }
+      }
+    },
+    "升级成功" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upgraded"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "升级成功"
+          }
+        }
+      }
+    },
+    "升级这个 Agent？" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upgrade this agent?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "升级这个 Agent？"
+          }
+        }
+      }
+    },
+    "卸载" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstall"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卸载"
+          }
+        }
+      }
+    },
+    "卸载 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstall agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卸载 Agent"
+          }
+        }
+      }
+    },
+    "卸载失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstall failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卸载失败"
+          }
+        }
+      }
+    },
+    "卸载成功" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstalled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卸载成功"
+          }
+        }
+      }
+    },
+    "卸载这个 Agent？" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstall this agent?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卸载这个 Agent？"
+          }
+        }
+      }
+    },
+    "历史估算" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Legacy estimate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史估算"
           }
         }
       }
@@ -5205,6 +3266,23 @@
         }
       }
     },
+    "取消收藏 %@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove %@ from favorites"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消收藏 %@"
+          }
+        }
+      }
+    },
     "取消置顶" : {
       "localizations" : {
         "en" : {
@@ -5233,6 +3311,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "变量值"
+          }
+        }
+      }
+    },
+    "变量列表" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variable list"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "变量列表"
           }
         }
       }
@@ -5270,6 +3365,23 @@
         }
       }
     },
+    "另有 %lld 轮为历史或未分类数据。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld additional turns contain legacy or unclassified data."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "另有 %lld 轮为历史或未分类数据。"
+          }
+        }
+      }
+    },
     "另有 %lld 项未显示" : {
       "localizations" : {
         "en" : {
@@ -5303,6 +3415,40 @@
         }
       }
     },
+    "只读到本机版本" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local version only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只读到本机版本"
+          }
+        }
+      }
+    },
+    "可以填一个 emoji，也可以填图片地址；留空时列表只显示名称。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter an emoji or an image URL; leave it empty to show the name only."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可以填一个 emoji，也可以填图片地址；留空时列表只显示名称。"
+          }
+        }
+      }
+    },
     "可在 Web 端设置预置消息；成功发送的消息会保存在最近发送中。" : {
       "localizations" : {
         "en" : {
@@ -5315,6 +3461,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "可在 Web 端设置预置消息；成功发送的消息会保存在最近发送中。"
+          }
+        }
+      }
+    },
+    "可执行文件" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Executable"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可执行文件"
           }
         }
       }
@@ -5404,6 +3567,74 @@
         }
       }
     },
+    "后端用它判断这个 Agent 是否已安装。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The backend uses this to decide whether the agent is installed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后端用它判断这个 Agent 是否已安装。"
+          }
+        }
+      }
+    },
+    "启动参数" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arguments"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启动参数"
+          }
+        }
+      }
+    },
+    "启动命令" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Launch command"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启动命令"
+          }
+        }
+      }
+    },
+    "启动定义" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Launch definition"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启动定义"
+          }
+        }
+      }
+    },
     "启用" : {
       "localizations" : {
         "en" : {
@@ -5416,6 +3647,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "启用"
+          }
+        }
+      }
+    },
+    "启用 %@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用 %@"
           }
         }
       }
@@ -5433,6 +3681,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "启用任务"
+          }
+        }
+      }
+    },
+    "启用这条变量" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable this variable"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用这条变量"
           }
         }
       }
@@ -5487,6 +3752,23 @@
         }
       }
     },
+    "图标" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Icon"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图标"
+          }
+        }
+      }
+    },
     "图片" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5504,6 +3786,22 @@
         }
       }
     },
+    "图片 Token 为估算值，可能已包含在输入 Token 中。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image tokens are estimated and may already be included in input tokens."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片 Token 为估算值，可能已包含在输入 Token 中。"
+          }
+        }
+      }
+    },
     "图片为空" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5517,6 +3815,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "图片为空"
+          }
+        }
+      }
+    },
+    "图片估算" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image estimate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片估算"
           }
         }
       }
@@ -5590,7 +3905,41 @@
       }
     },
     "在浏览器中打开" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in Browser"
+          }
+        }
+      }
+    },
+    "在浏览器中继续查看，或复制链接分享当前 Job" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue in your browser, or copy a link to share this job"
+          }
+        }
+      }
+    },
+    "基本信息" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Basics"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "基本信息"
+          }
+        }
+      }
     },
     "填入消息输入框" : {
       "localizations" : {
@@ -5641,6 +3990,16 @@
         }
       }
     },
+    "复制 Web 链接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Web Link"
+          }
+        }
+      }
+    },
     "复制代码" : {
       "localizations" : {
         "en" : {
@@ -5653,6 +4012,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "复制代码"
+          }
+        }
+      }
+    },
+    "复制全部输出" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy all output"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制全部输出"
           }
         }
       }
@@ -5674,10 +4049,14 @@
       }
     },
     "复制可在 Quartet Web 端打开当前 Job 的链接" : {
-
-    },
-    "复制后可在浏览器中直接打开此 Job" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy a link that opens the current job in Quartet Web"
+          }
+        }
+      }
     },
     "复制完整错误" : {
       "localizations" : {
@@ -5691,6 +4070,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "复制完整错误"
+          }
+        }
+      }
+    },
+    "复制链接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Link"
           }
         }
       }
@@ -5729,7 +4118,6 @@
       }
     },
     "失败" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5757,6 +4145,142 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "好"
+          }
+        }
+      }
+    },
+    "存储键" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Storage key"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "存储键"
+          }
+        }
+      }
+    },
+    "安装" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装"
+          }
+        }
+      }
+    },
+    "安装 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装 Agent"
+          }
+        }
+      }
+    },
+    "安装后复检" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Post-install recheck"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装后复检"
+          }
+        }
+      }
+    },
+    "安装命令" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install commands"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装命令"
+          }
+        }
+      }
+    },
+    "安装失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装失败"
+          }
+        }
+      }
+    },
+    "安装完成，但校验失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed, but validation failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装完成，但校验失败"
+          }
+        }
+      }
+    },
+    "安装成功" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装成功"
           }
         }
       }
@@ -5978,6 +4502,40 @@
         }
       }
     },
+    "将删除“%@”。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This deletes “%@”."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将删除“%@”。"
+          }
+        }
+      }
+    },
+    "将强制删除“%@”，正在运行的 Job 会先被停止。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This force deletes “%@”; running jobs are stopped first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将强制删除“%@”，正在运行的 Job 会先被停止。"
+          }
+        }
+      }
+    },
     "将执行 make web，当前连接会短暂断开。" : {
       "localizations" : {
         "en" : {
@@ -5990,6 +4548,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "将执行 make web，当前连接会短暂断开。"
+          }
+        }
+      }
+    },
+    "将按目录预置流程升级“%@”：\n%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This upgrades “%@” through the preset catalog flow:\n%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将按目录预置流程升级“%@”：\n%@"
+          }
+        }
+      }
+    },
+    "将按目录预置流程升级“%@”。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This upgrades “%@” through the preset catalog flow."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将按目录预置流程升级“%@”。"
+          }
+        }
+      }
+    },
+    "将按目录预置流程卸载“%@”。已有的 Job、会话和工作流记录会保留，但在重新安装前无法再运行。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This uninstalls “%@” through the preset catalog flow. Existing jobs, sessions and workflow records are kept, but cannot run again until it is reinstalled."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将按目录预置流程卸载“%@”。已有的 Job、会话和工作流记录会保留，但在重新安装前无法再运行。"
+          }
+        }
+      }
+    },
+    "将按顺序更新以下 %d 个 Agent；单个 Agent 失败时会保留完整结果并继续更新其余项目：\n\n%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The following %d Agents will be updated in order. Complete failure details will be retained and remaining Agents will continue:\n\n%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将按顺序更新以下 %d 个 Agent；单个 Agent 失败时会保留完整结果并继续更新其余项目：\n\n%@"
           }
         }
       }
@@ -6258,6 +4884,23 @@
         }
       }
     },
+    "已保存" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已保存"
+          }
+        }
+      }
+    },
     "已停止" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6287,6 +4930,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已停用"
+          }
+        }
+      }
+    },
+    "已删除" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已删除"
+          }
+        }
+      }
+    },
+    "已删除 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent deleted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已删除 Agent"
           }
         }
       }
@@ -6353,6 +5030,91 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已完成"
+          }
+        }
+      }
+    },
+    "已废弃" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deprecated"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已废弃"
+          }
+        }
+      }
+    },
+    "已是最新版本" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Up to date"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已是最新版本"
+          }
+        }
+      }
+    },
+    "已有安装 / 升级 / 卸载在执行，后端会串行处理，请等它跑完。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An install / upgrade / uninstall is already running; the backend serializes them, so wait for it to finish."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已有安装 / 升级 / 卸载在执行，后端会串行处理，请等它跑完。"
+          }
+        }
+      }
+    },
+    "已清空的设置" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cleared settings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已清空的设置"
+          }
+        }
+      }
+    },
+    "已登记 %d 个" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d registered"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已登记 %d 个"
           }
         }
       }
@@ -6507,6 +5269,40 @@
         }
       }
     },
+    "强制删除 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Force delete agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "强制删除 Agent"
+          }
+        }
+      }
+    },
+    "强制删除这个 Agent？" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Force delete this agent?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "强制删除这个 Agent？"
+          }
+        }
+      }
+    },
     "当前" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6520,6 +5316,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "当前"
+          }
+        }
+      }
+    },
+    "当前不可用" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Currently unavailable"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前不可用"
+          }
+        }
+      }
+    },
+    "当前修订" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current revision"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前修订"
           }
         }
       }
@@ -6554,6 +5384,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "当前步骤后停止中"
+          }
+        }
+      }
+    },
+    "当前没有可用的 Agent。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No agent is available."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前没有可用的 Agent。"
+          }
+        }
+      }
+    },
+    "当前没有可用的 Agent。先在“Agent 目录”里安装并通过可用性检查。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No agent is available yet. Install one on the Agent catalog tab and let it pass the availability check."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前没有可用的 Agent。先在“Agent 目录”里安装并通过可用性检查。"
+          }
+        }
+      }
+    },
+    "当前没有可配置的 Agent。先在“Agent 目录”里安装或新增一个 Agent。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There is no configurable agent yet. Install or add one on the Agent catalog tab first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前没有可配置的 Agent。先在“Agent 目录”里安装或新增一个 Agent。"
+          }
+        }
+      }
+    },
+    "当前没有支持 bin -p 单次执行的可用 Agent。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No available agent supports one-shot bin -p execution."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前没有支持 bin -p 单次执行的可用 Agent。"
           }
         }
       }
@@ -6660,6 +5558,74 @@
         }
       }
     },
+    "当前账号没有 agent.manage 权限，只能查看 Agent 目录。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account lacks the agent.manage permission and can only view the catalog."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 agent.manage 权限，只能查看 Agent 目录。"
+          }
+        }
+      }
+    },
+    "当前账号没有 config.write 权限，只能查看环境变量。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account lacks the config.write permission and can only view environment variables."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.write 权限，只能查看环境变量。"
+          }
+        }
+      }
+    },
+    "当前账号没有 config.write 权限，只能查看角色配置。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account lacks the config.write permission and can only view the role configuration."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.write 权限，只能查看角色配置。"
+          }
+        }
+      }
+    },
+    "当前账号没有 config.write 权限，只能查看默认参数。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account lacks the config.write permission and can only view the defaults."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.write 权限，只能查看默认参数。"
+          }
+        }
+      }
+    },
     "当前项目" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6689,6 +5655,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "当前项目、全部项目与最近发送"
+          }
+        }
+      }
+    },
+    "影响范围" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impact"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "影响范围"
           }
         }
       }
@@ -6794,6 +5777,38 @@
         }
       }
     },
+    "总 Token" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total tokens"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总 Token"
+          }
+        }
+      }
+    },
+    "总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算，旧记录保留原口径。来源明细可能重叠，不能相加。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total tokens prefer provider-reported usage. Turns without it use a local estimate that includes images, while legacy records keep their original basis. Source details may overlap; do not add them together."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算，旧记录保留原口径。来源明细可能重叠，不能相加。"
+          }
+        }
+      }
+    },
     "总耗时" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6845,6 +5860,22 @@
         }
       }
     },
+    "总量由服务端计算；下列来源与明细可能重叠，请勿相加。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The total is calculated by the server. The sources and details below may overlap; do not add them together."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总量由服务端计算；下列来源与明细可能重叠，请勿相加。"
+          }
+        }
+      }
+    },
     "恢复到输入框" : {
       "localizations" : {
         "en" : {
@@ -6874,6 +5905,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复按最近更新时间排序"
+          }
+        }
+      }
+    },
+    "恢复自定义 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restore custom agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复自定义 Agent"
           }
         }
       }
@@ -6945,6 +5993,23 @@
         }
       }
     },
+    "手动安装" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manual install"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手动安装"
+          }
+        }
+      }
+    },
     "打开后可从分组列表中选择" : {
       "localizations" : {
         "en" : {
@@ -6957,6 +6022,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "打开后可从分组列表中选择"
+          }
+        }
+      }
+    },
+    "打开后这个 Agent 才能被标题生成和群回复这类无会话角色选用。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only agents with this enabled can serve session-less roles such as title generation and group replies."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开后这个 Agent 才能被标题生成和群回复这类无会话角色选用。"
           }
         }
       }
@@ -7062,6 +6144,40 @@
         }
       }
     },
+    "批量更新" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Batch update"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "批量更新"
+          }
+        }
+      }
+    },
+    "批量更新完成：%d 个成功，%d 个失败。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Batch update complete: %d succeeded, %d failed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "批量更新完成：%d 个成功，%d 个失败。"
+          }
+        }
+      }
+    },
     "拍摄一张新照片" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7130,6 +6246,57 @@
         }
       }
     },
+    "按目录预置的升级命令执行" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runs the upgrade commands preset in the catalog"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按目录预置的升级命令执行"
+          }
+        }
+      }
+    },
+    "按目录预置的卸载命令执行" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runs the uninstall commands preset in the catalog"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按目录预置的卸载命令执行"
+          }
+        }
+      }
+    },
+    "按目录预置的安装命令执行" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runs the install commands preset in the catalog"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按目录预置的安装命令执行"
+          }
+        }
+      }
+    },
     "按空间记忆" : {
       "localizations" : {
         "en" : {
@@ -7142,6 +6309,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "按空间记忆"
+          }
+        }
+      }
+    },
+    "推理 Token" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reasoning tokens"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "推理 Token"
           }
         }
       }
@@ -7175,6 +6359,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "提示词"
+          }
+        }
+      }
+    },
+    "支持 bin -p 单次执行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supports one-shot bin -p execution"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支持 bin -p 单次执行"
+          }
+        }
+      }
+    },
+    "支持 bin -p 单次执行，可用于标题生成和群回复角色。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supports one-shot bin -p execution, so it can serve the title and group-reply roles."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支持 bin -p 单次执行，可用于标题生成和群回复角色。"
           }
         }
       }
@@ -7225,6 +6442,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "收藏"
+          }
+        }
+      }
+    },
+    "收藏模型" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorite models"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收藏模型"
+          }
+        }
+      }
+    },
+    "收藏的模型会排在模型选择器最前面。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorite models are pinned to the top of the model picker."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收藏的模型会排在模型选择器最前面。"
           }
         }
       }
@@ -7329,6 +6580,22 @@
         }
       }
     },
+    "新增自定义 Agent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add custom agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新增自定义 Agent"
+          }
+        }
+      }
+    },
     "新建任务" : {
       "localizations" : {
         "en" : {
@@ -7362,6 +6629,23 @@
         }
       }
     },
+    "新建对话选中这个 Agent 时会套用这里的默认值；保存的值如果已经不在实时列表里，运行时会自动回退。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These defaults apply when a new conversation selects this agent; if a saved value is no longer in the live list, the runtime falls back automatically."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新建对话选中这个 Agent 时会套用这里的默认值；保存的值如果已经不在实时列表里，运行时会自动回退。"
+          }
+        }
+      }
+    },
     "新的 Web 服务已就绪。" : {
       "localizations" : {
         "en" : {
@@ -7374,6 +6658,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新的 Web 服务已就绪。"
+          }
+        }
+      }
+    },
+    "无" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "None"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无"
           }
         }
       }
@@ -7424,6 +6725,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "日期"
+          }
+        }
+      }
+    },
+    "显示名称" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display name"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示名称"
           }
         }
       }
@@ -7493,6 +6811,23 @@
         }
       }
     },
+    "暂无修订记录。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No revisions recorded."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无修订记录。"
+          }
+        }
+      }
+    },
     "暂无初始变量" : {
       "localizations" : {
         "en" : {
@@ -7505,6 +6840,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暂无初始变量"
+          }
+        }
+      }
+    },
+    "暂无可计算来源覆盖率的轮次。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No turns have enough source data to calculate coverage."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无可计算来源覆盖率的轮次。"
           }
         }
       }
@@ -7655,6 +7006,40 @@
         }
       }
     },
+    "更新全部" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update all"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新全部"
+          }
+        }
+      }
+    },
+    "更新全部 Agent？" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update all Agents?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新全部 Agent？"
+          }
+        }
+      }
+    },
     "替换" : {
       "localizations" : {
         "en" : {
@@ -7687,6 +7072,23 @@
         }
       }
     },
+    "有 %d 个 Agent 的改动尚未保存。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d agents have unsaved changes."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有 %d 个 Agent 的改动尚未保存。"
+          }
+        }
+      }
+    },
     "有 %lld 个工作流文件加载失败" : {
       "localizations" : {
         "en" : {
@@ -7699,6 +7101,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有 %lld 个工作流文件加载失败"
+          }
+        }
+      }
+    },
+    "有新版本可用" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update available"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有新版本可用"
           }
         }
       }
@@ -7716,6 +7135,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有状态等待刷新，点按立即同步"
+          }
+        }
+      }
+    },
+    "有运行中的 Job 时会被拒绝" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rejected while any job is still running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有运行中的 Job 时会被拒绝"
           }
         }
       }
@@ -7748,6 +7184,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "服务地址和本机 Cookie 登录状态都会被删除。"
+          }
+        }
+      }
+    },
+    "服务端状态：%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server status: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务端状态：%@"
+          }
+        }
+      }
+    },
+    "服务端返回 code=%d，但没有带回影响范围。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The server returned code=%d without an impact summary."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务端返回 code=%d，但没有带回影响范围。"
+          }
+        }
+      }
+    },
+    "服务端返回 code=%d，但没有带回执行结果。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The server returned code=%d without an execution result."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务端返回 code=%d，但没有带回执行结果。"
           }
         }
       }
@@ -7798,6 +7285,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未命名 Job"
+          }
+        }
+      }
+    },
+    "未安装" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not installed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未安装"
           }
         }
       }
@@ -7953,6 +7457,23 @@
         }
       }
     },
+    "未设置" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not set"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未设置"
+          }
+        }
+      }
+    },
     "未连接" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -8017,6 +7538,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未选择空间"
+          }
+        }
+      }
+    },
+    "本地估算" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local estimate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本地估算"
           }
         }
       }
@@ -8105,6 +7643,22 @@
         }
       }
     },
+    "来源与明细" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sources and details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "来源与明细"
+          }
+        }
+      }
+    },
     "查看 Agent 用量错误" : {
       "localizations" : {
         "en" : {
@@ -8170,6 +7724,22 @@
         }
       }
     },
+    "查看命令输出" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View command output"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看命令输出"
+          }
+        }
+      }
+    },
     "查看图片" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -8220,6 +7790,23 @@
         }
       }
     },
+    "标题生成 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Title generation agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标题生成 Agent"
+          }
+        }
+      }
+    },
     "格式：分 时 日 月 周，例如 0 9 * * * 表示每天 09:00。" : {
       "localizations" : {
         "en" : {
@@ -8232,6 +7819,108 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "格式：分 时 日 月 周，例如 0 9 * * * 表示每天 09:00。"
+          }
+        }
+      }
+    },
+    "检查可用性" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check availability"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检查可用性"
+          }
+        }
+      }
+    },
+    "检查失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检查失败"
+          }
+        }
+      }
+    },
+    "检查更新" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check for updates"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检查更新"
+          }
+        }
+      }
+    },
+    "检查有告警" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check passed with warnings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检查有告警"
+          }
+        }
+      }
+    },
+    "检查通过" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check passed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检查通过"
+          }
+        }
+      }
+    },
+    "检测到另一个安装任务正在执行，已停止剩余更新。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Another installation task is running. The remaining updates were stopped."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检测到另一个安装任务正在执行，已停止剩余更新。"
           }
         }
       }
@@ -8334,6 +8023,40 @@
         }
       }
     },
+    "正在删除" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleting"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在删除"
+          }
+        }
+      }
+    },
+    "正在删除 Agent…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleting agent…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在删除 Agent…"
+          }
+        }
+      }
+    },
     "正在刷新…" : {
       "localizations" : {
         "en" : {
@@ -8379,6 +8102,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在刷新预置消息…"
+          }
+        }
+      }
+    },
+    "正在加载 Agent 目录…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading agent catalog…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载 Agent 目录…"
+          }
+        }
+      }
+    },
+    "正在加载 Agent 角色…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading agent roles…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载 Agent 角色…"
+          }
+        }
+      }
+    },
+    "正在加载 Agent 默认参数…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading agent defaults…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载 Agent 默认参数…"
           }
         }
       }
@@ -8448,6 +8222,57 @@
         }
       }
     },
+    "正在加载环境变量…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading environment variables…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载环境变量…"
+          }
+        }
+      }
+    },
+    "正在升级 Agent…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upgrading agent…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在升级 Agent…"
+          }
+        }
+      }
+    },
+    "正在卸载 Agent…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstalling agent…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在卸载 Agent…"
+          }
+        }
+      }
+    },
     "正在同步" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -8481,6 +8306,22 @@
         }
       }
     },
+    "正在后台刷新校验结果" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refreshing validation in the background"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在后台刷新校验结果"
+          }
+        }
+      }
+    },
     "正在启动…" : {
       "localizations" : {
         "en" : {
@@ -8493,6 +8334,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在启动…"
+          }
+        }
+      }
+    },
+    "正在安装 Agent…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installing agent…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在安装 Agent…"
           }
         }
       }
@@ -8581,6 +8439,90 @@
         }
       }
     },
+    "正在更新 %@（%d/%d）" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating %@ (%d/%d)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新 %@（%d/%d）"
+          }
+        }
+      }
+    },
+    "正在更新…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新…"
+          }
+        }
+      }
+    },
+    "正在检查" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查"
+          }
+        }
+      }
+    },
+    "正在检查更新…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking for updates…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查更新…"
+          }
+        }
+      }
+    },
+    "正在检查版本…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking versions…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查版本…"
+          }
+        }
+      }
+    },
     "正在获取 Agent 用量" : {
       "localizations" : {
         "en" : {
@@ -8662,6 +8604,22 @@
         }
       }
     },
+    "正在读取该模型的思考等级…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading thought levels for this model…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在读取该模型的思考等级…"
+          }
+        }
+      }
+    },
     "正在读取预置消息…" : {
       "localizations" : {
         "en" : {
@@ -8708,6 +8666,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在重启 Web..."
+          }
+        }
+      }
+    },
+    "正在重新拉起 ACP 会话验证可用性…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starting a fresh ACP session to verify availability…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在重新拉起 ACP 会话验证可用性…"
           }
         }
       }
@@ -8762,6 +8737,23 @@
         }
       }
     },
+    "步骤 %d" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Step %d"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步骤 %d"
+          }
+        }
+      }
+    },
     "步骤后停止" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -8792,6 +8784,73 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "步骤后停止中"
+          }
+        }
+      }
+    },
+    "每日 Token" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daily tokens"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日 Token"
+          }
+        }
+      }
+    },
+    "每行一个参数，按顺序原样传给进程，不经过 shell。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One argument per line, passed to the process in order without a shell."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每行一个参数，按顺序原样传给进程，不经过 shell。"
+          }
+        }
+      }
+    },
+    "每行一条 KEY=value，保存后可在“环境变量”标签里继续调整。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One KEY=value per line. After saving you can keep editing them on the Environment variables tab."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每行一条 KEY=value，保存后可在“环境变量”标签里继续调整。"
+          }
+        }
+      }
+    },
+    "每行需要写成 KEY=value，下面这行无法解析：\n%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each line must be KEY=value. This line could not be parsed:\n%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每行需要写成 KEY=value，下面这行无法解析：\n%@"
           }
         }
       }
@@ -8842,6 +8901,33 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "没有相机权限"
+          }
+        }
+      }
+    },
+    "沿用原 AgentID 重新登记" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Re-register under the original AgentID"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沿用原 AgentID 重新登记"
+          }
+        }
+      }
+    },
+    "浏览器打开" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in Browser"
           }
         }
       }
@@ -9139,6 +9225,23 @@
         }
       }
     },
+    "版本检查时间：%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Versions checked at %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "版本检查时间：%@"
+          }
+        }
+      }
+    },
     "状态未知" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -9152,6 +9255,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "状态未知"
+          }
+        }
+      }
+    },
+    "环境变量" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Environment"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "环境变量"
+          }
+        }
+      }
+    },
+    "环境变量格式错误" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid environment variable format"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "环境变量格式错误"
           }
         }
       }
@@ -9220,6 +9357,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "留空使用默认"
+          }
+        }
+      }
+    },
+    "目录" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Catalog"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目录"
           }
         }
       }
@@ -9324,6 +9478,23 @@
         }
       }
     },
+    "确认全部更新" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update all"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认全部更新"
+          }
+        }
+      }
+    },
     "确认删除" : {
       "localizations" : {
         "en" : {
@@ -9336,6 +9507,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "确认删除"
+          }
+        }
+      }
+    },
+    "确认升级" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm upgrade"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认升级"
+          }
+        }
+      }
+    },
+    "确认卸载" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm uninstall"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认卸载"
+          }
+        }
+      }
+    },
+    "确认强制删除" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm force delete"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认强制删除"
           }
         }
       }
@@ -9693,6 +9915,22 @@
         }
       }
     },
+    "管理收藏模型" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage favorite models"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理收藏模型"
+          }
+        }
+      }
+    },
     "系列" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -10011,6 +10249,40 @@
         }
       }
     },
+    "缓存写入" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cache write"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缓存写入"
+          }
+        }
+      }
+    },
+    "缓存读取" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cache read"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缓存读取"
+          }
+        }
+      }
+    },
     "编辑任务" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -10040,6 +10312,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "编辑定时任务"
+          }
+        }
+      }
+    },
+    "编辑已有 Agent 时不改动环境变量，请到“环境变量”标签里维护。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editing an existing agent leaves its environment variables untouched — manage them on the Environment variables tab."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑已有 Agent 时不改动环境变量，请到“环境变量”标签里维护。"
+          }
+        }
+      }
+    },
+    "编辑自定义 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit custom agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑自定义 Agent"
           }
         }
       }
@@ -10128,6 +10434,40 @@
         }
       }
     },
+    "群聊回复 Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Group reply agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "群聊回复 Agent"
+          }
+        }
+      }
+    },
+    "群聊里被 @ 时回复，走一次性无会话执行。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replies when mentioned in a group chat, through one-shot session-less execution."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "群聊里被 @ 时回复，走一次性无会话执行。"
+          }
+        }
+      }
+    },
     "耗时" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -10158,6 +10498,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "脚本"
+          }
+        }
+      }
+    },
+    "脚本安装" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Script install"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "脚本安装"
           }
         }
       }
@@ -10364,8 +10721,22 @@
         }
       }
     },
-    "获取 Web 链接" : {
-
+    "角色分工" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Roles"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "角色分工"
+          }
+        }
+      }
     },
     "认证配置需要恢复" : {
       "extractionState" : "stale",
@@ -10498,6 +10869,22 @@
         }
       }
     },
+    "请求会一直等到命令跑完，请不要退出页面。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The request waits until the command finishes — please stay on this page."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请求会一直等到命令跑完，请不要退出页面。"
+          }
+        }
+      }
+    },
     "请输入密码" : {
       "localizations" : {
         "en" : {
@@ -10559,6 +10946,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请选择替换当前草稿，或把预置消息追加到草稿末尾。"
+          }
+        }
+      }
+    },
+    "读取修订历史失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to read the revision history"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取修订历史失败"
+          }
+        }
+      }
+    },
+    "读取删除影响失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to read the deletion impact"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取删除影响失败"
           }
         }
       }
@@ -10645,6 +11066,22 @@
         }
       }
     },
+    "趋势指标" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trend metric"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "趋势指标"
+          }
+        }
+      }
+    },
     "趋势指标，当前为%@" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -10709,6 +11146,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "跟随系统"
+          }
+        }
+      }
+    },
+    "跟随默认" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use default"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跟随默认"
           }
         }
       }
@@ -10800,7 +11254,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ %lld%% versus the previous %lld days"
+            "value" : "%2$@ %3$lld%% versus the previous %1$lld days"
           }
         },
         "zh-Hans" : {
@@ -10858,6 +11312,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "输入 Shell 脚本"
+          }
+        }
+      }
+    },
+    "输入 Token" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Input tokens"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入 Token"
           }
         }
       }
@@ -10924,6 +11395,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "输入节点提示词"
+          }
+        }
+      }
+    },
+    "输出 Token" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Output tokens"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输出 Token"
           }
         }
       }
@@ -11175,6 +11663,108 @@
         }
       }
     },
+    "还没有变量。点下面的按钮添加一条 KEY=value。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No variables yet. Use the button below to add a KEY=value entry."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有变量。点下面的按钮添加一条 KEY=value。"
+          }
+        }
+      }
+    },
+    "还没有收藏任何模型。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No favorite models yet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有收藏任何模型。"
+          }
+        }
+      }
+    },
+    "这三个角色由后端自动触发，和手动新建对话时的选择互不影响。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These three roles are triggered by the backend and are independent of what you pick when starting a conversation manually."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这三个角色由后端自动触发，和手动新建对话时的选择互不影响。"
+          }
+        }
+      }
+    },
+    "这个 Agent 当前没有可执行的管理操作。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No management actions are available for this agent right now."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个 Agent 当前没有可执行的管理操作。"
+          }
+        }
+      }
+    },
+    "这个 Agent 没有上报可用模型。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This agent does not report any available model."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个 Agent 没有上报可用模型。"
+          }
+        }
+      }
+    },
+    "这个 Agent 没有可设置的默认项。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This agent has nothing to configure."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个 Agent 没有可设置的默认项。"
+          }
+        }
+      }
+    },
     "这个工作空间在当前筛选下还没有任务。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -11188,6 +11778,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "这个工作空间在当前筛选下还没有任务。"
+          }
+        }
+      }
+    },
+    "这些变量只在启动对应 Agent 的 ACP 进程时注入；关闭的条目会被保留但不生效。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These variables are injected only when the agent’s ACP process starts; disabled entries are kept but not applied."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这些变量只在启动对应 Agent 的 ACP 进程时注入；关闭的条目会被保留但不生效。"
           }
         }
       }
@@ -11354,6 +11961,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "退出并清除连接"
+          }
+        }
+      }
+    },
+    "退出码 %d" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exit code %d"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "退出码 %d"
           }
         }
       }
@@ -11591,8 +12215,72 @@
         }
       }
     },
-    "通过 Quartet Web 查看当前 Job" : {
-
+    "选择默认思考等级" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select default thought level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择默认思考等级"
+          }
+        }
+      }
+    },
+    "选择默认模型" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select default model"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择默认模型"
+          }
+        }
+      }
+    },
+    "选择默认模式" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select default mode"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择默认模式"
+          }
+        }
+      }
+    },
+    "通过" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通过"
+          }
+        }
+      }
     },
     "重启 Web" : {
       "localizations" : {
@@ -11654,6 +12342,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重新加载"
+          }
+        }
+      }
+    },
+    "重新拉起 ACP 会话验证" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starts a fresh ACP session to verify"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新拉起 ACP 会话验证"
           }
         }
       }
@@ -11739,6 +12444,23 @@
         }
       }
     },
+    "重试强制删除" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry force delete"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重试强制删除"
+          }
+        }
+      }
+    },
     "队列中的消息会由服务端依次发送，可在执行前删除。" : {
       "localizations" : {
         "en" : {
@@ -11783,6 +12505,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "队列已阻塞，请删除失败消息"
+          }
+        }
+      }
+    },
+    "阻塞删除的 Job：%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jobs blocking the deletion: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "阻塞删除的 Job：%@"
           }
         }
       }
@@ -11902,6 +12641,23 @@
         }
       }
     },
+    "默认参数" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Defaults"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认参数"
+          }
+        }
+      }
+    },
     "默认循环上限" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -11915,6 +12671,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "默认循环上限"
+          }
+        }
+      }
+    },
+    "默认思考等级" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default thought level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认思考等级"
+          }
+        }
+      }
+    },
+    "默认模型" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default model"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认模型"
           }
         }
       }
@@ -11949,6 +12739,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "默认节点超时（秒）"
+          }
+        }
+      }
+    },
+    "默认选择" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default selection"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认选择"
           }
         }
       }

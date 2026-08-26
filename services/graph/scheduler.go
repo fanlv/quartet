@@ -552,6 +552,20 @@ func (sc *scheduler) drain(ctx context.Context, resultCh <-chan nodeResult, sess
 			sc.handleSessionOpened(drainCtx, so)
 		case res := <-resultCh:
 			(*inFlight)--
+			state := sc.instances[instanceKeyString(res.key)]
+			finishedAt := state.FinishedAt
+			durationMs := state.DurationMs
+			if finishedAt <= 0 {
+				finishedAt = time.Now().UnixMilli()
+				durationMs = finishedAt - state.StartedAt
+				if durationMs < 0 {
+					durationMs = 0
+				}
+			}
+			// A result is consumed by either the main loop (handleResult) or this
+			// shutdown drain, never both. Record cancelled/timed-out siblings here
+			// with the same dispatch-stable key used by the normal path.
+			sc.svc.recordUsageSnapshot(sc.run, res.key, state.StartedAt, res.outcome, finishedAt, durationMs)
 			if isAgent(res.node.Type) {
 				sessionID := firstNonEmpty(res.outcome.sessionID, res.inflowSession)
 				sc.whitelistAgentSession(drainCtx, sessionID)
@@ -734,7 +748,7 @@ func (sc *scheduler) handleResult(ctx context.Context, res nodeResult) {
 	if state.DurationMs < 0 {
 		state.DurationMs = 0
 	}
-	sc.svc.recordUsageSnapshot(sc.run, res.outcome, finishedAt, state.DurationMs)
+	sc.svc.recordUsageSnapshot(sc.run, key, state.StartedAt, res.outcome, finishedAt, state.DurationMs)
 
 	if res.err != nil {
 		logger.Errorf(ctx, "[graph] node failed: runId=%s nodeId=%s key=%s durationMs=%d err=%v",

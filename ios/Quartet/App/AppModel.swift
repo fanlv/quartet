@@ -97,6 +97,9 @@ final class AppModel: ObservableObject {
     private var dashboardPollETag: String?
     private var dashboardPollScope: DashboardPollScope?
     private var uiTestJobs: [JobSummary] = []
+#if DEBUG
+    private var uiTestUpgradedAgentIDs: Set<String> = []
+#endif
     private var optimisticJobExecutions: [String: OptimisticJobExecution] = [:]
 
     init(
@@ -704,6 +707,31 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func managedAgentCatalogItems() async throws -> [AgentCatalogItem] {
+#if DEBUG
+        if isRunningUITests { return try uiTestManagedAgentCatalogItems() }
+#endif
+        let client = try makeClient()
+        async let active = client.agentCatalogItems()
+        async let deleted = client.deletedAgentCatalogItems()
+        let (activeResponse, deletedResponse) = try await (active, deleted)
+        return (activeResponse.agents ?? []) + (deletedResponse.agents ?? [])
+    }
+
+    func managedAgentVersions(force: Bool) async throws -> AgentVersionCheckResponse {
+#if DEBUG
+        if isRunningUITests { return try uiTestManagedAgentVersions() }
+#endif
+        return try await makeClient().agentVersionCheck(force: force)
+    }
+
+    func upgradeManagedAgent(agentID: String, client: APIClient? = nil) async throws -> AgentInstallResponse {
+#if DEBUG
+        if isRunningUITests { return try uiTestManagedAgentUpgrade(agentID: agentID) }
+#endif
+        return try await (client ?? makeClient()).upgradeAgent(agentID: agentID)
+    }
+
     func agentPreferences() async throws -> [String: AgentPreferences] {
         if isRunningUITests {
             return [
@@ -723,6 +751,18 @@ final class AppModel: ObservableObject {
             )
         }
         return response.settings?.agentPreferences ?? [:]
+    }
+
+    func agentEnvironmentSettings() async throws -> [String: [AgentEnvironmentItem]] {
+        if isRunningUITests { return [:] }
+        let response = try await makeClient().agentPreferences()
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法读取 Agent 环境变量",
+                detail: "GET /api/v1/config/settings/get 返回 code=\(response.code)。"
+            )
+        }
+        return response.settings?.acpEnvVars ?? [:]
     }
 
     func effectiveMessagePresets(workspaceID: String) async throws -> EffectiveMessagePresetsResponse {
@@ -1230,6 +1270,84 @@ final class AppModel: ObservableObject {
         phase = .connected
     }
 
+#if DEBUG
+    private func uiTestManagedAgentCatalogItems() throws -> [AgentCatalogItem] {
+        var items: [AgentCatalogItem] = [
+            try AgentCatalogItem.uiTest(agentId: "trae", displayName: "TraeCode"),
+            try AgentCatalogItem.uiTest(agentId: "codex", displayName: "Codex"),
+            try AgentCatalogItem.uiTest(agentId: "manual-agent", displayName: "Manual Agent"),
+        ]
+        if uiTestScenario == "--ui-testing-agent-upgrade-failures" {
+            items.insert(try AgentCatalogItem.uiTest(agentId: "after-conflict", displayName: "After Conflict"), at: 2)
+        }
+        return items
+    }
+
+    private func uiTestManagedAgentVersions() throws -> AgentVersionCheckResponse {
+        var agents: [AgentVersionInfo] = [
+            try AgentVersionInfo.uiTest(
+                agentId: "trae",
+                updateAvailable: !uiTestUpgradedAgentIDs.contains("trae"),
+                upgradeSupported: true
+            ),
+            try AgentVersionInfo.uiTest(
+                agentId: "codex",
+                updateAvailable: !uiTestUpgradedAgentIDs.contains("codex"),
+                upgradeSupported: true
+            ),
+        ]
+        if uiTestScenario == "--ui-testing-agent-upgrade-failures" {
+            agents.append(try .uiTest(agentId: "after-conflict", updateAvailable: true, upgradeSupported: true))
+        }
+        agents.append(try .uiTest(agentId: "manual-agent", updateAvailable: true, upgradeSupported: false))
+        return AgentVersionCheckResponse(
+            code: 0,
+            checkedAt: Int64(Date().timeIntervalSince1970 * 1_000),
+            agents: agents
+        )
+    }
+
+    private func uiTestManagedAgentUpgrade(agentID: String) throws -> AgentInstallResponse {
+        if uiTestScenario == "--ui-testing-agent-upgrade-failures" {
+            if agentID == "trae" {
+                throw APIError(
+                    summary: "升级 Agent 失败",
+                    detail: "模拟网络错误：保留完整错误并继续后续 Agent。"
+                )
+            }
+            if agentID == "codex" {
+                throw APIError(
+                    summary: "Quartet 请求失败",
+                    detail: "POST /api/v1/agent/codex/upgrade\nHTTP 409\n\n{\"code\":-1,\"msg\":\"another agent install is already in progress\"}",
+                    requestWasRejected: true,
+                    httpStatusCode: 409
+                )
+            }
+        }
+        uiTestUpgradedAgentIDs.insert(agentID)
+        let object: [String: Any] = [
+            "code": 0,
+            "result": [
+                "agent_id": agentID,
+                "steps": [[
+                    "display": "npm update -g \(agentID)",
+                    "stdout": "updated \(agentID)",
+                    "stderr": "",
+                    "exit_code": 0,
+                    "timed_out": false,
+                    "duration_ms": 120,
+                ]],
+                "installed": true,
+                "validation": ["ok": true],
+            ],
+        ]
+        return try JSONDecoder().decode(
+            AgentInstallResponse.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+    }
+#endif
+
     private func uiTestUsageStats(from: String?, to: String?) -> UsageStatsReport {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
@@ -1241,7 +1359,11 @@ final class AppModel: ObservableObject {
         let dateKey: (Int) -> String = { offset in
             formatter.string(from: calendar.date(byAdding: .day, value: offset, to: today) ?? today)
         }
-        let tokens = UsageStatsTokenTotals(total: 14_800, assistant: 5_300, thought: 4_100, toolCall: 2_200)
+        let tokens = UsageStatsTokenTotals(
+            total: 14_800, reported: 12_300, input: 9_100, output: 3_200, cachedRead: 2_400,
+            cachedWrite: 800, reasoning: 1_100, imageEstimate: 640, estimated: 2_500,
+            reportedTurns: 15, estimatedTurns: 3, assistant: 5_300, thought: 4_100, toolCall: 2_200
+        )
         let modelA = UsageStatsSectionTotals(
             totalMs: 2_160_000, turnCount: 18, assistantCount: 18, thoughtCount: 13,
             toolCallCount: 34, tokens: tokens
@@ -1249,46 +1371,62 @@ final class AppModel: ObservableObject {
         let modelB = UsageStatsSectionTotals(
             totalMs: 960_000, turnCount: 8, assistantCount: 8, thoughtCount: 6,
             toolCallCount: 12,
-            tokens: UsageStatsTokenTotals(total: 6_200, assistant: 2_400, thought: 1_700, toolCall: 900)
+            tokens: UsageStatsTokenTotals(
+                total: 6_200, reported: 4_700, input: 3_400, output: 1_300, cachedRead: 900,
+                reasoning: 450, imageEstimate: 224, estimated: 1_500, reportedTurns: 6,
+                estimatedTurns: 2, assistant: 2_400, thought: 1_700, toolCall: 900
+            )
         )
         let daily = [
             UsageStatsDailyRow(
                 date: dateKey(-3), totalMs: 540_000, turnCount: 5, assistantCount: 5, thoughtCount: 4, toolCallCount: 8,
-                tokens: UsageStatsTokenTotals(total: 4_100, assistant: 1_400, thought: 1_200, toolCall: 600),
+                tokens: UsageStatsTokenTotals(
+                    total: 4_100, reported: 3_300, input: 2_500, output: 800, cachedRead: 600,
+                    reasoning: 300, imageEstimate: 196, estimated: 800, reportedTurns: 4,
+                    estimatedTurns: 1, assistant: 1_400, thought: 1_200, toolCall: 600
+                ),
                 models: ["gpt-5.6": UsageStatsSectionTotals(
                     totalMs: 540_000, turnCount: 5, assistantCount: 5, thoughtCount: 4, toolCallCount: 8,
-                    tokens: UsageStatsTokenTotals(total: 4_100, assistant: 1_400, thought: 1_200, toolCall: 600)
+                    tokens: UsageStatsTokenTotals(
+                        total: 4_100, reported: 3_300, input: 2_500, output: 800, cachedRead: 600,
+                        reasoning: 300, imageEstimate: 196, estimated: 800, reportedTurns: 4,
+                        estimatedTurns: 1, assistant: 1_400, thought: 1_200, toolCall: 600
+                    )
                 )], modelNames: ["gpt-5.6": "gpt-5.6"]
             ),
             UsageStatsDailyRow(
                 date: dateKey(-2), totalMs: 1_020_000, turnCount: 9, assistantCount: 9, thoughtCount: 7, toolCallCount: 14,
-                tokens: UsageStatsTokenTotals(total: 7_000, assistant: 2_600, thought: 1_900, toolCall: 1_100),
+                tokens: UsageStatsTokenTotals(
+                    total: 7_000, reported: 5_600, input: 4_100, output: 1_500, cachedRead: 1_000,
+                    cachedWrite: 300, reasoning: 500, imageEstimate: 224, estimated: 1_400,
+                    reportedTurns: 7, estimatedTurns: 2, assistant: 2_600, thought: 1_900, toolCall: 1_100
+                ),
                 models: [
                     "gpt-5.6": UsageStatsSectionTotals(
                         totalMs: 660_000, turnCount: 6, assistantCount: 6, thoughtCount: 5, toolCallCount: 9,
-                        tokens: UsageStatsTokenTotals(total: 4_500, assistant: 1_700, thought: 1_200, toolCall: 700)
+                        tokens: UsageStatsTokenTotals(total: 4_500, reported: 4_000, input: 2_900, output: 1_100, estimated: 500, reportedTurns: 5, estimatedTurns: 1, assistant: 1_700, thought: 1_200, toolCall: 700)
                     ),
                     "gpt-5.4": UsageStatsSectionTotals(
                         totalMs: 360_000, turnCount: 3, assistantCount: 3, thoughtCount: 2, toolCallCount: 5,
-                        tokens: UsageStatsTokenTotals(total: 2_500, assistant: 900, thought: 700, toolCall: 400)
+                        tokens: UsageStatsTokenTotals(total: 2_500, reported: 1_600, input: 1_200, output: 400, estimated: 900, reportedTurns: 2, estimatedTurns: 1, assistant: 900, thought: 700, toolCall: 400)
                     )
                 ],
                 modelNames: ["gpt-5.6": "gpt-5.6", "gpt-5.4": "gpt-5.4"]
             ),
             UsageStatsDailyRow(
                 date: dateKey(-1), totalMs: 780_000, turnCount: 6, assistantCount: 6, thoughtCount: 5, toolCallCount: 11,
-                tokens: UsageStatsTokenTotals(total: 5_200, assistant: 2_100, thought: 1_400, toolCall: 700),
+                tokens: UsageStatsTokenTotals(total: 5_200, reported: 4_500, input: 3_200, output: 1_300, imageEstimate: 196, estimated: 700, reportedTurns: 5, estimatedTurns: 1, assistant: 2_100, thought: 1_400, toolCall: 700),
                 models: ["gpt-5.4": UsageStatsSectionTotals(
                     totalMs: 780_000, turnCount: 6, assistantCount: 6, thoughtCount: 5, toolCallCount: 11,
-                    tokens: UsageStatsTokenTotals(total: 5_200, assistant: 2_100, thought: 1_400, toolCall: 700)
+                    tokens: UsageStatsTokenTotals(total: 5_200, reported: 4_500, input: 3_200, output: 1_300, imageEstimate: 196, estimated: 700, reportedTurns: 5, estimatedTurns: 1, assistant: 2_100, thought: 1_400, toolCall: 700)
                 )], modelNames: ["gpt-5.4": "gpt-5.4"]
             ),
             UsageStatsDailyRow(
                 date: dateKey(0), totalMs: 780_000, turnCount: 6, assistantCount: 6, thoughtCount: 3, toolCallCount: 13,
-                tokens: UsageStatsTokenTotals(total: 4_700, assistant: 1_600, thought: 1_300, toolCall: 700),
+                tokens: UsageStatsTokenTotals(total: 4_700, reported: 3_600, input: 2_700, output: 900, cachedRead: 700, imageEstimate: 224, estimated: 1_100, reportedTurns: 4, estimatedTurns: 2, assistant: 1_600, thought: 1_300, toolCall: 700),
                 models: ["gpt-5.6": UsageStatsSectionTotals(
                     totalMs: 780_000, turnCount: 6, assistantCount: 6, thoughtCount: 3, toolCallCount: 13,
-                    tokens: UsageStatsTokenTotals(total: 4_700, assistant: 1_600, thought: 1_300, toolCall: 700)
+                    tokens: UsageStatsTokenTotals(total: 4_700, reported: 3_600, input: 2_700, output: 900, cachedRead: 700, imageEstimate: 224, estimated: 1_100, reportedTurns: 4, estimatedTurns: 2, assistant: 1_600, thought: 1_300, toolCall: 700)
                 )], modelNames: ["gpt-5.6": "gpt-5.6"]
             )
         ]

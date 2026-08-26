@@ -46,8 +46,8 @@ func (s ToolCallStatus) IsTerminal() bool {
 //   - OnToolCallArgsSnapshot: replace the tool call's accumulated arguments
 //     with a full snapshot. ACP rawInput updates use replacement semantics
 //     rather than incremental deltas.
-//   - OnTokenUsage: cumulative token count reported by the underlying
-//     provider (optional).
+//   - OnTokenUsage: current context-window occupancy gauge (optional). It is
+//     useful for live UI and as an estimate, but is not provider billing usage.
 type StreamHandler interface {
 	OnMessageChunk(text string)
 	OnThoughtChunk(text string)

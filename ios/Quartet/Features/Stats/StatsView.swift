@@ -11,7 +11,7 @@ struct StatsView: View {
     @State private var preset: StatsRangePreset = .thirtyDays
     @State private var customFrom = Calendar.current.date(byAdding: .day, value: -29, to: Date()) ?? Date()
     @State private var customTo = Date()
-    @State private var metric: StatsTrendMetric = .duration
+    @State private var metric: StatsTrendMetric = .tokens
     @State private var report: UsageStatsReport?
     @State private var isLoading = false
     @State private var errorDetail: String?
@@ -83,12 +83,12 @@ struct StatsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Label("统计范围", systemImage: "calendar")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.quartet(.control, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Spacer()
                 if let report {
                     Text(rangeLabel(report.range))
-                        .font(.caption.monospacedDigit())
+                        .font(.quartet(.detail, design: .monospaced))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
             }
@@ -98,7 +98,7 @@ struct StatsView: View {
                     ForEach(StatsRangePreset.allCases) { item in
                         Button { preset = item } label: {
                             Text(item.title.localized(in: locale))
-                                .font(.caption.weight(.semibold))
+                                .font(.quartet(.detail, weight: .semibold))
                                 .foregroundStyle(preset == item ? QuartetTheme.onAccent : QuartetTheme.secondaryText)
                                 .padding(.horizontal, 13)
                                 .frame(height: 32)
@@ -121,7 +121,7 @@ struct StatsView: View {
                     Divider().overlay(QuartetTheme.divider)
                     DatePicker("结束日期", selection: $customTo, displayedComponents: .date)
                 }
-                .font(.subheadline)
+                .font(.quartet(.control))
                 .onChange(of: customFrom) { _, value in
                     if value > customTo { customTo = value }
                 }
@@ -139,7 +139,7 @@ struct StatsView: View {
                 .controlSize(.large)
                 .tint(QuartetTheme.accent)
             Text("正在加载使用统计…")
-                .font(.subheadline)
+                .font(.quartet(.control))
                 .foregroundStyle(QuartetTheme.secondaryText)
         }
         .frame(maxWidth: .infinity, minHeight: 180)
@@ -151,11 +151,11 @@ struct StatsView: View {
     private func errorCard(_ detail: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("使用统计加载失败", systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
+                .font(.quartet(.headline, weight: .semibold))
                 .foregroundStyle(QuartetTheme.failed)
 
             Text(detail)
-                .font(.system(.caption, design: .monospaced))
+                .font(.quartet(.detail, design: .monospaced))
                 .foregroundStyle(QuartetTheme.primaryText)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -164,7 +164,7 @@ struct StatsView: View {
                 Button("重试") { refreshRevision &+= 1 }
                 Button("复制完整错误") { UIPasteboard.general.string = detail }
             }
-            .font(.subheadline.weight(.semibold))
+            .font(.quartet(.control, weight: .semibold))
         }
         .statsCard(stroke: QuartetTheme.failed.opacity(0.35))
         .accessibilityIdentifier("stats-error")
@@ -184,8 +184,8 @@ struct StatsView: View {
     }
 
     private var noteCard: some View {
-        Label("Token 数为本地分词器估算值，非 API 计费口径。统计页沿用 Web 端展示口径，将已记录的输出侧估算值乘以 2。", systemImage: "info.circle")
-            .font(.footnote)
+        Label("总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算，旧记录保留原口径。来源明细可能重叠，不能相加。", systemImage: "info.circle")
+            .font(.quartet(.detail))
             .foregroundStyle(QuartetTheme.secondaryText)
             .lineSpacing(3)
             .padding(.horizontal, 4)
@@ -306,12 +306,12 @@ private struct StatsKPIGrid: View {
                         Image(systemName: card.icon)
                             .foregroundStyle(card.color)
                         Text(card.title.localized(in: locale))
-                            .font(.caption.weight(.medium))
+                            .font(.quartet(.detail, weight: .medium))
                             .foregroundStyle(QuartetTheme.secondaryText)
                         Spacer(minLength: 0)
                     }
                     Text(card.value)
-                        .font(.system(size: 25, weight: .semibold, design: .rounded))
+                        .font(.quartet(.large, weight: .semibold))
                         .monospacedDigit()
                         .foregroundStyle(QuartetTheme.primaryText)
                         .minimumScaleFactor(0.72)
@@ -333,13 +333,13 @@ private struct StatsKPIGrid: View {
         for row in report.byWorkspace {
             totalMs += row.totalMs
             turns += row.turnCount
-            tokens += StatsFormat.displayedTokens(row.tokens.total)
+            tokens += row.tokens.total
             tools += row.toolCallCount
         }
         return [
             StatsKPICard(id: "duration", title: "总耗时", value: StatsFormat.duration(totalMs), current: Double(totalMs), previous: report.previous.map { Double($0.totalMs) }, icon: "clock", color: QuartetTheme.accent),
             StatsKPICard(id: "turns", title: "总轮次", value: StatsFormat.count(turns), current: Double(turns), previous: report.previous.map { Double($0.turnCount) }, icon: "bubble.left.and.bubble.right", color: QuartetTheme.chartGreen),
-            StatsKPICard(id: "tokens", title: "Token", value: StatsFormat.count(tokens), current: Double(tokens), previous: report.previous.map { Double(StatsFormat.displayedTokens($0.tokensTotal)) }, icon: "text.word.spacing", color: QuartetTheme.running),
+            StatsKPICard(id: "tokens", title: "Token", value: StatsFormat.count(tokens), current: Double(tokens), previous: report.previous.map { Double($0.tokensTotal) }, icon: "text.word.spacing", color: QuartetTheme.running),
             StatsKPICard(id: "tools", title: "工具调用", value: StatsFormat.count(tools), current: Double(tools), previous: report.previous.map { Double($0.toolCallCount) }, icon: "wrench.and.screwdriver", color: QuartetTheme.chartForest),
             StatsKPICard(id: "workspaces", title: "统计工作区", value: StatsFormat.count(report.byWorkspace.count), current: Double(report.byWorkspace.count), previous: report.previous.map { Double($0.workspaceCount) }, icon: "square.grid.2x2", color: QuartetTheme.chartGraphite)
         ]
@@ -389,7 +389,7 @@ private struct StatsDeltaLabel: View {
                     .accessibilityHidden(true)
             }
         }
-        .font(.caption2.weight(.medium))
+        .font(.quartet(.compact, weight: .medium))
         .frame(minHeight: 14)
     }
 }
@@ -402,44 +402,31 @@ private struct StatsTrendCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("使用趋势")
-                    .font(.headline)
+            HStack(spacing: 12) {
+                Text(metric == .tokens ? "每日 Token" : "使用趋势")
+                    .font(.quartet(.headline, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Spacer()
-                Menu {
+                Picker("趋势指标", selection: $metric) {
                     ForEach(StatsTrendMetric.allCases) { item in
-                        Button { metric = item } label: {
-                            if metric == item {
-                                Label(item.title.localized(in: locale), systemImage: "checkmark")
-                            } else {
-                                Text(item.title.localized(in: locale))
-                            }
-                        }
+                        Text(item.title.localized(in: locale)).tag(item)
                     }
-                } label: {
-                    HStack(spacing: 5) {
-                        Text(metric.title.localized(in: locale))
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2.weight(.bold))
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(QuartetTheme.accent)
-                    .padding(.horizontal, 10)
-                    .frame(height: 30)
-                    .background(QuartetTheme.accent.opacity(0.1), in: Capsule())
                 }
-                .accessibilityLabel(String(
-                    format: "趋势指标，当前为%@".localized(in: locale),
-                    locale: locale,
-                    metric.title.localized(in: locale)
-                ))
+                .pickerStyle(.segmented)
+                .font(.quartet(.compact, weight: .semibold))
+                .frame(maxWidth: 194)
+                .accessibilityLabel("趋势指标")
+                .accessibilityValue(metric.title.localized(in: locale))
                 .accessibilityIdentifier("stats-trend-metric")
+            }
+
+            if metric == .tokens {
+                StatsTokenCoverageNote(rows: filledDays)
             }
 
             if series.allSatisfy({ $0.points.allSatisfy { $0.value <= 0 } }) {
                 Text("所选范围暂无数据")
-                    .font(.subheadline)
+                    .font(.quartet(.control))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, minHeight: 180)
             } else {
@@ -490,26 +477,37 @@ private struct StatsTrendCard: View {
                 }
                 .chartXSelection(value: $selectedDate)
                 .frame(height: 220)
+                .accessibilityElement(children: .ignore)
                 .accessibilityLabel(String(
                     format: "%@使用趋势图".localized(in: locale),
                     locale: locale,
                     metric.title.localized(in: locale)
                 ))
+                .accessibilityValue(chartAccessibilityValue)
+                .accessibilityHint("上下轻扫以逐日浏览")
+                .accessibilityAdjustableAction { direction in
+                    adjustAccessibilitySelection(direction)
+                }
 
                 if let selectedDay {
-                    HStack {
-                        Text(selectedDay.date)
-                            .foregroundStyle(QuartetTheme.secondaryText)
-                        Spacer()
-                        Text(StatsFormat.trend(StatsFormat.metricValue(selectedDay, metric: metric), metric: metric))
-                            .fontWeight(.semibold)
-                            .monospacedDigit()
-                            .foregroundStyle(QuartetTheme.primaryText)
+                    if metric == .tokens {
+                        StatsTokenDayDetail(day: selectedDay)
+                    } else {
+                        HStack {
+                            Text(selectedDay.date)
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                            Spacer()
+                            Text(StatsFormat.trend(StatsFormat.metricValue(selectedDay, metric: metric), metric: metric))
+                                .font(.quartet(.detail, weight: .semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(QuartetTheme.primaryText)
+                        }
+                        .font(.quartet(.detail))
+                        .padding(.horizontal, 10)
+                        .frame(height: 34)
+                        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 9))
+                        .accessibilityElement(children: .combine)
                     }
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .frame(height: 34)
-                    .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 9))
                 }
 
                 ScrollView(.horizontal) {
@@ -520,7 +518,7 @@ private struct StatsTrendCard: View {
                             } icon: {
                                 Circle().fill(line.color).frame(width: 8, height: 8)
                             }
-                            .font(.caption)
+                            .font(.quartet(.detail))
                             .foregroundStyle(QuartetTheme.secondaryText)
                         }
                     }
@@ -533,11 +531,49 @@ private struct StatsTrendCard: View {
     }
 
     private var selectedDay: UsageStatsDailyRow? {
-        guard let selectedDate else { return nil }
+        guard let selectedDate else {
+            return metric == .tokens ? filledDays.last : nil
+        }
         return filledDays.min { lhs, rhs in
             abs((StatsFormat.date(lhs.date) ?? .distantPast).timeIntervalSince(selectedDate))
                 < abs((StatsFormat.date(rhs.date) ?? .distantPast).timeIntervalSince(selectedDate))
         }
+    }
+
+    private var chartAccessibilityValue: String {
+        guard let selectedDay else {
+            return String(
+                format: "共 %lld 天".localized(in: locale),
+                locale: locale,
+                Int64(filledDays.count)
+            )
+        }
+        let value = metric == .tokens
+            ? StatsFormat.exactCount(selectedDay.tokens.total, locale: locale)
+            : StatsFormat.trend(StatsFormat.metricValue(selectedDay, metric: metric), metric: metric)
+        return String(
+            format: "%@，%@".localized(in: locale),
+            locale: locale,
+            selectedDay.date,
+            value
+        )
+    }
+
+    private func adjustAccessibilitySelection(_ direction: AccessibilityAdjustmentDirection) {
+        guard !filledDays.isEmpty else { return }
+        let currentIndex = selectedDay.flatMap { selected in
+            filledDays.firstIndex { $0.date == selected.date }
+        }
+        let targetIndex: Int
+        switch direction {
+        case .increment:
+            targetIndex = min((currentIndex ?? -1) + 1, filledDays.count - 1)
+        case .decrement:
+            targetIndex = max((currentIndex ?? filledDays.count) - 1, 0)
+        @unknown default:
+            return
+        }
+        selectedDate = StatsFormat.date(filledDays[targetIndex].date)
     }
 
     private var series: [StatsTrendSeries] {
@@ -629,6 +665,161 @@ private struct StatsTrendPoint: Identifiable {
     var id: String { dateKey }
 }
 
+private struct StatsTokenCoverageNote: View {
+    @Environment(\.locale) private var locale
+    let rows: [UsageStatsDailyRow]
+
+    var body: some View {
+        let coverage = StatsTokenCoverage(rows: rows)
+        VStack(alignment: .leading, spacing: 3) {
+            Label("Token 来源", systemImage: "checkmark.seal")
+                .font(.quartet(.detail, weight: .semibold))
+                .foregroundStyle(QuartetTheme.primaryText)
+
+            if coverage.totalTurns > 0 {
+                Text(String(
+                    format: "Provider 上报覆盖 %lld/%lld 轮（%lld%%），本地估算 %lld 轮。".localized(in: locale),
+                    locale: locale,
+                    Int64(coverage.reportedTurns),
+                    Int64(coverage.totalTurns),
+                    Int64(coverage.reportedPercent),
+                    Int64(coverage.estimatedTurns)
+                ))
+                if coverage.unclassifiedTurns > 0 {
+                    Text(String(
+                        format: "另有 %lld 轮为历史或未分类数据。".localized(in: locale),
+                        locale: locale,
+                        Int64(coverage.unclassifiedTurns)
+                    ))
+                }
+            } else {
+                Text("暂无可计算来源覆盖率的轮次。")
+            }
+        }
+        .font(.quartet(.compact))
+        .foregroundStyle(QuartetTheme.secondaryText)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("stats-token-coverage")
+    }
+}
+
+private struct StatsTokenCoverage {
+    let totalTurns: Int
+    let reportedTurns: Int
+    let estimatedTurns: Int
+    let unclassifiedTurns: Int
+    let reportedPercent: Int
+
+    init(rows: [UsageStatsDailyRow]) {
+        let turnCount = rows.reduce(0) { $0 + max(0, $1.turnCount) }
+        reportedTurns = rows.reduce(0) { $0 + max(0, $1.tokens.reportedTurns) }
+        estimatedTurns = rows.reduce(0) { $0 + max(0, $1.tokens.estimatedTurns) }
+        totalTurns = max(turnCount, reportedTurns + estimatedTurns)
+        unclassifiedTurns = max(0, totalTurns - reportedTurns - estimatedTurns)
+        reportedPercent = totalTurns > 0
+            ? Int((Double(reportedTurns) / Double(totalTurns) * 100).rounded())
+            : 0
+    }
+}
+
+private struct StatsTokenDayDetail: View {
+    @Environment(\.locale) private var locale
+    let day: UsageStatsDailyRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(day.date)
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                    Text("总 Token")
+                        .font(.quartet(.compact))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+                Spacer(minLength: 12)
+                Text(StatsFormat.exactCount(day.tokens.total, locale: locale))
+                    .contentTransition(.numericText())
+                    .font(.quartet(.headline, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(QuartetTheme.primaryText)
+            }
+
+            Text("总量由服务端计算；下列来源与明细可能重叠，请勿相加。")
+                .font(.quartet(.compact))
+                .foregroundStyle(QuartetTheme.secondaryText)
+
+            Divider().overlay(QuartetTheme.divider)
+
+            Text("来源与明细")
+                .font(.quartet(.detail, weight: .semibold))
+                .foregroundStyle(QuartetTheme.primaryText)
+
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 9) {
+                ForEach(details) { detail in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(detail.title.localized(in: locale))
+                            .font(.quartet(.compact))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                        Text(StatsFormat.exactCount(detail.value, locale: locale))
+                            .font(.quartet(.detail, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(QuartetTheme.primaryText)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(String(
+                        format: "%@，%@".localized(in: locale),
+                        locale: locale,
+                        detail.title.localized(in: locale),
+                        StatsFormat.exactCount(detail.value, locale: locale)
+                    ))
+                }
+            }
+
+            Text("图片 Token 为估算值，可能已包含在输入 Token 中。")
+                .font(.quartet(.compact))
+                .foregroundStyle(QuartetTheme.secondaryText)
+
+            StatsTokenCoverageNote(rows: [day])
+        }
+        .padding(12)
+        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(String(
+            format: "%@ Token 明细，总 Token %@".localized(in: locale),
+            locale: locale,
+            day.date,
+            StatsFormat.exactCount(day.tokens.total, locale: locale)
+        ))
+        .accessibilityIdentifier("stats-token-day-detail")
+    }
+
+    private var columns: [GridItem] {
+        [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    }
+
+    private var details: [StatsTokenDetail] {
+        [
+            StatsTokenDetail(id: "reported", title: "Provider 上报", value: day.tokens.reported),
+            StatsTokenDetail(id: "input", title: "输入 Token", value: day.tokens.input),
+            StatsTokenDetail(id: "output", title: "输出 Token", value: day.tokens.output),
+            StatsTokenDetail(id: "cached-read", title: "缓存读取", value: day.tokens.cachedRead),
+            StatsTokenDetail(id: "cached-write", title: "缓存写入", value: day.tokens.cachedWrite),
+            StatsTokenDetail(id: "reasoning", title: "推理 Token", value: day.tokens.reasoning),
+            StatsTokenDetail(id: "image", title: "图片估算", value: day.tokens.imageEstimate),
+            StatsTokenDetail(id: "estimated", title: "本地估算", value: day.tokens.estimated),
+            StatsTokenDetail(id: "legacy", title: "历史估算", value: day.tokens.legacyTotal)
+        ]
+    }
+}
+
+private struct StatsTokenDetail: Identifiable {
+    let id: String
+    let title: String
+    let value: Int
+}
+
 private struct StatsWorkspaceRankCard: View {
     @Environment(\.locale) private var locale
     let rows: [UsageStatsWorkspaceRow]
@@ -702,12 +893,12 @@ private struct StatsRankCard: View {
 
         VStack(alignment: .leading, spacing: 14) {
             Text(title.localized(in: locale))
-                .font(.headline)
+                .font(.quartet(.headline, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
 
             if ranked.isEmpty {
                 Text(emptyText.localized(in: locale))
-                    .font(.subheadline)
+                    .font(.quartet(.control))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, minHeight: 72)
             } else {
@@ -715,12 +906,12 @@ private struct StatsRankCard: View {
                     VStack(spacing: 7) {
                         HStack(spacing: 12) {
                             Text(item.label)
-                                .font(.subheadline)
+                                .font(.quartet(.control))
                                 .foregroundStyle(QuartetTheme.primaryText)
                                 .lineLimit(1)
                             Spacer(minLength: 8)
                             Text(item.value)
-                                .font(.caption.weight(.semibold))
+                                .font(.quartet(.detail, weight: .semibold))
                                 .monospacedDigit()
                                 .foregroundStyle(QuartetTheme.secondaryText)
                         }
@@ -746,7 +937,7 @@ private struct StatsRankCard: View {
 
                 if hiddenCount > 0 {
                     Text("另有 \(hiddenCount) 项未显示")
-                        .font(.caption)
+                        .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
             }
@@ -788,15 +979,15 @@ private enum StatsFormat {
             : String(format: "%.0fM", Double(value) / 1_000_000)
     }
 
-    static func displayedTokens(_ storedTokens: Int) -> Int {
-        storedTokens.multipliedReportingOverflow(by: 2).overflow ? Int.max : storedTokens * 2
+    static func exactCount(_ value: Int, locale: Locale = AppLanguage.currentLocale) -> String {
+        max(0, value).formatted(.number.locale(locale).grouping(.automatic))
     }
 
     static func metricValue(_ totals: some UsageStatsTotals, metric: StatsTrendMetric) -> Double {
         switch metric {
         case .duration: Double(totals.totalMs)
         case .turns: Double(totals.turnCount)
-        case .tokens: Double(displayedTokens(totals.tokens.total))
+        case .tokens: Double(totals.tokens.total)
         }
     }
 
@@ -845,7 +1036,7 @@ private extension UsageStatsDailyRow {
     static func empty(date: String) -> UsageStatsDailyRow {
         UsageStatsDailyRow(
             date: date, totalMs: 0, turnCount: 0, assistantCount: 0, thoughtCount: 0, toolCallCount: 0,
-            tokens: UsageStatsTokenTotals(total: 0, assistant: 0, thought: 0, toolCall: 0),
+            tokens: UsageStatsTokenTotals(total: 0),
             models: [:], modelNames: [:]
         )
     }

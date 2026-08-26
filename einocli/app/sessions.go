@@ -29,8 +29,20 @@ type sessionMeta struct {
 	// ThinkingOverride is the session-level thought_level selection
 	// (auto|enable|disable). Empty means "use the model's thinking_type".
 	ThinkingOverride string `json:"thinking_override,omitempty"`
-	CreatedAt        int64  `json:"created_at"`
-	UpdatedAt        int64  `json:"updated_at"`
+	// ProviderUsage is the cumulative provider-reported usage for this ACP
+	// session. ACP exposes session-wide counters, so keeping this in meta.json
+	// preserves monotonic values across runtime rebuilds and process restarts.
+	ProviderUsage *sessionProviderUsage `json:"provider_usage,omitempty"`
+	CreatedAt     int64                 `json:"created_at"`
+	UpdatedAt     int64                 `json:"updated_at"`
+}
+
+type sessionProviderUsage struct {
+	InputTokens      int64 `json:"input_tokens"`
+	OutputTokens     int64 `json:"output_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
+	CachedReadTokens int64 `json:"cached_read_tokens,omitempty"`
+	ThoughtTokens    int64 `json:"thought_tokens,omitempty"`
 }
 
 // sessionState is the in-memory view of one session: its meta (canonical —

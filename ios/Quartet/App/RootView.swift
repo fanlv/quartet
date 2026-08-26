@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Combine
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
@@ -126,6 +127,9 @@ extension View {
 private struct MainView: View {
     @Binding var selectedTab: Int
     @State private var showsTabBar = true
+    @State private var keyboardIsVisible = false
+
+    private var displaysTabBar: Bool { showsTabBar && !keyboardIsVisible }
 
     var body: some View {
         GeometryReader { proxy in
@@ -156,10 +160,10 @@ private struct MainView: View {
                 // it to its own scrollable content via `mainTabBarInset`.
                 .environment(
                     \.mainTabBarInset,
-                    showsTabBar ? MainTabBar.height(bottomSafeAreaHeight: bottomSafeAreaHeight) : 0
+                    displaysTabBar ? MainTabBar.height(bottomSafeAreaHeight: bottomSafeAreaHeight) : 0
                 )
                 .overlay(alignment: .bottom) {
-                    if showsTabBar {
+                    if displaysTabBar {
                         MainTabBar(selection: $selectedTab, bottomSafeAreaHeight: bottomSafeAreaHeight)
                     }
                 }
@@ -169,6 +173,12 @@ private struct MainView: View {
         .onChange(of: selectedTab) { _, _ in
             setTabBarVisible(true)
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            setKeyboardVisible(true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+            setKeyboardVisible(false)
+        }
     }
 
     private func setTabBarVisible(_ isVisible: Bool) {
@@ -176,6 +186,14 @@ private struct MainView: View {
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             showsTabBar = isVisible
+        }
+    }
+
+    private func setKeyboardVisible(_ isVisible: Bool) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            keyboardIsVisible = isVisible
         }
     }
 }

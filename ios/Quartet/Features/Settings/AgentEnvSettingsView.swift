@@ -161,6 +161,7 @@ struct AgentEnvSettingsView: View {
                     .padding(.horizontal, 12)
                     .frame(height: 44)
                     .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityIdentifier("agent-env-key-field")
                 if canWrite {
                     Button {
                         quartetDismissKeyboard()
@@ -184,6 +185,7 @@ struct AgentEnvSettingsView: View {
                 .padding(.horizontal, 12)
                 .frame(height: 44)
                 .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .accessibilityIdentifier("agent-env-value-field")
         }
         .opacity(row.enabled ? 1 : 0.6)
         .padding(.vertical, 2)
@@ -225,15 +227,13 @@ struct AgentEnvSettingsView: View {
         loadError = ""
         message = nil
         do {
-            let client = try model.apiClient()
-            async let agentRequest = client.agents()
-            async let settingsRequest = client.agentPreferences()
-            let (agentResponse, settingsResponse) = try await (agentRequest, settingsRequest)
-            let saved = settingsResponse.settings?.acpEnvVars ?? [:]
+            async let agentRequest = model.agentCatalog()
+            async let settingsRequest = model.agentEnvironmentSettings()
+            let (agentList, saved) = try await (agentRequest, settingsRequest)
 
             var resolved: [AgentEnvTarget] = []
             var rows: [String: [AgentEnvRow]] = [:]
-            for agent in agentResponse.agentList {
+            for agent in agentList {
                 let envKey = agent.environmentKey
                 guard !resolved.contains(where: { $0.envKey == envKey }) else { continue }
                 resolved.append(AgentEnvTarget(

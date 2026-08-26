@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/einocli/logger"
 	"github.com/fanlv/quartet/einocli/round"
@@ -38,7 +39,23 @@ const tokenUsageMinInterval = 1 * time.Second
 // runCtx being cancelled simply exits the event loop; a deferred
 // cleanup block (FinalizeStreaming + PendingToolCallIDs + flush) ensures
 // a clean round close in all paths, including mid-loop panic.
-func (d *Agent) Run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler) (retErr error) {
+func (d *Agent) Run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler) error {
+	return d.run(ctx, userMessages, handler, nil)
+}
+
+// RunWithUsage is Run plus the provider-reported token usage for this prompt
+// turn. The returned usage aggregates every underlying ChatModel invocation
+// (including tool-loop follow-ups); nil means none of the model calls reported
+// usage. On cancellation or another run error, usage from every observed
+// streaming chunk and completed non-streaming call is returned.
+func (d *Agent) RunWithUsage(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler) (*ProviderUsage, error) {
+	collector := newProviderUsageCollector()
+	err := d.run(ctx, userMessages, handler, collector)
+	collector.finish()
+	return collector.snapshot(), err
+}
+
+func (d *Agent) run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, usageCollector *providerUsageCollector) (retErr error) {
 	d.runStart()
 	defer d.runEnd()
 
@@ -223,7 +240,11 @@ func (d *Agent) Run(ctx context.Context, userMessages []*schema.Message, handler
 
 	adapter := newRoundAdapter(d.toolFailures)
 
-	iter := d.runner.Run(runCtx, chatMessages)
+	runOptions := make([]adk.AgentRunOption, 0, 1)
+	if usageCollector != nil {
+		runOptions = append(runOptions, adk.WithCallbacks(usageCollector.handler()))
+	}
+	iter := d.runner.Run(runCtx, chatMessages, runOptions...)
 
 	// streamErr captures the first fatal stream / event error so it can be
 	// returned to the caller as a Run failure. Without this, an event.Err
@@ -236,7 +257,7 @@ func (d *Agent) Run(ctx context.Context, userMessages []*schema.Message, handler
 		if !ok {
 			break
 		}
-		if err := d.handleEvent(runCtx, handler, adapter, event); err != nil {
+		if err := d.handleEvent(runCtx, handler, adapter, event, usageCollector); err != nil {
 			streamErr = err
 			break
 		}
@@ -286,7 +307,7 @@ func hasEffectiveUserInput(messages []*schema.Message) bool {
 // adapter. A non-nil return aborts the Run loop and is propagated as the
 // Run's error so callers can mark the iteration as failed; the live
 // UI handler still sees OnError before the abort so the bubble closes.
-func (d *Agent) handleEvent(ctx context.Context, handler agui.EventHandler, adapter *roundAdapter, event *AgentEvent) error {
+func (d *Agent) handleEvent(ctx context.Context, handler agui.EventHandler, adapter *roundAdapter, event *AgentEvent, usageCollector *providerUsageCollector) error {
 	if event.Err != nil {
 		handler.OnError(event.Err)
 		return fmt.Errorf("eino agent event error: %w", event.Err)
@@ -303,7 +324,7 @@ func (d *Agent) handleEvent(ctx context.Context, handler agui.EventHandler, adap
 	}
 
 	if output.MessageStream != nil {
-		return adapter.forwardStream(d.builder, handler.OnError, output.MessageStream)
+		return adapter.forwardStream(d.builder, handler.OnError, output.MessageStream, usageCollector)
 	}
 	return nil
 }

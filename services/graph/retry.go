@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/services/usagestats"
 	"github.com/fanlv/quartet/types/agui"
 	"github.com/fanlv/quartet/types/model"
 )
@@ -27,6 +28,7 @@ const (
 
 type graphRetryResult struct {
 	handler    *graphEventHandler
+	usage      *usagestats.Accumulator
 	retryCount int
 	err        error
 }
@@ -45,12 +47,17 @@ type graphRetryPolicy struct {
 // failed) iteration.
 func (s *serviceImpl) runPromptWithRetries(ctx context.Context, runID, jobID, sessionID, nodeID string, key model.GraphInstanceKey, runner Runner, messages []*schema.Message) graphRetryResult {
 	var handler *graphEventHandler
+	aggregate := usagestats.NewAccumulator()
 	attempt := func(ctx context.Context) error {
-		handler = s.newGraphEventHandler(ctx, runID, jobID, sessionID, nodeID, key)
-		return runner.RunIteration(ctx, sessionID, messages, handler)
+		handler = s.newGraphEventHandler(ctx, runID, jobID, sessionID, nodeID, key, messages)
+		err := runner.RunIteration(ctx, sessionID, messages, handler)
+		handler.finalizeUsageEstimate()
+		aggregate.Merge(handler.usage)
+		return err
 	}
 	retryCount, err := s.runWithRetries(ctx, runID, jobID, nodeID, attempt)
-	return graphRetryResult{handler: handler, retryCount: retryCount, err: err}
+	aggregate.NormalizeTurnCoverage()
+	return graphRetryResult{handler: handler, usage: aggregate, retryCount: retryCount, err: err}
 }
 
 // runWithRetries drives any node executor through the same two-stage retry

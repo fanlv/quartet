@@ -291,6 +291,10 @@ struct NewConversationView: View {
                 )
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()
+                .task {
+                    guard picker == .agent else { return }
+                    await loadAgentUsageSummaries()
+                }
             }
             .sheet(isPresented: $showsCameraPicker) {
                 CameraImagePicker(

@@ -21,7 +21,8 @@ type Accumulator struct {
 	thoughtCount   int
 	toolCallCount  int
 
-	tokens TokenTotals
+	tokens        TokenTotals
+	providerUsage bool
 
 	// pendingTools[id] is set on OnToolCallStart and cleared on OnToolCallEnd.
 	// The map outlives the tool call only if the step ends mid-call; in that
@@ -160,10 +161,137 @@ func (a *Accumulator) OnToolCallEnd(ctx context.Context, id string, finishedAtMs
 	a.tokens.ToolCall += estimateText(ctx, schema.Assistant, pt.name+args)
 }
 
-// OnTokenUsage stores the whole-round total token estimate emitted by
-// OnTokenUsage. Last value wins (callers typically emit once per step).
+// OnTokenUsage records the last local whole-context estimate as the fallback
+// for this turn. Provider usage, when present, remains authoritative.
 func (a *Accumulator) OnTokenUsage(total int) {
+	a.SetEstimatedUsage(total)
+}
+
+// SetProviderUsage stores authoritative provider usage for this turn. Last
+// value wins, allowing streaming providers to send cumulative updates. A
+// provider report supersedes fallback estimated whole-turn usage, while the
+// assistant/thought/toolCall segment estimates remain available.
+func (a *Accumulator) SetProviderUsage(usage ProviderTokenUsage) {
+	usage.Input = max(0, usage.Input)
+	usage.Output = max(0, usage.Output)
+	usage.CachedRead = max(0, usage.CachedRead)
+	usage.CachedWrite = max(0, usage.CachedWrite)
+	usage.Reasoning = max(0, usage.Reasoning)
+	usage.Total = max(0, usage.Total)
+	if usage.Total <= 0 {
+		// A few third-party ACP adapters have emitted a non-nil usage object
+		// without filling totalTokens. Preserve the useful provider fields and
+		// derive the conventional prompt+completion total instead of replacing a
+		// non-zero fallback with zero. Cached read/write are breakdowns of input,
+		// not additional tokens. Reasoning is normally included in output; use it
+		// only when it is the larger completion-side value.
+		usage.Total = saturatingTokenSum(usage.Input, max(usage.Output, usage.Reasoning))
+	}
+	a.providerUsage = true
+	a.tokens.Total = usage.Total
+	a.tokens.Reported = usage.Total
+	a.tokens.Input = usage.Input
+	a.tokens.Output = usage.Output
+	a.tokens.CachedRead = usage.CachedRead
+	a.tokens.CachedWrite = usage.CachedWrite
+	a.tokens.Reasoning = usage.Reasoning
+	a.tokens.ReportedTurns = 1
+	a.tokens.Estimated = 0
+	a.tokens.EstimatedTurns = 0
+}
+
+// SetEstimatedUsage stores the local whole-turn fallback. It is ignored once
+// provider usage has been observed, and repeated cumulative updates use the
+// latest value rather than summing within the turn.
+func (a *Accumulator) SetEstimatedUsage(total int) {
+	if a.providerUsage {
+		return
+	}
+	total = max(0, total)
+	a.tokens.Estimated = total
 	a.tokens.Total = total
+	if total > 0 {
+		a.tokens.EstimatedTurns = 1
+	} else {
+		a.tokens.EstimatedTurns = 0
+	}
+}
+
+// SetImageEstimate stores the locally estimated image-token subset. It does
+// not change Total because those tokens are already included in the provider
+// input or local whole-context estimate.
+func (a *Accumulator) SetImageEstimate(tokens int) {
+	a.tokens.ImageEstimate = max(0, tokens)
+}
+
+// HasProviderUsage reports whether this accumulator has received authoritative
+// provider usage. It is useful to callers deciding whether a fallback estimate
+// still needs to be finalized.
+func (a *Accumulator) HasProviderUsage() bool {
+	return a != nil && a.providerUsage
+}
+
+// Merge adds a completed attempt into this accumulator. Provider and estimated
+// coverage are both retained across attempts; this differs intentionally from
+// SetProviderUsage, whose replacement semantics apply within one attempt. Open
+// tool calls are not merged because they have not contributed usage yet.
+func (a *Accumulator) Merge(other *Accumulator) {
+	if a == nil || other == nil || a == other {
+		return
+	}
+	a.assistantCount += other.assistantCount
+	a.thoughtCount += other.thoughtCount
+	a.toolCallCount += other.toolCallCount
+	addTokenTotals(&a.tokens, &other.tokens)
+	a.providerUsage = a.providerUsage || other.providerUsage
+	if len(other.tools) == 0 {
+		return
+	}
+	if a.tools == nil {
+		a.tools = make(map[string]*ToolBucket, len(other.tools))
+	}
+	for key, bucket := range other.tools {
+		if bucket == nil {
+			continue
+		}
+		current := a.tools[key]
+		if current == nil {
+			cp := *bucket
+			a.tools[key] = &cp
+			continue
+		}
+		current.Count += bucket.Count
+		current.TotalMs += bucket.TotalMs
+	}
+}
+
+// NormalizeTurnCoverage collapses attempt-level source counters into one
+// logical turn. If any attempt required an estimate, the logical turn is
+// classified as estimated; otherwise any provider report classifies it as
+// reported. Token amounts remain untouched, including provider totals from
+// other attempts in a mixed-source retry sequence.
+func (a *Accumulator) NormalizeTurnCoverage() {
+	if a == nil {
+		return
+	}
+	if a.tokens.EstimatedTurns > 0 {
+		a.tokens.EstimatedTurns = 1
+		a.tokens.ReportedTurns = 0
+		return
+	}
+	if a.tokens.ReportedTurns > 0 {
+		a.tokens.ReportedTurns = 1
+	}
+}
+
+func saturatingTokenSum(left, right int) int {
+	left = max(0, left)
+	right = max(0, right)
+	maxInt := int(^uint(0) >> 1)
+	if left > maxInt-right {
+		return maxInt
+	}
+	return left + right
 }
 
 // Snapshot freezes the accumulator into a record that can be sent to the
@@ -171,11 +299,19 @@ func (a *Accumulator) OnTokenUsage(total int) {
 // workspaceID, modelID, finishedAtMs and durationMs are step-level metadata
 // the caller fills in.
 func (a *Accumulator) Snapshot(workspaceID, modelID string, finishedAtMs, durationMs int64) Snapshot {
+	return a.SnapshotWithEventID("", workspaceID, modelID, finishedAtMs, durationMs)
+}
+
+// SnapshotWithEventID is the v2 snapshot constructor. eventID should identify
+// the completed execution stably across retries (for example, a job run ID or
+// graph run plus instance key). The recorder uses it for durable deduplication.
+func (a *Accumulator) SnapshotWithEventID(eventID, workspaceID, modelID string, finishedAtMs, durationMs int64) Snapshot {
 	tools := make(map[string]ToolBucket, len(a.tools))
 	for k, v := range a.tools {
 		tools[k] = *v
 	}
 	return Snapshot{
+		EventID:        eventID,
 		WorkspaceID:    workspaceID,
 		ModelID:        modelID,
 		FinishedAtMs:   finishedAtMs,

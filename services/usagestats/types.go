@@ -7,9 +7,12 @@
 // aggregates (for the stats page) by reading the same monthly-sharded JSON
 // files on disk.
 //
-// All token counts in this package are local tokenizer estimates, NOT
-// API-billable values. See the feature design doc for details.
+// Provider-reported token counts and local tokenizer estimates are stored in
+// separate fields. Callers must not interpret Estimated or LegacyTotal as
+// API-billable values.
 package usagestats
+
+const currentSchemaVersion = 2
 
 // SectionTotals is the value that lives at every aggregation node:
 // the day-level total bucket, every per-model subbucket, every per-tool
@@ -26,16 +29,48 @@ type SectionTotals struct {
 	Tokens         TokenTotals `json:"tokens"`
 }
 
-// TokenTotals aggregates per-segment token estimates. Total is sourced from
-// OnTokenUsage (whole-round estimate); the per-segment fields are summed
-// from the per-message tokenizer cache. The two sums are NOT required to
-// match (Total covers the whole history including user / tool_result /
-// system, while the per-segment fields only cover this step's output).
+// TokenTotals keeps provider-reported consumption separate from local and
+// legacy estimates. Total is the API-facing aggregate across all recorded
+// turns; Reported, Estimated, and LegacyTotal explain its composition. Input,
+// Output, cached read/write, and Reasoning are provider-reported details.
+// ImageEstimate is a descriptive subset already included in provider input or
+// the estimated total, never an additional contribution to Total.
+// Assistant/Thought/ToolCall remain local output-segment estimates.
+//
+// ReportedTurns and EstimatedTurns are coverage counters, not token counts. A
+// turn contributes to at most one of them. A Graph turn with mixed retry
+// sources is conservatively classified as estimated. LegacyTotal is populated
+// while reading pre-v2 files whose `total` field was a local estimate; it
+// prevents that historical value from being silently presented as
+// provider-reported.
 type TokenTotals struct {
-	Total     int `json:"total"`
-	Assistant int `json:"assistant"`
-	Thought   int `json:"thought"`
-	ToolCall  int `json:"toolCall"`
+	Total          int `json:"total"`
+	Reported       int `json:"reported"`
+	Input          int `json:"input"`
+	Output         int `json:"output"`
+	CachedRead     int `json:"cachedRead"`
+	CachedWrite    int `json:"cachedWrite"`
+	Reasoning      int `json:"reasoning"`
+	ImageEstimate  int `json:"imageEstimate"`
+	Estimated      int `json:"estimated"`
+	ReportedTurns  int `json:"reportedTurns"`
+	EstimatedTurns int `json:"estimatedTurns"`
+	LegacyTotal    int `json:"legacyTotal,omitempty"`
+	Assistant      int `json:"assistant"`
+	Thought        int `json:"thought"`
+	ToolCall       int `json:"toolCall"`
+}
+
+// ProviderTokenUsage is one turn's authoritative provider usage. Values are
+// kept verbatim; Total is not derived because provider accounting semantics can
+// differ and the reported value is the source of truth.
+type ProviderTokenUsage struct {
+	Total       int
+	Input       int
+	Output      int
+	CachedRead  int
+	CachedWrite int
+	Reasoning   int
 }
 
 // ToolBucket is the value of one entry in the `tools` map. We deliberately
@@ -68,13 +103,19 @@ type DayBucket struct {
 // key is workspaceId, then YYYY-MM-DD. Days outside the file's month never
 // appear: cross-month writes naturally split into two file mutations.
 type MonthFile struct {
-	Workspaces map[string]map[string]*DayBucket `json:"workspaces"`
+	SchemaVersion int                              `json:"schemaVersion"`
+	AppliedEvents map[string]bool                  `json:"appliedEvents,omitempty"`
+	Workspaces    map[string]map[string]*DayBucket `json:"workspaces"`
 }
 
 // Snapshot is the unit the Recorder consumes — one step's worth of usage.
 // All fields are filled by the caller (typically the loop_event_handler
 // Accumulator); the SDK does not synthesise any field from any other.
 type Snapshot struct {
+	// EventID is a stable, globally unique completion identifier. Re-recording
+	// the same non-empty ID in its month is a no-op. Empty IDs retain the legacy
+	// at-least-once additive behaviour for callers that have not migrated yet.
+	EventID        string
 	WorkspaceID    string
 	ModelID        string
 	FinishedAtMs   int64

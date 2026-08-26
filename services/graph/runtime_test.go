@@ -470,8 +470,19 @@ func TestPromptNodeStreamsAgentEventsAndRecordsUsage(t *testing.T) {
 		if snap.AssistantCount != 1 || snap.ThoughtCount != 1 || snap.ToolCallCount != 1 {
 			t.Fatalf("snapshot counts = assistant %d thought %d tool %d", snap.AssistantCount, snap.ThoughtCount, snap.ToolCallCount)
 		}
-		if snap.Tokens.Total != 123 {
-			t.Fatalf("snapshot total tokens = %d, want 123", snap.Tokens.Total)
+		if snap.Tokens.Total != 123 || snap.Tokens.Estimated != 123 {
+			t.Fatalf("snapshot fallback tokens = %+v, want total=estimated=123", snap.Tokens)
+		}
+		var startedAt int64
+		for _, instance := range got.Instances {
+			if instance.NodeID == "p" {
+				startedAt = instance.StartedAt
+				break
+			}
+		}
+		wantEventID := fmt.Sprintf("graph:%s:p:started:%d", run.ID, startedAt)
+		if startedAt <= 0 || snap.EventID != wantEventID {
+			t.Fatalf("snapshot event ID = %q, want %q", snap.EventID, wantEventID)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("usage snapshot was not recorded")

@@ -40,6 +40,7 @@ func (s *serviceImpl) recordUsageSnapshot(job *model.Job, handler *loopEventHand
 	if job != nil {
 		wsID = job.WorkspaceID
 	}
-	snap := handler.usage.Snapshot(wsID, modelID, finishedAtMs, durationMs)
+	handler.finalizeUsageEstimate()
+	snap := handler.usage.SnapshotWithEventID(handler.usageEventID, wsID, modelID, finishedAtMs, durationMs)
 	recorder.Record(snap)
 }

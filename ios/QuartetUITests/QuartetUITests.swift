@@ -96,6 +96,144 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.buttons["connection-submit"].waitForExistence(timeout: 3))
     }
 
+    func testAgentManagementMoreMenuAndSingleUpgrade() {
+        launchDashboard()
+
+        app.buttons["main-tab-3"].tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
+
+        XCTAssertTrue(app.staticTexts["Agent 管理"].exists)
+        XCTAssertTrue(app.buttons["settings-agent-catalog"].exists)
+        XCTAssertTrue(app.buttons["settings-agent-environment"].exists)
+        XCTAssertTrue(app.buttons["settings-agent-defaults"].exists)
+        XCTAssertTrue(app.buttons["settings-agent-roles"].exists)
+
+        app.buttons["settings-agent-catalog"].tap()
+        XCTAssertTrue(app.navigationBars["目录"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["agent-catalog-upgrade-all"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["2 个可更新"].exists)
+        XCTAssertTrue(app.buttons["agent-catalog-upgrade-trae"].exists)
+
+        let more = app.buttons["agent-catalog-more-trae"]
+        XCTAssertTrue(more.waitForExistence(timeout: 3))
+        more.tap()
+        let upgradeAction = app.buttons["agent-catalog-action-upgrade"]
+        XCTAssertTrue(upgradeAction.waitForExistence(timeout: 3))
+        upgradeAction.tap()
+        XCTAssertTrue(app.navigationBars["升级这个 Agent？"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["agent-catalog-confirm"].exists)
+        app.buttons["agent-catalog-confirm"].tap()
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "升级成功")
+        ).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["agent-catalog-upgrade-all"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["1 个可更新"].exists)
+    }
+
+    func testAgentManagementSettingsDestinationsAndKeyboard() {
+        launchDashboard()
+        app.buttons["main-tab-3"].tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
+        let mainTabBar = app.descendants(matching: .any)["main-tab-bar"]
+        XCTAssertTrue(mainTabBar.exists)
+        XCTAssertEqual(mainTabBar.frame.maxY, app.frame.maxY, accuracy: 1)
+
+        openAgentSettings("settings-agent-environment", title: "环境变量")
+        let valueField = app.textFields["agent-env-value-field"].firstMatch
+        XCTAssertTrue(valueField.waitForExistence(timeout: 5))
+        valueField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+        valueField.typeText("/e2e")
+        XCTAssertTrue((valueField.value as? String)?.contains("/e2e") == true)
+        XCTAssertFalse(mainTabBar.exists)
+
+        // The editor content is horizontally inset, so this point is blank canvas rather than a control.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).tap()
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForNonExistence(timeout: 3),
+            "点击输入框外空白后键盘应消失"
+        )
+        XCTAssertTrue(
+            mainTabBar.waitForExistence(timeout: 3),
+            "键盘消失后当前页面应恢复 TabBar"
+        )
+        XCTAssertEqual(mainTabBar.frame.maxY, app.frame.maxY, accuracy: 1)
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
+        XCTAssertTrue(mainTabBar.exists)
+        XCTAssertEqual(mainTabBar.frame.maxY, app.frame.maxY, accuracy: 1)
+
+        openAgentSettings("settings-agent-defaults", title: "默认参数")
+        XCTAssertTrue(app.buttons["agent-defaults-agent-picker"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
+
+        openAgentSettings("settings-agent-roles", title: "角色分工")
+        XCTAssertTrue(app.buttons["agent-role-title-agent"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
+
+        openAgentSettings("settings-agent-catalog", title: "目录")
+        XCTAssertTrue(app.buttons["agent-catalog-check-versions"].waitForExistence(timeout: 5))
+    }
+
+    func testAgentManagementUpgradeAll() {
+        launchDashboard()
+        app.buttons["main-tab-3"].tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
+        app.buttons["settings-agent-catalog"].tap()
+        XCTAssertTrue(app.navigationBars["目录"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["agent-catalog-upgrade-all"].waitForExistence(timeout: 5))
+
+        app.buttons["agent-catalog-upgrade-all"].tap()
+        XCTAssertTrue(app.navigationBars["更新全部 Agent？"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "TraeCode")
+        ).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Codex")
+        ).firstMatch.exists)
+        XCTAssertFalse(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Manual Agent")
+        ).firstMatch.exists)
+        app.buttons["agent-catalog-confirm"].tap()
+        XCTAssertTrue(app.staticTexts["批量更新完成：2 个成功，0 个失败。"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.descendants(matching: .any)["agent-catalog-result-trae"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["agent-catalog-result-codex"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["agent-catalog-result-manual-agent"].exists)
+        XCTAssertTrue(app.buttons["agent-catalog-upgrade-all"].isEnabled == false)
+    }
+
+    func testAgentManagementUpgradeAllContinuesAndStopsOnConflict() {
+        app.launchArguments = ["--ui-testing-agent-upgrade-failures"]
+        app.launch()
+        XCTAssertTrue(app.buttons["main-tab-3"].waitForExistence(timeout: 5))
+        app.buttons["main-tab-3"].tap()
+        openAgentSettings("settings-agent-catalog", title: "目录")
+        XCTAssertTrue(app.staticTexts["3 个可更新"].waitForExistence(timeout: 5))
+
+        app.buttons["agent-catalog-upgrade-all"].tap()
+        XCTAssertTrue(app.navigationBars["更新全部 Agent？"].waitForExistence(timeout: 3))
+        app.buttons["agent-catalog-confirm"].tap()
+
+        XCTAssertTrue(app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "模拟网络错误：保留完整错误并继续后续 Agent。")
+        ).firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "HTTP 409")
+        ).firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any)["检测到另一个安装任务正在执行，已停止剩余更新。"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["agent-catalog-result-after-conflict"].exists)
+    }
+
+    private func openAgentSettings(_ identifier: String, title: String) {
+        let entry = app.buttons[identifier]
+        XCTAssertTrue(entry.waitForExistence(timeout: 3))
+        entry.tap()
+        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 3))
+    }
+
     func testChatEdgeSwipeBackThenOpensStats() {
         launchDashboard()
 
@@ -234,7 +372,9 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["总轮次"].exists)
         XCTAssertTrue(app.staticTexts["工作区"].exists)
         XCTAssertTrue(app.otherElements["stats-trend"].exists)
-        XCTAssertTrue(app.staticTexts["按工作区"].exists)
+        let workspaceSection = app.staticTexts["按工作区"]
+        for _ in 0..<4 where !workspaceSection.exists { app.swipeUp() }
+        XCTAssertTrue(workspaceSection.waitForExistence(timeout: 2))
     }
 
     func testUsageStatsEnglishLocalization() {
@@ -248,8 +388,10 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Total time"].exists)
         XCTAssertTrue(app.staticTexts["Turns"].exists)
         XCTAssertTrue(app.staticTexts["Workspaces"].exists)
-        XCTAssertTrue(app.staticTexts["By Workspace"].exists)
-        XCTAssertTrue(app.staticTexts["Usage Trend"].exists)
+        XCTAssertTrue(app.staticTexts["Daily tokens"].exists)
+        let workspaceSection = app.staticTexts["By Workspace"]
+        for _ in 0..<4 where !workspaceSection.exists { app.swipeUp() }
+        XCTAssertTrue(workspaceSection.waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["Total"].exists)
         XCTAssertFalse(app.staticTexts["总耗时"].exists)
         XCTAssertFalse(app.staticTexts["总计"].exists)

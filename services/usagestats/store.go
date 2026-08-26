@@ -31,10 +31,9 @@ type store struct {
 	// months caches month-key -> file contents. month-key is "YYYY-MM"
 	// (server local time). Bounded by maxCachedMonths via simple LRU
 	// (`order` is most-recent at the back).
-	months  map[string]*MonthFile
-	loadErr map[string]error
-	dirty   map[string]struct{}
-	order   []string // LRU: oldest .. newest
+	months map[string]*MonthFile
+	dirty  map[string]struct{}
+	order  []string // LRU: oldest .. newest
 
 	// flushPending is true when a flush is scheduled within the debounce
 	// window. Reset in flushLocked after writing pending months.
@@ -48,6 +47,8 @@ type store struct {
 }
 
 const maxCachedMonths = 12
+
+var errUnsupportedSchema = errors.New("unsupported usage stats schema")
 
 // migrateLegacyUsageStats copies monthly files from the former
 // quartet/data location into the persistent usage-stats directory. Existing
@@ -126,7 +127,6 @@ func migrateLegacyUsageStats() (int, error) {
 func newStore() *store {
 	return &store{
 		months:   make(map[string]*MonthFile),
-		loadErr:  make(map[string]error),
 		dirty:    make(map[string]struct{}),
 		debounce: time.Second,
 	}
@@ -144,27 +144,27 @@ func dayKey(t time.Time) string {
 
 // loadMonthLocked returns the in-memory MonthFile for the given month key.
 // It loads from disk on miss. Missing files yield an empty (non-nil)
-// MonthFile so callers can write into it without re-checking. IO / parse
-// errors also return an empty file, but the error is surfaced so read APIs can
-// distinguish "no data" from "failed to read data".
+// MonthFile so callers can write into it without re-checking. Failed loads are
+// deliberately not cached: Record drops the current best-effort snapshot, and
+// the next call retries the disk read. This both lets transient IO errors heal
+// and prevents an empty fallback from ever being written over a corrupt or
+// future-schema file.
 //
 // Caller must hold s.mu.
 func (s *store) loadMonthLocked(ctx context.Context, key string) (*MonthFile, error) {
 	if mf, ok := s.months[key]; ok {
 		s.touchOrderLocked(key)
-		return mf, s.loadErr[key]
+		return mf, nil
 	}
 
 	mf, err := s.readMonthFile(ctx, key)
-	s.months[key] = mf
 	if err != nil {
-		s.loadErr[key] = err
-	} else {
-		delete(s.loadErr, key)
+		return mf, err
 	}
+	s.months[key] = mf
 	s.order = append(s.order, key)
 	s.evictIfNeededLocked()
-	return mf, err
+	return mf, nil
 }
 
 // loadMonthSnapshot returns a stable copy of one month for read-side
@@ -177,9 +177,8 @@ func (s *store) loadMonthSnapshot(ctx context.Context, key string) (*MonthFile, 
 	if mf, ok := s.months[key]; ok {
 		s.touchOrderLocked(key)
 		out := cloneMonthFile(mf)
-		err := s.loadErr[key]
 		s.mu.Unlock()
-		return out, err
+		return out, nil
 	}
 	s.mu.Unlock()
 
@@ -191,17 +190,15 @@ func (s *store) loadMonthSnapshot(ctx context.Context, key string) (*MonthFile, 
 		// A concurrent Record/load won the race while we were reading from disk.
 		// Prefer the in-memory copy so pending debounced writes are visible.
 		s.touchOrderLocked(key)
-		return cloneMonthFile(existing), s.loadErr[key]
+		return cloneMonthFile(existing), nil
+	}
+	if err != nil {
+		return cloneMonthFile(mf), err
 	}
 	s.months[key] = mf
-	if err != nil {
-		s.loadErr[key] = err
-	} else {
-		delete(s.loadErr, key)
-	}
 	s.order = append(s.order, key)
 	s.evictIfNeededLocked()
-	return cloneMonthFile(mf), err
+	return cloneMonthFile(mf), nil
 }
 
 func (s *store) touchOrderLocked(key string) {
@@ -224,7 +221,6 @@ func (s *store) evictIfNeededLocked() {
 		}
 		s.order = s.order[1:]
 		delete(s.months, victim)
-		delete(s.loadErr, victim)
 	}
 }
 
@@ -236,31 +232,78 @@ func (s *store) readMonthFile(ctx context.Context, key string) (*MonthFile, erro
 	t, err := time.Parse("2006-01", key)
 	if err != nil {
 		logger.Warnf(ctx, "[usagestats] invalid month key %q: %v", key, err)
-		return &MonthFile{Workspaces: map[string]map[string]*DayBucket{}}, err
+		return emptyMonthFile(), err
 	}
 	path, err := typepath.UsageStatsMonthFile(t)
 	if err != nil {
 		logger.Warnf(ctx, "[usagestats] resolve month file path failed: %v", err)
-		return &MonthFile{Workspaces: map[string]map[string]*DayBucket{}}, err
+		return emptyMonthFile(), err
 	}
 	bs, err := os.ReadFile(path)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			logger.Warnf(ctx, "[usagestats] read month file %s failed: %v", path, err)
-			return &MonthFile{Workspaces: map[string]map[string]*DayBucket{}}, err
+			return emptyMonthFile(), err
 		}
-		return &MonthFile{Workspaces: map[string]map[string]*DayBucket{}}, nil
+		return emptyMonthFile(), nil
 	}
 	mf := &MonthFile{}
 	if err := json.Unmarshal(bs, mf); err != nil {
 		logger.Warnf(ctx, "[usagestats] parse month file %s failed: %v (treating as empty)", path, err)
-		return &MonthFile{Workspaces: map[string]map[string]*DayBucket{}}, err
+		return emptyMonthFile(), err
+	}
+	if mf.SchemaVersion > currentSchemaVersion {
+		err := fmt.Errorf("%w: month %s has schemaVersion %d (current %d)", errUnsupportedSchema, key, mf.SchemaVersion, currentSchemaVersion)
+		logger.Warnf(ctx, "[usagestats] %v", err)
+		return emptyMonthFile(), err
 	}
 	if mf.Workspaces == nil {
 		mf.Workspaces = map[string]map[string]*DayBucket{}
 	}
+	upgradeMonthFile(mf)
 	normalizeMonthFileTools(mf)
 	return mf, nil
+}
+
+func emptyMonthFile() *MonthFile {
+	return &MonthFile{
+		SchemaVersion: currentSchemaVersion,
+		Workspaces:    map[string]map[string]*DayBucket{},
+	}
+}
+
+// upgradeMonthFile upgrades the decoded representation in memory. Pre-v2
+// files used tokens.total for a local whole-history estimate. Copying it to the
+// explicit legacy field preserves the API-facing Total while making its source
+// distinguishable from provider-reported consumption. The upgraded marker is
+// persisted when this month next receives a snapshot; until then each disk read
+// starts from the original v1 document and performs the same idempotent in-memory
+// projection.
+func upgradeMonthFile(mf *MonthFile) {
+	if mf == nil || mf.SchemaVersion >= currentSchemaVersion {
+		return
+	}
+	for _, wsDays := range mf.Workspaces {
+		for _, day := range wsDays {
+			if day == nil {
+				continue
+			}
+			upgradeLegacyTokenTotals(&day.Tokens)
+			for _, model := range day.Models {
+				if model != nil {
+					upgradeLegacyTokenTotals(&model.Tokens)
+				}
+			}
+		}
+	}
+	mf.SchemaVersion = currentSchemaVersion
+}
+
+func upgradeLegacyTokenTotals(tokens *TokenTotals) {
+	if tokens == nil {
+		return
+	}
+	tokens.LegacyTotal += tokens.Total
 }
 
 // writeMonthFile atomically replaces YYYY-MM.json. Caller must NOT hold
@@ -350,7 +393,6 @@ func (s *store) markDirtyLocked(key string) {
 		return
 	}
 	s.dirty[key] = struct{}{}
-	delete(s.loadErr, key)
 	if !s.flushPending && s.onDirty != nil {
 		s.flushPending = true
 		go s.onDirty()
@@ -492,9 +534,18 @@ func listExistingMonthKeys() ([]string, error) {
 // snapshot without holding the store lock through the IO.
 func cloneMonthFile(in *MonthFile) *MonthFile {
 	if in == nil {
-		return &MonthFile{Workspaces: map[string]map[string]*DayBucket{}}
+		return emptyMonthFile()
 	}
-	out := &MonthFile{Workspaces: make(map[string]map[string]*DayBucket, len(in.Workspaces))}
+	out := &MonthFile{
+		SchemaVersion: in.SchemaVersion,
+		Workspaces:    make(map[string]map[string]*DayBucket, len(in.Workspaces)),
+	}
+	if len(in.AppliedEvents) > 0 {
+		out.AppliedEvents = make(map[string]bool, len(in.AppliedEvents))
+		for eventID, applied := range in.AppliedEvents {
+			out.AppliedEvents[eventID] = applied
+		}
+	}
 	for ws, days := range in.Workspaces {
 		dst := make(map[string]*DayBucket, len(days))
 		for d, day := range days {

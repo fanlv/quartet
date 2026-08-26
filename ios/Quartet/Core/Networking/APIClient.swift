@@ -235,11 +235,15 @@ struct APIClient: @unchecked Sendable {
     // MARK: - Agent 管理
 
     func agentCatalogItems() async throws -> AgentCatalogListResponse {
-        try await request(path: "api/v1/agent/catalog")
+        try await request(path: "api/v1/agent/catalog") { response in
+            response.code == 0 ? nil : "code must equal 0; received \(response.code)"
+        }
     }
 
     func deletedAgentCatalogItems() async throws -> AgentCatalogListResponse {
-        try await request(path: "api/v1/agent/catalog/deleted")
+        try await request(path: "api/v1/agent/catalog/deleted") { response in
+            response.code == 0 ? nil : "code must equal 0; received \(response.code)"
+        }
     }
 
     func agentCatalogDetail(agentID: String) async throws -> AgentCatalogDetailResponse {
@@ -250,7 +254,10 @@ struct APIClient: @unchecked Sendable {
     func agentVersionCheck(force: Bool) async throws -> AgentVersionCheckResponse {
         try await request(
             path: "api/v1/agent/versions",
-            query: force ? [URLQueryItem(name: "force", value: "1")] : []
+            query: force ? [URLQueryItem(name: "force", value: "1")] : [],
+            validate: { response in
+                response.code == 0 ? nil : "code must equal 0; received \(response.code)"
+            }
         )
     }
 
@@ -263,7 +270,32 @@ struct APIClient: @unchecked Sendable {
     }
 
     func upgradeAgent(agentID: String) async throws -> AgentInstallResponse {
-        try await request(path: "api/v1/agent/\(agentID)/upgrade", method: "POST", body: EmptyRequest())
+        try await request(
+            path: "api/v1/agent/\(agentID)/upgrade",
+            method: "POST",
+            body: EmptyRequest(),
+            validate: { response in
+                guard response.code == 0 else {
+                    return "code must equal 0; received \(response.code)"
+                }
+                guard let result = response.result else {
+                    return "result must be an object"
+                }
+                guard !result.agentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return "result.agent_id must be a non-empty string"
+                }
+                guard result.agentId == agentID else {
+                    return "result.agent_id must equal \(String(reflecting: agentID))"
+                }
+                guard !result.steps.isEmpty else {
+                    return "result.steps must contain at least one step"
+                }
+                guard result.steps.allSatisfy({ $0.durationMs >= 0 }) else {
+                    return "result.steps contain a negative duration_ms"
+                }
+                return nil
+            }
+        )
     }
 
     func uninstallAgent(agentID: String) async throws -> AgentInstallResponse {
@@ -815,9 +847,17 @@ struct APIClient: @unchecked Sendable {
         path: String,
         method: String = "GET",
         query: [URLQueryItem] = [],
-        authenticated: Bool = true
+        authenticated: Bool = true,
+        validate: ((Response) -> String?)? = nil
     ) async throws -> Response {
-        try await request(path: path, method: method, query: query, bodyData: nil, authenticated: authenticated)
+        try await request(
+            path: path,
+            method: method,
+            query: query,
+            bodyData: nil,
+            authenticated: authenticated,
+            validate: validate
+        )
     }
 
     private func request<Response: Decodable & Sendable, Body: Encodable & Sendable>(
@@ -825,7 +865,8 @@ struct APIClient: @unchecked Sendable {
         method: String,
         query: [URLQueryItem] = [],
         body: Body,
-        authenticated: Bool = true
+        authenticated: Bool = true,
+        validate: ((Response) -> String?)? = nil
     ) async throws -> Response {
         let bodyData: Data
         do {
@@ -837,7 +878,14 @@ struct APIClient: @unchecked Sendable {
                 requestWasRejected: true
             )
         }
-        return try await request(path: path, method: method, query: query, bodyData: bodyData, authenticated: authenticated)
+        return try await request(
+            path: path,
+            method: method,
+            query: query,
+            bodyData: bodyData,
+            authenticated: authenticated,
+            validate: validate
+        )
     }
 
     private func request<Response: Decodable & Sendable>(
@@ -845,7 +893,8 @@ struct APIClient: @unchecked Sendable {
         method: String,
         query: [URLQueryItem],
         bodyData: Data?,
-        authenticated: Bool
+        authenticated: Bool,
+        validate: ((Response) -> String?)?
     ) async throws -> Response {
         let endpoint = endpointURL(path: path, query: query)
         var request = URLRequest(url: endpoint)
@@ -892,7 +941,17 @@ struct APIClient: @unchecked Sendable {
         }
 
         do {
-            return try Self.decode(Response.self, from: data)
+            let decoded = try Self.decode(Response.self, from: data)
+            if let reason = validate?(decoded) {
+                throw APIError(
+                    summary: "Quartet 响应无效",
+                    detail: "\(method) \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n响应校验错误：\(reason)\n\n原始响应：\n\(body)",
+                    httpStatusCode: http.statusCode
+                )
+            }
+            return decoded
+        } catch let error as APIError {
+            throw error
         } catch {
             throw APIError(
                 summary: "无法解析 Quartet 响应",

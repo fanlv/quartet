@@ -338,10 +338,21 @@ func residualSection(total, known *SectionTotals) SectionTotals {
 		ThoughtCount:   nonNegativeInt(total.ThoughtCount - known.ThoughtCount),
 		ToolCallCount:  nonNegativeInt(total.ToolCallCount - known.ToolCallCount),
 		Tokens: TokenTotals{
-			Total:     nonNegativeInt(total.Tokens.Total - known.Tokens.Total),
-			Assistant: nonNegativeInt(total.Tokens.Assistant - known.Tokens.Assistant),
-			Thought:   nonNegativeInt(total.Tokens.Thought - known.Tokens.Thought),
-			ToolCall:  nonNegativeInt(total.Tokens.ToolCall - known.Tokens.ToolCall),
+			Total:          nonNegativeInt(total.Tokens.Total - known.Tokens.Total),
+			Reported:       nonNegativeInt(total.Tokens.Reported - known.Tokens.Reported),
+			Input:          nonNegativeInt(total.Tokens.Input - known.Tokens.Input),
+			Output:         nonNegativeInt(total.Tokens.Output - known.Tokens.Output),
+			CachedRead:     nonNegativeInt(total.Tokens.CachedRead - known.Tokens.CachedRead),
+			CachedWrite:    nonNegativeInt(total.Tokens.CachedWrite - known.Tokens.CachedWrite),
+			Reasoning:      nonNegativeInt(total.Tokens.Reasoning - known.Tokens.Reasoning),
+			ImageEstimate:  nonNegativeInt(total.Tokens.ImageEstimate - known.Tokens.ImageEstimate),
+			Estimated:      nonNegativeInt(total.Tokens.Estimated - known.Tokens.Estimated),
+			ReportedTurns:  nonNegativeInt(total.Tokens.ReportedTurns - known.Tokens.ReportedTurns),
+			EstimatedTurns: nonNegativeInt(total.Tokens.EstimatedTurns - known.Tokens.EstimatedTurns),
+			LegacyTotal:    nonNegativeInt(total.Tokens.LegacyTotal - known.Tokens.LegacyTotal),
+			Assistant:      nonNegativeInt(total.Tokens.Assistant - known.Tokens.Assistant),
+			Thought:        nonNegativeInt(total.Tokens.Thought - known.Tokens.Thought),
+			ToolCall:       nonNegativeInt(total.Tokens.ToolCall - known.Tokens.ToolCall),
 		},
 	}
 }
@@ -366,10 +377,7 @@ func addSection(dst, src *SectionTotals) {
 	dst.AssistantCount += src.AssistantCount
 	dst.ThoughtCount += src.ThoughtCount
 	dst.ToolCallCount += src.ToolCallCount
-	dst.Tokens.Total += src.Tokens.Total
-	dst.Tokens.Assistant += src.Tokens.Assistant
-	dst.Tokens.Thought += src.Tokens.Thought
-	dst.Tokens.ToolCall += src.Tokens.ToolCall
+	addTokenTotals(&dst.Tokens, &src.Tokens)
 }
 
 func hasSectionValue(s *SectionTotals) bool {
@@ -377,7 +385,10 @@ func hasSectionValue(s *SectionTotals) bool {
 		return false
 	}
 	return s.TotalMs > 0 || s.TurnCount > 0 || s.AssistantCount > 0 || s.ThoughtCount > 0 || s.ToolCallCount > 0 ||
-		s.Tokens.Total > 0 || s.Tokens.Assistant > 0 || s.Tokens.Thought > 0 || s.Tokens.ToolCall > 0
+		s.Tokens.Total > 0 || s.Tokens.Reported > 0 || s.Tokens.Input > 0 || s.Tokens.Output > 0 || s.Tokens.CachedRead > 0 ||
+		s.Tokens.CachedWrite > 0 || s.Tokens.Reasoning > 0 || s.Tokens.ImageEstimate > 0 || s.Tokens.Estimated > 0 ||
+		s.Tokens.ReportedTurns > 0 || s.Tokens.EstimatedTurns > 0 || s.Tokens.LegacyTotal > 0 ||
+		s.Tokens.Assistant > 0 || s.Tokens.Thought > 0 || s.Tokens.ToolCall > 0
 }
 
 func sortedWorkspaceAggregates(in map[string]*SectionTotals) []WorkspaceAggregate {

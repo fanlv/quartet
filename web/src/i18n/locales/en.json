@@ -286,12 +286,18 @@
       "version": {
         "check": "Check for updates",
         "checking": "Checking versions…",
-        "agentUpdateCount": "{{count}} agent updates available",
+        "agentUpdateCount_one": "{{count}} Agent update available",
+        "agentUpdateCount_other": "{{count}} Agent updates available",
         "checkedAt": "Checked {{value}}",
         "notInstalled": "not installed",
         "updateAvailable": "Update available",
         "upgrade": "Upgrade",
         "upgrading": "Upgrading…",
+        "upgradeAll": "Update all available Agents",
+        "upgradeAllConfirm_one": "Update this {{count}} Agent in catalog order?\n\n{{agents}}\n\nIts result and complete error will be retained.",
+        "upgradeAllConfirm_other": "Update these {{count}} Agents in catalog order?\n\n{{agents}}\n\nEach result and complete error will be retained. Ordinary failures will not interrupt later Agents.",
+        "batchProgress": "Completed {{completed}} / {{total}}",
+        "batchCurrent": "Updating {{name}}",
         "upgradeConfirm": "Upgrade {{name}} by running its preset installation flow?\n\n{{changes}}\n\nExisting connections will not be reset; newly created connections will use the new version.",
         "status": {
           "update": "Update available",
@@ -349,6 +355,30 @@
           "install": "install",
           "upgrade": "upgrade",
           "uninstall": "uninstall"
+        }
+      },
+      "diagnostics": {
+        "readResponseFailed": "Failed to read response: {{error}}",
+        "invalidJSONResponse": "Invalid JSON response: {{error}}",
+        "emptyResponseBody": "<empty response body>",
+        "invalidResponseShape": "Invalid response shape: {{reason}}",
+        "shape": {
+          "catalogAgentsArray": "catalog agents must be an array",
+          "catalogDeletedAgentsArray": "deleted catalog agents must be an array",
+          "catalogAgentFields": "catalog agents contain invalid fields",
+          "versionsAgentsArray": "version-check agents must be an array",
+          "versionAgentFields": "version-check agents contain invalid fields",
+          "versionComponentFields": "version-check components contain invalid fields",
+          "versionsCheckedAtNumber": "checked_at must be a finite number when present",
+          "upgradeResultObject": "upgrade result must be an object",
+          "upgradeStepsArray": "upgrade result.steps must be an array",
+          "upgradeInstalledBoolean": "upgrade result.installed must be a boolean",
+          "upgradeStepObjects": "upgrade result.steps must contain objects",
+          "upgradeAgentIdNonEmpty": "upgrade result.agent_id must be a non-empty string",
+          "upgradeAgentIdMismatch": "upgrade result.agent_id must equal {{agentId}}",
+          "upgradeInstallErrorString": "upgrade result.install_error must be a string when present",
+          "upgradeStepFields": "upgrade result.steps contain invalid fields",
+          "upgradeValidationShape": "upgrade result.validation has an invalid shape"
         }
       },
       "method": {
@@ -525,7 +555,7 @@
     },
     "agentManagement": {
       "tabs": {
-        "catalog": "Catalog & Install",
+        "catalog": "Catalog",
         "env": "Environment",
         "defaults": "Defaults",
         "roles": "Roles"
@@ -777,7 +807,7 @@
     "loadingAgents": "Loading Agents…",
     "agentSetupNeeded": "Install an Agent first",
     "agentSetupAction": "Set up",
-    "agentSetupHint": "No Agent is installed yet. Open Settings → Agents → Catalog & Install.",
+    "agentSetupHint": "No Agent is installed yet. Open Settings → Agents → Catalog.",
     "buildTime": "Build time",
     "buildTimeValue": "Built {{time}}",
     "filterByWorkspace": "Filter by workspace",
@@ -808,7 +838,7 @@
   "stats": {
     "title": "Usage Statistics",
     "topbarTooltip": "Statistics",
-    "tokensLocalEstimateNote": "Token counts are local tokenizer estimates, not API billing values. As an approximate input allowance, recorded output estimates are multiplied by 2.",
+    "tokensLocalEstimateNote": "Token totals combine provider-reported usage, local estimates for turns without provider data, and legacy estimates. Breakdown values are explanatory and are not added again.",
     "rangeLabel": "Range",
     "range7d": "7 days",
     "range30d": "30 days",
@@ -829,13 +859,15 @@
     "metric": {
       "duration": "Time",
       "turns": "Turns",
-      "tokens": "Tokens"
+      "tokens": "Tokens",
+      "selectorLabel": "Trend metric"
     },
     "view": {
       "byWorkspace": "By workspace",
       "byModel": "By model",
       "byTool": "By tool",
-      "trend": "Usage trend"
+      "trend": "Usage trend",
+      "dailyTokens": "Daily tokens"
     },
     "table": {
       "duration": "Time",
@@ -857,12 +889,36 @@
     },
     "trend": {
       "axisUnit": "Unit: {{unit}}",
+      "chartAriaLabel": "Usage trend by day. Use Left and Right Arrow keys to inspect adjacent days.",
+      "dayAriaLabel": "{{date}}, {{metric}}: {{value}}. Focus for details.",
       "unit": {
         "minute": "min",
         "hour": "hours",
         "count": "times",
         "tokens": "tokens"
       }
+    },
+    "tokens": {
+      "totalIncludedHint": "Includes provider-reported, locally estimated, and legacy totals. The details below are already included or explanatory subsets.",
+      "detailsSection": "Sources and provider details",
+      "reported": "Provider reported",
+      "input": "Provider input",
+      "output": "Provider output",
+      "cachedRead": "Cache read",
+      "cachedWrite": "Cache write",
+      "reasoning": "Provider reasoning",
+      "imageEstimate": "Image estimate (included subset)",
+      "imageEstimateHint": "An explanatory subset already included in the input or estimated total.",
+      "estimated": "Locally estimated",
+      "legacy": "Legacy estimate",
+      "modelBreakdown": "By model",
+      "coverageLabel": "Source coverage",
+      "coverageSummary_one": "Provider-reported: {{reported}} of {{total}} turn ({{percent}}%); locally estimated: {{estimated}}.",
+      "coverageSummary_other": "Provider-reported: {{reported}} of {{total}} turns ({{percent}}%); locally estimated: {{estimated}}.",
+      "coverageUnclassified_one": "{{value}} turn is older or unclassified.",
+      "coverageUnclassified_other": "{{value}} turns are older or unclassified.",
+      "coverageUnavailable": "No turn coverage data in this range.",
+      "coverageHint": "Coverage describes the source of each turn, not an additional token total."
     },
     "tools": {
       "noToolsInRange": "No tool calls in this range"

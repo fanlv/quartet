@@ -13,11 +13,15 @@ import (
 func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner JobRunner, msg string, sessionID string, opts *SendMessageOptions) {
 	logger.Debugf(ctx, "[step] run: jobId=%s msg=%s", job.ID, strutil.TruncateRunesWithEllipsis(msg, 200))
 
-	handler := newLoopEventHandler(ctx, job.ID, sessionID, s)
 	clientMessageID := ""
 	if opts != nil {
 		clientMessageID = opts.ClientMessageID
 	}
+	messages := opts.getMessages()
+	if messages == nil {
+		messages = []*schema.Message{schema.UserMessage(msg)}
+	}
+	handler := newLoopEventHandler(ctx, job.ID, sessionID, clientMessageID, messages, s)
 	// An interactive send treats RUN_STARTED as the run's semantic boundary
 	// used by the UI for per-round duration. It MUST share the same clock read
 	// as the persisted job.StartedAt to keep live vs reload consistent.
@@ -33,11 +37,6 @@ func (s *serviceImpl) executeRepeat(ctx context.Context, job *model.Job, runner 
 		},
 		ClientMessageID: clientMessageID,
 	})
-
-	messages := opts.getMessages()
-	if messages == nil {
-		messages = []*schema.Message{schema.UserMessage(msg)}
-	}
 
 	// CONTRACT: RunIteration must not return until messages.jsonl has been
 	// flushed for this round. The §2.4 "先写 messages.jsonl，再发轮次结束

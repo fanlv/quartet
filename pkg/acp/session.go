@@ -82,9 +82,10 @@ const (
 	PromptStopReasonCancelled       PromptStopReason = "cancelled"
 )
 
-// PromptUsage is the optional per-turn usage carried by PromptResponse.
-// It is retained so incomplete-turn errors can expose the full termination
-// context instead of collapsing every non-success response into nil.
+// PromptUsage is the optional session-cumulative usage carried by
+// PromptResponse or, for an eino-cli failed turn, its vendor error.data
+// extension. The ACP schema defines these counters across the session; service
+// callers must convert them to a per-turn delta before additive accounting.
 type PromptUsage struct {
 	InputTokens       int64
 	OutputTokens      int64
@@ -94,10 +95,18 @@ type PromptUsage struct {
 	ThoughtTokens     *int64
 }
 
-// PromptResult is the stable prompt completion view exposed by pkg/acp.
+// PromptResult is the stable prompt completion view exposed by pkg/acp. Usage
+// may be populated even when SendPrompt returns a non-nil error.
 type PromptResult struct {
 	StopReason PromptStopReason
 	Usage      *PromptUsage
+}
+
+// promptErrorData is an eino-cli extension carried in JSON-RPC error.data.
+// A failed RPC cannot include PromptResponse.Usage, so the extension preserves
+// provider accounting for the partial turn without changing the error itself.
+type promptErrorData struct {
+	QuartetPromptUsage *acp.Usage `json:"quartetPromptUsage,omitempty"`
 }
 
 // SessionConfigSelect is a stable view of a select option in ConfigOptions,
@@ -372,16 +381,37 @@ func (s *PromptSlot) SendPrompt(ctx context.Context, text string) (PromptResult,
 	})
 	result := PromptResult{StopReason: PromptStopReason(resp.StopReason)}
 	if resp.Usage != nil {
-		result.Usage = &PromptUsage{
-			InputTokens:       resp.Usage.InputTokens,
-			OutputTokens:      resp.Usage.OutputTokens,
-			TotalTokens:       resp.Usage.TotalTokens,
-			CachedReadTokens:  resp.Usage.CachedReadTokens,
-			CachedWriteTokens: resp.Usage.CachedWriteTokens,
-			ThoughtTokens:     resp.Usage.ThoughtTokens,
-		}
+		result.Usage = promptUsageFromACP(resp.Usage)
+	} else if err != nil {
+		result.Usage = promptUsageFromError(err)
 	}
 	return result, err
+}
+
+func promptUsageFromACP(usage *acp.Usage) *PromptUsage {
+	if usage == nil {
+		return nil
+	}
+	return &PromptUsage{
+		InputTokens:       usage.InputTokens,
+		OutputTokens:      usage.OutputTokens,
+		TotalTokens:       usage.TotalTokens,
+		CachedReadTokens:  usage.CachedReadTokens,
+		CachedWriteTokens: usage.CachedWriteTokens,
+		ThoughtTokens:     usage.ThoughtTokens,
+	}
+}
+
+func promptUsageFromError(err error) *PromptUsage {
+	var rpcErr *acp.RPCError
+	if !errors.As(err, &rpcErr) || len(rpcErr.Data) == 0 {
+		return nil
+	}
+	var data promptErrorData
+	if json.Unmarshal(rpcErr.Data, &data) != nil {
+		return nil
+	}
+	return promptUsageFromACP(data.QuartetPromptUsage)
 }
 
 // CancelSession sends a Cancel notification for the specified session.

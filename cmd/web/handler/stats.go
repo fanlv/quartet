@@ -291,6 +291,17 @@ func addStatsSection(dst, src *usagestats.SectionTotals) {
 	dst.ThoughtCount += src.ThoughtCount
 	dst.ToolCallCount += src.ToolCallCount
 	dst.Tokens.Total += src.Tokens.Total
+	dst.Tokens.Reported += src.Tokens.Reported
+	dst.Tokens.Input += src.Tokens.Input
+	dst.Tokens.Output += src.Tokens.Output
+	dst.Tokens.CachedRead += src.Tokens.CachedRead
+	dst.Tokens.CachedWrite += src.Tokens.CachedWrite
+	dst.Tokens.Reasoning += src.Tokens.Reasoning
+	dst.Tokens.ImageEstimate += src.Tokens.ImageEstimate
+	dst.Tokens.Estimated += src.Tokens.Estimated
+	dst.Tokens.ReportedTurns += src.Tokens.ReportedTurns
+	dst.Tokens.EstimatedTurns += src.Tokens.EstimatedTurns
+	dst.Tokens.LegacyTotal += src.Tokens.LegacyTotal
 	dst.Tokens.Assistant += src.Tokens.Assistant
 	dst.Tokens.Thought += src.Tokens.Thought
 	dst.Tokens.ToolCall += src.Tokens.ToolCall

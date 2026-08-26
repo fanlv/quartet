@@ -218,8 +218,14 @@ const maxBufferedToolResultTotalBytes = 32 * 1024 * 1024
 // its output was just too large to forward verbatim.
 const toolResultTruncatedMarker = "\n\n[truncated: tool result exceeded buffer cap]"
 
-func (a *roundAdapter) forwardStream(h agentstream.StreamHandler, onError func(error), stream *schema.StreamReader[*schema.Message]) error {
+func (a *roundAdapter) forwardStream(h agentstream.StreamHandler, onError func(error), stream *schema.StreamReader[*schema.Message], usageCollector *providerUsageCollector) error {
 	defer stream.Close()
+	var observedUsage *ProviderUsage
+	defer func() {
+		if usageCollector != nil {
+			usageCollector.add(observedUsage)
+		}
+	}()
 
 	// Scope the per-position buffers to this stream. See the roundAdapter
 	// doc comment ("State scope") for why cross-stream carry-over would
@@ -274,6 +280,9 @@ func (a *roundAdapter) forwardStream(h agentstream.StreamHandler, onError func(e
 		}
 		if chunk == nil {
 			continue
+		}
+		if chunk.ResponseMeta != nil {
+			observedUsage = maxProviderUsage(observedUsage, providerUsageFromSchema(chunk.ResponseMeta.Usage))
 		}
 		if chunk.Role == schema.Tool {
 			id := chunk.ToolCallID

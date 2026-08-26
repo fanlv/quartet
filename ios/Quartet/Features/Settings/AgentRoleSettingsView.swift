@@ -379,27 +379,43 @@ struct AgentRoleSettingsView: View {
         loadError = ""
         message = nil
         do {
-            let client = try model.apiClient()
-            async let agentRequest = client.agents()
-            async let catalogRequest = client.agentCatalogItems()
-            async let titleRequest = client.titleGenerationAgent()
-            async let groupRequest = client.groupReplyAgent()
-            async let imRequest = client.imSessionAgent()
-            let (agentResponse, catalogResponse, titleResponse, groupResponse, imResponse) =
-                try await (agentRequest, catalogRequest, titleRequest, groupRequest, imRequest)
+            if model.isRunningUITests {
+                async let agentRequest = model.agentCatalog()
+                async let catalogRequest = model.managedAgentCatalogItems()
+                let (agentList, catalogItems) = try await (agentRequest, catalogRequest)
+                agents = agentList.filter(\.available)
+                headlessAgentIDs = Set(catalogItems.filter(\.supportsHeadlessPrint).map(\.agentId))
+                let fixture = AgentRoleConfig(
+                    agentId: agents.first?.agentId ?? "",
+                    modelId: agents.first?.models?.currentModelId ?? "",
+                    acpMode: "default",
+                    acpThoughtLevel: "medium"
+                )
+                configs = Dictionary(uniqueKeysWithValues: AgentRole.allCases.map { ($0.rawValue, fixture) })
+                migrationErrors = []
+            } else {
+                let client = try model.apiClient()
+                async let agentRequest = client.agents()
+                async let catalogRequest = client.agentCatalogItems()
+                async let titleRequest = client.titleGenerationAgent()
+                async let groupRequest = client.groupReplyAgent()
+                async let imRequest = client.imSessionAgent()
+                let (agentResponse, catalogResponse, titleResponse, groupResponse, imResponse) =
+                    try await (agentRequest, catalogRequest, titleRequest, groupRequest, imRequest)
 
-            agents = agentResponse.agentList.filter(\.available)
-            headlessAgentIDs = Set(
-                (catalogResponse.agents ?? [])
-                    .filter(\.supportsHeadlessPrint)
-                    .map(\.agentId)
-            )
-            configs = [
-                AgentRole.title.rawValue: titleResponse.config ?? AgentRoleConfig(),
-                AgentRole.groupReply.rawValue: groupResponse.config ?? AgentRoleConfig(),
-                AgentRole.imSession.rawValue: imResponse.config ?? AgentRoleConfig(),
-            ]
-            migrationErrors = titleResponse.migrationErrors ?? []
+                agents = agentResponse.agentList.filter(\.available)
+                headlessAgentIDs = Set(
+                    (catalogResponse.agents ?? [])
+                        .filter(\.supportsHeadlessPrint)
+                        .map(\.agentId)
+                )
+                configs = [
+                    AgentRole.title.rawValue: titleResponse.config ?? AgentRoleConfig(),
+                    AgentRole.groupReply.rawValue: groupResponse.config ?? AgentRoleConfig(),
+                    AgentRole.imSession.rawValue: imResponse.config ?? AgentRoleConfig(),
+                ]
+                migrationErrors = titleResponse.migrationErrors ?? []
+            }
             for role in AgentRole.allCases { refreshThoughtLevels(role) }
         } catch {
             loadError = agentSettingsErrorDetail(error)

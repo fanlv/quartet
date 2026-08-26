@@ -81,6 +81,11 @@ type ACPAgent struct {
 	// no mode config option, in which case the fallback is disabled.
 	modeConfigID string
 
+	// promptUsage tracks the ACP session-cumulative counters last observed by
+	// Quartet. Run is serialized by runSem, but the cursor lives under mu with
+	// acpSession so reconnect/restore can switch both as one state transition.
+	promptUsage promptUsageCursor
+
 	// Stored for reconnection when the underlying process dies.
 	agentType string
 	workdir   string
@@ -317,6 +322,7 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 		sessionID:            sessionID,
 		runSem:               make(chan struct{}, 1),
 	}
+	agent.promptUsage = newPromptUsageCursor(acpSessionID, existingACPSession == "")
 	agent.storeFingerprint(persistedFingerprint)
 	return agent, nil
 }
@@ -524,6 +530,7 @@ func (a *ACPAgent) reconnectIfNeeded(ctx context.Context, report PhaseReporter) 
 
 	a.mu.Lock()
 	a.conn = conn
+	a.resetPromptUsageSessionLocked(newSessionID, false)
 	a.acpSession = newSessionID
 	a.currentModelID = ""
 	a.currentMode = ""
@@ -637,6 +644,7 @@ func (a *ACPAgent) restoreACPSession(ctx context.Context) error {
 	}
 
 	a.mu.Lock()
+	a.resetPromptUsageSessionLocked(restoredSession, false)
 	a.acpSession = restoredSession
 	a.currentModelID = ""
 	a.currentMode = ""
@@ -1057,6 +1065,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 	// this subprocess and active-session tracking are the slot's job; we
 	// just send the text and wait for the turn to finish.
 	promptResult, err := slot.SendPrompt(runCtx, prompt)
+	reportPromptUsage(a.sessionID, handler, a.takePromptUsageDelta(acpSession, promptResult.Usage))
 	if err != nil {
 		if runCtx.Err() != nil {
 			return runCtx.Err()
@@ -1142,6 +1151,170 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 		return promptErr
 	}
 	return nil
+}
+
+type promptUsageCursor struct {
+	sessionID     pkgacp.SessionID
+	baselineKnown bool
+	last          pkgacp.PromptUsage
+}
+
+// takePromptUsageDelta converts ACP's session-cumulative counters into one
+// prompt's additive usage. A newly-created session has a known zero baseline;
+// a restored session without a persisted cursor seeds on its first sample and
+// reports an explicit zero delta, avoiding both historical double-counting and
+// fallback to the whole-context estimate. A decreasing sample starts a new
+// counter epoch and attributes the current counters to that epoch's first turn.
+func (a *ACPAgent) takePromptUsageDelta(sessionID pkgacp.SessionID, current *pkgacp.PromptUsage) *pkgacp.PromptUsage {
+	if current == nil {
+		return nil
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.resetPromptUsageSessionLocked(sessionID, false)
+	cursor := &a.promptUsage
+	if promptUsageHasNegative(current) {
+		// The wire schema uses unsigned counters. Do not let a malformed
+		// sample poison the cursor; the next valid sample can still be diffed
+		// from the last valid baseline. Explicit zero suppresses the local
+		// whole-context fallback for this observed-but-unusable provider sample.
+		return &pkgacp.PromptUsage{}
+	}
+	currentCopy := clonePromptUsage(current)
+	if !cursor.baselineKnown {
+		cursor.last = *currentCopy
+		cursor.baselineKnown = true
+		return &pkgacp.PromptUsage{}
+	}
+	if promptUsageDecreased(&cursor.last, current) {
+		cursor.last = *currentCopy
+		return currentCopy
+	}
+	delta := subtractPromptUsage(current, &cursor.last)
+	cursor.last = *mergePromptUsageBaseline(&cursor.last, current)
+	return delta
+}
+
+// resetPromptUsageSessionLocked changes the counter epoch only when the ACP
+// session id changes. Reconnect and restore normally retain the same id, so
+// their baseline survives. Caller must hold a.mu.
+func (a *ACPAgent) resetPromptUsageSessionLocked(sessionID pkgacp.SessionID, knownZero bool) {
+	if a.promptUsage.sessionID == sessionID {
+		return
+	}
+	a.promptUsage = newPromptUsageCursor(sessionID, knownZero)
+}
+
+func newPromptUsageCursor(sessionID pkgacp.SessionID, knownZero bool) promptUsageCursor {
+	cursor := promptUsageCursor{sessionID: sessionID, baselineKnown: knownZero}
+	if knownZero {
+		zero := int64(0)
+		cursor.last.CachedReadTokens = cloneOptionalInt64(&zero)
+		cursor.last.CachedWriteTokens = cloneOptionalInt64(&zero)
+		cursor.last.ThoughtTokens = cloneOptionalInt64(&zero)
+	}
+	return cursor
+}
+
+func promptUsageHasNegative(usage *pkgacp.PromptUsage) bool {
+	if usage.InputTokens < 0 || usage.OutputTokens < 0 || usage.TotalTokens < 0 {
+		return true
+	}
+	for _, value := range []*int64{usage.CachedReadTokens, usage.CachedWriteTokens, usage.ThoughtTokens} {
+		if value != nil && *value < 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func promptUsageDecreased(previous, current *pkgacp.PromptUsage) bool {
+	if current.InputTokens < previous.InputTokens || current.OutputTokens < previous.OutputTokens || current.TotalTokens < previous.TotalTokens {
+		return true
+	}
+	return optionalPromptUsageDecreased(previous.CachedReadTokens, current.CachedReadTokens) ||
+		optionalPromptUsageDecreased(previous.CachedWriteTokens, current.CachedWriteTokens) ||
+		optionalPromptUsageDecreased(previous.ThoughtTokens, current.ThoughtTokens)
+}
+
+func optionalPromptUsageDecreased(previous, current *int64) bool {
+	return previous != nil && current != nil && *current < *previous
+}
+
+func subtractPromptUsage(current, previous *pkgacp.PromptUsage) *pkgacp.PromptUsage {
+	return &pkgacp.PromptUsage{
+		InputTokens:       current.InputTokens - previous.InputTokens,
+		OutputTokens:      current.OutputTokens - previous.OutputTokens,
+		TotalTokens:       current.TotalTokens - previous.TotalTokens,
+		CachedReadTokens:  subtractOptionalPromptUsage(current.CachedReadTokens, previous.CachedReadTokens),
+		CachedWriteTokens: subtractOptionalPromptUsage(current.CachedWriteTokens, previous.CachedWriteTokens),
+		ThoughtTokens:     subtractOptionalPromptUsage(current.ThoughtTokens, previous.ThoughtTokens),
+	}
+}
+
+func subtractOptionalPromptUsage(current, previous *int64) *int64 {
+	if current == nil || previous == nil {
+		return nil
+	}
+	delta := *current - *previous
+	return &delta
+}
+
+func clonePromptUsage(usage *pkgacp.PromptUsage) *pkgacp.PromptUsage {
+	if usage == nil {
+		return nil
+	}
+	clone := *usage
+	clone.CachedReadTokens = cloneOptionalInt64(usage.CachedReadTokens)
+	clone.CachedWriteTokens = cloneOptionalInt64(usage.CachedWriteTokens)
+	clone.ThoughtTokens = cloneOptionalInt64(usage.ThoughtTokens)
+	return &clone
+}
+
+func mergePromptUsageBaseline(previous, current *pkgacp.PromptUsage) *pkgacp.PromptUsage {
+	next := clonePromptUsage(current)
+	if next.CachedReadTokens == nil {
+		next.CachedReadTokens = cloneOptionalInt64(previous.CachedReadTokens)
+	}
+	if next.CachedWriteTokens == nil {
+		next.CachedWriteTokens = cloneOptionalInt64(previous.CachedWriteTokens)
+	}
+	if next.ThoughtTokens == nil {
+		next.ThoughtTokens = cloneOptionalInt64(previous.ThoughtTokens)
+	}
+	return next
+}
+
+func cloneOptionalInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+// reportPromptUsage forwards one prompt's provider accounting separately from
+// the live usage_update gauge. PromptResponse.usage is optional and still an
+// unstable ACP extension, so consumers opt in through a narrow type assertion.
+func reportPromptUsage(sessionID string, handler agui.EventHandler, usage *pkgacp.PromptUsage) {
+	if usage == nil || handler == nil {
+		return
+	}
+	receiver, ok := handler.(agui.PromptUsageHandler)
+	if !ok {
+		return
+	}
+	if err := receiver.OnPromptUsage(agui.PromptUsage{
+		InputTokens:       usage.InputTokens,
+		OutputTokens:      usage.OutputTokens,
+		TotalTokens:       usage.TotalTokens,
+		CachedReadTokens:  usage.CachedReadTokens,
+		CachedWriteTokens: usage.CachedWriteTokens,
+		ThoughtTokens:     usage.ThoughtTokens,
+	}); err != nil {
+		logger.Debugf(context.Background(), "[acp] handler OnPromptUsage failed: sessionId=%s err=%v", sessionID, err)
+	}
 }
 
 func (a *ACPAgent) incompletePromptError(result pkgacp.PromptResult) error {

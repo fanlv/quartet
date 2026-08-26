@@ -289,6 +289,11 @@
         "updateAvailable": "可升级",
         "upgrade": "升级",
         "upgrading": "升级中…",
+        "upgradeAll": "一键更新全部可更新 Agent",
+        "upgradeAllConfirm_one": "确定按目录顺序更新以下 {{count}} 个 Agent？\n\n{{agents}}\n\n升级结果和完整错误会保留。",
+        "upgradeAllConfirm_other": "确定按目录顺序更新以下 {{count}} 个 Agent？\n\n{{agents}}\n\n升级结果和完整错误会分别保留；普通失败不会中断后续 Agent。",
+        "batchProgress": "已完成 {{completed}} / {{total}}",
+        "batchCurrent": "正在更新 {{name}}",
         "upgradeConfirm": "确定升级 {{name}}？将执行该 Agent 的预置安装流程：\n\n{{changes}}\n\n现有连接不会被重置；新版本会在之后新建连接时使用。",
         "status": {
           "update": "发现可用更新",
@@ -346,6 +351,30 @@
           "install": "安装",
           "upgrade": "升级",
           "uninstall": "卸载"
+        }
+      },
+      "diagnostics": {
+        "readResponseFailed": "读取响应失败：{{error}}",
+        "invalidJSONResponse": "响应不是有效 JSON：{{error}}",
+        "emptyResponseBody": "<响应正文为空>",
+        "invalidResponseShape": "响应结构无效：{{reason}}",
+        "shape": {
+          "catalogAgentsArray": "Agent 目录的 agents 必须是数组",
+          "catalogDeletedAgentsArray": "已删除 Agent 目录的 agents 必须是数组",
+          "catalogAgentFields": "Agent 目录包含字段无效的条目",
+          "versionsAgentsArray": "版本检查结果的 agents 必须是数组",
+          "versionAgentFields": "版本检查结果包含字段无效的 Agent",
+          "versionComponentFields": "版本检查结果包含字段无效的组件",
+          "versionsCheckedAtNumber": "checked_at 如存在则必须是有限数字",
+          "upgradeResultObject": "升级结果 result 必须是对象",
+          "upgradeStepsArray": "升级结果 result.steps 必须是数组",
+          "upgradeInstalledBoolean": "升级结果 result.installed 必须是布尔值",
+          "upgradeStepObjects": "升级结果 result.steps 必须只包含对象",
+          "upgradeAgentIdNonEmpty": "升级结果 result.agent_id 必须是非空字符串",
+          "upgradeAgentIdMismatch": "升级结果 result.agent_id 必须等于 {{agentId}}",
+          "upgradeInstallErrorString": "升级结果 result.install_error 如存在则必须是字符串",
+          "upgradeStepFields": "升级结果 result.steps 包含无效字段",
+          "upgradeValidationShape": "升级结果 result.validation 结构无效"
         }
       },
       "method": {
@@ -522,10 +551,10 @@
     },
     "agentManagement": {
       "tabs": {
-        "catalog": "目录与安装",
+        "catalog": "目录",
         "env": "环境变量",
-        "defaults": "默认配置",
-        "roles": "角色配置"
+        "defaults": "默认参数",
+        "roles": "角色分工"
       }
     },
     "acp": {
@@ -774,7 +803,7 @@
     "loadingAgents": "正在加载 Agent…",
     "agentSetupNeeded": "请先安装 Agent",
     "agentSetupAction": "去安装",
-    "agentSetupHint": "尚未安装可用的 Agent。点击打开“设置 → Agent 管理 → 目录与安装”。",
+    "agentSetupHint": "尚未安装可用的 Agent。点击打开“设置 → Agent 管理 → 目录”。",
     "buildTime": "编译时间",
     "buildTimeValue": "编译于 {{time}}",
     "filterByWorkspace": "按工作空间筛选",
@@ -803,7 +832,7 @@
   "stats": {
     "title": "使用统计",
     "topbarTooltip": "统计",
-    "tokensLocalEstimateNote": "Token 数为本地分词器估算值，非 API 计费口径；为近似计入输入侧，已记录的输出估算值会乘以 2。",
+    "tokensLocalEstimateNote": "Token 总数包含服务商上报、无上报轮次的本地估算和旧版估算；明细字段仅用于说明构成，不会重复计入总数。",
     "rangeLabel": "范围",
     "range7d": "7 天",
     "range30d": "30 天",
@@ -824,13 +853,15 @@
     "metric": {
       "duration": "耗时",
       "turns": "轮次",
-      "tokens": "Token"
+      "tokens": "Token",
+      "selectorLabel": "趋势指标"
     },
     "view": {
       "byWorkspace": "按工作区",
       "byModel": "按模型",
       "byTool": "按工具",
-      "trend": "使用趋势"
+      "trend": "使用趋势",
+      "dailyTokens": "每日 Token"
     },
     "table": {
       "duration": "耗时",
@@ -852,12 +883,34 @@
     },
     "trend": {
       "axisUnit": "单位：{{unit}}",
+      "chartAriaLabel": "每日使用趋势，可用左右方向键查看相邻日期。",
+      "dayAriaLabel": "{{date}}，{{metric}}：{{value}}。聚焦查看详情。",
       "unit": {
         "minute": "分钟",
         "hour": "小时",
         "count": "次",
         "tokens": "tokens"
       }
+    },
+    "tokens": {
+      "totalIncludedHint": "包含服务商上报、本地估算和旧版估算。以下明细已包含在总数中，或只是说明性子集。",
+      "detailsSection": "来源与服务商明细",
+      "reported": "服务商上报",
+      "input": "服务商输入",
+      "output": "服务商输出",
+      "cachedRead": "缓存读取",
+      "cachedWrite": "缓存写入",
+      "reasoning": "服务商推理",
+      "imageEstimate": "图片估算（说明性子集）",
+      "imageEstimateHint": "说明性子集，已包含在输入或估算总量中。",
+      "estimated": "本地估算",
+      "legacy": "旧版估算",
+      "modelBreakdown": "按模型",
+      "coverageLabel": "数据来源覆盖率",
+      "coverageSummary": "{{reported}}/{{total}} 轮由服务商上报（{{percent}}%）；{{estimated}} 轮使用本地估算。",
+      "coverageUnclassified": "{{value}} 轮为旧版或未分类数据。",
+      "coverageUnavailable": "所选范围内没有轮次覆盖率数据。",
+      "coverageHint": "覆盖率说明每轮数据来源，不是额外的 Token 数。"
     },
     "tools": {
       "noToolsInRange": "该范围内没有工具调用记录"

@@ -233,6 +233,10 @@
 .stats-trend-guide { stroke: #cbd5e1; stroke-width: 1; stroke-dasharray: 3 3; }
 .stats-trend-tick { font-size: 10px; fill: #94a3b8; }
 .stats-trend-hitbox { cursor: crosshair; }
+.stats-trend-hitbox:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
 .stats-trend-point { transition: r 0.1s ease; }
 
 .stats-trend-legend {
@@ -285,13 +289,16 @@
 .stats-trend-tooltip {
   position: fixed;
   z-index: 50;
-  pointer-events: none;
+  pointer-events: auto;
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
   padding: 8px 10px;
-  min-width: 150px;
+  min-width: min(220px, calc(100vw - 16px));
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   font-size: 12px;
 }
 
@@ -309,6 +316,64 @@
 .stats-trend-tooltip-row strong { color: #1a1a1a; font-weight: 600; }
 .stats-trend-tooltip-divider { height: 1px; background: #f1f5f9; margin: 5px 0; }
 .stats-trend-tooltip-muted { color: #94a3b8; }
+
+.stats-trend-tooltip-total {
+  font-size: 13px;
+}
+
+.stats-trend-tooltip-section {
+  margin: 6px 0 2px;
+  color: #64748b;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.stats-trend-tooltip-detail {
+  padding-left: 8px;
+}
+
+.stats-trend-tooltip-hint {
+  max-width: 280px;
+  margin-top: 2px;
+  color: #94a3b8;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.stats-trend-tooltip-image-hint {
+  margin: 1px 0 4px 8px;
+}
+
+.stats-token-coverage {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: -4px 0 10px;
+  color: #64748b;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.stats-token-coverage-label {
+  color: #334155;
+  font-weight: 600;
+}
+
+.stats-token-coverage-hint {
+  color: #94a3b8;
+}
+
+.stats-token-coverage.compact {
+  display: block;
+  margin: 4px 0 0;
+  padding-top: 4px;
+  border-top: 1px solid #f1f5f9;
+  color: #64748b;
+  font-size: 10.5px;
+}
 
 /* ---- Rank lists (workspace / model / tool) ------------------------------- */
 

@@ -64,9 +64,78 @@ struct UsageStatsRange: Decodable, Hashable, Sendable {
 
 struct UsageStatsTokenTotals: Decodable, Hashable, Sendable {
     let total: Int
+    let reported: Int
+    let input: Int
+    let output: Int
+    let cachedRead: Int
+    let cachedWrite: Int
+    let reasoning: Int
+    let imageEstimate: Int
+    let estimated: Int
+    let reportedTurns: Int
+    let estimatedTurns: Int
+    let legacyTotal: Int
     let assistant: Int
     let thought: Int
     let toolCall: Int
+
+    init(
+        total: Int,
+        reported: Int = 0,
+        input: Int = 0,
+        output: Int = 0,
+        cachedRead: Int = 0,
+        cachedWrite: Int = 0,
+        reasoning: Int = 0,
+        imageEstimate: Int = 0,
+        estimated: Int = 0,
+        reportedTurns: Int = 0,
+        estimatedTurns: Int = 0,
+        legacyTotal: Int = 0,
+        assistant: Int = 0,
+        thought: Int = 0,
+        toolCall: Int = 0
+    ) {
+        self.total = total
+        self.reported = reported
+        self.input = input
+        self.output = output
+        self.cachedRead = cachedRead
+        self.cachedWrite = cachedWrite
+        self.reasoning = reasoning
+        self.imageEstimate = imageEstimate
+        self.estimated = estimated
+        self.reportedTurns = reportedTurns
+        self.estimatedTurns = estimatedTurns
+        self.legacyTotal = legacyTotal
+        self.assistant = assistant
+        self.thought = thought
+        self.toolCall = toolCall
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case total, reported, input, output, cachedRead, cachedWrite, reasoning, imageEstimate
+        case estimated, reportedTurns, estimatedTurns, legacyTotal, assistant, thought, toolCall
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        total = try values.decode(Int.self, forKey: .total)
+        reported = try values.decodeIfPresent(Int.self, forKey: .reported) ?? 0
+        input = try values.decodeIfPresent(Int.self, forKey: .input) ?? 0
+        output = try values.decodeIfPresent(Int.self, forKey: .output) ?? 0
+        cachedRead = try values.decodeIfPresent(Int.self, forKey: .cachedRead) ?? 0
+        cachedWrite = try values.decodeIfPresent(Int.self, forKey: .cachedWrite) ?? 0
+        reasoning = try values.decodeIfPresent(Int.self, forKey: .reasoning) ?? 0
+        imageEstimate = try values.decodeIfPresent(Int.self, forKey: .imageEstimate) ?? 0
+        estimated = try values.decodeIfPresent(Int.self, forKey: .estimated) ?? 0
+        reportedTurns = try values.decodeIfPresent(Int.self, forKey: .reportedTurns) ?? 0
+        estimatedTurns = try values.decodeIfPresent(Int.self, forKey: .estimatedTurns) ?? 0
+        legacyTotal = try values.decodeIfPresent(Int.self, forKey: .legacyTotal) ?? 0
+        assistant = try values.decodeIfPresent(Int.self, forKey: .assistant) ?? 0
+        thought = try values.decodeIfPresent(Int.self, forKey: .thought) ?? 0
+        toolCall = try values.decodeIfPresent(Int.self, forKey: .toolCall) ?? 0
+    }
 }
 
 protocol UsageStatsTotals {
@@ -1746,6 +1815,37 @@ struct AgentCatalogItem: Decodable, Identifiable, Hashable, Sendable {
     }
 }
 
+#if DEBUG
+extension AgentCatalogItem {
+    static func uiTest(
+        agentId: String,
+        displayName: String,
+        installed: Bool = true,
+        source: String = "builtin"
+    ) throws -> Self {
+        let object: [String: Any] = [
+            "agent_id": agentId,
+            "source": source,
+            "display_name": displayName,
+            "icon_url": "",
+            "definition": ["bin": agentId, "acp_program": agentId, "acp_args": []],
+            "supports_headless_print": true,
+            "deprecated": false,
+            "lifecycle": "active",
+            "current_revision": "ui-test",
+            "install_method": "npm",
+            "install_commands": ["npm install -g \(agentId)"],
+            "auto_installable": true,
+            "auto_uninstallable": true,
+            "installed": installed,
+            "availability": installed ? "available" : "not_installed",
+            "refreshing": false,
+        ]
+        return try JSONDecoder().decode(Self.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+}
+#endif
+
 struct AgentCatalogListResponse: Decodable, Sendable {
     let code: Int
     let agents: [AgentCatalogItem]?
@@ -1812,10 +1912,36 @@ struct AgentVersionInfo: Decodable, Hashable, Sendable, Identifiable {
     }
 }
 
+#if DEBUG
+extension AgentVersionInfo {
+    static func uiTest(agentId: String, updateAvailable: Bool, upgradeSupported: Bool) throws -> Self {
+        let object: [String: Any] = [
+            "agent_id": agentId,
+            "components": [[
+                "name": agentId,
+                "kind": "npm",
+                "current_version": "1.0.0",
+                "latest_version": updateAvailable ? "2.0.0" : "1.0.0",
+                "update_available": updateAvailable,
+            ]],
+            "update_available": updateAvailable,
+            "upgrade_supported": upgradeSupported,
+        ]
+        return try JSONDecoder().decode(Self.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+}
+#endif
+
 struct AgentVersionCheckResponse: Decodable, Sendable {
     let code: Int
     let checkedAt: Int64?
     let agents: [AgentVersionInfo]?
+
+    init(code: Int, checkedAt: Int64?, agents: [AgentVersionInfo]?) {
+        self.code = code
+        self.checkedAt = checkedAt
+        self.agents = agents
+    }
 
     enum CodingKeys: String, CodingKey {
         case code
@@ -1843,17 +1969,6 @@ struct AgentInstallStepResult: Decodable, Hashable, Sendable {
         case durationMs = "duration_ms"
     }
 
-    init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        display = try values.decodeIfPresent(String.self, forKey: .display) ?? ""
-        stdout = try values.decodeIfPresent(String.self, forKey: .stdout) ?? ""
-        stderr = try values.decodeIfPresent(String.self, forKey: .stderr) ?? ""
-        exitCode = try values.decodeIfPresent(Int.self, forKey: .exitCode) ?? 0
-        timedOut = try values.decodeIfPresent(Bool.self, forKey: .timedOut) ?? false
-        error = try values.decodeIfPresent(String.self, forKey: .error)
-        durationMs = try values.decodeIfPresent(Int64.self, forKey: .durationMs) ?? 0
-    }
-
     var succeeded: Bool { exitCode == 0 && !timedOut && (error ?? "").isEmpty }
 }
 
@@ -1875,15 +1990,6 @@ struct AgentInstallResult: Decodable, Hashable, Sendable {
         case installed
         case installError = "install_error"
         case validation
-    }
-
-    init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        agentId = try values.decodeIfPresent(String.self, forKey: .agentId) ?? ""
-        steps = try values.decodeIfPresent([AgentInstallStepResult].self, forKey: .steps) ?? []
-        installed = try values.decodeIfPresent(Bool.self, forKey: .installed) ?? false
-        installError = try values.decodeIfPresent(String.self, forKey: .installError)
-        validation = try values.decodeIfPresent(AgentValidationResult.self, forKey: .validation)
     }
 
     var stepsSucceeded: Bool { steps.allSatisfy(\.succeeded) }

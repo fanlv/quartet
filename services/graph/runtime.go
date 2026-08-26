@@ -17,6 +17,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/pkg/tokenizer"
 	"github.com/fanlv/quartet/services/usagestats"
 	"github.com/fanlv/quartet/types/agui"
 	"github.com/fanlv/quartet/types/consts"
@@ -483,14 +484,14 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 		modelID := firstNonEmpty(runner.SessionModelID(sessionID), node.Config.ModelID)
 		result := s.runPromptWithRetries(ctx, run.ID, run.JobID, sessionID, node.ID, key, runner, []*schema.Message{userMsg})
 		if result.err != nil {
-			return nodeOutcome{output: result.handler.AccumulatedContent(), sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, withGraphRetryCount(result.err, result.retryCount)
+			return nodeOutcome{output: result.handler.AccumulatedContent(), sessionID: sessionID, usage: result.usage, modelID: modelID}, withGraphRetryCount(result.err, result.retryCount)
 		}
 		output := result.handler.AccumulatedContent()
 		parsed, perr := ParseQuartetOutput(output, node.Config.OutputVariables)
 		if perr != nil {
-			return nodeOutcome{output: output, sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, perr
+			return nodeOutcome{output: output, sessionID: sessionID, usage: result.usage, modelID: modelID}, perr
 		}
-		return nodeOutcome{output: output, produced: parsed.Variables, sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, nil
+		return nodeOutcome{output: output, produced: parsed.Variables, sessionID: sessionID, usage: result.usage, modelID: modelID}, nil
 	case model.GraphNodeTypeClarify:
 		return s.executeClarifyNode(ctx, run, node, key, vars, disabled, runner, inflowSession, loopVars, notify)
 	default:
@@ -546,7 +547,7 @@ func (s *serviceImpl) executeClarifyNode(ctx context.Context, run *model.GraphRu
 	}
 	result := s.runPromptWithRetries(ctx, run.ID, run.JobID, sessionID, node.ID, key, runner, []*schema.Message{userMsg})
 	if result.err != nil {
-		return nodeOutcome{output: result.handler.AccumulatedContent(), sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, withGraphRetryCount(result.err, result.retryCount)
+		return nodeOutcome{output: result.handler.AccumulatedContent(), sessionID: sessionID, usage: result.usage, modelID: modelID}, withGraphRetryCount(result.err, result.retryCount)
 	}
 	output := result.handler.AccumulatedContent()
 	// Best-effort parse: a missing declared output on this first draft is not a
@@ -556,7 +557,7 @@ func (s *serviceImpl) executeClarifyNode(ctx context.Context, run *model.GraphRu
 	if parsed, perr := ParseQuartetOutput(output, nil); perr == nil {
 		produced = parsed.Variables
 	}
-	return nodeOutcome{output: output, produced: produced, sessionID: sessionID, usage: result.handler.usage, modelID: modelID}, nil
+	return nodeOutcome{output: output, produced: produced, sessionID: sessionID, usage: result.usage, modelID: modelID}, nil
 }
 
 func agentBindingForVersion(run *model.GraphRun, key model.GraphInstanceKey, nodeID string) *model.AgentRuntimeBinding {
@@ -1097,7 +1098,7 @@ func isPersistableGraphEvent(typ model.GraphEventType) bool {
 	}
 }
 
-func (s *serviceImpl) recordUsageSnapshot(run *model.GraphRun, outcome nodeOutcome, finishedAtMs, durationMs int64) {
+func (s *serviceImpl) recordUsageSnapshot(run *model.GraphRun, key model.GraphInstanceKey, startedAt int64, outcome nodeOutcome, finishedAtMs, durationMs int64) {
 	s.usageMu.RLock()
 	recorder := s.usageRecorder
 	s.usageMu.RUnlock()
@@ -1111,7 +1112,8 @@ func (s *serviceImpl) recordUsageSnapshot(run *model.GraphRun, outcome nodeOutco
 	if run != nil {
 		workspaceID = run.WorkspaceID
 	}
-	recorder.Record(outcome.usage.Snapshot(workspaceID, outcome.modelID, finishedAtMs, durationMs))
+	eventID := fmt.Sprintf("graph:%s:%s:started:%d", run.ID, instanceKeyString(key), startedAt)
+	recorder.Record(outcome.usage.SnapshotWithEventID(eventID, workspaceID, outcome.modelID, finishedAtMs, durationMs))
 }
 
 func runtimeError(runID string, key model.GraphInstanceKey, node model.GraphNode, err error) *model.GraphRuntimeError {
@@ -1279,24 +1281,39 @@ type graphEventHandler struct {
 	lastStartedID     string
 	currentMessageBuf strings.Builder
 	nextBoundaryTs    int64
+	inputEstimate     int
+	sawTokenUsage     bool
 	usage             *usagestats.Accumulator
 }
 
 var _ agui.EventHandler = (*graphEventHandler)(nil)
 var _ agui.BoundaryTimestampSetter = (*graphEventHandler)(nil)
 
-func (s *serviceImpl) newGraphEventHandler(ctx context.Context, runID, jobID, sessionID, nodeID string, key model.GraphInstanceKey) *graphEventHandler {
+func (s *serviceImpl) newGraphEventHandler(ctx context.Context, runID, jobID, sessionID, nodeID string, key model.GraphInstanceKey, messages []*schema.Message) *graphEventHandler {
+	usage := usagestats.NewAccumulator()
+	usage.SetImageEstimate(tokenizer.MessagesImageTokenCounter(ctx, messages))
 	return &graphEventHandler{
-		ctx:       ctx,
-		svc:       s,
-		buf:       s.eventBuffer(runID),
-		runID:     runID,
-		jobID:     jobID,
-		sessionID: sessionID,
-		nodeID:    nodeID,
-		key:       key,
-		usage:     usagestats.NewAccumulator(),
+		ctx:           ctx,
+		svc:           s,
+		buf:           s.eventBuffer(runID),
+		runID:         runID,
+		jobID:         jobID,
+		sessionID:     sessionID,
+		nodeID:        nodeID,
+		key:           key,
+		inputEstimate: tokenizer.MessagesTokenCounter(ctx, messages),
+		usage:         usage,
 	}
+}
+
+func (h *graphEventHandler) finalizeUsageEstimate() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.usage == nil || h.sawTokenUsage || h.usage.HasProviderUsage() {
+		return
+	}
+	visible := h.usage.Snapshot("", "", 0, 0).Tokens
+	h.usage.SetEstimatedUsage(h.inputEstimate + visible.Assistant + visible.Thought + visible.ToolCall)
 }
 
 func (h *graphEventHandler) SetNextBoundaryTimestamp(ts int64) {
@@ -1498,11 +1515,46 @@ func (h *graphEventHandler) OnToolCallStitched(id string, content string, succes
 func (h *graphEventHandler) OnTokenUsage(totalTokens int) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.sawTokenUsage = true
 	if h.usage != nil {
-		h.usage.OnTokenUsage(totalTokens)
+		h.usage.SetEstimatedUsage(totalTokens)
 	}
 	h.appendEventLocked(model.GraphEventTypeAgentTokenUsage, "token usage updated", map[string]string{"totalTokens": fmt.Sprintf("%d", totalTokens)}, time.Now().UnixMilli())
 	return nil
+}
+
+func (h *graphEventHandler) OnPromptUsage(usage agui.PromptUsage) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.usage != nil {
+		h.usage.SetProviderUsage(usagestats.ProviderTokenUsage{
+			Total:       graphNonNegativeUsageInt(usage.TotalTokens),
+			Input:       graphNonNegativeUsageInt(usage.InputTokens),
+			Output:      graphNonNegativeUsageInt(usage.OutputTokens),
+			CachedRead:  graphOptionalUsageInt(usage.CachedReadTokens),
+			CachedWrite: graphOptionalUsageInt(usage.CachedWriteTokens),
+			Reasoning:   graphOptionalUsageInt(usage.ThoughtTokens),
+		})
+	}
+	return nil
+}
+
+func graphOptionalUsageInt(value *int64) int {
+	if value == nil {
+		return 0
+	}
+	return graphNonNegativeUsageInt(*value)
+}
+
+func graphNonNegativeUsageInt(value int64) int {
+	if value <= 0 {
+		return 0
+	}
+	maxInt := int64(^uint(0) >> 1)
+	if value > maxInt {
+		return int(maxInt)
+	}
+	return int(value)
 }
 func (h *graphEventHandler) OnError(err error) {
 	if err == nil {

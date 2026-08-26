@@ -4,7 +4,9 @@ import (
 	"context"
 	"strings"
 
+	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/pkg/tokenizer"
 	"github.com/fanlv/quartet/services/usagestats"
 	"github.com/fanlv/quartet/types/agui"
 	"github.com/fanlv/quartet/types/model"
@@ -29,10 +31,13 @@ type loopEventHandler struct {
 	sessionID string
 	publisher eventPublisher
 
-	tokens  int
-	runID   string
-	msgID   string
-	content strings.Builder // accumulates assistant message content
+	tokens        int
+	runID         string
+	usageEventID  string
+	inputEstimate int
+	sawTokenUsage bool
+	msgID         string
+	content       strings.Builder // accumulates assistant message content
 
 	// currentMessageBuf is reset on every OnMessageStart / OnThoughtStart
 	// and consumed (tokenize + record) on the matching End. It exists in
@@ -60,15 +65,32 @@ type eventPublisher interface {
 var _ agui.EventHandler = (*loopEventHandler)(nil)
 var _ agui.BoundaryTimestampSetter = (*loopEventHandler)(nil)
 
-func newLoopEventHandler(ctx context.Context, jobID, sessionID string, publisher eventPublisher) *loopEventHandler {
-	return &loopEventHandler{
-		ctx:       ctx,
-		jobID:     jobID,
-		sessionID: sessionID,
-		publisher: publisher,
-		runID:     uuid.New().String(),
-		usage:     usagestats.NewAccumulator(),
+func newLoopEventHandler(ctx context.Context, jobID, sessionID, clientMessageID string, messages []*schema.Message, publisher eventPublisher) *loopEventHandler {
+	runID := uuid.New().String()
+	eventID := "job:" + jobID + ":run:" + runID
+	if clientMessageID != "" {
+		eventID = "job:" + jobID + ":message:" + clientMessageID
 	}
+	usage := usagestats.NewAccumulator()
+	usage.SetImageEstimate(tokenizer.MessagesImageTokenCounter(ctx, messages))
+	return &loopEventHandler{
+		ctx:           ctx,
+		jobID:         jobID,
+		sessionID:     sessionID,
+		publisher:     publisher,
+		runID:         runID,
+		usageEventID:  eventID,
+		inputEstimate: tokenizer.MessagesTokenCounter(ctx, messages),
+		usage:         usage,
+	}
+}
+
+func (h *loopEventHandler) finalizeUsageEstimate() {
+	if h.usage == nil || h.sawTokenUsage || h.usage.HasProviderUsage() {
+		return
+	}
+	visible := h.usage.Snapshot("", "", 0, 0).Tokens
+	h.usage.SetEstimatedUsage(h.inputEstimate + visible.Assistant + visible.Thought + visible.ToolCall)
 }
 
 // SetNextBoundaryTimestamp pins the timestamp the next baseEvent() will
@@ -297,8 +319,9 @@ func (h *loopEventHandler) OnToolCallStitched(id string, content string, success
 
 func (h *loopEventHandler) OnTokenUsage(totalTokens int) error {
 	h.tokens = totalTokens
+	h.sawTokenUsage = true
 	if h.usage != nil {
-		h.usage.OnTokenUsage(totalTokens)
+		h.usage.SetEstimatedUsage(totalTokens)
 	}
 	h.publisher.Publish(h.jobID, &model.CustomEvent{
 		BaseEvent: h.baseEvent(model.EventTypeCustom),
@@ -306,6 +329,38 @@ func (h *loopEventHandler) OnTokenUsage(totalTokens int) error {
 		Value:     model.TokenUsage{TotalTokens: totalTokens},
 	})
 	return nil
+}
+
+func (h *loopEventHandler) OnPromptUsage(usage agui.PromptUsage) error {
+	if h.usage != nil {
+		h.usage.SetProviderUsage(usagestats.ProviderTokenUsage{
+			Total:       nonNegativeUsageInt(usage.TotalTokens),
+			Input:       nonNegativeUsageInt(usage.InputTokens),
+			Output:      nonNegativeUsageInt(usage.OutputTokens),
+			CachedRead:  optionalUsageInt(usage.CachedReadTokens),
+			CachedWrite: optionalUsageInt(usage.CachedWriteTokens),
+			Reasoning:   optionalUsageInt(usage.ThoughtTokens),
+		})
+	}
+	return nil
+}
+
+func optionalUsageInt(value *int64) int {
+	if value == nil {
+		return 0
+	}
+	return nonNegativeUsageInt(*value)
+}
+
+func nonNegativeUsageInt(value int64) int {
+	if value <= 0 {
+		return 0
+	}
+	maxInt := int64(^uint(0) >> 1)
+	if value > maxInt {
+		return int(maxInt)
+	}
+	return int(value)
 }
 
 func (h *loopEventHandler) OnError(err error) {

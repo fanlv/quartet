@@ -1,97 +1,31 @@
 import SwiftUI
 import UIKit
 
-/// Agent 管理的四个标签，与 Web 端设置页的“Agent 管理”一一对应。
-enum AgentManagementTab: String, CaseIterable, Identifiable {
-    /// Agent 目录：安装、升级、卸载、可用性检查与自定义 Agent 维护。
-    case catalog
-    /// ACP 环境变量。
-    case environment
-    /// 每个 Agent 的收藏模型与默认模型 / 模式 / 思考等级。
-    case defaults
-    /// 标题生成、群回复与 IM 会话三个角色绑定的 Agent。
-    case roles
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .catalog: "Agent 目录"
-        case .environment: "环境变量"
-        case .defaults: "默认参数"
-        case .roles: "Agent 角色"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .catalog: "square.grid.2x2"
-        case .environment: "key"
-        case .defaults: "slider.horizontal.3"
-        case .roles: "person.2.badge.gearshape"
-        }
-    }
-}
-
-@MainActor
-struct AgentManagementView: View {
-    @EnvironmentObject private var model: AppModel
+/// Agent 管理的共用页面壳。iOS 在设置页直接展示四个入口，不再增加一层横向标签。
+struct AgentSettingsDestination<Content: View>: View {
     @Environment(\.mainTabBarInset) private var mainTabBarInset
-    @State private var tab: AgentManagementTab = .catalog
+
+    let title: String
+    let content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            tabBar
-            Divider().overlay(QuartetTheme.divider)
-            Group {
-                switch tab {
-                case .catalog: AgentCatalogSettingsView()
-                case .environment: AgentEnvSettingsView()
-                case .defaults: AgentDefaultsSettingsView()
-                case .roles: AgentRoleSettingsView()
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .background(QuartetTheme.canvas)
-        // 主标签栏是覆盖层，压页面自己留高度，否则底部保存条会被它挡住。
-        .mainTabBarBottomInset(mainTabBarInset)
-        .navigationTitle("Agent 管理")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-    }
-
-    private var tabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(AgentManagementTab.allCases) { candidate in
-                    Button { tab = candidate } label: {
-                        Label(candidate.title.localizedForApp, systemImage: candidate.icon)
-                            .font(.quartet(.control, weight: .semibold))
-                            .foregroundStyle(tab == candidate ? QuartetTheme.onAccent : QuartetTheme.secondaryText)
-                            .padding(.horizontal, 14)
-                            .frame(height: 38)
-                            .background(
-                                tab == candidate ? QuartetTheme.accent : QuartetTheme.elevated,
-                                in: Capsule()
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(tab == candidate ? .isSelected : [])
-                    .accessibilityIdentifier("agent-management-tab-\(candidate.rawValue)")
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-        }
-        .background(QuartetTheme.canvas)
+        content
+            .mainTabBarBottomInset(mainTabBarInset)
+            .navigationTitle(LocalizedStringKey(title))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
     }
 }
 
 // MARK: - 共用组件
 
-/// 卡片容器。卡片底色接收点击以收起键盘，输入控件本身仍然优先命中。
+/// 卡片容器。键盘收起由 RootView 的全局手势统一处理，避免卡片手势抢占输入控件。
 struct AgentSettingsCard<Content: View>: View {
     private let title: String?
     private let systemImage: String?
@@ -120,11 +54,7 @@ struct AgentSettingsCard<Content: View>: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(QuartetTheme.surface)
-                .onTapGesture { quartetDismissKeyboard() }
-        }
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(QuartetTheme.surface))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider.opacity(0.8)))
     }
 }
@@ -263,6 +193,7 @@ struct AgentSettingsTextEditor: View {
 /// 页面内的成功 / 失败提示。失败文案保留后端返回的全文，并允许长按复制。
 struct AgentSettingsMessage: Equatable {
     enum Kind {
+        case info
         case success
         case failure
     }
@@ -296,14 +227,24 @@ struct AgentSettingsMessageView: View {
     }
 
     var body: some View {
+        let tint: Color = switch kind {
+        case .info: QuartetTheme.accent
+        case .success: QuartetTheme.success
+        case .failure: QuartetTheme.failed
+        }
+        let icon = switch kind {
+        case .info: "arrow.triangle.2.circlepath"
+        case .success: "checkmark.circle.fill"
+        case .failure: "exclamationmark.triangle.fill"
+        }
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: kind == .success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+            Image(systemName: icon)
                 .font(.quartet(.control, weight: .semibold))
-                .foregroundStyle(kind == .success ? QuartetTheme.success : QuartetTheme.failed)
+                .foregroundStyle(tint)
                 .accessibilityHidden(true)
             Text(text)
-                .font(kind == .success ? .quartet(.detail, weight: .semibold) : .quartet(.detail, design: .monospaced))
-                .foregroundStyle(kind == .success ? QuartetTheme.success : QuartetTheme.failed)
+                .font(kind == .failure ? .quartet(.detail, design: .monospaced) : .quartet(.detail, weight: .semibold))
+                .foregroundStyle(tint)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -311,7 +252,7 @@ struct AgentSettingsMessageView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            (kind == .success ? QuartetTheme.success : QuartetTheme.failed).opacity(0.08),
+            tint.opacity(0.08),
             in: RoundedRectangle(cornerRadius: 14, style: .continuous)
         )
         .accessibilityElement(children: .combine)

@@ -189,6 +189,19 @@ func (s *service) Record(snap Snapshot) {
 	mf, err := s.store.loadMonthLocked(s.rootCtx, mKey)
 	if err != nil {
 		logger.Warnf(s.rootCtx, "[usagestats] load month %s before record failed: %v", mKey, err)
+		// A failed read returns an empty in-memory value for query resilience.
+		// Never write that value back over an existing unreadable/corrupt/future
+		// file; dropping one best-effort snapshot is safer than destroying data
+		// that may still be recoverable.
+		return
+	}
+	if snap.EventID != "" {
+		if mf.AppliedEvents[snap.EventID] {
+			return
+		}
+		if mf.AppliedEvents == nil {
+			mf.AppliedEvents = make(map[string]bool)
+		}
 	}
 	wsDays, ok := mf.Workspaces[snap.WorkspaceID]
 	if !ok {
@@ -216,6 +229,10 @@ func (s *service) Record(snap Snapshot) {
 		applySnapshotToBucket(snap, &mb.SectionTotals)
 		mergeToolsInto(&mb.Tools, snap.Tools)
 	}
+	if snap.EventID != "" {
+		mf.AppliedEvents[snap.EventID] = true
+	}
+	mf.SchemaVersion = currentSchemaVersion
 
 	s.store.markDirtyLocked(mKey)
 	s.lastRecordMonth = mKey
@@ -229,9 +246,41 @@ func applySnapshotToBucket(snap Snapshot, dst *SectionTotals) {
 	dst.ThoughtCount += snap.ThoughtCount
 	dst.ToolCallCount += snap.ToolCallCount
 	dst.Tokens.Total += snap.Tokens.Total
+	dst.Tokens.Reported += snap.Tokens.Reported
+	dst.Tokens.Input += snap.Tokens.Input
+	dst.Tokens.Output += snap.Tokens.Output
+	dst.Tokens.CachedRead += snap.Tokens.CachedRead
+	dst.Tokens.CachedWrite += snap.Tokens.CachedWrite
+	dst.Tokens.Reasoning += snap.Tokens.Reasoning
+	dst.Tokens.ImageEstimate += snap.Tokens.ImageEstimate
+	dst.Tokens.Estimated += snap.Tokens.Estimated
+	dst.Tokens.ReportedTurns += snap.Tokens.ReportedTurns
+	dst.Tokens.EstimatedTurns += snap.Tokens.EstimatedTurns
+	dst.Tokens.LegacyTotal += snap.Tokens.LegacyTotal
 	dst.Tokens.Assistant += snap.Tokens.Assistant
 	dst.Tokens.Thought += snap.Tokens.Thought
 	dst.Tokens.ToolCall += snap.Tokens.ToolCall
+}
+
+func addTokenTotals(dst, src *TokenTotals) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.Total += src.Total
+	dst.Reported += src.Reported
+	dst.Input += src.Input
+	dst.Output += src.Output
+	dst.CachedRead += src.CachedRead
+	dst.CachedWrite += src.CachedWrite
+	dst.Reasoning += src.Reasoning
+	dst.ImageEstimate += src.ImageEstimate
+	dst.Estimated += src.Estimated
+	dst.ReportedTurns += src.ReportedTurns
+	dst.EstimatedTurns += src.EstimatedTurns
+	dst.LegacyTotal += src.LegacyTotal
+	dst.Assistant += src.Assistant
+	dst.Thought += src.Thought
+	dst.ToolCall += src.ToolCall
 }
 
 func mergeToolsInto(dst *map[string]*ToolBucket, src map[string]ToolBucket) {

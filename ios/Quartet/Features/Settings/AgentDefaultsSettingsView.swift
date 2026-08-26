@@ -402,12 +402,10 @@ struct AgentDefaultsSettingsView: View {
         loadError = ""
         message = nil
         do {
-            let client = try model.apiClient()
-            async let agentRequest = client.agents()
-            async let settingsRequest = client.agentPreferences()
-            let (agentResponse, settingsResponse) = try await (agentRequest, settingsRequest)
-            let usable = agentResponse.agentList.filter(\.available)
-            let saved = settingsResponse.settings?.agentPreferences ?? [:]
+            async let agentRequest = model.agentCatalog()
+            async let settingsRequest = model.agentPreferences()
+            let (agentList, saved) = try await (agentRequest, settingsRequest)
+            let usable = agentList.filter(\.available)
             agents = usable
             drafts = Dictionary(
                 usable.map { ($0.agentId, AgentPrefsDraft(saved[$0.agentId] ?? saved[$0.type])) },

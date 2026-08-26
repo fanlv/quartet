@@ -117,15 +117,15 @@ func TestRecorderRoundTrip(t *testing.T) {
 	}
 }
 
-// TestRecorderRoundTripOnTokenUsageNotIncrementedTwice ensures total tokens
+// TestAccumulatorTokenUsageIsLastValue ensures total tokens
 // reflect the last OnTokenUsage value per step (not summed within the step).
 func TestAccumulatorTokenUsageIsLastValue(t *testing.T) {
 	acc := NewAccumulator()
 	acc.OnTokenUsage(10)
 	acc.OnTokenUsage(20)
 	snap := acc.Snapshot("ws", "m", time.Now().UnixMilli(), 100)
-	if snap.Tokens.Total != 20 {
-		t.Errorf("total tokens = %d, want 20 (last wins)", snap.Tokens.Total)
+	if snap.Tokens.Total != 20 || snap.Tokens.Estimated != 20 {
+		t.Errorf("total tokens = %d estimated = %d, want 20 (last wins)", snap.Tokens.Total, snap.Tokens.Estimated)
 	}
 }
 
