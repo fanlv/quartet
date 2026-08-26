@@ -116,6 +116,7 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	job.Status = model.JobStatusRunning
 	job.StartedAt = s.nowMillis()
 	job.FinishedAt = 0
+	job.TurnDurationPending = true
 	job.LastRunOutcome = ""
 	if opts.ClientMessageID != "" {
 		if job.ClientMessageReceipts == nil {

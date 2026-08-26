@@ -21,16 +21,19 @@ const (
 
 type JobCompletedEvent struct {
 	BaseEvent
-	RunOutcome RunOutcome `json:"runOutcome,omitempty"`
+	RunOutcome          RunOutcome `json:"runOutcome,omitempty"`
+	TotalTurnDurationMs int64      `json:"totalTurnDurationMs"`
 }
 
 type JobStoppedEvent struct {
 	BaseEvent
-	RunOutcome RunOutcome `json:"runOutcome,omitempty"`
+	RunOutcome          RunOutcome `json:"runOutcome,omitempty"`
+	TotalTurnDurationMs int64      `json:"totalTurnDurationMs"`
 }
 
 type JobFailedEvent struct {
 	BaseEvent
-	Message    string     `json:"message"`
-	RunOutcome RunOutcome `json:"runOutcome,omitempty"`
+	Message             string     `json:"message"`
+	RunOutcome          RunOutcome `json:"runOutcome,omitempty"`
+	TotalTurnDurationMs int64      `json:"totalTurnDurationMs"`
 }

@@ -128,6 +128,7 @@ final class ChatViewModel: ObservableObject {
     private var lastEventID: UInt64 = 0
     private var lastGraphEventID: UInt64 = 0
     private var streamTask: Task<Void, Never>?
+    private var streamGeneration: UInt64 = 0
     private var pendingDeltas: [PendingDelta] = []
     private var deltaFlushTask: Task<Void, Never>?
     private var scrollAnchorThrottleTask: Task<Void, Never>?
@@ -488,6 +489,7 @@ final class ChatViewModel: ObservableObject {
         deltaFlushTask = nil
         scrollAnchorThrottleTask?.cancel()
         scrollAnchorThrottleTask = nil
+        streamGeneration &+= 1
         streamTask?.cancel()
         streamTask = nil
         graphReconcileTask?.cancel()
@@ -676,6 +678,8 @@ final class ChatViewModel: ObservableObject {
     private func startStreaming() {
         guard streamTask == nil, let client else { return }
         let jobID = self.jobID
+        streamGeneration &+= 1
+        let generation = streamGeneration
         if isGraph && graphRunLive {
             startGraphMonitor()
         } else {
@@ -694,10 +698,12 @@ final class ChatViewModel: ObservableObject {
                             jobID: jobID,
                             lastEventID: self.lastGraphEventID,
                             onOpen: {
+                                guard self.streamGeneration == generation, !Task.isCancelled else { return }
                                 self.streamState = .live
                                 self.errorDetail = nil
                             },
                             onEvent: { event, id in
+                                guard self.streamGeneration == generation, !Task.isCancelled else { return }
                                 self.applyGraph(event, id: id)
                             }
                         )
@@ -706,21 +712,25 @@ final class ChatViewModel: ObservableObject {
                             jobID: jobID,
                             lastEventID: resumeID,
                             onOpen: {
+                                guard self.streamGeneration == generation, !Task.isCancelled else { return }
                                 self.streamState = .live
                                 self.errorDetail = nil
                                 self.scheduleOutboxProcessing()
                             },
                             onEvent: { event, id in
+                                guard self.streamGeneration == generation, !Task.isCancelled else { return }
                                 self.apply(event, id: id)
                             }
                         )
                     }
+                    guard self.streamGeneration == generation, !Task.isCancelled else { return }
                     attempts = 0
                     self.streamState = .reconnecting
                     try await Task.sleep(for: .seconds(1))
                 } catch is CancellationError {
                     return
                 } catch {
+                    guard self.streamGeneration == generation, !Task.isCancelled else { return }
                     attempts += 1
                     self.streamState = .reconnecting
                     self.errorDetail = self.errorText(error)
@@ -731,6 +741,7 @@ final class ChatViewModel: ObservableObject {
                     } catch is CancellationError {
                         return
                     } catch {
+                        guard self.streamGeneration == generation, !Task.isCancelled else { return }
                         self.errorDetail = self.errorText(error)
                     }
                 }

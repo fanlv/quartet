@@ -204,8 +204,9 @@ func statusLogValue(status model.JobStatus) model.JobStatus {
 // (and stamps FinishedAt as a side effect when missing); persistAndPublishTerminal
 // consumes it without touching s.mu.
 type terminalSnapshot struct {
-	terminalAt  int64
-	finalStatus model.JobStatus
+	terminalAt          int64
+	finalStatus         model.JobStatus
+	totalTurnDurationMs int64
 }
 
 // captureTerminalSnapshotLocked snapshots the terminal-event-relevant fields
@@ -231,11 +232,24 @@ func captureTerminalSnapshotLocked(job *model.Job, runOutcome model.RunOutcome, 
 		terminalAt = nowMillis()
 		job.FinishedAt = terminalAt
 	}
+	accumulateInteractiveTurnDuration(job, terminalAt)
 	finishActiveClientMessageLocked(job, runOutcome, terminalAt)
 	return terminalSnapshot{
-		terminalAt:  terminalAt,
-		finalStatus: job.Status,
+		terminalAt:          terminalAt,
+		finalStatus:         job.Status,
+		totalTurnDurationMs: job.TotalTurnDurationMs,
 	}
+}
+
+func accumulateInteractiveTurnDuration(job *model.Job, terminalAt int64) {
+	if !job.TurnDurationPending {
+		return
+	}
+	job.TurnDurationPending = false
+	if job.Mode != model.JobModeInteractive || job.StartedAt <= 0 || terminalAt < job.StartedAt {
+		return
+	}
+	job.TotalTurnDurationMs += terminalAt - job.StartedAt
 }
 
 func finishActiveClientMessageLocked(job *model.Job, runOutcome model.RunOutcome, finishedAt int64) {
@@ -289,7 +303,7 @@ func (s *serviceImpl) persistAndPublishTerminalUnderPersistLock(ctx context.Cont
 	// a subsequent SendMessage cannot overtake this append. Successful saves
 	// already recorded the same fingerprint and are de-duplicated here.
 	s.recordCurrentJobObservation(job.ID)
-	s.publishTerminalEvent(job.ID, snap.finalStatus, failMessage, runOutcome, snap.terminalAt)
+	s.publishTerminalEvent(job.ID, snap.finalStatus, failMessage, runOutcome, snap.terminalAt, snap.totalTurnDurationMs)
 	return snap.finalStatus
 }
 
@@ -322,26 +336,29 @@ func (s *serviceImpl) recordTerminalPersistError(job *model.Job, err error) bool
 // is the restored prior status, while runOutcome reflects what actually
 // happened in this send. Frontends that finalise in-flight UI state
 // (tool bubbles, streaming bubbles) should key off runOutcome.
-func (s *serviceImpl) publishTerminalEvent(jobID string, status model.JobStatus, failMessage string, runOutcome model.RunOutcome, terminalAt int64) {
+func (s *serviceImpl) publishTerminalEvent(jobID string, status model.JobStatus, failMessage string, runOutcome model.RunOutcome, terminalAt, totalTurnDurationMs int64) {
 	base := func(t model.EventType) model.BaseEvent {
 		return model.BaseEvent{Type: t, JobID: jobID, Timestamp: terminalAt}
 	}
 	switch status {
 	case model.JobStatusCompleted:
 		s.Publish(jobID, &model.JobCompletedEvent{
-			BaseEvent:  base(model.EventTypeJobCompleted),
-			RunOutcome: runOutcome,
+			BaseEvent:           base(model.EventTypeJobCompleted),
+			RunOutcome:          runOutcome,
+			TotalTurnDurationMs: totalTurnDurationMs,
 		})
 	case model.JobStatusFailed:
 		s.Publish(jobID, &model.JobFailedEvent{
-			BaseEvent:  base(model.EventTypeJobFailed),
-			Message:    failMessage,
-			RunOutcome: runOutcome,
+			BaseEvent:           base(model.EventTypeJobFailed),
+			Message:             failMessage,
+			RunOutcome:          runOutcome,
+			TotalTurnDurationMs: totalTurnDurationMs,
 		})
 	default:
 		s.Publish(jobID, &model.JobStoppedEvent{
-			BaseEvent:  base(model.EventTypeJobStopped),
-			RunOutcome: runOutcome,
+			BaseEvent:           base(model.EventTypeJobStopped),
+			RunOutcome:          runOutcome,
+			TotalTurnDurationMs: totalTurnDurationMs,
 		})
 	}
 }

@@ -163,8 +163,12 @@ type Job struct {
 	Status     JobStatus `json:"status"`
 	StartedAt  int64     `json:"startedAt,omitempty"`  // unix ms; set when execution begins
 	FinishedAt int64     `json:"finishedAt,omitempty"` // unix ms; set when terminal state reached
-	GraphRunID string    `json:"graphRunId,omitempty"`
-	SessionIDs []string  `json:"sessionIds"`
+	// TotalTurnDurationMs is the persisted sum of every interactive turn's
+	// server-side wall-clock duration. The active turn is excluded until it
+	// reaches a terminal state.
+	TotalTurnDurationMs int64    `json:"totalTurnDurationMs"`
+	GraphRunID          string   `json:"graphRunId,omitempty"`
+	SessionIDs          []string `json:"sessionIds"`
 	// GraphSessionIDs lists the sessions opened by Agent nodes of this job's
 	// graph run, kept separate from SessionIDs so they never pollute the
 	// linear chat/archive semantics of SessionIDs (e.g. the
@@ -190,6 +194,7 @@ type Job struct {
 	// at-most-once Agent execution; command receipts replay synchronous command
 	// results; creation fields make downstream actions such as /new retry-safe.
 	ActiveClientMessageID   string                          `json:"-"`
+	TurnDurationPending     bool                            `json:"-"`
 	ClientMessageReceipts   map[string]ClientMessageReceipt `json:"-"`
 	CommandReceipts         map[string]CommandReceipt       `json:"-"`
 	MessageQueue            []QueuedJobMessage              `json:"-"`

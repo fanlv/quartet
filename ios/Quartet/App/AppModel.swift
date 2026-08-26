@@ -47,7 +47,10 @@ final class AppModel: ObservableObject {
             guard StorageKey.connectionIdentity(for: serverAddress) != StorageKey.connectionIdentity(for: oldValue) else {
                 return
             }
-            resolvedServerAddress = nil
+            resolvedServerAddress = StorageKey.connectionIdentity(for: serverAddress)
+            hasResolvedServerAddress = false
+            defaults.removeObject(forKey: StorageKey.resolvedServerAddress)
+            defaults.removeObject(forKey: StorageKey.resolvedServerAddressEntryIdentity)
             connectionGeneration &+= 1
             _ = invalidateDashboardRequests()
             if phase == .connecting {
@@ -88,6 +91,7 @@ final class AppModel: ObservableObject {
     private let uiTestScenario: String?
     private var csrfToken: String = ""
     private var resolvedServerAddress: String?
+    private var hasResolvedServerAddress = false
     private var credentialCacheNamespace: String
     private var nextCursor: String?
     private var hasLoadedCachedDashboard = false
@@ -140,8 +144,19 @@ final class AppModel: ObservableObject {
                 : (detectedUITestScenario == nil ? .system : .simplifiedChinese)
         }
         let storedServerAddress = effectiveDefaults.string(forKey: StorageKey.serverAddress) ?? Self.defaultServerAddress
+        let storedServerIdentity = StorageKey.connectionIdentity(for: storedServerAddress)
+        let storedResolvedServerAddress = effectiveDefaults.string(forKey: StorageKey.resolvedServerAddress)
+        let storedResolvedEntryIdentity = effectiveDefaults.string(forKey: StorageKey.resolvedServerAddressEntryIdentity)
         let storedCredentialNamespace = effectiveDefaults.string(forKey: StorageKey.credentialCacheNamespace) ?? UUID().uuidString
         serverAddress = storedServerAddress
+        if storedResolvedEntryIdentity == storedServerIdentity,
+           let storedResolvedServerAddress,
+           let normalizedResolvedAddress = StorageKey.connectionIdentity(for: storedResolvedServerAddress) {
+            resolvedServerAddress = normalizedResolvedAddress
+            hasResolvedServerAddress = true
+        } else {
+            resolvedServerAddress = storedServerIdentity
+        }
         credentialCacheNamespace = storedCredentialNamespace
         effectiveDefaults.set(storedCredentialNamespace, forKey: StorageKey.credentialCacheNamespace)
         username = effectiveDefaults.string(forKey: StorageKey.username) ?? ""
@@ -220,14 +235,18 @@ final class AppModel: ObservableObject {
         let generation = connectionGeneration
         _ = invalidateDashboardRequests()
         let requestedServerAddress = serverAddress
-        resolvedServerAddress = nil
         let requestedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let hadRequestedCredentials = !requestedUsername.isEmpty && !password.isEmpty
         phase = .connecting
         hasPendingSync = true
         do {
             let entryClient = try APIClient(serverAddress: requestedServerAddress)
-            let resolvedBaseURL = try await entryClient.resolvedBaseURL()
+            let resolvedBaseURL: URL
+            if hasResolvedServerAddress, let resolvedServerAddress {
+                resolvedBaseURL = try APIClient(serverAddress: resolvedServerAddress).baseURL
+            } else {
+                resolvedBaseURL = try await entryClient.resolvedBaseURL()
+            }
             guard isCurrentConnectionRequest(
                 generation: generation,
                 requestedServerAddress: requestedServerAddress,
@@ -277,11 +296,17 @@ final class AppModel: ObservableObject {
             }
             serverAddress = entryClient.baseURL.absoluteString
             resolvedServerAddress = client.baseURL.absoluteString
+            hasResolvedServerAddress = true
             csrfToken = principal.csrfToken
             permissions = Set(principal.permissions)
             username = principal.user.username
             password = ""
             defaults.set(serverAddress, forKey: StorageKey.serverAddress)
+            defaults.set(resolvedServerAddress, forKey: StorageKey.resolvedServerAddress)
+            defaults.set(
+                StorageKey.connectionIdentity(for: serverAddress),
+                forKey: StorageKey.resolvedServerAddressEntryIdentity
+            )
             defaults.set(username, forKey: StorageKey.username)
             defaults.set(true, forKey: StorageKey.connectionValidated)
             self.health = health
@@ -1183,7 +1208,10 @@ final class AppModel: ObservableObject {
         if let resolvedServerAddress {
             clearSessionCookies(for: resolvedServerAddress)
         }
-        resolvedServerAddress = nil
+        resolvedServerAddress = StorageKey.connectionIdentity(for: serverAddress)
+        hasResolvedServerAddress = false
+        defaults.removeObject(forKey: StorageKey.resolvedServerAddress)
+        defaults.removeObject(forKey: StorageKey.resolvedServerAddressEntryIdentity)
         defaults.set(false, forKey: StorageKey.connectionValidated)
         defaults.removeObject(forKey: StorageKey.selectedWorkspaceID)
         defaults.removeObject(forKey: StorageKey.lastSuccessfulSyncAt)
@@ -1226,12 +1254,7 @@ final class AppModel: ObservableObject {
         serverAddress clientServerAddress: String? = nil,
         notifyUnauthorized: Bool = true
     ) throws -> APIClient {
-        guard let effectiveServerAddress = clientServerAddress ?? resolvedServerAddress else {
-            throw APIError(
-                summary: "服务地址尚未解析",
-                detail: "请先重新连接 Quartet，以获取当前实际服务地址。\n服务入口：\n\(serverAddress)"
-            )
-        }
+        let effectiveServerAddress = clientServerAddress ?? resolvedServerAddress ?? serverAddress
         let requestGeneration = connectionGeneration
         let requestConnectionIdentity = StorageKey.connectionIdentity(for: serverAddress)
         let unauthorizedHandler: (@MainActor @Sendable (APIError) async -> Void)?
@@ -1271,6 +1294,7 @@ final class AppModel: ObservableObject {
         let now = Int64(Date().timeIntervalSince1970 * 1_000)
         serverAddress = "https://quartet.example.test/"
         resolvedServerAddress = serverAddress
+        hasResolvedServerAddress = true
         username = "admin"
         password = ""
         health = HealthResponse(
@@ -1928,6 +1952,8 @@ final class AppModel: ObservableObject {
 
     private enum StorageKey {
         static let serverAddress = "quartet.serverAddress"
+        static let resolvedServerAddress = "quartet.resolvedServerAddress"
+        static let resolvedServerAddressEntryIdentity = "quartet.resolvedServerAddressEntryIdentity"
         static let username = "quartet.username"
         static let connectionValidated = "quartet.connectionValidated"
         static let selectedWorkspaceID = "quartet.selectedWorkspaceID"

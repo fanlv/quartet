@@ -396,6 +396,11 @@ func (s *serviceImpl) reconcileLoadedJob(ctx context.Context, repo repository.Jo
 	if j.Status == model.JobStatusRunning {
 		interruptedAt := s.nowMillis()
 		j.Status = model.JobStatusFailed
+		j.FinishedAt = interruptedAt
+		if j.Mode == model.JobModeInteractive && j.StartedAt > 0 && !j.TurnDurationPending {
+			j.TurnDurationPending = true
+		}
+		accumulateInteractiveTurnDuration(j, interruptedAt)
 		j.Progress.LastError = "interrupted: process restarted while running"
 		if clientMessageID := j.ActiveClientMessageID; clientMessageID != "" {
 			if receipt, ok := j.ClientMessageReceipts[clientMessageID]; ok {
@@ -459,6 +464,8 @@ type jobRunStateSnapshot struct {
 	Status                  model.JobStatus
 	StartedAt               int64
 	FinishedAt              int64
+	TotalTurnDurationMs     int64
+	TurnDurationPending     bool
 	SessionIDs              []string
 	Progress                *model.JobProgress
 	LastRunOutcome          model.RunOutcome
@@ -478,6 +485,8 @@ func snapshotRunStateLocked(job *model.Job) jobRunStateSnapshot {
 		Status:                  cp.Status,
 		StartedAt:               cp.StartedAt,
 		FinishedAt:              cp.FinishedAt,
+		TotalTurnDurationMs:     cp.TotalTurnDurationMs,
+		TurnDurationPending:     cp.TurnDurationPending,
 		SessionIDs:              cp.SessionIDs,
 		Progress:                cp.Progress,
 		LastRunOutcome:          cp.LastRunOutcome,
@@ -496,6 +505,8 @@ func restoreRunStateLocked(job *model.Job, snap jobRunStateSnapshot) {
 	job.Status = snap.Status
 	job.StartedAt = snap.StartedAt
 	job.FinishedAt = snap.FinishedAt
+	job.TotalTurnDurationMs = snap.TotalTurnDurationMs
+	job.TurnDurationPending = snap.TurnDurationPending
 	job.SessionIDs = snap.SessionIDs
 	job.Progress = snap.Progress
 	job.LastRunOutcome = snap.LastRunOutcome

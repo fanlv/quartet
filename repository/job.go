@@ -33,6 +33,7 @@ type JobRepo interface {
 type persistedJob struct {
 	*model.Job
 	ActiveClientMessageID   string                                `json:"activeClientMessageId,omitempty"`
+	TurnDurationPending     bool                                  `json:"turnDurationPending,omitempty"`
 	ClientMessageReceipts   map[string]model.ClientMessageReceipt `json:"clientMessageReceipts,omitempty"`
 	CommandReceipts         map[string]model.CommandReceipt       `json:"commandReceipts,omitempty"`
 	MessageQueue            []model.QueuedJobMessage              `json:"messageQueue,omitempty"`
@@ -147,6 +148,7 @@ func marshalPersistedJob(job *model.Job) ([]byte, error) {
 	return json.Marshal(persistedJob{
 		Job:                     job,
 		ActiveClientMessageID:   job.ActiveClientMessageID,
+		TurnDurationPending:     job.TurnDurationPending,
 		ClientMessageReceipts:   job.ClientMessageReceipts,
 		CommandReceipts:         job.CommandReceipts,
 		MessageQueue:            job.MessageQueue,
@@ -167,6 +169,7 @@ func unmarshalPersistedJob(data []byte) (*model.Job, error) {
 		return nil, fmt.Errorf("unsupported job mode %q", stored.Job.Mode)
 	}
 	stored.Job.ActiveClientMessageID = stored.ActiveClientMessageID
+	stored.Job.TurnDurationPending = stored.TurnDurationPending
 	stored.Job.ClientMessageReceipts = stored.ClientMessageReceipts
 	stored.Job.CommandReceipts = stored.CommandReceipts
 	stored.Job.MessageQueue = stored.MessageQueue

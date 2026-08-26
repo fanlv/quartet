@@ -784,6 +784,9 @@ struct APIClient: @unchecked Sendable {
         do {
             (bytes, response) = try await session.bytes(for: request)
         } catch {
+            if Self.isCancellation(error) {
+                throw CancellationError()
+            }
             throw APIError(
                 summary: "实时连接失败",
                 detail: "GET \(endpoint.absoluteString)\n\n\(String(describing: error))"
@@ -823,30 +826,45 @@ struct APIClient: @unchecked Sendable {
             }
         }
 
-        for try await byte in bytes {
-            try Task.checkCancellation()
-            guard byte == 0x0A else {
-                lineBytes.append(byte)
-                continue
+        do {
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                guard byte == 0x0A else {
+                    lineBytes.append(byte)
+                    continue
+                }
+                if lineBytes.last == 0x0D {
+                    lineBytes.removeLast()
+                }
+                let line = String(decoding: lineBytes, as: UTF8.self)
+                lineBytes.removeAll(keepingCapacity: true)
+                if let frame = parser.consume(line) {
+                    try await deliver(frame)
+                }
             }
-            if lineBytes.last == 0x0D {
-                lineBytes.removeLast()
+            if !lineBytes.isEmpty {
+                let line = String(decoding: lineBytes, as: UTF8.self)
+                if let frame = parser.consume(line) {
+                    try await deliver(frame)
+                }
             }
-            let line = String(decoding: lineBytes, as: UTF8.self)
-            lineBytes.removeAll(keepingCapacity: true)
-            if let frame = parser.consume(line) {
+            if let frame = parser.finish() {
                 try await deliver(frame)
             }
-        }
-        if !lineBytes.isEmpty {
-            let line = String(decoding: lineBytes, as: UTF8.self)
-            if let frame = parser.consume(line) {
-                try await deliver(frame)
+        } catch {
+            if Self.isCancellation(error) {
+                throw CancellationError()
             }
+            throw error
         }
-        if let frame = parser.finish() {
-            try await deliver(frame)
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError || Task.isCancelled {
+            return true
         }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 
     func fileData(path: String, downloadName: String? = nil) async throws -> Data {

@@ -314,6 +314,7 @@ func (h *Handler) JobGet(ctx context.Context, c *app.RequestContext) {
 	envelope := jobGetEnvelope{
 		Job:          job,
 		LastEventSeq: lastSeq,
+		ServerTime:   time.Now().UnixMilli(),
 	}
 	if _, isPublic := getPublicJob(c); isPublic {
 		envelope.Agents = h.resolvePublicAgents(ctx, h.collectJobAgentRefs(ctx, job))
@@ -328,6 +329,7 @@ func (h *Handler) JobGet(ctx context.Context, c *app.RequestContext) {
 type jobGetEnvelope struct {
 	*model.Job
 	LastEventSeq uint64                            `json:"lastEventSeq"`
+	ServerTime   int64                             `json:"serverTime"`
 	Agents       map[string]model.AgentDisplayInfo `json:"agents,omitempty"`
 }
 
