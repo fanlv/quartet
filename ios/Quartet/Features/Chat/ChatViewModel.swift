@@ -295,9 +295,9 @@ final class ChatViewModel: ObservableObject {
             var graphDefaultSessionID: String?
             if isGraph {
                 let graphSnapshot = try await client.graphRunStatus(jobID: jobID)
-                applyGraphDuration(graphSnapshot)
                 let graphStatus = graphSnapshot.run?.status
                 graphRunLive = graphStatus.map(isLiveGraphStatus) ?? false
+                applyGraphDuration(graphSnapshot)
                 graphDefaultSessionID = latestGraphSessionID(in: graphSnapshot)
                 if detail.status != "running", let graphStatus {
                     status = graphStatus
@@ -1075,9 +1075,9 @@ final class ChatViewModel: ObservableObject {
         lastEventID = snapshot.lastEventSeq
         if isGraph {
             let graphSnapshot = try await client.graphRunStatus(jobID: jobID)
-            applyGraphDuration(graphSnapshot)
             let graphStatus = graphSnapshot.run?.status
             graphRunLive = graphStatus.map(isLiveGraphStatus) ?? false
+            applyGraphDuration(graphSnapshot)
             if snapshot.status != "running", let graphStatus {
                 status = graphStatus
             }
@@ -1811,9 +1811,11 @@ final class ChatViewModel: ObservableObject {
         graphRunningStartedAts = timed.compactMap { instance in
             instance.status == "running" ? instance.startedAt : nil
         }
-        runStartedAt = nil
-        runFinishedAt = nil
-        currentTurnIncludedInAccumulatedDuration = true
+        if graphRunLive {
+            runStartedAt = nil
+            runFinishedAt = nil
+            currentTurnIncludedInAccumulatedDuration = true
+        }
     }
 
     private func updateServerClock(_ serverTimeMs: Int64?) {
