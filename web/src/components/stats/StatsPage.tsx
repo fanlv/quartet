@@ -96,7 +96,7 @@ interface UsageReport {
 type RangePreset = '7d' | '30d' | '90d' | 'all' | 'custom';
 // TrendMetric is the metric the trend chart encodes. Scoped to the trend
 // chart only; the KPI band and rank lists each show a fixed metric.
-type TrendMetric = 'duration' | 'turns' | 'tokens';
+type TrendMetric = 'duration' | 'turns' | 'tokens' | 'cache';
 
 const UNKNOWN_MODEL_ID = '__unknown_model__';
 const API_UNKNOWN_MODEL_ID = '(unknown model)';
@@ -631,13 +631,16 @@ function ByToolRank({ rows }: { rows: ToolRow[] }) {
 // Trend chart (the only chart with an in-chart metric switch)
 // ---------------------------------------------------------------------------
 
-function pickTrendValue(row: SectionTotals, metric: TrendMetric): number {
+function pickTrendValue(row: SectionTotals, metric: TrendMetric): number | null {
   if (metric === 'duration') return row.totalMs;
   if (metric === 'turns') return row.turnCount;
-  return row.tokens.total;
+  if (metric === 'tokens') return row.tokens.total;
+  return tokenCacheHitRate(row.tokens);
 }
 
-function formatTrendValue(value: number, metric: TrendMetric): string {
+function formatTrendValue(value: number | null, metric: TrendMetric): string {
+  if (metric === 'cache') return formatTokenCacheHitRate(value);
+  if (value === null) return '—';
   if (metric === 'duration') return formatStatsDuration(value);
   return formatStatsCount(value);
 }
@@ -670,7 +673,14 @@ function formatTokenCacheHitRate(rate: number | null): string {
 function trendAxisUnitKey(value: number, metric: TrendMetric): string {
   if (metric === 'duration') return value >= 3_600_000 ? 'hour' : 'minute';
   if (metric === 'turns') return 'count';
+  if (metric === 'cache') return 'percent';
   return 'tokens';
+}
+
+function trendTitleKey(metric: TrendMetric): string {
+  if (metric === 'tokens') return 'stats.view.dailyTokens';
+  if (metric === 'cache') return 'stats.view.dailyCache';
+  return 'stats.view.trend';
 }
 
 function emptySectionTotals(): SectionTotals {
@@ -911,17 +921,33 @@ interface TrendTooltipState {
 function trendSegments(day: DailyRow, metric: TrendMetric): TrendSegment[] {
   const total = pickTrendValue(day, metric);
   const segments: TrendSegment[] = [];
+
+  // Cache hit rates are ratios, so each model is plotted independently. They
+  // must not be summed or assigned a residual as additive metrics are.
+  if (metric === 'cache') {
+    if (day.models) {
+      for (const [mid, st] of Object.entries(day.models)) {
+        const value = pickTrendValue(st, metric);
+        if (value !== null) segments.push({ modelId: isUnknownModelLabel(mid) ? UNKNOWN_MODEL_ID : mid, value });
+      }
+    } else if (total !== null) {
+      segments.push({ modelId: UNKNOWN_MODEL_ID, value: total });
+    }
+    return segments;
+  }
+
+  const numericTotal = total ?? 0;
   let modelTotal = 0;
   if (day.models) {
     for (const [mid, st] of Object.entries(day.models)) {
-      const value = pickTrendValue(st, metric);
+      const value = pickTrendValue(st, metric) ?? 0;
       modelTotal += value;
       if (value > 0) segments.push({ modelId: isUnknownModelLabel(mid) ? UNKNOWN_MODEL_ID : mid, value });
     }
-    const residual = total - modelTotal;
+    const residual = numericTotal - modelTotal;
     if (residual > 0) segments.push({ modelId: UNKNOWN_MODEL_ID, value: residual });
-  } else if (total > 0) {
-    segments.push({ modelId: UNKNOWN_MODEL_ID, value: total });
+  } else if (numericTotal > 0) {
+    segments.push({ modelId: UNKNOWN_MODEL_ID, value: numericTotal });
   }
   return segments;
 }
@@ -1044,8 +1070,8 @@ function TrendCard({
     return hiddenModels;
   }, [allSeriesKeys, hiddenModels]);
   const seriesByModel = useMemo(() => {
-    const out = new Map<string, number[]>();
-    for (const m of models) out.set(m, new Array(filledDaily.length).fill(0));
+    const out = new Map<string, Array<number | null>>();
+    for (const m of models) out.set(m, new Array(filledDaily.length).fill(metric === 'cache' ? null : 0));
     dailySegments.forEach((segs, dayIdx) => {
       for (const seg of segs) {
         const arr = out.get(seg.modelId);
@@ -1053,8 +1079,11 @@ function TrendCard({
       }
     });
     return out;
-  }, [models, dailySegments, filledDaily.length]);
+  }, [models, dailySegments, filledDaily.length, metric]);
   const max = useMemo(() => {
+    // A fixed percentage scale makes day-to-day cache rates honest and easy
+    // to compare, including ranges whose highest hit rate is well below 100%.
+    if (metric === 'cache') return 1;
     let m = 0;
     for (const segs of dailySegments) {
       for (const seg of segs) {
@@ -1063,14 +1092,17 @@ function TrendCard({
       }
     }
     if (!effectiveHiddenModels.has(TOTAL_SERIES_KEY)) {
-      for (const v of totalSeries) if (v > m) m = v;
+      for (const v of totalSeries) if (v !== null && v > m) m = v;
     }
     return m;
-  }, [dailySegments, totalSeries, effectiveHiddenModels]);
+  }, [dailySegments, totalSeries, effectiveHiddenModels, metric]);
+  const hasTrendData = metric === 'cache'
+    ? totalSeries.some((value) => value !== null) || dailySegments.some((segments) => segments.length > 0)
+    : max > 0;
 
   const metricSwitch = (
     <div className="stats-segmented stats-segmented-sm" aria-label={t('stats.metric.selectorLabel')}>
-      {(['duration', 'turns', 'tokens'] as TrendMetric[]).map((m) => (
+      {(['duration', 'turns', 'tokens', 'cache'] as TrendMetric[]).map((m) => (
         <button
           key={m}
           type="button"
@@ -1084,15 +1116,18 @@ function TrendCard({
     </div>
   );
 
-  if (filledDaily.length === 0 || max === 0) {
+  if (filledDaily.length === 0 || !hasTrendData) {
     return (
       <section className="stats-card stats-trend">
         <div className="stats-card-head">
-          <h3 className="stats-card-title">{t(metric === 'tokens' ? 'stats.view.dailyTokens' : 'stats.view.trend')}</h3>
+          <h3 className="stats-card-title">{t(trendTitleKey(metric))}</h3>
           {metricSwitch}
         </div>
         {metric === 'tokens' && <TokenCoverageNote coverage={tokenCoverage} />}
-        <div className="stats-rank-empty stats-trend-empty">{t('stats.noDataInRange')}</div>
+        {metric === 'cache' && <div className="stats-token-coverage" role="note">{t('stats.tokens.cacheHitRateHint')}</div>}
+        <div className="stats-rank-empty stats-trend-empty">
+          {t(metric === 'cache' ? 'stats.tokens.cacheUnavailable' : 'stats.noDataInRange')}
+        </div>
         {metric === 'tokens' && panelDay && <TokenDayPanel day={panelDay} latest={panelIsFallback} />}
       </section>
     );
@@ -1110,6 +1145,18 @@ function TrendCard({
   const colWidth = innerWidth / filledDaily.length;
   const xAt = (idx: number) => padding.left + idx * colWidth + colWidth / 2;
   const yAt = (value: number) => padding.top + innerHeight - (value / max) * innerHeight;
+  const linePath = (values: Array<number | null>): string => {
+    let continuing = false;
+    return values.map((value, idx) => {
+      if (value === null) {
+        continuing = false;
+        return '';
+      }
+      const command = continuing ? 'L' : 'M';
+      continuing = true;
+      return `${command}${xAt(idx)},${yAt(value)}`;
+    }).filter(Boolean).join(' ');
+  };
   const gridLevels = [0.25, 0.5, 0.75];
   // Render per-point value labels on the Total line whenever columns aren't
   // razor-thin. Labels always sit flat above each point.
@@ -1155,10 +1202,11 @@ function TrendCard({
   return (
     <section className="stats-card stats-trend">
       <div className="stats-card-head">
-        <h3 className="stats-card-title">{t(metric === 'tokens' ? 'stats.view.dailyTokens' : 'stats.view.trend')}</h3>
+        <h3 className="stats-card-title">{t(trendTitleKey(metric))}</h3>
         {metricSwitch}
       </div>
       {metric === 'tokens' && <TokenCoverageNote coverage={tokenCoverage} />}
+      {metric === 'cache' && <div className="stats-token-coverage" role="note">{t('stats.tokens.cacheHitRateHint')}</div>}
       <div className="stats-trend-chart-wrap" ref={wrapRef}>
         <svg
           width={virtualWidth}
@@ -1172,7 +1220,7 @@ function TrendCard({
           <text x={virtualWidth - padding.right} y={padding.top + 4} textAnchor="end" className="stats-trend-axis stats-trend-axis-unit">
             {t('stats.trend.axisUnit', { unit: axisUnit })}
           </text>
-          <text x={4} y={padding.top + innerHeight} className="stats-trend-axis">0</text>
+          <text x={4} y={padding.top + innerHeight} className="stats-trend-axis">{metric === 'cache' ? formatTrendValue(0, metric) : '0'}</text>
           {gridLevels.map((lvl) => (
             <line
               key={lvl}
@@ -1199,25 +1247,25 @@ function TrendCard({
               className="stats-trend-guide"
             />
           )}
-          {!effectiveHiddenModels.has(TOTAL_SERIES_KEY) && totalSeries.some((v) => v > 0) && (
+          {!effectiveHiddenModels.has(TOTAL_SERIES_KEY) && totalSeries.some((v) => v !== null) && (
             <g>
-              {totalSeries.length > 1 && (
-                <polyline
-                  points={totalSeries.map((v, i) => `${xAt(i)},${yAt(v)}`).join(' ')}
+              {totalSeries.filter((value) => value !== null).length > 1 && (
+                <path
+                  d={linePath(totalSeries)}
                   fill="none"
                   stroke={TOTAL_COLOR}
                   strokeWidth={2}
                   className="stats-trend-line stats-trend-line-total"
                 />
               )}
-              {totalSeries.map((v, i) => (
+              {totalSeries.map((v, i) => v === null ? null : (
                 <circle key={i} cx={xAt(i)} cy={yAt(v)} r={hoverIdx === i ? 4 : 3} fill={TOTAL_COLOR} className="stats-trend-point stats-trend-point-total" />
               ))}
               {/* Value labels on the Total line. Tilt to -45° on narrow columns
                   so adjacent labels don't collide; flat when columns are wide.
                   The hover tooltip still carries the full breakdown. */}
               {showPointLabels && totalSeries.map((v, i) => {
-                if (v <= 0) return null;
+                if (v === null || (metric !== 'cache' && v <= 0)) return null;
                 const px = xAt(i);
                 const py = yAt(v) - (hoverIdx === i ? 11 : 9);
                 return (
@@ -1237,14 +1285,13 @@ function TrendCard({
           {models.map((modelId, mi) => {
             if (effectiveHiddenModels.has(modelId)) return null;
             const values = seriesByModel.get(modelId) || [];
-            const points = values.map((v, i) => `${xAt(i)},${yAt(v)}`).join(' ');
             const color = palette[mi];
             return (
               <g key={modelId}>
-                {values.length > 1 && (
-                  <polyline points={points} fill="none" stroke={color} strokeWidth={2} className="stats-trend-line" />
+                {values.filter((value) => value !== null).length > 1 && (
+                  <path d={linePath(values)} fill="none" stroke={color} strokeWidth={2} className="stats-trend-line" />
                 )}
-                {values.map((v, i) => (
+                {values.map((v, i) => v === null ? null : (
                   <circle key={i} cx={xAt(i)} cy={yAt(v)} r={hoverIdx === i ? 4 : 3} fill={color} className="stats-trend-point" />
                 ))}
               </g>
@@ -1326,17 +1373,18 @@ function TrendCard({
             <TokenDetails tokens={tooltip.day.tokens} />
           ) : (
             <div className="stats-trend-tooltip-row">
-              <span>{t(`stats.metric.${metric}`)}</span>
+              <span>{t(metric === 'cache' ? 'stats.tokens.cacheHitRate' : `stats.metric.${metric}`)}</span>
               <strong>{formatTrendValue(pickTrendValue(tooltip.day, metric), metric)}</strong>
             </div>
           )}
+          {metric === 'cache' && <div className="stats-trend-tooltip-hint">{t('stats.tokens.cacheHitRateHint')}</div>}
           <div className="stats-trend-tooltip-row">
             <span>{t('stats.table.turns')}</span>
             <strong>{formatStatsCount(tooltip.day.turnCount)}</strong>
           </div>
           {metric === 'tokens' && <TokenCoverageNote coverage={computeTokenCoverage([tooltip.day])} compact />}
           <div className="stats-trend-tooltip-divider" />
-          {metric === 'tokens' && <div className="stats-trend-tooltip-section">{t('stats.tokens.modelBreakdown')}</div>}
+          {(metric === 'tokens' || metric === 'cache') && <div className="stats-trend-tooltip-section">{t('stats.tokens.modelBreakdown')}</div>}
           {tooltip.segments.length === 0 ? (
             <div className="stats-trend-tooltip-muted">{t('stats.noDataInRange')}</div>
           ) : tooltip.segments.map((seg) => (

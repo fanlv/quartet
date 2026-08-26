@@ -162,6 +162,7 @@
       }
     },
     "%@ Token 明细，总 Token %@，缓存命中率 %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -399,7 +400,20 @@
     "%lld / 200" : {
 
     },
+    "%lld %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld %2$@"
+          }
+        }
+      }
+    },
     "%lld 个" : {
+
+    },
+    "%lld 个变量 · 执行限制已锁定" : {
 
     },
     "%lld 个节点" : {
@@ -866,9 +880,6 @@
         }
       }
     },
-    "EXECUTION TRACE" : {
-
-    },
     "GRAPH RUN" : {
 
     },
@@ -1153,10 +1164,23 @@
     "QUARTET / IOS" : {
 
     },
+    "RUN %@ · V%lld" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "RUN %1$@ · V%2$lld"
+          }
+        }
+      }
+    },
     "SCHEDULE %@" : {
 
     },
-    "SESSION %@" : {
+    "Session #%lld" : {
+
+    },
+    "SESSIONS" : {
 
     },
     "Shell 节点" : {
@@ -1447,6 +1471,9 @@
         }
       }
     },
+    "仅次数" : {
+
+    },
     "从照片图库中选择" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1709,6 +1736,7 @@
       }
     },
     "使用趋势" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1757,6 +1785,12 @@
           }
         }
       }
+    },
+    "保存为新版本" : {
+
+    },
+    "保存会创建新的运行版本。尚未执行的节点会使用新配置；Loop 内节点从下一轮开始使用新配置。已经完成或正在执行的节点会锁定，Loop 容器只允许调整固定次数。" : {
+
     },
     "保存全局配置" : {
       "extractionState" : "stale",
@@ -2309,6 +2343,9 @@
           }
         }
       }
+    },
+    "全局变量" : {
+
     },
     "全局配置" : {
       "localizations" : {
@@ -4413,6 +4450,7 @@
       }
     },
     "完整错误" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4710,6 +4748,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "将按顺序更新以下 %d 个 Agent；单个 Agent 失败时会保留完整结果并继续更新其余项目：\n\n%@"
+          }
+        }
+      }
+    },
+    "将清除本机登录状态和密码，服务地址与账号会保留。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your local sign-in session and password will be cleared. The server address and account will be kept."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将清除本机登录状态和密码，服务地址与账号会保留。"
           }
         }
       }
@@ -5044,6 +5098,9 @@
           }
         }
       }
+    },
+    "已冻结" : {
+
     },
     "已删除" : {
       "extractionState" : "stale",
@@ -5587,6 +5644,16 @@
         }
       }
     },
+    "当前版本 V%lld · %lld 个节点 · 保存后作用于尚未执行的节点" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "当前版本 V%1$lld · %2$lld 个节点 · 保存后作用于尚未执行的节点"
+          }
+        }
+      }
+    },
     "当前筛选下还没有任务。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5956,22 +6023,6 @@
         }
       }
     },
-    "按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Calculated as provider-reported cache reads divided by total provider input; locally estimated turns are excluded."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。"
-          }
-        }
-      }
-    },
     "恢复到输入框" : {
       "localizations" : {
         "en" : {
@@ -6052,6 +6103,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复适合屏幕"
+          }
+        }
+      }
+    },
+    "所选范围内没有可计算缓存命中率的 Provider 输入数据。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No provider input data is available to calculate cache hit rates in this range."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选范围内没有可计算缓存命中率的 Provider 输入数据。"
           }
         }
       }
@@ -6321,6 +6389,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "按工具"
+          }
+        }
+      }
+    },
+    "按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculated as provider-reported cache reads divided by total provider input; locally estimated turns are excluded."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。"
           }
         }
       }
@@ -6908,6 +6992,9 @@
         }
       }
     },
+    "暂无 Session" : {
+
+    },
     "暂无修订记录。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6990,6 +7077,7 @@
       }
     },
     "暂无节点会话内容" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7006,6 +7094,7 @@
       }
     },
     "暂无节点状态" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7265,22 +7354,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "服务地址"
-          }
-        }
-      }
-    },
-    "将清除本机登录状态和密码，服务地址与账号会保留。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your local sign-in session and password will be cleared. The server address and account will be kept."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将清除本机登录状态和密码，服务地址与账号会保留。"
           }
         }
       }
@@ -8970,6 +9043,7 @@
       }
     },
     "每日 Token" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8981,6 +9055,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "每日 Token"
+          }
+        }
+      }
+    },
+    "每日缓存命中率" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daily cache hit rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日缓存命中率"
           }
         }
       }
@@ -9157,22 +9248,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "添加附件"
-          }
-        }
-      }
-    },
-    "退出当前账号？" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sign Out?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "退出当前账号？"
           }
         }
       }
@@ -9777,6 +9852,7 @@
       }
     },
     "立即同步" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -10397,6 +10473,23 @@
         }
       }
     },
+    "缓存" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cache"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缓存"
+          }
+        }
+      }
+    },
     "缓存中" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -10431,6 +10524,22 @@
         }
       }
     },
+    "缓存命中率" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cache hit rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缓存命中率"
+          }
+        }
+      }
+    },
     "缓存读取" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -10448,21 +10557,8 @@
         }
       }
     },
-    "缓存命中率" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cache hit rate"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "缓存命中率"
-          }
-        }
-      }
+    "编辑 Prompt、Loop 和其他尚未冻结的节点配置" : {
+
     },
     "编辑任务" : {
       "extractionState" : "stale",
@@ -10531,6 +10627,9 @@
           }
         }
       }
+    },
+    "编辑运行配置" : {
+
     },
     "缩小" : {
       "extractionState" : "stale",
@@ -10770,6 +10869,7 @@
       }
     },
     "节点会话加载失败，查看详情" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11202,6 +11302,7 @@
       }
     },
     "调用详情" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11717,6 +11818,9 @@
         }
       }
     },
+    "运行已经开始，执行限制保持锁定；仍可调整提供给后续节点的全局变量。" : {
+
+    },
     "运行成功" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -11950,6 +12054,9 @@
         }
       }
     },
+    "这个 Loop 已经开始执行，只能修改固定次数；新值会在下一轮边界生效。" : {
+
+    },
     "这个工作空间在当前筛选下还没有任务。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -11966,6 +12073,9 @@
           }
         }
       }
+    },
+    "这个节点已执行或正在执行，运行配置已经冻结；仍可修改仅用于显示的节点名称。" : {
+
     },
     "这些变量只在启动对应 Agent 的 ACP 进程时注入；关闭的条目会被保留但不生效。" : {
       "extractionState" : "stale",
@@ -12145,6 +12255,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "退出"
+          }
+        }
+      }
+    },
+    "退出当前账号？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign Out?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "退出当前账号？"
           }
         }
       }
@@ -12564,6 +12690,7 @@
       }
     },
     "重新连接" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -12575,22 +12702,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重新连接"
-          }
-        }
-      }
-    },
-    "重连" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reconnect"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重连"
           }
         }
       }
@@ -12640,6 +12751,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重试强制删除"
+          }
+        }
+      }
+    },
+    "重连" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnect"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重连"
           }
         }
       }

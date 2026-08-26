@@ -156,7 +156,15 @@ struct JobChatView: View {
             Task { await appModel.reloadJobs() }
         }
         .onChange(of: chat.expectsExecution) { wasExpected, isExpected in
-            guard wasExpected, !isExpected else { return }
+            if isExpected {
+                // The dashboard stays mounted underneath this NavigationStack. Mirror every
+                // execution-start signal back into its shared snapshot so a late JOB_STARTED /
+                // RUN_STARTED can repair an earlier transient idle state while the POST, SSE and
+                // history reconciliation race each other.
+                appModel.beginOptimisticJobExecution(id: route.summary.id, fallback: route.summary)
+                return
+            }
+            guard wasExpected else { return }
             appModel.cancelOptimisticJobExecution(id: route.summary.id)
             Task { await appModel.reloadJobs() }
         }

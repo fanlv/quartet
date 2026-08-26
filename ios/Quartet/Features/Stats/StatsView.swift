@@ -283,6 +283,7 @@ private enum StatsTrendMetric: String, CaseIterable, Identifiable {
     case duration
     case turns
     case tokens
+    case cache
 
     var id: String { rawValue }
 
@@ -291,6 +292,7 @@ private enum StatsTrendMetric: String, CaseIterable, Identifiable {
         case .duration: "耗时"
         case .turns: "轮次"
         case .tokens: "Token"
+        case .cache: "缓存"
         }
     }
 }
@@ -478,11 +480,11 @@ private struct StatsTrendCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Text(metric == .tokens ? "每日 Token" : "使用趋势")
+            VStack(alignment: .leading, spacing: 10) {
+                Text(trendTitle.localized(in: locale))
                     .font(.quartet(.headline, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
-                Spacer()
+
                 Picker("趋势指标", selection: $metric) {
                     ForEach(StatsTrendMetric.allCases) { item in
                         Text(item.title.localized(in: locale)).tag(item)
@@ -490,7 +492,7 @@ private struct StatsTrendCard: View {
                 }
                 .pickerStyle(.segmented)
                 .font(.quartet(.compact, weight: .semibold))
-                .frame(maxWidth: 194)
+                .frame(maxWidth: .infinity)
                 .accessibilityLabel("趋势指标")
                 .accessibilityValue(metric.title.localized(in: locale))
                 .accessibilityIdentifier("stats-trend-metric")
@@ -498,10 +500,14 @@ private struct StatsTrendCard: View {
 
             if metric == .tokens {
                 StatsTokenCoverageNote(rows: filledDays)
+            } else if metric == .cache {
+                Label("按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。", systemImage: "externaldrive.badge.checkmark")
+                    .font(.quartet(.compact))
+                    .foregroundStyle(QuartetTheme.secondaryText)
             }
 
-            if series.allSatisfy({ $0.points.allSatisfy { $0.value <= 0 } }) {
-                Text("所选范围暂无数据")
+            if !hasTrendData {
+                Text((metric == .cache ? "所选范围内没有可计算缓存命中率的 Provider 输入数据。" : "所选范围暂无数据").localized(in: locale))
                     .font(.quartet(.control))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, minHeight: 180)
@@ -554,6 +560,7 @@ private struct StatsTrendCard: View {
                     }
                 }
                 .chartXSelection(value: $selectedDate)
+                .modifier(StatsTrendScaleModifier(metric: metric))
                 .frame(height: 220)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(String(
@@ -575,7 +582,7 @@ private struct StatsTrendCard: View {
                             Text(selectedDay.date)
                                 .foregroundStyle(QuartetTheme.secondaryText)
                             Spacer()
-                            Text(StatsFormat.trend(StatsFormat.metricValue(selectedDay, metric: metric), metric: metric))
+                            Text(StatsFormat.trend(StatsFormat.optionalMetricValue(selectedDay, metric: metric), metric: metric))
                                 .font(.quartet(.detail, weight: .semibold))
                                 .monospacedDigit()
                                 .foregroundStyle(QuartetTheme.primaryText)
@@ -618,6 +625,21 @@ private struct StatsTrendCard: View {
         }
     }
 
+    private var trendTitle: String {
+        switch metric {
+        case .tokens: "每日 Token"
+        case .cache: "每日缓存命中率"
+        case .duration, .turns: "使用趋势"
+        }
+    }
+
+    private var hasTrendData: Bool {
+        if metric == .cache {
+            return series.contains { !$0.points.isEmpty }
+        }
+        return series.contains { line in line.points.contains { $0.value > 0 } }
+    }
+
     private var chartAccessibilityValue: String {
         guard let selectedDay else {
             return String(
@@ -628,7 +650,7 @@ private struct StatsTrendCard: View {
         }
         let value = metric == .tokens
             ? StatsFormat.exactCount(selectedDay.tokens.total, locale: locale)
-            : StatsFormat.trend(StatsFormat.metricValue(selectedDay, metric: metric), metric: metric)
+            : StatsFormat.trend(StatsFormat.optionalMetricValue(selectedDay, metric: metric), metric: metric)
         return String(
             format: "%@，%@".localized(in: locale),
             locale: locale,
@@ -663,13 +685,19 @@ private struct StatsTrendCard: View {
             color: QuartetTheme.accent,
             isTotal: true,
             points: days.compactMap { row in
-                guard let date = StatsFormat.date(row.date) else { return nil }
-                return StatsTrendPoint(dateKey: row.date, date: date, value: StatsFormat.metricValue(row, metric: metric))
+                guard let date = StatsFormat.date(row.date),
+                      let value = StatsFormat.optionalMetricValue(row, metric: metric) else { return nil }
+                return StatsTrendPoint(dateKey: row.date, date: date, value: value)
             }
         )]
 
-        var modelIDSet = Set(days.flatMap { $0.models?.keys.map { $0 } ?? [] })
-        if days.contains(where: { row in
+        var modelIDSet = Set(days.flatMap { row -> [String] in
+            guard let models = row.models else { return [] }
+            return models.compactMap { modelID, totals in
+                StatsFormat.optionalMetricValue(totals, metric: metric) == nil ? nil : modelID
+            }
+        })
+        if metric != .cache, days.contains(where: { row in
             let attributed = row.models?.values.reduce(0) { partial, totals in
                 partial + StatsFormat.metricValue(totals, metric: metric)
             } ?? 0
@@ -691,6 +719,11 @@ private struct StatsTrendCard: View {
                 ?? StatsFormat.modelName(modelID, locale: locale)
             let points = days.compactMap { row -> StatsTrendPoint? in
                 guard let date = StatsFormat.date(row.date) else { return nil }
+                if metric == .cache {
+                    guard let totals = row.models?[modelID],
+                          let value = StatsFormat.optionalMetricValue(totals, metric: metric) else { return nil }
+                    return StatsTrendPoint(dateKey: row.date, date: date, value: value)
+                }
                 var value = row.models?[modelID].map { StatsFormat.metricValue($0, metric: metric) } ?? 0
                 if modelID == StatsFormat.unknownModelID {
                     let attributed = row.models?.values.reduce(0) { partial, totals in
@@ -724,6 +757,19 @@ private struct StatsTrendCard: View {
             current = next
         }
         return result
+    }
+}
+
+private struct StatsTrendScaleModifier: ViewModifier {
+    let metric: StatsTrendMetric
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if metric == .cache {
+            content.chartYScale(domain: 0 ... 1)
+        } else {
+            content
+        }
     }
 }
 
@@ -1096,17 +1142,24 @@ private enum StatsFormat {
     }
 
     static func metricValue(_ totals: some UsageStatsTotals, metric: StatsTrendMetric) -> Double {
+        optionalMetricValue(totals, metric: metric) ?? 0
+    }
+
+    static func optionalMetricValue(_ totals: some UsageStatsTotals, metric: StatsTrendMetric) -> Double? {
         switch metric {
         case .duration: Double(totals.totalMs)
         case .turns: Double(totals.turnCount)
         case .tokens: Double(totals.tokens.total)
+        case .cache: cacheHitRate(totals.tokens)
         }
     }
 
-    static func trend(_ value: Double, metric: StatsTrendMetric) -> String {
-        switch metric {
+    static func trend(_ value: Double?, metric: StatsTrendMetric) -> String {
+        guard let value else { return "—" }
+        return switch metric {
         case .duration: duration(Int64(max(0, value)))
         case .turns, .tokens: count(Int(max(0, value)))
+        case .cache: percentage(value)
         }
     }
 

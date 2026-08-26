@@ -151,8 +151,13 @@ struct JobsView: View {
             }
         }
         .onAppear { setMainTabBarVisible(path.isEmpty) }
-        .onChange(of: path.isEmpty) { _, isAtRoot in
+        .onChange(of: path.isEmpty) { wasAtRoot, isAtRoot in
             setMainTabBarVisible(isAtRoot)
+            guard !wasAtRoot, isAtRoot else { return }
+            // Web remounts the home list and immediately fetches it after leaving a chat. This
+            // NavigationStack keeps its root alive, so explicitly refresh when a destination is
+            // popped to avoid showing the pre-chat terminal snapshot.
+            Task { await model.reloadJobs() }
         }
     }
 
@@ -388,7 +393,7 @@ struct JobsView: View {
                 .font(.quartet(.detail, weight: .medium))
                 .foregroundStyle(showsOnlyActiveJobs ? JobStatusPalette.runningAccent : QuartetTheme.secondaryText)
                 .padding(.horizontal, 9)
-                .frame(minHeight: 44)
+                .padding(.vertical, 6)
                 .background(
                     showsOnlyActiveJobs ? JobStatusPalette.runningAccent.opacity(0.1) : Color.clear,
                     in: Capsule()
@@ -397,6 +402,7 @@ struct JobsView: View {
                 .fixedSize(horizontal: true, vertical: false)
             }
             .buttonStyle(.plain)
+            .frame(minHeight: 44)
             .accessibilityLabel(Text("\(model.activeJobCount) 个进行中"))
             .accessibilityValue(Text((showsOnlyActiveJobs ? "筛选已开启" : "筛选未开启").localizedForApp))
             .accessibilityHint(Text((showsOnlyActiveJobs ? "点按查看全部任务" : "点按只看进行中的任务").localizedForApp))

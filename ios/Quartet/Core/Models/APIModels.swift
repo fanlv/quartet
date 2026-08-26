@@ -1341,6 +1341,44 @@ struct GraphConfig: Codable, Hashable, Sendable {
     var workspaceId: String? = nil
     var workdir: String? = nil
     var sandboxId: String? = nil
+
+    init(
+        nodes: [GraphNode],
+        edges: [GraphEdge],
+        variables: [String: String]? = nil,
+        disabledVars: [String]? = nil,
+        canvas: GraphCanvasState? = nil,
+        runConfig: GraphRunConfiguration? = nil,
+        workspaceId: String? = nil,
+        workdir: String? = nil,
+        sandboxId: String? = nil
+    ) {
+        self.nodes = nodes
+        self.edges = edges
+        self.variables = variables
+        self.disabledVars = disabledVars
+        self.canvas = canvas
+        self.runConfig = runConfig
+        self.workspaceId = workspaceId
+        self.workdir = workdir
+        self.sandboxId = sandboxId
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        // A GraphRun keeps its effective config in versions[].config. Its
+        // intentionally empty baseSnapshot.config is encoded by Go with null
+        // slices, so treat those collection fields as empty fallback data.
+        nodes = try values.decodeIfPresent([GraphNode].self, forKey: .nodes) ?? []
+        edges = try values.decodeIfPresent([GraphEdge].self, forKey: .edges) ?? []
+        variables = try values.decodeIfPresent([String: String].self, forKey: .variables)
+        disabledVars = try values.decodeIfPresent([String].self, forKey: .disabledVars)
+        canvas = try values.decodeIfPresent(GraphCanvasState.self, forKey: .canvas)
+        runConfig = try values.decodeIfPresent(GraphRunConfiguration.self, forKey: .runConfig)
+        workspaceId = try values.decodeIfPresent(String.self, forKey: .workspaceId)
+        workdir = try values.decodeIfPresent(String.self, forKey: .workdir)
+        sandboxId = try values.decodeIfPresent(String.self, forKey: .sandboxId)
+    }
 }
 
 struct GraphNode: Codable, Identifiable, Hashable, Sendable {

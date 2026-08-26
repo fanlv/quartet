@@ -846,6 +846,7 @@
       "duration": "Time",
       "turns": "Turns",
       "tokens": "Tokens",
+      "cache": "Cache",
       "selectorLabel": "Trend metric"
     },
     "view": {
@@ -853,7 +854,8 @@
       "byModel": "By model",
       "byTool": "By tool",
       "trend": "Usage trend",
-      "dailyTokens": "Daily tokens"
+      "dailyTokens": "Daily tokens",
+      "dailyCache": "Daily cache hit rate"
     },
     "table": {
       "duration": "Time",
@@ -881,7 +883,8 @@
         "minute": "min",
         "hour": "hours",
         "count": "times",
-        "tokens": "tokens"
+        "tokens": "tokens",
+        "percent": "%"
       }
     },
     "tokens": {
@@ -894,6 +897,7 @@
       "cachedWrite": "Cache write",
       "cacheHitRate": "Cache hit rate",
       "cacheHitRateHint": "Calculated as provider-reported cache reads divided by total provider input; locally estimated turns are excluded.",
+      "cacheUnavailable": "No provider input data is available to calculate cache hit rates in this range.",
       "reasoning": "Provider reasoning",
       "imageEstimate": "Image estimate (included subset)",
       "imageEstimateShort": "Image estimate",

@@ -842,6 +842,7 @@
       "duration": "耗时",
       "turns": "轮次",
       "tokens": "Token",
+      "cache": "缓存",
       "selectorLabel": "趋势指标"
     },
     "view": {
@@ -849,7 +850,8 @@
       "byModel": "按模型",
       "byTool": "按工具",
       "trend": "使用趋势",
-      "dailyTokens": "每日 Token"
+      "dailyTokens": "每日 Token",
+      "dailyCache": "每日缓存命中率"
     },
     "table": {
       "duration": "耗时",
@@ -877,7 +879,8 @@
         "minute": "分钟",
         "hour": "小时",
         "count": "次",
-        "tokens": "tokens"
+        "tokens": "tokens",
+        "percent": "%"
       }
     },
     "tokens": {
@@ -890,6 +893,7 @@
       "cachedWrite": "缓存写入",
       "cacheHitRate": "缓存命中率",
       "cacheHitRateHint": "按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。",
+      "cacheUnavailable": "所选范围内没有可计算缓存命中率的服务商输入数据。",
       "reasoning": "服务商推理",
       "imageEstimate": "图片估算（说明性子集）",
       "imageEstimateShort": "图片估算",
