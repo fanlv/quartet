@@ -888,6 +888,8 @@
       "output": "服务商输出",
       "cachedRead": "缓存读取",
       "cachedWrite": "缓存写入",
+      "cacheHitRate": "缓存命中率",
+      "cacheHitRateHint": "按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。",
       "reasoning": "服务商推理",
       "imageEstimate": "图片估算（说明性子集）",
       "imageEstimateShort": "图片估算",

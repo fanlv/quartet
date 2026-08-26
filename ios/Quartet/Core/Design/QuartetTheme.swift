@@ -90,9 +90,8 @@ enum QuartetTheme {
     }
 }
 
-/// 排版档位。每一档同时给出基准磅值和动态字体的缩放基准；磅值刻意等于对应 text style
-/// 在默认字号档下的系统尺寸，所以从 `.system(textStyle)` 换成 `UIFontMetrics` 缩放之后，
-/// 各档在任何辅助功能字号下的实际大小都与过去保持一致。
+/// 排版档位。每一档同时给出设计基准磅值和动态字体的缩放基准；`UIFontMetrics` 会按对应
+/// text style 响应系统辅助功能字号，同时保留这里定义的页面视觉层级。
 enum QuartetFontSize {
     /// 品牌页的大标题。
     case display
@@ -122,7 +121,7 @@ enum QuartetFontSize {
         case .large: 20
         case .headline: 18
         case .reading: 16.5
-        case .regular: 17
+        case .regular: 15
         case .control: 15
         case .detail: 13
         case .compact: 11

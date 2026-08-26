@@ -57,7 +57,7 @@ struct GraphWorkflowLaunchView: View {
                             ProgressView()
                             Text("正在读取工作流配置…")
                         }
-                        .font(.quartet(.control))
+                        .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 32)
@@ -135,9 +135,9 @@ struct GraphWorkflowLaunchView: View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large).tint(QuartetTheme.accent)
             Text("正在加载工作流")
-                .font(.quartet(.regular, weight: .semibold))
+                .font(.quartet(.control, weight: .semibold))
             Text("正在读取工作流库与 Agent 配置…")
-                .font(.quartet(.control))
+                .font(.quartet(.detail))
                 .foregroundStyle(QuartetTheme.secondaryText)
         }
         .frame(maxWidth: .infinity)
@@ -147,10 +147,13 @@ struct GraphWorkflowLaunchView: View {
     private var emptyState: some View {
         ContentUnavailableView {
             Label("暂无工作流", systemImage: "point.3.connected.trianglepath.dotted")
+                .font(.quartet(.control, weight: .semibold))
         } description: {
             Text("请先在 Web 端的 Graph Workflows 页面创建并保存一个工作流。")
+                .font(.quartet(.detail))
         } actions: {
             Button("重新加载") { Task { await load() } }
+                .font(.quartet(.control, weight: .semibold))
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 36)
@@ -159,7 +162,7 @@ struct GraphWorkflowLaunchView: View {
     private var workflowSelector: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("工作流模板")
-                .font(.quartet(.regular, weight: .semibold))
+                .font(.quartet(.control, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
 
             Button { showsWorkflowPicker = true } label: {
@@ -167,7 +170,7 @@ struct GraphWorkflowLaunchView: View {
                     configurationIcon("point.3.connected.trianglepath.dotted")
                     VStack(alignment: .leading, spacing: 3) {
                         Text(selectedSummary?.name ?? "选择工作流")
-                            .font(.quartet(.regular, weight: .semibold))
+                            .font(.quartet(.control, weight: .semibold))
                             .foregroundStyle(QuartetTheme.primaryText)
                             .lineLimit(2)
                         if let summary = selectedSummary {
@@ -177,7 +180,7 @@ struct GraphWorkflowLaunchView: View {
                             if let description = summary.description?.trimmingCharacters(in: .whitespacesAndNewlines),
                                !description.isEmpty {
                                 Text(description)
-                                    .font(.quartet(.control))
+                                    .font(.quartet(.detail))
                                     .foregroundStyle(QuartetTheme.secondaryText)
                                     .lineLimit(2)
                                     .multilineTextAlignment(.leading)
@@ -206,11 +209,11 @@ struct GraphWorkflowLaunchView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("运行空间")
-                    .font(.quartet(.regular, weight: .semibold))
+                    .font(.quartet(.control, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Spacer()
                 Text("本次运行")
-                    .font(.quartet(.detail))
+                    .font(.quartet(.compact))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
 
@@ -219,15 +222,15 @@ struct GraphWorkflowLaunchView: View {
                     configurationIcon("square.stack.3d.up")
                     VStack(alignment: .leading, spacing: 2) {
                         Text("工作空间")
-                            .font(.quartet(.control, weight: .medium))
+                            .font(.quartet(.detail, weight: .medium))
                             .foregroundStyle(QuartetTheme.secondaryText)
                         Text(selectedWorkspace?.displayName ?? "未选择工作空间")
-                            .font(.quartet(.regular, weight: .semibold))
+                            .font(.quartet(.control, weight: .semibold))
                             .foregroundStyle(QuartetTheme.primaryText)
                             .lineLimit(1)
                         if let effectiveWorkdir {
                             Text(effectiveWorkdir)
-                                .font(.quartet(.detail))
+                                .font(.quartet(.compact))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -263,10 +266,10 @@ struct GraphWorkflowLaunchView: View {
                 configurationIcon("slider.horizontal.3")
                 VStack(alignment: .leading, spacing: 2) {
                     Text("全局配置")
-                        .font(.quartet(.regular, weight: .semibold))
+                        .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                     Text(globalConfigurationSummary(config))
-                        .font(.quartet(.control))
+                        .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .lineLimit(1)
                 }
@@ -291,11 +294,11 @@ struct GraphWorkflowLaunchView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("节点配置")
-                    .font(.quartet(.regular, weight: .semibold))
+                    .font(.quartet(.control, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Spacer()
                 Text("\(config.nodes.count) 个节点")
-                    .font(.quartet(.detail))
+                    .font(.quartet(.compact))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
 
@@ -306,10 +309,10 @@ struct GraphWorkflowLaunchView: View {
                             GraphNodeBadge(type: node.type)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(node.displayName)
-                                    .font(.quartet(.regular, weight: .semibold))
+                                    .font(.quartet(.control, weight: .semibold))
                                     .foregroundStyle(QuartetTheme.primaryText)
                                 Text(nodeSummary(node))
-                                    .font(.quartet(.control))
+                                    .font(.quartet(.detail))
                                     .foregroundStyle(QuartetTheme.secondaryText)
                                     .lineLimit(2)
                             }
@@ -340,11 +343,11 @@ struct GraphWorkflowLaunchView: View {
         if !warnings.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 Label("有 \(warnings.count) 个工作流文件加载失败", systemImage: "exclamationmark.triangle.fill")
-                    .font(.quartet(.control, weight: .semibold))
+                    .font(.quartet(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.failed)
                 ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in
                     Text("\(warning.file)\n\(warning.error)")
-                        .font(.quartet(.control, design: .monospaced))
+                        .font(.quartet(.detail, design: .monospaced))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .textSelection(.enabled)
                 }
@@ -623,7 +626,7 @@ struct GraphWorkflowLaunchView: View {
 
     private func contextPill(_ value: String, icon: String) -> some View {
         Label(value, systemImage: icon)
-            .font(.quartet(.detail, weight: .medium))
+            .font(.quartet(.compact, weight: .medium))
             .foregroundStyle(QuartetTheme.secondaryText)
             .lineLimit(1)
             .padding(.horizontal, 9)
@@ -675,7 +678,7 @@ private struct GraphWorkflowTemplatePicker: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("选择工作流模板")
-                        .font(.quartet(.regular, weight: .semibold))
+                        .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .accessibilityAddTraits(.isHeader)
                 }
@@ -700,7 +703,7 @@ private struct GraphWorkflowTemplatePicker: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(workflow.name)
-                        .font(.quartet(.regular, weight: .semibold))
+                        .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -782,17 +785,18 @@ private struct GraphNodeBadge: View {
     }
 }
 
-/// Graph 表单的语义排版。字号仍全部来自 App 的统一排版入口，这里只固定表单内的层级关系：
-/// 卡片标题 > 字段标签 > 输入内容 > 辅助说明。
+/// Graph 表单的语义排版。字号仍全部来自 App 的统一排版入口，这里只固定表单内的层级关系。
+/// 表单信息密度与“新任务”的运行配置保持一致：标题与输入内容用控件档，字段标签和说明
+/// 再各收一档。以后调整全 App 刻度时，这里仍会随 `QuartetFontSize` 一起缩放。
 private enum GraphTypography {
-    static var cardTitle: Font { .quartet(.regular, weight: .semibold) }
-    static var fieldLabel: Font { .quartet(.control, weight: .semibold) }
-    static var fieldValue: Font { .quartet(.regular) }
-    static var emphasizedFieldValue: Font { .quartet(.regular, weight: .medium) }
-    static var hint: Font { .quartet(.detail) }
+    static var cardTitle: Font { .quartet(.control, weight: .semibold) }
+    static var fieldLabel: Font { .quartet(.detail, weight: .semibold) }
+    static var fieldValue: Font { .quartet(.control) }
+    static var emphasizedFieldValue: Font { .quartet(.control, weight: .medium) }
+    static var hint: Font { .quartet(.compact) }
 
     static func fieldValue(monospaced: Bool) -> Font {
-        monospaced ? .quartet(.regular, design: .monospaced) : fieldValue
+        monospaced ? .quartet(.control, design: .monospaced) : fieldValue
     }
 }
 
@@ -978,7 +982,7 @@ private func graphValidationCard(_ message: String) -> some View {
             .font(.quartet(.control, weight: .semibold))
             .foregroundStyle(QuartetTheme.failed)
         Text(message)
-            .font(.quartet(.control))
+            .font(.quartet(.detail))
             .foregroundStyle(QuartetTheme.failed)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -997,7 +1001,7 @@ private func graphSaveBar(
 ) -> some View {
     Button(action: action) {
         Text(title.localizedForApp)
-            .font(.quartet(.regular, weight: .semibold))
+            .font(.quartet(.control, weight: .semibold))
             .foregroundStyle(QuartetTheme.onAccent)
             .frame(maxWidth: .infinity)
             .frame(minHeight: 50)
@@ -1076,7 +1080,7 @@ private struct GraphGlobalConfigurationView: View {
         GraphEditorCard("初始变量", systemImage: "curlybraces") {
             if variables.isEmpty {
                 Text("暂无初始变量")
-                    .font(.quartet(.control))
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
 
@@ -1119,7 +1123,7 @@ private struct GraphGlobalConfigurationView: View {
                             .graphInputChrome(background: QuartetTheme.surface)
                     } else {
                         TextField("变量名", text: variable.name)
-                            .font(.quartet(.regular, weight: .medium, design: .monospaced))
+                            .font(.quartet(.control, weight: .medium, design: .monospaced))
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .graphInputChrome(background: QuartetTheme.surface)
@@ -1384,10 +1388,10 @@ private struct GraphNodeConfigurationView: View {
                 GraphNodeBadge(type: draft.type)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(nodeTypeLabel(draft.type))
-                        .font(.quartet(.regular, weight: .semibold))
+                        .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                     Text(draft.id)
-                        .font(.quartet(.detail, design: .monospaced))
+                        .font(.quartet(.compact, design: .monospaced))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .textSelection(.enabled)
                 }
@@ -1451,14 +1455,14 @@ private struct GraphNodeConfigurationView: View {
         case "start":
             GraphEditorCard("说明", systemImage: "info.circle") {
                 Text("开始节点只作为工作流入口，没有业务执行配置。")
-                    .font(.quartet(.control))
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         default:
             GraphEditorCard("说明", systemImage: "questionmark.circle") {
                 Text("未知节点类型：\(draft.type)")
-                    .font(.quartet(.control))
+                    .font(.quartet(.detail))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -1579,7 +1583,7 @@ private struct GraphNodeConfigurationView: View {
                     Text("固定次数").tag("fixed")
                     Text("满足条件前持续").tag("until")
                 }
-                .font(.quartet(.control, weight: .medium))
+                .font(.quartet(.detail, weight: .medium))
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }

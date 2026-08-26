@@ -432,6 +432,27 @@
   flex-wrap: wrap;
 }
 
+.stats-token-day-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.stats-token-day-cache-rate {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.stats-token-day-cache-rate strong {
+  color: #0f766e;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
 .stats-token-day-total-label {
   font-size: 11.5px;
   color: #64748b;
@@ -670,4 +691,5 @@
   .stats-header { flex-wrap: wrap; }
   .stats-range { margin-left: 0; justify-content: flex-start; }
   .stats-token-day-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats-token-day-summary { align-items: flex-start; }
 }

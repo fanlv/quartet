@@ -892,6 +892,8 @@
       "output": "Provider output",
       "cachedRead": "Cache read",
       "cachedWrite": "Cache write",
+      "cacheHitRate": "Cache hit rate",
+      "cacheHitRateHint": "Calculated as provider-reported cache reads divided by total provider input; locally estimated turns are excluded.",
       "reasoning": "Provider reasoning",
       "imageEstimate": "Image estimate (included subset)",
       "imageEstimateShort": "Image estimate",

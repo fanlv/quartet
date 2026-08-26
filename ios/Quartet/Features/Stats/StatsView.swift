@@ -803,6 +803,8 @@ private struct StatsTokenDayDetail: View {
     let day: UsageStatsDailyRow
 
     var body: some View {
+        let cacheHitRate = StatsFormat.cacheHitRate(day.tokens)
+
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -814,14 +816,30 @@ private struct StatsTokenDayDetail: View {
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
                 Spacer(minLength: 12)
-                Text(StatsFormat.exactCount(day.tokens.total, locale: locale))
-                    .contentTransition(.numericText())
-                    .font(.quartet(.headline, weight: .semibold))
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(StatsFormat.exactCount(day.tokens.total, locale: locale))
+                        .contentTransition(.numericText())
+                        .font(.quartet(.headline, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(QuartetTheme.primaryText)
+
+                    HStack(spacing: 5) {
+                        Text("缓存命中率")
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                        Text(StatsFormat.percentage(cacheHitRate, locale: locale))
+                            .contentTransition(.numericText())
+                            .foregroundStyle(QuartetTheme.accent)
+                    }
+                    .font(.quartet(.compact, weight: .semibold))
                     .monospacedDigit()
-                    .foregroundStyle(QuartetTheme.primaryText)
+                }
             }
 
             Text("总量由服务端计算；下列来源与明细可能重叠，请勿相加。")
+                .font(.quartet(.compact))
+                .foregroundStyle(QuartetTheme.secondaryText)
+
+            Text("按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。")
                 .font(.quartet(.compact))
                 .foregroundStyle(QuartetTheme.secondaryText)
 
@@ -863,10 +881,11 @@ private struct StatsTokenDayDetail: View {
         .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(
-            format: "%@ Token 明细，总 Token %@".localized(in: locale),
+            format: "%@ Token 明细，总 Token %@，缓存命中率 %@".localized(in: locale),
             locale: locale,
             day.date,
-            StatsFormat.exactCount(day.tokens.total, locale: locale)
+            StatsFormat.exactCount(day.tokens.total, locale: locale),
+            StatsFormat.percentage(cacheHitRate, locale: locale)
         ))
         .accessibilityIdentifier("stats-token-day-detail")
     }
@@ -1056,6 +1075,24 @@ private enum StatsFormat {
 
     static func exactCount(_ value: Int, locale: Locale = AppLanguage.currentLocale) -> String {
         max(0, value).formatted(.number.locale(locale).grouping(.automatic))
+    }
+
+    // Provider APIs differ on whether input already includes cache reads and
+    // writes. Provider total minus output gives the shared input total; the
+    // other candidates preserve partial reports and cap the rate at 100%.
+    static func cacheHitRate(_ tokens: UsageStatsTokenTotals) -> Double? {
+        let reportedInput = max(0, Double(tokens.reported) - Double(tokens.output))
+        let input = max(0, Double(tokens.input))
+        let cachedRead = max(0, Double(tokens.cachedRead))
+        let cachedWrite = max(0, Double(tokens.cachedWrite))
+        let providerInput = max(max(reportedInput, input), cachedRead + cachedWrite)
+        guard providerInput > 0 else { return nil }
+        return min(1, cachedRead / providerInput)
+    }
+
+    static func percentage(_ value: Double?, locale: Locale = AppLanguage.currentLocale) -> String {
+        guard let value else { return "—" }
+        return value.formatted(.percent.precision(.fractionLength(1)).locale(locale))
     }
 
     static func metricValue(_ totals: some UsageStatsTotals, metric: StatsTrendMetric) -> Double {

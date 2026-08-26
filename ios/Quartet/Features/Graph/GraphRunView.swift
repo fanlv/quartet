@@ -91,13 +91,13 @@ struct GraphRunView: View {
                         .font(.quartet(.compact, weight: .bold, design: .monospaced))
                         .foregroundStyle(QuartetTheme.secondaryText)
                     Text(statusLabel(status))
-                        .font(.quartet(.large, weight: .bold))
+                        .font(.quartet(.regular, weight: .bold))
                         .foregroundStyle(QuartetTheme.statusColor(colorStatus(status)))
                 }
                 Spacer()
                 if let progress {
                     Text("\(progress.completedCount)/\(progress.totalCount)")
-                        .font(.quartet(.display, weight: .bold, design: .rounded))
+                        .font(.quartet(.large, weight: .bold, design: .rounded))
                 }
             }
             HStack(spacing: 10) {
@@ -119,7 +119,7 @@ struct GraphRunView: View {
                     appModel.present(APIError(summary: "Graph 节点错误", detail: error.fullDetail))
                 } label: {
                     Label(error.message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.quartet(.detail))
+                        .font(.quartet(.compact))
                         .foregroundStyle(QuartetTheme.failed)
                         .lineLimit(3)
                 }
@@ -127,7 +127,7 @@ struct GraphRunView: View {
             } else if let lastError = progress?.lastError, !lastError.isEmpty {
                 Button { appModel.present(APIError(summary: "Graph 运行错误", detail: lastError)) } label: {
                     Label(lastError, systemImage: "exclamationmark.triangle.fill")
-                        .font(.quartet(.detail))
+                        .font(.quartet(.compact))
                         .foregroundStyle(QuartetTheme.failed)
                         .lineLimit(3)
                 }
@@ -148,7 +148,7 @@ struct GraphRunView: View {
                     ForEach(available) { action in
                         Button { confirmation = action } label: {
                             Label(action.label, systemImage: action.icon)
-                                .font(.quartet(.control, weight: .semibold))
+                                .font(.quartet(.detail, weight: .semibold))
                                 .padding(.horizontal, 14)
                                 .frame(height: 42)
                                 .foregroundStyle(action.isDestructive ? QuartetTheme.failed : QuartetTheme.primaryText)
@@ -165,7 +165,10 @@ struct GraphRunView: View {
     private var instances: some View {
         let rows = instancesList
         if rows.isEmpty {
-            ContentUnavailableView("暂无节点状态", systemImage: "point.3.connected.trianglepath.dotted")
+            ContentUnavailableView {
+                Label("暂无节点状态", systemImage: "point.3.connected.trianglepath.dotted")
+                    .font(.quartet(.control, weight: .semibold))
+            }
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 Text("EXECUTION TRACE")
@@ -296,7 +299,7 @@ private struct GraphInstanceRow: View {
                 Circle().fill(QuartetTheme.statusColor(mappedStatus)).frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(instance.displayName)
-                        .font(.quartet(.regular, weight: .semibold))
+                        .font(.quartet(.control, weight: .semibold))
                         .lineLimit(2)
                     if !instance.pathSummary.isEmpty {
                         Text(instance.pathSummary)
@@ -355,7 +358,7 @@ private struct GraphInstanceRow: View {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                         Text(error.message)
-                            .font(.quartet(.detail))
+                            .font(.quartet(.compact))
                             .foregroundStyle(QuartetTheme.failed)
                             .multilineTextAlignment(.leading)
                         Spacer()
@@ -366,7 +369,7 @@ private struct GraphInstanceRow: View {
                 }
                 .buttonStyle(.plain)
             } else if let reason = instance.blockedReason, !reason.isEmpty {
-                Text(reason).font(.quartet(.detail)).foregroundStyle(QuartetTheme.secondaryText)
+                Text(reason).font(.quartet(.compact)).foregroundStyle(QuartetTheme.secondaryText)
             }
         }
         .padding(.vertical, 13)
@@ -540,7 +543,7 @@ private struct GraphMetaTile: View {
                 .font(.quartet(.compact, weight: .bold, design: .monospaced))
                 .foregroundStyle(QuartetTheme.secondaryText)
             Text(value)
-                .font(.quartet(.control, weight: .semibold))
+                .font(.quartet(.detail, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
                 .lineLimit(2)
                 .textSelection(.enabled)
@@ -597,7 +600,10 @@ private struct GraphNodeSessionView: View {
                     HStack { Spacer(); ProgressView(); Spacer() }
                         .padding(.top, 50)
                 } else if messages.isEmpty {
-                    ContentUnavailableView("暂无节点会话内容", systemImage: "text.bubble")
+                    ContentUnavailableView {
+                        Label("暂无节点会话内容", systemImage: "text.bubble")
+                            .font(.quartet(.control, weight: .semibold))
+                    }
                 } else {
                     LazyVStack(spacing: 14) {
                         ForEach(messages) { message in
@@ -626,7 +632,7 @@ private struct GraphNodeSessionView: View {
     private var sessionHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(nodeTitle)
-                .font(.quartet(.large, weight: .bold))
+                .font(.quartet(.regular, weight: .bold))
                 .foregroundStyle(QuartetTheme.primaryText)
             HStack(spacing: 10) {
                 GraphInfoChip(title: "节点类型", value: nodeType.uppercased())
@@ -664,7 +670,7 @@ private struct GraphNodeSessionView: View {
                         appModel.present(APIError(summary: "节点会话加载失败", detail: errorDetail))
                     } label: {
                         Label("节点会话加载失败，查看详情", systemImage: "exclamationmark.triangle.fill")
-                            .font(.quartet(.detail))
+                            .font(.quartet(.compact))
                             .foregroundStyle(QuartetTheme.failed)
                     }
                     .buttonStyle(.plain)
@@ -711,28 +717,28 @@ private struct GraphSessionBubble: View {
                     Text(GraphFormatters.dateTime(startedAt))
                 }
             }
-            .font(.quartet(.compact, weight: .bold, design: .monospaced))
+            .font(.chat(.compact, weight: .bold, design: .monospaced))
             .foregroundStyle(labelColor)
 
             Text(primaryContent.isEmpty ? "…" : primaryContent)
-                .font(message.role == "tool" || message.isShellOutput == true ? .quartet(.detail, design: .monospaced) : .quartet(.regular))
+                .font(message.role == "tool" || message.isShellOutput == true ? .chat(.detail, design: .monospaced) : .chat(.reading))
                 .foregroundStyle(QuartetTheme.primaryText)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             ForEach(message.imageUrls ?? [], id: \.self) { path in
-                AuthenticatedMessageImage(path: path, typography: .app)
+                AuthenticatedMessageImage(path: path, typography: .chat)
             }
 
             if let detail = detailText, !detail.isEmpty {
                 DisclosureGroup("调用详情") {
                     Text(detail)
-                        .font(.quartet(.detail, design: .monospaced))
+                        .font(.chat(.detail, design: .monospaced))
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 8)
                 }
-                .font(.quartet(.detail))
+                .font(.chat(.detail))
                 .foregroundStyle(QuartetTheme.secondaryText)
             }
         }

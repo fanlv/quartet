@@ -161,6 +161,22 @@
         }
       }
     },
+    "%@ Token 明细，总 Token %@，缓存命中率 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ token details, %2$@ total tokens, %3$@ cache hit rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ Token 明细，总 Token %2$@，缓存命中率 %3$@"
+          }
+        }
+      }
+    },
     "%@ 个节点" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5940,6 +5956,22 @@
         }
       }
     },
+    "按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculated as provider-reported cache reads divided by total provider input; locally estimated turns are excluded."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。"
+          }
+        }
+      }
+    },
     "恢复到输入框" : {
       "localizations" : {
         "en" : {
@@ -10428,6 +10460,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "缓存读取"
+          }
+        }
+      }
+    },
+    "缓存命中率" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cache hit rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缓存命中率"
           }
         }
       }

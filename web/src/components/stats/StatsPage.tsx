@@ -676,6 +676,25 @@ function tokenCount(tokens: TokenTotals | undefined, field: keyof TokenTotals): 
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+// Providers disagree on whether `input` already includes cache reads/writes.
+// `reported - output` is the common provider-input total across both shapes;
+// the remaining candidates keep partial third-party reports useful and ensure
+// a malformed sample can never render a hit rate above 100%.
+function tokenCacheHitRate(tokens: TokenTotals | undefined): number | null {
+  const reported = tokenCount(tokens, 'reported');
+  const output = tokenCount(tokens, 'output');
+  const input = tokenCount(tokens, 'input');
+  const cachedRead = tokenCount(tokens, 'cachedRead');
+  const cachedWrite = tokenCount(tokens, 'cachedWrite');
+  const providerInput = Math.max(0, reported - output, input, cachedRead + cachedWrite);
+  if (providerInput <= 0) return null;
+  return Math.min(1, cachedRead / providerInput);
+}
+
+function formatTokenCacheHitRate(rate: number | null): string {
+  return rate === null ? '—' : `${(rate * 100).toFixed(1)}%`;
+}
+
 function trendAxisUnitKey(value: number, metric: TrendMetric): string {
   if (metric === 'duration') return value >= 3_600_000 ? 'hour' : 'minute';
   if (metric === 'turns') return 'count';
@@ -710,6 +729,7 @@ function emptySectionTotals(): SectionTotals {
 
 function TokenDetails({ tokens }: { tokens: TokenTotals }) {
   const { t } = useTranslation();
+  const cacheHitRate = tokenCacheHitRate(tokens);
   return (
     <>
       <div className="stats-trend-tooltip-row stats-trend-tooltip-total">
@@ -740,6 +760,11 @@ function TokenDetails({ tokens }: { tokens: TokenTotals }) {
           )}
         </Fragment>
       ))}
+      <div className="stats-trend-tooltip-row stats-trend-tooltip-detail">
+        <span>{t('stats.tokens.cacheHitRate')}</span>
+        <strong>{formatTokenCacheHitRate(cacheHitRate)}</strong>
+      </div>
+      <div className="stats-trend-tooltip-hint">{t('stats.tokens.cacheHitRateHint')}</div>
       <div className="stats-trend-tooltip-divider" />
       <div className="stats-trend-tooltip-row">
         <span>{t('stats.tokens.estimated')}</span>
@@ -820,6 +845,7 @@ function TokenDayPanel({ day, latest }: { day: DailyRow; latest: boolean }) {
   const { t } = useTranslation();
   const coverage = useMemo(() => computeTokenCoverage([day]), [day]);
   const total = tokenCount(day.tokens, 'total');
+  const cacheHitRate = tokenCacheHitRate(day.tokens);
   return (
     <section
       className="stats-token-day"
@@ -833,15 +859,22 @@ function TokenDayPanel({ day, latest }: { day: DailyRow; latest: boolean }) {
             {latest && <em className="stats-token-day-badge">{t('stats.tokens.dayPanelLatest')}</em>}
           </span>
         </div>
-        <div className="stats-token-day-total">
-          <span className="stats-token-day-total-label">{t('stats.table.tokenTotal')}</span>
-          <strong className="stats-token-day-total-value">{formatStatsCount(total)}</strong>
-          <span className="stats-token-day-turns">
-            {t('stats.table.turns')} {formatStatsCount(Math.max(0, day.turnCount || 0))}
-          </span>
+        <div className="stats-token-day-summary">
+          <div className="stats-token-day-total">
+            <span className="stats-token-day-total-label">{t('stats.table.tokenTotal')}</span>
+            <strong className="stats-token-day-total-value">{formatStatsCount(total)}</strong>
+            <span className="stats-token-day-turns">
+              {t('stats.table.turns')} {formatStatsCount(Math.max(0, day.turnCount || 0))}
+            </span>
+          </div>
+          <div className="stats-token-day-cache-rate">
+            <span>{t('stats.tokens.cacheHitRate')}</span>
+            <strong>{formatTokenCacheHitRate(cacheHitRate)}</strong>
+          </div>
         </div>
       </div>
       <div className="stats-token-day-hint">{t('stats.tokens.dayPanelHint')}</div>
+      <div className="stats-token-day-hint">{t('stats.tokens.cacheHitRateHint')}</div>
       <div className="stats-token-day-section">{t('stats.tokens.detailsSection')}</div>
       <div className="stats-token-day-grid">
         {TOKEN_DAY_FIELDS.map(({ field, labelKey }) => (
