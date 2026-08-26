@@ -971,10 +971,13 @@ struct NewConversationView: View {
         case .agent:
             return agents.map { item in
                 let name = item.displayName.isEmpty ? item.type : item.displayName
+                let summary = agentUsageSummaries.summary(command: item.type, displayName: name)
                 return QuartetChoice(
                     id: item.id,
                     title: name,
                     detail: item.available ? item.type : "\(item.type) · \(item.availabilityLabel)",
+                    footnote: summary?.text,
+                    footnoteIsFailure: summary?.isFailure ?? false,
                     disabled: !item.available && item.id != agentID
                 )
             }
