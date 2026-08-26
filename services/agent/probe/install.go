@@ -178,6 +178,14 @@ func (s *CacheService) UninstallBuiltinAgent(ctx context.Context, agentID string
 	// backend PATH still counts as installed (uninstall did not take effect).
 	recheck := checker.Check(definition)
 	result.Installed = recheck.Installed
+	if recheck.Installed {
+		result.InstallError = fmt.Sprintf(
+			"Agent remains installed after uninstall: bin=%q ACP program=%q",
+			recheck.Bin.ResolvedPath,
+			recheck.ACPProgram.ResolvedPath,
+		)
+	}
+	s.InvalidateAgent(agentID)
 	if err := s.PersistNow(ctx); err != nil {
 		logger.Warnf(ctx, "[probe] persist ACP cache after uninstall failed: agent=%s err=%v", agentID, err)
 	}

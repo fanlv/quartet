@@ -4,11 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"syscall"
-	"time"
 )
 
 const WebRestartLogPath = "/tmp/quartet-web-restart.log"
@@ -27,26 +23,7 @@ func RestartWeb(ctx context.Context) error {
 		return err
 	}
 
-	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	script := fmt.Sprintf(`set -eu
-cd %s
-(
-  sleep 1
-  printf '\n----- web restart requested at %%s -----\n' "$(date '+%%F %%T')"
-  exec make web
-) >> %s 2>&1 < /dev/null &
-`, shellQuote(repoRoot), shellQuote(WebRestartLogPath))
-
-	cmd := exec.CommandContext(cmdCtx, "sh", "-c", script)
-	cmd.Dir = repoRoot
-	cmd.Env = os.Environ()
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	return cmd.Run()
+	return restartWeb(ctx, repoRoot)
 }
 
 func findRepoRoot() (string, error) {
@@ -78,8 +55,4 @@ func walkUpForMakefile(start string) (string, bool) {
 		}
 		dir = parent
 	}
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

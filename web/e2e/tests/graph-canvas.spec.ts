@@ -86,6 +86,30 @@ function linearShellConfig(workspace: GraphWorkspace): GraphConfig {
   }
 }
 
+function fixedLoopShellConfig(workspace: GraphWorkspace): GraphConfig {
+  return {
+    nodes: [
+      { id: 'start', type: 'start', title: 'Start', layout: { x: 40, y: 160 } },
+      { id: 'loop', type: 'loop', title: 'Two rounds', config: { loopMode: 'fixed', fixedCount: 2 }, layout: { x: 240, y: 80, width: 560, height: 320 } },
+      { id: 'loop-start', type: 'start', title: 'Loop entry', parentId: 'loop', layout: { x: 0, y: 147 } },
+      { id: 'loop-shell', type: 'shell', title: 'Loop shell', parentId: 'loop', config: { script: 'echo graph-loop-e2e-ok' }, layout: { x: 160, y: 130 } },
+      { id: 'loop-end', type: 'end', title: 'Loop exit', parentId: 'loop', layout: { x: 498, y: 147 } },
+      { id: 'end', type: 'end', title: 'End', layout: { x: 960, y: 160 } },
+    ],
+    edges: [
+      { id: 'edge-start-loop', sourceNodeId: 'start', targetNodeId: 'loop' },
+      { id: 'edge-loop-entry-shell', sourceNodeId: 'loop-start', targetNodeId: 'loop-shell' },
+      { id: 'edge-loop-shell-exit', sourceNodeId: 'loop-shell', targetNodeId: 'loop-end' },
+      { id: 'edge-loop-end', sourceNodeId: 'loop', targetNodeId: 'end' },
+    ],
+    variables: {},
+    disabledVars: [],
+    runConfig: { concurrencyLimit: 1 },
+    workspaceId: workspace.workspaceId,
+    workdir: workspace.workdir,
+  }
+}
+
 async function openGraphCanvas(page: Page, request: APIRequestContext, name = 'canvas'): Promise<GraphWorkspace> {
   const workspace = await createGraphWorkspace(request, name)
   await page.addInitScript(() => {
@@ -195,6 +219,37 @@ test('graph canvas: run a pure-Shell workflow to completion', async ({ page, req
   const miniShell = page.getByTestId('graph-run-canvas').getByTestId('graph-node-shell')
   await expect(miniShell).toBeAttached({ timeout: 15_000 })
   await expect(miniShell).toHaveClass(/run-succeeded/, { timeout: 15_000 })
+})
+
+test('graph canvas: fixed Loop node executes every iteration and renders Graph sessions', async ({ page, request }) => {
+  const workspace = await openGraphCanvas(page, request, 'loop-run')
+  await applyJsonConfig(page, fixedLoopShellConfig(workspace))
+  await page.getByTestId('graph-name-input').fill(`e2e-loop-run-${Date.now()}`)
+
+  const [startResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/v1/graph/run/start') && r.request().method() === 'POST'),
+    page.getByTestId('graph-run').click(),
+  ])
+  expect(startResp.ok(), `loop run start failed: ${startResp.status()} ${await startResp.text()}`).toBeTruthy()
+  const jobId: string = (await startResp.json()).run?.jobId
+  expect(jobId).toMatch(/^job-/)
+
+  const { status, progress } = await waitForRunStatus(request, jobId, ['completed', 'failed', 'timedOut'])
+  expect(status, 'fixed Graph Loop should complete').toBe('completed')
+  expect(progress).toMatchObject({ totalCount: 3, completedCount: 3 })
+
+  const statusResp = await request.get(`/api/v1/job/${encodeURIComponent(jobId)}/graph-run`, { headers: AUTH_HEADERS })
+  expect(statusResp.ok(), `loop run status failed: ${statusResp.status()} ${await statusResp.text()}`).toBeTruthy()
+  const snapshot = await statusResp.json()
+  const loopShellInstances = (snapshot.instances ?? []).filter((instance: { nodeId?: string }) => instance.nodeId === 'loop-shell')
+  expect(loopShellInstances).toHaveLength(2)
+  expect(loopShellInstances.map((instance: { status?: string }) => instance.status)).toEqual(['succeeded', 'succeeded'])
+  expect(loopShellInstances.map((instance: { key?: { iterations?: Array<{ index?: number }> } }) => instance.key?.iterations?.[0]?.index)).toEqual([0, 1])
+
+  await expect(page.getByTestId('job-chat')).toHaveAttribute('data-job-mode', 'graph', { timeout: 10_000 })
+  await expect(page.getByTestId('graph-run-progress')).toContainText('Completed', { timeout: 10_000 })
+  await expect(page.getByTestId('graph-run-progress')).toContainText('Session 2 / 2', { timeout: 10_000 })
+  await expect(page.getByTestId('graph-session-sidebar').getByTestId('graph-session-item')).toHaveCount(2)
 })
 
 test('graph canvas: invalid config surfaces located errors and focuses the node', async ({ page, request }) => {

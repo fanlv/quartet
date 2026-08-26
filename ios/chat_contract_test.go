@@ -22,7 +22,7 @@ func chatSource(t *testing.T, relativePath string) string {
 }
 
 func TestInteractiveChatLoadsAllSessionsAndKeepsGraphTargetScoped(t *testing.T) {
-	source := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
+	source := chatSource(t, "Quartet/Features/Chat/ChatViewModel.swift")
 	for _, contract := range []string{
 		"let interactiveSessions = detail.sessionIds ?? []",
 		"loadInteractiveHistory(sessionIDs: interactiveSessions)",
@@ -61,7 +61,7 @@ func TestAgentValidationStateIsVisibleAndRetried(t *testing.T) {
 }
 
 func TestStreamConnectionStateRemainsInternalToChat(t *testing.T) {
-	source := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
+	source := chatSource(t, "Quartet/Features/Chat/ChatViewModel.swift")
 	for _, contract := range []string{
 		"case connecting",
 		"case live",
@@ -74,12 +74,13 @@ func TestStreamConnectionStateRemainsInternalToChat(t *testing.T) {
 			t.Fatalf("SSE status source contract missing %q", contract)
 		}
 	}
+	view := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
 	for _, removedPresentation := range []string{
 		"private var statusStrip",
 		"Text(chat.streamStateLabel)",
 		"var streamStateLabel",
 	} {
-		if strings.Contains(source, removedPresentation) {
+		if strings.Contains(view, removedPresentation) {
 			t.Fatalf("chat must not present connection/status chrome %q", removedPresentation)
 		}
 	}
@@ -119,8 +120,8 @@ func TestExistingChatCanSwitchModelAndThoughtLevelAndShowsWorkspaceContext(t *te
 	for _, contract := range []string{
 		`ChatConfigurationSelectionSheet(`,
 		`agentPreferences = try await appModel.agentPreferences()`,
-		`optionGroup(favoriteOptions, title: "收藏")`,
-		`optionGroup(otherOptions, title: "其他模型")`,
+		`optionGroup(favoriteOptions, title: "收藏".localizedForApp)`,
+		`optionGroup(otherOptions, title: "其他模型".localizedForApp)`,
 		`.padding(.top, 8)`,
 		`.background(QuartetTheme.canvas)`,
 		`accessibilityIdentifier("chat-model-selector")`,
@@ -152,7 +153,7 @@ func TestJobRouteAndIdempotentSendUsePersistedServerState(t *testing.T) {
 	models := chatSource(t, "Quartet/Core/Models/APIModels.swift")
 	client := chatSource(t, "Quartet/Core/Networking/APIClient.swift")
 	jobsView := chatSource(t, "Quartet/Features/Jobs/JobsView.swift")
-	chat := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
+	chat := chatSource(t, "Quartet/Features/Chat/ChatViewModel.swift")
 
 	for _, contract := range []string{
 		"job.InitialAgentID = req.AgentType",
@@ -191,7 +192,7 @@ func TestJobRouteAndIdempotentSendUsePersistedServerState(t *testing.T) {
 }
 
 func TestTerminalFailureUsesANewRetryIDAndDropsTheEchoedOutboxBubble(t *testing.T) {
-	chat := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
+	chat := chatSource(t, "Quartet/Features/Chat/ChatViewModel.swift")
 	applyStart := strings.Index(chat, "private func applyRunOutcome")
 	if applyStart < 0 {
 		t.Fatal("cannot locate applyRunOutcome")
@@ -213,9 +214,9 @@ func TestTerminalFailureUsesANewRetryIDAndDropsTheEchoedOutboxBubble(t *testing.
 }
 
 func TestOutboxFreezesTheEntireIdempotentRequestAcrossSameIDRetries(t *testing.T) {
-	chat := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
+	chat := chatSource(t, "Quartet/Features/Chat/ChatViewModel.swift")
 	for _, contract := range []string{
-		"private struct OutboxRequestContext",
+		"struct OutboxRequestContext",
 		"let targetSessionID: String?",
 		"let modelID: String?",
 		"let agentType: String?",
@@ -242,7 +243,7 @@ func TestOutboxFreezesTheEntireIdempotentRequestAcrossSameIDRetries(t *testing.T
 
 func TestCommandDuplicateAndInlineSSEDedupUseClientMessageID(t *testing.T) {
 	models := chatSource(t, "Quartet/Core/Models/APIModels.swift")
-	chat := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
+	chat := chatSource(t, "Quartet/Features/Chat/ChatViewModel.swift")
 	if !strings.Contains(models, "let clientMessageId: String?") ||
 		!strings.Contains(models, "case type, sessionId, clientMessageId") ||
 		!strings.Contains(models, "clientMessageId = try values.decodeIfPresent(String.self, forKey: .clientMessageId)") {

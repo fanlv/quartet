@@ -38,10 +38,11 @@ func CurrentPlatform() Platform {
 // and Args are executed verbatim (no shell word-splitting); Display is the
 // human-readable rendering shown in the UI and results.
 type InstallStep struct {
-	Program string
-	Args    []string
-	Dir     string
-	Display string
+	Program       string
+	Args          []string
+	Dir           string
+	Display       string
+	SkipIfMissing bool
 }
 
 // PlatformSteps declares host-specific lifecycle commands. Shared applies to
@@ -224,16 +225,30 @@ func NPMUninstallStep(pkg string) InstallStep {
 	return InstallStep{Program: "npm", Args: []string{"uninstall", "-g", pkg}, Display: "npm uninstall -g " + pkg}
 }
 
+// OptionalNPMUninstallStep is used when an Agent may have been installed by
+// either npm or a native installer. A missing npm executable means there is no
+// npm installation to remove; other npm errors still fail with full output.
+func OptionalNPMUninstallStep(pkg string) InstallStep {
+	step := NPMUninstallStep(pkg)
+	step.SkipIfMissing = true
+	return step
+}
+
 // CommandStep builds a shell-free command step used by CLIs with native
 // lifecycle commands.
 func CommandStep(program string, args ...string) InstallStep {
 	return InstallStep{Program: program, Args: append([]string(nil), args...), Display: strings.Join(append([]string{program}, args...), " ")}
 }
 
-// UnixScriptStep downloads an official script and runs it with a Unix shell.
+// UnixScriptStep downloads an official script completely before executing it.
+// This preserves curl failures: a pipeline could otherwise return the shell's
+// success status after receiving an empty script.
 func UnixScriptStep(url, shell string) InstallStep {
-	command := "curl -fsSL " + url + " | " + shell
-	return InstallStep{Program: shell, Args: []string{"-c", command}, Display: command}
+	display := "curl -fsSL " + url + " | " + shell
+	command := "installer=$(mktemp \"${TMPDIR:-/tmp}/quartet-agent-install.XXXXXX\") && " +
+		"trap 'rm -f \"$installer\"' EXIT HUP INT TERM && " +
+		"curl -fsSL " + url + " -o \"$installer\" && " + shell + " \"$installer\""
+	return InstallStep{Program: shell, Args: []string{"-c", command}, Display: display}
 }
 
 // PowerShellScriptStep downloads and executes an official Windows installer.
@@ -292,7 +307,10 @@ func NPMUninstallFlow(packages ...string) PlatformSteps {
 // reports success when a package is absent, so the native-path cleanup remains
 // safe for script installs and npm installs alike.
 func NPMOrNativeUninstallFlow(packages []string, paths ...string) PlatformSteps {
-	steps := NPMUninstallFlow(packages...).Shared
+	steps := make([]InstallStep, 0, len(packages)+1)
+	for index := len(packages) - 1; index >= 0; index-- {
+		steps = append(steps, OptionalNPMUninstallStep(packages[index]))
+	}
 	steps = append(steps, RemovePathsStep(paths...))
 	return PlatformSteps{Shared: steps}
 }

@@ -198,6 +198,23 @@ test('private APIs require the session cookie and CSRF token', async ({ request 
   expect(legacyHeader.status()).toBe(401)
 })
 
+test('legacy Loop job creation and control routes stay removed', async ({ request }) => {
+  const headers = e2eAuthHeaders()
+  const create = await request.post('/api/v1/job/create', {
+    headers,
+    data: { agentType: e2eAgentType, modelId: MODEL_ID, workspaceId: 'ws-1', mode: 'loop' },
+  })
+  expect(create.status()).toBe(400)
+  expect(await create.text()).toContain('mode must be interactive')
+
+  const interactive = await createInteractiveJob(request)
+  const start = await request.post(`/api/v1/job/${interactive.jobId}/start`, { headers })
+  expect(start.status()).toBe(404)
+
+  const templates = await request.get('/api/v1/template/list', { headers })
+  expect(templates.status()).toBe(404)
+})
+
 test('RBAC applies immediately through forced password change and logout', async ({ request }) => {
   const suffix = Date.now().toString(36)
   const username = `viewer-${suffix}`

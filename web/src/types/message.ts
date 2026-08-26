@@ -90,3 +90,23 @@ export interface RunAgentInput {
   state?: Record<string, unknown>;
 }
 
+export interface ScheduleInfo {
+  id: string;
+  name: string;
+  enabled: boolean;
+  cronExpr: string;
+  graphWorkflowId?: string;
+  workspaceId: string;
+  workdir?: string;
+  maxConcurrent?: number;
+  timeout?: number;
+  lastRunAt?: number;
+  lastRunJobID?: string;
+  lastStatus?: string;
+  lastTriggerError?: string;
+  nextRunAt?: number;
+  runCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+

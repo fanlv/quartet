@@ -162,15 +162,15 @@ var builtinAgents = []BuiltinAgent{
 			},
 			UninstallSteps: agentinstall.PlatformSteps{
 				Darwin: []agentinstall.InstallStep{
-					agentinstall.NPMUninstallStep("antigravity-acp"),
+					agentinstall.OptionalNPMUninstallStep("antigravity-acp"),
 					agentinstall.RemovePathsStep(".local/bin/agy"),
 				},
 				Linux: []agentinstall.InstallStep{
-					agentinstall.NPMUninstallStep("antigravity-acp"),
+					agentinstall.OptionalNPMUninstallStep("antigravity-acp"),
 					agentinstall.RemovePathsStep(".local/bin/agy"),
 				},
 				Windows: []agentinstall.InstallStep{
-					agentinstall.NPMUninstallStep("antigravity-acp"),
+					agentinstall.OptionalNPMUninstallStep("antigravity-acp"),
 					agentinstall.RemovePathsStep("AppData/Local/agy/bin"),
 				},
 			},
@@ -206,7 +206,7 @@ var builtinAgents = []BuiltinAgent{
 	{
 		AgentID: "droid", Bin: "droid", ACPProgram: "droid", ACPArgs: []string{"exec", "--output-format", "acp"}, Command: "droid exec --output-format acp", EnvKey: "droid",
 		DisplayName: "Droid", IconURL: "https://avatars.githubusercontent.com/u/131064358", SupportsHeadlessPrint: false,
-		Install: npmInstallSpec("droid"),
+		Install: npmOrNativeInstallSpec([]string{".local/bin/droid", "bin/droid.exe"}, "droid"),
 	},
 	{
 		AgentID: "kimi", Bin: "kimi", ACPProgram: "kimi", ACPArgs: []string{"acp"}, Command: "kimi acp", EnvKey: "kimi",
@@ -217,7 +217,10 @@ var builtinAgents = []BuiltinAgent{
 				agentinstall.UnixScriptStep("https://code.kimi.com/kimi-code/install.sh", "bash"),
 				agentinstall.PowerShellScriptStep("https://code.kimi.com/kimi-code/install.ps1"),
 			),
-			UpgradeSteps: allPlatforms(agentinstall.CommandStep("kimi", "upgrade")),
+			UpgradeSteps: unixAndWindows(
+				agentinstall.UnixScriptStep("https://code.kimi.com/kimi-code/install.sh", "bash"),
+				agentinstall.PowerShellScriptStep("https://code.kimi.com/kimi-code/install.ps1"),
+			),
 			UninstallSteps: agentinstall.NPMOrNativeUninstallFlow(
 				[]string{"@moonshot-ai/kimi-code"}, ".kimi-code/bin",
 			),
@@ -264,10 +267,13 @@ var builtinAgents = []BuiltinAgent{
 			{Kind: IdentifierKindACPCommand, Value: "npx -y opencode-ai acp"},
 		},
 		DisplayName: "OpenCode", IconURL: "https://avatars.githubusercontent.com/in/1549082", SupportsHeadlessPrint: false,
-		Install: npmInstallSpec("opencode-ai"),
+		Install: npmOrNativeInstallSpec([]string{".opencode/bin"}, "opencode-ai"),
 	},
 	{
-		AgentID: "kilocode", Bin: "kilocode", ACPProgram: "npx", ACPArgs: []string{"-y", "@kilocode/cli", "acp"}, Command: "npx -y @kilocode/cli acp", EnvKey: "kilocode",
+		AgentID: "kilocode", Bin: "kilocode", ACPProgram: "kilocode", ACPArgs: []string{"acp"}, Command: "kilocode acp", EnvKey: "kilocode",
+		HistoricalIdentifiers: []HistoricalIdentifier{
+			{Kind: IdentifierKindACPCommand, Value: "npx -y @kilocode/cli acp"},
+		},
 		DisplayName: "KiloCode", IconURL: "https://avatars.githubusercontent.com/u/201822503", SupportsHeadlessPrint: false,
 		Install: npmInstallSpec("@kilocode/cli"),
 	},
@@ -280,10 +286,14 @@ var builtinAgents = []BuiltinAgent{
 		},
 		DisplayName: "QCode", IconURL: "https://avatars.githubusercontent.com/u/141221163", SupportsHeadlessPrint: true,
 		Install: agentinstall.InstallSpec{
-			Method:         agentinstall.InstallMethodNPM,
-			InstallSteps:   agentinstall.NPMInstallFlow("@qodercn-ai/qoderclicn"),
-			UpgradeSteps:   allPlatforms(agentinstall.CommandStep("qoderclicn", "update")),
-			UninstallSteps: agentinstall.NPMUninstallFlow("@qodercn-ai/qoderclicn"),
+			Method:       agentinstall.InstallMethodNPM,
+			InstallSteps: agentinstall.NPMInstallFlow("@qodercn-ai/qoderclicn"),
+			UpgradeSteps: allPlatforms(agentinstall.CommandStep("qoderclicn", "update")),
+			UninstallSteps: agentinstall.NPMOrNativeUninstallFlow(
+				[]string{"@qodercn-ai/qoderclicn"},
+				".local/bin/qoderclicn", ".local/bin/qoderclicn.exe",
+				".qoder-cn/bin", ".qoder-cn/entry/qoder-cn", ".qoder-cn/entry/qodercn",
+			),
 			VersionPackage: "@qodercn-ai/qoderclicn",
 		},
 	},
@@ -316,6 +326,12 @@ func npmInstallSpec(packages ...string) agentinstall.InstallSpec {
 func npmInstallSpecWithUpgrade(upgradeSteps agentinstall.PlatformSteps, packages ...string) agentinstall.InstallSpec {
 	spec := npmInstallSpec(packages...)
 	spec.UpgradeSteps = upgradeSteps
+	return spec
+}
+
+func npmOrNativeInstallSpec(nativePaths []string, packages ...string) agentinstall.InstallSpec {
+	spec := npmInstallSpec(packages...)
+	spec.UninstallSteps = agentinstall.NPMOrNativeUninstallFlow(packages, nativePaths...)
 	return spec
 }
 

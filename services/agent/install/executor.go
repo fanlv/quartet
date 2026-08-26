@@ -103,6 +103,11 @@ func runStep(ctx context.Context, step InstallStep, timeout time.Duration) (resu
 	}
 	if err := cmd.Start(); err != nil {
 		result.DurationMs = time.Since(started).Milliseconds()
+		if step.SkipIfMissing && errors.Is(err, exec.ErrNotFound) {
+			result.ExitCode = 0
+			result.Stdout = fmt.Sprintf("skipped %s because %s is not installed\n", step.Display, step.Program)
+			return result
+		}
 		result.Error = fmt.Sprintf("start install step failed: %v", err)
 		return result
 	}
@@ -220,13 +225,18 @@ func removeUserPaths(ctx context.Context, relativePaths []string, result *StepRe
 	if err != nil {
 		return fmt.Errorf("resolve absolute user home for uninstall failed: %w", err)
 	}
+	realHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return fmt.Errorf("resolve real user home for uninstall failed: %w", err)
+	}
 	for _, relativePath := range relativePaths {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		originalPath := relativePath
 		relativePath = filepath.FromSlash(strings.TrimSpace(relativePath))
 		if relativePath == "" || filepath.IsAbs(relativePath) {
-			return fmt.Errorf("refuse unsafe uninstall path %q: expected a path relative to the user home", relativePath)
+			return fmt.Errorf("refuse unsafe uninstall path %q: expected a path relative to the user home", originalPath)
 		}
 		target, err := filepath.Abs(filepath.Join(home, relativePath))
 		if err != nil {
@@ -236,12 +246,37 @@ func removeUserPaths(ctx context.Context, relativePaths []string, result *StepRe
 		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("refuse unsafe uninstall path %q outside user home %q", target, home)
 		}
+		if err := validateExistingParentInsideHome(realHome, target); err != nil {
+			return err
+		}
 		if err := os.RemoveAll(target); err != nil {
 			return fmt.Errorf("remove %q failed: %w", target, err)
 		}
 		result.Stdout += fmt.Sprintf("removed %s\n", target)
 	}
 	return nil
+}
+
+func validateExistingParentInsideHome(realHome, target string) error {
+	parent := filepath.Dir(target)
+	for {
+		realParent, err := filepath.EvalSymlinks(parent)
+		if err == nil {
+			rel, relErr := filepath.Rel(realHome, realParent)
+			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("refuse uninstall path %q: parent resolves outside user home %q", target, realHome)
+			}
+			return nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("resolve uninstall path parent %q failed: %w", parent, err)
+		}
+		next := filepath.Dir(parent)
+		if next == parent {
+			return fmt.Errorf("resolve existing parent for uninstall path %q failed", target)
+		}
+		parent = next
+	}
 }
 
 func buildEinoCLI(ctx context.Context, result *StepResult) error {
