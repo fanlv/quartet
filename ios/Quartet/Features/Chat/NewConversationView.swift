@@ -355,7 +355,7 @@ struct NewConversationView: View {
                         .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(selected ? QuartetTheme.primaryText : QuartetTheme.secondaryText)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 42)
+                        .frame(minHeight: 42)
                         .background(selected ? QuartetTheme.surface : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .shadow(color: selected ? Color.black.opacity(0.08) : .clear, radius: 8, y: 3)
                 }
@@ -1327,7 +1327,7 @@ struct WorkspaceLaunchPicker: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title.localizedForApp)
-                        .font(.quartet(.control, weight: .semibold))
+                        .font(.quartet(.regular, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .lineLimit(1)
                     Text(detail.localizedForApp)

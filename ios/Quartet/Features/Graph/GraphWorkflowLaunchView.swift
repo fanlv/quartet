@@ -167,7 +167,7 @@ struct GraphWorkflowLaunchView: View {
                     configurationIcon("point.3.connected.trianglepath.dotted")
                     VStack(alignment: .leading, spacing: 3) {
                         Text(selectedSummary?.name ?? "选择工作流")
-                            .font(.quartet(.control, weight: .semibold))
+                            .font(.quartet(.regular, weight: .semibold))
                             .foregroundStyle(QuartetTheme.primaryText)
                             .lineLimit(2)
                         if let summary = selectedSummary {
@@ -177,7 +177,7 @@ struct GraphWorkflowLaunchView: View {
                             if let description = summary.description?.trimmingCharacters(in: .whitespacesAndNewlines),
                                !description.isEmpty {
                                 Text(description)
-                                    .font(.quartet(.detail))
+                                    .font(.quartet(.control))
                                     .foregroundStyle(QuartetTheme.secondaryText)
                                     .lineLimit(2)
                                     .multilineTextAlignment(.leading)
@@ -219,15 +219,15 @@ struct GraphWorkflowLaunchView: View {
                     configurationIcon("square.stack.3d.up")
                     VStack(alignment: .leading, spacing: 2) {
                         Text("工作空间")
-                            .font(.quartet(.detail))
+                            .font(.quartet(.control, weight: .medium))
                             .foregroundStyle(QuartetTheme.secondaryText)
                         Text(selectedWorkspace?.displayName ?? "未选择工作空间")
-                            .font(.quartet(.control, weight: .semibold))
+                            .font(.quartet(.regular, weight: .semibold))
                             .foregroundStyle(QuartetTheme.primaryText)
                             .lineLimit(1)
                         if let effectiveWorkdir {
                             Text(effectiveWorkdir)
-                                .font(.quartet(.compact))
+                                .font(.quartet(.detail))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -263,10 +263,10 @@ struct GraphWorkflowLaunchView: View {
                 configurationIcon("slider.horizontal.3")
                 VStack(alignment: .leading, spacing: 2) {
                     Text("全局配置")
-                        .font(.quartet(.control, weight: .semibold))
+                        .font(.quartet(.regular, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                     Text(globalConfigurationSummary(config))
-                        .font(.quartet(.detail))
+                        .font(.quartet(.control))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .lineLimit(1)
                 }
@@ -306,10 +306,10 @@ struct GraphWorkflowLaunchView: View {
                             GraphNodeBadge(type: node.type)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(node.displayName)
-                                    .font(.quartet(.control, weight: .semibold))
+                                    .font(.quartet(.regular, weight: .semibold))
                                     .foregroundStyle(QuartetTheme.primaryText)
                                 Text(nodeSummary(node))
-                                    .font(.quartet(.detail))
+                                    .font(.quartet(.control))
                                     .foregroundStyle(QuartetTheme.secondaryText)
                                     .lineLimit(2)
                             }
@@ -344,7 +344,7 @@ struct GraphWorkflowLaunchView: View {
                     .foregroundStyle(QuartetTheme.failed)
                 ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in
                     Text("\(warning.file)\n\(warning.error)")
-                        .font(.quartet(.detail, design: .monospaced))
+                        .font(.quartet(.control, design: .monospaced))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .textSelection(.enabled)
                 }
@@ -372,7 +372,7 @@ struct GraphWorkflowLaunchView: View {
                 .font(.quartet(.regular, weight: .semibold))
                 .foregroundStyle(QuartetTheme.onAccent)
                 .padding(.horizontal, 18)
-                .frame(height: 54)
+                .frame(minHeight: 54)
                 .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .disabled(cannotStart)
@@ -627,7 +627,7 @@ struct GraphWorkflowLaunchView: View {
             .foregroundStyle(QuartetTheme.secondaryText)
             .lineLimit(1)
             .padding(.horizontal, 9)
-            .frame(height: 26)
+            .frame(minHeight: 26)
             .background(QuartetTheme.elevated, in: Capsule())
     }
 
@@ -700,7 +700,7 @@ private struct GraphWorkflowTemplatePicker: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(workflow.name)
-                        .font(.quartet(.control, weight: .semibold))
+                        .font(.quartet(.regular, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -782,6 +782,20 @@ private struct GraphNodeBadge: View {
     }
 }
 
+/// Graph 表单的语义排版。字号仍全部来自 App 的统一排版入口，这里只固定表单内的层级关系：
+/// 卡片标题 > 字段标签 > 输入内容 > 辅助说明。
+private enum GraphTypography {
+    static var cardTitle: Font { .quartet(.regular, weight: .semibold) }
+    static var fieldLabel: Font { .quartet(.control, weight: .semibold) }
+    static var fieldValue: Font { .quartet(.regular) }
+    static var emphasizedFieldValue: Font { .quartet(.regular, weight: .medium) }
+    static var hint: Font { .quartet(.detail) }
+
+    static func fieldValue(monospaced: Bool) -> Font {
+        monospaced ? .quartet(.regular, design: .monospaced) : fieldValue
+    }
+}
+
 /// Graph 编辑弹窗共用的卡片容器，样式跟随定时任务编辑器与首页弹窗。
 private struct GraphEditorCard<Content: View>: View {
     let title: String
@@ -795,10 +809,19 @@ private struct GraphEditorCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title.localizedForApp, systemImage: systemImage)
-                .font(.quartet(.control, weight: .semibold))
-                .foregroundStyle(QuartetTheme.primaryText)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 9) {
+                Image(systemName: systemImage)
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.accent)
+                    .frame(width: 28, height: 28)
+                    .background(QuartetTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .accessibilityHidden(true)
+                Text(title.localizedForApp)
+                    .font(GraphTypography.cardTitle)
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .accessibilityAddTraits(.isHeader)
+            }
             content
         }
         .padding(16)
@@ -813,24 +836,62 @@ private struct GraphEditorCard<Content: View>: View {
     }
 }
 
+@MainActor
 private func graphFieldLabel(_ title: String) -> some View {
     Text(title.localizedForApp)
-        .font(.quartet(.detail, weight: .semibold))
-        .foregroundStyle(QuartetTheme.secondaryText)
+        .font(GraphTypography.fieldLabel)
+        .foregroundStyle(QuartetTheme.primaryText)
         .frame(maxWidth: .infinity, alignment: .leading)
 }
 
+@MainActor
 private func graphFieldHint(_ text: String) -> some View {
     Text(text.localizedForApp)
-        .font(.quartet(.detail))
+        .font(GraphTypography.hint)
         .foregroundStyle(QuartetTheme.secondaryText)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .lineSpacing(2)
 }
 
+@MainActor
 private var graphFieldDivider: some View {
     Divider().overlay(QuartetTheme.divider)
 }
 
+private extension View {
+    @ViewBuilder
+    func graphInputChrome(
+        background: Color = QuartetTheme.elevated,
+        multiline: Bool = false
+    ) -> some View {
+        if multiline {
+            self
+                .foregroundStyle(QuartetTheme.primaryText)
+                .tint(QuartetTheme.accent)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(QuartetTheme.divider.opacity(0.8))
+                }
+        } else {
+            self
+                .foregroundStyle(QuartetTheme.primaryText)
+                .tint(QuartetTheme.accent)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 50)
+                .background(background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(QuartetTheme.divider.opacity(0.8))
+                }
+        }
+    }
+}
+
+@MainActor
 private func graphSingleLineField(
     _ title: String,
     text: Binding<String>,
@@ -840,43 +901,45 @@ private func graphSingleLineField(
     hint: String? = nil,
     identifier: String? = nil
 ) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: 8) {
         graphFieldLabel(title)
         TextField(prompt.isEmpty ? title : prompt, text: text)
-            .font(monospaced ? .quartet(.regular, design: .monospaced) : .quartet(.regular))
+            .font(GraphTypography.fieldValue(monospaced: monospaced))
             .keyboardType(numeric ? .numberPad : .default)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .padding(.horizontal, 14)
-            .frame(height: 48)
-            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .graphInputChrome()
+            .accessibilityLabel(title.localizedForApp)
             .accessibilityIdentifier(identifier ?? "")
         if let hint { graphFieldHint(hint) }
     }
 }
 
+@MainActor
 private func graphMultilineField(
     _ title: String,
     text: Binding<String>,
     prompt: String,
+    monospaced: Bool = false,
     hint: String? = nil,
     identifier: String? = nil
 ) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: 8) {
         graphFieldLabel(title)
         TextField(prompt, text: text, axis: .vertical)
             .lineLimit(4...12)
-            .font(.quartet(.regular, design: .monospaced))
+            .font(GraphTypography.fieldValue(monospaced: monospaced))
+            .lineSpacing(3)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .graphInputChrome(multiline: true)
+            .accessibilityLabel(title.localizedForApp)
             .accessibilityIdentifier(identifier ?? "")
         if let hint { graphFieldHint(hint) }
     }
 }
 
+@MainActor
 private func graphSelectionField(
     _ title: String,
     value: String,
@@ -884,22 +947,21 @@ private func graphSelectionField(
     identifier: String,
     action: @escaping () -> Void
 ) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: 8) {
         graphFieldLabel(title)
         Button(action: action) {
             HStack(spacing: 8) {
                 Text(value.localizedForApp)
-                    .font(.quartet(.control, weight: .medium))
+                    .font(GraphTypography.emphasizedFieldValue)
                     .foregroundStyle(placeholder ? QuartetTheme.secondaryText : QuartetTheme.primaryText)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.quartet(.compact, weight: .bold))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
-            .padding(.horizontal, 14)
-            .frame(height: 48)
-            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .graphInputChrome()
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -909,13 +971,14 @@ private func graphSelectionField(
     }
 }
 
+@MainActor
 private func graphValidationCard(_ message: String) -> some View {
     HStack(alignment: .top, spacing: 10) {
         Image(systemName: "exclamationmark.triangle.fill")
             .font(.quartet(.control, weight: .semibold))
             .foregroundStyle(QuartetTheme.failed)
         Text(message)
-            .font(.quartet(.detail))
+            .font(.quartet(.control))
             .foregroundStyle(QuartetTheme.failed)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -925,6 +988,7 @@ private func graphValidationCard(_ message: String) -> some View {
     .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(QuartetTheme.failed.opacity(0.2)))
 }
 
+@MainActor
 private func graphSaveBar(
     title: String,
     disabled: Bool,
@@ -933,10 +997,10 @@ private func graphSaveBar(
 ) -> some View {
     Button(action: action) {
         Text(title.localizedForApp)
-            .font(.quartet(.control, weight: .semibold))
+            .font(.quartet(.regular, weight: .semibold))
             .foregroundStyle(QuartetTheme.onAccent)
             .frame(maxWidth: .infinity)
-            .frame(height: 50)
+            .frame(minHeight: 50)
             .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
     .buttonStyle(.plain)
@@ -1045,21 +1109,25 @@ private struct GraphGlobalConfigurationView: View {
 
     private func variableBlock(_ variable: Binding<GraphVariableDraft>) -> some View {
         let isBuiltIn = variable.wrappedValue.name == "Code" || variable.wrappedValue.name == "Doc"
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                if isBuiltIn {
-                    Label(variable.wrappedValue.name, systemImage: "lock.fill")
-                        .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.primaryText)
-                    Spacer(minLength: 8)
-                } else {
-                    TextField("变量名", text: variable.name)
-                        .font(.quartet(.control, weight: .medium))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .padding(.horizontal, 12)
-                        .frame(height: 42)
-                        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .bottom, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
+                    graphFieldLabel("变量名")
+                    if isBuiltIn {
+                        Label(variable.wrappedValue.name, systemImage: "lock.fill")
+                            .font(GraphTypography.emphasizedFieldValue)
+                            .graphInputChrome(background: QuartetTheme.surface)
+                    } else {
+                        TextField("变量名", text: variable.name)
+                            .font(.quartet(.regular, weight: .medium, design: .monospaced))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .graphInputChrome(background: QuartetTheme.surface)
+                            .accessibilityLabel("变量名")
+                    }
+                }
+
+                if !isBuiltIn {
                     Button {
                         let id = variable.wrappedValue.id
                         quartetDismissKeyboard()
@@ -1068,25 +1136,28 @@ private struct GraphGlobalConfigurationView: View {
                         Image(systemName: "trash")
                             .font(.quartet(.control, weight: .semibold))
                             .foregroundStyle(QuartetTheme.failed)
-                            .frame(width: 42, height: 42)
-                            .background(QuartetTheme.failed.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .frame(width: 50, height: 50)
+                            .background(QuartetTheme.failed.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("删除变量 \(variable.wrappedValue.name)")
                 }
             }
 
-            TextField("变量值", text: variable.value, axis: .vertical)
-                .lineLimit(2...5)
-                .font(.quartet(.regular))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 8) {
+                graphFieldLabel("变量值")
+                TextField("变量值", text: variable.value, axis: .vertical)
+                    .lineLimit(2...5)
+                    .font(GraphTypography.fieldValue)
+                    .lineSpacing(3)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .graphInputChrome(background: QuartetTheme.surface, multiline: true)
+                    .accessibilityLabel("变量值")
+            }
 
             Toggle("禁用此变量", isOn: variable.disabled)
-                .font(.quartet(.detail, weight: .medium))
+                .font(.quartet(.control, weight: .medium))
                 .foregroundStyle(QuartetTheme.primaryText)
                 .tint(QuartetTheme.accent)
         }
@@ -1313,7 +1384,7 @@ private struct GraphNodeConfigurationView: View {
                 GraphNodeBadge(type: draft.type)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(nodeTypeLabel(draft.type))
-                        .font(.quartet(.control, weight: .semibold))
+                        .font(.quartet(.regular, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                     Text(draft.id)
                         .font(.quartet(.detail, design: .monospaced))
@@ -1337,7 +1408,7 @@ private struct GraphNodeConfigurationView: View {
         switch draft.type {
         case "shell":
             GraphEditorCard("Shell", systemImage: "terminal") {
-                graphMultilineField("脚本", text: configBinding(\.script), prompt: "输入 Shell 脚本")
+                graphMultilineField("脚本", text: configBinding(\.script), prompt: "输入 Shell 脚本", monospaced: true)
                 graphFieldDivider
                 outputFields
                 graphFieldDivider
@@ -1352,7 +1423,7 @@ private struct GraphNodeConfigurationView: View {
                 graphFieldDivider
                 timeoutField
                 graphFieldDivider
-                graphMultilineField("完成后 Hook", text: configBinding(\.hookScript), prompt: "可选 Shell 脚本")
+                graphMultilineField("完成后 Hook", text: configBinding(\.hookScript), prompt: "可选 Shell 脚本", monospaced: true)
             }
         case "clarify":
             agentCard
@@ -1369,6 +1440,7 @@ private struct GraphNodeConfigurationView: View {
                     "条件表达式",
                     text: configBinding(\.condition),
                     prompt: "例如：status == \"ready\"",
+                    monospaced: true,
                     hint: "条件为真走 yes 分支，为假走 no 分支。"
                 )
             }
@@ -1438,12 +1510,16 @@ private struct GraphNodeConfigurationView: View {
 
                     if isLinkingThoughtLevels {
                         graphFieldDivider
-                        HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 8) {
                             graphFieldLabel("思考等级")
-                            ProgressView().controlSize(.small)
-                            Text("正在刷新…")
-                                .font(.quartet(.detail))
-                                .foregroundStyle(QuartetTheme.secondaryText)
+                            HStack(spacing: 10) {
+                                ProgressView().controlSize(.small)
+                                Text("正在刷新…")
+                                    .font(GraphTypography.fieldValue)
+                                    .foregroundStyle(QuartetTheme.secondaryText)
+                                Spacer(minLength: 0)
+                            }
+                            .graphInputChrome()
                         }
                     } else if !(linkedThoughtLevels?.availableThoughtLevels ?? []).isEmpty {
                         graphFieldDivider
@@ -1474,8 +1550,10 @@ private struct GraphNodeConfigurationView: View {
             "输出变量",
             text: $outputVariables,
             prompt: "逗号分隔，例如：result, summary",
+            monospaced: true,
             identifier: "graph-node-output-variables"
         )
+        graphFieldDivider
         graphSingleLineField(
             "最后回复别名",
             text: configBinding(\.lastAssistantAlias),
@@ -1501,12 +1579,18 @@ private struct GraphNodeConfigurationView: View {
                     Text("固定次数").tag("fixed")
                     Text("满足条件前持续").tag("until")
                 }
+                .font(.quartet(.control, weight: .medium))
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
             graphFieldDivider
             if config.loopMode == "until" {
-                graphMultilineField("终止条件", text: configBinding(\.untilCondition), prompt: "输入条件表达式")
+                graphMultilineField(
+                    "终止条件",
+                    text: configBinding(\.untilCondition),
+                    prompt: "输入条件表达式",
+                    monospaced: true
+                )
                 graphFieldDivider
                 graphSingleLineField(
                     "最大迭代次数",
@@ -1538,7 +1622,7 @@ private struct GraphNodeConfigurationView: View {
             }
             if config.endHookMode == "custom" {
                 graphFieldDivider
-                graphMultilineField("Hook 脚本", text: configBinding(\.hookScript), prompt: "输入 Shell 脚本")
+                graphMultilineField("Hook 脚本", text: configBinding(\.hookScript), prompt: "输入 Shell 脚本", monospaced: true)
             }
             graphFieldHint("结束 Hook 的输出会被忽略，失败只记录日志，不改变工作流结果。")
         }

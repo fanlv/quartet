@@ -416,7 +416,17 @@ struct RunningBorderSweep: View {
     var lineWidth: CGFloat = 1.5
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var sweeps = false
+    @State private var phase: Double = 0
+
+    /// The comet is a stack of short segments, brightest at the head, each trailing the one in front of it by
+    /// `segmentStep` of the perimeter. The length is an exact multiple of the step on purpose: every point of the
+    /// tail is then covered by the same number of segments, and the brightness falls off evenly. At 2.5 steps per
+    /// segment the count oscillated between two and three and the tail rippled light-dark-light along a long
+    /// border. The count is kept low deliberately — each segment re-trims the border path on every frame, and a
+    /// hair of blur hides the remaining seams far more cheaply than more segments would.
+    private static let segmentCount = 8
+    private static let segmentLength: Double = 0.05
+    private static let segmentStep: Double = 0.0125
 
     var body: some View {
         ZStack {
@@ -431,49 +441,91 @@ struct RunningBorderSweep: View {
                 comet
             }
         }
-        .onAppear { sweeps = true }
-        .onDisappear { sweeps = false }
+        .onAppear { phase = 1 }
+        .onDisappear { phase = 0 }
     }
 
-    /// A bright head with a long fading tail, produced by rotating an angular gradient behind a fixed
-    /// border-shaped mask. Rotating the stroked shape itself would spin the square; rotating only the
-    /// light leaves the surface still and sends the highlight around the corners.
+    /// A bright head with a fading tail, walked along the border by *arc length*.
     ///
-    /// The gradient is uniform in *angle*, and a rounded rectangle is not, so its stops cover uneven amounts
-    /// of perimeter as they pass a corner. Two consequences shape the stops below. The tail is spread over
-    /// most of the loop, because a short comet would visibly shrink to a nub at the corners. And the head
-    /// peaks just before the wrap and fades back to clear at it, so the seam joins clear to clear: taking
-    /// the head to full brightness *at* the wrap left a hard radial cut behind it, which landed on the
-    /// corners as a chopped blob rather than a leading edge.
+    /// The obvious implementation — rotating an angular gradient behind a border-shaped mask — is wrong for
+    /// anything but a square. An angular gradient is uniform in *angle*, so on a wide card its stops cover
+    /// wildly uneven amounts of perimeter: the head sprints along the long edges, crawls at the short ones,
+    /// and the tail surfaces on the opposite edge at the same time, which reads as two dashes floating near
+    /// the card rather than as one highlight tracing it. Trimming the border path instead is parameterised by
+    /// length, so the highlight keeps its size and speed on a 34pt tile and on a full-width card alike.
     private var comet: some View {
-        Rectangle()
-            .fill(
-                AngularGradient(
-                    stops: [
-                        .init(color: color.opacity(0), location: 0),
-                        .init(color: color.opacity(0), location: 0.34),
-                        .init(color: color.opacity(0.12), location: 0.6),
-                        .init(color: color.opacity(0.34), location: 0.79),
-                        .init(color: color.opacity(0.72), location: 0.9),
-                        .init(color: color, location: 0.94),
-                        .init(color: color.opacity(0), location: 1)
-                    ],
-                    center: .center
+        ZStack {
+            // Tail first, head last: a ZStack draws later views on top, and the dim tail painted over the head
+            // muddies exactly the part of the streak that should be brightest.
+            ForEach(0..<Self.segmentCount, id: \.self) { index in
+                RunningSweepSegment(
+                    phase: phase - Double(Self.segmentCount - 1 - index) * Self.segmentStep,
+                    length: Self.segmentLength,
+                    cornerRadius: cornerRadius,
+                    cornerStyle: cornerStyle,
+                    // Sits on the track and is drawn a little heavier, so with the glow the highlight reads as
+                    // light spilling off the surface. Confined to the track's own width it stayed a faint
+                    // unevenness in the border at a glance.
+                    inset: lineWidth / 2
                 )
-            )
-            // Overscaled so the mask's corners stay covered once the gradient's square is off-axis.
-            .scaleEffect(1.5)
-            .rotationEffect(.degrees(sweeps ? 360 : 0))
-            .animation(QuartetRunningMotion.sweep, value: sweeps)
-            // The moving stroke is heavier than the track and straddles the edge rather than sitting inside
-            // it, so with the glow the highlight reads as light spilling off the surface. Confined to the
-            // track's own width it stayed a faint unevenness in the border at a glance.
-            .mask { shape.inset(by: -0.5).stroke(lineWidth: lineWidth + 1) }
-            .shadow(color: color.opacity(0.4), radius: 2.5)
+                .stroke(
+                    color.opacity(Self.brightness(at: Self.segmentCount - 1 - index)),
+                    style: StrokeStyle(lineWidth: lineWidth + 1, lineCap: .round)
+                )
+            }
+        }
+        .animation(QuartetRunningMotion.sweep, value: phase)
+        // Softens the seams between segments, which are otherwise visible as faint beads along the tail on a
+        // long border — a segment count fine enough to hide them on a full-width card would be several times
+        // what a list row should be paying per frame. Kept under a point so the head stays a crisp core.
+        .blur(radius: 0.6)
+        .shadow(color: color.opacity(0.35), radius: 2.5)
+    }
+
+    /// Squared falloff: the head stays clearly the brightest point instead of the tail reading as a uniform
+    /// ring of light that happens to have a gap in it.
+    private static func brightness(at index: Int) -> Double {
+        let position = 1 - Double(index) / Double(segmentCount)
+        return position * position
     }
 
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: cornerRadius, style: cornerStyle)
+    }
+}
+
+/// One link of `RunningBorderSweep`'s comet: the slice of a rounded-rectangle border running from `phase` to
+/// `phase + length`, measured as a fraction of the perimeter and wrapping at the seam.
+private struct RunningSweepSegment: Shape {
+    var phase: Double
+    let length: Double
+    let cornerRadius: CGFloat
+    let cornerStyle: RoundedCornerStyle
+    let inset: CGFloat
+
+    /// Animating the phase itself keeps the walk continuous: the wrap from 1 back to 0 lands on the same point
+    /// of the border, so a plain repeating 0→1 animation loops seamlessly.
+    var animatableData: Double {
+        get { phase }
+        set { phase = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        // Inset shrinks the radius alongside the rect, or the trimmed slice rides a contour that is no longer
+        // parallel to the border it is meant to be lighting.
+        let border = RoundedRectangle(
+            cornerRadius: max(0, cornerRadius - inset),
+            style: cornerStyle
+        )
+        .path(in: rect.insetBy(dx: inset, dy: inset))
+
+        let start = (phase.truncatingRemainder(dividingBy: 1) + 1).truncatingRemainder(dividingBy: 1)
+        let end = start + length
+        var path = border.trimmedPath(from: start, to: min(end, 1))
+        if end > 1 {
+            path.addPath(border.trimmedPath(from: 0, to: end - 1))
+        }
+        return path
     }
 }
 
