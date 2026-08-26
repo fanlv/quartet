@@ -450,6 +450,7 @@ export function AgentInstallSettings() {
   const [versionError, setVersionError] = useState('');
   const [versionsCheckedAt, setVersionsCheckedAt] = useState<number | null>(null);
   const [batchUpgrade, setBatchUpgrade] = useState<BatchUpgradeProgress | null>(null);
+  const [expandedAgentIds, setExpandedAgentIds] = useState<Set<string>>(() => new Set());
   const batchUpgradeRunningRef = useRef(false);
   const installActionRunningRef = useRef(false);
 
@@ -893,6 +894,18 @@ export function AgentInstallSettings() {
     });
   };
 
+  const toggleAgentDetails = (agentId: string) => {
+    setExpandedAgentIds((current) => {
+      const next = new Set(current);
+      if (next.has(agentId)) {
+        next.delete(agentId);
+      } else {
+        next.add(agentId);
+      }
+      return next;
+    });
+  };
+
   const renderIcon = (icon: string) =>
     isImageUrl(icon) ? (
       <img src={resolveIconSrc(icon)} alt="" className="agent-install-icon" referrerPolicy="no-referrer" />
@@ -1002,7 +1015,6 @@ export function AgentInstallSettings() {
                   <span className="agent-version-update-badge">{t('settings.agents.version.updateAvailable')}</span>
                 )}
               </div>
-              {component.error && <pre className="agent-version-component-error">{component.error}</pre>}
             </div>
           ))}
         </div>
@@ -1142,97 +1154,67 @@ export function AgentInstallSettings() {
           const checkFeedback = validationFeedback[agent.agent_id];
           const checking = checkFeedback?.status === 'checking';
           const versionInfo = versions[agent.agent_id];
+          const expanded = expandedAgentIds.has(agent.agent_id);
+          const detailId = `agent-install-details-${agent.agent_id}`;
           const showManual = agent.source === 'builtin' && !agent.deprecated
             && !agent.installed && !agent.auto_installable && !!agent.install_instructions;
           return (
             <div key={agent.agent_id} className="agent-install-card" data-testid="agent-install-card" data-agent-id={agent.agent_id}>
               <div className="agent-install-card-head">
-                {renderIcon(agent.icon_url)}
-                <div className="agent-install-card-title">
-                  <span className="agent-install-name">{agent.display_name}</span>
-                  {agent.source === 'builtin' && agent.install_method && (
-                    <span className={`agent-install-method method-${agent.install_method}`}>
-                      {t(`settings.agents.method.${agent.install_method}`)}
+                <button
+                  type="button"
+                  className="agent-install-card-toggle"
+                  aria-expanded={expanded}
+                  aria-controls={detailId}
+                  aria-label={t(expanded ? 'settings.agents.collapseDetails' : 'settings.agents.expandDetails', {
+                    name: agent.display_name || agent.agent_id,
+                  })}
+                  onClick={() => toggleAgentDetails(agent.agent_id)}
+                  data-testid="agent-install-card-toggle"
+                >
+                  {renderIcon(agent.icon_url)}
+                  <span className="agent-install-card-heading">
+                    <span className="agent-install-card-title">
+                      <span className="agent-install-name">{agent.display_name}</span>
+                      {agent.source === 'builtin' && agent.install_method && (
+                        <span className={`agent-install-method method-${agent.install_method}`}>
+                          {t(`settings.agents.method.${agent.install_method}`)}
+                        </span>
+                      )}
+                      {agent.source === 'custom' && (
+                        <span className="agent-install-method method-custom">{t('settings.agents.source.custom')}</span>
+                      )}
                     </span>
-                  )}
-                  {agent.source === 'custom' && (
-                    <span className="agent-install-method method-custom">{t('settings.agents.source.custom')}</span>
-                  )}
-                </div>
-                <div className="agent-install-actions">
-                  {agent.source === 'builtin' && !agent.deprecated && !agent.installed && agent.auto_installable && (
-                    <button
-                      className="agent-install-btn"
-                      disabled={installBusy !== null || managementPending !== '' || form !== null}
-                      onClick={() => void install(agent.agent_id)}
-                      data-testid="agent-install-button"
-                    >
-                      {busy && installBusy?.action === 'install'
-                        ? t('settings.agents.installing')
-                        : t('settings.agents.install')}
-                    </button>
-                  )}
-                  {agent.source === 'builtin' && !agent.deprecated && agent.installed
-                    && versionInfo?.update_available && versionInfo.upgrade_supported && (
-                    <button
-                      className="settings-btn agent-upgrade-btn"
-                      disabled={installBusy !== null || managementPending !== '' || form !== null}
-                      onClick={() => void upgrade(agent)}
-                      data-testid="agent-upgrade-button"
-                    >
-                      {busy && installBusy?.action === 'upgrade'
-                        ? t('settings.agents.version.upgrading')
-                        : t('settings.agents.version.upgrade')}
-                    </button>
-                  )}
-                  {agent.source === 'builtin' && !agent.deprecated && agent.installed && agent.auto_uninstallable && (
-                    <button
-                      className="settings-btn settings-btn-danger"
-                      disabled={installBusy !== null || managementPending !== '' || form !== null}
-                      onClick={() => void uninstall(agent)}
-                      data-testid="agent-uninstall-button"
-                    >
-                      {busy && installBusy?.action === 'uninstall' ? t('settings.agents.uninstalling') : t('settings.agents.uninstall')}
-                    </button>
-                  )}
-                  {agent.lifecycle !== 'deleted' && !agent.deprecated && agent.installed && (
-                    <button
-                      className="settings-btn settings-btn-secondary agent-check-btn"
-                      disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null}
-                      onClick={() => void revalidate(agent)}
-                      title={t('settings.agents.checkAvailabilityHint')}
-                      aria-label={t('settings.agents.checkAvailabilityFor', { name: agent.display_name })}
-                      aria-describedby={checkFeedback ? `agent-check-feedback-${agent.agent_id}` : undefined}
-                    >
-                      {checking && <span className="agent-check-spinner" aria-hidden="true" />}
-                      {t(checking ? 'settings.agents.checkingAvailability' : 'settings.agents.checkAvailability')}
-                    </button>
-                  )}
-                  {agent.source === 'custom' && agent.lifecycle === 'active' && (
-                    <>
-                      <button className="settings-btn settings-btn-secondary" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => openCustomForm(agent)}>
-                        {t('common.edit')}
-                      </button>
-                      <button className="settings-btn settings-btn-danger" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => void deleteCustom(agent)}>
-                        {t('common.delete')}
-                      </button>
-                      <button className="settings-btn settings-btn-danger" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => void deleteCustom(agent, true)}>
-                        {t('settings.agents.forceDelete')}
-                      </button>
-                    </>
-                  )}
-                  {agent.source === 'custom' && agent.lifecycle === 'deleting' && (
-                    <button className="settings-btn settings-btn-danger" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => void deleteCustom(agent, true)}>
-                      {t('common.retry')}
-                    </button>
-                  )}
-                  {agent.source === 'custom' && agent.lifecycle === 'deleted' && (
-                    <button className="settings-btn settings-btn-secondary" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => openCustomForm(agent, true)}>
-                      {t('common.restore')}
-                    </button>
-                  )}
-                </div>
+                    <span className="agent-install-meta">
+                      <span className={`agent-status agent-status-${agent.availability}`}>
+                        {t(`settings.agents.status.${agent.availability}`)}
+                      </span>
+                      {agent.refreshing && <span>{t('settings.agents.status.refreshing')}</span>}
+                      {agent.current_revision && <code className="agent-install-rev">{agent.current_revision}</code>}
+                    </span>
+                  </span>
+                  <span className="agent-install-toggle-label">
+                    {t(expanded ? 'settings.agents.collapse' : 'settings.agents.expand')}
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <path d={expanded ? 'M5 12.5 10 7.5l5 5' : 'm5 7.5 5 5 5-5'} />
+                    </svg>
+                  </span>
+                </button>
               </div>
+
+              {(agent.availability_error || agent.delete_error) && (
+                <pre className="agent-directory-error">{agent.availability_error || agent.delete_error}</pre>
+              )}
+              {agent.availability === 'not_installed' && agent.last_validation_error && (
+                <pre className="agent-directory-error">{agent.last_validation_error}</pre>
+              )}
+              {versionInfo?.components.filter((component) => !!component.error).map((component) => (
+                <pre key={`${component.kind}-${component.name}`} className="agent-directory-error">
+                  {component.name}
+                  {'\n'}
+                  {component.error}
+                </pre>
+              ))}
 
               {checkFeedback && (
                 <div
@@ -1259,8 +1241,6 @@ export function AgentInstallSettings() {
                 </div>
               )}
 
-              {renderVersionInfo(agent, versionInfo)}
-
               {busy && installBusy && (
                 <div className={`agent-install-progress ${installBusy.action === 'upgrade' ? 'upgrade' : ''}`} role="status" aria-live="polite">
                   <span className="agent-check-spinner" aria-hidden="true" />
@@ -1271,70 +1251,140 @@ export function AgentInstallSettings() {
                 </div>
               )}
 
-              <div className="agent-install-card-body">
-                <div className="agent-install-meta">
-                  <span className={`agent-status agent-status-${agent.availability}`}>
-                    {t(`settings.agents.status.${agent.availability}`)}
-                  </span>
-                  {agent.refreshing && <span>{t('settings.agents.status.refreshing')}</span>}
-                  {agent.current_revision && <code className="agent-install-rev">{agent.current_revision}</code>}
-                </div>
-                <div className="agent-install-row">
-                  <span className="agent-install-label">Agent ID</span>
-                  <code>{agent.agent_id}</code>
-                </div>
-                <div className="agent-install-row">
-                  <span className="agent-install-label">{t('settings.agents.launchDefinition')}</span>
-                  <code>{command}</code>
-                </div>
-                {agent.install_commands && agent.install_commands.length > 0 && (
+              {expanded && (
+                <div
+                  id={detailId}
+                  className="agent-install-card-body"
+                  role="region"
+                  aria-label={t('settings.agents.detailsFor', { name: agent.display_name || agent.agent_id })}
+                  data-testid="agent-install-card-details"
+                >
+                  <div className="agent-install-actions">
+                    {agent.source === 'builtin' && !agent.deprecated && !agent.installed && agent.auto_installable && (
+                      <button
+                        className="agent-install-btn"
+                        disabled={installBusy !== null || managementPending !== '' || form !== null}
+                        onClick={() => void install(agent.agent_id)}
+                        data-testid="agent-install-button"
+                      >
+                        {busy && installBusy?.action === 'install'
+                          ? t('settings.agents.installing')
+                          : t('settings.agents.install')}
+                      </button>
+                    )}
+                    {agent.source === 'builtin' && !agent.deprecated && agent.installed
+                      && versionInfo?.update_available && versionInfo.upgrade_supported && (
+                      <button
+                        className="settings-btn agent-upgrade-btn"
+                        disabled={installBusy !== null || managementPending !== '' || form !== null}
+                        onClick={() => void upgrade(agent)}
+                        data-testid="agent-upgrade-button"
+                      >
+                        {busy && installBusy?.action === 'upgrade'
+                          ? t('settings.agents.version.upgrading')
+                          : t('settings.agents.version.upgrade')}
+                      </button>
+                    )}
+                    {agent.source === 'builtin' && !agent.deprecated && agent.installed && agent.auto_uninstallable && (
+                      <button
+                        className="settings-btn settings-btn-danger"
+                        disabled={installBusy !== null || managementPending !== '' || form !== null}
+                        onClick={() => void uninstall(agent)}
+                        data-testid="agent-uninstall-button"
+                      >
+                        {busy && installBusy?.action === 'uninstall' ? t('settings.agents.uninstalling') : t('settings.agents.uninstall')}
+                      </button>
+                    )}
+                    {agent.lifecycle !== 'deleted' && !agent.deprecated && agent.installed && (
+                      <button
+                        className="settings-btn settings-btn-secondary agent-check-btn"
+                        disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null}
+                        onClick={() => void revalidate(agent)}
+                        title={t('settings.agents.checkAvailabilityHint')}
+                        aria-label={t('settings.agents.checkAvailabilityFor', { name: agent.display_name })}
+                        aria-describedby={checkFeedback ? `agent-check-feedback-${agent.agent_id}` : undefined}
+                      >
+                        {checking && <span className="agent-check-spinner" aria-hidden="true" />}
+                        {t(checking ? 'settings.agents.checkingAvailability' : 'settings.agents.checkAvailability')}
+                      </button>
+                    )}
+                    {agent.source === 'custom' && agent.lifecycle === 'active' && (
+                      <>
+                        <button className="settings-btn settings-btn-secondary" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => openCustomForm(agent)}>
+                          {t('common.edit')}
+                        </button>
+                        <button className="settings-btn settings-btn-danger" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => void deleteCustom(agent)}>
+                          {t('common.delete')}
+                        </button>
+                        <button className="settings-btn settings-btn-danger" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => void deleteCustom(agent, true)}>
+                          {t('settings.agents.forceDelete')}
+                        </button>
+                      </>
+                    )}
+                    {agent.source === 'custom' && agent.lifecycle === 'deleting' && (
+                      <button className="settings-btn settings-btn-danger" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => void deleteCustom(agent, true)}>
+                        {t('common.retry')}
+                      </button>
+                    )}
+                    {agent.source === 'custom' && agent.lifecycle === 'deleted' && (
+                      <button className="settings-btn settings-btn-secondary" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => openCustomForm(agent, true)}>
+                        {t('common.restore')}
+                      </button>
+                    )}
+                  </div>
+
+                  {renderVersionInfo(agent, versionInfo)}
                   <div className="agent-install-row">
-                    <span className="agent-install-label">{t('settings.agents.installCommands')}</span>
-                    <div className="agent-install-commands">
-                      {agent.install_commands.map((cmd) => <code key={cmd}>{cmd}</code>)}
-                    </div>
+                    <span className="agent-install-label">Agent ID</span>
+                    <code>{agent.agent_id}</code>
                   </div>
-                )}
-                {agent.uninstall_commands && agent.uninstall_commands.length > 0 && (
                   <div className="agent-install-row">
-                    <span className="agent-install-label">{t('settings.agents.uninstallCommands')}</span>
-                    <div className="agent-install-commands">
-                      {agent.uninstall_commands.map((cmd) => <code key={cmd}>{cmd}</code>)}
-                    </div>
+                    <span className="agent-install-label">{t('settings.agents.launchDefinition')}</span>
+                    <code>{command}</code>
                   </div>
-                )}
-                {showManual && (
-                  <div className="agent-install-instructions">{agent.install_instructions}</div>
-                )}
-                {(agent.availability_error || agent.delete_error) && (
-                  <pre className="agent-directory-error">{agent.availability_error || agent.delete_error}</pre>
-                )}
-                {agent.last_validation_status && agent.last_validation_at ? (
-                  <div className="agent-install-meta">
-                    <span>
-                      {t('settings.agents.lastValidation')}: {t(`settings.agents.status.${agent.last_validation_status}`)}
-                    </span>
-                    <span>{new Date(agent.last_validation_at).toLocaleString()}</span>
-                  </div>
-                ) : null}
-                {agent.availability === 'not_installed' && agent.last_validation_error && (
-                  <pre className="agent-directory-error">{agent.last_validation_error}</pre>
-                )}
-                <details className="agent-directory-revisions" onToggle={(event) => {
-                  if (event.currentTarget.open) void loadRevisions(agent.agent_id);
-                }}>
-                  <summary>{t('settings.agents.revisions')}</summary>
-                  {(revisionMap[agent.agent_id] || []).map((revision) => (
-                    <div key={revision.revision} className="agent-directory-revision">
-                      <code>{revision.revision}</code>
-                      <span>{revision.definition.acp_program}</span>
-                      {revision.definition.acp_args.map((arg, index) => (
-                        <code key={`${revision.revision}-${index}`}>{arg}</code>
-                      ))}
+                  {agent.install_commands && agent.install_commands.length > 0 && (
+                    <div className="agent-install-row">
+                      <span className="agent-install-label">{t('settings.agents.installCommands')}</span>
+                      <div className="agent-install-commands">
+                        {agent.install_commands.map((cmd) => <code key={cmd}>{cmd}</code>)}
+                      </div>
                     </div>
-                  ))}
-                </details>
-              </div>
+                  )}
+                  {agent.uninstall_commands && agent.uninstall_commands.length > 0 && (
+                    <div className="agent-install-row">
+                      <span className="agent-install-label">{t('settings.agents.uninstallCommands')}</span>
+                      <div className="agent-install-commands">
+                        {agent.uninstall_commands.map((cmd) => <code key={cmd}>{cmd}</code>)}
+                      </div>
+                    </div>
+                  )}
+                  {showManual && (
+                    <div className="agent-install-instructions">{agent.install_instructions}</div>
+                  )}
+                  {agent.last_validation_status && agent.last_validation_at ? (
+                    <div className="agent-install-meta">
+                      <span>
+                        {t('settings.agents.lastValidation')}: {t(`settings.agents.status.${agent.last_validation_status}`)}
+                      </span>
+                      <span>{new Date(agent.last_validation_at).toLocaleString()}</span>
+                    </div>
+                  ) : null}
+                  <details className="agent-directory-revisions" onToggle={(event) => {
+                    if (event.currentTarget.open) void loadRevisions(agent.agent_id);
+                  }}>
+                    <summary>{t('settings.agents.revisions')}</summary>
+                    {(revisionMap[agent.agent_id] || []).map((revision) => (
+                      <div key={revision.revision} className="agent-directory-revision">
+                        <code>{revision.revision}</code>
+                        <span>{revision.definition.acp_program}</span>
+                        {revision.definition.acp_args.map((arg, index) => (
+                          <code key={`${revision.revision}-${index}`}>{arg}</code>
+                        ))}
+                      </div>
+                    ))}
+                  </details>
+                </div>
+              )}
 
               {requestError && (
                 <div

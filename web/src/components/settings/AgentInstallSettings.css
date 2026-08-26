@@ -254,9 +254,55 @@
 }
 
 .agent-install-card-head {
+  min-width: 0;
+}
+
+.agent-install-card-toggle {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-install-card-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 5px;
+}
+
+.agent-install-card-heading {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.agent-install-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-install-toggle-label svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .agent-check-btn {
@@ -438,6 +484,8 @@
 
 .agent-install-card-body {
   margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e1e8e3;
   display: flex;
   flex-direction: column;
   gap: 6px;

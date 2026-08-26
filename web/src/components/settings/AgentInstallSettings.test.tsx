@@ -88,6 +88,22 @@ function requestPath(input: RequestInfo | URL): string {
   return url.startsWith('http') ? `${new URL(url).pathname}${new URL(url).search}` : url;
 }
 
+function agentCard(agentName: string): HTMLElement {
+  const card = screen.getByText(agentName, { selector: '.agent-install-name' })
+    .closest<HTMLElement>('[data-testid="agent-install-card"]');
+  expect(card).not.toBeNull();
+  return card!;
+}
+
+function expandAgentCard(agentName: string): HTMLElement {
+  const card = agentCard(agentName);
+  const toggle = within(card).getByTestId('agent-install-card-toggle');
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  return card;
+}
+
 describe('clearDeletedAgentLocalPreferences', () => {
   it('clears every adjacent workspace preference for the deleted Agent', () => {
     localStorage.setItem('workspacePrefs_ws-a', JSON.stringify({
@@ -115,6 +131,35 @@ describe('clearDeletedAgentLocalPreferences', () => {
 });
 
 describe('AgentInstallSettings batch upgrades', () => {
+  it('starts every Agent collapsed and toggles each card independently', async () => {
+    const agents = [
+      catalogAgent('first-agent', { display_name: 'First Agent' }),
+      catalogAgent('second-agent', { display_name: 'Second Agent' }),
+    ];
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const path = requestPath(input);
+      if (path === '/api/v1/agent/catalog') return jsonResponse({ code: 0, agents });
+      if (path === '/api/v1/agent/catalog/deleted') return jsonResponse({ code: 0, agents: [] });
+      if (path === '/api/v1/agent/versions') return jsonResponse({ code: 0, checked_at: 10, agents: [] });
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+
+    render(<AgentInstallSettings />);
+
+    await screen.findByText('First Agent', { selector: '.agent-install-name' });
+    expect(screen.queryByTestId('agent-install-card-details')).not.toBeInTheDocument();
+    const toggles = screen.getAllByTestId('agent-install-card-toggle');
+    expect(toggles).toHaveLength(2);
+    expect(toggles.every((toggle) => toggle.getAttribute('aria-expanded') === 'false')).toBe(true);
+
+    const firstCard = expandAgentCard('First Agent');
+    expect(within(firstCard).getByTestId('agent-install-card-details')).toBeInTheDocument();
+    expect(within(agentCard('Second Agent')).queryByTestId('agent-install-card-details')).not.toBeInTheDocument();
+
+    fireEvent.click(within(firstCard).getByTestId('agent-install-card-toggle'));
+    expect(within(firstCard).queryByTestId('agent-install-card-details')).not.toBeInTheDocument();
+  });
+
   it('offers one-click update only for installed, supported, non-deprecated built-in candidates', async () => {
     const agents = [
       catalogAgent('eligible-agent', { display_name: 'Eligible Agent' }),
@@ -154,8 +199,9 @@ describe('AgentInstallSettings batch upgrades', () => {
     expect(updateAll).toBeEnabled();
     expect(updateAll).toHaveTextContent('Update all');
     expect(screen.getByText('1 Agent update available')).toBeInTheDocument();
+    const eligibleCard = expandAgentCard('Eligible Agent');
     expect(screen.getAllByTestId('agent-upgrade-button')).toHaveLength(1);
-    expect(within(screen.getByText('Eligible Agent').closest('[data-testid="agent-install-card"]')!).getByTestId('agent-upgrade-button')).toBeInTheDocument();
+    expect(within(eligibleCard).getByTestId('agent-upgrade-button')).toBeInTheDocument();
   });
 
   it('runs candidates strictly in catalog order, preserves per-agent outcomes, and refreshes once at the batch end', async () => {
@@ -315,6 +361,7 @@ describe('AgentInstallSettings batch upgrades', () => {
     render(<AgentInstallSettings />);
     const updateAll = await screen.findByTestId('agent-upgrade-all-button');
     await waitFor(() => expect(updateAll).toBeEnabled());
+    expandAgentCard('Double Trigger Agent');
 
     act(() => {
       updateAll.click();
@@ -639,6 +686,8 @@ describe('AgentInstallSettings batch upgrades', () => {
     render(<AgentInstallSettings />);
     const updateAll = await screen.findByTestId('agent-upgrade-all-button');
     await waitFor(() => expect(updateAll).toBeEnabled());
+    expandAgentCard('Upgrade Agent');
+    expandAgentCard('Custom Agent');
 
     await user.click(screen.getByTestId('agent-add-button'));
     expect(screen.getByTestId('agent-custom-save-button')).toBeEnabled();
@@ -689,7 +738,8 @@ describe('AgentInstallSettings batch upgrades', () => {
     });
 
     render(<AgentInstallSettings />);
-    const upgradeButton = await screen.findByTestId('agent-upgrade-button');
+    await screen.findByText('Single Agent', { selector: '.agent-install-name' });
+    const upgradeButton = within(expandAgentCard('Single Agent')).getByTestId('agent-upgrade-button');
     await user.click(upgradeButton);
     expect(await screen.findByText(/Single Agent · Upgraded and validated/)).toBeInTheDocument();
     await waitFor(() => {
