@@ -258,6 +258,12 @@ private struct ChatWebView: UIViewRepresentable {
         context.coordinator.loadIfNeeded(url, in: webView)
     }
 
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.stopLoading()
+    }
+
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var onError: (APIError) -> Void
@@ -307,11 +313,21 @@ private struct ChatWebView: UIViewRepresentable {
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction
         ) async -> WKNavigationActionPolicy {
-            guard let destinationURL = navigationAction.request.url,
-                  let scheme = destinationURL.scheme?.lowercased(),
-                  !["http", "https"].contains(scheme) else {
+            guard let destinationURL = navigationAction.request.url else {
                 return .allow
             }
+
+            // WKWebView 会在初始化、历史返回和销毁期间使用内部空白页。
+            // 这不是用户点击的外部链接，不应触发协议拦截提示。
+            if destinationURL.absoluteString.caseInsensitiveCompare("about:blank") == .orderedSame {
+                return .cancel
+            }
+
+            if let scheme = destinationURL.scheme?.lowercased(),
+               ["http", "https"].contains(scheme) {
+                return .allow
+            }
+
             onError(APIError(
                 summary: "链接已拦截",
                 detail: "WebView 仅允许打开 http/https 链接。\n当前链接：\n\(destinationURL.absoluteString)"
