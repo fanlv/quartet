@@ -230,6 +230,7 @@ struct ChatWebViewPage: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("关闭") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
     }
 }

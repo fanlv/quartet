@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
 )
@@ -258,7 +258,7 @@ func (s *serviceImpl) codexVersion(ctx context.Context) string {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	args := append(parts[1:], "cli", "-V")
-	cmd := exec.CommandContext(cctx, parts[0], args...)
+	cmd := executil.CommandContext(cctx, parts[0], args...)
 	if env := s.codexACPEnv(); len(env) > 0 {
 		cmd.Env = os.Environ()
 		for key, value := range env {

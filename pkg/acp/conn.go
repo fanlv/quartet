@@ -14,6 +14,7 @@ import (
 	acpconn "github.com/eino-contrib/acp/conn"
 	"github.com/eino-contrib/acp/transport/stdio"
 
+	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/pkg/json"
 	"github.com/fanlv/quartet/pkg/logger"
 )
@@ -386,7 +387,7 @@ func NewConn(ctx context.Context, agentType, workdir string) (*Conn, error) {
 		program = parts[0]
 		args = parts[1:]
 	}
-	cmd := exec.Command(program, args...)
+	cmd := executil.Command(program, args...)
 	cmd.Env = append(os.Environ(), ACPChildMarkerEnv+"="+ACPChildMarkerValue)
 	cmd.SysProcAttr = sysProcAttr()
 

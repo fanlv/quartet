@@ -17,11 +17,11 @@ import type { GraphEvent } from '../types/graph';
 // translateGraphEvent maps a graph run's agent-level GraphEvent (the
 // agentMessage* / agentThought* / agentTool* token stream the backend writes to
 // the run's event JSONL — see services/graph/runtime.go graphEventHandler) into
-// the loop-mode AgentEvent shape that useJobChat's handleEvent already knows how
+// the generic AgentEvent shape that useJobChat's handleEvent already knows how
 // to render. Feeding the translated event through handleEvent reuses the entire
-// loop-mode streaming pipeline (per-id bubble creation, thinking vs. content
+// agent streaming pipeline (per-id bubble creation, thinking vs. content
 // routing, tool bubble lifecycle, Finished-status guards, id dedup), so graph
-// agent nodes stream token-by-token exactly like loop iterations.
+// agent nodes stream token-by-token through the same chat renderer.
 //
 // Returns null for events that carry no chat payload (lifecycle, edge/variable,
 // log/error, token usage) — those are handled by the caller's reconcile path.

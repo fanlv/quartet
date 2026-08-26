@@ -4277,6 +4277,22 @@
         }
       }
     },
+    "卸载命令" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstall commands"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卸载命令"
+          }
+        }
+      }
+    },
     "安装失败" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4629,19 +4645,18 @@
         }
       }
     },
-    "将按目录预置流程卸载“%@”。已有的 Job、会话和工作流记录会保留，但在重新安装前无法再运行。" : {
-      "extractionState" : "stale",
+    "将按目录预置流程卸载“%@”：\n%@\n\n只移除程序文件；Agent 的凭据、配置、会话、Job 和工作流记录会保留，但在重新安装前无法再运行。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This uninstalls “%@” through the preset catalog flow. Existing jobs, sessions and workflow records are kept, but cannot run again until it is reinstalled."
+            "value" : "This uninstalls “%@” through the preset catalog flow:\n%@\n\nOnly program files are removed. Agent credentials, settings, sessions, jobs, and workflow records are preserved, but the agent cannot run again until it is reinstalled."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将按目录预置流程卸载“%@”。已有的 Job、会话和工作流记录会保留，但在重新安装前无法再运行。"
+            "value" : "将按目录预置流程卸载“%@”：\n%@\n\n只移除程序文件；Agent 的凭据、配置、会话、Job 和工作流记录会保留，但在重新安装前无法再运行。"
           }
         }
       }

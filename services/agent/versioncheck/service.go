@@ -10,13 +10,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/services/agent/catalog"
 	agentinstall "github.com/fanlv/quartet/services/agent/install"
 	"github.com/fanlv/quartet/types/model"
@@ -74,6 +74,7 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 	publishedURLRefs := make(map[string][]componentRef)
 	binaryTasks := make([]binaryTask, 0)
 	checker := agentinstall.Checker{}
+	platform := agentinstall.CurrentPlatform()
 
 	for _, entry := range entries {
 		var (
@@ -95,10 +96,10 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 			versionPackage = strings.TrimSpace(entry.Builtin.Install.VersionPackage)
 			versionURL = strings.TrimSpace(entry.Builtin.Install.VersionURL)
 			if versionPackage == "" {
-				packages = entry.Builtin.Install.NPMPackages()
+				packages = entry.Builtin.Install.NPMPackages(platform)
 			}
-			probeBinary = versionPackage != "" || versionURL != "" || len(packages) == 0 || entry.Builtin.Install.HasNonNPMSteps()
-			upgradeSupported = entry.Builtin.Install.AutoUpgradeable()
+			probeBinary = versionPackage != "" || versionURL != "" || len(packages) == 0 || entry.Builtin.Install.HasNonNPMSteps(platform)
+			upgradeSupported = entry.Builtin.Install.AutoUpgradeable(platform)
 		case model.AgentCatalogSourceCustom:
 			if entry.Custom == nil || entry.Custom.Lifecycle != model.AgentLifecycleActive {
 				continue
@@ -267,7 +268,7 @@ func inspectBinary(ctx context.Context, binary string) (string, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, binaryTimeout)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(probeCtx, binary, "--version")
+	cmd := executil.CommandContext(probeCtx, binary, "--version")
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
@@ -421,7 +422,7 @@ func runCommand(ctx context.Context, timeout time.Duration, program string, args
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(commandCtx, program, args...)
+	cmd := executil.CommandContext(commandCtx, program, args...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()

@@ -36,7 +36,7 @@ func (h *Handler) tryUpdateSessionTitleFromUserContent(ctx context.Context, s *m
 	}
 }
 
-// runACPInternal executes the ACP agent, usable by Job loop.
+// runACPInternal executes the ACP agent for a Job turn.
 func (h *Handler) runACPInternal(ctx context.Context, s *model.Session, userMessages []*schema.Message, handler agui.EventHandler) error {
 	ss, err := h.getOrCreateSessionService(s.WorkspaceID, s.JobID)
 	if err != nil {

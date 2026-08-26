@@ -81,6 +81,7 @@ type AgentCatalogItem struct {
 	CurrentRevision       string                   `json:"current_revision,omitempty"`
 	InstallMethod         string                   `json:"install_method,omitempty"`
 	InstallCommands       []string                 `json:"install_commands,omitempty"`
+	UninstallCommands     []string                 `json:"uninstall_commands,omitempty"`
 	InstallInstructions   string                   `json:"install_instructions,omitempty"`
 	AutoInstallable       bool                     `json:"auto_installable,omitempty"`
 	AutoUninstallable     bool                     `json:"auto_uninstallable,omitempty"`

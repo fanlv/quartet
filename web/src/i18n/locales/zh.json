@@ -263,6 +263,7 @@
       "installing": "正在安装 Agent…",
       "uninstall": "卸载",
       "uninstalling": "卸载中…",
+      "uninstallConfirm": "确定卸载 {{name}}？将执行以下预置流程：\n\n{{commands}}\n\n仅移除程序文件；Agent 的凭据、配置、会话、Job 和工作流记录会保留。",
       "lastValidation": "上次检查",
       "version": {
         "check": "检查更新",
@@ -319,6 +320,7 @@
       "empty": "所有内置 Agent 均已安装。",
       "launchDefinition": "ACP 启动定义",
       "installCommands": "安装流程",
+      "uninstallCommands": "卸载流程",
       "request": {
         "busyTitle": "已有安装任务正在运行",
         "busyHint": "Quartet 同一时间只执行一个 Agent 安装、升级或卸载任务。请等待当前任务结束后再试。",

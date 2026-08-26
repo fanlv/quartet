@@ -5,14 +5,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/pkg/safe"
 )
 
 const processTreeWaitDelay = 2 * time.Second
+
+const (
+	InternalProgramRemovePaths  = "quartet-internal:remove-user-paths"
+	InternalProgramBuildEinoCLI = "quartet-internal:build-eino-cli"
+)
 
 // installMu serializes all automatic installs process-wide. quartet is a
 // single-user backend, and concurrent global installs (npm especially) can
@@ -60,8 +70,11 @@ func runStep(ctx context.Context, step InstallStep, timeout time.Duration) (resu
 	started := time.Now()
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if strings.HasPrefix(step.Program, "quartet-internal:") {
+		return runInternalStep(stepCtx, step, started, timeout)
+	}
 
-	cmd := exec.Command(step.Program, step.Args...)
+	cmd := commandForStep(step.Program, step.Args...)
 	cmd.Dir = step.Dir
 	processTree, err := newProcessTree(cmd)
 	if err != nil {
@@ -160,6 +173,127 @@ func runStep(ctx context.Context, step InstallStep, timeout time.Duration) (resu
 		result.Error = fmt.Sprintf("install step completed, but terminating leftover process tree failed: %v", cleanupErr)
 	}
 	return result
+}
+
+// commandForStep accounts for Windows package-manager shims. os/exec can find
+// .cmd files through PATHEXT, but CreateProcess cannot execute them directly.
+// Running only the trusted catalog step through cmd.exe preserves argv
+// boundaries and does not expose client input to a shell.
+func commandForStep(program string, args ...string) *exec.Cmd {
+	return executil.Command(program, args...)
+}
+
+func runInternalStep(ctx context.Context, step InstallStep, started time.Time, timeout time.Duration) StepResult {
+	result := StepResult{Display: step.Display, ExitCode: -1}
+	var err error
+	switch step.Program {
+	case InternalProgramRemovePaths:
+		err = removeUserPaths(ctx, step.Args, &result)
+	case InternalProgramBuildEinoCLI:
+		err = buildEinoCLI(ctx, &result)
+	default:
+		err = fmt.Errorf("unknown internal install program %q", step.Program)
+	}
+	result.DurationMs = time.Since(started).Milliseconds()
+	if err == nil {
+		result.ExitCode = 0
+		return result
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		setStepContextError(&result, ctx.Err(), timeout)
+		return result
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		setStepContextError(&result, ctx.Err(), timeout)
+		return result
+	}
+	result.Error = err.Error()
+	return result
+}
+
+func removeUserPaths(ctx context.Context, relativePaths []string, result *StepResult) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve user home for uninstall failed: %w", err)
+	}
+	home, err = filepath.Abs(home)
+	if err != nil {
+		return fmt.Errorf("resolve absolute user home for uninstall failed: %w", err)
+	}
+	for _, relativePath := range relativePaths {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		relativePath = filepath.FromSlash(strings.TrimSpace(relativePath))
+		if relativePath == "" || filepath.IsAbs(relativePath) {
+			return fmt.Errorf("refuse unsafe uninstall path %q: expected a path relative to the user home", relativePath)
+		}
+		target, err := filepath.Abs(filepath.Join(home, relativePath))
+		if err != nil {
+			return fmt.Errorf("resolve uninstall path %q failed: %w", relativePath, err)
+		}
+		rel, err := filepath.Rel(home, target)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("refuse unsafe uninstall path %q outside user home %q", target, home)
+		}
+		if err := os.RemoveAll(target); err != nil {
+			return fmt.Errorf("remove %q failed: %w", target, err)
+		}
+		result.Stdout += fmt.Sprintf("removed %s\n", target)
+	}
+	return nil
+}
+
+func buildEinoCLI(ctx context.Context, result *StepResult) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve user home for eino-cli install failed: %w", err)
+	}
+	installDir := strings.TrimSpace(os.Getenv("INSTALL_BIN_DIR"))
+	if installDir == "" {
+		installDir = filepath.Join(home, ".local", "bin")
+	}
+	installDir, err = filepath.Abs(installDir)
+	if err != nil {
+		return fmt.Errorf("resolve eino-cli install directory failed: %w", err)
+	}
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		return fmt.Errorf("create eino-cli install directory %q failed: %w", installDir, err)
+	}
+	binaryName := "eino-cli"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	target := filepath.Join(installDir, binaryName)
+	temporary := target + fmt.Sprintf(".tmp.%d", os.Getpid())
+	cmd := executil.CommandContext(ctx, "go", "build", "-o", temporary, "./cmd/eino-cli")
+	cmd.Dir = "."
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	result.Stdout += stdout.String()
+	result.Stderr += stderr.String()
+	if err != nil {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("build eino-cli failed: %w", err)
+	}
+	if err := replaceFile(temporary, target); err != nil {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("install eino-cli to %q failed: %w", target, err)
+	}
+	result.Stdout += fmt.Sprintf("installed eino-cli to %s\n", target)
+	return nil
+}
+
+func replaceFile(source, target string) error {
+	if err := os.Rename(source, target); err == nil {
+		return nil
+	}
+	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.Rename(source, target)
 }
 
 func setStepContextError(result *StepResult, err error, timeout time.Duration) {

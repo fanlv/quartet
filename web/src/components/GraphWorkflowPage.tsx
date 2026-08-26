@@ -71,7 +71,7 @@ interface GraphWorkflowPageProps {
   onClose: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   // Called after a run is started so the app can jump into the Chat page for the
-  // bound Graph Job, mirroring the startloop flow.
+  // bound Graph Job, mirroring the normal Graph run launch flow.
   onRunStarted: (jobId: string) => void;
 }
 
@@ -717,7 +717,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
   const [editingRun, setEditingRun] = useState(false);
   const graphEventClientRef = useRef<GraphSSEClient | null>(null);
   // One-shot consumption of the ?graphEditJob=<id> deep-link (from Chat page's
-  // GraphLoop "Edit"): open that job's run directly in run-version edit mode.
+  // GraphRun "Edit"): open that job's run directly in run-version edit mode.
   const editRunIntentRef = useRef<string | null>(
     typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('graphEditJob') : null,
   );
@@ -1487,7 +1487,7 @@ export function GraphWorkflowPage({ workspaceId, workspaceTitle, workspaceWorkdi
       const data = (await res.json()) as { run?: GraphRun };
       if (configFingerprint(buildConfigRef.current()) !== configFingerprint(config)) return;
       // A run binds a Graph-type Job; jump into the Chat page for it like the
-      // startloop flow does, instead of showing the run inline on the canvas.
+      // normal Graph run flow does, instead of showing the run inline on the canvas.
       if (data.run?.jobId) {
         onRunStarted(data.run.jobId);
         return;

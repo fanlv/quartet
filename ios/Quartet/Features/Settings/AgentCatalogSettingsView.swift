@@ -634,6 +634,9 @@ struct AgentCatalogSettingsView: View {
         if !item.installCommands.isEmpty {
             AgentSettingsMonoRow(label: "安装命令", value: item.installCommands.joined(separator: "\n"))
         }
+        if !item.uninstallCommands.isEmpty {
+            AgentSettingsMonoRow(label: "卸载命令", value: item.uninstallCommands.joined(separator: "\n"))
+        }
         if item.supportsHeadlessPrint {
             agentSettingsHint("支持 bin -p 单次执行，可用于标题生成和群回复角色。")
         }
@@ -1075,8 +1078,9 @@ struct AgentCatalogSettingsView: View {
             intent: .uninstall(agentId: item.agentId),
             title: "卸载这个 Agent？",
             message: AppLanguage.localizedFormat(
-                "将按目录预置流程卸载“%@”。已有的 Job、会话和工作流记录会保留，但在重新安装前无法再运行。",
-                item.displayName
+                "将按目录预置流程卸载“%@”：\n%@\n\n只移除程序文件；Agent 的凭据、配置、会话、Job 和工作流记录会保留，但在重新安装前无法再运行。",
+                item.displayName,
+                item.uninstallCommands.joined(separator: "\n")
             ),
             confirmTitle: "确认卸载",
             cancelTitle: "保留安装",

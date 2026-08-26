@@ -18,6 +18,7 @@ struct AgentSettingsDestination<Content: View>: View {
             .mainTabBarBottomInset(mainTabBarInset)
             .navigationTitle(LocalizedStringKey(title))
             .navigationBarTitleDisplayMode(.inline)
+            .quartetPlainNavigationBackButton()
             .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
     }

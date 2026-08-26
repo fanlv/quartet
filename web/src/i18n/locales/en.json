@@ -264,6 +264,7 @@
       "installing": "Installing agent…",
       "uninstall": "Uninstall",
       "uninstalling": "Uninstalling…",
+      "uninstallConfirm": "Uninstall {{name}} by running the following preset flow?\n\n{{commands}}\n\nOnly program files are removed; agent credentials, settings, sessions, jobs, and workflow records are preserved.",
       "lastValidation": "Last checked",
       "version": {
         "check": "Check for updates",
@@ -321,6 +322,7 @@
       "empty": "All built-in agents are installed.",
       "launchDefinition": "ACP launch",
       "installCommands": "Install flow",
+      "uninstallCommands": "Uninstall flow",
       "request": {
         "busyTitle": "Another install task is running",
         "busyHint": "Quartet runs one agent install, upgrade, or uninstall task at a time. Wait for the current task to finish, then try again.",
@@ -799,8 +801,8 @@
     "hideScheduledJobsShort": "Hide scheduled",
     "newTask": "New Task",
     "noJobsInWorkspace": "No jobs in this workspace",
-    "dayStatsTurns_one": "{{count}} turn/loop",
-    "dayStatsTurns_other": "{{count}} turns/loops",
+    "dayStatsTurns_one": "{{count}} turn",
+    "dayStatsTurns_other": "{{count}} turns",
     "disabled": "Disabled",
     "lastRun": "Last run",
     "neverRun": "Never run",

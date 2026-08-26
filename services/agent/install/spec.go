@@ -1,26 +1,41 @@
 package install
 
-import "strings"
+import (
+	"fmt"
+	"runtime"
+	"strings"
+)
 
 // InstallMethod classifies how a built-in agent's CLI is installed.
 type InstallMethod string
 
 const (
-	// InstallMethodNPM installs via one or more `npm install -g <pkg>` steps.
+	// InstallMethodNPM installs via one or more npm install -g steps.
 	InstallMethodNPM InstallMethod = "npm"
-	// InstallMethodScript installs via an official install script (at least one
-	// step pipes a script into a shell).
+	// InstallMethodScript installs via the publisher's platform installer.
 	InstallMethodScript InstallMethod = "script"
 	// InstallMethodProject installs from this repository's own build tooling.
 	InstallMethodProject InstallMethod = "project"
-	// InstallMethodManual has no automatic flow; only manual instructions are
-	// shown (used for installs requiring interaction, auth, or a project
-	// toolchain).
+	// InstallMethodManual has no automatic flow on the current platform.
 	InstallMethodManual InstallMethod = "manual"
 )
 
-// InstallStep is one preset command of an automatic install flow. Program and
-// Args are executed verbatim (no shell word-splitting); Display is the
+// Platform selects the commands that are valid on the backend host.
+type Platform string
+
+const (
+	PlatformDarwin  Platform = "darwin"
+	PlatformLinux   Platform = "linux"
+	PlatformWindows Platform = "windows"
+)
+
+// CurrentPlatform returns the catalog platform matching runtime.GOOS.
+func CurrentPlatform() Platform {
+	return Platform(runtime.GOOS)
+}
+
+// InstallStep is one preset command of an automatic lifecycle flow. Program
+// and Args are executed verbatim (no shell word-splitting); Display is the
 // human-readable rendering shown in the UI and results.
 type InstallStep struct {
 	Program string
@@ -29,87 +44,115 @@ type InstallStep struct {
 	Display string
 }
 
-// InstallSpec is the preset install flow declared by a built-in agent catalog
-// entry. Steps run sequentially and only ever come from the catalog — the
-// install API never accepts commands from the client. Manual entries carry no
-// Steps and only Instructions.
+// PlatformSteps declares host-specific lifecycle commands. Shared applies to
+// every platform; a non-empty platform slice replaces Shared on that host.
+type PlatformSteps struct {
+	Shared  []InstallStep
+	Darwin  []InstallStep
+	Linux   []InstallStep
+	Windows []InstallStep
+}
+
+func (s PlatformSteps) For(platform Platform) []InstallStep {
+	var steps []InstallStep
+	switch platform {
+	case PlatformDarwin:
+		steps = s.Darwin
+	case PlatformLinux:
+		steps = s.Linux
+	case PlatformWindows:
+		steps = s.Windows
+	}
+	if len(steps) == 0 {
+		steps = s.Shared
+	}
+	return cloneSteps(steps)
+}
+
+func (s PlatformSteps) clone() PlatformSteps {
+	return PlatformSteps{
+		Shared:  cloneSteps(s.Shared),
+		Darwin:  cloneSteps(s.Darwin),
+		Linux:   cloneSteps(s.Linux),
+		Windows: cloneSteps(s.Windows),
+	}
+}
+
+// InstallSpec is the preset lifecycle flow declared by a built-in agent
+// catalog entry. Clients only select an AgentID; commands never come from the
+// request. UninstallSteps intentionally remove executables and managed install
+// artifacts only, leaving credentials, sessions and configuration untouched.
 type InstallSpec struct {
-	Method       InstallMethod
-	Steps        []InstallStep
-	UpgradeSteps []InstallStep
+	Method         InstallMethod
+	InstallSteps   PlatformSteps
+	UpgradeSteps   PlatformSteps
+	UninstallSteps PlatformSteps
 	// VersionPackage is an npm package whose published version matches the
-	// executable release, even when the executable currently selected by PATH
-	// was installed by that CLI's native installer.
+	// executable release, even when PATH currently selects a native install.
 	VersionPackage string
 	// VersionURL returns the latest executable version as a plain semver string.
-	// It is used for native installers whose release channel is not npm-backed.
 	VersionURL   string
 	Instructions string
 }
 
-// AutoInstallable reports whether this spec has an executable automatic flow.
-func (s InstallSpec) AutoInstallable() bool {
-	return len(s.Steps) > 0
+func (s InstallSpec) StepsForInstall(platform Platform) []InstallStep {
+	return s.InstallSteps.For(platform)
 }
 
-// AutoUpgradeable reports whether an installed Agent has a controlled upgrade
-// flow. Entries without dedicated UpgradeSteps reuse their install steps.
-func (s InstallSpec) AutoUpgradeable() bool {
-	return len(s.UpgradeSteps) > 0 || len(s.Steps) > 0
-}
-
-// StepsForUpgrade returns the dedicated upgrade flow when one is declared, or
-// the install flow for package managers whose install command also upgrades.
-func (s InstallSpec) StepsForUpgrade() []InstallStep {
-	if len(s.UpgradeSteps) > 0 {
-		return s.UpgradeSteps
+// StepsForUpgrade returns the dedicated upgrade flow when one is declared for
+// the platform, or the install flow for package managers/installers whose
+// install command also upgrades.
+func (s InstallSpec) StepsForUpgrade(platform Platform) []InstallStep {
+	steps := s.UpgradeSteps.For(platform)
+	if len(steps) > 0 {
+		return steps
 	}
-	return s.Steps
+	return s.StepsForInstall(platform)
 }
 
-// UninstallSteps returns the automatic uninstall flow, derived by reversing the
-// npm install steps into `npm uninstall -g <pkg>` (last-installed removed
-// first). Only npm-method specs are auto-uninstallable: script and manual
-// installs have no reliable reverse, so this returns nil for them.
-func (s InstallSpec) UninstallSteps() []InstallStep {
-	if s.Method != InstallMethodNPM {
-		return nil
-	}
-	steps := make([]InstallStep, 0, len(s.Steps))
-	for i := len(s.Steps) - 1; i >= 0; i-- {
-		// Each npm install step is NPMStep("pkg") → Args ["install","-g",pkg].
-		args := s.Steps[i].Args
-		if len(args) != 3 || args[0] != "install" {
-			continue
-		}
-		steps = append(steps, npmUninstallStep(args[2]))
-	}
-	return steps
+func (s InstallSpec) StepsForUninstall(platform Platform) []InstallStep {
+	return s.UninstallSteps.For(platform)
 }
 
-// AutoUninstallable reports whether this spec has an executable automatic
-// uninstall flow.
-func (s InstallSpec) AutoUninstallable() bool {
-	return len(s.UninstallSteps()) > 0
+func (s InstallSpec) AutoInstallable(platform Platform) bool {
+	return len(s.StepsForInstall(platform)) > 0
 }
 
-// StepDisplays returns the human-readable rendering of every step, for UI
-// display before anything runs.
-func (s InstallSpec) StepDisplays() []string {
-	displays := make([]string, 0, len(s.Steps))
-	for _, step := range s.Steps {
+func (s InstallSpec) AutoUpgradeable(platform Platform) bool {
+	return len(s.StepsForUpgrade(platform)) > 0
+}
+
+func (s InstallSpec) AutoUninstallable(platform Platform) bool {
+	return len(s.StepsForUninstall(platform)) > 0
+}
+
+// StepDisplays returns the current platform's install commands for the UI.
+func (s InstallSpec) StepDisplays(platform Platform) []string {
+	steps := s.StepsForInstall(platform)
+	displays := make([]string, 0, len(steps))
+	for _, step := range steps {
 		displays = append(displays, step.Display)
 	}
 	return displays
 }
 
-// NPMPackages returns the package names managed by this install spec. Version
-// suffixes such as "pkg@1.2.3" and "@scope/pkg@latest" are stripped so the
-// names can be matched against npm's global list/outdated JSON output.
-func (s InstallSpec) NPMPackages() []string {
+// UninstallStepDisplays returns the current platform's uninstall commands so
+// the destructive confirmation can show exactly what Quartet will execute.
+func (s InstallSpec) UninstallStepDisplays(platform Platform) []string {
+	steps := s.StepsForUninstall(platform)
+	displays := make([]string, 0, len(steps))
+	for _, step := range steps {
+		displays = append(displays, step.Display)
+	}
+	return displays
+}
+
+// NPMPackages returns package names managed by the current platform's install
+// flow. Version suffixes such as pkg@1.2.3 and @scope/pkg@latest are stripped.
+func (s InstallSpec) NPMPackages(platform Platform) []string {
 	packages := make([]string, 0)
 	seen := make(map[string]bool)
-	for _, step := range s.Steps {
+	for _, step := range s.StepsForInstall(platform) {
 		pkg, ok := npmInstallPackage(step)
 		if !ok || seen[pkg] {
 			continue
@@ -120,16 +163,31 @@ func (s InstallSpec) NPMPackages() []string {
 	return packages
 }
 
-// HasNonNPMSteps reports whether this install spec manages anything outside
-// npm. Those agents also get a local `<bin> --version` probe because the npm
-// package list alone does not describe their complete installation.
-func (s InstallSpec) HasNonNPMSteps() bool {
-	for _, step := range s.Steps {
+// HasNonNPMSteps reports whether the current install flow manages anything
+// outside npm. Such agents also get a local binary version probe.
+func (s InstallSpec) HasNonNPMSteps(platform Platform) bool {
+	for _, step := range s.StepsForInstall(platform) {
 		if _, ok := npmInstallPackage(step); !ok {
 			return true
 		}
 	}
 	return false
+}
+
+// Clone returns a deep copy suitable for exposing catalog snapshots.
+func (s InstallSpec) Clone() InstallSpec {
+	s.InstallSteps = s.InstallSteps.clone()
+	s.UpgradeSteps = s.UpgradeSteps.clone()
+	s.UninstallSteps = s.UninstallSteps.clone()
+	return s
+}
+
+func cloneSteps(in []InstallStep) []InstallStep {
+	out := append([]InstallStep(nil), in...)
+	for index := range out {
+		out[index].Args = append([]string(nil), out[index].Args...)
+	}
+	return out
 }
 
 func npmInstallPackage(step InstallStep) (string, bool) {
@@ -156,55 +214,97 @@ func npmInstallPackage(step InstallStep) (string, bool) {
 	return spec, true
 }
 
-// NPMStep builds the single `npm install -g <pkg>` step for a package.
+// NPMStep builds the single npm install -g step for a package.
 func NPMStep(pkg string) InstallStep {
-	return InstallStep{
-		Program: "npm",
-		Args:    []string{"install", "-g", pkg},
-		Display: "npm install -g " + pkg,
-	}
+	return InstallStep{Program: "npm", Args: []string{"install", "-g", pkg}, Display: "npm install -g " + pkg}
 }
 
-// npmUninstallStep builds the single `npm uninstall -g <pkg>` step used by
-// the generic uninstall flow. It is intentionally not part of the catalog's
-// public install-step builders: install and upgrade specs should only describe
-// the components they own, not historical package cleanup.
-func npmUninstallStep(pkg string) InstallStep {
-	return InstallStep{
-		Program: "npm",
-		Args:    []string{"uninstall", "-g", pkg},
-		Display: "npm uninstall -g " + pkg,
-	}
+// NPMUninstallStep builds the matching npm uninstall -g step.
+func NPMUninstallStep(pkg string) InstallStep {
+	return InstallStep{Program: "npm", Args: []string{"uninstall", "-g", pkg}, Display: "npm uninstall -g " + pkg}
 }
 
-// CommandStep builds a shell-free command step used by CLIs with a native
-// updater, such as `grok update` and `qoderclicn update`.
+// CommandStep builds a shell-free command step used by CLIs with native
+// lifecycle commands.
 func CommandStep(program string, args ...string) InstallStep {
-	return InstallStep{
-		Program: program,
-		Args:    append([]string(nil), args...),
-		Display: strings.Join(append([]string{program}, args...), " "),
-	}
+	return InstallStep{Program: program, Args: append([]string(nil), args...), Display: strings.Join(append([]string{program}, args...), " ")}
 }
 
-// ScriptStep builds a step piping an official install script into a shell,
-// e.g. ScriptStep("https://cursor.com/install", "bash").
-func ScriptStep(url, shell string) InstallStep {
+// UnixScriptStep downloads an official script and runs it with a Unix shell.
+func UnixScriptStep(url, shell string) InstallStep {
 	command := "curl -fsSL " + url + " | " + shell
+	return InstallStep{Program: shell, Args: []string{"-c", command}, Display: command}
+}
+
+// PowerShellScriptStep downloads and executes an official Windows installer.
+func PowerShellScriptStep(url string) InstallStep {
+	command := "irm '" + url + "' | iex"
+	return InstallStep{Program: "powershell.exe", Args: []string{"-NoProfile", "-NonInteractive", "-Command", command}, Display: command}
+}
+
+// PowerShellStep builds a controlled PowerShell command for Windows-only
+// lifecycle operations.
+func PowerShellStep(command string) InstallStep {
+	return InstallStep{Program: "powershell.exe", Args: []string{"-NoProfile", "-NonInteractive", "-Command", command}, Display: command}
+}
+
+// RemovePathsStep builds a cross-platform executable-removal step. Every path
+// is resolved relative to the running backend user's home directory, and the
+// helper refuses paths outside that home directory. Directories are removed
+// recursively only when explicitly listed by the trusted catalog.
+func RemovePathsStep(paths ...string) InstallStep {
 	return InstallStep{
-		Program: shell,
-		Args:    []string{"-c", command},
-		Display: command,
+		Program: InternalProgramRemovePaths,
+		Args:    append([]string(nil), paths...),
+		Display: "remove " + strings.Join(paths, " "),
 	}
 }
 
 // ProjectMakeStep builds a repository-local install step that runs make from
 // the backend process working directory.
 func ProjectMakeStep(target string) InstallStep {
-	return InstallStep{
-		Program: "make",
-		Args:    []string{target},
-		Dir:     ".",
-		Display: "make " + target,
+	return InstallStep{Program: "make", Args: []string{target}, Dir: ".", Display: "make " + target}
+}
+
+// GoBuildInstallStep builds the project-owned eino-cli directly. It works on
+// Windows, macOS and Linux without depending on make or cp.
+func GoBuildInstallStep() InstallStep {
+	return InstallStep{Program: InternalProgramBuildEinoCLI, Display: "go build ./cmd/eino-cli and install to the user executable directory"}
+}
+
+func NPMInstallFlow(packages ...string) PlatformSteps {
+	steps := make([]InstallStep, 0, len(packages))
+	for _, pkg := range packages {
+		steps = append(steps, NPMStep(pkg))
 	}
+	return PlatformSteps{Shared: steps}
+}
+
+func NPMUninstallFlow(packages ...string) PlatformSteps {
+	steps := make([]InstallStep, 0, len(packages))
+	for index := len(packages) - 1; index >= 0; index-- {
+		steps = append(steps, NPMUninstallStep(packages[index]))
+	}
+	return PlatformSteps{Shared: steps}
+}
+
+// NPMOrNativeUninstallFlow removes both supported installation sources. npm
+// reports success when a package is absent, so the native-path cleanup remains
+// safe for script installs and npm installs alike.
+func NPMOrNativeUninstallFlow(packages []string, paths ...string) PlatformSteps {
+	steps := NPMUninstallFlow(packages...).Shared
+	steps = append(steps, RemovePathsStep(paths...))
+	return PlatformSteps{Shared: steps}
+}
+
+func (s InstallSpec) Validate(agentID string) error {
+	for _, platform := range []Platform{PlatformDarwin, PlatformLinux, PlatformWindows} {
+		if len(s.StepsForInstall(platform)) == 0 {
+			return fmt.Errorf("built-in Agent %q has no install flow for %s", agentID, platform)
+		}
+		if len(s.StepsForUninstall(platform)) == 0 {
+			return fmt.Errorf("built-in Agent %q has no uninstall flow for %s", agentID, platform)
+		}
+	}
+	return nil
 }

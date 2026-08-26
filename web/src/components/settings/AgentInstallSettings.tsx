@@ -59,6 +59,7 @@ interface CatalogAgent {
   current_revision?: string;
   install_method?: string;
   install_commands?: string[];
+  uninstall_commands?: string[];
   install_instructions?: string;
   auto_installable?: boolean;
   auto_uninstallable?: boolean;
@@ -261,6 +262,8 @@ function isCatalogAgent(value: unknown): value is CatalogAgent {
     && hasOptionalString(value, 'install_method')
     && (!('install_commands' in value)
       || (Array.isArray(value.install_commands) && value.install_commands.every((command) => typeof command === 'string')))
+    && (!('uninstall_commands' in value)
+      || (Array.isArray(value.uninstall_commands) && value.uninstall_commands.every((command) => typeof command === 'string')))
     && hasOptionalString(value, 'install_instructions')
     && hasOptionalBoolean(value, 'auto_installable')
     && hasOptionalBoolean(value, 'auto_uninstallable')
@@ -832,29 +835,34 @@ export function AgentInstallSettings() {
     }
   };
 
-  const uninstall = async (agentId: string) => {
+  const uninstall = async (agent: CatalogAgent) => {
     if (installActionRunningRef.current || batchUpgradeRunningRef.current || managementPending !== '' || form !== null) return;
+    const commands = (agent.uninstall_commands || []).join('\n');
+    if (!window.confirm(t('settings.agents.uninstallConfirm', {
+      name: agent.display_name,
+      commands,
+    }))) return;
     installActionRunningRef.current = true;
-    setInstallBusy({ id: agentId, action: 'uninstall' });
-    setRequestErrors((prev) => ({ ...prev, [agentId]: undefined }));
+    setInstallBusy({ id: agent.agent_id, action: 'uninstall' });
+    setRequestErrors((prev) => ({ ...prev, [agent.agent_id]: undefined }));
     setResults((prev) => {
       const next = { ...prev };
-      delete next[agentId];
+      delete next[agent.agent_id];
       return next;
     });
     try {
-      const url = `/api/v1/agent/${encodeURIComponent(agentId)}/uninstall`;
+      const url = `/api/v1/agent/${encodeURIComponent(agent.agent_id)}/uninstall`;
       const data = await requestJSON(t, url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
       const result = data.result as InstallResult;
-      setResults((prev) => ({ ...prev, [agentId]: { action: 'uninstall', result } }));
+      setResults((prev) => ({ ...prev, [agent.agent_id]: { action: 'uninstall', result } }));
       await loadData();
       await loadVersions(true);
     } catch (err) {
-      setRequestErrors((prev) => ({ ...prev, [agentId]: toInstallRequestFailure(err, 'uninstall') }));
+      setRequestErrors((prev) => ({ ...prev, [agent.agent_id]: toInstallRequestFailure(err, 'uninstall') }));
     } finally {
       setInstallBusy(null);
       installActionRunningRef.current = false;
@@ -867,7 +875,7 @@ export function AgentInstallSettings() {
       return;
     }
     if (action === 'uninstall') {
-      void uninstall(agent.agent_id);
+      void uninstall(agent);
       return;
     }
     void install(agent.agent_id);
@@ -1181,7 +1189,7 @@ export function AgentInstallSettings() {
                     <button
                       className="settings-btn settings-btn-danger"
                       disabled={installBusy !== null || managementPending !== '' || form !== null}
-                      onClick={() => void uninstall(agent.agent_id)}
+                      onClick={() => void uninstall(agent)}
                       data-testid="agent-uninstall-button"
                     >
                       {busy && installBusy?.action === 'uninstall' ? t('settings.agents.uninstalling') : t('settings.agents.uninstall')}
@@ -1284,6 +1292,14 @@ export function AgentInstallSettings() {
                     <span className="agent-install-label">{t('settings.agents.installCommands')}</span>
                     <div className="agent-install-commands">
                       {agent.install_commands.map((cmd) => <code key={cmd}>{cmd}</code>)}
+                    </div>
+                  </div>
+                )}
+                {agent.uninstall_commands && agent.uninstall_commands.length > 0 && (
+                  <div className="agent-install-row">
+                    <span className="agent-install-label">{t('settings.agents.uninstallCommands')}</span>
+                    <div className="agent-install-commands">
+                      {agent.uninstall_commands.map((cmd) => <code key={cmd}>{cmd}</code>)}
                     </div>
                   </div>
                 )}

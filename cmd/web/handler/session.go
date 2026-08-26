@@ -27,7 +27,7 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 	s, _, ok := h.getSessionByID(sessionID)
 	if !ok {
 		// Session service may have been evicted from memory (idle timeout or
-		// loop-job completion). Try to find the owning job and reload from disk.
+		// job completion). Try to find the owning job and reload from disk.
 		s, ok = h.reloadSessionByID(sessionID)
 		if !ok {
 			httputil.NotFound(c, "session not found")

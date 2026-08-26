@@ -87,8 +87,8 @@ func TestJobPublicJSONOmitsMessageReceipts(t *testing.T) {
 }
 
 func TestUnmarshalPersistedJobRejectsUnsupportedMode(t *testing.T) {
-	_, err := unmarshalPersistedJob([]byte(`{"id":"job-old","mode":"loop"}`))
-	if err == nil || err.Error() != `unsupported job mode "loop"` {
-		t.Fatalf("unmarshalPersistedJob error = %v, want unsupported loop mode", err)
+	_, err := unmarshalPersistedJob([]byte(`{"id":"job-invalid","mode":"unknown"}`))
+	if err == nil || err.Error() != `unsupported job mode "unknown"` {
+		t.Fatalf("unmarshalPersistedJob error = %v, want unsupported mode", err)
 	}
 }

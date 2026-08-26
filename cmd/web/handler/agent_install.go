@@ -18,6 +18,7 @@ import (
 // button).
 func (h *Handler) AgentInstallCandidates(ctx context.Context, c *app.RequestContext) {
 	checker := agentinstall.Checker{}
+	platform := agentinstall.CurrentPlatform()
 	candidates := make([]model.AgentInstallCandidate, 0)
 	for _, a := range probe.KnownACPAgents {
 		if a.Deprecated {
@@ -35,9 +36,9 @@ func (h *Handler) AgentInstallCandidates(ctx context.Context, c *app.RequestCont
 			DisplayName:     a.DisplayName,
 			IconURL:         IconCacheURL(a.IconURL),
 			InstallMethod:   string(a.Install.Method),
-			InstallCommands: a.Install.StepDisplays(),
+			InstallCommands: a.Install.StepDisplays(platform),
 			Instructions:    a.Install.Instructions,
-			AutoInstallable: a.Install.AutoInstallable(),
+			AutoInstallable: a.Install.AutoInstallable(platform),
 		})
 	}
 	c.JSON(http.StatusOK, model.AgentInstallCandidatesResponse{Code: 0, Candidates: candidates})
@@ -76,9 +77,9 @@ func (h *Handler) AgentInstall(ctx context.Context, c *app.RequestContext) {
 	c.JSON(http.StatusOK, model.AgentInstallResponse{Code: 0, Result: result})
 }
 
-// AgentUninstall runs the automatic uninstall flow for one built-in agent
-// (npm-method only). The request only carries the AgentID in the route; the
-// executed `npm uninstall -g` commands are derived from the catalog. The
+// AgentUninstall runs the platform-specific automatic uninstall flow for one
+// built-in agent. The request only carries the AgentID in the route; every
+// executed command is declared by the catalog. The
 // executed steps' full output and the post-uninstall recheck are returned
 // verbatim in the result payload.
 func (h *Handler) AgentUninstall(ctx context.Context, c *app.RequestContext) {

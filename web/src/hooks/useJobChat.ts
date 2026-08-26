@@ -203,20 +203,6 @@ function mapGraphInstanceStatus(status: GraphInstanceStatus): GraphSessionEntry[
   }
 }
 
-// graphInstanceLabel builds a human-readable sidebar label for a node instance,
-// appending the loop iteration context (loopNodeId#n) so repeated nodes inside
-// a loop stay distinguishable.
-function graphInstanceLabel(inst: GraphInstanceState): string {
-  const base = inst.nodeTitle || inst.nodeId;
-  const key: GraphInstanceKey | undefined = inst.key;
-  const iters = key?.iterations;
-  if (iters && iters.length > 0) {
-    const suffix = iters.map((it) => `${it.loopNodeId}#${it.index + 1}`).join(' / ');
-    return `${base} · ${suffix}`;
-  }
-  return base;
-}
-
 // instanceKeyString mirrors the backend (services/graph/runtime.go): a
 // main-scope key is just the node id; a loop-scoped key prefixes each iteration
 // as "loopNodeId#index/" ahead of the node id. Used to dedup archived instances

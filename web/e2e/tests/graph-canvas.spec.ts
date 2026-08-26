@@ -174,8 +174,8 @@ test('graph canvas: run a pure-Shell workflow to completion', async ({ page, req
   const jobId: string = startBody.run?.jobId
   expect(jobId, 'run start returned no jobId').toMatch(/^job-/)
 
-  // Starting a run jumps into the Chat page for the bound Graph Job (like
-  // startloop): the URL gains the jobId, drops ?view=graph, and the GraphLoop
+  // Starting a run jumps into the Chat page for the bound Graph Job: the URL
+  // gains the jobId, drops ?view=graph, and the GraphRun
   // progress panel (with its embedded mini canvas) renders there.
   await expect(page).toHaveURL(new RegExp(`jobId=${jobId}`), { timeout: 10_000 })
   await expect(page).toHaveURL(/^(?!.*view=graph).*$/)
@@ -321,7 +321,7 @@ test('graph canvas: historical run replays read-only via ?graphEditJob deep-link
 
   // Starting the run navigated to the Chat page. The canvas page no longer
   // browses runs inline; the only way back to a run on the canvas is the
-  // ?graphEditJob deep-link (the GraphLoop "Edit" button uses it). Navigating
+  // ?graphEditJob deep-link (the GraphRun "Edit" button uses it). Navigating
   // there opens the run in read-only replay (a completed run is frozen).
   await page.goto(`/?workspaceId=${workspace.workspaceId}&view=graph&graphEditJob=${jobId}`)
   // The shell node re-renders carrying its run-state class (run replay). React

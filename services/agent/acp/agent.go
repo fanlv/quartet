@@ -668,7 +668,7 @@ type PhaseReporter func(phase, detail string)
 // Run sends user messages to the ACP agent and streams events via handler.
 // jobID is threaded into the round builder's log label so WARN lines
 // ([round] eager flush superseded / drop terminal ...) can be traced back
-// to the concrete loop job, not just the session pair.
+// to the concrete job, not just the session pair.
 func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, jobID string, report PhaseReporter) (retErr error) {
 	if report == nil {
 		report = func(string, string) {}

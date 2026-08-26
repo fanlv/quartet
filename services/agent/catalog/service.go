@@ -8,6 +8,7 @@ import (
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/repository"
+	agentinstall "github.com/fanlv/quartet/services/agent/install"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -127,6 +128,7 @@ func (s *Service) ListItems(ctx context.Context) ([]model.AgentCatalogItem, erro
 				return nil, fmt.Errorf("built-in Agent catalog entry is nil")
 			}
 			agent := entry.Builtin
+			platform := agentinstall.CurrentPlatform()
 			identifiers := []model.AgentCatalogIdentifier{{
 				Kind:  string(IdentifierKindEnvKey),
 				Value: agent.EnvKey,
@@ -148,10 +150,11 @@ func (s *Service) ListItems(ctx context.Context) ([]model.AgentCatalogItem, erro
 				Deprecated:            agent.Deprecated,
 				Lifecycle:             model.AgentLifecycleActive,
 				InstallMethod:         string(agent.Install.Method),
-				InstallCommands:       agent.Install.StepDisplays(),
+				InstallCommands:       agent.Install.StepDisplays(platform),
+				UninstallCommands:     agent.Install.UninstallStepDisplays(platform),
 				InstallInstructions:   agent.Install.Instructions,
-				AutoInstallable:       agent.Install.AutoInstallable(),
-				AutoUninstallable:     agent.Install.AutoUninstallable(),
+				AutoInstallable:       agent.Install.AutoInstallable(platform),
+				AutoUninstallable:     agent.Install.AutoUninstallable(platform),
 			})
 		case model.AgentCatalogSourceCustom:
 			if entry.Custom == nil {

@@ -5,10 +5,11 @@ package install
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/fanlv/quartet/pkg/executil"
 )
 
 // Definition contains the executable parts of one ACP runtime definition.
@@ -112,7 +113,7 @@ func (c Checker) checkExecutable(executable string) ExecutableStatus {
 		return status
 	}
 
-	resolved, err := exec.LookPath(executable)
+	resolved, err := executil.LookPath(executable)
 	if err != nil {
 		status.Error = fmt.Sprintf(
 			"executable %q not found in $PATH",

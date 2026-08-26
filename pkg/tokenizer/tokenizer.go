@@ -26,8 +26,8 @@ const tokenCountExtraKey = msgextra.KeyTextTokenCountCacheV2
 
 const (
 	imagePatchSize      = 28
-	imageMaxLongEdge    = 1568
-	imageMaxPatchTokens = 1568
+	imageMaxLongEdge    = 2576
+	imageMaxPatchTokens = 4784
 )
 
 func MessagesTokenCounter(ctx context.Context, msgs []*schema.Message) int {
@@ -219,10 +219,11 @@ func scaledImageDimensions(width, height int) (int, int) {
 		return width, height
 	}
 
-	// Match Claude Code's integer target-size solver: orient the image so the
-	// long edge is searched, then choose the largest integer width that satisfies
-	// both the long-edge and 28px-patch budgets. A floating-point area scale can
-	// undershoot by a pixel around patch boundaries and produce a different count.
+	// Match Claude's integer target-size solver using the largest supported image
+	// budget: orient the image so the long edge is searched, then choose the largest
+	// integer width that satisfies both the long-edge and 28px-patch limits. A
+	// floating-point area scale can undershoot by a pixel around patch boundaries
+	// and produce a different count.
 	if height > width {
 		scaledHeight, scaledWidth := scaledImageDimensions(height, width)
 		return scaledWidth, scaledHeight

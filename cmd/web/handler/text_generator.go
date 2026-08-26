@@ -5,12 +5,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
+	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
 )
@@ -89,7 +89,7 @@ func generateTextWithCLI(ctx context.Context, messages []*schema.Message, bin, m
 		args = append(args, "--thought", thoughtLevel)
 	}
 	args = append(args, prompt)
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := executil.CommandContext(ctx, bin, args...)
 	cmd.Env = os.Environ()
 	for key, value := range configuredEnv {
 		prefix := key + "="
@@ -111,7 +111,7 @@ func generateTextWithCLI(ctx context.Context, messages []*schema.Message, bin, m
 
 	// Pre-check: verify the CLI binary is resolvable before spending time on
 	// exec. This gives a clear "not found" error instead of a cryptic exit status.
-	if _, lookErr := exec.LookPath(bin); lookErr != nil {
+	if _, lookErr := executil.LookPath(bin); lookErr != nil {
 		return "", fmt.Errorf("cli %q not found in PATH: %w (hint: install it or switch the agent to an LLM model)", bin, lookErr)
 	}
 

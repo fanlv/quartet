@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
 )
@@ -46,11 +47,11 @@ type qoderQuotaResp struct {
 	IsQuotaExceeded      bool    `json:"isQuotaExceeded"`
 	ExpiresAt            int64   `json:"expiresAt"` // unix milliseconds
 	UserQuota            struct {
-		Total     float64 `json:"total"`
-		Used      float64 `json:"used"`
-		Remaining float64 `json:"remaining"`
+		Total      float64 `json:"total"`
+		Used       float64 `json:"used"`
+		Remaining  float64 `json:"remaining"`
 		Percentage float64 `json:"percentage"` // 0–1 fraction
-		Unit      string  `json:"unit"`
+		Unit       string  `json:"unit"`
 	} `json:"userQuota"`
 }
 
@@ -169,7 +170,7 @@ func (s *serviceImpl) ensureQoderDecryptHelper(ctx context.Context, cfgDir strin
 // "AGFzbQ" base64 prefix, i.e. the "\0asm" magic). The result is cached at
 // wasmPath.
 func extractQoderWasm(ctx context.Context, wasmPath string) error {
-	binPath, err := exec.LookPath(qoderBin)
+	binPath, err := executil.LookPath(qoderBin)
 	if err != nil {
 		return fmt.Errorf("qoderclicn binary not found in PATH (install it first): %w", err)
 	}

@@ -1697,6 +1697,7 @@ struct AgentCatalogItem: Decodable, Identifiable, Hashable, Sendable {
     let currentRevision: String?
     let installMethod: String?
     let installCommands: [String]
+    let uninstallCommands: [String]
     let installInstructions: String?
     let autoInstallable: Bool
     let autoUninstallable: Bool
@@ -1753,6 +1754,7 @@ struct AgentCatalogItem: Decodable, Identifiable, Hashable, Sendable {
         case currentRevision = "current_revision"
         case installMethod = "install_method"
         case installCommands = "install_commands"
+        case uninstallCommands = "uninstall_commands"
         case installInstructions = "install_instructions"
         case autoInstallable = "auto_installable"
         case autoUninstallable = "auto_uninstallable"
@@ -1780,6 +1782,7 @@ struct AgentCatalogItem: Decodable, Identifiable, Hashable, Sendable {
         currentRevision = try values.decodeIfPresent(String.self, forKey: .currentRevision)
         installMethod = try values.decodeIfPresent(String.self, forKey: .installMethod)
         installCommands = try values.decodeIfPresent([String].self, forKey: .installCommands) ?? []
+        uninstallCommands = try values.decodeIfPresent([String].self, forKey: .uninstallCommands) ?? []
         installInstructions = try values.decodeIfPresent(String.self, forKey: .installInstructions)
         autoInstallable = try values.decodeIfPresent(Bool.self, forKey: .autoInstallable) ?? false
         autoUninstallable = try values.decodeIfPresent(Bool.self, forKey: .autoUninstallable) ?? false
@@ -1814,6 +1817,7 @@ extension AgentCatalogItem {
             "current_revision": "ui-test",
             "install_method": "npm",
             "install_commands": ["npm install -g \(agentId)"],
+            "uninstall_commands": ["npm uninstall -g \(agentId)"],
             "auto_installable": true,
             "auto_uninstallable": true,
             "installed": installed,

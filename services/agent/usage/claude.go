@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
 )
@@ -186,7 +186,7 @@ func (s *serviceImpl) claudeVersion(ctx context.Context) string {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	args := append(parts[1:], "--cli", "--version")
-	out, err := exec.CommandContext(cctx, parts[0], args...).Output()
+	out, err := executil.CommandContext(cctx, parts[0], args...).Output()
 	if err != nil {
 		logger.Warnf(ctx, "[agent.usage] Claude version probe failed: command=%q err=%v", command, err)
 		return ""

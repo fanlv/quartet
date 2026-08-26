@@ -22,18 +22,18 @@ import { e2eAuthHeaders, e2ePassword, e2eUsername } from '../fixtures/e2e-enviro
 //   #10 edge delete remains clickable near React Flow handles
 //   #11 RunConfig instance/snapshot limits are exposed and persisted
 //   #12 workflow update uses updatedAt optimistic locking
-//   #13 GraphLoop exposes step-stop
+//   #13 GraphRun exposes step-stop
 //   #14 run-version edit allows unfrozen structural repair
 //   #15 refreshing workflow list does not advance the open document token
 //   #16 dirty delete is guarded before the delete-confirm dialog opens
 //   #17 non-JSON Graph errors are shown with their raw response body
 //   #18 direct-open corrupt workflow shows the parse error, not "not found"
-//   #19 embedded GraphLoop loop creation includes entry/exit markers
+//   #19 embedded GraphRun loop creation includes entry/exit markers
 //   #21 saved workflow reopen seeds node/edge ID generation
 //   #22 run/start with a stale workflowId fails instead of silently running ad-hoc
 //   #23 corrupted run.json surfaces as a load error, not graph run not found
 //   #24 workflow record/config workspaceId are normalized on save
-//   #25 embedded GraphLoop preserves loop nesting, cascades delete, and refreshes condition vars
+//   #25 embedded GraphRun preserves loop nesting, cascades delete, and refreshes condition vars
 //   #26 workflowId-only run/start resolves workflow workspace before creating the Job
 //   #27 delete confirmation is guarded while DELETE is in flight
 //   #28 graph form controls expose reliable accessible names
@@ -43,9 +43,9 @@ import { e2eAuthHeaders, e2ePassword, e2eUsername } from '../fixtures/e2e-enviro
 //   #32 completed runs reject run-version updates
 //   #33 delete uses the open workflow version, not the refreshed list version
 //   #34 save/create/delete success messages survive workflow-list refresh
-//   #35 embedded GraphLoop edit keeps structured validation errors and dirty cancel guard
+//   #35 embedded GraphRun edit keeps structured validation errors and dirty cancel guard
 //   #36 browser Back/Forward is guarded by Graph dirty state in App
-//   #37 embedded GraphLoop edits global variables while keeping run config locked
+//   #37 embedded GraphRun edits global variables while keeping run config locked
 //   #38 corrupted run.json surfaces full load errors for version/resume/delete
 //   #39 JSON draft dirty guard covers Back/New/select-other workflow
 //   #40 run/start rejects stale workflowUpdatedAt with 409
@@ -1443,10 +1443,10 @@ test('graph review #12c: whitespace name and invalid workflow id return 400', as
 })
 
 // ---------------------------------------------------------------------------
-// #13 — GraphLoop exposes and calls step-stop
+// #13 — GraphRun exposes and calls step-stop
 // ---------------------------------------------------------------------------
 
-test('graph review #13: GraphLoop Step Stop button calls the bound job endpoint', async ({ page, request }) => {
+test('graph review #13: GraphRun Step Stop button calls the bound job endpoint', async ({ page, request }) => {
   const workspace = await openGraphCanvas(page, request, 'step-stop')
   await applyJsonConfig(page, sleepingShellConfig(workspace))
   await page.getByTestId('graph-name-input').fill(`e2e-step-stop-${Date.now()}`)
@@ -1741,7 +1741,7 @@ test('graph review #18: opening a corrupt workflow surfaces the parse error', as
 })
 
 // ---------------------------------------------------------------------------
-// #19 — embedded GraphLoop editor creates legal loop entry/exit markers
+// #19 — embedded GraphRun editor creates legal loop entry/exit markers
 // ---------------------------------------------------------------------------
 
 test('graph review #19: embedded run-version editor adds loop entry and exit markers', async ({ page, request }) => {
@@ -2484,7 +2484,7 @@ test('graph review #36: browser Back is guarded when Graph has unsaved changes',
 })
 
 // ---------------------------------------------------------------------------
-// #37 — embedded GraphLoop edit persists global variables but locks run config
+// #37 — embedded GraphRun edit persists global variables but locks run config
 // ---------------------------------------------------------------------------
 
 test('graph review #37: embedded run-version editor edits global variables and locks run config', async ({ page, request }) => {

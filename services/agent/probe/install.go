@@ -63,7 +63,8 @@ func (s *CacheService) runBuiltinAgentInstall(ctx context.Context, agentID strin
 	if def.Deprecated {
 		return nil, fmt.Errorf("%w: %q (%s)", ErrAgentDeprecated, agentID, def.DisplayName)
 	}
-	if (!upgrade && !def.Install.AutoInstallable()) || (upgrade && !def.Install.AutoUpgradeable()) {
+	platform := agentinstall.CurrentPlatform()
+	if (!upgrade && !def.Install.AutoInstallable(platform)) || (upgrade && !def.Install.AutoUpgradeable(platform)) {
 		return nil, fmt.Errorf("%w: %q (%s): %s", ErrManualInstallOnly, agentID, def.DisplayName, def.Install.Instructions)
 	}
 
@@ -79,9 +80,9 @@ func (s *CacheService) runBuiltinAgentInstall(ctx context.Context, agentID strin
 	// goes straight to revalidation. An explicit upgrade always re-runs the
 	// catalog-controlled steps.
 	if upgrade || !precheck.Installed {
-		stepsToRun := def.Install.Steps
+		stepsToRun := def.Install.StepsForInstall(platform)
 		if upgrade {
-			stepsToRun = def.Install.StepsForUpgrade()
+			stepsToRun = def.Install.StepsForUpgrade(platform)
 		}
 		steps, err := agentinstall.RunSteps(ctx, stepsToRun, installStepTimeout)
 		if err != nil {
@@ -136,9 +137,8 @@ func (s *CacheService) runBuiltinAgentInstall(ctx context.Context, agentID strin
 	return result, nil
 }
 
-// UninstallBuiltinAgent runs the automatic uninstall flow for agentID (only
-// npm-method built-ins are uninstallable): execute the derived
-// `npm uninstall -g <pkg>` steps, then re-run the unified installation check.
+// UninstallBuiltinAgent runs the platform-specific automatic uninstall flow
+// for agentID, then re-runs the unified installation check.
 // The returned result carries every step's complete output and the recheck
 // outcome — a successful uninstall leaves Installed false. Unlike install,
 // no ACP validation runs afterward. Errors are reserved for requests that
@@ -149,7 +149,8 @@ func (s *CacheService) UninstallBuiltinAgent(ctx context.Context, agentID string
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownAgentID, agentID)
 	}
-	if !def.Install.AutoUninstallable() {
+	platform := agentinstall.CurrentPlatform()
+	if !def.Install.AutoUninstallable(platform) {
 		return nil, fmt.Errorf("%w: %q (%s)", ErrNotUninstallable, agentID, def.DisplayName)
 	}
 
@@ -157,7 +158,7 @@ func (s *CacheService) UninstallBuiltinAgent(ctx context.Context, agentID string
 	definition := agentinstall.Definition{Bin: def.Bin, ACPProgram: def.ACPProgram}
 	result := &model.AgentInstallResult{AgentID: agentID}
 
-	steps, err := agentinstall.RunSteps(ctx, def.Install.UninstallSteps(), installStepTimeout)
+	steps, err := agentinstall.RunSteps(ctx, def.Install.StepsForUninstall(platform), installStepTimeout)
 	if err != nil {
 		return nil, err
 	}

@@ -3,11 +3,11 @@ package usage
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"sync"
 	"time"
 
+	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/services/config"
@@ -88,7 +88,7 @@ func (s *serviceImpl) binVersion(ctx context.Context, bin string) string {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, bin, "--version").Output()
+	out, err := executil.CommandContext(cctx, bin, "--version").Output()
 	if err != nil {
 		logger.Warnf(ctx, "[agent.usage] bin version probe failed: bin=%q err=%v", bin, err)
 		return ""
