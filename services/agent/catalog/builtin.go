@@ -143,20 +143,24 @@ var builtinAgents = []BuiltinAgent{
 			InstallSteps: agentinstall.PlatformSteps{
 				Darwin: []agentinstall.InstallStep{
 					agentinstall.UnixScriptStep("https://antigravity.google/cli/install.sh", "bash"),
+					agentinstall.NPMStep("bun"),
 					agentinstall.NPMStep("antigravity-acp"),
 				},
 				Linux: []agentinstall.InstallStep{
 					agentinstall.UnixScriptStep("https://antigravity.google/cli/install.sh", "bash"),
+					agentinstall.NPMStep("bun"),
 					agentinstall.NPMStep("antigravity-acp"),
 				},
 				Windows: []agentinstall.InstallStep{
 					agentinstall.PowerShellScriptStep("https://antigravity.google/cli/install.ps1"),
+					agentinstall.NPMStep("bun"),
 					agentinstall.NPMStep("antigravity-acp"),
 				},
 			},
 			UpgradeSteps: agentinstall.PlatformSteps{
 				Shared: []agentinstall.InstallStep{
 					agentinstall.CommandStep("agy", "update"),
+					agentinstall.NPMStep("bun"),
 					agentinstall.NPMStep("antigravity-acp"),
 				},
 			},
@@ -174,6 +178,7 @@ var builtinAgents = []BuiltinAgent{
 					agentinstall.RemovePathsStep("AppData/Local/agy/bin"),
 				},
 			},
+			Instructions: "安装会同时安装 Bun 运行时和 antigravity-acp；卸载时保留可能被其他工具共用的 Bun。",
 		},
 	},
 	{
