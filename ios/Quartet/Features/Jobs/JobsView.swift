@@ -142,7 +142,7 @@ struct JobsView: View {
             guard configuration.isActive, !model.isRunningUITests else { return }
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(for: configuration.hasActiveJobs ? .seconds(5) : .seconds(60))
+                    try await Task.sleep(for: .seconds(5))
                 } catch {
                     return
                 }
@@ -511,7 +511,6 @@ struct JobsView: View {
             // Navigation must not suspend dashboard synchronization. Chat/Graph screens update some
             // fields from their own streams, while this poll keeps the shared list and cache complete.
             isActive: scenePhase == .active,
-            hasActiveJobs: model.activeJobCount > 0,
             workspaceID: model.selectedWorkspaceID,
             hidesScheduledJobs: model.hideScheduledJobs
         )
@@ -528,7 +527,6 @@ struct JobsView: View {
 
 private struct DashboardPollingConfiguration: Equatable {
     let isActive: Bool
-    let hasActiveJobs: Bool
     let workspaceID: String?
     let hidesScheduledJobs: Bool
 }

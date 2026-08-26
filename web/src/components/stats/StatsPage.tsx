@@ -1316,6 +1316,10 @@ function TrendCard({
                 })}
                 onMouseEnter={(e) => { setHoverIdx(idx); moveTooltip(e, day, dailySegments[idx]); }}
                 onMouseMove={(e) => { setHoverIdx(idx); moveTooltip(e, day, dailySegments[idx]); }}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }}
                 onMouseLeave={closeTooltipSoon}
                 onFocus={(e) => {
                   cancelTooltipClose();

@@ -151,6 +151,7 @@ describe('AgentInstallSettings batch upgrades', () => {
     const toggles = screen.getAllByTestId('agent-install-card-toggle');
     expect(toggles).toHaveLength(2);
     expect(toggles.every((toggle) => toggle.getAttribute('aria-expanded') === 'false')).toBe(true);
+    expect(within(agentCard('First Agent')).getByTestId('agent-uninstall-button')).toBeInTheDocument();
 
     const firstCard = expandAgentCard('First Agent');
     expect(within(firstCard).getByTestId('agent-install-card-details')).toBeInTheDocument();
@@ -199,9 +200,19 @@ describe('AgentInstallSettings batch upgrades', () => {
     expect(updateAll).toBeEnabled();
     expect(updateAll).toHaveTextContent('Update all');
     expect(screen.getByText('1 Agent update available')).toBeInTheDocument();
-    const eligibleCard = expandAgentCard('Eligible Agent');
+    const eligibleCard = agentCard('Eligible Agent');
+    const eligibleToggle = within(eligibleCard).getByTestId('agent-install-card-toggle');
+    const upgradeButton = within(eligibleCard).getByTestId('agent-upgrade-button');
+    const uninstallButton = within(eligibleCard).getByTestId('agent-uninstall-button');
+    expect(eligibleToggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getAllByTestId('agent-upgrade-button')).toHaveLength(1);
-    expect(within(eligibleCard).getByTestId('agent-upgrade-button')).toBeInTheDocument();
+    expect(upgradeButton.compareDocumentPosition(eligibleToggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(uninstallButton.compareDocumentPosition(eligibleToggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const missingCard = agentCard('missing agent');
+    const missingToggle = within(missingCard).getByTestId('agent-install-card-toggle');
+    const installButton = within(missingCard).getByTestId('agent-install-button');
+    expect(missingToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(installButton.compareDocumentPosition(missingToggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('runs candidates strictly in catalog order, preserves per-agent outcomes, and refreshes once at the batch end', async () => {

@@ -523,13 +523,14 @@ private struct StatsTrendCard: View {
                         .lineStyle(StrokeStyle(lineWidth: line.isTotal ? 2.7 : 1.8, lineCap: .round, lineJoin: .round))
                         .interpolationMethod(.catmullRom)
 
-                        if line.isTotal || metric == .cache {
+                        let isSelected = selectedDay?.date == point.dateKey
+                        if line.isTotal || metric == .cache || (isSelected && point.value > 0) {
                             PointMark(
                                 x: .value("日期".localized(in: locale), point.date),
                                 y: .value(metric.title.localized(in: locale), point.value)
                             )
                             .foregroundStyle(line.color)
-                            .symbolSize(line.isTotal ? 22 : 14)
+                            .symbolSize(isSelected ? (line.isTotal ? 34 : 26) : (line.isTotal ? 22 : 14))
                         }
                     }
 
@@ -560,7 +561,7 @@ private struct StatsTrendCard: View {
                         }
                     }
                 }
-                .chartXSelection(value: $selectedDate)
+                .chartXSelection(value: persistentChartSelection)
                 .modifier(StatsTrendScaleModifier(metric: metric))
                 .frame(height: 220)
                 .accessibilityElement(children: .ignore)
@@ -577,24 +578,16 @@ private struct StatsTrendCard: View {
 
                 if let selectedDay {
                     if metric == .tokens {
-                        StatsTokenDayDetail(day: selectedDay)
-                    } else if metric == .cache {
-                        StatsCacheDayTip(date: selectedDay.date, entries: selectedCacheEntries)
+                        StatsTokenDayDetail(
+                            day: selectedDay,
+                            modelEntries: selectedTrendEntries.filter { !$0.isTotal }
+                        )
                     } else {
-                        HStack {
-                            Text(selectedDay.date)
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                            Spacer()
-                            Text(StatsFormat.trend(StatsFormat.optionalMetricValue(selectedDay, metric: metric), metric: metric))
-                                .font(.quartet(.detail, weight: .semibold))
-                                .monospacedDigit()
-                                .foregroundStyle(QuartetTheme.primaryText)
-                        }
-                        .font(.quartet(.detail))
-                        .padding(.horizontal, 10)
-                        .frame(height: 34)
-                        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 9))
-                        .accessibilityElement(children: .combine)
+                        StatsTrendDayTip(
+                            date: selectedDay.date,
+                            metric: metric,
+                            entries: selectedTrendEntries
+                        )
                     }
                 }
 
@@ -619,13 +612,25 @@ private struct StatsTrendCard: View {
     }
 
     private var selectedDay: UsageStatsDailyRow? {
-        guard let selectedDate else {
-            return metric == .tokens ? filledDays.last : nil
-        }
+        guard let selectedDate else { return nil }
+        return nearestDay(to: selectedDate)
+    }
+
+    private func nearestDay(to date: Date) -> UsageStatsDailyRow? {
         return filledDays.min { lhs, rhs in
-            abs((StatsFormat.date(lhs.date) ?? .distantPast).timeIntervalSince(selectedDate))
-                < abs((StatsFormat.date(rhs.date) ?? .distantPast).timeIntervalSince(selectedDate))
+            abs((StatsFormat.date(lhs.date) ?? .distantPast).timeIntervalSince(date))
+                < abs((StatsFormat.date(rhs.date) ?? .distantPast).timeIntervalSince(date))
         }
+    }
+
+    private var persistentChartSelection: Binding<Date?> {
+        Binding(
+            get: { selectedDay.flatMap { StatsFormat.date($0.date) } },
+            set: { value in
+                guard let value, let day = nearestDay(to: value) else { return }
+                selectedDate = StatsFormat.date(day.date)
+            }
+        )
     }
 
     private var chartDateDomain: ClosedRange<Date> {
@@ -641,11 +646,12 @@ private struct StatsTrendCard: View {
         return first ... last
     }
 
-    private var selectedCacheEntries: [StatsCacheTipEntry] {
-        guard metric == .cache, let selectedDay else { return [] }
+    private var selectedTrendEntries: [StatsTrendTipEntry] {
+        guard let selectedDay else { return [] }
         return series.compactMap { line in
             guard let point = line.points.first(where: { $0.dateKey == selectedDay.date }) else { return nil }
-            return StatsCacheTipEntry(
+            guard line.isTotal || metric == .cache || point.value > 0 else { return nil }
+            return StatsTrendTipEntry(
                 id: line.id,
                 name: line.name,
                 value: point.value,
@@ -819,7 +825,7 @@ private struct StatsTrendPoint: Identifiable {
     var id: String { dateKey }
 }
 
-private struct StatsCacheTipEntry: Identifiable {
+private struct StatsTrendTipEntry: Identifiable {
     let id: String
     let name: String
     let value: Double
@@ -827,10 +833,11 @@ private struct StatsCacheTipEntry: Identifiable {
     let isTotal: Bool
 }
 
-private struct StatsCacheDayTip: View {
+private struct StatsTrendDayTip: View {
     @Environment(\.locale) private var locale
     let date: String
-    let entries: [StatsCacheTipEntry]
+    let metric: StatsTrendMetric
+    let entries: [StatsTrendTipEntry]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -839,7 +846,7 @@ private struct StatsCacheDayTip: View {
                 .foregroundStyle(QuartetTheme.primaryText)
 
             if entries.isEmpty {
-                Text("该日没有可计算的缓存命中率。".localized(in: locale))
+                Text((metric == .cache ? "该日没有可计算的缓存命中率。" : "所选范围暂无数据").localized(in: locale))
                     .font(.quartet(.compact))
                     .foregroundStyle(QuartetTheme.secondaryText)
             } else {
@@ -857,7 +864,7 @@ private struct StatsCacheDayTip: View {
 
                         Spacer(minLength: 12)
 
-                        Text(StatsFormat.percentage(entry.value, locale: locale))
+                        Text(StatsFormat.trend(entry.value, metric: metric))
                             .font(.quartet(.detail, weight: .semibold))
                             .monospacedDigit()
                             .foregroundStyle(QuartetTheme.primaryText)
@@ -869,7 +876,7 @@ private struct StatsCacheDayTip: View {
         .padding(10)
         .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 9))
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("stats-cache-day-tip")
+        .accessibilityIdentifier("stats-trend-day-tip")
     }
 }
 
@@ -931,6 +938,7 @@ private struct StatsTokenCoverage {
 private struct StatsTokenDayDetail: View {
     @Environment(\.locale) private var locale
     let day: UsageStatsDailyRow
+    let modelEntries: [StatsTrendTipEntry]
 
     var body: some View {
         let cacheHitRate = StatsFormat.cacheHitRate(day.tokens)
@@ -972,6 +980,36 @@ private struct StatsTokenDayDetail: View {
             Text("按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。")
                 .font(.quartet(.compact))
                 .foregroundStyle(QuartetTheme.secondaryText)
+
+            if !modelEntries.isEmpty {
+                Divider().overlay(QuartetTheme.divider)
+
+                Text("模型".localized(in: locale))
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+
+                ForEach(modelEntries) { entry in
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(entry.color)
+                            .frame(width: 7, height: 7)
+                            .accessibilityHidden(true)
+
+                        Text(entry.name)
+                            .font(.quartet(.detail))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 12)
+
+                        Text(StatsFormat.exactCount(Int(max(0, entry.value)), locale: locale))
+                            .font(.quartet(.detail, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(QuartetTheme.primaryText)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
 
             Divider().overlay(QuartetTheme.divider)
 

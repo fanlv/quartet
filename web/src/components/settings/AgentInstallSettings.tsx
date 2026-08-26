@@ -1161,17 +1161,7 @@ export function AgentInstallSettings() {
           return (
             <div key={agent.agent_id} className="agent-install-card" data-testid="agent-install-card" data-agent-id={agent.agent_id}>
               <div className="agent-install-card-head">
-                <button
-                  type="button"
-                  className="agent-install-card-toggle"
-                  aria-expanded={expanded}
-                  aria-controls={detailId}
-                  aria-label={t(expanded ? 'settings.agents.collapseDetails' : 'settings.agents.expandDetails', {
-                    name: agent.display_name || agent.agent_id,
-                  })}
-                  onClick={() => toggleAgentDetails(agent.agent_id)}
-                  data-testid="agent-install-card-toggle"
-                >
+                <div className="agent-install-card-summary">
                   {renderIcon(agent.icon_url)}
                   <span className="agent-install-card-heading">
                     <span className="agent-install-card-title">
@@ -1193,6 +1183,58 @@ export function AgentInstallSettings() {
                       {agent.current_revision && <code className="agent-install-rev">{agent.current_revision}</code>}
                     </span>
                   </span>
+                </div>
+                <div className="agent-install-card-actions">
+                  {agent.source === 'builtin' && !agent.deprecated && !agent.installed && agent.auto_installable && (
+                    <button
+                      type="button"
+                      className="agent-install-btn"
+                      disabled={installBusy !== null || managementPending !== '' || form !== null}
+                      onClick={() => void install(agent.agent_id)}
+                      data-testid="agent-install-button"
+                    >
+                      {busy && installBusy?.action === 'install'
+                        ? t('settings.agents.installing')
+                        : t('settings.agents.install')}
+                    </button>
+                  )}
+                  {agent.source === 'builtin' && !agent.deprecated && agent.installed
+                    && versionInfo?.update_available && versionInfo.upgrade_supported && (
+                    <button
+                      type="button"
+                      className="settings-btn agent-upgrade-btn"
+                      disabled={installBusy !== null || managementPending !== '' || form !== null}
+                      onClick={() => void upgrade(agent)}
+                      data-testid="agent-upgrade-button"
+                    >
+                      {busy && installBusy?.action === 'upgrade'
+                        ? t('settings.agents.version.upgrading')
+                        : t('settings.agents.version.upgrade')}
+                    </button>
+                  )}
+                  {agent.source === 'builtin' && !agent.deprecated && agent.installed && agent.auto_uninstallable && (
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn-danger"
+                      disabled={installBusy !== null || managementPending !== '' || form !== null}
+                      onClick={() => void uninstall(agent)}
+                      data-testid="agent-uninstall-button"
+                    >
+                      {busy && installBusy?.action === 'uninstall' ? t('settings.agents.uninstalling') : t('settings.agents.uninstall')}
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="agent-install-card-toggle"
+                  aria-expanded={expanded}
+                  aria-controls={detailId}
+                  aria-label={t(expanded ? 'settings.agents.collapseDetails' : 'settings.agents.expandDetails', {
+                    name: agent.display_name || agent.agent_id,
+                  })}
+                  onClick={() => toggleAgentDetails(agent.agent_id)}
+                  data-testid="agent-install-card-toggle"
+                >
                   <span className="agent-install-toggle-label">
                     {t(expanded ? 'settings.agents.collapse' : 'settings.agents.expand')}
                     <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -1260,41 +1302,6 @@ export function AgentInstallSettings() {
                   data-testid="agent-install-card-details"
                 >
                   <div className="agent-install-actions">
-                    {agent.source === 'builtin' && !agent.deprecated && !agent.installed && agent.auto_installable && (
-                      <button
-                        className="agent-install-btn"
-                        disabled={installBusy !== null || managementPending !== '' || form !== null}
-                        onClick={() => void install(agent.agent_id)}
-                        data-testid="agent-install-button"
-                      >
-                        {busy && installBusy?.action === 'install'
-                          ? t('settings.agents.installing')
-                          : t('settings.agents.install')}
-                      </button>
-                    )}
-                    {agent.source === 'builtin' && !agent.deprecated && agent.installed
-                      && versionInfo?.update_available && versionInfo.upgrade_supported && (
-                      <button
-                        className="settings-btn agent-upgrade-btn"
-                        disabled={installBusy !== null || managementPending !== '' || form !== null}
-                        onClick={() => void upgrade(agent)}
-                        data-testid="agent-upgrade-button"
-                      >
-                        {busy && installBusy?.action === 'upgrade'
-                          ? t('settings.agents.version.upgrading')
-                          : t('settings.agents.version.upgrade')}
-                      </button>
-                    )}
-                    {agent.source === 'builtin' && !agent.deprecated && agent.installed && agent.auto_uninstallable && (
-                      <button
-                        className="settings-btn settings-btn-danger"
-                        disabled={installBusy !== null || managementPending !== '' || form !== null}
-                        onClick={() => void uninstall(agent)}
-                        data-testid="agent-uninstall-button"
-                      >
-                        {busy && installBusy?.action === 'uninstall' ? t('settings.agents.uninstalling') : t('settings.agents.uninstall')}
-                      </button>
-                    )}
                     {agent.lifecycle !== 'deleted' && !agent.deprecated && agent.installed && (
                       <button
                         className="settings-btn settings-btn-secondary agent-check-btn"

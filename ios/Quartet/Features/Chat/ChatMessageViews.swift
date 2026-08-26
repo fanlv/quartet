@@ -5,7 +5,7 @@ private let chatCollapsibleHeaderMinHeight: CGFloat = 44
 
 /// 每一行消息。
 ///
-/// 这里刻意**不**持有 `@EnvironmentObject appModel`：`JobsView` 在有活跃 Job 时每 5 秒
+/// 这里刻意**不**持有 `@EnvironmentObject appModel`：`JobsView` 每 5 秒
 /// 轮询一次 dashboard，而本视图是它的 `navigationDestination` 子树 —— 一旦订阅 `AppModel`，
 /// 每次轮询都会重建全部气泡、把整条会话的 markdown 重新解析一遍。链接拦截所需的
 /// `openURL` 由 `JobChatView` 在列表层统一注入。
