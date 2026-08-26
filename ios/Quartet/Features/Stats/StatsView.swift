@@ -533,8 +533,8 @@ private struct StatsTrendCard: View {
                         }
                     }
 
-                    if let selectedDate {
-                        RuleMark(x: .value("选中日期".localized(in: locale), selectedDate))
+                    if let selectedDay, let selectedDayDate = StatsFormat.date(selectedDay.date) {
+                        RuleMark(x: .value("选中日期".localized(in: locale), selectedDayDate))
                             .foregroundStyle(QuartetTheme.secondaryText.opacity(0.55))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                     }
@@ -578,6 +578,8 @@ private struct StatsTrendCard: View {
                 if let selectedDay {
                     if metric == .tokens {
                         StatsTokenDayDetail(day: selectedDay)
+                    } else if metric == .cache {
+                        StatsCacheDayTip(date: selectedDay.date, entries: selectedCacheEntries)
                     } else {
                         HStack {
                             Text(selectedDay.date)
@@ -637,6 +639,20 @@ private struct StatsTrendCard: View {
             return first ... nextDay
         }
         return first ... last
+    }
+
+    private var selectedCacheEntries: [StatsCacheTipEntry] {
+        guard metric == .cache, let selectedDay else { return [] }
+        return series.compactMap { line in
+            guard let point = line.points.first(where: { $0.dateKey == selectedDay.date }) else { return nil }
+            return StatsCacheTipEntry(
+                id: line.id,
+                name: line.name,
+                value: point.value,
+                color: line.color,
+                isTotal: line.isTotal
+            )
+        }
     }
 
     private var trendTitle: String {
@@ -801,6 +817,60 @@ private struct StatsTrendPoint: Identifiable {
     let value: Double
 
     var id: String { dateKey }
+}
+
+private struct StatsCacheTipEntry: Identifiable {
+    let id: String
+    let name: String
+    let value: Double
+    let color: Color
+    let isTotal: Bool
+}
+
+private struct StatsCacheDayTip: View {
+    @Environment(\.locale) private var locale
+    let date: String
+    let entries: [StatsCacheTipEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(date)
+                .font(.quartet(.detail, weight: .semibold))
+                .foregroundStyle(QuartetTheme.primaryText)
+
+            if entries.isEmpty {
+                Text("该日没有可计算的缓存命中率。".localized(in: locale))
+                    .font(.quartet(.compact))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            } else {
+                ForEach(entries) { entry in
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(entry.color)
+                            .frame(width: entry.isTotal ? 9 : 7, height: entry.isTotal ? 9 : 7)
+                            .accessibilityHidden(true)
+
+                        Text(entry.name)
+                            .font(.quartet(.detail, weight: entry.isTotal ? .semibold : .regular))
+                            .foregroundStyle(entry.isTotal ? QuartetTheme.primaryText : QuartetTheme.secondaryText)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 12)
+
+                        Text(StatsFormat.percentage(entry.value, locale: locale))
+                            .font(.quartet(.detail, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(QuartetTheme.primaryText)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+        .padding(10)
+        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 9))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("stats-cache-day-tip")
+    }
 }
 
 private struct StatsTokenCoverageNote: View {
