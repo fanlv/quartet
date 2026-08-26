@@ -129,6 +129,36 @@ enum AgentUsageFormat {
 struct AgentUsageSummaryLine: Equatable, Sendable {
     let text: String
     let isFailure: Bool
+    /// 失败时的完整错误原文（请求方法、URL、状态码、响应正文），供行内错误入口原样展示并复制。
+    let detail: String?
+
+    init(text: String, isFailure: Bool, detail: String? = nil) {
+        self.text = text
+        self.isFailure = isFailure
+        self.detail = detail
+    }
+}
+
+/// 一个待探测的 Agent。`command` 就是 ACP 启动命令（`AgentSummary.type`），也是缓存键。
+struct AgentUsageProbeTarget: Sendable, Hashable {
+    let command: String
+    let displayName: String
+
+    init(command: String, displayName: String) {
+        self.command = command
+        self.displayName = displayName.isEmpty ? command : displayName
+    }
+
+    /// 只探测可用的 Agent：不可用的行本身已经写着不可用原因，再探测一次只会白等超时。
+    static func targets(_ agents: [AgentSummary]) -> [AgentUsageProbeTarget] {
+        var seen: Set<String> = []
+        var targets: [AgentUsageProbeTarget] = []
+        for agent in agents where agent.available && !agent.type.isEmpty {
+            guard seen.insert(agent.type).inserted else { continue }
+            targets.append(AgentUsageProbeTarget(command: agent.type, displayName: agent.displayName))
+        }
+        return targets
+    }
 }
 
 /// “选择 Agent”弹窗副标题（版本号 + Usage）的数据源。
@@ -148,11 +178,6 @@ final class AgentUsageSummaryStore: ObservableObject {
         var version = ""
         var loading = false
         var failure: APIError?
-    }
-
-    private struct ProbeTarget: Sendable {
-        let command: String
-        let displayName: String
     }
 
     /// 一次探测：要么按 provider 拉用量（映射到同一 provider 的命令共用一次请求），
@@ -182,14 +207,35 @@ final class AgentUsageSummaryStore: ObservableObject {
     private var namespace = ""
 
     /// 弹窗打开时调用：先把本地缓存补进内存，再刷新过期的命令。
-    func refresh(agents: [AgentSummary], namespace: String, client: APIClient) async {
+    /// 请求失败不占用节流窗口，所以“重试”就是再调一次本方法。
+    func load(agents: [AgentSummary], model: AppModel) async {
+        await load(targets: AgentUsageProbeTarget.targets(agents), model: model)
+    }
+
+    func load(targets: [AgentUsageProbeTarget], model: AppModel) async {
+        guard !targets.isEmpty else { return }
+        if model.isRunningUITests {
+            applyUITestStub(targets: targets)
+            return
+        }
+        let client: APIClient
+        do {
+            client = try model.apiClient()
+        } catch {
+            // 服务地址本身不可用：错误直接落到对应行上，用户能看到全文也能点重试。
+            recordFailure(targets: targets, error: error)
+            return
+        }
+        await refresh(targets: targets, namespace: model.serverAddress, client: client)
+    }
+
+    private func refresh(targets: [AgentUsageProbeTarget], namespace: String, client: APIClient) async {
         if namespace != self.namespace {
             self.namespace = namespace
             entries = [:]
             lastProbedAt = [:]
         }
 
-        let targets = probeTargets(agents)
         restoreCache(targets)
 
         let jobs = plannedJobs(targets)
@@ -197,6 +243,30 @@ final class AgentUsageSummaryStore: ObservableObject {
         beginProbing(jobs)
         defer { endProbing(jobs) }
         await runProbes(jobs, client: client)
+    }
+
+    private func recordFailure(targets: [AgentUsageProbeTarget], error: Error) {
+        let failure = (error as? APIError)
+            ?? APIError(summary: "Agent 用量加载失败", detail: String(describing: error))
+        for target in targets {
+            var entry = entries[target.command] ?? Entry()
+            entry.loading = false
+            entry.failure = failure
+            entries[target.command] = entry
+            lastProbedAt[target.command] = nil
+        }
+    }
+
+    /// UI 测试不打真实后端：给每个 Agent 塞一个占位版本号，让弹窗版式和线上一致。
+    private func applyUITestStub(targets: [AgentUsageProbeTarget]) {
+        for target in targets where entries[target.command] == nil {
+            entries[target.command] = Entry(version: "v1.0.0")
+        }
+    }
+
+    /// 行内摘要：Agent 行直接传 `AgentSummary`，命令与显示名的取法全局一致。
+    func summary(agent: AgentSummary) -> AgentUsageSummaryLine? {
+        summary(command: agent.type, displayName: agent.displayName.isEmpty ? agent.type : agent.displayName)
     }
 
     /// 副标题文本。没有任何可显示内容（既没缓存也没在读）时返回 nil，行内不占位。
@@ -213,39 +283,36 @@ final class AgentUsageSummaryStore: ObservableObject {
 
         if parts.isEmpty {
             if entry.loading {
-                return AgentUsageSummaryLine(text: "正在读取版本与用量…".localizedForApp, isFailure: false)
+                return AgentUsageSummaryLine(text: "Loading version & usage…", isFailure: false)
             }
             if let failure = entry.failure {
                 return AgentUsageSummaryLine(
-                    text: "\("版本与用量读取失败".localizedForApp)：\(failure.summary)",
-                    isFailure: true
+                    text: "Version & usage failed: \(failure.summary)",
+                    isFailure: true,
+                    detail: Self.failureDetail(command: command, failure: failure)
                 )
             }
             return nil
         }
 
         // 有旧数据时刷新失败不清空，改成在行尾标一下，避免把已经读到的信息又抹掉。
-        if entry.failure != nil { parts.append("⚠︎ \("刷新失败".localizedForApp)") }
+        if let failure = entry.failure {
+            parts.append("⚠︎ Refresh failed")
+            return AgentUsageSummaryLine(
+                text: parts.joined(separator: " · "),
+                isFailure: false,
+                detail: Self.failureDetail(command: command, failure: failure)
+            )
+        }
         return AgentUsageSummaryLine(text: parts.joined(separator: " · "), isFailure: false)
     }
 
-    private func probeTargets(_ agents: [AgentSummary]) -> [ProbeTarget] {
-        var seen: Set<String> = []
-        var targets: [ProbeTarget] = []
-        // 只探测可用的 Agent：不可用的行本身已经写着不可用原因，再探测一次只会白等超时。
-        for agent in agents where agent.available && !agent.type.isEmpty {
-            guard seen.insert(agent.type).inserted else { continue }
-            targets.append(
-                ProbeTarget(
-                    command: agent.type,
-                    displayName: agent.displayName.isEmpty ? agent.type : agent.displayName
-                )
-            )
-        }
-        return targets
+    /// 行内只放一句摘要，完整错误原文交给错误详情弹窗，一个字都不裁。
+    private static func failureDetail(command: String, failure: APIError) -> String {
+        [command, failure.summary, "", failure.detail].joined(separator: "\n")
     }
 
-    private func restoreCache(_ targets: [ProbeTarget]) {
+    private func restoreCache(_ targets: [AgentUsageProbeTarget]) {
         for target in targets where entries[target.command] == nil {
             var entry = Entry()
             if let provider = AgentUsageProvider.resolve(command: target.command, displayName: target.displayName) {
@@ -258,7 +325,7 @@ final class AgentUsageSummaryStore: ObservableObject {
     }
 
     /// 按 provider（没有 provider 时按命令）分组，只保留还需要刷新的那几组。
-    private func plannedJobs(_ targets: [ProbeTarget]) -> [ProbeJob] {
+    private func plannedJobs(_ targets: [AgentUsageProbeTarget]) -> [ProbeJob] {
         var keys: [String] = []
         var providers: [String: AgentUsageProvider?] = [:]
         var commands: [String: [String]] = [:]
@@ -294,6 +361,8 @@ final class AgentUsageSummaryStore: ObservableObject {
             inFlight.insert(command)
             var entry = entries[command] ?? Entry()
             entry.loading = true
+            // 重试期间先撤掉上一次的失败，行内立刻变成“正在读取”，避免重试看起来没反应。
+            entry.failure = nil
             entries[command] = entry
         }
     }
@@ -372,6 +441,7 @@ final class AgentUsageSummaryStore: ObservableObject {
     }
 
     /// 每个 provider 的摘要片段：版本号在前，后面按“压力最直观”的顺序排用量。
+    /// 这一行是给选择器用的紧凑信息，标签统一用英文短词，不随 App 语言变。
     private static func usageParts(provider: AgentUsageProvider, usage: AgentUsageResponse) -> [String] {
         switch provider {
         case .codex:
@@ -380,14 +450,14 @@ final class AgentUsageSummaryStore: ObservableObject {
             if let window = value.primaryWindow { parts.append(window.usageLabel) }
             if let window = value.secondaryWindow { parts.append(window.usageLabel) }
             if value.resetCredits > 0 {
-                parts.append("\("重置额度".localizedForApp) \(value.resetCredits)")
+                parts.append("Reset \(value.resetCredits)")
             }
             return parts
         case .claude:
             guard let value = usage.claude else { return [] }
             var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
-            parts.append("\("今日".localizedForApp) \(AgentUsageFormat.money(value.todayCost))")
-            parts.append("\("累计".localizedForApp) \(AgentUsageFormat.money(value.totalCost))")
+            parts.append("Today \(AgentUsageFormat.money(value.todayCost))")
+            parts.append("Sum \(AgentUsageFormat.money(value.totalCost))")
             return parts
         case .antigravity:
             guard let value = usage.antigravity else { return [] }
@@ -404,17 +474,17 @@ final class AgentUsageSummaryStore: ObservableObject {
             if let window = value.fiveHour { parts.append(window.usageLabel) }
             if let window = value.weekly { parts.append(window.usageLabel) }
             if let window = value.total {
-                parts.append("\("累计".localizedForApp) \(window.percentLabel)")
+                parts.append("Sum \(window.percentLabel)")
             }
             return parts
         case .qoder:
             guard let value = usage.qoder else { return [] }
             var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
             parts.append(
-                "\("已用".localizedForApp) \(AgentUsageFormat.credits(value.used))"
+                "Used \(AgentUsageFormat.credits(value.used))"
                     + "/\(AgentUsageFormat.credits(value.total))"
             )
-            if value.quotaExceeded { parts.append("额度已用尽".localizedForApp) }
+            if value.quotaExceeded { parts.append("Quota exhausted") }
             return parts
         }
     }
@@ -425,6 +495,37 @@ final class AgentUsageSummaryStore: ObservableObject {
             return "\(item.0) \(window.percentLabel)"
         }
         return labels.isEmpty ? nil : "\(mark) \(labels.joined(separator: " / "))"
+    }
+}
+
+extension QuartetChoice {
+    /// 所有 Agent 选择器共用的一行：
+    /// 副标题只补充标题里没有的信息（命令、不可用原因），footnote 挂版本号与用量，
+    /// 读取失败时行尾出现错误详情和重试入口。
+    static func agent(
+        id: String,
+        title: String,
+        command: String? = nil,
+        note: String? = nil,
+        disabled: Bool = false,
+        usage: AgentUsageSummaryLine?,
+        retry: @escaping () -> Void
+    ) -> QuartetChoice {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let details = [command, note]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != trimmedTitle }
+        return QuartetChoice(
+            id: id,
+            title: title,
+            detail: details.isEmpty ? nil : details.joined(separator: " · "),
+            footnote: usage?.text,
+            footnoteIsFailure: usage?.isFailure ?? false,
+            footnoteDetail: usage?.detail,
+            // 只有读失败的行才需要重试，正常行不摆多余按钮。
+            footnoteRetry: usage?.detail == nil ? nil : retry,
+            disabled: disabled
+        )
     }
 }
 

@@ -1204,6 +1204,9 @@ private struct GraphNodeConfigurationView: View {
     let agents: [AgentSummary]
     let agentPreferences: [String: AgentPreferences]
 
+    /// “选择 Agent”弹窗副标题要显示的版本号与用量。全局单例，跨弹窗复用缓存与节流。
+    @ObservedObject private var agentUsageSummaries = AgentUsageSummaryStore.shared
+
     @State private var draft: GraphNode
     @State private var timeoutSeconds: String
     @State private var fixedCount: String
@@ -1298,6 +1301,10 @@ private struct GraphNodeConfigurationView: View {
                 )
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()
+                .task {
+                    guard picker == .agent else { return }
+                    await loadAgentUsageSummaries()
+                }
             }
         }
     }
@@ -1550,6 +1557,12 @@ private struct GraphNodeConfigurationView: View {
         }
     }
 
+    /// 打开“选择 Agent”弹窗时读取每个 Agent 的版本号与用量：先出缓存，再后台刷新。
+    /// 失败不占用节流窗口，所以行内“重试”按钮直接再调一次。
+    private func loadAgentUsageSummaries() async {
+        await agentUsageSummaries.load(agents: agents, model: appModel)
+    }
+
     private func choices(for picker: GraphNodePicker) -> [QuartetChoice] {
         switch picker {
         case .sessionStrategy:
@@ -1559,11 +1572,14 @@ private struct GraphNodeConfigurationView: View {
             ]
         case .agent:
             var items = agents.map { agent in
-                QuartetChoice(
+                QuartetChoice.agent(
                     id: agent.type,
                     title: agent.displayName.isEmpty ? agent.type : agent.displayName,
-                    detail: agent.available ? agent.type : "\(agent.type) · 未安装",
-                    disabled: !agent.available && agent.type != config.agentType && agent.agentId != config.agentType
+                    command: agent.type,
+                    note: agent.available ? nil : "未安装".localizedForApp,
+                    disabled: !agent.available && agent.type != config.agentType && agent.agentId != config.agentType,
+                    usage: agentUsageSummaries.summary(agent: agent),
+                    retry: { Task { await loadAgentUsageSummaries() } }
                 )
             }
             if let reference = config.agentType, !reference.isEmpty,

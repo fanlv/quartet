@@ -67,7 +67,7 @@ struct JobChatView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 NavigationLink {
-                    JobDetailView(summary: route.summary)
+                    JobDetailView(summary: currentJobSummary)
                 } label: {
                     Image(systemName: "info.circle")
                 }
@@ -130,6 +130,14 @@ struct JobChatView: View {
             draft = restored.text
             pendingImage = restored.attachment
             selectedPhoto = nil
+        }
+        .onChange(of: chat.authoritativeTitleVersion) { _, _ in
+            appModel.synchronizeJobTitle(
+                id: route.summary.id,
+                title: chat.title,
+                fallback: route.summary
+            )
+            Task { await appModel.reloadJobs() }
         }
         .onChange(of: chat.terminalStateVersion) { _, _ in
             guard route.summary.mode != "graph" else { return }
@@ -230,6 +238,10 @@ struct JobChatView: View {
             }
             .quartetSheetStyle()
         }
+    }
+
+    private var currentJobSummary: JobSummary {
+        appModel.jobSummary(id: route.summary.id) ?? route.summary
     }
 
     private var messageList: some View {

@@ -100,6 +100,7 @@ final class ChatViewModel: ObservableObject {
     @Published var serverQueue = MessageQueueSnapshot(jobId: "", version: 0, paused: false, pauseReason: nil, willContinue: false, active: nil, items: [])
     @Published var deletingQueueIDs: Set<String> = []
     @Published var title = ""
+    @Published private(set) var authoritativeTitleVersion = 0
     @Published var status = "pending"
     @Published var loading = true
     @Published var sending = false
@@ -264,7 +265,7 @@ final class ChatViewModel: ObservableObject {
                     errorDetail = errorText(error)
                 }
             }
-            title = detail.title
+            applyAuthoritativeTitle(detail.title)
             status = detail.status
             runStartedAt = detail.startedAt
             runFinishedAt = detail.finishedAt
@@ -1032,7 +1033,7 @@ final class ChatViewModel: ObservableObject {
             do { applyServerQueue(try await client.messageQueue(jobID: jobID)) }
             catch { errorDetail = errorText(error) }
         }
-        title = snapshot.title
+        applyAuthoritativeTitle(snapshot.title)
         status = snapshot.status
         runStartedAt = snapshot.startedAt
         runFinishedAt = snapshot.finishedAt
@@ -1387,7 +1388,7 @@ final class ChatViewModel: ObservableObject {
             }
         case "job_title_updated":
             if let updatedTitle = event.value?.title, !updatedTitle.isEmpty {
-                title = updatedTitle
+                applyAuthoritativeTitle(updatedTitle)
             }
         case "message_queue_changed":
             if let version = event.value?.version, version > serverQueue.version, let client {
@@ -1400,6 +1401,12 @@ final class ChatViewModel: ObservableObject {
         default:
             break
         }
+    }
+
+    private func applyAuthoritativeTitle(_ title: String) {
+        guard !title.isEmpty, title != self.title else { return }
+        self.title = title
+        authoritativeTitleVersion &+= 1
     }
 
     private func applyCommandEvent(_ event: ServerEvent, fallbackClientMessageID: String? = nil) {

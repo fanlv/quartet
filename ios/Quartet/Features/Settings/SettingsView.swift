@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.mainTabBarInset) private var mainTabBarInset
+    @Environment(\.locale) private var locale
     @State private var confirmsClear = false
     @State private var confirmsRestartWeb = false
     @State private var showsRestartSuccess = false
@@ -29,10 +30,24 @@ struct SettingsView: View {
                                 )
                                 .frame(width: 8, height: 8)
                             Text((model.connectionState.isConnected ? (model.connectionState.isStale ? "缓存中" : "已连接") : "未连接").localizedForApp)
-                            if let buildTime = model.health?.buildTime { Text("· \(buildTime)") }
                         }
                         .font(.caption)
                         .foregroundStyle(QuartetTheme.secondaryText)
+                        if let buildTime = formattedServerBuildTime {
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                Text("服务端编译时间")
+                                Spacer(minLength: 8)
+                                Text(buildTime)
+                                    .font(.quartet(.detail, design: .monospaced))
+                                    .foregroundStyle(QuartetTheme.primaryText)
+                                    .multilineTextAlignment(.trailing)
+                                    .textSelection(.enabled)
+                            }
+                            .font(.quartet(.detail))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("settings-server-build-time")
+                        }
                         if let lastSuccessfulSyncAt = model.connectionState.lastSuccessfulSyncAt {
                             Text("最后成功同步：\(lastSuccessfulSyncAt.formatted(date: .omitted, time: .shortened))")
                                 .font(.caption)
@@ -178,6 +193,27 @@ struct SettingsView: View {
         } message: {
             Text("新的 Web 服务已就绪。")
         }
+    }
+
+    private var formattedServerBuildTime: String? {
+        guard let rawValue = model.health?.buildTime?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        guard rawValue.lowercased() != "unknown" else {
+            return "未知".localizedForApp
+        }
+
+        let parser = ISO8601DateFormatter()
+        let date = parser.date(from: rawValue)
+        guard let date else { return rawValue }
+
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateStyle = .short
+        formatter.timeStyle = .medium
+        return formatter.string(from: date)
     }
 
     private func settingsRow(

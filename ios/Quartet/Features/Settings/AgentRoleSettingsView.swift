@@ -65,6 +65,9 @@ struct AgentRoleSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @StateObject private var thoughtLevels = AgentThoughtLevelStore()
 
+    /// “选择 Agent”弹窗副标题要显示的版本号与用量。全局单例，跨弹窗复用缓存与节流。
+    @ObservedObject private var agentUsageSummaries = AgentUsageSummaryStore.shared
+
     @State private var agents: [AgentSummary] = []
     @State private var headlessAgentIDs: Set<String> = []
     @State private var configs: [String: AgentRoleConfig] = [:]
@@ -222,6 +225,7 @@ struct AgentRoleSettingsView: View {
             )
             .presentationDetents([.medium, .large])
             .quartetSheetStyle()
+            .task { await loadAgentUsageSummaries(role) }
         case .model:
             QuartetChoiceSheet(
                 title: "选择模型",
@@ -289,14 +293,22 @@ struct AgentRoleSettingsView: View {
         if !config.agentId.isEmpty, !pool.contains(where: { $0.agentId == config.agentId }) {
             choices.append(QuartetChoice(id: config.agentId, title: config.agentId, detail: "当前不可用"))
         }
-        choices.append(contentsOf: pool.map {
-            QuartetChoice(
-                id: $0.agentId,
-                title: $0.displayName.isEmpty ? $0.agentId : $0.displayName,
-                detail: $0.agentId
+        choices.append(contentsOf: pool.map { agent in
+            .agent(
+                id: agent.agentId,
+                title: agent.displayName.isEmpty ? agent.agentId : agent.displayName,
+                command: agent.agentId,
+                usage: agentUsageSummaries.summary(agent: agent),
+                retry: { Task { await loadAgentUsageSummaries(role) } }
             )
         })
         return choices
+    }
+
+    /// 打开“选择 Agent”弹窗时读取每个 Agent 的版本号与用量：先出缓存，再后台刷新。
+    /// 失败不占用节流窗口，所以行内“重试”按钮直接再调一次。
+    private func loadAgentUsageSummaries(_ role: AgentRole) async {
+        await agentUsageSummaries.load(agents: agentPool(for: role), model: model)
     }
 
     private func agentDisplayName(_ agentId: String, pool: [AgentSummary]) -> String {

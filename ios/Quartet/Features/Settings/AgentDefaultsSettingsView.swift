@@ -48,6 +48,9 @@ struct AgentDefaultsSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @StateObject private var thoughtLevels = AgentThoughtLevelStore()
 
+    /// “选择 Agent”弹窗副标题要显示的版本号与用量。全局单例，跨弹窗复用缓存与节流。
+    @ObservedObject private var agentUsageSummaries = AgentUsageSummaryStore.shared
+
     @State private var agents: [AgentSummary] = []
     @State private var drafts: [String: AgentPrefsDraft] = [:]
     @State private var dirtyAgentIDs: Set<String> = []
@@ -106,14 +109,21 @@ struct AgentDefaultsSettingsView: View {
         .sheet(isPresented: $showsAgentPicker) {
             QuartetChoiceSheet(
                 title: "选择 Agent",
-                choices: agents.map {
-                    QuartetChoice(id: $0.agentId, title: $0.displayName.isEmpty ? $0.agentId : $0.displayName, detail: $0.agentId)
+                choices: agents.map { agent in
+                    .agent(
+                        id: agent.agentId,
+                        title: agent.displayName.isEmpty ? agent.agentId : agent.displayName,
+                        command: agent.agentId,
+                        usage: agentUsageSummaries.summary(agent: agent),
+                        retry: { Task { await loadAgentUsageSummaries() } }
+                    )
                 },
                 selection: $activeAgentID,
                 accessibilityPrefix: "agent-defaults-agent"
             )
             .presentationDetents([.medium, .large])
             .quartetSheetStyle()
+            .task { await loadAgentUsageSummaries() }
         }
         .sheet(isPresented: $showsFavoritePicker) {
             AgentFavoriteModelsSheet(
@@ -395,6 +405,12 @@ struct AgentDefaultsSettingsView: View {
     private func initialLoad() async {
         guard agents.isEmpty else { return }
         await load()
+    }
+
+    /// 打开“选择 Agent”弹窗时读取每个 Agent 的版本号与用量：先出缓存，再后台刷新。
+    /// 失败不占用节流窗口，所以行内“重试”按钮直接再调一次。
+    private func loadAgentUsageSummaries() async {
+        await agentUsageSummaries.load(agents: agents, model: model)
     }
 
     private func load() async {

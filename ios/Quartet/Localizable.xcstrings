@@ -7188,6 +7188,23 @@
         }
       }
     },
+    "服务端编译时间" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server build time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务端编译时间"
+          }
+        }
+      }
+    },
     "服务端状态：%@" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7302,6 +7319,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未安装"
+          }
+        }
+      }
+    },
+    "未知" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unknown"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未知"
           }
         }
       }
@@ -7671,6 +7705,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "查看 Agent 用量错误"
+          }
+        }
+      }
+    },
+    "查看错误详情" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View error details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看错误详情"
           }
         }
       }

@@ -42,19 +42,6 @@ struct JobsView: View {
                 guard model.connectionState.isConnected else { return }
                 await model.refreshAgentCatalog()
             }
-            .task(id: dashboardPollingConfiguration) {
-                let configuration = dashboardPollingConfiguration
-                guard configuration.isActive, !model.isRunningUITests else { return }
-                while !Task.isCancelled {
-                    do {
-                        try await Task.sleep(for: configuration.hasActiveJobs ? .seconds(5) : .seconds(60))
-                    } catch {
-                        return
-                    }
-                    guard !Task.isCancelled else { return }
-                    await model.pollDashboard()
-                }
-            }
             .navigationDestination(for: ChatRoute.self) { route in
                 if route.summary.mode == "graph", route.targetSessionID == nil {
                     GraphRunView(summary: route.summary)
@@ -148,6 +135,21 @@ struct JobsView: View {
         }
         .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        // Keep the dashboard task on the navigation container: the root ScrollView disappears while
+        // a destination is pushed, but the container stays alive and must keep its shared list fresh.
+        .task(id: dashboardPollingConfiguration) {
+            let configuration = dashboardPollingConfiguration
+            guard configuration.isActive, !model.isRunningUITests else { return }
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: configuration.hasActiveJobs ? .seconds(5) : .seconds(60))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                await model.pollDashboard()
+            }
+        }
         .onAppear { setMainTabBarVisible(path.isEmpty) }
         .onChange(of: path.isEmpty) { _, isAtRoot in
             setMainTabBarVisible(isAtRoot)
@@ -473,10 +475,9 @@ struct JobsView: View {
 
     private var dashboardPollingConfiguration: DashboardPollingConfiguration {
         DashboardPollingConfiguration(
-            // Inactive while a chat or graph run is pushed: those screens hold an SSE connection and
-            // already call `reloadJobs()` when a round reaches a terminal state, so polling underneath
-            // them is duplicate traffic competing for the same handful of HTTP/1.1 sockets as the stream.
-            isActive: scenePhase == .active && path.isEmpty,
+            // Navigation must not suspend dashboard synchronization. Chat/Graph screens update some
+            // fields from their own streams, while this poll keeps the shared list and cache complete.
+            isActive: scenePhase == .active,
             hasActiveJobs: model.activeJobCount > 0,
             workspaceID: model.selectedWorkspaceID,
             hidesScheduledJobs: model.hideScheduledJobs

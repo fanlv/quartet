@@ -620,6 +620,31 @@ final class AppModel: ObservableObject {
         jobs.first(where: { $0.id == id })
     }
 
+    /// Mirrors an authoritative title observed by a Job screen into the shared dashboard state.
+    /// The optimistic copies must move together with the visible row; otherwise a later execution
+    /// reconciliation or cache save can restore the placeholder title used when the Job was created.
+    func synchronizeJobTitle(id: String, title: String, fallback: JobSummary) {
+        guard !title.isEmpty else { return }
+
+        var fallbackForVisibleList = fallback.updating(title: title)
+        if let optimistic = optimisticJobExecutions[id] {
+            let synchronizedDisplay = optimistic.display.updating(title: title)
+            optimisticJobExecutions[id] = OptimisticJobExecution(
+                baseline: optimistic.baseline.updating(title: title),
+                display: synchronizedDisplay,
+                startedAt: optimistic.startedAt
+            )
+            fallbackForVisibleList = synchronizedDisplay
+        }
+
+        if let index = jobs.firstIndex(where: { $0.id == id }) {
+            guard jobs[index].title != title else { return }
+            jobs[index] = jobs[index].updating(title: title)
+        } else {
+            upsertVisibleJob(fallbackForVisibleList)
+        }
+    }
+
     func displayedStatus(for job: JobSummary) -> String {
         if optimisticJobExecutions[job.id] != nil {
             return "running"

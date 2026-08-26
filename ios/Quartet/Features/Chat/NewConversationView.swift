@@ -116,6 +116,9 @@ struct NewConversationView: View {
     @EnvironmentObject private var model: AppModel
     let onCreated: (ChatRoute) -> Void
 
+    /// “选择 Agent”弹窗副标题要显示的版本号与用量。全局单例，跨弹窗复用缓存与节流。
+    @ObservedObject private var agentUsageSummaries = AgentUsageSummaryStore.shared
+
     @State private var agents: [AgentSummary] = []
     @State private var agentPreferences: [String: AgentPreferences] = [:]
     @State private var creationMode: NewConversationMode = .chat
@@ -971,14 +974,14 @@ struct NewConversationView: View {
         case .agent:
             return agents.map { item in
                 let name = item.displayName.isEmpty ? item.type : item.displayName
-                let summary = agentUsageSummaries.summary(command: item.type, displayName: name)
-                return QuartetChoice(
+                return .agent(
                     id: item.id,
                     title: name,
-                    detail: item.available ? item.type : "\(item.type) · \(item.availabilityLabel)",
-                    footnote: summary?.text,
-                    footnoteIsFailure: summary?.isFailure ?? false,
-                    disabled: !item.available && item.id != agentID
+                    command: item.type,
+                    note: item.available ? nil : item.availabilityLabel,
+                    disabled: !item.available && item.id != agentID,
+                    usage: agentUsageSummaries.summary(agent: item),
+                    retry: { Task { await loadAgentUsageSummaries() } }
                 )
             }
         case .model:
@@ -998,6 +1001,12 @@ struct NewConversationView: View {
             return [QuartetChoice(id: "", title: "跟随 Agent", detail: "使用 Agent 自身的默认思考等级")]
                 + (linkedThoughtLevels?.availableThoughtLevels ?? []).map { QuartetChoice(id: $0.id, title: $0.name) }
         }
+    }
+
+    /// 打开“选择 Agent”弹窗时读取每个 Agent 的版本号与用量：先出缓存，再后台刷新。
+    /// 失败不占用节流窗口，所以行内“重试”按钮直接再调一次。
+    private func loadAgentUsageSummaries() async {
+        await agentUsageSummaries.load(agents: agents, model: model)
     }
 
     private func selectionBinding(for picker: NewConversationPicker) -> Binding<String> {

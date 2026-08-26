@@ -777,10 +777,14 @@ struct JobSummary: Decodable, Identifiable, Hashable, Sendable {
         }
     }
 
-    func updating(status: String? = nil, updatedAt: Int64? = nil) -> JobSummary {
+    func updating(
+        title: String? = nil,
+        status: String? = nil,
+        updatedAt: Int64? = nil
+    ) -> JobSummary {
         JobSummary(
             id: id,
-            title: title,
+            title: title ?? self.title,
             modelId: modelId,
             status: status ?? self.status,
             mode: mode,

@@ -13,8 +13,17 @@ private struct AgentEnvTarget: Identifiable, Hashable {
     let envKey: String
     let agentId: String
     let displayName: String
+    /// ACP 启动命令。空串表示这条只是历史遗留的存储键，没有对应 Agent，也就读不到版本与用量。
+    let command: String
 
     var id: String { envKey }
+
+    init(envKey: String, agentId: String, displayName: String, command: String = "") {
+        self.envKey = envKey
+        self.agentId = agentId
+        self.displayName = displayName
+        self.command = command
+    }
 }
 
 /// 与 Web 端一致的占位默认值：默认关闭，只是把常用的代理变量先摆出来。
@@ -26,6 +35,9 @@ private let agentEnvDefaultRows: [AgentEnvRow] = [
 @MainActor
 struct AgentEnvSettingsView: View {
     @EnvironmentObject private var model: AppModel
+
+    /// “选择 Agent”弹窗副标题要显示的版本号与用量。全局单例，跨弹窗复用缓存与节流。
+    @ObservedObject private var agentUsageSummaries = AgentUsageSummaryStore.shared
 
     @State private var targets: [AgentEnvTarget] = []
     @State private var activeKey = ""
@@ -57,12 +69,23 @@ struct AgentEnvSettingsView: View {
         .sheet(isPresented: $showsTargetPicker) {
             QuartetChoiceSheet(
                 title: "选择 Agent",
-                choices: targets.map { QuartetChoice(id: $0.envKey, title: $0.displayName, detail: $0.envKey) },
+                choices: targets.map { target in
+                    .agent(
+                        id: target.envKey,
+                        title: target.displayName,
+                        command: target.envKey,
+                        usage: target.command.isEmpty
+                            ? nil
+                            : agentUsageSummaries.summary(command: target.command, displayName: target.displayName),
+                        retry: { Task { await loadAgentUsageSummaries() } }
+                    )
+                },
                 selection: $activeKey,
                 accessibilityPrefix: "agent-env-target"
             )
             .presentationDetents([.medium, .large])
             .quartetSheetStyle()
+            .task { await loadAgentUsageSummaries() }
         }
     }
 
@@ -222,6 +245,15 @@ struct AgentEnvSettingsView: View {
         await load()
     }
 
+    /// 打开“选择 Agent”弹窗时读取每个 Agent 的版本号与用量：先出缓存，再后台刷新。
+    /// 失败不占用节流窗口，所以行内“重试”按钮直接再调一次。
+    private func loadAgentUsageSummaries() async {
+        let probeTargets = targets
+            .filter { !$0.command.isEmpty }
+            .map { AgentUsageProbeTarget(command: $0.command, displayName: $0.displayName) }
+        await agentUsageSummaries.load(targets: probeTargets, model: model)
+    }
+
     private func load() async {
         isLoading = true
         loadError = ""
@@ -239,7 +271,8 @@ struct AgentEnvSettingsView: View {
                 resolved.append(AgentEnvTarget(
                     envKey: envKey,
                     agentId: agent.agentId,
-                    displayName: agent.displayName.isEmpty ? agent.agentId : agent.displayName
+                    displayName: agent.displayName.isEmpty ? agent.agentId : agent.displayName,
+                    command: agent.available ? agent.type : ""
                 ))
                 let entries = saved[envKey] ?? saved[agent.type]
                 if let entries, !entries.isEmpty {

@@ -547,6 +547,10 @@ struct QuartetChoice: Identifiable {
     let footnote: String?
     /// `footnote` 承载的是失败原因，按警示色渲染。
     let footnoteIsFailure: Bool
+    /// `footnote` 背后的完整错误原文。非空时行尾出现警示按钮，点开原样展示、可复制。
+    let footnoteDetail: String?
+    /// 重新读取 `footnote` 的动作。非空时行尾出现刷新按钮，供读取失败后重试。
+    let footnoteRetry: (() -> Void)?
     let disabled: Bool
 
     init(
@@ -555,6 +559,8 @@ struct QuartetChoice: Identifiable {
         detail: String? = nil,
         footnote: String? = nil,
         footnoteIsFailure: Bool = false,
+        footnoteDetail: String? = nil,
+        footnoteRetry: (() -> Void)? = nil,
         disabled: Bool = false
     ) {
         self.id = id
@@ -562,6 +568,8 @@ struct QuartetChoice: Identifiable {
         self.detail = detail
         self.footnote = footnote
         self.footnoteIsFailure = footnoteIsFailure
+        self.footnoteDetail = footnoteDetail
+        self.footnoteRetry = footnoteRetry
         self.disabled = disabled
     }
 }
@@ -575,6 +583,10 @@ struct QuartetChoiceSheet: View {
     @Binding var selection: String
     let accessibilityPrefix: String
     let favoriteIDs: Set<String>
+
+    /// 行内 `footnote` 对应的完整错误。用弹窗内的二级 sheet 展示，
+    /// 避免和根视图的错误 sheet 抢同一个 presentation。
+    @State private var footnoteError: PresentedError?
 
     init(
         title: String,
@@ -626,6 +638,9 @@ struct QuartetChoiceSheet: View {
                 }
             }
         }
+        .sheet(item: $footnoteError) { error in
+            ErrorDetailView(error: error)
+        }
     }
 
     @ViewBuilder
@@ -658,63 +673,112 @@ struct QuartetChoiceSheet: View {
 
     private func choiceRow(_ choice: QuartetChoice) -> some View {
         let selected = choice.id == selection
-        return Button {
-            selection = choice.id
-            dismiss()
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: choiceIcon(choice, selected: selected))
-                    .font(.quartet(.regular, weight: .semibold))
-                    .foregroundStyle(
-                        selected || favoriteIDs.contains(choice.id)
-                            ? QuartetTheme.accent
-                            : QuartetTheme.secondaryText
-                    )
-                    .frame(width: 28)
-                    .accessibilityHidden(true)
+        // 选中按钮和错误入口必须是兄弟节点：嵌在 Button label 里的按钮收不到点击。
+        return HStack(spacing: 0) {
+            Button {
+                selection = choice.id
+                dismiss()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: choiceIcon(choice, selected: selected))
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(
+                            selected || favoriteIDs.contains(choice.id)
+                                ? QuartetTheme.accent
+                                : QuartetTheme.secondaryText
+                        )
+                        .frame(width: 28)
+                        .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(choice.title.localizedForApp)
-                        .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.primaryText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if let detail = choice.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       !detail.isEmpty {
-                        Text(detail.localizedForApp)
-                            .font(.quartet(.detail))
-                            .foregroundStyle(QuartetTheme.secondaryText)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(choice.title.localizedForApp)
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.primaryText)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        if let detail = resolvedDetail(choice) {
+                            Text(detail)
+                                .font(.quartet(.detail))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        if let footnote = choice.footnote?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           !footnote.isEmpty {
+                            Text(footnote)
+                                .font(.quartet(.compact, design: .monospaced))
+                                .foregroundStyle(
+                                    choice.footnoteIsFailure
+                                        ? QuartetTheme.failed
+                                        : QuartetTheme.secondaryText.opacity(0.78)
+                                )
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
-                    if let footnote = choice.footnote?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       !footnote.isEmpty {
-                        Text(footnote)
-                            .font(.quartet(.compact, design: .monospaced))
-                            .foregroundStyle(
-                                choice.footnoteIsFailure
-                                    ? QuartetTheme.failed
-                                    : QuartetTheme.secondaryText.opacity(0.78)
-                            )
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+
+                    Spacer(minLength: 8)
                 }
-
-                Spacer(minLength: 8)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 60)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 60)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .disabled(choice.disabled)
+            .opacity(choice.disabled ? 0.45 : 1)
+            .accessibilityLabel(choiceLabel(choice))
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityHint("选择此项并关闭弹窗".localizedForApp)
+            .accessibilityIdentifier("\(accessibilityPrefix)-\(choice.id)")
+
+            if let footnoteDetail = choice.footnoteDetail?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !footnoteDetail.isEmpty {
+                Button {
+                    footnoteError = PresentedError(
+                        title: choice.title.localizedForApp,
+                        detail: footnoteDetail
+                    )
+                } label: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.quartet(.detail, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.failed)
+                        .frame(width: 30, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                // 重试按钮在更外侧时由它负责右边距，避免两颗按钮之间被撑开。
+                .padding(.trailing, choice.footnoteRetry == nil ? 8 : 0)
+                .accessibilityLabel("查看错误详情".localizedForApp)
+                // 故意不带 accessibilityPrefix：按前缀枚举选项的 UI 测试不该把它当成一行选项。
+                .accessibilityIdentifier("quartet-choice-error-\(accessibilityPrefix)-\(choice.id)")
+            }
+
+            if let retry = choice.footnoteRetry {
+                Button {
+                    retry()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.quartet(.detail, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                        .frame(width: 30, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 8)
+                .accessibilityLabel("重试".localizedForApp)
+                .accessibilityIdentifier("quartet-choice-retry-\(accessibilityPrefix)-\(choice.id)")
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(choice.disabled)
-        .opacity(choice.disabled ? 0.45 : 1)
-        .accessibilityLabel(choiceLabel(choice))
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityHint("选择此项并关闭弹窗".localizedForApp)
-        .accessibilityIdentifier("\(accessibilityPrefix)-\(choice.id)")
+    }
+
+    /// 和主标题一字不差的副标题没有信息量，直接不显示。
+    private func resolvedDetail(_ choice: QuartetChoice) -> String? {
+        guard let detail = choice.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !detail.isEmpty else { return nil }
+        let localized = detail.localizedForApp
+        let title = choice.title.localizedForApp.trimmingCharacters(in: .whitespacesAndNewlines)
+        return localized.trimmingCharacters(in: .whitespacesAndNewlines) == title ? nil : localized
     }
 
     private func choiceLabel(_ choice: QuartetChoice) -> String {
-        [choice.title.localizedForApp, choice.detail?.localizedForApp, choice.footnote]
+        [choice.title.localizedForApp, resolvedDetail(choice), choice.footnote]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: ", ")
