@@ -12579,6 +12579,22 @@
         }
       }
     },
+    "重连" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnect"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重连"
+          }
+        }
+      }
+    },
     "重试" : {
       "localizations" : {
         "en" : {

@@ -1480,31 +1480,22 @@ private struct DashboardConnectionView: View {
                         .overlay(RoundedRectangle(cornerRadius: 16).stroke(QuartetTheme.failed.opacity(0.24)))
                     }
 
-                    Button {
-                        Task { await synchronize() }
-                    } label: {
-                        HStack {
-                            if model.isRefreshing || model.connectionState.phase == .connecting {
-                                ProgressView()
-                                    .tint(QuartetTheme.canvas)
-                            } else {
-                                Image(systemName: model.connectionState.isConnected ? "arrow.clockwise" : "network")
-                            }
-                            Text(model.connectionState.isConnected ? "立即同步" : "重新连接")
-                        }
-                        .font(.quartet(.regular, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.canvas)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(QuartetTheme.primaryText, in: RoundedRectangle(cornerRadius: 15))
-                    }
-                    .disabled(model.isRefreshing || model.connectionState.phase == .connecting)
-                    .accessibilityIdentifier("connection-sync-button")
                 }
                 .padding(20)
             }
             .background(QuartetTheme.canvas)
             .quartetNavigationTitle("连接状态")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("重连") {
+                        Task { await synchronize() }
+                    }
+                    .font(.quartet(.control, weight: .semibold))
+                    .disabled(model.isRefreshing || model.connectionState.phase == .connecting)
+                    .accessibilityIdentifier("connection-sync-button")
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
         }
         .presentationDetents([.medium, .large])
         .quartetSheetStyle()
