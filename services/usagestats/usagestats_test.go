@@ -88,7 +88,7 @@ func TestRecorderRoundTrip(t *testing.T) {
 		acc.OnToolCallArgsDelta(callID, `{"command":"ls -la"}`)
 		acc.OnToolCallEnd(nil, callID, now.UnixMilli()+500)
 		acc.OnTokenUsage(42)
-		snap := acc.Snapshot("ws-test", "claude", now.UnixMilli(), 200)
+		snap := acc.SnapshotWithEventID("evt-"+strconv.Itoa(i), "ws-test", "claude", now.UnixMilli(), 200)
 		svc.Record(snap)
 	}
 	svc.Flush(nil)
@@ -123,7 +123,7 @@ func TestAccumulatorTokenUsageIsLastValue(t *testing.T) {
 	acc := NewAccumulator()
 	acc.OnTokenUsage(10)
 	acc.OnTokenUsage(20)
-	snap := acc.Snapshot("ws", "m", time.Now().UnixMilli(), 100)
+	snap := acc.SnapshotWithEventID("evt-last-wins", "ws", "m", time.Now().UnixMilli(), 100)
 	if snap.Tokens.Total != 20 || snap.Tokens.Estimated != 20 {
 		t.Errorf("total tokens = %d estimated = %d, want 20 (last wins)", snap.Tokens.Total, snap.Tokens.Estimated)
 	}
@@ -135,7 +135,7 @@ func TestAccumulatorPendingToolDropsOnSnapshot(t *testing.T) {
 	acc := NewAccumulator()
 	acc.OnToolCallStart("never-ends", "shell", time.Now().UnixMilli())
 	acc.OnToolCallArgsDelta("never-ends", `{"command":"sleep 99"}`)
-	snap := acc.Snapshot("ws", "m", time.Now().UnixMilli(), 100)
+	snap := acc.SnapshotWithEventID("evt-pending-tool", "ws", "m", time.Now().UnixMilli(), 100)
 	if snap.ToolCallCount != 0 {
 		t.Errorf("toolCallCount = %d, want 0 for un-ended call", snap.ToolCallCount)
 	}
@@ -153,6 +153,7 @@ func TestModelAggregatesSurfaceUnattributedResidual(t *testing.T) {
 	now := time.Now()
 
 	svc.Record(Snapshot{
+		EventID:        "evt-attributed",
 		WorkspaceID:    "ws-test",
 		ModelID:        "claude",
 		FinishedAtMs:   now.UnixMilli(),
@@ -161,6 +162,7 @@ func TestModelAggregatesSurfaceUnattributedResidual(t *testing.T) {
 		Tokens:         TokenTotals{Total: 10, Assistant: 5},
 	})
 	svc.Record(Snapshot{
+		EventID:        "evt-unattributed",
 		WorkspaceID:    "ws-test",
 		FinishedAtMs:   now.UnixMilli(),
 		DurationMs:     50,

@@ -832,7 +832,7 @@
   "stats": {
     "title": "使用统计",
     "topbarTooltip": "统计",
-    "tokensLocalEstimateNote": "Token 总数包含服务商上报、无上报轮次的本地估算和旧版估算；明细字段仅用于说明构成，不会重复计入总数。",
+    "tokensLocalEstimateNote": "Token 总数由服务商上报值与无上报轮次的本地估算组成；明细字段仅用于说明构成，不会重复计入总数。",
     "rangeLabel": "范围",
     "range7d": "7 天",
     "range30d": "30 天",
@@ -893,7 +893,7 @@
       }
     },
     "tokens": {
-      "totalIncludedHint": "包含服务商上报、本地估算和旧版估算。以下明细已包含在总数中，或只是说明性子集。",
+      "totalIncludedHint": "包含服务商上报与本地估算。以下明细已包含在总数中，或只是说明性子集。",
       "detailsSection": "来源与服务商明细",
       "reported": "服务商上报",
       "input": "服务商输入",
@@ -902,15 +902,20 @@
       "cachedWrite": "缓存写入",
       "reasoning": "服务商推理",
       "imageEstimate": "图片估算（说明性子集）",
+      "imageEstimateShort": "图片估算",
       "imageEstimateHint": "说明性子集，已包含在输入或估算总量中。",
       "estimated": "本地估算",
-      "legacy": "旧版估算",
       "modelBreakdown": "按模型",
-      "coverageLabel": "数据来源覆盖率",
+      "dayPanelTitle": "当日 Token 明细",
+      "dayPanelLatest": "最新",
+      "dayPanelPickHint": "悬停或用方向键聚焦图表中的某一天可切换查看。",
+      "dayPanelHint": "总量由服务端计算；下列来源与明细可能重叠，请勿相加。",
+      "dayPanelAriaLabel": "{{date}} Token 明细，总 Token {{value}}",
+      "coverageLabel": "数据来源",
+      "coverageAllReported": "全部 {{count}} 轮均由服务商上报。",
       "coverageSummary": "{{reported}}/{{total}} 轮由服务商上报（{{percent}}%）；{{estimated}} 轮使用本地估算。",
-      "coverageUnclassified": "{{value}} 轮为旧版或未分类数据。",
       "coverageUnavailable": "所选范围内没有轮次覆盖率数据。",
-      "coverageHint": "覆盖率说明每轮数据来源，不是额外的 Token 数。"
+      "coverageHint": "来源说明每轮数字的出处，不是额外的 Token 数。"
     },
     "tools": {
       "noToolsInRange": "该范围内没有工具调用记录"

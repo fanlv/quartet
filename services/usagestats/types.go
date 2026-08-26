@@ -8,11 +8,14 @@
 // files on disk.
 //
 // Provider-reported token counts and local tokenizer estimates are stored in
-// separate fields. Callers must not interpret Estimated or LegacyTotal as
-// API-billable values.
+// separate fields. Callers must not interpret Estimated as an API-billable
+// value.
 package usagestats
 
-const currentSchemaVersion = 2
+// currentSchemaVersion is the only on-disk layout this build reads or writes.
+// A month file carrying any other version is rejected rather than upgraded:
+// converting stored data is an operational task, not a runtime one.
+const currentSchemaVersion = 3
 
 // SectionTotals is the value that lives at every aggregation node:
 // the day-level total bucket, every per-model subbucket, every per-tool
@@ -29,20 +32,18 @@ type SectionTotals struct {
 	Tokens         TokenTotals `json:"tokens"`
 }
 
-// TokenTotals keeps provider-reported consumption separate from local and
-// legacy estimates. Total is the API-facing aggregate across all recorded
-// turns; Reported, Estimated, and LegacyTotal explain its composition. Input,
-// Output, cached read/write, and Reasoning are provider-reported details.
-// ImageEstimate is a descriptive subset already included in provider input or
-// the estimated total, never an additional contribution to Total.
-// Assistant/Thought/ToolCall remain local output-segment estimates.
+// TokenTotals keeps provider-reported consumption separate from local
+// estimates. Total is the API-facing aggregate across all recorded turns;
+// Reported and Estimated explain its composition. Input, Output, cached
+// read/write, and Reasoning are provider-reported details. ImageEstimate is a
+// descriptive subset already included in provider input or the estimated total,
+// never an additional contribution to Total. Assistant/Thought/ToolCall remain
+// local output-segment estimates.
 //
-// ReportedTurns and EstimatedTurns are coverage counters, not token counts. A
-// turn contributes to at most one of them. A Graph turn with mixed retry
-// sources is conservatively classified as estimated. LegacyTotal is populated
-// while reading pre-v2 files whose `total` field was a local estimate; it
-// prevents that historical value from being silently presented as
-// provider-reported.
+// ReportedTurns and EstimatedTurns are coverage counters, not token counts.
+// Every recorded turn contributes to exactly one of them, so
+// ReportedTurns+EstimatedTurns always equals TurnCount for a bucket. A Graph
+// turn with mixed retry sources is conservatively classified as estimated.
 type TokenTotals struct {
 	Total          int `json:"total"`
 	Reported       int `json:"reported"`
@@ -55,7 +56,6 @@ type TokenTotals struct {
 	Estimated      int `json:"estimated"`
 	ReportedTurns  int `json:"reportedTurns"`
 	EstimatedTurns int `json:"estimatedTurns"`
-	LegacyTotal    int `json:"legacyTotal,omitempty"`
 	Assistant      int `json:"assistant"`
 	Thought        int `json:"thought"`
 	ToolCall       int `json:"toolCall"`
@@ -113,8 +113,8 @@ type MonthFile struct {
 // Accumulator); the SDK does not synthesise any field from any other.
 type Snapshot struct {
 	// EventID is a stable, globally unique completion identifier. Re-recording
-	// the same non-empty ID in its month is a no-op. Empty IDs retain the legacy
-	// at-least-once additive behaviour for callers that have not migrated yet.
+	// the same ID in its month is a no-op, which is what makes retries and
+	// crash-recovery replays safe. Snapshots without one are dropped.
 	EventID        string
 	WorkspaceID    string
 	ModelID        string

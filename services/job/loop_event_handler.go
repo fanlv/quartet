@@ -86,11 +86,10 @@ func newLoopEventHandler(ctx context.Context, jobID, sessionID, clientMessageID 
 }
 
 func (h *loopEventHandler) finalizeUsageEstimate() {
-	if h.usage == nil || h.sawTokenUsage || h.usage.HasProviderUsage() {
+	if h.usage == nil || h.sawTokenUsage {
 		return
 	}
-	visible := h.usage.Snapshot("", "", 0, 0).Tokens
-	h.usage.SetEstimatedUsage(h.inputEstimate + visible.Assistant + visible.Thought + visible.ToolCall)
+	h.usage.FinalizeEstimate(h.inputEstimate)
 }
 
 // SetNextBoundaryTimestamp pins the timestamp the next baseEvent() will

@@ -1309,11 +1309,10 @@ func (s *serviceImpl) newGraphEventHandler(ctx context.Context, runID, jobID, se
 func (h *graphEventHandler) finalizeUsageEstimate() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.usage == nil || h.sawTokenUsage || h.usage.HasProviderUsage() {
+	if h.usage == nil || h.sawTokenUsage {
 		return
 	}
-	visible := h.usage.Snapshot("", "", 0, 0).Tokens
-	h.usage.SetEstimatedUsage(h.inputEstimate + visible.Assistant + visible.Thought + visible.ToolCall)
+	h.usage.FinalizeEstimate(h.inputEstimate)
 }
 
 func (h *graphEventHandler) SetNextBoundaryTimestamp(ts int64) {

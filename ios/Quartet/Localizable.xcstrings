@@ -1094,6 +1094,22 @@
         }
       }
     },
+    "全部 %lld 轮均由 Provider 上报。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All %lld turns are provider-reported."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部 %lld 轮均由 Provider 上报。"
+          }
+        }
+      }
+    },
     "Provider 上报覆盖 %lld/%lld 轮（%lld%%），本地估算 %lld 轮。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3178,23 +3194,6 @@
         }
       }
     },
-    "历史估算" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Legacy estimate"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "历史估算"
-          }
-        }
-      }
-    },
     "原图加载失败，查看详情" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3373,23 +3372,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "另有 %@ 项未显示"
-          }
-        }
-      }
-    },
-    "另有 %lld 轮为历史或未分类数据。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld additional turns contain legacy or unclassified data."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "另有 %lld 轮为历史或未分类数据。"
           }
         }
       }
@@ -5839,18 +5821,18 @@
         }
       }
     },
-    "总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算，旧记录保留原口径。来源明细可能重叠，不能相加。" : {
+    "总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算。来源明细可能重叠，不能相加。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Total tokens prefer provider-reported usage. Turns without it use a local estimate that includes images, while legacy records keep their original basis. Source details may overlap; do not add them together."
+            "value" : "Total tokens prefer provider-reported usage. Turns without it use a local estimate that includes images. Source details may overlap; do not add them together."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算，旧记录保留原口径。来源明细可能重叠，不能相加。"
+            "value" : "总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算。来源明细可能重叠，不能相加。"
           }
         }
       }
@@ -6890,18 +6872,18 @@
         }
       }
     },
-    "暂无可计算来源覆盖率的轮次。" : {
+    "暂无可计算来源的轮次。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No turns have enough source data to calculate coverage."
+            "value" : "No turns with source information yet."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂无可计算来源覆盖率的轮次。"
+            "value" : "暂无可计算来源的轮次。"
           }
         }
       }

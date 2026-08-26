@@ -202,7 +202,9 @@ func (a *Accumulator) SetProviderUsage(usage ProviderTokenUsage) {
 
 // SetEstimatedUsage stores the local whole-turn fallback. It is ignored once
 // provider usage has been observed, and repeated cumulative updates use the
-// latest value rather than summing within the turn.
+// latest value rather than summing within the turn. The turn is marked as
+// estimated even when the amount is zero, so every recorded turn carries
+// exactly one source classification.
 func (a *Accumulator) SetEstimatedUsage(total int) {
 	if a.providerUsage {
 		return
@@ -210,11 +212,18 @@ func (a *Accumulator) SetEstimatedUsage(total int) {
 	total = max(0, total)
 	a.tokens.Estimated = total
 	a.tokens.Total = total
-	if total > 0 {
-		a.tokens.EstimatedTurns = 1
-	} else {
-		a.tokens.EstimatedTurns = 0
+	a.tokens.EstimatedTurns = 1
+}
+
+// FinalizeEstimate installs the local whole-turn fallback for a turn that never
+// received provider usage. inputEstimate is the caller's tokenizer count over
+// the turn's input messages; the accumulator contributes its own output-segment
+// estimates. Provider-reported turns are left untouched.
+func (a *Accumulator) FinalizeEstimate(inputEstimate int) {
+	if a == nil || a.providerUsage {
+		return
 	}
+	a.SetEstimatedUsage(inputEstimate + a.tokens.Assistant + a.tokens.Thought + a.tokens.ToolCall)
 }
 
 // SetImageEstimate stores the locally estimated image-token subset. It does
@@ -267,7 +276,7 @@ func (a *Accumulator) Merge(other *Accumulator) {
 
 // NormalizeTurnCoverage collapses attempt-level source counters into one
 // logical turn. If any attempt required an estimate, the logical turn is
-// classified as estimated; otherwise any provider report classifies it as
+// classified as estimated; otherwise the provider report classifies it as
 // reported. Token amounts remain untouched, including provider totals from
 // other attempts in a mixed-source retry sequence.
 func (a *Accumulator) NormalizeTurnCoverage() {
@@ -296,15 +305,12 @@ func saturatingTokenSum(left, right int) int {
 
 // Snapshot freezes the accumulator into a record that can be sent to the
 // Recorder. Pending tool calls (still open at step end) are dropped.
-// workspaceID, modelID, finishedAtMs and durationMs are step-level metadata
-// the caller fills in.
-func (a *Accumulator) Snapshot(workspaceID, modelID string, finishedAtMs, durationMs int64) Snapshot {
-	return a.SnapshotWithEventID("", workspaceID, modelID, finishedAtMs, durationMs)
-}
-
-// SnapshotWithEventID is the v2 snapshot constructor. eventID should identify
-// the completed execution stably across retries (for example, a job run ID or
-// graph run plus instance key). The recorder uses it for durable deduplication.
+//
+// eventID must identify the completed execution stably across retries (for
+// example, a job run ID or graph run plus instance key); the recorder uses it
+// for durable deduplication and drops snapshots without one. workspaceID,
+// modelID, finishedAtMs and durationMs are step-level metadata the caller
+// fills in.
 func (a *Accumulator) SnapshotWithEventID(eventID, workspaceID, modelID string, finishedAtMs, durationMs int64) Snapshot {
 	tools := make(map[string]ToolBucket, len(a.tools))
 	for k, v := range a.tools {

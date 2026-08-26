@@ -783,7 +783,6 @@ describe('StatsPage token trend accessibility', () => {
         estimated: 0,
         reportedTurns: 1,
         estimatedTurns: 0,
-        legacyTotal: 0,
         assistant: 0,
         thought: 0,
         toolCall: 0,

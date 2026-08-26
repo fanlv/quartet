@@ -74,7 +74,6 @@ struct UsageStatsTokenTotals: Decodable, Hashable, Sendable {
     let estimated: Int
     let reportedTurns: Int
     let estimatedTurns: Int
-    let legacyTotal: Int
     let assistant: Int
     let thought: Int
     let toolCall: Int
@@ -91,7 +90,6 @@ struct UsageStatsTokenTotals: Decodable, Hashable, Sendable {
         estimated: Int = 0,
         reportedTurns: Int = 0,
         estimatedTurns: Int = 0,
-        legacyTotal: Int = 0,
         assistant: Int = 0,
         thought: Int = 0,
         toolCall: Int = 0
@@ -107,7 +105,6 @@ struct UsageStatsTokenTotals: Decodable, Hashable, Sendable {
         self.estimated = estimated
         self.reportedTurns = reportedTurns
         self.estimatedTurns = estimatedTurns
-        self.legacyTotal = legacyTotal
         self.assistant = assistant
         self.thought = thought
         self.toolCall = toolCall
@@ -115,7 +112,7 @@ struct UsageStatsTokenTotals: Decodable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case total, reported, input, output, cachedRead, cachedWrite, reasoning, imageEstimate
-        case estimated, reportedTurns, estimatedTurns, legacyTotal, assistant, thought, toolCall
+        case estimated, reportedTurns, estimatedTurns, assistant, thought, toolCall
     }
 
     init(from decoder: Decoder) throws {
@@ -131,7 +128,6 @@ struct UsageStatsTokenTotals: Decodable, Hashable, Sendable {
         estimated = try values.decodeIfPresent(Int.self, forKey: .estimated) ?? 0
         reportedTurns = try values.decodeIfPresent(Int.self, forKey: .reportedTurns) ?? 0
         estimatedTurns = try values.decodeIfPresent(Int.self, forKey: .estimatedTurns) ?? 0
-        legacyTotal = try values.decodeIfPresent(Int.self, forKey: .legacyTotal) ?? 0
         assistant = try values.decodeIfPresent(Int.self, forKey: .assistant) ?? 0
         thought = try values.decodeIfPresent(Int.self, forKey: .thought) ?? 0
         toolCall = try values.decodeIfPresent(Int.self, forKey: .toolCall) ?? 0

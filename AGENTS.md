@@ -74,7 +74,7 @@ Go tests: `go test ./...`
 
 - `$LOCAL_MEMORY/quartet/config/` — durable configuration such as settings, prompts, Agent catalog, Graph Workflows, schedules, message presets, and authentication users/roles.
 - `$LOCAL_MEMORY/quartet/data/` — durable business data such as workspaces, Jobs, Sessions, uploads, IM records, file shares, and the WeChat outbox.
-- `$LOCAL_MEMORY/quartet/usage-stats/` — persistent monthly usage statistics; the former `$LOCAL_MEMORY/quartet/data/usage-stats/` is migration input only.
+- `$LOCAL_MEMORY/quartet/usage-stats/` — persistent monthly usage statistics, month-sharded JSON written at the current schema version only; a file at any other version is rejected rather than upgraded in place.
 - `$LOCAL_MEMORY/var/quartet/state/` — durable runtime state such as authenticated sessions, schedule state, and sandbox compose state.
 - `$LOCAL_MEMORY/var/quartet/cache/` and `$LOCAL_MEMORY/var/quartet/tmp/` — reconstructable cache and process-owned temporary files.
 - Quartet 自有根目录和分类目录统一由 `types/path` 解析；handler 和 service 必须复用路径/仓储接口，不要硬编码 `LOCAL_MEMORY` 布局。

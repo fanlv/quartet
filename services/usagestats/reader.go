@@ -349,7 +349,6 @@ func residualSection(total, known *SectionTotals) SectionTotals {
 			Estimated:      nonNegativeInt(total.Tokens.Estimated - known.Tokens.Estimated),
 			ReportedTurns:  nonNegativeInt(total.Tokens.ReportedTurns - known.Tokens.ReportedTurns),
 			EstimatedTurns: nonNegativeInt(total.Tokens.EstimatedTurns - known.Tokens.EstimatedTurns),
-			LegacyTotal:    nonNegativeInt(total.Tokens.LegacyTotal - known.Tokens.LegacyTotal),
 			Assistant:      nonNegativeInt(total.Tokens.Assistant - known.Tokens.Assistant),
 			Thought:        nonNegativeInt(total.Tokens.Thought - known.Tokens.Thought),
 			ToolCall:       nonNegativeInt(total.Tokens.ToolCall - known.Tokens.ToolCall),
@@ -387,7 +386,7 @@ func hasSectionValue(s *SectionTotals) bool {
 	return s.TotalMs > 0 || s.TurnCount > 0 || s.AssistantCount > 0 || s.ThoughtCount > 0 || s.ToolCallCount > 0 ||
 		s.Tokens.Total > 0 || s.Tokens.Reported > 0 || s.Tokens.Input > 0 || s.Tokens.Output > 0 || s.Tokens.CachedRead > 0 ||
 		s.Tokens.CachedWrite > 0 || s.Tokens.Reasoning > 0 || s.Tokens.ImageEstimate > 0 || s.Tokens.Estimated > 0 ||
-		s.Tokens.ReportedTurns > 0 || s.Tokens.EstimatedTurns > 0 || s.Tokens.LegacyTotal > 0 ||
+		s.Tokens.ReportedTurns > 0 || s.Tokens.EstimatedTurns > 0 ||
 		s.Tokens.Assistant > 0 || s.Tokens.Thought > 0 || s.Tokens.ToolCall > 0
 }
 

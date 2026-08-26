@@ -2,7 +2,6 @@ package usagestats
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -119,18 +118,10 @@ type service struct {
 }
 
 // NewService constructs a usage-stats service with the default disk-backed
-// store and a 1s debounce. Existing monthly files are copied from the former
-// ignored data directory before the service starts accepting reads or writes.
+// store and a 1s debounce.
 func NewService(rootCtx context.Context) (Service, error) {
 	if rootCtx == nil {
 		rootCtx = context.Background()
-	}
-	migrated, err := migrateLegacyUsageStats()
-	if err != nil {
-		return nil, fmt.Errorf("initialize persistent usage statistics: %w", err)
-	}
-	if migrated > 0 {
-		logger.Infof(rootCtx, "[usagestats] copied %d legacy monthly file(s) into the persistent configuration location", migrated)
 	}
 	st := newStore()
 	s := &service{
@@ -158,6 +149,12 @@ func (s *service) Record(snap Snapshot) {
 		// produce an empty-string key that pollutes the by-workspace
 		// table. Log so a bug surfaces, but don't fail the caller.
 		logger.Warnf(s.rootCtx, "[usagestats] dropping snapshot with empty workspaceID")
+		return
+	}
+	if snap.EventID == "" {
+		// Without an event id the same completion could be counted twice on a
+		// retry or replay. Refuse rather than inflate the numbers.
+		logger.Warnf(s.rootCtx, "[usagestats] dropping snapshot with empty eventID: workspace=%s", snap.WorkspaceID)
 		return
 	}
 	if snap.FinishedAtMs <= 0 {
@@ -195,13 +192,11 @@ func (s *service) Record(snap Snapshot) {
 		// that may still be recoverable.
 		return
 	}
-	if snap.EventID != "" {
-		if mf.AppliedEvents[snap.EventID] {
-			return
-		}
-		if mf.AppliedEvents == nil {
-			mf.AppliedEvents = make(map[string]bool)
-		}
+	if mf.AppliedEvents[snap.EventID] {
+		return
+	}
+	if mf.AppliedEvents == nil {
+		mf.AppliedEvents = make(map[string]bool)
 	}
 	wsDays, ok := mf.Workspaces[snap.WorkspaceID]
 	if !ok {
@@ -229,9 +224,7 @@ func (s *service) Record(snap Snapshot) {
 		applySnapshotToBucket(snap, &mb.SectionTotals)
 		mergeToolsInto(&mb.Tools, snap.Tools)
 	}
-	if snap.EventID != "" {
-		mf.AppliedEvents[snap.EventID] = true
-	}
+	mf.AppliedEvents[snap.EventID] = true
 	mf.SchemaVersion = currentSchemaVersion
 
 	s.store.markDirtyLocked(mKey)
@@ -256,7 +249,6 @@ func applySnapshotToBucket(snap Snapshot, dst *SectionTotals) {
 	dst.Tokens.Estimated += snap.Tokens.Estimated
 	dst.Tokens.ReportedTurns += snap.Tokens.ReportedTurns
 	dst.Tokens.EstimatedTurns += snap.Tokens.EstimatedTurns
-	dst.Tokens.LegacyTotal += snap.Tokens.LegacyTotal
 	dst.Tokens.Assistant += snap.Tokens.Assistant
 	dst.Tokens.Thought += snap.Tokens.Thought
 	dst.Tokens.ToolCall += snap.Tokens.ToolCall
@@ -277,7 +269,6 @@ func addTokenTotals(dst, src *TokenTotals) {
 	dst.Estimated += src.Estimated
 	dst.ReportedTurns += src.ReportedTurns
 	dst.EstimatedTurns += src.EstimatedTurns
-	dst.LegacyTotal += src.LegacyTotal
 	dst.Assistant += src.Assistant
 	dst.Thought += src.Thought
 	dst.ToolCall += src.ToolCall

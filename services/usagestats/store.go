@@ -50,80 +50,6 @@ const maxCachedMonths = 12
 
 var errUnsupportedSchema = errors.New("unsupported usage stats schema")
 
-// migrateLegacyUsageStats copies monthly files from the former
-// quartet/data location into the persistent usage-stats directory. Existing
-// destination files always win, and source files are retained so an
-// interrupted rollout remains recoverable.
-func migrateLegacyUsageStats() (int, error) {
-	legacyDir, err := typepath.LegacyUsageStatsDir()
-	if err != nil {
-		return 0, err
-	}
-	destinationDir, err := typepath.UsageStatsDir()
-	if err != nil {
-		return 0, err
-	}
-	if filepath.Clean(legacyDir) == filepath.Clean(destinationDir) {
-		return 0, nil
-	}
-	entries, err := os.ReadDir(legacyDir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("read legacy directory %q failed: %w", legacyDir, err)
-	}
-	if err := os.MkdirAll(destinationDir, 0o755); err != nil {
-		return 0, fmt.Errorf("create destination directory %q failed: %w", destinationDir, err)
-	}
-
-	copied := 0
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-		if _, err := time.Parse("2006-01", entry.Name()[:len(entry.Name())-len(".json")]); err != nil {
-			continue
-		}
-		source := filepath.Join(legacyDir, entry.Name())
-		destination := filepath.Join(destinationDir, entry.Name())
-		if _, err := os.Stat(destination); err == nil {
-			continue
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return copied, fmt.Errorf("stat destination %q failed: %w", destination, err)
-		}
-		data, err := os.ReadFile(source)
-		if err != nil {
-			return copied, fmt.Errorf("read legacy month file %q failed: %w", source, err)
-		}
-		tmp, err := os.CreateTemp(destinationDir, ".usage-migration-*.tmp")
-		if err != nil {
-			return copied, fmt.Errorf("create migration temp file in %q failed: %w", destinationDir, err)
-		}
-		tmpName := tmp.Name()
-		if _, err := tmp.Write(data); err != nil {
-			_ = tmp.Close()
-			_ = os.Remove(tmpName)
-			return copied, fmt.Errorf("write migration temp file %q failed: %w", tmpName, err)
-		}
-		if err := tmp.Chmod(0o644); err != nil {
-			_ = tmp.Close()
-			_ = os.Remove(tmpName)
-			return copied, fmt.Errorf("chmod migration temp file %q failed: %w", tmpName, err)
-		}
-		if err := tmp.Close(); err != nil {
-			_ = os.Remove(tmpName)
-			return copied, fmt.Errorf("close migration temp file %q failed: %w", tmpName, err)
-		}
-		if err := os.Rename(tmpName, destination); err != nil {
-			_ = os.Remove(tmpName)
-			return copied, fmt.Errorf("rename migration temp file %q to %q failed: %w", tmpName, destination, err)
-		}
-		copied++
-	}
-	return copied, nil
-}
-
 func newStore() *store {
 	return &store{
 		months:   make(map[string]*MonthFile),
@@ -252,7 +178,7 @@ func (s *store) readMonthFile(ctx context.Context, key string) (*MonthFile, erro
 		logger.Warnf(ctx, "[usagestats] parse month file %s failed: %v (treating as empty)", path, err)
 		return emptyMonthFile(), err
 	}
-	if mf.SchemaVersion > currentSchemaVersion {
+	if mf.SchemaVersion != currentSchemaVersion {
 		err := fmt.Errorf("%w: month %s has schemaVersion %d (current %d)", errUnsupportedSchema, key, mf.SchemaVersion, currentSchemaVersion)
 		logger.Warnf(ctx, "[usagestats] %v", err)
 		return emptyMonthFile(), err
@@ -260,7 +186,6 @@ func (s *store) readMonthFile(ctx context.Context, key string) (*MonthFile, erro
 	if mf.Workspaces == nil {
 		mf.Workspaces = map[string]map[string]*DayBucket{}
 	}
-	upgradeMonthFile(mf)
 	normalizeMonthFileTools(mf)
 	return mf, nil
 }
@@ -270,40 +195,6 @@ func emptyMonthFile() *MonthFile {
 		SchemaVersion: currentSchemaVersion,
 		Workspaces:    map[string]map[string]*DayBucket{},
 	}
-}
-
-// upgradeMonthFile upgrades the decoded representation in memory. Pre-v2
-// files used tokens.total for a local whole-history estimate. Copying it to the
-// explicit legacy field preserves the API-facing Total while making its source
-// distinguishable from provider-reported consumption. The upgraded marker is
-// persisted when this month next receives a snapshot; until then each disk read
-// starts from the original v1 document and performs the same idempotent in-memory
-// projection.
-func upgradeMonthFile(mf *MonthFile) {
-	if mf == nil || mf.SchemaVersion >= currentSchemaVersion {
-		return
-	}
-	for _, wsDays := range mf.Workspaces {
-		for _, day := range wsDays {
-			if day == nil {
-				continue
-			}
-			upgradeLegacyTokenTotals(&day.Tokens)
-			for _, model := range day.Models {
-				if model != nil {
-					upgradeLegacyTokenTotals(&model.Tokens)
-				}
-			}
-		}
-	}
-	mf.SchemaVersion = currentSchemaVersion
-}
-
-func upgradeLegacyTokenTotals(tokens *TokenTotals) {
-	if tokens == nil {
-		return
-	}
-	tokens.LegacyTotal += tokens.Total
 }
 
 // writeMonthFile atomically replaces YYYY-MM.json. Caller must NOT hold

@@ -395,17 +395,6 @@ func UsageStatsDir() (string, error) {
 	return filepath.Join(dir, "usage-stats"), nil
 }
 
-// LegacyUsageStatsDir returns the former usage-statistics directory. It is
-// retained only so the usage service can copy existing monthly files into the
-// persistent location during startup.
-func LegacyUsageStatsDir() (string, error) {
-	dir, err := QuartetDataDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "usage-stats"), nil
-}
-
 // UsageStatsMonthFile returns {LOCAL_MEMORY}/quartet/usage-stats/YYYY-MM.json
 // for the given time in the server's local timezone.
 func UsageStatsMonthFile(t time.Time) (string, error) {

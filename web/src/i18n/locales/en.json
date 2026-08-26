@@ -838,7 +838,7 @@
   "stats": {
     "title": "Usage Statistics",
     "topbarTooltip": "Statistics",
-    "tokensLocalEstimateNote": "Token totals combine provider-reported usage, local estimates for turns without provider data, and legacy estimates. Breakdown values are explanatory and are not added again.",
+    "tokensLocalEstimateNote": "Token totals combine provider-reported usage with local estimates for turns that had no provider data. Breakdown values are explanatory and are not added again.",
     "rangeLabel": "Range",
     "range7d": "7 days",
     "range30d": "30 days",
@@ -899,7 +899,7 @@
       }
     },
     "tokens": {
-      "totalIncludedHint": "Includes provider-reported, locally estimated, and legacy totals. The details below are already included or explanatory subsets.",
+      "totalIncludedHint": "Includes provider-reported and locally estimated usage. The details below are already included or explanatory subsets.",
       "detailsSection": "Sources and provider details",
       "reported": "Provider reported",
       "input": "Provider input",
@@ -908,17 +908,22 @@
       "cachedWrite": "Cache write",
       "reasoning": "Provider reasoning",
       "imageEstimate": "Image estimate (included subset)",
+      "imageEstimateShort": "Image estimate",
       "imageEstimateHint": "An explanatory subset already included in the input or estimated total.",
       "estimated": "Locally estimated",
-      "legacy": "Legacy estimate",
       "modelBreakdown": "By model",
-      "coverageLabel": "Source coverage",
+      "dayPanelTitle": "Token breakdown for the day",
+      "dayPanelLatest": "Latest",
+      "dayPanelPickHint": "Hover a day in the chart, or focus it with the arrow keys, to switch days.",
+      "dayPanelHint": "The total is computed by the server; the sources and details below can overlap, so do not add them up.",
+      "dayPanelAriaLabel": "Token breakdown for {{date}}, total tokens {{value}}",
+      "coverageLabel": "Source",
+      "coverageAllReported_one": "The single recorded turn is provider-reported.",
+      "coverageAllReported_other": "All {{count}} turns are provider-reported.",
       "coverageSummary_one": "Provider-reported: {{reported}} of {{total}} turn ({{percent}}%); locally estimated: {{estimated}}.",
       "coverageSummary_other": "Provider-reported: {{reported}} of {{total}} turns ({{percent}}%); locally estimated: {{estimated}}.",
-      "coverageUnclassified_one": "{{value}} turn is older or unclassified.",
-      "coverageUnclassified_other": "{{value}} turns are older or unclassified.",
       "coverageUnavailable": "No turn coverage data in this range.",
-      "coverageHint": "Coverage describes the source of each turn, not an additional token total."
+      "coverageHint": "Source describes where each turn's numbers came from, not an additional token total."
     },
     "tools": {
       "noToolsInRange": "No tool calls in this range"

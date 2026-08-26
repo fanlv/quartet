@@ -301,7 +301,6 @@ func addStatsSection(dst, src *usagestats.SectionTotals) {
 	dst.Tokens.Estimated += src.Tokens.Estimated
 	dst.Tokens.ReportedTurns += src.Tokens.ReportedTurns
 	dst.Tokens.EstimatedTurns += src.Tokens.EstimatedTurns
-	dst.Tokens.LegacyTotal += src.Tokens.LegacyTotal
 	dst.Tokens.Assistant += src.Tokens.Assistant
 	dst.Tokens.Thought += src.Tokens.Thought
 	dst.Tokens.ToolCall += src.Tokens.ToolCall

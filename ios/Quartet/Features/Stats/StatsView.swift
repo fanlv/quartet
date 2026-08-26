@@ -184,7 +184,7 @@ struct StatsView: View {
     }
 
     private var noteCard: some View {
-        Label("总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算，旧记录保留原口径。来源明细可能重叠，不能相加。", systemImage: "info.circle")
+        Label("总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算。来源明细可能重叠，不能相加。", systemImage: "info.circle")
             .font(.quartet(.detail))
             .foregroundStyle(QuartetTheme.secondaryText)
             .lineSpacing(3)
@@ -676,7 +676,15 @@ private struct StatsTokenCoverageNote: View {
                 .font(.quartet(.detail, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
 
-            if coverage.totalTurns > 0 {
+            if coverage.totalTurns <= 0 {
+                Text("暂无可计算来源的轮次。")
+            } else if coverage.estimatedTurns <= 0 {
+                Text(String(
+                    format: "全部 %lld 轮均由 Provider 上报。".localized(in: locale),
+                    locale: locale,
+                    Int64(coverage.totalTurns)
+                ))
+            } else {
                 Text(String(
                     format: "Provider 上报覆盖 %lld/%lld 轮（%lld%%），本地估算 %lld 轮。".localized(in: locale),
                     locale: locale,
@@ -685,15 +693,6 @@ private struct StatsTokenCoverageNote: View {
                     Int64(coverage.reportedPercent),
                     Int64(coverage.estimatedTurns)
                 ))
-                if coverage.unclassifiedTurns > 0 {
-                    Text(String(
-                        format: "另有 %lld 轮为历史或未分类数据。".localized(in: locale),
-                        locale: locale,
-                        Int64(coverage.unclassifiedTurns)
-                    ))
-                }
-            } else {
-                Text("暂无可计算来源覆盖率的轮次。")
             }
         }
         .font(.quartet(.compact))
@@ -703,19 +702,18 @@ private struct StatsTokenCoverageNote: View {
     }
 }
 
+// Every recorded turn is classified as either provider-reported or locally
+// estimated, so the two counters always add up to the turn count.
 private struct StatsTokenCoverage {
     let totalTurns: Int
     let reportedTurns: Int
     let estimatedTurns: Int
-    let unclassifiedTurns: Int
     let reportedPercent: Int
 
     init(rows: [UsageStatsDailyRow]) {
-        let turnCount = rows.reduce(0) { $0 + max(0, $1.turnCount) }
+        totalTurns = rows.reduce(0) { $0 + max(0, $1.turnCount) }
         reportedTurns = rows.reduce(0) { $0 + max(0, $1.tokens.reportedTurns) }
         estimatedTurns = rows.reduce(0) { $0 + max(0, $1.tokens.estimatedTurns) }
-        totalTurns = max(turnCount, reportedTurns + estimatedTurns)
-        unclassifiedTurns = max(0, totalTurns - reportedTurns - estimatedTurns)
         reportedPercent = totalTurns > 0
             ? Int((Double(reportedTurns) / Double(totalTurns) * 100).rounded())
             : 0
@@ -808,8 +806,7 @@ private struct StatsTokenDayDetail: View {
             StatsTokenDetail(id: "cached-write", title: "缓存写入", value: day.tokens.cachedWrite),
             StatsTokenDetail(id: "reasoning", title: "推理 Token", value: day.tokens.reasoning),
             StatsTokenDetail(id: "image", title: "图片估算", value: day.tokens.imageEstimate),
-            StatsTokenDetail(id: "estimated", title: "本地估算", value: day.tokens.estimated),
-            StatsTokenDetail(id: "legacy", title: "历史估算", value: day.tokens.legacyTotal)
+            StatsTokenDetail(id: "estimated", title: "本地估算", value: day.tokens.estimated)
         ]
     }
 }

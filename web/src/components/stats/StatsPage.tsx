@@ -39,7 +39,6 @@ interface TokenTotals {
   estimated?: number;
   reportedTurns?: number;
   estimatedTurns?: number;
-  legacyTotal?: number;
   assistant: number;
   thought: number;
   toolCall: number;
@@ -702,7 +701,6 @@ function emptySectionTotals(): SectionTotals {
       estimated: 0,
       reportedTurns: 0,
       estimatedTurns: 0,
-      legacyTotal: 0,
       assistant: 0,
       thought: 0,
       toolCall: 0,
@@ -747,10 +745,6 @@ function TokenDetails({ tokens }: { tokens: TokenTotals }) {
         <span>{t('stats.tokens.estimated')}</span>
         <strong>{formatStatsCount(tokenCount(tokens, 'estimated'))}</strong>
       </div>
-      <div className="stats-trend-tooltip-row">
-        <span>{t('stats.tokens.legacy')}</span>
-        <strong>{formatStatsCount(tokenCount(tokens, 'legacyTotal'))}</strong>
-      </div>
     </>
   );
 }
@@ -759,10 +753,11 @@ interface TokenCoverage {
   totalTurns: number;
   reportedTurns: number;
   estimatedTurns: number;
-  unclassifiedTurns: number;
   reportedPercent: number;
 }
 
+// The backend classifies every recorded turn as either provider-reported or
+// locally estimated, so the two counters always add up to turnCount.
 function computeTokenCoverage(rows: SectionTotals[]): TokenCoverage {
   let totalTurns = 0;
   let reportedTurns = 0;
@@ -772,38 +767,94 @@ function computeTokenCoverage(rows: SectionTotals[]): TokenCoverage {
     reportedTurns += tokenCount(row.tokens, 'reportedTurns');
     estimatedTurns += tokenCount(row.tokens, 'estimatedTurns');
   }
-  // Prefer the complete turn count as the denominator. The max guards older
-  // or partially migrated payloads whose source counters exceed turnCount.
-  totalTurns = Math.max(totalTurns, reportedTurns + estimatedTurns);
-  const unclassifiedTurns = Math.max(0, totalTurns - reportedTurns - estimatedTurns);
   const reportedPercent = totalTurns > 0 ? Math.round((reportedTurns / totalTurns) * 100) : 0;
-  return { totalTurns, reportedTurns, estimatedTurns, unclassifiedTurns, reportedPercent };
+  return { totalTurns, reportedTurns, estimatedTurns, reportedPercent };
 }
 
+// TokenCoverageNote states where a range's token numbers came from. The common
+// case (everything provider-reported) collapses to a single short sentence; the
+// full ratio only appears once local estimates are actually mixed in.
 function TokenCoverageNote({ coverage, compact = false }: { coverage: TokenCoverage; compact?: boolean }) {
   const { t } = useTranslation();
+  const summary = () => {
+    if (coverage.totalTurns <= 0) return t('stats.tokens.coverageUnavailable');
+    if (coverage.estimatedTurns <= 0) return t('stats.tokens.coverageAllReported', { count: coverage.totalTurns });
+    return t('stats.tokens.coverageSummary', {
+      count: coverage.totalTurns,
+      reported: formatStatsCount(coverage.reportedTurns),
+      total: formatStatsCount(coverage.totalTurns),
+      percent: coverage.reportedPercent,
+      estimated: formatStatsCount(coverage.estimatedTurns),
+    });
+  };
   return (
     <div className={`stats-token-coverage ${compact ? 'compact' : ''}`} role="note">
       {!compact && <span className="stats-token-coverage-label">{t('stats.tokens.coverageLabel')}</span>}
-      <span>
-        {coverage.totalTurns > 0
-          ? t('stats.tokens.coverageSummary', {
-            count: coverage.totalTurns,
-            reported: formatStatsCount(coverage.reportedTurns),
-            total: formatStatsCount(coverage.totalTurns),
-            percent: coverage.reportedPercent,
-            estimated: formatStatsCount(coverage.estimatedTurns),
-          })
-          : t('stats.tokens.coverageUnavailable')}
-        {coverage.unclassifiedTurns > 0 && (
-          <> {t('stats.tokens.coverageUnclassified', {
-            count: coverage.unclassifiedTurns,
-            value: formatStatsCount(coverage.unclassifiedTurns),
-          })}</>
-        )}
-      </span>
-      {!compact && <span className="stats-token-coverage-hint">{t('stats.tokens.coverageHint')}</span>}
+      <span>{summary()}</span>
+      {!compact && coverage.estimatedTurns > 0 && (
+        <span className="stats-token-coverage-hint">{t('stats.tokens.coverageHint')}</span>
+      )}
     </div>
+  );
+}
+
+// Fields rendered by the daily token panel, in the same order as the iOS
+// client's day detail. Every field is shown even when zero so the grid keeps a
+// stable shape while hovering across days.
+const TOKEN_DAY_FIELDS: Array<{ field: keyof TokenTotals; labelKey: string }> = [
+  { field: 'reported', labelKey: 'stats.tokens.reported' },
+  { field: 'input', labelKey: 'stats.tokens.input' },
+  { field: 'output', labelKey: 'stats.tokens.output' },
+  { field: 'cachedRead', labelKey: 'stats.tokens.cachedRead' },
+  { field: 'cachedWrite', labelKey: 'stats.tokens.cachedWrite' },
+  { field: 'reasoning', labelKey: 'stats.tokens.reasoning' },
+  { field: 'imageEstimate', labelKey: 'stats.tokens.imageEstimateShort' },
+  { field: 'estimated', labelKey: 'stats.tokens.estimated' },
+];
+
+// TokenDayPanel is the always-visible counterpart of the hover tooltip: it
+// pins one day's token composition below the chart so the numbers can be read
+// without holding the pointer over a column. Shows the hovered/focused day, or
+// the last day of the range when nothing is hovered.
+function TokenDayPanel({ day, latest }: { day: DailyRow; latest: boolean }) {
+  const { t } = useTranslation();
+  const coverage = useMemo(() => computeTokenCoverage([day]), [day]);
+  const total = tokenCount(day.tokens, 'total');
+  return (
+    <section
+      className="stats-token-day"
+      aria-label={t('stats.tokens.dayPanelAriaLabel', { date: day.date, value: formatStatsCount(total) })}
+    >
+      <div className="stats-token-day-head">
+        <div className="stats-token-day-heading">
+          <span className="stats-token-day-title">{t('stats.tokens.dayPanelTitle')}</span>
+          <span className="stats-token-day-date">
+            {day.date}
+            {latest && <em className="stats-token-day-badge">{t('stats.tokens.dayPanelLatest')}</em>}
+          </span>
+        </div>
+        <div className="stats-token-day-total">
+          <span className="stats-token-day-total-label">{t('stats.table.tokenTotal')}</span>
+          <strong className="stats-token-day-total-value">{formatStatsCount(total)}</strong>
+          <span className="stats-token-day-turns">
+            {t('stats.table.turns')} {formatStatsCount(Math.max(0, day.turnCount || 0))}
+          </span>
+        </div>
+      </div>
+      <div className="stats-token-day-hint">{t('stats.tokens.dayPanelHint')}</div>
+      <div className="stats-token-day-section">{t('stats.tokens.detailsSection')}</div>
+      <div className="stats-token-day-grid">
+        {TOKEN_DAY_FIELDS.map(({ field, labelKey }) => (
+          <div key={field} className="stats-token-day-cell">
+            <span className="stats-token-day-cell-label">{t(labelKey)}</span>
+            <strong className="stats-token-day-cell-value">{formatStatsCount(tokenCount(day.tokens, field))}</strong>
+          </div>
+        ))}
+      </div>
+      <div className="stats-token-day-hint">{t('stats.tokens.imageEstimateHint')}</div>
+      <TokenCoverageNote coverage={coverage} compact />
+      <div className="stats-token-day-hint">{t('stats.tokens.dayPanelPickHint')}</div>
+    </section>
   );
 }
 
@@ -952,6 +1003,11 @@ function TrendCard({
     setFocusedDayIndex((current) => Math.min(current, Math.max(0, filledDaily.length - 1)));
   }, [filledDaily.length]);
   const tokenCoverage = useMemo(() => computeTokenCoverage(filledDaily), [filledDaily]);
+  // The token panel follows the pointer/keyboard focus and falls back to the
+  // last day of the range, so it always has something to show.
+  const panelIdx = hoverIdx !== null && hoverIdx < filledDaily.length ? hoverIdx : filledDaily.length - 1;
+  const panelDay = filledDaily[panelIdx];
+  const panelIsFallback = panelIdx !== hoverIdx;
   const dailySegments = useMemo(
     () => filledDaily.map((day) => trendSegments(day, metric)),
     [filledDaily, metric],
@@ -1032,6 +1088,7 @@ function TrendCard({
         </div>
         {metric === 'tokens' && <TokenCoverageNote coverage={tokenCoverage} />}
         <div className="stats-rank-empty stats-trend-empty">{t('stats.noDataInRange')}</div>
+        {metric === 'tokens' && panelDay && <TokenDayPanel day={panelDay} latest={panelIsFallback} />}
       </section>
     );
   }
@@ -1223,6 +1280,7 @@ function TrendCard({
           ))}
         </svg>
       </div>
+      {metric === 'tokens' && panelDay && <TokenDayPanel day={panelDay} latest={panelIsFallback} />}
       <div className="stats-trend-legend">
         <button
           type="button"
