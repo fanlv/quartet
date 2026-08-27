@@ -273,7 +273,7 @@ export function ChatInput({
     skillNameSet,
     imeComposing,
     compositionHandlers,
-  } = useSlashCompletion({ setInput, textareaRef });
+  } = useSlashCompletion({ setInput, textareaRef, workspaceId });
   const backdropRef = useRef<HTMLDivElement>(null);
   // Workspace switcher (chat page). Opens a dropdown anchored to the
   // Workspace tag in the footer. Only rendered when the parent supplies a

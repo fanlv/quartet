@@ -83,14 +83,20 @@ export function useSlashCompletion(opts: {
    *  Default true; the home page passes false (skills only) since the
    *  built-in commands operate on an existing chat. */
   includeCommands?: boolean;
+  /** Workspace whose project-scope skills should be listed alongside the
+   *  global ones — the agent runs in this workspace's workdir, so those are
+   *  exactly the skills it can load. Omit to list global skills only. */
+  workspaceId?: string;
 }): SlashCompletion {
-  const { setInput, textareaRef, includeCommands = true } = opts;
+  const { setInput, textareaRef, includeCommands = true, workspaceId } = opts;
   const [slashPrefix, setSlashPrefix] = useState<string | null>(null);
   const [slashActiveIdx, setSlashActiveIdx] = useState(0);
   // Installed skills, loaded lazily the first time "/" is typed. Also drives
   // the skill-name chip highlight in the input backdrop.
   const [skills, setSkills] = useState<SkillInfo[]>([]);
-  const skillsLoadedRef = useRef(false);
+  // Workspace the current `skills` were loaded for; switching workspace swaps
+  // the applicable project scope, so the list has to be re-fetched.
+  const loadedForRef = useRef<string | null>(null);
   const skillNameSet = useMemo(
     () => new Set(skills.map((s) => s.name.toLowerCase())),
     [skills],
@@ -123,17 +129,18 @@ export function useSlashCompletion(opts: {
 
   const updateSlash = useCallback((val: string, mentionActive: boolean) => {
     if (!mentionActive && val.startsWith('/') && !val.includes(' ')) {
-      if (!skillsLoadedRef.current) {
-        skillsLoadedRef.current = true;
-        fetchSkills().then(setSkills).catch(() => {
-          skillsLoadedRef.current = false;
+      const loadKey = workspaceId || '';
+      if (loadedForRef.current !== loadKey) {
+        loadedForRef.current = loadKey;
+        fetchSkills(workspaceId).then(setSkills).catch(() => {
+          loadedForRef.current = null;
         });
       }
       setSlashPrefix(val);
     } else {
       setSlashPrefix(null);
     }
-  }, []);
+  }, [workspaceId]);
 
   const applySlashItem = useCallback((item: SlashItem) => {
     setInput(item.name + ' ');

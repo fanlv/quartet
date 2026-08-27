@@ -28,9 +28,8 @@ func (h *Handler) GetTitleGenerationAgent(ctx context.Context, c *app.RequestCon
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{
-		"code":             0,
-		"config":           settings.TitleGenerationAgent,
-		"migration_errors": settings.AgentRoleMigrationErrors,
+		"code":   0,
+		"config": settings.TitleGenerationAgent,
 	})
 }
 

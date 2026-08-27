@@ -137,10 +137,6 @@ function WorkspaceApp() {
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
   const [missingJobNoticeId, setMissingJobNoticeId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isReadonly && principal?.permissions.includes('skills.read')) prefetchSkills();
-  }, [isReadonly, principal]);
-
   // Workspace state. On first load:
   //   1. Try URL `?workspaceId=...`.
   //   2. Fall back to the last-used workspace from localStorage.
@@ -165,6 +161,13 @@ function WorkspaceApp() {
     }
     return undefined;
   });
+
+  // Warm the "/" completion skill list. Keyed on the active workspace: the
+  // project scope belongs to that workspace's workdir, so switching workspace
+  // warms a different list.
+  useEffect(() => {
+    if (!isReadonly && principal?.permissions.includes('skills.read')) prefetchSkills(currentWorkspace?.id);
+  }, [isReadonly, principal, currentWorkspace?.id]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -1091,6 +1094,7 @@ function WorkspaceApp() {
       {showSettings && (
         <Settings
           initialTab={settingsInitialTab}
+          workspaceId={currentWorkspace?.id}
           onClose={handleCloseSettings}
           onSettingsChanged={handleSettingsChanged}
         />

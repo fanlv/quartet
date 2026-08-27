@@ -54,8 +54,8 @@
 | site_name | 站点名称，默认 "Quartet" |
 | allow_registration | 是否开放注册 |
 | default_language | 默认语言 |
-| default_title_agent | 默认标题 agent 配置（对应现有 `TitleAgent`） |
-| default_message_agent | 默认消息 agent 配置（对应现有 `MessageAgent`） |
+| default_title_agent | 默认标题生成 agent 配置（对应现有 `TitleGenerationAgent`） |
+| default_message_agent | 默认 IM 会话 agent 配置（对应现有 `IMSessionAgent`） |
 | max_users | 最大用户数，0 = 不限 |
 | shared_roots | 多用户模式下允许 workspace workdir 使用的宿主机路径白名单，格式为字符串数组，默认 `[]`（详见 [03-api.md](./03-api.md) 第 9 节文件访问模型） |
 | global_acp_env_vars | 全局 ACP 环境变量（**安全约束见下方**） |

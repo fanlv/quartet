@@ -518,8 +518,6 @@
       "sectionTitle": "技能列表",
       "scopeProject": "项目级",
       "scopeGlobal": "全局级",
-      "checkUpdate": "检查更新",
-      "checking": "检查中...",
       "installProjectTools": "安装 CLI + 项目技能",
       "projectInstalling": "正在安装项目工具...",
       "projectInstallHint": "构建并安装当前项目的 quartet-cli，同时安装项目内全部技能",
@@ -528,8 +526,7 @@
       "projectInstallFailed": "quartet-cli 和项目技能安装失败",
       "installSkill": "+ 安装技能",
       "searchPlaceholder": "搜索已安装的技能...",
-      "updateCheckResult": "更新检查结果",
-      "updateAll": "全部更新",
+      "updateAll": "更新全部技能",
       "updating": "更新中...",
       "allUpdated": "所有技能已更新到最新版本",
       "noMatchingSkills": "没有匹配的技能",
@@ -541,9 +538,7 @@
       "installed": "已安装 {{name}}",
       "installFailed": "安装失败",
       "searchFailed": "搜索失败",
-      "checkFailed": "检查更新失败",
       "updateFailed": "更新失败",
-      "checkComplete": "检查完成",
       "installModal": {
         "title": "安装技能",
         "packageLabel": "包名或仓库地址",
@@ -553,7 +548,19 @@
         "orSearch": "或搜索技能",
         "searchPlaceholder": "搜索关键词，例如: react, typescript",
         "installs": "installs"
-      }
+      },
+      "updateResult": "更新结果",
+      "updateAllHint": "skills CLI 没有只读的检查更新命令，点击会直接把当前作用域下所有技能更新到最新版本",
+      "confirmUpdateAll": "确认把「{{scope}}」作用域下所有已安装技能更新到最新版本？skills CLI 没有只读的检查模式，此操作会直接覆盖已安装的技能。",
+      "manageDenied": "当前账号没有管理技能的权限",
+      "workspaceLabel": "工作区",
+      "workspaceHint": "项目级技能安装在工作区目录下，只有在该工作区运行的 Agent 才能加载。",
+      "noWorkspace": "暂无可用工作区",
+      "selectWorkspace": "请先选择一个工作区",
+      "source": "来源",
+      "agentsMore": "还有 {{count}} 个",
+      "agentsCollapse": "收起",
+      "listNotReady": "技能列表读取超时，请稍后重试"
     },
     "agentManagement": {
       "tabs": {

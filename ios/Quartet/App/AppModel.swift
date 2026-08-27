@@ -106,6 +106,12 @@ final class AppModel: ObservableObject {
 #if DEBUG
     private var uiTestUpgradedAgentIDs: Set<String> = []
 #endif
+    /// UI 测试模式下的预置消息存档，键是配置范围（`global` 或 `workspace:<id>`）。
+    private var uiTestMessagePresets: [String: (revision: String, messages: [MessagePreset])] = [:]
+    /// UI 测试模式下的技能存档，键同样是作用域（`global` 或 `workspace:<id>`）。
+    private var uiTestSkills: [String: [SkillInfo]] = [:]
+    /// UI 测试模式下的用户配置存档。
+    private var uiTestUserConfig: UserConfig?
     private var optimisticJobExecutions: [String: OptimisticJobExecution] = [:]
 
     init(
@@ -886,6 +892,356 @@ final class AppModel: ObservableObject {
             )
         }
         return response
+    }
+
+    func globalMessagePresets() async throws -> MessagePresetScopeResponse {
+        if isRunningUITests { return uiTestMessagePresetScope(key: "global") }
+        let response = try await makeClient().globalMessagePresets()
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法读取全部项目的预置消息",
+                detail: "GET /api/v1/config/message-presets/global 返回 code=\(response.code)。"
+            )
+        }
+        return response
+    }
+
+    func workspaceMessagePresets(workspaceID: String) async throws -> MessagePresetScopeResponse {
+        if isRunningUITests { return uiTestMessagePresetScope(key: "workspace:\(workspaceID)") }
+        let response = try await makeClient().workspaceMessagePresets(workspaceID: workspaceID)
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法读取项目预置消息",
+                detail: "GET /api/v1/config/message-presets/workspaces/\(workspaceID) 返回 code=\(response.code)。"
+            )
+        }
+        return response
+    }
+
+    func orphanMessagePresets() async throws -> ListOrphanMessagePresetsResponse {
+        if isRunningUITests {
+            return ListOrphanMessagePresetsResponse(code: 0, configs: [], errors: [])
+        }
+        let response = try await makeClient().orphanMessagePresets()
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法读取未绑定的预置消息配置",
+                detail: "GET /api/v1/config/message-presets/orphans 返回 code=\(response.code)。"
+            )
+        }
+        return response
+    }
+
+    func saveGlobalMessagePresets(
+        revision: String,
+        messages: [MessagePreset]
+    ) async throws -> MessagePresetScopeResponse {
+        if isRunningUITests {
+            return uiTestSaveMessagePresets(key: "global", messages: messages)
+        }
+        let response = try await makeClient().saveGlobalMessagePresets(revision: revision, messages: messages)
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法保存全部项目的预置消息",
+                detail: "PUT /api/v1/config/message-presets/global 返回 code=\(response.code)。"
+            )
+        }
+        return response
+    }
+
+    func saveWorkspaceMessagePresets(
+        workspaceID: String,
+        revision: String,
+        messages: [MessagePreset]
+    ) async throws -> MessagePresetScopeResponse {
+        if isRunningUITests {
+            return uiTestSaveMessagePresets(key: "workspace:\(workspaceID)", messages: messages)
+        }
+        let response = try await makeClient().saveWorkspaceMessagePresets(
+            workspaceID: workspaceID,
+            revision: revision,
+            messages: messages
+        )
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法保存项目预置消息",
+                detail: "PUT /api/v1/config/message-presets/workspaces/\(workspaceID) 返回 code=\(response.code)。"
+            )
+        }
+        return response
+    }
+
+    func deleteOrphanMessagePresets(workspaceID: String, revision: String) async throws {
+        if isRunningUITests { return }
+        let response = try await makeClient().deleteOrphanMessagePresets(
+            workspaceID: workspaceID,
+            revision: revision
+        )
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法删除未绑定的预置消息配置",
+                detail: "DELETE /api/v1/config/message-presets/orphans/\(workspaceID) 返回 code=\(response.code)。"
+            )
+        }
+    }
+
+    func rebindOrphanMessagePresets(
+        workspaceID: String,
+        revision: String,
+        targetWorkspaceID: String
+    ) async throws {
+        if isRunningUITests { return }
+        let response = try await makeClient().rebindOrphanMessagePresets(
+            workspaceID: workspaceID,
+            revision: revision,
+            targetWorkspaceID: targetWorkspaceID
+        )
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法重新绑定未绑定的预置消息配置",
+                detail: "POST /api/v1/config/message-presets/orphans/\(workspaceID)/rebind 返回 code=\(response.code)。"
+            )
+        }
+    }
+
+    /// UI 测试模式下第一次读取某个配置范围时补一条示例数据，之后跟随本机保存结果。
+    private func uiTestMessagePresetScope(key: String) -> MessagePresetScopeResponse {
+        let isGlobal = key == "global"
+        if uiTestMessagePresets[key] == nil {
+            if isGlobal {
+                uiTestMessagePresets[key] = (
+                    revision: "ui-test-global-1",
+                    messages: [
+                        MessagePreset(
+                            id: "ios-ui-test-global-preset",
+                            name: "总结进展",
+                            content: "请总结当前进展、遗留问题和下一步建议。"
+                        )
+                    ]
+                )
+            } else {
+                uiTestMessagePresets[key] = (
+                    revision: "ui-test-workspace-1",
+                    messages: [
+                        MessagePreset(
+                            id: "ios-ui-test-project-preset",
+                            name: "检查当前改动",
+                            content: "请检查当前工作区的改动并给出风险清单。"
+                        )
+                    ]
+                )
+            }
+        }
+        let stored = uiTestMessagePresets[key]
+        return MessagePresetScopeResponse(
+            code: 0,
+            revision: stored?.revision ?? "missing",
+            config: MessagePresetConfig(
+                schemaVersion: 1,
+                workspaceId: isGlobal ? nil : String(key.dropFirst("workspace:".count)),
+                workspaceTitle: nil,
+                workspaceWorkdir: nil,
+                messages: stored?.messages ?? []
+            )
+        )
+    }
+
+    private func uiTestSaveMessagePresets(
+        key: String,
+        messages: [MessagePreset]
+    ) -> MessagePresetScopeResponse {
+        let revision = "ui-test-\(UUID().uuidString)"
+        uiTestMessagePresets[key] = (revision: revision, messages: messages)
+        return uiTestMessagePresetScope(key: key)
+    }
+
+    // MARK: - 技能列表
+
+    func skills(global: Bool, workspaceID: String) async throws -> SkillListResponse {
+        if isRunningUITests {
+            return SkillListResponse(
+                code: 0,
+                skills: uiTestSkillList(global: global, workspaceID: workspaceID),
+                ready: true,
+                error: nil
+            )
+        }
+        let response = try await makeClient().skills(global: global, workspaceID: workspaceID)
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法读取技能列表",
+                detail: "GET /api/v1/skills/list 返回 code=\(response.code)。"
+            )
+        }
+        return response
+    }
+
+    func addSkill(
+        package: String,
+        global: Bool,
+        workspaceID: String,
+        agents: [String]
+    ) async throws -> String {
+        if isRunningUITests {
+            let key = uiTestSkillKey(global: global, workspaceID: workspaceID)
+            var list = uiTestSkillList(global: global, workspaceID: workspaceID)
+            let name = package.split(separator: "@").last.map(String.init) ?? package
+            list.append(SkillInfo(
+                name: name,
+                path: "/ui-test/skills/\(name)",
+                scope: global ? "global" : "project",
+                agents: agents,
+                source: package,
+                sourceUrl: nil,
+                sourceType: "github"
+            ))
+            uiTestSkills[key] = list
+            return "ui test: installed \(package)"
+        }
+        let response = try await makeClient().addSkill(
+            package: package,
+            global: global,
+            workspaceID: workspaceID,
+            agents: agents
+        )
+        return try skillCommandOutput(response, operation: "POST /api/v1/skills/add")
+    }
+
+    func removeSkill(name: String, global: Bool, workspaceID: String) async throws -> String {
+        if isRunningUITests {
+            let key = uiTestSkillKey(global: global, workspaceID: workspaceID)
+            uiTestSkills[key] = uiTestSkillList(global: global, workspaceID: workspaceID)
+                .filter { $0.name != name }
+            return "ui test: removed \(name)"
+        }
+        let response = try await makeClient().removeSkill(
+            name: name,
+            global: global,
+            workspaceID: workspaceID
+        )
+        return try skillCommandOutput(response, operation: "POST /api/v1/skills/remove")
+    }
+
+    func updateSkills(global: Bool, workspaceID: String) async throws -> String {
+        if isRunningUITests { return "ui test: updated 0 skill(s)" }
+        let response = try await makeClient().updateSkills(global: global, workspaceID: workspaceID)
+        return try skillCommandOutput(response, operation: "POST /api/v1/skills/update")
+    }
+
+    func findSkills(query: String) async throws -> [SkillFindResult] {
+        if isRunningUITests {
+            return [SkillFindResult(name: "vercel-labs/agent-skills@pptx", installs: "209.3K", url: "")]
+        }
+        let response = try await makeClient().findSkills(query: query)
+        guard response.code == 0 else {
+            throw APIError(
+                summary: "无法搜索技能",
+                detail: "GET /api/v1/skills/find 返回 code=\(response.code)。"
+            )
+        }
+        return response.results ?? []
+    }
+
+    func installProjectTools() async throws -> String {
+        if isRunningUITests { return "ui test: quartet-cli and project skills installed" }
+        let response = try await makeClient().installProjectTools()
+        guard response.code == 0, let result = response.result else {
+            throw APIError(
+                summary: "无法安装 quartet-cli 和项目技能",
+                detail: "POST /api/v1/skills/install-project-tools 返回 code=\(response.code)。"
+            )
+        }
+        return result.output
+    }
+
+    /// 后端在失败时会把完整命令输出放进 `msg` 和 `output`，两者都要保留给用户。
+    private func skillCommandOutput(_ response: SkillCommandResponse, operation: String) throws -> String {
+        guard response.code == 0 else {
+            let parts = [response.msg, response.output].compactMap { $0 }.filter { !$0.isEmpty }
+            throw APIError(
+                summary: "技能命令执行失败",
+                detail: parts.isEmpty
+                    ? "\(operation) 返回 code=\(response.code)。"
+                    : "\(operation) 返回 code=\(response.code)。\n\n" + parts.joined(separator: "\n\n")
+            )
+        }
+        return response.output ?? ""
+    }
+
+    private func uiTestSkillKey(global: Bool, workspaceID: String) -> String {
+        global ? "global" : "workspace:\(workspaceID)"
+    }
+
+    private func uiTestSkillList(global: Bool, workspaceID: String) -> [SkillInfo] {
+        let key = uiTestSkillKey(global: global, workspaceID: workspaceID)
+        if let stored = uiTestSkills[key] { return stored }
+        let seeded: [SkillInfo] = global
+            ? [SkillInfo(
+                name: "quartet-workflow",
+                path: "/ui-test/.agents/skills/quartet-workflow",
+                scope: "global",
+                agents: ["Claude Code", "Codex"],
+                source: "quartet/skill",
+                sourceUrl: nil,
+                sourceType: "local"
+            )]
+            : []
+        uiTestSkills[key] = seeded
+        return seeded
+    }
+
+    func userConfig() async throws -> UserConfig {
+        if isRunningUITests { return uiTestUserConfigSnapshot() }
+        let response = try await makeClient().settingsSnapshot()
+        guard response.code == 0 else {
+            let serverMessage = response.msg.map { "\n\n服务端消息：\n\($0)" } ?? ""
+            throw APIError(
+                summary: "无法读取用户配置",
+                detail: "GET /api/v1/config/settings/get 返回 code=\(response.code)。\(serverMessage)"
+            )
+        }
+        return UserConfig(snapshot: response.settings ?? [:])
+    }
+
+    /// 保存前重新读取整份 settings，只把本页负责的两个字段覆盖到最新快照上。这样用户
+    /// 在页面停留期间，Web 端或其它设置页写入的配置不会被旧快照带回去覆盖。
+    /// 返回本次实际提交的快照，供页面在不覆盖保存期间新编辑的前提下更新基线。
+    func saveUserConfig(_ config: UserConfig) async throws -> UserConfig {
+        if isRunningUITests {
+            let saved = UserConfig(snapshot: config.mergedSnapshot)
+            uiTestUserConfig = saved
+            return saved
+        }
+
+        var latest = try await userConfig()
+        latest.avatarURL = config.avatarURL
+        latest.graphEndHookScript = config.graphEndHookScript
+        let submitted = UserConfig(snapshot: latest.mergedSnapshot)
+        let response = try await makeClient().saveSettingsSnapshot(submitted.snapshot)
+        guard response.code == 0 else {
+            let serverMessage = response.msg.map { "\n\n服务端消息：\n\($0)" } ?? ""
+            throw APIError(
+                summary: "无法保存用户配置",
+                detail: "POST /api/v1/config/settings/save 返回 code=\(response.code)。\(serverMessage)"
+            )
+        }
+        return submitted
+    }
+
+    /// UI 测试模式下第一次读取时补一份示例配置，之后跟随本机保存结果。快照里多留两个
+    /// 不属于本页的键，用来验证保存时确实原样回传、没有被清空。
+    private func uiTestUserConfigSnapshot() -> UserConfig {
+        if let uiTestUserConfig { return uiTestUserConfig }
+        let config = UserConfig(
+            avatarURL: "https://example.com/avatar.png",
+            graphEndHookScript: "echo \"$QUARTET_JOB_TITLE 已完成\"",
+            snapshot: [
+                "username": .string("User"),
+                "im_workspace_id": .string("ws-1"),
+            ]
+        )
+        uiTestUserConfig = config
+        return config
     }
 
     func relinkACPThoughtLevels(agentType: String, modelID: String) async throws -> AgentThoughtLevelState {

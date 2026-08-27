@@ -63,17 +63,10 @@ func NewSettingsService() (SettingsService, error) {
 	if err != nil {
 		return nil, err
 	}
-	service := &settingsServiceImpl{repo: repo, agentCatalog: agentCatalog}
-	if err := service.ensureAgentRoleSettings(context.Background()); err != nil {
-		return nil, fmt.Errorf("migrate Agent role settings failed: %w", err)
-	}
-	return service, nil
+	return &settingsServiceImpl{repo: repo, agentCatalog: agentCatalog}, nil
 }
 
 func (s *settingsServiceImpl) GetSettings() (*repository.Settings, error) {
-	if err := s.ensureAgentRoleSettings(context.Background()); err != nil {
-		return nil, err
-	}
 	settings, err := s.repo.Get()
 	if err != nil {
 		return nil, err
@@ -98,17 +91,13 @@ func (s *settingsServiceImpl) SaveSettings(settings *repository.Settings) error 
 		settings.WeChatAdminIDs = append([]string(nil), current.WeChatAdminIDs...)
 		// Agent role settings have dedicated owners. Preserve the latest
 		// service-side values so an old or concurrently opened general page
-		// cannot write legacy title_agent/message_agent fields back over them.
-		settings.AgentRoleSettingsVersion = current.AgentRoleSettingsVersion
+		// cannot overwrite them with a stale snapshot.
 		settings.TitleGenerationAgent = cloneAgentRoleConfig(current.TitleGenerationAgent)
 		settings.GroupReplyAgent = cloneAgentRoleConfig(current.GroupReplyAgent)
 		settings.IMSessionAgent = cloneIMSessionAgentConfig(current.IMSessionAgent)
-		settings.AgentRoleMigrationErrors = append([]string(nil), current.AgentRoleMigrationErrors...)
 		settings.ACPEnvVars = cloneACPEnvVarMap(current.ACPEnvVars)
 		settings.ACPEnvVersions = cloneInt64Map(current.ACPEnvVersions)
 		settings.AgentPrefs = cloneAgentPrefsMap(current.AgentPrefs)
-		settings.TitleAgent = nil
-		settings.MessageAgent = nil
 	}
 	normalizeACPEnvVars(settings)
 	normalizeAgentPrefs(settings)
@@ -367,8 +356,6 @@ func (s *settingsServiceImpl) saveOneShotAgent(
 		return err
 	}
 	apply(settings, next)
-	settings.AgentRoleSettingsVersion = model.AgentRoleSettingsVersion
-	settings.AgentRoleMigrationErrors = removeAgentRoleMigrationErrors(settings.AgentRoleMigrationErrors, role)
 	return s.repo.Save(settings)
 }
 
@@ -402,8 +389,6 @@ func (s *settingsServiceImpl) SaveIMSessionAgent(agent *model.IMSessionAgentConf
 		return err
 	}
 	settings.IMSessionAgent = next
-	settings.AgentRoleSettingsVersion = model.AgentRoleSettingsVersion
-	settings.AgentRoleMigrationErrors = removeAgentRoleMigrationErrors(settings.AgentRoleMigrationErrors, "IM session")
 	return s.repo.Save(settings)
 }
 
@@ -675,106 +660,6 @@ func agentPrefsEmpty(prefs repository.AgentPrefs) bool {
 		prefs.DefaultThoughtLevel == ""
 }
 
-func (s *settingsServiceImpl) ensureAgentRoleSettings(ctx context.Context) error {
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
-
-	settings, err := s.repo.Get()
-	if err != nil {
-		return err
-	}
-	if settings.AgentRoleSettingsVersion >= model.AgentRoleSettingsVersion {
-		return nil
-	}
-
-	var migrationErrors []string
-	if settings.TitleAgent != nil && strings.TrimSpace(settings.TitleAgent.AgentType) != "" {
-		resolved, found, resolveErr := s.findAgent(ctx, settings.TitleAgent.AgentType)
-		switch {
-		case resolveErr != nil:
-			migrationErrors = append(migrationErrors, fmt.Sprintf(
-				"标题生成 Agent 迁移失败: 解析旧引用 %q 失败: %v",
-				settings.TitleAgent.AgentType,
-				resolveErr,
-			))
-		case !found:
-			migrationErrors = append(migrationErrors, fmt.Sprintf(
-				"标题生成 Agent 迁移失败: 无法将旧引用 %q 解析为 AgentID，配置已留空",
-				settings.TitleAgent.AgentType,
-			))
-		case !resolved.SupportsHeadlessPrint:
-			migrationErrors = append(migrationErrors, fmt.Sprintf(
-				"标题生成 Agent 迁移失败: AgentID %q 不支持 bin -p prompt，配置已留空",
-				resolved.AgentID,
-			))
-		case resolved.Deprecated || resolved.Lifecycle != model.AgentLifecycleActive:
-			migrationErrors = append(migrationErrors, fmt.Sprintf(
-				"标题生成 Agent 迁移失败: AgentID %q 当前状态不可用，配置已留空",
-				resolved.AgentID,
-			))
-		default:
-			settings.TitleGenerationAgent = &model.AgentRoleConfig{AgentID: resolved.AgentID}
-		}
-	}
-
-	if settings.MessageAgent != nil && strings.TrimSpace(settings.MessageAgent.AgentType) != "" {
-		resolved, found, resolveErr := s.findAgent(ctx, settings.MessageAgent.AgentType)
-		switch {
-		case resolveErr != nil:
-			migrationErrors = append(migrationErrors, fmt.Sprintf(
-				"IM 会话 Agent 迁移失败: 解析旧引用 %q 失败: %v",
-				settings.MessageAgent.AgentType,
-				resolveErr,
-			))
-			migrationErrors = append(migrationErrors, fmt.Sprintf(
-				"群聊回复 Agent 迁移失败: 解析旧引用 %q 失败: %v",
-				settings.MessageAgent.AgentType,
-				resolveErr,
-			))
-		case !found:
-			migrationErrors = append(migrationErrors, fmt.Sprintf(
-				"IM 会话 Agent 迁移失败: 无法将旧引用 %q 解析为 AgentID，配置已留空",
-				settings.MessageAgent.AgentType,
-			))
-			migrationErrors = append(migrationErrors, fmt.Sprintf(
-				"群聊回复 Agent 迁移失败: 无法将旧引用 %q 解析为 AgentID，配置已留空",
-				settings.MessageAgent.AgentType,
-			))
-		default:
-			settings.IMSessionAgent = &model.IMSessionAgentConfig{
-				AgentID:         resolved.AgentID,
-				ModelID:         settings.MessageAgent.ModelID,
-				ACPMode:         settings.MessageAgent.ACPMode,
-				ACPThoughtLevel: settings.MessageAgent.ACPThoughtLevel,
-			}
-			if resolved.SupportsHeadlessPrint &&
-				!resolved.Deprecated &&
-				resolved.Lifecycle == model.AgentLifecycleActive {
-				settings.GroupReplyAgent = &model.AgentRoleConfig{AgentID: resolved.AgentID}
-			} else {
-				migrationErrors = append(migrationErrors, fmt.Sprintf(
-					"群聊回复 Agent 迁移失败: AgentID %q 不支持 bin -p prompt 或当前状态不可用，配置已留空",
-					resolved.AgentID,
-				))
-			}
-		}
-	}
-
-	settings.AgentRoleSettingsVersion = model.AgentRoleSettingsVersion
-	settings.AgentRoleMigrationErrors = migrationErrors
-	settings.TitleAgent = nil
-	settings.MessageAgent = nil
-	normalizeACPEnvVars(settings)
-	normalizeAgentPrefs(settings)
-	if err := s.repo.Save(settings); err != nil {
-		return fmt.Errorf("save migrated Agent role settings failed: %w", err)
-	}
-	for _, migrationErr := range migrationErrors {
-		logger.Warnf(ctx, "[settings] %s", migrationErr)
-	}
-	return nil
-}
-
 func (s *settingsServiceImpl) findAgent(ctx context.Context, identifier string) (catalog.ResolvedAgent, bool, error) {
 	if s.agentCatalog == nil {
 		if builtin, ok := catalog.ResolveBuiltin(identifier); ok {
@@ -857,34 +742,6 @@ func cloneIMSessionAgentConfig(in *model.IMSessionAgentConfig) *model.IMSessionA
 	}
 	out := *in
 	return &out
-}
-
-func removeAgentRoleMigrationErrors(errors []string, role string) []string {
-	var prefixes []string
-	switch role {
-	case "title generation":
-		prefixes = []string{"标题生成 Agent "}
-	case "group reply":
-		prefixes = []string{"群聊回复 Agent "}
-	case "IM session":
-		prefixes = []string{"IM 会话 Agent "}
-	default:
-		return append([]string(nil), errors...)
-	}
-	filtered := make([]string, 0, len(errors))
-	for _, migrationErr := range errors {
-		remove := false
-		for _, prefix := range prefixes {
-			if strings.HasPrefix(migrationErr, prefix) {
-				remove = true
-				break
-			}
-		}
-		if !remove {
-			filtered = append(filtered, migrationErr)
-		}
-	}
-	return filtered
 }
 
 func (s *settingsServiceImpl) GetLarkConfig() (appID, appSecret string) {

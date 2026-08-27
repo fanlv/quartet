@@ -180,7 +180,8 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	skills.POST("/install-project-tools", permit(auth.PermissionSkillsManage), h.SkillInstallProjectTools)
 	skills.POST("/add", permit(auth.PermissionSkillsManage), h.SkillAdd)
 	skills.POST("/remove", permit(auth.PermissionSkillsManage), h.SkillRemove)
-	skills.GET("/check", permit(auth.PermissionSkillsRead), h.SkillCheck)
+	// No "check" route on purpose: the skills CLI's `check` verb is an alias of
+	// `update`, so a read-looking endpoint would silently upgrade every skill.
 	skills.POST("/update", permit(auth.PermissionSkillsManage), h.SkillUpdate)
 	skills.GET("/find", permit(auth.PermissionSkillsRead), h.SkillFind)
 

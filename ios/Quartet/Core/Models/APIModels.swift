@@ -679,7 +679,109 @@ struct AgentPreferencesResponse: Decodable, Sendable {
     let settings: AgentPreferencesSettings?
 }
 
-struct MessagePreset: Decodable, Identifiable, Hashable, Sendable {
+/// 任意 JSON 值。用在“必须整份回传、又不该在客户端穷举字段”的接口上：客户端只改自己
+/// 负责的键，其余键按读到的原样送回，后端新增字段时也不会被清成零值。
+enum JSONValue: Codable, Hashable, Sendable {
+    case null
+    case bool(Bool)
+    /// 整数单独一支：`acp_env_versions` 这类 int64 若走 Double 回传成 `1.0`，后端会解析失败。
+    case int(Int64)
+    case double(Double)
+    case string(String)
+    case array([JSONValue])
+    case object([String: JSONValue])
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Int64.self) {
+            self = .int(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .double(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([JSONValue].self) {
+            self = .array(value)
+        } else if let value = try? container.decode([String: JSONValue].self) {
+            self = .object(value)
+        } else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "无法解析该 JSON 值：既不是 null、布尔、数字、字符串，也不是数组或对象。"
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .null: try container.encodeNil()
+        case .bool(let value): try container.encode(value)
+        case .int(let value): try container.encode(value)
+        case .double(let value): try container.encode(value)
+        case .string(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
+        }
+    }
+
+    var stringValue: String? {
+        guard case .string(let value) = self else { return nil }
+        return value
+    }
+}
+
+/// `GET /api/v1/config/settings/get` 的原始响应。`settings` 保留成通用 JSON，
+/// 让保存时能把客户端没建模的键原样带回去。
+struct SettingsSnapshotResponse: Decodable, Sendable {
+    let code: Int
+    let msg: String?
+    let settings: [String: JSONValue]?
+}
+
+struct SettingsSaveResponse: Decodable, Sendable {
+    let code: Int
+    let msg: String?
+}
+
+/// “用户配置”页编辑的字段，外加一份完整 settings 快照。后端保存接口接收整份配置，
+/// 只有 Agent 角色、ACP 环境变量、AgentPrefs 和微信白名单会被服务端保留，其余没送的
+/// 字段会被写成零值，所以 `snapshot` 必须原样回传。
+struct UserConfig: Sendable {
+    var avatarURL: String
+    var graphEndHookScript: String
+    var snapshot: [String: JSONValue]
+
+    static let avatarURLKey = "avatar_url"
+    static let graphEndHookScriptKey = "graph_end_hook_script"
+
+    init(avatarURL: String, graphEndHookScript: String, snapshot: [String: JSONValue]) {
+        self.avatarURL = avatarURL
+        self.graphEndHookScript = graphEndHookScript
+        self.snapshot = snapshot
+    }
+
+    init(snapshot: [String: JSONValue]) {
+        self.init(
+            avatarURL: snapshot[Self.avatarURLKey]?.stringValue ?? "",
+            graphEndHookScript: snapshot[Self.graphEndHookScriptKey]?.stringValue ?? "",
+            snapshot: snapshot
+        )
+    }
+
+    /// 把当前编辑值写回快照，得到可以整份提交的 settings 对象。
+    var mergedSnapshot: [String: JSONValue] {
+        var merged = snapshot
+        merged[Self.avatarURLKey] = .string(avatarURL)
+        merged[Self.graphEndHookScriptKey] = .string(graphEndHookScript)
+        return merged
+    }
+}
+
+struct MessagePreset: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String?
     let content: String
@@ -697,6 +799,133 @@ struct EffectiveMessagePresetsResponse: Decodable, Sendable {
     let project: [MessagePreset]
     let global: [MessagePreset]
     let errors: [MessagePresetLoadError]?
+}
+
+/// 单个配置范围（全部项目或某个工作空间）的预置消息文件内容。
+struct MessagePresetConfig: Decodable, Sendable {
+    let schemaVersion: Int?
+    let workspaceId: String?
+    let workspaceTitle: String?
+    let workspaceWorkdir: String?
+    let messages: [MessagePreset]?
+}
+
+/// `revision` 是乐观并发令牌，保存时必须原样回传；尚无配置文件时后端返回 `missing`。
+struct MessagePresetScopeResponse: Decodable, Sendable {
+    let code: Int
+    let revision: String
+    let config: MessagePresetConfig
+}
+
+struct SaveMessagePresetScopeRequest: Encodable, Sendable {
+    let revision: String
+    let messages: [MessagePreset]
+}
+
+/// 工作空间已被删除、但预置消息配置还留在磁盘上的记录。
+struct OrphanMessagePreset: Decodable, Sendable {
+    let revision: String
+    let config: MessagePresetConfig
+}
+
+struct ListOrphanMessagePresetsResponse: Decodable, Sendable {
+    let code: Int
+    let configs: [OrphanMessagePreset]?
+    let errors: [MessagePresetLoadError]?
+}
+
+struct RebindMessagePresetRequest: Encodable, Sendable {
+    let revision: String
+    let targetWorkspaceId: String
+}
+
+struct MessagePresetCodeResponse: Decodable, Sendable {
+    let code: Int
+}
+
+// MARK: - 技能列表
+
+/// 一个已安装的技能，字段与 `skills ls --json` 的输出对齐。
+struct SkillInfo: Decodable, Identifiable, Hashable, Sendable {
+    let name: String
+    let path: String
+    let scope: String
+    /// skills CLI 回报的是 Agent 展示名（“Claude Code”），不是安装时用的 slug。
+    let agents: [String]?
+    let source: String?
+    let sourceUrl: String?
+    let sourceType: String?
+
+    /// 同名技能可以同时存在于两个作用域，列表复用要连 scope 和路径一起算。
+    var id: String { "\(scope):\(path.isEmpty ? name : path)" }
+
+    var isGlobal: Bool { scope == "global" }
+}
+
+/// `ready` 为 false 表示后端还没跑完首次 `skills ls`，此时的空列表不能当成“没有技能”。
+/// `error` 是最近一次读取失败的完整原文，可能与缓存中的旧列表同时出现。
+struct SkillListResponse: Decodable, Sendable {
+    let code: Int
+    let skills: [SkillInfo]?
+    let ready: Bool?
+    let error: String?
+}
+
+struct SkillFindResult: Decodable, Identifiable, Hashable, Sendable {
+    let name: String
+    let installs: String
+    let url: String
+
+    var id: String { name }
+}
+
+struct SkillFindResponse: Decodable, Sendable {
+    let code: Int
+    let results: [SkillFindResult]?
+}
+
+/// 安装 / 卸载 / 更新的统一响应，`output` 是清洗过的命令输出。
+struct SkillCommandResponse: Decodable, Sendable {
+    let code: Int
+    let msg: String?
+    let output: String?
+}
+
+struct SkillAddRequest: Encodable, Sendable {
+    let package: String
+    let global: Bool
+    let workspaceId: String
+    let agents: [String]
+}
+
+struct SkillRemoveRequest: Encodable, Sendable {
+    let name: String
+    let global: Bool
+    let workspaceId: String
+}
+
+struct SkillUpdateRequest: Encodable, Sendable {
+    let global: Bool
+    let workspaceId: String
+}
+
+struct ProjectToolsInstallResult: Decodable, Hashable, Sendable {
+    let command: String
+    let output: String
+    let exitCode: Int
+    let durationMs: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case output
+        case exitCode = "exit_code"
+        case durationMs = "duration_ms"
+    }
+}
+
+struct ProjectToolsInstallResponse: Decodable, Sendable {
+    let code: Int
+    let result: ProjectToolsInstallResult?
 }
 
 struct JobSummary: Decodable, Identifiable, Hashable, Sendable {
@@ -2283,11 +2512,9 @@ struct AgentRoleSaveRequest: Encodable, Sendable {
 struct AgentRoleConfigResponse: Decodable, Sendable {
     let code: Int
     let config: AgentRoleConfig?
-    let migrationErrors: [String]?
 
     enum CodingKeys: String, CodingKey {
         case code
         case config
-        case migrationErrors = "migration_errors"
     }
 }

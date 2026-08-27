@@ -1,22 +1,34 @@
 // Installed-skill list for the chat input's "/" completion and skill-name
-// highlighting. Backed by GET /api/v1/skills/list (project + global scopes),
-// cached at module level so remounting ChatInput never re-runs the (npx-based,
-// comparatively slow) backend call.
+// highlighting. Backed by GET /api/v1/skills/list, which is scoped: the global
+// scope is shared by every agent run, while the project scope belongs to one
+// workspace directory (ACP agents run with the workspace workdir as their cwd,
+// so only that directory's project skills are loadable).
+//
+// Results are cached at module level, keyed by workspace, so remounting
+// ChatInput never re-runs the (npx-based, comparatively slow) backend call.
+// Settings drops the cache after installing / uninstalling / updating skills so
+// the completion list does not keep serving a stale snapshot until reload.
 
 export interface SkillInfo {
   name: string;
   path: string;
   scope: string;
   agents: string[];
+  source?: string;
+  sourceUrl?: string;
+  sourceType?: string;
 }
 
-interface SkillScopeResult {
+export interface SkillScopeResult {
   skills: SkillInfo[];
+  /** False while the backend's first listing for this scope is still running. */
   ready: boolean;
+  /** Full text of the backend's last failed listing attempt, if any. */
+  error: string;
 }
 
-let cachedSkills: SkillInfo[] | null = null;
-let inflight: Promise<SkillInfo[]> | null = null;
+const cachedSkills = new Map<string, SkillInfo[]>();
+const inflight = new Map<string, Promise<SkillInfo[]>>();
 
 const READY_RETRY_DELAY_MS = 400;
 const READY_RETRY_ATTEMPTS = 25;
@@ -25,59 +37,83 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function fetchScope(global: boolean): Promise<SkillScopeResult> {
+/** One raw scope read. Pass workspaceId for the project scope; the backend
+ *  rejects a project-scope request without it. */
+export async function fetchSkillScope(global: boolean, workspaceId?: string): Promise<SkillScopeResult> {
+  const params = new URLSearchParams({ global: String(global) });
+  if (!global && workspaceId) params.set('workspaceId', workspaceId);
   try {
-    const res = await fetch(`/api/v1/skills/list?global=${global}`, { cache: 'no-store' });
+    const res = await fetch(`/api/v1/skills/list?${params.toString()}`, { cache: 'no-store' });
     const data = await res.json();
     if (data?.code === 0 && Array.isArray(data.skills)) {
       return {
         skills: data.skills as SkillInfo[],
-        // Old backends do not return `ready`; treat that as ready.
         ready: data.ready !== false,
+        error: typeof data.error === 'string' ? data.error : '',
       };
     }
-  } catch {
-    // Network/parse failures must never break typing; preserve the old
-    // behavior and treat them as a completed empty list.
+    return { skills: [], ready: true, error: data?.msg || `unexpected response (HTTP ${res.status})` };
+  } catch (err) {
+    return { skills: [], ready: true, error: err instanceof Error ? err.message : String(err) };
   }
-  return { skills: [], ready: true };
 }
 
-export function fetchSkills(): Promise<SkillInfo[]> {
-  if (cachedSkills) return Promise.resolve(cachedSkills);
-  if (inflight) return inflight;
-  inflight = (async () => {
+/** Merge global + project scopes into one deduped, sorted list. Project scope
+ *  wins on name conflicts because that is what the agent's own resolution does. */
+function mergeScopes(global: SkillInfo[], project: SkillInfo[]): SkillInfo[] {
+  const byName = new Map<string, SkillInfo>();
+  for (const s of [...global, ...project]) {
+    if (s && typeof s.name === 'string') byName.set(s.name, s);
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Skills visible to an agent running in workspaceId: global plus that
+ *  workspace's project skills. Without a workspaceId only global is returned —
+ *  guessing a project directory would list skills the agent cannot load. */
+export function fetchSkills(workspaceId?: string): Promise<SkillInfo[]> {
+  const key = workspaceId || '';
+  const cached = cachedSkills.get(key);
+  if (cached) return Promise.resolve(cached);
+  const pending = inflight.get(key);
+  if (pending) return pending;
+
+  const run = (async () => {
     for (let attempt = 0; attempt < READY_RETRY_ATTEMPTS; attempt++) {
-      const [project, global] = await Promise.all([
-        fetchScope(false),
-        fetchScope(true),
+      const [global, project] = await Promise.all([
+        fetchSkillScope(true),
+        workspaceId
+          ? fetchSkillScope(false, workspaceId)
+          : Promise.resolve<SkillScopeResult>({ skills: [], ready: true, error: '' }),
       ]);
-      if (project.ready && global.ready) {
-        // Dedupe by name; project scope wins over global on conflicts.
-        const byName = new Map<string, SkillInfo>();
-        for (const s of [...global.skills, ...project.skills]) {
-          if (s && typeof s.name === 'string') byName.set(s.name, s);
-        }
-        cachedSkills = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
-        return cachedSkills;
+      if (global.ready && project.ready) {
+        const merged = mergeScopes(global.skills, project.skills);
+        cachedSkills.set(key, merged);
+        return merged;
       }
       await sleep(READY_RETRY_DELAY_MS);
     }
     throw new Error('skill list cache is not ready');
   })().finally(() => {
-    inflight = null;
+    inflight.delete(key);
   });
-  return inflight;
+  inflight.set(key, run);
+  return run;
 }
 
-export function prefetchSkills(): void {
-  void fetchSkills().catch(() => {
+/** Drop every cached scope. Call after any skill install / uninstall / update. */
+export function invalidateSkillsCache(): void {
+  cachedSkills.clear();
+  inflight.clear();
+}
+
+export function prefetchSkills(workspaceId?: string): void {
+  void fetchSkills(workspaceId).catch(() => {
     // Best-effort warmup; interactive "/" completion will retry on demand.
   });
 }
 
 /** Test hook: drop the module-level cache so each test re-fetches. */
 export function __resetSkillsCacheForTest(): void {
-  cachedSkills = null;
-  inflight = null;
+  invalidateSkillsCache();
 }

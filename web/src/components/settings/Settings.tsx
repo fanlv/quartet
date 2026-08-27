@@ -22,6 +22,9 @@ interface SettingsProps {
   onClose: () => void;
   onSettingsChanged?: () => void;
   initialTab?: SettingsTab;
+  /** Active workspace, used by the Skill tab to scope project-level skills to
+   *  the directory agents actually run in. */
+  workspaceId?: string;
 }
 
 const tabDefs: { key: SettingsNavTab; labelKey: string; icon: string; permission?: string; anyPermissions?: string[] }[] = [
@@ -31,13 +34,13 @@ const tabDefs: { key: SettingsNavTab; labelKey: string; icon: string; permission
   { key: 'account', labelKey: 'settings.tabs.accountManagement', icon: '👤' },
   { key: 'eino', labelKey: 'settings.tabs.eino', icon: '🤖', permission: 'config.write' },
   { key: 'prompt', labelKey: 'settings.tabs.prompt', icon: '📝', permission: 'config.write' },
-  { key: 'skill', labelKey: 'settings.tabs.skill', icon: '🧩', permission: 'skills.manage' },
+  { key: 'skill', labelKey: 'settings.tabs.skill', icon: '🧩', permission: 'skills.read' },
   { key: 'agents', labelKey: 'settings.tabs.agents', icon: '📦', permission: 'agent.manage' },
   { key: 'im', labelKey: 'settings.tabs.im', icon: '💬', anyPermissions: ['config.write', 'im.manage'] },
   { key: 'logs', labelKey: 'settings.tabs.logs', icon: '📋', permission: 'logs.manage' },
 ];
 
-export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }: SettingsProps) {
+export function Settings({ onClose, onSettingsChanged, initialTab = 'general', workspaceId }: SettingsProps) {
   const { t } = useTranslation();
   const principal = useAuthPrincipal();
   const visibleTabs = useMemo(
@@ -156,7 +159,7 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general' }:
       case 'prompt':
         return <PromptSettings />;
       case 'skill':
-        return <SkillSettings />;
+        return <SkillSettings workspaceId={workspaceId} />;
       case 'agents':
         return <AgentManagement />;
       case 'im':

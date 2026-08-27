@@ -520,8 +520,6 @@
       "sectionTitle": "Skill List",
       "scopeProject": "Project",
       "scopeGlobal": "Global",
-      "checkUpdate": "Check Updates",
-      "checking": "Checking...",
       "installProjectTools": "Install CLI + Project Skills",
       "projectInstalling": "Installing project tools...",
       "projectInstallHint": "Build and install this project's quartet-cli and all bundled skills",
@@ -530,8 +528,7 @@
       "projectInstallFailed": "Failed to install quartet-cli and project skills",
       "installSkill": "+ Install Skill",
       "searchPlaceholder": "Search installed skills...",
-      "updateCheckResult": "Update Check Results",
-      "updateAll": "Update All",
+      "updateAll": "Update All Skills",
       "updating": "Updating...",
       "allUpdated": "All skills updated to latest version",
       "noMatchingSkills": "No matching skills",
@@ -543,9 +540,7 @@
       "installed": "Installed {{name}}",
       "installFailed": "Install failed",
       "searchFailed": "Search failed",
-      "checkFailed": "Check update failed",
       "updateFailed": "Update failed",
-      "checkComplete": "Check complete",
       "installModal": {
         "title": "Install Skill",
         "packageLabel": "Package name or repository URL",
@@ -555,7 +550,19 @@
         "orSearch": "or search skills",
         "searchPlaceholder": "Search keywords, e.g.: react, typescript",
         "installs": "installs"
-      }
+      },
+      "updateResult": "Update Result",
+      "updateAllHint": "The skills CLI has no read-only update check; this immediately upgrades every skill in the current scope",
+      "confirmUpdateAll": "Update every installed skill in the \"{{scope}}\" scope to its latest version? The skills CLI has no read-only check mode, so this overwrites the installed skills right away.",
+      "manageDenied": "This account cannot manage skills",
+      "workspaceLabel": "Workspace",
+      "workspaceHint": "Project skills are installed under the workspace directory and are only loadable by agents running in that workspace.",
+      "noWorkspace": "No workspace available",
+      "selectWorkspace": "Select a workspace first",
+      "source": "Source",
+      "agentsMore": "+{{count}} more",
+      "agentsCollapse": "Show less",
+      "listNotReady": "Timed out waiting for the skill list; try again"
     },
     "agentManagement": {
       "tabs": {

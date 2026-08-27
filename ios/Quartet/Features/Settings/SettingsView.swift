@@ -4,10 +4,10 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.mainTabBarInset) private var mainTabBarInset
     @Environment(\.locale) private var locale
+    @Environment(\.openURL) private var openURL
     @State private var confirmsLogout = false
     @State private var confirmsRestartWeb = false
     @State private var showsRestartSuccess = false
-    @State private var showsLanguagePicker = false
 
     var body: some View {
         NavigationStack {
@@ -82,26 +82,50 @@ struct SettingsView: View {
                         }
                     }
 
-                    VStack(spacing: 0) {
-                        Button { showsLanguagePicker = true } label: {
-                            HStack(spacing: 14) {
-                                Image(systemName: "globe").frame(width: 22)
-                                Text("显示语言")
-                                Spacer()
-                                Text(LocalizedStringKey(model.appLanguage.localizationKey))
-                                    .foregroundStyle(QuartetTheme.secondaryText)
-                                Image(systemName: "chevron.right")
-                                    .font(.quartet(.compact, weight: .bold))
-                                    .foregroundStyle(QuartetTheme.secondaryText)
+                    if model.can("config.read") || model.can("workspace.read") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("对话")
+                                .font(.quartet(.detail, weight: .bold))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                                .padding(.horizontal, 4)
+
+                            VStack(spacing: 0) {
+                                agentManagementLink(
+                                    title: "预置消息",
+                                    icon: "text.bubble",
+                                    identifier: "settings-message-presets"
+                                ) { MessagePresetSettingsView() }
                             }
-                            .font(.quartet(.regular))
-                            .foregroundStyle(QuartetTheme.primaryText)
-                            .padding(.horizontal, 16)
-                            .frame(height: 54)
-                            .contentShape(Rectangle())
+                            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("settings-language")
+                    }
+
+                    if model.can("skills.read") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("技能")
+                                .font(.quartet(.detail, weight: .bold))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                                .padding(.horizontal, 4)
+
+                            VStack(spacing: 0) {
+                                agentManagementLink(
+                                    title: "技能列表",
+                                    icon: "puzzlepiece.extension",
+                                    identifier: "settings-skills"
+                                ) { SkillSettingsView() }
+                            }
+                            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
+                        }
+                    }
+
+                    VStack(spacing: 0) {
+                        agentManagementLink(
+                            title: "用户配置",
+                            icon: "person.crop.circle",
+                            identifier: "settings-user-config"
+                        ) { UserConfigSettingsView() }
                     }
                     .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
@@ -138,14 +162,6 @@ struct SettingsView: View {
         }
         .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .sheet(isPresented: $showsLanguagePicker) {
-            LanguagePickerSheet(selection: model.appLanguage) { language in
-                model.setAppLanguage(language)
-                showsLanguagePicker = false
-            }
-            .presentationDetents([.height(270)])
-            .quartetSheetStyle()
-        }
         .alert("退出当前账号？", isPresented: $confirmsLogout) {
             Button("关闭", role: .cancel) {}
             Button("退出", role: .destructive) { model.logout() }
@@ -199,20 +215,30 @@ struct SettingsView: View {
     }
 
     private var serverAddressRow: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("服务地址")
-                .font(.quartet(.detail))
-                .foregroundStyle(QuartetTheme.secondaryText)
-            Text(model.serverAddress)
-                .font(.quartet(.detail, design: .monospaced))
-                .foregroundStyle(QuartetTheme.primaryText)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+        Button { openServerAddress() } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("服务地址")
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                    Text(model.serverAddress)
+                        .font(.quartet(.detail, design: .monospaced))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "safari")
+                    .font(.quartet(.control))
+                    .foregroundStyle(QuartetTheme.accentDeep)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .buttonStyle(.plain)
+        .accessibilityHint("点按在系统浏览器中打开该服务地址")
         .accessibilityIdentifier("settings-server-address")
     }
 
@@ -220,6 +246,43 @@ struct SettingsView: View {
         Divider()
             .overlay(QuartetTheme.divider)
             .padding(.leading, 16)
+    }
+
+    private func openServerAddress() {
+        do {
+            let url = try serverWebURL()
+            openURL(url) { accepted in
+                guard !accepted else { return }
+                model.present(APIError(
+                    summary: "无法打开服务地址",
+                    detail: "系统浏览器未接受当前 URL。\nURL：\n\(url.absoluteString)\n服务地址：\n\(model.serverAddress)"
+                ))
+            }
+        } catch {
+            model.present(error)
+        }
+    }
+
+    private func serverWebURL() throws -> URL {
+        let baseURL = try model.apiClient().baseURL
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw APIError(
+                summary: "无法打开服务地址",
+                detail: "Quartet 服务地址无法转换为 Web URL。\n解析后的地址：\n\(baseURL.absoluteString)\n服务地址：\n\(model.serverAddress)"
+            )
+        }
+        if components.path.isEmpty {
+            components.path = "/"
+        }
+        components.query = nil
+        components.fragment = nil
+        guard let url = components.url else {
+            throw APIError(
+                summary: "无法打开服务地址",
+                detail: "无法为当前服务地址生成有效的 Web URL。\n解析后的地址：\n\(baseURL.absoluteString)\n服务地址：\n\(model.serverAddress)"
+            )
+        }
+        return url
     }
 
     private func serviceInfoRow(title: String, value: String, identifier: String) -> some View {
@@ -330,7 +393,8 @@ struct SettingsView: View {
     }
 }
 
-private struct LanguagePickerSheet: View {
+/// 显示语言弹窗。入口在“用户配置”页，与 Web 端“用户配置”里的语言下拉一一对应。
+struct LanguagePickerSheet: View {
     let selection: AppLanguage
     let onSelect: (AppLanguage) -> Void
 

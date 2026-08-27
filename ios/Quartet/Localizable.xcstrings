@@ -13405,6 +13405,1750 @@
           }
         }
       }
+    },
+    "%@ 次安装" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ installs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 次安装"
+          }
+        }
+      }
+    },
+    "quartet-cli 和项目技能安装完成" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "quartet-cli and project skills installed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "quartet-cli 和项目技能安装完成"
+          }
+        }
+      }
+    },
+    "skills CLI 没有只读的“检查更新”命令，点击后会直接把当前作用域下的技能更新到最新版本。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The skills CLI has no read-only \"check for updates\" command; tapping this immediately upgrades every skill in the current scope."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "skills CLI 没有只读的“检查更新”命令，点击后会直接把当前作用域下的技能更新到最新版本。"
+          }
+        }
+      }
+    },
+    "上移预置消息 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move preset %@ up"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上移预置消息 %@"
+          }
+        }
+      }
+    },
+    "下移预置消息 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move preset %@ down"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下移预置消息 %@"
+          }
+        }
+      }
+    },
+    "作用域" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scope"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作用域"
+          }
+        }
+      }
+    },
+    "例如：pptx, react" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "e.g. pptx, react"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "例如：pptx, react"
+          }
+        }
+      }
+    },
+    "例如：vercel-labs/agent-skills" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "e.g. vercel-labs/agent-skills"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "例如：vercel-labs/agent-skills"
+          }
+        }
+      }
+    },
+    "保存预置消息" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Presets"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存预置消息"
+          }
+        }
+      }
+    },
+    "共 %d 个技能" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d skill(s)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "共 %d 个技能"
+          }
+        }
+      }
+    },
+    "关键词" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyword"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关键词"
+          }
+        }
+      }
+    },
+    "删除未绑定配置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Unbound Configuration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除未绑定配置"
+          }
+        }
+      }
+    },
+    "删除这份未绑定配置？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete this unbound configuration?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除这份未绑定配置？"
+          }
+        }
+      }
+    },
+    "删除预置消息 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete preset %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除预置消息 %@"
+          }
+        }
+      }
+    },
+    "包名或仓库地址" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Package name or repository URL"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "包名或仓库地址"
+          }
+        }
+      }
+    },
+    "卸载 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstall %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卸载 %@"
+          }
+        }
+      }
+    },
+    "卸载技能 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstall skill %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卸载技能 %@"
+          }
+        }
+      }
+    },
+    "卸载这个技能？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstall this skill?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卸载这个技能？"
+          }
+        }
+      }
+    },
+    "原工作空间 ID" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Original Workspace ID"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原工作空间 ID"
+          }
+        }
+      }
+    },
+    "名称最多 80 个字符，正文最多 32 KB，单个范围最多 100 条。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Names allow up to 80 characters, message text up to 32 KB, and each scope up to 100 presets."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称最多 80 个字符，正文最多 32 KB，单个范围最多 100 条。"
+          }
+        }
+      }
+    },
+    "名称（选填，最多 80 个字符）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name (optional, up to 80 characters)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称（选填，最多 80 个字符）"
+          }
+        }
+      }
+    },
+    "安装 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装 %@"
+          }
+        }
+      }
+    },
+    "安装 CLI + 项目技能" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install CLI + project skills"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装 CLI + 项目技能"
+          }
+        }
+      }
+    },
+    "安装 CLI 与项目技能？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install the CLI and project skills?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装 CLI 与项目技能？"
+          }
+        }
+      }
+    },
+    "安装作用域跟随列表页当前选中的作用域，返回后可在那里切换。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installs use the scope selected on the list screen; go back to change it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装作用域跟随列表页当前选中的作用域，返回后可在那里切换。"
+          }
+        }
+      }
+    },
+    "安装到" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install into"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装到"
+          }
+        }
+      }
+    },
+    "安装到以下 Agent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install to these agents"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装到以下 Agent"
+          }
+        }
+      }
+    },
+    "安装技能" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install skill"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装技能"
+          }
+        }
+      }
+    },
+    "安装路径" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install path"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装路径"
+          }
+        }
+      }
+    },
+    "将从「%@」作用域移除 %@，技能文件与各 Agent 的链接都会被删除。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This removes %2$@ from the %1$@ scope, deleting the skill files and every agent link."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将从「%@」作用域移除 %@，技能文件与各 Agent 的链接都会被删除。"
+          }
+        }
+      }
+    },
+    "将把「%@」作用域下所有已安装技能更新到最新版本。skills CLI 没有只读的检查模式，这一步会直接覆盖已安装的技能。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every installed skill in the %@ scope will be upgraded to its latest version. The skills CLI has no read-only check mode, so this overwrites the installed skills right away."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将把「%@」作用域下所有已安装技能更新到最新版本。skills CLI 没有只读的检查模式，这一步会直接覆盖已安装的技能。"
+          }
+        }
+      }
+    },
+    "将构建并安装当前项目的 quartet-cli，并把项目自带技能装到全局作用域。过程可能持续几分钟。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This builds and installs this project's quartet-cli and installs the bundled skills into the global scope. It can take several minutes."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将构建并安装当前项目的 quartet-cli，并把项目自带技能装到全局作用域。过程可能持续几分钟。"
+          }
+        }
+      }
+    },
+    "工作目录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Working Directory"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工作目录"
+          }
+        }
+      }
+    },
+    "已卸载 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstalled %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已卸载 %@"
+          }
+        }
+      }
+    },
+    "已安装 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装 %@"
+          }
+        }
+      }
+    },
+    "已安装到的 Agent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed agents"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装到的 Agent"
+          }
+        }
+      }
+    },
+    "已达到 100 条上限，先删除一些条目再添加。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The limit of 100 presets is reached. Delete some entries before adding more."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已达到 100 条上限，先删除一些条目再添加。"
+          }
+        }
+      }
+    },
+    "开始安装" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start install"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始安装"
+          }
+        }
+      }
+    },
+    "当前作用域暂无已安装的技能" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No skills installed in this scope"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前作用域暂无已安装的技能"
+          }
+        }
+      }
+    },
+    "当前没有可绑定的项目。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No project is available to rebind to."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前没有可绑定的项目。"
+          }
+        }
+      }
+    },
+    "当前范围暂无预置消息" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Presets in This Scope"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前范围暂无预置消息"
+          }
+        }
+      }
+    },
+    "当前范围的预置消息有未保存修改，切换配置范围会丢弃这些修改。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This scope has unsaved preset changes. Switching the configuration scope discards them."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前范围的预置消息有未保存修改，切换配置范围会丢弃这些修改。"
+          }
+        }
+      }
+    },
+    "当前账号没有 config.read 或 workspace.read 权限，无法查看预置消息。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account lacks the config.read and workspace.read permissions, so message presets cannot be viewed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.read 或 workspace.read 权限，无法查看预置消息。"
+          }
+        }
+      }
+    },
+    "当前账号没有 config.write 权限，不能删除或重新绑定这份配置。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account lacks the config.write permission and cannot delete or rebind this configuration."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.write 权限，不能删除或重新绑定这份配置。"
+          }
+        }
+      }
+    },
+    "当前账号没有 config.write 权限，只能查看全部项目的预置消息。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account lacks the config.write permission and can only view the presets for all projects."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.write 权限，只能查看全部项目的预置消息。"
+          }
+        }
+      }
+    },
+    "当前账号没有 skills.manage 权限，只能查看技能列表。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account lacks skills.manage permission and can only view the skill list."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 skills.manage 权限，只能查看技能列表。"
+          }
+        }
+      }
+    },
+    "当前账号没有 workspace.write 权限，只能查看这个项目的预置消息。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account lacks the workspace.write permission and can only view this project's presets."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 workspace.write 权限，只能查看这个项目的预置消息。"
+          }
+        }
+      }
+    },
+    "当前还没有可配置的项目，请先在 Web 端创建工作空间。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There is no project to configure yet. Create a workspace on the web first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前还没有可配置的项目，请先在 Web 端创建工作空间。"
+          }
+        }
+      }
+    },
+    "所有技能已更新到最新版本" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All skills updated to the latest version"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有技能已更新到最新版本"
+          }
+        }
+      }
+    },
+    "所有项目都能用到的预置消息" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presets available in every project"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有项目都能用到的预置消息"
+          }
+        }
+      }
+    },
+    "技能" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skills"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "技能"
+          }
+        }
+      }
+    },
+    "技能列表" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skill List"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "技能列表"
+          }
+        }
+      }
+    },
+    "技能是 Agent 可以按名字调用的能力包。全局技能对所有运行生效；项目技能装在工作区目录下，只有在该工作区运行的 Agent 才加载得到。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skills are capability packs an agent can invoke by name. Global skills apply to every run; project skills live in a workspace directory and are only loadable by agents running in that workspace."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "技能是 Agent 可以按名字调用的能力包。全局技能对所有运行生效；项目技能装在工作区目录下，只有在该工作区运行的 Agent 才加载得到。"
+          }
+        }
+      }
+    },
+    "搜索技能" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search skills"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索技能"
+          }
+        }
+      }
+    },
+    "收起" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show less"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起"
+          }
+        }
+      }
+    },
+    "放弃修改" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Discard Changes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "放弃修改"
+          }
+        }
+      }
+    },
+    "放弃未保存的修改？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Discard unsaved changes?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "放弃未保存的修改？"
+          }
+        }
+      }
+    },
+    "更新全部技能" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update all skills"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新全部技能"
+          }
+        }
+      }
+    },
+    "更新全部技能？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update all skills?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新全部技能？"
+          }
+        }
+      }
+    },
+    "未绑定配置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unbound Configuration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未绑定配置"
+          }
+        }
+      }
+    },
+    "未绑定配置已删除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unbound configuration deleted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未绑定配置已删除"
+          }
+        }
+      }
+    },
+    "未绑定配置已重新绑定" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unbound configuration rebound"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未绑定配置已重新绑定"
+          }
+        }
+      }
+    },
+    "未绑定：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unbound: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未绑定：%@"
+          }
+        }
+      }
+    },
+    "来源" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "来源"
+          }
+        }
+      }
+    },
+    "构建并安装当前项目的 quartet-cli，同时把项目自带技能装到全局作用域。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Builds and installs this project's quartet-cli and installs the bundled skills into the global scope."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "构建并安装当前项目的 quartet-cli，同时把项目自带技能装到全局作用域。"
+          }
+        }
+      }
+    },
+    "查看上次命令输出" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View last command output"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看上次命令输出"
+          }
+        }
+      }
+    },
+    "正在加载预置消息…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading message presets…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载预置消息…"
+          }
+        }
+      }
+    },
+    "正在安装…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installing…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在安装…"
+          }
+        }
+      }
+    },
+    "正在搜索…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Searching…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在搜索…"
+          }
+        }
+      }
+    },
+    "正在读取技能列表…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading skill list…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在读取技能列表…"
+          }
+        }
+      }
+    },
+    "没有勾选任何 Agent 时，skills CLI 会按自己的默认规则决定装到哪里。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With no agent selected, the skills CLI falls back to its own default targets."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有勾选任何 Agent 时，skills CLI 会按自己的默认规则决定装到哪里。"
+          }
+        }
+      }
+    },
+    "没有匹配的技能" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No matching skills"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有匹配的技能"
+          }
+        }
+      }
+    },
+    "没有找到与 %@ 相关的技能" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No skills found for %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有找到与 %@ 相关的技能"
+          }
+        }
+      }
+    },
+    "消息正文" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Message Text"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "消息正文"
+          }
+        }
+      }
+    },
+    "添加预置消息" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Preset"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加预置消息"
+          }
+        }
+      }
+    },
+    "清除筛选" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear filter"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除筛选"
+          }
+        }
+      }
+    },
+    "点“安装技能”可以按包名安装，或先搜索再安装。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap \"Install skill\" to install by package name, or search first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点“安装技能”可以按包名安装，或先搜索再安装。"
+          }
+        }
+      }
+    },
+    "点按在浏览器中打开来源仓库" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens the source repository in the browser"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点按在浏览器中打开来源仓库"
+          }
+        }
+      }
+    },
+    "点按在系统浏览器中打开该服务地址" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Double-tap to open this server address in the system browser"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点按在系统浏览器中打开该服务地址"
+          }
+        }
+      }
+    },
+    "目标项目已经有预置消息，请先处理目标配置后再重新绑定。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The target project already has message presets. Resolve that configuration before rebinding."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目标项目已经有预置消息，请先处理目标配置后再重新绑定。"
+          }
+        }
+      }
+    },
+    "第 %d 条" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Item %d"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "第 %d 条"
+          }
+        }
+      }
+    },
+    "等待技能列表超时，请稍后重试。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Timed out waiting for the skill list; try again later."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待技能列表超时，请稍后重试。"
+          }
+        }
+      }
+    },
+    "筛选已安装的技能" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter installed skills"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "筛选已安装的技能"
+          }
+        }
+      }
+    },
+    "维护全部项目或指定项目可复用的消息文本。选择后只填入输入框，不会自动发送。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maintain reusable message text for all projects or a specific project. Selecting one only fills the input field and does not send it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "维护全部项目或指定项目可复用的消息文本。选择后只填入输入框，不会自动发送。"
+          }
+        }
+      }
+    },
+    "读取失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Load failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取失败"
+          }
+        }
+      }
+    },
+    "还有 %d 个" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+%d more"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还有 %d 个"
+          }
+        }
+      }
+    },
+    "这份配置对应的工作空间已经不存在，只能删除或重新绑定到现有项目，不能直接编辑。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The workspace for this configuration no longer exists; it can only be deleted or rebound to an existing project, not edited."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这份配置对应的工作空间已经不存在，只能删除或重新绑定到现有项目，不能直接编辑。"
+          }
+        }
+      }
+    },
+    "配置文件会被删除，且无法恢复。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The configuration file is deleted and cannot be restored."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置文件会被删除，且无法恢复。"
+          }
+        }
+      }
+    },
+    "配置范围" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configuration Scope"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置范围"
+          }
+        }
+      }
+    },
+    "重新绑定到项目" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rebind to Project"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新绑定到项目"
+          }
+        }
+      }
+    },
+    "预置消息" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Message Presets"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "预置消息"
+          }
+        }
+      }
+    },
+    "预置消息已保存" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Message presets saved"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "预置消息已保存"
+          }
+        }
+      }
+    },
+    "全局级" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Global"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全局级"
+          }
+        }
+      }
+    },
+    "项目级" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Project"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目级"
+          }
+        }
+      }
+    },
+    "搜索" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索"
+          }
+        }
+      }
+    },
+    "用户配置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "User Config"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用户配置"
+          }
+        }
+      }
+    },
+    "正在加载用户配置…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading user config…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载用户配置…"
+          }
+        }
+      }
+    },
+    "保存用户配置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save user config"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存用户配置"
+          }
+        }
+      }
+    },
+    "用户配置已保存" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "User config saved"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用户配置已保存"
+          }
+        }
+      }
+    },
+    "用户配置已保存；保存期间的新修改尚未保存" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "User config saved; newer changes made while saving are still unsaved"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用户配置已保存；保存期间的新修改尚未保存"
+          }
+        }
+      }
+    },
+    "与 Web 端设置的“用户配置”是同一份配置。显示语言只作用于本机，头像和 Hook 脚本对所有客户端生效。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The same configuration as \"User Config\" in the web settings. The display language applies to this device only; the avatar and hook script apply to every client."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "与 Web 端设置的“用户配置”是同一份配置。显示语言只作用于本机，头像和 Hook 脚本对所有客户端生效。"
+          }
+        }
+      }
+    },
+    "当前账号没有 config.read 权限，无法查看头像和图工作流 Hook 配置。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account has no config.read permission, so the avatar and graph workflow hook settings cannot be shown."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.read 权限，无法查看头像和图工作流 Hook 配置。"
+          }
+        }
+      }
+    },
+    "当前账号没有 config.write 权限，只能查看头像和图工作流 Hook 配置。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account has no config.write permission; the avatar and graph workflow hook settings are read-only."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.write 权限，只能查看头像和图工作流 Hook 配置。"
+          }
+        }
+      }
+    },
+    "头像" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avatar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "头像"
+          }
+        }
+      }
+    },
+    "头像链接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avatar URL"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "头像链接"
+          }
+        }
+      }
+    },
+    "用户头像的图片链接，留空则使用默认头像。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image URL for user avatar, leave empty for default."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用户头像的图片链接，留空则使用默认头像。"
+          }
+        }
+      }
+    },
+    "图工作流" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Graph Workflow"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图工作流"
+          }
+        }
+      }
+    },
+    "图工作流终点默认 Hook（Shell）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Graph end-node default hook (Shell)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图工作流终点默认 Hook（Shell）"
+          }
+        }
+      }
+    },
+    "图工作流到达“使用全局默认脚本”的终点结点时执行的默认副作用脚本。输出会被忽略，失败只打日志。可用环境变量：$QUARTET_JOB_TITLE、$QUARTET_JOB_ID、$QUARTET_RUN_ID、$QUARTET_NODE_ID、$QUARTET_NODE_TITLE、$QUARTET_NODE_TYPE、$QUARTET_LAST_ASSISTANT。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The default side-effect shell script run when a graph workflow reaches an end node set to \"Use global default script\". Its output is ignored and a failure only logs. Available env vars: $QUARTET_JOB_TITLE, $QUARTET_JOB_ID, $QUARTET_RUN_ID, $QUARTET_NODE_ID, $QUARTET_NODE_TITLE, $QUARTET_NODE_TYPE, $QUARTET_LAST_ASSISTANT."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图工作流到达“使用全局默认脚本”的终点结点时执行的默认副作用脚本。输出会被忽略，失败只打日志。可用环境变量：$QUARTET_JOB_TITLE、$QUARTET_JOB_ID、$QUARTET_RUN_ID、$QUARTET_NODE_ID、$QUARTET_NODE_TITLE、$QUARTET_NODE_TYPE、$QUARTET_LAST_ASSISTANT。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

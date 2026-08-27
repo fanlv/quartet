@@ -293,6 +293,32 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/config/settings/get")
     }
 
+    /// 读取整份全局 settings。保存接口只接受完整对象，所以“用户配置”页读到的快照
+    /// 要一路带到 `saveSettingsSnapshot`。
+    func settingsSnapshot() async throws -> SettingsSnapshotResponse {
+        try await request(
+            path: "api/v1/config/settings/get",
+            validate: { response in
+                response.code == 0
+                    ? nil
+                    : "code=\(response.code)，msg=\(response.msg ?? "<empty>")"
+            }
+        )
+    }
+
+    func saveSettingsSnapshot(_ settings: [String: JSONValue]) async throws -> SettingsSaveResponse {
+        try await request(
+            path: "api/v1/config/settings/save",
+            method: "POST",
+            body: settings,
+            validate: { response in
+                response.code == 0
+                    ? nil
+                    : "code=\(response.code)，msg=\(response.msg ?? "<empty>")"
+            }
+        )
+    }
+
     // MARK: - Agent 管理
 
     func agentCatalogItems() async throws -> AgentCatalogListResponse {
@@ -447,6 +473,131 @@ struct APIClient: @unchecked Sendable {
         try await request(
             path: "api/v1/config/message-presets/effective",
             query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
+        )
+    }
+
+    func globalMessagePresets() async throws -> MessagePresetScopeResponse {
+        try await request(path: "api/v1/config/message-presets/global")
+    }
+
+    func workspaceMessagePresets(workspaceID: String) async throws -> MessagePresetScopeResponse {
+        try await request(path: "api/v1/config/message-presets/workspaces/\(workspaceID)")
+    }
+
+    func saveGlobalMessagePresets(
+        revision: String,
+        messages: [MessagePreset]
+    ) async throws -> MessagePresetScopeResponse {
+        try await request(
+            path: "api/v1/config/message-presets/global",
+            method: "PUT",
+            body: SaveMessagePresetScopeRequest(revision: revision, messages: messages)
+        )
+    }
+
+    func saveWorkspaceMessagePresets(
+        workspaceID: String,
+        revision: String,
+        messages: [MessagePreset]
+    ) async throws -> MessagePresetScopeResponse {
+        try await request(
+            path: "api/v1/config/message-presets/workspaces/\(workspaceID)",
+            method: "PUT",
+            body: SaveMessagePresetScopeRequest(revision: revision, messages: messages)
+        )
+    }
+
+    func orphanMessagePresets() async throws -> ListOrphanMessagePresetsResponse {
+        try await request(path: "api/v1/config/message-presets/orphans")
+    }
+
+    func deleteOrphanMessagePresets(
+        workspaceID: String,
+        revision: String
+    ) async throws -> MessagePresetCodeResponse {
+        try await request(
+            path: "api/v1/config/message-presets/orphans/\(workspaceID)",
+            method: "DELETE",
+            query: [URLQueryItem(name: "revision", value: revision)]
+        )
+    }
+
+    func rebindOrphanMessagePresets(
+        workspaceID: String,
+        revision: String,
+        targetWorkspaceID: String
+    ) async throws -> MessagePresetCodeResponse {
+        try await request(
+            path: "api/v1/config/message-presets/orphans/\(workspaceID)/rebind",
+            method: "POST",
+            body: RebindMessagePresetRequest(revision: revision, targetWorkspaceId: targetWorkspaceID)
+        )
+    }
+
+    // MARK: - 技能列表
+
+    /// 项目作用域必须带 workspaceId：Agent 以工作区目录为 cwd 启动，只有装在那里
+    /// 的项目技能才加载得到，后端也会拒绝没有 workspaceId 的项目作用域请求。
+    func skills(global: Bool, workspaceID: String) async throws -> SkillListResponse {
+        var query = [URLQueryItem(name: "global", value: global ? "true" : "false")]
+        if !global {
+            query.append(URLQueryItem(name: "workspaceId", value: workspaceID))
+        }
+        return try await request(path: "api/v1/skills/list", query: query)
+    }
+
+    func addSkill(
+        package: String,
+        global: Bool,
+        workspaceID: String,
+        agents: [String]
+    ) async throws -> SkillCommandResponse {
+        try await request(
+            path: "api/v1/skills/add",
+            method: "POST",
+            body: SkillAddRequest(
+                package: package,
+                global: global,
+                workspaceId: workspaceID,
+                agents: agents
+            ),
+            timeout: 330
+        )
+    }
+
+    func removeSkill(name: String, global: Bool, workspaceID: String) async throws -> SkillCommandResponse {
+        try await request(
+            path: "api/v1/skills/remove",
+            method: "POST",
+            body: SkillRemoveRequest(name: name, global: global, workspaceId: workspaceID),
+            timeout: 150
+        )
+    }
+
+    /// skills CLI 没有只读的检查更新命令，这个接口一定会改动已安装的技能。
+    func updateSkills(global: Bool, workspaceID: String) async throws -> SkillCommandResponse {
+        try await request(
+            path: "api/v1/skills/update",
+            method: "POST",
+            body: SkillUpdateRequest(global: global, workspaceId: workspaceID),
+            timeout: 630
+        )
+    }
+
+    func findSkills(query searchQuery: String) async throws -> SkillFindResponse {
+        try await request(
+            path: "api/v1/skills/find",
+            query: [URLQueryItem(name: "query", value: searchQuery)],
+            timeout: 90
+        )
+    }
+
+    func installProjectTools() async throws -> ProjectToolsInstallResponse {
+        try await request(
+            path: "api/v1/skills/install-project-tools",
+            method: "POST",
+            body: EmptyRequest(),
+            timeout: 630
         )
     }
 
@@ -947,6 +1098,7 @@ struct APIClient: @unchecked Sendable {
         method: String = "GET",
         query: [URLQueryItem] = [],
         authenticated: Bool = true,
+        timeout: TimeInterval? = nil,
         validate: ((Response) -> String?)? = nil
     ) async throws -> Response {
         try await request(
@@ -955,6 +1107,7 @@ struct APIClient: @unchecked Sendable {
             query: query,
             bodyData: nil,
             authenticated: authenticated,
+            timeout: timeout,
             validate: validate
         )
     }
@@ -965,6 +1118,7 @@ struct APIClient: @unchecked Sendable {
         query: [URLQueryItem] = [],
         body: Body,
         authenticated: Bool = true,
+        timeout: TimeInterval? = nil,
         validate: ((Response) -> String?)? = nil
     ) async throws -> Response {
         let bodyData: Data
@@ -983,6 +1137,7 @@ struct APIClient: @unchecked Sendable {
             query: query,
             bodyData: bodyData,
             authenticated: authenticated,
+            timeout: timeout,
             validate: validate
         )
     }
@@ -993,11 +1148,17 @@ struct APIClient: @unchecked Sendable {
         query: [URLQueryItem],
         bodyData: Data?,
         authenticated: Bool,
+        timeout: TimeInterval? = nil,
         validate: ((Response) -> String?)?
     ) async throws -> Response {
         let endpoint = endpointURL(path: path, query: query)
         var request = URLRequest(url: endpoint)
         request.httpMethod = method
+        // 默认沿用 URLSession 的 60s；只有明确会跑很久的操作（例如技能安装要
+        // 拉取 npm 包）才放宽，否则客户端会在服务端还在干活时就先超时。
+        if let timeout {
+            request.timeoutInterval = timeout
+        }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("ios", forHTTPHeaderField: "X-Quartet-Client")
         if let bodyData {

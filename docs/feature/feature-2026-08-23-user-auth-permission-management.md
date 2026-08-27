@@ -181,7 +181,7 @@ Quartet 当前使用 `X_AGENT_AUTH` 环境变量和 `X-AGENT-AUTH` 请求头保�
 | `/api/v1/logs/list` | GET | `logs.read` |
 | `/api/v1/logs/clear`、`/api/v1/logs/level` | POST | `logs.manage` |
 | `/api/v1/logs/frontend` | POST | `logs.report` |
-| `/api/v1/skills/list`、`/api/v1/skills/check`、`/api/v1/skills/find` | GET | `skills.read` |
+| `/api/v1/skills/list`、`/api/v1/skills/find` | GET | `skills.read` |
 | `/api/v1/skills/install-project-tools`、`/api/v1/skills/add`、`/api/v1/skills/remove`、`/api/v1/skills/update` | POST | `skills.manage` |
 | `/api/v1/graph/workflow/list`、`/api/v1/graph/workflow/:workflowId` | GET | `workflow.read` |
 | `/api/v1/graph/workflow/validate` | POST | `workflow.read` |

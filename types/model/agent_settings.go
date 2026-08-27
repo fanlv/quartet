@@ -1,7 +1,5 @@
 package model
 
-const AgentRoleSettingsVersion = 1
-
 // AgentRoleConfig identifies an Agent used by a one-shot role. The runtime
 // definition is resolved from the Agent catalog when the role is executed.
 // ModelID/ACPThoughtLevel are honored by headless agents that accept them

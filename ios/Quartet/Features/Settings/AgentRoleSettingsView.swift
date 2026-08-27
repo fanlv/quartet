@@ -71,7 +71,6 @@ struct AgentRoleSettingsView: View {
     @State private var agents: [AgentSummary] = []
     @State private var headlessAgentIDs: Set<String> = []
     @State private var configs: [String: AgentRoleConfig] = [:]
-    @State private var migrationErrors: [String] = []
     @State private var isLoading = true
     @State private var loadError = ""
     @State private var isSaving = false
@@ -108,9 +107,6 @@ struct AgentRoleSettingsView: View {
                 }
                 if !loadError.isEmpty {
                     AgentSettingsMessageView(kind: .failure, text: loadError)
-                }
-                ForEach(migrationErrors, id: \.self) { detail in
-                    AgentSettingsMessageView(kind: .failure, text: detail)
                 }
                 ForEach(AgentRole.allCases) { role in
                     roleCard(role)
@@ -405,7 +401,6 @@ struct AgentRoleSettingsView: View {
                     acpThoughtLevel: "medium"
                 )
                 configs = Dictionary(uniqueKeysWithValues: AgentRole.allCases.map { ($0.rawValue, fixture) })
-                migrationErrors = []
             } else {
                 let client = try model.apiClient()
                 async let agentRequest = client.agents()
@@ -427,7 +422,6 @@ struct AgentRoleSettingsView: View {
                     AgentRole.groupReply.rawValue: groupResponse.config ?? AgentRoleConfig(),
                     AgentRole.imSession.rawValue: imResponse.config ?? AgentRoleConfig(),
                 ]
-                migrationErrors = titleResponse.migrationErrors ?? []
             }
             for role in AgentRole.allCases { refreshThoughtLevels(role) }
         } catch {
@@ -460,7 +454,6 @@ struct AgentRoleSettingsView: View {
                 failures.append("\(AgentRole.imSession.title.localizedForApp)：\(agentSettingsErrorDetail(error))")
             }
             if failures.isEmpty {
-                migrationErrors = []
                 message = .success("已保存".localizedForApp)
             } else {
                 message = .failure(failures.joined(separator: "\n"))

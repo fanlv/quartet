@@ -711,7 +711,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     skillNameSet,
     imeComposing,
     compositionHandlers,
-  } = useSlashCompletion({ setInput, textareaRef, includeCommands: false });
+  } = useSlashCompletion({ setInput, textareaRef, includeCommands: false, workspaceId });
   const backdropRef = useRef<HTMLDivElement>(null);
   const handleImageSelect = useCallback(async (files: FileList | null) => {
     await addAttachments(files);

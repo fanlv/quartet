@@ -257,7 +257,6 @@ export function AgentRoleSettings() {
   const [titleConfig, setTitleConfig] = useState<RoleConfig>(emptyConfig);
   const [groupConfig, setGroupConfig] = useState<RoleConfig>(emptyConfig);
   const [imConfig, setIMConfig] = useState<RoleConfig>(emptyConfig);
-  const [migrationErrors, setMigrationErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -299,11 +298,6 @@ export function AgentRoleSettings() {
         setTitleConfig(toRoleConfig(titleData.config as Partial<RoleConfig> | null | undefined));
         setGroupConfig(toRoleConfig(groupData.config as Partial<RoleConfig> | null | undefined));
         setIMConfig(toRoleConfig(imData.config as Partial<RoleConfig> | null | undefined));
-        setMigrationErrors(
-          Array.isArray(titleData.migration_errors)
-            ? titleData.migration_errors.filter((value): value is string => typeof value === 'string')
-            : [],
-        );
         setLoaded(true);
       } catch (err) {
         setLoadError(err instanceof Error ? err.message : String(err));
@@ -347,7 +341,6 @@ export function AgentRoleSettings() {
     if (errors.length > 0) {
       setMessage({ type: 'error', text: errors.join('\n') });
     } else {
-      setMigrationErrors([]);
       setMessage({ type: 'success', text: t('common.saveSuccess') });
     }
     setSaving(false);
@@ -363,9 +356,6 @@ export function AgentRoleSettings() {
         <h3 className="settings-section-title">{t('settings.general.agentRoles')}</h3>
 
         {loadError && <div className="settings-message error" role="alert">{loadError}</div>}
-        {migrationErrors.map((error) => (
-          <div key={error} className="settings-message error" role="alert">{error}</div>
-        ))}
 
         <RoleAgentSelector
           label={t('settings.general.titleGenerationAgent')}
