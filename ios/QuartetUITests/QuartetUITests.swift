@@ -89,7 +89,7 @@ final class QuartetUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 2))
 
-        app.buttons["main-tab-3"].tap()
+        app.buttons["main-tab-4"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["https://quartet.example.test/"].exists)
         app.buttons["settings-logout"].tap()
@@ -103,7 +103,7 @@ final class QuartetUITests: XCTestCase {
     func testAgentManagementMoreMenuAndSingleUpgrade() {
         launchDashboard()
 
-        app.buttons["main-tab-3"].tap()
+        app.buttons["main-tab-4"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
 
         XCTAssertTrue(app.staticTexts["Agent 管理"].exists)
@@ -145,7 +145,7 @@ final class QuartetUITests: XCTestCase {
 
     func testAgentManagementSettingsDestinationsAndKeyboard() {
         launchDashboard()
-        app.buttons["main-tab-3"].tap()
+        app.buttons["main-tab-4"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
         let mainTabBar = app.descendants(matching: .any)["main-tab-bar"]
         XCTAssertTrue(mainTabBar.exists)
@@ -193,7 +193,7 @@ final class QuartetUITests: XCTestCase {
 
     func testAgentManagementUpgradeAll() {
         launchDashboard()
-        app.buttons["main-tab-3"].tap()
+        app.buttons["main-tab-4"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
         app.buttons["settings-agent-catalog"].tap()
         XCTAssertTrue(app.navigationBars["目录"].waitForExistence(timeout: 3))
@@ -221,8 +221,8 @@ final class QuartetUITests: XCTestCase {
     func testAgentManagementUpgradeAllContinuesAndStopsOnConflict() {
         app.launchArguments = ["--ui-testing-agent-upgrade-failures"]
         app.launch()
-        XCTAssertTrue(app.buttons["main-tab-3"].waitForExistence(timeout: 5))
-        app.buttons["main-tab-3"].tap()
+        XCTAssertTrue(app.buttons["main-tab-4"].waitForExistence(timeout: 5))
+        app.buttons["main-tab-4"].tap()
         openAgentSettings("settings-agent-catalog", title: "目录")
         XCTAssertTrue(app.staticTexts["3 个可更新"].waitForExistence(timeout: 5))
 
@@ -262,7 +262,7 @@ final class QuartetUITests: XCTestCase {
             XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 3))
             XCTAssertFalse(app.navigationBars["优化 iOS 交互体验"].exists)
 
-            app.buttons["main-tab-2"].tap()
+            app.buttons["main-tab-3"].tap()
             XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 3))
             XCTAssertTrue(app.otherElements["stats-kpis"].exists)
             app.buttons["main-tab-0"].tap()
@@ -313,7 +313,7 @@ final class QuartetUITests: XCTestCase {
     func testRootStatsDoesNotSwipeBackToRecentJobs() {
         launchDashboard()
 
-        app.buttons["main-tab-2"].tap()
+        app.buttons["main-tab-3"].tap()
         XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 3))
 
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
@@ -378,7 +378,7 @@ final class QuartetUITests: XCTestCase {
     func testUsageStatsTabShowsDashboard() {
         launchDashboard()
 
-        app.buttons["main-tab-2"].tap()
+        app.buttons["main-tab-3"].tap()
         XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.otherElements["stats-kpis"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["总耗时"].exists)
@@ -394,8 +394,8 @@ final class QuartetUITests: XCTestCase {
         app.launchArguments = ["--ui-testing-dashboard", "--ui-testing-language-en"]
         app.launch()
 
-        XCTAssertTrue(app.buttons["main-tab-2"].waitForExistence(timeout: 5))
-        app.buttons["main-tab-2"].tap()
+        XCTAssertTrue(app.buttons["main-tab-3"].waitForExistence(timeout: 5))
+        app.buttons["main-tab-3"].tap()
         XCTAssertTrue(app.navigationBars["Usage Statistics"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.otherElements["stats-kpis"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Total time"].exists)
@@ -947,15 +947,20 @@ final class QuartetScreenshotCapture: XCTestCase {
         Thread.sleep(forTimeInterval: 3)
         capture("ios-schedules")
 
-        // Usage statistics.
+        // Workspace files.
         app.buttons["main-tab-2"].tap()
+        Thread.sleep(forTimeInterval: 3)
+        capture("ios-files")
+
+        // Usage statistics.
+        app.buttons["main-tab-3"].tap()
         Thread.sleep(forTimeInterval: 4)
         capture("ios-stats")
         app.swipeUp()
         capture("ios-stats-detail", settle: 1.4)
 
         // Settings.
-        app.buttons["main-tab-3"].tap()
+        app.buttons["main-tab-4"].tap()
         Thread.sleep(forTimeInterval: 2.5)
         capture("ios-settings")
 
@@ -988,10 +993,14 @@ final class QuartetScreenshotCapture: XCTestCase {
         capture("ios-schedules")
 
         app.buttons["main-tab-2"].tap()
+        Thread.sleep(forTimeInterval: 3)
+        capture("ios-files")
+
+        app.buttons["main-tab-3"].tap()
         Thread.sleep(forTimeInterval: 4)
         capture("ios-stats")
 
-        app.buttons["main-tab-3"].tap()
+        app.buttons["main-tab-4"].tap()
         Thread.sleep(forTimeInterval: 2.5)
         capture("ios-settings")
 

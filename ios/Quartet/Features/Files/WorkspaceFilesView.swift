@@ -96,7 +96,9 @@ struct WorkspaceFilesView: View {
                 systemImage: "lock.fill",
                 description: "当前账号缺少 file.read 权限，无法读取工作空间目录。",
                 identifier: "files-no-permission"
-            )
+            ) {
+                EmptyView()
+            }
         } else if model.workspaces.isEmpty {
             unavailableState(
                 title: "没有可用的工作空间",
@@ -129,7 +131,7 @@ struct WorkspaceFilesView: View {
         systemImage: String,
         description: String,
         identifier: String,
-        @ViewBuilder actions: () -> Actions = { EmptyView() }
+        @ViewBuilder actions: () -> Actions
     ) -> some View {
         ContentUnavailableView {
             Label(title.localizedForApp, systemImage: systemImage)
@@ -208,6 +210,14 @@ private struct WorkspaceDirectoryView: View {
         directories.isEmpty && files.isEmpty
     }
 
+    private var entryCountSummary: String {
+        AppLanguage.localizedFormat(
+            "%lld 个目录 · %lld 个文件",
+            Int64(directories.count),
+            Int64(files.count)
+        )
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
@@ -253,11 +263,7 @@ private struct WorkspaceDirectoryView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if error == nil, !isLoading {
-                Text(AppLanguage.localizedFormat(
-                    "%lld 个目录 · %lld 个文件",
-                    Int64(directories.count),
-                    Int64(files.count)
-                ))
+                Text(entryCountSummary)
                     .font(.quartet(.compact, design: .monospaced))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
@@ -410,12 +416,12 @@ private struct WorkspaceDirectoryView: View {
             isLoading = false
         } catch is CancellationError {
             return
-        } catch {
+        } catch let caught {
             guard generation == requestGeneration else { return }
-            if let apiError = error as? APIError {
-                self.error = PresentedError(title: apiError.summary, detail: apiError.detail)
+            if let apiError = caught as? APIError {
+                error = PresentedError(title: apiError.summary, detail: apiError.detail)
             } else {
-                self.error = PresentedError(title: "目录读取失败", detail: String(describing: error))
+                error = PresentedError(title: "目录读取失败", detail: String(describing: caught))
             }
             isLoading = false
         }

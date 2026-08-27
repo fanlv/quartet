@@ -13293,6 +13293,118 @@
           }
         }
       }
+    },
+    "当前目录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current Directory"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前目录"
+          }
+        }
+      }
+    },
+    "%lld 个目录 · %lld 个文件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld directories · %lld files"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个目录 · %lld 个文件"
+          }
+        }
+      }
+    },
+    "这个目录下没有子目录或文件。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This directory has no subdirectories or files."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个目录下没有子目录或文件。"
+          }
+        }
+      }
+    },
+    "无法浏览文件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cannot Browse Files"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法浏览文件"
+          }
+        }
+      }
+    },
+    "当前账号缺少 file.read 权限，无法读取工作空间目录。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account lacks the file.read permission, so workspace directories cannot be read."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号缺少 file.read 权限，无法读取工作空间目录。"
+          }
+        }
+      }
+    },
+    "工作空间没有工作目录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace Has No Working Directory"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工作空间没有工作目录"
+          }
+        }
+      }
+    },
+    "这个工作空间还没有配置工作目录，换一个工作空间再浏览。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This workspace has no working directory configured. Switch to another workspace to browse files."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个工作空间还没有配置工作目录，换一个工作空间再浏览。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
