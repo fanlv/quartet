@@ -348,8 +348,7 @@ private struct WorkspaceDirectoryView: View {
     private var locationHeader: some View {
         WorkspaceBrowserLocationHeader(
             path: directory,
-            detail: error == nil && !isLoading ? entryCountSummary : nil,
-            showsCurrentPathCopyButton: false
+            detail: error == nil && !isLoading ? entryCountSummary : nil
         )
         .accessibilityIdentifier("files-location-card")
     }
@@ -492,33 +491,49 @@ private struct WorkspaceDirectoryView: View {
     }
 }
 
-/// 文件页与 Graph 路径选择器共用的目录位置说明。它沿用首页“标题 + 连续列表”的层级，
-/// 不再把路径信息包进独立卡片。
+/// 文件页与 Graph 路径选择器共用的目录位置说明。标题、完整路径和条目数量在同一个
+/// 紧凑信息面板中建立层级，避免长路径与列表内容混在一起。
 struct WorkspaceBrowserLocationHeader: View {
     let path: String
     var workspaceRoot: String? = nil
     var workspaceRootTitle = "当前工作空间"
     var detail: String? = nil
-    var showsCurrentPathCopyButton = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .center, spacing: 10) {
-                Label("当前目录".localizedForApp, systemImage: "folder.fill")
-                    .font(.quartet(.detail, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.secondaryText)
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "folder.fill")
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(QuartetTheme.accent)
+                .frame(width: 36, height: 36)
+                .background(
+                    QuartetTheme.accent.opacity(0.1),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+                .accessibilityHidden(true)
 
-                Spacer(minLength: 8)
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(alignment: .center, spacing: 8) {
+                    Text("当前目录".localizedForApp)
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
 
-                if let detail, !detail.isEmpty {
-                    Text(detail)
-                        .font(.quartet(.compact, design: .monospaced))
-                        .foregroundStyle(QuartetTheme.secondaryText)
-                        .lineLimit(1)
+                    Spacer(minLength: 4)
+
+                    if let detail, !detail.isEmpty {
+                        Text(detail)
+                            .font(.quartet(.compact, weight: .medium, design: .monospaced))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(
+                                QuartetTheme.elevated,
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            )
+                    }
                 }
-            }
 
-            HStack(alignment: .top, spacing: 8) {
                 Text(path)
                     .font(.quartet(.detail, weight: .medium, design: .monospaced))
                     .foregroundStyle(QuartetTheme.primaryText)
@@ -527,29 +542,35 @@ struct WorkspaceBrowserLocationHeader: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if showsCurrentPathCopyButton {
-                    WorkspacePathCopyButton(path: path, kind: .directory)
-                }
-            }
+                if let workspaceRoot, workspaceRoot != path {
+                    Divider()
+                        .overlay(QuartetTheme.divider)
 
-            if let workspaceRoot, workspaceRoot != path {
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(workspaceRootTitle.localizedForApp)
-                    Text(workspaceRoot)
-                        .textSelection(.enabled)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 3)
-                    WorkspacePathCopyButton(path: workspaceRoot, kind: .directory)
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Image(systemName: "arrow.turn.up.left")
+                            .font(.quartet(.tiny, weight: .semibold))
+                        Text(workspaceRootTitle.localizedForApp)
+                            .font(.quartet(.compact, weight: .semibold, design: .monospaced))
+                        Text(workspaceRoot)
+                            .font(.quartet(.compact, design: .monospaced))
+                            .textSelection(.enabled)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+                    .foregroundStyle(QuartetTheme.secondaryText)
                 }
-                .font(.quartet(.compact, design: .monospaced))
-                .foregroundStyle(QuartetTheme.secondaryText)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 10)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            QuartetTheme.surface,
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
         .accessibilityElement(children: .contain)
     }
 }
