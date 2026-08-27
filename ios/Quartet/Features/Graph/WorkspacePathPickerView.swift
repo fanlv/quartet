@@ -30,29 +30,44 @@ struct WorkspacePathPickerView: View {
         return parentPath
     }
 
+    private var isEmptyDirectory: Bool {
+        directories.isEmpty && files.isEmpty
+    }
+
+    private var entryCountSummary: String {
+        AppLanguage.localizedFormat(
+            "%lld 个目录 · %lld 个文件",
+            Int64(directories.count),
+            Int64(files.count)
+        )
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    locationCard
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    locationHeader
 
-                    if loading && (!directories.isEmpty || !files.isEmpty) {
-                        ProgressView()
-                            .tint(QuartetTheme.accent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 4)
+                    if loading && !isEmptyDirectory {
+                        HStack {
+                            Spacer()
+                            ProgressView().tint(QuartetTheme.accent)
+                            Spacer()
+                        }
+                        .frame(height: 36)
+                        .background(QuartetTheme.surface)
                     }
 
                     if let error {
                         errorCard(error)
-                    } else if loading && directories.isEmpty && files.isEmpty {
+                            .padding(.horizontal, 18)
+                            .padding(.top, 10)
+                    } else if loading && isEmptyDirectory {
                         loadingCard
                     } else {
                         browserRows
                     }
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 10)
                 .padding(.bottom, 18)
             }
             .refreshable { await loadDirectory(currentPath.isEmpty ? normalizedRoot : currentPath) }
@@ -65,130 +80,77 @@ struct WorkspacePathPickerView: View {
         .task { await loadInitialPath() }
     }
 
-    private var locationCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("当前工作空间".localizedForApp, systemImage: "externaldrive.fill")
-                .font(.quartet(.detail, weight: .semibold))
-                .foregroundStyle(QuartetTheme.secondaryText)
-
-            Text(normalizedRoot.isEmpty ? workspaceRoot : normalizedRoot)
-                .font(.quartet(.detail, design: .monospaced))
-                .foregroundStyle(QuartetTheme.primaryText)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if !currentPath.isEmpty, currentPath != normalizedRoot {
-                Divider().overlay(QuartetTheme.divider)
-                Label {
-                    Text(currentPath)
-                        .font(.quartet(.detail, design: .monospaced))
-                        .foregroundStyle(QuartetTheme.accentDeep)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                } icon: {
-                    Image(systemName: "location.fill")
-                        .foregroundStyle(QuartetTheme.accent)
-                }
-            }
-        }
-        .padding(15)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
+    private var locationHeader: some View {
+        WorkspaceBrowserLocationHeader(
+            path: currentPath.isEmpty ? normalizedRoot : currentPath,
+            workspaceRoot: normalizedRoot,
+            detail: error == nil && !loading ? entryCountSummary : nil
+        )
     }
 
     @ViewBuilder
     private var browserRows: some View {
         if let visibleParent {
-            pathRow(
-                title: "返回上级目录".localizedForApp,
-                detail: visibleParent,
-                systemImage: "arrow.up.left",
-                tint: QuartetTheme.secondaryText
-            ) {
+            Button {
                 Task { await loadDirectory(visibleParent) }
+            } label: {
+                WorkspaceBrowserRow(
+                    title: "返回上级目录".localizedForApp,
+                    detail: visibleParent,
+                    systemImage: "arrow.up.left",
+                    tint: QuartetTheme.secondaryText,
+                    showsDivider: !isEmptyDirectory
+                )
             }
+            .buttonStyle(.plain)
+            .disabled(loading)
         }
 
         ForEach(directories, id: \.self) { directory in
             let path = Self.join(currentPath, directory)
-            pathRow(
-                title: directory,
-                detail: nil,
-                systemImage: "folder.fill",
-                tint: QuartetTheme.running
-            ) {
+            Button {
                 Task { await loadDirectory(path) }
+            } label: {
+                WorkspaceBrowserRow(
+                    title: directory,
+                    detail: nil,
+                    systemImage: "folder.fill",
+                    tint: QuartetTheme.running,
+                    showsDivider: directory != directories.last || !files.isEmpty
+                )
             }
+            .buttonStyle(.plain)
+            .disabled(loading)
             .accessibilityLabel(AppLanguage.localizedFormat("打开目录 %@", directory))
         }
 
         ForEach(files) { file in
             let path = Self.join(currentPath, file.name)
-            pathRow(
-                title: file.name,
-                detail: ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file),
-                systemImage: "doc.fill",
-                tint: QuartetTheme.secondaryText
-            ) {
+            Button {
                 select(path)
+            } label: {
+                WorkspaceBrowserRow(
+                    title: file.name,
+                    detail: ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file),
+                    systemImage: "doc.text.fill",
+                    tint: QuartetTheme.secondaryText,
+                    showsDivider: file.id != files.last?.id
+                )
             }
+            .buttonStyle(.plain)
+            .disabled(loading)
             .accessibilityLabel(AppLanguage.localizedFormat("选择文件 %@", file.name))
         }
 
-        if directories.isEmpty, files.isEmpty, visibleParent == nil {
+        if isEmptyDirectory, visibleParent == nil {
             emptyCard
-        } else if directories.isEmpty, files.isEmpty {
+        } else if isEmptyDirectory {
             Text("当前目录为空".localizedForApp)
                 .font(.quartet(.detail))
                 .foregroundStyle(QuartetTheme.secondaryText)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 28)
         }
-    }
-
-    private func pathRow(
-        title: String,
-        detail: String?,
-        systemImage: String,
-        tint: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.quartet(.control, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .frame(width: 38, height: 38)
-                    .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.quartet(.control, weight: .medium))
-                        .foregroundStyle(QuartetTheme.primaryText)
-                        .lineLimit(2)
-                    if let detail, !detail.isEmpty {
-                        Text(detail)
-                            .font(.quartet(.compact, design: .monospaced))
-                            .foregroundStyle(QuartetTheme.secondaryText)
-                            .lineLimit(2)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Image(systemName: "chevron.right")
-                    .font(.quartet(.detail, weight: .bold))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .accessibilityHidden(true)
-            }
-            .padding(13)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(loading)
-        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(QuartetTheme.divider))
     }
 
     private var loadingCard: some View {

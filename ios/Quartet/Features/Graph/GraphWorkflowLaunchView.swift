@@ -1192,7 +1192,24 @@ struct GraphGlobalConfigurationView: View {
                     }
                 }
 
-                if !isBuiltIn {
+                if let builtIn {
+                    Button {
+                        quartetDismissKeyboard()
+                        pathPickerVariable = builtIn
+                    } label: {
+                        Image(systemName: "folder")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.accent)
+                            .frame(width: 50, height: 50)
+                            .background(QuartetTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(resolvedWorkspaceRoot == nil)
+                    .opacity(resolvedWorkspaceRoot == nil ? 0.45 : 1)
+                    .accessibilityLabel(AppLanguage.localizedFormat("浏览 %@ 的目录或文件", builtIn.rawValue))
+                    .accessibilityHint("从当前工作空间选择目录或文件".localizedForApp)
+                    .accessibilityIdentifier("graph-global-\(builtIn.rawValue.lowercased())-path-picker")
+                } else {
                     Button {
                         let id = variable.wrappedValue.id
                         quartetDismissKeyboard()
@@ -1211,35 +1228,15 @@ struct GraphGlobalConfigurationView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 graphFieldLabel("变量值")
-                HStack(alignment: .top, spacing: 9) {
-                    TextField("变量值", text: variable.value, axis: .vertical)
-                        .lineLimit(2...5)
-                        .font(GraphTypography.fieldValue)
-                        .lineSpacing(3)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .graphInputChrome(background: QuartetTheme.surface, multiline: true)
-                        .accessibilityLabel("变量值")
-
-                    if let builtIn {
-                        Button {
-                            quartetDismissKeyboard()
-                            pathPickerVariable = builtIn
-                        } label: {
-                            Image(systemName: "folder")
-                                .font(.quartet(.control, weight: .semibold))
-                                .foregroundStyle(QuartetTheme.accent)
-                                .frame(width: 50, height: 50)
-                                .background(QuartetTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(resolvedWorkspaceRoot == nil)
-                        .opacity(resolvedWorkspaceRoot == nil ? 0.45 : 1)
-                        .accessibilityLabel(AppLanguage.localizedFormat("浏览 %@ 的目录或文件", builtIn.rawValue))
-                        .accessibilityHint("从当前工作空间选择目录或文件".localizedForApp)
-                        .accessibilityIdentifier("graph-global-\(builtIn.rawValue.lowercased())-path-picker")
-                    }
-                }
+                TextField("变量值", text: variable.value, axis: .vertical)
+                    .lineLimit(2...5)
+                    .font(GraphTypography.fieldValue)
+                    .lineSpacing(3)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .frame(maxWidth: .infinity)
+                    .graphInputChrome(background: QuartetTheme.surface, multiline: true)
+                    .accessibilityLabel("变量值")
 
                 if isBuiltIn {
                     graphFieldHint(resolvedWorkspaceRoot == nil

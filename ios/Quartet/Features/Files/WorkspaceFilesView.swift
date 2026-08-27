@@ -220,18 +220,23 @@ private struct WorkspaceDirectoryView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
-                locationCard
+            LazyVStack(alignment: .leading, spacing: 0) {
+                locationHeader
 
                 if isLoading, !isEmptyDirectory {
-                    ProgressView()
-                        .tint(QuartetTheme.accent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
+                    HStack {
+                        Spacer()
+                        ProgressView().tint(QuartetTheme.accent)
+                        Spacer()
+                    }
+                    .frame(height: 36)
+                    .background(QuartetTheme.surface)
                 }
 
                 if let error {
                     errorCard(error)
+                        .padding(.horizontal, 18)
+                        .padding(.top, 10)
                 } else if isLoading, isEmptyDirectory {
                     loadingCard
                 } else if isEmptyDirectory {
@@ -240,8 +245,6 @@ private struct WorkspaceDirectoryView: View {
                     entryRows
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 10)
             .padding(.bottom, 18)
         }
         .background(QuartetTheme.canvas)
@@ -250,29 +253,11 @@ private struct WorkspaceDirectoryView: View {
         .task(id: directory) { await load() }
     }
 
-    private var locationCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("当前目录".localizedForApp, systemImage: "folder.fill")
-                .font(.quartet(.detail, weight: .semibold))
-                .foregroundStyle(QuartetTheme.secondaryText)
-
-            Text(directory)
-                .font(.quartet(.detail, design: .monospaced))
-                .foregroundStyle(QuartetTheme.primaryText)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if error == nil, !isLoading {
-                Text(entryCountSummary)
-                    .font(.quartet(.compact, design: .monospaced))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-            }
-        }
-        .padding(15)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
-        .accessibilityElement(children: .combine)
+    private var locationHeader: some View {
+        WorkspaceBrowserLocationHeader(
+            path: directory,
+            detail: error == nil && !isLoading ? entryCountSummary : nil
+        )
         .accessibilityIdentifier("files-location-card")
     }
 
@@ -280,11 +265,12 @@ private struct WorkspaceDirectoryView: View {
     private var entryRows: some View {
         ForEach(directories, id: \.self) { name in
             NavigationLink(value: WorkspaceDirectoryRoute(path: Self.join(directory, name))) {
-                entryRow(
+                WorkspaceBrowserRow(
                     title: name,
                     detail: nil,
                     systemImage: "folder.fill",
-                    tint: QuartetTheme.running
+                    tint: QuartetTheme.running,
+                    showsDivider: name != directories.last || !files.isEmpty
                 )
             }
             .buttonStyle(.plain)
@@ -296,57 +282,18 @@ private struct WorkspaceDirectoryView: View {
             Button {
                 onOpenFile(Self.join(directory, file.name))
             } label: {
-                entryRow(
+                WorkspaceBrowserRow(
                     title: file.name,
                     detail: fileDetail(file),
                     systemImage: "doc.text.fill",
-                    tint: QuartetTheme.secondaryText
+                    tint: QuartetTheme.secondaryText,
+                    showsDivider: file.id != files.last?.id
                 )
             }
             .buttonStyle(.plain)
             .accessibilityLabel(AppLanguage.localizedFormat("打开文件 %@", file.name))
             .accessibilityIdentifier("files-file-\(file.name)")
         }
-    }
-
-    private func entryRow(
-        title: String,
-        detail: String?,
-        systemImage: String,
-        tint: Color
-    ) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.quartet(.control, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 38, height: 38)
-                .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.quartet(.control, weight: .medium))
-                    .foregroundStyle(QuartetTheme.primaryText)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                if let detail, !detail.isEmpty {
-                    Text(detail)
-                        .font(.quartet(.compact, design: .monospaced))
-                        .foregroundStyle(QuartetTheme.secondaryText)
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Image(systemName: "chevron.right")
-                .font(.quartet(.detail, weight: .bold))
-                .foregroundStyle(QuartetTheme.secondaryText)
-                .accessibilityHidden(true)
-        }
-        .padding(13)
-        .contentShape(Rectangle())
-        .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(QuartetTheme.divider))
     }
 
     private var loadingCard: some View {
@@ -449,5 +396,110 @@ private struct WorkspaceDirectoryView: View {
 
     private static func join(_ parent: String, _ child: String) -> String {
         parent.hasSuffix("/") ? parent + child : parent + "/" + child
+    }
+}
+
+/// 文件页与 Graph 路径选择器共用的目录位置说明。它沿用首页“标题 + 连续列表”的层级，
+/// 不再把路径信息包进独立卡片。
+struct WorkspaceBrowserLocationHeader: View {
+    let path: String
+    var workspaceRoot: String? = nil
+    var detail: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Label("当前目录".localizedForApp, systemImage: "folder.fill")
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+
+                Spacer(minLength: 8)
+
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.quartet(.compact, design: .monospaced))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .lineLimit(1)
+                }
+            }
+
+            Text(path)
+                .font(.quartet(.detail, design: .monospaced))
+                .foregroundStyle(QuartetTheme.primaryText)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let workspaceRoot, workspaceRoot != path {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text("当前工作空间".localizedForApp)
+                    Text(workspaceRoot)
+                        .textSelection(.enabled)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+                .font(.quartet(.compact, design: .monospaced))
+                .foregroundStyle(QuartetTheme.secondaryText)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// 与首页 Job 行一致的连续列表项：整行使用 surface，项目之间只用分隔线，不使用卡片描边。
+struct WorkspaceBrowserRow: View {
+    let title: String
+    let detail: String?
+    let systemImage: String
+    let tint: Color
+    let showsDivider: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.quartet(.control, weight: .medium))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.quartet(.compact, design: .monospaced))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "chevron.right")
+                .font(.quartet(.compact, weight: .bold))
+                .foregroundStyle(QuartetTheme.secondaryText.opacity(0.72))
+                .accessibilityHidden(true)
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 14)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .contentShape(Rectangle())
+        .background(QuartetTheme.surface)
+        .overlay(alignment: .bottom) {
+            if showsDivider {
+                Divider()
+                    .overlay(QuartetTheme.divider)
+                    .padding(.leading, 62)
+            }
+        }
     }
 }
