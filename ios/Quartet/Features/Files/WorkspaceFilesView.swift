@@ -176,7 +176,11 @@ struct WorkspaceFilesView: View {
                     detail: "Quartet 服务地址或文件预览 URL 无效。\n服务地址：\n\(baseURL.absoluteString)\n文件路径：\n\(filePath)"
                 )
             }
-            webDestination = ChatWebDestination(url: previewURL, title: name)
+            webDestination = ChatWebDestination(
+                url: previewURL,
+                title: name,
+                copyTarget: .filePath(filePath)
+            )
         } catch {
             model.present(error)
         }

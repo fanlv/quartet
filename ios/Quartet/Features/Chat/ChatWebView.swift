@@ -1,11 +1,45 @@
 import Foundation
 import SwiftUI
+import UIKit
 import WebKit
 
 struct ChatWebDestination: Identifiable {
+    enum CopyTarget {
+        case filePath(String)
+        case webLink(URL)
+
+        var value: String {
+            switch self {
+            case let .filePath(path):
+                path
+            case let .webLink(url):
+                url.absoluteString
+            }
+        }
+
+        var buttonTitle: String {
+            switch self {
+            case .filePath:
+                "复制路径"
+            case .webLink:
+                "复制链接"
+            }
+        }
+
+        var copiedAnnouncement: String {
+            switch self {
+            case .filePath:
+                "文件路径已复制"
+            case .webLink:
+                "Web 链接已复制"
+            }
+        }
+    }
+
     let id = UUID()
     let url: URL
     let title: String
+    let copyTarget: CopyTarget
 }
 
 /// 与 Web `MessageItem` 保持一致的聊天链接判定和文件路径转换。
@@ -186,7 +220,8 @@ final class ChatLinkOpener {
         }
         presentDestination?(ChatWebDestination(
             url: destinationURL,
-            title: destinationURL.host ?? "网页"
+            title: destinationURL.host ?? "网页",
+            copyTarget: .webLink(destinationURL)
         ))
     }
 
@@ -215,13 +250,16 @@ final class ChatLinkOpener {
         }
         presentDestination?(ChatWebDestination(
             url: previewURL,
-            title: URL(fileURLWithPath: path).lastPathComponent
+            title: URL(fileURLWithPath: path).lastPathComponent,
+            copyTarget: .filePath(path)
         ))
     }
 }
 
 struct ChatWebViewPage: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var copied = false
+    @State private var resetCopyFeedbackTask: Task<Void, Never>?
 
     let destination: ChatWebDestination
     let onError: (APIError) -> Void
@@ -235,7 +273,42 @@ struct ChatWebViewPage: View {
                     Button("关闭") { dismiss() }
                 }
                 .sharedBackgroundVisibility(.hidden)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { copyDestination() } label: {
+                        Label(
+                            copied ? "已复制" : destination.copyTarget.buttonTitle,
+                            systemImage: copied ? "checkmark" : "doc.on.doc"
+                        )
+                    }
+                    .accessibilityLabel(copied ? destination.copyTarget.copiedAnnouncement : destination.copyTarget.buttonTitle)
+                    .accessibilityHint(copyAccessibilityHint)
+                }
+                .sharedBackgroundVisibility(.hidden)
             }
+            .onDisappear {
+                resetCopyFeedbackTask?.cancel()
+            }
+    }
+
+    private var copyAccessibilityHint: String {
+        switch destination.copyTarget {
+        case .filePath:
+            "复制当前预览文件的完整路径"
+        case .webLink:
+            "复制当前打开的 Web 链接"
+        }
+    }
+
+    private func copyDestination() {
+        UIPasteboard.general.string = destination.copyTarget.value
+        copied = true
+        UIAccessibility.post(notification: .announcement, argument: destination.copyTarget.copiedAnnouncement)
+        resetCopyFeedbackTask?.cancel()
+        resetCopyFeedbackTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            copied = false
+        }
     }
 }
 
