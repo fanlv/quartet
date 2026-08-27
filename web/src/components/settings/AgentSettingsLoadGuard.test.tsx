@@ -32,6 +32,12 @@ describe('Agent settings load guards', () => {
       const url = input instanceof Request ? input.url : String(input);
       if (init?.method === 'PUT') throw new Error(`Unexpected write request: ${url}`);
       if (url === '/api/v1/agent/list') return jsonResponse(agentListResponse);
+      if (url === '/api/v1/agent/catalog') {
+        return jsonResponse({
+          code: 0,
+          agents: [{ agent_id: 'agent-one', display_name: 'Agent One', installed: true }],
+        });
+      }
       if (url === '/api/v1/config/settings/get') {
         settingsAttempts += 1;
         if (settingsAttempts === 1) {
@@ -57,6 +63,12 @@ describe('Agent settings load guards', () => {
       const url = input instanceof Request ? input.url : String(input);
       if (init?.method === 'PUT') throw new Error(`Unexpected write request: ${url}`);
       if (url === '/api/v1/agent/list') return jsonResponse(agentListResponse);
+      if (url === '/api/v1/agent/catalog') {
+        return jsonResponse({
+          code: 0,
+          agents: [{ agent_id: 'agent-one', display_name: 'Agent One', installed: true }],
+        });
+      }
       if (url === '/api/v1/config/settings/get') {
         return jsonResponse({ code: -1, msg: 'settings snapshot unavailable' });
       }

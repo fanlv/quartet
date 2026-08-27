@@ -2051,7 +2051,8 @@ private struct CustomAgentEditorSheet: View {
             agentSettingsDivider()
             Toggle("支持 bin -p 单次执行", isOn: $form.supportsHeadlessPrint)
                 .font(.quartet(.control, weight: .medium))
-                .tint(QuartetTheme.accent)
+                .foregroundStyle(QuartetTheme.primaryText)
+                .toggleStyle(QuartetCheckmarkToggleStyle())
                 .accessibilityIdentifier("agent-custom-headless")
             agentSettingsHint("打开后这个 Agent 才能被标题生成和群回复这类无会话角色选用。")
         }

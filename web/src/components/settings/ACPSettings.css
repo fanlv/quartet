@@ -6,8 +6,13 @@
 }
 
 .acp-agent-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
   padding: 6px 14px;
   border-radius: 6px;
+  font-family: inherit;
   font-size: 13px;
   font-weight: 500;
   color: #526158;
@@ -25,6 +30,21 @@
 .acp-agent-tab.active {
   background: var(--accent);
   color: #fff;
+}
+
+.acp-agent-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.acp-agent-status {
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  opacity: 0.78;
 }
 
 .acp-env-list {

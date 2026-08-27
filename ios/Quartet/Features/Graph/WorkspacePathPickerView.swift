@@ -51,33 +51,17 @@ struct WorkspacePathPickerView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    locationHeader
+            VStack(spacing: 0) {
+                locationHeader
 
-                    if loading && !isEmptyDirectory {
-                        HStack {
-                            Spacer()
-                            ProgressView().tint(QuartetTheme.accent)
-                            Spacer()
-                        }
-                        .frame(height: 36)
-                        .background(QuartetTheme.surface)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        directoryContent
                     }
-
-                    if let error {
-                        errorCard(error)
-                            .padding(.horizontal, 18)
-                            .padding(.top, 10)
-                    } else if loading && isEmptyDirectory {
-                        loadingCard
-                    } else {
-                        browserRows
-                    }
+                    .padding(.bottom, 18)
                 }
-                .padding(.bottom, 18)
+                .refreshable { await loadDirectory(currentPath.isEmpty ? normalizedRoot : currentPath) }
             }
-            .refreshable { await loadDirectory(currentPath.isEmpty ? normalizedRoot : currentPath) }
             .background(QuartetTheme.canvas)
             .quartetNavigationTitle(
                 navigationTitle?.localizedForApp
@@ -88,6 +72,29 @@ struct WorkspacePathPickerView: View {
             }
         }
         .task { await loadInitialPath() }
+    }
+
+    @ViewBuilder
+    private var directoryContent: some View {
+        if loading && !isEmptyDirectory {
+            HStack {
+                Spacer()
+                ProgressView().tint(QuartetTheme.accent)
+                Spacer()
+            }
+            .frame(height: 36)
+            .background(QuartetTheme.surface)
+        }
+
+        if let error {
+            errorCard(error)
+                .padding(.horizontal, 18)
+                .padding(.top, 10)
+        } else if loading && isEmptyDirectory {
+            loadingCard
+        } else {
+            browserRows
+        }
     }
 
     private var locationHeader: some View {

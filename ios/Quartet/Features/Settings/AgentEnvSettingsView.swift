@@ -13,15 +13,23 @@ private struct AgentEnvTarget: Identifiable, Hashable {
     let envKey: String
     let agentId: String
     let displayName: String
+    let installed: Bool
     /// ACP 启动命令。空串表示这条只是历史遗留的存储键，没有对应 Agent，也就读不到版本与用量。
     let command: String
 
     var id: String { envKey }
 
-    init(envKey: String, agentId: String, displayName: String, command: String = "") {
+    init(
+        envKey: String,
+        agentId: String,
+        displayName: String,
+        installed: Bool = true,
+        command: String = ""
+    ) {
         self.envKey = envKey
         self.agentId = agentId
         self.displayName = displayName
+        self.installed = installed
         self.command = command
     }
 }
@@ -75,6 +83,7 @@ struct AgentEnvSettingsView: View {
                         id: target.envKey,
                         title: target.displayName,
                         command: target.envKey,
+                        note: target.installed ? nil : "已卸载".localizedForApp,
                         usage: target.command.isEmpty
                             ? nil
                             : agentUsageSummaries.summary(command: target.command, displayName: target.displayName),
@@ -102,21 +111,8 @@ struct AgentEnvSettingsView: View {
     private var editor: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
-                AgentSettingsCard("ACP 环境变量", systemImage: "key") {
-                    agentSettingsHint("这些变量只在启动对应 Agent 的 ACP 进程时注入；关闭的条目会被保留但不生效。")
-                    AgentSettingsSelectionRow(
-                        title: "Agent",
-                        value: activeTarget?.displayName ?? "请选择",
-                        placeholder: activeTarget == nil,
-                        identifier: "agent-env-target-picker"
-                    ) { showsTargetPicker = true }
-                    if let activeTarget {
-                        AgentSettingsMonoRow(label: "存储键", value: activeTarget.envKey)
-                    }
-                }
-
+                targetCard
                 variablesCard
-
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
@@ -137,10 +133,76 @@ struct AgentEnvSettingsView: View {
         }
     }
 
+    private var targetCard: some View {
+        AgentSettingsCard {
+            agentSettingsHint("这些变量只在启动对应 Agent 的 ACP 进程时注入；关闭的条目会被保留但不生效。")
+            agentSettingsFieldLabel("Agent")
+            Button {
+                quartetDismissKeyboard()
+                showsTargetPicker = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "terminal")
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                        .frame(width: 38, height: 38)
+                        .background(QuartetTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 7) {
+                            Text(activeTarget?.displayName ?? "请选择".localizedForApp)
+                                .font(.quartet(.control, weight: .semibold))
+                                .foregroundStyle(activeTarget == nil ? QuartetTheme.secondaryText : QuartetTheme.primaryText)
+                                .lineLimit(1)
+                            if activeTarget?.installed == false {
+                                statusBadge("已卸载", color: QuartetTheme.warning)
+                            }
+                        }
+                        if let activeTarget {
+                            Text(activeTarget.envKey)
+                                .font(.quartet(.detail, design: .monospaced))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                                .lineLimit(1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.quartet(.compact, weight: .bold))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .accessibilityHidden(true)
+                }
+                .padding(12)
+                .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Agent".localizedForApp)
+            .accessibilityValue(activeTargetAccessibilityValue)
+            .accessibilityIdentifier("agent-env-target-picker")
+        }
+    }
+
+    private var activeTargetAccessibilityValue: String {
+        guard let activeTarget else { return "请选择".localizedForApp }
+        return activeTarget.installed
+            ? activeTarget.displayName
+            : "\(activeTarget.displayName)，\("已卸载".localizedForApp)"
+    }
+
     private var variablesCard: some View {
         AgentSettingsCard("变量列表", systemImage: "list.bullet") {
             if activeRows.isEmpty {
-                agentSettingsHint("还没有变量。点下面的按钮添加一条 KEY=value。")
+                VStack(spacing: 8) {
+                    Image(systemName: "text.badge.plus")
+                        .font(.quartet(.large))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                    agentSettingsHint("还没有变量。点下面的按钮添加一条 KEY=value。")
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
             } else {
                 ForEach(activeRows) { row in
                     variableRow(row)
@@ -156,8 +218,12 @@ struct AgentEnvSettingsView: View {
                         .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.accent)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 46)
-                        .background(QuartetTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .frame(height: 44)
+                        .background(QuartetTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(QuartetTheme.accent.opacity(0.22))
+                        }
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("agent-env-add")
@@ -169,22 +235,17 @@ struct AgentEnvSettingsView: View {
 
     private func variableRow(_ row: AgentEnvRow) -> some View {
         let binding = bindingFor(row.id)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Toggle("", isOn: binding.enabled)
-                    .labelsHidden()
-                    .tint(QuartetTheme.accent)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Toggle(row.enabled ? "已启用" : "已停用", isOn: binding.enabled)
+                    .font(.quartet(.detail, weight: .medium))
+                    .foregroundStyle(row.enabled ? QuartetTheme.accentDeep : QuartetTheme.secondaryText)
+                    .toggleStyle(QuartetCheckmarkToggleStyle(layout: .compact))
                     .disabled(!canWrite)
                     .accessibilityLabel(row.key.isEmpty ? "启用这条变量".localizedForApp : AppLanguage.localizedFormat("启用 %@", row.key))
-                TextField("变量名", text: binding.key)
-                    .font(.quartet(.control, design: .monospaced))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .disabled(!canWrite)
-                    .padding(.horizontal, 12)
-                    .frame(height: 44)
-                    .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .accessibilityIdentifier("agent-env-key-field")
+
+                Spacer(minLength: 8)
+
                 if canWrite {
                     Button {
                         quartetDismissKeyboard()
@@ -192,27 +253,56 @@ struct AgentEnvSettingsView: View {
                         message = nil
                     } label: {
                         Image(systemName: "trash")
-                            .font(.quartet(.control, weight: .semibold))
+                            .font(.quartet(.detail, weight: .semibold))
                             .foregroundStyle(QuartetTheme.failed)
                             .frame(width: 44, height: 44)
-                            .background(QuartetTheme.failed.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(AppLanguage.localizedFormat("删除变量 %@", row.key))
                 }
             }
-            TextField("变量值", text: binding.value)
+
+            envField("变量名", text: binding.key, identifier: "agent-env-key-field")
+            envField("变量值", text: binding.value, identifier: "agent-env-value-field")
+        }
+        .padding(12)
+        .background(QuartetTheme.elevated.opacity(row.enabled ? 0.72 : 0.38), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(QuartetTheme.divider.opacity(row.enabled ? 0.72 : 0.45))
+        }
+        .animation(.easeInOut(duration: 0.15), value: row.enabled)
+    }
+
+    private func envField(_ title: String, text: Binding<String>, identifier: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            agentSettingsFieldLabel(title)
+            TextField(LocalizedStringKey(title), text: text)
+                // KEY/value 是代码型内容；统一字体入口会选择 SF Mono，并为汉字补思源黑体回退。
                 .font(.quartet(.control, design: .monospaced))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .disabled(!canWrite)
                 .padding(.horizontal, 12)
                 .frame(height: 44)
-                .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .accessibilityIdentifier("agent-env-value-field")
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(QuartetTheme.divider.opacity(0.65))
+                }
+                .accessibilityIdentifier(identifier)
         }
-        .opacity(row.enabled ? 1 : 0.6)
-        .padding(.vertical, 2)
+    }
+
+    private func statusBadge(_ title: String, color: Color) -> some View {
+        Text(title.localizedForApp)
+            .font(.quartet(.tiny, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.1), in: Capsule())
+            .overlay { Capsule().stroke(color.opacity(0.24)) }
     }
 
     /// 按行 ID 定位，避免在增删过程中把编辑内容写到别的行上。
@@ -264,8 +354,13 @@ struct AgentEnvSettingsView: View {
         message = nil
         do {
             async let agentRequest = model.agentCatalog()
+            async let catalogRequest = model.managedAgentCatalogItems()
             async let settingsRequest = model.agentEnvironmentSettings()
-            let (agentList, saved) = try await (agentRequest, settingsRequest)
+            let (agentList, catalog, saved) = try await (agentRequest, catalogRequest, settingsRequest)
+            let catalogByID = Dictionary(
+                catalog.filter { $0.lifecycle == "active" }.map { ($0.agentId, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
 
             var resolved: [AgentEnvTarget] = []
             var rows: [String: [AgentEnvRow]] = [:]
@@ -276,6 +371,7 @@ struct AgentEnvSettingsView: View {
                     envKey: envKey,
                     agentId: agent.agentId,
                     displayName: agent.displayName.isEmpty ? agent.agentId : agent.displayName,
+                    installed: catalogByID[agent.agentId]?.installed ?? true,
                     command: agent.available ? agent.type : ""
                 ))
                 let entries = saved[envKey] ?? saved[agent.type]
@@ -288,7 +384,13 @@ struct AgentEnvSettingsView: View {
             // 已保存但当前列表里没有的存储键仍然要露出来，否则用户改不掉也删不掉。
             for (envKey, entries) in saved.sorted(by: { $0.key < $1.key })
             where !resolved.contains(where: { $0.envKey == envKey }) {
-                resolved.append(AgentEnvTarget(envKey: envKey, agentId: envKey, displayName: envKey))
+                let catalogAgent = catalogByID[envKey]
+                resolved.append(AgentEnvTarget(
+                    envKey: envKey,
+                    agentId: catalogAgent?.agentId ?? envKey,
+                    displayName: catalogAgent.flatMap { $0.displayName.isEmpty ? nil : $0.displayName } ?? envKey,
+                    installed: catalogAgent?.installed ?? false
+                ))
                 rows[envKey] = entries.map { AgentEnvRow(key: $0.key, value: $0.value, enabled: $0.enabled) }
             }
 

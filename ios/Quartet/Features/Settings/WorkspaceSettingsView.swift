@@ -10,6 +10,11 @@ private enum WorkspaceEditorPicker: String, Identifiable {
     var id: String { rawValue }
 }
 
+private enum WorkspacePendingAction {
+    case edit(WorkspaceSummary)
+    case delete(WorkspaceSummary)
+}
+
 /// 与 Web 设置页共用同一套工作空间 API：维护工作空间资料、默认 Agent / 模型、
 /// 收藏顺序与展示颜色。
 @MainActor
@@ -27,6 +32,8 @@ struct WorkspaceSettingsView: View {
     @State private var message: AgentSettingsMessage?
     @State private var isCreating = false
     @State private var editingWorkspace: WorkspaceSummary?
+    @State private var actionWorkspace: WorkspaceSummary?
+    @State private var pendingAction: WorkspacePendingAction?
     @State private var deletingWorkspace: WorkspaceSummary?
 
     private var canWrite: Bool { model.can("workspace.write") }
@@ -78,6 +85,21 @@ struct WorkspaceSettingsView: View {
                 onSaved: applySavedWorkspace
             )
             .presentationDetents([.large])
+            .quartetSheetStyle()
+        }
+        .sheet(item: $actionWorkspace, onDismiss: { applyPendingAction() }) { workspace in
+            WorkspaceActionsSheet(
+                workspace: workspace,
+                onEdit: {
+                    pendingAction = .edit(workspace)
+                    actionWorkspace = nil
+                },
+                onDelete: workspace.id == defaultWorkspaceID ? nil : {
+                    pendingAction = .delete(workspace)
+                    actionWorkspace = nil
+                }
+            )
+            .presentationDetents([.medium])
             .quartetSheetStyle()
         }
         .alert("删除工作空间？", isPresented: deleteAlertBinding) {
@@ -260,15 +282,8 @@ struct WorkspaceSettingsView: View {
                         disabled: isWorking || !canMove(workspace, at: index, offset: 1)
                     ) { moveWorkspace(at: index, offset: 1) }
 
-                    Menu {
-                        Button { editingWorkspace = workspace } label: {
-                            Label("编辑", systemImage: "pencil")
-                        }
-                        if workspace.id != defaultWorkspaceID {
-                            Button(role: .destructive) { deletingWorkspace = workspace } label: {
-                                Label("删除", systemImage: "trash")
-                            }
-                        }
+                    Button {
+                        actionWorkspace = workspace
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.quartet(.control, weight: .semibold))
@@ -276,6 +291,7 @@ struct WorkspaceSettingsView: View {
                             .frame(width: 40, height: 40)
                             .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
+                    .buttonStyle(.plain)
                     .disabled(isWorking)
                     .accessibilityLabel("更多操作")
                     .accessibilityIdentifier("workspace-settings-more-\(workspace.id)")
@@ -311,6 +327,17 @@ struct WorkspaceSettingsView: View {
             get: { deletingWorkspace != nil },
             set: { if !$0 { deletingWorkspace = nil } }
         )
+    }
+
+    private func applyPendingAction() {
+        guard let pendingAction else { return }
+        self.pendingAction = nil
+        switch pendingAction {
+        case .edit(let workspace):
+            editingWorkspace = workspace
+        case .delete(let workspace):
+            deletingWorkspace = workspace
+        }
     }
 
     private func initialLoad() async {
@@ -533,13 +560,6 @@ private struct WorkspaceEditorView: View {
             .scrollDismissesKeyboard(.interactively)
             .background(QuartetTheme.canvas)
             .quartetNavigationTitle(isEditing ? "编辑工作空间" : "新建工作空间")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭") { dismiss() }
-                        .disabled(isSaving)
-                }
-                .sharedBackgroundVisibility(.hidden)
-            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 AgentSettingsSaveBar(
                     title: isEditing ? "保存工作空间" : "创建工作空间",
@@ -555,6 +575,7 @@ private struct WorkspaceEditorView: View {
         .sheet(item: $picker) { target in
             pickerSheet(target)
         }
+        .interactiveDismissDisabled(isSaving)
         .task { await loadSuggestedWorkdirIfNeeded() }
     }
 
@@ -772,5 +793,107 @@ private struct WorkspaceEditorView: View {
     private func modelName(_ id: String) -> String {
         guard !id.isEmpty else { return "使用 Agent 默认" }
         return availableModels.first { $0.modelId == id }?.name ?? id
+    }
+}
+
+private struct WorkspaceActionsSheet: View {
+    let workspace: WorkspaceSummary
+    let onEdit: () -> Void
+    let onDelete: (() -> Void)?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 12) {
+                actionRow(
+                    title: "编辑工作空间",
+                    detail: "配置 Agent 的工作目录和默认模型。这里的修改会与 Web 端设置同步。".localizedForApp,
+                    systemImage: "pencil",
+                    tint: QuartetTheme.accentDeep,
+                    identifier: "workspace-action-edit",
+                    action: onEdit
+                )
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 1)
+                }
+
+                if let onDelete {
+                    actionRow(
+                        title: "删除",
+                        detail: AppLanguage.localizedFormat(
+                            "删除“%@”会同时删除其任务；预置消息会保留为未绑定配置。此操作无法恢复。",
+                            workspace.displayName
+                        ),
+                        systemImage: "trash.fill",
+                        tint: QuartetTheme.failed,
+                        isDestructive: true,
+                        identifier: "workspace-action-delete",
+                        action: onDelete
+                    )
+                    .background(QuartetTheme.failed.opacity(0.07), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(QuartetTheme.failed.opacity(0.18), lineWidth: 1)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .background(QuartetTheme.canvas)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(workspace.displayName)
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityAddTraits(.isHeader)
+                }
+            }
+        }
+    }
+
+    private func actionRow(
+        title: String,
+        detail: String,
+        systemImage: String,
+        tint: Color,
+        isDestructive: Bool = false,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: isDestructive ? .destructive : nil, action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 38, height: 38)
+                    .background(tint.opacity(0.11), in: Circle())
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title.localizedForApp)
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(isDestructive ? QuartetTheme.failed : QuartetTheme.primaryText)
+                    Text(detail)
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "chevron.right")
+                    .font(.quartet(.compact, weight: .bold))
+                    .foregroundStyle(QuartetTheme.secondaryText.opacity(0.7))
+            }
+            .padding(.horizontal, 13)
+            .frame(minHeight: 64)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
 }

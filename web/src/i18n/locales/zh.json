@@ -577,6 +577,7 @@
       "varKeyPlaceholder": "变量名，如 API_KEY",
       "varValuePlaceholder": "变量值",
       "addEnvVar": "+ 添加环境变量",
+      "uninstalled": "已卸载",
       "activeTooltip": "已启用",
       "inactiveTooltip": "已禁用"
     },

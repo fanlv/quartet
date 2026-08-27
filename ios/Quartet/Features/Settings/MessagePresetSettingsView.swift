@@ -44,6 +44,111 @@ private enum MessagePresetPicker: String, Identifiable {
     var id: String { rawValue }
 }
 
+/// 配置范围弹窗的一行。颜色与首页工作空间选择器使用同一套工作空间标识规则。
+private struct MessagePresetScopeChoice: Identifiable {
+    let id: String
+    let title: String
+    let detail: String?
+    let tint: Color
+}
+
+/// 配置范围与首页“选择工作空间”保持同一套标题、容器、行高、标识和选中态。
+private struct MessagePresetScopePickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let choices: [MessagePresetScopeChoice]
+    let selectedID: String
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(choices.enumerated()), id: \.element.id) { index, choice in
+                        if index > 0 {
+                            Divider()
+                                .overlay(QuartetTheme.divider)
+                                .padding(.leading, 62)
+                        }
+                        choiceRow(choice)
+                    }
+                }
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(QuartetTheme.divider.opacity(0.8), lineWidth: 1)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+            }
+            .background(QuartetTheme.canvas)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("配置范围".localizedForApp)
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .accessibilityAddTraits(.isHeader)
+                }
+            }
+        }
+    }
+
+    private func choiceRow(_ choice: MessagePresetScopeChoice) -> some View {
+        let selected = choice.id == selectedID
+        let detail = choice.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        return Button {
+            onSelect(choice.id)
+            dismiss()
+        } label: {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(choice.tint.opacity(0.11))
+                    .frame(width: 38, height: 38)
+                    .overlay {
+                        Circle()
+                            .fill(choice.tint)
+                            .frame(width: 10, height: 10)
+                    }
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(choice.title.localizedForApp)
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .lineLimit(1)
+                    if !detail.isEmpty {
+                        Text(detail.localizedForApp)
+                            .font(.quartet(.detail))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.quartet(.regular, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, 13)
+            .frame(minHeight: 64)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel([choice.title.localizedForApp, detail.localizedForApp].filter { !$0.isEmpty }.joined(separator: "，"))
+        .accessibilityValue(selected ? "已选择".localizedForApp : "")
+        .accessibilityHint("选择此配置范围并关闭弹窗".localizedForApp)
+        .accessibilityIdentifier("message-preset-scope-\(choice.id)")
+    }
+}
+
 /// 与 Web 端“预置消息”设置一致：维护全部项目或单个项目可复用的消息文本，
 /// 并处理工作空间删除后残留的未绑定配置。
 @MainActor
@@ -409,11 +514,10 @@ struct MessagePresetSettingsView: View {
     private func pickerSheet(_ picker: MessagePresetPicker) -> some View {
         switch picker {
         case .scope:
-            QuartetChoiceSheet(
-                title: "配置范围",
+            MessagePresetScopePickerSheet(
                 choices: scopeChoices,
-                selection: Binding(get: { scopeKey }, set: { requestScope($0) }),
-                accessibilityPrefix: "message-preset-scope"
+                selectedID: scopeKey,
+                onSelect: requestScope
             )
             .presentationDetents([.medium, .large])
             .quartetSheetStyle()
@@ -440,31 +544,34 @@ struct MessagePresetSettingsView: View {
 
     // MARK: - 配置范围
 
-    private var scopeChoices: [QuartetChoice] {
-        var choices: [QuartetChoice] = []
+    private var scopeChoices: [MessagePresetScopeChoice] {
+        var choices: [MessagePresetScopeChoice] = []
         if canReadGlobal {
-            choices.append(QuartetChoice(
+            choices.append(MessagePresetScopeChoice(
                 id: MessagePresetScope.global.key,
                 title: "全部项目",
-                detail: "所有项目都能用到的预置消息"
+                detail: "所有项目都能用到的预置消息",
+                tint: QuartetTheme.accent
             ))
         }
         if canReadWorkspace {
             for workspace in model.workspaces {
-                choices.append(QuartetChoice(
+                choices.append(MessagePresetScopeChoice(
                     id: MessagePresetScope.workspace(workspace.id).key,
                     title: workspace.displayName,
-                    detail: workspace.workdir
+                    detail: workspace.workdir,
+                    tint: QuartetTheme.workspaceTint(workspace)
                 ))
             }
         }
         if canReadGlobal {
             for orphan in orphans {
                 let id = orphan.config.workspaceId ?? ""
-                choices.append(QuartetChoice(
+                choices.append(MessagePresetScopeChoice(
                     id: MessagePresetScope.orphan(id).key,
                     title: orphanTitle(orphan),
-                    detail: orphan.config.workspaceWorkdir
+                    detail: orphan.config.workspaceWorkdir,
+                    tint: QuartetTheme.warning
                 ))
             }
         }

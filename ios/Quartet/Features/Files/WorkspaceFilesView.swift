@@ -311,38 +311,45 @@ private struct WorkspaceDirectoryView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                locationHeader
+        VStack(spacing: 0) {
+            locationHeader
 
-                if isLoading, !isEmptyDirectory {
-                    HStack {
-                        Spacer()
-                        ProgressView().tint(QuartetTheme.accent)
-                        Spacer()
-                    }
-                    .frame(height: 36)
-                    .background(QuartetTheme.surface)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    directoryContent
                 }
-
-                if let error {
-                    errorCard(error)
-                        .padding(.horizontal, 18)
-                        .padding(.top, 10)
-                } else if isLoading, isEmptyDirectory {
-                    loadingCard
-                } else if isEmptyDirectory {
-                    emptyCard
-                } else {
-                    entryRows
-                }
+                .padding(.bottom, 18)
             }
-            .padding(.bottom, 18)
+            .refreshable { await load() }
         }
         .background(QuartetTheme.canvas)
         .mainTabBarBottomInset(mainTabBarInset)
-        .refreshable { await load() }
         .task(id: directory) { await load() }
+    }
+
+    @ViewBuilder
+    private var directoryContent: some View {
+        if isLoading, !isEmptyDirectory {
+            HStack {
+                Spacer()
+                ProgressView().tint(QuartetTheme.accent)
+                Spacer()
+            }
+            .frame(height: 36)
+            .background(QuartetTheme.surface)
+        }
+
+        if let error {
+            errorCard(error)
+                .padding(.horizontal, 18)
+                .padding(.top, 10)
+        } else if isLoading, isEmptyDirectory {
+            loadingCard
+        } else if isEmptyDirectory {
+            emptyCard
+        } else {
+            entryRows
+        }
     }
 
     private var locationHeader: some View {
@@ -491,8 +498,8 @@ private struct WorkspaceDirectoryView: View {
     }
 }
 
-/// 文件页与 Graph 路径选择器共用的目录位置说明。标题、完整路径和条目数量在同一个
-/// 紧凑信息面板中建立层级，避免长路径与列表内容混在一起。
+/// 文件页与路径选择器共用的目录列表表头。第一行说明列表语义与条目数量，第二行显示
+/// 当前路径；进入子目录后再用一行提示浏览边界。表头保持扁平，便于滚动时固定在列表顶部。
 struct WorkspaceBrowserLocationHeader: View {
     let path: String
     var workspaceRoot: String? = nil
@@ -500,77 +507,75 @@ struct WorkspaceBrowserLocationHeader: View {
     var detail: String? = nil
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "folder.fill")
-                .font(.quartet(.control, weight: .semibold))
-                .foregroundStyle(QuartetTheme.accent)
-                .frame(width: 36, height: 36)
-                .background(
-                    QuartetTheme.accent.opacity(0.1),
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                )
-                .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 7) {
+                Image(systemName: "folder.fill")
+                    .font(.quartet(.compact, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.accent)
+                    .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(alignment: .center, spacing: 8) {
-                    Text("当前目录".localizedForApp)
-                        .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.primaryText)
-
-                    Spacer(minLength: 4)
-
-                    if let detail, !detail.isEmpty {
-                        Text(detail)
-                            .font(.quartet(.compact, weight: .medium, design: .monospaced))
-                            .foregroundStyle(QuartetTheme.secondaryText)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(
-                                QuartetTheme.elevated,
-                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            )
-                    }
-                }
-
-                Text(path)
-                    .font(.quartet(.detail, weight: .medium, design: .monospaced))
+                Text("当前目录".localizedForApp)
+                    .font(.quartet(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
-                    .textSelection(.enabled)
-                    .lineSpacing(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                if let workspaceRoot, workspaceRoot != path {
-                    Divider()
-                        .overlay(QuartetTheme.divider)
+                Spacer(minLength: 6)
 
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Image(systemName: "arrow.turn.up.left")
-                            .font(.quartet(.tiny, weight: .semibold))
-                        Text(workspaceRootTitle.localizedForApp)
-                            .font(.quartet(.compact, weight: .semibold, design: .monospaced))
-                        Text(workspaceRoot)
-                            .font(.quartet(.compact, design: .monospaced))
-                            .textSelection(.enabled)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                    }
-                    .foregroundStyle(QuartetTheme.secondaryText)
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.quartet(.compact, weight: .medium, design: .monospaced))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                        .layoutPriority(1)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(QuartetTheme.elevated.opacity(0.72))
+
+            HStack(alignment: .center, spacing: 4) {
+                Text(path)
+                    .font(.quartet(.compact, weight: .medium, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                WorkspacePathCopyButton(path: path, kind: .directory)
+            }
+            .padding(.leading, 16)
+            .padding(.trailing, 6)
+            .padding(.vertical, 3)
+            .frame(minHeight: 48)
+
+            if let workspaceRoot, workspaceRoot != path {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Image(systemName: "arrow.turn.up.left")
+                        .font(.quartet(.tiny, weight: .semibold))
+                        .accessibilityHidden(true)
+                    Text(workspaceRootTitle.localizedForApp)
+                        .font(.quartet(.compact, weight: .semibold))
+                    Text(workspaceRoot)
+                        .font(.quartet(.compact, design: .monospaced))
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            QuartetTheme.surface,
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-        )
-        .padding(.horizontal, 14)
-        .padding(.top, 10)
-        .padding(.bottom, 12)
+        .background(QuartetTheme.surface)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(QuartetTheme.divider)
+                .frame(height: 1)
+        }
+        .zIndex(1)
         .accessibilityElement(children: .contain)
     }
 }

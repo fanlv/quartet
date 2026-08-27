@@ -12,8 +12,19 @@ interface EnvVar {
 interface AgentOption {
   agent_id: string;
   type: string;
-  env_key?: string;
+  env_key: string;
   display_name: string;
+  installed: boolean;
+}
+
+interface AgentCatalogOption {
+  agent_id: string;
+  display_name: string;
+  installed: boolean;
+  historical_identifiers?: Array<{
+    kind?: string;
+    value?: string;
+  }>;
 }
 
 const DEFAULT_ENV_VARS: EnvVar[] = [
@@ -40,12 +51,14 @@ export function ACPSettings() {
     setLoadError('');
     setMessage(null);
     try {
-      const [agentRes, settingsRes] = await Promise.all([
+      const [agentRes, catalogRes, settingsRes] = await Promise.all([
         fetch('/api/v1/agent/list'),
+        fetch('/api/v1/agent/catalog'),
         fetch('/api/v1/config/settings/get'),
       ]);
-      const [agentData, settingsData] = await Promise.all([
+      const [agentData, catalogData, settingsData] = await Promise.all([
         readAPIResponse(agentRes),
+        readAPIResponse(catalogRes),
         readAPIResponse(settingsRes),
       ]);
 
@@ -55,14 +68,25 @@ export function ACPSettings() {
       if (!settingsData.settings || typeof settingsData.settings !== 'object') {
         throw new Error('settings response is missing settings');
       }
+      if (!Array.isArray(catalogData.agents)) {
+        throw new Error('agent catalog response is missing agents');
+      }
       const agentList = agentData.agent_list as Array<{ agent_id: string; type: string; env_key?: string; display_name: string }>;
+      const catalog = catalogData.agents as AgentCatalogOption[];
+      const catalogByIdentifier = new Map<string, AgentCatalogOption>();
+      for (const agent of catalog) {
+        catalogByIdentifier.set(agent.agent_id, agent);
+        for (const identifier of agent.historical_identifiers || []) {
+          if (identifier.value) catalogByIdentifier.set(identifier.value, agent);
+        }
+      }
       const acpAgents: AgentOption[] = agentList.map((a) => ({
         agent_id: a.agent_id,
         type: a.type,
         env_key: a.env_key || a.type,
-        display_name: a.display_name,
+        display_name: a.display_name || catalogByIdentifier.get(a.agent_id)?.display_name || a.agent_id,
+        installed: catalogByIdentifier.get(a.agent_id)?.installed ?? true,
       }));
-      setAgents(acpAgents);
 
       const settings = settingsData.settings as { acp_env_vars?: Record<string, EnvVar[]> };
       const savedVars: Record<string, Array<{ key: string; value: string; enabled: boolean }>> =
@@ -85,20 +109,28 @@ export function ACPSettings() {
         }
       }
 
-      for (const [agentType, vars] of Object.entries(savedVars)) {
-        if (!newEnvMap[agentType]) {
-          newEnvMap[agentType] = vars.map((v) => ({
+      for (const [envKey, vars] of Object.entries(savedVars).sort(([left], [right]) => left.localeCompare(right))) {
+        if (!newEnvMap[envKey]) {
+          newEnvMap[envKey] = vars.map((v) => ({
             key: v.key,
             value: v.value,
             enabled: v.enabled,
           }));
-          acpAgents.push({ agent_id: agentType, type: agentType, display_name: agentType });
+          const catalogAgent = catalogByIdentifier.get(envKey);
+          acpAgents.push({
+            agent_id: catalogAgent?.agent_id || envKey,
+            type: catalogAgent?.agent_id || envKey,
+            env_key: envKey,
+            display_name: catalogAgent?.display_name || envKey,
+            installed: catalogAgent?.installed ?? false,
+          });
         }
       }
 
+      setAgents(acpAgents);
       setEnvMap(newEnvMap);
       if (acpAgents.length > 0) {
-        setActiveAgent(acpAgents[0].env_key || acpAgents[0].type);
+        setActiveAgent(acpAgents[0].env_key);
       }
     } catch (err) {
       setAgents([]);
@@ -143,7 +175,7 @@ export function ACPSettings() {
     setMessage(null);
 
     try {
-      const active = agents.find((agent) => (agent.env_key || agent.type) === activeAgent);
+      const active = agents.find((agent) => agent.env_key === activeAgent);
       if (!active) throw new Error(`Agent ${activeAgent} is not available`);
       const entries = getEnvVars()
         .filter((env) => env.key.trim())
@@ -212,13 +244,18 @@ export function ACPSettings() {
 
         <div className="acp-agent-tabs">
           {agents.map((agent) => (
-            <div
-              key={agent.type}
-              className={`acp-agent-tab ${activeAgent === (agent.env_key || agent.type) ? 'active' : ''}`}
-              onClick={() => setActiveAgent(agent.env_key || agent.type)}
+            <button
+              type="button"
+              key={agent.env_key}
+              className={`acp-agent-tab ${activeAgent === agent.env_key ? 'active' : ''}`}
+              onClick={() => setActiveAgent(agent.env_key)}
+              aria-pressed={activeAgent === agent.env_key}
             >
-              {agent.display_name}
-            </div>
+              <span>{agent.display_name}</span>
+              {!agent.installed && (
+                <span className="acp-agent-status">{t('settings.acp.uninstalled')}</span>
+              )}
+            </button>
           ))}
         </div>
 

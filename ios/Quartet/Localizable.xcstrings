@@ -6571,7 +6571,6 @@
       }
     },
     "已停用" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6624,6 +6623,23 @@
         }
       }
     },
+    "已卸载" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uninstalled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已卸载"
+          }
+        }
+      }
+    },
     "已卸载 %@" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6659,7 +6675,6 @@
       }
     },
     "已启用" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6857,6 +6872,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已登记 %d 个"
+          }
+        }
+      }
+    },
+    "已禁用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disabled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已禁用"
           }
         }
       }
@@ -9454,6 +9485,7 @@
       }
     },
     "暂无初始变量" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -12539,6 +12571,23 @@
         }
       }
     },
+    "特粗" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extra Thick"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "特粗"
+          }
+        }
+      }
+    },
     "状态未知" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -13066,6 +13115,22 @@
         }
       }
     },
+    "禁用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disable"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "禁用"
+          }
+        }
+      }
+    },
     "禁用此变量" : {
       "localizations" : {
         "en" : {
@@ -13482,23 +13547,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "管理收藏模型"
-          }
-        }
-      }
-    },
-    "特粗" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Extra Thick"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "特粗"
           }
         }
       }
@@ -13974,6 +14022,7 @@
       }
     },
     "编辑" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

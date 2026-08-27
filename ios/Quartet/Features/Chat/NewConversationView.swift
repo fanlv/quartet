@@ -630,7 +630,7 @@ struct NewConversationView: View {
                             .foregroundStyle(QuartetTheme.secondaryText)
                     }
                 }
-                .tint(QuartetTheme.accent)
+                .toggleStyle(QuartetCheckmarkToggleStyle())
                 .padding(.horizontal, 14)
                 .frame(minHeight: 64)
             }

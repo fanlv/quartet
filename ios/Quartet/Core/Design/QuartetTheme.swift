@@ -185,6 +185,79 @@ extension Font {
     }
 }
 
+/// 全 App 统一的勾选式布尔控件。视觉元素保持紧凑，但整行仍保留至少 44pt 的点击区域。
+/// 常规表单使用 `trailing` 将状态放在行尾；密集表格使用 `compact` 把标签和状态收在一起；
+/// 已有行容器的场景可使用 `bare`，只显示勾选图标。
+struct QuartetCheckmarkToggleStyle: ToggleStyle {
+    enum Layout {
+        case trailing
+        case compact
+        case bare
+    }
+
+    let layout: Layout
+    let activeColor: Color
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    init(layout: Layout = .trailing, activeColor: Color = QuartetTheme.accent) {
+        self.layout = layout
+        self.activeColor = activeColor
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.12)) {
+                configuration.isOn.toggle()
+            }
+        } label: {
+            switch layout {
+            case .trailing:
+                HStack(spacing: 12) {
+                    configuration.label
+                    Spacer(minLength: 8)
+                    checkmark(isOn: configuration.isOn)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            case .compact:
+                HStack(spacing: 4) {
+                    checkmark(isOn: configuration.isOn)
+                    configuration.label
+                }
+                .padding(.horizontal, 7)
+                .frame(height: 28)
+                .background(
+                    configuration.isOn ? activeColor.opacity(0.08) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(
+                            configuration.isOn ? activeColor.opacity(0.24) : QuartetTheme.divider.opacity(0.72)
+                        )
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            case .bare:
+                checkmark(isOn: configuration.isOn)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+        }
+        .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.45)
+        .accessibilityValue((configuration.isOn ? "已启用" : "已停用").localizedForApp)
+    }
+
+    private func checkmark(isOn: Bool) -> some View {
+        Image(systemName: isOn ? "checkmark.square.fill" : "square")
+            .font(.quartet(.control, weight: .semibold))
+            .foregroundStyle(isOn ? activeColor : QuartetTheme.secondaryText)
+            .accessibilityHidden(true)
+    }
+}
+
 /// 中英混排的字体栈。
 ///
 /// 混排“不好看”的根因不是某一种字体丑，而是拉丁和汉字来自两套互不相干的设计：SF Pro 的

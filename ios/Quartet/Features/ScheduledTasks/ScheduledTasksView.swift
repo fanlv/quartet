@@ -696,7 +696,8 @@ private struct ScheduleEditorView: View {
                         cardDivider
                         Toggle("在本机启用", isOn: $enabled)
                             .font(.quartet(.control, weight: .medium))
-                            .tint(QuartetTheme.accent)
+                            .foregroundStyle(QuartetTheme.primaryText)
+                            .toggleStyle(QuartetCheckmarkToggleStyle())
                             .accessibilityIdentifier("schedule-enabled")
                     }
 

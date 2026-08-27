@@ -843,6 +843,46 @@ private struct GraphEditorCard<Content: View>: View {
     }
 }
 
+/// 全局配置的信息密度高于节点编辑页，使用更轻的标题和内边距，避免变量行再套一层
+/// 视觉重量相同的大卡片。
+private struct GraphGlobalEditorCard<Content: View>: View {
+    let title: String
+    let systemImage: String
+    let content: Content
+
+    init(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.systemImage = systemImage
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.accent)
+                    .frame(width: 24, height: 24)
+                    .background(QuartetTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .accessibilityHidden(true)
+                Text(title.localizedForApp)
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            content
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(QuartetTheme.surface)
+                .onTapGesture { quartetDismissKeyboard() }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(QuartetTheme.divider.opacity(0.72)))
+    }
+}
+
 @MainActor
 private func graphFieldLabel(_ title: String) -> some View {
     Text(title.localizedForApp)
@@ -893,6 +933,33 @@ private extension View {
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(QuartetTheme.divider.opacity(0.8))
+                }
+        }
+    }
+
+    @ViewBuilder
+    func graphCompactInputChrome(multiline: Bool = false) -> some View {
+        if multiline {
+            self
+                .foregroundStyle(QuartetTheme.primaryText)
+                .tint(QuartetTheme.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(QuartetTheme.divider.opacity(0.78))
+                }
+        } else {
+            self
+                .foregroundStyle(QuartetTheme.primaryText)
+                .tint(QuartetTheme.accent)
+                .padding(.horizontal, 10)
+                .frame(minHeight: 42)
+                .background(QuartetTheme.elevated.opacity(0.72), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(QuartetTheme.divider.opacity(0.72))
                 }
         }
     }
@@ -1019,7 +1086,7 @@ private func graphSaveBar(
     .background(.ultraThinMaterial)
 }
 
-private enum GraphBuiltInVariable: String, Identifiable {
+private enum GraphBuiltInVariable: String, Identifiable, CaseIterable {
     case code = "Code"
     case doc = "Doc"
 
@@ -1029,6 +1096,7 @@ private enum GraphBuiltInVariable: String, Identifiable {
 struct GraphGlobalConfigurationView: View {
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Binding var config: GraphConfig
     let locksExecutionLimits: Bool
     let workspaceRoot: String?
@@ -1056,9 +1124,18 @@ struct GraphGlobalConfigurationView: View {
         var initialVariables = value.variables ?? [:]
         initialVariables[GraphBuiltInVariable.code.rawValue] = initialVariables[GraphBuiltInVariable.code.rawValue] ?? ""
         initialVariables[GraphBuiltInVariable.doc.rawValue] = initialVariables[GraphBuiltInVariable.doc.rawValue] ?? ""
-        _variables = State(initialValue: initialVariables
+        let builtInVariables = GraphBuiltInVariable.allCases.map { builtIn in
+            GraphVariableDraft(
+                name: builtIn.rawValue,
+                value: initialVariables[builtIn.rawValue] ?? "",
+                disabled: disabled.contains(builtIn.rawValue)
+            )
+        }
+        let customVariables = initialVariables
+            .filter { GraphBuiltInVariable(rawValue: $0.key) == nil }
             .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
-            .map { GraphVariableDraft(name: $0.key, value: $0.value, disabled: disabled.contains($0.key)) })
+            .map { GraphVariableDraft(name: $0.key, value: $0.value, disabled: disabled.contains($0.key)) }
+        _variables = State(initialValue: builtInVariables + customVariables)
         let run = value.runConfig ?? GraphRunConfiguration()
         _concurrencyLimit = State(initialValue: Self.text(run.concurrencyLimit))
         _defaultNodeTimeoutSec = State(initialValue: Self.text(run.defaultNodeTimeoutSec))
@@ -1071,7 +1148,7 @@ struct GraphGlobalConfigurationView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 14) {
+                VStack(spacing: 12) {
                     variablesCard
                     if locksExecutionLimits {
                         HStack(alignment: .top, spacing: 10) {
@@ -1083,18 +1160,18 @@ struct GraphGlobalConfigurationView: View {
                                 .foregroundStyle(QuartetTheme.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        .padding(14)
+                        .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(QuartetTheme.running.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
-                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(QuartetTheme.running.opacity(0.22)))
+                        .background(QuartetTheme.running.opacity(0.09), in: RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(QuartetTheme.running.opacity(0.22)))
                     } else {
                         limitsCard
                     }
                     if let validationMessage { graphValidationCard(validationMessage) }
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 10)
-                .padding(.bottom, 18)
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
             }
             .scrollDismissesKeyboard(.interactively)
             .background(
@@ -1137,25 +1214,32 @@ struct GraphGlobalConfigurationView: View {
     }
 
     private var variablesCard: some View {
-        GraphEditorCard("初始变量", systemImage: "curlybraces") {
-            if variables.isEmpty {
-                Text("暂无初始变量")
-                    .font(.quartet(.detail))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-            }
-
-            ForEach(variables) { variable in
-                variableBlock(binding(for: variable.id))
+        GraphGlobalEditorCard("初始变量", systemImage: "curlybraces") {
+            VStack(spacing: 8) {
+                ForEach(variables) { variable in
+                    variableBlock(binding(for: variable.id))
+                }
             }
 
             Button { variables.append(GraphVariableDraft()) } label: {
-                Label("添加变量", systemImage: "plus.circle.fill")
-                    .font(.quartet(.control, weight: .semibold))
+                Label("添加变量", systemImage: "plus")
+                    .font(.quartet(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.accent)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 40)
+                    .background(QuartetTheme.elevated.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(QuartetTheme.divider, style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                    }
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("graph-global-config-add-variable")
 
+            graphFieldHint(resolvedWorkspaceRoot == nil
+                ? "Code 和 Doc 可直接输入；当前工作空间没有可浏览的目录。"
+                : "Code 和 Doc 可直接输入，也可用文件夹按钮选择目录或文件。")
             graphFieldHint("变量名需匹配 [A-Za-z_][A-Za-z0-9_]*；以下划线或 QUARTET_ 开头的名称由系统保留。")
         }
     }
@@ -1174,23 +1258,62 @@ struct GraphGlobalConfigurationView: View {
     private func variableBlock(_ variable: Binding<GraphVariableDraft>) -> some View {
         let builtIn = GraphBuiltInVariable(rawValue: variable.wrappedValue.name)
         let isBuiltIn = builtIn != nil
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .bottom, spacing: 10) {
-                VStack(alignment: .leading, spacing: 8) {
-                    graphFieldLabel("变量名")
-                    if isBuiltIn {
-                        Label(variable.wrappedValue.name, systemImage: "lock.fill")
-                            .font(GraphTypography.emphasizedFieldValue)
-                            .graphInputChrome(background: QuartetTheme.surface)
-                    } else {
-                        TextField("变量名", text: variable.name)
-                            .font(.quartet(.control, weight: .medium, design: .monospaced))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .graphInputChrome(background: QuartetTheme.surface)
-                            .accessibilityLabel("变量名")
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                if isBuiltIn {
+                    HStack(spacing: 5) {
+                        Image(systemName: "lock.fill")
+                            .font(.quartet(.tiny, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                        Text(variable.wrappedValue.name)
+                            .font(.quartet(.detail, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(QuartetTheme.primaryText)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(QuartetTheme.surface.opacity(0.72), in: Capsule())
+                    .overlay(Capsule().stroke(QuartetTheme.divider.opacity(0.62)))
+                } else {
+                    TextField("变量名", text: variable.name)
+                        .font(.quartet(.detail, weight: .medium, design: .monospaced))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .graphCompactInputChrome()
+                        .accessibilityLabel("变量名")
                 }
+
+                Spacer(minLength: 0)
+                variableDisabledToggle(variable.disabled)
+
+                if !isBuiltIn {
+                    Button {
+                        let id = variable.wrappedValue.id
+                        quartetDismissKeyboard()
+                        variables.removeAll { $0.id == id }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.quartet(.detail, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.failed)
+                            .frame(width: 30, height: 30)
+                            .background(QuartetTheme.failed.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("删除变量 \(variable.wrappedValue.name)")
+                }
+            }
+
+            HStack(alignment: .center, spacing: 6) {
+                TextField("变量值", text: variable.value, axis: .vertical)
+                    .lineLimit(1...3)
+                    .font(.quartet(.detail))
+                    .lineSpacing(2)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .frame(maxWidth: .infinity)
+                    .graphCompactInputChrome(multiline: true)
+                    .accessibilityLabel("变量值")
 
                 if let builtIn {
                     Button {
@@ -1198,79 +1321,74 @@ struct GraphGlobalConfigurationView: View {
                         pathPickerVariable = builtIn
                     } label: {
                         Image(systemName: "folder")
-                            .font(.quartet(.control, weight: .semibold))
+                            .font(.quartet(.detail, weight: .semibold))
                             .foregroundStyle(QuartetTheme.accent)
-                            .frame(width: 50, height: 50)
-                            .background(QuartetTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .frame(width: 34, height: 34)
+                            .background(QuartetTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(QuartetTheme.accent.opacity(0.16)))
                     }
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
                     .buttonStyle(.plain)
                     .disabled(resolvedWorkspaceRoot == nil)
-                    .opacity(resolvedWorkspaceRoot == nil ? 0.45 : 1)
+                    .opacity(resolvedWorkspaceRoot == nil ? 0.42 : 1)
                     .accessibilityLabel(AppLanguage.localizedFormat("浏览 %@ 的目录或文件", builtIn.rawValue))
                     .accessibilityHint("从当前工作空间选择目录或文件".localizedForApp)
                     .accessibilityIdentifier("graph-global-\(builtIn.rawValue.lowercased())-path-picker")
-                } else {
-                    Button {
-                        let id = variable.wrappedValue.id
-                        quartetDismissKeyboard()
-                        variables.removeAll { $0.id == id }
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.quartet(.control, weight: .semibold))
-                            .foregroundStyle(QuartetTheme.failed)
-                            .frame(width: 50, height: 50)
-                            .background(QuartetTheme.failed.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("删除变量 \(variable.wrappedValue.name)")
                 }
             }
-
-            VStack(alignment: .leading, spacing: 8) {
-                graphFieldLabel("变量值")
-                TextField("变量值", text: variable.value, axis: .vertical)
-                    .lineLimit(2...5)
-                    .font(GraphTypography.fieldValue)
-                    .lineSpacing(3)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .frame(maxWidth: .infinity)
-                    .graphInputChrome(background: QuartetTheme.surface, multiline: true)
-                    .accessibilityLabel("变量值")
-
-                if isBuiltIn {
-                    graphFieldHint(resolvedWorkspaceRoot == nil
-                        ? "当前工作空间没有可浏览的目录。"
-                        : "可输入任意文本，或从当前工作空间选择目录或文件。")
-                }
-            }
-
-            Toggle("禁用此变量", isOn: variable.disabled)
-                .font(.quartet(.control, weight: .medium))
-                .foregroundStyle(QuartetTheme.primaryText)
-                .tint(QuartetTheme.accent)
         }
-        .padding(12)
-        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(QuartetTheme.elevated.opacity(0.68), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(QuartetTheme.divider.opacity(0.48)))
+    }
+
+    private func variableDisabledToggle(_ disabled: Binding<Bool>) -> some View {
+        Toggle("禁用", isOn: disabled)
+        .font(.quartet(.compact, weight: .medium))
+        .foregroundStyle(disabled.wrappedValue ? QuartetTheme.failed : QuartetTheme.secondaryText)
+        .toggleStyle(QuartetCheckmarkToggleStyle(layout: .compact, activeColor: QuartetTheme.failed))
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityLabel("禁用此变量")
+        .accessibilityValue(disabled.wrappedValue ? "已禁用" : "已启用")
     }
 
     private var limitsCard: some View {
-        GraphEditorCard("执行限制", systemImage: "slider.horizontal.3") {
-            VStack(alignment: .leading, spacing: 12) {
-                graphSingleLineField("并发数", text: $concurrencyLimit, prompt: "留空使用默认", numeric: true, hint: "0 = 默认，最大 16")
-                graphFieldDivider
-                graphSingleLineField("默认节点超时（秒）", text: $defaultNodeTimeoutSec, prompt: "留空使用默认", numeric: true, hint: "0 = 不限")
-                graphFieldDivider
-                graphSingleLineField("Job 超时（秒）", text: $jobTimeoutSec, prompt: "留空使用默认", numeric: true, hint: "0 = 不限")
-                graphFieldDivider
-                graphSingleLineField("默认循环上限", text: $defaultLoopMaxIters, prompt: "留空使用默认", numeric: true, hint: "0 = 默认，最大 1000")
+        GraphGlobalEditorCard("执行限制", systemImage: "slider.horizontal.3") {
+            LazyVGrid(columns: limitGridColumns, alignment: .leading, spacing: 10) {
+                globalLimitField("并发数", text: $concurrencyLimit, hint: "0 默认 · 最大 16")
+                globalLimitField("节点超时", text: $defaultNodeTimeoutSec, hint: "秒 · 0 不限")
+                globalLimitField("Job 超时", text: $jobTimeoutSec, hint: "秒 · 0 不限")
+                globalLimitField("循环上限", text: $defaultLoopMaxIters, hint: "0 默认 · 最大 1000")
+                globalLimitField("实例上限", text: $instanceLimit, hint: "0 使用默认值")
+                globalLimitField("快照上限", text: $snapshotByteLimit, hint: "字节 · 0 默认")
             }
-            VStack(alignment: .leading, spacing: 12) {
-                graphFieldDivider
-                graphSingleLineField("实例数量上限", text: $instanceLimit, prompt: "留空使用默认", numeric: true, hint: "0 = 默认")
-                graphFieldDivider
-                graphSingleLineField("快照字节上限", text: $snapshotByteLimit, prompt: "留空使用默认", numeric: true, hint: "0 = 默认")
-            }
+        }
+    }
+
+    private var limitGridColumns: [GridItem] {
+        let count = dynamicTypeSize.isAccessibilitySize ? 1 : 2
+        return Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .topLeading), count: count)
+    }
+
+    private func globalLimitField(_ title: String, text: Binding<String>, hint: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title.localizedForApp)
+                .font(.quartet(.compact, weight: .semibold))
+                .foregroundStyle(QuartetTheme.primaryText)
+                .lineLimit(1)
+            TextField("默认".localizedForApp, text: text)
+                .font(.quartet(.detail))
+                .keyboardType(.numberPad)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .graphCompactInputChrome()
+                .accessibilityLabel(title.localizedForApp)
+            Text(hint.localizedForApp)
+                .font(.quartet(.compact))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
