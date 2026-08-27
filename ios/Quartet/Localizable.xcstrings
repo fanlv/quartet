@@ -4572,6 +4572,23 @@
         }
       }
     },
+    "同时删除关联任务" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Also delete linked tasks"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同时删除关联任务"
+          }
+        }
+      }
+    },
     "名称" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4585,6 +4602,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名称"
+          }
+        }
+      }
+    },
+    "名称、目录与默认参数" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name, directory, and defaults"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称、目录与默认参数"
           }
         }
       }

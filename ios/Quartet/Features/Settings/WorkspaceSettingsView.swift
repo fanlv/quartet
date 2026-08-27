@@ -806,7 +806,7 @@ private struct WorkspaceActionsSheet: View {
             VStack(spacing: 12) {
                 actionRow(
                     title: "编辑工作空间",
-                    detail: "配置 Agent 的工作目录和默认模型。这里的修改会与 Web 端设置同步。".localizedForApp,
+                    detail: "名称、目录与默认参数".localizedForApp,
                     systemImage: "pencil",
                     tint: QuartetTheme.accentDeep,
                     identifier: "workspace-action-edit",
@@ -821,10 +821,7 @@ private struct WorkspaceActionsSheet: View {
                 if let onDelete {
                     actionRow(
                         title: "删除",
-                        detail: AppLanguage.localizedFormat(
-                            "删除“%@”会同时删除其任务；预置消息会保留为未绑定配置。此操作无法恢复。",
-                            workspace.displayName
-                        ),
+                        detail: "同时删除关联任务".localizedForApp,
                         systemImage: "trash.fill",
                         tint: QuartetTheme.failed,
                         isDestructive: true,
@@ -881,7 +878,7 @@ private struct WorkspaceActionsSheet: View {
                     Text(detail)
                         .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
-                        .lineLimit(2)
+                        .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
