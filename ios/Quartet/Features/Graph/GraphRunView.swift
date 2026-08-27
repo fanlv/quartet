@@ -455,11 +455,24 @@ private struct GraphRunConfigurationEditorView: View {
                 }
             }
             .sheet(isPresented: $showsGlobalEditor) {
-                GraphGlobalConfigurationView(config: $config, locksExecutionLimits: true)
+                GraphGlobalConfigurationView(
+                    config: $config,
+                    locksExecutionLimits: true,
+                    workspaceRoot: workspaceRoot
+                )
                     .quartetSheetStyle()
             }
         }
         .task { await loadAgentConfiguration() }
+    }
+
+    private var workspaceRoot: String? {
+        if let workspaceID = config.workspaceId,
+           let workspace = appModel.workspaces.first(where: { $0.id == workspaceID }),
+           !workspace.workdir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return workspace.workdir
+        }
+        return config.workdir
     }
 
     private var globalConfiguration: some View {

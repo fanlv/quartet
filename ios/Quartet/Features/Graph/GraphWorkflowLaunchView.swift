@@ -109,7 +109,10 @@ struct GraphWorkflowLaunchView: View {
         }
         .sheet(isPresented: $showsGlobalEditor) {
             if let binding = configBinding {
-                GraphGlobalConfigurationView(config: binding)
+                GraphGlobalConfigurationView(
+                    config: binding,
+                    workspaceRoot: selectedWorkspace?.workdir
+                )
                     .quartetSheetStyle()
             }
         }
@@ -1016,10 +1019,19 @@ private func graphSaveBar(
     .background(.ultraThinMaterial)
 }
 
+private enum GraphBuiltInVariable: String, Identifiable {
+    case code = "Code"
+    case doc = "Doc"
+
+    var id: String { rawValue }
+}
+
 struct GraphGlobalConfigurationView: View {
+    @EnvironmentObject private var appModel: AppModel
     @Environment(\.dismiss) private var dismiss
     @Binding var config: GraphConfig
     let locksExecutionLimits: Bool
+    let workspaceRoot: String?
 
     @State private var variables: [GraphVariableDraft]
     @State private var concurrencyLimit: String
@@ -1029,13 +1041,22 @@ struct GraphGlobalConfigurationView: View {
     @State private var instanceLimit: String
     @State private var snapshotByteLimit: String
     @State private var validationMessage: String?
+    @State private var pathPickerVariable: GraphBuiltInVariable?
 
-    init(config: Binding<GraphConfig>, locksExecutionLimits: Bool = false) {
+    init(
+        config: Binding<GraphConfig>,
+        locksExecutionLimits: Bool = false,
+        workspaceRoot: String? = nil
+    ) {
         _config = config
         self.locksExecutionLimits = locksExecutionLimits
+        self.workspaceRoot = workspaceRoot
         let value = config.wrappedValue
         let disabled = Set(value.disabledVars ?? [])
-        _variables = State(initialValue: (value.variables ?? [:])
+        var initialVariables = value.variables ?? [:]
+        initialVariables[GraphBuiltInVariable.code.rawValue] = initialVariables[GraphBuiltInVariable.code.rawValue] ?? ""
+        initialVariables[GraphBuiltInVariable.doc.rawValue] = initialVariables[GraphBuiltInVariable.doc.rawValue] ?? ""
+        _variables = State(initialValue: initialVariables
             .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
             .map { GraphVariableDraft(name: $0.key, value: $0.value, disabled: disabled.contains($0.key)) })
         let run = value.runConfig ?? GraphRunConfiguration()
@@ -1091,7 +1112,28 @@ struct GraphGlobalConfigurationView: View {
                     save()
                 }
             }
+            .sheet(item: $pathPickerVariable) { variable in
+                WorkspacePathPickerView(
+                    variableName: variable.rawValue,
+                    workspaceRoot: resolvedWorkspaceRoot ?? "",
+                    initialPath: variableValue(named: variable.rawValue)
+                ) { path in
+                    setVariableValue(path, named: variable.rawValue)
+                }
+                .presentationDetents([.large])
+                .quartetSheetStyle()
+            }
         }
+    }
+
+    private var resolvedWorkspaceRoot: String? {
+        if let workspaceRoot = nonEmpty(workspaceRoot) { return workspaceRoot }
+        if let workspaceID = nonEmpty(config.workspaceId),
+           let workspace = appModel.workspaces.first(where: { $0.id == workspaceID }),
+           let workdir = nonEmpty(workspace.workdir) {
+            return workdir
+        }
+        return nonEmpty(config.workdir)
     }
 
     private var variablesCard: some View {
@@ -1130,7 +1172,8 @@ struct GraphGlobalConfigurationView: View {
     }
 
     private func variableBlock(_ variable: Binding<GraphVariableDraft>) -> some View {
-        let isBuiltIn = variable.wrappedValue.name == "Code" || variable.wrappedValue.name == "Doc"
+        let builtIn = GraphBuiltInVariable(rawValue: variable.wrappedValue.name)
+        let isBuiltIn = builtIn != nil
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .bottom, spacing: 10) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -1168,14 +1211,41 @@ struct GraphGlobalConfigurationView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 graphFieldLabel("变量值")
-                TextField("变量值", text: variable.value, axis: .vertical)
-                    .lineLimit(2...5)
-                    .font(GraphTypography.fieldValue)
-                    .lineSpacing(3)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .graphInputChrome(background: QuartetTheme.surface, multiline: true)
-                    .accessibilityLabel("变量值")
+                HStack(alignment: .top, spacing: 9) {
+                    TextField("变量值", text: variable.value, axis: .vertical)
+                        .lineLimit(2...5)
+                        .font(GraphTypography.fieldValue)
+                        .lineSpacing(3)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .graphInputChrome(background: QuartetTheme.surface, multiline: true)
+                        .accessibilityLabel("变量值")
+
+                    if let builtIn {
+                        Button {
+                            quartetDismissKeyboard()
+                            pathPickerVariable = builtIn
+                        } label: {
+                            Image(systemName: "folder")
+                                .font(.quartet(.control, weight: .semibold))
+                                .foregroundStyle(QuartetTheme.accent)
+                                .frame(width: 50, height: 50)
+                                .background(QuartetTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(resolvedWorkspaceRoot == nil)
+                        .opacity(resolvedWorkspaceRoot == nil ? 0.45 : 1)
+                        .accessibilityLabel(AppLanguage.localizedFormat("浏览 %@ 的目录或文件", builtIn.rawValue))
+                        .accessibilityHint("从当前工作空间选择目录或文件".localizedForApp)
+                        .accessibilityIdentifier("graph-global-\(builtIn.rawValue.lowercased())-path-picker")
+                    }
+                }
+
+                if isBuiltIn {
+                    graphFieldHint(resolvedWorkspaceRoot == nil
+                        ? "当前工作空间没有可浏览的目录。"
+                        : "可输入任意文本，或从当前工作空间选择目录或文件。")
+                }
             }
 
             Toggle("禁用此变量", isOn: variable.disabled)
@@ -1242,6 +1312,21 @@ struct GraphGlobalConfigurationView: View {
         } catch {
             validationMessage = String(describing: error)
         }
+    }
+
+    private func variableValue(named name: String) -> String {
+        variables.first(where: { $0.name == name })?.value ?? ""
+    }
+
+    private func setVariableValue(_ value: String, named name: String) {
+        guard let index = variables.firstIndex(where: { $0.name == name }) else { return }
+        variables[index].value = value
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 
     private static func text(_ value: Int?) -> String { value.map(String.init) ?? "" }

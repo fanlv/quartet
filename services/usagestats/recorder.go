@@ -92,6 +92,10 @@ type Service interface {
 	Recorder
 	Reader
 
+	// BackfillWorkspaceNames persists names for legacy daily buckets that only
+	// contain a workspace ID. Existing historical names are never overwritten.
+	BackfillWorkspaceNames(ctx context.Context) error
+
 	// MigrateModelIDs rewrites historical per-model buckets according to the
 	// supplied aliases. When both the old and canonical IDs exist in one day,
 	// their counters are merged. Day-level totals are unchanged.

@@ -251,6 +251,9 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := usageStats.BackfillWorkspaceNames(ctx); err != nil {
+		logger.Warnf(ctx, "[usagestats] backfill workspace names failed: %v", err)
+	}
 
 	var skillsSvc *skills.Service
 	if !startupCheck {

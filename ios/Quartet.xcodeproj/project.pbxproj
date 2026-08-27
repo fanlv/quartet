@@ -47,6 +47,7 @@
 		A10000000000000000000042 /* AgentEnvSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000042 /* AgentEnvSettingsView.swift */; };
 		A10000000000000000000043 /* AgentDefaultsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000043 /* AgentDefaultsSettingsView.swift */; };
 		A10000000000000000000044 /* AgentRoleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000044 /* AgentRoleSettingsView.swift */; };
+		A10000000000000000000045 /* WorkspacePathPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000045 /* WorkspacePathPickerView.swift */; };
 		B10000000000000000000001 /* QuartetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* QuartetUITests.swift */; };
 /* End PBXBuildFile section */
 
@@ -78,6 +79,7 @@
 		A20000000000000000000042 /* AgentEnvSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEnvSettingsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000043 /* AgentDefaultsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDefaultsSettingsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000044 /* AgentRoleSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRoleSettingsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000045 /* WorkspacePathPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePathPickerView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000C /* Quartet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Quartet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A2000000000000000000000D /* NewConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewConversationView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000E /* JobChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobChatView.swift; sourceTree = "<group>"; };
@@ -322,6 +324,7 @@
 			children = (
 				A2000000000000000000000F /* GraphRunView.swift */,
 				A20000000000000000000014 /* GraphWorkflowLaunchView.swift */,
+				A20000000000000000000045 /* WorkspacePathPickerView.swift */,
 			);
 			path = Graph;
 			sourceTree = "<group>";
@@ -519,6 +522,7 @@
 				A10000000000000000000010 /* ChatAttachmentSupport.swift in Sources */,
 				A1000000000000000000000F /* GraphRunView.swift in Sources */,
 				A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */,
+				A10000000000000000000045 /* WorkspacePathPickerView.swift in Sources */,
 				A10000000000000000000016 /* ScheduledTasksView.swift in Sources */,
 				A10000000000000000000011 /* DashboardCacheStore.swift in Sources */,
 				A10000000000000000000012 /* StatsView.swift in Sources */,
