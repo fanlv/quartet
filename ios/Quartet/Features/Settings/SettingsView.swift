@@ -101,6 +101,25 @@ struct SettingsView: View {
                         }
                     }
 
+                    if model.can("workspace.read") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("项目")
+                                .font(.quartet(.detail, weight: .bold))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                                .padding(.horizontal, 4)
+
+                            VStack(spacing: 0) {
+                                agentManagementLink(
+                                    title: "工作空间",
+                                    icon: "folder.badge.gearshape",
+                                    identifier: "settings-workspaces"
+                                ) { WorkspaceSettingsView() }
+                            }
+                            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
+                        }
+                    }
+
                     if model.can("skills.read") {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("技能")

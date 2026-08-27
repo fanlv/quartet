@@ -50,6 +50,7 @@
 		A10000000000000000000047 /* MessagePresetSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000047 /* MessagePresetSettingsView.swift */; };
 		A10000000000000000000048 /* SkillSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000048 /* SkillSettingsView.swift */; };
 		A10000000000000000000049 /* UserConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000049 /* UserConfigSettingsView.swift */; };
+		A1000000000000000000004A /* WorkspaceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004A /* WorkspaceSettingsView.swift */; };
 		A10000000000000000000045 /* WorkspacePathPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000045 /* WorkspacePathPickerView.swift */; };
 		A10000000000000000000046 /* WorkspaceFilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000046 /* WorkspaceFilesView.swift */; };
 		B10000000000000000000001 /* QuartetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* QuartetUITests.swift */; };
@@ -86,6 +87,7 @@
 		A20000000000000000000047 /* MessagePresetSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagePresetSettingsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000048 /* SkillSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillSettingsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000049 /* UserConfigSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserConfigSettingsView.swift; sourceTree = "<group>"; };
+		A2000000000000000000004A /* WorkspaceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSettingsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000045 /* WorkspacePathPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePathPickerView.swift; sourceTree = "<group>"; };
 		A20000000000000000000046 /* WorkspaceFilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFilesView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000C /* Quartet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Quartet.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -311,6 +313,7 @@
 				A20000000000000000000047 /* MessagePresetSettingsView.swift */,
 				A20000000000000000000048 /* SkillSettingsView.swift */,
 				A20000000000000000000049 /* UserConfigSettingsView.swift */,
+				A2000000000000000000004A /* WorkspaceSettingsView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -532,6 +535,7 @@
 				A10000000000000000000047 /* MessagePresetSettingsView.swift in Sources */,
 				A10000000000000000000048 /* SkillSettingsView.swift in Sources */,
 				A10000000000000000000049 /* UserConfigSettingsView.swift in Sources */,
+				A1000000000000000000004A /* WorkspaceSettingsView.swift in Sources */,
 				A1000000000000000000000D /* NewConversationView.swift in Sources */,
 				A1000000000000000000000E /* JobChatView.swift in Sources */,
 				A10000000000000000000030 /* ChatMessageViews.swift in Sources */,

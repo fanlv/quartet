@@ -232,6 +232,52 @@ struct WorkspacesResponse: Decodable, Sendable {
     let workspaces: [WorkspaceSummary]
 }
 
+struct WorkspaceDefaultWorkdirResponse: Decodable, Sendable {
+    let code: Int
+    let workdir: String
+}
+
+struct CreateWorkspaceRequest: Encodable, Sendable {
+    let title: String
+    let description: String
+    let workdir: String
+    let defaultAgent: String
+    let defaultModel: String
+}
+
+struct WorkspacePatchRequest: Encodable, Sendable {
+    let expectedVersion: UInt64
+    let title: String?
+    let description: String?
+    let workdir: String?
+    let defaultAgent: String?
+    let defaultModel: String?
+
+    init(
+        expectedVersion: UInt64,
+        title: String? = nil,
+        description: String? = nil,
+        workdir: String? = nil,
+        defaultAgent: String? = nil,
+        defaultModel: String? = nil
+    ) {
+        self.expectedVersion = expectedVersion
+        self.title = title
+        self.description = description
+        self.workdir = workdir
+        self.defaultAgent = defaultAgent
+        self.defaultModel = defaultModel
+    }
+}
+
+struct WorkspaceFavoriteRequest: Encodable, Sendable {
+    let favorite: Bool
+}
+
+struct WorkspaceReorderRequest: Encodable, Sendable {
+    let workspaceIds: [String]
+}
+
 struct DirectoryFileEntry: Decodable, Identifiable, Hashable, Sendable {
     let name: String
     let size: Int64

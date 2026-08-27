@@ -1421,6 +1421,22 @@ final class AppModel: ObservableObject {
         isRunningUITests || permissions.contains(permission)
     }
 
+    func applyWorkspaceSnapshot(_ snapshot: [WorkspaceSummary]) {
+        workspaces = snapshot
+        if let selectedWorkspaceID, !snapshot.contains(where: { $0.id == selectedWorkspaceID }) {
+            self.selectedWorkspaceID = nil
+            defaults.removeObject(forKey: StorageKey.selectedWorkspaceID)
+            jobs = []
+            nextCursor = nil
+            hasMoreJobs = false
+        }
+        let cacheSnapshot = dashboardCacheSnapshot()
+        let generation = dashboardGeneration
+        Task { [cacheStore, cacheSnapshot, generation] in
+            await cacheStore.save(cacheSnapshot, generation: generation)
+        }
+    }
+
     func saveWorkspaceDefaults(workspaceID: String, agent: String, model: String) async throws {
         if isRunningUITests { return }
         guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else {

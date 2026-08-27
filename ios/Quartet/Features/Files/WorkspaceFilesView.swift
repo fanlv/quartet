@@ -404,6 +404,7 @@ private struct WorkspaceDirectoryView: View {
 struct WorkspaceBrowserLocationHeader: View {
     let path: String
     var workspaceRoot: String? = nil
+    var workspaceRootTitle = "当前工作空间"
     var detail: String? = nil
 
     var body: some View {
@@ -431,7 +432,7 @@ struct WorkspaceBrowserLocationHeader: View {
 
             if let workspaceRoot, workspaceRoot != path {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text("当前工作空间".localizedForApp)
+                    Text(workspaceRootTitle.localizedForApp)
                     Text(workspaceRoot)
                         .textSelection(.enabled)
                         .lineLimit(2)

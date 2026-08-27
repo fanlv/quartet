@@ -164,12 +164,53 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/workspace/list")
     }
 
-    func listDirectory(path: String) async throws -> DirectoryListingResponse {
+    func defaultWorkspaceWorkdir() async throws -> WorkspaceDefaultWorkdirResponse {
+        try await request(
+            path: "api/v1/workspace/default-workdir",
+            validate: { response in
+                response.code == 0 ? nil : "code must equal 0; received \(response.code)"
+            }
+        )
+    }
+
+    func createWorkspace(_ body: CreateWorkspaceRequest) async throws -> WorkspaceSummary {
+        try await request(path: "api/v1/workspace/create", method: "POST", body: body)
+    }
+
+    func updateWorkspace(id: String, body: WorkspacePatchRequest) async throws -> WorkspaceSummary {
+        try await request(path: "api/v1/workspace/\(id)", method: "PATCH", body: body)
+    }
+
+    func setWorkspaceFavorite(id: String, favorite: Bool) async throws -> WorkspacesResponse {
+        try await request(
+            path: "api/v1/workspace/\(id)/favorite",
+            method: "PUT",
+            body: WorkspaceFavoriteRequest(favorite: favorite)
+        )
+    }
+
+    func reorderWorkspaces(_ workspaceIDs: [String]) async throws -> WorkspacesResponse {
+        try await request(
+            path: "api/v1/workspace/order",
+            method: "PUT",
+            body: WorkspaceReorderRequest(workspaceIds: workspaceIDs)
+        )
+    }
+
+    func regenerateWorkspaceColors() async throws -> WorkspacesResponse {
+        try await request(path: "api/v1/workspace/regenerate-colors", method: "POST")
+    }
+
+    func deleteWorkspace(id: String) async throws {
+        let _: StatusResponse = try await request(path: "api/v1/workspace/\(id)", method: "DELETE")
+    }
+
+    func listDirectory(path: String, showFiles: Bool = true) async throws -> DirectoryListingResponse {
         try await request(
             path: "api/v1/list-dir",
             query: [
                 URLQueryItem(name: "path", value: path),
-                URLQueryItem(name: "showFiles", value: "true")
+                URLQueryItem(name: "showFiles", value: showFiles ? "true" : "false")
             ],
             validate: { response in
                 response.code == 0 ? nil : "code must equal 0; received \(response.code)"

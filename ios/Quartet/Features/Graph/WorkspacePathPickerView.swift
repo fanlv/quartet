@@ -11,6 +11,10 @@ struct WorkspacePathPickerView: View {
     let variableName: String
     let workspaceRoot: String
     let initialPath: String
+    var allowsFileSelection = true
+    var navigationTitle: String? = nil
+    var rootLabel = "当前工作空间"
+    var accessibilityIdentifierPrefix = "graph-path-picker"
     let onSelect: (String) -> Void
 
     @State private var currentPath = ""
@@ -26,7 +30,7 @@ struct WorkspacePathPickerView: View {
     }
 
     private var visibleParent: String? {
-        guard let parentPath, Self.isWithin(parentPath, root: normalizedRoot) else { return nil }
+        guard let parentPath, isAllowed(parentPath) else { return nil }
         return parentPath
     }
 
@@ -35,7 +39,10 @@ struct WorkspacePathPickerView: View {
     }
 
     private var entryCountSummary: String {
-        AppLanguage.localizedFormat(
+        if !allowsFileSelection {
+            return AppLanguage.localizedFormat("%lld 个目录", Int64(directories.count))
+        }
+        return AppLanguage.localizedFormat(
             "%lld 个目录 · %lld 个文件",
             Int64(directories.count),
             Int64(files.count)
@@ -72,7 +79,10 @@ struct WorkspacePathPickerView: View {
             }
             .refreshable { await loadDirectory(currentPath.isEmpty ? normalizedRoot : currentPath) }
             .background(QuartetTheme.canvas)
-            .quartetNavigationTitle(AppLanguage.localizedFormat("选择 %@ 的目录或文件", variableName))
+            .quartetNavigationTitle(
+                navigationTitle?.localizedForApp
+                    ?? AppLanguage.localizedFormat("选择 %@ 的目录或文件", variableName)
+            )
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 selectCurrentDirectoryButton
             }
@@ -84,6 +94,7 @@ struct WorkspacePathPickerView: View {
         WorkspaceBrowserLocationHeader(
             path: currentPath.isEmpty ? normalizedRoot : currentPath,
             workspaceRoot: normalizedRoot,
+            workspaceRootTitle: rootLabel,
             detail: error == nil && !loading ? entryCountSummary : nil
         )
     }
@@ -124,22 +135,24 @@ struct WorkspacePathPickerView: View {
             .accessibilityLabel(AppLanguage.localizedFormat("打开目录 %@", directory))
         }
 
-        ForEach(files) { file in
-            let path = Self.join(currentPath, file.name)
-            Button {
-                select(path)
-            } label: {
-                WorkspaceBrowserRow(
-                    title: file.name,
-                    detail: ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file),
-                    systemImage: "doc.text.fill",
-                    tint: QuartetTheme.secondaryText,
-                    showsDivider: file.id != files.last?.id
-                )
+        if allowsFileSelection {
+            ForEach(files) { file in
+                let path = Self.join(currentPath, file.name)
+                Button {
+                    select(path)
+                } label: {
+                    WorkspaceBrowserRow(
+                        title: file.name,
+                        detail: ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file),
+                        systemImage: "doc.text.fill",
+                        tint: QuartetTheme.secondaryText,
+                        showsDivider: file.id != files.last?.id
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(loading)
+                .accessibilityLabel(AppLanguage.localizedFormat("选择文件 %@", file.name))
             }
-            .buttonStyle(.plain)
-            .disabled(loading)
-            .accessibilityLabel(AppLanguage.localizedFormat("选择文件 %@", file.name))
         }
 
         if isEmptyDirectory, visibleParent == nil {
@@ -215,21 +228,21 @@ struct WorkspacePathPickerView: View {
         .buttonStyle(.plain)
         .disabled(loading || error != nil || currentPath.isEmpty)
         .opacity(loading || error != nil || currentPath.isEmpty ? 0.45 : 1)
-        .accessibilityIdentifier("graph-path-picker-select-directory")
+        .accessibilityIdentifier("\(accessibilityIdentifierPrefix)-select-directory")
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial)
     }
 
     private func select(_ path: String) {
-        guard !path.isEmpty, Self.isWithin(path, root: normalizedRoot) else { return }
+        guard !path.isEmpty, isAllowed(path) else { return }
         onSelect(path)
         dismiss()
     }
 
     private func loadInitialPath() async {
         let candidate = Self.normalize(initialPath)
-        let start = !candidate.isEmpty && Self.isWithin(candidate, root: normalizedRoot)
+        let start = !candidate.isEmpty && isAllowed(candidate)
             ? candidate
             : normalizedRoot
         await loadDirectory(start, retryParentForFile: start != normalizedRoot)
@@ -237,10 +250,10 @@ struct WorkspacePathPickerView: View {
 
     private func loadDirectory(_ requestedPath: String, retryParentForFile: Bool = false) async {
         let path = Self.normalize(requestedPath)
-        guard !normalizedRoot.isEmpty, Self.isWithin(path, root: normalizedRoot) else {
+        guard !normalizedRoot.isEmpty, isAllowed(path) else {
             present(APIError(
                 summary: "目录读取失败",
-                detail: "请求路径不在当前工作空间内。\n工作空间：\n\(normalizedRoot)\n\n请求路径：\n\(requestedPath)",
+                detail: "请求路径不在允许浏览的目录内。\n根目录：\n\(normalizedRoot)\n\n请求路径：\n\(requestedPath)",
                 requestWasRejected: true
             ))
             loading = false
@@ -255,16 +268,16 @@ struct WorkspacePathPickerView: View {
         do {
             let client = try appModel.apiClient()
             do {
-                let listing = try await client.listDirectory(path: path)
+                let listing = try await client.listDirectory(path: path, showFiles: allowsFileSelection)
                 apply(listing, generation: generation)
             } catch {
                 let parent = Self.parent(of: path)
                 guard retryParentForFile,
                       parent != path,
-                      Self.isWithin(parent, root: normalizedRoot) else {
+                      isAllowed(parent) else {
                     throw error
                 }
-                let listing = try await client.listDirectory(path: parent)
+                let listing = try await client.listDirectory(path: parent, showFiles: allowsFileSelection)
                 apply(listing, generation: generation)
             }
         } catch is CancellationError {
@@ -279,16 +292,16 @@ struct WorkspacePathPickerView: View {
     private func apply(_ listing: DirectoryListingResponse, generation: Int) {
         guard generation == requestGeneration else { return }
         let listedPath = Self.normalize(listing.current)
-        guard Self.isWithin(listedPath, root: normalizedRoot) else {
+        guard isAllowed(listedPath) else {
             present(APIError(
                 summary: "目录读取失败",
-                detail: "服务端返回了当前工作空间之外的目录。\n工作空间：\n\(normalizedRoot)\n\n返回目录：\n\(listing.current)"
+                detail: "服务端返回了允许浏览范围之外的目录。\n根目录：\n\(normalizedRoot)\n\n返回目录：\n\(listing.current)"
             ))
             loading = false
             return
         }
         currentPath = listedPath
-        if let parent = listing.parent.map({ Self.normalize($0) }), Self.isWithin(parent, root: normalizedRoot) {
+        if let parent = listing.parent.map({ Self.normalize($0) }), isAllowed(parent) {
             parentPath = parent
         } else {
             parentPath = nil
@@ -297,6 +310,12 @@ struct WorkspacePathPickerView: View {
         files = listing.files.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         error = nil
         loading = false
+    }
+
+    private func isAllowed(_ path: String) -> Bool {
+        let normalizedPath = Self.normalize(path)
+        guard !normalizedPath.isEmpty else { return false }
+        return Self.isWithin(normalizedPath, root: normalizedRoot)
     }
 
     private func present(_ caught: Error) {

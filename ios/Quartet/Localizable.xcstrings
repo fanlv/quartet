@@ -15134,6 +15134,276 @@
         }
       }
     },
+    "上移" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Move up" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "上移" } }
+      }
+    },
+    "下移" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Move down" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "下移" } }
+      }
+    },
+    "使用 Agent 默认" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use Agent default" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "使用 Agent 默认" } }
+      }
+    },
+    "使用系统默认" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use system default" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "使用系统默认" } }
+      }
+    },
+    "保存工作空间" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Save Workspace" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "保存工作空间" } }
+      }
+    },
+    "创建工作空间" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Create Workspace" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "创建工作空间" } }
+      }
+    },
+    "删除" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "删除" } }
+      }
+    },
+    "删除“%@”会同时删除其任务；预置消息会保留为未绑定配置。此操作无法恢复。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Deleting \"%1$@\" also deletes its jobs. Message presets remain as an unbound configuration. This action cannot be undone." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "删除“%1$@”会同时删除其任务；预置消息会保留为未绑定配置。此操作无法恢复。" } }
+      }
+    },
+    "删除工作空间？" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete Workspace?" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "删除工作空间？" } }
+      }
+    },
+    "取消收藏" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove from favorites" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "取消收藏" } }
+      }
+    },
+    "可选描述" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Optional description" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "可选描述" } }
+      }
+    },
+    "名称" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Name" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "名称" } }
+      }
+    },
+    "工作空间名称" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace name" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "工作空间名称" } }
+      }
+    },
+    "工作空间已保存" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace saved" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "工作空间已保存" } }
+      }
+    },
+    "工作空间已删除" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace deleted" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "工作空间已删除" } }
+      }
+    },
+    "工作空间顺序已更新" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace order updated" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "工作空间顺序已更新" } }
+      }
+    },
+    "工作空间颜色已重新生成" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace colors regenerated" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "工作空间颜色已重新生成" } }
+      }
+    },
+    "已取消收藏" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Removed from favorites" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已取消收藏" } }
+      }
+    },
+    "已收藏" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Added to favorites" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已收藏" } }
+      }
+    },
+    "当前账号缺少 agent.read 权限，无法选择默认 Agent；已有值会保持不变。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The current account does not have agent.read permission, so a default Agent cannot be selected. Existing values remain unchanged." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "当前账号缺少 agent.read 权限，无法选择默认 Agent；已有值会保持不变。" } }
+      }
+    },
+    "当前账号缺少 file.read 权限，请手动输入 Quartet 服务所在设备上的绝对目录。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The current account does not have file.read permission. Enter an absolute directory on the device running Quartet." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "当前账号缺少 file.read 权限，请手动输入 Quartet 服务所在设备上的绝对目录。" } }
+      }
+    },
+    "当前没有可用的 Agent，仍可保存工作空间并使用系统默认值。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No Agent is currently available. You can still save the workspace and use the system default." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "当前没有可用的 Agent，仍可保存工作空间并使用系统默认值。" } }
+      }
+    },
+    "当前账号没有 workspace.write 权限，只能查看工作空间。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The current account does not have workspace.write permission, so workspaces are read-only." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "当前账号没有 workspace.write 权限，只能查看工作空间。" } }
+      }
+    },
+    "描述" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Description" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "描述" } }
+      }
+    },
+    "新建对话选择这个工作空间时，默认使用这里的 Agent 和模型。Web 与 iOS 共用此配置。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New conversations in this workspace use this Agent and model by default. Web and iOS share this configuration." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "新建对话选择这个工作空间时，默认使用这里的 Agent 和模型。Web 与 iOS 共用此配置。" } }
+      }
+    },
+    "新建工作空间" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Workspace" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "新建工作空间" } }
+      }
+    },
+    "暂无工作空间" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No workspaces" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "暂无工作空间" } }
+      }
+    },
+    "更多操作" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "More actions" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "更多操作" } }
+      }
+    },
+    "正在加载工作空间…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading workspaces…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正在加载工作空间…" } }
+      }
+    },
+    "浏览根目录" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browse Root" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "浏览根目录" } }
+      }
+    },
+    "浏览目录" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browse directories" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "浏览目录" } }
+      }
+    },
+    "目录选择器浏览的是 Quartet 服务所在设备，而不是当前 iPhone。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The directory picker browses the device running Quartet, not this iPhone." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "目录选择器浏览的是 Quartet 服务所在设备，而不是当前 iPhone。" } }
+      }
+    },
+    "编辑" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "编辑" } }
+      }
+    },
+    "编辑工作空间" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit Workspace" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "编辑工作空间" } }
+      }
+    },
+    "选择工作目录" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Select Work Directory" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "选择工作目录" } }
+      }
+    },
+    "选择默认 Agent" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Select Default Agent" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "选择默认 Agent" } }
+      }
+    },
+    "配置 Agent 的工作目录和默认模型。这里的修改会与 Web 端设置同步。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Configure Agent work directories and default models. Changes are shared with Web settings." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "配置 Agent 的工作目录和默认模型。这里的修改会与 Web 端设置同步。" } }
+      }
+    },
+    "重新生成颜色" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Regenerate Colors" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重新生成颜色" } }
+      }
+    },
+    "项目" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Projects" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "项目" } }
+      }
+    },
+    "默认 Agent" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Default Agent" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "默认 Agent" } }
+      }
+    },
+    "默认工作空间 ID 为 ws-1，可以改名和修改路径，但不能删除。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The default workspace ID is ws-1. You can rename it or change its path, but cannot delete it." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "默认工作空间 ID 为 ws-1，可以改名和修改路径，但不能删除。" } }
+      }
+    },
+    "默认工作空间 ws-1 应由后端自动创建，请检查后端状态。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The backend should create the default workspace ws-1 automatically. Check the backend status." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "默认工作空间 ws-1 应由后端自动创建，请检查后端状态。" } }
+      }
+    },
+    "默认运行参数" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Default Run Settings" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "默认运行参数" } }
+      }
+    },
+    "默认：%@ / %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Default: %1$@ / %2$@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "默认：%1$@ / %2$@" } }
+      }
+    },
+    "%lld 个目录" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld directories" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%lld 个目录" } }
+      }
+    },
     "图工作流到达“使用全局默认脚本”的终点结点时执行的默认副作用脚本。输出会被忽略，失败只打日志。可用环境变量：$QUARTET_JOB_TITLE、$QUARTET_JOB_ID、$QUARTET_RUN_ID、$QUARTET_NODE_ID、$QUARTET_NODE_TITLE、$QUARTET_NODE_TYPE、$QUARTET_LAST_ASSISTANT。" : {
       "localizations" : {
         "en" : {
