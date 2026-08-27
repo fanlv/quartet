@@ -491,6 +491,7 @@ private enum ImageMarkupWidth: String, CaseIterable, Equatable, Identifiable {
     case thin
     case medium
     case thick
+    case extraThick
 
     var id: String { rawValue }
 
@@ -499,6 +500,7 @@ private enum ImageMarkupWidth: String, CaseIterable, Equatable, Identifiable {
         case .thin: "细"
         case .medium: "中"
         case .thick: "粗"
+        case .extraThick: "特粗"
         }
     }
 
@@ -507,6 +509,7 @@ private enum ImageMarkupWidth: String, CaseIterable, Equatable, Identifiable {
         case .thin: 0.006
         case .medium: 0.012
         case .thick: 0.024
+        case .extraThick: 0.05
         }
     }
 
@@ -515,6 +518,7 @@ private enum ImageMarkupWidth: String, CaseIterable, Equatable, Identifiable {
         case .thin: 5
         case .medium: 9
         case .thick: 14
+        case .extraThick: 22
         }
     }
 }
@@ -546,6 +550,9 @@ private struct ImageMarkupItem: Identifiable {
 }
 
 private struct ImageCropCanvas: View {
+    private static let gestureCoordinateSpace = "imageCropCanvas"
+    private static let handleHitSize: CGFloat = 68
+
     private enum Handle: CaseIterable, Hashable, Identifiable {
         case topLeft
         case topRight
@@ -604,6 +611,7 @@ private struct ImageCropCanvas: View {
                     cropHandle(handle, cropFrame: cropFrame, imageFrame: imageFrame)
                 }
             }
+            .coordinateSpace(name: Self.gestureCoordinateSpace)
         }
         .frame(maxHeight: .infinity)
     }
@@ -619,16 +627,17 @@ private struct ImageCropCanvas: View {
                 .frame(width: 14, height: 14)
                 .overlay(Circle().stroke(QuartetTheme.accent, lineWidth: 2))
         }
-        .frame(width: 44, height: 44)
+        .frame(width: Self.handleHitSize, height: Self.handleHitSize)
         .position(point)
         .contentShape(Rectangle())
         .gesture(resizeGesture(handle, in: imageFrame))
+        .zIndex(1)
         .accessibilityLabel(handle.accessibilityLabel.localizedForApp)
         .accessibilityHint("拖动以调整裁剪区域".localizedForApp)
     }
 
     private func moveGesture(in imageFrame: CGRect) -> some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.gestureCoordinateSpace))
             .onChanged { value in
                 let start = gestureStartRect ?? cropRect
                 if gestureStartRect == nil { gestureStartRect = start }
@@ -648,7 +657,7 @@ private struct ImageCropCanvas: View {
     }
 
     private func resizeGesture(_ handle: Handle, in imageFrame: CGRect) -> some Gesture {
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.gestureCoordinateSpace))
             .onChanged { value in
                 let start = gestureStartRect ?? cropRect
                 if gestureStartRect == nil { gestureStartRect = start }
