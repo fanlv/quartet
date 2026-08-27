@@ -181,32 +181,73 @@ struct ChatAttachmentPreview: View {
 
 struct ChatPendingAttachmentStrip: View {
     let uploads: [PendingUpload]
+    var onEdit: ((Int) -> Void)? = nil
     let onRemove: (Int) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 ForEach(Array(uploads.enumerated()), id: \.offset) { index, upload in
-                    ChatAttachmentPreview(upload: upload)
-                        .frame(width: 260)
-                        .overlay(alignment: .topTrailing) {
-                            Button {
-                                onRemove(index)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.chat(.compact, weight: .bold))
-                                    .foregroundStyle(QuartetTheme.primaryText)
-                                    .frame(width: 28, height: 28)
-                                    .background(.thinMaterial, in: Circle())
+                    ZStack(alignment: .topTrailing) {
+                        Group {
+                            if upload.isImage, let onEdit {
+                                Button { onEdit(index) } label: {
+                                    editableImagePreview(upload)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("编辑图片".localizedForApp)
+                                .accessibilityHint(upload.filename)
+                            } else {
+                                ChatAttachmentPreview(upload: upload)
+                                    .frame(width: 260)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("移除附件")
-                            .accessibilityHint(upload.filename)
-                            .padding(8)
                         }
+
+                        Button {
+                            onRemove(index)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.chat(.compact, weight: .bold))
+                                .foregroundStyle(QuartetTheme.primaryText)
+                                .frame(width: 28, height: 28)
+                                .background(.thinMaterial, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("移除附件")
+                        .accessibilityHint(upload.filename)
+                        .padding(8)
+                    }
                 }
             }
         }
+    }
+
+    private func editableImagePreview(_ upload: PendingUpload) -> some View {
+        ZStack(alignment: .bottom) {
+            if let image = UIImage(data: upload.data) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                QuartetTheme.elevated
+                Image(systemName: "photo")
+                    .font(.chat(.large))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+
+            Text("编辑".localizedForApp)
+                .font(.chat(.detail, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .background(Color.black.opacity(0.66))
+        }
+        .frame(width: 104, height: 104)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(QuartetTheme.divider, lineWidth: 1)
+        )
     }
 }
 

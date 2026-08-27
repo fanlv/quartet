@@ -140,9 +140,9 @@ struct NewConversationView: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var pendingAttachments: [PendingUpload] = []
     @State private var attachmentImportCount = 0
-    @State private var queuedImageEdits: [ImageAttachmentEditRequest] = []
     @State private var activeImageEdit: ImageAttachmentEditRequest?
-    @State private var imageEditFailures: [String] = []
+    @State private var editingAttachmentIndex: Int?
+    @State private var deferredImageEditError: PresentedError?
     @State private var showsPhotoPicker = false
     @State private var showsCameraPicker = false
     @State private var showsDocumentPicker = false
@@ -283,9 +283,6 @@ struct NewConversationView: View {
                 guard !items.isEmpty else { return }
                 Task { await loadPhotos(items) }
             }
-            .onChange(of: showsPhotoPicker) { _, isPresented in
-                if !isPresented { presentNextImageEditor() }
-            }
             .photosPicker(
                 isPresented: $showsPhotoPicker,
                 selection: $selectedPhotos,
@@ -323,14 +320,11 @@ struct NewConversationView: View {
                     await loadAgentUsageSummaries()
                 }
             }
-            .sheet(isPresented: $showsCameraPicker, onDismiss: presentNextImageEditor) {
+            .sheet(isPresented: $showsCameraPicker) {
                 CameraImagePicker(
                     onImagePicked: { image in
                         showsCameraPicker = false
-                        enqueueImageForEditing(
-                            image,
-                            suggestedFilename: "camera-\(UUID().uuidString).jpg"
-                        )
+                        addCameraImage(image)
                     },
                     onCancel: { showsCameraPicker = false }
                 )
@@ -505,7 +499,10 @@ struct NewConversationView: View {
             }
 
             if !pendingAttachments.isEmpty {
-                ChatPendingAttachmentStrip(uploads: pendingAttachments) { index in
+                ChatPendingAttachmentStrip(
+                    uploads: pendingAttachments,
+                    onEdit: { index in editImageAttachment(at: index) }
+                ) { index in
                     pendingAttachments.remove(at: index)
                 }
             }
@@ -1193,73 +1190,95 @@ struct NewConversationView: View {
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         attachmentImportCount += 1
         defer { attachmentImportCount -= 1 }
-        var editRequests: [ImageAttachmentEditRequest] = []
+        var uploads: [PendingUpload] = []
         var failures: [String] = []
         for (index, item) in items.enumerated() {
             do {
                 guard let data = try await item.loadTransferable(type: Data.self) else {
                     throw APIError(summary: "图片为空", detail: "照片选择器没有返回图片数据。")
                 }
-                guard let image = UIImage(data: data) else {
-                    throw APIError(summary: "图片数据无效", detail: "无法解析所选图片。")
-                }
                 let contentType = item.supportedContentTypes.first
-                editRequests.append(ImageAttachmentEditRequest(
-                    image: image,
-                    suggestedFilename: "ios-\(UUID().uuidString).\(contentType?.preferredFilenameExtension ?? "jpg")"
+                uploads.append(try ChatAttachmentProcessor.prepareImageUpload(
+                    data: data,
+                    suggestedFilename: "ios-\(UUID().uuidString).\(contentType?.preferredFilenameExtension ?? "jpg")",
+                    contentType: contentType
                 ))
             } catch {
                 failures.append("第 \(index + 1) 张图片：\(attachmentErrorDetail(error))")
             }
         }
         selectedPhotos = []
-        queuedImageEdits.append(contentsOf: editRequests)
-        imageEditFailures.append(contentsOf: failures)
-        presentNextImageEditor()
+        pendingAttachments.append(contentsOf: uploads)
+        presentAttachmentFailures(failures)
     }
 
-    private func enqueueImageForEditing(_ image: UIImage, suggestedFilename: String) {
-        queuedImageEdits.append(ImageAttachmentEditRequest(
-            image: image,
-            suggestedFilename: suggestedFilename
-        ))
+    private func addCameraImage(_ image: UIImage) {
+        do {
+            pendingAttachments.append(try ChatAttachmentProcessor.prepareImageUpload(
+                image: image,
+                suggestedFilename: "camera-\(UUID().uuidString).jpg"
+            ))
+        } catch {
+            present(error)
+        }
     }
 
-    private func presentNextImageEditor() {
-        guard !showsPhotoPicker, !showsCameraPicker, activeImageEdit == nil else { return }
-        guard !queuedImageEdits.isEmpty else {
-            presentDeferredImageEditFailures()
+    private func editImageAttachment(at index: Int) {
+        guard pendingAttachments.indices.contains(index) else { return }
+        let upload = pendingAttachments[index]
+        guard upload.isImage, let image = UIImage(data: upload.data) else {
+            present(APIError(
+                summary: "图片数据无效".localizedForApp,
+                detail: AppLanguage.localizedFormat("无法打开 %@ 进行编辑。", upload.filename)
+            ))
             return
         }
-        activeImageEdit = queuedImageEdits.removeFirst()
+        composerFocused = false
+        editingAttachmentIndex = index
+        activeImageEdit = ImageAttachmentEditRequest(
+            image: image,
+            suggestedFilename: upload.filename
+        )
     }
 
     private func completeImageEditing(_ image: UIImage, suggestedFilename: String) {
         do {
-            pendingAttachments.append(try ChatAttachmentProcessor.prepareImageUpload(
+            let upload = try ChatAttachmentProcessor.prepareImageUpload(
                 image: image,
                 suggestedFilename: suggestedFilename
-            ))
+            )
+            guard let index = editingAttachmentIndex, pendingAttachments.indices.contains(index) else {
+                throw APIError(
+                    summary: "无法保存图片".localizedForApp,
+                    detail: "原附件已不存在，请重新选择图片。".localizedForApp
+                )
+            }
+            pendingAttachments[index] = upload
         } catch {
-            imageEditFailures.append(attachmentErrorDetail(error))
+            if let error = error as? APIError {
+                deferredImageEditError = PresentedError(title: error.summary, detail: error.detail)
+            } else {
+                deferredImageEditError = PresentedError(
+                    title: "图片编辑失败".localizedForApp,
+                    detail: String(describing: error)
+                )
+            }
         }
         activeImageEdit = nil
+        editingAttachmentIndex = nil
     }
 
     private func cancelImageEditing() {
-        queuedImageEdits.removeAll()
         activeImageEdit = nil
+        editingAttachmentIndex = nil
     }
 
     private func imageEditorDidDismiss() {
-        presentNextImageEditor()
-    }
-
-    private func presentDeferredImageEditFailures() {
-        guard !imageEditFailures.isEmpty else { return }
-        let failures = imageEditFailures
-        imageEditFailures = []
-        presentAttachmentFailures(failures)
+        editingAttachmentIndex = nil
+        if let deferredImageEditError {
+            self.deferredImageEditError = nil
+            localError = deferredImageEditError
+        }
     }
 
     private func loadDocuments(_ urls: [URL]) async {

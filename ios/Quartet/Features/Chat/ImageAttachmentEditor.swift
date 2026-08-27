@@ -9,9 +9,12 @@ struct ImageAttachmentEditRequest: Identifiable {
 
 @MainActor
 struct ImageAttachmentEditor: View {
-    private enum Stage: Equatable {
+    private enum Tool: Equatable {
+        case pen
+        case sticker
+        case text
         case crop
-        case markup
+        case mosaic
     }
 
     let request: ImageAttachmentEditRequest
@@ -19,15 +22,21 @@ struct ImageAttachmentEditor: View {
     let onComplete: @MainActor (UIImage, String) -> Void
 
     private let sourceImage: UIImage
+    private let mosaicImage: UIImage
 
-    @State private var stage: Stage
+    @State private var selectedTool: Tool?
+    @State private var canvasImage: UIImage
+    @State private var canvasMosaicImage: UIImage
     @State private var cropRect: CGRect
-    @State private var croppedImage: UIImage?
-    @State private var strokes: [ImageMarkupStroke]
-    @State private var redoStrokes: [ImageMarkupStroke]
+    @State private var markups: [ImageMarkupItem]
+    @State private var redoMarkups: [ImageMarkupItem]
     @State private var selectedColor: ImageMarkupColor
     @State private var selectedWidth: ImageMarkupWidth
-    @State private var selectedTool: ImageMarkupTool
+    @State private var textDraft: String
+    @State private var cropPreviewImage: UIImage?
+    @State private var cropUndoRects: [CGRect]
+    @State private var cropRedoRects: [CGRect]
+    @FocusState private var textFieldFocused: Bool
 
     init(
         request: ImageAttachmentEditRequest,
@@ -37,235 +46,280 @@ struct ImageAttachmentEditor: View {
         self.request = request
         self.onCancel = onCancel
         self.onComplete = onComplete
-        sourceImage = ImageAttachmentRenderer.preparedImage(request.image)
-        _stage = State(initialValue: .crop)
+        let preparedImage = ImageAttachmentRenderer.preparedImage(request.image)
+        sourceImage = preparedImage
+        let preparedMosaicImage = ImageAttachmentRenderer.mosaic(preparedImage)
+        mosaicImage = preparedMosaicImage
+        _selectedTool = State(initialValue: nil)
+        _canvasImage = State(initialValue: preparedImage)
+        _canvasMosaicImage = State(initialValue: preparedMosaicImage)
         _cropRect = State(initialValue: CGRect(x: 0, y: 0, width: 1, height: 1))
-        _croppedImage = State(initialValue: nil)
-        _strokes = State(initialValue: [])
-        _redoStrokes = State(initialValue: [])
+        _markups = State(initialValue: [])
+        _redoMarkups = State(initialValue: [])
         _selectedColor = State(initialValue: .red)
         _selectedWidth = State(initialValue: .medium)
-        _selectedTool = State(initialValue: .pen)
+        _textDraft = State(initialValue: "")
+        _cropPreviewImage = State(initialValue: nil)
+        _cropUndoRects = State(initialValue: [])
+        _cropRedoRects = State(initialValue: [])
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                stageHeader
+        ZStack {
+            Color.black.ignoresSafeArea()
 
-                switch stage {
-                case .crop:
-                    cropEditor
-                case .markup:
-                    markupEditor
-                }
-            }
-            .background(QuartetTheme.canvas)
-            .navigationTitle("编辑图片".localizedForApp)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭".localizedForApp) { onCancel() }
-                        .accessibilityHint("不添加当前图片，并停止编辑其余图片".localizedForApp)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    switch stage {
-                    case .crop:
-                        Button("下一步".localizedForApp) { advanceToMarkup() }
-                            .font(.quartet(.control, weight: .semibold))
-                    case .markup:
-                        Button("完成".localizedForApp) { finishEditing() }
-                            .font(.quartet(.control, weight: .semibold))
-                    }
-                }
+            VStack(spacing: 0) {
+                topBar
+                editorCanvas
+                toolOptions
+                bottomToolbar
             }
         }
+        .preferredColorScheme(.dark)
         .interactiveDismissDisabled()
     }
 
-    private var stageHeader: some View {
-        HStack(spacing: 8) {
-            stagePill(title: "1  裁剪", active: stage == .crop)
-            Rectangle()
-                .fill(QuartetTheme.divider)
-                .frame(width: 28, height: 1)
-                .accessibilityHidden(true)
-            stagePill(title: "2  标记", active: stage == .markup)
+    private var topBar: some View {
+        HStack(spacing: 10) {
+            Button("取消".localizedForApp) { onCancel() }
+                .font(.quartet(.regular))
+                .foregroundStyle(Color.white)
+                .frame(minWidth: 52, minHeight: 48, alignment: .leading)
+                .accessibilityHint("放弃这次图片编辑".localizedForApp)
+
+            Spacer()
+
+            editorIconButton(
+                title: "撤销",
+                systemImage: "arrow.uturn.backward",
+                disabled: !canUndo,
+                action: undo
+            )
+            editorIconButton(
+                title: "重做",
+                systemImage: "arrow.uturn.forward",
+                disabled: !canRedo,
+                action: redo
+            )
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(QuartetTheme.surface)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(stage == .crop
-            ? "图片编辑，第 1 步，共 2 步：裁剪".localizedForApp
-            : "图片编辑，第 2 步，共 2 步：标记".localizedForApp)
-    }
-
-    private func stagePill(title: String, active: Bool) -> some View {
-        Text(title.localizedForApp)
-            .font(.quartet(.detail, weight: .semibold))
-            .foregroundStyle(active ? QuartetTheme.onAccent : QuartetTheme.secondaryText)
-            .padding(.horizontal, 12)
-            .frame(minHeight: 30)
-            .background(active ? QuartetTheme.accent : QuartetTheme.elevated, in: Capsule())
-    }
-
-    private var cropEditor: some View {
-        VStack(spacing: 14) {
-            Text("拖动裁剪框或四角控制点，保留需要的画面。".localizedForApp)
-                .font(.quartet(.detail))
-                .foregroundStyle(QuartetTheme.secondaryText)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 18)
-
-            ImageCropCanvas(image: sourceImage, cropRect: $cropRect)
-                .accessibilityLabel("调整图片裁剪区域".localizedForApp)
-                .accessibilityHint("拖动裁剪框移动区域，拖动四角改变大小。".localizedForApp)
-
-            Button {
-                cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
-            } label: {
-                Label("重置裁剪".localizedForApp, systemImage: "arrow.counterclockwise")
-                    .font(.quartet(.control, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(QuartetTheme.accent)
-            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .padding(.horizontal, 18)
-            .padding(.bottom, 12)
-        }
-        .padding(.top, 14)
+        .frame(height: 58)
     }
 
     @ViewBuilder
-    private var markupEditor: some View {
-        if let croppedImage {
-            VStack(spacing: 12) {
-                Text("直接在图片上拖动画笔进行标记。".localizedForApp)
-                    .font(.quartet(.detail))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 18)
-
-                ImageMarkupCanvas(
-                    image: croppedImage,
-                    strokes: $strokes,
-                    redoStrokes: $redoStrokes,
-                    tool: selectedTool,
-                    color: selectedColor,
-                    width: selectedWidth
-                )
-                .accessibilityLabel("在图片上画线标记".localizedForApp)
-                .accessibilityHint("单指拖动即可画线。".localizedForApp)
-
-                markupToolbar
-            }
-            .padding(.top, 14)
+    private var editorCanvas: some View {
+        if selectedTool == .crop {
+            ImageCropCanvas(
+                image: cropPreviewImage ?? sourceImage,
+                cropRect: $cropRect,
+                onCropCommitted: recordCropChange
+            )
+                .accessibilityLabel("调整图片裁剪区域".localizedForApp)
+                .accessibilityHint("拖动裁剪框移动区域，拖动四角改变大小。".localizedForApp)
+        } else {
+            ImageMarkupCanvas(
+                image: canvasImage,
+                mosaicImage: canvasMosaicImage,
+                sourceImageSize: sourceImage.size,
+                cropRect: cropRect,
+                markups: $markups,
+                redoMarkups: $redoMarkups,
+                drawingTool: selectedTool == .mosaic ? .mosaic : (selectedTool == .pen ? .pen : nil),
+                color: selectedColor,
+                width: selectedWidth
+            )
+            .accessibilityLabel("编辑图片标记".localizedForApp)
+            .accessibilityHint(canvasAccessibilityHint)
+            .simultaneousGesture(TapGesture().onEnded { textFieldFocused = false })
         }
     }
 
-    private var markupToolbar: some View {
-        VStack(spacing: 12) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(ImageMarkupColor.allCases) { color in
-                        Button {
-                            selectedTool = .pen
-                            selectedColor = color
-                        } label: {
-                            Circle()
-                                .fill(color.color)
-                                .frame(width: 28, height: 28)
-                                .padding(4)
-                                .overlay {
-                                    Circle()
-                                        .stroke(
-                                            selectedTool == .pen && selectedColor == color
-                                                ? QuartetTheme.accent
-                                                : QuartetTheme.divider,
-                                            lineWidth: selectedTool == .pen && selectedColor == color ? 3 : 1
-                                        )
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .accessibilityLabel(AppLanguage.localizedFormat("%@画笔", color.title.localizedForApp))
-                        .accessibilityAddTraits(selectedTool == .pen && selectedColor == color ? .isSelected : [])
-                    }
-
-                    Divider().frame(height: 28)
-
-                    Button { selectedTool = .eraser } label: {
-                        Label("橡皮擦".localizedForApp, systemImage: "eraser.fill")
-                            .font(.quartet(.control, weight: .semibold))
-                            .padding(.horizontal, 12)
-                            .frame(minHeight: 40)
-                            .foregroundStyle(selectedTool == .eraser ? QuartetTheme.onAccent : QuartetTheme.primaryText)
-                            .background(selectedTool == .eraser ? QuartetTheme.accent : QuartetTheme.elevated, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selectedTool == .eraser ? .isSelected : [])
-                }
-                .padding(.horizontal, 18)
+    @ViewBuilder
+    private var toolOptions: some View {
+        switch selectedTool {
+        case nil:
+            Color.clear
+                .frame(height: 58)
+        case .some(.pen):
+            HStack(spacing: 10) {
+                colorPicker
+                widthPicker
             }
-
-            HStack(spacing: 8) {
-                ForEach(ImageMarkupWidth.allCases) { width in
-                    Button { selectedWidth = width } label: {
-                        Text(width.title.localizedForApp)
-                            .font(.quartet(.detail, weight: .semibold))
-                            .foregroundStyle(selectedWidth == width ? QuartetTheme.onAccent : QuartetTheme.primaryText)
-                            .frame(minWidth: 42, minHeight: 38)
-                            .background(selectedWidth == width ? QuartetTheme.accent : QuartetTheme.elevated, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(AppLanguage.localizedFormat("画笔粗细：%@", width.title.localizedForApp))
-                    .accessibilityAddTraits(selectedWidth == width ? .isSelected : [])
-                }
-
-                Spacer(minLength: 4)
-
-                editorIconButton(
-                    title: "撤销",
-                    systemImage: "arrow.uturn.backward",
-                    disabled: strokes.isEmpty
-                ) {
-                    guard let stroke = strokes.popLast() else { return }
-                    redoStrokes.append(stroke)
-                }
-                editorIconButton(
-                    title: "重做",
-                    systemImage: "arrow.uturn.forward",
-                    disabled: redoStrokes.isEmpty
-                ) {
-                    guard let stroke = redoStrokes.popLast() else { return }
-                    strokes.append(stroke)
-                }
-                editorIconButton(
-                    title: "清除标记",
-                    systemImage: "trash",
-                    disabled: strokes.isEmpty
-                ) {
-                    redoStrokes.append(contentsOf: strokes.reversed())
-                    strokes.removeAll()
-                }
+            .padding(.horizontal, 16)
+            .frame(height: 58)
+        case .some(.mosaic):
+            HStack {
+                Text("马赛克粗细".localizedForApp)
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.72))
+                Spacer()
+                widthPicker
             }
             .padding(.horizontal, 18)
-
-            Button {
-                stage = .crop
-            } label: {
-                Label("返回裁剪".localizedForApp, systemImage: "crop")
-                    .font(.quartet(.control, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(height: 58)
+        case .some(.sticker):
+            stickerPicker
+                .frame(height: 58)
+        case .some(.text):
+            VStack(spacing: 2) {
+                colorPicker
+                    .frame(height: 42)
+                textEntry
+                    .frame(height: 48)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(QuartetTheme.accent)
-            .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .frame(height: 90)
+        case .some(.crop):
+            HStack {
+                Text("拖动边框调整裁剪区域".localizedForApp)
+                    .font(.quartet(.detail))
+                    .foregroundStyle(Color.white.opacity(0.7))
+                Spacer()
+                Button("还原".localizedForApp) {
+                    let fullImageRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+                    guard cropRect != fullImageRect else { return }
+                    cropUndoRects.append(cropRect)
+                    cropRedoRects.removeAll()
+                    cropRect = fullImageRect
+                }
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(Color.white)
+            }
             .padding(.horizontal, 18)
+            .frame(height: 58)
         }
-        .padding(.bottom, 12)
+    }
+
+    private var colorPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(ImageMarkupColor.allCases) { color in
+                    Button { selectedColor = color } label: {
+                        Circle()
+                            .fill(color.color)
+                            .frame(width: 24, height: 24)
+                            .padding(4)
+                            .overlay {
+                                Circle()
+                                    .stroke(Color.white.opacity(selectedColor == color ? 0.95 : 0.22), lineWidth: selectedColor == color ? 2 : 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .frame(minWidth: 40, minHeight: 44)
+                    .accessibilityLabel(color.title.localizedForApp)
+                    .accessibilityAddTraits(selectedColor == color ? .isSelected : [])
+                }
+            }
+        }
+    }
+
+    private var widthPicker: some View {
+        HStack(spacing: 4) {
+            ForEach(ImageMarkupWidth.allCases) { width in
+                Button { selectedWidth = width } label: {
+                    Circle()
+                        .fill(selectedWidth == width ? QuartetTheme.accent : Color.white.opacity(0.68))
+                        .frame(width: width.previewDiameter, height: width.previewDiameter)
+                        .frame(width: 34, height: 40)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(AppLanguage.localizedFormat("画笔粗细：%@", width.title.localizedForApp))
+                .accessibilityAddTraits(selectedWidth == width ? .isSelected : [])
+            }
+        }
+    }
+
+    private var stickerPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(["👍", "❤️", "😂", "😮", "✅", "❗️", "⭐️", "👀"], id: \.self) { sticker in
+                    Button { addSticker(sticker) } label: {
+                        Text(sticker)
+                            .font(.quartet(.large))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(AppLanguage.localizedFormat("添加贴纸 %@", sticker))
+                }
+            }
+            .padding(.horizontal, 12)
+        }
+    }
+
+    private var textEntry: some View {
+        HStack(spacing: 10) {
+            TextField("输入文字".localizedForApp, text: $textDraft)
+                .font(.quartet(.control))
+                .foregroundStyle(Color.white)
+                .focused($textFieldFocused)
+                .submitLabel(.done)
+                .onSubmit(addTextMarkup)
+                .padding(.horizontal, 12)
+                .frame(height: 40)
+                .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            Button("添加".localizedForApp, action: addTextMarkup)
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(textDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.white.opacity(0.35) : QuartetTheme.accent)
+                .disabled(textDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var bottomToolbar: some View {
+        HStack(spacing: 2) {
+            toolButton(.pen, title: "画笔", systemImage: "pencil.tip")
+            toolButton(.sticker, title: "贴纸", systemImage: "face.smiling")
+            toolButton(.text, title: "文字", systemImage: "character.cursor.ibeam")
+            toolButton(.crop, title: "裁剪", systemImage: "crop")
+            toolButton(.mosaic, title: "马赛克", systemImage: "square.grid.3x3.fill")
+
+            Spacer(minLength: 4)
+
+            Button("完成".localizedForApp) { finishEditing() }
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .accessibilityHint("保存编辑并返回新任务".localizedForApp)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .background(Color.black.opacity(0.96))
+    }
+
+    private func toolButton(_ tool: Tool, title: String, systemImage: String) -> some View {
+        Button {
+            let wasCropping = selectedTool == .crop
+            selectedTool = tool
+            cropPreviewImage = tool == .crop
+                ? ImageAttachmentRenderer.renderMarkup(markups, over: sourceImage, mosaicImage: mosaicImage)
+                : nil
+            if wasCropping, tool != .crop { refreshCanvasImages() }
+            if tool == .text {
+                Task { @MainActor in
+                    await Task.yield()
+                    textFieldFocused = true
+                }
+            } else {
+                textFieldFocused = false
+            }
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.quartet(.headline, weight: .medium))
+                    .frame(width: 30, height: 24)
+                Circle()
+                    .fill(selectedTool == tool ? QuartetTheme.accent : Color.clear)
+                    .frame(width: 4, height: 4)
+            }
+            .foregroundStyle(selectedTool == tool ? QuartetTheme.accent : Color.white)
+            .frame(minWidth: 36, minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title.localizedForApp)
+        .accessibilityAddTraits(selectedTool == tool ? .isSelected : [])
     }
 
     private func editorIconButton(
@@ -276,31 +330,126 @@ struct ImageAttachmentEditor: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.quartet(.control, weight: .semibold))
-                .frame(width: 38, height: 38)
-                .background(QuartetTheme.elevated, in: Circle())
+                .font(.quartet(.headline, weight: .medium))
+                .frame(width: 44, height: 44)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(disabled ? QuartetTheme.secondaryText.opacity(0.45) : QuartetTheme.primaryText)
+        .foregroundStyle(disabled ? Color.white.opacity(0.26) : Color.white)
         .disabled(disabled)
         .accessibilityLabel(title.localizedForApp)
     }
 
-    private func advanceToMarkup() {
-        croppedImage = ImageAttachmentRenderer.crop(sourceImage, to: cropRect)
-        stage = .markup
+    private func undo() {
+        textFieldFocused = false
+        if selectedTool == .crop, let previous = cropUndoRects.popLast() {
+            cropRedoRects.append(cropRect)
+            cropRect = previous
+            return
+        }
+        guard let markup = markups.popLast() else { return }
+        redoMarkups.append(markup)
+        refreshCropPreviewIfNeeded()
+    }
+
+    private func redo() {
+        textFieldFocused = false
+        if selectedTool == .crop, let next = cropRedoRects.popLast() {
+            cropUndoRects.append(cropRect)
+            cropRect = next
+            return
+        }
+        guard let markup = redoMarkups.popLast() else { return }
+        markups.append(markup)
+        refreshCropPreviewIfNeeded()
+    }
+
+    private var canUndo: Bool {
+        selectedTool == .crop ? (!cropUndoRects.isEmpty || !markups.isEmpty) : !markups.isEmpty
+    }
+
+    private var canRedo: Bool {
+        selectedTool == .crop ? (!cropRedoRects.isEmpty || !redoMarkups.isEmpty) : !redoMarkups.isEmpty
+    }
+
+    private func recordCropChange(from previous: CGRect) {
+        guard previous != cropRect else { return }
+        cropUndoRects.append(previous)
+        cropRedoRects.removeAll()
+    }
+
+    private func refreshCropPreviewIfNeeded() {
+        guard selectedTool == .crop else { return }
+        cropPreviewImage = ImageAttachmentRenderer.renderMarkup(markups, over: sourceImage, mosaicImage: mosaicImage)
+    }
+
+    private func refreshCanvasImages() {
+        canvasImage = ImageAttachmentRenderer.crop(sourceImage, to: cropRect)
+        canvasMosaicImage = ImageAttachmentRenderer.crop(mosaicImage, to: cropRect)
+    }
+
+    private var canvasAccessibilityHint: String {
+        switch selectedTool {
+        case nil: "选择下方工具开始编辑。".localizedForApp
+        case .some(.pen): "单指拖动即可画线。".localizedForApp
+        case .some(.mosaic): "单指涂抹需要遮挡的区域。".localizedForApp
+        case .some(.sticker), .some(.text): "拖动已添加的文字或贴纸可调整位置。".localizedForApp
+        case .some(.crop): ""
+        }
+    }
+
+    private func addSticker(_ sticker: String) {
+        appendMarkup(.text(ImageTextMarkup(
+            text: sticker,
+            color: .white,
+            position: nextMarkupPosition(),
+            relativeFontSize: relativeFontSize(multiplier: 1.35),
+            isSticker: true
+        )))
+    }
+
+    private func addTextMarkup() {
+        let text = textDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        appendMarkup(.text(ImageTextMarkup(
+            text: text,
+            color: selectedColor,
+            position: nextMarkupPosition(),
+            relativeFontSize: relativeFontSize(multiplier: 1),
+            isSticker: false
+        )))
+        textDraft = ""
+        textFieldFocused = false
+    }
+
+    private func appendMarkup(_ content: ImageMarkupItem.Content) {
+        markups.append(ImageMarkupItem(content: content))
+        redoMarkups.removeAll()
+    }
+
+    private func nextMarkupPosition() -> CGPoint {
+        let offset = CGFloat(markups.count % 4) * 0.035
+        return CGPoint(
+            x: min(cropRect.maxX, cropRect.midX + offset),
+            y: min(cropRect.maxY, cropRect.midY + offset)
+        )
+    }
+
+    private func relativeFontSize(multiplier: CGFloat) -> CGFloat {
+        let visibleMinimum = min(sourceImage.size.width * cropRect.width, sourceImage.size.height * cropRect.height)
+        return 0.072 * multiplier * visibleMinimum / max(1, min(sourceImage.size.width, sourceImage.size.height))
     }
 
     private func finishEditing() {
-        guard let croppedImage else { return }
-        let result = ImageAttachmentRenderer.renderMarkup(strokes, over: croppedImage)
+        textFieldFocused = false
+        let marked = ImageAttachmentRenderer.renderMarkup(markups, over: sourceImage, mosaicImage: mosaicImage)
+        let result = ImageAttachmentRenderer.crop(marked, to: cropRect)
         onComplete(result, request.suggestedFilename)
     }
 }
 
 private enum ImageMarkupTool: Equatable {
     case pen
-    case eraser
+    case mosaic
 }
 
 private enum ImageMarkupColor: String, CaseIterable, Equatable, Identifiable {
@@ -360,6 +509,14 @@ private enum ImageMarkupWidth: String, CaseIterable, Equatable, Identifiable {
         case .thick: 0.024
         }
     }
+
+    var previewDiameter: CGFloat {
+        switch self {
+        case .thin: 5
+        case .medium: 9
+        case .thick: 14
+        }
+    }
 }
 
 private struct ImageMarkupStroke: Identifiable {
@@ -367,7 +524,25 @@ private struct ImageMarkupStroke: Identifiable {
     let points: [CGPoint]
     let tool: ImageMarkupTool
     let color: ImageMarkupColor
-    let width: ImageMarkupWidth
+    let relativeLineWidth: CGFloat
+}
+
+private struct ImageTextMarkup {
+    let text: String
+    let color: ImageMarkupColor
+    var position: CGPoint
+    let relativeFontSize: CGFloat
+    let isSticker: Bool
+}
+
+private struct ImageMarkupItem: Identifiable {
+    enum Content {
+        case stroke(ImageMarkupStroke)
+        case text(ImageTextMarkup)
+    }
+
+    let id = UUID()
+    var content: Content
 }
 
 private struct ImageCropCanvas: View {
@@ -391,6 +566,7 @@ private struct ImageCropCanvas: View {
 
     let image: UIImage
     @Binding var cropRect: CGRect
+    let onCropCommitted: @MainActor (CGRect) -> Void
 
     @State private var gestureStartRect: CGRect?
 
@@ -428,7 +604,6 @@ private struct ImageCropCanvas: View {
                     cropHandle(handle, cropFrame: cropFrame, imageFrame: imageFrame)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .frame(maxHeight: .infinity)
     }
@@ -466,7 +641,10 @@ private struct ImageCropCanvas: View {
                     height: start.height
                 )
             }
-            .onEnded { _ in gestureStartRect = nil }
+            .onEnded { _ in
+                if let start = gestureStartRect { onCropCommitted(start) }
+                gestureStartRect = nil
+            }
     }
 
     private func resizeGesture(_ handle: Handle, in imageFrame: CGRect) -> some Gesture {
@@ -487,7 +665,10 @@ private struct ImageCropCanvas: View {
                     minimumHeight: minimumHeight
                 )
             }
-            .onEnded { _ in gestureStartRect = nil }
+            .onEnded { _ in
+                if let start = gestureStartRect { onCropCommitted(start) }
+                gestureStartRect = nil
+            }
     }
 
     private func resizedRect(
@@ -566,105 +747,212 @@ private struct CropGrid: Shape {
 
 private struct ImageMarkupCanvas: View {
     let image: UIImage
-    @Binding var strokes: [ImageMarkupStroke]
-    @Binding var redoStrokes: [ImageMarkupStroke]
-    let tool: ImageMarkupTool
+    let mosaicImage: UIImage
+    let sourceImageSize: CGSize
+    let cropRect: CGRect
+    @Binding var markups: [ImageMarkupItem]
+    @Binding var redoMarkups: [ImageMarkupItem]
+    let drawingTool: ImageMarkupTool?
     let color: ImageMarkupColor
     let width: ImageMarkupWidth
 
     @State private var currentPoints: [CGPoint] = []
+    @State private var dragStartPositions: [UUID: CGPoint] = [:]
 
     var body: some View {
         GeometryReader { proxy in
             let imageFrame = aspectFitFrame(contentSize: image.size, containerSize: proxy.size)
 
             ZStack(alignment: .topLeading) {
-                Color.black.opacity(0.92)
+                Color.black
 
-                Image(uiImage: image)
-                    .resizable()
-                    .frame(width: imageFrame.width, height: imageFrame.height)
-                    .position(x: imageFrame.midX, y: imageFrame.midY)
+                ZStack(alignment: .topLeading) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .frame(width: imageFrame.width, height: imageFrame.height)
 
-                drawingLayer(size: imageFrame.size)
+                    drawingLayer(size: imageFrame.size, mosaicImage: mosaicImage)
+
+                    ForEach(textMarkups) { markup in
+                        textOverlay(markup, imageSize: imageFrame.size)
+                    }
+
+                    if drawingTool != nil {
+                        Rectangle()
+                            .fill(Color.clear)
+                            .contentShape(Rectangle())
+                            .frame(width: imageFrame.width, height: imageFrame.height)
+                            .gesture(drawingGesture(in: imageFrame.size))
+                    }
+                }
                     .frame(width: imageFrame.width, height: imageFrame.height)
                     .position(x: imageFrame.midX, y: imageFrame.midY)
                     .clipped()
-                    .contentShape(Rectangle())
-                    .gesture(drawingGesture(in: imageFrame.size))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .frame(maxHeight: .infinity)
     }
 
-    private func drawingLayer(size: CGSize) -> some View {
+    private var textMarkups: [ImageMarkupItem] {
+        markups.filter { markup in
+            if case .text = markup.content { return true }
+            return false
+        }
+    }
+
+    private func drawingLayer(size: CGSize, mosaicImage: UIImage) -> some View {
         Canvas { context, canvasSize in
-            for stroke in strokes {
-                draw(stroke, in: &context, size: canvasSize)
+            for markup in markups {
+                guard case .stroke(let stroke) = markup.content else { continue }
+                draw(stroke, in: &context, size: canvasSize, mosaicImage: mosaicImage)
             }
-            if !currentPoints.isEmpty {
+            if let drawingTool, !currentPoints.isEmpty {
                 draw(
-                    ImageMarkupStroke(points: currentPoints, tool: tool, color: color, width: width),
+                    ImageMarkupStroke(
+                        points: currentPoints,
+                        tool: drawingTool,
+                        color: color,
+                        relativeLineWidth: currentRelativeLineWidth
+                    ),
                     in: &context,
-                    size: canvasSize
+                    size: canvasSize,
+                    mosaicImage: mosaicImage
                 )
             }
         }
         .frame(width: size.width, height: size.height)
     }
 
-    private func draw(_ stroke: ImageMarkupStroke, in context: inout GraphicsContext, size: CGSize) {
+    private func draw(
+        _ stroke: ImageMarkupStroke,
+        in context: inout GraphicsContext,
+        size: CGSize,
+        mosaicImage: UIImage
+    ) {
         guard let first = stroke.points.first else { return }
         var path = Path()
-        let firstPoint = CGPoint(x: first.x * size.width, y: first.y * size.height)
+        let firstPoint = canvasPoint(first, size: size)
         path.move(to: firstPoint)
         if stroke.points.count == 1 {
             path.addLine(to: CGPoint(x: firstPoint.x + 0.01, y: firstPoint.y + 0.01))
         } else {
             for point in stroke.points.dropFirst() {
-                path.addLine(to: CGPoint(x: point.x * size.width, y: point.y * size.height))
+                path.addLine(to: canvasPoint(point, size: size))
             }
         }
 
-        var strokeContext = context
-        if stroke.tool == .eraser {
-            strokeContext.blendMode = .destinationOut
-        }
-        strokeContext.stroke(
-            path,
-            with: .color(stroke.tool == .eraser ? .white : stroke.color.color),
-            style: StrokeStyle(
-                lineWidth: max(2, stroke.width.relativeValue * min(size.width, size.height)),
-                lineCap: .round,
-                lineJoin: .round
+        let lineWidth = max(2, stroke.relativeLineWidth * sourceMinimumDimension * displayScale(in: size))
+        let style = StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+        switch stroke.tool {
+        case .pen:
+            context.stroke(path, with: .color(stroke.color.color), style: style)
+        case .mosaic:
+            var mosaicContext = context
+            mosaicContext.clip(to: path.strokedPath(style))
+            mosaicContext.draw(
+                Image(uiImage: mosaicImage),
+                in: CGRect(origin: .zero, size: size)
             )
-        )
+        }
     }
 
     private func drawingGesture(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
-                let point = normalized(value.location, in: size)
+                guard drawingTool != nil else { return }
+                let point = sourcePoint(value.location, in: size)
                 if let previous = currentPoints.last, distance(previous, point) < 0.002 { return }
                 currentPoints.append(point)
             }
             .onEnded { value in
-                let point = normalized(value.location, in: size)
+                guard let drawingTool else {
+                    currentPoints = []
+                    return
+                }
+                let point = sourcePoint(value.location, in: size)
                 if currentPoints.isEmpty || distance(currentPoints[currentPoints.count - 1], point) >= 0.002 {
                     currentPoints.append(point)
                 }
                 guard !currentPoints.isEmpty else { return }
-                strokes.append(ImageMarkupStroke(points: currentPoints, tool: tool, color: color, width: width))
+                markups.append(ImageMarkupItem(content: .stroke(ImageMarkupStroke(
+                    points: currentPoints,
+                    tool: drawingTool,
+                    color: color,
+                    relativeLineWidth: currentRelativeLineWidth
+                ))))
                 currentPoints = []
-                redoStrokes = []
+                redoMarkups = []
             }
     }
 
-    private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
+    private func textOverlay(_ markup: ImageMarkupItem, imageSize: CGSize) -> some View {
+        guard case .text(let textMarkup) = markup.content else { return AnyView(EmptyView()) }
+        let localPoint = canvasPoint(textMarkup.position, size: imageSize)
+        let fontSize = max(18, textMarkup.relativeFontSize * sourceMinimumDimension * displayScale(in: imageSize))
+        return AnyView(
+            Text(textMarkup.text)
+                .font(.system(size: fontSize, weight: textMarkup.isSticker ? .regular : .bold))
+                .foregroundStyle(textMarkup.color.color)
+                .shadow(color: Color.black.opacity(textMarkup.isSticker ? 0 : 0.75), radius: 1, x: 0, y: 1)
+                .padding(10)
+                .position(localPoint)
+                .gesture(textDragGesture(markupID: markup.id, imageSize: imageSize))
+                .accessibilityLabel(textMarkup.isSticker
+                    ? AppLanguage.localizedFormat("贴纸 %@", textMarkup.text)
+                    : AppLanguage.localizedFormat("文字 %@", textMarkup.text))
+                .accessibilityHint("拖动可调整位置".localizedForApp)
+        )
+    }
+
+    private func textDragGesture(markupID: UUID, imageSize: CGSize) -> some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard let index = markups.firstIndex(where: { $0.id == markupID }),
+                      case .text(var textMarkup) = markups[index].content else { return }
+                let start = dragStartPositions[markupID] ?? textMarkup.position
+                if dragStartPositions[markupID] == nil { dragStartPositions[markupID] = start }
+                textMarkup.position = CGPoint(
+                    x: min(max(cropRect.minX, start.x + value.translation.width / max(imageSize.width, 1) * cropRect.width), cropRect.maxX),
+                    y: min(max(cropRect.minY, start.y + value.translation.height / max(imageSize.height, 1) * cropRect.height), cropRect.maxY)
+                )
+                markups[index].content = .text(textMarkup)
+            }
+            .onEnded { _ in
+                dragStartPositions[markupID] = nil
+                redoMarkups.removeAll()
+            }
+    }
+
+    private var visibleMinimumScale: CGFloat {
+        max(0.001, min(
+            sourceImageSize.width * cropRect.width,
+            sourceImageSize.height * cropRect.height
+        ) / sourceMinimumDimension)
+    }
+
+    private var currentRelativeLineWidth: CGFloat {
+        width.relativeValue * visibleMinimumScale
+    }
+
+    private var sourceMinimumDimension: CGFloat {
+        max(1, min(sourceImageSize.width, sourceImageSize.height))
+    }
+
+    private func displayScale(in size: CGSize) -> CGFloat {
+        min(size.width / max(1, image.size.width), size.height / max(1, image.size.height))
+    }
+
+    private func sourcePoint(_ point: CGPoint, in size: CGSize) -> CGPoint {
         CGPoint(
-            x: min(max(0, point.x / max(size.width, 1)), 1),
-            y: min(max(0, point.y / max(size.height, 1)), 1)
+            x: cropRect.minX + min(max(0, point.x / max(size.width, 1)), 1) * cropRect.width,
+            y: cropRect.minY + min(max(0, point.y / max(size.height, 1)), 1) * cropRect.height
+        )
+    }
+
+    private func canvasPoint(_ point: CGPoint, size: CGSize) -> CGPoint {
+        CGPoint(
+            x: (point.x - cropRect.minX) / max(cropRect.width, 0.001) * size.width,
+            y: (point.y - cropRect.minY) / max(cropRect.height, 0.001) * size.height
         )
     }
 
@@ -677,7 +965,9 @@ private struct ImageMarkupCanvas: View {
 
 @MainActor
 private enum ImageAttachmentRenderer {
-    private static let maximumEditingDimension: CGFloat = 4_096
+    // 上传链路最终最多保留 2304px；编辑阶段同步收敛尺寸，避免原图、马赛克图和预览图
+    // 同时常驻时占用过多内存。
+    private static let maximumEditingDimension: CGFloat = 2_304
 
     static func preparedImage(_ image: UIImage) -> UIImage {
         guard let cgImage = image.cgImage else { return image }
@@ -728,31 +1018,62 @@ private enum ImageAttachmentRenderer {
         return UIImage(cgImage: cropped, scale: 1, orientation: .up)
     }
 
-    static func renderMarkup(_ strokes: [ImageMarkupStroke], over image: UIImage) -> UIImage {
-        guard !strokes.isEmpty else { return image }
+    static func mosaic(_ image: UIImage) -> UIImage {
+        let pixelSize: CGFloat = 18
+        let lowResolutionSize = CGSize(
+            width: max(1, ceil(image.size.width / pixelSize)),
+            height: max(1, ceil(image.size.height / pixelSize))
+        )
+        let lowResolutionFormat = UIGraphicsImageRendererFormat.default()
+        lowResolutionFormat.scale = 1
+        lowResolutionFormat.opaque = false
+        let lowResolution = UIGraphicsImageRenderer(size: lowResolutionSize, format: lowResolutionFormat).image { context in
+            context.cgContext.interpolationQuality = .low
+            image.draw(in: CGRect(origin: .zero, size: lowResolutionSize))
+        }
+        let fullResolutionFormat = UIGraphicsImageRendererFormat.default()
+        fullResolutionFormat.scale = 1
+        fullResolutionFormat.opaque = false
+        return UIGraphicsImageRenderer(size: image.size, format: fullResolutionFormat).image { context in
+            context.cgContext.interpolationQuality = .none
+            lowResolution.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+    }
+
+    static func renderMarkup(
+        _ markups: [ImageMarkupItem],
+        over image: UIImage,
+        mosaicImage: UIImage
+    ) -> UIImage {
+        guard !markups.isEmpty else { return image }
         let size = image.size
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = false
-
-        let overlay = UIGraphicsImageRenderer(size: size, format: format).image { rendererContext in
-            for stroke in strokes {
-                draw(stroke, in: rendererContext.cgContext, size: size)
-            }
-        }
-        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+        return UIGraphicsImageRenderer(size: size, format: format).image { rendererContext in
             image.draw(in: CGRect(origin: .zero, size: size))
-            overlay.draw(in: CGRect(origin: .zero, size: size))
+            for markup in markups {
+                guard case .stroke(let stroke) = markup.content else { continue }
+                draw(stroke, in: rendererContext.cgContext, size: size, mosaicImage: mosaicImage)
+            }
+            // 文本和贴纸始终处于画笔与马赛克之上，与编辑画布的层级保持一致。
+            for markup in markups {
+                guard case .text(let textMarkup) = markup.content else { continue }
+                draw(textMarkup, in: rendererContext.cgContext, size: size)
+            }
         }
     }
 
-    private static func draw(_ stroke: ImageMarkupStroke, in context: CGContext, size: CGSize) {
+    private static func draw(
+        _ stroke: ImageMarkupStroke,
+        in context: CGContext,
+        size: CGSize,
+        mosaicImage: UIImage
+    ) {
         guard let first = stroke.points.first else { return }
         context.saveGState()
         defer { context.restoreGState() }
-        context.setBlendMode(stroke.tool == .eraser ? .clear : .normal)
-        context.setStrokeColor(stroke.color.uiColor.cgColor)
-        context.setLineWidth(max(2, stroke.width.relativeValue * min(size.width, size.height)))
+        context.setLineWidth(max(2, stroke.relativeLineWidth * min(size.width, size.height)))
         context.setLineCap(.round)
         context.setLineJoin(.round)
         context.beginPath()
@@ -765,7 +1086,49 @@ private enum ImageAttachmentRenderer {
                 context.addLine(to: CGPoint(x: point.x * size.width, y: point.y * size.height))
             }
         }
-        context.strokePath()
+        switch stroke.tool {
+        case .pen:
+            context.setStrokeColor(stroke.color.uiColor.cgColor)
+            context.strokePath()
+        case .mosaic:
+            context.replacePathWithStrokedPath()
+            context.clip()
+            mosaicImage.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
+    private static func draw(_ markup: ImageTextMarkup, in context: CGContext, size: CGSize) {
+        context.saveGState()
+        defer { context.restoreGState() }
+        UIGraphicsPushContext(context)
+        defer { UIGraphicsPopContext() }
+
+        let fontSize = max(24, markup.relativeFontSize * min(size.width, size.height))
+        let font = UIFont.systemFont(ofSize: fontSize, weight: markup.isSticker ? .regular : .bold)
+        let shadow = NSShadow()
+        shadow.shadowColor = markup.isSticker ? UIColor.clear : UIColor.black.withAlphaComponent(0.72)
+        shadow.shadowOffset = CGSize(width: 0, height: max(1, fontSize * 0.035))
+        shadow.shadowBlurRadius = max(1, fontSize * 0.025)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: markup.color.uiColor,
+            .shadow: shadow
+        ]
+        let attributed = NSAttributedString(string: markup.text, attributes: attributes)
+        let measured = attributed.boundingRect(
+            with: CGSize(width: size.width * 0.84, height: size.height),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        ).integral
+        let origin = CGPoint(
+            x: min(max(0, markup.position.x * size.width - measured.width / 2), max(0, size.width - measured.width)),
+            y: min(max(0, markup.position.y * size.height - measured.height / 2), max(0, size.height - measured.height))
+        )
+        attributed.draw(
+            with: CGRect(origin: origin, size: measured.size),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        )
     }
 }
 

@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SwiftUI
+import UserNotifications
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -113,6 +114,7 @@ final class AppModel: ObservableObject {
     /// UI 测试模式下的用户配置存档。
     private var uiTestUserConfig: UserConfig?
     private var optimisticJobExecutions: [String: OptimisticJobExecution] = [:]
+    private var hasPreparedJobCompletionNotifications = false
 
     init(
         defaults: UserDefaults = .standard,
@@ -317,6 +319,7 @@ final class AppModel: ObservableObject {
             defaults.set(true, forKey: StorageKey.connectionValidated)
             self.health = health
             lastSyncFailureMessage = nil
+            await prepareJobCompletionNotifications()
             await refreshDashboard(
                 userInitiated: false,
                 presentFailure: true,
@@ -2050,6 +2053,7 @@ final class AppModel: ObservableObject {
         var merged = response.jobs.map(reconcileOptimisticJobExecution)
         appendMissingOptimisticJobs(to: &merged)
         merged.sort(by: jobComesBefore)
+        notifyAboutFinishedJobs(from: jobs, to: merged)
         jobs = merged
         nextCursor = response.nextCursor
         hasMoreJobs = response.hasMore
@@ -2075,6 +2079,7 @@ final class AppModel: ObservableObject {
         }
         appendMissingOptimisticJobs(to: &merged)
         merged.sort(by: jobComesBefore)
+        notifyAboutFinishedJobs(from: previousJobs, to: merged)
         jobs = merged
 
         let hadLoadedAdditionalPages = previousJobs.count > 100
@@ -2093,6 +2098,60 @@ final class AppModel: ObservableObject {
         if lhsPinnedAt != rhsPinnedAt { return lhsPinnedAt > rhsPinnedAt }
         if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
         return lhs.id < rhs.id
+    }
+
+    private func prepareJobCompletionNotifications() async {
+        guard !hasPreparedJobCompletionNotifications else { return }
+        hasPreparedJobCompletionNotifications = true
+
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .notDetermined else { return }
+
+        do {
+            _ = try await center.requestAuthorization(options: [.alert, .sound])
+        } catch {
+            present(APIError(
+                summary: "无法开启 Job 完成通知",
+                detail: "向系统申请通知权限失败。\n\n\(String(reflecting: error))"
+            ))
+        }
+    }
+
+    private func notifyAboutFinishedJobs(from previousJobs: [JobSummary], to currentJobs: [JobSummary]) {
+        let previousByID = Dictionary(uniqueKeysWithValues: previousJobs.map { ($0.id, $0) })
+        let terminalStatuses: Set<String> = ["completed", "failed", "stopped"]
+
+        for job in currentJobs {
+            guard terminalStatuses.contains(job.status),
+                  let previous = previousByID[job.id],
+                  !terminalStatuses.contains(previous.status) else { continue }
+            scheduleJobCompletionNotification(for: job)
+        }
+    }
+
+    private func scheduleJobCompletionNotification(for job: JobSummary) {
+        let content = UNMutableNotificationContent()
+        content.title = "Job 执行结束".localizedForApp
+        content.body = "\(job.displayTitle) · \(job.statusLabel)"
+        content.sound = .default
+        content.userInfo = ["jobId": job.id]
+
+        let request = UNNotificationRequest(
+            identifier: "job-finished-\(job.id)-\(job.updatedAt)-\(job.status)",
+            content: content,
+            trigger: nil
+        )
+        Task { @MainActor [weak self] in
+            do {
+                try await UNUserNotificationCenter.current().add(request)
+            } catch {
+                self?.present(APIError(
+                    summary: "无法发送 Job 完成通知",
+                    detail: "Job：\(job.displayTitle)\nJob ID：\(job.id)\n状态：\(job.status)\n\n\(String(reflecting: error))"
+                ))
+            }
+        }
     }
 
     private func reconcileOptimisticJobExecution(_ fresh: JobSummary) -> JobSummary {

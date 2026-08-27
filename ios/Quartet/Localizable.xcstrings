@@ -1,6 +1,162 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
+    "选择下方工具开始编辑。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Choose a tool below to start editing." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "选择下方工具开始编辑。" } }
+      }
+    },
+    "图片编辑失败" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Image editing failed" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "图片编辑失败" } }
+      }
+    },
+    "无法保存图片" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not save image" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法保存图片" } }
+      }
+    },
+    "无法打开 %@ 进行编辑。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not open %@ for editing." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法打开 %@ 进行编辑。" } }
+      }
+    },
+    "原附件已不存在，请重新选择图片。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The original attachment no longer exists. Select the image again." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "原附件已不存在，请重新选择图片。" } }
+      }
+    },
+    "保存编辑并返回新任务" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Save edits and return to the new task" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "保存编辑并返回新任务" } }
+      }
+    },
+    "编辑图片标记" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit image markup" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "编辑图片标记" } }
+      }
+    },
+    "裁剪" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Crop" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "裁剪" } }
+      }
+    },
+    "单指涂抹需要遮挡的区域。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag with one finger over the area you want to obscure." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "单指涂抹需要遮挡的区域。" } }
+      }
+    },
+    "放弃这次图片编辑" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Discard these image edits" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "放弃这次图片编辑" } }
+      }
+    },
+    "还原" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reset" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "还原" } }
+      }
+    },
+    "画笔" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pen" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "画笔" } }
+      }
+    },
+    "马赛克" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mosaic" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "马赛克" } }
+      }
+    },
+    "马赛克粗细" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mosaic width" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "马赛克粗细" } }
+      }
+    },
+    "取消" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "取消" } }
+      }
+    },
+    "输入文字" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter text" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "输入文字" } }
+      }
+    },
+    "添加" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "添加" } }
+      }
+    },
+    "添加贴纸 %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add sticker %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "添加贴纸 %@" } }
+      }
+    },
+    "贴纸" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Stickers" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "贴纸" } }
+      }
+    },
+    "贴纸 %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sticker %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "贴纸 %@" } }
+      }
+    },
+    "拖动边框调整裁剪区域" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag the frame to adjust the crop" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "拖动边框调整裁剪区域" } }
+      }
+    },
+    "拖动可调整位置" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag to reposition" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "拖动可调整位置" } }
+      }
+    },
+    "拖动已添加的文字或贴纸可调整位置。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag added text or stickers to reposition them." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "拖动已添加的文字或贴纸可调整位置。" } }
+      }
+    },
+    "文字" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Text" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "文字" } }
+      }
+    },
+    "文字 %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Text %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "文字 %@" } }
+      }
+    },
+    "Job 执行结束" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Job finished" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Job 执行结束" } }
+      }
+    },
     "%@画笔" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ pen" } },
