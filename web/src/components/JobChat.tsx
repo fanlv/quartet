@@ -976,16 +976,17 @@ export function JobChat(props: JobChatProps) {
         throw new Error(`POST /api/v1/job/${existingJobId}/share returned HTTP ${res.status}${body ? `\n${body}` : ''}`);
       }
       const data = await res.json();
-      const token = data.shareToken;
+      const token = typeof data.shareToken === 'string' ? data.shareToken.trim() : '';
+      if (!token) throw new Error(`POST /api/v1/job/${existingJobId}/share returned an empty shareToken`);
       setJobShareToken(token);
       setShareShowWorkspaceName(data.showWorkspaceName === true);
-      setShareSettingsOpen(false);
       // Build share URL
       const url = new URL(window.location.href);
       url.searchParams.set('shareToken', token);
       url.searchParams.delete('sessionId');
       url.searchParams.delete('workspaceId');
       await navigator.clipboard.writeText(url.toString());
+      setShareSettingsOpen(false);
       setShareCopied(true);
       setTimeout(() => setShareCopied(false), 2000);
     } catch (err) {
@@ -1013,6 +1014,7 @@ export function JobChat(props: JobChatProps) {
       const res = await fetch(`/api/v1/job/${existingJobId}/unshare`, { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setJobShareToken(null);
+      setShareShowWorkspaceName(false);
     } catch (err) {
       console.error('Failed to unshare job:', err);
     }
@@ -1813,7 +1815,7 @@ export function JobChat(props: JobChatProps) {
                 <AgentIdentityIcon
                   iconUrl={publicAgentIdentity?.iconUrl}
                   displayName={publicAgentIdentity?.displayName}
-                  shareInfo={shareToken ? { shareToken, jobId: existingJobId } : null}
+                  shareInfo={shareToken ? { shareToken } : null}
                   className="public-share-agent-icon"
                 />
                 <span>{publicAgentIdentity?.displayName || t('chat.unknownAgent')}</span>

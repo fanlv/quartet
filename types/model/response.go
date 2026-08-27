@@ -59,11 +59,6 @@ type GetMessagesResponse struct {
 	Workdir         string           `json:"workdir,omitempty"`
 	ACPMode         string           `json:"acpMode,omitempty"`
 	ACPThoughtLevel string           `json:"acpThoughtLevel,omitempty"`
-	// Agents carries the minimal display projection of the Agents this
-	// session actually references, keyed by the reference string held by the
-	// session (Type). Populated only on public share responses; private
-	// clients resolve display info through the agent display-info endpoint.
-	Agents map[string]AgentDisplayInfo `json:"agents,omitempty"`
 }
 
 // PublicGetMessagesResponse contains only the conversation and the Agent

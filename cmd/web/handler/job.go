@@ -353,9 +353,8 @@ func (h *Handler) JobGet(ctx context.Context, c *app.RequestContext) {
 // root) while adding lastEventSeq alongside.
 type jobGetEnvelope struct {
 	*model.Job
-	LastEventSeq uint64                            `json:"lastEventSeq"`
-	ServerTime   int64                             `json:"serverTime"`
-	Agents       map[string]model.AgentDisplayInfo `json:"agents,omitempty"`
+	LastEventSeq uint64 `json:"lastEventSeq"`
+	ServerTime   int64  `json:"serverTime"`
 }
 
 func (h *Handler) collectJobAgentRefs(ctx context.Context, job *model.Job) []string {
@@ -364,6 +363,10 @@ func (h *Handler) collectJobAgentRefs(ctx context.Context, job *model.Job) []str
 	}
 	var refs []string
 	seen := make(map[string]bool)
+	if job.InitialAgentID != "" {
+		seen[job.InitialAgentID] = true
+		refs = append(refs, job.InitialAgentID)
+	}
 	for _, sessionID := range jobAllSessionIDs(job) {
 		session, ok := h.lookupSession(sessionID)
 		if !ok {
@@ -516,7 +519,7 @@ func (h *Handler) JobShare(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 	showWorkspaceName := false
-	if existing, found := h.jobService.Get(jobID); found && existing != nil {
+	if existing, found := h.jobService.Get(jobID); found && existing != nil && existing.ShareToken != "" {
 		showWorkspaceName = existing.ShareShowWorkspaceName
 	}
 	if req.ShowWorkspaceName != nil {
@@ -539,8 +542,8 @@ func (h *Handler) JobShare(ctx context.Context, c *app.RequestContext) {
 			httputil.NotFound(c, "job not found")
 			return
 		}
-		logger.Errorf(ctx, "[job] share: ensure token failed: jobId=%s err=%v", jobID, err)
-		httputil.InternalError(c, "failed to save share token")
+		logger.Errorf(ctx, "[job] share: configure failed: jobId=%s err=%v", jobID, err)
+		httputil.InternalError(c, "failed to save share settings")
 		return
 	}
 

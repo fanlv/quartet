@@ -148,6 +148,10 @@ function WorkspaceApp() {
   // localStorage holds per-workspace cached metadata so the UI has something
   // to show before the async /workspace/list round-trip completes.
   const [currentWorkspace, setCurrentWorkspace] = useState<WorkspaceInfo | undefined>(() => {
+    // A public share derives its optional source label exclusively from the
+    // server's share projection. Never consult the viewer's private cache:
+    // it may be stale or belong to an unrelated Quartet installation.
+    if (isReadonly) return undefined;
     const wsId = getWorkspaceIdFromUrl() || getLastUsedWorkspaceId();
     if (wsId) {
       const saved = localStorage.getItem(`workspace_${wsId}`);

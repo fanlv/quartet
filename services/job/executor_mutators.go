@@ -551,7 +551,7 @@ func (s *serviceImpl) ClearShareToken(jobID string) error {
 		s.mu.Unlock()
 		return ErrJobDeleted
 	}
-	if existing.ShareToken == "" {
+	if existing.ShareToken == "" && !existing.ShareShowWorkspaceName {
 		s.mu.Unlock()
 		return nil
 	}
@@ -576,7 +576,7 @@ func (s *serviceImpl) ClearShareToken(jobID string) error {
 		s.mu.Unlock()
 		return ErrJobDeleted
 	}
-	if existing.ShareToken == "" {
+	if existing.ShareToken == "" && !existing.ShareShowWorkspaceName {
 		s.mu.Unlock()
 		return nil
 	}

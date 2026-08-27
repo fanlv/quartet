@@ -29,7 +29,7 @@ func (h *Handler) IconProxy(ctx context.Context, c *app.RequestContext) {
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
-	h.serveRemoteIcon(ctx, c, iconURL)
+	h.serveRemoteIcon(ctx, c, iconURL, true)
 }
 
 // PublicJobAgentIcon serves one catalog icon only after the share middleware
@@ -55,7 +55,7 @@ func (h *Handler) PublicJobAgentIcon(ctx context.Context, c *app.RequestContext)
 	}
 	for _, info := range agents {
 		if info.AgentID == agentID && isRemoteIconURL(info.IconURL) {
-			h.serveRemoteIcon(ctx, c, info.IconURL)
+			h.serveRemoteIcon(ctx, c, info.IconURL, false)
 			return
 		}
 	}
@@ -66,7 +66,7 @@ func isRemoteIconURL(iconURL string) bool {
 	return strings.HasPrefix(iconURL, "http://") || strings.HasPrefix(iconURL, "https://")
 }
 
-func (h *Handler) serveRemoteIcon(ctx context.Context, c *app.RequestContext, iconURL string) {
+func (h *Handler) serveRemoteIcon(ctx context.Context, c *app.RequestContext, iconURL string, allowRedirect bool) {
 
 	cacheDir, err := path.IconCacheDir()
 	if err != nil {
@@ -113,6 +113,10 @@ func (h *Handler) serveRemoteIcon(ctx context.Context, c *app.RequestContext, ic
 	resp, fetchErr := client.Do(req)
 	if fetchErr != nil {
 		logger.Warnf(ctx, "[icon-cache] fetch failed url=%s err=%v", iconURL, fetchErr)
+		if allowRedirect {
+			c.Redirect(http.StatusTemporaryRedirect, []byte(iconURL))
+			return
+		}
 		c.AbortWithStatus(http.StatusBadGateway)
 		return
 	}
@@ -120,6 +124,10 @@ func (h *Handler) serveRemoteIcon(ctx context.Context, c *app.RequestContext, ic
 
 	if resp.StatusCode != http.StatusOK {
 		logger.Warnf(ctx, "[icon-cache] upstream status=%d url=%s", resp.StatusCode, iconURL)
+		if allowRedirect {
+			c.Redirect(http.StatusTemporaryRedirect, []byte(iconURL))
+			return
+		}
 		c.AbortWithStatus(http.StatusBadGateway)
 		return
 	}

@@ -10,7 +10,7 @@ export function isImageUrl(s: string): boolean {
   return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:image/') || s.startsWith(ICON_PROXY_PATH) || s.startsWith('/api/v1/public/job/');
 }
 
-export type IconShareInfo = { shareToken: string; jobId: string };
+export type IconShareInfo = { shareToken: string };
 
 // resolveIconSrc turns a backend-issued icon value into something an <img> can
 // actually load.
@@ -30,7 +30,7 @@ export function resolveIconSrc(iconUrl: string | undefined, shareInfo?: IconShar
   if (shareInfo && iconUrl.startsWith('/api/v1/public/job/')) {
     return appendQuery(
       iconUrl,
-      `shareToken=${encodeURIComponent(shareInfo.shareToken)}&jobId=${encodeURIComponent(shareInfo.jobId)}`,
+      `shareToken=${encodeURIComponent(shareInfo.shareToken)}`,
     );
   }
   return iconUrl;

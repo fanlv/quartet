@@ -357,12 +357,11 @@ struct JobDetailView: View {
         if components.path.isEmpty {
             components.path = "/"
         }
-        var queryItems = [
-            URLQueryItem(name: "workspaceId", value: detail.workspaceId),
-            URLQueryItem(name: "jobId", value: detail.id)
-        ]
+        var queryItems = [URLQueryItem(name: "jobId", value: detail.id)]
         if let shareToken {
             queryItems.append(URLQueryItem(name: "shareToken", value: shareToken))
+        } else {
+            queryItems.insert(URLQueryItem(name: "workspaceId", value: detail.workspaceId), at: 0)
         }
         components.queryItems = queryItems
         components.fragment = nil
