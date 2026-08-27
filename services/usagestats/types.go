@@ -90,9 +90,9 @@ type ModelBucket struct {
 	Tools map[string]*ToolBucket `json:"tools,omitempty"`
 }
 
-// DayBucket is the value at workspace[YYYY-MM-DD]. Contains the day total,
-// the per-model breakdown, and the day-level per-tool breakdown (sums over
-// all models for that day, used by the By Tool view).
+// DayBucket is the value at workspace[YYYY-MM-DD]. It preserves the workspace
+// name used when the activity was recorded, plus the day total, per-model
+// breakdown, and day-level per-tool breakdown.
 type DayBucket struct {
 	SectionTotals
 	WorkspaceName string                  `json:"workspaceName,omitempty"`
@@ -110,8 +110,9 @@ type MonthFile struct {
 }
 
 // Snapshot is the unit the Recorder consumes — one step's worth of usage.
-// All fields are filled by the caller (typically the agent event handler
-// Accumulator); the SDK does not synthesise any field from any other.
+// WorkspaceName may be left empty when the Recorder has a name resolver; all
+// other fields are filled by the caller (typically the agent event handler
+// Accumulator).
 type Snapshot struct {
 	// EventID is a stable, globally unique completion identifier. Re-recording
 	// the same ID in its month is a no-op, which is what makes retries and

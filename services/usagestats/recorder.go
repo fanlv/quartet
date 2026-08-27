@@ -130,7 +130,8 @@ type service struct {
 }
 
 // NewService constructs a usage-stats service with the default disk-backed
-// store and a 1s debounce.
+// store and a 1s debounce. workspaceName is optional; when present, its result
+// is persisted with each daily workspace bucket.
 func NewService(rootCtx context.Context, workspaceName func(workspaceID string) string) (Service, error) {
 	if rootCtx == nil {
 		rootCtx = context.Background()

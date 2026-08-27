@@ -230,7 +230,7 @@ func (h *Handler) enrichWorkspaceRows(rows []usagestats.WorkspaceAggregate) []st
 		if entry.WorkspaceName == "" {
 			entry.WorkspaceName = row.WorkspaceID
 		}
-		entry.Deleted = !bound
+		entry.Deleted = h.workspaceService != nil && !bound
 		out = append(out, entry)
 	}
 	return out

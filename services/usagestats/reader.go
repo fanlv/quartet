@@ -118,6 +118,7 @@ func (s *service) getUsage(from, to time.Time, allowedWorkspaces map[string]stru
 	byModel := map[string]*SectionTotals{}
 	byTool := map[string]*ToolAggregate{}
 	dailyMap := map[string]*DailyAggregate{}
+	resolvedWorkspaceNames := map[string]string{}
 
 	var firstErr error
 	for _, mk := range keys {
@@ -140,7 +141,12 @@ func (s *service) getUsage(from, to time.Time, allowedWorkspaces map[string]stru
 				}
 				workspaceName := strings.TrimSpace(day.WorkspaceName)
 				if workspaceName == "" && s.workspaceName != nil {
-					workspaceName = strings.TrimSpace(s.workspaceName(wsID))
+					var resolved bool
+					workspaceName, resolved = resolvedWorkspaceNames[wsID]
+					if !resolved {
+						workspaceName = strings.TrimSpace(s.workspaceName(wsID))
+						resolvedWorkspaceNames[wsID] = workspaceName
+					}
 				}
 				accumulateWorkspace(byWS, wsID, workspaceName, &day.SectionTotals)
 				accumulateModelsFromDay(byModel, day)

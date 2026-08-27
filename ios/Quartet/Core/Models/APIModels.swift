@@ -232,6 +232,39 @@ struct WorkspacesResponse: Decodable, Sendable {
     let workspaces: [WorkspaceSummary]
 }
 
+struct DirectoryFileEntry: Decodable, Identifiable, Hashable, Sendable {
+    let name: String
+    let size: Int64
+    let modTime: String
+
+    var id: String { name }
+}
+
+struct DirectoryListingResponse: Decodable, Sendable {
+    let code: Int
+    let current: String
+    let parent: String?
+    let dirs: [String]
+    let files: [DirectoryFileEntry]
+
+    private enum CodingKeys: String, CodingKey {
+        case code
+        case current
+        case parent
+        case dirs
+        case files
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        code = try values.decode(Int.self, forKey: .code)
+        current = try values.decode(String.self, forKey: .current)
+        parent = try values.decodeIfPresent(String.self, forKey: .parent)
+        dirs = try values.decodeIfPresent([String].self, forKey: .dirs) ?? []
+        files = try values.decodeIfPresent([DirectoryFileEntry].self, forKey: .files) ?? []
+    }
+}
+
 struct ScheduleInfo: Codable, Identifiable, Hashable, Sendable {
     let id: String
     var name: String

@@ -164,6 +164,19 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/workspace/list")
     }
 
+    func listDirectory(path: String) async throws -> DirectoryListingResponse {
+        try await request(
+            path: "api/v1/list-dir",
+            query: [
+                URLQueryItem(name: "path", value: path),
+                URLQueryItem(name: "showFiles", value: "true")
+            ],
+            validate: { response in
+                response.code == 0 ? nil : "code must equal 0; received \(response.code)"
+            }
+        )
+    }
+
     func gitBranch(path: String) async throws -> GitBranchResponse {
         try await request(
             path: "api/v1/git-branch",
