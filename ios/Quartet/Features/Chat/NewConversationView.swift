@@ -7,7 +7,7 @@ import UIKit
 struct ChatRoute: Hashable {
     let summary: JobSummary
     var initialMessage: String?
-    var initialAttachment: PendingUpload?
+    var initialAttachments: [PendingUpload]?
     var agentType: String?
     var modelID: String?
     var modeID: String?
@@ -19,7 +19,7 @@ struct ChatRoute: Hashable {
     init(
         summary: JobSummary,
         initialMessage: String? = nil,
-        initialAttachment: PendingUpload? = nil,
+        initialAttachments: [PendingUpload]? = nil,
         agentType: String? = nil,
         modelID: String? = nil,
         modeID: String? = nil,
@@ -30,7 +30,7 @@ struct ChatRoute: Hashable {
     ) {
         self.summary = summary
         self.initialMessage = initialMessage
-        self.initialAttachment = initialAttachment
+        self.initialAttachments = initialAttachments
         self.agentType = agentType
         self.modelID = modelID
         self.modeID = modeID
@@ -137,8 +137,13 @@ struct NewConversationView: View {
     @State private var globalMessagePresets: [MessagePreset] = []
     @State private var messagePresetLoadErrors: [String] = []
     @State private var loadingMessagePresets = false
-    @State private var selectedPhoto: PhotosPickerItem?
-    @State private var pendingImage: PendingUpload?
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var pendingAttachments: [PendingUpload] = []
+    @State private var attachmentImportCount = 0
+    @State private var queuedImageEdits: [ImageAttachmentEditRequest] = []
+    @State private var activeImageEdit: ImageAttachmentEditRequest?
+    @State private var imageEditFailures: [String] = []
+    @State private var showsPhotoPicker = false
     @State private var showsCameraPicker = false
     @State private var showsDocumentPicker = false
     @State private var showsMessageLibrary = false
@@ -192,9 +197,10 @@ struct NewConversationView: View {
     private var cannotCreate: Bool {
         creating
             || isLinkingThoughtLevels
+            || attachmentImportCount > 0
             || workspaceID.isEmpty
             || agent?.available != true
-            || (message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImage == nil)
+            || (message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingAttachments.isEmpty)
     }
     private var currentCreatePayload: CreateJobIntentPayload? {
         guard let workspace, let agent else { return nil }
@@ -273,10 +279,19 @@ struct NewConversationView: View {
                 guard restoredMessageDraft else { return }
                 model.saveNewConversationDraft(content)
             }
-            .onChange(of: selectedPhoto) { _, item in
-                guard let item else { return }
-                Task { await loadPhoto(item) }
+            .onChange(of: selectedPhotos) { _, items in
+                guard !items.isEmpty else { return }
+                Task { await loadPhotos(items) }
             }
+            .onChange(of: showsPhotoPicker) { _, isPresented in
+                if !isPresented { presentNextImageEditor() }
+            }
+            .photosPicker(
+                isPresented: $showsPhotoPicker,
+                selection: $selectedPhotos,
+                maxSelectionCount: nil,
+                matching: .images
+            )
             .sheet(item: $localError) {
                 ErrorDetailView(error: $0)
             }
@@ -308,21 +323,31 @@ struct NewConversationView: View {
                     await loadAgentUsageSummaries()
                 }
             }
-            .sheet(isPresented: $showsCameraPicker) {
+            .sheet(isPresented: $showsCameraPicker, onDismiss: presentNextImageEditor) {
                 CameraImagePicker(
                     onImagePicked: { image in
                         showsCameraPicker = false
-                        setCameraImage(image)
+                        enqueueImageForEditing(
+                            image,
+                            suggestedFilename: "camera-\(UUID().uuidString).jpg"
+                        )
                     },
                     onCancel: { showsCameraPicker = false }
                 )
                 .quartetSheetStyle()
             }
+            .fullScreenCover(item: $activeImageEdit, onDismiss: imageEditorDidDismiss) { request in
+                ImageAttachmentEditor(
+                    request: request,
+                    onCancel: cancelImageEditing,
+                    onComplete: completeImageEditing
+                )
+            }
             .sheet(isPresented: $showsDocumentPicker) {
                 DocumentAttachmentPicker(
-                    onDocumentPicked: { url in
+                    onDocumentsPicked: { urls in
                         showsDocumentPicker = false
-                        Task { await loadDocument(url) }
+                        Task { await loadDocuments(urls) }
                     },
                     onCancel: { showsDocumentPicker = false }
                 )
@@ -405,7 +430,7 @@ struct NewConversationView: View {
     }
 
     private var composer: some View {
-        let hasPendingImage = pendingImage != nil
+        let hasPendingImage = pendingAttachments.contains { $0.isImage }
         return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 Text("第一条消息")
@@ -479,28 +504,26 @@ struct NewConversationView: View {
                     .accessibilityIdentifier("new-conversation-message")
             }
 
-            if let pendingImage {
-                ChatAttachmentPreview(upload: pendingImage)
-                    .overlay(alignment: .topTrailing) {
-                        Button {
-                            self.pendingImage = nil
-                            selectedPhoto = nil
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.quartet(.detail, weight: .bold))
-                                .foregroundStyle(QuartetTheme.primaryText)
-                                .frame(width: 28, height: 28)
-                                .background(QuartetTheme.elevated, in: Circle())
-                        }
-                        .accessibilityLabel("移除附件")
-                        .padding(8)
-                    }
+            if !pendingAttachments.isEmpty {
+                ChatPendingAttachmentStrip(uploads: pendingAttachments) { index in
+                    pendingAttachments.remove(at: index)
+                }
+            }
+
+            if attachmentImportCount > 0 {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("正在处理附件…")
+                }
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .accessibilityElement(children: .combine)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                        Label("照片", systemImage: hasPendingImage ? "photo.fill" : "photo")
+                    Button { showsPhotoPicker = true } label: {
+                        Label("照片".localizedForApp, systemImage: hasPendingImage ? "photo.fill" : "photo")
                             .font(.quartet(.control, weight: .semibold))
                             .foregroundStyle(QuartetTheme.accent)
                             .padding(.horizontal, 12)
@@ -1063,6 +1086,7 @@ struct NewConversationView: View {
             let jobID = try await model.createJob(request: request)
             self.createIntent = nil
             let submittedMessage = message
+            let submittedAttachments = pendingAttachments
             model.clearNewConversationDraft()
             do {
                 sentMessageHistory = try model.recordSentMessage(
@@ -1096,7 +1120,7 @@ struct NewConversationView: View {
             onCreated(ChatRoute(
                 summary: summary,
                 initialMessage: submittedMessage.trimmingCharacters(in: .whitespacesAndNewlines),
-                initialAttachment: pendingImage,
+                initialAttachments: submittedAttachments,
                 agentType: payload.agentType,
                 modelID: payload.modelID,
                 modeID: payload.modeID,
@@ -1166,49 +1190,113 @@ struct NewConversationView: View {
         }
     }
 
-    private func loadPhoto(_ item: PhotosPickerItem) async {
-        do {
-            guard let data = try await item.loadTransferable(type: Data.self) else { return }
-            let contentType = item.supportedContentTypes.first
-            pendingImage = try ChatAttachmentProcessor.prepareImageUpload(
-                data: data,
-                suggestedFilename: "ios-\(UUID().uuidString).\(contentType?.preferredFilenameExtension ?? "jpg")",
-                contentType: contentType
-            )
-        } catch {
-            present(error)
-            selectedPhoto = nil
-        }
-    }
-
-    private func setCameraImage(_ image: UIImage) {
-        do {
-            pendingImage = try ChatAttachmentProcessor.prepareImageUpload(
-                image: image,
-                suggestedFilename: "camera-\(UUID().uuidString).jpg"
-            )
-        } catch {
-            present(error)
-        }
-    }
-
-    private func loadDocument(_ url: URL) async {
-        let didAccess = url.startAccessingSecurityScopedResource()
-        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let data = try await Task.detached(priority: .userInitiated) {
-                try Data(contentsOf: url)
-            }.value
-            pendingImage = try await MainActor.run {
-                try ChatAttachmentProcessor.prepareFileUpload(
-                    data: data,
-                    suggestedFilename: url.lastPathComponent,
-                    contentType: UTType(filenameExtension: url.pathExtension)
-                )
+    private func loadPhotos(_ items: [PhotosPickerItem]) async {
+        attachmentImportCount += 1
+        defer { attachmentImportCount -= 1 }
+        var editRequests: [ImageAttachmentEditRequest] = []
+        var failures: [String] = []
+        for (index, item) in items.enumerated() {
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self) else {
+                    throw APIError(summary: "图片为空", detail: "照片选择器没有返回图片数据。")
+                }
+                guard let image = UIImage(data: data) else {
+                    throw APIError(summary: "图片数据无效", detail: "无法解析所选图片。")
+                }
+                let contentType = item.supportedContentTypes.first
+                editRequests.append(ImageAttachmentEditRequest(
+                    image: image,
+                    suggestedFilename: "ios-\(UUID().uuidString).\(contentType?.preferredFilenameExtension ?? "jpg")"
+                ))
+            } catch {
+                failures.append("第 \(index + 1) 张图片：\(attachmentErrorDetail(error))")
             }
-        } catch {
-            present(error)
         }
+        selectedPhotos = []
+        queuedImageEdits.append(contentsOf: editRequests)
+        imageEditFailures.append(contentsOf: failures)
+        presentNextImageEditor()
+    }
+
+    private func enqueueImageForEditing(_ image: UIImage, suggestedFilename: String) {
+        queuedImageEdits.append(ImageAttachmentEditRequest(
+            image: image,
+            suggestedFilename: suggestedFilename
+        ))
+    }
+
+    private func presentNextImageEditor() {
+        guard !showsPhotoPicker, !showsCameraPicker, activeImageEdit == nil else { return }
+        guard !queuedImageEdits.isEmpty else {
+            presentDeferredImageEditFailures()
+            return
+        }
+        activeImageEdit = queuedImageEdits.removeFirst()
+    }
+
+    private func completeImageEditing(_ image: UIImage, suggestedFilename: String) {
+        do {
+            pendingAttachments.append(try ChatAttachmentProcessor.prepareImageUpload(
+                image: image,
+                suggestedFilename: suggestedFilename
+            ))
+        } catch {
+            imageEditFailures.append(attachmentErrorDetail(error))
+        }
+        activeImageEdit = nil
+    }
+
+    private func cancelImageEditing() {
+        queuedImageEdits.removeAll()
+        activeImageEdit = nil
+    }
+
+    private func imageEditorDidDismiss() {
+        presentNextImageEditor()
+    }
+
+    private func presentDeferredImageEditFailures() {
+        guard !imageEditFailures.isEmpty else { return }
+        let failures = imageEditFailures
+        imageEditFailures = []
+        presentAttachmentFailures(failures)
+    }
+
+    private func loadDocuments(_ urls: [URL]) async {
+        attachmentImportCount += 1
+        defer { attachmentImportCount -= 1 }
+        var uploads: [PendingUpload] = []
+        var failures: [String] = []
+        for url in urls {
+            let didAccess = url.startAccessingSecurityScopedResource()
+            do {
+                let data = try await Task.detached(priority: .userInitiated) {
+                    try Data(contentsOf: url)
+                }.value
+                uploads.append(try await MainActor.run {
+                    try ChatAttachmentProcessor.prepareFileUpload(
+                        data: data,
+                        suggestedFilename: url.lastPathComponent,
+                        contentType: UTType(filenameExtension: url.pathExtension)
+                    )
+                })
+            } catch {
+                failures.append("\(url.lastPathComponent)：\(attachmentErrorDetail(error))")
+            }
+            if didAccess { url.stopAccessingSecurityScopedResource() }
+        }
+        pendingAttachments.append(contentsOf: uploads)
+        presentAttachmentFailures(failures)
+    }
+
+    private func attachmentErrorDetail(_ error: Error) -> String {
+        if let error = error as? APIError { return "\(error.summary)\n\(error.detail)" }
+        return String(describing: error)
+    }
+
+    private func presentAttachmentFailures(_ failures: [String]) {
+        guard !failures.isEmpty else { return }
+        present(APIError(summary: "部分附件读取失败", detail: failures.joined(separator: "\n\n")))
     }
 
     private func requestCameraAccess() {

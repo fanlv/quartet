@@ -5,7 +5,7 @@ struct ScheduledTasksView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.mainTabBarInset) private var mainTabBarInset
     @Binding private var showsMainTabBar: Bool
-    @State private var path: [JobSummary] = []
+    @State private var path = NavigationPath()
     @State private var schedules: [ScheduleInfo] = []
     @State private var workflows: [GraphWorkflowSummary] = []
     @State private var warnings: [GraphWorkflowWarning] = []

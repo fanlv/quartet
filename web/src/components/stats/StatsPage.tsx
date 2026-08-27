@@ -75,6 +75,7 @@ interface PreviousTotals {
   turnCount: number;
   toolCallCount: number;
   tokensTotal: number;
+  cacheHitRate?: number | null;
   workspaceCount: number;
 }
 
@@ -353,20 +354,28 @@ interface Kpis {
   totalMs: number;
   turnCount: number;
   tokensTotal: number;
+  cacheHitRate: number | null;
   toolCallCount: number;
   workspaceCount: number;
 }
 
 function computeKpis(report: UsageReport | null): Kpis {
-  const out: Kpis = { totalMs: 0, turnCount: 0, tokensTotal: 0, toolCallCount: 0, workspaceCount: 0 };
+  const out: Kpis = { totalMs: 0, turnCount: 0, tokensTotal: 0, cacheHitRate: null, toolCallCount: 0, workspaceCount: 0 };
   if (!report) return out;
+  const cacheTokens: TokenTotals = { total: 0, assistant: 0, thought: 0, toolCall: 0 };
   out.workspaceCount = report.byWorkspace.length;
   for (const ws of report.byWorkspace) {
     out.totalMs += ws.totalMs;
     out.turnCount += ws.turnCount;
     out.tokensTotal += ws.tokens.total;
+    cacheTokens.reported = tokenCount(cacheTokens, 'reported') + tokenCount(ws.tokens, 'reported');
+    cacheTokens.input = tokenCount(cacheTokens, 'input') + tokenCount(ws.tokens, 'input');
+    cacheTokens.output = tokenCount(cacheTokens, 'output') + tokenCount(ws.tokens, 'output');
+    cacheTokens.cachedRead = tokenCount(cacheTokens, 'cachedRead') + tokenCount(ws.tokens, 'cachedRead');
+    cacheTokens.cachedWrite = tokenCount(cacheTokens, 'cachedWrite') + tokenCount(ws.tokens, 'cachedWrite');
     out.toolCallCount += ws.toolCallCount;
   }
+  out.cacheHitRate = tokenCacheHitRate(cacheTokens);
   return out;
 }
 
@@ -374,7 +383,7 @@ interface KpiCardSpec {
   key: string;
   label: string;
   value: string;
-  current: number;
+  current?: number;
   previous?: number;
 }
 
@@ -385,6 +394,7 @@ function KpiBand({ kpis, previous, periodDays }: { kpis: Kpis; previous?: Previo
     { key: 'turns', label: t('stats.kpi.turns'), value: formatStatsCount(kpis.turnCount), current: kpis.turnCount, previous: previous?.turnCount },
     { key: 'tokens', label: t('stats.kpi.tokens'), value: formatStatsCount(kpis.tokensTotal), current: kpis.tokensTotal, previous: previous?.tokensTotal },
     { key: 'toolCalls', label: t('stats.kpi.toolCalls'), value: formatStatsCount(kpis.toolCallCount), current: kpis.toolCallCount, previous: previous?.toolCallCount },
+    { key: 'cache', label: t('stats.kpi.cache'), value: formatTokenCacheHitRate(kpis.cacheHitRate), current: kpis.cacheHitRate ?? undefined, previous: previous?.cacheHitRate ?? undefined },
     { key: 'workspaces', label: t('stats.kpi.workspaces'), value: formatStatsCount(kpis.workspaceCount), current: kpis.workspaceCount, previous: previous?.workspaceCount },
   ];
   return (
@@ -403,9 +413,9 @@ function KpiBand({ kpis, previous, periodDays }: { kpis: Kpis; previous?: Previo
 // KpiDelta renders the period-over-period change. We treat an increase as the
 // accent (more usage is the expected "active" direction) and a decrease as
 // neutral grey, deliberately avoiding red/green so the band stays calm.
-function KpiDelta({ current, previous, periodDays }: { current: number; previous?: number; periodDays: number }) {
+function KpiDelta({ current, previous, periodDays }: { current?: number; previous?: number; periodDays: number }) {
   const { t } = useTranslation();
-  if (previous === undefined) {
+  if (current === undefined || previous === undefined) {
     return <div className="stats-kpi-delta stats-kpi-delta-empty">&nbsp;</div>;
   }
   if (previous === 0) {
@@ -440,7 +450,7 @@ function StatsSkeleton() {
   return (
     <div className="stats-skeleton" aria-busy="true">
       <div className="stats-kpi-band">
-        {[0, 1, 2, 3, 4].map((i) => (
+        {[0, 1, 2, 3, 4, 5].map((i) => (
           <div key={i} className="stats-kpi-card stats-skeleton-card">
             <div className="stats-skeleton-line short" />
             <div className="stats-skeleton-line tall" />

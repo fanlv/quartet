@@ -383,6 +383,7 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["stats-kpis"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["总耗时"].exists)
         XCTAssertTrue(app.staticTexts["总轮次"].exists)
+        XCTAssertTrue(app.staticTexts["缓存命中率"].exists)
         XCTAssertTrue(app.staticTexts["工作区"].exists)
         XCTAssertTrue(app.otherElements["stats-trend"].exists)
         let workspaceSection = app.staticTexts["按工作区"]
@@ -400,6 +401,7 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["stats-kpis"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Total time"].exists)
         XCTAssertTrue(app.staticTexts["Turns"].exists)
+        XCTAssertTrue(app.staticTexts["Cache hit rate"].exists)
         XCTAssertTrue(app.staticTexts["Workspaces"].exists)
         XCTAssertTrue(app.staticTexts["Daily tokens"].exists)
         let workspaceSection = app.staticTexts["By Workspace"]

@@ -102,56 +102,51 @@ struct WorkspacePathPickerView: View {
     @ViewBuilder
     private var browserRows: some View {
         if let visibleParent {
-            Button {
-                Task { await loadDirectory(visibleParent) }
-            } label: {
-                WorkspaceBrowserRow(
-                    title: "返回上级目录".localizedForApp,
-                    detail: visibleParent,
-                    systemImage: "arrow.up.left",
-                    tint: QuartetTheme.secondaryText,
-                    showsDivider: !isEmptyDirectory
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(loading)
+            WorkspaceBrowserRow(
+                title: "返回上级目录".localizedForApp,
+                detail: visibleParent,
+                systemImage: "arrow.up.left",
+                tint: QuartetTheme.secondaryText,
+                showsDivider: !isEmptyDirectory,
+                path: visibleParent,
+                pathKind: .directory,
+                actionAccessibilityLabel: "返回上级目录".localizedForApp,
+                actionDisabled: loading,
+                onOpen: { Task { await loadDirectory(visibleParent) } }
+            )
         }
 
         ForEach(directories, id: \.self) { directory in
             let path = Self.join(currentPath, directory)
-            Button {
-                Task { await loadDirectory(path) }
-            } label: {
-                WorkspaceBrowserRow(
-                    title: directory,
-                    detail: nil,
-                    systemImage: "folder.fill",
-                    tint: QuartetTheme.running,
-                    showsDivider: directory != directories.last || !files.isEmpty
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(loading)
-            .accessibilityLabel(AppLanguage.localizedFormat("打开目录 %@", directory))
+            WorkspaceBrowserRow(
+                title: directory,
+                detail: nil,
+                systemImage: "folder.fill",
+                tint: QuartetTheme.running,
+                showsDivider: directory != directories.last || !files.isEmpty,
+                path: path,
+                pathKind: .directory,
+                actionAccessibilityLabel: AppLanguage.localizedFormat("打开目录 %@", directory),
+                actionDisabled: loading,
+                onOpen: { Task { await loadDirectory(path) } }
+            )
         }
 
         if allowsFileSelection {
             ForEach(files) { file in
                 let path = Self.join(currentPath, file.name)
-                Button {
-                    select(path)
-                } label: {
-                    WorkspaceBrowserRow(
-                        title: file.name,
-                        detail: ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file),
-                        systemImage: "doc.text.fill",
-                        tint: QuartetTheme.secondaryText,
-                        showsDivider: file.id != files.last?.id
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(loading)
-                .accessibilityLabel(AppLanguage.localizedFormat("选择文件 %@", file.name))
+                WorkspaceBrowserRow(
+                    title: file.name,
+                    detail: ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file),
+                    systemImage: "doc.text.fill",
+                    tint: QuartetTheme.secondaryText,
+                    showsDivider: file.id != files.last?.id,
+                    path: path,
+                    pathKind: .file,
+                    actionAccessibilityLabel: AppLanguage.localizedFormat("选择文件 %@", file.name),
+                    actionDisabled: loading,
+                    onOpen: { select(path) }
+                )
             }
         }
 

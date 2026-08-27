@@ -607,7 +607,7 @@ struct OutboxBubble: View {
 
             MarkdownMessageView(text: item.displayText, tone: .user)
 
-            if let attachment = item.attachment {
+            ForEach(Array(item.attachments.enumerated()), id: \.offset) { _, attachment in
                 ChatAttachmentPreview(upload: attachment)
             }
 

@@ -179,6 +179,37 @@ struct ChatAttachmentPreview: View {
     }
 }
 
+struct ChatPendingAttachmentStrip: View {
+    let uploads: [PendingUpload]
+    let onRemove: (Int) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(Array(uploads.enumerated()), id: \.offset) { index, upload in
+                    ChatAttachmentPreview(upload: upload)
+                        .frame(width: 260)
+                        .overlay(alignment: .topTrailing) {
+                            Button {
+                                onRemove(index)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.chat(.compact, weight: .bold))
+                                    .foregroundStyle(QuartetTheme.primaryText)
+                                    .frame(width: 28, height: 28)
+                                    .background(.thinMaterial, in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("移除附件")
+                            .accessibilityHint(upload.filename)
+                            .padding(8)
+                        }
+                }
+            }
+        }
+    }
+}
+
 struct CameraImagePicker: UIViewControllerRepresentable {
     let onImagePicked: @MainActor (UIImage) -> Void
     let onCancel: @MainActor () -> Void
@@ -233,11 +264,11 @@ struct CameraImagePicker: UIViewControllerRepresentable {
 }
 
 struct DocumentAttachmentPicker: UIViewControllerRepresentable {
-    let onDocumentPicked: @MainActor (URL) -> Void
+    let onDocumentsPicked: @MainActor ([URL]) -> Void
     let onCancel: @MainActor () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onDocumentPicked: onDocumentPicked, onCancel: onCancel)
+        Coordinator(onDocumentsPicked: onDocumentsPicked, onCancel: onCancel)
     }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
@@ -246,21 +277,21 @@ struct DocumentAttachmentPicker: UIViewControllerRepresentable {
             asCopy: true
         )
         picker.delegate = context.coordinator
-        picker.allowsMultipleSelection = false
+        picker.allowsMultipleSelection = true
         return picker
     }
 
     func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        private let onDocumentPicked: @MainActor (URL) -> Void
+        private let onDocumentsPicked: @MainActor ([URL]) -> Void
         private let onCancel: @MainActor () -> Void
 
         init(
-            onDocumentPicked: @escaping @MainActor (URL) -> Void,
+            onDocumentsPicked: @escaping @MainActor ([URL]) -> Void,
             onCancel: @escaping @MainActor () -> Void
         ) {
-            self.onDocumentPicked = onDocumentPicked
+            self.onDocumentsPicked = onDocumentsPicked
             self.onCancel = onCancel
         }
 
@@ -271,14 +302,14 @@ struct DocumentAttachmentPicker: UIViewControllerRepresentable {
         }
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else {
+            guard !urls.isEmpty else {
                 Task { @MainActor in
                     onCancel()
                 }
                 return
             }
             Task { @MainActor in
-                onDocumentPicked(url)
+                onDocumentsPicked(urls)
             }
         }
     }

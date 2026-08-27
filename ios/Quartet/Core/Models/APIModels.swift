@@ -206,6 +206,7 @@ struct UsageStatsPreviousTotals: Decodable, Hashable, Sendable {
     let turnCount: Int
     let toolCallCount: Int
     let tokensTotal: Int
+    let cacheHitRate: Double?
     let workspaceCount: Int
 }
 

@@ -865,6 +865,7 @@
       "turns": "Turns",
       "tokens": "Tokens",
       "toolCalls": "Tool calls",
+      "cache": "Cache hit rate",
       "workspaces": "Workspaces",
       "vsPrevious": "vs. previous {{days}}d",
       "noPrevious": "no prior period"

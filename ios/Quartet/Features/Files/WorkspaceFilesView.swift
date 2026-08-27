@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// 文件浏览 tab：导航栏按运行台的方式切换工作空间，逐级下钻工作空间目录，
 /// 点击文件复用后端的 Web 文件预览页在应用内打开，不在本地解析文件内容。
@@ -32,7 +33,10 @@ struct WorkspaceFilesView: View {
                 .navigationTitle("文件")
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: WorkspaceDirectoryRoute.self) { route in
-                    WorkspaceDirectoryView(directory: route.path, onOpenFile: openFile)
+                    WorkspaceDirectoryView(
+                        directory: route.path,
+                        onOpenFile: openFile
+                    )
                         .quartetNavigationTitle(route.name)
                 }
                 .toolbar {
@@ -121,7 +125,10 @@ struct WorkspaceFilesView: View {
             }
         } else {
             // 切换工作空间时重建列表：沿用同一个视图会让上一个空间的目录内容停留一帧。
-            WorkspaceDirectoryView(directory: workspaceRoot, onOpenFile: openFile)
+            WorkspaceDirectoryView(
+                directory: workspaceRoot,
+                onOpenFile: openFile
+            )
                 .id(workspaceRoot)
         }
     }
@@ -164,6 +171,87 @@ struct WorkspaceFilesView: View {
         routes = []
         workspaceID = id
         model.recordFilesWorkspace(id)
+    }
+
+    private func openFile(_ filePath: String) {
+        let name = URL(fileURLWithPath: filePath).lastPathComponent
+        do {
+            let baseURL = try model.apiClient().baseURL
+            guard let previewURL = ChatLinkTarget.filePreviewURL(baseURL: baseURL, path: filePath) else {
+                throw APIError(
+                    summary: "无法生成文件 URL",
+                    detail: "Quartet 服务地址或文件预览 URL 无效。\n服务地址：\n\(baseURL.absoluteString)\n文件路径：\n\(filePath)"
+                )
+            }
+            webDestination = ChatWebDestination(
+                url: previewURL,
+                title: name,
+                copyTarget: .filePath(filePath)
+            )
+        } catch {
+            model.present(error)
+        }
+    }
+}
+
+/// 从聊天页进入时使用的固定工作空间文件浏览器。它复用文件 tab 的目录与预览能力，
+/// 但始终停留在当前 Job 的工作目录，避免用户再次选择工作空间。
+struct WorkspaceDirectoryBrowserView: View {
+    @EnvironmentObject private var model: AppModel
+
+    let workspaceTitle: String
+    let workspaceRoot: String
+
+    @State private var webDestination: ChatWebDestination?
+
+    private var normalizedRoot: String {
+        workspaceRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        Group {
+            if !model.can("file.read") {
+                ContentUnavailableView {
+                    Label("无法浏览文件".localizedForApp, systemImage: "lock.fill")
+                        .font(.quartet(.control, weight: .semibold))
+                } description: {
+                    Text("当前账号缺少 file.read 权限，无法读取工作空间目录。".localizedForApp)
+                        .font(.quartet(.detail))
+                }
+            } else if normalizedRoot.isEmpty {
+                ContentUnavailableView {
+                    Label("工作空间没有工作目录".localizedForApp, systemImage: "folder.badge.questionmark")
+                        .font(.quartet(.control, weight: .semibold))
+                } description: {
+                    Text("当前工作空间没有可浏览的目录。".localizedForApp)
+                        .font(.quartet(.detail))
+                }
+            } else {
+                WorkspaceDirectoryView(
+                    directory: normalizedRoot,
+                    onOpenFile: openFile
+                )
+                .id(normalizedRoot)
+            }
+        }
+        .background(QuartetTheme.canvas)
+        .quartetNavigationTitle(workspaceTitle)
+        .navigationDestination(for: WorkspaceDirectoryRoute.self) { route in
+            WorkspaceDirectoryView(
+                directory: route.path,
+                onOpenFile: openFile
+            )
+            .quartetNavigationTitle(route.name)
+        }
+        .fullScreenCover(item: $webDestination) { destination in
+            NavigationStack {
+                ChatWebViewPage(
+                    destination: destination,
+                    onError: { model.present($0) }
+                )
+            }
+            .quartetSheetStyle()
+        }
     }
 
     private func openFile(_ filePath: String) {
@@ -268,34 +356,34 @@ private struct WorkspaceDirectoryView: View {
     @ViewBuilder
     private var entryRows: some View {
         ForEach(directories, id: \.self) { name in
-            NavigationLink(value: WorkspaceDirectoryRoute(path: Self.join(directory, name))) {
-                WorkspaceBrowserRow(
-                    title: name,
-                    detail: nil,
-                    systemImage: "folder.fill",
-                    tint: QuartetTheme.running,
-                    showsDivider: name != directories.last || !files.isEmpty
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(AppLanguage.localizedFormat("打开目录 %@", name))
+            let path = Self.join(directory, name)
+            WorkspaceBrowserRow(
+                title: name,
+                detail: nil,
+                systemImage: "folder.fill",
+                tint: QuartetTheme.running,
+                showsDivider: name != directories.last || !files.isEmpty,
+                path: path,
+                pathKind: .directory,
+                actionAccessibilityLabel: AppLanguage.localizedFormat("打开目录 %@", name),
+                navigationRoute: WorkspaceDirectoryRoute(path: path)
+            )
             .accessibilityIdentifier("files-directory-\(name)")
         }
 
         ForEach(files) { file in
-            Button {
-                onOpenFile(Self.join(directory, file.name))
-            } label: {
-                WorkspaceBrowserRow(
-                    title: file.name,
-                    detail: fileDetail(file),
-                    systemImage: "doc.text.fill",
-                    tint: QuartetTheme.secondaryText,
-                    showsDivider: file.id != files.last?.id
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(AppLanguage.localizedFormat("打开文件 %@", file.name))
+            let path = Self.join(directory, file.name)
+            WorkspaceBrowserRow(
+                title: file.name,
+                detail: fileDetail(file),
+                systemImage: "doc.text.fill",
+                tint: QuartetTheme.secondaryText,
+                showsDivider: file.id != files.last?.id,
+                path: path,
+                pathKind: .file,
+                actionAccessibilityLabel: AppLanguage.localizedFormat("打开文件 %@", file.name),
+                onOpen: { onOpenFile(path) }
+            )
             .accessibilityIdentifier("files-file-\(file.name)")
         }
     }
@@ -428,11 +516,16 @@ struct WorkspaceBrowserLocationHeader: View {
                 }
             }
 
-            Text(path)
-                .font(.quartet(.detail, design: .monospaced))
-                .foregroundStyle(QuartetTheme.primaryText)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 8) {
+                Text(path)
+                    .font(.quartet(.detail, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                WorkspacePathCopyButton(path: path, kind: .directory)
+            }
 
             if let workspaceRoot, workspaceRoot != path {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -441,6 +534,8 @@ struct WorkspaceBrowserLocationHeader: View {
                         .textSelection(.enabled)
                         .lineLimit(2)
                         .truncationMode(.middle)
+                    Spacer(minLength: 3)
+                    WorkspacePathCopyButton(path: workspaceRoot, kind: .directory)
                 }
                 .font(.quartet(.compact, design: .monospaced))
                 .foregroundStyle(QuartetTheme.secondaryText)
@@ -450,7 +545,7 @@ struct WorkspaceBrowserLocationHeader: View {
         .padding(.top, 12)
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -461,8 +556,55 @@ struct WorkspaceBrowserRow: View {
     let systemImage: String
     let tint: Color
     let showsDivider: Bool
+    let path: String
+    let pathKind: WorkspaceBrowserPathKind
+    let actionAccessibilityLabel: String
+    var actionDisabled = false
+    var navigationRoute: WorkspaceDirectoryRoute? = nil
+    var onOpen: (() -> Void)? = nil
 
     var body: some View {
+        HStack(spacing: 0) {
+            mainAction
+
+            WorkspacePathCopyButton(path: path, kind: pathKind)
+                .padding(.leading, 4)
+
+            Image(systemName: "chevron.right")
+                .font(.quartet(.compact, weight: .bold))
+                .foregroundStyle(QuartetTheme.secondaryText.opacity(0.72))
+                .frame(width: 18)
+                .padding(.leading, 2)
+                .padding(.trailing, 14)
+                .accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .background(QuartetTheme.surface)
+        .overlay(alignment: .bottom) {
+            if showsDivider {
+                Divider()
+                    .overlay(QuartetTheme.divider)
+                    .padding(.leading, 62)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mainAction: some View {
+        if let navigationRoute {
+            NavigationLink(value: navigationRoute) { rowLabel }
+                .buttonStyle(.plain)
+                .disabled(actionDisabled)
+                .accessibilityLabel(actionAccessibilityLabel)
+        } else {
+            Button(action: { onOpen?() }) { rowLabel }
+                .buttonStyle(.plain)
+                .disabled(actionDisabled || onOpen == nil)
+                .accessibilityLabel(actionAccessibilityLabel)
+        }
+    }
+
+    private var rowLabel: some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
                 .font(.quartet(.control, weight: .semibold))
@@ -487,24 +629,68 @@ struct WorkspaceBrowserRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-
-            Image(systemName: "chevron.right")
-                .font(.quartet(.compact, weight: .bold))
-                .foregroundStyle(QuartetTheme.secondaryText.opacity(0.72))
-                .accessibilityHidden(true)
         }
         .padding(.leading, 16)
-        .padding(.trailing, 14)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .contentShape(Rectangle())
-        .background(QuartetTheme.surface)
-        .overlay(alignment: .bottom) {
-            if showsDivider {
-                Divider()
-                    .overlay(QuartetTheme.divider)
-                    .padding(.leading, 62)
-            }
+    }
+}
+
+enum WorkspaceBrowserPathKind {
+    case directory
+    case file
+
+    var copyLabel: String {
+        switch self {
+        case .directory: "复制目录地址".localizedForApp
+        case .file: "复制文件地址".localizedForApp
+        }
+    }
+
+    var copiedAnnouncement: String {
+        switch self {
+        case .directory: "目录地址已复制".localizedForApp
+        case .file: "文件地址已复制".localizedForApp
+        }
+    }
+}
+
+struct WorkspacePathCopyButton: View {
+    let path: String
+    let kind: WorkspaceBrowserPathKind
+
+    @State private var copied = false
+    @State private var feedbackTask: Task<Void, Never>?
+
+    var body: some View {
+        Button(action: copyPath) {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .font(.quartet(.detail, weight: .semibold))
+                .foregroundStyle(copied ? QuartetTheme.running : QuartetTheme.accent)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(path.isEmpty)
+        .accessibilityLabel(copied ? kind.copiedAnnouncement : kind.copyLabel)
+        .accessibilityHint(path)
+        .onDisappear {
+            feedbackTask?.cancel()
+            feedbackTask = nil
+        }
+    }
+
+    private func copyPath() {
+        guard !path.isEmpty else { return }
+        UIPasteboard.general.string = path
+        copied = true
+        UIAccessibility.post(notification: .announcement, argument: kind.copiedAnnouncement)
+        feedbackTask?.cancel()
+        feedbackTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            copied = false
         }
     }
 }

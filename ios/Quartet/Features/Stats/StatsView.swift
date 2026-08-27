@@ -314,7 +314,7 @@ private struct StatsKPIGrid: View {
             } else {
                 StatsKPIRow(cards: Array(cards.prefix(3)), periodDays: periodDays)
                 Divider().overlay(QuartetTheme.divider)
-                StatsKPIRow(cards: Array(cards.suffix(2)), periodDays: periodDays)
+                StatsKPIRow(cards: Array(cards.suffix(3)), periodDays: periodDays)
             }
         }
         .statsCard(contentPadding: 4)
@@ -325,18 +325,37 @@ private struct StatsKPIGrid: View {
         var totalMs: Int64 = 0
         var turns = 0
         var tokens = 0
+        var reported = 0
+        var input = 0
+        var output = 0
+        var cachedRead = 0
+        var cachedWrite = 0
         var tools = 0
         for row in report.byWorkspace {
             totalMs += row.totalMs
             turns += row.turnCount
             tokens += row.tokens.total
+            reported += row.tokens.reported
+            input += row.tokens.input
+            output += row.tokens.output
+            cachedRead += row.tokens.cachedRead
+            cachedWrite += row.tokens.cachedWrite
             tools += row.toolCallCount
         }
+        let cacheHitRate = StatsFormat.cacheHitRate(UsageStatsTokenTotals(
+            total: tokens,
+            reported: reported,
+            input: input,
+            output: output,
+            cachedRead: cachedRead,
+            cachedWrite: cachedWrite
+        ))
         return [
             StatsKPICard(id: "duration", title: "总耗时", value: StatsFormat.duration(totalMs), current: Double(totalMs), previous: report.previous.map { Double($0.totalMs) }, icon: "clock", color: QuartetTheme.accent),
             StatsKPICard(id: "turns", title: "总轮次", value: StatsFormat.count(turns), current: Double(turns), previous: report.previous.map { Double($0.turnCount) }, icon: "bubble.left.and.bubble.right", color: QuartetTheme.chartGreen),
             StatsKPICard(id: "tokens", title: "Token", value: StatsFormat.count(tokens), current: Double(tokens), previous: report.previous.map { Double($0.tokensTotal) }, icon: "text.word.spacing", color: QuartetTheme.running),
             StatsKPICard(id: "tools", title: "工具调用", value: StatsFormat.count(tools), current: Double(tools), previous: report.previous.map { Double($0.toolCallCount) }, icon: "wrench.and.screwdriver", color: QuartetTheme.chartForest),
+            StatsKPICard(id: "cache", title: "缓存命中率", value: StatsFormat.percentage(cacheHitRate), current: cacheHitRate, previous: report.previous?.cacheHitRate, icon: "archivebox", color: QuartetTheme.chartMutedGreen),
             StatsKPICard(id: "workspaces", title: "统计工作区", value: StatsFormat.count(report.byWorkspace.count), current: Double(report.byWorkspace.count), previous: report.previous.map { Double($0.workspaceCount) }, icon: "square.grid.2x2", color: QuartetTheme.chartGraphite)
         ]
     }
@@ -428,7 +447,7 @@ private struct StatsKPICard: Identifiable {
     let id: String
     let title: String
     let value: String
-    let current: Double
+    let current: Double?
     let previous: Double?
     let icon: String
     let color: Color
@@ -436,13 +455,13 @@ private struct StatsKPICard: Identifiable {
 
 private struct StatsDeltaLabel: View {
     @Environment(\.locale) private var locale
-    let current: Double
+    let current: Double?
     let previous: Double?
     let periodDays: Int
 
     var body: some View {
         Group {
-            if let previous, previous > 0 {
+            if let current, let previous, previous > 0 {
                 let delta = (current - previous) / previous * 100
                 let roundedDelta = Int(abs(delta).rounded())
                 Label(
@@ -456,7 +475,7 @@ private struct StatsDeltaLabel: View {
                     Int64(periodDays),
                     Int64(roundedDelta)
                 ))
-            } else if previous == 0, current > 0 {
+            } else if let current, previous == 0, current > 0 {
                 Text("—  前期无数据")
                     .foregroundStyle(QuartetTheme.secondaryText)
             } else if previous != nil {

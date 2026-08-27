@@ -3,7 +3,7 @@ import UIKit
 
 struct ComposerDraft: Hashable, Sendable {
     let text: String
-    let attachment: PendingUpload?
+    let attachments: [PendingUpload]
 }
 
 struct OutboxRequestContext: Hashable, Sendable {
@@ -31,16 +31,20 @@ struct LocalOutboxItem: Identifiable, Hashable, Sendable {
     let requestContext: OutboxRequestContext
     var remoteImagePaths: [String]
     var remoteFileAttachments: [FileAttachment]
+    var uploadedLocalAttachmentCount: Int
     var state: State
 
     var displayText: String {
         let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty, let attachment = draft.attachment { return attachment.isImage ? "[image]" : "[file]" }
+        if trimmed.isEmpty {
+            let hasFile = draft.attachments.contains { !$0.isImage } || !remoteFileAttachments.isEmpty
+            return hasFile ? "[file]" : "[image]"
+        }
         return trimmed.isEmpty ? "…" : trimmed
     }
 
-    var attachment: PendingUpload? {
-        draft.attachment
+    var attachments: [PendingUpload] {
+        draft.attachments
     }
 
     var statusTitle: String {
@@ -81,7 +85,12 @@ struct LocalOutboxItem: Identifiable, Hashable, Sendable {
     var summaryLine: String {
         let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
-        if let attachment = draft.attachment { return (attachment.isImage ? "[image]" : "[file]").localizedForApp }
+        if !draft.attachments.isEmpty {
+            let hasFile = draft.attachments.contains { !$0.isImage }
+            return (hasFile ? "[file]" : "[image]").localizedForApp
+        }
+        if !remoteFileAttachments.isEmpty { return "[file]".localizedForApp }
+        if !remoteImagePaths.isEmpty { return "[image]".localizedForApp }
         return "空消息".localizedForApp
     }
 }
@@ -338,7 +347,7 @@ final class ChatViewModel: ObservableObject {
             if !isGraph { applyServerQueue(serverQueue) }
 
             loading = false
-            if isTurnRunning || sessionID != nil || route.initialMessage != nil || route.initialAttachment != nil || route.initialImagePaths != nil || route.initialFileAttachments != nil {
+            if isTurnRunning || sessionID != nil || route.initialMessage != nil || !(route.initialAttachments ?? []).isEmpty || route.initialImagePaths != nil || route.initialFileAttachments != nil {
                 startStreaming()
             }
             scheduleOutboxProcessing()
@@ -401,25 +410,26 @@ final class ChatViewModel: ObservableObject {
     @discardableResult
     func enqueueDraft(
         text: String,
-        attachment: PendingUpload?,
+        attachments: [PendingUpload],
         remoteImagePaths: [String] = [],
         remoteFileAttachments: [FileAttachment] = [],
         isInitialDraft: Bool = false
     ) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || attachment != nil || !remoteImagePaths.isEmpty || !remoteFileAttachments.isEmpty else { return nil }
+        guard !trimmed.isEmpty || !attachments.isEmpty || !remoteImagePaths.isEmpty || !remoteFileAttachments.isEmpty else { return nil }
         let item = LocalOutboxItem(
             id: UUID().uuidString.lowercased(),
-            draft: ComposerDraft(text: trimmed, attachment: attachment),
+            draft: ComposerDraft(text: trimmed, attachments: attachments),
             createdAt: Int64(Date().timeIntervalSince1970 * 1_000),
             isInitialDraft: isInitialDraft,
             requestContext: currentRequestContext(bypassCommand: isInitialDraft),
             remoteImagePaths: remoteImagePaths,
             remoteFileAttachments: remoteFileAttachments,
+            uploadedLocalAttachmentCount: 0,
             state: .queued
         )
         outbox.append(item)
-        if isInitialDraft && (attachment == nil || !remoteImagePaths.isEmpty || !remoteFileAttachments.isEmpty) {
+        if isInitialDraft && attachments.isEmpty {
             upsertOptimisticUserMessage(for: item)
         }
         bumpScrollAnchor()
@@ -478,6 +488,7 @@ final class ChatViewModel: ObservableObject {
                 : item.requestContext,
             remoteImagePaths: item.remoteImagePaths,
             remoteFileAttachments: item.remoteFileAttachments,
+            uploadedLocalAttachmentCount: item.uploadedLocalAttachmentCount,
             state: .queued
         )
         scheduleOutboxProcessing()
@@ -531,7 +542,7 @@ final class ChatViewModel: ObservableObject {
     private func seedInitialDraftIfNeeded(route: ChatRoute) -> String? {
         guard !didSeedInitialDraft else { return nil }
         let hasInitialContent = (route.initialMessage?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-            || route.initialAttachment != nil
+            || !(route.initialAttachments ?? []).isEmpty
             || !(route.initialImagePaths ?? []).isEmpty
             || !(route.initialFileAttachments ?? []).isEmpty
         guard hasInitialContent else { return nil }
@@ -539,7 +550,7 @@ final class ChatViewModel: ObservableObject {
         didSeedInitialDraft = true
         return enqueueDraft(
             text: route.initialMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            attachment: route.initialAttachment,
+            attachments: route.initialAttachments ?? [],
             remoteImagePaths: route.initialImagePaths ?? [],
             remoteFileAttachments: route.initialFileAttachments ?? [],
             isInitialDraft: true
@@ -812,14 +823,17 @@ final class ChatViewModel: ObservableObject {
 
         do {
             outbox[index].state = .sending
-            if outbox[index].attachment == nil || !outbox[index].remoteImagePaths.isEmpty || !outbox[index].remoteFileAttachments.isEmpty {
+            if outbox[index].attachments.isEmpty
+                || outbox[index].uploadedLocalAttachmentCount >= outbox[index].attachments.count {
                 upsertOptimisticUserMessage(for: outbox[index])
             }
             startStreaming()
             try await waitForStreamReady()
 
-            if let attachment = outbox[index].attachment, outbox[index].remoteImagePaths.isEmpty, outbox[index].remoteFileAttachments.isEmpty {
-                outbox[index].state = .uploading
+            while let refreshed = outbox.firstIndex(where: { $0.id == itemID }),
+                  outbox[refreshed].uploadedLocalAttachmentCount < outbox[refreshed].attachments.count {
+                outbox[refreshed].state = .uploading
+                let attachment = outbox[refreshed].attachments[outbox[refreshed].uploadedLocalAttachmentCount]
                 let uploaded = try await client.uploadFile(
                     data: attachment.data,
                     filename: attachment.filename,
@@ -827,14 +841,15 @@ final class ChatViewModel: ObservableObject {
                 )
                 guard let refreshed = outbox.firstIndex(where: { $0.id == itemID }) else { return }
                 if attachment.isImage {
-                    outbox[refreshed].remoteImagePaths = [uploaded.path]
+                    outbox[refreshed].remoteImagePaths.append(uploaded.path)
                 } else {
-                    outbox[refreshed].remoteFileAttachments = [uploaded]
+                    outbox[refreshed].remoteFileAttachments.append(uploaded)
                 }
-                upsertOptimisticUserMessage(for: outbox[refreshed])
+                outbox[refreshed].uploadedLocalAttachmentCount += 1
             }
 
             guard let refreshed = outbox.firstIndex(where: { $0.id == itemID }) else { return }
+            upsertOptimisticUserMessage(for: outbox[refreshed])
             let item = outbox[refreshed]
             outbox[refreshed].state = .sending
             let content = item.displayText

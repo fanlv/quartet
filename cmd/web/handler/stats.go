@@ -34,14 +34,15 @@ type statsResponse struct {
 }
 
 // statsKPITotals is the compact previous-period payload backing the overview
-// cards' deltas. It carries only the five headline metrics, never the full
+// cards' deltas. It carries only the six headline metrics, never the full
 // breakdown sections, to keep the response small.
 type statsKPITotals struct {
-	TotalMs        int64 `json:"totalMs"`
-	TurnCount      int   `json:"turnCount"`
-	ToolCallCount  int   `json:"toolCallCount"`
-	TokensTotal    int   `json:"tokensTotal"`
-	WorkspaceCount int   `json:"workspaceCount"`
+	TotalMs        int64    `json:"totalMs"`
+	TurnCount      int      `json:"turnCount"`
+	ToolCallCount  int      `json:"toolCallCount"`
+	TokensTotal    int      `json:"tokensTotal"`
+	CacheHitRate   *float64 `json:"cacheHitRate"`
+	WorkspaceCount int      `json:"workspaceCount"`
 }
 
 // statsRange echoes the inclusive date range that was actually used to
@@ -170,19 +171,40 @@ func (h *Handler) StatsUsage(ctx context.Context, c *app.RequestContext) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// kpiTotals folds a usage report down to the five headline metrics shown on
+// kpiTotals folds a usage report down to the six headline metrics shown on
 // the overview cards. WorkspaceCount is the number of workspaces that had any
 // activity in the window, including historical workspaces that no longer have
 // metadata on this machine.
 func kpiTotals(report usagestats.UsageReport) *statsKPITotals {
 	out := &statsKPITotals{WorkspaceCount: len(report.ByWorkspace)}
+	var tokens usagestats.TokenTotals
 	for _, ws := range report.ByWorkspace {
 		out.TotalMs += ws.TotalMs
 		out.TurnCount += ws.TurnCount
 		out.ToolCallCount += ws.ToolCallCount
 		out.TokensTotal += ws.Tokens.Total
+		tokens.Reported += ws.Tokens.Reported
+		tokens.Input += ws.Tokens.Input
+		tokens.Output += ws.Tokens.Output
+		tokens.CachedRead += ws.Tokens.CachedRead
+		tokens.CachedWrite += ws.Tokens.CachedWrite
+	}
+	if rate, ok := statsCacheHitRate(tokens); ok {
+		out.CacheHitRate = &rate
 	}
 	return out
+}
+
+// statsCacheHitRate mirrors the UI's provider-input cache-hit definition.
+// Providers differ on whether Input already includes cached tokens, so the
+// largest available input total is used and the result is capped at 100%.
+func statsCacheHitRate(tokens usagestats.TokenTotals) (float64, bool) {
+	reportedInput := max(0, tokens.Reported-tokens.Output)
+	providerInput := max(reportedInput, max(0, tokens.Input), max(0, tokens.CachedRead+tokens.CachedWrite))
+	if providerInput == 0 {
+		return 0, false
+	}
+	return min(1, float64(max(0, tokens.CachedRead))/float64(providerInput)), true
 }
 
 // enrichWorkspaceRows binds a name-aggregated historical row back to the

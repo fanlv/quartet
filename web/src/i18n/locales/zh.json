@@ -861,6 +861,7 @@
       "turns": "总轮次",
       "tokens": "Token",
       "toolCalls": "工具调用",
+      "cache": "缓存命中率",
       "workspaces": "工作区",
       "vsPrevious": "对比前 {{days}} 天",
       "noPrevious": "无对比周期"

@@ -1961,7 +1961,7 @@ final class AppModel: ObservableObject {
             ],
             daily: daily,
             previous: UsageStatsPreviousTotals(
-                totalMs: 2_640_000, turnCount: 22, toolCallCount: 38, tokensTotal: 17_400, workspaceCount: 2
+                totalMs: 2_640_000, turnCount: 22, toolCallCount: 38, tokensTotal: 17_400, cacheHitRate: 0.21, workspaceCount: 2
             ),
             note: "stats.tokensLocalEstimateNote", failed: false, error: nil
         )

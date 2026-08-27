@@ -1,6 +1,222 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
+    "%@画笔" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ pen" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%@画笔" } }
+      }
+    },
+    "1  裁剪" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "1  Crop" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "1  裁剪" } }
+      }
+    },
+    "2  标记" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "2  Mark Up" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "2  标记" } }
+      }
+    },
+    "下一步" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Next" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "下一步" } }
+      }
+    },
+    "不添加当前图片，并停止编辑其余图片" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Do not add this image and stop editing the remaining images" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "不添加当前图片，并停止编辑其余图片" } }
+      }
+    },
+    "中" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Medium" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "中" } }
+      }
+    },
+    "单指拖动即可画线。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag with one finger to draw." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "单指拖动即可画线。" } }
+      }
+    },
+    "右上裁剪控制点" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Top-right crop handle" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "右上裁剪控制点" } }
+      }
+    },
+    "右下裁剪控制点" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Bottom-right crop handle" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "右下裁剪控制点" } }
+      }
+    },
+    "图片编辑，第 1 步，共 2 步：裁剪" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Image editor, step 1 of 2: Crop" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "图片编辑，第 1 步，共 2 步：裁剪" } }
+      }
+    },
+    "图片编辑，第 2 步，共 2 步：标记" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Image editor, step 2 of 2: Mark Up" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "图片编辑，第 2 步，共 2 步：标记" } }
+      }
+    },
+    "在图片上画线标记" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Draw annotations on the image" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "在图片上画线标记" } }
+      }
+    },
+    "完成" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Done" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "完成" } }
+      }
+    },
+    "左上裁剪控制点" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Top-left crop handle" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "左上裁剪控制点" } }
+      }
+    },
+    "左下裁剪控制点" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Bottom-left crop handle" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "左下裁剪控制点" } }
+      }
+    },
+    "拖动以调整裁剪区域" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag to resize the crop area" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "拖动以调整裁剪区域" } }
+      }
+    },
+    "拖动裁剪框或四角控制点，保留需要的画面。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag the crop frame or a corner handle to keep the area you need." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "拖动裁剪框或四角控制点，保留需要的画面。" } }
+      }
+    },
+    "拖动裁剪框移动区域，拖动四角改变大小。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag the crop frame to move it, or drag a corner to resize it." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "拖动裁剪框移动区域，拖动四角改变大小。" } }
+      }
+    },
+    "撤销" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Undo" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "撤销" } }
+      }
+    },
+    "橡皮擦" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eraser" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "橡皮擦" } }
+      }
+    },
+    "清除标记" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Clear Markup" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "清除标记" } }
+      }
+    },
+    "画笔粗细：%@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Stroke width: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "画笔粗细：%@" } }
+      }
+    },
+    "白色" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "White" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "白色" } }
+      }
+    },
+    "直接在图片上拖动画笔进行标记。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag directly on the image to add markup." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "直接在图片上拖动画笔进行标记。" } }
+      }
+    },
+    "粗" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Thick" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "粗" } }
+      }
+    },
+    "红色" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Red" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "红色" } }
+      }
+    },
+    "细" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Thin" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "细" } }
+      }
+    },
+    "绿色" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Green" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "绿色" } }
+      }
+    },
+    "编辑图片" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit Image" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "编辑图片" } }
+      }
+    },
+    "蓝色" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Blue" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "蓝色" } }
+      }
+    },
+    "调整图片裁剪区域" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Adjust the image crop area" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "调整图片裁剪区域" } }
+      }
+    },
+    "返回裁剪" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Back to Crop" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "返回裁剪" } }
+      }
+    },
+    "重做" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Redo" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重做" } }
+      }
+    },
+    "重置裁剪" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reset Crop" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重置裁剪" } }
+      }
+    },
+    "黄色" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Yellow" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "黄色" } }
+      }
+    },
+    "黑色" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Black" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "黑色" } }
+      }
+    },
     "仍可选择当前目录。" : {
       "localizations" : {
         "en" : {
@@ -4312,6 +4528,38 @@
         }
       }
     },
+    "复制目录地址" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Directory Path"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制目录地址"
+          }
+        }
+      }
+    },
+    "复制文件地址" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy File Path"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制文件地址"
+          }
+        }
+      }
+    },
     "复制" : {
       "localizations" : {
         "en" : {
@@ -5389,6 +5637,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已在步骤后停止"
+          }
+        }
+      }
+    },
+    "文件地址已复制" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File Path Copied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件地址已复制"
+          }
+        }
+      }
+    },
+    "目录地址已复制" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Directory Path Copied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目录地址已复制"
           }
         }
       }
@@ -8103,6 +8383,22 @@
         }
       }
     },
+    "查看当前工作空间目录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Browse Current Workspace"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看当前工作空间目录"
+          }
+        }
+      }
+    },
     "查看 Agent 用量错误" : {
       "localizations" : {
         "en" : {
@@ -8433,6 +8729,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "模式"
+          }
+        }
+      }
+    },
+    "正在处理附件…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Processing attachments…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在处理附件…"
           }
         }
       }

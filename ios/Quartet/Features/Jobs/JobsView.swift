@@ -6,7 +6,7 @@ struct JobsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.mainTabBarInset) private var mainTabBarInset
     @Binding private var showsMainTabBar: Bool
-    @State private var path: [ChatRoute] = []
+    @State private var path = NavigationPath()
     @State private var presentsNewConversation = false
     /// Route the new-conversation sheet asked to open, parked until the sheet has actually gone away.
     /// Dismissing and pushing in the same state update is the classic way to lose the push.
