@@ -623,6 +623,15 @@ final class AppModel: ObservableObject {
         return try await makeClient().job(id: id)
     }
 
+    func shareJob(id: String) async throws -> String {
+#if DEBUG
+        if isRunningUITests {
+            return "ui-test-share-token"
+        }
+#endif
+        return try await makeClient().shareJob(id: id).shareToken
+    }
+
     func graphRunStatus(jobID: String) async throws -> GraphRunStatusResponse {
         if isRunningUITests {
             return uiTestGraphRunStatus(jobID: jobID)
@@ -1016,6 +1025,16 @@ final class AppModel: ObservableObject {
     func recordGraphWorkspace(_ workspaceID: String) {
         guard !workspaceID.isEmpty else { return }
         defaults.set(workspaceID, forKey: StorageKey.lastGraphWorkspaceID(for: serverAddress))
+    }
+
+    /// 文件浏览 tab 记住的工作空间，和运行台筛选、Graph 启动页都分开：浏览文件不该改动任务列表的筛选。
+    var lastFilesWorkspaceID: String? {
+        defaults.string(forKey: StorageKey.lastFilesWorkspaceID(for: serverAddress))
+    }
+
+    func recordFilesWorkspace(_ workspaceID: String) {
+        guard !workspaceID.isEmpty else { return }
+        defaults.set(workspaceID, forKey: StorageKey.lastFilesWorkspaceID(for: serverAddress))
     }
 
     @discardableResult
@@ -1980,6 +1999,12 @@ final class AppModel: ObservableObject {
             let server = connectionIdentity(for: serverAddress) ?? serverAddress
             let encodedServer = Data(server.utf8).base64EncodedString()
             return "quartet.lastGraphWorkspaceID.\(encodedServer)"
+        }
+
+        static func lastFilesWorkspaceID(for serverAddress: String) -> String {
+            let server = connectionIdentity(for: serverAddress) ?? serverAddress
+            let encodedServer = Data(server.utf8).base64EncodedString()
+            return "quartet.lastFilesWorkspaceID.\(encodedServer)"
         }
 
         static func legacyTokenAccount(for serverAddress: String) -> String {

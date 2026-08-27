@@ -838,6 +838,10 @@ struct JobsPage: Decodable, Sendable {
     let version: Int64?
 }
 
+struct JobShareResponse: Decodable, Sendable {
+    let shareToken: String
+}
+
 struct JobDetail: Decodable, Identifiable, Sendable {
     let id: String
     let title: String

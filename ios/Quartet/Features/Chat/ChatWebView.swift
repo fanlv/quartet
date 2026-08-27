@@ -82,16 +82,21 @@ enum ChatLinkTarget {
             .path
     }
 
-    static func filePreviewURL(baseURL: URL, path: String, jobID: String) -> URL? {
+    /// `jobID` 只在从某个 Job 打开文件时才带上：文件浏览这类没有 Job 上下文的入口留空，
+    /// 与 Web 端 `buildFilePreviewUrl` 的行为一致。
+    static func filePreviewURL(baseURL: URL, path: String, jobID: String = "") -> URL? {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             return nil
         }
         components.fragment = nil
-        components.queryItems = [
+        var items = [
             URLQueryItem(name: "view", value: "file-preview"),
-            URLQueryItem(name: "path", value: path),
-            URLQueryItem(name: "jobId", value: jobID)
+            URLQueryItem(name: "path", value: path)
         ]
+        if !jobID.isEmpty {
+            items.append(URLQueryItem(name: "jobId", value: jobID))
+        }
+        components.queryItems = items
         return components.url
     }
 

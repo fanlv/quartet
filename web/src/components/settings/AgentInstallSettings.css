@@ -294,6 +294,11 @@
 
 .agent-install-card-actions .settings-btn,
 .agent-install-card-actions .agent-install-btn {
+  padding: 6px 16px;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 6px;
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -917,7 +922,7 @@
   flex-shrink: 0;
 }
 
-.agent-upgrade-btn {
+.agent-install-card-actions .agent-upgrade-btn {
   border-color: var(--update-action);
   color: var(--update-fg);
   background: var(--update-action);
@@ -936,16 +941,16 @@
   border-color: var(--update-border);
 }
 
-.agent-uninstall-btn {
-  border: 1px solid var(--danger);
-  color: var(--on-danger);
-  background: var(--danger);
+.agent-install-card-actions .agent-uninstall-btn {
+  border-color: color-mix(in srgb, var(--danger) 42%, transparent);
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .agent-uninstall-btn:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--danger) 82%, black);
-  color: var(--on-danger);
-  background: color-mix(in srgb, var(--danger) 82%, black);
+  border-color: var(--danger);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger-soft) 82%, var(--danger));
 }
 
 .agent-uninstall-btn:disabled {

@@ -14,6 +14,8 @@ struct JobDetailView: View {
     @State private var confirmsStop = false
     @State private var presentsLatestError = false
     @State private var copiedWebLink = false
+    @State private var sharing = false
+    @State private var copiedShareLink = false
 
     var body: some View {
         ScrollView {
@@ -22,8 +24,8 @@ struct JobDetailView: View {
                 if loading {
                     HStack { Spacer(); ProgressView(); Spacer() }.padding(.top, 40)
                 } else if let detail {
-                    metadata(detail)
                     webLinkActions(detail)
+                    metadata(detail)
                     if let latestError = detail.latestRunLastError ?? graphState?.lastError, !latestError.isEmpty {
                         latestErrorCard(latestError)
                     }
@@ -174,10 +176,10 @@ struct JobDetailView: View {
                     .background(QuartetTheme.accent.opacity(0.12), in: Circle())
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Web 端访问")
+                    Text("快捷操作")
                         .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
-                    Text("在浏览器中继续查看，或复制链接分享当前 Job")
+                    Text("打开或复制当前 Job 的 Web 链接，也可以生成只读分享链接")
                         .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -220,6 +222,31 @@ struct JobDetailView: View {
                 .accessibilityLabel(copiedWebLink ? "Web 链接已复制" : "复制 Web 链接")
                 .accessibilityHint("复制可在 Quartet Web 端打开当前 Job 的链接")
                 .accessibilityIdentifier("job-web-link")
+            }
+
+            if model.can("job.share") {
+                Button { Task { await shareWebLink(for: detail) } } label: {
+                    HStack(spacing: 7) {
+                        if sharing {
+                            ProgressView()
+                                .tint(QuartetTheme.onAccent)
+                        } else {
+                            Image(systemName: copiedShareLink ? "checkmark" : "square.and.arrow.up")
+                        }
+                        Text(sharing ? "正在生成…" : copiedShareLink ? "分享链接已复制" : "分享")
+                    }
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.onAccent)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(QuartetTheme.accentDeep, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .disabled(sharing)
+                .accessibilityLabel(
+                    sharing ? "正在生成分享链接" : copiedShareLink ? "分享链接已复制" : "分享 Job"
+                )
+                .accessibilityHint("生成当前 Job 的只读分享链接并复制到剪贴板")
+                .accessibilityIdentifier("job-share-link")
             }
         }
         .padding(18)
@@ -298,7 +325,28 @@ struct JobDetailView: View {
         }
     }
 
-    private func webURL(for detail: JobDetail) throws -> URL {
+    @MainActor
+    private func shareWebLink(for detail: JobDetail) async {
+        guard !sharing else { return }
+        sharing = true
+        defer { sharing = false }
+
+        do {
+            let shareToken = try await model.shareJob(id: detail.id)
+            let url = try webURL(for: detail, shareToken: shareToken)
+            UIPasteboard.general.string = url.absoluteString
+            copiedShareLink = true
+            UIAccessibility.post(notification: .announcement, argument: "分享链接已复制")
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                copiedShareLink = false
+            }
+        } catch {
+            model.present(error)
+        }
+    }
+
+    private func webURL(for detail: JobDetail, shareToken: String? = nil) throws -> URL {
         let baseURL = try model.apiClient().baseURL
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw APIError(
@@ -309,10 +357,14 @@ struct JobDetailView: View {
         if components.path.isEmpty {
             components.path = "/"
         }
-        components.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "workspaceId", value: detail.workspaceId),
             URLQueryItem(name: "jobId", value: detail.id)
         ]
+        if let shareToken {
+            queryItems.append(URLQueryItem(name: "shareToken", value: shareToken))
+        }
+        components.queryItems = queryItems
         components.fragment = nil
         guard let url = components.url else {
             throw APIError(

@@ -538,6 +538,18 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/job/\(id)")
     }
 
+    func shareJob(id: String) async throws -> JobShareResponse {
+        try await request(
+            path: "api/v1/job/\(id)/share",
+            method: "POST",
+            validate: { response in
+                response.shareToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "响应中缺少 shareToken。"
+                    : nil
+            }
+        )
+    }
+
     func createJob(_ body: CreateJobRequest) async throws -> CreateJobResponse {
         try await request(path: "api/v1/job/create", method: "POST", body: body)
     }
