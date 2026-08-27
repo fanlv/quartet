@@ -451,7 +451,10 @@ func cloneDayBucket(in *DayBucket) *DayBucket {
 	if in == nil {
 		return nil
 	}
-	out := &DayBucket{SectionTotals: in.SectionTotals}
+	out := &DayBucket{
+		WorkspaceName: in.WorkspaceName,
+		SectionTotals: in.SectionTotals,
+	}
 	if len(in.Tools) > 0 {
 		out.Tools = make(map[string]*ToolBucket, len(in.Tools))
 		for k, v := range in.Tools {

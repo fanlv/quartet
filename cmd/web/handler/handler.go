@@ -241,7 +241,13 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		return nil, err
 	}
 
-	usageStats, err := usagestats.NewService(ctx)
+	usageStats, err := usagestats.NewService(ctx, func(workspaceID string) string {
+		ws, ok := wss.Get(workspaceID)
+		if !ok || ws == nil {
+			return ""
+		}
+		return ws.Title
+	})
 	if err != nil {
 		return nil, err
 	}

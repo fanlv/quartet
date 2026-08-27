@@ -2,6 +2,7 @@ package usagestats
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,7 +63,9 @@ type UsageReport struct {
 }
 
 type WorkspaceAggregate struct {
-	WorkspaceID string `json:"workspaceId"`
+	WorkspaceID   string   `json:"workspaceId"`
+	WorkspaceName string   `json:"workspaceName,omitempty"`
+	WorkspaceIDs  []string `json:"-"`
 	SectionTotals
 }
 
@@ -113,6 +116,10 @@ type service struct {
 	// rootCtx is used for warn logs from the background flush goroutine.
 	// Not for cancellation of in-flight writes — those are best-effort.
 	rootCtx context.Context
+	// workspaceName resolves the current display name at record time. Keeping
+	// the name in the historical bucket lets copied/synced stats remain readable
+	// on another machine where the same logical workspace has a different ID.
+	workspaceName func(workspaceID string) string
 	// nowFn lets tests pin the clock.
 	nowFn func() time.Time
 	// version is bumped on every Record under store.mu so readers picking
@@ -124,15 +131,16 @@ type service struct {
 
 // NewService constructs a usage-stats service with the default disk-backed
 // store and a 1s debounce.
-func NewService(rootCtx context.Context) (Service, error) {
+func NewService(rootCtx context.Context, workspaceName func(workspaceID string) string) (Service, error) {
 	if rootCtx == nil {
 		rootCtx = context.Background()
 	}
 	st := newStore()
 	s := &service{
-		store:   st,
-		rootCtx: rootCtx,
-		nowFn:   time.Now,
+		store:         st,
+		rootCtx:       rootCtx,
+		workspaceName: workspaceName,
+		nowFn:         time.Now,
 	}
 	st.onDirty = func() {
 		// Sleep then flush. The flag is reset inside flushNow via
@@ -164,6 +172,10 @@ func (s *service) Record(snap Snapshot) {
 	}
 	if snap.FinishedAtMs <= 0 {
 		snap.FinishedAtMs = s.nowFn().UnixMilli()
+	}
+	snap.WorkspaceName = strings.TrimSpace(snap.WorkspaceName)
+	if snap.WorkspaceName == "" && s.workspaceName != nil {
+		snap.WorkspaceName = strings.TrimSpace(s.workspaceName(snap.WorkspaceID))
 	}
 
 	finishedAt := time.UnixMilli(snap.FinishedAtMs)
@@ -212,6 +224,9 @@ func (s *service) Record(snap Snapshot) {
 	if !ok {
 		day = &DayBucket{}
 		wsDays[dKey] = day
+	}
+	if snap.WorkspaceName != "" {
+		day.WorkspaceName = snap.WorkspaceName
 	}
 
 	applySnapshotToBucket(snap, &day.SectionTotals)

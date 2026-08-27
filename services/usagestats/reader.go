@@ -3,8 +3,15 @@ package usagestats
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
+
+type workspaceAccumulator struct {
+	WorkspaceName string
+	WorkspaceIDs  map[string]struct{}
+	SectionTotals
+}
 
 // GetDailyTotals returns the totals (totalMs, turnCount) for the given
 // workspace on each requested day. Days with no data are omitted.
@@ -107,7 +114,7 @@ func (s *service) getUsage(from, to time.Time, allowedWorkspaces map[string]stru
 	keys := listMonthKeysInRange(from, to)
 
 	// Per-(ws/model/tool) accumulators.
-	byWS := map[string]*SectionTotals{}
+	byWS := map[string]*workspaceAccumulator{}
 	byModel := map[string]*SectionTotals{}
 	byTool := map[string]*ToolAggregate{}
 	dailyMap := map[string]*DailyAggregate{}
@@ -131,7 +138,11 @@ func (s *service) getUsage(from, to time.Time, allowedWorkspaces map[string]stru
 				if !inRange(dk, from, to) {
 					continue
 				}
-				accumulateWorkspace(byWS, wsID, &day.SectionTotals)
+				workspaceName := strings.TrimSpace(day.WorkspaceName)
+				if workspaceName == "" && s.workspaceName != nil {
+					workspaceName = strings.TrimSpace(s.workspaceName(wsID))
+				}
+				accumulateWorkspace(byWS, wsID, workspaceName, &day.SectionTotals)
 				accumulateModelsFromDay(byModel, day)
 				accumulateToolsFromDay(byTool, day)
 				accumulateDaily(dailyMap, dk, day)
@@ -241,13 +252,22 @@ func inRange(dk string, from, to time.Time) bool {
 	return true
 }
 
-func accumulateWorkspace(dst map[string]*SectionTotals, wsID string, src *SectionTotals) {
-	t, ok := dst[wsID]
-	if !ok {
-		t = &SectionTotals{}
-		dst[wsID] = t
+func accumulateWorkspace(dst map[string]*workspaceAccumulator, wsID, workspaceName string, src *SectionTotals) {
+	workspaceName = strings.TrimSpace(workspaceName)
+	key := "name:" + workspaceName
+	if workspaceName == "" {
+		key = "id:" + wsID
 	}
-	addSection(t, src)
+	t, ok := dst[key]
+	if !ok {
+		t = &workspaceAccumulator{
+			WorkspaceName: workspaceName,
+			WorkspaceIDs:  make(map[string]struct{}),
+		}
+		dst[key] = t
+	}
+	t.WorkspaceIDs[wsID] = struct{}{}
+	addSection(&t.SectionTotals, src)
 }
 
 func accumulateModelsFromDay(dst map[string]*SectionTotals, day *DayBucket) {
@@ -390,14 +410,31 @@ func hasSectionValue(s *SectionTotals) bool {
 		s.Tokens.Assistant > 0 || s.Tokens.Thought > 0 || s.Tokens.ToolCall > 0
 }
 
-func sortedWorkspaceAggregates(in map[string]*SectionTotals) []WorkspaceAggregate {
+func sortedWorkspaceAggregates(in map[string]*workspaceAccumulator) []WorkspaceAggregate {
 	out := make([]WorkspaceAggregate, 0, len(in))
-	for k, v := range in {
-		out = append(out, WorkspaceAggregate{WorkspaceID: k, SectionTotals: *v})
+	for _, v := range in {
+		ids := make([]string, 0, len(v.WorkspaceIDs))
+		for id := range v.WorkspaceIDs {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		workspaceID := ""
+		if len(ids) > 0 {
+			workspaceID = ids[0]
+		}
+		out = append(out, WorkspaceAggregate{
+			WorkspaceID:   workspaceID,
+			WorkspaceName: v.WorkspaceName,
+			WorkspaceIDs:  ids,
+			SectionTotals: v.SectionTotals,
+		})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].TotalMs != out[j].TotalMs {
 			return out[i].TotalMs > out[j].TotalMs
+		}
+		if out[i].WorkspaceName != out[j].WorkspaceName {
+			return out[i].WorkspaceName < out[j].WorkspaceName
 		}
 		return out[i].WorkspaceID < out[j].WorkspaceID
 	})

@@ -95,8 +95,9 @@ type ModelBucket struct {
 // all models for that day, used by the By Tool view).
 type DayBucket struct {
 	SectionTotals
-	Tools  map[string]*ToolBucket  `json:"tools,omitempty"`
-	Models map[string]*ModelBucket `json:"models,omitempty"`
+	WorkspaceName string                  `json:"workspaceName,omitempty"`
+	Tools         map[string]*ToolBucket  `json:"tools,omitempty"`
+	Models        map[string]*ModelBucket `json:"models,omitempty"`
 }
 
 // MonthFile is the on-disk shape of one month-sharded JSON file. The outer
@@ -117,6 +118,7 @@ type Snapshot struct {
 	// crash-recovery replays safe. Snapshots without one are dropped.
 	EventID        string
 	WorkspaceID    string
+	WorkspaceName  string
 	ModelID        string
 	FinishedAtMs   int64
 	DurationMs     int64

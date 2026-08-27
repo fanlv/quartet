@@ -185,10 +185,11 @@ func kpiTotals(report usagestats.UsageReport) *statsKPITotals {
 	return out
 }
 
-// enrichWorkspaceRows attaches current workspace names when they are available.
-// Usage statistics are historical facts and may be viewed from another Memory
-// checkout where the operational workspace metadata is absent, so unknown or
-// deleted workspace ids must remain visible instead of being filtered out.
+// enrichWorkspaceRows binds a name-aggregated historical row back to the
+// current machine when possible. A source ID match is preferred; otherwise a
+// current workspace with the same persisted name is the same logical workspace.
+// Rows that cannot be bound remain visible but are marked deleted so the UI does
+// not offer a broken jump target.
 func (h *Handler) enrichWorkspaceRows(rows []usagestats.WorkspaceAggregate) []statsWorkspaceRow {
 	if len(rows) == 0 {
 		return []statsWorkspaceRow{}
@@ -197,16 +198,39 @@ func (h *Handler) enrichWorkspaceRows(rows []usagestats.WorkspaceAggregate) []st
 	for _, row := range rows {
 		entry := statsWorkspaceRow{
 			WorkspaceID:   row.WorkspaceID,
+			WorkspaceName: row.WorkspaceName,
 			SectionTotals: row.SectionTotals,
 		}
+		bound := false
 		if h.workspaceService != nil {
-			if ws, ok := h.workspaceService.Get(row.WorkspaceID); ok && ws != nil {
-				entry.WorkspaceName = ws.Title
+			workspaceIDs := row.WorkspaceIDs
+			if len(workspaceIDs) == 0 && row.WorkspaceID != "" {
+				workspaceIDs = []string{row.WorkspaceID}
+			}
+			for _, workspaceID := range workspaceIDs {
+				if ws, ok := h.workspaceService.Get(workspaceID); ok && ws != nil {
+					entry.WorkspaceID = ws.ID
+					if entry.WorkspaceName == "" {
+						entry.WorkspaceName = ws.Title
+					}
+					bound = true
+					break
+				}
+			}
+			if !bound && entry.WorkspaceName != "" {
+				for _, ws := range h.workspaceService.List() {
+					if ws != nil && strings.TrimSpace(ws.Title) == entry.WorkspaceName {
+						entry.WorkspaceID = ws.ID
+						bound = true
+						break
+					}
+				}
 			}
 		}
 		if entry.WorkspaceName == "" {
 			entry.WorkspaceName = row.WorkspaceID
 		}
+		entry.Deleted = !bound
 		out = append(out, entry)
 	}
 	return out

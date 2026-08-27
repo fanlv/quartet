@@ -56,7 +56,7 @@ func TestGetUsageSurfacesParseError(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	svc, err := NewService(nil)
+	svc, err := NewService(nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -74,7 +74,7 @@ func TestGetUsageSurfacesParseError(t *testing.T) {
 // shell-style snapshots and verify the aggregates line up.
 func TestRecorderRoundTrip(t *testing.T) {
 	t.Setenv("LOCAL_MEMORY", t.TempDir())
-	svc, err := NewService(nil)
+	svc, err := NewService(nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -146,7 +146,7 @@ func TestAccumulatorPendingToolDropsOnSnapshot(t *testing.T) {
 
 func TestModelAggregatesSurfaceUnattributedResidual(t *testing.T) {
 	t.Setenv("LOCAL_MEMORY", t.TempDir())
-	svc, err := NewService(nil)
+	svc, err := NewService(nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
