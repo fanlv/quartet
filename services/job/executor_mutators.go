@@ -24,7 +24,7 @@ import (
 // UpdateTitle / UpdatePinned / SetFirstModelID share the simple "snapshot →
 // save → mirror" shape and are routed through updateJobField. MarkDeleted is
 // deliberately separate: it is the one mutator allowed to observe an existing
-// tombstone and return success. EnsureShareToken
+// tombstone and return success. ConfigureShare
 // and ClearShareToken are NOT eligible: the former runs a caller-supplied
 // generator outside the lock and uses double-checked locking; both touch
 // externally-visible state and require explicit rollback when Save fails.
@@ -39,7 +39,7 @@ import (
 //
 // Save failure leaves the in-memory job untouched, so callers do not need to
 // implement rollback. Mutators that touch externally-visible state and DO
-// need rollback (EnsureShareToken / ClearShareToken) use a different shape
+// need rollback (ConfigureShare / ClearShareToken) use a different shape
 // and are not routed through here.
 func (s *serviceImpl) updateJobField(jobID string, mutate, mirror func(j *model.Job)) error {
 	lock := s.persistLock(jobID)
@@ -444,7 +444,7 @@ func (s *serviceImpl) FailGraphJob(ctx context.Context, jobID, message string) e
 	return nil
 }
 
-func (s *serviceImpl) EnsureShareToken(jobID string, generate func() (string, error)) (string, error) {
+func (s *serviceImpl) ConfigureShare(jobID string, showWorkspaceName bool, generate func() (string, error)) (string, error) {
 	s.mu.Lock()
 	existing, ok := s.jobs[jobID]
 	if !ok {
@@ -455,19 +455,13 @@ func (s *serviceImpl) EnsureShareToken(jobID string, generate func() (string, er
 		s.mu.Unlock()
 		return "", ErrJobDeleted
 	}
-	if existing.ShareToken != "" {
+	if existing.ShareToken != "" && existing.ShareShowWorkspaceName == showWorkspaceName {
 		tok := existing.ShareToken
 		s.mu.Unlock()
 		return tok, nil
 	}
 	wsID := existing.WorkspaceID
-	// Release the lock while we call the caller-supplied generator, which
-	// may be doing crypto/rand I/O we don't want to serialise across jobs.
 	s.mu.Unlock()
-	token, err := generate()
-	if err != nil {
-		return "", err
-	}
 	repo, err := s.getOrCreateRepo(wsID)
 	if err != nil {
 		return "", fmt.Errorf("get repo for workspace %s failed: %w", wsID, err)
@@ -487,14 +481,34 @@ func (s *serviceImpl) EnsureShareToken(jobID string, generate func() (string, er
 		s.mu.Unlock()
 		return "", ErrJobDeleted
 	}
-	if existing.ShareToken != "" {
-		// Another caller won the race; use their token.
-		tok := existing.ShareToken
+	token := existing.ShareToken
+	if token == "" {
+		// Do not hold the global job mutex while crypto/rand may block. The
+		// per-job persistence lock still serialises competing share mutations.
 		s.mu.Unlock()
-		return tok, nil
+		token, err = generate()
+		if err != nil {
+			return "", err
+		}
+		s.mu.Lock()
+		existing, ok = s.jobs[jobID]
+		if !ok {
+			s.mu.Unlock()
+			return "", ErrJobNotFound
+		}
+		if existing.Deleted {
+			s.mu.Unlock()
+			return "", ErrJobDeleted
+		}
+		if existing.ShareToken != "" {
+			token = existing.ShareToken
+		}
 	}
 	oldUpdatedAt := existing.UpdatedAt
+	oldToken := existing.ShareToken
+	oldShowWorkspaceName := existing.ShareShowWorkspaceName
 	existing.ShareToken = token
+	existing.ShareShowWorkspaceName = showWorkspaceName
 	existing.UpdatedAt = time.Now()
 	cp := existing.DeepCopy()
 	s.mu.Unlock()
@@ -507,8 +521,9 @@ func (s *serviceImpl) EnsureShareToken(jobID string, generate func() (string, er
 		// Roll back only if our write is still the one in memory — a concurrent
 		// reload could have swapped the pointer or another caller could have
 		// completed a successful write since.
-		if cur, ok := s.jobs[jobID]; ok && cur == existing && cur.ShareToken == token {
-			existing.ShareToken = ""
+		if cur, ok := s.jobs[jobID]; ok && cur == existing && cur.ShareToken == token && cur.ShareShowWorkspaceName == showWorkspaceName {
+			existing.ShareToken = oldToken
+			existing.ShareShowWorkspaceName = oldShowWorkspaceName
 			existing.UpdatedAt = oldUpdatedAt
 		}
 		s.mu.Unlock()
@@ -516,6 +531,13 @@ func (s *serviceImpl) EnsureShareToken(jobID string, generate func() (string, er
 	}
 	s.bumpListVersion(cp.WorkspaceID)
 	return token, nil
+}
+
+// EnsureShareToken keeps the internal/test call shape for callers that only
+// need the default, privacy-preserving share configuration. New product flows
+// should call ConfigureShare explicitly.
+func (s *serviceImpl) EnsureShareToken(jobID string, generate func() (string, error)) (string, error) {
+	return s.ConfigureShare(jobID, false, generate)
 }
 
 func (s *serviceImpl) ClearShareToken(jobID string) error {
@@ -559,8 +581,10 @@ func (s *serviceImpl) ClearShareToken(jobID string) error {
 		return nil
 	}
 	oldToken := existing.ShareToken
+	oldShowWorkspaceName := existing.ShareShowWorkspaceName
 	oldUpdatedAt := existing.UpdatedAt
 	existing.ShareToken = ""
+	existing.ShareShowWorkspaceName = false
 	existing.UpdatedAt = time.Now()
 	cp := existing.DeepCopy()
 	s.mu.Unlock()
@@ -569,6 +593,7 @@ func (s *serviceImpl) ClearShareToken(jobID string) error {
 		s.mu.Lock()
 		if cur, ok := s.jobs[jobID]; ok && cur == existing && cur.ShareToken == "" {
 			existing.ShareToken = oldToken
+			existing.ShareShowWorkspaceName = oldShowWorkspaceName
 			existing.UpdatedAt = oldUpdatedAt
 		}
 		s.mu.Unlock()

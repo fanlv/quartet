@@ -23,8 +23,8 @@ type Service interface {
 	List(ctx context.Context) ([]*model.ScheduledTask, error)
 	ListByWorkspace(ctx context.Context, wsID string) ([]*model.ScheduledTask, error)
 	Update(ctx context.Context, id string, req *model.UpdateScheduleRequest) (*model.ScheduledTask, error)
+	Toggle(ctx context.Context, id string) (*model.ScheduledTask, error)
 	Delete(ctx context.Context, id string) error
-	Save(ctx context.Context, task *model.ScheduledTask) error
 	SaveState(ctx context.Context, task *model.ScheduledTask) error
 }
 
@@ -78,7 +78,7 @@ func (s *serviceImpl) Create(ctx context.Context, req *model.CreateScheduleReque
 	if task.MaxConcurrent <= 0 {
 		task.MaxConcurrent = 1
 	}
-	if err := s.repo.Save(ctx, task); err != nil {
+	if err := s.repo.Create(ctx, task); err != nil {
 		return nil, err
 	}
 	return task, nil
@@ -115,55 +115,76 @@ func (s *serviceImpl) Update(ctx context.Context, id string, req *model.UpdateSc
 		return nil, fmt.Errorf("schedule not found: %s", id)
 	}
 
-	if req.Name != nil {
+	definitionChanged := false
+	if req.Name != nil && *req.Name != task.Name {
 		task.Name = *req.Name
+		definitionChanged = true
 	}
-	if req.CronExpr != nil {
+	cronChanged := req.CronExpr != nil && *req.CronExpr != task.CronExpr
+	if cronChanged {
 		task.CronExpr = *req.CronExpr
+		definitionChanged = true
 	}
-	if req.Enabled != nil {
-		task.Enabled = *req.Enabled
-	}
-	if req.GraphWorkflowID != nil {
+	if req.GraphWorkflowID != nil && *req.GraphWorkflowID != task.GraphWorkflowID {
 		task.GraphWorkflowID = *req.GraphWorkflowID
+		definitionChanged = true
 	}
-	if req.WorkspaceID != nil {
+	if req.WorkspaceID != nil && *req.WorkspaceID != task.WorkspaceID {
 		task.WorkspaceID = *req.WorkspaceID
+		definitionChanged = true
 	}
-	if req.Workdir != nil {
+	if req.Workdir != nil && *req.Workdir != task.Workdir {
 		task.Workdir = *req.Workdir
+		definitionChanged = true
 	}
-	if req.MaxConcurrent != nil {
+	if req.MaxConcurrent != nil && *req.MaxConcurrent != task.MaxConcurrent {
 		task.MaxConcurrent = *req.MaxConcurrent
+		definitionChanged = true
 	}
-	if req.Timeout != nil {
+	if req.Timeout != nil && *req.Timeout != task.Timeout {
 		task.Timeout = *req.Timeout
+		definitionChanged = true
 	}
 	if err := s.validateGraphWorkflow(ctx, task); err != nil {
 		return nil, err
 	}
-	task.UpdatedAt = time.Now()
-	task.StateUpdatedAt = task.UpdatedAt
-
-	// Recompute NextRunAt based on current enabled/cron state
-	if task.Enabled {
-		task.NextRunAt = NextCronTime(task.CronExpr, time.Now())
-	} else {
-		task.NextRunAt = nil
+	if definitionChanged {
+		task.UpdatedAt = time.Now()
+		if err := s.repo.SaveDefinition(ctx, task); err != nil {
+			return nil, err
+		}
 	}
 
-	if err := s.repo.Save(ctx, task); err != nil {
+	if req.Enabled != nil {
+		task.Enabled = *req.Enabled
+	}
+	if req.Enabled != nil || cronChanged {
+		nextRunAt := NextCronTime(task.CronExpr, time.Now())
+		if err := s.repo.UpdateActivation(ctx, task.ID, req.Enabled, nextRunAt); err != nil {
+			return nil, err
+		}
+	}
+	return s.repo.Get(ctx, id)
+}
+
+func (s *serviceImpl) Toggle(ctx context.Context, id string) (*model.ScheduledTask, error) {
+	task, err := s.repo.Get(ctx, id)
+	if err != nil {
 		return nil, err
 	}
-	return task, nil
+	if task == nil {
+		return nil, nil
+	}
+
+	nextRunAt := NextCronTime(task.CronExpr, time.Now())
+	if err := s.repo.ToggleEnabled(ctx, id, nextRunAt); err != nil {
+		return nil, err
+	}
+	return s.repo.Get(ctx, id)
 }
 
 func (s *serviceImpl) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, id)
-}
-
-func (s *serviceImpl) Save(ctx context.Context, task *model.ScheduledTask) error {
-	return s.repo.Save(ctx, task)
 }
 
 func (s *serviceImpl) SaveState(ctx context.Context, task *model.ScheduledTask) error {

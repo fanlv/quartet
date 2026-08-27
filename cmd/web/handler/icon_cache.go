@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,15 +20,53 @@ import (
 )
 
 func (h *Handler) IconProxy(ctx context.Context, c *app.RequestContext) {
-	url := strings.TrimSpace(string(c.Query("url")))
-	if url == "" {
+	iconURL := strings.TrimSpace(string(c.Query("url")))
+	if iconURL == "" {
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+	if !isRemoteIconURL(iconURL) {
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
+	h.serveRemoteIcon(ctx, c, iconURL)
+}
+
+// PublicJobAgentIcon serves one catalog icon only after the share middleware
+// has validated the Job token and this handler has verified that the requested
+// Agent is actually referenced by that Job. The caller never supplies an
+// upstream URL, so the public endpoint cannot be used as a general SSRF proxy.
+func (h *Handler) PublicJobAgentIcon(ctx context.Context, c *app.RequestContext) {
+	job, ok := getPublicJob(c)
+	if !ok {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	agentID := strings.TrimSpace(c.Param("agentId"))
+	if agentID == "" {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+	agents, err := h.agentCatalog.ResolveDisplayInfos(ctx, h.collectJobAgentRefs(ctx, job))
+	if err != nil {
+		logger.Errorf(ctx, "[icon-cache] resolve public Agent failed: jobId=%s agentId=%s err=%v", job.ID, agentID, err)
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+	for _, info := range agents {
+		if info.AgentID == agentID && isRemoteIconURL(info.IconURL) {
+			h.serveRemoteIcon(ctx, c, info.IconURL)
+			return
+		}
+	}
+	c.AbortWithStatus(http.StatusNotFound)
+}
+
+func isRemoteIconURL(iconURL string) bool {
+	return strings.HasPrefix(iconURL, "http://") || strings.HasPrefix(iconURL, "https://")
+}
+
+func (h *Handler) serveRemoteIcon(ctx context.Context, c *app.RequestContext, iconURL string) {
 
 	cacheDir, err := path.IconCacheDir()
 	if err != nil {
@@ -41,21 +80,23 @@ func (h *Handler) IconProxy(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	hash := sha256.Sum256([]byte(url))
+	hash := sha256.Sum256([]byte(iconURL))
 	key := hex.EncodeToString(hash[:])
 	metaPath := filepath.Join(cacheDir, key+".meta")
 	dataPath := filepath.Join(cacheDir, key+".data")
 
 	if info, statErr := os.Stat(dataPath); statErr == nil && info.Size() > 0 {
 		if time.Since(info.ModTime()) < 24*time.Hour {
-			contentType := "image/png"
+			contentType := ""
 			if meta, readErr := os.ReadFile(metaPath); readErr == nil && len(meta) > 0 {
 				contentType = string(meta)
 			}
-			c.Header("Content-Type", contentType)
-			c.Header("Cache-Control", "public, max-age=86400")
-			c.File(dataPath)
-			return
+			if strings.HasPrefix(contentType, "image/") {
+				c.Header("Content-Type", contentType)
+				c.Header("Cache-Control", "private, max-age=86400")
+				c.File(dataPath)
+				return
+			}
 		}
 	}
 
@@ -63,44 +104,66 @@ func (h *Handler) IconProxy(ctx context.Context, c *app.RequestContext) {
 	if transport := proxyTransport(); transport != nil {
 		client.Transport = transport
 	}
-	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, iconURL, nil)
 	if reqErr != nil {
-		logger.Warnf(ctx, "[icon-cache] bad request url=%s err=%v", url, reqErr)
+		logger.Warnf(ctx, "[icon-cache] bad request url=%s err=%v", iconURL, reqErr)
 		c.AbortWithStatus(http.StatusBadGateway)
 		return
 	}
 	resp, fetchErr := client.Do(req)
 	if fetchErr != nil {
-		logger.Warnf(ctx, "[icon-cache] fetch failed url=%s err=%v", url, fetchErr)
-		c.Redirect(http.StatusTemporaryRedirect, []byte(url))
+		logger.Warnf(ctx, "[icon-cache] fetch failed url=%s err=%v", iconURL, fetchErr)
+		c.AbortWithStatus(http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Warnf(ctx, "[icon-cache] upstream status=%d url=%s", resp.StatusCode, url)
-		c.Redirect(http.StatusTemporaryRedirect, []byte(url))
+		logger.Warnf(ctx, "[icon-cache] upstream status=%d url=%s", resp.StatusCode, iconURL)
+		c.AbortWithStatus(http.StatusBadGateway)
 		return
 	}
 
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	const maxIconBytes = 2 * 1024 * 1024
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxIconBytes+1))
 	if readErr != nil {
-		logger.Warnf(ctx, "[icon-cache] read body failed url=%s err=%v", url, readErr)
-		c.Redirect(http.StatusTemporaryRedirect, []byte(url))
+		logger.Warnf(ctx, "[icon-cache] read body failed url=%s err=%v", iconURL, readErr)
+		c.AbortWithStatus(http.StatusBadGateway)
+		return
+	}
+	if len(body) > maxIconBytes {
+		logger.Warnf(ctx, "[icon-cache] image exceeds 2 MiB url=%s", iconURL)
+		c.AbortWithStatus(http.StatusBadGateway)
 		return
 	}
 
 	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "image/png"
+	if mediaType, _, parseErr := mime.ParseMediaType(contentType); parseErr == nil {
+		contentType = mediaType
+	}
+	if !strings.HasPrefix(contentType, "image/") {
+		contentType = http.DetectContentType(body)
+	}
+	if !strings.HasPrefix(contentType, "image/") {
+		logger.Warnf(ctx, "[icon-cache] upstream is not an image: contentType=%s url=%s", contentType, iconURL)
+		c.AbortWithStatus(http.StatusBadGateway)
+		return
 	}
 
 	_ = os.WriteFile(dataPath, body, 0o644)
 	_ = os.WriteFile(metaPath, []byte(contentType), 0o644)
 
 	c.Header("Content-Type", contentType)
-	c.Header("Cache-Control", "public, max-age=86400")
+	c.Header("Cache-Control", "private, max-age=86400")
 	c.Data(http.StatusOK, contentType, body)
+}
+
+func PublicAgentIconURL(jobID, agentID string) string {
+	return fmt.Sprintf(
+		"/api/v1/public/job/%s/agents/%s/icon",
+		url.PathEscape(jobID),
+		url.PathEscape(agentID),
+	)
 }
 
 func IconCacheURL(originalURL string) string {

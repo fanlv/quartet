@@ -184,7 +184,21 @@
     "unknownAgent": "未知 Agent",
     "agentDeletedName": "{{name}}（已删除）",
     "agentDeletedHint": "该会话使用的 Agent 已被删除，无法继续执行。",
-    "agentUnknownHint": "无法解析该会话使用的 Agent，无法继续执行。"
+    "agentUnknownHint": "无法解析该会话使用的 Agent，无法继续执行。",
+    "publicShare": {
+      "readOnly": "公开分享 · 只读",
+      "sharedConversation": "共享对话",
+      "fromWorkspace": "来自 {{name}}",
+      "dialogKicker": "公开分享",
+      "dialogTitle": "分享这段对话",
+      "dialogDescription": "任何获得链接的人都能只读查看这段对话。",
+      "showWorkspaceName": "展示工作空间名称",
+      "showWorkspaceNameHint": "开启后分享页显示名称；关闭时仅显示“共享对话”。",
+      "pathNeverShared": "工作空间路径和 ID 始终不会公开。",
+      "settings": "分享设置",
+      "createAndCopy": "创建并复制链接",
+      "saveAndCopy": "保存并复制链接"
+    }
   },
   "connection": {
     "restored": "连接已恢复",
@@ -757,7 +771,7 @@
     "boundWorkspace": "绑定的工作空间",
     "boundWorkspaceDefault": "默认工作空间（触发时使用）",
     "missingWorkspaceOption": "已失效: {{id}}",
-    "enable": "启用",
+    "enable": "在本机启用",
     "frequency": "执行频率",
     "advanced": "高级选项",
     "maxConcurrent": "最大并发数",
@@ -806,7 +820,7 @@
     "newTask": "新建任务",
     "noJobsInWorkspace": "该工作空间下暂无 Job",
     "dayStatsTurns_other": "{{count}} 轮",
-    "disabled": "已禁用",
+    "disabled": "本机已禁用",
     "lastRun": "上次执行",
     "neverRun": "未执行",
     "openLatestJob": "查看最近执行的 Job",

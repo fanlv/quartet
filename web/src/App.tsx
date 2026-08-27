@@ -116,6 +116,13 @@ function WorkspaceApp() {
   const [initialSessionId, setInitialSessionId] = useState<string | undefined>(() => getSessionIdFromUrl());
   const [shareToken] = useState<string | undefined>(() => getShareTokenFromUrl());
   const isReadonly = !!shareToken;
+  useEffect(() => {
+    if (!isReadonly) return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('workspaceId')) return;
+    url.searchParams.delete('workspaceId');
+    window.history.replaceState({}, '', url.toString());
+  }, [isReadonly]);
   const [isInitializing, setIsInitializing] = useState(false);
   const [initialWorkdir, setInitialWorkdir] = useState<string | undefined>();
   const [initialModelId, setInitialModelId] = useState<string | undefined>();

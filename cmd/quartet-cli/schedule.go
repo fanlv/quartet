@@ -17,12 +17,12 @@ Usage:
   quartet-cli schedule <command> [flags]
 
 Commands:
-  create     Create a scheduled task (enabled by default)
+  create     Create a scheduled task (enabled on this machine by default)
   list       List scheduled tasks
   get        Print one scheduled task as JSON
   update     Update a scheduled task (only the flags you pass change)
   delete     Delete a scheduled task
-  toggle     Flip a scheduled task's enabled state
+  toggle     Flip a scheduled task's machine-local enabled state
   run        Trigger a scheduled task immediately (respects max-concurrent)
 
 Run "quartet-cli schedule <command> -h" for command-specific flags.
@@ -72,7 +72,7 @@ func cmdScheduleCreate(args []string) error {
 	workdir := fs.String("workdir", "", "working directory override (optional)")
 	maxConcurrent := fs.Int("max-concurrent", 0, "max concurrent runs; 0 = backend default")
 	timeout := fs.Int("timeout", 0, "run timeout in minutes; 0 = backend default")
-	disabled := fs.Bool("disabled", false, "create the task disabled (default: enabled)")
+	disabled := fs.Bool("disabled", false, "create the task disabled on this machine (default: enabled)")
 	fs.Usage = usageFor("schedule", fs, "create --name <n> --cron <expr> --workflow <id> [--workspace <id>] [--workdir <dir>] [--max-concurrent N] [--timeout M] [--disabled]",
 		"Create a scheduled task that runs a graph workflow on a cron schedule.")
 	if err := parseFlagsNoArgs(fs, args); err != nil {
@@ -165,8 +165,8 @@ func cmdScheduleUpdate(args []string) error {
 	workdir := fs.String("workdir", "", "new working directory")
 	maxConcurrent := fs.Int("max-concurrent", 0, "new max concurrent runs")
 	timeout := fs.Int("timeout", 0, "new run timeout in minutes")
-	enable := fs.Bool("enable", false, "enable the task")
-	disable := fs.Bool("disable", false, "disable the task")
+	enable := fs.Bool("enable", false, "enable the task on this machine")
+	disable := fs.Bool("disable", false, "disable the task on this machine")
 	fs.Usage = usageFor("schedule", fs, "update <scheduleId> [--name <n>] [--cron <expr>] [--workflow <id>] [--workspace <id>] [--workdir <dir>] [--max-concurrent N] [--timeout M] [--enable|--disable]",
 		"Update a scheduled task. Only the flags you pass are changed.")
 	id, err := parseIDAndFlags(fs, args, "scheduleId")
@@ -237,10 +237,10 @@ func cmdScheduleDelete(args []string) error {
 	return nil
 }
 
-// cmdScheduleToggle flips the enabled state server-side and prints the result.
+// cmdScheduleToggle flips the current machine's enabled state and prints the result.
 func cmdScheduleToggle(args []string) error {
 	fs := flag.NewFlagSet("toggle", flag.ContinueOnError)
-	fs.Usage = usageFor("schedule", fs, "toggle <scheduleId>", "Flip a scheduled task's enabled state.")
+	fs.Usage = usageFor("schedule", fs, "toggle <scheduleId>", "Flip a scheduled task's enabled state on this machine.")
 	id, err := parseIDAndFlags(fs, args, "scheduleId")
 	if err != nil {
 		return err

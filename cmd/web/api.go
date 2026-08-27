@@ -50,8 +50,8 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// primitive, so it stays behind auth — an unauthenticated version turns the
 	// deployment into an open probe for anything the host can reach (LAN
 	// services, cloud metadata endpoints). <img> cannot send a header, so the
-	// same-origin browser requests carry the session cookie. A shareToken-
-	// validated twin lives under /api/v1/public/icon for shared read-only views.
+	// same-origin browser requests carry the session cookie. Public shares use
+	// a separate Job+Agent route that never accepts a caller-supplied URL.
 	api.GET("/icon", permit(auth.PermissionAgentRead), h.IconProxy)
 
 	agent := api.Group("/agent")
@@ -265,8 +265,8 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 
 	// Public read-only routes (no auth, validated by shareToken)
 	pub := s.Group("/api/v1/public", shareTokenMiddleware(h.GetJobService()))
-	pub.GET("/agent/list", h.PublicAgentList)
 	pub.GET("/job/:jobId", h.JobGet)
+	pub.GET("/job/:jobId/agents/:agentId/icon", h.PublicJobAgentIcon)
 	pub.GET("/job/:jobId/events", h.JobEvents)
 	pub.GET("/sessions/:sessionId/messages", h.PublicGetSessionMessages)
 	pub.GET("/serve-file", h.PublicServeFile)
@@ -278,12 +278,6 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	pub.GET("/job/:jobId/graph-run", h.GetJobGraphRunStatus)
 	pub.GET("/job/:jobId/graph-run/events", h.JobGraphRunEvents)
 	pub.GET("/job/:jobId/graph-run/hooks", h.JobGraphRunHooks)
-	// Agent icons for the shared chat view. PublicAgentList hands back proxied
-	// /api/v1/icon URLs, but a shared page holds no agent token, so the
-	// frontend rewrites those onto this route and the shareToken carries the
-	// authorization instead.
-	pub.GET("/icon", h.IconProxy)
-
 	// Public file preview routes (no auth, validated by fileShareToken)
 	filePub := s.Group("/api/v1/public/file-preview")
 	filePub.GET("/read-file", h.PublicReadFile)

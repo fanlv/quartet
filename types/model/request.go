@@ -171,8 +171,8 @@ type CreateScheduleRequest struct {
 	Workdir         string `json:"workdir,omitempty"`
 	MaxConcurrent   int    `json:"maxConcurrent,omitempty"`
 	Timeout         int    `json:"timeout,omitempty"`
-	// Enabled lets the caller opt out of activating the schedule on create.
-	// nil keeps the historical "enabled by default" behavior.
+	// Enabled controls activation on the current machine. nil keeps the
+	// historical "enabled by default on the creating machine" behavior.
 	Enabled *bool `json:"enabled,omitempty"`
 }
 

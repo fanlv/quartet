@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/fanlv/quartet/pkg/httputil"
@@ -194,28 +193,14 @@ func (h *Handler) ScheduleToggle(ctx context.Context, c *app.RequestContext) {
 		httputil.BadRequest(c, "scheduleId is required")
 		return
 	}
-	task, err := h.scheduleService.Get(ctx, id)
+	task, err := h.scheduleService.Toggle(ctx, id)
 	if err != nil {
-		logger.Errorf(ctx, "[ScheduleToggle] get failed: scheduleId=%s err=%v", id, err)
+		logger.Errorf(ctx, "[ScheduleToggle] failed: scheduleId=%s err=%v", id, err)
 		httputil.InternalError(c, err.Error())
 		return
 	}
 	if task == nil {
 		httputil.NotFound(c, "schedule not found")
-		return
-	}
-
-	task.Enabled = !task.Enabled
-	task.UpdatedAt = time.Now()
-	task.StateUpdatedAt = task.UpdatedAt
-	if task.Enabled {
-		task.NextRunAt = schedule.NextCronTime(task.CronExpr, time.Now())
-	} else {
-		task.NextRunAt = nil
-	}
-	if err := h.scheduleService.Save(ctx, task); err != nil {
-		logger.Errorf(ctx, "[ScheduleToggle] save failed: scheduleId=%s enabled=%v err=%v", id, task.Enabled, err)
-		httputil.InternalError(c, err.Error())
 		return
 	}
 

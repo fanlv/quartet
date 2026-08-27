@@ -17,8 +17,11 @@ import (
 )
 
 type ScheduleRepo interface {
-	Save(ctx context.Context, task *model.ScheduledTask) error
+	Create(ctx context.Context, task *model.ScheduledTask) error
+	SaveDefinition(ctx context.Context, task *model.ScheduledTask) error
 	SaveState(ctx context.Context, task *model.ScheduledTask) error
+	UpdateActivation(ctx context.Context, id string, enabled *bool, nextRunAt *time.Time) error
+	ToggleEnabled(ctx context.Context, id string, nextRunAt *time.Time) error
 	Get(ctx context.Context, id string) (*model.ScheduledTask, error)
 	List(ctx context.Context) ([]*model.ScheduledTask, error)
 	Delete(ctx context.Context, id string) error
@@ -51,7 +54,7 @@ func validateScheduleID(id string) error {
 	return validateID(id)
 }
 
-func (r *fileScheduleRepo) Save(_ context.Context, task *model.ScheduledTask) error {
+func (r *fileScheduleRepo) Create(_ context.Context, task *model.ScheduledTask) error {
 	if task == nil {
 		return os.ErrInvalid
 	}
@@ -79,6 +82,27 @@ func (r *fileScheduleRepo) Save(_ context.Context, task *model.ScheduledTask) er
 	return nil
 }
 
+func (r *fileScheduleRepo) SaveDefinition(_ context.Context, task *model.ScheduledTask) error {
+	if task == nil {
+		return os.ErrInvalid
+	}
+	if err := validateScheduleID(task.ID); err != nil {
+		return err
+	}
+	mu := r.locks.lockFor(task.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	definitionData, err := json.MarshalIndent(definitionFromTask(task), "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal schedule definition %s failed: %w", task.ID, err)
+	}
+	if err := AtomicWriteFile(r.definitionFile(task.ID), append(definitionData, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write schedule definition %s failed: %w", task.ID, err)
+	}
+	return nil
+}
+
 func (r *fileScheduleRepo) SaveState(_ context.Context, task *model.ScheduledTask) error {
 	if task == nil {
 		return os.ErrInvalid
@@ -90,12 +114,71 @@ func (r *fileScheduleRepo) SaveState(_ context.Context, task *model.ScheduledTas
 	mu.Lock()
 	defer mu.Unlock()
 
-	stateData, err := json.MarshalIndent(stateFromTask(task), "", "  ")
+	state := stateFromTask(task)
+	current, err := r.readState(task.ID)
 	if err != nil {
-		return fmt.Errorf("marshal schedule state %s failed: %w", task.ID, err)
+		return err
 	}
-	if err := AtomicWriteFile(r.stateFile(task.ID), append(stateData, '\n'), 0o644); err != nil {
-		return fmt.Errorf("write schedule state %s failed: %w", task.ID, err)
+	// Scheduler result writes must never overwrite a concurrent user toggle.
+	// Missing machine-local state is intentionally disabled.
+	state.Enabled = current != nil && current.Enabled
+	if !state.Enabled {
+		state.NextRunAt = nil
+	}
+	return r.writeState(state)
+}
+
+func (r *fileScheduleRepo) UpdateActivation(_ context.Context, id string, enabled *bool, nextRunAt *time.Time) error {
+	if err := validateScheduleID(id); err != nil {
+		return err
+	}
+	mu := r.locks.lockFor(id)
+	mu.Lock()
+	defer mu.Unlock()
+
+	state, err := r.readState(id)
+	if err != nil {
+		return err
+	}
+	if state == nil {
+		state = &model.ScheduleState{ID: id}
+	}
+	if enabled != nil {
+		state.Enabled = *enabled
+	}
+	if state.Enabled {
+		state.NextRunAt = nextRunAt
+	} else {
+		state.NextRunAt = nil
+	}
+	state.UpdatedAt = time.Now()
+	return r.writeState(state)
+}
+
+func (r *fileScheduleRepo) ToggleEnabled(_ context.Context, id string, nextRunAt *time.Time) error {
+	if err := validateScheduleID(id); err != nil {
+		return err
+	}
+	mu := r.locks.lockFor(id)
+	mu.Lock()
+	defer mu.Unlock()
+
+	state, err := r.readState(id)
+	if err != nil {
+		return err
+	}
+	if state == nil {
+		state = &model.ScheduleState{ID: id}
+	}
+	state.Enabled = !state.Enabled
+	if state.Enabled {
+		state.NextRunAt = nextRunAt
+	} else {
+		state.NextRunAt = nil
+	}
+	state.UpdatedAt = time.Now()
+	if err := r.writeState(state); err != nil {
+		return err
 	}
 	return nil
 }
@@ -213,11 +296,21 @@ func (r *fileScheduleRepo) stateFile(id string) string {
 	return filepath.Join(r.statesDir, id+".json")
 }
 
+func (r *fileScheduleRepo) writeState(state *model.ScheduleState) error {
+	stateData, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal schedule state %s failed: %w", state.ID, err)
+	}
+	if err := AtomicWriteFile(r.stateFile(state.ID), append(stateData, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write schedule state %s failed: %w", state.ID, err)
+	}
+	return nil
+}
+
 func definitionFromTask(task *model.ScheduledTask) *model.ScheduleDefinition {
 	return &model.ScheduleDefinition{
 		ID:              task.ID,
 		Name:            task.Name,
-		Enabled:         task.Enabled,
 		CronExpr:        task.CronExpr,
 		CreatedAt:       task.CreatedAt,
 		UpdatedAt:       task.UpdatedAt,
@@ -236,6 +329,7 @@ func stateFromTask(task *model.ScheduledTask) *model.ScheduleState {
 	}
 	return &model.ScheduleState{
 		ID:               task.ID,
+		Enabled:          task.Enabled,
 		LastRunAt:        task.LastRunAt,
 		LastRunJobID:     task.LastRunJobID,
 		LastStatus:       task.LastStatus,
@@ -250,7 +344,6 @@ func mergeSchedule(definition *model.ScheduleDefinition, state *model.ScheduleSt
 	task := &model.ScheduledTask{
 		ID:              definition.ID,
 		Name:            definition.Name,
-		Enabled:         definition.Enabled,
 		CronExpr:        definition.CronExpr,
 		CreatedAt:       definition.CreatedAt,
 		UpdatedAt:       definition.UpdatedAt,
@@ -261,11 +354,14 @@ func mergeSchedule(definition *model.ScheduleDefinition, state *model.ScheduleSt
 		Timeout:         definition.Timeout,
 	}
 	if state != nil {
+		task.Enabled = state.Enabled
 		task.LastRunAt = state.LastRunAt
 		task.LastRunJobID = state.LastRunJobID
 		task.LastStatus = state.LastStatus
 		task.LastTriggerError = state.LastTriggerError
-		task.NextRunAt = state.NextRunAt
+		if state.Enabled {
+			task.NextRunAt = state.NextRunAt
+		}
 		task.RunCount = state.RunCount
 		task.StateUpdatedAt = state.UpdatedAt
 	}

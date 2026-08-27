@@ -17,7 +17,7 @@
     "notSet": "Not set",
     "default": "Default",
     "enabled": "Enabled",
-    "disabled": "Disabled",
+    "disabled": "Disabled on this machine",
     "auto": "Auto",
     "yes": "Yes",
     "no": "No",
@@ -185,7 +185,21 @@
     "unknownAgent": "Unknown Agent",
     "agentDeletedName": "{{name}} (Deleted)",
     "agentDeletedHint": "The agent used by this session has been deleted and can no longer run.",
-    "agentUnknownHint": "The agent used by this session could not be resolved and can no longer run."
+    "agentUnknownHint": "The agent used by this session could not be resolved and can no longer run.",
+    "publicShare": {
+      "readOnly": "Public share · Read only",
+      "sharedConversation": "Shared conversation",
+      "fromWorkspace": "From {{name}}",
+      "dialogKicker": "Public share",
+      "dialogTitle": "Share this conversation",
+      "dialogDescription": "Anyone with the link can view this conversation in read-only mode.",
+      "showWorkspaceName": "Show workspace name",
+      "showWorkspaceNameHint": "When enabled, the share page shows its name; otherwise it only says “Shared conversation”.",
+      "pathNeverShared": "The workspace path and ID are never shared.",
+      "settings": "Share settings",
+      "createAndCopy": "Create and copy link",
+      "saveAndCopy": "Save and copy link"
+    }
   },
   "connection": {
     "restored": "Connection restored",
@@ -759,7 +773,7 @@
     "boundWorkspace": "Bound workspace",
     "boundWorkspaceDefault": "Default workspace (used at trigger time)",
     "missingWorkspaceOption": "Missing: {{id}}",
-    "enable": "Enable",
+    "enable": "Enable on this machine",
     "frequency": "Frequency",
     "advanced": "Advanced Options",
     "maxConcurrent": "Max Concurrent",

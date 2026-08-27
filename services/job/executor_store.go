@@ -58,12 +58,12 @@ func (s *serviceImpl) nowMillis() int64 {
 // handler goroutine (via targeted mutators) and the run goroutine. To
 // avoid data races, fields are split by ownership:
 //
-//   - Handler-owned (mutated by targeted methods): Title, Mode, Workdir, ShareToken, Deleted
+//   - Handler-owned (mutated by targeted methods): Title, Mode, Workdir, ShareToken, ShareShowWorkspaceName, Deleted
 //   - Run-owned: Status, StartedAt, FinishedAt, Progress, SessionIDs
 //   - Service-owned denormalized cache (targeted mutator only): FirstModelID
 //
 // All reads and writes of job fields MUST hold s.mu. Targeted mutators
-// (UpdateTitle, EnsureShareToken, ClearShareToken, SetFirstModelID,
+// (UpdateTitle, ConfigureShare, ClearShareToken, SetFirstModelID,
 // MarkDeleted) only touch their named field plus UpdatedAt, so they
 // cannot race with run-owned writes on the same pointer.
 //

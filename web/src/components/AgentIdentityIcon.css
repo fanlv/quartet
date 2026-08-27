@@ -1,0 +1,20 @@
+.agent-identity-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.agent-identity-icon-emoji,
+.agent-identity-icon-fallback {
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+
+.agent-identity-icon-fallback {
+  color: #27633b;
+  background: #e4f2e7;
+  border: 1px solid #c8dfcd;
+}

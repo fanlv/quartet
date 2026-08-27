@@ -196,11 +196,6 @@ func (f *fakeService) Get(_ context.Context, id string) (*model.ScheduledTask, e
 	return t, nil
 }
 
-func (f *fakeService) Save(_ context.Context, task *model.ScheduledTask) error {
-	f.tasks[task.ID] = task
-	return nil
-}
-
 func (f *fakeService) SaveState(_ context.Context, task *model.ScheduledTask) error {
 	f.tasks[task.ID] = task
 	return nil
@@ -214,6 +209,9 @@ func (f *fakeService) ListByWorkspace(context.Context, string) ([]*model.Schedul
 	return nil, nil
 }
 func (f *fakeService) Update(context.Context, string, *model.UpdateScheduleRequest) (*model.ScheduledTask, error) {
+	return nil, nil
+}
+func (f *fakeService) Toggle(context.Context, string) (*model.ScheduledTask, error) {
 	return nil, nil
 }
 func (f *fakeService) Delete(context.Context, string) error { return nil }

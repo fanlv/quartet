@@ -301,6 +301,34 @@ func (h *Handler) JobGet(ctx context.Context, c *app.RequestContext) {
 		httputil.NotFound(c, "job not found")
 		return
 	}
+	if _, isPublic := getPublicJob(c); isPublic {
+		refs := h.collectJobAgentRefs(ctx, job)
+		resp := model.PublicJobResponse{
+			ID:                  job.ID,
+			Title:               job.Title,
+			Mode:                job.Mode,
+			Status:              job.Status,
+			StartedAt:           job.StartedAt,
+			FinishedAt:          job.FinishedAt,
+			TotalTurnDurationMs: job.TotalTurnDurationMs,
+			GraphRunID:          job.GraphRunID,
+			SessionIDs:          append([]string(nil), job.SessionIDs...),
+			LastRunOutcome:      job.LastRunOutcome,
+			LastEventSeq:        lastSeq,
+			ServerTime:          time.Now().UnixMilli(),
+			Agents:              h.resolvePublicAgents(ctx, refs, job.ID),
+		}
+		if job.Progress != nil && job.Progress.LastError != "" {
+			resp.Progress = &model.PublicJobProgress{LastError: job.Progress.LastError}
+		}
+		if job.ShareShowWorkspaceName && h.workspaceService != nil {
+			if ws, found := h.workspaceService.Get(job.WorkspaceID); found && ws != nil {
+				resp.ShareContext.WorkspaceName = ws.Title
+			}
+		}
+		c.JSON(http.StatusOK, resp)
+		return
+	}
 	principal, _ := CurrentPrincipal(c)
 	if !h.authService.HasPermission(principal, auth.PermissionJobShare) {
 		job.ShareToken = ""
@@ -315,9 +343,6 @@ func (h *Handler) JobGet(ctx context.Context, c *app.RequestContext) {
 		Job:          job,
 		LastEventSeq: lastSeq,
 		ServerTime:   time.Now().UnixMilli(),
-	}
-	if _, isPublic := getPublicJob(c); isPublic {
-		envelope.Agents = h.resolvePublicAgents(ctx, h.collectJobAgentRefs(ctx, job))
 	}
 	c.JSON(http.StatusOK, envelope)
 }
@@ -341,6 +366,9 @@ func (h *Handler) collectJobAgentRefs(ctx context.Context, job *model.Job) []str
 	seen := make(map[string]bool)
 	for _, sessionID := range jobAllSessionIDs(job) {
 		session, ok := h.lookupSession(sessionID)
+		if !ok {
+			session, ok = h.reloadSessionByID(sessionID)
+		}
 		if !ok || session == nil {
 			continue
 		}
@@ -480,11 +508,26 @@ func (h *Handler) JobShare(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// EnsureShareToken reads the current token and — if empty — mints and
+	var req model.ConfigureJobShareRequest
+	if len(c.Request.Body()) > 0 {
+		if err := c.BindJSON(&req); err != nil {
+			httputil.BadRequest(c, "invalid request body")
+			return
+		}
+	}
+	showWorkspaceName := false
+	if existing, found := h.jobService.Get(jobID); found && existing != nil {
+		showWorkspaceName = existing.ShareShowWorkspaceName
+	}
+	if req.ShowWorkspaceName != nil {
+		showWorkspaceName = *req.ShowWorkspaceName
+	}
+
+	// ConfigureShare reads the current token and — if empty — mints and
 	// persists a new one under the job service's internal lock, so
 	// concurrent requests can't each generate a different token and
 	// overwrite each other's Save.
-	token, err := h.jobService.EnsureShareToken(jobID, func() (string, error) {
+	token, err := h.jobService.ConfigureShare(jobID, showWorkspaceName, func() (string, error) {
 		buf := make([]byte, 32)
 		if _, err := rand.Read(buf); err != nil {
 			return "", err
@@ -501,7 +544,9 @@ func (h *Handler) JobShare(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	c.JSON(http.StatusOK, map[string]string{"shareToken": token})
+	c.JSON(http.StatusOK, model.ConfigureJobShareResponse{
+		ShareToken: token, ShowWorkspaceName: showWorkspaceName,
+	})
 }
 
 func (h *Handler) JobUnshare(ctx context.Context, c *app.RequestContext) {

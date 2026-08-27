@@ -36,7 +36,7 @@ quartet-cli schedule create --name "每日复盘" --cron "0 9 * * *" --workflow 
 - cron 是 **5 段式**「分 时 日 月 周」，按**后端本地时间**解析（`0 9 * * *` = 每天 09:00）。
 - `--workflow` 是 graph workflow ID：用 `quartet-cli workflow list --type all` 查找；还没有 workflow 时先用 quartet-workflow skill 创建。
 - `--workspace` 决定运行环境（工作目录）：用 `quartet-cli workspace list` 查找 ID。
-- 默认创建即启用；`--disabled` 先建好但不跑。
+- 默认在创建任务的当前机器启用；`--disabled` 先建好但不跑。开关保存在本机运行态，不随 Git 同步到其他机器。
 - 成功打印完整任务 JSON（含 `id`、`nextRunAt`）。
 
 ### list / get — 查询
@@ -55,14 +55,17 @@ quartet-cli schedule update <scheduleId> [--name ...] [--cron ...] [--workflow .
     [--workspace ...] [--workdir ...] [--max-concurrent N] [--timeout M] [--enable | --disable]
 ```
 
-指针语义：没传的字段保持不变。`--enable` / `--disable` 互斥。
+指针语义：没传的字段保持不变。`--enable` / `--disable` 互斥，且只修改当前机器的开关。
 
 ### toggle / delete — 启停 / 删除
 
 ```bash
-quartet-cli schedule toggle <scheduleId>   # 翻转启用状态，打印新状态
+quartet-cli schedule toggle <scheduleId>   # 翻转本机启用状态，打印新状态
 quartet-cli schedule delete <scheduleId>
 ```
+
+同一任务同步到其他机器后默认关闭；每台机器可独立启停，互不影响。
+从旧版本升级时，旧的本机状态没有开关字段，也会按关闭处理，需要在各机器上重新启用所需任务。
 
 ### run — 立即触发一次
 

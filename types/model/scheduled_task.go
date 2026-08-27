@@ -8,8 +8,9 @@ import (
 )
 
 type ScheduledTask struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Enabled is the effective activation state on the current machine.
 	Enabled   bool      `json:"enabled"`
 	CronExpr  string    `json:"cronExpr"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -49,7 +50,6 @@ type ScheduledTask struct {
 type ScheduleDefinition struct {
 	ID              string    `json:"id"`
 	Name            string    `json:"name"`
-	Enabled         bool      `json:"enabled"`
 	CronExpr        string    `json:"cronExpr"`
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
@@ -60,11 +60,13 @@ type ScheduleDefinition struct {
 	Timeout         int       `json:"timeout,omitempty"`
 }
 
-// ScheduleState is the scheduler-owned portion stored under
-// var/quartet/state/schedules. A missing state file means the definition has
-// not run yet.
+// ScheduleState is the machine-local portion stored under
+// var/quartet/state/schedules. Enabled deliberately lives here instead of in
+// the Git-managed definition so each machine can activate the same schedule
+// independently. A missing state file means disabled and not run yet.
 type ScheduleState struct {
 	ID               string     `json:"id"`
+	Enabled          bool       `json:"enabled"`
 	LastRunAt        *time.Time `json:"lastRunAt,omitempty"`
 	LastRunJobID     string     `json:"lastRunJobID,omitempty"`
 	LastStatus       JobStatus  `json:"lastStatus,omitempty"`

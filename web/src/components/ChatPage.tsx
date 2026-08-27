@@ -1518,7 +1518,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                 {canWriteSchedules && <button
                   className={`home-schedule-row-toggle ${s.enabled ? 'on' : ''}`}
                   onClick={(e) => { e.stopPropagation(); handleScheduleToggle(s.id); }}
-                  title={s.enabled ? '禁用' : '启用'}
+                  title={s.enabled ? '在本机禁用' : '在本机启用'}
                 />}
                 {canWriteSchedules && <button
                   className="home-schedule-row-delete"

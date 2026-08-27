@@ -122,7 +122,7 @@ type CommandReceipt struct {
 //
 // Handler-owned (written by handler through targeted service mutators):
 //
-//	Title, Mode, Workdir, ShareToken, Deleted, PinnedAt, UpdatedAt
+//	Title, Mode, Workdir, ShareToken, ShareShowWorkspaceName, Deleted, PinnedAt, UpdatedAt
 //
 // Run-owned (written by the run goroutine):
 //
@@ -138,14 +138,18 @@ type Job struct {
 	CreatedAt time.Time `json:"createdAt"`
 
 	// --- Handler-owned ---
-	Title                string    `json:"title"`
-	UpdatedAt            time.Time `json:"updatedAt"`
-	Deleted              bool      `json:"deleted,omitempty"`
-	PinnedAt             int64     `json:"pinnedAt,omitempty"` // unix ms; 0 means not pinned
-	Mode                 JobMode   `json:"mode"`
-	Workdir              string    `json:"workdir,omitempty"`
-	ShareToken           string    `json:"shareToken,omitempty"`
-	TitleGenerationError string    `json:"titleGenerationError,omitempty"`
+	Title      string    `json:"title"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+	Deleted    bool      `json:"deleted,omitempty"`
+	PinnedAt   int64     `json:"pinnedAt,omitempty"` // unix ms; 0 means not pinned
+	Mode       JobMode   `json:"mode"`
+	Workdir    string    `json:"workdir,omitempty"`
+	ShareToken string    `json:"shareToken,omitempty"`
+	// ShareShowWorkspaceName controls whether the public share projection may
+	// include the workspace's display name. It never permits the workspace ID
+	// or workdir to leave the authenticated API.
+	ShareShowWorkspaceName bool   `json:"shareShowWorkspaceName,omitempty"`
+	TitleGenerationError   string `json:"titleGenerationError,omitempty"`
 
 	// --- Immutable after creation ---
 	WorkspaceID    string `json:"workspaceId"`

@@ -47,7 +47,7 @@ func (h *Handler) AgentDisplayInfoResolve(ctx context.Context, c *app.RequestCon
 // resolvePublicAgents resolves the minimal display info attached to public
 // share responses. Failures stay out of the share payload: they are logged
 // and the response simply carries no agents.
-func (h *Handler) resolvePublicAgents(ctx context.Context, refs []string) map[string]model.AgentDisplayInfo {
+func (h *Handler) resolvePublicAgents(ctx context.Context, refs []string, jobID string) map[string]model.AgentDisplayInfo {
 	if len(refs) == 0 {
 		return nil
 	}
@@ -58,6 +58,12 @@ func (h *Handler) resolvePublicAgents(ctx context.Context, refs []string) map[st
 	}
 	if len(agents) == 0 {
 		return nil
+	}
+	for ref, info := range agents {
+		if isRemoteIconURL(info.IconURL) {
+			info.IconURL = PublicAgentIconURL(jobID, info.AgentID)
+		}
+		agents[ref] = info
 	}
 	return agents
 }

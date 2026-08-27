@@ -64,11 +64,10 @@ type Service interface {
 	// UpdatePinned updates only the pinned state of a job. Pinned jobs float to
 	// the top of list endpoints, ordered by the time they were pinned.
 	UpdatePinned(jobID string, pinned bool) (pinnedAt int64, err error)
-	// EnsureShareToken returns the job's existing share token, or atomically
-	// generates one and persists it if none exists. Both the read of the
-	// current token and the write of a new one happen under the service's
-	// internal lock so concurrent callers can't each mint a separate token.
-	EnsureShareToken(jobID string, generate func() (string, error)) (string, error)
+	// ConfigureShare returns the job's existing share token, or atomically
+	// generates one if none exists, and persists the public presentation
+	// options alongside it.
+	ConfigureShare(jobID string, showWorkspaceName bool, generate func() (string, error)) (string, error)
 	// ClearShareToken wipes the job's share token atomically.
 	ClearShareToken(jobID string) error
 	// SetFirstModelID denormalizes the first session's ModelID onto the Job so

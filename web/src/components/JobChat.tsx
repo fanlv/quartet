@@ -11,6 +11,7 @@ import { GraphSessionSidebar } from './GraphSessionSidebar';
 import { StepOutline } from './StepOutline';
 import { FileBrowser } from './FileBrowser';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
+import { AgentIdentityIcon } from './AgentIdentityIcon';
 import { AgentInfo } from './ChatPage';
 import { MessageRoleEnum, MessageStatusEnum, type UserMessage, type FileAttachment } from '../types';
 import { ServerClockProvider } from '../contexts/ServerClock';
@@ -25,35 +26,25 @@ import './JobChat.css';
 // Must match the backend limit in cmd/web/handler/job.go (jobTitleMaxLen).
 const JOB_TITLE_MAX_LEN = 200;
 
-async function fetchAgentList(shareToken?: string, jobId?: string): Promise<{ agents: AgentInfo[]; workdir: string; jobEnable: boolean; error?: string }> {
+async function fetchAgentList(): Promise<{ agents: AgentInfo[]; workdir: string; jobEnable: boolean; error?: string }> {
   try {
-    const url = new URL(shareToken ? '/api/v1/public/agent/list' : '/api/v1/agent/list', window.location.origin);
-    if (shareToken) {
-      url.searchParams.set('shareToken', shareToken);
-      if (jobId) url.searchParams.set('jobId', jobId);
-    }
-    const res = await fetch(url.pathname + url.search);
+    const res = await fetch('/api/v1/agent/list');
     const data = await res.json().catch(() => null);
     if (!data || data.code !== 0 || !data.agent_list) {
       // Keep the server's message when there is one so the banner can show
       // the real cause (auth failure, probe error, …) instead of a generic
       // "empty list".
       const detail = (data && typeof data.msg === 'string' && data.msg) || `HTTP ${res.status}`;
-      // The private route already passed session authentication, so a malformed
-      // business response does not revoke write access. Public shares remain
-      // read-only and intentionally report jobEnable=false.
-      return { agents: [], workdir: '', jobEnable: !shareToken, error: detail };
+      return { agents: [], workdir: '', jobEnable: true, error: detail };
     }
-    const list = (data.agent_list as AgentInfo[])
-      .map((agent) => shareToken && !agent.type ? { ...agent, type: agent.agent_id, available: true } : agent)
-      .filter((agent) => shareToken || agent.available !== false);
+    const list = (data.agent_list as AgentInfo[]).filter((agent) => agent.available !== false);
     return { agents: list, workdir: data.workdir || '', jobEnable: !!data.job_enable };
   } catch (err) {
     console.error('Failed to fetch agent list:', err);
     return {
       agents: [],
       workdir: '',
-      jobEnable: !shareToken,
+      jobEnable: true,
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -115,7 +106,7 @@ export function JobChat(props: JobChatProps) {
   const canExecuteJobs = !isReadonly && (principal?.permissions.includes('job.execute') ?? false);
   const canManageJobs = !isReadonly && (principal?.permissions.includes('job.manage') ?? false);
   const canShareJobs = !isReadonly && (principal?.permissions.includes('job.share') ?? false);
-  const canReadAgents = !!isReadonly || (principal?.permissions.includes('agent.read') ?? false);
+  const canReadAgents = !isReadonly && (principal?.permissions.includes('agent.read') ?? false);
   const canReadConfig = !isReadonly && (principal?.permissions.includes('config.read') ?? false);
   const canReadFiles = !isReadonly && (principal?.permissions.includes('file.read') ?? false);
   const canWriteFiles = !isReadonly && (principal?.permissions.includes('file.write') ?? false);
@@ -182,6 +173,8 @@ export function JobChat(props: JobChatProps) {
     jobTitle,
     setJobTitle,
     jobShareToken: initialShareToken,
+    jobShareShowWorkspaceName: initialShareShowWorkspaceName,
+    publicWorkspaceName,
     messages,
     isLoading,
     isLoadingHistory,
@@ -316,6 +309,10 @@ export function JobChat(props: JobChatProps) {
   const [userAvatarUrl, setUserAvatarUrl] = useState('');
   const [jobShareToken, setJobShareToken] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  const [shareSettingsOpen, setShareSettingsOpen] = useState(false);
+  const [shareShowWorkspaceName, setShareShowWorkspaceName] = useState(false);
+  const [shareSettingsSaving, setShareSettingsSaving] = useState(false);
+  const [shareSettingsError, setShareSettingsError] = useState<string | null>(null);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitleValue, setEditingTitleValue] = useState('');
   const [savingTitle, setSavingTitle] = useState(false);
@@ -337,6 +334,9 @@ export function JobChat(props: JobChatProps) {
   useEffect(() => {
     if (initialShareToken) setJobShareToken(initialShareToken);
   }, [initialShareToken]);
+  useEffect(() => {
+    setShareShowWorkspaceName(initialShareShowWorkspaceName);
+  }, [initialShareShowWorkspaceName]);
 
   useEffect(() => {
     if (jobId && onJobCreated) {
@@ -397,7 +397,7 @@ export function JobChat(props: JobChatProps) {
       return;
     }
     let cancelled = false;
-    void fetchAgentList(shareToken, existingJobId).then(({ agents: list, jobEnable: je, error: listError }) => {
+    void fetchAgentList().then(({ agents: list, jobEnable: je, error: listError }) => {
       if (cancelled) return;
       setInitialAgentRefreshPending(false);
       // A pending first message from the home page can only be dispatched once
@@ -490,7 +490,7 @@ export function JobChat(props: JobChatProps) {
     return () => {
       cancelled = true;
     };
-  }, [canReadAgents, existingJobId, shareToken, initialMessage, initialAgentType, initialModelId, initialAcpMode, initialAcpThoughtLevel, isReadonly]);
+  }, [canReadAgents, existingJobId, initialMessage, initialAgentType, initialModelId, initialAcpMode, initialAcpThoughtLevel, isReadonly]);
 
   useEffect(() => {
     if (sessionWorkdir) setWorkdir(sessionWorkdir);
@@ -696,6 +696,7 @@ export function JobChat(props: JobChatProps) {
     }
     return { iconUrl: selectedAgent?.icon_url, displayName: selectedAgent?.display_name };
   }, [agents, selectedAgent, getSessionMeta, sessionType, t]);
+  const publicAgentIdentity = isReadonly ? resolveAgentForSession(activeSessionId || undefined) : null;
 
   // Re-render when an async agent display resolution lands so the callbacks
   // above pick up the fresh cache.
@@ -954,31 +955,53 @@ export function JobChat(props: JobChatProps) {
     onStartNewChat(selectedAgent.models?.currentModelId || selectedAgent.model_id, selectedAgent.type, workdir || undefined);
   };
 
-  const handleShare = useCallback(async () => {
+  const handleShare = useCallback(() => {
     if (!existingJobId) return;
+    setShareSettingsOpen(true);
+    setShareSettingsError(null);
+  }, [existingJobId]);
+
+  const saveShareSettings = useCallback(async () => {
+    if (!existingJobId) return;
+    setShareSettingsSaving(true);
+    setShareSettingsError(null);
     try {
-      const res = await fetch(`/api/v1/job/${existingJobId}/share`, { method: 'POST' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const res = await fetch(`/api/v1/job/${existingJobId}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ showWorkspaceName: shareShowWorkspaceName }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`POST /api/v1/job/${existingJobId}/share returned HTTP ${res.status}${body ? `\n${body}` : ''}`);
+      }
       const data = await res.json();
       const token = data.shareToken;
       setJobShareToken(token);
+      setShareShowWorkspaceName(data.showWorkspaceName === true);
+      setShareSettingsOpen(false);
       // Build share URL
       const url = new URL(window.location.href);
       url.searchParams.set('shareToken', token);
       url.searchParams.delete('sessionId');
+      url.searchParams.delete('workspaceId');
       await navigator.clipboard.writeText(url.toString());
       setShareCopied(true);
       setTimeout(() => setShareCopied(false), 2000);
     } catch (err) {
       console.error('Failed to share job:', err);
+      setShareSettingsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setShareSettingsSaving(false);
     }
-  }, [existingJobId]);
+  }, [existingJobId, shareShowWorkspaceName]);
 
   const handleCopyShareLink = useCallback(async () => {
     if (!jobShareToken) return;
     const url = new URL(window.location.href);
     url.searchParams.set('shareToken', jobShareToken);
     url.searchParams.delete('sessionId');
+    url.searchParams.delete('workspaceId');
     await navigator.clipboard.writeText(url.toString());
     setShareCopied(true);
     setTimeout(() => setShareCopied(false), 2000);
@@ -1318,6 +1341,17 @@ export function JobChat(props: JobChatProps) {
                 <>
                   <button
                     className="header-filebrowser-btn header-action-overflow"
+                    onClick={handleShare}
+                    title={t('chat.publicShare.settings')}
+                    aria-label={t('chat.publicShare.settings')}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.7 1.7 0 00.34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 00-1.88-.34 1.7 1.7 0 00-1.03 1.55V20h-3v-.09a1.7 1.7 0 00-1.03-1.55 1.7 1.7 0 00-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 007 14.7a1.7 1.7 0 00-1.55-1.03H5v-3h.45A1.7 1.7 0 007 9.64a1.7 1.7 0 00-.34-1.88L6.6 7.7l2.12-2.12.06.06a1.7 1.7 0 001.88.34A1.7 1.7 0 0011.7 4.4V4h3v.4a1.7 1.7 0 001.03 1.55 1.7 1.7 0 001.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 00-.34 1.88 1.7 1.7 0 001.55 1.03H21v3h-.06A1.7 1.7 0 0019.4 15z" />
+                    </svg>
+                  </button>
+                  <button
+                    className="header-filebrowser-btn header-action-overflow"
                     onClick={handleCopyShareLink}
                     title={shareCopied ? 'Copied!' : 'Copy share link'}
                   >
@@ -1472,6 +1506,18 @@ export function JobChat(props: JobChatProps) {
                     </button>
                     {canShareJobs && (jobShareToken ? (
                       <>
+                        <button
+                          type="button"
+                          className="header-more-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setHeaderMoreOpen(false);
+                            handleShare();
+                          }}
+                        >
+                          <span className="header-more-icon" aria-hidden="true">⚙️</span>
+                          <span>{t('chat.publicShare.settings')}</span>
+                        </button>
                         <button
                           type="button"
                           className="header-more-item"
@@ -1761,7 +1807,33 @@ export function JobChat(props: JobChatProps) {
               <button type="button" onClick={() => setAgentListError(null)} aria-label="dismiss">×</button>
             </div>
           )}
-          <ChatInput
+          {isReadonly ? (
+            <div className="public-share-footer" data-testid="public-share-footer">
+              <span className="public-share-agent">
+                <AgentIdentityIcon
+                  iconUrl={publicAgentIdentity?.iconUrl}
+                  displayName={publicAgentIdentity?.displayName}
+                  shareInfo={shareToken ? { shareToken, jobId: existingJobId } : null}
+                  className="public-share-agent-icon"
+                />
+                <span>{publicAgentIdentity?.displayName || t('chat.unknownAgent')}</span>
+              </span>
+              <span className="public-share-divider" aria-hidden />
+              <span className="public-share-status">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M8 12h8M12 8v8" />
+                </svg>
+                {t('chat.publicShare.readOnly')}
+              </span>
+              <span className="public-share-divider" aria-hidden />
+              <span className="public-share-source">
+                {publicWorkspaceName
+                  ? t('chat.publicShare.fromWorkspace', { name: publicWorkspaceName })
+                  : t('chat.publicShare.sharedConversation')}
+              </span>
+            </div>
+          ) : <ChatInput
             onSend={handleSendMessage}
             onStop={canExecuteJobs ? stopGeneration : undefined}
             isLoading={isLoading}
@@ -1819,7 +1891,7 @@ export function JobChat(props: JobChatProps) {
             overrideModelId={hasUserSelected ? undefined : sessionModelId}
             overrideModeId={hasUserSelectedMode ? undefined : sessionACPMode}
             overrideThoughtLevelId={hasUserSelectedThoughtLevel ? undefined : sessionACPThoughtLevel}
-          />
+          />}
         </div>
 
         {outlineOpen && (
@@ -1848,6 +1920,43 @@ export function JobChat(props: JobChatProps) {
             jobId={jobId || undefined}
             onClose={() => setAgentsEditorOpen(false)}
           />,
+          document.body
+        )}
+
+        {shareSettingsOpen && createPortal(
+          <div className="share-settings-overlay" onMouseDown={() => !shareSettingsSaving && setShareSettingsOpen(false)}>
+            <section className="share-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="share-settings-title" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="share-settings-kicker">{t('chat.publicShare.dialogKicker')}</div>
+              <h2 id="share-settings-title">{t('chat.publicShare.dialogTitle')}</h2>
+              <p>{t('chat.publicShare.dialogDescription')}</p>
+              <label className="share-settings-option">
+                <input
+                  type="checkbox"
+                  checked={shareShowWorkspaceName}
+                  onChange={(event) => setShareShowWorkspaceName(event.target.checked)}
+                  disabled={shareSettingsSaving}
+                />
+                <span>
+                  <strong>{t('chat.publicShare.showWorkspaceName')}</strong>
+                  <small>{t('chat.publicShare.showWorkspaceNameHint')}</small>
+                </span>
+              </label>
+              <div className="share-settings-privacy">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <rect x="5" y="10" width="14" height="10" rx="2" />
+                  <path d="M8 10V7a4 4 0 018 0v3" />
+                </svg>
+                {t('chat.publicShare.pathNeverShared')}
+              </div>
+              {shareSettingsError && <pre className="share-settings-error">{shareSettingsError}</pre>}
+              <div className="share-settings-actions">
+                <button type="button" className="share-settings-cancel" onClick={() => setShareSettingsOpen(false)} disabled={shareSettingsSaving}>{t('common.cancel')}</button>
+                <button type="button" className="share-settings-confirm" onClick={() => void saveShareSettings()} disabled={shareSettingsSaving}>
+                  {shareSettingsSaving ? t('common.saving') : jobShareToken ? t('chat.publicShare.saveAndCopy') : t('chat.publicShare.createAndCopy')}
+                </button>
+              </div>
+            </section>
+          </div>,
           document.body
         )}
       </div>

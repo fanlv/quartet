@@ -8,11 +8,11 @@ import { Message, UserMessage, AssistantMessage, ToolMessage, SystemMessage, Mes
 import { copyToClipboard } from '../utils/clipboard';
 import { formatMessageTime } from '../utils/time';
 import { showToast } from '../utils/toast';
-import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { useFileViewer } from '../hooks/useFileViewer';
 import { DurationBadge } from './DurationBadge';
 import { FileViewer } from './FileViewer/FileViewer';
 import { ImageViewer } from './ImageViewer';
+import { AgentIdentityIcon } from './AgentIdentityIcon';
 import './MessageItem.css';
 
 type OpenFileViewerFn = (filePath: string, line?: number, endLine?: number) => void;
@@ -494,9 +494,8 @@ function ThinkingBlock({ message }: { message: AssistantMessage }) {
 }
 
 function AssistantMessageContent({ message, agentIconUrl, agentDisplayName }: { message: AssistantMessage; agentIconUrl?: string; agentDisplayName?: string }) {
-  // The icon may be a proxied /api/v1/icon URL, which is auth-gated. On a
-  // shared page there is no agent token, so resolveIconSrc needs the share
-  // info to rewrite the src onto the shareToken-validated public route.
+  // Public share payloads carry a Job-scoped icon URL. AgentIdentityIcon adds
+  // the share credential and falls back to a stable initial when loading fails.
   const shareInfo = useContext(ShareInfoContext);
   const messageRef = useRef<HTMLDivElement | null>(null);
   const [showFooterCopyButton, setShowFooterCopyButton] = useState(false);
@@ -570,12 +569,13 @@ function AssistantMessageContent({ message, agentIconUrl, agentDisplayName }: { 
             <div className="assistant-bubble-header">
               {message.isShellOutput ? (
                 <span className="assistant-bubble-icon">💻</span>
-              ) : agentIconUrl ? (
-                isImageUrl(agentIconUrl)
-                  ? <img src={resolveIconSrc(agentIconUrl, shareInfo)} alt="" className="assistant-bubble-icon-img" referrerPolicy="no-referrer" />
-                  : <span className="assistant-bubble-icon">{agentIconUrl}</span>
               ) : (
-                <span className="assistant-bubble-icon">✨</span>
+                <AgentIdentityIcon
+                  iconUrl={agentIconUrl}
+                  displayName={agentDisplayName}
+                  shareInfo={shareInfo}
+                  className="assistant-bubble-icon-img"
+                />
               )}
               <span className="assistant-bubble-name">{message.isShellOutput ? 'Shell' : (agentDisplayName || 'ASSISTANT')}</span>
               {isStreaming && (

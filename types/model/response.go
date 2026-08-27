@@ -66,6 +66,15 @@ type GetMessagesResponse struct {
 	Agents map[string]AgentDisplayInfo `json:"agents,omitempty"`
 }
 
+// PublicGetMessagesResponse contains only the conversation and the Agent
+// identity needed to render it. Runtime selections, token usage and workdir
+// remain private even when the Job itself is shared.
+type PublicGetMessagesResponse struct {
+	Type     string                      `json:"type,omitempty"`
+	Messages []HistoryMessage            `json:"messages"`
+	Agents   map[string]AgentDisplayInfo `json:"agents,omitempty"`
+}
+
 // AgentDisplayInfo is the minimal display projection of an Agent record,
 // resolved on demand for historical references (session serve commands,
 // graph node snapshot agent types) so old jobs keep rendering after the
@@ -84,6 +93,44 @@ type ResolveAgentDisplayInfoRequest struct {
 
 type ResolveAgentDisplayInfoResponse struct {
 	Agents map[string]AgentDisplayInfo `json:"agents"`
+}
+
+// PublicJobResponse is the deliberately small snapshot served to anonymous
+// share viewers. Keep this separate from Job: adding an internal Job field
+// must never make that field public by accident.
+type PublicJobResponse struct {
+	ID                  string                      `json:"id"`
+	Title               string                      `json:"title"`
+	Mode                JobMode                     `json:"mode"`
+	Status              JobStatus                   `json:"status"`
+	StartedAt           int64                       `json:"startedAt,omitempty"`
+	FinishedAt          int64                       `json:"finishedAt,omitempty"`
+	TotalTurnDurationMs int64                       `json:"totalTurnDurationMs,omitempty"`
+	GraphRunID          string                      `json:"graphRunId,omitempty"`
+	SessionIDs          []string                    `json:"sessionIds"`
+	Progress            *PublicJobProgress          `json:"progress,omitempty"`
+	LastRunOutcome      RunOutcome                  `json:"lastRunOutcome,omitempty"`
+	LastEventSeq        uint64                      `json:"lastEventSeq"`
+	ServerTime          int64                       `json:"serverTime"`
+	Agents              map[string]AgentDisplayInfo `json:"agents,omitempty"`
+	ShareContext        PublicShareContext          `json:"shareContext"`
+}
+
+type PublicJobProgress struct {
+	LastError string `json:"lastError,omitempty"`
+}
+
+type PublicShareContext struct {
+	WorkspaceName string `json:"workspaceName,omitempty"`
+}
+
+type ConfigureJobShareRequest struct {
+	ShowWorkspaceName *bool `json:"showWorkspaceName,omitempty"`
+}
+
+type ConfigureJobShareResponse struct {
+	ShareToken        string `json:"shareToken"`
+	ShowWorkspaceName bool   `json:"showWorkspaceName"`
 }
 
 type GetPromptResponse struct {
@@ -199,20 +246,6 @@ type AgentListResponse struct {
 	JobEnable bool        `json:"job_enable"`
 }
 
-type PublicAgentInfo struct {
-	AgentID       string                    `json:"agent_id"`
-	DisplayName   string                    `json:"display_name"`
-	IconURL       string                    `json:"icon_url"`
-	Models        *SessionModelState        `json:"models,omitempty"`
-	Modes         *SessionModeState         `json:"modes,omitempty"`
-	ThoughtLevels *SessionThoughtLevelState `json:"thoughtLevels,omitempty"`
-}
-
-type PublicAgentListResponse struct {
-	Code      int               `json:"code"`
-	AgentList []PublicAgentInfo `json:"agent_list"`
-}
-
 type CreateJobResponse struct {
 	JobID     string `json:"jobId"`
 	CreatedAt int64  `json:"createdAt"`
@@ -286,8 +319,9 @@ type ListWorkspacesResponse struct {
 // ---- Scheduled Task responses ----
 
 type ScheduleInfo struct {
-	ID               string    `json:"id"`
-	Name             string    `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Enabled is the effective activation state on the responding machine.
 	Enabled          bool      `json:"enabled"`
 	CronExpr         string    `json:"cronExpr"`
 	GraphWorkflowID  string    `json:"graphWorkflowId,omitempty"`

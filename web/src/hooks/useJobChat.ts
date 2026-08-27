@@ -379,6 +379,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   jobIdRef.current = jobId;
   const [jobTitle, setJobTitle] = useState('');
   const [jobShareTokenState, setJobShareTokenState] = useState<string | null>(null);
+  const [jobShareShowWorkspaceName, setJobShareShowWorkspaceName] = useState(false);
+  const [publicWorkspaceName, setPublicWorkspaceName] = useState<string | null>(null);
   // Set when /job/:id returns 404. Gates the SSE auto-connect (no point
   // hammering /events for a job that doesn't exist) and lets JobChat surface
   // a dedicated "job not found" banner instead of an empty chat.
@@ -837,6 +839,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     lastEventSeqRef.current = '';
     setJobId(existingJobId || null);
     setJobTitle('');
+    setJobShareShowWorkspaceName(false);
+    setPublicWorkspaceName(null);
     setMessages(initialUserMessage ? [initialUserMessage] : []);
     setQueuedMessages([]);
     queuedMessagesRef.current = [];
@@ -1615,6 +1619,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       if (job.title) {
         setJobTitle(job.title);
       }
+      if (isPublic) {
+        primeAgentDisplays(job.agents);
+        const sharedWorkspaceName = typeof job.shareContext?.workspaceName === 'string'
+          ? job.shareContext.workspaceName.trim()
+          : '';
+        setPublicWorkspaceName(sharedWorkspaceName || null);
+      }
       setTitleGenerationError(
         typeof job.titleGenerationError === 'string' && job.titleGenerationError
           ? job.titleGenerationError
@@ -1750,7 +1761,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       console.warn('[SSE reconnect] failed to sync job state:', err);
       throw err;
     }
-  }, [apiUrl, finalizeInFlightMessages, loadHistory, refreshMessageQueue, seedServerClockFromResponse]);
+  }, [apiUrl, finalizeInFlightMessages, isPublic, loadHistory, refreshMessageQueue, seedServerClockFromResponse]);
 
   // Keep syncJobStateRef in sync so handleEvent can call it.
   syncJobStateRef.current = syncJobState;
@@ -2686,7 +2697,16 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           console.debug(`[JobEvents][TRACE-SEQ0] hydration NO lastEventSeq jobId=${existingJobId} typeof=${typeof job.lastEventSeq} value=${JSON.stringify(job.lastEventSeq)}`);
         }
         setJobTitle(job.title || '');
-        if (job.shareToken) setJobShareTokenState(job.shareToken);
+        if (isPublic) {
+          primeAgentDisplays(job.agents);
+          const sharedWorkspaceName = typeof job.shareContext?.workspaceName === 'string'
+            ? job.shareContext.workspaceName.trim()
+            : '';
+          setPublicWorkspaceName(sharedWorkspaceName || null);
+        } else {
+          if (job.shareToken) setJobShareTokenState(job.shareToken);
+          setJobShareShowWorkspaceName(job.shareShowWorkspaceName === true);
+        }
         // Hydrate base job metadata on refresh.
         if (job.workdir) setSessionWorkdir(job.workdir);
         // modelId, agentType, acpMode are now per-session; they will
@@ -2869,7 +2889,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       cancelled = true;
       if (cancelIdlePrefetch) cancelIdlePrefetch();
     };
-  }, [existingJobId, initialSessionId, apiUrl, loadHistory, applyActiveSessionSelection, setGraphSessions, seedServerClockFromResponse, reportDisconnect, applyGraphRunStatusSnapshot]);
+  }, [existingJobId, initialSessionId, apiUrl, isPublic, loadHistory, applyActiveSessionSelection, setGraphSessions, seedServerClockFromResponse, reportDisconnect, applyGraphRunStatusSnapshot]);
 
   // When the active Graph session changes, update session-level metadata
   // so ChatInput/MessageList reflect the session's agent/model.
@@ -3011,6 +3031,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     jobTitle,
     setJobTitle,
     jobShareToken: jobShareTokenState,
+    jobShareShowWorkspaceName,
+    publicWorkspaceName,
     messages: isGraph ? filteredMessages : dedupedMessages,
     allMessages: dedupedMessages,
     isLoading,

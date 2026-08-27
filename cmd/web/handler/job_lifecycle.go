@@ -310,6 +310,7 @@ func (h *Handler) JobEvents(ctx context.Context, c *app.RequestContext) {
 		httputil.NotFound(c, "job not found")
 		return
 	}
+	_, isPublicShare := getPublicJob(c)
 	// connectStatus is the job's status at SSE connect time. It only feeds
 	// the two connect-time logs below ([TRACE-SEQ0] and the subscribe
 	// Debug). DO NOT reuse it in any log emitted later in this handler —
@@ -515,6 +516,14 @@ func (h *Handler) JobEvents(ctx context.Context, c *app.RequestContext) {
 		terminalIdleSince = time.Time{}
 
 		for _, entry := range entries {
+			// Slash-command feedback can carry navigation actions containing
+			// other Job or workspace IDs. It is private, transient UI state and
+			// has no value in an anonymous read-only view.
+			if isPublicShare {
+				if _, privateCommandEvent := entry.Event.(*model.CommandSystemMessageEvent); privateCommandEvent {
+					continue
+				}
+			}
 			data, err := sonic.Marshal(entry.Event)
 			if err != nil {
 				logger.Errorf(ctx, "[sse] marshal event failed: connId=%s jobId=%s seq=%d err=%v", connID, jobID, entry.Seq, err)

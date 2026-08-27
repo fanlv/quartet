@@ -251,8 +251,13 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 	// Public share responses carry the minimal display projection of the
 	// Agent this session references so the read-only share page can render
 	// renamed / deleted Agents without any catalog access of its own.
-	if _, isPublic := getPublicJob(c); isPublic {
-		resp.Agents = h.resolvePublicAgents(ctx, []string{s.Type})
+	if publicJob, isPublic := getPublicJob(c); isPublic {
+		c.JSON(http.StatusOK, model.PublicGetMessagesResponse{
+			Type:     s.Type,
+			Messages: messages,
+			Agents:   h.resolvePublicAgents(ctx, []string{s.Type}, publicJob.ID),
+		})
+		return
 	}
 	c.JSON(http.StatusOK, resp)
 }

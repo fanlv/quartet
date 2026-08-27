@@ -318,9 +318,30 @@ func (h *Handler) GetJobGraphRunStatus(ctx context.Context, c *app.RequestContex
 	// Agent the run references. Collect before slimming — slimGraphRunStatus
 	// strips the agent snapshots from the payload.
 	if _, isPublic := getPublicJob(c); isPublic {
-		resp.Agents = h.resolvePublicAgents(ctx, h.collectGraphRunAgentRefs(resp, j))
+		resp.Agents = h.resolvePublicAgents(ctx, h.collectGraphRunAgentRefs(resp, j), j.ID)
+		scrubPublicGraphRunStatus(resp)
 	}
 	c.JSON(http.StatusOK, slimGraphRunStatus(resp))
+}
+
+func scrubPublicGraphRunStatus(resp *model.GraphRunStatusResponse) {
+	if resp == nil || resp.Run == nil {
+		return
+	}
+	resp.Run.WorkspaceID = ""
+	scrubPublicGraphConfig(&resp.Run.BaseSnapshot.Config)
+	for i := range resp.Run.Versions {
+		scrubPublicGraphConfig(&resp.Run.Versions[i].Config)
+	}
+}
+
+func scrubPublicGraphConfig(config *model.GraphConfig) {
+	if config == nil {
+		return
+	}
+	config.WorkspaceID = ""
+	config.Workdir = ""
+	config.SandboxID = ""
 }
 
 // JobGraphRunHooks returns the per-node hook (§ 节点 Hook) execution results for

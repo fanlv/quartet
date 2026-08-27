@@ -376,7 +376,7 @@ func SchedulesDir() (string, error) {
 }
 
 // ScheduleStatesDir returns {LOCAL_MEMORY}/var/quartet/state/schedules/, the
-// runtime Schedule state directory.
+// machine-local Schedule activation and runtime state directory.
 func ScheduleStatesDir() (string, error) {
 	dir, err := QuartetStateDir()
 	if err != nil {

@@ -10,6 +10,227 @@
   overflow: hidden;
 }
 
+.public-share-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 0 auto;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+  width: min(760px, calc(100% - 32px));
+  color: #53635a;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  border-top: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+}
+
+.public-share-agent,
+.public-share-status,
+.public-share-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.public-share-agent {
+  color: #23382b;
+  font-weight: 650;
+}
+
+.public-share-agent-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+
+.public-share-status {
+  color: #26713d;
+}
+
+.public-share-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border-strong);
+}
+
+.public-share-source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(17, 29, 21, 0.42);
+  backdrop-filter: blur(5px);
+}
+
+.share-settings-dialog {
+  width: min(440px, calc(100vw - 32px));
+  padding: 24px;
+  color: #1c2b21;
+  background: var(--surface);
+  border: 1px solid #cfdcd2;
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(16, 35, 22, 0.22);
+}
+
+.share-settings-kicker {
+  margin-bottom: 8px;
+  color: #2f7546;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.share-settings-dialog h2 {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.share-settings-dialog > p {
+  margin: 8px 0 20px;
+  color: #66746b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.share-settings-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  background: #f4f8f5;
+  border: 1px solid #dbe6dd;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.share-settings-option input {
+  width: 17px;
+  height: 17px;
+  margin: 2px 0 0;
+  accent-color: #2f7546;
+}
+
+.share-settings-option span {
+  display: grid;
+  gap: 4px;
+}
+
+.share-settings-option strong {
+  font-size: 14px;
+}
+
+.share-settings-option small {
+  color: #66746b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.share-settings-privacy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: #5f6f65;
+  font-size: 12px;
+}
+
+.share-settings-error {
+  max-height: 150px;
+  margin: 14px 0 0;
+  padding: 10px;
+  overflow: auto;
+  color: #991b1b;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.share-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.share-settings-actions button {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.share-settings-cancel {
+  color: #4f5f55;
+  background: transparent;
+  border: 1px solid #d5dfd7;
+}
+
+.share-settings-confirm {
+  color: #fff;
+  background: #245f38;
+  border: 1px solid #245f38;
+}
+
+.share-settings-actions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+@media (max-width: 640px) {
+  .public-share-footer {
+    display: grid;
+    grid-template-columns: minmax(0, auto) 1px minmax(0, auto);
+    justify-content: center;
+    gap: 8px;
+    width: calc(100% - 20px);
+    padding-inline: 8px;
+    row-gap: 7px;
+  }
+
+  .public-share-agent,
+  .public-share-status {
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .public-share-agent > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .public-share-status + .public-share-divider {
+    display: none;
+  }
+
+  .public-share-source {
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
+
+  .public-share-status svg {
+    display: none;
+  }
+}
+
 .chatbot-header {
   display: flex;
   align-items: center;

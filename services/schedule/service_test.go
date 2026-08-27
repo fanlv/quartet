@@ -12,13 +12,42 @@ type stubScheduleRepo struct {
 	tasks map[string]*model.ScheduledTask
 }
 
-func (s *stubScheduleRepo) Save(_ context.Context, task *model.ScheduledTask) error {
+func (s *stubScheduleRepo) Create(_ context.Context, task *model.ScheduledTask) error {
+	s.tasks[task.ID] = task
+	return nil
+}
+
+func (s *stubScheduleRepo) SaveDefinition(_ context.Context, task *model.ScheduledTask) error {
 	s.tasks[task.ID] = task
 	return nil
 }
 
 func (s *stubScheduleRepo) SaveState(_ context.Context, task *model.ScheduledTask) error {
 	s.tasks[task.ID] = task
+	return nil
+}
+
+func (s *stubScheduleRepo) UpdateActivation(_ context.Context, id string, enabled *bool, nextRunAt *time.Time) error {
+	task := s.tasks[id]
+	if enabled != nil {
+		task.Enabled = *enabled
+	}
+	if task.Enabled {
+		task.NextRunAt = nextRunAt
+	} else {
+		task.NextRunAt = nil
+	}
+	return nil
+}
+
+func (s *stubScheduleRepo) ToggleEnabled(_ context.Context, id string, nextRunAt *time.Time) error {
+	task := s.tasks[id]
+	task.Enabled = !task.Enabled
+	if task.Enabled {
+		task.NextRunAt = nextRunAt
+	} else {
+		task.NextRunAt = nil
+	}
 	return nil
 }
 

@@ -217,7 +217,7 @@ struct ScheduledTasksView: View {
             do {
                 let updated = try await model.apiClient().toggleSchedule(id: schedule.id)
                 upsert(updated)
-                operationMessage = AppLanguage.localizedFormat(updated.enabled ? "已启用“%@”" : "已停用“%@”", updated.name)
+                operationMessage = AppLanguage.localizedFormat(updated.enabled ? "已在本机启用“%@”" : "已在本机停用“%@”", updated.name)
             } catch { present(error, summary: "切换任务状态失败") }
         }
     }
@@ -362,7 +362,7 @@ private struct ScheduleCard: View {
                             }
 
                             HStack(spacing: 5) {
-                                Text(schedule.enabled ? "已启用" : "已停用")
+                                Text(schedule.enabled ? "本机已启用" : "本机已停用")
                                     .foregroundStyle(schedule.enabled ? QuartetTheme.success : QuartetTheme.secondaryText)
                                 if let nextRunAt = schedule.nextRunAt, schedule.enabled {
                                     metadataSeparator
@@ -437,7 +437,7 @@ private struct ScheduleCard: View {
     }
 
     private var scheduleAccessibilityLabel: String {
-        var values = [schedule.name, workflowName, schedule.cronExpr, schedule.enabled ? "已启用" : "已停用"]
+        var values = [schedule.name, workflowName, schedule.cronExpr, schedule.enabled ? "本机已启用" : "本机已停用"]
         if let nextRunAt = schedule.nextRunAt, schedule.enabled {
             values.append("下次运行 \(scheduleDate(nextRunAt))")
         } else if schedule.runCount > 0 {
@@ -513,8 +513,8 @@ private struct ScheduleActionsSheet: View {
                 if canRun, canWrite { divider }
                 if canWrite {
                     actionRow(
-                        title: schedule.enabled ? "停用任务" : "启用任务",
-                        detail: schedule.enabled ? "暂停后续 Cron 自动触发" : "恢复后续 Cron 自动触发",
+                        title: schedule.enabled ? "在本机停用任务" : "在本机启用任务",
+                        detail: schedule.enabled ? "暂停本机后续 Cron 自动触发" : "恢复本机后续 Cron 自动触发",
                         systemImage: schedule.enabled ? "pause.fill" : "play.circle.fill",
                         tint: QuartetTheme.warning,
                         identifier: "schedule-action-toggle",
@@ -694,7 +694,7 @@ private struct ScheduleEditorView: View {
                             identifier: "schedule-workflow-picker"
                         ) { picker = .workflow }
                         cardDivider
-                        Toggle("启用", isOn: $enabled)
+                        Toggle("在本机启用", isOn: $enabled)
                             .font(.quartet(.control, weight: .medium))
                             .tint(QuartetTheme.accent)
                             .accessibilityIdentifier("schedule-enabled")
