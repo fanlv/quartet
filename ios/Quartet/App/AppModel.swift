@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SwiftUI
+import UIKit
 import UserNotifications
 
 @MainActor
@@ -2131,6 +2132,8 @@ final class AppModel: ObservableObject {
     }
 
     private func scheduleJobCompletionNotification(for job: JobSummary) {
+        guard UIApplication.shared.applicationState == .background else { return }
+
         let content = UNMutableNotificationContent()
         content.title = "Job 执行结束".localizedForApp
         content.body = "\(job.displayTitle) · \(job.statusLabel)"

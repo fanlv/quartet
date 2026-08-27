@@ -348,7 +348,8 @@ private struct WorkspaceDirectoryView: View {
     private var locationHeader: some View {
         WorkspaceBrowserLocationHeader(
             path: directory,
-            detail: error == nil && !isLoading ? entryCountSummary : nil
+            detail: error == nil && !isLoading ? entryCountSummary : nil,
+            showsCurrentPathCopyButton: false
         )
         .accessibilityIdentifier("files-location-card")
     }
@@ -498,10 +499,11 @@ struct WorkspaceBrowserLocationHeader: View {
     var workspaceRoot: String? = nil
     var workspaceRootTitle = "当前工作空间"
     var detail: String? = nil
+    var showsCurrentPathCopyButton = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .center, spacing: 10) {
                 Label("当前目录".localizedForApp, systemImage: "folder.fill")
                     .font(.quartet(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.secondaryText)
@@ -518,13 +520,16 @@ struct WorkspaceBrowserLocationHeader: View {
 
             HStack(alignment: .top, spacing: 8) {
                 Text(path)
-                    .font(.quartet(.detail, design: .monospaced))
+                    .font(.quartet(.detail, weight: .medium, design: .monospaced))
                     .foregroundStyle(QuartetTheme.primaryText)
                     .textSelection(.enabled)
+                    .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                WorkspacePathCopyButton(path: path, kind: .directory)
+                if showsCurrentPathCopyButton {
+                    WorkspacePathCopyButton(path: path, kind: .directory)
+                }
             }
 
             if let workspaceRoot, workspaceRoot != path {
