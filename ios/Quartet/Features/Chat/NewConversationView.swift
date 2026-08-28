@@ -740,7 +740,8 @@ struct NewConversationView: View {
     }
 
     private var actionBar: some View {
-        VStack(spacing: 10) {
+        // 摘要胶囊行的命中区域高于胶囊本身，外层间距相应收紧，底部条整体高度不变。
+        VStack(spacing: 4) {
             HStack(spacing: 8) {
                 contextPill(
                     workspace?.displayName ?? "未选择空间".localizedForApp,
@@ -787,7 +788,7 @@ struct NewConversationView: View {
             .accessibilityIdentifier("new-conversation-create")
         }
         .padding(.horizontal, 18)
-        .padding(.top, 10)
+        .padding(.top, 2)
         .padding(.bottom, 8)
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Rectangle().fill(QuartetTheme.divider).frame(height: 0.5) }
@@ -819,11 +820,13 @@ struct NewConversationView: View {
             .font(.quartet(.detail, weight: .medium))
             .foregroundStyle(QuartetTheme.secondaryText)
             .padding(.horizontal, 10)
-            // 可点了就按聊天页那批 chip 的尺寸给足触摸区域，不再是 26 的纯展示胶囊。
             .frame(height: 30)
             .background(QuartetTheme.elevated, in: Capsule())
-            .contentShape(Capsule())
         }
+        // 视觉仍是聊天页那档 30 高的胶囊，命中区域补到 44：这一行紧贴键盘上沿，
+        // 只有胶囊本身可点时很容易点空。
+        .frame(height: 44)
+        .contentShape(Rectangle())
         .buttonStyle(.plain)
         .disabled(disabled)
         .opacity(disabled ? 0.5 : 1)
@@ -832,13 +835,13 @@ struct NewConversationView: View {
         .accessibilityIdentifier(identifier)
     }
 
-    /// 弹窗前先收键盘：焦点变更推迟一帧再展示，键盘和 sheet 不会在同一帧一起动。
-    private func presentAfterDismissingKeyboard(_ present: @escaping () -> Void) {
+    /// 弹窗前先收键盘。收键盘和弹窗写在同一次状态更新里，和聊天页工具栏胶囊、Graph 变量行的
+    /// 目录选择保持一致：把弹窗推迟到下一帧，呈现请求会撞上键盘收起带来的安全区变化，底部条上的
+    /// 胶囊点下去只收键盘、弹窗不出现。
+    private func presentAfterDismissingKeyboard(_ present: () -> Void) {
         composerFocused = false
-        Task { @MainActor in
-            await Task.yield()
-            present()
-        }
+        quartetDismissKeyboard()
+        present()
     }
 
     @ViewBuilder

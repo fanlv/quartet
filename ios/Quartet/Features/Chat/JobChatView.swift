@@ -28,6 +28,20 @@ private struct ChatAgentModelSelection: Hashable {
     let modelID: String
 }
 
+/// 用户离开底部去看前面内容时冻结的时间线快照。
+///
+/// 只停掉跟随滚动不够：`LazyVStack` 的内容高度在流式输出期间一直在变（新气泡追加、
+/// 工具卡在结束时从几千点塌成一行、离屏 cell 的估算高度被重新计算），只要视口上方的
+/// 高度变了，contentOffset 不动的情况下画面里的内容也会被顶走 —— 用户看到的就是
+/// “没有跳到底部，但在慢慢往下滑”。离开底部期间直接渲染这份快照，列表内容一个字都不
+/// 变，阅读位置才真正钉住；回到底部时一次性解冻并补上这段时间的全部新内容。
+private struct FrozenChatTimeline: Sendable {
+    let messages: [ChatMessage]
+    let outboxItems: [LocalOutboxItem]
+    /// 冻结那一刻的滚动锚点，用来判断快照之后是否又有了新内容。
+    let scrollAnchor: Int
+}
+
 struct JobChatView: View {
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.scenePhase) private var scenePhase
@@ -54,6 +68,8 @@ struct JobChatView: View {
     @State private var userIsScrollingMessages = false
     @State private var messagesAreNearBottom = true
     @State private var messagesScrolledOffContent = false
+    @State private var frozenTimeline: FrozenChatTimeline?
+    @State private var followBottomRequests = 0
     @State private var configuredModels: AgentModelState?
     @State private var configuredThoughtLevels: AgentThoughtLevelState?
     @State private var configuredThoughtLevelSelection: ChatAgentModelSelection?
@@ -77,7 +93,11 @@ struct JobChatView: View {
         .quartetNavigationTitle(chat.title.isEmpty ? route.summary.displayTitle : chat.title)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 4) {
+                // 两颗按钮都走 plain style：工具栏默认按钮样式会在每个标签外再补一圈内边距，两颗挨在
+                // 一起时中间被撑出很大的空隙，同时把居中标题的可用宽度挤掉。plain 之后横向尺寸完全由
+                // 下面的 frame 决定，44pt 高的触摸区域照旧保留。图标字号取全局刻度而不是聊天页那档
+                // 缩小刻度，否则会比同一条导航栏上的返回箭头和标题小一圈。
+                HStack(spacing: 0) {
                     NavigationLink {
                         WorkspaceDirectoryBrowserView(
                             workspaceTitle: workspaceName ?? route.summary.workspaceId ?? "工作空间".localizedForApp,
@@ -85,9 +105,12 @@ struct JobChatView: View {
                         )
                     } label: {
                         Image(systemName: "folder")
-                            .frame(width: 32, height: 44)
+                            .font(.quartet(.regular, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.accent)
+                            .frame(width: 30, height: 44)
                             .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("查看当前工作空间目录".localizedForApp)
                     .accessibilityHint(workspaceWorkdir ?? "当前工作空间没有可浏览的目录。".localizedForApp)
                     .accessibilityIdentifier("chat-workspace-files")
@@ -96,9 +119,12 @@ struct JobChatView: View {
                         JobDetailView(summary: currentJobSummary)
                     } label: {
                         Image(systemName: "info.circle")
-                            .frame(width: 32, height: 44)
+                            .font(.quartet(.regular, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.accent)
+                            .frame(width: 30, height: 44)
                             .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Job 详情")
                 }
             }
@@ -284,14 +310,49 @@ struct JobChatView: View {
         appModel.jobSummary(id: route.summary.id) ?? route.summary
     }
 
-    /// 把滚偏到内容之外的列表带回底部，并让跟随状态回到“就在底部”。
+    /// 时间线渲染源：用户离开底部期间固定读冻结快照，回到底部才读实时数据。
+    private var timelineMessages: [ChatMessage] {
+        frozenTimeline?.messages ?? chat.messages
+    }
+
+    private var timelineOutboxItems: [LocalOutboxItem] {
+        frozenTimeline?.outboxItems ?? chat.timelineOutboxItems
+    }
+
+    /// 冻结期间又产生了新内容：用来在“回到底部”按钮上提示有未读增量。
+    private var timelineHasPendingUpdates: Bool {
+        guard let frozenTimeline else { return false }
+        return frozenTimeline.scrollAnchor != chat.scrollAnchor
+    }
+
+    /// 暂停跟随，并把当前时间线冻结成快照。
+    ///
+    /// 冻结必须发生在用户刚开始拖动的那一刻：这样快照就是他手指按下时看到的画面，
+    /// 冻结本身不会造成任何跳动。
+    private func pauseTimelineFollow() {
+        userScrolledAwayFromBottom = true
+        guard frozenTimeline == nil else { return }
+        frozenTimeline = FrozenChatTimeline(
+            messages: chat.messages,
+            outboxItems: chat.timelineOutboxItems,
+            scrollAnchor: chat.scrollAnchor
+        )
+    }
+
+    /// 恢复跟随：解冻快照、补上这段时间的新内容，并回到底部。
     ///
     /// 只重置偏移不够：`userScrolledAwayFromBottom` 留在 `true` 的话，后续内容照样不跟随，
-    /// 用户看到的是一条卡住的时间线。自愈已经把视口强行放回底部，跟随状态必须跟着对齐。
-    private func recoverMessagesScroll(_ proxy: ScrollViewProxy) {
+    /// 用户看到的是一条卡住的时间线。视口既然已经回到底部，跟随状态必须跟着对齐。
+    ///
+    /// 这里刻意不加动画：解冻要补上的可能是几千点的内容，动画滚过这么长的距离会让
+    /// `LazyVStack` 一路来不及物化 cell，中途整屏空白，落点也更容易算飘。
+    private func resumeTimelineFollow(_ proxy: ScrollViewProxy) {
+        frozenTimeline = nil
         messagesScrolledOffContent = false
         messagesAreNearBottom = true
         userScrolledAwayFromBottom = false
+        // 解冻和滚动请求在同一次更新里提交：ScrollView 会先按补齐后的内容重新布局，
+        // 再消费这个待处理的滚动目标，所以一次 scrollTo 就落在真正的底部。
         proxy.scrollTo("chat-bottom", anchor: .bottom)
     }
 
@@ -308,7 +369,7 @@ struct JobChatView: View {
                         }
                         .padding(.top, 80)
                     }
-                    ForEach(chat.messages) { message in
+                    ForEach(timelineMessages) { message in
                         ChatBubble(
                             message: message,
                             fallbackAgentName: chat.agentDisplayLabel,
@@ -317,10 +378,13 @@ struct JobChatView: View {
                             .equatable()
                             .id(message.id)
                     }
-                    ForEach(chat.timelineOutboxItems) { item in
+                    ForEach(timelineOutboxItems) { item in
                         OutboxBubble(item: item)
                             .id(item.id)
                     }
+                    // 运行指示器不进快照：它永远排在最后一条气泡之后，冻结期间用户视口
+                    // 一定在它上面，出现或消失都只改视口下方的高度，不会顶动正在看的内容。
+                    // 反过来，冻结它会让快照在运行早已结束后还挂着一个“正在思考”。
                     if chat.isRunning {
                         HStack(spacing: 9) {
                             Spacer(minLength: 0)
@@ -343,6 +407,7 @@ struct JobChatView: View {
                 .padding(.vertical, 18)
             }
             .scrollDismissesKeyboard(.interactively)
+            .overlay(alignment: .bottom) { backToBottomButton(proxy) }
             // 链接拦截统一在列表这一层注入，动作由 `linkOpener` 持有、全程同一个值。
             .environment(\.openURL, linkOpener.action)
             .onAppear {
@@ -357,14 +422,18 @@ struct JobChatView: View {
                 let isUserScrolling = newPhase.isScrolling && newPhase != .animating
                 userIsScrollingMessages = isUserScrolling
 
-                // 用户一开始拖动就暂停跟随，避免流式增量在手势过程中抢走滚动位置。
+                // 用户一开始拖动就暂停跟随并冻结时间线，避免流式增量在手势过程中抢走滚动
+                // 位置、也避免内容高度继续变化把阅读位置一点点顶走。
                 // 松手后按最终位置决定是否恢复；只有回到底部才重新开启自动跟随。
                 if isUserScrolling {
-                    userScrolledAwayFromBottom = true
+                    pauseTimelineFollow()
                     return
                 }
                 if newPhase == .idle, wasUserScrolling {
-                    userScrolledAwayFromBottom = !messagesAreNearBottom
+                    if messagesAreNearBottom {
+                        resumeTimelineFollow(proxy)
+                    }
+                    return
                 }
 
                 // 越界是在滚动静止后才看得见的白屏，手势结束的这一刻补一次判断，
@@ -372,7 +441,7 @@ struct JobChatView: View {
                 guard newPhase == .idle,
                       messagesScrolledOffContent,
                       !userScrolledAwayFromBottom else { return }
-                recoverMessagesScroll(proxy)
+                resumeTimelineFollow(proxy)
             }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 let maxOffset = max(0, geometry.contentSize.height - geometry.containerSize.height)
@@ -398,7 +467,7 @@ struct JobChatView: View {
                 guard isOffContent,
                       !userIsScrollingMessages,
                       !userScrolledAwayFromBottom else { return }
-                recoverMessagesScroll(proxy)
+                resumeTimelineFollow(proxy)
             }
             .onChange(of: chat.scrollAnchor) { _, _ in
                 guard !userScrolledAwayFromBottom else { return }
@@ -417,6 +486,51 @@ struct JobChatView: View {
                     proxy.scrollTo("chat-bottom", anchor: .bottom)
                 }
             }
+            // 发送新消息意味着用户不再看历史，必须无条件解冻并回到底部，
+            // 否则自己刚发出的消息会被挡在快照之后看不见。
+            .onChange(of: followBottomRequests) { _, _ in
+                resumeTimelineFollow(proxy)
+            }
+            // 同一个视图被复用到另一个 Job 时，冻结的快照属于上一段对话，必须丢掉。
+            .onChange(of: route.summary.id) { _, _ in
+                frozenTimeline = nil
+                userScrolledAwayFromBottom = false
+                messagesAreNearBottom = true
+                messagesScrolledOffContent = false
+            }
+        }
+    }
+
+    /// 离开底部期间的“回到底部”悬浮按钮：既是回到实时内容的入口，也是时间线已被冻结的提示。
+    ///
+    /// 手指按下就会冻结（快照必须早于任何位移），所以按钮的显示还要叠一个“确实不在底部”的
+    /// 条件，否则在底部随手一点都会闪一下按钮。
+    @ViewBuilder
+    private func backToBottomButton(_ proxy: ScrollViewProxy) -> some View {
+        if frozenTimeline != nil, !messagesAreNearBottom {
+            Button {
+                composerFocused = false
+                resumeTimelineFollow(proxy)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.down")
+                        .font(.chat(.detail, weight: .bold))
+                    Text(timelineHasPendingUpdates ? "有新内容".localizedForApp : "回到底部".localizedForApp)
+                        .font(.chat(.detail, weight: .medium))
+                }
+                .foregroundStyle(QuartetTheme.onAccent)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 8)
+                .background(QuartetTheme.accent, in: Capsule())
+                .shadow(color: Color.black.opacity(0.18), radius: 6, y: 2)
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 12)
+            .accessibilityLabel(
+                timelineHasPendingUpdates ? "有新内容，回到底部".localizedForApp : "回到底部".localizedForApp
+            )
+            .accessibilityHint("恢复自动跟随最新内容".localizedForApp)
+            .accessibilityIdentifier("chat-back-to-bottom")
         }
     }
 
@@ -1137,6 +1251,8 @@ struct JobChatView: View {
         if chat.enqueueDraft(text: text, attachments: pendingAttachments) != nil {
             appModel.beginOptimisticJobExecution(id: route.summary.id, fallback: route.summary)
         }
+        // 发送就是“我不看历史了”，让时间线解冻并回到底部，免得自己发出的消息被冻结的快照挡住。
+        followBottomRequests &+= 1
         draft = ""
         pendingAttachments = []
         selectedPhotos = []

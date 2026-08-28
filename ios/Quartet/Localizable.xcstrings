@@ -4809,6 +4809,22 @@
         }
       }
     },
+    "回到底部" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back to latest"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "回到底部"
+          }
+        }
+      }
+    },
     "固定显示在最近任务顶部" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -8087,6 +8103,22 @@
         }
       }
     },
+    "恢复自动跟随最新内容" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume following the latest content"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复自动跟随最新内容"
+          }
+        }
+      }
+    },
     "恢复自定义 Agent" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -9858,6 +9890,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有 %lld 个工作流文件加载失败"
+          }
+        }
+      }
+    },
+    "有新内容" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New messages"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有新内容"
+          }
+        }
+      }
+    },
+    "有新内容，回到底部" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New messages, back to latest"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有新内容，回到底部"
           }
         }
       }
