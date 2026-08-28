@@ -119,7 +119,7 @@ type GraphNodeConfig struct {
 	// a non-zero exit / timeout is logged and ignored.
 	HookScript string `json:"hookScript,omitempty"`
 	// EndHookMode selects an End node's hook behavior: "default" runs the global
-	// settings script (GraphEndHookScript), "custom" runs this node's HookScript,
+	// settings script (settings.EndHookScript), "custom" runs this node's HookScript,
 	// "off" disables it. Empty is treated as "default". End nodes only.
 	EndHookMode GraphEndHookMode `json:"endHookMode,omitempty"`
 }

@@ -154,6 +154,12 @@ type Service interface {
 	// finalize position will submit a Snapshot once a recorder is set.
 	// Passing nil disables recording (e.g. for tests).
 	SetUsageRecorder(r usagestats.Recorder)
+
+	// SetEndHookScriptProvider wires the getter for the global default end-hook
+	// script (settings.EndHookScript) run after every interactive round
+	// terminates. Read at hook time so an edit takes effect on the next round;
+	// nil (or returning "") disables the interactive end hook.
+	SetEndHookScriptProvider(fn func() string)
 }
 
 // MessageQueueService is the optional durable queue extension implemented by

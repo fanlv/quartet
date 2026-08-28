@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// 与 Web 端设置的“用户配置”对齐：显示语言、头像链接、图工作流终点默认 Hook。
+/// 与 Web 端设置的“用户配置”对齐：显示语言、头像链接、任务结束默认 Hook。
 /// 显示语言是本机偏好，另外两项存在后端全局 settings 里。
 @MainActor
 struct UserConfigSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var config = UserConfig(avatarURL: "", graphEndHookScript: "", snapshot: [:])
+    @State private var config = UserConfig(avatarURL: "", endHookScript: "", snapshot: [:])
     @State private var isLoading = true
     @State private var hasLoaded = false
     @State private var loadError = ""
@@ -56,7 +56,7 @@ struct UserConfigSettingsView: View {
                 }
                 if canRead {
                     avatarCard
-                    graphEndHookCard
+                    endHookCard
                 }
             }
             .padding(.horizontal, 18)
@@ -93,9 +93,9 @@ struct UserConfigSettingsView: View {
                 identifier: "user-config-language"
             ) { showsLanguagePicker = true }
             if !canRead {
-                agentSettingsHint("当前账号没有 config.read 权限，无法查看头像和图工作流 Hook 配置。")
+                agentSettingsHint("当前账号没有 config.read 权限，无法查看头像和任务结束 Hook 配置。")
             } else if !canWrite {
-                agentSettingsHint("当前账号没有 config.write 权限，只能查看头像和图工作流 Hook 配置。")
+                agentSettingsHint("当前账号没有 config.write 权限，只能查看头像和任务结束 Hook 配置。")
             }
         }
     }
@@ -114,15 +114,37 @@ struct UserConfigSettingsView: View {
         }
     }
 
-    private var graphEndHookCard: some View {
-        AgentSettingsCard("图工作流", systemImage: "point.3.connected.trianglepath.dotted") {
+    private var endHookCard: some View {
+        AgentSettingsCard("结束 Hook", systemImage: "bell.badge") {
             AgentSettingsTextEditor(
-                title: "图工作流终点默认 Hook（Shell）",
-                text: binding(\.graphEndHookScript),
-                identifier: "user-config-graph-end-hook",
-                hint: "图工作流到达“使用全局默认脚本”的终点结点时执行的默认副作用脚本。输出会被忽略，失败只打日志。可用环境变量：$QUARTET_JOB_TITLE、$QUARTET_JOB_ID、$QUARTET_RUN_ID、$QUARTET_NODE_ID、$QUARTET_NODE_TITLE、$QUARTET_NODE_TYPE、$QUARTET_LAST_ASSISTANT。"
+                title: "任务结束默认 Hook（Shell）",
+                text: binding(\.endHookScript),
+                identifier: "user-config-end-hook",
+                hint: "任务结束时执行的默认副作用脚本，一般用来发通知。输出会被忽略，失败只打日志，不影响任务本身。"
             )
             .disabled(!canWrite)
+            agentSettingsDivider()
+            VStack(alignment: .leading, spacing: 6) {
+                agentSettingsFieldLabel("触发点")
+                agentSettingsHint("· 图工作流走到“使用全局默认脚本”的终点结点")
+                agentSettingsHint("· 对话每一轮结束——完成 / 失败 / 停止都会触发")
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                agentSettingsFieldLabel("Hook 环境变量")
+                AgentSettingsMonoRow(
+                    label: "公共",
+                    value: "$QUARTET_HOOK_SOURCE\n$QUARTET_JOB_TITLE\n$QUARTET_JOB_ID\n$QUARTET_LAST_ASSISTANT"
+                )
+                AgentSettingsMonoRow(
+                    label: "仅图工作流",
+                    value: "$QUARTET_RUN_ID\n$QUARTET_NODE_ID\n$QUARTET_NODE_TITLE\n$QUARTET_NODE_TYPE"
+                )
+                AgentSettingsMonoRow(
+                    label: "仅对话",
+                    value: "$QUARTET_SESSION_ID\n$QUARTET_JOB_MODE\n$QUARTET_JOB_STATUS\n$QUARTET_RUN_OUTCOME\n$QUARTET_ERROR_MESSAGE"
+                )
+                agentSettingsHint("$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。")
+            }
         }
     }
 
@@ -195,14 +217,14 @@ struct UserConfigSettingsView: View {
 
                 if editRevision == submittedEditRevision {
                     config.avatarURL = saved.avatarURL
-                    config.graphEndHookScript = saved.graphEndHookScript
+                    config.endHookScript = saved.endHookScript
                     isDirty = false
                     message = .success("用户配置已保存".localizedForApp)
                 } else {
                     // 网络请求进行时仍允许继续输入；这部分不能被保存结果覆盖。
                     let currentAvatar = config.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
                     isDirty = currentAvatar != saved.avatarURL
-                        || config.graphEndHookScript != saved.graphEndHookScript
+                        || config.endHookScript != saved.endHookScript
                     message = .success(
                         isDirty
                             ? "用户配置已保存；保存期间的新修改尚未保存".localizedForApp

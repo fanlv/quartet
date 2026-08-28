@@ -145,7 +145,7 @@ type Service interface {
 	// nodes. Passing nil disables recording (used by tests).
 	SetUsageRecorder(r usagestats.Recorder)
 	// SetEndHookScriptProvider wires the getter for the global default End-node
-	// hook script (settings.GraphEndHookScript). Read at hook time so a mid-run
+	// hook script (settings.EndHookScript). Read at hook time so a mid-run
 	// edit takes effect; nil (or returning "") disables the "default" End hook.
 	SetEndHookScriptProvider(fn func() string)
 	// SetJobStateSink wires the persistent Job state sink used by the

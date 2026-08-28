@@ -419,9 +419,17 @@
       "titleGenerationAgent": "标题生成 Agent",
       "groupReplyAgent": "群聊回复 Agent",
       "imSessionAgent": "IM 会话 Agent",
-      "graphEndHookScript": "图工作流终点默认 Hook（Shell）",
-      "graphEndHookScriptPlaceholder": "# 例如：工作流跑完发个飞书通知\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE 已完成\"",
-      "graphEndHookScriptDesc": "图工作流到达「使用全局默认脚本」的终点结点时执行的默认副作用脚本。输出会被忽略，失败只打日志。可用环境变量：$QUARTET_JOB_TITLE、$QUARTET_JOB_ID、$QUARTET_RUN_ID、$QUARTET_NODE_ID、$QUARTET_NODE_TITLE、$QUARTET_NODE_TYPE、$QUARTET_LAST_ASSISTANT。"
+      "endHookScript": "任务结束默认 Hook（Shell）",
+      "endHookScriptPlaceholder": "# 例如：任务跑完发个飞书通知\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE 已完成\"",
+      "endHookScriptDesc": "任务结束时执行的默认副作用脚本，一般用来发通知。输出会被忽略，失败只打日志，不影响任务本身。",
+      "endHookTriggers": "触发点",
+      "endHookTriggerGraph": "图工作流走到「使用全局默认脚本」的终点结点",
+      "endHookTriggerChat": "对话每一轮结束——完成 / 失败 / 停止都会触发",
+      "endHookEnv": "环境变量",
+      "endHookEnvShared": "公共",
+      "endHookEnvGraph": "仅图工作流",
+      "endHookEnvChat": "仅对话",
+      "endHookSourceNote": "$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。"
     },
     "model": {
       "addModel": "+ 添加模型",

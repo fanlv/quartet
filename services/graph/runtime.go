@@ -17,6 +17,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/pkg/shellhook"
 	"github.com/fanlv/quartet/pkg/tokenizer"
 	"github.com/fanlv/quartet/services/usagestats"
 	"github.com/fanlv/quartet/types/agui"
@@ -969,22 +970,22 @@ func (s *serviceImpl) appendEvent(ctx context.Context, runID string, typ model.G
 // violating the single-writer invariant. The event persists (hook types are not
 // in the delta blacklist), so a completed run's hook result survives restart and
 // is readable via ListHookResults.
-func (s *serviceImpl) appendHookEvent(ctx context.Context, runID string, key model.GraphInstanceKey, nodeID, nodeTitle, nodeType, source string, out hookOutcome) {
+func (s *serviceImpl) appendHookEvent(ctx context.Context, runID string, key model.GraphInstanceKey, nodeID, nodeTitle, nodeType, source string, out shellhook.Outcome) {
 	if s.runRepo == nil {
 		return
 	}
 	typ := model.GraphEventTypeHookCompleted
 	var rerr *model.GraphRuntimeError
-	if out.failed {
+	if out.Failed {
 		typ = model.GraphEventTypeHookFailed
-		exit := out.exitCode
+		exit := out.ExitCode
 		rerr = &model.GraphRuntimeError{
 			RunID:     runID,
 			NodeID:    nodeID,
 			NodeTitle: nodeTitle,
-			Message:   out.message,
-			Stdout:    out.stdout,
-			Stderr:    out.stderr,
+			Message:   out.Message,
+			Stdout:    out.Stdout,
+			Stderr:    out.Stderr,
 			ExitCode:  &exit,
 		}
 	}
@@ -995,14 +996,14 @@ func (s *serviceImpl) appendHookEvent(ctx context.Context, runID string, key mod
 		Type:        typ,
 		InstanceKey: &keyCopy,
 		NodeID:      nodeID,
-		Message:     out.message,
+		Message:     out.Message,
 		Payload: map[string]string{
 			"source":    source,
 			"nodeTitle": nodeTitle,
 			"nodeType":  nodeType,
-			"exitCode":  strconv.Itoa(out.exitCode),
-			"stdout":    out.stdout,
-			"stderr":    out.stderr,
+			"exitCode":  strconv.Itoa(out.ExitCode),
+			"stdout":    out.Stdout,
+			"stderr":    out.Stderr,
 		},
 		Error:     rerr,
 		CreatedAt: time.Now().UnixMilli(),

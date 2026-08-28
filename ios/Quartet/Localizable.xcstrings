@@ -4875,40 +4875,6 @@
         }
       }
     },
-    "图工作流到达“使用全局默认脚本”的终点结点时执行的默认副作用脚本。输出会被忽略，失败只打日志。可用环境变量：$QUARTET_JOB_TITLE、$QUARTET_JOB_ID、$QUARTET_RUN_ID、$QUARTET_NODE_ID、$QUARTET_NODE_TITLE、$QUARTET_NODE_TYPE、$QUARTET_LAST_ASSISTANT。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The default side-effect shell script run when a graph workflow reaches an end node set to \"Use global default script\". Its output is ignored and a failure only logs. Available env vars: $QUARTET_JOB_TITLE, $QUARTET_JOB_ID, $QUARTET_RUN_ID, $QUARTET_NODE_ID, $QUARTET_NODE_TITLE, $QUARTET_NODE_TYPE, $QUARTET_LAST_ASSISTANT."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "图工作流到达“使用全局默认脚本”的终点结点时执行的默认副作用脚本。输出会被忽略，失败只打日志。可用环境变量：$QUARTET_JOB_TITLE、$QUARTET_JOB_ID、$QUARTET_RUN_ID、$QUARTET_NODE_ID、$QUARTET_NODE_TITLE、$QUARTET_NODE_TYPE、$QUARTET_LAST_ASSISTANT。"
-          }
-        }
-      }
-    },
-    "图工作流终点默认 Hook（Shell）" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Graph end-node default hook (Shell)"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "图工作流终点默认 Hook（Shell）"
-          }
-        }
-      }
-    },
     "图标" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7613,23 +7579,6 @@
         }
       }
     },
-    "当前账号没有 config.read 权限，无法查看头像和图工作流 Hook 配置。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This account has no config.read permission, so the avatar and graph workflow hook settings cannot be shown."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前账号没有 config.read 权限，无法查看头像和图工作流 Hook 配置。"
-          }
-        }
-      }
-    },
     "当前账号没有 config.write 权限，不能删除或重新绑定这份配置。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7660,23 +7609,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "当前账号没有 config.write 权限，只能查看全部项目的预置消息。"
-          }
-        }
-      }
-    },
-    "当前账号没有 config.write 权限，只能查看头像和图工作流 Hook 配置。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This account has no config.write permission; the avatar and graph workflow hook settings are read-only."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前账号没有 config.write 权限，只能查看头像和图工作流 Hook 配置。"
           }
         }
       }
@@ -17370,6 +17302,210 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "默认选择"
+          }
+        }
+      }
+    },
+    "任务结束默认 Hook（Shell）" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Task end default hook (Shell)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任务结束默认 Hook（Shell）"
+          }
+        }
+      }
+    },
+    "任务结束时执行的默认副作用脚本，一般用来发通知。输出会被忽略，失败只打日志，不影响任务本身。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The default side-effect script run when a task ends, typically to send a notification. Its output is ignored and a failure only logs, never affecting the task itself."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任务结束时执行的默认副作用脚本，一般用来发通知。输出会被忽略，失败只打日志，不影响任务本身。"
+          }
+        }
+      }
+    },
+    "触发点" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trigger points"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "触发点"
+          }
+        }
+      }
+    },
+    "· 图工作流走到“使用全局默认脚本”的终点结点" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· A graph workflow reaches an end node set to “Use global default script”"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· 图工作流走到“使用全局默认脚本”的终点结点"
+          }
+        }
+      }
+    },
+    "· 对话每一轮结束——完成 / 失败 / 停止都会触发" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· Every chat round ends — completed / failed / stopped"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· 对话每一轮结束——完成 / 失败 / 停止都会触发"
+          }
+        }
+      }
+    },
+    "Hook 环境变量" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook env vars"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook 环境变量"
+          }
+        }
+      }
+    },
+    "公共" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shared"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "公共"
+          }
+        }
+      }
+    },
+    "仅图工作流" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Graph only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅图工作流"
+          }
+        }
+      }
+    },
+    "仅对话" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅对话"
+          }
+        }
+      }
+    },
+    "$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "$QUARTET_HOOK_SOURCE is end (workflow end node) / prompt (node hook) / interactive (chat round). Graph runs also inject the node's visible workflow variables."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。"
+          }
+        }
+      }
+    },
+    "当前账号没有 config.read 权限，无法查看头像和任务结束 Hook 配置。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account has no config.read permission, so the avatar and task end hook settings cannot be shown."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.read 权限，无法查看头像和任务结束 Hook 配置。"
+          }
+        }
+      }
+    },
+    "当前账号没有 config.write 权限，只能查看头像和任务结束 Hook 配置。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account has no config.write permission; the avatar and task end hook settings are read-only."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.write 权限，只能查看头像和任务结束 Hook 配置。"
           }
         }
       }

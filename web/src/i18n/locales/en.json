@@ -421,9 +421,17 @@
       "titleGenerationAgent": "Title Generation Agent",
       "groupReplyAgent": "Group Reply Agent",
       "imSessionAgent": "IM Session Agent",
-      "graphEndHookScript": "Graph end-node default hook (Shell)",
-      "graphEndHookScriptPlaceholder": "# e.g. send a Lark message when a workflow finishes\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE finished\"",
-      "graphEndHookScriptDesc": "The default side-effect shell script run when a graph workflow reaches an end node set to \"Use global default script\". Its output is ignored and a failure only logs. Available env vars: $QUARTET_JOB_TITLE, $QUARTET_JOB_ID, $QUARTET_RUN_ID, $QUARTET_NODE_ID, $QUARTET_NODE_TITLE, $QUARTET_NODE_TYPE, $QUARTET_LAST_ASSISTANT."
+      "endHookScript": "Task end default hook (Shell)",
+      "endHookScriptPlaceholder": "# e.g. send a Lark message when a task finishes\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE finished\"",
+      "endHookScriptDesc": "The default side-effect shell script run when a task ends, typically to send a notification. Its output is ignored and a failure only logs, never affecting the task itself.",
+      "endHookTriggers": "Trigger points",
+      "endHookTriggerGraph": "A graph workflow reaches an end node set to \"Use global default script\"",
+      "endHookTriggerChat": "Every interactive chat round ends — completed / failed / stopped",
+      "endHookEnv": "Env vars",
+      "endHookEnvShared": "Shared",
+      "endHookEnvGraph": "Graph only",
+      "endHookEnvChat": "Chat only",
+      "endHookSourceNote": "$QUARTET_HOOK_SOURCE is end (workflow end node) / prompt (node hook) / interactive (chat round). Graph runs also inject the node's visible workflow variables."
     },
     "model": {
       "addModel": "+ Add Model",

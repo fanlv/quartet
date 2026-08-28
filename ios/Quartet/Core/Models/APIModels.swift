@@ -799,22 +799,22 @@ struct SettingsSaveResponse: Decodable, Sendable {
 /// 字段会被写成零值，所以 `snapshot` 必须原样回传。
 struct UserConfig: Sendable {
     var avatarURL: String
-    var graphEndHookScript: String
+    var endHookScript: String
     var snapshot: [String: JSONValue]
 
     static let avatarURLKey = "avatar_url"
-    static let graphEndHookScriptKey = "graph_end_hook_script"
+    static let endHookScriptKey = "end_hook_script"
 
-    init(avatarURL: String, graphEndHookScript: String, snapshot: [String: JSONValue]) {
+    init(avatarURL: String, endHookScript: String, snapshot: [String: JSONValue]) {
         self.avatarURL = avatarURL
-        self.graphEndHookScript = graphEndHookScript
+        self.endHookScript = endHookScript
         self.snapshot = snapshot
     }
 
     init(snapshot: [String: JSONValue]) {
         self.init(
             avatarURL: snapshot[Self.avatarURLKey]?.stringValue ?? "",
-            graphEndHookScript: snapshot[Self.graphEndHookScriptKey]?.stringValue ?? "",
+            endHookScript: snapshot[Self.endHookScriptKey]?.stringValue ?? "",
             snapshot: snapshot
         )
     }
@@ -823,7 +823,7 @@ struct UserConfig: Sendable {
     var mergedSnapshot: [String: JSONValue] {
         var merged = snapshot
         merged[Self.avatarURLKey] = .string(avatarURL)
-        merged[Self.graphEndHookScriptKey] = .string(graphEndHookScript)
+        merged[Self.endHookScriptKey] = .string(endHookScript)
         return merged
     }
 }

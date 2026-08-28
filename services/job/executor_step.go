@@ -10,7 +10,10 @@ import (
 	"github.com/fanlv/quartet/types/model"
 )
 
-func (s *serviceImpl) executeAgentTurn(ctx context.Context, job *model.Job, runner JobRunner, msg string, sessionID string, opts *SendMessageOptions) {
+// executeAgentTurn runs one agent round and returns the assistant text it
+// accumulated, which the caller hands to the round's end hook
+// ($QUARTET_LAST_ASSISTANT).
+func (s *serviceImpl) executeAgentTurn(ctx context.Context, job *model.Job, runner JobRunner, msg string, sessionID string, opts *SendMessageOptions) string {
 	logger.Debugf(ctx, "[step] run: jobId=%s msg=%s", job.ID, strutil.TruncateRunesWithEllipsis(msg, 200))
 
 	clientMessageID := ""
@@ -65,9 +68,10 @@ func (s *serviceImpl) executeAgentTurn(ctx context.Context, job *model.Job, runn
 	}
 	if isInterruptedRun(err) {
 		s.finalizeInterruptedAgentTurn(fin)
-		return
+		return handler.AccumulatedContent()
 	}
 	s.finalizeAgentTurn(fin)
+	return handler.AccumulatedContent()
 }
 
 type agentTurnFinalization struct {

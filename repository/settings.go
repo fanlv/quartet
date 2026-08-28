@@ -62,11 +62,31 @@ type Settings struct {
 	// contact approval UI in Settings → WeChat panel.
 	WeChatAdminIDs []string `json:"wechat_admin_ids,omitempty"`
 
-	// GraphEndHookScript is the global default shell script run when a graph
-	// workflow End node with EndHookMode "default" is reached (e.g. "send a Lark
-	// message when the workflow finishes"). A pure side-effect: its output is
-	// ignored and a failure is logged, never affecting the run.
-	GraphEndHookScript string `json:"graph_end_hook_script,omitempty"`
+	// EndHookScript is the global default shell script run when a unit of work
+	// ends: a graph workflow End node with EndHookMode "default" is reached, or an
+	// interactive round terminates (e.g. "send a Lark message when the task
+	// finishes"). A pure side-effect: its output is ignored and a failure is
+	// logged, never affecting the run.
+	EndHookScript string `json:"end_hook_script,omitempty"`
+}
+
+// UnmarshalJSON adopts the legacy graph_end_hook_script key when the current
+// end_hook_script is absent, so renaming the field does not silently discard a
+// user's configured script.
+func (s *Settings) UnmarshalJSON(data []byte) error {
+	type alias Settings
+	var raw struct {
+		alias
+		LegacyGraphEndHookScript string `json:"graph_end_hook_script,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*s = Settings(raw.alias)
+	if s.EndHookScript == "" {
+		s.EndHookScript = raw.LegacyGraphEndHookScript
+	}
+	return nil
 }
 
 type SettingsRepo interface {

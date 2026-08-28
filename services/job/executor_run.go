@@ -270,6 +270,14 @@ func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner
 		defer prepared.ReleasePreparedExecution()
 	}
 	defer s.clearCancel(job.ID, cancelEntry)
+	// Registered BEFORE the terminal defer below so it runs AFTER it: the end
+	// hook must observe the round's final status / outcome. Every exit path
+	// (success, failure, panic recovery, early return) reaches it, so a
+	// configured hook fires exactly once per interactive round.
+	var round interactiveRound
+	defer func() {
+		s.fireEndHook(ctx, job, round)
+	}()
 	defer func() {
 		// Read Status under the lock — failJob / stopJob may have already
 		// flipped it in this goroutine, and a concurrent handler-side
@@ -324,6 +332,7 @@ func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner
 		}
 		sessionID = sid
 	}
+	round.sessionID = sessionID
 
 	// Extract the user message text so executeAgentTurn can publish RUN_STARTED /
 	// RunOutcome for the round.
@@ -337,7 +346,7 @@ func (s *serviceImpl) runInteractive(ctx context.Context, job *model.Job, runner
 		}
 	}
 
-	s.executeAgentTurn(ctx, job, runner, msg, sessionID, opts)
+	round.assistantText = s.executeAgentTurn(ctx, job, runner, msg, sessionID, opts)
 }
 
 func (s *serviceImpl) publishJobStarted(job *model.Job) {

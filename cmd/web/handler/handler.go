@@ -311,16 +311,20 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 	js.SetUsageRecorder(h.usageStats)
 	gs.SetUsageRecorder(h.usageStats)
 
-	// Wire the global default End-node hook script getter. Read at hook time so
-	// editing the script in Settings takes effect on the next End hook (a pure
-	// side-effect, so no replay-snapshot freezing is needed).
-	gs.SetEndHookScriptProvider(func() string {
+	// Wire the global default end-hook script getter into both engines: a graph
+	// workflow fires it at an End node set to "default", and the job service
+	// fires it after every interactive round. Read at hook time so editing the
+	// script in Settings takes effect on the next hook (a pure side-effect, so no
+	// replay-snapshot freezing is needed).
+	endHookScript := func() string {
 		s, err := h.settingsService.GetSettings()
 		if err != nil || s == nil {
 			return ""
 		}
-		return s.GraphEndHookScript
-	})
+		return s.EndHookScript
+	}
+	gs.SetEndHookScriptProvider(endHookScript)
+	js.SetEndHookScriptProvider(endHookScript)
 
 	// A graph run's scheduler goroutine does not survive a process restart, so on
 	// boot any run still persisted as in-flight is an orphan. Wire the persistent

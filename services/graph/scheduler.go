@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/pkg/shellhook"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -662,7 +663,7 @@ func (sc *scheduler) whitelistAgentSession(ctx context.Context, sessionID string
 // title via the sink — BEFORE spawning, so the hook goroutine never touches
 // scheduler-owned state (preserving the single-writer invariant on sc.* maps).
 // Lifetime is tied to the run via hookWG, joined in runGraph. A blank script is
-// a no-op. The hook itself is pure side-effect: see runHook (hook.go).
+// a no-op. The hook itself is pure side-effect: see pkg/shellhook.
 func (sc *scheduler) fireHook(ctx context.Context, node model.GraphNode, key model.GraphInstanceKey, visible map[string]string, output, script, source string) {
 	if strings.TrimSpace(script) == "" {
 		return
@@ -671,22 +672,26 @@ func (sc *scheduler) fireHook(ctx context.Context, node model.GraphNode, key mod
 	if sc.jobs != nil {
 		title = sc.jobs.JobTitle(ctx, sc.run.JobID)
 	}
-	req := hookRequest{
-		script:    script,
-		workdir:   effectiveConfig(sc.run).Workdir,
-		visible:   cloneStringMap(visible),
-		disabled:  cloneStringSet(sc.disabled),
-		jobTitle:  title,
-		jobID:     sc.run.JobID,
-		runID:     sc.run.ID,
-		nodeID:    node.ID,
-		nodeTitle: node.Title,
-		nodeType:  string(node.Type),
-		output:    output,
+	req := shellhook.Request{
+		Script:   script,
+		Workdir:  effectiveConfig(sc.run).Workdir,
+		Vars:     cloneStringMap(visible),
+		Disabled: cloneStringSet(sc.disabled),
+		Context: map[string]string{
+			"QUARTET_HOOK_SOURCE":    source,
+			"QUARTET_JOB_TITLE":      title,
+			"QUARTET_JOB_ID":         sc.run.JobID,
+			"QUARTET_RUN_ID":         sc.run.ID,
+			"QUARTET_NODE_ID":        node.ID,
+			"QUARTET_NODE_TITLE":     node.Title,
+			"QUARTET_NODE_TYPE":      string(node.Type),
+			"QUARTET_LAST_ASSISTANT": output,
+		},
+		LogFields: fmt.Sprintf("source=%s runId=%s nodeId=%s nodeType=%s", source, sc.run.ID, node.ID, node.Type),
 	}
 	// Detach the hook's logging context from the scheduler/run context so a
 	// run-level cancel does not abort a side-effect of an already-succeeded node;
-	// runHook applies its own timeout. (Cancellation is what we strip — the
+	// shellhook.Run applies its own timeout. (Cancellation is what we strip — the
 	// values carried for log correlation are kept.)
 	logCtx := context.WithoutCancel(ctx)
 	// Build the result-emit closure on the scheduler goroutine but capture only
@@ -701,13 +706,13 @@ func (sc *scheduler) fireHook(ctx context.Context, node model.GraphNode, key mod
 	nodeTitle := node.Title
 	nodeType := string(node.Type)
 	keyCopy := key
-	req.emit = func(out hookOutcome) {
+	req.Emit = func(out shellhook.Outcome) {
 		svc.appendHookEvent(logCtx, runID, keyCopy, nodeID, nodeTitle, nodeType, source, out)
 	}
 	sc.hookWG.Add(1)
 	go func() {
 		defer sc.hookWG.Done()
-		runHook(logCtx, req)
+		shellhook.Run(logCtx, req)
 	}()
 }
 

@@ -457,6 +457,70 @@
   color: #738077;
 }
 
+/* Structured help block under a script/textarea field: trigger points and env
+   vars, so a long reference doesn't collapse into one grey paragraph. */
+.settings-hook-doc {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-strong, #e2eae4);
+  border-radius: 10px;
+  background: var(--elevated, #f7faf8);
+}
+
+.settings-hook-doc-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-hook-doc-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg, #29362d);
+}
+
+.settings-hook-doc-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted, #738077);
+}
+
+.settings-hook-doc-tag {
+  margin-right: 6px;
+  font-weight: 500;
+  color: var(--fg, #29362d);
+}
+
+.settings-hook-doc-vars {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+
+.settings-hook-doc-vars code {
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong, #e2eae4);
+  border-radius: 5px;
+  background: var(--surface, #ffffff);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--fg, #3f5147);
+}
+
+.settings-hook-doc-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-2, #8c998f);
+}
+
 .settings-toggle {
   position: relative;
   width: 44px;

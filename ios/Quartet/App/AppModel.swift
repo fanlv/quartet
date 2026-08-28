@@ -1219,7 +1219,7 @@ final class AppModel: ObservableObject {
 
         var latest = try await userConfig()
         latest.avatarURL = config.avatarURL
-        latest.graphEndHookScript = config.graphEndHookScript
+        latest.endHookScript = config.endHookScript
         let submitted = UserConfig(snapshot: latest.mergedSnapshot)
         let response = try await makeClient().saveSettingsSnapshot(submitted.snapshot)
         guard response.code == 0 else {
@@ -1238,7 +1238,7 @@ final class AppModel: ObservableObject {
         if let uiTestUserConfig { return uiTestUserConfig }
         let config = UserConfig(
             avatarURL: "https://example.com/avatar.png",
-            graphEndHookScript: "echo \"$QUARTET_JOB_TITLE 已完成\"",
+            endHookScript: "echo \"$QUARTET_JOB_TITLE 已完成\"",
             snapshot: [
                 "username": .string("User"),
                 "im_workspace_id": .string("ws-1"),

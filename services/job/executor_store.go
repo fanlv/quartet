@@ -163,6 +163,12 @@ type serviceImpl struct {
 	// returning anything.
 	usageRecorder usagestats.Recorder
 
+	// endHookScriptFn returns the global default end-hook script run after every
+	// interactive round terminates. Set once at startup via
+	// SetEndHookScriptProvider (before serving); read at hook time so editing the
+	// script in Settings takes effect on the next round. nil → no end hook.
+	endHookScriptFn func() string
+
 	messageQueueDispatcher   MessageQueueDispatcher
 	messageQueueDispatcherMu sync.RWMutex
 	messageQueueDispatching  map[string]bool
