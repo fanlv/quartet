@@ -76,25 +76,31 @@ struct JobChatView: View {
         .font(.chat(.regular))
         .quartetNavigationTitle(chat.title.isEmpty ? route.summary.displayTitle : chat.title)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                NavigationLink {
-                    WorkspaceDirectoryBrowserView(
-                        workspaceTitle: workspaceName ?? route.summary.workspaceId ?? "工作空间".localizedForApp,
-                        workspaceRoot: workspaceWorkdir ?? ""
-                    )
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .accessibilityLabel("查看当前工作空间目录".localizedForApp)
-                .accessibilityHint(workspaceWorkdir ?? "当前工作空间没有可浏览的目录。".localizedForApp)
-                .accessibilityIdentifier("chat-workspace-files")
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 4) {
+                    NavigationLink {
+                        WorkspaceDirectoryBrowserView(
+                            workspaceTitle: workspaceName ?? route.summary.workspaceId ?? "工作空间".localizedForApp,
+                            workspaceRoot: workspaceWorkdir ?? ""
+                        )
+                    } label: {
+                        Image(systemName: "folder")
+                            .frame(width: 32, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("查看当前工作空间目录".localizedForApp)
+                    .accessibilityHint(workspaceWorkdir ?? "当前工作空间没有可浏览的目录。".localizedForApp)
+                    .accessibilityIdentifier("chat-workspace-files")
 
-                NavigationLink {
-                    JobDetailView(summary: currentJobSummary)
-                } label: {
-                    Image(systemName: "info.circle")
+                    NavigationLink {
+                        JobDetailView(summary: currentJobSummary)
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .frame(width: 32, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Job 详情")
                 }
-                .accessibilityLabel("Job 详情")
             }
             .sharedBackgroundVisibility(.hidden)
         }

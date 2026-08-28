@@ -641,8 +641,7 @@ struct NewConversationView: View {
 
     private var workspacePicker: some View {
         Button {
-            composerFocused = false
-            showsWorkspacePicker = true
+            presentAfterDismissingKeyboard { showsWorkspacePicker = true }
         } label: {
             HStack(spacing: 12) {
                 configurationIcon("square.stack.3d.up")
@@ -700,8 +699,7 @@ struct NewConversationView: View {
 
     private func pickerRow(_ target: NewConversationPicker, value: String) -> some View {
         Button {
-            composerFocused = false
-            picker = target
+            presentAfterDismissingKeyboard { picker = target }
         } label: {
             configurationRow(title: target.rowTitle, value: value, icon: target.icon)
         }
@@ -744,9 +742,26 @@ struct NewConversationView: View {
     private var actionBar: some View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
-                contextPill(workspace?.displayName ?? "未选择空间", icon: "square.stack.3d.up")
-                contextPill(agentName, icon: "command")
-                contextPill(modelName, icon: "cpu")
+                contextPill(
+                    workspace?.displayName ?? "未选择空间".localizedForApp,
+                    icon: "square.stack.3d.up",
+                    accessibilityLabel: "工作空间，当前为\(workspace?.displayName ?? "未选择")",
+                    identifier: "new-task-summary-workspace"
+                ) { showsWorkspacePicker = true }
+                contextPill(
+                    agentName.localizedForApp,
+                    icon: "command",
+                    accessibilityLabel: "Agent，当前为\(agentName.localizedForApp)",
+                    identifier: "new-task-summary-agent",
+                    disabled: agents.isEmpty
+                ) { picker = .agent }
+                contextPill(
+                    modelName.localizedForApp,
+                    icon: "cpu",
+                    accessibilityLabel: "模型，当前为\(modelName.localizedForApp)",
+                    identifier: "new-task-summary-model",
+                    disabled: orderedModels.isEmpty
+                ) { picker = .model }
             }
 
             Button { Task { await create() } } label: {
@@ -780,14 +795,50 @@ struct NewConversationView: View {
         .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
     }
 
-    private func contextPill(_ value: String, icon: String) -> some View {
-        Label(value, systemImage: icon)
+    /// 底部摘要胶囊：和“运行配置”里的行共用同一批弹窗，点按前先收键盘。
+    private func contextPill(
+        _ value: String,
+        icon: String,
+        accessibilityLabel: String,
+        identifier: String,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            presentAfterDismissingKeyboard(action)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.quartet(.detail, weight: .semibold))
+                Text(value)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.quartet(.compact, weight: .bold))
+                    .foregroundStyle(QuartetTheme.secondaryText.opacity(0.7))
+            }
             .font(.quartet(.detail, weight: .medium))
             .foregroundStyle(QuartetTheme.secondaryText)
-            .lineLimit(1)
-            .padding(.horizontal, 9)
-            .frame(height: 26)
+            .padding(.horizontal, 10)
+            // 可点了就按聊天页那批 chip 的尺寸给足触摸区域，不再是 26 的纯展示胶囊。
+            .frame(height: 30)
             .background(QuartetTheme.elevated, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.5 : 1)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint("点按弹出可选项列表")
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// 弹窗前先收键盘：焦点变更推迟一帧再展示，键盘和 sheet 不会在同一帧一起动。
+    private func presentAfterDismissingKeyboard(_ present: @escaping () -> Void) {
+        composerFocused = false
+        Task { @MainActor in
+            await Task.yield()
+            present()
+        }
     }
 
     @ViewBuilder

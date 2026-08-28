@@ -552,8 +552,13 @@ private struct ImageMarkupItem: Identifiable {
 private struct ImageCropCanvas: View {
     private static let gestureCoordinateSpace = "imageCropCanvas"
     private static let handleHitSize: CGFloat = 68
+    private static let edgeHitSize: CGFloat = 44
 
-    private enum Handle: CaseIterable, Hashable, Identifiable {
+    private enum Handle: Hashable, Identifiable {
+        case top
+        case left
+        case right
+        case bottom
         case topLeft
         case topRight
         case bottomLeft
@@ -561,8 +566,12 @@ private struct ImageCropCanvas: View {
 
         var id: Self { self }
 
+        static let edges: [Self] = [.top, .left, .right, .bottom]
+        static let corners: [Self] = [.topLeft, .topRight, .bottomLeft, .bottomRight]
+
         var accessibilityLabel: String {
             switch self {
+            case .top, .left, .right, .bottom: "调整图片裁剪区域"
             case .topLeft: "左上裁剪控制点"
             case .topRight: "右上裁剪控制点"
             case .bottomLeft: "左下裁剪控制点"
@@ -607,7 +616,11 @@ private struct ImageCropCanvas: View {
                     .contentShape(Rectangle())
                     .gesture(moveGesture(in: imageFrame))
 
-                ForEach(Handle.allCases) { handle in
+                ForEach(Handle.edges) { handle in
+                    cropEdge(handle, cropFrame: cropFrame, imageFrame: imageFrame)
+                }
+
+                ForEach(Handle.corners) { handle in
                     cropHandle(handle, cropFrame: cropFrame, imageFrame: imageFrame)
                 }
             }
@@ -634,6 +647,22 @@ private struct ImageCropCanvas: View {
         .zIndex(1)
         .accessibilityLabel(handle.accessibilityLabel.localizedForApp)
         .accessibilityHint("拖动以调整裁剪区域".localizedForApp)
+    }
+
+    private func cropEdge(_ handle: Handle, cropFrame: CGRect, imageFrame: CGRect) -> some View {
+        let vertical = handle == .left || handle == .right
+        let hitSize = CGSize(
+            width: vertical ? Self.edgeHitSize : max(1, cropFrame.width - Self.handleHitSize),
+            height: vertical ? max(1, cropFrame.height - Self.handleHitSize) : Self.edgeHitSize
+        )
+        return Color.clear
+            .frame(width: hitSize.width, height: hitSize.height)
+            .position(edgeHitPoint(handle, in: cropFrame))
+            .contentShape(Rectangle())
+            .gesture(resizeGesture(handle, in: imageFrame))
+            .zIndex(1)
+            .accessibilityLabel(handle.accessibilityLabel.localizedForApp)
+            .accessibilityHint("拖动以调整裁剪区域".localizedForApp)
     }
 
     private func moveGesture(in imageFrame: CGRect) -> some Gesture {
@@ -694,6 +723,14 @@ private struct ImageCropCanvas: View {
         var bottom = start.maxY
 
         switch handle {
+        case .top:
+            top = min(max(0, start.minY + dy), start.maxY - minimumHeight)
+        case .left:
+            left = min(max(0, start.minX + dx), start.maxX - minimumWidth)
+        case .right:
+            right = max(min(1, start.maxX + dx), start.minX + minimumWidth)
+        case .bottom:
+            bottom = max(min(1, start.maxY + dy), start.minY + minimumHeight)
         case .topLeft:
             left = min(max(0, start.minX + dx), start.maxX - minimumWidth)
             top = min(max(0, start.minY + dy), start.maxY - minimumHeight)
@@ -711,8 +748,23 @@ private struct ImageCropCanvas: View {
         return CGRect(x: left, y: top, width: right - left, height: bottom - top)
     }
 
+    private func edgeHitPoint(_ handle: Handle, in rect: CGRect) -> CGPoint {
+        switch handle {
+        case .top: CGPoint(x: rect.midX, y: rect.minY + Self.edgeHitSize / 2)
+        case .left: CGPoint(x: rect.minX + Self.edgeHitSize / 2, y: rect.midY)
+        case .right: CGPoint(x: rect.maxX - Self.edgeHitSize / 2, y: rect.midY)
+        case .bottom: CGPoint(x: rect.midX, y: rect.maxY - Self.edgeHitSize / 2)
+        case .topLeft, .topRight, .bottomLeft, .bottomRight:
+            handlePoint(handle, in: rect)
+        }
+    }
+
     private func handlePoint(_ handle: Handle, in rect: CGRect) -> CGPoint {
         switch handle {
+        case .top: CGPoint(x: rect.midX, y: rect.minY)
+        case .left: CGPoint(x: rect.minX, y: rect.midY)
+        case .right: CGPoint(x: rect.maxX, y: rect.midY)
+        case .bottom: CGPoint(x: rect.midX, y: rect.maxY)
         case .topLeft: CGPoint(x: rect.minX, y: rect.minY)
         case .topRight: CGPoint(x: rect.maxX, y: rect.minY)
         case .bottomLeft: CGPoint(x: rect.minX, y: rect.maxY)
