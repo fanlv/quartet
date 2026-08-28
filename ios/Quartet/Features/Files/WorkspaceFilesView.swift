@@ -196,6 +196,10 @@ struct WorkspaceFilesView: View {
 
 /// 从聊天页进入时使用的固定工作空间文件浏览器。它复用文件 tab 的目录与预览能力，
 /// 但始终停留在当前 Job 的工作目录，避免用户再次选择工作空间。
+///
+/// 这个浏览器本身是被聊天页用「视图形式」的 NavigationLink 推进运行台那条
+/// `NavigationStack(path:)` 的，所以它下钻子目录时必须用 `.view`：见
+/// `WorkspaceDirectoryDrill` 的说明。
 struct WorkspaceDirectoryBrowserView: View {
     @EnvironmentObject private var model: AppModel
 
@@ -229,6 +233,7 @@ struct WorkspaceDirectoryBrowserView: View {
             } else {
                 WorkspaceDirectoryView(
                     directory: normalizedRoot,
+                    drill: .view,
                     onOpenFile: openFile
                 )
                 .id(normalizedRoot)
@@ -236,13 +241,6 @@ struct WorkspaceDirectoryBrowserView: View {
         }
         .background(QuartetTheme.canvas)
         .quartetNavigationTitle(workspaceTitle)
-        .navigationDestination(for: WorkspaceDirectoryRoute.self) { route in
-            WorkspaceDirectoryView(
-                directory: route.path,
-                onOpenFile: openFile
-            )
-            .quartetNavigationTitle(route.name)
-        }
         .fullScreenCover(item: $webDestination) { destination in
             NavigationStack {
                 ChatWebViewPage(
@@ -284,12 +282,27 @@ struct WorkspaceDirectoryRoute: Hashable {
     }
 }
 
+/// 目录下钻的两种方式，取决于当前这层目录列表是否住在一条自己说得上话的导航栈里。
+///
+/// 文件 tab 自己持有 `NavigationStack(path: $routes)`，路径数组的深度和屏幕上的栈深度
+/// 始终一致，用值驱动下钻最省事。聊天页的浏览器则是被「视图形式」的 NavigationLink
+/// 推进运行台那条共享的 `NavigationPath` 的，路径数组里并没有它对应的元素；此时再用
+/// `NavigationLink(value:)` 往同一条路径里追加，路径深度就会比真实栈深度浅一层甚至几层，
+/// SwiftUI 会把新推入的页面对上已经在屏幕上的那一层，于是子目录页重复显示上一层目录的内容。
+private enum WorkspaceDirectoryDrill {
+    /// 追加 `WorkspaceDirectoryRoute`，交给外层的 `navigationDestination` 渲染下一层。
+    case route
+    /// 直接把下一层视图交给 NavigationLink，完全不碰外层的路径数组。
+    case view
+}
+
 /// 单层目录列表：目录行下钻到下一层，文件行交给外层打开预览。
 private struct WorkspaceDirectoryView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.mainTabBarInset) private var mainTabBarInset
 
     let directory: String
+    var drill: WorkspaceDirectoryDrill = .route
     let onOpenFile: (String) -> Void
 
     @State private var directories: [String] = []
@@ -364,6 +377,10 @@ private struct WorkspaceDirectoryView: View {
     private var entryRows: some View {
         ForEach(directories, id: \.self) { name in
             let path = Self.join(directory, name)
+            let route: WorkspaceDirectoryRoute? = drill == .route ? WorkspaceDirectoryRoute(path: path) : nil
+            let destination: (() -> AnyView)? = drill == .view
+                ? { childDestination(path: path, name: name) }
+                : nil
             WorkspaceBrowserRow(
                 title: name,
                 detail: nil,
@@ -373,7 +390,8 @@ private struct WorkspaceDirectoryView: View {
                 path: path,
                 pathKind: .directory,
                 actionAccessibilityLabel: AppLanguage.localizedFormat("打开目录 %@", name),
-                navigationRoute: WorkspaceDirectoryRoute(path: path)
+                navigationRoute: route,
+                navigationDestination: destination
             )
             .accessibilityIdentifier("files-directory-\(name)")
         }
@@ -393,6 +411,19 @@ private struct WorkspaceDirectoryView: View {
             )
             .accessibilityIdentifier("files-file-\(file.name)")
         }
+    }
+
+    /// `.view` 模式下一层目录的视图。必须擦除成 `AnyView`：目录列表递归引用自身，
+    /// 具体类型会无限展开；闭包也让它只在真正推入时才构造。
+    private func childDestination(path: String, name: String) -> AnyView {
+        AnyView(
+            WorkspaceDirectoryView(
+                directory: path,
+                drill: .view,
+                onOpenFile: onOpenFile
+            )
+            .quartetNavigationTitle(name)
+        )
     }
 
     private var loadingCard: some View {
@@ -592,6 +623,7 @@ struct WorkspaceBrowserRow: View {
     let actionAccessibilityLabel: String
     var actionDisabled = false
     var navigationRoute: WorkspaceDirectoryRoute? = nil
+    var navigationDestination: (() -> AnyView)? = nil
     var onOpen: (() -> Void)? = nil
 
     var body: some View {
@@ -624,6 +656,11 @@ struct WorkspaceBrowserRow: View {
     private var mainAction: some View {
         if let navigationRoute {
             NavigationLink(value: navigationRoute) { rowLabel }
+                .buttonStyle(.plain)
+                .disabled(actionDisabled)
+                .accessibilityLabel(actionAccessibilityLabel)
+        } else if let navigationDestination {
+            NavigationLink { navigationDestination() } label: { rowLabel }
                 .buttonStyle(.plain)
                 .disabled(actionDisabled)
                 .accessibilityLabel(actionAccessibilityLabel)
