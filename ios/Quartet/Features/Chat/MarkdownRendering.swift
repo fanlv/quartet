@@ -7,6 +7,10 @@ import UIKit
 ///
 /// 流式输出中的那一条消息每个 delta 都是新文本，必然 miss；但同一时刻只有一条，
 /// 其余历史消息全部命中。
+///
+/// 三个 cache 都必须同时限条数**和**限字节。只限条数时，流式输出的那条消息每次 flush 都会
+/// 塞进一条以“整条消息全文”为键的新条目，长回复很快就让几百条各几十 KB 的键值把内存推到
+/// 内存警告线；系统一开始回收，屏外 cell 的渲染结果跟着被丢掉，滚动时就露出空白。
 @MainActor
 enum ChatTextCache {
     private final class Entry<Value>: NSObject {
@@ -17,48 +21,58 @@ enum ChatTextCache {
     private static let blockCache: NSCache<NSString, Entry<[MarkdownRenderer.Block]>> = {
         let cache = NSCache<NSString, Entry<[MarkdownRenderer.Block]>>()
         cache.countLimit = 256
+        cache.totalCostLimit = 8 << 20
         return cache
     }()
 
     private static let attributedCache: NSCache<NSString, Entry<AttributedString?>> = {
         let cache = NSCache<NSString, Entry<AttributedString?>>()
         cache.countLimit = 512
+        cache.totalCostLimit = 12 << 20
         return cache
     }()
 
     private static let jsonCache: NSCache<NSString, Entry<String?>> = {
         let cache = NSCache<NSString, Entry<String?>>()
         cache.countLimit = 128
+        cache.totalCostLimit = 4 << 20
         return cache
     }()
 
     static func blocks(from text: String) -> [MarkdownRenderer.Block] {
-        cached(key: text, in: blockCache) { MarkdownRenderer.blocks(from: text) }
+        cached(key: text, cost: text.utf8.count, in: blockCache) { MarkdownRenderer.blocks(from: text) }
     }
 
     /// 行内代码和加粗的字体随 role/tone 变化，所以缓存键要带上样式标记。字号档也必须进键：
     /// 这些 run 上落的是按动态字号算出的固定磅值，系统字号改了而键不变，旧 run 会一直用老磅值。
     static func attributedString(from text: String, role: MarkdownTextRole, tone: MarkdownTone) -> AttributedString? {
         let sizeCategory = UITraitCollection.current.preferredContentSizeCategory.rawValue
-        return cached(key: "\(role.rawValue)|\(tone.cacheToken)|\(sizeCategory)\u{1}\(text)", in: attributedCache) {
+        return cached(
+            key: "\(role.rawValue)|\(tone.cacheToken)|\(sizeCategory)\u{1}\(text)",
+            cost: text.utf8.count,
+            in: attributedCache
+        ) {
             MarkdownRenderer.attributedString(from: text, role: role, tone: tone)
         }
     }
 
     static func prettyPrintedJSON(from text: String) -> String? {
         // Module-qualified: unqualified lookup resolves to this very method, not the global builder.
-        cached(key: text, in: jsonCache) { Quartet.prettyPrintedJSON(text) }
+        cached(key: text, cost: text.utf8.count, in: jsonCache) { Quartet.prettyPrintedJSON(text) }
     }
 
+    /// `cost` 取源文本字节数：键和解析结果的实际占用都与它成正比，用来给 `totalCostLimit`
+    /// 排出正确的淘汰顺序就够了，不需要真去量 `AttributedString` 的内部布局。
     private static func cached<Value>(
         key: String,
+        cost: Int,
         in cache: NSCache<NSString, Entry<Value>>,
         build: () -> Value
     ) -> Value {
         let key = key as NSString
         if let hit = cache.object(forKey: key) { return hit.value }
         let value = build()
-        cache.setObject(Entry(value), forKey: key)
+        cache.setObject(Entry(value), forKey: key, cost: cost)
         return value
     }
 }

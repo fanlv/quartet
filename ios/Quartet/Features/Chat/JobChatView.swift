@@ -348,11 +348,37 @@ struct JobChatView: View {
     /// `LazyVStack` 一路来不及物化 cell，中途整屏空白，落点也更容易算飘。
     private func resumeTimelineFollow(_ proxy: ScrollViewProxy) {
         frozenTimeline = nil
-        messagesScrolledOffContent = false
         messagesAreNearBottom = true
         userScrolledAwayFromBottom = false
+        // `messagesScrolledOffContent` 刻意不在这里清掉：它由几何观察独占，只有偏移真的回到
+        // 内容范围内才翻回 false。手工清成 false 会让越界状态在纠正失败后无声消失 ——
+        // `onScrollGeometryChange` 只在布尔值翻转时回调，之后再没有第二次纠正机会。
+        //
         // 解冻和滚动请求在同一次更新里提交：ScrollView 会先按补齐后的内容重新布局，
         // 再消费这个待处理的滚动目标，所以一次 scrollTo 就落在真正的底部。
+        proxy.scrollTo("chat-bottom", anchor: .bottom)
+    }
+
+    /// 跟随期间的兜底滚动：只在真的飘离底部时才补一次显式滚动。
+    ///
+    /// 常态下什么都不做 —— 内容长高由 `.defaultScrollAnchor(.bottom, for: .sizeChanges)` 在
+    /// ScrollView 内部接管。这里刻意不像以前那样每次锚点变化都请求一次 `scrollTo`：流式输出
+    /// 时锚点每几百毫秒就 bump 一次，每一次都是一次“按 `LazyVStack` 估算高度反算滚到底”的
+    /// 机会，撞上工具卡塌缩那一帧就把偏移甩到内容之外，整屏空白。
+    ///
+    /// 保留这条路径是为了三件事：底边锚点没能把视口带上时（内容已经长高、视口还留在原处）
+    /// 补一次追赶；偏移已经越界时每次调用都重试一次纠正 —— `onScrollGeometryChange` 只在
+    /// 布尔值翻转时回调，纠正失败就没有第二次机会了；以及历史一次性加载完这类只 bump 一次
+    /// 锚点的场景。
+    ///
+    /// `isNearBottom` 必须由调用方显式传入：几何回调里刚算出的新值和 `messagesAreNearBottom`
+    /// 这个状态不是同一时刻的东西，而锚点变化那条路径跑在布局之前，读到的是上一帧的旧值。
+    ///
+    /// 这里同样不加动画：需要补滚动时距离本来就远，动画滚过几千点会让 `LazyVStack` 一路来不及
+    /// 物化 cell，中途整屏空白。
+    private func followBottomIfNeeded(_ proxy: ScrollViewProxy, isNearBottom: Bool) {
+        guard !userScrolledAwayFromBottom, !userIsScrollingMessages else { return }
+        guard messagesScrolledOffContent || !isNearBottom else { return }
         proxy.scrollTo("chat-bottom", anchor: .bottom)
     }
 
@@ -407,6 +433,18 @@ struct JobChatView: View {
                 .padding(.vertical, 18)
             }
             .scrollDismissesKeyboard(.interactively)
+            // 跟随底部交给 ScrollView 自己完成。
+            //
+            // 内容长高（新 delta）或塌缩（长工具输出收起）时，`.sizeChanges` 锚点会按内容
+            // **底边**重算偏移，落点天然在合法范围内。这是和外部 `scrollTo` 的本质区别：
+            // `scrollTo` 要先在 `LazyVStack` 里解析目标 cell 的位置，而离屏 cell 只有估算
+            // 高度，高度剧烈变化的那一帧估算失配得足够狠，反算出的偏移就落到内容之外，
+            // 一个 cell 都不物化 —— 这就是流式输出时看到的白屏。
+            //
+            // 冻结期间必须换回顶部锚点：那时视口在内容中段，用底边锚点的话下方“AI 正在思考”
+            // 指示器一出现/消失，用户正在读的内容就会被推着走。
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(frozenTimeline == nil ? .bottom : .top, for: .sizeChanges)
             .overlay(alignment: .bottom) { backToBottomButton(proxy) }
             // 链接拦截统一在列表这一层注入，动作由 `linkOpener` 持有、全程同一个值。
             .environment(\.openURL, linkOpener.action)
@@ -451,17 +489,24 @@ struct JobChatView: View {
                 return abs(distanceToBottom) < 80
             } action: { _, isNearBottom in
                 messagesAreNearBottom = isNearBottom
+                // 布局之后才知道底边锚点有没有真的把视口带上，所以追赶要在这里判，
+                // 不能只靠锚点变化那条路径 —— 它跑在布局之前，读到的是上一帧的位置。
+                followBottomIfNeeded(proxy, isNearBottom: isNearBottom)
             }
-            // 白屏自愈：偏移落到内容之外整整一屏时，把它拉回底部。
+            // 白屏自愈：静止时的偏移必须落在内容范围内，超出就说明 `LazyVStack` 的估算高度
+            // 和实际布局失配（长工具输出收起、离屏 cell 重新物化），偏移停在没有任何 cell 的
+            // 区域，于是整个列表是空白的 —— 连非 lazy 的“AI 正在思考”一起看不见。
             //
-            // `LazyVStack` 只物化视口附近的 cell，其余按估算高度参与 contentSize。估算和
-            // 实际布局失配得足够狠时（长工具输出收起、离屏 cell 重新物化），偏移会停在没有
-            // 任何 cell 的区域，于是整个列表是空白的 —— 连非 lazy 的“AI 正在思考”一起看不见。
-            // 橡皮筋和减速都拉不出一整屏，也都不在静止阶段，所以这两个条件叠起来只会命中失配。
+            // 阈值刻意取得和 `messagesAreNearBottom` 同一档（80pt）：静止的 ScrollView 不可能
+            // 合法越界这么多，橡皮筋只发生在拖拽/减速阶段，而下面会先排除“用户正在滚动”。
+            // 此前要求越界整整一屏才纠正，等于放过了绝大多数白屏 —— 只差半屏也照样一个 cell
+            // 都不物化，用户看到的一样是空白。
+            //
+            // 纠正动作就是“回到底部”，而它只在跟随状态下执行，所以误判是无害的：本来就该在底部。
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 guard geometry.containerSize.height > 0 else { return false }
                 let maxOffset = max(0, geometry.contentSize.height - geometry.containerSize.height)
-                return geometry.contentOffset.y - maxOffset > geometry.containerSize.height
+                return geometry.contentOffset.y - maxOffset > 80
             } action: { _, isOffContent in
                 messagesScrolledOffContent = isOffContent
                 guard isOffContent,
@@ -470,21 +515,11 @@ struct JobChatView: View {
                 resumeTimelineFollow(proxy)
             }
             .onChange(of: chat.scrollAnchor) { _, _ in
-                guard !userScrolledAwayFromBottom else { return }
-                // 流式输出时锚点会持续 bump，动画会一层层叠加成抖动；跟随滚动直接无动画。
-                if chat.isRunning {
-                    proxy.scrollTo("chat-bottom", anchor: .bottom)
-                } else {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo("chat-bottom", anchor: .bottom)
-                    }
-                }
+                followBottomIfNeeded(proxy, isNearBottom: messagesAreNearBottom)
             }
             .onChange(of: chat.isRunning) { wasRunning, isRunning in
-                guard !wasRunning, isRunning, !userScrolledAwayFromBottom else { return }
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo("chat-bottom", anchor: .bottom)
-                }
+                guard !wasRunning, isRunning else { return }
+                followBottomIfNeeded(proxy, isNearBottom: messagesAreNearBottom)
             }
             // 发送新消息意味着用户不再看历史，必须无条件解冻并回到底部，
             // 否则自己刚发出的消息会被挡在快照之后看不见。

@@ -514,12 +514,13 @@ final class ChatViewModel: ObservableObject {
     }
 
     func stopStreaming() {
-        // 先把缓冲落地再停：否则最后 40ms 内到达的文本会随 flush task 一起被丢掉。
+        // 先把缓冲落地再停：否则最后一个 flush 周期内到达的文本会随 flush task 一起被丢掉。
         flushPendingDeltas()
         deltaFlushTask?.cancel()
         deltaFlushTask = nil
-        scrollAnchorThrottleTask?.cancel()
-        scrollAnchorThrottleTask = nil
+        // 刚才那次 flush 排的是一个节流中的滚动锚点，直接 cancel 等于把最后一段文本对应的
+        // 跟随请求也丢掉。`bumpScrollAnchor()` 会取消节流并立刻 bump，正好把它落地。
+        bumpScrollAnchor()
         streamGeneration &+= 1
         streamTask?.cancel()
         streamTask = nil
@@ -1533,8 +1534,8 @@ final class ChatViewModel: ObservableObject {
 
     /// 每个 delta 原本都直接改 `@Published messages` 并 bump 一次滚动锚点，于是几十个
     /// delta/秒 就是几十次全列表发布加几十个互相叠加的滚动动画。这里把纯文本追加按到达
-    /// 顺序攒进缓冲，由一个 40ms 的 flush 一次性应用并只 bump 一次 —— 把 UI 更新频率钉在
-    /// ≤25Hz，与 delta 到达速率解耦。
+    /// 顺序攒进缓冲，由一次 flush 一次性应用并只 bump 一次滚动锚点 —— UI 更新频率与 delta
+    /// 到达速率解耦，具体节奏见 `deltaFlushInterval`（短文本 25Hz，长文本降到 4Hz）。
     ///
     /// 所有依赖 `messages` 一致状态的操作都必须先调 `flushPendingDeltas()`。
     private enum PendingDelta {
@@ -1576,11 +1577,31 @@ final class ChatViewModel: ObservableObject {
 
     private func scheduleDeltaFlush() {
         guard deltaFlushTask == nil else { return }
+        let interval = deltaFlushInterval
         deltaFlushTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(40))
-            guard let self else { return }
+            try? await Task.sleep(for: interval)
+            // 取消时必须原地返回：`stopStreaming()` 已经把缓冲落地并清空了任务引用，这里再
+            // 写一次 nil 会把之后新排的 flush 任务引用清掉，于是下一个 delta 又排一个并发的
+            // flush，同一份缓冲被两条任务抢着消费。
+            guard let self, !Task.isCancelled else { return }
             self.deltaFlushTask = nil
             self.flushPendingDeltas()
+        }
+    }
+
+    /// flush 间隔随正在流式输出的那条消息的长度放大。
+    ///
+    /// 每次 flush 都要把整条消息重新做一遍 markdown 分块和富文本排版，成本随文本长度线性增长。
+    /// 固定 40ms 的话，长回复到后半段就是每秒 25 次重排几万字 —— 主线程一卡，`LazyVStack` 就
+    /// 来不及物化 cell，屏幕上剩下的就是空白。把长文本降到 4Hz 左右，肉眼读不出跟随差别，
+    /// 主线程却回到了能按帧完成布局的水平。
+    ///
+    /// 长度直接取最后一条消息：delta 永远追加在时间线末尾，`utf8.count` 对原生 String 是 O(1)。
+    private var deltaFlushInterval: Duration {
+        switch messages.last?.content.utf8.count ?? 0 {
+        case ..<4_000: .milliseconds(40)
+        case ..<16_000: .milliseconds(120)
+        default: .milliseconds(250)
         }
     }
 
@@ -1625,7 +1646,10 @@ final class ChatViewModel: ObservableObject {
         if messages[index].kind == .tool, messages[index].toolStatus == .processing {
             messages[index].toolStatus = messages[index].isFailed ? .error : .success
         }
-        bumpScrollAnchor()
+        // 走节流而不是立即 bump：这一次更新会把工具卡从展开态切成收起态，`ToolCallCard` 的
+        // 高度可能从几千点塌成一行。滚动请求和这次塌缩挤在同一帧最容易把偏移算到内容之外，
+        // 推迟到塌缩落定之后再补一次跟随，画面上完全看不出差别。
+        bumpScrollAnchorThrottled()
     }
 
     private func finishOpenMessages(outcome: String = "completed", timestamp: Int64? = nil) {
