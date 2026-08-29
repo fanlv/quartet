@@ -1226,6 +1226,7 @@ struct SessionMessagesResponse: Decodable, Sendable {
 
 struct TokenUsage: Decodable, Hashable, Sendable {
     let totalTokens: Int
+    let estimated: Bool
 }
 
 struct AgentDisplayInfo: Decodable, Hashable, Sendable {
@@ -1469,6 +1470,7 @@ struct ServerEventValue: Decodable, Sendable {
     let title: String?
     let error: String?
     let totalTokens: Int?
+    let estimated: Bool?
     let version: Int64?
 }
 

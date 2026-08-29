@@ -316,7 +316,7 @@ func (h *agentEventHandler) OnToolCallStitched(id string, content string, succes
 	return nil
 }
 
-func (h *agentEventHandler) OnTokenUsage(totalTokens int) error {
+func (h *agentEventHandler) OnTokenUsage(totalTokens int, estimated bool) error {
 	h.tokens = totalTokens
 	h.sawTokenUsage = true
 	if h.usage != nil {
@@ -325,7 +325,7 @@ func (h *agentEventHandler) OnTokenUsage(totalTokens int) error {
 	h.publisher.Publish(h.jobID, &model.CustomEvent{
 		BaseEvent: h.baseEvent(model.EventTypeCustom),
 		Name:      "token_usage",
-		Value:     model.TokenUsage{TotalTokens: totalTokens},
+		Value:     model.TokenUsage{TotalTokens: totalTokens, Estimated: estimated},
 	})
 	return nil
 }

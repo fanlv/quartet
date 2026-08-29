@@ -81,6 +81,9 @@ type RunStartedEvent struct {
 
 type TokenUsage struct {
 	TotalTokens int `json:"totalTokens"`
+	// Estimated distinguishes Quartet's local tokenizer fallback from a value
+	// pushed by the Agent CLI. It describes this live context gauge, not billing.
+	Estimated bool `json:"estimated"`
 }
 
 type RunFinishedEvent struct {

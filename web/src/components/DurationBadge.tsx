@@ -30,9 +30,10 @@ interface DurationBadgeProps {
   endedAt?: number;
   baseMs?: number;
   variant?: DurationVariant;
+  showIcon?: boolean;
 }
 
-export function DurationBadge({ startedAt, endedAt, baseMs = 0, variant = 'assistant' }: DurationBadgeProps) {
+export function DurationBadge({ startedAt, endedAt, baseMs = 0, variant = 'assistant', showIcon = false }: DurationBadgeProps) {
   // `now` here must be the server-wall-clock estimate, not the raw browser
   // clock. If we mixed frames (live uses client Date.now, finished uses
   // server timestamps), clock skew / SSE delivery latency / ring-buffer
@@ -123,6 +124,7 @@ export function DurationBadge({ startedAt, endedAt, baseMs = 0, variant = 'assis
       const displayed = Math.max(baseMs, maxShown);
       return (
         <span className={`duration-badge duration-badge--${variant} duration-badge--finished`}>
+          {showIcon && <DurationClockIcon />}
           {formatDuration(displayed)}
         </span>
       );
@@ -142,7 +144,17 @@ export function DurationBadge({ startedAt, endedAt, baseMs = 0, variant = 'assis
 
   return (
     <span className={`duration-badge duration-badge--${variant} ${isRunning ? 'duration-badge--running' : 'duration-badge--finished'}`}>
+      {showIcon && <DurationClockIcon />}
       {formatDuration(displayed)}
     </span>
+  );
+}
+
+function DurationClockIcon() {
+  return (
+    <svg className="duration-badge-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
   );
 }

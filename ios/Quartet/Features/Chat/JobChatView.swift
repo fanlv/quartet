@@ -635,7 +635,7 @@ struct JobChatView: View {
                     composerContext
 
                     ComposerMetadataChip(
-                        icon: "text.word.spacing",
+                        icon: chat.tokenCountSourceIcon,
                         text: chat.tokenCountLabel,
                         accessibilityLabel: chat.tokenCountAccessibilityLabel
                     )

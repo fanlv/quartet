@@ -875,7 +875,7 @@ describe('StatsPage token trend accessibility', () => {
     expect(screen.getByLabelText(/Token breakdown for 2026-08-26/)).toBeInTheDocument();
 
     days[0].focus();
-    expect(await screen.findByText('Explanatory data already included in input tokens or the Quartet estimate.')).toBeInTheDocument();
+    expect(await screen.findByText('Image estimate')).toBeInTheDocument();
     fireEvent.keyDown(days[0], { key: 'ArrowRight' });
 
     expect(document.activeElement).toBe(days[1]);

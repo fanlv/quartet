@@ -927,7 +927,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 			logger.Debugf(logCtx, "[acp] recompute token usage skipped: sessionId=%s err=%v", a.sessionID, err)
 			return
 		}
-		if hErr := handler.OnTokenUsage(tokenizer.MessagesTokenCounter(logCtx, reloaded)); hErr != nil {
+		if hErr := handler.OnTokenUsage(tokenizer.MessagesTokenCounter(logCtx, reloaded), true); hErr != nil {
 			logger.Debugf(logCtx, "[acp] handler OnTokenUsage failed: sessionId=%s err=%v", a.sessionID, hErr)
 		}
 	}

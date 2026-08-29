@@ -281,7 +281,7 @@ private enum StatsTrendMetric: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .duration: "耗时"
-        case .turns: "执行次数"
+        case .turns: "Turn"
         case .tokens: "Token"
         case .cache: "缓存"
         }
@@ -343,7 +343,7 @@ private struct StatsKPIGrid: View {
         ))
         return [
             StatsKPICard(id: "duration", title: "总耗时", value: StatsFormat.duration(totalMs), current: Double(totalMs), previous: report.previous.map { Double($0.totalMs) }, icon: "clock", color: QuartetTheme.accent),
-            StatsKPICard(id: "turns", title: "Agent 执行", value: StatsFormat.count(turns), current: Double(turns), previous: report.previous.map { Double($0.turnCount) }, icon: "bubble.left.and.bubble.right", color: QuartetTheme.chartGreen),
+            StatsKPICard(id: "turns", title: "Turn", value: StatsFormat.count(turns), current: Double(turns), previous: report.previous.map { Double($0.turnCount) }, icon: "bubble.left.and.bubble.right", color: QuartetTheme.chartGreen),
             StatsKPICard(id: "tokens", title: "Token", value: StatsFormat.count(tokens), current: Double(tokens), previous: report.previous.map { Double($0.tokensTotal) }, icon: "text.word.spacing", color: QuartetTheme.running),
             StatsKPICard(id: "tools", title: "工具调用", value: StatsFormat.count(tools), current: Double(tools), previous: report.previous.map { Double($0.toolCallCount) }, icon: "wrench.and.screwdriver", color: QuartetTheme.chartForest),
             StatsKPICard(id: "cache", title: "缓存命中率", value: StatsFormat.percentage(cacheHitRate), current: cacheHitRate, previous: report.previous?.cacheHitRate, icon: "archivebox", color: QuartetTheme.chartMutedGreen),
@@ -509,7 +509,7 @@ private struct StatsTrendCard: View {
             }
 
             if metric == .cache {
-                Label("按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。", systemImage: "externaldrive.badge.checkmark")
+                Label("按厂商上报的缓存读取占输入总量计算；本地估算 Turn 不参与。", systemImage: "externaldrive.badge.checkmark")
                     .font(.quartet(.compact))
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
@@ -896,7 +896,7 @@ private struct StatsTokenSourceSummary: View {
     @Environment(\.locale) private var locale
     let rows: [UsageStatsDailyRow]
     var compact = false
-    var title = "Token 统计方式（按执行次数）"
+    var title = "Token 统计方式（按 Turn）"
 
     var body: some View {
         let coverage = StatsTokenCoverage(rows: rows)
@@ -908,7 +908,7 @@ private struct StatsTokenSourceSummary: View {
                 Spacer(minLength: 8)
                 if coverage.totalTurns > 0 {
                     Text(String(
-                        format: "共 %lld 次 Agent 执行".localized(in: locale),
+                        format: "%lld Turn".localized(in: locale),
                         locale: locale,
                         Int64(coverage.totalTurns)
                     ))
@@ -919,7 +919,7 @@ private struct StatsTokenSourceSummary: View {
             }
 
             if coverage.totalTurns <= 0 {
-                Text("暂无可计算来源的执行记录。")
+                Text("暂无可计算来源的 Turn。")
                     .font(.quartet(.compact))
                     .foregroundStyle(QuartetTheme.secondaryText)
             } else {
@@ -936,7 +936,7 @@ private struct StatsTokenSourceSummary: View {
                 .frame(height: 7)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(String(
-                    format: "按执行次数：模型返回占 %lld%%，Quartet 估算占 %lld%%".localized(in: locale),
+                    format: "按 Turn：厂商上报占 %lld%%，本地估算占 %lld%%".localized(in: locale),
                     locale: locale,
                     Int64(coverage.reportedPercent),
                     Int64(coverage.estimatedPercent)
@@ -944,20 +944,20 @@ private struct StatsTokenSourceSummary: View {
 
                 VStack(spacing: 0) {
                     StatsTokenSourceRow(
-                        title: "模型返回",
+                        title: "厂商上报",
                         tokenCount: coverage.reportedTokens,
                         runCount: coverage.reportedTurns,
                         percent: coverage.reportedPercent,
-                        detail: compact ? nil : "由模型服务或 Agent 接口返回，通常更准确。",
+                        detail: compact ? nil : "由厂商 CLI 提供的 Token 用量，通常更准确。",
                         color: QuartetTheme.accent
                     )
                     Divider().overlay(QuartetTheme.divider)
                     StatsTokenSourceRow(
-                        title: "Quartet 估算",
+                        title: "本地估算",
                         tokenCount: coverage.estimatedTokens,
                         runCount: coverage.estimatedTurns,
                         percent: coverage.estimatedPercent,
-                        detail: compact ? nil : "未收到用量时，Quartet 根据可见内容估算，仅供参考。",
+                        detail: compact ? nil : "未收到厂商用量时，由 Quartet 根据可见内容在本地估算，仅供参考。",
                         color: QuartetTheme.secondaryText.opacity(0.65)
                     )
                 }
@@ -967,10 +967,6 @@ private struct StatsTokenSourceSummary: View {
                         .stroke(QuartetTheme.divider.opacity(0.75), lineWidth: 1)
                 }
 
-                Text("1 次执行 = Agent 从收到一条输入到本次运行结束；工作流中的 Prompt/评估结点每执行一次也计 1 次。")
-                    .font(.quartet(.compact))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .accessibilityElement(children: .combine)
@@ -1000,7 +996,7 @@ private struct StatsTokenSourceRow: View {
                     .font(.quartet(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Text(String(
-                    format: "%lld 次执行 · %lld%% 的执行".localized(in: locale),
+                    format: "%lld Turn · %lld%%".localized(in: locale),
                     locale: locale,
                     Int64(runCount),
                     Int64(percent)
@@ -1027,7 +1023,7 @@ private struct StatsTokenSourceRow: View {
     }
 }
 
-// Every recorded turn is classified as either provider-reported or locally
+// Every recorded turn is classified as either vendor-reported or locally
 // estimated, so the two counters always add up to the turn count.
 private struct StatsTokenCoverage {
     let totalTurns: Int
@@ -1093,7 +1089,7 @@ private struct StatsTokenDayDetail: View {
                 }
             }
 
-            StatsTokenSourceSummary(rows: [day], compact: true, title: "当日 Token 统计方式（按执行次数）")
+            StatsTokenSourceSummary(rows: [day], compact: true, title: "当日 Token 统计方式（按 Turn）")
 
             if !modelEntries.isEmpty {
                 Divider().overlay(QuartetTheme.divider)
@@ -1127,11 +1123,11 @@ private struct StatsTokenDayDetail: View {
 
             Divider().overlay(QuartetTheme.divider)
 
-            Text("模型返回的用量明细")
+            Text("厂商上报的用量明细")
                 .font(.quartet(.detail, weight: .semibold))
                 .foregroundStyle(QuartetTheme.primaryText)
 
-            Text("仅统计“模型返回”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。")
+            Text("仅统计“厂商上报”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。")
                 .font(.quartet(.compact))
                 .foregroundStyle(QuartetTheme.secondaryText)
 
@@ -1157,7 +1153,7 @@ private struct StatsTokenDayDetail: View {
                 }
             }
 
-            Text("按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。")
+            Text("按厂商上报的缓存读取占输入总量计算；本地估算 Turn 不参与。")
                 .font(.quartet(.compact))
                 .foregroundStyle(QuartetTheme.secondaryText)
         }

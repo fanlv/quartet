@@ -195,6 +195,13 @@
   object-fit: contain;
 }
 
+.model-tag-leading-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  opacity: 0.82;
+}
+
 .model-tag-emoji {
   font-size: 14px;
   line-height: 1;
@@ -530,9 +537,16 @@
 .token-usage {
   display: flex;
   align-items: center;
+  gap: 5px;
   font-size: 13px;
   color: #87958b;
   padding: 4px 8px;
+}
+
+.token-usage-source-icon {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
 }
 
 .chat-input-actions {

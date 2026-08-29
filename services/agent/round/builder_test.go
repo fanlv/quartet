@@ -100,8 +100,8 @@ func (h *stubHandler) OnToolCallStitched(id string, content string, success bool
 	h.toolStitchedAgeMs[id] = supersededAgoMs
 	return nil
 }
-func (h *stubHandler) OnTokenUsage(int) error { return nil }
-func (h *stubHandler) OnError(error)          {}
+func (h *stubHandler) OnTokenUsage(int, bool) error { return nil }
+func (h *stubHandler) OnError(error)                {}
 
 // assertToolResultOrder checks that `roleTool` messages in `msgs` appear
 // in the exact order given by `wantIDs`. Non-tool messages are ignored.

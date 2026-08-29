@@ -437,6 +437,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const [error, setError] = useState<string | null>(null);
   const [titleGenerationError, setTitleGenerationError] = useState<string | null>(null);
   const [totalTokens, setTotalTokens] = useState(0);
+  const [tokenUsageEstimated, setTokenUsageEstimated] = useState(true);
   const [sessionWorkdir, setSessionWorkdir] = useState<string | null>(null);
   const [sessionModelId, setSessionModelId] = useState<string | null>(null);
   const [sessionType, setSessionType] = useState<string | null>(null);
@@ -669,7 +670,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // background Graph node session usage event while the user reads
   // iteration N) or an out-of-order parallel history load paints a foreign
   // number over the badge.
-  const sessionTokensRef = useRef<Map<string, number>>(new Map());
+  const sessionTokensRef = useRef<Map<string, { totalTokens: number; estimated: boolean }>>(new Map());
 
   const [eventsReady, setEventsReady] = useState(false);
   const eventsReadyRef = useRef(false);
@@ -821,17 +822,25 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // 0 is a legal value (a freshly created session has an empty context), so the
   // caller-side checks are `!= null`, not truthiness — otherwise switching to a
   // brand-new session leaves the previous session's number on the badge.
-  const recordSessionTokens = useCallback((sessionId: string | null | undefined, tokens: number) => {
+  const recordSessionTokens = useCallback((
+    sessionId: string | null | undefined,
+    tokens: number,
+    estimated: boolean,
+  ) => {
     if (!Number.isFinite(tokens) || tokens < 0) return;
     if (!sessionId) {
       // Defensive: every backend usage event carries a session id. With
       // nothing to key on, treat it as the current conversation's count.
       setTotalTokens(tokens);
+      setTokenUsageEstimated(estimated);
       return;
     }
-    sessionTokensRef.current.set(sessionId, tokens);
+    sessionTokensRef.current.set(sessionId, { totalTokens: tokens, estimated });
     const displayedSessionId = activeSessionIdRef.current;
-    if (!displayedSessionId || displayedSessionId === sessionId) setTotalTokens(tokens);
+    if (!displayedSessionId || displayedSessionId === sessionId) {
+      setTotalTokens(tokens);
+      setTokenUsageEstimated(estimated);
+    }
   }, []);
 
   // Mirror isLoading -> ref so the SSE idle-watchdog interval can read the
@@ -907,6 +916,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     sessionMetaMapRef.current = new Map();
     sessionTokensRef.current = new Map();
     setTotalTokens(0);
+    setTokenUsageEstimated(true);
     setError(null);
     setIsLoading(false);
     setIsLoadingHistory(false);
@@ -1442,8 +1452,10 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           break;
         }
         if (event.name === 'token_usage') {
-          const usage = event.value as { totalTokens?: number };
-          if (usage?.totalTokens != null) recordSessionTokens(event.sessionId, usage.totalTokens);
+          const usage = event.value as { totalTokens?: number; estimated?: boolean };
+          if (usage?.totalTokens != null) {
+            recordSessionTokens(event.sessionId, usage.totalTokens, usage.estimated ?? true);
+          }
         }
         if (event.name === 'job_title_updated') {
           const payload = event.value as { title?: string } | string | null;
@@ -1520,7 +1532,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       // permanently for a finished run. Skipped when the job changed under us
       // so a late response can't paint the previous job's number.
       if (jobIdRef.current === requestJobId) {
-        recordSessionTokens(sid, data.tokenUsage?.totalTokens ?? 0);
+        recordSessionTokens(
+          sid,
+          data.tokenUsage?.totalTokens ?? 0,
+          data.tokenUsage?.estimated ?? true,
+        );
       }
 
       if (!tagSessionId) {
@@ -1782,8 +1798,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         // set the badge — a coin flip between sessions. The composer always
         // sends into the newest session, so pin the badge to that one.
         const newestSid = sessionIds[sessionIds.length - 1];
-        const newestTokens = sessionTokensRef.current.get(newestSid);
-        if (newestTokens != null) setTotalTokens(newestTokens);
+        const newestUsage = sessionTokensRef.current.get(newestSid);
+        if (newestUsage != null) {
+          setTotalTokens(newestUsage.totalTokens);
+          setTokenUsageEstimated(newestUsage.estimated);
+        }
         // Sync loadedSessionIds so UI doesn't show "Loading session messages..."
         // for sessions whose messages we just loaded.
         setLoadedSessionIds((prev) => {
@@ -2971,8 +2990,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     // `meta` guard below: a session can have a recorded context size before
     // (or without) metadata, and leaving the previous session's number on
     // screen misreports the context the next message would be sent into.
-    const tokens = sessionTokensRef.current.get(activeSessionId);
-    if (tokens != null) setTotalTokens(tokens);
+    const usage = sessionTokensRef.current.get(activeSessionId);
+    if (usage != null) {
+      setTotalTokens(usage.totalTokens);
+      setTokenUsageEstimated(usage.estimated);
+    }
     const meta = sessionMetaMapRef.current.get(activeSessionId);
     if (!meta) return;
     if (meta.modelId != null) setSessionModelId(meta.modelId);
@@ -3111,6 +3133,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     clearTitleGenerationError: () => setTitleGenerationError(null),
     jobNotFound,
     totalTokens,
+    tokenUsageEstimated,
     roundStartedAt: jobStartedAt,
     roundFinishedAt: jobFinishedAt,
     interactiveAccumulatedMs,

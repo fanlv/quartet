@@ -1512,14 +1512,17 @@ func (h *graphEventHandler) OnToolCallStitched(id string, content string, succes
 	}, now)
 	return nil
 }
-func (h *graphEventHandler) OnTokenUsage(totalTokens int) error {
+func (h *graphEventHandler) OnTokenUsage(totalTokens int, estimated bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.sawTokenUsage = true
 	if h.usage != nil {
 		h.usage.SetEstimatedUsage(totalTokens)
 	}
-	h.appendEventLocked(model.GraphEventTypeAgentTokenUsage, "token usage updated", map[string]string{"totalTokens": fmt.Sprintf("%d", totalTokens)}, time.Now().UnixMilli())
+	h.appendEventLocked(model.GraphEventTypeAgentTokenUsage, "token usage updated", map[string]string{
+		"totalTokens": fmt.Sprintf("%d", totalTokens),
+		"estimated":   strconv.FormatBool(estimated),
+	}, time.Now().UnixMilli())
 	return nil
 }
 

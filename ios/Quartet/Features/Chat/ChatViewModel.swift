@@ -120,6 +120,7 @@ final class ChatViewModel: ObservableObject {
     @Published var scrollAnchor = 0
     @Published var terminalStateVersion = 0
     @Published private(set) var totalTokens = 0
+    @Published private(set) var tokenUsageEstimated = true
     @Published private(set) var runStartedAt: Int64?
     @Published private(set) var runFinishedAt: Int64?
     @Published private(set) var accumulatedDurationMs: Int64 = 0
@@ -202,7 +203,15 @@ final class ChatViewModel: ObservableObject {
     var modeIDForDisplay: String? { displayValue(modeID) }
     var thoughtLevelIDForDisplay: String? { displayValue(thoughtLevelID) }
     var tokenCountLabel: String { "Tokens: \(Self.compactCount(totalTokens))" }
-    var tokenCountAccessibilityLabel: String { "Token 数量，\(totalTokens)" }
+    var tokenCountSourceIcon: String { tokenUsageEstimated ? "calculator" : "terminal" }
+    var tokenCountAccessibilityLabel: String {
+        String(
+            format: "Token 数量 %lld，%@".localizedForApp,
+            locale: AppLanguage.currentLocale,
+            Int64(totalTokens),
+            (tokenUsageEstimated ? "本地估算" : "厂商上报").localizedForApp
+        )
+    }
     var showsDuration: Bool {
         accumulatedDurationMs > 0 || !graphRunningStartedAts.isEmpty
             || (runStartedAt != nil && !currentTurnIncludedInAccumulatedDuration)
@@ -259,6 +268,7 @@ final class ChatViewModel: ObservableObject {
             agentIconUrl = nil
             agentDisplayInfoByReference = [:]
             totalTokens = 0
+            tokenUsageEstimated = true
             runStartedAt = nil
             runFinishedAt = nil
             accumulatedDurationMs = 0
@@ -1447,6 +1457,7 @@ final class ChatViewModel: ObservableObject {
         case "token_usage":
             if let tokens = event.value?.totalTokens {
                 totalTokens = tokens
+                tokenUsageEstimated = event.value?.estimated ?? true
             }
         case "job_title_updated":
             if let updatedTitle = event.value?.title, !updatedTitle.isEmpty {
@@ -1793,6 +1804,7 @@ final class ChatViewModel: ObservableObject {
         modeID = response.acpMode
         thoughtLevelID = response.acpThoughtLevel
         totalTokens = response.tokenUsage?.totalTokens ?? totalTokens
+        tokenUsageEstimated = response.tokenUsage?.estimated ?? tokenUsageEstimated
         agentDisplayName = resolvedAgentName(agentInfo)
         agentIconUrl = displayValue(agentInfo?.iconUrl)
     }

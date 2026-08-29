@@ -1431,8 +1431,8 @@ func (b *Builder) handleLateTerminalStitchLocked(id, content string, status agen
 		label, id, toolName, status, ageMs, toolElapsedMs, supersedeKind, memoryStitched, diskStitchInvoked, liveStitchInvoked)
 }
 
-// OnTokenUsage forwards the token count to the UI handler and records
-// that the upstream path has surfaced at least one usage event.
+// OnTokenUsage forwards the Agent CLI's token count to the UI handler and
+// records that the upstream path has surfaced at least one usage event.
 func (b *Builder) OnTokenUsage(totalTokens int) {
 	b.mu.Lock()
 	h := b.handler
@@ -1441,5 +1441,5 @@ func (b *Builder) OnTokenUsage(totalTokens int) {
 	if h == nil {
 		return
 	}
-	b.logHandlerErr("OnTokenUsage", h.OnTokenUsage(totalTokens))
+	b.logHandlerErr("OnTokenUsage", h.OnTokenUsage(totalTokens, false))
 }

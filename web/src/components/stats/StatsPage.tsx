@@ -728,7 +728,7 @@ interface TokenCoverage {
   estimatedTokens: number;
 }
 
-// The backend classifies every recorded turn as either provider-reported or
+// The backend classifies every recorded turn as either vendor-reported or
 // locally estimated, so the two counters always add up to turnCount.
 function computeTokenCoverage(rows: SectionTotals[]): TokenCoverage {
   let totalTurns = 0;
@@ -750,7 +750,7 @@ function computeTokenCoverage(rows: SectionTotals[]): TokenCoverage {
 
 // TokenSourceSummary makes the mutually exclusive source split explicit. Token
 // amounts are primary, while execution counts explain the coverage of each
-// source. This avoids presenting provider details as values to add together.
+// source. This avoids presenting vendor details as values to add together.
 function TokenSourceSummary({
   coverage,
   compact = false,
@@ -811,7 +811,6 @@ function TokenSourceSummary({
           </div>
         ))}
       </div>
-      <div className="stats-token-source-definition">{t('stats.tokens.turnDefinition')}</div>
     </section>
   );
 }

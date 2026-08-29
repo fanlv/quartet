@@ -1,7 +1,10 @@
 package agui
 
 type TokenUsageHandler interface {
-	OnTokenUsage(totalTokens int) error
+	// OnTokenUsage reports the current context-window occupancy. estimated is
+	// false when the Agent CLI supplied the value and true when Quartet's local
+	// tokenizer produced the fallback.
+	OnTokenUsage(totalTokens int, estimated bool) error
 }
 
 type MessageHandler interface {

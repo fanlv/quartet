@@ -29,6 +29,47 @@ function toImagePreviewUrl(path: string): string {
   return `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
 }
 
+function TokenUsageSourceIcon({ estimated }: { estimated: boolean }) {
+  return estimated ? (
+    <svg className="token-usage-source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="2.5" width="16" height="19" rx="2" />
+      <path d="M8 6.5h8v3H8zM8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" />
+    </svg>
+  ) : (
+    <svg className="token-usage-source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m7 9 3 3-3 3M13 15h4" />
+    </svg>
+  );
+}
+
+function ConfigurationIcon({ kind }: { kind: 'model' | 'mode' | 'thought' }) {
+  if (kind === 'model') {
+    return (
+      <svg className="model-tag-leading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+        <rect x="9" y="9" width="6" height="6" rx="1" />
+        <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" />
+      </svg>
+    );
+  }
+  if (kind === 'mode') {
+    return (
+      <svg className="model-tag-leading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="4" r="2" />
+        <circle cx="5" cy="18" r="2" />
+        <circle cx="19" cy="18" r="2" />
+        <path d="m10.8 5.8-4.6 10M13.2 5.8l4.6 10M7 18h10" strokeDasharray="2 2" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="model-tag-leading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9.5 4A2.5 2.5 0 0 0 7 6.5v.3A3 3 0 0 0 5 12a3 3 0 0 0 2 5.2v.3A2.5 2.5 0 0 0 9.5 20M14.5 4A2.5 2.5 0 0 1 17 6.5v.3a3 3 0 0 1 2 5.2 3 3 0 0 1-2 5.2v.3a2.5 2.5 0 0 1-2.5 2.5M9.5 4v16M14.5 4v16M7 9h2.5M14.5 9H17M7 15h2.5M14.5 15H17" />
+    </svg>
+  );
+}
+
 type LocalSentMessage = SentMessageHistoryItem;
 
 interface LocalSentMessagePayload {
@@ -141,6 +182,7 @@ interface ChatInputProps {
   /** Override thought-level ID display (per-session, takes priority over agent.thoughtLevels.currentThoughtLevelId) */
   overrideThoughtLevelId?: string | null;
   totalTokens?: number;
+  tokenUsageEstimated?: boolean;
   /** Timestamp of the first message in the current round (for total duration display). */
   roundStartedAt?: number;
   /** Timestamp when the last message in the current round finished. Undefined = still running. */
@@ -211,6 +253,7 @@ export function ChatInput({
   overrideModeId,
   overrideThoughtLevelId,
   totalTokens = 0,
+  tokenUsageEstimated = true,
   roundStartedAt,
   roundFinishedAt,
   totalDurationBaseMs,
@@ -936,6 +979,7 @@ export function ChatInput({
                     }
                   }}
                 >
+                  <ConfigurationIcon kind="model" />
                   <span>{selectedAgent.models.availableModels.find(m => m.modelId === effectiveModelId)?.name || effectiveModelId}</span>
                   <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M6 9l6 6 6-6" />
@@ -967,6 +1011,7 @@ export function ChatInput({
                     }
                   }}
                 >
+                  <ConfigurationIcon kind="mode" />
                   <span>{selectedAgent.modes.availableModes.find(m => m.id === effectiveModeId)?.name || effectiveModeId}</span>
                   <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M6 9l6 6 6-6" />
@@ -1036,6 +1081,7 @@ export function ChatInput({
                     }
                   }}
                 >
+                  <ConfigurationIcon kind="thought" />
                   <span>{selectedAgent.thoughtLevels.availableThoughtLevels.find(m => m.id === effectiveThoughtLevelId)?.name || effectiveThoughtLevelId}</span>
                   <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M6 9l6 6 6-6" />
@@ -1095,8 +1141,14 @@ export function ChatInput({
                 )}
               </div>
             )}
-            <span className="token-usage" data-testid="chat-token-usage" title={t('chat.tokenUsageHint')}>
-              Tokens: {formatTokenCount(totalTokens)}
+            <span
+              className={`token-usage ${tokenUsageEstimated ? 'estimated' : 'reported'}`}
+              data-testid="chat-token-usage"
+              title={t(tokenUsageEstimated ? 'chat.tokenUsageLocalHint' : 'chat.tokenUsageVendorHint')}
+              aria-label={t(tokenUsageEstimated ? 'chat.tokenUsageLocalLabel' : 'chat.tokenUsageVendorLabel', { count: totalTokens })}
+            >
+              <TokenUsageSourceIcon estimated={tokenUsageEstimated} />
+              <span>Tokens: {formatTokenCount(totalTokens)}</span>
             </span>
             {/* Duration badge:
                - Graph mode passes `totalDuration*` so the badge reflects the
@@ -1112,11 +1164,12 @@ export function ChatInput({
                   startedAt={totalDurationRunningStartedAts}
                   baseMs={totalDurationBaseMs ?? 0}
                   variant="total"
+                  showIcon
                 />
               )
             ) : (
               roundStartedAt != null && (isLoading || roundFinishedAt != null) && (
-                <DurationBadge startedAt={roundStartedAt} endedAt={roundFinishedAt} variant="total" />
+                <DurationBadge startedAt={roundStartedAt} endedAt={roundFinishedAt} variant="total" showIcon />
               )
             )}
             <button

@@ -184,6 +184,7 @@ export function JobChat(props: JobChatProps) {
     sessionACPMode,
     sessionACPThoughtLevel,
     totalTokens,
+    tokenUsageEstimated,
     roundStartedAt,
     roundFinishedAt,
     interactiveAccumulatedMs,
@@ -1854,6 +1855,7 @@ export function JobChat(props: JobChatProps) {
             placeholder={activeAgentBlockHint ?? (isGraph && !(activeSessionId && endedSessionIds.has(activeSessionId)) ? 'Graph workflow run' : !canExecuteJobs ? 'Read-only mode' : undefined)}
             localHistoryKey={`${workspaceId || 'default'}`}
             totalTokens={totalTokens}
+            tokenUsageEstimated={tokenUsageEstimated}
             roundStartedAt={interactiveAccumulatedMs > 0 ? undefined : roundStartedAt}
             roundFinishedAt={interactiveAccumulatedMs > 0 ? undefined : roundFinishedAt}
             totalDurationBaseMs={

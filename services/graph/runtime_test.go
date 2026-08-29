@@ -309,7 +309,7 @@ func (r streamingGraphRunner) RunIteration(_ context.Context, _ string, _ []*sch
 	_ = handler.OnToolCallArgs("tool-1", `{"command":"pwd"}`, false)
 	_ = handler.OnToolCallResult("tool-1", "/tmp\n", true)
 	_ = handler.OnToolCallEnd("tool-1", true)
-	_ = handler.OnTokenUsage(123)
+	_ = handler.OnTokenUsage(123, false)
 	return nil
 }
 

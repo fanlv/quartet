@@ -374,20 +374,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-.stats-token-source-description,
-.stats-token-source-definition {
+.stats-token-source-description {
   color: #7a897f;
   font-size: 10.5px;
   line-height: 1.45;
 }
 
 .stats-token-source-description { margin-top: 6px; }
-
-.stats-token-source-definition {
-  margin-top: 9px;
-  padding-top: 8px;
-  border-top: 1px solid #e7eee9;
-}
 
 .stats-token-source.compact {
   margin: 6px 0 8px;
@@ -398,7 +391,6 @@
 .stats-token-source.compact .stats-token-source-card { padding: 6px 7px; }
 .stats-token-source.compact .stats-token-source-card-head { display: block; }
 .stats-token-source.compact .stats-token-source-card-head strong { display: block; margin-top: 2px; font-size: 13px; }
-.stats-token-source.compact .stats-token-source-definition { font-size: 9.5px; }
 
 .stats-cache-note {
   margin: -4px 0 10px;

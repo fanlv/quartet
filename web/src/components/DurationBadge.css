@@ -1,6 +1,7 @@
 .duration-badge {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   font-size: 11px;
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   font-variant-numeric: tabular-nums;
@@ -10,6 +11,12 @@
   vertical-align: middle;
   margin-left: 6px;
   color: #8a8f99;
+}
+
+.duration-badge-icon {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
 }
 
 .duration-badge--running {

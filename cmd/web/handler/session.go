@@ -236,7 +236,7 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 		ModelID:         s.ModelID,
 		Type:            s.Type,
 		Messages:        messages,
-		TokenUsage:      &model.TokenUsage{TotalTokens: tokens},
+		TokenUsage:      &model.TokenUsage{TotalTokens: tokens, Estimated: true},
 		Workdir:         s.Workdir,
 		ACPMode:         s.ACPMode,
 		ACPThoughtLevel: s.ACPThoughtLevel,

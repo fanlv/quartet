@@ -70,6 +70,7 @@ export interface RunStartedEvent extends BaseEvent {
 
 export interface TokenUsage {
   totalTokens: number;
+  estimated: boolean;
 }
 
 export interface RunFinishedEvent extends BaseEvent {

@@ -602,36 +602,34 @@
         }
       }
     },
-    "%lld 次执行 · %lld%%" : {
-      "extractionState" : "stale",
+    "%lld Turn" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$lld runs · %2$lld%%"
+            "value" : "%lld Turn"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 次执行 · %lld%%"
+            "value" : "%lld Turn"
           }
         }
       }
     },
-    "%lld 次执行 · %lld%% 的执行" : {
-      "extractionState" : "stale",
+    "%lld Turn · %lld%%" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$lld runs · %2$lld%% of runs"
+            "value" : "%1$lld Turn · %2$lld%%"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 次执行 · %lld%% 的执行"
+            "value" : "%lld Turn · %lld%%"
           }
         }
       }
@@ -682,22 +680,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1  裁剪"
-          }
-        }
-      }
-    },
-    "1 次执行 = Agent 从收到一条输入到本次运行结束；工作流中的 Prompt/评估结点每执行一次也计 1 次。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 run starts when an agent receives an input and ends when that run finishes. Each Prompt/Evaluator node execution in a workflow also counts once."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 次执行 = Agent 从收到一条输入到本次运行结束；工作流中的 Prompt/评估结点每执行一次也计 1 次。"
           }
         }
       }
@@ -887,19 +869,18 @@
         }
       }
     },
-    "Agent 执行" : {
-      "extractionState" : "stale",
+    "Turn" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Agent runs"
+            "value" : "Turn"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Agent 执行"
+            "value" : "Turn"
           }
         }
       }
@@ -1382,23 +1363,6 @@
         }
       }
     },
-    "Provider 上报覆盖 %lld/%lld 轮（%lld%%），本地估算 %lld 轮。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Provider usage covers %1$lld of %2$lld turns (%3$lld%%); %4$lld turns use local estimates."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Provider 上报覆盖 %lld/%lld 轮（%lld%%），本地估算 %lld 轮。"
-          }
-        }
-      }
-    },
     "Qoder 已用 %@，总额度 %@" : {
       "localizations" : {
         "en" : {
@@ -1541,6 +1505,22 @@
         }
       }
     },
+    "Token 数量 %lld，%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token count %1$lld, %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token 数量 %lld，%@"
+          }
+        }
+      }
+    },
     "Token 数为本地分词器估算值，非 API 计费口径。统计页沿用 Web 端展示口径，将已记录的输出侧估算值乘以 2。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1575,19 +1555,18 @@
         }
       }
     },
-    "Token 统计方式（按执行次数）" : {
-      "extractionState" : "stale",
+    "Token 统计方式（按 Turn）" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Token accounting method (by run)"
+            "value" : "Token accounting method (by Turn)"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Token 统计方式（按执行次数）"
+            "value" : "Token 统计方式（按 Turn）"
           }
         }
       }
@@ -2005,18 +1984,18 @@
     "仅次数" : {
 
     },
-    "仅统计“模型返回”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。" : {
+    "仅统计“厂商上报”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Only for model-reported tokens. Cache and reasoning are included details; do not add them to input or output."
+            "value" : "Only vendor-reported tokens are included here. Cache and reasoning are included details; do not add them to input or output."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "仅统计“模型返回”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。"
+            "value" : "仅统计“厂商上报”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。"
           }
         }
       }
@@ -3181,23 +3160,6 @@
         }
       }
     },
-    "全部 %lld 轮均由 Provider 上报。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "All %lld turns are provider-reported."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "全部 %lld 轮均由 Provider 上报。"
-          }
-        }
-      }
-    },
     "全部任务" : {
 
     },
@@ -3265,23 +3227,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "共 %lld 天"
-          }
-        }
-      }
-    },
-    "共 %lld 次 Agent 执行" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld agent runs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "共 %lld 次 Agent 执行"
           }
         }
       }
@@ -8207,19 +8152,18 @@
         }
       }
     },
-    "当日 Token 统计方式（按执行次数）" : {
-      "extractionState" : "stale",
+    "当日 Token 统计方式（按 Turn）" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Token accounting method for this day (by run)"
+            "value" : "Token accounting method for this day (by Turn)"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "当日 Token 统计方式（按执行次数）"
+            "value" : "当日 Token 统计方式（按 Turn）"
           }
         }
       }
@@ -8327,23 +8271,6 @@
         }
       }
     },
-    "总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算。来源明细可能重叠，不能相加。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Total tokens prefer provider-reported usage. Turns without it use a local estimate that includes images. Source details may overlap; do not add them together."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算。来源明细可能重叠，不能相加。"
-          }
-        }
-      }
-    },
     "总 Token 由两类互斥来源合并：有正式用量时采用模型返回，否则采用 Quartet 估算；缓存、推理和图片 Token 只用于解释，不要再次相加。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -8391,23 +8318,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "总计"
-          }
-        }
-      }
-    },
-    "总轮次" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Turns"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "总轮次"
           }
         }
       }
@@ -8751,23 +8661,6 @@
         }
       }
     },
-    "执行次数" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Runs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "执行次数"
-          }
-        }
-      }
-    },
     "执行计划" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -9056,36 +8949,18 @@
         }
       }
     },
-    "按执行次数：模型返回占 %lld%%，Quartet 估算占 %lld%%" : {
-      "extractionState" : "stale",
+    "按 Turn：厂商上报占 %lld%%，本地估算占 %lld%%" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "By run count: model-reported %1$lld%%, Quartet-estimated %2$lld%%"
+            "value" : "By Turn: vendor-reported %1$lld%%, locally estimated %2$lld%%"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "按执行次数：模型返回占 %lld%%，Quartet 估算占 %lld%%"
-          }
-        }
-      }
-    },
-    "按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Calculated as provider-reported cache reads divided by total provider input; locally estimated turns are excluded."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。"
+            "value" : "按 Turn：厂商上报占 %lld%%，本地估算占 %lld%%"
           }
         }
       }
@@ -9107,18 +8982,18 @@
         }
       }
     },
-    "按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。" : {
+    "按厂商上报的缓存读取占输入总量计算；本地估算 Turn 不参与。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Calculated from model-reported cache reads as a share of total input. Quartet-estimated runs are excluded."
+            "value" : "Calculated from vendor-reported cache reads as a share of total input. Locally estimated Turn data is excluded."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。"
+            "value" : "按厂商上报的缓存读取占输入总量计算；本地估算 Turn 不参与。"
           }
         }
       }
@@ -9995,35 +9870,18 @@
         }
       }
     },
-    "暂无可计算来源的执行记录。" : {
+    "暂无可计算来源的 Turn。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No runs with source data are available."
+            "value" : "No Turn records with source data are available."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂无可计算来源的执行记录。"
-          }
-        }
-      }
-    },
-    "暂无可计算来源的轮次。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No turns with source information yet."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "暂无可计算来源的轮次。"
+            "value" : "暂无可计算来源的 Turn。"
           }
         }
       }
@@ -10658,19 +10516,19 @@
         }
       }
     },
-    "未收到用量时，Quartet 根据可见内容估算，仅供参考。" : {
+    "未收到厂商用量时，由 Quartet 根据可见内容在本地估算，仅供参考。" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "When usage is unavailable, Quartet estimates visible content for reference."
+            "value" : "When vendor usage is unavailable, Quartet estimates visible content locally for reference."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未收到用量时，Quartet 根据可见内容估算，仅供参考。"
+            "value" : "未收到厂商用量时，由 Quartet 根据可见内容在本地估算，仅供参考。"
           }
         }
       }
@@ -11438,35 +11296,35 @@
         }
       }
     },
-    "模型返回" : {
+    "厂商上报" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reported by model"
+            "value" : "Vendor-reported"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "模型返回"
+            "value" : "厂商上报"
           }
         }
       }
     },
-    "模型返回的用量明细" : {
+    "厂商上报的用量明细" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Model-reported usage details"
+            "value" : "Vendor-reported usage details"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "模型返回的用量明细"
+            "value" : "厂商上报的用量明细"
           }
         }
       }
@@ -13323,19 +13181,19 @@
         }
       }
     },
-    "由模型服务或 Agent 接口返回，通常更准确。" : {
+    "由厂商 CLI 提供的 Token 用量，通常更准确。" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Returned by the model service or agent interface and usually more accurate."
+            "value" : "Token usage provided by the vendor CLI, usually more accurate."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "由模型服务或 Agent 接口返回，通常更准确。"
+            "value" : "由厂商 CLI 提供的 Token 用量，通常更准确。"
           }
         }
       }
@@ -15729,23 +15587,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "跟随默认"
-          }
-        }
-      }
-    },
-    "轮次" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Turns"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "轮次"
           }
         }
       }
