@@ -866,7 +866,7 @@ function TokenDayPanel({ day, modelEntries }: { day: DailyRow; modelEntries: Tre
           </div>
         </div>
       </div>
-      <TokenSourceSummary coverage={coverage} titleKey="stats.tokens.daySourceTitle" />
+      <TokenSourceSummary coverage={coverage} compact titleKey="stats.tokens.daySourceTitle" />
       {modelEntries.length > 0 && (
         <>
           <div className="stats-token-day-section">{t('stats.tokens.modelBreakdown')}</div>

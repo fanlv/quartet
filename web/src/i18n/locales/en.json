@@ -959,8 +959,6 @@
       "estimated": "Quartet estimate",
       "modelBreakdown": "By model",
       "dayPanelTitle": "Token breakdown for the day",
-      "dayPanelLatest": "Latest",
-      "dayPanelPickHint": "Click a day in the chart, or focus it with the arrow keys, to switch days.",
       "dayPanelHint": "The total is computed by the server; the sources and details below can overlap, so do not add them up.",
       "dayPanelAriaLabel": "Token breakdown for {{date}}, total tokens {{value}}",
       "coverageLabel": "Source",

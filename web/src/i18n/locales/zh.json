@@ -953,8 +953,6 @@
       "estimated": "Quartet 估算",
       "modelBreakdown": "按模型",
       "dayPanelTitle": "当日 Token 明细",
-      "dayPanelLatest": "最新",
-      "dayPanelPickHint": "点击图表中的某一天，或用方向键聚焦，可切换查看。",
       "dayPanelHint": "总量由服务端计算；下列来源与明细可能重叠，请勿相加。",
       "dayPanelAriaLabel": "{{date}} Token 明细，总 Token {{value}}",
       "coverageLabel": "数据来源",
