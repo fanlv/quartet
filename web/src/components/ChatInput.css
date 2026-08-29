@@ -539,8 +539,11 @@
   align-items: center;
   gap: 5px;
   font-size: 13px;
-  color: #87958b;
-  padding: 4px 8px;
+  color: #5d6c62;
+  padding: 4px 10px;
+  background: #f3f7f4;
+  border-radius: 6px;
+  white-space: nowrap;
 }
 
 .token-usage-source-icon {
@@ -820,8 +823,6 @@
   }
 
   .token-usage {
-    font-size: 11px;
-    padding: 2px 4px;
     white-space: nowrap;
     flex-shrink: 0;
   }
@@ -934,7 +935,7 @@
   .token-usage {
     display: flex;
     font-size: 11px;
-    padding: 2px 4px;
+    padding: 3px 6px;
     white-space: nowrap;
     flex-shrink: 0;
   }

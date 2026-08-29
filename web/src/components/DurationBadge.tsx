@@ -123,7 +123,7 @@ export function DurationBadge({ startedAt, endedAt, baseMs = 0, variant = 'assis
     if (baseMs > 0) {
       const displayed = Math.max(baseMs, maxShown);
       return (
-        <span className={`duration-badge duration-badge--${variant} duration-badge--finished`}>
+        <span className={`duration-badge duration-badge--${variant} duration-badge--finished ${showIcon ? 'duration-badge--with-icon' : ''}`}>
           {showIcon && <DurationClockIcon />}
           {formatDuration(displayed)}
         </span>
@@ -143,7 +143,7 @@ export function DurationBadge({ startedAt, endedAt, baseMs = 0, variant = 'assis
   const displayed = Math.max(elapsed, maxShown);
 
   return (
-    <span className={`duration-badge duration-badge--${variant} ${isRunning ? 'duration-badge--running' : 'duration-badge--finished'}`}>
+    <span className={`duration-badge duration-badge--${variant} ${isRunning ? 'duration-badge--running' : 'duration-badge--finished'} ${showIcon ? 'duration-badge--with-icon' : ''}`}>
       {showIcon && <DurationClockIcon />}
       {formatDuration(displayed)}
     </span>

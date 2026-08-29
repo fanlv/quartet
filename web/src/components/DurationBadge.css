@@ -19,6 +19,15 @@
   flex: 0 0 auto;
 }
 
+.duration-badge--with-icon {
+  margin-left: 0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #f3f7f4;
+  color: #5d6c62;
+  font-size: 13px;
+}
+
 .duration-badge--running {
   color: var(--accent);
   animation: duration-pulse 1.5s ease-in-out infinite;
@@ -27,4 +36,11 @@
 @keyframes duration-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
+}
+
+@media (max-width: 768px) {
+  .duration-badge--with-icon {
+    padding: 3px 6px;
+    font-size: 11px;
+  }
 }
