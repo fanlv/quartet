@@ -1603,9 +1603,9 @@ final class ChatViewModel: ObservableObject {
             messages.last?.toolArguments?.utf8.count ?? 0
         )
         switch streamedByteCount {
-        case ..<4_000: .milliseconds(40)
-        case ..<16_000: .milliseconds(120)
-        default: .milliseconds(250)
+        case ..<4_000: return .milliseconds(40)
+        case ..<16_000: return .milliseconds(120)
+        default: return .milliseconds(250)
         }
     }
 

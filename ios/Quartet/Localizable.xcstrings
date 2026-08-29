@@ -26,6 +26,40 @@
     "·" : {
 
     },
+    "· 图工作流走到“使用全局默认脚本”的终点结点" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· A graph workflow reaches an end node set to “Use global default script”"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· 图工作流走到“使用全局默认脚本”的终点结点"
+          }
+        }
+      }
+    },
+    "· 对话每一轮结束——完成 / 失败 / 停止都会触发" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· Every chat round ends — completed / failed / stopped"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· 对话每一轮结束——完成 / 失败 / 停止都会触发"
+          }
+        }
+      }
+    },
     "（已删除）" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -568,6 +602,40 @@
         }
       }
     },
+    "%lld 次执行 · %lld%%" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld runs · %2$lld%%"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 次执行 · %lld%%"
+          }
+        }
+      }
+    },
+    "%lld 次执行 · %lld%% 的执行" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld runs · %2$lld%% of runs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 次执行 · %lld%% 的执行"
+          }
+        }
+      }
+    },
     "%lld/%lld" : {
       "localizations" : {
         "zh-Hans" : {
@@ -584,6 +652,23 @@
     "💻" : {
 
     },
+    "$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。$QUARTET_JOB_WATCHED 为 1 表示本轮结束时有人正在实时查看。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "$QUARTET_HOOK_SOURCE is end (workflow end node) / prompt (node hook) / interactive (chat round). Graph runs also inject the node's visible workflow variables. $QUARTET_JOB_WATCHED is 1 when somebody was watching the task live as the round ended."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。$QUARTET_JOB_WATCHED 为 1 表示本轮结束时有人正在实时查看。"
+          }
+        }
+      }
+    },
     "1  裁剪" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -597,6 +682,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1  裁剪"
+          }
+        }
+      }
+    },
+    "1 次执行 = Agent 从收到一条输入到本次运行结束；工作流中的 Prompt/评估结点每执行一次也计 1 次。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 run starts when an agent receives an input and ends when that run finishes. Each Prompt/Evaluator node execution in a workflow also counts once."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 次执行 = Agent 从收到一条输入到本次运行结束；工作流中的 Prompt/评估结点每执行一次也计 1 次。"
           }
         }
       }
@@ -782,6 +883,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Agent 当前不可用"
+          }
+        }
+      }
+    },
+    "Agent 执行" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent runs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent 执行"
           }
         }
       }
@@ -1056,6 +1174,23 @@
         }
       }
     },
+    "Hook 环境变量" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook env vars"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook 环境变量"
+          }
+        }
+      }
+    },
     "Hook 脚本" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1286,6 +1421,23 @@
     "QUARTET / IOS" : {
 
     },
+    "Quartet 估算" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estimated by Quartet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quartet 估算"
+          }
+        }
+      }
+    },
     "quartet-cli 和项目技能安装完成" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1372,6 +1524,23 @@
         }
       }
     },
+    "Token 总量来源" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total token sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token 总量来源"
+          }
+        }
+      }
+    },
     "Token 数为本地分词器估算值，非 API 计费口径。统计页沿用 Web 端展示口径，将已记录的输出侧估算值乘以 2。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1390,6 +1559,7 @@
       }
     },
     "Token 来源" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1401,6 +1571,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Token 来源"
+          }
+        }
+      }
+    },
+    "Token 统计方式（按执行次数）" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token accounting method (by run)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token 统计方式（按执行次数）"
           }
         }
       }
@@ -1764,8 +1951,75 @@
         }
       }
     },
+    "仅图工作流" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Graph only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅图工作流"
+          }
+        }
+      }
+    },
+    "仅在无人实时查看该任务时执行（对话）" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only run when nobody is watching the task live (chat)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在无人实时查看该任务时执行（对话）"
+          }
+        }
+      }
+    },
+    "仅对话" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅对话"
+          }
+        }
+      }
+    },
     "仅次数" : {
 
+    },
+    "仅统计“模型返回”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only for model-reported tokens. Cache and reasoning are included details; do not add them to input or output."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅统计“模型返回”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。"
+          }
+        }
+      }
     },
     "仍可选择当前目录。" : {
       "extractionState" : "stale",
@@ -1863,6 +2117,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "任务名称"
+          }
+        }
+      }
+    },
+    "任务结束时执行的默认副作用脚本，一般用来发通知。输出会被忽略，失败只打日志，不影响任务本身。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The default side-effect script run when a task ends, typically to send a notification. Its output is ignored and a failure only logs, never affecting the task itself."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任务结束时执行的默认副作用脚本，一般用来发通知。输出会被忽略，失败只打日志，不影响任务本身。"
+          }
+        }
+      }
+    },
+    "任务结束默认 Hook（Shell）" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Task end default hook (Shell)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任务结束默认 Hook（Shell）"
           }
         }
       }
@@ -2930,6 +3218,23 @@
         }
       }
     },
+    "公共" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shared"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "公共"
+          }
+        }
+      }
+    },
     "共 %d 个技能" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2960,6 +3265,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "共 %lld 天"
+          }
+        }
+      }
+    },
+    "共 %lld 次 Agent 执行" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld agent runs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "共 %lld 次 Agent 执行"
           }
         }
       }
@@ -4810,6 +5132,7 @@
       }
     },
     "回到底部" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4910,6 +5233,7 @@
       }
     },
     "图片 Token 为估算值，可能已包含在输入 Token 中。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4955,6 +5279,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "图片估算"
+          }
+        }
+      }
+    },
+    "图片内容估算" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estimated image content"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片内容估算"
           }
         }
       }
@@ -5913,6 +6253,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "对话"
+          }
+        }
+      }
+    },
+    "对话轮次结束时，如果有页面正在实时看这个任务的输出（Web 前台标签页、iOS 前台对话页、图运行页），就不执行脚本；已跳过的通知不会延迟补发，之后在无人查看时结束的轮次才会通知。图工作流终点 Hook 不受影响。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When a chat round ends, skip the script if a page is watching this task's output live (a visible web tab, the iOS chat page in the foreground, the graph run page). Skipped notifications are not delayed; later rounds notify normally when nobody is watching. Graph End node hooks are unaffected."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对话轮次结束时，如果有页面正在实时看这个任务的输出（Web 前台标签页、iOS 前台对话页、图运行页），就不执行脚本；已跳过的通知不会延迟补发，之后在无人查看时结束的轮次才会通知。图工作流终点 Hook 不受影响。"
           }
         }
       }
@@ -7579,6 +7936,23 @@
         }
       }
     },
+    "当前账号没有 config.read 权限，无法查看头像和任务结束 Hook 配置。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account has no config.read permission, so the avatar and task end hook settings cannot be shown."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.read 权限，无法查看头像和任务结束 Hook 配置。"
+          }
+        }
+      }
+    },
     "当前账号没有 config.write 权限，不能删除或重新绑定这份配置。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7609,6 +7983,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "当前账号没有 config.write 权限，只能查看全部项目的预置消息。"
+          }
+        }
+      }
+    },
+    "当前账号没有 config.write 权限，只能查看头像和任务结束 Hook 配置。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account has no config.write permission; the avatar and task end hook settings are read-only."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号没有 config.write 权限，只能查看头像和任务结束 Hook 配置。"
           }
         }
       }
@@ -7816,6 +8207,23 @@
         }
       }
     },
+    "当日 Token 统计方式（按执行次数）" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token accounting method for this day (by run)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当日 Token 统计方式（按执行次数）"
+          }
+        }
+      }
+    },
     "影响范围" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7920,6 +8328,7 @@
       }
     },
     "总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算。来源明细可能重叠，不能相加。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7931,6 +8340,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "总 Token 优先使用服务商上报；未上报的轮次使用含图片的本地估算。来源明细可能重叠，不能相加。"
+          }
+        }
+      }
+    },
+    "总 Token 由两类互斥来源合并：有正式用量时采用模型返回，否则采用 Quartet 估算；缓存、推理和图片 Token 只用于解释，不要再次相加。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total tokens combine two mutually exclusive sources: model-reported usage when available, otherwise a Quartet estimate. Cache, reasoning, and image tokens are explanatory details and must not be added again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总 Token 由两类互斥来源合并：有正式用量时采用模型返回，否则采用 Quartet 估算；缓存、推理和图片 Token 只用于解释，不要再次相加。"
           }
         }
       }
@@ -7987,6 +8413,7 @@
       }
     },
     "总量由服务端计算；下列来源与明细可能重叠，请勿相加。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8036,6 +8463,7 @@
       }
     },
     "恢复自动跟随最新内容" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8149,6 +8577,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "所选范围内没有可计算缓存命中率的 Provider 输入数据。"
+          }
+        }
+      }
+    },
+    "所选范围内没有可计算缓存命中率的模型输入数据。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No model-reported input is available to calculate cache hit rates in this range."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选范围内没有可计算缓存命中率的模型输入数据。"
           }
         }
       }
@@ -8302,6 +8747,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "执行失败"
+          }
+        }
+      }
+    },
+    "执行次数" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "执行次数"
           }
         }
       }
@@ -8594,7 +9056,25 @@
         }
       }
     },
+    "按执行次数：模型返回占 %lld%%，Quartet 估算占 %lld%%" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "By run count: model-reported %1$lld%%, Quartet-estimated %2$lld%%"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按执行次数：模型返回占 %lld%%，Quartet 估算占 %lld%%"
+          }
+        }
+      }
+    },
     "按服务商上报的缓存读取占输入总量计算；本地估算轮次不参与。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8623,6 +9103,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "按模型"
+          }
+        }
+      }
+    },
+    "按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculated from model-reported cache reads as a share of total input. Quartet-estimated runs are excluded."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。"
           }
         }
       }
@@ -9499,7 +9995,24 @@
         }
       }
     },
+    "暂无可计算来源的执行记录。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No runs with source data are available."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无可计算来源的执行记录。"
+          }
+        }
+      }
+    },
     "暂无可计算来源的轮次。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9827,6 +10340,7 @@
       }
     },
     "有新内容" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9843,6 +10357,7 @@
       }
     },
     "有新内容，回到底部" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -10139,6 +10654,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未指定 Model"
+          }
+        }
+      }
+    },
+    "未收到用量时，Quartet 根据可见内容估算，仅供参考。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When usage is unavailable, Quartet estimates visible content for reference."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未收到用量时，Quartet 根据可见内容估算，仅供参考。"
           }
         }
       }
@@ -10522,6 +11054,7 @@
       }
     },
     "来源与明细" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -10901,6 +11434,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "模型"
+          }
+        }
+      }
+    },
+    "模型返回" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reported by model"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型返回"
+          }
+        }
+      }
+    },
+    "模型返回的用量明细" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model-reported usage details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型返回的用量明细"
           }
         }
       }
@@ -12753,6 +13319,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "用户配置已保存；保存期间的新修改尚未保存"
+          }
+        }
+      }
+    },
+    "由模型服务或 Agent 接口返回，通常更准确。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Returned by the model service or agent interface and usually more accurate."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由模型服务或 Agent 接口返回，通常更准确。"
           }
         }
       }
@@ -14616,6 +15199,23 @@
         }
       }
     },
+    "触发点" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trigger points"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "触发点"
+          }
+        }
+      }
+    },
     "认证配置需要恢复" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -14712,6 +15312,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "说明"
+          }
+        }
+      }
+    },
+    "说明性数据，已包含在输入 Token 或 Quartet 估算中。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Explanatory data already included in input tokens or the Quartet estimate."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "说明性数据，已包含在输入 Token 或 Quartet 估算中。"
           }
         }
       }
@@ -17302,595 +17918,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "默认选择"
-          }
-        }
-      }
-    },
-    "任务结束默认 Hook（Shell）" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Task end default hook (Shell)"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "任务结束默认 Hook（Shell）"
-          }
-        }
-      }
-    },
-    "任务结束时执行的默认副作用脚本，一般用来发通知。输出会被忽略，失败只打日志，不影响任务本身。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The default side-effect script run when a task ends, typically to send a notification. Its output is ignored and a failure only logs, never affecting the task itself."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "任务结束时执行的默认副作用脚本，一般用来发通知。输出会被忽略，失败只打日志，不影响任务本身。"
-          }
-        }
-      }
-    },
-    "触发点" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Trigger points"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "触发点"
-          }
-        }
-      }
-    },
-    "· 图工作流走到“使用全局默认脚本”的终点结点" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "· A graph workflow reaches an end node set to “Use global default script”"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "· 图工作流走到“使用全局默认脚本”的终点结点"
-          }
-        }
-      }
-    },
-    "· 对话每一轮结束——完成 / 失败 / 停止都会触发" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "· Every chat round ends — completed / failed / stopped"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "· 对话每一轮结束——完成 / 失败 / 停止都会触发"
-          }
-        }
-      }
-    },
-    "Hook 环境变量" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hook env vars"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hook 环境变量"
-          }
-        }
-      }
-    },
-    "公共" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shared"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "公共"
-          }
-        }
-      }
-    },
-    "仅图工作流" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Graph only"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅图工作流"
-          }
-        }
-      }
-    },
-    "仅对话" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chat only"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅对话"
-          }
-        }
-      }
-    },
-    "$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。$QUARTET_JOB_WATCHED 为 1 表示本轮结束时有人正在实时查看。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "$QUARTET_HOOK_SOURCE is end (workflow end node) / prompt (node hook) / interactive (chat round). Graph runs also inject the node's visible workflow variables. $QUARTET_JOB_WATCHED is 1 when somebody was watching the task live as the round ended."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。$QUARTET_JOB_WATCHED 为 1 表示本轮结束时有人正在实时查看。"
-          }
-        }
-      }
-    },
-    "仅在无人实时查看该任务时执行（对话）" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Only run when nobody is watching the task live (chat)"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅在无人实时查看该任务时执行（对话）"
-          }
-        }
-      }
-    },
-    "对话轮次结束时，如果有页面正在实时看这个任务的输出（Web 前台标签页、iOS 前台对话页、图运行页），就不执行脚本；已跳过的通知不会延迟补发，之后在无人查看时结束的轮次才会通知。图工作流终点 Hook 不受影响。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "When a chat round ends, skip the script if a page is watching this task's output live (a visible web tab, the iOS chat page in the foreground, the graph run page). Skipped notifications are not delayed; later rounds notify normally when nobody is watching. Graph End node hooks are unaffected."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "对话轮次结束时，如果有页面正在实时看这个任务的输出（Web 前台标签页、iOS 前台对话页、图运行页），就不执行脚本；已跳过的通知不会延迟补发，之后在无人查看时结束的轮次才会通知。图工作流终点 Hook 不受影响。"
-          }
-        }
-      }
-    },
-    "当前账号没有 config.read 权限，无法查看头像和任务结束 Hook 配置。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This account has no config.read permission, so the avatar and task end hook settings cannot be shown."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前账号没有 config.read 权限，无法查看头像和任务结束 Hook 配置。"
-          }
-        }
-      }
-    },
-    "当前账号没有 config.write 权限，只能查看头像和任务结束 Hook 配置。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This account has no config.write permission; the avatar and task end hook settings are read-only."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前账号没有 config.write 权限，只能查看头像和任务结束 Hook 配置。"
-          }
-        }
-      }
-    },
-    "总 Token 由两类互斥来源合并：有正式用量时采用模型返回，否则采用 Quartet 估算；缓存、推理和图片 Token 只用于解释，不要再次相加。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Total tokens combine two mutually exclusive sources: model-reported usage when available, otherwise a Quartet estimate. Cache, reasoning, and image tokens are explanatory details and must not be added again."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "总 Token 由两类互斥来源合并：有正式用量时采用模型返回，否则采用 Quartet 估算；缓存、推理和图片 Token 只用于解释，不要再次相加。"
-          }
-        }
-      }
-    },
-    "按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Calculated from model-reported cache reads as a share of total input. Quartet-estimated runs are excluded."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。"
-          }
-        }
-      }
-    },
-    "所选范围内没有可计算缓存命中率的模型输入数据。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No model-reported input is available to calculate cache hit rates in this range."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所选范围内没有可计算缓存命中率的模型输入数据。"
-          }
-        }
-      }
-    },
-    "Token 总量来源" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Total token sources"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Token 总量来源"
-          }
-        }
-      }
-    },
-    "共 %lld 次 Agent 执行" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld agent runs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "共 %lld 次 Agent 执行"
-          }
-        }
-      }
-    },
-    "暂无可计算来源的执行记录。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No runs with source data are available."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "暂无可计算来源的执行记录。"
-          }
-        }
-      }
-    },
-    "按执行次数：模型返回占 %lld%%，Quartet 估算占 %lld%%" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "By run count: model-reported %1$lld%%, Quartet-estimated %2$lld%%"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按执行次数：模型返回占 %lld%%，Quartet 估算占 %lld%%"
-          }
-        }
-      }
-    },
-    "模型返回" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reported by model"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "模型返回"
-          }
-        }
-      }
-    },
-    "由模型服务或 Agent 接口返回，通常更准确。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Returned by the model service or agent interface and usually more accurate."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "由模型服务或 Agent 接口返回，通常更准确。"
-          }
-        }
-      }
-    },
-    "Quartet 估算" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Estimated by Quartet"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Quartet 估算"
-          }
-        }
-      }
-    },
-    "未收到用量时，Quartet 根据可见内容估算，仅供参考。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "When usage is unavailable, Quartet estimates visible content for reference."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未收到用量时，Quartet 根据可见内容估算，仅供参考。"
-          }
-        }
-      }
-    },
-    "1 次执行 = Agent 从收到一条输入到本次运行结束；工作流中的 Prompt/评估结点每执行一次也计 1 次。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 run starts when an agent receives an input and ends when that run finishes. Each Prompt/Evaluator node execution in a workflow also counts once."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 次执行 = Agent 从收到一条输入到本次运行结束；工作流中的 Prompt/评估结点每执行一次也计 1 次。"
-          }
-        }
-      }
-    },
-    "%lld 次执行 · %lld%%" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld runs · %2$lld%%"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 次执行 · %lld%%"
-          }
-        }
-      }
-    },
-    "模型返回的用量明细" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Model-reported usage details"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "模型返回的用量明细"
-          }
-        }
-      }
-    },
-    "仅统计“模型返回”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Only for model-reported tokens. Cache and reasoning are included details; do not add them to input or output."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅统计“模型返回”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。"
-          }
-        }
-      }
-    },
-    "Agent 执行" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent runs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent 执行"
-          }
-        }
-      }
-    },
-    "执行次数" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Runs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "执行次数"
-          }
-        }
-      }
-    },
-    "图片内容估算" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Estimated image content"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "图片内容估算"
-          }
-        }
-      }
-    },
-    "说明性数据，已包含在输入 Token 或 Quartet 估算中。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Explanatory data already included in input tokens or the Quartet estimate."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "说明性数据，已包含在输入 Token 或 Quartet 估算中。"
-          }
-        }
-      }
-    },
-    "Token 统计方式（按执行次数）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Token accounting method (by run)"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Token 统计方式（按执行次数）"
-          }
-        }
-      }
-    },
-    "当日 Token 统计方式（按执行次数）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Token accounting method for this day (by run)"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当日 Token 统计方式（按执行次数）"
-          }
-        }
-      }
-    },
-    "%lld 次执行 · %lld%% 的执行" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld runs · %2$lld%% of runs"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 次执行 · %lld%% 的执行"
           }
         }
       }
