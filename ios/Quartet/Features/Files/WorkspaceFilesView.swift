@@ -38,6 +38,7 @@ struct WorkspaceFilesView: View {
                         onOpenFile: openFile
                     )
                         .quartetNavigationTitle(route.name)
+                        .quartetPlainNavigationBackButton()
                 }
                 .toolbar {
                     ToolbarItem(placement: .principal) {
@@ -241,6 +242,7 @@ struct WorkspaceDirectoryBrowserView: View {
         }
         .background(QuartetTheme.canvas)
         .quartetNavigationTitle(workspaceTitle)
+        .quartetPlainNavigationBackButton()
         .fullScreenCover(item: $webDestination) { destination in
             NavigationStack {
                 ChatWebViewPage(
@@ -423,6 +425,7 @@ private struct WorkspaceDirectoryView: View {
                 onOpenFile: onOpenFile
             )
             .quartetNavigationTitle(name)
+            .quartetPlainNavigationBackButton()
         )
     }
 
