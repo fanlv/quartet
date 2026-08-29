@@ -28,62 +28,32 @@ private struct ChatAgentModelSelection: Hashable {
     let modelID: String
 }
 
-/// 用户离开底部去看前面内容时冻结的时间线快照。
-///
-/// 只停掉跟随滚动不够：`LazyVStack` 的内容高度在流式输出期间一直在变（新气泡追加、
-/// 工具卡在结束时从几千点塌成一行、离屏 cell 的估算高度被重新计算），只要视口上方的
-/// 高度变了，contentOffset 不动的情况下画面里的内容也会被顶走 —— 用户看到的就是
-/// “没有跳到底部，但在慢慢往下滑”。离开底部期间直接渲染这份快照，列表内容一个字都不
-/// 变，阅读位置才真正钉住；回到底部时一次性解冻并补上这段时间的全部新内容。
-private struct FrozenChatTimeline: Sendable {
-    let messages: [ChatMessage]
-    let outboxItems: [LocalOutboxItem]
-    /// 冻结那一刻的滚动锚点，用来判断快照之后是否又有了新内容。
-    let scrollAnchor: Int
-}
+/// 聊天时间线只保留“跟随最新”和“浏览历史”两个互斥状态。
+/// 浏览态记录进入时的内容版本，用于提示这期间是否又收到了新内容。
+private enum ChatTimelineMode: Equatable {
+    case following
+    case browsing(anchor: Int, messageCount: Int)
 
-/// 聊天列表每一帧只提取这些滚动数据，避免几个独立的几何观察者在同一帧读到不同状态。
-private struct ChatScrollMetrics: Equatable {
-    let offsetY: CGFloat
-    let distanceToBottom: CGFloat
-    let isScrollable: Bool
-
-    init(_ geometry: ScrollGeometry) {
-        offsetY = geometry.contentOffset.y
-
-        // `contentSize` 不含 inset；UIScrollView 的合法偏移范围还要把上下 inset 算进去。
-        // 直接用 contentSize - containerSize 会在键盘/安全区产生 inset 时把“底部”算偏。
-        let minimumOffsetY = -geometry.contentInsets.top
-        let maximumOffsetY = max(
-            minimumOffsetY,
-            geometry.contentSize.height - geometry.containerSize.height + geometry.contentInsets.bottom
-        )
-        distanceToBottom = maximumOffsetY - offsetY
-        isScrollable = maximumOffsetY - minimumOffsetY > 1
+    var isFollowing: Bool {
+        if case .following = self { return true }
+        return false
     }
 
-    var isNearBottom: Bool {
-        abs(distanceToBottom) < ChatScrollThreshold.followCatchUp
+    var browsingAnchor: Int? {
+        if case .browsing(let anchor, _) = self { return anchor }
+        return nil
     }
 
-    var isAtBottom: Bool {
-        abs(distanceToBottom) < ChatScrollThreshold.resumeFollow
-    }
-
-    var isOffContent: Bool {
-        -distanceToBottom > ChatScrollThreshold.offContent
+    var browsingMessageCount: Int? {
+        if case .browsing(_, let messageCount) = self { return messageCount }
+        return nil
     }
 }
 
-private enum ChatScrollThreshold {
-    /// 系统已经识别成滚动手势后，再向历史方向移动这点距离就视为明确的自由浏览意图。
-    static let enterFreeBrowsing: CGFloat = 12
-    /// 已处于自由浏览时，必须真正回到底边才恢复跟随，避免在底部附近反复切换模式。
-    static let resumeFollow: CGFloat = 12
-    /// 跟随模式下允许底边锚点自行消化的小幅布局误差。
-    static let followCatchUp: CGFloat = 80
-    /// 超过合法内容底部这么多时视为 LazyVStack 估算失配，而不是正常橡皮筋。
-    static let offContent: CGFloat = 80
+private enum ChatTimelineWindow {
+    /// 默认非懒加载窗口有明确上限，避免长会话首次创建几百个 Markdown 视图。
+    static let initialMessageCount = 80
+    static let earlierPageSize = 60
 }
 
 struct JobChatView: View {
@@ -108,14 +78,11 @@ struct JobChatView: View {
     @State private var globalMessagePresets: [MessagePreset] = []
     @State private var messagePresetLoadErrors: [String] = []
     @State private var loadingMessagePresets = false
-    @State private var userScrolledAwayFromBottom = false
-    @State private var userIsScrollingMessages = false
-    @State private var messagesAreNearBottom = true
-    @State private var messagesScrolledOffContent = false
-    @State private var frozenTimeline: FrozenChatTimeline?
-    @State private var messageScrollStartOffsetY: CGFloat?
-    @State private var messageScrollStartedWhileFollowing = false
-    @State private var messageScrollRequestedFreeBrowsing = false
+    @State private var timelineMode: ChatTimelineMode = .following
+    @State private var userIsScrollingTimeline = false
+    @State private var timelineBottomIsVisible = true
+    @State private var visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
+    @State private var pendingTimelinePrependAnchor: String?
     @State private var followBottomRequests = 0
     @State private var configuredModels: AgentModelState?
     @State private var configuredThoughtLevels: AgentThoughtLevelState?
@@ -357,140 +324,63 @@ struct JobChatView: View {
         appModel.jobSummary(id: route.summary.id) ?? route.summary
     }
 
-    /// 时间线渲染源：用户离开底部期间固定读冻结快照，回到底部才读实时数据。
-    private var timelineMessages: [ChatMessage] {
-        frozenTimeline?.messages ?? chat.messages
+    /// 只渲染最近一段历史，确保非懒加载容器的工作量有界。
+    private var timelineMessages: ArraySlice<ChatMessage> {
+        chat.messages.suffix(effectiveTimelineMessageCount)
     }
 
-    private var timelineOutboxItems: [LocalOutboxItem] {
-        frozenTimeline?.outboxItems ?? chat.timelineOutboxItems
+    /// 浏览期间追加到尾部的新消息不占用原窗口配额，否则 `suffix` 会同时从顶部移除一条，
+    /// 让用户正在看的位置跳动。把增量加入有效窗口后，窗口起点保持不变。
+    private var effectiveTimelineMessageCount: Int {
+        guard let browsingMessageCount = timelineMode.browsingMessageCount else {
+            return visibleTimelineMessageCount
+        }
+        return visibleTimelineMessageCount + max(0, chat.messages.count - browsingMessageCount)
     }
 
-    /// 冻结期间又产生了新内容：用来在“回到底部”按钮上提示有未读增量。
+    private var hiddenTimelineMessageCount: Int {
+        max(0, chat.messages.count - effectiveTimelineMessageCount)
+    }
+
     private var timelineHasPendingUpdates: Bool {
-        guard let frozenTimeline else { return false }
-        return frozenTimeline.scrollAnchor != chat.scrollAnchor
+        guard let anchor = timelineMode.browsingAnchor else { return false }
+        return anchor != chat.scrollAnchor
     }
 
-    /// 暂停跟随，并把当前时间线冻结成快照。
-    ///
-    /// 冻结必须发生在滚动视图进入 tracking 的那一刻：这样快照就是手指按下时看到的画面，
-    /// 流式增量也没有机会在系统正式识别拖动前先把视口带回底部。此时只是“暂时挂起”，
-    /// 还不能断言用户真的想看历史；一次点击或底部橡皮筋会在手势结束时自动解冻。
-    private func freezeTimelineForUserScroll() {
-        guard frozenTimeline == nil else { return }
-        frozenTimeline = FrozenChatTimeline(
-            messages: chat.messages,
-            outboxItems: chat.timelineOutboxItems,
-            scrollAnchor: chat.scrollAnchor
-        )
+    private func beginTimelineBrowsing() {
+        guard timelineMode.isFollowing else { return }
+        timelineMode = .browsing(anchor: chat.scrollAnchor, messageCount: chat.messages.count)
     }
 
-    private func beginMessageScroll(with metrics: ChatScrollMetrics) {
-        guard messageScrollStartOffsetY == nil else { return }
-        messageScrollStartOffsetY = metrics.offsetY
-        messageScrollStartedWhileFollowing = frozenTimeline == nil && !userScrolledAwayFromBottom
-        messageScrollRequestedFreeBrowsing = false
-        freezeTimelineForUserScroll()
-    }
-
-    /// 记录用户“向历史方向”滚动的意图，并且一旦成立就在本次手势内锁存。
-    ///
-    /// 不能只看松手时是否还在底部附近：流式布局可能在同一帧改变 contentSize，旧实现因此
-    /// 经常把一次真实的上滑误判成“仍在底部”。快照冻结后 contentSize 基本稳定，直接比较
-    /// contentOffset 的方向既不受底部阈值影响，也不会把向下橡皮筋当成自由浏览。
-    private func recordFreeBrowsingIntent(with metrics: ChatScrollMetrics) {
-        guard messageScrollStartedWhileFollowing,
-              !messageScrollRequestedFreeBrowsing,
-              metrics.isScrollable,
-              let startOffsetY = messageScrollStartOffsetY,
-              startOffsetY - metrics.offsetY >= ChatScrollThreshold.enterFreeBrowsing else { return }
-        messageScrollRequestedFreeBrowsing = true
-        userScrolledAwayFromBottom = true
-    }
-
-    private func resetMessageScrollGesture() {
-        messageScrollStartOffsetY = nil
-        messageScrollStartedWhileFollowing = false
-        messageScrollRequestedFreeBrowsing = false
-    }
-
-    /// 用手势结束同一帧的几何值收敛跟随状态。
-    private func finishMessageScroll(_ proxy: ScrollViewProxy, with metrics: ChatScrollMetrics) {
-        recordFreeBrowsingIntent(with: metrics)
-        let startedWhileFollowing = messageScrollStartedWhileFollowing
-        let requestedFreeBrowsing = messageScrollRequestedFreeBrowsing
-        resetMessageScrollGesture()
-
-        if startedWhileFollowing {
-            if requestedFreeBrowsing {
-                // 用户意图优先于这一帧的底部位置。即使流式布局恰好把偏移拉回底部，仍保留
-                // 冻结快照；用户可通过悬浮按钮明确恢复实时跟随。
-                userScrolledAwayFromBottom = true
-            } else {
-                resumeTimelineFollow(proxy)
-            }
-            return
-        }
-
-        // 已经在自由浏览时，只有用户确实把列表带回底边才自动恢复；停在“差不多到底”仍
-        // 保持冻结，避免 80pt 的宽阈值让模式在底部附近来回翻转。
-        if metrics.isAtBottom {
-            resumeTimelineFollow(proxy)
-        } else {
-            userScrolledAwayFromBottom = true
+    /// 非懒加载窗口里的底部位置是完整布局后的真实位置，不再经过离屏 cell 高度估算。
+    private func scrollTimelineToBottom(_ proxy: ScrollViewProxy) {
+        withTransaction(Transaction(animation: nil)) {
+            proxy.scrollTo("chat-bottom", anchor: .bottom)
         }
     }
 
-    /// 恢复跟随：解冻快照、补上这段时间的新内容，并回到底部。
-    ///
-    /// 只重置偏移不够：`userScrolledAwayFromBottom` 留在 `true` 的话，后续内容照样不跟随，
-    /// 用户看到的是一条卡住的时间线。视口既然已经回到底部，跟随状态必须跟着对齐。
-    ///
-    /// 这里刻意不加动画：解冻要补上的可能是几千点的内容，动画滚过这么长的距离会让
-    /// `LazyVStack` 一路来不及物化 cell，中途整屏空白，落点也更容易算飘。
     private func resumeTimelineFollow(_ proxy: ScrollViewProxy) {
-        resetMessageScrollGesture()
-        frozenTimeline = nil
-        messagesAreNearBottom = true
-        userScrolledAwayFromBottom = false
-        // `messagesScrolledOffContent` 刻意不在这里清掉：它由几何观察独占，只有偏移真的回到
-        // 内容范围内才翻回 false。手工清成 false 会让越界状态在纠正失败后无声消失，后续
-        // 锚点变化也就失去了继续纠正的依据。
-        //
-        // 解冻和滚动请求在同一次更新里提交：ScrollView 会先按补齐后的内容重新布局，
-        // 再消费这个待处理的滚动目标，所以一次 scrollTo 就落在真正的底部。
-        proxy.scrollTo("chat-bottom", anchor: .bottom)
+        pendingTimelinePrependAnchor = nil
+        timelineMode = .following
+        visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
+        scrollTimelineToBottom(proxy)
     }
 
-    /// 跟随期间的兜底滚动：只在真的飘离底部时才补一次显式滚动。
-    ///
-    /// 常态下什么都不做 —— 内容长高由 `.defaultScrollAnchor(.bottom, for: .sizeChanges)` 在
-    /// ScrollView 内部接管。这里刻意不像以前那样每次锚点变化都请求一次 `scrollTo`：流式输出
-    /// 时锚点每几百毫秒就 bump 一次，每一次都是一次“按 `LazyVStack` 估算高度反算滚到底”的
-    /// 机会，撞上工具卡塌缩那一帧就把偏移甩到内容之外，整屏空白。
-    ///
-    /// 保留这条路径是为了三件事：底边锚点没能把视口带上时（内容已经长高、视口还留在原处）
-    /// 补一次追赶；偏移已经越界时每次调用都重试一次纠正，避免第一次纠正撞上尚未稳定的
-    /// LazyVStack 估算；以及历史一次性加载完这类只 bump 一次锚点的场景。
-    ///
-    /// `isNearBottom` 必须由调用方显式传入：几何回调里刚算出的新值和 `messagesAreNearBottom`
-    /// 这个状态不是同一时刻的东西，而锚点变化那条路径跑在布局之前，读到的是上一帧的旧值。
-    ///
-    /// 这里同样不加动画：需要补滚动时距离本来就远，动画滚过几千点会让 `LazyVStack` 一路来不及
-    /// 物化 cell，中途整屏空白。
-    private func followBottomIfNeeded(_ proxy: ScrollViewProxy, isNearBottom: Bool) {
-        guard frozenTimeline == nil,
-              !userScrolledAwayFromBottom,
-              !userIsScrollingMessages else { return }
-        guard messagesScrolledOffContent || !isNearBottom else { return }
-        proxy.scrollTo("chat-bottom", anchor: .bottom)
+    private func loadEarlierTimelineMessages() {
+        guard hiddenTimelineMessageCount > 0 else { return }
+        pendingTimelinePrependAnchor = timelineMessages.first?.id
+        visibleTimelineMessageCount = min(
+            chat.messages.count,
+            visibleTimelineMessageCount + ChatTimelineWindow.earlierPageSize
+        )
     }
 
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 14) {
+                // 聊天气泡高度会在流式输出时持续变化。这里必须使用完整测量的 VStack；
+                // LazyVStack 会估算离屏高度，工具/思考卡收起时可能把视口留在没有 cell 的空白区。
+                VStack(spacing: 14) {
                     if chat.loading && chat.messages.isEmpty && chat.outbox.isEmpty {
                         VStack(spacing: 12) {
                             ProgressView()
@@ -499,6 +389,20 @@ struct JobChatView: View {
                                 .foregroundStyle(QuartetTheme.secondaryText)
                         }
                         .padding(.top, 80)
+                    }
+                    if hiddenTimelineMessageCount > 0 {
+                        Button {
+                            loadEarlierTimelineMessages()
+                        } label: {
+                            Label("加载更多".localizedForApp, systemImage: "chevron.up")
+                                .font(.chat(.detail, weight: .medium))
+                                .foregroundStyle(QuartetTheme.accent)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("加载更多".localizedForApp)
+                        .accessibilityIdentifier("chat-load-earlier")
                     }
                     ForEach(timelineMessages) { message in
                         ChatBubble(
@@ -509,13 +413,10 @@ struct JobChatView: View {
                             .equatable()
                             .id(message.id)
                     }
-                    ForEach(timelineOutboxItems) { item in
+                    ForEach(chat.timelineOutboxItems) { item in
                         OutboxBubble(item: item)
                             .id(item.id)
                     }
-                    // 运行指示器不进快照：它永远排在最后一条气泡之后，冻结期间用户视口
-                    // 一定在它上面，出现或消失都只改视口下方的高度，不会顶动正在看的内容。
-                    // 反过来，冻结它会让快照在运行早已结束后还挂着一个“正在思考”。
                     if chat.isRunning {
                         HStack(spacing: 9) {
                             Spacer(minLength: 0)
@@ -532,24 +433,23 @@ struct JobChatView: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel("AI 正在思考")
                     }
-                    Color.clear.frame(height: 1).id("chat-bottom")
+                    Color.clear
+                        .frame(height: 1)
+                        .id("chat-bottom")
+                        .onScrollVisibilityChange { isVisible in
+                            timelineBottomIsVisible = isVisible
+                            guard !userIsScrollingTimeline else { return }
+                            if isVisible {
+                                timelineMode = .following
+                            }
+                        }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 18)
             }
             .scrollDismissesKeyboard(.interactively)
-            // 跟随底部交给 ScrollView 自己完成。
-            //
-            // 内容长高（新 delta）或塌缩（长工具输出收起）时，`.sizeChanges` 锚点会按内容
-            // **底边**重算偏移，落点天然在合法范围内。这是和外部 `scrollTo` 的本质区别：
-            // `scrollTo` 要先在 `LazyVStack` 里解析目标 cell 的位置，而离屏 cell 只有估算
-            // 高度，高度剧烈变化的那一帧估算失配得足够狠，反算出的偏移就落到内容之外，
-            // 一个 cell 都不物化 —— 这就是流式输出时看到的白屏。
-            //
-            // 冻结期间必须换回顶部锚点：那时视口在内容中段，用底边锚点的话下方“AI 正在思考”
-            // 指示器一出现/消失，用户正在读的内容就会被推着走。
             .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .defaultScrollAnchor(frozenTimeline == nil ? .bottom : .top, for: .sizeChanges)
+            .defaultScrollAnchor(timelineMode.isFollowing ? .bottom : nil, for: .sizeChanges)
             .overlay(alignment: .bottom) { backToBottomButton(proxy) }
             // 链接拦截统一在列表这一层注入，动作由 `linkOpener` 持有、全程同一个值。
             .environment(\.openURL, linkOpener.action)
@@ -560,107 +460,43 @@ struct JobChatView: View {
             }
             .onChange(of: workspaceContextKey) { _, _ in configureLinkOpener() }
             .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
-            .onScrollPhaseChange { oldPhase, newPhase, context in
+            .onScrollPhaseChange { oldPhase, newPhase in
                 let wasUserScrolling = oldPhase.isScrolling && oldPhase != .animating
                 let isUserScrolling = newPhase.isScrolling && newPhase != .animating
-                let metrics = ChatScrollMetrics(context.geometry)
-
-                if isUserScrolling, !wasUserScrolling {
-                    beginMessageScroll(with: metrics)
-                }
-                if wasUserScrolling {
-                    // phase 回调自带的 geometry 与阶段变化属于同一帧；尤其 idle 时不能再读取
-                    // `messagesAreNearBottom` 这种由另一条回调异步写入的上一帧状态。
-                    recordFreeBrowsingIntent(with: metrics)
-                }
-                userIsScrollingMessages = isUserScrolling
-
-                // 用户一开始拖动就暂停跟随并冻结时间线，避免流式增量在手势过程中抢走滚动
-                // 位置、也避免内容高度继续变化把阅读位置一点点顶走。
-                // 松手后按锁存的滚动意图决定是否恢复，而不是用宽泛的“靠近底部”状态猜测。
+                userIsScrollingTimeline = isUserScrolling
                 if isUserScrolling {
+                    beginTimelineBrowsing()
                     return
                 }
-                if newPhase == .idle, wasUserScrolling {
-                    finishMessageScroll(proxy, with: metrics)
-                    return
+                if newPhase == .idle, wasUserScrolling, timelineBottomIsVisible {
+                    timelineMode = .following
                 }
-
-                // 越界是在滚动静止后才看得见的白屏，手势结束的这一刻补一次判断，
-                // 免得越界标记翻转时刚好卡在手势里、之后再没有几何变化来触发纠正。
-                guard newPhase == .idle,
-                      messagesScrolledOffContent,
-                      frozenTimeline == nil,
-                      !userScrolledAwayFromBottom else { return }
-                resumeTimelineFollow(proxy)
             }
-            .onScrollGeometryChange(for: ChatScrollMetrics.self) { geometry in
-                ChatScrollMetrics(geometry)
-            } action: { oldMetrics, newMetrics in
-                // 几何变化在手势阶段会高频发生；只在布尔状态真正翻转或自由浏览意图首次成立
-                // 时写 SwiftUI State，避免每个像素都让整页重算 body。
-                recordFreeBrowsingIntent(with: newMetrics)
-
-                let nearBottomChanged = messagesAreNearBottom != newMetrics.isNearBottom
-                if nearBottomChanged {
-                    messagesAreNearBottom = newMetrics.isNearBottom
-                    // 布局之后才知道底边锚点有没有真的把视口带上，所以追赶要在这里判，
-                    // 不能只靠锚点变化那条路径 —— 它跑在布局之前，读到的是上一帧的位置。
-                    followBottomIfNeeded(proxy, isNearBottom: newMetrics.isNearBottom)
-                }
-
-                let offContentChanged = messagesScrolledOffContent != newMetrics.isOffContent
-                if offContentChanged {
-                    messagesScrolledOffContent = newMetrics.isOffContent
-                }
-                guard newMetrics.isOffContent,
-                      !oldMetrics.isOffContent,
-                      !userIsScrollingMessages,
-                      frozenTimeline == nil,
-                      !userScrolledAwayFromBottom else { return }
-                resumeTimelineFollow(proxy)
-            }
-            // 白屏自愈：静止时的偏移必须落在内容范围内，超出就说明 `LazyVStack` 的估算高度
-            // 和实际布局失配（长工具输出收起、离屏 cell 重新物化），偏移停在没有任何 cell 的
-            // 区域，于是整个列表是空白的 —— 连非 lazy 的“AI 正在思考”一起看不见。
-            //
-            // 阈值刻意取得和 `messagesAreNearBottom` 同一档（80pt）：静止的 ScrollView 不可能
-            // 合法越界这么多，橡皮筋只发生在拖拽/减速阶段，而下面会先排除“用户正在滚动”。
-            // 此前要求越界整整一屏才纠正，等于放过了绝大多数白屏 —— 只差半屏也照样一个 cell
-            // 都不物化，用户看到的一样是空白。
-            //
-            // 纠正动作就是“回到底部”，而它只在跟随状态下执行，所以误判是无害的：本来就该在底部。
-            .onChange(of: chat.scrollAnchor) { _, _ in
-                followBottomIfNeeded(proxy, isNearBottom: messagesAreNearBottom)
-            }
-            .onChange(of: chat.isRunning) { wasRunning, isRunning in
-                guard !wasRunning, isRunning else { return }
-                followBottomIfNeeded(proxy, isNearBottom: messagesAreNearBottom)
-            }
-            // 发送新消息意味着用户不再看历史，必须无条件解冻并回到底部，
-            // 否则自己刚发出的消息会被挡在快照之后看不见。
             .onChange(of: followBottomRequests) { _, _ in
                 resumeTimelineFollow(proxy)
             }
-            // 同一个视图被复用到另一个 Job 时，冻结的快照属于上一段对话，必须丢掉。
+            .onChange(of: visibleTimelineMessageCount) { _, _ in
+                guard let anchor = pendingTimelinePrependAnchor else { return }
+                pendingTimelinePrependAnchor = nil
+                // 新页已经进入这次视图树，将加载前的第一条固定在顶部，阅读位置不跳。
+                withTransaction(Transaction(animation: nil)) {
+                    proxy.scrollTo(anchor, anchor: .top)
+                }
+            }
             .onChange(of: route.summary.id) { _, _ in
-                frozenTimeline = nil
-                userScrolledAwayFromBottom = false
-                userIsScrollingMessages = false
-                messagesAreNearBottom = true
-                messagesScrolledOffContent = false
-                resetMessageScrollGesture()
+                pendingTimelinePrependAnchor = nil
+                timelineMode = .following
+                userIsScrollingTimeline = false
+                timelineBottomIsVisible = true
+                visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
+                scrollTimelineToBottom(proxy)
             }
         }
     }
 
-    /// 离开底部期间的“回到底部”悬浮按钮：既是回到实时内容的入口，也是时间线已被冻结的提示。
-    ///
-    /// 手指按下就会先暂时冻结（快照必须早于任何位移），但只有向历史方向的位移达到意图阈值
-    /// 后才显示按钮，所以在底部随手一点或做橡皮筋不会闪出自由浏览状态。
     @ViewBuilder
     private func backToBottomButton(_ proxy: ScrollViewProxy) -> some View {
-        if frozenTimeline != nil, userScrolledAwayFromBottom {
+        if !timelineMode.isFollowing, !timelineBottomIsVisible {
             Button {
                 composerFocused = false
                 resumeTimelineFollow(proxy)
@@ -1404,7 +1240,7 @@ struct JobChatView: View {
         if chat.enqueueDraft(text: text, attachments: pendingAttachments) != nil {
             appModel.beginOptimisticJobExecution(id: route.summary.id, fallback: route.summary)
         }
-        // 发送就是“我不看历史了”，让时间线解冻并回到底部，免得自己发出的消息被冻结的快照挡住。
+        // 发送就是“我不看历史了”，恢复跟随并回到底部。
         followBottomRequests &+= 1
         draft = ""
         pendingAttachments = []

@@ -1534,9 +1534,9 @@ final class ChatViewModel: ObservableObject {
 
     // MARK: - SSE delta 合流
 
-    /// 每个 delta 原本都直接改 `@Published messages` 并 bump 一次滚动锚点，于是几十个
-    /// delta/秒 就是几十次全列表发布加几十个互相叠加的滚动动画。这里把纯文本追加按到达
-    /// 顺序攒进缓冲，由一次 flush 一次性应用并只 bump 一次滚动锚点 —— UI 更新频率与 delta
+    /// 每个 delta 原本都直接改 `@Published messages` 并发布一次时间线版本，于是几十个
+    /// delta/秒就是几十次全列表求值。这里把纯文本追加按到达顺序攒进缓冲，由一次 flush
+    /// 一次性应用并只发布一次版本 —— UI 更新频率与 delta
     /// 到达速率解耦，具体节奏见 `deltaFlushInterval`（短文本 25Hz，长文本降到 4Hz）。
     ///
     /// 所有依赖 `messages` 一致状态的操作都必须先调 `flushPendingDeltas()`。
@@ -1593,14 +1593,16 @@ final class ChatViewModel: ObservableObject {
 
     /// flush 间隔随正在流式输出的那条消息的长度放大。
     ///
-    /// 每次 flush 都要把整条消息重新做一遍 markdown 分块和富文本排版，成本随文本长度线性增长。
-    /// 固定 40ms 的话，长回复到后半段就是每秒 25 次重排几万字 —— 主线程一卡，`LazyVStack` 就
-    /// 来不及物化 cell，屏幕上剩下的就是空白。把长文本降到 4Hz 左右，肉眼读不出跟随差别，
-    /// 主线程却回到了能按帧完成布局的水平。
+    /// 流式阶段已经跳过 Markdown 完整解析，但 `Text` 的断行与 ScrollView 的确定布局仍会
+    /// 随全文长度增长。把长文本降到 4Hz 左右，肉眼读不出跟随差别，主线程却能稳定完成布局。
     ///
-    /// 长度直接取最后一条消息：delta 永远追加在时间线末尾，`utf8.count` 对原生 String 是 O(1)。
+    /// delta 追加在时间线末尾；正文和工具参数是两条独立流，必须取两者较长值。
     private var deltaFlushInterval: Duration {
-        switch messages.last?.content.utf8.count ?? 0 {
+        let streamedByteCount = max(
+            messages.last?.content.utf8.count ?? 0,
+            messages.last?.toolArguments?.utf8.count ?? 0
+        )
+        switch streamedByteCount {
         case ..<4_000: .milliseconds(40)
         case ..<16_000: .milliseconds(120)
         default: .milliseconds(250)
@@ -1765,16 +1767,12 @@ final class ChatViewModel: ObservableObject {
         scrollAnchor &+= 1
     }
 
-    /// 流式追加专用的跟随滚动提示，按 240ms 节流。
+    /// 流式追加专用的时间线内容版本，按 240ms 节流。
     ///
-    /// 视图侧收到锚点变化就得在 `LazyVStack` 上按当次 contentSize 反算“滚到底”的目标偏移。
-    /// delta 合流已经是 25Hz，如果每次 flush 都请求一次滚动，就有 25 次/秒的机会撞上内容
-    /// 高度的剧烈变化（长工具输出收起时卡片会从几千点塌到一行），一撞上就会算出内容之外的
-    /// 偏移，`LazyVStack` 一个 cell 都不物化，整屏空白。肉眼分不出 25Hz 和 4Hz 的跟随，
-    /// 把频率降下来就把撞上的窗口缩小了一个量级。
+    /// 视图只用它判断“用户浏览历史期间是否有新内容”；跟随态交给 `.sizeChanges`
+    /// 底部锚定，不再每个 delta 调 `scrollTo`。版本发布本身也会使顶层视图求值，所以仍保留节流。
     ///
-    /// 用户能感知的离散跳转（发送、历史加载完、运行收尾）继续走 `bumpScrollAnchor()`，
-    /// 它会取消挂起的节流，立刻到底。
+    /// 离散事件继续走 `bumpScrollAnchor()`，它会取消挂起的节流并立即发布新版本。
     private func bumpScrollAnchorThrottled() {
         guard scrollAnchorThrottleTask == nil else { return }
         scrollAnchorThrottleTask = Task { @MainActor [weak self] in
@@ -1916,4 +1914,3 @@ final class ChatViewModel: ObservableObject {
         return String(describing: error)
     }
 }
-

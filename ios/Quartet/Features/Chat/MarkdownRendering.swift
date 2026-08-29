@@ -5,12 +5,11 @@ import UIKit
 /// 一次视图求值。而 SwiftUI 会在任何一次状态变更后重新求值 body，聊天时间线里已完成的
 /// 消息文本却永不改变 —— 所以按源文本记忆化，把重复解析压成一次。
 ///
-/// 流式输出中的那一条消息每个 delta 都是新文本，必然 miss；但同一时刻只有一条，
-/// 其余历史消息全部命中。
+/// 流式输出中的文本不进入这些缓存：每个 delta 都会换一个全文键，完整 Markdown
+/// 解析与写缓存都是纯浪费。消息完成后再做一次完整解析并记忆化。
 ///
-/// 三个 cache 都必须同时限条数**和**限字节。只限条数时，流式输出的那条消息每次 flush 都会
-/// 塞进一条以“整条消息全文”为键的新条目，长回复很快就让几百条各几十 KB 的键值把内存推到
-/// 内存警告线；系统一开始回收，屏外 cell 的渲染结果跟着被丢掉，滚动时就露出空白。
+/// 三个 cache 都必须同时限条数**和**限字节。流式路径虽然已经绕开它们，完成的超长历史
+/// 消息仍可能让“整条全文”键值很大；字节上限也能防止以后的调用点误把可变内容送进缓存。
 @MainActor
 enum ChatTextCache {
     private final class Entry<Value>: NSObject {
@@ -138,50 +137,65 @@ enum MarkdownTextRole: String {
 struct MarkdownMessageView: View {
     let text: String
     var tone: MarkdownTone = .standard
+    var isStreaming = false
 
+    /// 流式阶段只做原文本排版，避免每个前缀都重新分块、解析富文本并写入缓存。
+    @ScaledMetric(relativeTo: .body) private var streamingLineSpacing: CGFloat = 4
+
+    @ViewBuilder
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(ChatTextCache.blocks(from: text)) { block in
-                switch block.kind {
-                case .markdown(let content):
-                    MarkdownTextBlock(text: content, tone: tone)
-                case .code(let language, let content):
-                    CodeBlockView(language: language, code: content, tone: tone)
-                case .table(let headers, let rows):
-                    MarkdownTableView(headers: headers, rows: rows, tone: tone)
-                case .heading(let level, let content):
-                    let role = MarkdownTextRole.heading(level: level)
-                    MarkdownTextBlock(text: content, tone: tone, role: role)
-                        .padding(.top, role.topSpacing)
-                case .quote(let content):
-                    HStack(alignment: .top, spacing: 10) {
-                        Capsule()
-                            .fill(tone == .user ? QuartetTheme.onAccent.opacity(0.42) : QuartetTheme.secondaryText.opacity(0.5))
-                            .frame(width: 3)
+        if isStreaming {
+            Text(verbatim: text)
+                .font(.chat(tone.contentFontSize))
+                .foregroundStyle(tone.foreground)
+                .lineSpacing(streamingLineSpacing)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(ChatTextCache.blocks(from: text)) { block in
+                    switch block.kind {
+                    case .markdown(let content):
                         MarkdownTextBlock(text: content, tone: tone)
-                    }
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 10)
-                    .background(tone.codeBackground.opacity(0.7), in: RoundedRectangle(cornerRadius: 7))
-                case .list(let ordered, let items):
-                    VStack(alignment: .leading, spacing: 7) {
-                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(ordered ? "\(item.ordinal)." : Self.bullet(level: item.level))
-                                    .font(.chat(tone.contentFontSize, weight: .semibold))
-                                    .foregroundStyle(tone.secondaryForeground)
-                                    .frame(minWidth: ordered ? 20 : 10, alignment: .trailing)
-                                MarkdownTextBlock(text: item.content, tone: tone)
-                            }
-                            .padding(.leading, CGFloat(item.level) * 16)
+                    case .code(let language, let content):
+                        CodeBlockView(language: language, code: content, tone: tone)
+                    case .table(let headers, let rows):
+                        MarkdownTableView(headers: headers, rows: rows, tone: tone)
+                    case .heading(let level, let content):
+                        let role = MarkdownTextRole.heading(level: level)
+                        MarkdownTextBlock(text: content, tone: tone, role: role)
+                            .padding(.top, role.topSpacing)
+                    case .quote(let content):
+                        HStack(alignment: .top, spacing: 10) {
+                            Capsule()
+                                .fill(tone == .user ? QuartetTheme.onAccent.opacity(0.42) : QuartetTheme.secondaryText.opacity(0.5))
+                                .frame(width: 3)
+                            MarkdownTextBlock(text: content, tone: tone)
                         }
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 10)
+                        .background(tone.codeBackground.opacity(0.7), in: RoundedRectangle(cornerRadius: 7))
+                    case .list(let ordered, let items):
+                        VStack(alignment: .leading, spacing: 7) {
+                            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text(ordered ? "\(item.ordinal)." : Self.bullet(level: item.level))
+                                        .font(.chat(tone.contentFontSize, weight: .semibold))
+                                        .foregroundStyle(tone.secondaryForeground)
+                                        .frame(minWidth: ordered ? 20 : 10, alignment: .trailing)
+                                    MarkdownTextBlock(text: item.content, tone: tone)
+                                }
+                                .padding(.leading, CGFloat(item.level) * 16)
+                            }
+                        }
+                    case .divider:
+                        Divider().overlay(tone.codeBorder)
                     }
-                case .divider:
-                    Divider().overlay(tone.codeBorder)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private static func bullet(level: Int) -> String {

@@ -2,6 +2,20 @@ import SwiftUI
 import UIKit
 
 private let chatCollapsibleHeaderMinHeight: CGFloat = 44
+private let chatStreamingPreviewCharacterLimit = 2_400
+
+/// 工具与思考流在执行期间只展示尾部预览。复制仍使用完整原文，完成后手动展开
+/// 也会渲染完整内容；这里只给频繁变化的过渡布局设上限。
+private func chatStreamingTail(_ text: String) -> String {
+    guard let start = text.index(
+        text.endIndex,
+        offsetBy: -chatStreamingPreviewCharacterLimit,
+        limitedBy: text.startIndex
+    ), start != text.startIndex else {
+        return text
+    }
+    return "…\n" + String(text[start...])
+}
 
 /// 每一行消息。
 ///
@@ -157,7 +171,11 @@ struct AssistantMessageCard: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else if !message.content.isEmpty {
-                        MarkdownMessageView(text: message.content, tone: .standard)
+                        MarkdownMessageView(
+                            text: message.content,
+                            tone: .standard,
+                            isStreaming: !message.isFinished
+                        )
                     }
                 }
                 .padding(.horizontal, 16)
@@ -233,26 +251,35 @@ struct ThoughtMessageCard: View {
     }
 }
 
-/// 深度思考面板。折叠策略跟 `ToolCallCard` 一致：流式输出时展开，方便边生成边读；
-/// 思考一结束（`isStreaming` 由 true 变 false）自动收起，只留下标题栏。历史回放进来
-/// 时 `isStreaming` 本来就是 false，所以直接以折叠态出现。
+/// 深度思考面板。流式输出时默认展开有界尾部预览，结束时同步切回折叠态；
+/// 这样不会先渲染几千行完整 Markdown，再在下一帧把它收起。
 struct ThoughtPanel: View {
     let text: String
     let isStreaming: Bool
     let timestamp: Int64?
-    @State private var isExpanded: Bool
+    @State private var isExpandedWhenIdle = false
+    @State private var isCollapsedWhileStreaming = false
 
     init(text: String, isStreaming: Bool, timestamp: Int64?) {
         self.text = text
         self.isStreaming = isStreaming
         self.timestamp = timestamp
-        _isExpanded = State(initialValue: isStreaming)
+    }
+
+    private var isExpanded: Bool {
+        isStreaming ? !isCollapsedWhileStreaming : isExpandedWhenIdle
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    if isStreaming {
+                        isCollapsedWhileStreaming.toggle()
+                    } else {
+                        isExpandedWhenIdle.toggle()
+                    }
+                }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "brain.head.profile")
@@ -279,7 +306,12 @@ struct ThoughtPanel: View {
             .accessibilityHint(isExpanded ? "轻点收起思考内容" : "轻点展开思考内容")
 
             if isExpanded {
-                MarkdownMessageView(text: text, tone: .thought)
+                MarkdownMessageView(
+                    text: isStreaming ? chatStreamingTail(text) : text,
+                    tone: .thought,
+                    isStreaming: isStreaming
+                )
+                    .lineLimit(isStreaming ? 18 : nil)
                     .padding(.top, 9)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -289,28 +321,32 @@ struct ThoughtPanel: View {
         .background(QuartetTheme.accent.opacity(0.075), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(QuartetTheme.accent.opacity(0.24), lineWidth: 1))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: isStreaming) { wasStreaming, streaming in
-            guard wasStreaming, !streaming else { return }
-            // 自动收起刻意不加动画，理由同 `ToolCallCard`：思考内容可以很长，动画会让
-            // ScrollView 的 contentSize 连续几十帧塌缩，和跟随滚动竞争。
-            isExpanded = false
-        }
     }
 }
 
 struct ToolCallCard: View {
     let message: ChatMessage
-    @State private var isExpanded: Bool
+    @State private var isExpandedWhenIdle = false
+    @State private var isCollapsedWhileProcessing = false
 
     init(message: ChatMessage) {
         self.message = message
-        _isExpanded = State(initialValue: message.toolStatus == .processing || !message.isFinished)
+    }
+
+    private var isExpanded: Bool {
+        status == .processing ? !isCollapsedWhileProcessing : isExpandedWhenIdle
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    if status == .processing {
+                        isCollapsedWhileProcessing.toggle()
+                    } else {
+                        isExpandedWhenIdle.toggle()
+                    }
+                }
             } label: {
                 HStack(spacing: 11) {
                     Text(toolIcon)
@@ -342,10 +378,18 @@ struct ToolCallCard: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: 15) {
                     if let arguments = message.toolArguments, !arguments.isEmpty {
-                        ToolPayloadSection(title: "PARAMETERS", text: arguments)
+                        ToolPayloadSection(
+                            title: "PARAMETERS",
+                            text: arguments,
+                            isStreaming: status == .processing
+                        )
                     }
                     if !message.content.isEmpty {
-                        ToolPayloadSection(title: "RESULT", text: message.content)
+                        ToolPayloadSection(
+                            title: "RESULT",
+                            text: message.content,
+                            isStreaming: status == .processing
+                        )
                     } else if status == .processing {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
@@ -371,15 +415,6 @@ struct ToolCallCard: View {
         .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(borderColor, lineWidth: message.isFailed ? 1.25 : 1))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .onChange(of: message.toolStatus) { oldStatus, newStatus in
-            guard oldStatus == .processing, newStatus != .processing else { return }
-            // 自动收起刻意不加动画：工具输出可以是几千行，展开时这张卡片高几千点，收起
-            // 动画等于让 ScrollView 的 contentSize 连续几十帧剧烈缩水。跟随滚动同时在按
-            // contentSize 反算“滚到底”的目标偏移，两者一竞争就会把偏移甩到内容之外，
-            // LazyVStack 于是一个 cell 都不物化，整屏空白。一次性收起只产生一次高度变化，
-            // 滚动纠正一次就到位。用户手动点开/收起仍然带动画。
-            isExpanded = false
-        }
     }
 
     private var status: ChatMessage.ToolStatus {
@@ -481,6 +516,7 @@ struct ToolCallCard: View {
 struct ToolPayloadSection: View {
     let title: String
     let text: String
+    var isStreaming = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -492,9 +528,18 @@ struct ToolPayloadSection: View {
                 Spacer()
                 CopyIconButton(text: text)
             }
-            // 走缓存，且只算一次：原实现在 body 里调了两遍 prettyPrintedJSON，
-            // 也就是每次渲染都要完整解析 + 序列化 JSON 两次。
-            if let formatted = ChatTextCache.prettyPrintedJSON(from: text) {
+            // 流式阶段禁止 JSON/Markdown 全量解析；完成后再走缓存并只计算一次。
+            if isStreaming {
+                MarkdownMessageView(
+                    text: chatStreamingTail(text),
+                    tone: .tool,
+                    isStreaming: true
+                )
+                    .lineLimit(18)
+                    .padding(12)
+                    .background(QuartetTheme.canvas, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(QuartetTheme.divider.opacity(0.8)))
+            } else if let formatted = ChatTextCache.prettyPrintedJSON(from: text) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(formatted)
                         .font(.chat(.detail, design: .monospaced))
@@ -790,4 +835,3 @@ struct AuthenticatedFile: View {
         }
     }
 }
-
