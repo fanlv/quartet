@@ -36,7 +36,8 @@ enum QuartetTheme {
     static let terminalText = dynamic(light: 0x42E978, dark: 0x62FF98)
     static let terminalBorder = dynamic(light: 0x285F39, dark: 0x245D36)
 
-    // Charts stay within the botanical palette; line shape and labels remain the primary differentiators.
+    // The total series keeps the brand green. Categorical chart series span
+    // distinct hues so overlapping lines remain easy to identify in either appearance.
     static let chartPrimary = accent
     static let chartForest = accentDeep
     static let chartMint = accentSoft
@@ -44,6 +45,12 @@ enum QuartetTheme {
     static let chartMutedGreen = terminalGreenMuted
     static let chartRed = failed
     static let chartGraphite = dynamic(light: 0x4F4942, dark: 0xC4BBB0)
+    static let chartBlue = dynamic(light: 0x2563EB, dark: 0x60A5FA)
+    static let chartOrange = dynamic(light: 0xC2410C, dark: 0xFB923C)
+    static let chartViolet = dynamic(light: 0x7C3AED, dark: 0xA78BFA)
+    static let chartRose = dynamic(light: 0xBE185D, dark: 0xF472B6)
+    static let chartCyan = dynamic(light: 0x0E7490, dark: 0x22D3EE)
+    static let chartAmber = dynamic(light: 0xA16207, dark: 0xFACC15)
 
     static func statusColor(_ status: String) -> Color {
         switch status.lowercased() {

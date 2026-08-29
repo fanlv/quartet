@@ -25,6 +25,7 @@ const END_HOOK_ENV_GROUPS = [
       '$QUARTET_JOB_STATUS',
       '$QUARTET_RUN_OUTCOME',
       '$QUARTET_ERROR_MESSAGE',
+      '$QUARTET_JOB_WATCHED',
     ],
   },
 ];
@@ -33,6 +34,8 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
   const { t, i18n } = useTranslation();
   const [avatarUrl, setAvatarUrl] = useState('');
   const [endHookScript, setEndHookScript] = useState('');
+  // Absent in settings means enabled — see the backend's EndHookSkipWhenWatched.
+  const [endHookSkipWhenWatched, setEndHookSkipWhenWatched] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -48,6 +51,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
       if (data.code === 0 && data.settings) {
         setAvatarUrl(data.settings.avatar_url || '');
         setEndHookScript(data.settings.end_hook_script || '');
+        setEndHookSkipWhenWatched(data.settings.end_hook_skip_when_watched !== false);
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -71,6 +75,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
           ...currentSettings,
           avatar_url: avatarUrl,
           end_hook_script: endHookScript,
+          end_hook_skip_when_watched: endHookSkipWhenWatched,
         }),
       });
       const data = await res.json();
@@ -139,6 +144,17 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
           />
           <span className="settings-switch-desc">
             {t('settings.general.endHookScriptDesc')}
+          </span>
+          <label className="settings-check-row" data-testid="end-hook-skip-watched">
+            <input
+              type="checkbox"
+              checked={endHookSkipWhenWatched}
+              onChange={(e) => setEndHookSkipWhenWatched(e.target.checked)}
+            />
+            <span>{t('settings.general.endHookSkipWhenWatched')}</span>
+          </label>
+          <span className="settings-switch-desc">
+            {t('settings.general.endHookSkipWhenWatchedDesc')}
           </span>
           <div className="settings-hook-doc" data-testid="end-hook-doc">
             <div className="settings-hook-doc-block">

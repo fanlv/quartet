@@ -20,23 +20,6 @@ type Workspace struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 	Deleted      bool      `json:"deleted,omitempty"`
-
-	// Sandbox records the last-known sandbox container binding for this
-	// workspace. Only populated once the workspace has been used in
-	// container form (RunInSandbox=true). The runtime port is NOT stored
-	// here — it is re-discovered from docker each time the container
-	// comes up.
-	Sandbox *SandboxRef `json:"sandbox,omitempty"`
-}
-
-// SandboxRef is the persisted pointer from a workspace to its sandbox
-// container. ProjectName is the compose project id used to address the
-// container across process restarts; Template identifies which sandbox
-// image/compose flavour this container was provisioned from, so future
-// multi-template / custom-image work can key off it.
-type SandboxRef struct {
-	ProjectName string `json:"project_name"`
-	Template    string `json:"template,omitempty"`
 }
 
 func NewWorkspace(title, description, workdir string) *Workspace {

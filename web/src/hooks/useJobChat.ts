@@ -377,6 +377,43 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const [jobId, setJobId] = useState<string | null>(existingJobId || null);
   const jobIdRef = useRef<string | null>(existingJobId || null);
   jobIdRef.current = jobId;
+
+  // Viewer presence (§ 结束 Hook「无人查看才通知」): the backend treats an
+  // authenticated event stream as "a human is watching this Job" and keeps the
+  // task-end notification hook quiet while somebody is. A live connection alone
+  // is not enough evidence — the browser keeps an SSE stream alive in a hidden
+  // tab — so every stream carries a per-page viewerId plus its current
+  // visibility, and we re-report on visibility changes and on reconnect (a
+  // reconnect re-registers the viewer server-side with whatever its URL said).
+  const viewerIdRef = useRef<string>('');
+  if (!viewerIdRef.current) {
+    viewerIdRef.current = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `viewer-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  }
+  // Query params every event stream carries so the backend can register this
+  // page as a viewer. A share-mode reader is not a viewer (the notification
+  // belongs to the Job's owner, not to whoever opened the link), so the params
+  // are omitted there.
+  const viewerParams = useCallback((): Record<string, string> | undefined => {
+    if (isPublic) return undefined;
+    const visible = typeof document === 'undefined' || document.visibilityState === 'visible';
+    return { viewerId: viewerIdRef.current, visible: visible ? '1' : '0' };
+  }, [isPublic]);
+  const reportViewerVisibility = useCallback((visible: boolean) => {
+    if (isPublic) return;
+    const id = jobIdRef.current;
+    if (!id) return;
+    // Fire-and-forget: a failed report only means the backend keeps its previous
+    // view of this page, which at worst sends (or withholds) one notification.
+    // Never surface it to the user.
+    void fetch(`/api/v1/job/${encodeURIComponent(id)}/viewer-state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ viewerId: viewerIdRef.current, visible }),
+      keepalive: true,
+    }).catch((err) => console.debug('[useJobChat] viewer-state report failed:', err));
+  }, [isPublic]);
   const [jobTitle, setJobTitle] = useState('');
   const [jobShareTokenState, setJobShareTokenState] = useState<string | null>(null);
   const [jobShareShowWorkspaceName, setJobShareShowWorkspaceName] = useState(false);
@@ -1990,7 +2027,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       console.debug(`[JobEvents][TRACE-SEQ0] connectUntilReady jobId=${jobId} attempt=${attempt} initialLastEventId=${JSON.stringify(lastEventSeqRef.current)}`);
 
       client.connectUntilReady({
-        url: apiUrl(`/job/${jobId}/events`),
+        url: apiUrl(`/job/${jobId}/events`, viewerParams()),
         initialLastEventId: lastEventSeqRef.current,
         onEvent: (event) => handleEventRef.current(event),
         onError: (err) => {
@@ -2011,6 +2048,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           markEventStreamReady(true);
           reportReconnect();
           setError(null);
+          // A reconnect re-registers this page as a viewer using the URL's
+          // visibility, which is frozen at connect time. Only a hidden page can
+          // be misregistered that way (the URL says visible), so restate it.
+          if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+            reportViewerVisibility(false);
+          }
           // Only sync metadata (title, status, progress, lastEventSeq).
           // SSE resumes from lastEventId so no events are lost; full
           // message reload would race with live SSE events and cause
@@ -2093,7 +2136,23 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       eventSseRef.current?.disconnect();
       eventSseRef.current = null;
     };
-  }, [jobId, jobNotFound, snapshotReady, isGraph, graphRunLive, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistory, markEventStreamReady, settleEventStreamReadyWaiters]);
+  }, [jobId, jobNotFound, snapshotReady, isGraph, graphRunLive, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistory, markEventStreamReady, settleEventStreamReadyWaiters, viewerParams, reportViewerVisibility]);
+
+  // Report this page's visibility so the backend can tell "watching the stream"
+  // from "stream left open in a hidden tab". pagehide covers the cases where a
+  // tab is frozen or navigated away without unmounting the component (mobile
+  // Safari's page cache), where the connection can outlive the user's attention.
+  useEffect(() => {
+    if (!jobId || isPublic) return;
+    const report = () => reportViewerVisibility(document.visibilityState === 'visible');
+    const onHide = () => reportViewerVisibility(false);
+    document.addEventListener('visibilitychange', report);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      document.removeEventListener('visibilitychange', report);
+      window.removeEventListener('pagehide', onHide);
+    };
+  }, [jobId, isPublic, reportViewerVisibility]);
 
   // Graph mode has one page-level stream. It feeds agent deltas into the chat,
   // reconciles node sessions, and publishes the same authoritative run snapshot
@@ -2223,7 +2282,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     };
 
     const client = new GraphSSEClient({
-      url: apiUrl(`/job/${encodeURIComponent(jobId)}/graph-run/events`),
+      url: apiUrl(`/job/${encodeURIComponent(jobId)}/graph-run/events`, viewerParams()),
       onReconcile: () => reconcile(),
       onError: (err) => setGraphStreamError(err.message || String(err)),
       onEvent: (raw) => {
@@ -2275,7 +2334,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       client.disconnect();
       if (graphSseRef.current === client) graphSseRef.current = null;
     };
-  }, [isGraph, graphRunId, jobId, graphRunLive, apiUrl, isPublic, loadHistory, setGraphSessions, applyActiveSessionSelection, applyGraphRunStatusSnapshot]);
+  }, [isGraph, graphRunId, jobId, graphRunLive, apiUrl, isPublic, loadHistory, setGraphSessions, applyActiveSessionSelection, applyGraphRunStatusSnapshot, viewerParams]);
 
   // While the job-events SSE is gated off (live graph run), the job title —
   // generated a few seconds after the run starts — has no event channel. Poll

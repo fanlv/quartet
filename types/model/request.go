@@ -100,6 +100,16 @@ type JobMessageRequest struct {
 	BypassCommand bool `json:"bypassCommand,omitempty"`
 }
 
+// JobViewerStateRequest reports whether a Job's live event stream is actually
+// on screen. A browser keeps an SSE connection alive in a hidden tab, so the
+// connection alone cannot tell "watching" from "left open" — the client posts
+// this on visibility changes. ViewerID is the per-connection id the client
+// passed when it opened the stream.
+type JobViewerStateRequest struct {
+	ViewerID string `json:"viewerId"`
+	Visible  bool   `json:"visible"`
+}
+
 // ACPConfigTarget names which selector an ACP live-config switch changes.
 type ACPConfigTarget string
 

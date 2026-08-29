@@ -147,6 +147,17 @@ type Service interface {
 	// exists for jobID yet (e.g. job has not published anything).
 	BufferStats(jobID string) BufferStats
 
+	// Viewer presence — see viewer.go. AttachViewer registers a live UI event
+	// stream (chat page / graph run page) as a viewer of the Job and returns the
+	// handle its SSE handler must Detach when the connection ends.
+	// SetViewerVisible updates a viewer's on-screen state (a hidden browser tab
+	// is not "watching") and reports false when no live viewer matches.
+	// WatchedBy returns how many viewers are on screen right now, which is what
+	// the end hook consults before firing a notification.
+	AttachViewer(jobID string, opts ViewerOptions) ViewerHandle
+	SetViewerVisible(jobID, viewerID string, visible bool) bool
+	WatchedBy(jobID string) int
+
 	// SetOnJobDone registers a callback invoked when a job finishes (completed/failed/stopped).
 	SetOnJobDone(fn func(job *model.Job))
 
@@ -155,11 +166,12 @@ type Service interface {
 	// Passing nil disables recording (e.g. for tests).
 	SetUsageRecorder(r usagestats.Recorder)
 
-	// SetEndHookScriptProvider wires the getter for the global default end-hook
-	// script (settings.EndHookScript) run after every interactive round
-	// terminates. Read at hook time so an edit takes effect on the next round;
-	// nil (or returning "") disables the interactive end hook.
-	SetEndHookScriptProvider(fn func() string)
+	// SetEndHookPolicyProvider wires the getter for the global default end-hook
+	// policy (the script plus the "only notify when nobody is watching" switch)
+	// applied after every interactive round terminates. Read at hook time so an
+	// edit in Settings takes effect on the next round; nil (or returning an
+	// empty script) disables the interactive end hook.
+	SetEndHookPolicyProvider(fn func() EndHookPolicy)
 }
 
 // MessageQueueService is the optional durable queue extension implemented by
@@ -260,6 +272,7 @@ func NewService(wsSvc workspace.Service) (Service, error) {
 		wsSvc:                   wsSvc,
 		fileManager:             fileserver.GetFileManager(),
 		bus:                     newBusOwner(),
+		viewers:                 newViewerRegistry(),
 		cancels:                 make(map[string]*cancelEntry),
 		dones:                   make(map[string]chan struct{}),
 		interactivePriorStatus:  make(map[string]model.JobStatus),

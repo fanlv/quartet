@@ -1207,7 +1207,7 @@ final class AppModel: ObservableObject {
         return UserConfig(snapshot: response.settings ?? [:])
     }
 
-    /// 保存前重新读取整份 settings，只把本页负责的两个字段覆盖到最新快照上。这样用户
+    /// 保存前重新读取整份 settings，只把本页负责的字段覆盖到最新快照上。这样用户
     /// 在页面停留期间，Web 端或其它设置页写入的配置不会被旧快照带回去覆盖。
     /// 返回本次实际提交的快照，供页面在不覆盖保存期间新编辑的前提下更新基线。
     func saveUserConfig(_ config: UserConfig) async throws -> UserConfig {
@@ -1220,6 +1220,7 @@ final class AppModel: ObservableObject {
         var latest = try await userConfig()
         latest.avatarURL = config.avatarURL
         latest.endHookScript = config.endHookScript
+        latest.endHookSkipWhenWatched = config.endHookSkipWhenWatched
         let submitted = UserConfig(snapshot: latest.mergedSnapshot)
         let response = try await makeClient().saveSettingsSnapshot(submitted.snapshot)
         guard response.code == 0 else {

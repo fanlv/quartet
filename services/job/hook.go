@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/safe"
 	"github.com/fanlv/quartet/pkg/shellhook"
 	"github.com/fanlv/quartet/pkg/strutil"
@@ -16,6 +17,11 @@ import (
 // (completed / failed / stopped), so "task finished" notifications work for chats
 // as well as workflows. It is a pure side effect — see pkg/shellhook: the output
 // is ignored and a failure only logs, never touching the Job's state.
+//
+// A chat round is different from a workflow End node in one way that matters for
+// notifications: the user is often sitting in front of the streaming output. By
+// default the hook therefore stays quiet while the Job has a live on-screen
+// viewer (see viewer.go) and only fires once nobody is watching.
 
 // hookSourceInteractive is the QUARTET_HOOK_SOURCE value for an interactive round
 // end, letting one shared script tell chats apart from graph node hooks
@@ -28,11 +34,23 @@ const hookSourceInteractive = "interactive"
 // notification must carry the full cause.
 const endHookAssistantMaxRunes = 8000
 
-// SetEndHookScriptProvider wires the global default end-hook script getter.
+// EndHookPolicy is the global default end-hook configuration as it applies to an
+// interactive round: the script plus whether a round that somebody is watching
+// live should skip its notification.
+type EndHookPolicy struct {
+	// Script is the global default script body. Blank disables the hook.
+	Script string
+	// SkipWhenWatched suppresses the hook when the Job has a live on-screen
+	// viewer (see viewer.go): the user is already looking at the output, so a
+	// "task finished" notification is noise. Graph node hooks are unaffected.
+	SkipWhenWatched bool
+}
+
+// SetEndHookPolicyProvider wires the global default end-hook policy getter.
 // Called once at startup (handler wiring) before any run launches, so it needs no
 // locking against runs.
-func (s *serviceImpl) SetEndHookScriptProvider(fn func() string) {
-	s.endHookScriptFn = fn
+func (s *serviceImpl) SetEndHookPolicyProvider(fn func() EndHookPolicy) {
+	s.endHookPolicyFn = fn
 }
 
 // interactiveRound carries what an interactive round's end hook reports beyond
@@ -50,12 +68,24 @@ type interactiveRound struct {
 // cancel (user Stop) cannot kill a side effect for a round that already ended.
 // Asynchronous on purpose: the caller's goroutine goes on to release the run and
 // dispatch the next queued message, which must not wait on a user script.
+//
+// When the Job has a live on-screen viewer and the policy says so, the hook is
+// skipped: the user is watching the output stream, so a notification is noise.
+// The skip is logged at Info — that one line is the whole diagnosis for "why
+// didn't I get notified".
 func (s *serviceImpl) fireEndHook(ctx context.Context, job *model.Job, round interactiveRound) {
-	if s.endHookScriptFn == nil {
+	if s.endHookPolicyFn == nil {
 		return
 	}
-	script := s.endHookScriptFn()
-	if strings.TrimSpace(script) == "" {
+	policy := s.endHookPolicyFn()
+	if strings.TrimSpace(policy.Script) == "" {
+		return
+	}
+
+	watchers := s.WatchedBy(job.ID)
+	if policy.SkipWhenWatched && watchers > 0 {
+		logger.Infof(ctx, "[hook] skipped (job is being watched live): source=%s jobId=%s sessionId=%s viewers=%d",
+			hookSourceInteractive, job.ID, round.sessionID, watchers)
 		return
 	}
 
@@ -71,8 +101,12 @@ func (s *serviceImpl) fireEndHook(ctx context.Context, job *model.Job, round int
 	}
 	s.mu.RUnlock()
 
+	watched := "0"
+	if watchers > 0 {
+		watched = "1"
+	}
 	req := shellhook.Request{
-		Script:  script,
+		Script:  policy.Script,
 		Workdir: workdir,
 		Context: map[string]string{
 			"QUARTET_HOOK_SOURCE":    hookSourceInteractive,
@@ -84,9 +118,10 @@ func (s *serviceImpl) fireEndHook(ctx context.Context, job *model.Job, round int
 			"QUARTET_SESSION_ID":     round.sessionID,
 			"QUARTET_LAST_ASSISTANT": strutil.TruncateRunesWithEllipsis(round.assistantText, endHookAssistantMaxRunes),
 			"QUARTET_ERROR_MESSAGE":  errMessage,
+			"QUARTET_JOB_WATCHED":    watched,
 		},
-		LogFields: fmt.Sprintf("source=%s jobId=%s sessionId=%s runOutcome=%s",
-			hookSourceInteractive, job.ID, round.sessionID, outcome),
+		LogFields: fmt.Sprintf("source=%s jobId=%s sessionId=%s runOutcome=%s watched=%s",
+			hookSourceInteractive, job.ID, round.sessionID, outcome, watched),
 	}
 	logCtx := context.WithoutCancel(ctx)
 	safe.Go(logCtx, func() {

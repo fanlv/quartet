@@ -16,6 +16,7 @@ import (
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/logger"
 	graphsvc "github.com/fanlv/quartet/services/graph"
+	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/model"
 	"github.com/google/uuid"
 )
@@ -422,7 +423,7 @@ func slimGraphRunStatus(resp *model.GraphRunStatusResponse) *model.GraphRunStatu
 }
 
 func (h *Handler) JobGraphRunEvents(ctx context.Context, c *app.RequestContext) {
-	_, runID, ok := h.resolveJobGraphRun(ctx, c)
+	graphJob, runID, ok := h.resolveJobGraphRun(ctx, c)
 	if !ok {
 		return
 	}
@@ -484,6 +485,18 @@ func (h *Handler) JobGraphRunEvents(ctx context.Context, c *app.RequestContext) 
 	}
 
 	logger.Infof(ctx, "[graph-sse] subscribe: connId=%s runId=%s startSeq=%d live=%t", connID, runID, startSeq, live)
+	// Viewer presence: watching a Job's graph run page counts as watching that
+	// Job, so an interactive round inside one of its nodes does not need to
+	// notify. Public share readers are excluded — this handler backs both the
+	// authenticated route and the public one. See services/job/viewer.go.
+	if _, isPublicShare := getPublicJob(c); !isPublicShare {
+		viewer := h.jobService.AttachViewer(graphJob.ID, job.ViewerOptions{
+			ViewerID: strings.TrimSpace(string(c.Query("viewerId"))),
+			Visible:  parseViewerVisible(string(c.Query("visible"))),
+			Kind:     "graph-run",
+		})
+		defer viewer.Detach()
+	}
 	defer func(started time.Time) {
 		logger.Debugf(ctx, "[graph-sse] unsubscribe: connId=%s runId=%s live=%t lifetime=%s", connID, runID, live, time.Since(started).Round(time.Millisecond))
 	}(time.Now())

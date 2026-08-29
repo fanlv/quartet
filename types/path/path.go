@@ -355,8 +355,10 @@ func GraphRunEventsFile(wsID, jobID string) string {
 }
 
 // ShellTempDir returns {LOCAL_MEMORY}/var/quartet/tmp/shell/, the process-owned
-// temp directory used for shell helper scripts and control files when a job has
-// no explicit workdir.
+// temp directory for shell helper scripts and control files. Such a script is a
+// process artifact, not user content, so it lives here rather than in the job's
+// workdir — a leaked file then sits in reconstructable state instead of dirtying
+// the user's checkout.
 func ShellTempDir() (string, error) {
 	dir, err := QuartetTmpDir()
 	if err != nil {

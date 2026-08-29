@@ -125,6 +125,16 @@ struct UserConfigSettingsView: View {
             .disabled(!canWrite)
             agentSettingsDivider()
             VStack(alignment: .leading, spacing: 6) {
+                Toggle("仅在无人实时查看该任务时执行（对话）".localizedForApp, isOn: binding(\.endHookSkipWhenWatched))
+                    .font(.quartet(.control, weight: .medium))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .toggleStyle(QuartetCheckmarkToggleStyle())
+                    .disabled(!canWrite)
+                    .accessibilityIdentifier("user-config-end-hook-skip-watched")
+                agentSettingsHint("对话轮次结束时，如果有页面正在实时看这个任务的输出（Web 前台标签页、iOS 前台对话页、图运行页），就不执行脚本；页面关掉、切走或退到后台后才通知。图工作流终点 Hook 不受影响。")
+            }
+            agentSettingsDivider()
+            VStack(alignment: .leading, spacing: 6) {
                 agentSettingsFieldLabel("触发点")
                 agentSettingsHint("· 图工作流走到“使用全局默认脚本”的终点结点")
                 agentSettingsHint("· 对话每一轮结束——完成 / 失败 / 停止都会触发")
@@ -141,9 +151,9 @@ struct UserConfigSettingsView: View {
                 )
                 AgentSettingsMonoRow(
                     label: "仅对话",
-                    value: "$QUARTET_SESSION_ID\n$QUARTET_JOB_MODE\n$QUARTET_JOB_STATUS\n$QUARTET_RUN_OUTCOME\n$QUARTET_ERROR_MESSAGE"
+                    value: "$QUARTET_SESSION_ID\n$QUARTET_JOB_MODE\n$QUARTET_JOB_STATUS\n$QUARTET_RUN_OUTCOME\n$QUARTET_ERROR_MESSAGE\n$QUARTET_JOB_WATCHED"
                 )
-                agentSettingsHint("$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。")
+                agentSettingsHint("$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。$QUARTET_JOB_WATCHED 为 1 表示本轮结束时有人正在实时查看。")
             }
         }
     }
@@ -153,6 +163,20 @@ struct UserConfigSettingsView: View {
     /// 编辑走自定义 Binding，顺手维护 `isDirty` 并清掉上一次的保存提示；
     /// 读取时直接改 `config`，不会被误判成脏数据。
     private func binding(_ keyPath: WritableKeyPath<UserConfig, String>) -> Binding<String> {
+        Binding(
+            get: { config[keyPath: keyPath] },
+            set: { newValue in
+                guard config[keyPath: keyPath] != newValue else { return }
+                config[keyPath: keyPath] = newValue
+                editRevision &+= 1
+                isDirty = true
+                message = nil
+            }
+        )
+    }
+
+    /// 布尔项走同一套脏值维护逻辑。
+    private func binding(_ keyPath: WritableKeyPath<UserConfig, Bool>) -> Binding<Bool> {
         Binding(
             get: { config[keyPath: keyPath] },
             set: { newValue in
@@ -218,6 +242,7 @@ struct UserConfigSettingsView: View {
                 if editRevision == submittedEditRevision {
                     config.avatarURL = saved.avatarURL
                     config.endHookScript = saved.endHookScript
+                    config.endHookSkipWhenWatched = saved.endHookSkipWhenWatched
                     isDirty = false
                     message = .success("用户配置已保存".localizedForApp)
                 } else {
@@ -225,6 +250,7 @@ struct UserConfigSettingsView: View {
                     let currentAvatar = config.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
                     isDirty = currentAvatar != saved.avatarURL
                         || config.endHookScript != saved.endHookScript
+                        || config.endHookSkipWhenWatched != saved.endHookSkipWhenWatched
                     message = .success(
                         isDirty
                             ? "用户配置已保存；保存期间的新修改尚未保存".localizedForApp

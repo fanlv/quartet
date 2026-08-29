@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/fanlv/quartet/pkg/fileserver"
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/logger"
-	"github.com/fanlv/quartet/pkg/sandbox"
 	"github.com/fanlv/quartet/types/model"
 	typepath "github.com/fanlv/quartet/types/path"
 )
@@ -70,9 +70,9 @@ func (h *Handler) PublicServeFile(ctx context.Context, c *app.RequestContext) {
 	}
 	filePath = filepath.Clean(filePath)
 
-	// Resolve symlinks through the sandbox FileManager so the check runs
+	// Resolve symlinks through the shared FileManager so the check runs
 	// against the same filesystem view as actual reads.
-	sb := sandbox.GetFileManager()
+	sb := fileserver.GetFileManager()
 	realPath := filePath
 	if r, err := sb.FileEvalSymlinks(&fsmodel.FileEvalSymlinksRequest{Path: filePath}); err == nil {
 		realPath = r.ResolvedPath

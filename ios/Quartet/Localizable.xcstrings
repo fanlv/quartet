@@ -17459,19 +17459,53 @@
         }
       }
     },
-    "$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。" : {
+    "$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。$QUARTET_JOB_WATCHED 为 1 表示本轮结束时有人正在实时查看。" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "$QUARTET_HOOK_SOURCE is end (workflow end node) / prompt (node hook) / interactive (chat round). Graph runs also inject the node's visible workflow variables."
+            "value" : "$QUARTET_HOOK_SOURCE is end (workflow end node) / prompt (node hook) / interactive (chat round). Graph runs also inject the node's visible workflow variables. $QUARTET_JOB_WATCHED is 1 when somebody was watching the task live as the round ended."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。"
+            "value" : "$QUARTET_HOOK_SOURCE 取值：end（工作流终点）/ prompt（结点 Hook）/ interactive（对话轮次）；图工作流还会注入结点可见的业务变量。$QUARTET_JOB_WATCHED 为 1 表示本轮结束时有人正在实时查看。"
+          }
+        }
+      }
+    },
+    "仅在无人实时查看该任务时执行（对话）" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only run when nobody is watching the task live (chat)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在无人实时查看该任务时执行（对话）"
+          }
+        }
+      }
+    },
+    "对话轮次结束时，如果有页面正在实时看这个任务的输出（Web 前台标签页、iOS 前台对话页、图运行页），就不执行脚本；页面关掉、切走或退到后台后才通知。图工作流终点 Hook 不受影响。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When a chat round ends, skip the script if a page is watching this task's output live (a visible web tab, the iOS chat page in the foreground, the graph run page). The notification fires once the page is closed, switched away, or backgrounded. Graph End node hooks are unaffected."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对话轮次结束时，如果有页面正在实时看这个任务的输出（Web 前台标签页、iOS 前台对话页、图运行页），就不执行脚本；页面关掉、切走或退到后台后才通知。图工作流终点 Hook 不受影响。"
           }
         }
       }

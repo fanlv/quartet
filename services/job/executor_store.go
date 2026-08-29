@@ -119,6 +119,12 @@ type serviceImpl struct {
 	// the lifecycle paths (Delete) directly.
 	bus *busOwner
 
+	// viewers tracks which Jobs currently have a human watching their live
+	// event stream (chat page / graph run page). Read by the end hook to
+	// suppress a "task finished" notification the user does not need. Owns its
+	// own mutex; see viewer.go.
+	viewers *viewerRegistry
+
 	// stop control: jobID -> cancel entry. The entry identity is used during
 	// deferred cleanup so an old run cannot delete a newer run's cancel func.
 	cancels  map[string]*cancelEntry
@@ -163,11 +169,12 @@ type serviceImpl struct {
 	// returning anything.
 	usageRecorder usagestats.Recorder
 
-	// endHookScriptFn returns the global default end-hook script run after every
-	// interactive round terminates. Set once at startup via
-	// SetEndHookScriptProvider (before serving); read at hook time so editing the
-	// script in Settings takes effect on the next round. nil → no end hook.
-	endHookScriptFn func() string
+	// endHookPolicyFn returns the global default end-hook policy (script +
+	// "skip when somebody is watching") applied after every interactive round
+	// terminates. Set once at startup via SetEndHookPolicyProvider (before
+	// serving); read at hook time so editing the script or the switch in
+	// Settings takes effect on the next round. nil → no end hook.
+	endHookPolicyFn func() EndHookPolicy
 
 	messageQueueDispatcher   MessageQueueDispatcher
 	messageQueueDispatcherMu sync.RWMutex

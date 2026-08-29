@@ -213,6 +213,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	jobGroup.POST("/:jobId/message-queue/continue", permit(auth.PermissionJobExecute), h.JobMessageQueueContinue)
 	jobGroup.POST("/:jobId/stop", permit(auth.PermissionJobExecute), h.JobStop)
 	jobGroup.GET("/:jobId/events", permit(auth.PermissionJobRead), h.JobEvents)
+	jobGroup.POST("/:jobId/viewer-state", permit(auth.PermissionJobRead), h.JobViewerState)
 	jobGroup.GET("/:jobId/graph-run", permit(auth.PermissionJobRead), h.GetJobGraphRunStatus)
 	jobGroup.GET("/:jobId/graph-run/events", permit(auth.PermissionJobRead), h.JobGraphRunEvents)
 	jobGroup.GET("/:jobId/graph-run/hooks", permit(auth.PermissionJobRead), h.JobGraphRunHooks)

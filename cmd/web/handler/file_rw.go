@@ -17,10 +17,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/fanlv/quartet/pkg/fileserver"
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/logger"
-	"github.com/fanlv/quartet/pkg/sandbox"
 	typepath "github.com/fanlv/quartet/types/path"
 )
 
@@ -62,7 +62,7 @@ func (h *Handler) ReadFile(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	sb := sandbox.GetFileManager()
+	sb := fileserver.GetFileManager()
 	stat, err := sb.FileStat(&fsmodel.FileStatRequest{Path: filePath})
 	if err != nil {
 		httputil.InternalErrorLog(ctx, c, "ReadFile/stat", err)
@@ -225,7 +225,7 @@ func (h *Handler) WriteFile(ctx context.Context, c *app.RequestContext) {
 	}
 
 	parentDir := filepath.Dir(req.Path)
-	sb := sandbox.GetFileManager()
+	sb := fileserver.GetFileManager()
 	parentStat, err := sb.FileStat(&fsmodel.FileStatRequest{Path: parentDir})
 	if err != nil || !parentStat.Exists || !parentStat.IsDir {
 		httputil.BadRequest(c, "parent directory does not exist")
@@ -264,7 +264,7 @@ func (h *Handler) ServeFile(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	sb := sandbox.GetFileManager()
+	sb := fileserver.GetFileManager()
 	stat, err := sb.FileStat(&fsmodel.FileStatRequest{Path: filePath})
 	if err != nil {
 		httputil.InternalErrorLog(ctx, c, "ServeFile/stat", err)
@@ -462,7 +462,7 @@ func (h *Handler) UploadFile(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	sb := sandbox.GetFileManager()
+	sb := fileserver.GetFileManager()
 	if err := sb.MkDir(&fsmodel.MkDirRequest{Path: uploadsDir}); err != nil {
 		httputil.InternalErrorLog(ctx, c, "UploadFile/mkdir", err)
 		return
@@ -559,7 +559,7 @@ func allowedRoots() []string {
 		roots = append(roots, uploadsDir)
 	}
 	roots = append(roots, workspaceRoots()...)
-	sb := sandbox.GetFileManager()
+	sb := fileserver.GetFileManager()
 	if home, err := sb.UserHomeDir(); err == nil && home.Path != "" {
 		roots = append(roots, home.Path)
 	}
@@ -582,7 +582,7 @@ func allowedRoots() []string {
 // server inside a container/chroot that makes the allowlisted roots the
 // only reachable tree.
 func hasPathPrefix(filePath, root string) bool {
-	sb := sandbox.GetFileManager()
+	sb := fileserver.GetFileManager()
 	cleanedRoot := filepath.Clean(root)
 	realRoot := cleanedRoot
 	if r, err := sb.FileEvalSymlinks(&fsmodel.FileEvalSymlinksRequest{Path: cleanedRoot}); err == nil {

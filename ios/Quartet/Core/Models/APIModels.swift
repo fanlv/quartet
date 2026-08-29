@@ -779,6 +779,11 @@ enum JSONValue: Codable, Hashable, Sendable {
         guard case .string(let value) = self else { return nil }
         return value
     }
+
+    var boolValue: Bool? {
+        guard case .bool(let value) = self else { return nil }
+        return value
+    }
 }
 
 /// `GET /api/v1/config/settings/get` 的原始响应。`settings` 保留成通用 JSON，
@@ -800,14 +805,19 @@ struct SettingsSaveResponse: Decodable, Sendable {
 struct UserConfig: Sendable {
     var avatarURL: String
     var endHookScript: String
+    /// 对话轮次结束时，若有页面正在实时看这个任务的输出就不执行 Hook。后端缺省即开启，
+    /// 所以快照里没这个键时按 `true` 解析。
+    var endHookSkipWhenWatched: Bool
     var snapshot: [String: JSONValue]
 
     static let avatarURLKey = "avatar_url"
     static let endHookScriptKey = "end_hook_script"
+    static let endHookSkipWhenWatchedKey = "end_hook_skip_when_watched"
 
-    init(avatarURL: String, endHookScript: String, snapshot: [String: JSONValue]) {
+    init(avatarURL: String, endHookScript: String, endHookSkipWhenWatched: Bool = true, snapshot: [String: JSONValue]) {
         self.avatarURL = avatarURL
         self.endHookScript = endHookScript
+        self.endHookSkipWhenWatched = endHookSkipWhenWatched
         self.snapshot = snapshot
     }
 
@@ -815,6 +825,7 @@ struct UserConfig: Sendable {
         self.init(
             avatarURL: snapshot[Self.avatarURLKey]?.stringValue ?? "",
             endHookScript: snapshot[Self.endHookScriptKey]?.stringValue ?? "",
+            endHookSkipWhenWatched: snapshot[Self.endHookSkipWhenWatchedKey]?.boolValue ?? true,
             snapshot: snapshot
         )
     }
@@ -824,6 +835,7 @@ struct UserConfig: Sendable {
         var merged = snapshot
         merged[Self.avatarURLKey] = .string(avatarURL)
         merged[Self.endHookScriptKey] = .string(endHookScript)
+        merged[Self.endHookSkipWhenWatchedKey] = .bool(endHookSkipWhenWatched)
         return merged
     }
 }

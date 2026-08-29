@@ -68,6 +68,24 @@ type Settings struct {
 	// finishes"). A pure side-effect: its output is ignored and a failure is
 	// logged, never affecting the run.
 	EndHookScript string `json:"end_hook_script,omitempty"`
+
+	// EndHookSkipWhenWatched suppresses the interactive round end hook while
+	// somebody is watching that Job's output live (chat page in a visible tab,
+	// iOS chat page in the foreground, graph run page). Nil means enabled: a
+	// config written before this switch existed should still get the quiet
+	// behavior, and users who want a notification on every round opt out
+	// explicitly. Graph node hooks ignore it.
+	EndHookSkipWhenWatched *bool `json:"end_hook_skip_when_watched,omitempty"`
+}
+
+// EndHookSkipsWatchedJob reports whether the interactive end hook should stay
+// quiet for a Job that currently has a live on-screen viewer. Absent config
+// means yes — see EndHookSkipWhenWatched.
+func (s *Settings) EndHookSkipsWatchedJob() bool {
+	if s == nil || s.EndHookSkipWhenWatched == nil {
+		return true
+	}
+	return *s.EndHookSkipWhenWatched
 }
 
 // UnmarshalJSON adopts the legacy graph_end_hook_script key when the current

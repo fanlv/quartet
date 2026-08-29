@@ -24,6 +24,7 @@ import (
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/strutil"
+	typepath "github.com/fanlv/quartet/types/path"
 )
 
 // Timeout bounds a single hook so a hung script cannot leak a goroutine for the
@@ -61,7 +62,9 @@ type Request struct {
 	// Script is the resolved script body. Blank (or whitespace-only) is a
 	// deliberate no-op: nothing runs and nothing is emitted.
 	Script string
-	// Workdir is the script's working directory; "" → os.TempDir().
+	// Workdir is the directory the script RUNS in; "" leaves the child with the
+	// server process's own working directory. It is deliberately not where the
+	// script FILE is written — see scriptDir.
 	Workdir string
 	// Vars are user-defined variables exported as $name. Keys in the reserved
 	// QUARTET_ namespace are ignored.
@@ -112,15 +115,12 @@ func Run(parent context.Context, req Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
 	defer cancel()
 
-	tmpDir := req.Workdir
-	if tmpDir == "" {
-		tmpDir = os.TempDir()
-	}
-	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+	dir, err := scriptDir()
+	if err != nil {
 		emitFailure("mkdir failed", err)
 		return
 	}
-	f, err := os.CreateTemp(tmpDir, ".quartet-hook-*.sh")
+	f, err := os.CreateTemp(dir, ".quartet-hook-*.sh")
 	if err != nil {
 		emitFailure("tempfile failed", err)
 		return
@@ -172,6 +172,28 @@ func Run(parent context.Context, req Request) {
 	if req.Emit != nil {
 		req.Emit(Outcome{ExitCode: 0, Stdout: outStr, Stderr: errStr})
 	}
+}
+
+// scriptDir returns the directory the hook script file is written to, creating
+// it if needed. It is deliberately NOT the hook's workdir: the script is a
+// process-owned temp artifact, and a workdir is typically the user's git
+// checkout, so writing there leaves .quartet-hook-*.sh droppings in a tracked
+// tree whenever the deferred cleanup does not run (the server is killed, the
+// host loses power). Under LOCAL_MEMORY's tmp root a leaked file is invisible
+// and swept with the rest of the reconstructable state.
+//
+// os.TempDir() is the fallback for a process with no usable LOCAL_MEMORY: a
+// hook is a side effect that must still fire, so an unresolvable data root
+// degrades the file's location rather than skipping the script.
+func scriptDir() (string, error) {
+	dir, err := typepath.ShellTempDir()
+	if err != nil {
+		dir = os.TempDir()
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // buildEnv builds the hook process environment, mirroring a Shell node's rule:

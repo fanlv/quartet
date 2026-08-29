@@ -52,6 +52,15 @@
   --accent-border: #9bd3aa;
   --accent-ring: rgba(22, 163, 74, 0.20);
 
+  /* Usage trend series: categorical hues kept separate from the green total. */
+  --chart-blue: #2563eb;
+  --chart-orange: #c2410c;
+  --chart-violet: #7c3aed;
+  --chart-rose: #be185d;
+  --chart-cyan: #0e7490;
+  --chart-amber: #a16207;
+  --chart-graphite: #4f4942;
+
   /* iOS status semantics */
   --success: #16a34a;
   --running: #059669;
@@ -128,6 +137,14 @@
   --accent-soft-surface: #102a19;
   --accent-border: #245d36;
   --accent-ring: rgba(74, 222, 128, 0.24);
+
+  --chart-blue: #60a5fa;
+  --chart-orange: #fb923c;
+  --chart-violet: #a78bfa;
+  --chart-rose: #f472b6;
+  --chart-cyan: #22d3ee;
+  --chart-amber: #facc15;
+  --chart-graphite: #c4bbb0;
 
   --success: #4ade80;
   --running: #34d399;

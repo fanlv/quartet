@@ -762,11 +762,12 @@ private struct StatsTrendCard: View {
         }
         let modelIDs = modelIDSet.sorted()
         let palette: [Color] = [
-            QuartetTheme.chartGreen,
-            QuartetTheme.chartForest,
-            QuartetTheme.chartMutedGreen,
-            QuartetTheme.chartRed,
-            QuartetTheme.chartMint,
+            QuartetTheme.chartBlue,
+            QuartetTheme.chartOrange,
+            QuartetTheme.chartViolet,
+            QuartetTheme.chartRose,
+            QuartetTheme.chartCyan,
+            QuartetTheme.chartAmber,
             QuartetTheme.chartGraphite
         ]
         for (index, modelID) in modelIDs.enumerated() {

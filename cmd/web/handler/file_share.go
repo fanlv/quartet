@@ -10,9 +10,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/fanlv/quartet/pkg/fileserver"
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
 	"github.com/fanlv/quartet/pkg/httputil"
-	"github.com/fanlv/quartet/pkg/sandbox"
 	"github.com/fanlv/quartet/repository"
 )
 
@@ -147,7 +147,7 @@ func (h *Handler) PublicServeSharedFile(_ context.Context, c *app.RequestContext
 }
 
 func (h *Handler) publicReadFileContent(c *app.RequestContext, filePath string) {
-	sb := sandbox.GetFileManager()
+	sb := fileserver.GetFileManager()
 	stat, err := sb.FileStat(&fsmodel.FileStatRequest{Path: filePath})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": "stat failed"})

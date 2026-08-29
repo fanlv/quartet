@@ -115,13 +115,16 @@ function seriesColor(idx: number): string {
   return NEUTRAL_SERIES;
 }
 
-// The trend chart stays in a broad botanical family. Line shape, labels and
-// tooltips remain the primary differentiators, matching the iOS chart rules.
+// Total stays in the brand green; model lines use the same categorical order
+// as iOS and resolve through theme-aware CSS variables.
 const TREND_PALETTE = [
-  '#047857', '#059669', '#22c55e', '#4d7c0f', '#65a30d', '#84cc16',
-  '#15803d', '#047857', '#34d399', '#166534', '#3f6212', '#10b981',
-  '#52b788', '#2d6a4f', '#74c69d', '#386641', '#6a994e', '#588157',
-  '#a3b18a', '#4f4942', '#686159', '#a16207', '#b62435', '#95a168',
+  'var(--chart-blue)',
+  'var(--chart-orange)',
+  'var(--chart-violet)',
+  'var(--chart-rose)',
+  'var(--chart-cyan)',
+  'var(--chart-amber)',
+  'var(--chart-graphite)',
 ];
 
 function trendColor(idx: number): string {

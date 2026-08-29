@@ -422,6 +422,8 @@
       "endHookScript": "任务结束默认 Hook（Shell）",
       "endHookScriptPlaceholder": "# 例如：任务跑完发个飞书通知\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE 已完成\"",
       "endHookScriptDesc": "任务结束时执行的默认副作用脚本，一般用来发通知。输出会被忽略，失败只打日志，不影响任务本身。",
+      "endHookSkipWhenWatched": "仅在无人实时查看该任务时执行（对话）",
+      "endHookSkipWhenWatchedDesc": "对话轮次结束时，如果有页面正在实时看这个任务的输出（Web 前台标签页、iOS 前台对话页、图运行页），就不执行脚本；页面关掉、切走或退到后台后才通知。图工作流终点 Hook 不受影响。",
       "endHookTriggers": "触发点",
       "endHookTriggerGraph": "图工作流走到「使用全局默认脚本」的终点结点",
       "endHookTriggerChat": "对话每一轮结束——完成 / 失败 / 停止都会触发",

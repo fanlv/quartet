@@ -3,7 +3,6 @@ package repository
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/fanlv/quartet/pkg/fileserver"
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
@@ -21,11 +20,6 @@ type WorkspaceRepo interface {
 	// deleted. Split from LoadAll so the read path has no write side effects.
 	SweepDeleted() error
 	RemoveDir(id string) error
-	// SetSandboxRef updates only the Sandbox field of the persisted
-	// workspace. Used by the sandbox Manager to publish the ref without
-	// racing concurrent Save() calls that would otherwise overwrite other
-	// fields with a stale snapshot.
-	SetSandboxRef(id string, ref *model.SandboxRef) error
 }
 
 type workspaceRepo struct {
@@ -187,55 +181,6 @@ func (r *workspaceRepo) RemoveDir(id string) error {
 	}
 	if err := r.sandbox.FileDelete(&fsmodel.FileDeleteRequest{Path: wsDir}); err != nil {
 		return fmt.Errorf("remove workspace dir failed: %w", err)
-	}
-	return nil
-}
-
-// SetSandboxRef loads the persisted workspace, replaces only the Sandbox
-// field, and writes it back atomically. Holding the same shard lock as
-// Save() means a concurrent Save/SetSandboxRef pair serialise rather than
-// last-writer-wins.
-func (r *workspaceRepo) SetSandboxRef(id string, ref *model.SandboxRef) error {
-	if err := validateID(id); err != nil {
-		return fmt.Errorf("invalid workspace id: %w", err)
-	}
-	mu := r.locks.lockFor(id)
-	mu.Lock()
-	defer mu.Unlock()
-
-	wsDir, err := r.ensureDir(id)
-	if err != nil {
-		return fmt.Errorf("ensure workspace dir failed: %w", err)
-	}
-	metaPath := path.WorkspaceMetaFilePath(wsDir)
-
-	// Read-modify-write under the shard lock. If the meta file is missing
-	// (first-boot / crash recovery), fall back to a minimal record so the
-	// ref is still persisted and LoadAll picks it up on the next restart.
-	var ws model.Workspace
-	existed := true
-	if res, readErr := r.sandbox.FileRead(&fsmodel.FileReadRequest{File: metaPath}); readErr == nil {
-		if err := json.Unmarshal([]byte(res.Content), &ws); err != nil {
-			return fmt.Errorf("unmarshal workspace failed: %w", err)
-		}
-	} else {
-		existed = false
-		now := time.Now()
-		ws.ID = id
-		ws.CreatedAt = now
-		ws.UpdatedAt = now
-	}
-	ws.Sandbox = ref
-	if existed {
-		ws.UpdatedAt = time.Now()
-	}
-
-	data, err := json.MarshalIndent(&ws, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal workspace failed: %w", err)
-	}
-	if err := AtomicWriteFile(metaPath, data, 0644); err != nil {
-		return fmt.Errorf("write workspace file failed: %w", err)
 	}
 	return nil
 }

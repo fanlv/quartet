@@ -427,6 +427,20 @@ func (h *Handler) JobEvents(ctx context.Context, c *app.RequestContext) {
 		logger.Infof(ctx, "[sse] subscribe retry succeeded: connId=%s jobId=%s originalSeq=%d resolvedSeq=%d", connID, jobID, startSeq, subscribeSeq)
 	}
 	connectedAt := time.Now()
+	// Viewer presence: an authenticated event stream is a human watching this
+	// Job, which the interactive end hook consults before firing a "task
+	// finished" notification. A public share reader is deliberately NOT a viewer
+	// — the person watching a shared link is not the one the notification is
+	// for. Internal consumers (IM gateway) call jobService.Subscribe directly and
+	// never reach this handler, so they are excluded by construction.
+	if !isPublicShare {
+		viewer := h.jobService.AttachViewer(jobID, job.ViewerOptions{
+			ViewerID: strings.TrimSpace(string(c.Query("viewerId"))),
+			Visible:  parseViewerVisible(string(c.Query("visible"))),
+			Kind:     "chat",
+		})
+		defer viewer.Detach()
+	}
 	defer func() {
 		reader.Close()
 		// Connection-lifetime log: makes the "long idle SSE for a

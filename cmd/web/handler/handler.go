@@ -311,11 +311,15 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 	js.SetUsageRecorder(h.usageStats)
 	gs.SetUsageRecorder(h.usageStats)
 
-	// Wire the global default end-hook script getter into both engines: a graph
+	// Wire the global default end-hook getter into both engines: a graph
 	// workflow fires it at an End node set to "default", and the job service
 	// fires it after every interactive round. Read at hook time so editing the
 	// script in Settings takes effect on the next hook (a pure side-effect, so no
 	// replay-snapshot freezing is needed).
+	//
+	// The job side additionally carries the "only notify when nobody is watching
+	// this Job live" switch — an interactive-only rule, so the graph side keeps
+	// the plain script getter.
 	endHookScript := func() string {
 		s, err := h.settingsService.GetSettings()
 		if err != nil || s == nil {
@@ -324,7 +328,16 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		return s.EndHookScript
 	}
 	gs.SetEndHookScriptProvider(endHookScript)
-	js.SetEndHookScriptProvider(endHookScript)
+	js.SetEndHookPolicyProvider(func() job.EndHookPolicy {
+		s, err := h.settingsService.GetSettings()
+		if err != nil || s == nil {
+			return job.EndHookPolicy{}
+		}
+		return job.EndHookPolicy{
+			Script:          s.EndHookScript,
+			SkipWhenWatched: s.EndHookSkipsWatchedJob(),
+		}
+	})
 
 	// A graph run's scheduler goroutine does not survive a process restart, so on
 	// boot any run still persisted as in-flight is an orphan. Wire the persistent

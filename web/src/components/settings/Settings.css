@@ -457,6 +457,21 @@
   color: #738077;
 }
 
+/* Inline checkbox row inside a settings form group (e.g. the end hook's
+   "only notify when nobody is watching" switch), sitting between a field and
+   its description text. */
+.settings-check-row {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--fg, #29362d);
+  cursor: pointer;
+  user-select: none;
+}
+
 /* Structured help block under a script/textarea field: trigger points and env
    vars, so a long reference doesn't collapse into one grey paragraph. */
 .settings-hook-doc {

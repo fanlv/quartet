@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/fanlv/quartet/pkg/fileserver"
 	"github.com/fanlv/quartet/pkg/logger"
-	"github.com/fanlv/quartet/pkg/sandbox"
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
@@ -27,7 +27,6 @@ type Service interface {
 	ClearAgentDefaults(agentID string) error
 	SetFavorite(id string, favorite bool) (*model.Workspace, error)
 	Reorder(ids []string) error
-	SetSandboxRef(id string, ref *model.SandboxRef) error
 	Revision() uint64
 	// TrustedFileWorkspaceRoots returns the set of workspace Workdirs that
 	// pass internal workdir validation, used to scope file-browsing endpoints.
@@ -46,7 +45,7 @@ type Service interface {
 	Delete(id string) error
 	EnsureDefault() error
 	// DefaultWorkdir returns the canonical default workdir suggested for a
-	// freshly created workspace (sandbox UserHomeDir → $HOME → sandbox TempDir).
+	// freshly created workspace (UserHomeDir → $HOME → TempDir).
 	// Used by the new-workspace UI to prefill the path picker.
 	DefaultWorkdir() string
 	// GitBranch returns the checked-out git branch name for dir, or "" when dir
@@ -86,20 +85,11 @@ func (s *serviceImpl) lockFor(id string) *sync.Mutex {
 	return &s.locks[idx]
 }
 
-func cloneSandboxRef(ref *model.SandboxRef) *model.SandboxRef {
-	if ref == nil {
-		return nil
-	}
-	c := *ref
-	return &c
-}
-
 func cloneWorkspace(ws *model.Workspace) *model.Workspace {
 	if ws == nil {
 		return nil
 	}
 	c := *ws
-	c.Sandbox = cloneSandboxRef(ws.Sandbox)
 	return &c
 }
 
@@ -504,39 +494,6 @@ func (s *serviceImpl) Reorder(ids []string) error {
 	return nil
 }
 
-func (s *serviceImpl) SetSandboxRef(id string, ref *model.SandboxRef) error {
-	mu := s.lockFor(id)
-	mu.Lock()
-	defer mu.Unlock()
-
-	s.mu.RLock()
-	ws, ok := s.workspaces[id]
-	if !ok || ws.Deleted {
-		s.mu.RUnlock()
-		return fmt.Errorf("workspace not found: %s", id)
-	}
-	updated := cloneWorkspace(ws)
-	s.mu.RUnlock()
-	updated.Sandbox = cloneSandboxRef(ref)
-	updated.UpdatedAt = time.Now()
-	// Use the repo's field-specific helper so concurrent updates preserve
-	// other workspace fields.
-	if err := s.repo.SetSandboxRef(id, updated.Sandbox); err != nil {
-		return fmt.Errorf("persist sandbox ref failed: %w", err)
-	}
-	s.mu.Lock()
-	cur, ok := s.workspaces[id]
-	if !ok || cur == nil || cur.Deleted {
-		s.mu.Unlock()
-		return fmt.Errorf("workspace not found: %s", id)
-	}
-	cur.Sandbox = updated.Sandbox
-	cur.UpdatedAt = updated.UpdatedAt
-	s.bumpRevisionLocked()
-	s.mu.Unlock()
-	return nil
-}
-
 func (s *serviceImpl) Delete(id string) error {
 	// Defense-in-depth: reject deletion of the default workspace even when the
 	// HTTP layer's check has already run. The default workspace is the
@@ -921,20 +878,20 @@ func branchFromHead(headPath string) string {
 }
 
 // resolveDefaultWorkdir picks a writable directory for the default workspace,
-// in order of preference: sandbox UserHomeDir → $HOME → sandbox TempDir. Only
-// the TempDir case logs a warning, since the other two are normal.
+// in order of preference: FileManager UserHomeDir → $HOME → FileManager
+// TempDir. Only the TempDir case logs a warning, since the other two are
+// normal.
 func resolveDefaultWorkdir() string {
-	sb := sandbox.GetFileManager()
+	sb := fileserver.GetFileManager()
 	if home, err := sb.UserHomeDir(); err == nil && home.Path != "" {
 		return home.Path
 	}
 	if envHome := os.Getenv("HOME"); envHome != "" {
-		// Note: the sandbox's UserHomeDir is the preferred source so the
-		// path stays within the sandbox trust boundary. Falling back to
-		// the host $HOME can straddle that boundary — log so operators
-		// can see it happened and intervene (set up home mount, fix
-		// sandbox config, etc.) if it wasn't intentional.
-		logger.Warn("[workspace.Service] sandbox UserHomeDir unavailable; defaulting workdir to host $HOME=%s", envHome)
+		// UserHomeDir is the preferred source because it resolves the account's
+		// real home even when $HOME is unset or points somewhere unexpected.
+		// Falling back to the raw environment can therefore pick a different
+		// directory — log it so operators can see it happened.
+		logger.Warn("[workspace.Service] UserHomeDir unavailable; defaulting workdir to host $HOME=%s", envHome)
 		return envHome
 	}
 	// Last-resort fallback: both UserHomeDir and $HOME are unavailable
