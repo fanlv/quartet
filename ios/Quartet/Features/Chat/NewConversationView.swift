@@ -7,6 +7,8 @@ import UIKit
 struct ChatRoute: Hashable {
     let summary: JobSummary
     var initialMessage: String?
+    /// Stable across SwiftUI destination/view-model reconstruction so the
+    /// server can deduplicate a replay of the one-shot initial message.
     var initialMessageID: String?
     var initialAttachments: [PendingUpload]?
     var agentType: String?

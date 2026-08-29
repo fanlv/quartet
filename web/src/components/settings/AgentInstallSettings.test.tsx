@@ -870,7 +870,7 @@ describe('StatsPage token trend accessibility', () => {
     expect(days.map((day) => day.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
 
     days[0].focus();
-    expect(await screen.findByText('An explanatory subset already included in the input or estimated total.')).toBeInTheDocument();
+    expect(await screen.findByText('Explanatory data already included in input tokens or the Quartet estimate.')).toBeInTheDocument();
     fireEvent.keyDown(days[0], { key: 'ArrowRight' });
 
     expect(document.activeElement).toBe(days[1]);

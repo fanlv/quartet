@@ -379,11 +379,6 @@ function WorkspaceApp() {
     setInitialMessage(null);
     setInitialImageUrls(undefined);
     setInitialFileAttachments(undefined);
-    setInitialWorkdir(undefined);
-    setInitialModelId(undefined);
-    setInitialAgentType(undefined);
-    setInitialAcpMode(undefined);
-    setInitialAcpThoughtLevel(undefined);
   }, []);
 
   const handleStartNewChat = useCallback(async (modelId: string, agentType: string, workdir?: string) => {
