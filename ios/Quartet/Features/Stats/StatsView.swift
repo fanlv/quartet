@@ -508,12 +508,7 @@ private struct StatsTrendCard: View {
                 .accessibilityIdentifier("stats-trend-metric")
             }
 
-            if metric == .tokens, let selectedDay {
-                StatsTokenDayDetail(
-                    day: selectedDay,
-                    modelEntries: selectedTrendEntries.filter { !$0.isTotal }
-                )
-            } else if metric == .cache {
+            if metric == .cache {
                 Label("按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。", systemImage: "externaldrive.badge.checkmark")
                     .font(.quartet(.compact))
                     .foregroundStyle(QuartetTheme.secondaryText)
@@ -589,12 +584,19 @@ private struct StatsTrendCard: View {
                     adjustAccessibilitySelection(direction)
                 }
 
-                if let selectedDay, metric != .tokens {
-                    StatsTrendDayTip(
-                        date: selectedDay.date,
-                        metric: metric,
-                        entries: selectedTrendEntries
-                    )
+                if let selectedDay {
+                    if metric == .tokens {
+                        StatsTokenDayDetail(
+                            day: selectedDay,
+                            modelEntries: selectedTrendEntries.filter { !$0.isTotal }
+                        )
+                    } else {
+                        StatsTrendDayTip(
+                            date: selectedDay.date,
+                            metric: metric,
+                            entries: selectedTrendEntries
+                        )
+                    }
                 }
 
                 ScrollView(.horizontal) {

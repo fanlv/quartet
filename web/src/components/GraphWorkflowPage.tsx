@@ -2173,6 +2173,7 @@ export function GraphWorkflowPage({
         pageMark={<span className="graph-header-mark">◇</span>}
         onBack={() => { if (guardDiscard()) onClose(); }}
         backLabel={t('graph.header.back')}
+        onHome={() => { if (guardDiscard()) onClose(); }}
         pageActions={isMobile ? (
             <button
               className="header-settings-btn"

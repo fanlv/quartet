@@ -171,6 +171,7 @@
     },
     "headerActions": {
       "navigation": "主导航",
+      "home": "返回首页",
       "more": "更多操作",
       "share": "分享",
       "copyShareLink": "复制分享链接",

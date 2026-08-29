@@ -28,6 +28,7 @@ export interface HomeNavigationProps {
   onBack?: () => void;
   backLabel?: string;
   pageActions?: ReactNode;
+  onHome?: () => void;
   onOpenSettings?: () => void;
   onOpenStats?: () => void;
   onOpenGraph?: () => void;
@@ -104,6 +105,7 @@ export function HomeNavigation({
   onBack,
   backLabel,
   pageActions,
+  onHome,
   onOpenSettings,
   onOpenStats,
   onOpenGraph,
@@ -151,6 +153,19 @@ export function HomeNavigation({
     };
   }, [buildTime, i18n.language, i18n.resolvedLanguage]);
 
+  const navigationMark = pageTitle ? (
+    pageMark
+  ) : userAvatarUrl ? (
+    <img src={userAvatarUrl} alt="" className="header-user-avatar" referrerPolicy="no-referrer" />
+  ) : (
+    <svg className="header-logo-mark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="8" width="16" height="12" rx="3" />
+      <path d="M12 4v4" />
+      <circle cx="12" cy="3" r="1" />
+      <path d="M9.5 13h.01M14.5 13h.01" />
+    </svg>
+  );
+
   const handleRestartWeb = async () => {
     if (webRestarting) return;
     setRestartConfirmOpen(false);
@@ -188,17 +203,18 @@ export function HomeNavigation({
             </button>
           )}
           <span className="header-logo">
-            {pageTitle ? (
-              pageMark
-            ) : userAvatarUrl ? (
-              <img src={userAvatarUrl} alt="" className="header-user-avatar" referrerPolicy="no-referrer" />
+            {onHome ? (
+              <button
+                type="button"
+                className="header-home-button"
+                onClick={onHome}
+                title={t('chat.headerActions.home')}
+                aria-label={t('chat.headerActions.home')}
+              >
+                {navigationMark}
+              </button>
             ) : (
-              <svg className="header-logo-mark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="4" y="8" width="16" height="12" rx="3" />
-                <path d="M12 4v4" />
-                <circle cx="12" cy="3" r="1" />
-                <path d="M9.5 13h.01M14.5 13h.01" />
-              </svg>
+              navigationMark
             )}
             {' '}<span className="header-logo-text">{pageTitle || workspaceTitle || principal?.user.displayName || 'Quartet'}</span>
             {!pageTitle && localizedBuildTime.full && (

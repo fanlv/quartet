@@ -222,8 +222,10 @@
 }
 
 /* Home-page metrics for the shared highlight backdrop (base styles live in
-   ChatInput.css's .chat-input-backdrop); must mirror .home-input exactly. */
-.home-input-backdrop {
+   ChatInput.css's .chat-input-backdrop); must mirror .home-input exactly.
+   Keep this selector more specific than the base rule: ChatInput.css can be
+   injected later as an async chunk, so source/load order is not stable. */
+.chat-input-backdrop.home-input-backdrop {
   padding: 16px 18px;
   font-size: 15px;
 }
@@ -1611,7 +1613,7 @@
     font-size: 14px;
   }
 
-  .home-input-backdrop {
+  .chat-input-backdrop.home-input-backdrop {
     padding: 12px 14px;
     font-size: 14px;
   }

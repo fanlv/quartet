@@ -172,6 +172,7 @@
     },
     "headerActions": {
       "navigation": "Main navigation",
+      "home": "Back to home",
       "more": "More actions",
       "share": "Share",
       "copyShareLink": "Copy share link",

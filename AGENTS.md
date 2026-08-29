@@ -9,6 +9,7 @@ This file documents the current architecture and development conventions for thi
 3. 错误信息就要全量给用户显示，不要隐藏任何错误信息.
 4. services 目录下的代码，尽量不要对外暴露全局的函数。比如 func ValidateWorkdir(workdir string) error 。
 5. 当前 quartet 程序一般运行在用户的个人电脑或其他可信环境中。账号之间不隔离工作区和业务数据，RBAC 只控制功能能力；不用考虑账号是否能访问宿主机上的资源。
+6. Git commit message 必须使用英文。
 
 ## Build & Run Commands
 

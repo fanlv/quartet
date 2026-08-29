@@ -1045,7 +1045,6 @@ function TrendCard({
   useEffect(() => {
     dayHitboxRefs.current.length = filledDaily.length;
   }, [filledDaily.length]);
-  const tokenCoverage = useMemo(() => computeTokenCoverage(filledDaily), [filledDaily]);
   const dailySegments = useMemo(
     () => filledDaily.map((day) => trendSegments(day, metric)),
     [filledDaily, metric],
@@ -1158,7 +1157,6 @@ function TrendCard({
           <h3 className="stats-card-title">{t(trendTitleKey(metric))}</h3>
           {metricSwitch}
         </div>
-        {metric === 'tokens' && <TokenSourceSummary coverage={tokenCoverage} />}
         {metric === 'cache' && <div className="stats-cache-note" role="note">{t('stats.tokens.cacheHitRateHint')}</div>}
         <div className="stats-rank-empty stats-trend-empty">
           {t(metric === 'cache' ? 'stats.tokens.cacheUnavailable' : 'stats.noDataInRange')}
@@ -1230,7 +1228,6 @@ function TrendCard({
         <h3 className="stats-card-title">{t(trendTitleKey(metric))}</h3>
         {metricSwitch}
       </div>
-      {metric === 'tokens' && <TokenSourceSummary coverage={tokenCoverage} />}
       {metric === 'cache' && <div className="stats-cache-note" role="note">{t('stats.tokens.cacheHitRateHint')}</div>}
       <div className="stats-trend-chart-wrap" ref={wrapRef}>
         <svg

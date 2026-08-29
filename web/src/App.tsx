@@ -985,6 +985,7 @@ function WorkspaceApp() {
             workdir={currentWorkspace?.workdir}
             refreshKey={homeRefreshKey}
             activeView="stats"
+            onHome={handleCloseStats}
             onOpenSettings={handleOpenSettings}
             onOpenStats={handleOpenStats}
             onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
