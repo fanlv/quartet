@@ -295,8 +295,8 @@
   border-radius: 8px;
   box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
   padding: 8px 10px;
-  min-width: min(220px, calc(100vw - 16px));
-  max-width: min(320px, calc(100vw - 16px));
+  min-width: min(280px, calc(100vw - 16px));
+  max-width: min(380px, calc(100vw - 16px));
   max-height: calc(100vh - 16px);
   overflow-y: auto;
   font-size: 12px;
@@ -346,33 +346,128 @@
   margin: 1px 0 4px 8px;
 }
 
-.stats-token-coverage {
+.stats-token-source {
+  margin: 2px 0 12px;
+  padding: 12px;
+  border: 1px solid #dbe4dd;
+  border-radius: 10px;
+  background: #f8fbf8;
+}
+
+.stats-token-source-head {
   display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: #7a897f;
+  font-size: 11px;
+}
+
+.stats-token-source-head > :first-child {
+  color: #2d3d32;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stats-token-source-bar {
+  display: flex;
+  height: 7px;
+  margin: 8px 0 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7eee9;
+}
+
+.stats-token-source-bar span { min-width: 0; }
+.stats-token-source-bar .reported { background: var(--accent); }
+.stats-token-source-bar .estimated { background: #a3aea6; }
+
+.stats-token-source-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stats-token-source-card {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #e1e9e3;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.stats-token-source-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stats-token-source-card-head strong {
+  color: #142019;
+  font-size: 16px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-token-source-name {
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: 6px;
+  min-width: 0;
+  color: #2d3d32;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.stats-token-source-name i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.stats-token-source-card.estimated .stats-token-source-name i { background: #a3aea6; }
+
+.stats-token-source-meta {
+  margin-top: 2px;
+  color: #5d6c62;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-token-source-description,
+.stats-token-source-definition {
+  color: #7a897f;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.stats-token-source-description { margin-top: 6px; }
+
+.stats-token-source-definition {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid #e7eee9;
+}
+
+.stats-token-source.compact {
+  margin: 6px 0 8px;
+  padding: 8px;
+}
+
+.stats-token-source.compact .stats-token-source-grid { gap: 5px; }
+.stats-token-source.compact .stats-token-source-card { padding: 6px 7px; }
+.stats-token-source.compact .stats-token-source-card-head { display: block; }
+.stats-token-source.compact .stats-token-source-card-head strong { display: block; margin-top: 2px; font-size: 13px; }
+.stats-token-source.compact .stats-token-source-definition { font-size: 9.5px; }
+
+.stats-cache-note {
   margin: -4px 0 10px;
   color: #5d6c62;
   font-size: 11.5px;
   line-height: 1.45;
-}
-
-.stats-token-coverage-label {
-  color: #2d3d32;
-  font-weight: 600;
-}
-
-.stats-token-coverage-hint {
-  color: #7a897f;
-}
-
-.stats-token-coverage.compact {
-  display: block;
-  margin: 4px 0 0;
-  padding-top: 4px;
-  border-top: 1px solid #edf3ee;
-  color: #5d6c62;
-  font-size: 10.5px;
 }
 
 /* ---- Daily token panel (always-visible day breakdown) -------------------- */
@@ -476,6 +571,30 @@
   color: #7a897f;
   font-size: 10.5px;
   line-height: 1.45;
+}
+
+.stats-token-day-subset {
+  display: grid;
+  grid-template-columns: minmax(0, auto) auto minmax(160px, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: #edf3ee;
+  color: #5d6c62;
+  font-size: 10.5px;
+}
+
+.stats-token-day-subset strong {
+  color: #142019;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-token-day-subset small {
+  color: #7a897f;
+  font-size: inherit;
 }
 
 .stats-token-day-section {
@@ -692,4 +811,7 @@
   .stats-range { margin-left: 0; justify-content: flex-start; }
   .stats-token-day-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats-token-day-summary { align-items: flex-start; }
+  .stats-token-source-grid { grid-template-columns: 1fr; }
+  .stats-token-day-subset { grid-template-columns: auto 1fr; }
+  .stats-token-day-subset small { grid-column: 1 / -1; }
 }

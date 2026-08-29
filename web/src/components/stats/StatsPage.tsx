@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -340,7 +339,6 @@ export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: St
                 <ByModelRank rows={report.byModel} />
                 <ByToolRank rows={report.byTool} />
               </div>
-              <div className="stats-note">{t(report.note || 'stats.tokensLocalEstimateNote')}</div>
             </>
           )}
         </div>
@@ -722,38 +720,29 @@ function emptySectionTotals(): SectionTotals {
   };
 }
 
-function TokenDetails({ tokens }: { tokens: TokenTotals }) {
+function TokenDetails({ tokens, turnCount }: { tokens: TokenTotals; turnCount: number }) {
   const { t } = useTranslation();
   const cacheHitRate = tokenCacheHitRate(tokens);
+  const coverage = computeTokenCoverage([{ ...emptySectionTotals(), turnCount, tokens }]);
   return (
     <>
       <div className="stats-trend-tooltip-row stats-trend-tooltip-total">
         <span>{t('stats.table.tokenTotal')}</span>
         <strong>{formatStatsCount(tokenCount(tokens, 'total'))}</strong>
       </div>
-      <div className="stats-trend-tooltip-hint">{t('stats.tokens.totalIncludedHint')}</div>
-      <div className="stats-trend-tooltip-divider" />
+      <TokenSourceSummary coverage={coverage} compact titleKey="stats.tokens.daySourceTitle" />
       <div className="stats-trend-tooltip-section">{t('stats.tokens.detailsSection')}</div>
       {([
-        ['reported', 'reported'],
         ['input', 'input'],
         ['output', 'output'],
         ['cachedRead', 'cachedRead'],
         ['cachedWrite', 'cachedWrite'],
         ['reasoning', 'reasoning'],
-        ['imageEstimate', 'imageEstimate'],
       ] as const).map(([field, label]) => (
-        <Fragment key={field}>
-          <div className="stats-trend-tooltip-row stats-trend-tooltip-detail">
-            <span>{t(`stats.tokens.${label}`)}</span>
-            <strong>{formatStatsCount(tokenCount(tokens, field))}</strong>
-          </div>
-          {field === 'imageEstimate' && (
-            <div className="stats-trend-tooltip-hint stats-trend-tooltip-image-hint">
-              {t('stats.tokens.imageEstimateHint')}
-            </div>
-          )}
-        </Fragment>
+        <div key={field} className="stats-trend-tooltip-row stats-trend-tooltip-detail">
+          <span>{t(`stats.tokens.${label}`)}</span>
+          <strong>{formatStatsCount(tokenCount(tokens, field))}</strong>
+        </div>
       ))}
       <div className="stats-trend-tooltip-row stats-trend-tooltip-detail">
         <span>{t('stats.tokens.cacheHitRate')}</span>
@@ -761,10 +750,11 @@ function TokenDetails({ tokens }: { tokens: TokenTotals }) {
       </div>
       <div className="stats-trend-tooltip-hint">{t('stats.tokens.cacheHitRateHint')}</div>
       <div className="stats-trend-tooltip-divider" />
-      <div className="stats-trend-tooltip-row">
-        <span>{t('stats.tokens.estimated')}</span>
-        <strong>{formatStatsCount(tokenCount(tokens, 'estimated'))}</strong>
+      <div className="stats-trend-tooltip-row stats-trend-tooltip-detail">
+        <span>{t('stats.tokens.imageEstimateShort')}</span>
+        <strong>{formatStatsCount(tokenCount(tokens, 'imageEstimate'))}</strong>
       </div>
+      <div className="stats-trend-tooltip-hint">{t('stats.tokens.imageEstimateHint')}</div>
     </>
   );
 }
@@ -774,6 +764,9 @@ interface TokenCoverage {
   reportedTurns: number;
   estimatedTurns: number;
   reportedPercent: number;
+  estimatedPercent: number;
+  reportedTokens: number;
+  estimatedTokens: number;
 }
 
 // The backend classifies every recorded turn as either provider-reported or
@@ -782,39 +775,85 @@ function computeTokenCoverage(rows: SectionTotals[]): TokenCoverage {
   let totalTurns = 0;
   let reportedTurns = 0;
   let estimatedTurns = 0;
+  let reportedTokens = 0;
+  let estimatedTokens = 0;
   for (const row of rows) {
     totalTurns += Math.max(0, row.turnCount || 0);
     reportedTurns += tokenCount(row.tokens, 'reportedTurns');
     estimatedTurns += tokenCount(row.tokens, 'estimatedTurns');
+    reportedTokens += tokenCount(row.tokens, 'reported');
+    estimatedTokens += tokenCount(row.tokens, 'estimated');
   }
   const reportedPercent = totalTurns > 0 ? Math.round((reportedTurns / totalTurns) * 100) : 0;
-  return { totalTurns, reportedTurns, estimatedTurns, reportedPercent };
+  const estimatedPercent = totalTurns > 0 ? Math.max(0, 100 - reportedPercent) : 0;
+  return { totalTurns, reportedTurns, estimatedTurns, reportedPercent, estimatedPercent, reportedTokens, estimatedTokens };
 }
 
-// TokenCoverageNote states where a range's token numbers came from. The common
-// case (everything provider-reported) collapses to a single short sentence; the
-// full ratio only appears once local estimates are actually mixed in.
-function TokenCoverageNote({ coverage, compact = false }: { coverage: TokenCoverage; compact?: boolean }) {
+// TokenSourceSummary makes the mutually exclusive source split explicit. Token
+// amounts are primary, while execution counts explain the coverage of each
+// source. This avoids presenting provider details as values to add together.
+function TokenSourceSummary({
+  coverage,
+  compact = false,
+  titleKey = 'stats.tokens.sourceTitle',
+}: {
+  coverage: TokenCoverage;
+  compact?: boolean;
+  titleKey?: string;
+}) {
   const { t } = useTranslation();
-  const summary = () => {
-    if (coverage.totalTurns <= 0) return t('stats.tokens.coverageUnavailable');
-    if (coverage.estimatedTurns <= 0) return t('stats.tokens.coverageAllReported', { count: coverage.totalTurns });
-    return t('stats.tokens.coverageSummary', {
-      count: coverage.totalTurns,
-      reported: formatStatsCount(coverage.reportedTurns),
-      total: formatStatsCount(coverage.totalTurns),
+  const sources = [
+    {
+      key: 'reported',
+      label: t('stats.tokens.modelReported'),
+      description: t('stats.tokens.modelReportedHint'),
+      tokens: coverage.reportedTokens,
+      turns: coverage.reportedTurns,
       percent: coverage.reportedPercent,
-      estimated: formatStatsCount(coverage.estimatedTurns),
-    });
-  };
+    },
+    {
+      key: 'estimated',
+      label: t('stats.tokens.quartetEstimated'),
+      description: t('stats.tokens.quartetEstimatedHint'),
+      tokens: coverage.estimatedTokens,
+      turns: coverage.estimatedTurns,
+      percent: coverage.estimatedPercent,
+    },
+  ];
   return (
-    <div className={`stats-token-coverage ${compact ? 'compact' : ''}`} role="note">
-      {!compact && <span className="stats-token-coverage-label">{t('stats.tokens.coverageLabel')}</span>}
-      <span>{summary()}</span>
-      {!compact && coverage.estimatedTurns > 0 && (
-        <span className="stats-token-coverage-hint">{t('stats.tokens.coverageHint')}</span>
+    <section className={`stats-token-source ${compact ? 'compact' : ''}`} aria-label={t(titleKey)}>
+      <div className="stats-token-source-head">
+        <span>{t(titleKey)}</span>
+        <span>{coverage.totalTurns > 0
+          ? t('stats.tokens.executionCount', { count: coverage.totalTurns, formattedCount: formatStatsCount(coverage.totalTurns) })
+          : t('stats.tokens.coverageUnavailable')}</span>
+      </div>
+      {coverage.totalTurns > 0 && (
+        <div
+          className="stats-token-source-bar"
+          role="img"
+          aria-label={t('stats.tokens.sourceBarAriaLabel', { reported: coverage.reportedPercent, estimated: coverage.estimatedPercent })}
+        >
+          <span className="reported" style={{ width: `${coverage.reportedPercent}%` }} />
+          <span className="estimated" style={{ width: `${coverage.estimatedPercent}%` }} />
+        </div>
       )}
-    </div>
+      <div className="stats-token-source-grid">
+        {sources.map((source) => (
+          <div key={source.key} className={`stats-token-source-card ${source.key}`}>
+            <div className="stats-token-source-card-head">
+              <span className="stats-token-source-name"><i aria-hidden="true" />{source.label}</span>
+              <strong>{formatStatsCount(source.tokens)}</strong>
+            </div>
+            <div className="stats-token-source-meta">
+              {t('stats.tokens.sourceCoverage', { count: source.turns, formattedCount: formatStatsCount(source.turns), percent: source.percent })}
+            </div>
+            {!compact && <div className="stats-token-source-description">{source.description}</div>}
+          </div>
+        ))}
+      </div>
+      <div className="stats-token-source-definition">{t('stats.tokens.turnDefinition')}</div>
+    </section>
   );
 }
 
@@ -822,14 +861,11 @@ function TokenCoverageNote({ coverage, compact = false }: { coverage: TokenCover
 // client's day detail. Every field is shown even when zero so the grid keeps a
 // stable shape while hovering across days.
 const TOKEN_DAY_FIELDS: Array<{ field: keyof TokenTotals; labelKey: string }> = [
-  { field: 'reported', labelKey: 'stats.tokens.reported' },
   { field: 'input', labelKey: 'stats.tokens.input' },
   { field: 'output', labelKey: 'stats.tokens.output' },
   { field: 'cachedRead', labelKey: 'stats.tokens.cachedRead' },
   { field: 'cachedWrite', labelKey: 'stats.tokens.cachedWrite' },
   { field: 'reasoning', labelKey: 'stats.tokens.reasoning' },
-  { field: 'imageEstimate', labelKey: 'stats.tokens.imageEstimateShort' },
-  { field: 'estimated', labelKey: 'stats.tokens.estimated' },
 ];
 
 // TokenDayPanel is the always-visible counterpart of the hover tooltip: it
@@ -868,9 +904,9 @@ function TokenDayPanel({ day, latest }: { day: DailyRow; latest: boolean }) {
           </div>
         </div>
       </div>
-      <div className="stats-token-day-hint">{t('stats.tokens.dayPanelHint')}</div>
-      <div className="stats-token-day-hint">{t('stats.tokens.cacheHitRateHint')}</div>
+      <TokenSourceSummary coverage={coverage} titleKey="stats.tokens.daySourceTitle" />
       <div className="stats-token-day-section">{t('stats.tokens.detailsSection')}</div>
+      <div className="stats-token-day-hint">{t('stats.tokens.detailsHint')}</div>
       <div className="stats-token-day-grid">
         {TOKEN_DAY_FIELDS.map(({ field, labelKey }) => (
           <div key={field} className="stats-token-day-cell">
@@ -879,8 +915,12 @@ function TokenDayPanel({ day, latest }: { day: DailyRow; latest: boolean }) {
           </div>
         ))}
       </div>
-      <div className="stats-token-day-hint">{t('stats.tokens.imageEstimateHint')}</div>
-      <TokenCoverageNote coverage={coverage} compact />
+      <div className="stats-token-day-subset">
+        <span>{t('stats.tokens.imageEstimateShort')}</span>
+        <strong>{formatStatsCount(tokenCount(day.tokens, 'imageEstimate'))}</strong>
+        <small>{t('stats.tokens.imageEstimateHint')}</small>
+      </div>
+      <div className="stats-token-day-hint">{t('stats.tokens.cacheHitRateHint')}</div>
       <div className="stats-token-day-hint">{t('stats.tokens.dayPanelPickHint')}</div>
     </section>
   );
@@ -1136,8 +1176,8 @@ function TrendCard({
           <h3 className="stats-card-title">{t(trendTitleKey(metric))}</h3>
           {metricSwitch}
         </div>
-        {metric === 'tokens' && <TokenCoverageNote coverage={tokenCoverage} />}
-        {metric === 'cache' && <div className="stats-token-coverage" role="note">{t('stats.tokens.cacheHitRateHint')}</div>}
+        {metric === 'tokens' && <TokenSourceSummary coverage={tokenCoverage} />}
+        {metric === 'cache' && <div className="stats-cache-note" role="note">{t('stats.tokens.cacheHitRateHint')}</div>}
         <div className="stats-rank-empty stats-trend-empty">
           {t(metric === 'cache' ? 'stats.tokens.cacheUnavailable' : 'stats.noDataInRange')}
         </div>
@@ -1218,8 +1258,8 @@ function TrendCard({
         <h3 className="stats-card-title">{t(trendTitleKey(metric))}</h3>
         {metricSwitch}
       </div>
-      {metric === 'tokens' && <TokenCoverageNote coverage={tokenCoverage} />}
-      {metric === 'cache' && <div className="stats-token-coverage" role="note">{t('stats.tokens.cacheHitRateHint')}</div>}
+      {metric === 'tokens' && <TokenSourceSummary coverage={tokenCoverage} />}
+      {metric === 'cache' && <div className="stats-cache-note" role="note">{t('stats.tokens.cacheHitRateHint')}</div>}
       <div className="stats-trend-chart-wrap" ref={wrapRef}>
         <svg
           width={virtualWidth}
@@ -1387,7 +1427,7 @@ function TrendCard({
         >
           <div className="stats-trend-tooltip-title">{tooltip.day.date}</div>
           {metric === 'tokens' ? (
-            <TokenDetails tokens={tooltip.day.tokens} />
+            <TokenDetails tokens={tooltip.day.tokens} turnCount={tooltip.day.turnCount} />
           ) : (
             <div className="stats-trend-tooltip-row">
               <span>{t(metric === 'cache' ? 'stats.tokens.cacheHitRate' : `stats.metric.${metric}`)}</span>
@@ -1395,11 +1435,10 @@ function TrendCard({
             </div>
           )}
           {metric === 'cache' && <div className="stats-trend-tooltip-hint">{t('stats.tokens.cacheHitRateHint')}</div>}
-          <div className="stats-trend-tooltip-row">
+          {metric !== 'tokens' && <div className="stats-trend-tooltip-row">
             <span>{t('stats.table.turns')}</span>
             <strong>{formatStatsCount(tooltip.day.turnCount)}</strong>
-          </div>
-          {metric === 'tokens' && <TokenCoverageNote coverage={computeTokenCoverage([tooltip.day])} compact />}
+          </div>}
           <div className="stats-trend-tooltip-divider" />
           {(metric === 'tokens' || metric === 'cache') && <div className="stats-trend-tooltip-section">{t('stats.tokens.modelBreakdown')}</div>}
           {tooltip.segments.length === 0 ? (

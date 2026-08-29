@@ -413,12 +413,13 @@ final class ChatViewModel: ObservableObject {
         attachments: [PendingUpload],
         remoteImagePaths: [String] = [],
         remoteFileAttachments: [FileAttachment] = [],
-        isInitialDraft: Bool = false
+        isInitialDraft: Bool = false,
+        clientMessageID: String? = nil
     ) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachments.isEmpty || !remoteImagePaths.isEmpty || !remoteFileAttachments.isEmpty else { return nil }
         let item = LocalOutboxItem(
-            id: UUID().uuidString.lowercased(),
+            id: clientMessageID ?? UUID().uuidString.lowercased(),
             draft: ComposerDraft(text: trimmed, attachments: attachments),
             createdAt: Int64(Date().timeIntervalSince1970 * 1_000),
             isInitialDraft: isInitialDraft,
@@ -554,7 +555,8 @@ final class ChatViewModel: ObservableObject {
             attachments: route.initialAttachments ?? [],
             remoteImagePaths: route.initialImagePaths ?? [],
             remoteFileAttachments: route.initialFileAttachments ?? [],
-            isInitialDraft: true
+            isInitialDraft: true,
+            clientMessageID: route.initialMessageID
         )
     }
 

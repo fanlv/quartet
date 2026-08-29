@@ -53,6 +53,7 @@ async function fetchAgentList(): Promise<{ agents: AgentInfo[]; workdir: string;
 interface JobChatProps {
   existingJobId: string;
   initialMessage?: string | null;
+  initialMessageClientId?: string;
   initialImageUrls?: string[];
   initialFileAttachments?: FileAttachment[];
   initialWorkdir?: string;
@@ -66,6 +67,7 @@ interface JobChatProps {
   isReadonly?: boolean;
   onBack?: () => void;
   onJobCreated?: (jobId: string) => void;
+  onInitialMessageAccepted?: (clientMessageId: string) => void;
   onSelectJob?: (jobId: string, workspaceId?: string) => void;
   onOpenSettings?: () => void;
   onOpenStats?: () => void;
@@ -99,7 +101,7 @@ interface JobInfo {
 const JOB_ROW_HEIGHT = 36;
 
 export function JobChat(props: JobChatProps) {
-  const { existingJobId, initialMessage, initialImageUrls, initialFileAttachments, initialWorkdir, initialSessionId, initialModelId, initialAgentType, initialAcpMode, initialAcpThoughtLevel, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
+  const { existingJobId, initialMessage, initialMessageClientId, initialImageUrls, initialFileAttachments, initialWorkdir, initialSessionId, initialModelId, initialAgentType, initialAcpMode, initialAcpThoughtLevel, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onInitialMessageAccepted, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
   const { t } = useTranslation();
   const principal = useAuthPrincipal();
   const canReadJobs = !!isReadonly || (principal?.permissions.includes('job.read') ?? false);
@@ -152,7 +154,9 @@ export function JobChat(props: JobChatProps) {
   // wait for job hydration, agent refresh and SSE readiness.
   const [initialUserMessage] = useState<UserMessage | undefined>(() => {
     if (!initialMessage) return undefined;
-    const id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const id = initialMessageClientId
+      ?? crypto.randomUUID?.()
+      ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
     return {
       id,
       role: MessageRoleEnum.USER,
@@ -939,11 +943,12 @@ export function JobChat(props: JobChatProps) {
       sendMessage(initialMessage, effectiveModelId, null, initialImageUrls, initialFileAttachments, selectedAgent?.modes?.currentModeId, selectedAgent?.type, selectedAgent?.thoughtLevels?.currentThoughtLevelId, {
         bypassCommand: true,
         optimisticMessageId: initialUserMessage?.id,
+        onAccepted: onInitialMessageAccepted,
       }).catch((err) => {
         console.error('Failed to send initial message:', err);
       }).finally(() => setInitialDispatchPending(false));
     }
-  }, [canExecuteJobs, effectiveModelId, error, eventsReady, initialAgentRefreshPending, initialMessage, initialImageUrls, initialFileAttachments, initialUserMessage, isLoadingHistory, sendMessage, selectedAgent]);
+  }, [canExecuteJobs, effectiveModelId, error, eventsReady, initialAgentRefreshPending, initialMessage, initialImageUrls, initialFileAttachments, initialUserMessage, isLoadingHistory, onInitialMessageAccepted, sendMessage, selectedAgent]);
 
   const handleNewChat = () => {
     clearMessages();

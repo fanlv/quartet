@@ -2376,7 +2376,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // server to skip its command-dispatch branch. Used by the home-page path
   // where the user typed `/help` as the very first message so the text becomes
   // the Job's first message, not a command.
-  const sendMessage = useCallback(async (content: string, modelId?: string | null, targetSessionId?: string | null, imageUrls?: string[], fileAttachments?: FileAttachment[], acpMode?: string, agentType?: string, acpThoughtLevel?: string, options?: { bypassCommand?: boolean; optimisticMessageId?: string; presentAsQueued?: boolean }) => {
+  const sendMessage = useCallback(async (content: string, modelId?: string | null, targetSessionId?: string | null, imageUrls?: string[], fileAttachments?: FileAttachment[], acpMode?: string, agentType?: string, acpThoughtLevel?: string, options?: { bypassCommand?: boolean; optimisticMessageId?: string; presentAsQueued?: boolean; onAccepted?: (clientMessageId: string) => void }) => {
     if (!jobId || isPublic) return;
     // We're about to flip the buffering flag so handleEvent will route
     // incoming SSE events straight to state. Any events that were buffered
@@ -2533,6 +2533,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       if (!response.ok) {
         throw new Error(await readHTTPError(response));
       }
+      options?.onAccepted?.(clientMessageId);
       // Safety net: if the frontend command list drifts from the backend's
       // (see utils/commands.ts — drift is explicitly allowed), the backend
       // may still intercept a command the client didn't fast-path. In that

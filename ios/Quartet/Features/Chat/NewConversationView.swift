@@ -7,6 +7,7 @@ import UIKit
 struct ChatRoute: Hashable {
     let summary: JobSummary
     var initialMessage: String?
+    var initialMessageID: String?
     var initialAttachments: [PendingUpload]?
     var agentType: String?
     var modelID: String?
@@ -19,6 +20,7 @@ struct ChatRoute: Hashable {
     init(
         summary: JobSummary,
         initialMessage: String? = nil,
+        initialMessageID: String? = nil,
         initialAttachments: [PendingUpload]? = nil,
         agentType: String? = nil,
         modelID: String? = nil,
@@ -30,6 +32,7 @@ struct ChatRoute: Hashable {
     ) {
         self.summary = summary
         self.initialMessage = initialMessage
+        self.initialMessageID = initialMessageID
         self.initialAttachments = initialAttachments
         self.agentType = agentType
         self.modelID = modelID
@@ -1171,6 +1174,7 @@ struct NewConversationView: View {
             onCreated(ChatRoute(
                 summary: summary,
                 initialMessage: submittedMessage.trimmingCharacters(in: .whitespacesAndNewlines),
+                initialMessageID: "initial-\(createIntent.id)",
                 initialAttachments: submittedAttachments,
                 agentType: payload.agentType,
                 modelID: payload.modelID,

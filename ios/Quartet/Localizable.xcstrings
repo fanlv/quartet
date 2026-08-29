@@ -17542,6 +17542,358 @@
           }
         }
       }
+    },
+    "总 Token 由两类互斥来源合并：有正式用量时采用模型返回，否则采用 Quartet 估算；缓存、推理和图片 Token 只用于解释，不要再次相加。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total tokens combine two mutually exclusive sources: model-reported usage when available, otherwise a Quartet estimate. Cache, reasoning, and image tokens are explanatory details and must not be added again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总 Token 由两类互斥来源合并：有正式用量时采用模型返回，否则采用 Quartet 估算；缓存、推理和图片 Token 只用于解释，不要再次相加。"
+          }
+        }
+      }
+    },
+    "按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculated from model-reported cache reads as a share of total input. Quartet-estimated runs are excluded."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。"
+          }
+        }
+      }
+    },
+    "所选范围内没有可计算缓存命中率的模型输入数据。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No model-reported input is available to calculate cache hit rates in this range."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选范围内没有可计算缓存命中率的模型输入数据。"
+          }
+        }
+      }
+    },
+    "Token 总量来源" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total token sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token 总量来源"
+          }
+        }
+      }
+    },
+    "共 %lld 次 Agent 执行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld agent runs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "共 %lld 次 Agent 执行"
+          }
+        }
+      }
+    },
+    "暂无可计算来源的执行记录。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No runs with source data are available."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无可计算来源的执行记录。"
+          }
+        }
+      }
+    },
+    "按执行次数：模型返回占 %lld%%，Quartet 估算占 %lld%%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "By run count: model-reported %1$lld%%, Quartet-estimated %2$lld%%"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按执行次数：模型返回占 %lld%%，Quartet 估算占 %lld%%"
+          }
+        }
+      }
+    },
+    "模型返回" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reported by model"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型返回"
+          }
+        }
+      }
+    },
+    "由模型服务或 Agent 接口返回，通常更准确。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Returned by the model service or agent interface and usually more accurate."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由模型服务或 Agent 接口返回，通常更准确。"
+          }
+        }
+      }
+    },
+    "Quartet 估算" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estimated by Quartet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quartet 估算"
+          }
+        }
+      }
+    },
+    "未收到用量时，Quartet 根据可见内容估算，仅供参考。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When usage is unavailable, Quartet estimates visible content for reference."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未收到用量时，Quartet 根据可见内容估算，仅供参考。"
+          }
+        }
+      }
+    },
+    "1 次执行 = Agent 从收到一条输入到本次运行结束；工作流中的 Prompt/评估结点每执行一次也计 1 次。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 run starts when an agent receives an input and ends when that run finishes. Each Prompt/Evaluator node execution in a workflow also counts once."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 次执行 = Agent 从收到一条输入到本次运行结束；工作流中的 Prompt/评估结点每执行一次也计 1 次。"
+          }
+        }
+      }
+    },
+    "%lld 次执行 · %lld%%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld runs · %2$lld%%"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 次执行 · %lld%%"
+          }
+        }
+      }
+    },
+    "模型返回的用量明细" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model-reported usage details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型返回的用量明细"
+          }
+        }
+      }
+    },
+    "仅统计“模型返回”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only for model-reported tokens. Cache and reasoning are included details; do not add them to input or output."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅统计“模型返回”的 Token；缓存与推理是其中的明细，不能与输入、输出重复相加。"
+          }
+        }
+      }
+    },
+    "Agent 执行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent runs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent 执行"
+          }
+        }
+      }
+    },
+    "执行次数" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "执行次数"
+          }
+        }
+      }
+    },
+    "图片内容估算" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estimated image content"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片内容估算"
+          }
+        }
+      }
+    },
+    "说明性数据，已包含在输入 Token 或 Quartet 估算中。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Explanatory data already included in input tokens or the Quartet estimate."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "说明性数据，已包含在输入 Token 或 Quartet 估算中。"
+          }
+        }
+      }
+    },
+    "Token 统计方式（按执行次数）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token accounting method (by run)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token 统计方式（按执行次数）"
+          }
+        }
+      }
+    },
+    "当日 Token 统计方式（按执行次数）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token accounting method for this day (by run)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当日 Token 统计方式（按执行次数）"
+          }
+        }
+      }
+    },
+    "%lld 次执行 · %lld%% 的执行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld runs · %2$lld%% of runs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 次执行 · %lld%% 的执行"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

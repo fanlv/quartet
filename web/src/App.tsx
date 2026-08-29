@@ -110,6 +110,8 @@ function WorkspaceApp() {
   const principal = useAuthPrincipal();
   const [showChat, setShowChat] = useState(() => !!getJobIdFromUrl());
   const [initialMessage, setInitialMessage] = useState<string | null>(null);
+  const [initialMessageClientId, setInitialMessageClientId] = useState<string | undefined>(undefined);
+  const initialMessageClientIdRef = useRef<string | undefined>(undefined);
   const [initialImageUrls, setInitialImageUrls] = useState<string[] | undefined>();
   const [initialFileAttachments, setInitialFileAttachments] = useState<FileAttachment[] | undefined>();
   const [currentJobId, setCurrentJobId] = useState<string | undefined>(() => getJobIdFromUrl());
@@ -340,10 +342,13 @@ function WorkspaceApp() {
       const data = await response.json();
       const jobId = data.jobId;
       if (!jobId) throw new Error('POST /api/v1/job/create returned an empty jobId');
+      const messageClientId = `initial-${createIntentID}`;
       clearJobCreateIntent('start-chat', createIntentID);
 
       updateUrlWithJobId(jobId);
       setCurrentJobId(jobId);
+      initialMessageClientIdRef.current = messageClientId;
+      setInitialMessageClientId(messageClientId);
       setInitialMessage(message);
       setInitialImageUrls(imageUrls);
       setInitialFileAttachments(fileAttachments);
@@ -361,6 +366,25 @@ function WorkspaceApp() {
       setIsInitializing(false);
     }
   }, [currentWorkspace]);
+
+  // The home page hands the first message to JobChat after creating the Job.
+  // Consume that one-shot handoff only after the message endpoint acknowledges
+  // it. Keeping the clientMessageId in App makes a remount before the response
+  // idempotent; clearing the payload after the response prevents later view
+  // switches (for example Chat -> Statistics -> Chat) from posting it again.
+  const handleInitialMessageAccepted = useCallback((clientMessageId: string) => {
+    if (initialMessageClientIdRef.current !== clientMessageId) return;
+    initialMessageClientIdRef.current = undefined;
+    setInitialMessageClientId(undefined);
+    setInitialMessage(null);
+    setInitialImageUrls(undefined);
+    setInitialFileAttachments(undefined);
+    setInitialWorkdir(undefined);
+    setInitialModelId(undefined);
+    setInitialAgentType(undefined);
+    setInitialAcpMode(undefined);
+    setInitialAcpThoughtLevel(undefined);
+  }, []);
 
   const handleStartNewChat = useCallback(async (modelId: string, agentType: string, workdir?: string) => {
     setMissingJobNoticeId(null);
@@ -418,6 +442,8 @@ function WorkspaceApp() {
     url.searchParams.delete('sessionId');
     window.history.pushState({}, '', url.toString());
     setInitialMessage(null);
+    initialMessageClientIdRef.current = undefined;
+    setInitialMessageClientId(undefined);
     setInitialImageUrls(undefined);
     setInitialFileAttachments(undefined);
     setCurrentJobId(undefined);
@@ -458,6 +484,8 @@ function WorkspaceApp() {
     }
     setCurrentJobId(jobId);
     setInitialMessage(null);
+    initialMessageClientIdRef.current = undefined;
+    setInitialMessageClientId(undefined);
     setInitialImageUrls(undefined);
     setInitialFileAttachments(undefined);
     setInitialModelId(undefined);
@@ -1051,6 +1079,7 @@ function WorkspaceApp() {
             key={currentJobId}
             existingJobId={currentJobId}
             initialMessage={initialMessage}
+            initialMessageClientId={initialMessageClientId}
             initialImageUrls={initialImageUrls}
             initialFileAttachments={initialFileAttachments}
             initialWorkdir={initialWorkdir}
@@ -1064,6 +1093,7 @@ function WorkspaceApp() {
             isReadonly={isReadonly}
             onBack={handleNewChat}
             onJobCreated={handleJobCreated}
+            onInitialMessageAccepted={handleInitialMessageAccepted}
             onSelectJob={handleSelectJob}
             onOpenSettings={handleOpenSettings}
             onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}

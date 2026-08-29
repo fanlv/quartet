@@ -382,7 +382,7 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["使用统计"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.otherElements["stats-kpis"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["总耗时"].exists)
-        XCTAssertTrue(app.staticTexts["总轮次"].exists)
+        XCTAssertTrue(app.staticTexts["Agent 执行"].exists)
         XCTAssertTrue(app.staticTexts["缓存命中率"].exists)
         XCTAssertTrue(app.staticTexts["工作区"].exists)
         XCTAssertTrue(app.otherElements["stats-trend"].exists)
