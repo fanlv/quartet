@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readAPIResponse } from './apiResponse';
+import { readAPIResponse } from './response';
 
 describe('readAPIResponse', () => {
   it('returns a successful API envelope', async () => {

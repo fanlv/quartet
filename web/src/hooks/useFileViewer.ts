@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { FileViewerFile } from '../components/FileViewer/FileViewer';
+import type { FileViewerFile } from '../types';
 import { fetchFileAsBlobUrl, fileNameFromPath, isImageFile, readFile } from '../utils/file';
 
 export interface OpenFileOptions {

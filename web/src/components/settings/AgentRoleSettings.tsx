@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AgentInfo } from '../ChatPage';
+import type { AgentInfo } from '../../types';
 import { useACPThoughtLevels } from '../../hooks/useACPThoughtLevels';
 import { isImageUrl, resolveIconSrc } from '../../utils/url';
 

@@ -4,12 +4,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { JobChat } from './JobChat'
 
 function jsonResponse(body: unknown, init: { ok?: boolean; status?: number } = {}) {
-  return {
-    ok: init.ok ?? true,
-    status: init.status ?? 200,
-    headers: { get: () => null },
-    json: async () => body,
-  } as unknown as Response
+  const status = init.status ?? (init.ok === false ? 500 : 200)
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
 }
 
 function sseResponse() {

@@ -1,9 +1,0 @@
-export { Settings } from './Settings';
-export { AccountSettings } from './AccountSettings';
-export { PromptSettings } from './PromptSettings';
-export { SkillSettings } from './SkillSettings';
-export { ACPSettings } from './ACPSettings';
-export { WeChatSettings } from './WeChatSettings';
-export { UserManagement } from './UserManagement';
-export { RoleManagement } from './RoleManagement';
-export { MessagePresetSettings } from './MessagePresetSettings';

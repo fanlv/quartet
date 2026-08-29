@@ -35,25 +35,25 @@ type fakeSettings struct {
 
 var _ config.SettingsService = (*fakeSettings)(nil)
 
-func (f *fakeSettings) GetSettings() (*repository.Settings, error) {
-	return &repository.Settings{}, nil
+func (f *fakeSettings) GetSettings() (*model.Settings, error) {
+	return &model.Settings{}, nil
 }
-func (f *fakeSettings) SaveSettings(*repository.Settings) error               { return nil }
+func (f *fakeSettings) SaveSettings(*model.Settings) error               { return nil }
 func (f *fakeSettings) SaveTitleGenerationAgent(*model.AgentRoleConfig) error { return nil }
 func (f *fakeSettings) SaveGroupReplyAgent(*model.AgentRoleConfig) error      { return nil }
 func (f *fakeSettings) SaveIMSessionAgent(*model.IMSessionAgentConfig) error {
 	return nil
 }
-func (f *fakeSettings) SaveACPEnvVars(string, []repository.ACPEnvVarEntry) (int64, bool, error) {
+func (f *fakeSettings) SaveACPEnvVars(string, []model.ACPEnvVarEntry) (int64, bool, error) {
 	return 0, false, nil
 }
-func (f *fakeSettings) StageACPEnvVars(string, []repository.ACPEnvVarEntry) (int64, error) {
+func (f *fakeSettings) StageACPEnvVars(string, []model.ACPEnvVarEntry) (int64, error) {
 	return 0, nil
 }
-func (f *fakeSettings) RestoreACPEnvState(string, int64, []repository.ACPEnvVarEntry, int64) error {
+func (f *fakeSettings) RestoreACPEnvState(string, int64, []model.ACPEnvVarEntry, int64) error {
 	return nil
 }
-func (f *fakeSettings) SaveAgentPrefs(string, repository.AgentPrefs) error { return nil }
+func (f *fakeSettings) SaveAgentPrefs(string, model.AgentPrefs) error { return nil }
 func (f *fakeSettings) ClearAgentSettings(string) error                    { return nil }
 func (f *fakeSettings) GetACPEnvVars(string) map[string]string             { return nil }
 func (f *fakeSettings) GetACPEnvVersion(string) int64                      { return 0 }

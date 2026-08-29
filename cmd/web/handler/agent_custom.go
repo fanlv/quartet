@@ -13,7 +13,6 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	pkgacp "github.com/fanlv/quartet/pkg/acp"
 	"github.com/fanlv/quartet/pkg/httputil"
-	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/agent/catalog"
 	agentinstall "github.com/fanlv/quartet/services/agent/install"
 	"github.com/fanlv/quartet/services/agent/probe"
@@ -164,7 +163,7 @@ func (h *Handler) CreateCustomAgent(ctx context.Context, c *app.RequestContext) 
 	}
 	validation.AgentID = agentID
 	validation.RuntimeKey = binding.RuntimeKey
-	envVersion, err = h.settingsService.StageACPEnvVars(agentID, toRepositoryEnv(req.Environment))
+	envVersion, err = h.settingsService.StageACPEnvVars(agentID, toSettingsEnv(req.Environment))
 	if err != nil {
 		httputil.InternalErrorLog(ctx, c, "agent.custom.stage-env", err)
 		return
@@ -296,7 +295,7 @@ func (h *Handler) upsertExistingCustomAgent(ctx context.Context, c *app.RequestC
 			httputil.InternalErrorLog(ctx, c, "agent.custom.read-env-before-edit", settingsErr)
 			return
 		}
-		validationEnv = repositoryEnvToACP(settings.ACPEnvVars[agentID])
+		validationEnv = settingsEnvToACP(settings.ACPEnvVars[agentID])
 	}
 	proposedEnvVersion := envVersion
 	if restore {
@@ -313,7 +312,7 @@ func (h *Handler) upsertExistingCustomAgent(ctx context.Context, c *app.RequestC
 		return
 	}
 	previousEnvVersion := int64(0)
-	var previousEnv []repository.ACPEnvVarEntry
+	var previousEnv []model.ACPEnvVarEntry
 	stagedEnvVersion := int64(0)
 	if restore {
 		settingsBefore, settingsErr := h.settingsService.GetSettings()
@@ -321,9 +320,9 @@ func (h *Handler) upsertExistingCustomAgent(ctx context.Context, c *app.RequestC
 			httputil.InternalErrorLog(ctx, c, "agent.custom.read-env-before-restore", settingsErr)
 			return
 		}
-		previousEnv = append([]repository.ACPEnvVarEntry(nil), settingsBefore.ACPEnvVars[agentID]...)
+		previousEnv = append([]model.ACPEnvVarEntry(nil), settingsBefore.ACPEnvVars[agentID]...)
 		previousEnvVersion = settingsBefore.ACPEnvVersions[agentID]
-		envVersion, err = h.settingsService.StageACPEnvVars(agentID, toRepositoryEnv(req.Environment))
+		envVersion, err = h.settingsService.StageACPEnvVars(agentID, toSettingsEnv(req.Environment))
 		if err != nil {
 			httputil.InternalErrorLog(ctx, c, "agent.custom.stage-env", err)
 			return
@@ -1182,10 +1181,10 @@ func toACPEnv(entries []model.AgentEnvironmentItem) []pkgacp.EnvVar {
 	return result
 }
 
-func toRepositoryEnv(entries []model.AgentEnvironmentItem) []repository.ACPEnvVarEntry {
-	result := make([]repository.ACPEnvVarEntry, 0, len(entries))
+func toSettingsEnv(entries []model.AgentEnvironmentItem) []model.ACPEnvVarEntry {
+	result := make([]model.ACPEnvVarEntry, 0, len(entries))
 	for _, entry := range entries {
-		result = append(result, repository.ACPEnvVarEntry{
+		result = append(result, model.ACPEnvVarEntry{
 			Key:     strings.TrimSpace(entry.Key),
 			Value:   entry.Value,
 			Enabled: entry.Enabled,
@@ -1194,7 +1193,7 @@ func toRepositoryEnv(entries []model.AgentEnvironmentItem) []repository.ACPEnvVa
 	return result
 }
 
-func repositoryEnvToACP(entries []repository.ACPEnvVarEntry) []pkgacp.EnvVar {
+func settingsEnvToACP(entries []model.ACPEnvVarEntry) []pkgacp.EnvVar {
 	result := make([]pkgacp.EnvVar, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Enabled && strings.TrimSpace(entry.Key) != "" {

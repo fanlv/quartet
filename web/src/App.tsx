@@ -1,108 +1,48 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { lazy, Suspense, useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { JobChat, ChatPage, GraphWorkflowPage, HomeNavigation, Settings } from './components';
-import type { CommandAction, FileAttachment } from './types';
+import { HomeNavigation } from './components/HomeNavigation';
+import type { CommandAction, FileAttachment, WorkspaceInfo } from './types';
 import type { SettingsTab } from './components/settings/Settings';
-import { StatsPage } from './components/stats/StatsPage';
 import { ConnectionStatusProvider } from './contexts/ConnectionStatus';
 import { markBootStage, reportBootFailure } from './utils/boot';
 import { prefetchSkills } from './utils/skills';
 import { useAuthPrincipal } from './auth';
 import { claimJobCreateIntent, clearJobCreateIntent, clearJobCreateIntentScope } from './utils/jobCreateIntent';
 import { DEFAULT_WORKSPACE_ID, getLastUsedWorkspaceId, setLastUsedWorkspaceId, loadWorkspacePrefs, registerWorkspaceColors } from './utils/workspace';
+import {
+  getGraphOpenFromUrl,
+  getJobIdFromUrl,
+  getSessionIdFromUrl,
+  getShareTokenFromUrl,
+  getStatsOpenFromUrl,
+  getWorkspaceIdFromUrl,
+  graphUrl,
+  updateUrlWithGraph,
+  updateUrlWithJobId,
+  updateUrlWithStats,
+  updateUrlWithWorkspaceId,
+} from './utils/appRoute';
 import './App.css';
 
-interface WorkspaceInfo {
-  id: string;
-  title: string;
-  description: string;
-  workdir: string;
-  defaultAgent?: string;
-  defaultModel?: string;
-  color?: string;
-}
+const JobChat = lazy(() =>
+  import('./components/JobChat').then((module) => ({ default: module.JobChat })),
+);
+const ChatPage = lazy(() =>
+  import('./components/ChatPage').then((module) => ({ default: module.ChatPage })),
+);
+const GraphWorkflowPage = lazy(() =>
+  import('./components/GraphWorkflowPage').then((module) => ({ default: module.GraphWorkflowPage })),
+);
+const Settings = lazy(() =>
+  import('./components/settings/Settings').then((module) => ({ default: module.Settings })),
+);
+const StatsPage = lazy(() =>
+  import('./components/stats/StatsPage').then((module) => ({ default: module.StatsPage })),
+);
 
-function getJobIdFromUrl(): string | undefined {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('jobId') || undefined;
-}
-
-function getSessionIdFromUrl(): string | undefined {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('sessionId') || undefined;
-}
-
-function getWorkspaceIdFromUrl(): string | undefined {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('workspaceId') || undefined;
-}
-
-function getShareTokenFromUrl(): string | undefined {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('shareToken') || undefined;
-}
-
-function getStatsOpenFromUrl(): boolean {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('view') === 'stats';
-}
-
-function getGraphOpenFromUrl(): boolean {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('view') === 'graph';
-}
-
-function updateUrlWithJobId(jobId: string, keepSessionId = false) {
-  const url = new URL(window.location.href);
-  if (!keepSessionId) url.searchParams.delete('sessionId');
-  url.searchParams.delete('view');
-  url.searchParams.set('jobId', jobId);
-  window.history.pushState({}, '', url.toString());
-}
-
-function updateUrlWithWorkspaceId(workspaceId: string) {
-  const url = new URL(window.location.href);
-  url.searchParams.delete('jobId');
-  url.searchParams.delete('sessionId');
-  url.searchParams.delete('view');
-  url.searchParams.set('workspaceId', workspaceId);
-  window.history.pushState({}, '', url.toString());
-}
-
-// updateUrlWithStats toggles the standalone Statistics page via the URL so
-// it can be reached directly, refreshed, and bookmarked. We use pushState
-// when opening (so Browser-Back closes it) and replaceState when closing
-// (so we don't leave a no-op history entry behind).
-function updateUrlWithStats(open: boolean) {
-  const url = new URL(window.location.href);
-  if (open) {
-    url.searchParams.set('view', 'stats');
-    window.history.pushState({}, '', url.toString());
-  } else {
-    url.searchParams.delete('view');
-    window.history.replaceState({}, '', url.toString());
-  }
-}
-
-function updateUrlWithGraph(open: boolean) {
-  const url = new URL(window.location.href);
-  if (open) {
-    url.searchParams.delete('jobId');
-    url.searchParams.delete('sessionId');
-    url.searchParams.set('view', 'graph');
-    window.history.pushState({}, '', url.toString());
-  } else {
-    url.searchParams.delete('view');
-    window.history.replaceState({}, '', url.toString());
-  }
-}
-
-function graphUrl(): string {
-  const url = new URL(window.location.href);
-  url.searchParams.delete('jobId');
-  url.searchParams.delete('sessionId');
-  url.searchParams.set('view', 'graph');
-  return url.toString();
+function LazyPageFallback() {
+  const { t } = useTranslation();
+  return <div className="app-lazy-loading" role="status">{t('common.loading')}</div>;
 }
 
 function WorkspaceApp() {
@@ -674,7 +614,7 @@ function WorkspaceApp() {
             return;
           }
           const data = await res.json();
-          const list = (data?.workspaces || []) as Array<{ id: string; title: string; description: string; workdir: string; color?: string }>;
+          const list = (data?.workspaces || []) as WorkspaceInfo[];
           registerWorkspaceColors(list);
           const ws = list.find((w) => w.id === action.workspaceId);
           if (!ws) {
@@ -1006,13 +946,15 @@ function WorkspaceApp() {
       <ConnectionStatusProvider>
       <div className="app-layout">
         <div className="app-main">
-          <JobChat
-            key={currentJobId}
-            existingJobId={currentJobId}
-            initialSessionId={initialSessionId}
-            shareToken={shareToken}
-            isReadonly
-          />
+          <Suspense fallback={<LazyPageFallback />}>
+            <JobChat
+              key={currentJobId}
+              existingJobId={currentJobId}
+              initialSessionId={initialSessionId}
+              shareToken={shareToken}
+              isReadonly
+            />
+          </Suspense>
         </div>
       </div>
       </ConnectionStatusProvider>
@@ -1047,82 +989,92 @@ function WorkspaceApp() {
             onOpenStats={handleOpenStats}
             onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
           />
-          <StatsPage
-            onClose={handleCloseStats}
-            currentWorkspaceId={currentWorkspace?.id}
-            onJumpToWorkspace={handleJumpToWorkspace}
-          />
+          <Suspense fallback={<LazyPageFallback />}>
+            <StatsPage
+              onClose={handleCloseStats}
+              currentWorkspaceId={currentWorkspace?.id}
+              onJumpToWorkspace={handleJumpToWorkspace}
+            />
+          </Suspense>
         </div>
       ) : showGraph && principal?.permissions.includes('workflow.read') ? (
         <div className="app-main">
-          <GraphWorkflowPage
-            workspaceId={currentWorkspace?.id}
-            workspaceTitle={currentWorkspace?.title}
-            workspaceWorkdir={currentWorkspace?.workdir}
-            onClose={handleCloseGraph}
-            onDirtyChange={handleGraphDirtyChange}
-            navigationRefreshKey={homeRefreshKey}
-            onOpenSettings={handleOpenSettings}
-            onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
-            onOpenGraph={handleOpenGraph}
-            onRunStarted={handleGraphRunStarted}
-          />
+          <Suspense fallback={<LazyPageFallback />}>
+            <GraphWorkflowPage
+              workspaceId={currentWorkspace?.id}
+              workspaceTitle={currentWorkspace?.title}
+              workspaceWorkdir={currentWorkspace?.workdir}
+              onClose={handleCloseGraph}
+              onDirtyChange={handleGraphDirtyChange}
+              navigationRefreshKey={homeRefreshKey}
+              onOpenSettings={handleOpenSettings}
+              onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
+              onOpenGraph={handleOpenGraph}
+              onRunStarted={handleGraphRunStarted}
+            />
+          </Suspense>
         </div>
       ) : showChat && currentJobId && principal?.permissions.includes('job.read') ? (
         <div className="app-main">
-          <JobChat
-            key={currentJobId}
-            existingJobId={currentJobId}
-            initialMessage={initialMessage}
-            initialMessageClientId={initialMessageClientId}
-            initialImageUrls={initialImageUrls}
-            initialFileAttachments={initialFileAttachments}
-            initialWorkdir={initialWorkdir}
-            initialSessionId={initialSessionId}
-            initialModelId={initialModelId}
-            initialAgentType={initialAgentType}
-            initialAcpMode={initialAcpMode}
-            initialAcpThoughtLevel={initialAcpThoughtLevel}
-            workspaceId={currentWorkspace?.id}
-            shareToken={shareToken}
-            isReadonly={isReadonly}
-            onBack={handleNewChat}
-            onJobCreated={handleJobCreated}
-            onInitialMessageAccepted={handleInitialMessageAccepted}
-            onSelectJob={handleSelectJob}
-            onOpenSettings={handleOpenSettings}
-            onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
-            onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
-            onStartNewChat={handleStartNewChat}
-            onSwitchWorkspaceChat={handleSwitchWorkspaceChat}
-            onJobNotFound={handleJobNotFound}
-          />
+          <Suspense fallback={<LazyPageFallback />}>
+            <JobChat
+              key={currentJobId}
+              existingJobId={currentJobId}
+              initialMessage={initialMessage}
+              initialMessageClientId={initialMessageClientId}
+              initialImageUrls={initialImageUrls}
+              initialFileAttachments={initialFileAttachments}
+              initialWorkdir={initialWorkdir}
+              initialSessionId={initialSessionId}
+              initialModelId={initialModelId}
+              initialAgentType={initialAgentType}
+              initialAcpMode={initialAcpMode}
+              initialAcpThoughtLevel={initialAcpThoughtLevel}
+              workspaceId={currentWorkspace?.id}
+              shareToken={shareToken}
+              isReadonly={isReadonly}
+              onBack={handleNewChat}
+              onJobCreated={handleJobCreated}
+              onInitialMessageAccepted={handleInitialMessageAccepted}
+              onSelectJob={handleSelectJob}
+              onOpenSettings={handleOpenSettings}
+              onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
+              onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
+              onStartNewChat={handleStartNewChat}
+              onSwitchWorkspaceChat={handleSwitchWorkspaceChat}
+              onJobNotFound={handleJobNotFound}
+            />
+          </Suspense>
         </div>
       ) : (
         <div className="app-main">
-          <ChatPage
-            onStartChat={handleStartChat}
-            isInitializing={isInitializing}
-            refreshKey={homeRefreshKey}
-            workspaceWorkdir={currentWorkspace?.workdir}
-            workspaceId={currentWorkspace?.id}
-            workspaceTitle={currentWorkspace?.title}
-            onSelectWorkspace={handleSelectWorkspace}
-            onSelectJob={handleSelectJob}
-            onOpenSettings={handleOpenSettings}
-            onOpenAgentSettings={principal?.permissions.includes('agent.manage') ? handleOpenAgentSettings : undefined}
-            onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
-            onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
-          />
+          <Suspense fallback={<LazyPageFallback />}>
+            <ChatPage
+              onStartChat={handleStartChat}
+              isInitializing={isInitializing}
+              refreshKey={homeRefreshKey}
+              workspaceWorkdir={currentWorkspace?.workdir}
+              workspaceId={currentWorkspace?.id}
+              workspaceTitle={currentWorkspace?.title}
+              onSelectWorkspace={handleSelectWorkspace}
+              onSelectJob={handleSelectJob}
+              onOpenSettings={handleOpenSettings}
+              onOpenAgentSettings={principal?.permissions.includes('agent.manage') ? handleOpenAgentSettings : undefined}
+              onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
+              onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
+            />
+          </Suspense>
         </div>
       )}
       {showSettings && (
-        <Settings
-          initialTab={settingsInitialTab}
-          workspaceId={currentWorkspace?.id}
-          onClose={handleCloseSettings}
-          onSettingsChanged={handleSettingsChanged}
-        />
+        <Suspense fallback={<LazyPageFallback />}>
+          <Settings
+            initialTab={settingsInitialTab}
+            workspaceId={currentWorkspace?.id}
+            onClose={handleCloseSettings}
+            onSettingsChanged={handleSettingsChanged}
+          />
+        </Suspense>
       )}
     </div>
     </ConnectionStatusProvider>
@@ -1144,7 +1096,9 @@ function App() {
       : principal.permissions.includes('roles.read') ? 'roles' : 'account';
     return (
       <div className="app-layout">
-        <Settings initialTab={initialTab} onClose={() => undefined} />
+        <Suspense fallback={<LazyPageFallback />}>
+          <Settings initialTab={initialTab} onClose={() => undefined} />
+        </Suspense>
       </div>
     );
   }

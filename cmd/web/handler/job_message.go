@@ -200,7 +200,7 @@ func (h *Handler) sendJobMessageDirect(ctx context.Context, c *app.RequestContex
 }
 
 func (h *Handler) appendWebUserInputs(ctx context.Context, j *model.Job, req *model.JobMessageRequest, receivedAt time.Time) {
-	if h.userInputRepo == nil {
+	if h.userInputService == nil {
 		return
 	}
 	for idx, m := range req.Messages {
@@ -219,7 +219,7 @@ func (h *Handler) appendWebUserInputs(ctx context.Context, j *model.Job, req *mo
 			}
 		}
 		input := model.NewWebUserInput(receivedAt, msgID, j.ID, j.WorkspaceID, m.Content, m.ImageUrls, m.FileAttachments)
-		if err := h.userInputRepo.Append(ctx, input); err != nil {
+		if err := h.userInputService.Append(ctx, input); err != nil {
 			logger.Errorf(ctx, "[user_input] append web failed: jobId=%s err=%v", j.ID, err)
 		}
 	}

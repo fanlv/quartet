@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { readAPIResponse } from '../../utils/apiResponse';
+import { readAPIResponse } from '../../api/response';
 import './ACPSettings.css';
 
 interface EnvVar {

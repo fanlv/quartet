@@ -91,8 +91,8 @@ func (h *Handler) createJobIdempotent(ctx context.Context, req *model.CreateJobR
 		}
 		return nil, false, fmt.Errorf("%w: %v", errJobPersistFailed, err)
 	}
-	if !duplicate && req.Workdir != "" && h.recentDirsRepo != nil {
-		if err := h.recentDirsRepo.Add(ctx, req.Workdir); err != nil {
+	if !duplicate && req.Workdir != "" && h.recentDirsService != nil {
+		if err := h.recentDirsService.Add(ctx, req.Workdir); err != nil {
 			logger.Warnf(ctx, "[job] save recent dir failed: dir=%s err=%v", req.Workdir, err)
 		}
 	}
@@ -157,8 +157,8 @@ func (h *Handler) persistCreatedJob(ctx context.Context, job *model.Job, req *mo
 	if err := h.jobService.Create(job); err != nil {
 		return fmt.Errorf("%w: %v", errJobPersistFailed, err)
 	}
-	if req.Workdir != "" && h.recentDirsRepo != nil {
-		if err := h.recentDirsRepo.Add(ctx, req.Workdir); err != nil {
+	if req.Workdir != "" && h.recentDirsService != nil {
+		if err := h.recentDirsService.Add(ctx, req.Workdir); err != nil {
 			logger.Warnf(ctx, "[job] save recent dir failed: dir=%s err=%v", req.Workdir, err)
 		}
 	}

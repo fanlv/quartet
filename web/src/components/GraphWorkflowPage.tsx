@@ -36,8 +36,9 @@ import type {
   GraphWorkflowSummary,
   GraphWorkflowType,
   GraphWorkflowWarning,
+  AgentInfo,
+  WorkspaceInfo,
 } from '../types';
-import type { AgentInfo } from './ChatPage';
 import { GraphSSEClient } from '../utils/graph-sse-client';
 import { useIsMobile } from '../hooks/useIsMobile';
 import {
@@ -60,10 +61,10 @@ import { GraphRunInspector } from './graph/GraphRunInspector';
 import { registerWorkspaceColors, workspaceColor } from '../utils/workspace';
 import { useAuthPrincipal } from '../auth';
 import { HomeNavigation } from './HomeNavigation';
+import { fetchAvailableAgentList } from '../api/agents';
 import './GraphWorkflowPage.css';
 
-// Workspace list item shape, mirrored from ChatPage's /workspace/list usage.
-type WorkspaceItem = { id: string; title: string; description: string; workdir: string; color?: string };
+type WorkspaceItem = WorkspaceInfo;
 
 interface GraphWorkflowPageProps {
   workspaceId?: string;
@@ -1038,15 +1039,9 @@ export function GraphWorkflowPage({
     // Load agents for the inspector's Agent/model selectors.
     if (canReadAgents) void (async () => {
       try {
-        const res = await fetch('/api/v1/agent/list');
-        if (!res.ok) throw new Error(await readError(res));
-        const data = await res.json().catch(() => null);
-        if (data?.code === 0 && Array.isArray(data.agent_list)) {
-          setAgents((data.agent_list as AgentInfo[]).filter((agent) => agent.available !== false));
-          setAgentListError('');
-        } else {
-          throw new Error(data?.msg || data?.error || t('graph.messages.agentListInvalid'));
-        }
+        const data = await fetchAvailableAgentList();
+        setAgents(data.agents);
+        setAgentListError('');
       } catch (err) {
         setAgentListError(err instanceof Error ? err.message : String(err));
       }

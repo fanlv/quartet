@@ -299,12 +299,12 @@ func (h *Handler) SearchFiles(ctx context.Context, c *app.RequestContext) {
 
 // GetRecentDirs returns the list of recently used directories.
 func (h *Handler) GetRecentDirs(ctx context.Context, c *app.RequestContext) {
-	rd, err := h.recentDirsRepo.Get()
+	dirs, err := h.recentDirsService.List()
 	if err != nil {
 		httputil.InternalErrorLog(ctx, c, "GetRecentDirs", err)
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"code": 0, "dirs": rd.Dirs})
+	c.JSON(http.StatusOK, map[string]any{"code": 0, "dirs": dirs})
 }
 
 // AddRecentDir adds a directory to the recent list.
@@ -344,7 +344,7 @@ func (h *Handler) AddRecentDir(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	if err := h.recentDirsRepo.Add(ctx, req.Dir); err != nil {
+	if err := h.recentDirsService.Add(ctx, req.Dir); err != nil {
 		httputil.InternalErrorLog(ctx, c, "AddRecentDir", err)
 		return
 	}

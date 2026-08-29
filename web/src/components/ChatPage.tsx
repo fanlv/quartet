@@ -12,7 +12,7 @@ function toImagePreviewUrl(path: string): string {
   return `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
 }
 import { DirPicker } from './DirPicker';
-import { ScheduleInfo, type FileAttachment } from '../types';
+import { ScheduleInfo, type AgentInfo, type FileAttachment, type WorkspaceInfo } from '../types';
 import { FileMention, FileResult } from './FileMention';
 import { SlashFloater, SkillBackdrop } from './SlashCompletion';
 import { slashCompletionKeyDown, useSlashCompletion } from '../utils/slashCompletion';
@@ -34,57 +34,7 @@ import { formatStatsDuration } from '../utils/statsFormat';
 import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { showToast } from '../utils/toast';
-
-export interface ModelInfoACP {
-  description?: string;
-  modelId: string;
-  name: string;
-}
-
-export interface SessionModelState {
-  availableModels: ModelInfoACP[];
-  currentModelId: string;
-}
-
-export interface ACPSessionMode {
-  description?: string;
-  id: string;
-  name: string;
-}
-
-export interface SessionModeState {
-  availableModes: ACPSessionMode[];
-  currentModeId: string;
-}
-
-export interface ACPThoughtLevel {
-  description?: string;
-  id: string;
-  name: string;
-}
-
-export interface SessionThoughtLevelState {
-  availableThoughtLevels: ACPThoughtLevel[];
-  currentThoughtLevelId: string;
-  configId?: string;
-}
-
-export interface AgentInfo {
-  agent_id: string;
-  revision?: string;
-  type: string;
-  model_id: string;
-  display_name: string;
-  icon_url: string;
-  availability?: string;
-  available: boolean;
-  refreshing?: boolean;
-  error?: string;
-  capabilities?: string[];
-  models?: SessionModelState;
-  modes?: SessionModeState;
-  thoughtLevels?: SessionThoughtLevelState;
-}
+import { fetchAvailableAgentList } from '../api/agents';
 
 type LocalSentMessage = SentMessageHistoryItem;
 
@@ -174,7 +124,7 @@ interface ChatPageProps {
   // Switch the current workspace from the home page (clicking the Workspace
   // tag or picking from the filter dropdown). The page itself doesn't build a
   // new Job — it just updates the URL + currentWorkspace state via the parent.
-  onSelectWorkspace?: (ws: { id: string; title: string; description: string; workdir: string; color?: string }) => void;
+  onSelectWorkspace?: (ws: WorkspaceInfo) => void;
   onSelectJob?: (jobId: string, workspaceId?: string) => void;
   onOpenSettings?: () => void;
   onOpenAgentSettings?: () => void;
@@ -183,21 +133,7 @@ interface ChatPageProps {
 }
 
 async function fetchAgentList(): Promise<{ agents: AgentInfo[]; workdir: string; jobEnable: boolean }> {
-  try {
-    const res = await fetch('/api/v1/agent/list');
-    const data = await res.json().catch(() => null);
-    if (!data || data.code !== 0 || !data.agent_list) {
-      return { agents: [], workdir: '', jobEnable: false };
-    }
-    return {
-      agents: (data.agent_list as AgentInfo[]).filter((agent) => agent.available !== false),
-      workdir: data.workdir || '',
-      jobEnable: !!data.job_enable,
-    };
-  } catch (err) {
-    console.error('Failed to fetch agent list:', err);
-    return { agents: [], workdir: '', jobEnable: false };
-  }
+  return fetchAvailableAgentList();
 }
 
 async function migrateStoredAgentReferences(workspaceId?: string): Promise<void> {
@@ -572,7 +508,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [wsFilterOpen]);
 
-  const [allWorkspaces, setAllWorkspaces] = useState<Array<{ id: string; title: string; description: string; workdir: string; color?: string; favorite?: boolean; sortOrder?: number }>>([]);
+  const [allWorkspaces, setAllWorkspaces] = useState<WorkspaceInfo[]>([]);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -581,7 +517,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         if (!res.ok) return;
         const data = await res.json();
         if (cancelled) return;
-        const list = (data?.workspaces || []) as Array<{ id: string; title: string; description: string; workdir: string; color?: string }>;
+        const list = (data?.workspaces || []) as WorkspaceInfo[];
         registerWorkspaceColors(list);
         setAllWorkspaces(list);
       } catch { /* ignore */ }
@@ -593,7 +529,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   // the key through onSettingsChanged for general settings).
   useEffect(() => {
     const onUpdated = (e: Event) => {
-      const ws = (e as CustomEvent).detail as { id: string; title: string; description: string; workdir: string; color?: string } | null;
+      const ws = (e as CustomEvent).detail as WorkspaceInfo | null;
       if (!ws?.id) return;
       registerWorkspaceColors([ws]);
       setAllWorkspaces((prev) => {
@@ -610,7 +546,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
       setAllWorkspaces((prev) => prev.filter((w) => w.id !== detail.id));
     };
     const onListUpdated = (e: Event) => {
-      const list = (e as CustomEvent).detail as Array<{ id: string; title: string; description: string; workdir: string; color?: string; favorite?: boolean; sortOrder?: number }> | null;
+      const list = (e as CustomEvent).detail as WorkspaceInfo[] | null;
       if (!Array.isArray(list)) return;
       registerWorkspaceColors(list);
       setAllWorkspaces(list);
@@ -815,6 +751,15 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         setAgents(list);
       }
       setAgentsLoaded(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setAgents([]);
+        setJobEnable(false);
+        setAcpConfigError(message);
+        setAgentsLoaded(true);
+        console.error('Failed to fetch agent list:', err);
       });
     return () => {
       cancelled = true;

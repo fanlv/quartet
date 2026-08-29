@@ -8,17 +8,16 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/fanlv/quartet/pkg/httputil"
-	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/types/model"
 )
 
 type saveAgentEnvRequest struct {
-	Entries []repository.ACPEnvVarEntry `json:"entries"`
+	Entries []model.ACPEnvVarEntry `json:"entries"`
 }
 
 type saveAgentPrefsRequest struct {
-	Prefs repository.AgentPrefs `json:"prefs"`
+	Prefs model.AgentPrefs `json:"prefs"`
 }
 
 func (h *Handler) GetTitleGenerationAgent(ctx context.Context, c *app.RequestContext) {

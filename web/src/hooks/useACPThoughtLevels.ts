@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { SessionThoughtLevelState } from '../components/ChatPage';
+import type { SessionThoughtLevelState } from '../types';
 import { relinkACPThoughtLevels } from '../utils/acpConfig';
 
 interface LinkedThoughtLevels {

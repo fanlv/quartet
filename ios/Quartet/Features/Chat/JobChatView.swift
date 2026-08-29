@@ -42,6 +42,50 @@ private struct FrozenChatTimeline: Sendable {
     let scrollAnchor: Int
 }
 
+/// 聊天列表每一帧只提取这些滚动数据，避免几个独立的几何观察者在同一帧读到不同状态。
+private struct ChatScrollMetrics: Equatable {
+    let offsetY: CGFloat
+    let distanceToBottom: CGFloat
+    let isScrollable: Bool
+
+    init(_ geometry: ScrollGeometry) {
+        offsetY = geometry.contentOffset.y
+
+        // `contentSize` 不含 inset；UIScrollView 的合法偏移范围还要把上下 inset 算进去。
+        // 直接用 contentSize - containerSize 会在键盘/安全区产生 inset 时把“底部”算偏。
+        let minimumOffsetY = -geometry.contentInsets.top
+        let maximumOffsetY = max(
+            minimumOffsetY,
+            geometry.contentSize.height - geometry.containerSize.height + geometry.contentInsets.bottom
+        )
+        distanceToBottom = maximumOffsetY - offsetY
+        isScrollable = maximumOffsetY - minimumOffsetY > 1
+    }
+
+    var isNearBottom: Bool {
+        abs(distanceToBottom) < ChatScrollThreshold.followCatchUp
+    }
+
+    var isAtBottom: Bool {
+        abs(distanceToBottom) < ChatScrollThreshold.resumeFollow
+    }
+
+    var isOffContent: Bool {
+        -distanceToBottom > ChatScrollThreshold.offContent
+    }
+}
+
+private enum ChatScrollThreshold {
+    /// 系统已经识别成滚动手势后，再向历史方向移动这点距离就视为明确的自由浏览意图。
+    static let enterFreeBrowsing: CGFloat = 12
+    /// 已处于自由浏览时，必须真正回到底边才恢复跟随，避免在底部附近反复切换模式。
+    static let resumeFollow: CGFloat = 12
+    /// 跟随模式下允许底边锚点自行消化的小幅布局误差。
+    static let followCatchUp: CGFloat = 80
+    /// 超过合法内容底部这么多时视为 LazyVStack 估算失配，而不是正常橡皮筋。
+    static let offContent: CGFloat = 80
+}
+
 struct JobChatView: View {
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.scenePhase) private var scenePhase
@@ -69,6 +113,9 @@ struct JobChatView: View {
     @State private var messagesAreNearBottom = true
     @State private var messagesScrolledOffContent = false
     @State private var frozenTimeline: FrozenChatTimeline?
+    @State private var messageScrollStartOffsetY: CGFloat?
+    @State private var messageScrollStartedWhileFollowing = false
+    @State private var messageScrollRequestedFreeBrowsing = false
     @State private var followBottomRequests = 0
     @State private var configuredModels: AgentModelState?
     @State private var configuredThoughtLevels: AgentThoughtLevelState?
@@ -327,16 +374,72 @@ struct JobChatView: View {
 
     /// 暂停跟随，并把当前时间线冻结成快照。
     ///
-    /// 冻结必须发生在用户刚开始拖动的那一刻：这样快照就是他手指按下时看到的画面，
-    /// 冻结本身不会造成任何跳动。
-    private func pauseTimelineFollow() {
-        userScrolledAwayFromBottom = true
+    /// 冻结必须发生在滚动视图进入 tracking 的那一刻：这样快照就是手指按下时看到的画面，
+    /// 流式增量也没有机会在系统正式识别拖动前先把视口带回底部。此时只是“暂时挂起”，
+    /// 还不能断言用户真的想看历史；一次点击或底部橡皮筋会在手势结束时自动解冻。
+    private func freezeTimelineForUserScroll() {
         guard frozenTimeline == nil else { return }
         frozenTimeline = FrozenChatTimeline(
             messages: chat.messages,
             outboxItems: chat.timelineOutboxItems,
             scrollAnchor: chat.scrollAnchor
         )
+    }
+
+    private func beginMessageScroll(with metrics: ChatScrollMetrics) {
+        guard messageScrollStartOffsetY == nil else { return }
+        messageScrollStartOffsetY = metrics.offsetY
+        messageScrollStartedWhileFollowing = frozenTimeline == nil && !userScrolledAwayFromBottom
+        messageScrollRequestedFreeBrowsing = false
+        freezeTimelineForUserScroll()
+    }
+
+    /// 记录用户“向历史方向”滚动的意图，并且一旦成立就在本次手势内锁存。
+    ///
+    /// 不能只看松手时是否还在底部附近：流式布局可能在同一帧改变 contentSize，旧实现因此
+    /// 经常把一次真实的上滑误判成“仍在底部”。快照冻结后 contentSize 基本稳定，直接比较
+    /// contentOffset 的方向既不受底部阈值影响，也不会把向下橡皮筋当成自由浏览。
+    private func recordFreeBrowsingIntent(with metrics: ChatScrollMetrics) {
+        guard messageScrollStartedWhileFollowing,
+              !messageScrollRequestedFreeBrowsing,
+              metrics.isScrollable,
+              let startOffsetY = messageScrollStartOffsetY,
+              startOffsetY - metrics.offsetY >= ChatScrollThreshold.enterFreeBrowsing else { return }
+        messageScrollRequestedFreeBrowsing = true
+        userScrolledAwayFromBottom = true
+    }
+
+    private func resetMessageScrollGesture() {
+        messageScrollStartOffsetY = nil
+        messageScrollStartedWhileFollowing = false
+        messageScrollRequestedFreeBrowsing = false
+    }
+
+    /// 用手势结束同一帧的几何值收敛跟随状态。
+    private func finishMessageScroll(_ proxy: ScrollViewProxy, with metrics: ChatScrollMetrics) {
+        recordFreeBrowsingIntent(with: metrics)
+        let startedWhileFollowing = messageScrollStartedWhileFollowing
+        let requestedFreeBrowsing = messageScrollRequestedFreeBrowsing
+        resetMessageScrollGesture()
+
+        if startedWhileFollowing {
+            if requestedFreeBrowsing {
+                // 用户意图优先于这一帧的底部位置。即使流式布局恰好把偏移拉回底部，仍保留
+                // 冻结快照；用户可通过悬浮按钮明确恢复实时跟随。
+                userScrolledAwayFromBottom = true
+            } else {
+                resumeTimelineFollow(proxy)
+            }
+            return
+        }
+
+        // 已经在自由浏览时，只有用户确实把列表带回底边才自动恢复；停在“差不多到底”仍
+        // 保持冻结，避免 80pt 的宽阈值让模式在底部附近来回翻转。
+        if metrics.isAtBottom {
+            resumeTimelineFollow(proxy)
+        } else {
+            userScrolledAwayFromBottom = true
+        }
     }
 
     /// 恢复跟随：解冻快照、补上这段时间的新内容，并回到底部。
@@ -347,6 +450,7 @@ struct JobChatView: View {
     /// 这里刻意不加动画：解冻要补上的可能是几千点的内容，动画滚过这么长的距离会让
     /// `LazyVStack` 一路来不及物化 cell，中途整屏空白，落点也更容易算飘。
     private func resumeTimelineFollow(_ proxy: ScrollViewProxy) {
+        resetMessageScrollGesture()
         frozenTimeline = nil
         messagesAreNearBottom = true
         userScrolledAwayFromBottom = false
@@ -377,7 +481,9 @@ struct JobChatView: View {
     /// 这里同样不加动画：需要补滚动时距离本来就远，动画滚过几千点会让 `LazyVStack` 一路来不及
     /// 物化 cell，中途整屏空白。
     private func followBottomIfNeeded(_ proxy: ScrollViewProxy, isNearBottom: Bool) {
-        guard !userScrolledAwayFromBottom, !userIsScrollingMessages else { return }
+        guard frozenTimeline == nil,
+              !userScrolledAwayFromBottom,
+              !userIsScrollingMessages else { return }
         guard messagesScrolledOffContent || !isNearBottom else { return }
         proxy.scrollTo("chat-bottom", anchor: .bottom)
     }
@@ -455,22 +561,29 @@ struct JobChatView: View {
             }
             .onChange(of: workspaceContextKey) { _, _ in configureLinkOpener() }
             .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
-            .onScrollPhaseChange { oldPhase, newPhase in
+            .onScrollPhaseChange { oldPhase, newPhase, context in
                 let wasUserScrolling = oldPhase.isScrolling && oldPhase != .animating
                 let isUserScrolling = newPhase.isScrolling && newPhase != .animating
+                let metrics = ChatScrollMetrics(context.geometry)
+
+                if isUserScrolling, !wasUserScrolling {
+                    beginMessageScroll(with: metrics)
+                }
+                if wasUserScrolling {
+                    // phase 回调自带的 geometry 与阶段变化属于同一帧；尤其 idle 时不能再读取
+                    // `messagesAreNearBottom` 这种由另一条回调异步写入的上一帧状态。
+                    recordFreeBrowsingIntent(with: metrics)
+                }
                 userIsScrollingMessages = isUserScrolling
 
                 // 用户一开始拖动就暂停跟随并冻结时间线，避免流式增量在手势过程中抢走滚动
                 // 位置、也避免内容高度继续变化把阅读位置一点点顶走。
-                // 松手后按最终位置决定是否恢复；只有回到底部才重新开启自动跟随。
+                // 松手后按锁存的滚动意图决定是否恢复，而不是用宽泛的“靠近底部”状态猜测。
                 if isUserScrolling {
-                    pauseTimelineFollow()
                     return
                 }
                 if newPhase == .idle, wasUserScrolling {
-                    if messagesAreNearBottom {
-                        resumeTimelineFollow(proxy)
-                    }
+                    finishMessageScroll(proxy, with: metrics)
                     return
                 }
 
@@ -478,20 +591,35 @@ struct JobChatView: View {
                 // 免得越界标记翻转时刚好卡在手势里、之后再没有几何变化来触发纠正。
                 guard newPhase == .idle,
                       messagesScrolledOffContent,
+                      frozenTimeline == nil,
                       !userScrolledAwayFromBottom else { return }
                 resumeTimelineFollow(proxy)
             }
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                let maxOffset = max(0, geometry.contentSize.height - geometry.containerSize.height)
-                let distanceToBottom = maxOffset - geometry.contentOffset.y
-                // 大幅越过内容底部时 distance 会是很大的负数，不能把这种异常偏移
-                // 当成“已回到底部”，否则用户松手时会错误恢复自动跟随。
-                return abs(distanceToBottom) < 80
-            } action: { _, isNearBottom in
-                messagesAreNearBottom = isNearBottom
-                // 布局之后才知道底边锚点有没有真的把视口带上，所以追赶要在这里判，
-                // 不能只靠锚点变化那条路径 —— 它跑在布局之前，读到的是上一帧的位置。
-                followBottomIfNeeded(proxy, isNearBottom: isNearBottom)
+            .onScrollGeometryChange(for: ChatScrollMetrics.self) { geometry in
+                ChatScrollMetrics(geometry)
+            } action: { oldMetrics, newMetrics in
+                // 几何变化在手势阶段会高频发生；只在布尔状态真正翻转或自由浏览意图首次成立
+                // 时写 SwiftUI State，避免每个像素都让整页重算 body。
+                recordFreeBrowsingIntent(with: newMetrics)
+
+                let nearBottomChanged = messagesAreNearBottom != newMetrics.isNearBottom
+                if nearBottomChanged {
+                    messagesAreNearBottom = newMetrics.isNearBottom
+                    // 布局之后才知道底边锚点有没有真的把视口带上，所以追赶要在这里判，
+                    // 不能只靠锚点变化那条路径 —— 它跑在布局之前，读到的是上一帧的位置。
+                    followBottomIfNeeded(proxy, isNearBottom: newMetrics.isNearBottom)
+                }
+
+                let offContentChanged = messagesScrolledOffContent != newMetrics.isOffContent
+                if offContentChanged {
+                    messagesScrolledOffContent = newMetrics.isOffContent
+                }
+                guard newMetrics.isOffContent,
+                      !oldMetrics.isOffContent,
+                      !userIsScrollingMessages,
+                      frozenTimeline == nil,
+                      !userScrolledAwayFromBottom else { return }
+                resumeTimelineFollow(proxy)
             }
             // 白屏自愈：静止时的偏移必须落在内容范围内，超出就说明 `LazyVStack` 的估算高度
             // 和实际布局失配（长工具输出收起、离屏 cell 重新物化），偏移停在没有任何 cell 的
@@ -503,17 +631,6 @@ struct JobChatView: View {
             // 都不物化，用户看到的一样是空白。
             //
             // 纠正动作就是“回到底部”，而它只在跟随状态下执行，所以误判是无害的：本来就该在底部。
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                guard geometry.containerSize.height > 0 else { return false }
-                let maxOffset = max(0, geometry.contentSize.height - geometry.containerSize.height)
-                return geometry.contentOffset.y - maxOffset > 80
-            } action: { _, isOffContent in
-                messagesScrolledOffContent = isOffContent
-                guard isOffContent,
-                      !userIsScrollingMessages,
-                      !userScrolledAwayFromBottom else { return }
-                resumeTimelineFollow(proxy)
-            }
             .onChange(of: chat.scrollAnchor) { _, _ in
                 followBottomIfNeeded(proxy, isNearBottom: messagesAreNearBottom)
             }
@@ -532,6 +649,7 @@ struct JobChatView: View {
                 userScrolledAwayFromBottom = false
                 messagesAreNearBottom = true
                 messagesScrolledOffContent = false
+                resetMessageScrollGesture()
             }
         }
     }
@@ -542,7 +660,7 @@ struct JobChatView: View {
     /// 条件，否则在底部随手一点都会闪一下按钮。
     @ViewBuilder
     private func backToBottomButton(_ proxy: ScrollViewProxy) -> some View {
-        if frozenTimeline != nil, !messagesAreNearBottom {
+        if frozenTimeline != nil, userScrolledAwayFromBottom {
             Button {
                 composerFocused = false
                 resumeTimelineFollow(proxy)

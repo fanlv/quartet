@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useJobChat } from '../hooks/useJobChat';
@@ -6,14 +6,12 @@ import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { MessageList } from './MessageList';
 import { phaseLabel } from '../utils/chatPhase';
 import { ChatInput } from './ChatInput';
-import { GraphRunProgress } from './GraphRunProgress';
 import { GraphSessionSidebar } from './GraphSessionSidebar';
 import { StepOutline } from './StepOutline';
 import { FileBrowser } from './FileBrowser';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
 import { AgentIdentityIcon } from './AgentIdentityIcon';
-import { AgentInfo } from './ChatPage';
-import { MessageRoleEnum, MessageStatusEnum, type UserMessage, type FileAttachment } from '../types';
+import { MessageRoleEnum, MessageStatusEnum, type AgentInfo, type UserMessage, type FileAttachment, type WorkspaceInfo } from '../types';
 import { ServerClockProvider } from '../contexts/ServerClock';
 import { VirtualList } from './VirtualList';
 import { registerWorkspaceColors } from '../utils/workspace';
@@ -21,24 +19,19 @@ import { ensureAgentDisplays, invalidateAgentDisplays, peekAgentDisplay, useAgen
 import { fetchAgentPrefs, prefsForAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { relinkACPThoughtLevels, setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
 import { useAuthPrincipal } from '../auth';
+import { fetchAvailableAgentList } from '../api/agents';
 import './JobChat.css';
+
+const GraphRunProgress = lazy(() =>
+  import('./GraphRunProgress').then((module) => ({ default: module.GraphRunProgress })),
+);
 
 // Must match the backend limit in cmd/web/handler/job.go (jobTitleMaxLen).
 const JOB_TITLE_MAX_LEN = 200;
 
 async function fetchAgentList(): Promise<{ agents: AgentInfo[]; workdir: string; jobEnable: boolean; error?: string }> {
   try {
-    const res = await fetch('/api/v1/agent/list');
-    const data = await res.json().catch(() => null);
-    if (!data || data.code !== 0 || !data.agent_list) {
-      // Keep the server's message when there is one so the banner can show
-      // the real cause (auth failure, probe error, …) instead of a generic
-      // "empty list".
-      const detail = (data && typeof data.msg === 'string' && data.msg) || `HTTP ${res.status}`;
-      return { agents: [], workdir: '', jobEnable: true, error: detail };
-    }
-    const list = (data.agent_list as AgentInfo[]).filter((agent) => agent.available !== false);
-    return { agents: list, workdir: data.workdir || '', jobEnable: !!data.job_enable };
+    return await fetchAvailableAgentList();
   } catch (err) {
     console.error('Failed to fetch agent list:', err);
     return {
@@ -78,7 +71,7 @@ interface JobChatProps {
   /** Switch to another workspace from within the chat page: the callback
    *  reuses / creates an empty Job in the target workspace and navigates to
    *  it. When omitted, the footer Workspace tag stays informational. */
-  onSwitchWorkspaceChat?: (ws: { id: string; title: string; description: string; workdir: string; color?: string }) => void;
+  onSwitchWorkspaceChat?: (ws: WorkspaceInfo) => void;
   /** Fired when the existing Job 404s on /job/:id (deleted or never
    *  existed). Lets the parent clear the stale jobId from URL + state and
    *  route the user back to the workspace home. */
@@ -247,7 +240,7 @@ export function JobChat(props: JobChatProps) {
   // Workspaces list for the Workspace-tag dropdown in the footer. Fetched once
   // when the chat page mounts (outside readonly share mode). Kept in state so
   // newly-created workspaces show up after a Settings-dialog refresh.
-  const [allWorkspaces, setAllWorkspaces] = useState<Array<{ id: string; title: string; description: string; workdir: string; color?: string }>>([]);
+  const [allWorkspaces, setAllWorkspaces] = useState<WorkspaceInfo[]>([]);
   useEffect(() => {
     if (!canReadWorkspaces) return;
     let cancelled = false;
@@ -257,7 +250,7 @@ export function JobChat(props: JobChatProps) {
         if (!res.ok) return;
         const data = await res.json();
         if (cancelled) return;
-        const list = (data?.workspaces || []) as Array<{ id: string; title: string; description: string; workdir: string; color?: string }>;
+        const list = (data?.workspaces || []) as WorkspaceInfo[];
         registerWorkspaceColors(list);
         setAllWorkspaces(list);
       } catch { /* ignore */ }
@@ -269,7 +262,7 @@ export function JobChat(props: JobChatProps) {
   useEffect(() => {
     if (isReadonly) return;
     const onUpdated = (e: Event) => {
-      const ws = (e as CustomEvent).detail as { id: string; title: string; description: string; workdir: string; color?: string } | null;
+      const ws = (e as CustomEvent).detail as WorkspaceInfo | null;
       if (!ws?.id) return;
       registerWorkspaceColors([ws]);
       setAllWorkspaces((prev) => {
@@ -1731,20 +1724,22 @@ export function JobChat(props: JobChatProps) {
       )}
 
       {isGraph && (
-        <GraphRunProgress
-          jobId={existingJobId}
-          runId={graphRunId}
-          snapshot={graphRunStatusSnapshot}
-          streamError={graphStreamError}
-          onSnapshot={applyGraphRunStatusSnapshot}
-          readOnly={!canExecuteJobs}
-          shareToken={shareToken}
-          agents={agents}
-          canEdit={canExecuteJobs}
-          executionBlocked={!!activeAgentBlock}
-          executionBlockedHint={activeAgentBlockHint}
-          getSessionAgentReference={(sessionId) => getSessionMeta(sessionId)?.type || null}
-        />
+        <Suspense fallback={<div className="jobchat-loading"><span className="jobchat-loading-text">{t('common.loading')}</span></div>}>
+          <GraphRunProgress
+            jobId={existingJobId}
+            runId={graphRunId}
+            snapshot={graphRunStatusSnapshot}
+            streamError={graphStreamError}
+            onSnapshot={applyGraphRunStatusSnapshot}
+            readOnly={!canExecuteJobs}
+            shareToken={shareToken}
+            agents={agents}
+            canEdit={canExecuteJobs}
+            executionBlocked={!!activeAgentBlock}
+            executionBlockedHint={activeAgentBlockHint}
+            getSessionAgentReference={(sessionId) => getSessionMeta(sessionId)?.type || null}
+          />
+        </Suspense>
       )}
 
       {isLoadingHistory && !initialUserMessage && (

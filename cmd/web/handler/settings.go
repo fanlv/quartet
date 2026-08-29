@@ -6,7 +6,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/fanlv/quartet/pkg/httputil"
 	larklisten "github.com/fanlv/quartet/pkg/messaging/lark"
-	"github.com/fanlv/quartet/repository"
+	"github.com/fanlv/quartet/types/model"
 )
 
 func (h *Handler) GetSettings(ctx context.Context, c *app.RequestContext) {
@@ -22,7 +22,7 @@ func (h *Handler) GetSettings(ctx context.Context, c *app.RequestContext) {
 }
 
 func (h *Handler) SaveSettings(ctx context.Context, c *app.RequestContext) {
-	var req repository.Settings
+	var req model.Settings
 	if err := c.BindJSON(&req); err != nil {
 		httputil.BadRequest(c, "invalid request: "+err.Error())
 		return

@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AgentInfo } from '../ChatPage';
+import type { AgentInfo } from '../../types';
 import type { AgentPrefs, AgentPrefsMap } from '../../utils/agentPrefs';
 import { invalidateAgentPrefs } from '../../utils/agentPrefs';
-import { readAPIResponse } from '../../utils/apiResponse';
+import { readAPIResponse } from '../../api/response';
 import { useACPThoughtLevels } from '../../hooks/useACPThoughtLevels';
 import './ACPSettings.css';
 import './AgentDefaultsSettings.css';

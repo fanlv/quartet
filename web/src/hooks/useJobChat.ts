@@ -1472,7 +1472,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       default:
         break;
     }
-  }, [applyActiveSessionSelection, applyCommandEvent, finalizeInFlightMessages, markEventStreamReady, recordSessionTokens, refreshMessageQueue, setGraphSessions, updateServerClock]);
+  }, [applyCommandEvent, finalizeInFlightMessages, recordSessionTokens, refreshMessageQueue, updateServerClock]);
 
   // Keep ref in sync so the SSE effect always uses the latest handler
   handleEventRef.current = handleEvent;

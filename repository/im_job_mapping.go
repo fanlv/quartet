@@ -10,19 +10,13 @@ import (
 
 	"github.com/fanlv/quartet/pkg/fileserver"
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
+	"github.com/fanlv/quartet/types/model"
 	"github.com/fanlv/quartet/types/path"
 )
 
-type IMJobMapping struct {
-	Platform    string `json:"platform"`
-	ChatID      string `json:"chatId"`
-	WorkspaceID string `json:"workspaceId"`
-	JobID       string `json:"jobId"`
-}
-
 type IMJobMappingRepo interface {
-	Get(platform, chatID string) (*IMJobMapping, error)
-	Save(m *IMJobMapping) error
+	Get(platform, chatID string) (*model.IMJobMapping, error)
+	Save(m *model.IMJobMapping) error
 }
 
 type imJobMappingRepo struct {
@@ -48,7 +42,7 @@ func NewIMJobMappingRepo() (IMJobMappingRepo, error) {
 	return &imJobMappingRepo{sandbox: sb}, nil
 }
 
-func (r *imJobMappingRepo) Get(platform, chatID string) (*IMJobMapping, error) {
+func (r *imJobMappingRepo) Get(platform, chatID string) (*model.IMJobMapping, error) {
 	mu := r.lockFor(platform, chatID)
 	mu.RLock()
 	defer mu.RUnlock()
@@ -75,14 +69,14 @@ func (r *imJobMappingRepo) Get(platform, chatID string) (*IMJobMapping, error) {
 		return nil, nil
 	}
 
-	var m IMJobMapping
+	var m model.IMJobMapping
 	if err := json.Unmarshal([]byte(result.Content), &m); err != nil {
 		return nil, fmt.Errorf("unmarshal im job mapping failed: %w", err)
 	}
 	return &m, nil
 }
 
-func (r *imJobMappingRepo) Save(m *IMJobMapping) error {
+func (r *imJobMappingRepo) Save(m *model.IMJobMapping) error {
 	if m == nil {
 		return fmt.Errorf("im job mapping: nil mapping")
 	}

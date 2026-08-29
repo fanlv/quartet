@@ -13,7 +13,6 @@ import (
 	larklisten "github.com/fanlv/quartet/pkg/messaging/lark"
 	wechatlisten "github.com/fanlv/quartet/pkg/messaging/wechat"
 	"github.com/fanlv/quartet/pkg/messaging/wechat/ilink"
-	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/agent/acp"
 	"github.com/fanlv/quartet/services/agent/catalog"
 	"github.com/fanlv/quartet/services/agent/probe"
@@ -22,7 +21,9 @@ import (
 	"github.com/fanlv/quartet/services/auth"
 	"github.com/fanlv/quartet/services/config"
 	"github.com/fanlv/quartet/services/einocli"
+	"github.com/fanlv/quartet/services/fileshare"
 	"github.com/fanlv/quartet/services/graph"
+	imservice "github.com/fanlv/quartet/services/im"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/messagepreset"
 	"github.com/fanlv/quartet/services/prompt"
@@ -30,6 +31,7 @@ import (
 	"github.com/fanlv/quartet/services/session"
 	"github.com/fanlv/quartet/services/skills"
 	"github.com/fanlv/quartet/services/usagestats"
+	"github.com/fanlv/quartet/services/userinput"
 	"github.com/fanlv/quartet/services/wechatoutbox"
 	"github.com/fanlv/quartet/services/workspace"
 	"github.com/fanlv/quartet/types/model"
@@ -114,8 +116,10 @@ type Handler struct {
 	graphService         graph.Service
 	jobService           job.Service
 	messagePresetService messagepreset.Service
-	recentDirsRepo       repository.RecentDirsRepo
-	userInputRepo        repository.UserInputRepo
+	fileShareService     fileshare.Service
+	recentDirsService    workspace.RecentDirsService
+	userInputService     userinput.Service
+	transcriptStore      session.TranscriptStore
 	workspaceService     workspace.Service
 	scheduleService      schedule.Service
 	scheduler            *schedule.Scheduler
@@ -253,7 +257,7 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		return nil, err
 	}
 
-	rdr, err := repository.NewRecentDirsRepo()
+	recentDirs, err := workspace.NewRecentDirsService()
 	if err != nil {
 		return nil, err
 	}
@@ -302,8 +306,10 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		graphService:         gs,
 		jobService:           js,
 		messagePresetService: messagePresetSvc,
-		recentDirsRepo:       rdr,
-		userInputRepo:        repository.NewUserInputRepo(),
+		fileShareService:     fileshare.NewService(),
+		recentDirsService:    recentDirs,
+		userInputService:     userinput.NewService(),
+		transcriptStore:      session.NewTranscriptStore(),
 		workspaceService:     wss,
 		scheduleService:      schSvc,
 		usageStats:           usageStats,
@@ -486,9 +492,9 @@ func (h *Handler) ensureIMGateway(ctx context.Context) bool {
 
 	// Build the mapping repo outside the lock so that a panic in the
 	// constructor can't corrupt mutex state for the deferred unlock.
-	mappingRepo, err := repository.NewIMJobMappingRepo()
+	store, err := imservice.NewStore()
 	if err != nil {
-		logger.Errorf(ctx, "[Handler] create im job mapping repo failed: %v", err)
+		logger.Errorf(ctx, "[Handler] create IM store failed: %v", err)
 		return false
 	}
 
@@ -497,7 +503,7 @@ func (h *Handler) ensureIMGateway(ctx context.Context) bool {
 	if h.imGateway != nil {
 		return true
 	}
-	h.imGateway = newIMGateway(h, mappingRepo)
+	h.imGateway = newIMGateway(h, store)
 	return h.imGateway != nil
 }
 

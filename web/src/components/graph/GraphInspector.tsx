@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AgentInfo } from '../ChatPage';
+import type { AgentInfo } from '../../types';
 import { useACPThoughtLevels } from '../../hooks/useACPThoughtLevels';
 import type {
   GraphConfig,

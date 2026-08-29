@@ -13,7 +13,6 @@ import (
 	"github.com/fanlv/quartet/pkg/fileserver"
 	fsmodel "github.com/fanlv/quartet/pkg/fileserver/model"
 	"github.com/fanlv/quartet/pkg/httputil"
-	"github.com/fanlv/quartet/repository"
 )
 
 func (h *Handler) FileShareCreate(_ context.Context, c *app.RequestContext) {
@@ -39,8 +38,7 @@ func (h *Handler) FileShareCreate(_ context.Context, c *app.RequestContext) {
 		return
 	}
 
-	repo := repository.GetFileShareRepo()
-	share, err := repo.Create(req.Path)
+	share, err := h.fileShareService.Create(req.Path)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -58,8 +56,6 @@ func (h *Handler) FileShareDelete(_ context.Context, c *app.RequestContext) {
 		return
 	}
 
-	repo := repository.GetFileShareRepo()
-
 	token := strings.TrimSpace(req.Token)
 	if token == "" {
 		path := strings.TrimSpace(req.Path)
@@ -67,7 +63,7 @@ func (h *Handler) FileShareDelete(_ context.Context, c *app.RequestContext) {
 			httputil.BadRequest(c, "token or path is required")
 			return
 		}
-		share, ok := repo.GetByPath(path)
+		share, ok := h.fileShareService.GetByPath(path)
 		if !ok {
 			c.JSON(http.StatusOK, map[string]any{"code": 0, "ok": true})
 			return
@@ -75,7 +71,7 @@ func (h *Handler) FileShareDelete(_ context.Context, c *app.RequestContext) {
 		token = share.Token
 	}
 
-	if err := repo.Delete(token); err != nil {
+	if err := h.fileShareService.Delete(token); err != nil {
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -88,8 +84,7 @@ func (h *Handler) FileShareGet(_ context.Context, c *app.RequestContext) {
 		c.JSON(http.StatusOK, map[string]any{"code": 0, "shared": false})
 		return
 	}
-	repo := repository.GetFileShareRepo()
-	share, ok := repo.GetByPath(path)
+	share, ok := h.fileShareService.GetByPath(path)
 	if !ok {
 		c.JSON(http.StatusOK, map[string]any{"code": 0, "shared": false})
 		return
@@ -104,8 +99,7 @@ func (h *Handler) PublicReadFile(_ context.Context, c *app.RequestContext) {
 		return
 	}
 
-	repo := repository.GetFileShareRepo()
-	share, ok := repo.Get(token)
+	share, ok := h.fileShareService.Get(token)
 	if !ok {
 		c.JSON(http.StatusForbidden, map[string]string{"error": "invalid file share token"})
 		return
@@ -122,8 +116,7 @@ func (h *Handler) PublicServeSharedFile(_ context.Context, c *app.RequestContext
 		return
 	}
 
-	repo := repository.GetFileShareRepo()
-	share, ok := repo.Get(token)
+	share, ok := h.fileShareService.Get(token)
 	if !ok {
 		c.JSON(http.StatusForbidden, map[string]string{"error": "invalid file share token"})
 		return

@@ -22,8 +22,8 @@ import type {
   GraphRunStatus,
   GraphRunStatusResponse,
   GraphValidationError,
+  AgentInfo,
 } from '../types';
-import type { AgentInfo } from './ChatPage';
 import { GraphCanvas, type GraphCanvasFocus } from './graph/GraphCanvas';
 import { GraphInspector } from './graph/GraphInspector';
 import {

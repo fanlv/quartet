@@ -50,3 +50,9 @@
 .app-missing-job-notice-close:hover {
   background: rgba(153, 27, 27, 0.14);
 }
+.app-lazy-loading {
+  display: grid;
+  min-height: 12rem;
+  place-items: center;
+  color: var(--text-secondary, #64748b);
+}

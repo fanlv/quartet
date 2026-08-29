@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ScheduleInfo } from '../types';
+import { ScheduleInfo, type AgentInfo } from '../types';
 import { GraphListWorkflowsResponse, GraphWorkflowSummary, GraphWorkflowWarning } from '../types/graph';
-import { AgentInfo } from './ChatPage';
 import { CronInput } from './CronInput';
 import { workspaceColor, DEFAULT_WORKSPACE_ID } from '../utils/workspace';
 import './ScheduleEditModal.css';

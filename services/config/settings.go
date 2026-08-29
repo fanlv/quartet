@@ -16,15 +16,15 @@ import (
 )
 
 type SettingsService interface {
-	GetSettings() (*repository.Settings, error)
-	SaveSettings(s *repository.Settings) error
+	GetSettings() (*model.Settings, error)
+	SaveSettings(s *model.Settings) error
 	SaveTitleGenerationAgent(config *model.AgentRoleConfig) error
 	SaveGroupReplyAgent(config *model.AgentRoleConfig) error
 	SaveIMSessionAgent(agent *model.IMSessionAgentConfig) error
-	SaveACPEnvVars(agentID string, entries []repository.ACPEnvVarEntry) (version int64, changed bool, err error)
-	StageACPEnvVars(agentID string, entries []repository.ACPEnvVarEntry) (int64, error)
-	RestoreACPEnvState(agentID string, expectedVersion int64, entries []repository.ACPEnvVarEntry, version int64) error
-	SaveAgentPrefs(agentID string, prefs repository.AgentPrefs) error
+	SaveACPEnvVars(agentID string, entries []model.ACPEnvVarEntry) (version int64, changed bool, err error)
+	StageACPEnvVars(agentID string, entries []model.ACPEnvVarEntry) (int64, error)
+	RestoreACPEnvState(agentID string, expectedVersion int64, entries []model.ACPEnvVarEntry, version int64) error
+	SaveAgentPrefs(agentID string, prefs model.AgentPrefs) error
 	ClearAgentSettings(agentID string) error
 	GetACPEnvVars(agentType string) map[string]string
 	GetACPEnvVersion(agentType string) int64
@@ -66,7 +66,7 @@ func NewSettingsService() (SettingsService, error) {
 	return &settingsServiceImpl{repo: repo, agentCatalog: agentCatalog}, nil
 }
 
-func (s *settingsServiceImpl) GetSettings() (*repository.Settings, error) {
+func (s *settingsServiceImpl) GetSettings() (*model.Settings, error) {
 	settings, err := s.repo.Get()
 	if err != nil {
 		return nil, err
@@ -76,7 +76,7 @@ func (s *settingsServiceImpl) GetSettings() (*repository.Settings, error) {
 	return settings, nil
 }
 
-func (s *settingsServiceImpl) SaveSettings(settings *repository.Settings) error {
+func (s *settingsServiceImpl) SaveSettings(settings *model.Settings) error {
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
 	current, err := s.repo.Get()
@@ -106,7 +106,7 @@ func (s *settingsServiceImpl) SaveSettings(settings *repository.Settings) error 
 
 func (s *settingsServiceImpl) SaveACPEnvVars(
 	agentID string,
-	entries []repository.ACPEnvVarEntry,
+	entries []model.ACPEnvVarEntry,
 ) (int64, bool, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -132,7 +132,7 @@ func (s *settingsServiceImpl) SaveACPEnvVars(
 	}
 	normalizeACPEnvVars(settings)
 	if settings.ACPEnvVars == nil {
-		settings.ACPEnvVars = make(map[string][]repository.ACPEnvVarEntry)
+		settings.ACPEnvVars = make(map[string][]model.ACPEnvVarEntry)
 	}
 	if settings.ACPEnvVersions == nil {
 		settings.ACPEnvVersions = make(map[string]int64)
@@ -163,7 +163,7 @@ func (s *settingsServiceImpl) SaveACPEnvVars(
 // calls ClearAgentSettings on failure.
 func (s *settingsServiceImpl) StageACPEnvVars(
 	agentID string,
-	entries []repository.ACPEnvVarEntry,
+	entries []model.ACPEnvVarEntry,
 ) (int64, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -177,7 +177,7 @@ func (s *settingsServiceImpl) StageACPEnvVars(
 		return 0, err
 	}
 	if settings.ACPEnvVars == nil {
-		settings.ACPEnvVars = make(map[string][]repository.ACPEnvVarEntry)
+		settings.ACPEnvVars = make(map[string][]model.ACPEnvVarEntry)
 	}
 	if settings.ACPEnvVersions == nil {
 		settings.ACPEnvVersions = make(map[string]int64)
@@ -197,7 +197,7 @@ func (s *settingsServiceImpl) StageACPEnvVars(
 func (s *settingsServiceImpl) RestoreACPEnvState(
 	agentID string,
 	expectedVersion int64,
-	entries []repository.ACPEnvVarEntry,
+	entries []model.ACPEnvVarEntry,
 	version int64,
 ) error {
 	s.settingsMu.Lock()
@@ -218,7 +218,7 @@ func (s *settingsServiceImpl) RestoreACPEnvState(
 		delete(settings.ACPEnvVars, agentID)
 	} else {
 		if settings.ACPEnvVars == nil {
-			settings.ACPEnvVars = make(map[string][]repository.ACPEnvVarEntry)
+			settings.ACPEnvVars = make(map[string][]model.ACPEnvVarEntry)
 		}
 		settings.ACPEnvVars[agentID] = cloneACPEnvVarEntries(entries)
 	}
@@ -230,7 +230,7 @@ func (s *settingsServiceImpl) RestoreACPEnvState(
 	return s.repo.Save(settings)
 }
 
-func (s *settingsServiceImpl) SaveAgentPrefs(agentID string, prefs repository.AgentPrefs) error {
+func (s *settingsServiceImpl) SaveAgentPrefs(agentID string, prefs model.AgentPrefs) error {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return fmt.Errorf("AgentID is required")
@@ -256,7 +256,7 @@ func (s *settingsServiceImpl) SaveAgentPrefs(agentID string, prefs repository.Ag
 		return err
 	}
 	if settings.AgentPrefs == nil {
-		settings.AgentPrefs = make(map[string]repository.AgentPrefs)
+		settings.AgentPrefs = make(map[string]model.AgentPrefs)
 	}
 	resolved, _, _ := s.findAgent(context.Background(), agentID)
 	if resolved.Command != "" && resolved.Command != agentID {
@@ -307,13 +307,13 @@ func (s *settingsServiceImpl) ClearAgentSettings(agentID string) error {
 }
 
 func (s *settingsServiceImpl) SaveTitleGenerationAgent(config *model.AgentRoleConfig) error {
-	return s.saveOneShotAgent(config, "title generation", func(settings *repository.Settings, config *model.AgentRoleConfig) {
+	return s.saveOneShotAgent(config, "title generation", func(settings *model.Settings, config *model.AgentRoleConfig) {
 		settings.TitleGenerationAgent = config
 	})
 }
 
 func (s *settingsServiceImpl) SaveGroupReplyAgent(config *model.AgentRoleConfig) error {
-	return s.saveOneShotAgent(config, "group reply", func(settings *repository.Settings, config *model.AgentRoleConfig) {
+	return s.saveOneShotAgent(config, "group reply", func(settings *model.Settings, config *model.AgentRoleConfig) {
 		settings.GroupReplyAgent = config
 	})
 }
@@ -321,7 +321,7 @@ func (s *settingsServiceImpl) SaveGroupReplyAgent(config *model.AgentRoleConfig)
 func (s *settingsServiceImpl) saveOneShotAgent(
 	config *model.AgentRoleConfig,
 	role string,
-	apply func(*repository.Settings, *model.AgentRoleConfig),
+	apply func(*model.Settings, *model.AgentRoleConfig),
 ) error {
 	next := cloneAgentRoleConfig(config)
 	if next != nil {
@@ -423,14 +423,14 @@ func (s *settingsServiceImpl) GetACPEnvVersion(agentType string) int64 {
 	return settings.ACPEnvVersions[agentID]
 }
 
-func normalizeACPEnvVars(settings *repository.Settings) {
+func normalizeACPEnvVars(settings *model.Settings) {
 	if settings == nil || len(settings.ACPEnvVars) == 0 {
 		return
 	}
 	type envSource struct {
 		savedKey string
 		envKey   string
-		entries  []repository.ACPEnvVarEntry
+		entries  []model.ACPEnvVarEntry
 		priority int
 	}
 	sources := make([]envSource, 0, len(settings.ACPEnvVars))
@@ -452,7 +452,7 @@ func normalizeACPEnvVars(settings *repository.Settings) {
 		}
 		return sources[i].savedKey < sources[j].savedKey
 	})
-	normalized := make(map[string][]repository.ACPEnvVarEntry)
+	normalized := make(map[string][]model.ACPEnvVarEntry)
 	seen := make(map[string]map[string]bool)
 	for _, source := range sources {
 		if seen[source.envKey] == nil {
@@ -469,7 +469,7 @@ func normalizeACPEnvVars(settings *repository.Settings) {
 	settings.ACPEnvVars = normalized
 }
 
-func normalizeAgentPrefs(settings *repository.Settings) {
+func normalizeAgentPrefs(settings *model.Settings) {
 	if settings == nil || len(settings.AgentPrefs) == 0 {
 		return
 	}
@@ -477,7 +477,7 @@ func normalizeAgentPrefs(settings *repository.Settings) {
 		key      string
 		agentID  string
 		priority int
-		prefs    repository.AgentPrefs
+		prefs    model.AgentPrefs
 	}
 	sources := make([]source, 0, len(settings.AgentPrefs))
 	for key, prefs := range settings.AgentPrefs {
@@ -493,7 +493,7 @@ func normalizeAgentPrefs(settings *repository.Settings) {
 		}
 		return sources[i].key < sources[j].key
 	})
-	normalized := make(map[string]repository.AgentPrefs)
+	normalized := make(map[string]model.AgentPrefs)
 	for _, source := range sources {
 		current := normalized[source.agentID]
 		current.FavoriteModelIDs = uniqueStrings(append(current.FavoriteModelIDs, source.prefs.FavoriteModelIDs...))
@@ -511,10 +511,10 @@ func normalizeAgentPrefs(settings *repository.Settings) {
 	settings.AgentPrefs = normalized
 }
 
-func envVarsForAgent(envMap map[string][]repository.ACPEnvVarEntry, agentType string) []repository.ACPEnvVarEntry {
+func envVarsForAgent(envMap map[string][]model.ACPEnvVarEntry, agentType string) []model.ACPEnvVarEntry {
 	type source struct {
 		key      string
-		entries  []repository.ACPEnvVarEntry
+		entries  []model.ACPEnvVarEntry
 		priority int
 	}
 	var sources []source
@@ -530,7 +530,7 @@ func envVarsForAgent(envMap map[string][]repository.ACPEnvVarEntry, agentType st
 		}
 		return sources[i].key < sources[j].key
 	})
-	var out []repository.ACPEnvVarEntry
+	var out []model.ACPEnvVarEntry
 	seen := make(map[string]bool)
 	for _, source := range sources {
 		for _, entry := range source.entries {
@@ -544,20 +544,20 @@ func envVarsForAgent(envMap map[string][]repository.ACPEnvVarEntry, agentType st
 	return out
 }
 
-func cloneACPEnvVarEntries(in []repository.ACPEnvVarEntry) []repository.ACPEnvVarEntry {
+func cloneACPEnvVarEntries(in []model.ACPEnvVarEntry) []model.ACPEnvVarEntry {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]repository.ACPEnvVarEntry, len(in))
+	out := make([]model.ACPEnvVarEntry, len(in))
 	copy(out, in)
 	return out
 }
 
-func cloneACPEnvVarMap(in map[string][]repository.ACPEnvVarEntry) map[string][]repository.ACPEnvVarEntry {
+func cloneACPEnvVarMap(in map[string][]model.ACPEnvVarEntry) map[string][]model.ACPEnvVarEntry {
 	if in == nil {
 		return nil
 	}
-	out := make(map[string][]repository.ACPEnvVarEntry, len(in))
+	out := make(map[string][]model.ACPEnvVarEntry, len(in))
 	for key, entries := range in {
 		out[key] = cloneACPEnvVarEntries(entries)
 	}
@@ -575,11 +575,11 @@ func cloneInt64Map(in map[string]int64) map[string]int64 {
 	return out
 }
 
-func cloneAgentPrefsMap(in map[string]repository.AgentPrefs) map[string]repository.AgentPrefs {
+func cloneAgentPrefsMap(in map[string]model.AgentPrefs) map[string]model.AgentPrefs {
 	if in == nil {
 		return nil
 	}
-	out := make(map[string]repository.AgentPrefs, len(in))
+	out := make(map[string]model.AgentPrefs, len(in))
 	for key, prefs := range in {
 		prefs.FavoriteModelIDs = append([]string(nil), prefs.FavoriteModelIDs...)
 		out[key] = prefs
@@ -587,8 +587,8 @@ func cloneAgentPrefsMap(in map[string]repository.AgentPrefs) map[string]reposito
 	return out
 }
 
-func normalizeEnvEntries(entries []repository.ACPEnvVarEntry) []repository.ACPEnvVarEntry {
-	out := make([]repository.ACPEnvVarEntry, 0, len(entries))
+func normalizeEnvEntries(entries []model.ACPEnvVarEntry) []model.ACPEnvVarEntry {
+	out := make([]model.ACPEnvVarEntry, 0, len(entries))
 	seen := make(map[string]bool, len(entries))
 	for _, entry := range entries {
 		entry.Key = strings.TrimSpace(entry.Key)
@@ -601,7 +601,7 @@ func normalizeEnvEntries(entries []repository.ACPEnvVarEntry) []repository.ACPEn
 	return out
 }
 
-func envEntrySlicesEqual(a, b []repository.ACPEnvVarEntry) bool {
+func envEntrySlicesEqual(a, b []model.ACPEnvVarEntry) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -613,11 +613,11 @@ func envEntrySlicesEqual(a, b []repository.ACPEnvVarEntry) bool {
 	return true
 }
 
-func effectiveEnvEqual(a, b []repository.ACPEnvVarEntry) bool {
+func effectiveEnvEqual(a, b []model.ACPEnvVarEntry) bool {
 	return stringMapEqual(effectiveEnvMap(a), effectiveEnvMap(b))
 }
 
-func effectiveEnvMap(entries []repository.ACPEnvVarEntry) map[string]string {
+func effectiveEnvMap(entries []model.ACPEnvVarEntry) map[string]string {
 	result := make(map[string]string)
 	for _, entry := range entries {
 		if entry.Enabled && entry.Key != "" {
@@ -653,7 +653,7 @@ func uniqueStrings(values []string) []string {
 	return out
 }
 
-func agentPrefsEmpty(prefs repository.AgentPrefs) bool {
+func agentPrefsEmpty(prefs model.AgentPrefs) bool {
 	return len(prefs.FavoriteModelIDs) == 0 &&
 		prefs.DefaultModelID == "" &&
 		prefs.DefaultMode == "" &&

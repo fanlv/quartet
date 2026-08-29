@@ -2,7 +2,7 @@ import type {
   SessionModelState,
   SessionModeState,
   SessionThoughtLevelState,
-} from '../components/ChatPage';
+} from '../types';
 
 export type ACPConfigTarget = 'model' | 'mode' | 'thoughtLevel';
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DirPicker } from '../DirPicker';
+import type { AgentInfo, WorkspaceRecord } from '../../types';
 import {
   DEFAULT_WORKSPACE_ID,
   isDefaultWorkspace,
@@ -14,26 +15,7 @@ import {
 } from '../../utils/workspace';
 import './WorkspacesSettings.css';
 
-interface WorkspaceItem {
-  id: string;
-  version: number;
-  title: string;
-  description: string;
-  workdir: string;
-  defaultAgent?: string;
-  defaultModel?: string;
-  color?: string;
-  favorite: boolean;
-  sortOrder: number;
-}
-
-interface AgentInfo {
-  agent_id: string;
-  type: string;
-  display_name: string;
-  available: boolean;
-  models?: { availableModels: Array<{ modelId: string; name: string }>; currentModelId: string };
-}
+type WorkspaceItem = WorkspaceRecord;
 
 export function WorkspacesSettings() {
   const { t } = useTranslation();

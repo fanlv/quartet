@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, KeyboardEvent } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { AgentInfo } from './ChatPage';
+import type { AgentInfo } from '../types';
 import { AgentUsageCard } from './AgentUsageCard';
 import { FileMention, FileResult } from './FileMention';
 import { SlashFloater, SkillBackdrop } from './SlashCompletion';

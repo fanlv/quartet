@@ -20,8 +20,8 @@ import (
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/messaging"
 	"github.com/fanlv/quartet/pkg/safe"
-	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/command"
+	imservice "github.com/fanlv/quartet/services/im"
 	jobsvc "github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
@@ -33,9 +33,8 @@ import (
 // message semantics. Multiple platforms coexist through the repliers map and
 // platform-aware dispatch helpers (adminStatus / botSenderID / etc.).
 type imGateway struct {
-	h             *Handler
-	mappingRepo   repository.IMJobMappingRepo
-	imMessageRepo repository.IMMessageRepo
+	h     *Handler
+	store imservice.Store
 
 	repliersMu sync.RWMutex
 	repliers   map[messaging.Platform]messaging.Replier
@@ -204,11 +203,10 @@ func userReplyText(err error) string {
 // newIMGateway constructs an imGateway wired to the given Handler. Repliers
 // are registered later via RegisterReplier once each platform's Start* helper
 // builds its client — this keeps the gateway agnostic of any single platform.
-func newIMGateway(h *Handler, mappingRepo repository.IMJobMappingRepo) *imGateway {
+func newIMGateway(h *Handler, store imservice.Store) *imGateway {
 	return &imGateway{
 		h:              h,
-		mappingRepo:    mappingRepo,
-		imMessageRepo:  repository.NewIMMessageRepo(),
+		store:          store,
 		repliers:       make(map[messaging.Platform]messaging.Replier),
 		jobQueues:      make(map[string]*imJobQueue),
 		chatDispatches: make(map[string]*imChatDispatcher),
@@ -491,7 +489,7 @@ func (g *imGateway) HandleMessage(ctx context.Context, msg *messaging.Message) {
 		msg.Content,
 	)
 
-	if err := g.imMessageRepo.Append(ctx, imMsg); err != nil {
+	if err := g.store.AppendMessage(ctx, imMsg); err != nil {
 		logger.Errorf(ctx, "[im] persist message failed: id=%s err=%v", msg.MessageID, err)
 	}
 
@@ -531,7 +529,7 @@ func (g *imGateway) dispatchMessage(ctx context.Context, msg *messaging.Message)
 	// jobId/workspaceId 尽量从已有 IM->Job mapping 里读出来回填；首次建 job 前
 	// 的第一条消息这两个字段为空（文档 §3.3 允许）。映射指向的 Job 已被删除时
 	// 当作"首次"处理，避免把旧 jobId 写进落盘条目。
-	if msg.ChatType == messaging.ChatTypeP2P && g.h.userInputRepo != nil {
+	if msg.ChatType == messaging.ChatTypeP2P && g.h.userInputService != nil {
 		jobID, wsID := g.lookupMappingIDs(ctx, msg)
 		input := model.NewIMUserInput(
 			receivedAt,
@@ -543,7 +541,7 @@ func (g *imGateway) dispatchMessage(ctx context.Context, msg *messaging.Message)
 			wsID,
 			msg.Content,
 		)
-		if err := g.h.userInputRepo.Append(ctx, input); err != nil {
+		if err := g.h.userInputService.Append(ctx, input); err != nil {
 			logger.Errorf(ctx, "[user_input] append im failed: id=%s err=%v", msg.MessageID, err)
 		}
 	}
@@ -569,10 +567,10 @@ func (g *imGateway) dispatchMessage(ctx context.Context, msg *messaging.Message)
 // Errors are swallowed: the user_input logger is best-effort and must not
 // fail the message path.
 func (g *imGateway) lookupMappingIDs(ctx context.Context, msg *messaging.Message) (jobID, workspaceID string) {
-	if g.mappingRepo == nil || msg == nil {
+	if g.store == nil || msg == nil {
 		return "", ""
 	}
-	mapping, err := g.mappingRepo.Get(string(msg.Platform), msg.ChatID)
+	mapping, err := g.store.GetJobMapping(string(msg.Platform), msg.ChatID)
 	if err != nil {
 		logger.Warnf(ctx, "[user_input] lookup mapping failed: platform=%s chat=%s msg=%s sender=%s err=%v", msg.Platform, msg.ChatID, msg.MessageID, msg.SenderID, err)
 		return "", ""
@@ -651,7 +649,7 @@ func (g *imGateway) buildQueuedJobTask(ctx context.Context, msg *messaging.Messa
 		)
 	}
 
-	mapping, err := g.mappingRepo.Get(string(msg.Platform), msg.ChatID)
+	mapping, err := g.store.GetJobMapping(string(msg.Platform), msg.ChatID)
 	if err != nil {
 		return nil, fmt.Errorf("load mapping failed: %w", err)
 	}
@@ -708,18 +706,18 @@ func imSourceID(kind string, msg *messaging.Message) string {
 	return "im-" + hex.EncodeToString(h.Sum(nil))
 }
 
-func (g *imGateway) saveJobMapping(ctx context.Context, msg *messaging.Message, mapping *repository.IMJobMapping, wsID, jobID string) error {
+func (g *imGateway) saveJobMapping(ctx context.Context, msg *messaging.Message, mapping *model.IMJobMapping, wsID, jobID string) error {
 	if mapping != nil && mapping.JobID == jobID && mapping.WorkspaceID == wsID {
 		return nil
 	}
 
-	updated := &repository.IMJobMapping{
+	updated := &model.IMJobMapping{
 		Platform:    string(msg.Platform),
 		ChatID:      msg.ChatID,
 		WorkspaceID: wsID,
 		JobID:       jobID,
 	}
-	if err := g.mappingRepo.Save(updated); err != nil {
+	if err := g.store.SaveJobMapping(updated); err != nil {
 		return err
 	}
 	logger.Infof(ctx, "[im] bind chat=%s -> job=%s", msg.ChatID, jobID)
@@ -1140,7 +1138,7 @@ func (g *imGateway) runAsync(fn func(context.Context)) {
 func (g *imGateway) handleCommand(ctx context.Context, msg *messaging.Message, cmd, args string) {
 	// Build the platform-agnostic context from the IM mapping. /status and
 	// /workspace/list work even without a mapping.
-	mapping, err := g.mappingRepo.Get(string(msg.Platform), msg.ChatID)
+	mapping, err := g.store.GetJobMapping(string(msg.Platform), msg.ChatID)
 	if err != nil {
 		logger.Errorf(ctx, "[im] handleCommand: get mapping failed: chat=%s err=%v", msg.ChatID, err)
 		g.replyToMessage(ctx, msg.Platform, msg.MessageID, "操作失败，请重试。")
@@ -1188,13 +1186,13 @@ func (g *imGateway) handleCommand(ctx context.Context, msg *messaging.Message, c
 	// IMJobMapping write. Text feedback still gets delivered via Replier.
 	switch result.Action.Type {
 	case command.ActionSwitchWorkspace:
-		newMapping := &repository.IMJobMapping{
+		newMapping := &model.IMJobMapping{
 			Platform:    string(msg.Platform),
 			ChatID:      msg.ChatID,
 			WorkspaceID: result.Action.WorkspaceID,
 			JobID:       "",
 		}
-		if err := g.mappingRepo.Save(newMapping); err != nil {
+		if err := g.store.SaveJobMapping(newMapping); err != nil {
 			logger.Errorf(ctx, "[im] handleCommand: save mapping failed: chat=%s err=%v", msg.ChatID, err)
 			g.replyToMessage(ctx, msg.Platform, msg.MessageID, "切换失败，请重试。")
 			return
@@ -1202,25 +1200,25 @@ func (g *imGateway) handleCommand(ctx context.Context, msg *messaging.Message, c
 	case command.ActionBindJob:
 		// The action already carries both the job's workspace and its id;
 		// copy them verbatim so a cross-workspace bind also updates the ws.
-		newMapping := &repository.IMJobMapping{
+		newMapping := &model.IMJobMapping{
 			Platform:    string(msg.Platform),
 			ChatID:      msg.ChatID,
 			WorkspaceID: result.Action.WorkspaceID,
 			JobID:       result.Action.JobID,
 		}
-		if err := g.mappingRepo.Save(newMapping); err != nil {
+		if err := g.store.SaveJobMapping(newMapping); err != nil {
 			logger.Errorf(ctx, "[im] handleCommand: save mapping failed: chat=%s job=%s err=%v", msg.ChatID, result.Action.JobID, err)
 			g.replyToMessage(ctx, msg.Platform, msg.MessageID, "绑定失败，请重试。")
 			return
 		}
 	case command.ActionNewJob:
-		newMapping := &repository.IMJobMapping{
+		newMapping := &model.IMJobMapping{
 			Platform:    string(msg.Platform),
 			ChatID:      msg.ChatID,
 			WorkspaceID: result.Action.WorkspaceID,
 			JobID:       "",
 		}
-		if err := g.mappingRepo.Save(newMapping); err != nil {
+		if err := g.store.SaveJobMapping(newMapping); err != nil {
 			logger.Errorf(ctx, "[im] handleCommand: save mapping failed: chat=%s err=%v", msg.ChatID, err)
 			g.replyToMessage(ctx, msg.Platform, msg.MessageID, "操作失败，请重试。")
 			return
@@ -1347,7 +1345,7 @@ func (g *imGateway) routeToJob(ctx context.Context, msg *messaging.Message) {
 func (g *imGateway) resolveJob(
 	ctx context.Context,
 	msg *messaging.Message,
-	mapping *repository.IMJobMapping,
+	mapping *model.IMJobMapping,
 	msgAgent *model.IMSessionAgentConfig,
 	agentCommand string,
 ) (*model.Job, string, error) {
@@ -1392,7 +1390,7 @@ func (g *imGateway) resolveJob(
 	return j, wsID, nil
 }
 
-func (g *imGateway) resolveWorkspaceID(mapping *repository.IMJobMapping) string {
+func (g *imGateway) resolveWorkspaceID(mapping *model.IMJobMapping) string {
 	if mapping != nil && mapping.WorkspaceID != "" {
 		return mapping.WorkspaceID
 	}

@@ -5,38 +5,38 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/fanlv/quartet/repository"
+	"github.com/fanlv/quartet/types/model"
 )
 
 type fakeSettingsRepo struct {
 	mu       sync.Mutex
-	settings repository.Settings
+	settings model.Settings
 }
 
-func (r *fakeSettingsRepo) Get() (*repository.Settings, error) {
+func (r *fakeSettingsRepo) Get() (*model.Settings, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	clone := cloneSettingsForTest(&r.settings)
 	return clone, nil
 }
 
-func (r *fakeSettingsRepo) Save(s *repository.Settings) error {
+func (r *fakeSettingsRepo) Save(s *model.Settings) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.settings = *cloneSettingsForTest(s)
 	return nil
 }
 
-func cloneSettingsForTest(s *repository.Settings) *repository.Settings {
+func cloneSettingsForTest(s *model.Settings) *model.Settings {
 	if s == nil {
 		return nil
 	}
 	clone := *s
 	clone.WeChatAdminIDs = append([]string(nil), s.WeChatAdminIDs...)
 	if s.ACPEnvVars != nil {
-		clone.ACPEnvVars = make(map[string][]repository.ACPEnvVarEntry, len(s.ACPEnvVars))
+		clone.ACPEnvVars = make(map[string][]model.ACPEnvVarEntry, len(s.ACPEnvVars))
 		for k, v := range s.ACPEnvVars {
-			clone.ACPEnvVars[k] = append([]repository.ACPEnvVarEntry(nil), v...)
+			clone.ACPEnvVars[k] = append([]model.ACPEnvVarEntry(nil), v...)
 		}
 	}
 	if s.ACPEnvVersions != nil {
@@ -49,8 +49,8 @@ func cloneSettingsForTest(s *repository.Settings) *repository.Settings {
 }
 
 func TestGetACPEnvVarsUsesStableAndCommandKeys(t *testing.T) {
-	repo := &fakeSettingsRepo{settings: repository.Settings{
-		ACPEnvVars: map[string][]repository.ACPEnvVarEntry{
+	repo := &fakeSettingsRepo{settings: model.Settings{
+		ACPEnvVars: map[string][]model.ACPEnvVarEntry{
 			"codex": {
 				{Key: "http_proxy", Value: "http://stable", Enabled: true},
 				{Key: "all_proxy", Value: "http://disabled", Enabled: false},
@@ -75,8 +75,8 @@ func TestGetACPEnvVarsUsesStableAndCommandKeys(t *testing.T) {
 }
 
 func TestSaveSettingsPreservesOwnedACPEnvVars(t *testing.T) {
-	repo := &fakeSettingsRepo{settings: repository.Settings{
-		ACPEnvVars: map[string][]repository.ACPEnvVarEntry{
+	repo := &fakeSettingsRepo{settings: model.Settings{
+		ACPEnvVars: map[string][]model.ACPEnvVarEntry{
 			"claude": {
 				{Key: "https_proxy", Value: "http://stable", Enabled: true},
 			},
@@ -84,9 +84,9 @@ func TestSaveSettingsPreservesOwnedACPEnvVars(t *testing.T) {
 	}}
 	svc := &settingsServiceImpl{repo: repo}
 
-	err := svc.SaveSettings(&repository.Settings{
+	err := svc.SaveSettings(&model.Settings{
 		Username: "updated",
-		ACPEnvVars: map[string][]repository.ACPEnvVarEntry{
+		ACPEnvVars: map[string][]model.ACPEnvVarEntry{
 			"claude-agent-acp": {
 				{Key: "https_proxy", Value: "http://command", Enabled: true},
 			},
@@ -103,7 +103,7 @@ func TestSaveSettingsPreservesOwnedACPEnvVars(t *testing.T) {
 	if got.Username != "updated" {
 		t.Fatalf("Username = %q, want updated", got.Username)
 	}
-	want := map[string][]repository.ACPEnvVarEntry{
+	want := map[string][]model.ACPEnvVarEntry{
 		"claude": {
 			{Key: "https_proxy", Value: "http://stable", Enabled: true},
 		},
@@ -114,11 +114,11 @@ func TestSaveSettingsPreservesOwnedACPEnvVars(t *testing.T) {
 }
 
 func TestSaveACPEnvVarsOnlyChangesVersionWhenEntriesChange(t *testing.T) {
-	entries := []repository.ACPEnvVarEntry{{
+	entries := []model.ACPEnvVarEntry{{
 		Key: "https_proxy", Value: "http://proxy", Enabled: true,
 	}}
-	repo := &fakeSettingsRepo{settings: repository.Settings{
-		ACPEnvVars:     map[string][]repository.ACPEnvVarEntry{"codex": entries},
+	repo := &fakeSettingsRepo{settings: model.Settings{
+		ACPEnvVars:     map[string][]model.ACPEnvVarEntry{"codex": entries},
 		ACPEnvVersions: map[string]int64{"codex": 7},
 	}}
 	svc := &settingsServiceImpl{repo: repo}
@@ -131,7 +131,7 @@ func TestSaveACPEnvVarsOnlyChangesVersionWhenEntriesChange(t *testing.T) {
 		t.Fatalf("unchanged save = version %d changed %t, want version 7 changed false", version, changed)
 	}
 
-	updated := []repository.ACPEnvVarEntry{{
+	updated := []model.ACPEnvVarEntry{{
 		Key: "https_proxy", Value: "http://new-proxy", Enabled: true,
 	}}
 	version, changed, err = svc.SaveACPEnvVars("codex", updated)
@@ -144,10 +144,10 @@ func TestSaveACPEnvVarsOnlyChangesVersionWhenEntriesChange(t *testing.T) {
 }
 
 func TestSaveSettingsPreservesConcurrentWeChatAdminAdd(t *testing.T) {
-	repo := &fakeSettingsRepo{settings: repository.Settings{WeChatAdminIDs: []string{"alice"}}}
+	repo := &fakeSettingsRepo{settings: model.Settings{WeChatAdminIDs: []string{"alice"}}}
 	svc := &settingsServiceImpl{repo: repo}
 
-	staleWebSnapshot := &repository.Settings{Username: "updated", WeChatAdminIDs: []string{"alice"}}
+	staleWebSnapshot := &model.Settings{Username: "updated", WeChatAdminIDs: []string{"alice"}}
 	if err := svc.AddWeChatAdminID("bob"); err != nil {
 		t.Fatalf("AddWeChatAdminID() error = %v", err)
 	}
@@ -169,10 +169,10 @@ func TestSaveSettingsPreservesConcurrentWeChatAdminAdd(t *testing.T) {
 }
 
 func TestSaveSettingsPreservesConcurrentWeChatAdminRemove(t *testing.T) {
-	repo := &fakeSettingsRepo{settings: repository.Settings{WeChatAdminIDs: []string{"alice", "bob"}}}
+	repo := &fakeSettingsRepo{settings: model.Settings{WeChatAdminIDs: []string{"alice", "bob"}}}
 	svc := &settingsServiceImpl{repo: repo}
 
-	staleWebSnapshot := &repository.Settings{Username: "updated", WeChatAdminIDs: []string{"alice", "bob"}}
+	staleWebSnapshot := &model.Settings{Username: "updated", WeChatAdminIDs: []string{"alice", "bob"}}
 	if err := svc.RemoveWeChatAdminID("bob"); err != nil {
 		t.Fatalf("RemoveWeChatAdminID() error = %v", err)
 	}

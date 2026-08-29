@@ -3,27 +3,8 @@ import { copyToClipboard } from '../../utils/clipboard';
 import { buildFilePreviewUrl, formatFileSize } from '../../utils/file';
 import { detectLanguage, getLanguageLabel, tokenizeLine } from '../../utils/syntaxHighlight';
 import { showToast } from '../../utils/toast';
+import type { FileViewerFile } from '../../types';
 import './FileViewer.css';
-
-// One viewer state shape for every surface. `isImage` is resolved by the
-// loader (useFileViewer) so the view layer stays free of extension rules.
-export interface FileViewerFile {
-  path: string;
-  name: string;
-  content: string;
-  size: number;
-  truncated: boolean;
-  binary: boolean;
-  loading: boolean;
-  isImage: boolean;
-  /** Object URL for image files; null while still loading. */
-  imageUrl?: string | null;
-  /** Full server/network error text — displayed verbatim. */
-  error?: string;
-  /** 1-based line range to highlight and scroll to. */
-  line?: number;
-  endLine?: number;
-}
 
 interface FileViewerProps {
   file: FileViewerFile;

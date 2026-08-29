@@ -1,4 +1,4 @@
-import type { AgentInfo, ModelInfoACP } from '../components/ChatPage';
+import type { AgentInfo, ModelInfoACP } from '../types';
 
 // AgentPrefs mirrors repository.AgentPrefs (Go). Current entries are keyed by
 // stable AgentID; command/type keys are read only as a migration fallback.

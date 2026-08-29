@@ -9,25 +9,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fanlv/quartet/types/model"
 	"github.com/fanlv/quartet/types/path"
 )
 
-type FileShare struct {
-	Token     string `json:"token"`
-	Path      string `json:"path"`
-	CreatedAt int64  `json:"createdAt"`
-}
-
 type FileShareRepo interface {
-	Create(filePath string) (*FileShare, error)
-	Get(token string) (*FileShare, bool)
-	GetByPath(filePath string) (*FileShare, bool)
+	Create(filePath string) (*model.FileShare, error)
+	Get(token string) (*model.FileShare, bool)
+	GetByPath(filePath string) (*model.FileShare, bool)
 	Delete(token string) error
 }
 
 type fileShareRepo struct {
 	mu       sync.RWMutex
-	shares   map[string]*FileShare
+	shares   map[string]*model.FileShare
 	filePath string
 }
 
@@ -37,13 +32,13 @@ var (
 )
 
 func GetFileShareRepo() FileShareRepo {
-	fileShareOnce.Do(func() {
+		fileShareOnce.Do(func() {
 		fp, err := path.FileSharesFile()
 		if err != nil {
 			panic(fmt.Sprintf("cannot resolve file shares path: %v", err))
 		}
 		repo := &fileShareRepo{
-			shares:   make(map[string]*FileShare),
+			shares:   make(map[string]*model.FileShare),
 			filePath: fp,
 		}
 		repo.load()
@@ -52,7 +47,7 @@ func GetFileShareRepo() FileShareRepo {
 	return fileShareInstance
 }
 
-func (r *fileShareRepo) Create(filePath string) (*FileShare, error) {
+func (r *fileShareRepo) Create(filePath string) (*model.FileShare, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -68,7 +63,7 @@ func (r *fileShareRepo) Create(filePath string) (*FileShare, error) {
 	}
 	token := hex.EncodeToString(buf)
 
-	share := &FileShare{
+	share := &model.FileShare{
 		Token:     token,
 		Path:      filePath,
 		CreatedAt: time.Now().UnixMilli(),
@@ -81,14 +76,14 @@ func (r *fileShareRepo) Create(filePath string) (*FileShare, error) {
 	return share, nil
 }
 
-func (r *fileShareRepo) Get(token string) (*FileShare, bool) {
+func (r *fileShareRepo) Get(token string) (*model.FileShare, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	s, ok := r.shares[token]
 	return s, ok
 }
 
-func (r *fileShareRepo) GetByPath(filePath string) (*FileShare, bool) {
+func (r *fileShareRepo) GetByPath(filePath string) (*model.FileShare, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, s := range r.shares {
@@ -114,7 +109,7 @@ func (r *fileShareRepo) load() {
 	if err != nil {
 		return
 	}
-	var shares []*FileShare
+	var shares []*model.FileShare
 	if err := json.Unmarshal(data, &shares); err != nil {
 		return
 	}
@@ -124,7 +119,7 @@ func (r *fileShareRepo) load() {
 }
 
 func (r *fileShareRepo) save() error {
-	shares := make([]*FileShare, 0, len(r.shares))
+	shares := make([]*model.FileShare, 0, len(r.shares))
 	for _, s := range r.shares {
 		shares = append(shares, s)
 	}
