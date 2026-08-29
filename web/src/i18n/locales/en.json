@@ -916,8 +916,9 @@
     },
     "trend": {
       "axisUnit": "Unit: {{unit}}",
-      "chartAriaLabel": "Usage trend by day. Use Left and Right Arrow keys to inspect adjacent days.",
-      "dayAriaLabel": "{{date}}, {{metric}}: {{value}}. Focus for details.",
+      "chartAriaLabel": "Usage trend by day. Click a date, or use Left and Right Arrow keys to inspect adjacent days.",
+      "dayAriaLabel": "{{date}}, {{metric}}: {{value}}. Click or focus for details.",
+      "dayDetailAriaLabel": "Usage details for {{date}}",
       "unit": {
         "minute": "min",
         "hour": "hours",
@@ -950,6 +951,7 @@
       "cacheHitRate": "Cache hit rate",
       "cacheHitRateHint": "Calculated from model-reported cache reads as a share of total input. Quartet-estimated runs are excluded.",
       "cacheUnavailable": "No model-reported input is available to calculate cache hit rates in this range.",
+      "cacheDayUnavailable": "No cache hit rate can be calculated for this day.",
       "reasoning": "Reasoning tokens",
       "imageEstimate": "Image estimate (included subset)",
       "imageEstimateShort": "Image estimate",
@@ -958,7 +960,7 @@
       "modelBreakdown": "By model",
       "dayPanelTitle": "Token breakdown for the day",
       "dayPanelLatest": "Latest",
-      "dayPanelPickHint": "Hover a day in the chart, or focus it with the arrow keys, to switch days.",
+      "dayPanelPickHint": "Click a day in the chart, or focus it with the arrow keys, to switch days.",
       "dayPanelHint": "The total is computed by the server; the sources and details below can overlap, so do not add them up.",
       "dayPanelAriaLabel": "Token breakdown for {{date}}, total tokens {{value}}",
       "coverageLabel": "Source",

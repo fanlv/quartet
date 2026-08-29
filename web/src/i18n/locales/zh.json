@@ -912,8 +912,9 @@
     },
     "trend": {
       "axisUnit": "单位：{{unit}}",
-      "chartAriaLabel": "每日使用趋势，可用左右方向键查看相邻日期。",
-      "dayAriaLabel": "{{date}}，{{metric}}：{{value}}。聚焦查看详情。",
+      "chartAriaLabel": "每日使用趋势，可点击日期，或用左右方向键查看相邻日期。",
+      "dayAriaLabel": "{{date}}，{{metric}}：{{value}}。点击或聚焦查看详情。",
+      "dayDetailAriaLabel": "{{date}} 使用明细",
       "unit": {
         "minute": "分钟",
         "hour": "小时",
@@ -944,6 +945,7 @@
       "cacheHitRate": "缓存命中率",
       "cacheHitRateHint": "按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。",
       "cacheUnavailable": "所选范围内没有可计算缓存命中率的模型输入数据。",
+      "cacheDayUnavailable": "该日没有可计算的缓存命中率。",
       "reasoning": "推理 Token",
       "imageEstimate": "图片估算（说明性子集）",
       "imageEstimateShort": "图片估算",
@@ -952,7 +954,7 @@
       "modelBreakdown": "按模型",
       "dayPanelTitle": "当日 Token 明细",
       "dayPanelLatest": "最新",
-      "dayPanelPickHint": "悬停或用方向键聚焦图表中的某一天可切换查看。",
+      "dayPanelPickHint": "点击图表中的某一天，或用方向键聚焦，可切换查看。",
       "dayPanelHint": "总量由服务端计算；下列来源与明细可能重叠，请勿相加。",
       "dayPanelAriaLabel": "{{date}} Token 明细，总 Token {{value}}",
       "coverageLabel": "数据来源",

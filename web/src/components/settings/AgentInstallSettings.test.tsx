@@ -825,7 +825,7 @@ describe('AgentInstallSettings batch upgrades', () => {
 });
 
 describe('StatsPage token trend accessibility', () => {
-  it('keeps one daily point in the tab order and uses arrow keys to inspect adjacent days', async () => {
+  it('shows the latest day by default, ignores hover, and uses arrow keys to select adjacent days', async () => {
     const totals = (total: number, imageEstimate: number) => ({
       totalMs: 1_000,
       turnCount: 1,
@@ -865,9 +865,14 @@ describe('StatsPage token trend accessibility', () => {
     render(<StatsPage onClose={vi.fn()} />);
 
     const chart = await screen.findByRole('group', { name: /Usage trend by day/ });
-    const days = within(chart).getAllByRole('img');
+    const days = within(chart).getAllByRole('button');
     expect(days).toHaveLength(3);
-    expect(days.map((day) => day.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
+    expect(days.map((day) => day.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
+    expect(days.map((day) => day.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true']);
+    expect(screen.getByLabelText(/Token breakdown for 2026-08-26/)).toBeInTheDocument();
+
+    fireEvent.mouseEnter(days[0]);
+    expect(screen.getByLabelText(/Token breakdown for 2026-08-26/)).toBeInTheDocument();
 
     days[0].focus();
     expect(await screen.findByText('Explanatory data already included in input tokens or the Quartet estimate.')).toBeInTheDocument();
@@ -875,6 +880,8 @@ describe('StatsPage token trend accessibility', () => {
 
     expect(document.activeElement).toBe(days[1]);
     expect(days.map((day) => day.getAttribute('tabindex'))).toEqual(['-1', '0', '-1']);
-    expect(screen.getByRole('status')).toHaveTextContent('2026-08-25');
+    expect(days.map((day) => day.getAttribute('aria-pressed'))).toEqual(['false', 'true', 'false']);
+    expect(screen.getByLabelText(/Token breakdown for 2026-08-25/)).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });

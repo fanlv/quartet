@@ -622,8 +622,11 @@ private struct StatsTrendCard: View {
     }
 
     private var selectedDay: UsageStatsDailyRow? {
-        guard let selectedDate else { return nil }
-        return nearestDay(to: selectedDate)
+        if let selectedDate {
+            return nearestDay(to: selectedDate)
+        }
+        guard metric == .cache else { return nil }
+        return nearestDay(to: Calendar.current.startOfDay(for: Date()))
     }
 
     private func nearestDay(to date: Date) -> UsageStatsDailyRow? {
