@@ -1,5 +1,18 @@
 import SwiftUI
 
+private struct GraphRunIntentPayload: Equatable {
+    let workflowID: String
+    let workflowUpdatedAt: String
+    let workspaceID: String
+    let workdir: String
+    let config: GraphConfig
+}
+
+private struct GraphRunIntent {
+    let id: String
+    let payload: GraphRunIntentPayload
+}
+
 struct GraphWorkflowLaunchView: View {
     @EnvironmentObject private var appModel: AppModel
     let onCreated: (ChatRoute) -> Void
@@ -15,6 +28,7 @@ struct GraphWorkflowLaunchView: View {
     @State private var loading = true
     @State private var loadingWorkflow = false
     @State private var starting = false
+    @State private var startIntent: GraphRunIntent?
     @State private var showsWorkflowPicker = false
     @State private var showsWorkspacePicker = false
     @State private var showsGlobalEditor = false
@@ -501,13 +515,26 @@ struct GraphWorkflowLaunchView: View {
             guard validation.valid else {
                 throw validationError(validation.errors ?? [])
             }
+            let payload = GraphRunIntentPayload(
+                workflowID: workflow.id,
+                workflowUpdatedAt: workflow.updatedAt,
+                workspaceID: selectedWorkspace.id,
+                workdir: effectiveWorkdir,
+                config: executionConfig
+            )
+            if startIntent?.payload != payload {
+                startIntent = GraphRunIntent(id: "graph-run-\(UUID().uuidString.lowercased())", payload: payload)
+            }
+            guard let startIntent else { return }
             let run = try await appModel.apiClient().startGraphRun(StartGraphRunRequest(
                 workflowId: workflow.id,
                 workflowUpdatedAt: workflow.updatedAt,
+                clientMessageId: startIntent.id,
                 workspaceId: selectedWorkspace.id,
                 workdir: effectiveWorkdir,
                 config: executionConfig
             ))
+            self.startIntent = nil
             await appModel.reloadJobs()
             let now = Int64(Date().timeIntervalSince1970 * 1_000)
             onCreated(ChatRoute(summary: JobSummary(
@@ -525,9 +552,7 @@ struct GraphWorkflowLaunchView: View {
                 scheduleId: nil,
                 shareToken: nil
             )))
-        } catch {
-            present(error)
-        }
+        } catch { present(error) }
     }
 
     private func preferredWorkflowID(in workflows: [GraphWorkflowSummary]) -> String? {

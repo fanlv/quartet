@@ -472,12 +472,16 @@ type ValidateGraphWorkflowRequest struct {
 }
 
 type StartGraphRunRequest struct {
-	WorkflowID        string       `json:"workflowId,omitempty"`
-	WorkflowUpdatedAt *time.Time   `json:"workflowUpdatedAt,omitempty"`
-	JobID             string       `json:"jobId,omitempty"`
-	WorkspaceID       string       `json:"workspaceId,omitempty"`
-	Workdir           string       `json:"workdir,omitempty"`
-	Config            *GraphConfig `json:"config,omitempty"`
+	WorkflowID        string     `json:"workflowId,omitempty"`
+	WorkflowUpdatedAt *time.Time `json:"workflowUpdatedAt,omitempty"`
+	// ClientMessageID makes a fresh Graph Job launch retry-safe. A client must
+	// keep this value stable while retrying an outcome-unknown request and use a
+	// new value after changing any launch input.
+	ClientMessageID string       `json:"clientMessageId,omitempty"`
+	JobID           string       `json:"jobId,omitempty"`
+	WorkspaceID     string       `json:"workspaceId,omitempty"`
+	Workdir         string       `json:"workdir,omitempty"`
+	Config          *GraphConfig `json:"config,omitempty"`
 }
 
 type UpdateGraphRunVersionRequest struct {

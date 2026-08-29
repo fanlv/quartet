@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -103,6 +104,8 @@ type Handler struct {
 	titleFailCount       atomic.Int32 // consecutive title-generation failures across all jobs (circuit breaker)
 	titleOpenSince       atomic.Int64 // unix seconds when circuit opened; 0 means closed
 	titleProbing         atomic.Bool  // CAS guard: only one goroutine may probe during half-open state
+	graphStartMu         sync.Mutex
+	graphStartLocks      map[string]*graphStartLock
 	acpAgentService      acp.ACPService
 	agentCatalog         *catalog.Service
 	agentExecutions      *agentExecutionGate
@@ -138,6 +141,43 @@ type Handler struct {
 
 	larkManager   *larklisten.Manager
 	wechatManager *wechatlisten.Manager
+}
+
+type graphStartLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lockGraphStart serializes retries carrying the same client-generated launch
+// ID across Job creation and GraphRun binding. The per-key entry is removed as
+// soon as the last waiter leaves, so arbitrary client IDs cannot grow memory.
+func (h *Handler) lockGraphStart(clientMessageID string) func() {
+	clientMessageID = strings.TrimSpace(clientMessageID)
+	if clientMessageID == "" {
+		return func() {}
+	}
+	h.graphStartMu.Lock()
+	if h.graphStartLocks == nil {
+		h.graphStartLocks = make(map[string]*graphStartLock)
+	}
+	entry := h.graphStartLocks[clientMessageID]
+	if entry == nil {
+		entry = &graphStartLock{}
+		h.graphStartLocks[clientMessageID] = entry
+	}
+	entry.refs++
+	h.graphStartMu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		h.graphStartMu.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(h.graphStartLocks, clientMessageID)
+		}
+		h.graphStartMu.Unlock()
+	}
 }
 
 func NewHandler(ctx context.Context) (*Handler, error) {

@@ -202,6 +202,8 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 		httputil.BadRequest(c, "invalid request: "+err.Error())
 		return
 	}
+	unlock := h.lockGraphStart(req.ClientMessageID)
+	defer unlock()
 
 	// Launching a GraphWorkflow creates a Graph-type Job and binds a GraphRun to
 	// it (see design §"GraphRun 与 Job 关系"). The frontend launches without a
@@ -212,6 +214,7 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 		j, err := h.graphService.CreateRunJob(ctx, &req, h.jobService, h.workspaceService)
 		if err != nil {
 			httputil.MapError(c, err, []httputil.ErrorMapping{
+				{Err: job.ErrClientMessageIDConflict, Status: http.StatusConflict},
 				{Err: graphsvc.ErrWorkflowNotFound, Status: http.StatusNotFound},
 				{Err: graphsvc.ErrWorkflowConflict, Status: http.StatusConflict},
 				{Err: graphsvc.ErrWorkflowBadRequest, Status: http.StatusBadRequest},
@@ -219,6 +222,19 @@ func (h *Handler) StartGraphRun(ctx context.Context, c *app.RequestContext) {
 			return
 		}
 		req.JobID = j.ID
+		if strings.TrimSpace(j.GraphRunID) != "" {
+			status, err := h.graphService.GetRunStatus(ctx, j.GraphRunID)
+			if err != nil {
+				httputil.InternalError(c, fmt.Sprintf("load idempotent graph run %s for job %s: %v", j.GraphRunID, j.ID, err))
+				return
+			}
+			if status == nil || status.Run == nil {
+				httputil.InternalError(c, fmt.Sprintf("idempotent graph run %s for job %s has no run snapshot", j.GraphRunID, j.ID))
+				return
+			}
+			c.JSON(http.StatusOK, model.GraphRunResponse{Run: status.Run})
+			return
+		}
 	}
 
 	j, ok := h.jobService.Get(req.JobID)

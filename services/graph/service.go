@@ -2,6 +2,9 @@ package graph
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -838,6 +841,31 @@ func (s *serviceImpl) CreateRunJob(ctx context.Context, req *model.StartGraphRun
 	if jobs == nil {
 		return nil, fmt.Errorf("job service is required")
 	}
+	req.ClientMessageID = strings.TrimSpace(req.ClientMessageID)
+	creationPayloadHash := ""
+	if req.ClientMessageID != "" {
+		data, err := json.Marshal(struct {
+			WorkflowID        string             `json:"workflowId,omitempty"`
+			WorkflowUpdatedAt *time.Time         `json:"workflowUpdatedAt,omitempty"`
+			WorkspaceID       string             `json:"workspaceId,omitempty"`
+			Workdir           string             `json:"workdir,omitempty"`
+			Config            *model.GraphConfig `json:"config,omitempty"`
+		}{req.WorkflowID, req.WorkflowUpdatedAt, req.WorkspaceID, req.Workdir, req.Config})
+		if err != nil {
+			return nil, fmt.Errorf("hash graph run creation payload: %w", err)
+		}
+		sum := sha256.Sum256(data)
+		creationPayloadHash = hex.EncodeToString(sum[:])
+		idempotentJobID := jobsvc.IdempotentJobID(req.ClientMessageID)
+		if existing, ok := jobs.Get(idempotentJobID); ok {
+			if existing.CreationClientMessageID != req.ClientMessageID || existing.CreationPayloadHash != creationPayloadHash {
+				return nil, fmt.Errorf("create graph job failed: %w: %q", jobsvc.ErrClientMessageIDConflict, req.ClientMessageID)
+			}
+			req.WorkspaceID = existing.WorkspaceID
+			req.Workdir = existing.Workdir
+			return existing, nil
+		}
+	}
 	_, cfg, err := s.resolveStartConfig(ctx, req)
 	if err != nil {
 		return nil, err
@@ -849,12 +877,23 @@ func (s *serviceImpl) CreateRunJob(ctx context.Context, req *model.StartGraphRun
 	j := model.NewJob(workdir, wsID)
 	j.Mode = model.JobModeGraph
 	j.Title = "Graph Run"
-	if err := jobs.Create(j); err != nil {
-		return nil, fmt.Errorf("create graph job failed: %w", err)
+	duplicate := false
+	if req.ClientMessageID == "" {
+		if err := jobs.Create(j); err != nil {
+			return nil, fmt.Errorf("create graph job failed: %w", err)
+		}
+	} else {
+		j.ID = jobsvc.IdempotentJobID(req.ClientMessageID)
+		j.CreationClientMessageID = req.ClientMessageID
+		j.CreationPayloadHash = creationPayloadHash
+		j, duplicate, err = jobs.CreateIdempotent(j)
+		if err != nil {
+			return nil, fmt.Errorf("create graph job failed: %w", err)
+		}
 	}
-	req.WorkspaceID = wsID
-	req.Workdir = workdir
-	logger.Infof(ctx, "[graph] created graph job: jobId=%s workspaceId=%s workdir=%s", j.ID, wsID, workdir)
+	req.WorkspaceID = j.WorkspaceID
+	req.Workdir = j.Workdir
+	logger.Infof(ctx, "[graph] graph job resolved: jobId=%s workspaceId=%s workdir=%s duplicate=%t", j.ID, j.WorkspaceID, j.Workdir, duplicate)
 	return j, nil
 }
 

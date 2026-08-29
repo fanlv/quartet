@@ -1812,6 +1812,7 @@ struct GraphValidationError: Decodable, Hashable, Sendable {
 struct StartGraphRunRequest: Encodable, Sendable {
     let workflowId: String
     let workflowUpdatedAt: String
+    let clientMessageId: String
     let workspaceId: String
     let workdir: String
     let config: GraphConfig
