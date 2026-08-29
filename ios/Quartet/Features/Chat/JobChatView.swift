@@ -455,8 +455,8 @@ struct JobChatView: View {
         messagesAreNearBottom = true
         userScrolledAwayFromBottom = false
         // `messagesScrolledOffContent` 刻意不在这里清掉：它由几何观察独占，只有偏移真的回到
-        // 内容范围内才翻回 false。手工清成 false 会让越界状态在纠正失败后无声消失 ——
-        // `onScrollGeometryChange` 只在布尔值翻转时回调，之后再没有第二次纠正机会。
+        // 内容范围内才翻回 false。手工清成 false 会让越界状态在纠正失败后无声消失，后续
+        // 锚点变化也就失去了继续纠正的依据。
         //
         // 解冻和滚动请求在同一次更新里提交：ScrollView 会先按补齐后的内容重新布局，
         // 再消费这个待处理的滚动目标，所以一次 scrollTo 就落在真正的底部。
@@ -471,9 +471,8 @@ struct JobChatView: View {
     /// 机会，撞上工具卡塌缩那一帧就把偏移甩到内容之外，整屏空白。
     ///
     /// 保留这条路径是为了三件事：底边锚点没能把视口带上时（内容已经长高、视口还留在原处）
-    /// 补一次追赶；偏移已经越界时每次调用都重试一次纠正 —— `onScrollGeometryChange` 只在
-    /// 布尔值翻转时回调，纠正失败就没有第二次机会了；以及历史一次性加载完这类只 bump 一次
-    /// 锚点的场景。
+    /// 补一次追赶；偏移已经越界时每次调用都重试一次纠正，避免第一次纠正撞上尚未稳定的
+    /// LazyVStack 估算；以及历史一次性加载完这类只 bump 一次锚点的场景。
     ///
     /// `isNearBottom` 必须由调用方显式传入：几何回调里刚算出的新值和 `messagesAreNearBottom`
     /// 这个状态不是同一时刻的东西，而锚点变化那条路径跑在布局之前，读到的是上一帧的旧值。
@@ -647,6 +646,7 @@ struct JobChatView: View {
             .onChange(of: route.summary.id) { _, _ in
                 frozenTimeline = nil
                 userScrolledAwayFromBottom = false
+                userIsScrollingMessages = false
                 messagesAreNearBottom = true
                 messagesScrolledOffContent = false
                 resetMessageScrollGesture()
@@ -656,8 +656,8 @@ struct JobChatView: View {
 
     /// 离开底部期间的“回到底部”悬浮按钮：既是回到实时内容的入口，也是时间线已被冻结的提示。
     ///
-    /// 手指按下就会冻结（快照必须早于任何位移），所以按钮的显示还要叠一个“确实不在底部”的
-    /// 条件，否则在底部随手一点都会闪一下按钮。
+    /// 手指按下就会先暂时冻结（快照必须早于任何位移），但只有向历史方向的位移达到意图阈值
+    /// 后才显示按钮，所以在底部随手一点或做橡皮筋不会闪出自由浏览状态。
     @ViewBuilder
     private func backToBottomButton(_ proxy: ScrollViewProxy) -> some View {
         if frozenTimeline != nil, userScrolledAwayFromBottom {
