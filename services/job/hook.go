@@ -18,10 +18,11 @@ import (
 // as well as workflows. It is a pure side effect — see pkg/shellhook: the output
 // is ignored and a failure only logs, never touching the Job's state.
 //
-// A chat round is different from a workflow End node in one way that matters for
-// notifications: the user is often sitting in front of the streaming output. By
-// default the hook therefore stays quiet while the Job has a live on-screen
-// viewer (see viewer.go) and only fires once nobody is watching.
+// A chat round is different from a workflow End node in two ways that matter for
+// notifications: the user may be sitting in front of the streaming output, and
+// another message may already be waiting in the durable queue. The hook stays
+// quiet in either case so it only announces that the whole current conversation
+// batch has finished.
 
 // hookSourceInteractive is the QUARTET_HOOK_SOURCE value for an interactive round
 // end, letting one shared script tell chats apart from graph node hooks
@@ -71,8 +72,11 @@ type interactiveRound struct {
 //
 // When the Job has a live on-screen viewer and the policy says so, the hook is
 // skipped: the user is watching the output stream, so a notification is noise.
-// The skip is logged at Info — that one line is the whole diagnosis for "why
-// didn't I get notified".
+// It is also skipped while another durable queue item is waiting. The currently
+// finishing item is still marked processing until runInteractive returns, so it
+// is deliberately not counted as waiting; this lets the final queued round fire
+// the hook. Each skip is logged at Info so "why didn't I get notified" remains
+// diagnosable.
 func (s *serviceImpl) fireEndHook(ctx context.Context, job *model.Job, round interactiveRound) {
 	if s.endHookPolicyFn == nil {
 		return
@@ -90,6 +94,12 @@ func (s *serviceImpl) fireEndHook(ctx context.Context, job *model.Job, round int
 	}
 
 	s.mu.RLock()
+	queuedMessages := 0
+	for i := range job.MessageQueue {
+		if job.MessageQueue[i].State != model.QueuedMessageStateProcessing {
+			queuedMessages++
+		}
+	}
 	title := job.Title
 	mode := job.Mode
 	status := job.Status
@@ -100,6 +110,11 @@ func (s *serviceImpl) fireEndHook(ctx context.Context, job *model.Job, round int
 		errMessage = job.Progress.LastError
 	}
 	s.mu.RUnlock()
+	if queuedMessages > 0 {
+		logger.Infof(ctx, "[hook] skipped (job has queued messages): source=%s jobId=%s sessionId=%s queued=%d",
+			hookSourceInteractive, job.ID, round.sessionID, queuedMessages)
+		return
+	}
 
 	watched := "0"
 	if watchers > 0 {
