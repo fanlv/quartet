@@ -4,7 +4,7 @@ import { SSEClient } from './sse-client';
 export type GraphSSEReconcileReason = 'connected' | 'reconnected' | 'resumePointGone';
 
 export interface GraphSSEClientOptions {
-  url: string;
+  url: string | (() => string);
   onEvent: (event: AgentEvent) => void;
   onReconcile: (reason: GraphSSEReconcileReason, resumeError?: string) => void | Promise<void>;
   onError: (error: Error) => void;

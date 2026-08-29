@@ -1671,7 +1671,6 @@ struct GraphConfig: Codable, Hashable, Sendable {
     var runConfig: GraphRunConfiguration? = nil
     var workspaceId: String? = nil
     var workdir: String? = nil
-    var sandboxId: String? = nil
 
     init(
         nodes: [GraphNode],
@@ -1681,8 +1680,7 @@ struct GraphConfig: Codable, Hashable, Sendable {
         canvas: GraphCanvasState? = nil,
         runConfig: GraphRunConfiguration? = nil,
         workspaceId: String? = nil,
-        workdir: String? = nil,
-        sandboxId: String? = nil
+        workdir: String? = nil
     ) {
         self.nodes = nodes
         self.edges = edges
@@ -1692,7 +1690,6 @@ struct GraphConfig: Codable, Hashable, Sendable {
         self.runConfig = runConfig
         self.workspaceId = workspaceId
         self.workdir = workdir
-        self.sandboxId = sandboxId
     }
 
     init(from decoder: Decoder) throws {
@@ -1708,7 +1705,6 @@ struct GraphConfig: Codable, Hashable, Sendable {
         runConfig = try values.decodeIfPresent(GraphRunConfiguration.self, forKey: .runConfig)
         workspaceId = try values.decodeIfPresent(String.self, forKey: .workspaceId)
         workdir = try values.decodeIfPresent(String.self, forKey: .workdir)
-        sandboxId = try values.decodeIfPresent(String.self, forKey: .sandboxId)
     }
 }
 

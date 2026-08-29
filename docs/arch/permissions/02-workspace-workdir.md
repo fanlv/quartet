@@ -25,7 +25,7 @@
 
 ## 3. `$HOME` 默认在白名单内
 
-`cmd/web/handler/file_rw.go` 的 `allowedRoots()` 默认就把 `sandbox.UserHomeDir()` 加进白名单，所以：
+`cmd/web/handler/file_rw.go` 的 `allowedRoots()` 默认就把本地文件服务解析出的用户目录加进白名单，所以：
 
 - 用户可以把 workspace 落在家目录任意子树上（`~/dev/myproject` 等），不需要任何环境变量开关。
 - "Select Working Directory" 浏览框可以从家目录起步浏览整棵子树。
@@ -51,7 +51,7 @@
 
 ### 5.1 `validateWorkdir(workdir)`
 - 空字符串：跳过（业务允许 Job 不指定 workdir，由所属 workspace 兜底）。
-- 否则：调用 sandbox `FileStat`，要求**存在 + 是目录**，否则报错。
+- 否则：调用文件服务检查路径，要求**存在 + 是目录**，否则报错。
 
 ### 5.2 `ensureWorkdirWithinWorkspace(workdir, wsWorkdir)`
 
@@ -76,9 +76,9 @@
 
 位置：`services/workspace/service.go` 中的 `resolveDefaultWorkdir()`。
 
-优先级：sandbox `UserHomeDir` → `$HOME` → sandbox `TempDir`。
+优先级：文件服务解析出的用户目录 → `$HOME` → 文件服务解析出的临时目录。
 
-- 第二步会打 Warn，提醒"sandbox UserHomeDir 不可用，回退到宿主机 `$HOME`"——通常意味着 sandbox 配置没生效。
+- 第二步会打 Warn，提醒用户目录解析不可用，已回退到宿主机 `$HOME`。
 - 第三步还会打 Warn，提醒"`$HOME` 不可用，落到临时目录"。
 
 它有两个用途：

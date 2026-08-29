@@ -2027,7 +2027,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       console.debug(`[JobEvents][TRACE-SEQ0] connectUntilReady jobId=${jobId} attempt=${attempt} initialLastEventId=${JSON.stringify(lastEventSeqRef.current)}`);
 
       client.connectUntilReady({
-        url: apiUrl(`/job/${jobId}/events`, viewerParams()),
+        url: () => apiUrl(`/job/${jobId}/events`, viewerParams()),
         initialLastEventId: lastEventSeqRef.current,
         onEvent: (event) => handleEventRef.current(event),
         onError: (err) => {
@@ -2048,12 +2048,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           markEventStreamReady(true);
           reportReconnect();
           setError(null);
-          // A reconnect re-registers this page as a viewer using the URL's
-          // visibility, which is frozen at connect time. Only a hidden page can
-          // be misregistered that way (the URL says visible), so restate it.
-          if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-            reportViewerVisibility(false);
-          }
+          // The URL factory already supplied a fresh value for this connection;
+          // restate it after registration to close a visibility-change race
+          // during the HTTP handshake.
+          reportViewerVisibility(
+            typeof document === 'undefined' || document.visibilityState === 'visible',
+          );
           // Only sync metadata (title, status, progress, lastEventSeq).
           // SSE resumes from lastEventId so no events are lost; full
           // message reload would race with live SSE events and cause
@@ -2088,6 +2088,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         const hasPendingRunStart = eventStreamReadyWaitersRef.current.size > 0;
         markEventStreamReady(true);
         setError(null);
+        reportViewerVisibility(
+          typeof document === 'undefined' || document.visibilityState === 'visible',
+        );
         // Sync metadata after SSE connects. Message reload is always skipped
         // here: on the initial/plain transport path hydration already loaded
         // messages, and 410 recovery reloads them before reconnecting. Allowing
@@ -2282,8 +2285,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     };
 
     const client = new GraphSSEClient({
-      url: apiUrl(`/job/${encodeURIComponent(jobId)}/graph-run/events`, viewerParams()),
-      onReconcile: () => reconcile(),
+      url: () => apiUrl(`/job/${encodeURIComponent(jobId)}/graph-run/events`, viewerParams()),
+      onReconcile: () => {
+        reportViewerVisibility(
+          typeof document === 'undefined' || document.visibilityState === 'visible',
+        );
+        return reconcile();
+      },
       onError: (err) => setGraphStreamError(err.message || String(err)),
       onEvent: (raw) => {
         const evt = raw as unknown as GraphEvent;
@@ -2334,7 +2342,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       client.disconnect();
       if (graphSseRef.current === client) graphSseRef.current = null;
     };
-  }, [isGraph, graphRunId, jobId, graphRunLive, apiUrl, isPublic, loadHistory, setGraphSessions, applyActiveSessionSelection, applyGraphRunStatusSnapshot, viewerParams]);
+  }, [isGraph, graphRunId, jobId, graphRunLive, apiUrl, isPublic, loadHistory, setGraphSessions, applyActiveSessionSelection, applyGraphRunStatusSnapshot, viewerParams, reportViewerVisibility]);
 
   // While the job-events SSE is gated off (live graph run), the job title —
   // generated a few seconds after the run starts — has no event channel. Poll

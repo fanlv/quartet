@@ -12,7 +12,6 @@ import (
 	larklisten "github.com/fanlv/quartet/pkg/messaging/lark"
 	wechatlisten "github.com/fanlv/quartet/pkg/messaging/wechat"
 	"github.com/fanlv/quartet/pkg/messaging/wechat/ilink"
-	"github.com/fanlv/quartet/pkg/sandbox"
 	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/agent/acp"
 	"github.com/fanlv/quartet/services/agent/catalog"
@@ -163,12 +162,6 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Let the sandbox Manager route SandboxRef writes through the
-	// workspace service so in-memory and on-disk state stay in sync.
-	// Without this, a compose-up that publishes a ref would be silently
-	// overwritten by the next service.Update / EnsureDefault.
-	sandbox.SetRefSink(wss)
 
 	// Trust each user-created workspace's workdir as an additional file-
 	// handler root. Without this, a workspace whose workdir sits outside
@@ -755,7 +748,7 @@ func jobAllSessionIDs(j *model.Job) []string {
 // releaseJobAgents releases agent resources (ACP in-memory objects) for a
 // finished job. Unlike cleanupSessions, this does NOT delete session
 // metadata — it only frees the in-memory agent instances that hold model
-// connections and sandbox references, so they can be garbage collected.
+// connections and runtime references, so they can be garbage collected.
 // The session service entry is kept: finished jobs can still receive
 // interactive messages; the idle eviction will clean it up later.
 func (h *Handler) releaseJobAgents(j *model.Job) {

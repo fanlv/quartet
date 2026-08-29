@@ -166,9 +166,9 @@ struct JobChatView: View {
         }
         .onDisappear { chat.stopStreaming() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background {
+            if phase != .active {
                 chat.stopStreaming()
-            } else if phase == .active {
+            } else {
                 Task {
                     do {
                         await chat.start(route: route, client: try appModel.apiClient())

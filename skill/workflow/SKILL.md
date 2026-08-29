@@ -171,7 +171,7 @@ quartet-cli agent list [--json]       # 已安装 ACP agent 及模型目录；�
 | `variables` | `{string:string}` | 否 | 初始变量表，键须合法且非保留名（§5） |
 | `disabledVars` | `string[]` | 否 | 被禁用变量名（运行时按空串参与） |
 | `runConfig` | 对象 | 否 | 运行配置，见 §7 |
-| `workspaceId` / `workdir` / `sandboxId` | string | 否 | 运行环境绑定 |
+| `workspaceId` / `workdir` | string | 否 | 运行目录绑定 |
 | `canvas` | 对象 | 否 | 纯画布视图状态，不影响执行/校验，可省略 |
 
 > `metadata` 等纯展示字段对校验无影响，可省略。**但模型新建 workflow 时必须给每个节点写 `layout`**，否则前端只能用兜底坐标，复杂图会挤在一条线或互相遮挡。

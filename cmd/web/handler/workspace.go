@@ -75,7 +75,7 @@ func (h *Handler) GitBranch(ctx context.Context, c *app.RequestContext) {
 
 // WorkspaceDefaultWorkdir returns the path the new-workspace dialog should
 // prefill into its workdir picker. Mirrors the same fallback chain
-// EnsureDefault uses (sandbox UserHomeDir → $HOME → sandbox TempDir) so the
+// EnsureDefault uses (FileManager UserHomeDir → $HOME → FileManager TempDir) so the
 // suggested path is always valid for immediate creation.
 func (h *Handler) WorkspaceDefaultWorkdir(ctx context.Context, c *app.RequestContext) {
 	c.JSON(http.StatusOK, map[string]any{

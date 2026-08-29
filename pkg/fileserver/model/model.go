@@ -2,8 +2,8 @@
 // types. The fileserver adapter converts these to the current upstream sandbox
 // SDK types, which keeps the rest of the codebase decoupled from that SDK.
 //
-// Only File* and JSONL* types live here — Bash, Web, Grep, SandboxContext and
-// other runtime types stay in pkg/sandbox/model.
+// Only File* and JSONL* types live here; Agent runtime types stay in their own
+// execution package.
 package model
 
 type FileReadRequest struct {

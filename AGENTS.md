@@ -83,7 +83,7 @@ Go tests: `go test ./...`
 - 环境变量键统一在 `types/consts` 里声明并加注释，业务代码引用常量而不是裸字符串。
 - 服务级：`LOCAL_MEMORY`（必需）、`QUARTET_LISTEN_ADDR`、`QUARTET_STATIC_DIR`（默认 `static`）、`QUARTET_CERTS_DIR`（默认 `certs`）、`QUARTET_CORS_ORIGINS`（默认仅同源；通配 `*` 会被忽略，Cookie 鉴权必须写明确 origin）、`QUARTET_TRUSTED_PROXIES`（默认只信回环）。
 - 日志：`QUARTET_LOG_LEVEL`（debug|info|warn|error，默认 info）、`QUARTET_LOG_HTTP_BODY`（默认关闭，开启会打请求/响应正文，噪音大且可能泄漏密钥）。
-- 运行时调优：`QUARTET_MAX_ACP_AGENTS`、`QUARTET_ACP_PROBE_CONCURRENCY`、`QUARTET_MESSAGES_CACHE_BYTES`、`QUARTET_SANDBOX_*`。
+- 运行时调优：`QUARTET_MAX_ACP_AGENTS`、`QUARTET_ACP_PROBE_CONCURRENCY`、`QUARTET_MESSAGES_CACHE_BYTES`。
 - 客户端：`QUARTET_BASE_URL`（quartet-cli 的后端地址，默认 `http://127.0.0.1:8090`）。
 - `QUARTET_` 前缀在结束 Hook 脚本里是保留命名空间（注入上下文变量用），用户自定义变量不能占用该前缀。
 
@@ -92,7 +92,7 @@ Go tests: `go test ./...`
 - `$LOCAL_MEMORY/quartet/config/` — durable configuration such as settings, prompts, Agent catalog, Graph Workflows, schedules, message presets, and authentication users/roles.
 - `$LOCAL_MEMORY/quartet/data/` — durable business data such as workspaces, Jobs, Sessions, uploads, IM records, file shares, and the WeChat outbox.
 - `$LOCAL_MEMORY/quartet/usage-stats/` — persistent monthly usage statistics, month-sharded JSON written at the current schema version only; a file at any other version is rejected rather than upgraded in place. 同一 schema 版本内的内容迁移（模型 ID 归一、工作空间名回填）在服务里就地完成，并与写入/刷盘串行。
-- `$LOCAL_MEMORY/var/quartet/state/` — durable runtime state such as authenticated sessions, schedule state, and sandbox compose state.
+- `$LOCAL_MEMORY/var/quartet/state/` — durable runtime state such as authenticated sessions and schedule state.
 - `$LOCAL_MEMORY/var/quartet/cache/` and `$LOCAL_MEMORY/var/quartet/tmp/` — reconstructable cache and process-owned temporary files.
 - Quartet 自有根目录和分类目录统一由 `types/path` 解析；handler 和 service 必须复用路径/仓储接口，不要硬编码 `LOCAL_MEMORY` 布局。
 
@@ -106,7 +106,7 @@ Go tests: `go test ./...`
 4. **`services/`** — 业务逻辑层，封装 auth、Agent、Job、Graph、schedule、workspace、prompt、config、skills、IM outbox 等能力
 5. **`cmd/web/handler/`** — HTTP 层，只做参数校验、鉴权、响应格式化和服务编排
 
-`pkg/` 放与 quartet 业务无关、可被多层复用的通用能力（协议客户端、IM 接入、沙箱、文件存储、日志、Hook 执行器等），不反向 import `services/`。跨 service 需要共享一段执行语义时（例如结束 Hook 同时被 graph 与 job 触发），抽到 `pkg/` 而不是让两个 service 互相依赖。
+`pkg/` 放与 quartet 业务无关、可被多层复用的通用能力（协议客户端、IM 接入、文件存储、日志、Hook 执行器等），不反向 import `services/`。跨 service 需要共享一段执行语义时（例如结束 Hook 同时被 graph 与 job 触发），抽到 `pkg/` 而不是让两个 service 互相依赖。
 
 ### API & Route Conventions
 
@@ -193,8 +193,7 @@ Go tests: `go test ./...`
 - `pkg/shellhook` — 结束 Hook（graph Prompt/终点结点、对话每轮结束）共用的脚本执行器：统一超时、环境变量注入规则和「纯副作用」语义——输出只用于展示/日志，失败只告警，绝不改变调用方状态。
 - `pkg/executil` — 外部 CLI 的跨平台解析与启动，PATH 之外兜底检查官方安装器使用的用户级目录。
 - `pkg/messaging` — IM 通用类型与文件名处理，下辖 `lark`（消息监听、回复、图片处理与 WS 运行时）、`wechat`（ilink 客户端、CDN、登录、媒体、回复与主动推送：`Replier.SendText`，经 `POST /api/v1/wechat/send` 暴露给定时任务/脚本，ContextToken 持久化在 `$LOCAL_MEMORY/quartet/data/wechat/accounts/user_tokens.json`）和 `media`（IM 媒体缓存）。
-- `pkg/sandbox` — 沙箱（compose、模板、管理、回收与恢复）能力。
-- `pkg/fileserver` — repository 与文件 API 共用的本地/沙箱文件存储抽象。
+- `pkg/fileserver` — repository 与文件 API 共用的本地文件存储抽象。
 - `pkg/tokenizer` — Token 计数。
 - `pkg/logger` — 项目统一日志（必须使用）。
 - `pkg/httputil`、`pkg/json`、`pkg/strutil`、`pkg/safe` — HTTP 响应、JSON、字符串、协程安全等通用工具。

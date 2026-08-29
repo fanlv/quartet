@@ -131,4 +131,5 @@ describe('SSEClient fault handling', () => {
       expect((onError.mock.calls[0][0] as Error).message).toContain(expected)
     })
   })
+
 })

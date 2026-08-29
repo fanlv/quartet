@@ -1,7 +1,10 @@
 import { AgentEvent } from '../types';
 
 export interface SSEClientOptions {
-  url: string;
+  // A factory is useful when reconnect metadata (for example page visibility)
+  // can change while one client instance stays alive. It is evaluated for
+  // every HTTP connection, including automatic reconnects.
+  url: string | (() => string);
   onEvent: (event: AgentEvent) => void;
   onError?: (error: Error) => void;
   onReconnect?: () => void;
@@ -51,6 +54,10 @@ export class SSEClient {
 
   private isAuthRejection(status: number): boolean {
     return status === 401 || status === 403;
+  }
+
+  private resolveURL(url: SSEClientOptions['url']): string {
+    return typeof url === 'function' ? url() : url;
   }
 
   private parseResponseError(status: number, body: string): string {
@@ -112,7 +119,8 @@ export class SSEClient {
    * is registered). Event processing continues in the background.
    */
   async connectUntilReady(options: SSEClientOptions & { body?: string }): Promise<void> {
-    const { url, body } = options;
+    const { body } = options;
+    const url = this.resolveURL(options.url);
     this.lastOptions = options;
     if (options.initialLastEventId !== undefined) {
       this.lastEventId = options.initialLastEventId;
@@ -182,7 +190,8 @@ export class SSEClient {
   }
 
   async connect(options: SSEClientOptions & { body?: string }): Promise<void> {
-    const { url, onError, body } = options;
+    const { onError, body } = options;
+    const url = this.resolveURL(options.url);
     this.lastOptions = options;
     if (options.initialLastEventId !== undefined) {
       this.lastEventId = options.initialLastEventId;
@@ -330,7 +339,8 @@ export class SSEClient {
 
       const options = this.lastOptions;
       this.abortController = new AbortController();
-      const { url, body } = options;
+      const { body } = options;
+      const url = this.resolveURL(options.url);
 
       try {
         const response = await fetch(url, {

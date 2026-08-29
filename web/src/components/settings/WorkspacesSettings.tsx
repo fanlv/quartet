@@ -308,7 +308,7 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
   const [error, setError] = useState('');
 
   // Prefill the workdir picker for new workspaces with the backend's
-  // canonical default (sandbox UserHomeDir → $HOME → temp dir). Skipped in
+  // canonical default (FileManager UserHomeDir → $HOME → temp dir). Skipped in
   // edit mode and skipped if the user has already typed something before
   // the request resolves.
   useEffect(() => {

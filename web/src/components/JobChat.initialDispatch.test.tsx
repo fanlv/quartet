@@ -42,6 +42,9 @@ describe('JobChat initial message dispatch failure', () => {
       if (path === '/api/v1/job/job-1/events') {
         return sseResponse()
       }
+      if (path === '/api/v1/job/job-1/viewer-state') {
+        return jsonResponse({ code: 0, applied: true })
+      }
       if (path === '/api/v1/job/job-1/message-queue') {
         return jsonResponse({ code: 0, queue: { jobId: 'job-1', version: 0, paused: false, willContinue: false, items: [] } })
       }
@@ -88,6 +91,9 @@ describe('JobChat initial message dispatch failure', () => {
       if (path === '/api/v1/job/job-1/events') {
         return sseResponse()
       }
+      if (path === '/api/v1/job/job-1/viewer-state') {
+        return jsonResponse({ code: 0, applied: true })
+      }
       if (path === '/api/v1/job/job-1/message-queue') {
         return jsonResponse({ code: 0, queue: { jobId: 'job-1', version: 0, paused: false, willContinue: false, items: [] } })
       }
@@ -133,6 +139,9 @@ describe('JobChat initial message dispatch failure', () => {
       }
       if (path === '/api/v1/job/job-1/events') {
         throw new Error('event stream boom')
+      }
+      if (path === '/api/v1/job/job-1/viewer-state') {
+        return jsonResponse({ code: 0, applied: true })
       }
       if (path === '/api/v1/job/job-1/message-queue') {
         return jsonResponse({ code: 0, queue: { jobId: 'job-1', version: 0, paused: false, willContinue: false, items: [] } })

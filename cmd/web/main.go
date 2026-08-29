@@ -21,7 +21,6 @@ import (
 	acpagent "github.com/fanlv/quartet/pkg/acp"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/messaging/media"
-	"github.com/fanlv/quartet/pkg/sandbox"
 	svcacp "github.com/fanlv/quartet/services/agent/acp"
 	acpprobe "github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/services/auth"
@@ -48,7 +47,6 @@ const (
 
 const maxRequestBodySize = 16 << 20 // 16 MiB: 10 MiB upload cap + multipart overhead.
 const httpShutdownTimeout = 5 * time.Second
-const sandboxShutdownTimeout = 2 * time.Minute
 const startupCheckEnv = "QUARTET_STARTUP_CHECK"
 
 // Filled by `go build -ldflags` in Makefile. Keep defaults explicit so
@@ -453,9 +451,7 @@ func main() {
 	// drains in-flight ones within httpShutdownTimeout. This must happen
 	// BEFORE StopAll: otherwise a request that lands in the StopAll race
 	// window can register a fresh job goroutine right after StopAll snapshots
-	// s.cancels, leaving it leaked through process exit. It also keeps the
-	// container alive for any in-flight request still touching a sandbox
-	// (stream flush, final write) — sandbox.Shutdown happens last.
+	// s.cancels, leaving it leaked through process exit.
 	httpShutdownCtx, httpShutdownCancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
 	defer httpShutdownCancel()
 	if err := s.Shutdown(httpShutdownCtx); err != nil {
@@ -477,14 +473,6 @@ func main() {
 	}
 
 	acpagent.CloseAllConns()
-
-	// Tear down every per-workspace sandbox container with an independent,
-	// much larger budget than HTTP shutdown. Sharing the same 5s ctx makes
-	// later compose-down calls inherit an already-expired deadline and leak
-	// containers on busy exits.
-	sandboxShutdownCtx, sandboxShutdownCancel := context.WithTimeout(context.Background(), sandboxShutdownTimeout)
-	defer sandboxShutdownCancel()
-	sandbox.Shutdown(sandboxShutdownCtx)
 
 	logger.Info("Server stopped")
 }

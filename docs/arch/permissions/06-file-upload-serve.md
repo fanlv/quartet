@@ -7,7 +7,7 @@
 - 目标目录：`typepath.UploadsDir()`，一般是 `$LOCAL_MEMORY/uploads`，本身在文件白名单内。
 - 大小上限：单文件 10MB，超过直接拒。
 - 命名策略：纳秒时间戳 + 8 字节 `crypto/rand` 后缀 + 原始扩展名。仅靠时间戳在低精度时钟系统上有碰撞风险，所以追加随机后缀。
-- 实际写入走 sandbox `FileUpload`，统一由 fileserver 层落盘。
+- 实际写入统一由 fileserver 层落盘。
 
 上传路径不会暴露给前端用户去"指定"，所以不存在"上传到任意目录"的攻击面。
 

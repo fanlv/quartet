@@ -91,7 +91,6 @@ interface ConfigMeta {
   runConfig: GraphRunConfig;
   workspaceId?: string;
   workdir?: string;
-  sandboxId?: string;
   canvas?: GraphConfig['canvas'];
 }
 
@@ -163,7 +162,6 @@ function metaFromConfig(config: GraphConfig): ConfigMeta {
     runConfig: { ...(config.runConfig || {}) },
     workspaceId: config.workspaceId,
     workdir: config.workdir,
-    sandboxId: config.sandboxId,
     canvas: config.canvas,
   };
 }
@@ -732,6 +730,27 @@ export function GraphWorkflowPage({
   // selected run is editable (in-flight or resumable, never naturally completed).
   const [editingRun, setEditingRun] = useState(false);
   const graphEventClientRef = useRef<GraphSSEClient | null>(null);
+  const graphViewerIDRef = useRef('');
+  if (!graphViewerIDRef.current) {
+    graphViewerIDRef.current = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `viewer-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  }
+  const graphViewerURL = useCallback((jobID: string): string => {
+    const params = new URLSearchParams({
+      viewerId: graphViewerIDRef.current,
+      visible: typeof document === 'undefined' || document.visibilityState === 'visible' ? '1' : '0',
+    });
+    return `/api/v1/job/${encodeURIComponent(jobID)}/graph-run/events?${params.toString()}`;
+  }, []);
+  const reportGraphViewerVisibility = useCallback((jobID: string, visible: boolean) => {
+    void fetch(`/api/v1/job/${encodeURIComponent(jobID)}/viewer-state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ viewerId: graphViewerIDRef.current, visible }),
+      keepalive: true,
+    }).catch((err) => console.debug('[GraphWorkflowPage] viewer-state report failed:', err));
+  }, []);
   // One-shot consumption of the ?graphEditJob=<id> deep-link (from Chat page's
   // GraphRun "Edit"): open that job's run directly in run-version edit mode.
   const editRunIntentRef = useRef<string | null>(
@@ -1179,8 +1198,12 @@ export function GraphWorkflowPage({
       void refreshJobRunStatus(selectedRun.jobId, runSeq);
     };
     const client = new GraphSSEClient({
-      url: `/api/v1/job/${encodeURIComponent(selectedRun.jobId)}/graph-run/events`,
+      url: () => graphViewerURL(selectedRun.jobId),
       onReconcile: async (_reason, resumeError) => {
+        reportGraphViewerVisibility(
+          selectedRun.jobId,
+          typeof document === 'undefined' || document.visibilityState === 'visible',
+        );
         await refreshJobRunStatus(
           selectedRun.jobId,
           runSeq,
@@ -1226,7 +1249,20 @@ export function GraphWorkflowPage({
       client.disconnect();
       if (graphEventClientRef.current === client) graphEventClientRef.current = null;
     };
-  }, [refreshJobRunStatus, refreshHookResults, selectedRun?.jobId, selectedRun?.id, selectedRun?.status]);
+  }, [graphViewerURL, refreshJobRunStatus, refreshHookResults, reportGraphViewerVisibility, selectedRun?.jobId, selectedRun?.id, selectedRun?.status]);
+
+  useEffect(() => {
+    if (!selectedRun?.jobId || !isGraphRunLive(selectedRun.status)) return;
+    const jobID = selectedRun.jobId;
+    const report = () => reportGraphViewerVisibility(jobID, document.visibilityState === 'visible');
+    const onHide = () => reportGraphViewerVisibility(jobID, false);
+    document.addEventListener('visibilitychange', report);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      document.removeEventListener('visibilitychange', report);
+      window.removeEventListener('pagehide', onHide);
+    };
+  }, [reportGraphViewerVisibility, selectedRun?.jobId, selectedRun?.status]);
 
   // Hook-result fetch (separate from the SSE refetch loop). Runs on run select
   // and on every status change. When the run is terminal, the End hook may still

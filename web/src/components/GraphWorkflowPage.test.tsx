@@ -72,6 +72,9 @@ function stubBaseFetch(extra?: (url: string) => Response | null) {
       if (url.endsWith('/api/v1/graph/workflow/wf-b')) return jsonResponse({ workflow: workflowB });
       if (url.endsWith('/api/v1/agent/list')) return jsonResponse({ code: 0, agent_list: [] });
       if (url.endsWith('/api/v1/workspace/list')) return jsonResponse({ workspaces: [] });
+      if (url.includes('/api/v1/job/') && url.endsWith('/viewer-state')) {
+        return jsonResponse({ code: 0, applied: true });
+      }
       throw new Error(`Unexpected fetch in test: ${url}`);
     }),
   );

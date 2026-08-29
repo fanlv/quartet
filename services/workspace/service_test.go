@@ -45,8 +45,6 @@ func (r *fakeWorkspaceRepo) SweepDeleted() error { return nil }
 
 func (r *fakeWorkspaceRepo) RemoveDir(id string) error { return r.removeErr }
 
-func (r *fakeWorkspaceRepo) SetSandboxRef(id string, ref *model.SandboxRef) error { return nil }
-
 func TestDeleteRollbackBumpsRevision(t *testing.T) {
 	now := time.Now()
 	repo := &fakeWorkspaceRepo{}

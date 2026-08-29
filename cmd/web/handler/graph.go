@@ -342,7 +342,6 @@ func scrubPublicGraphConfig(config *model.GraphConfig) {
 	}
 	config.WorkspaceID = ""
 	config.Workdir = ""
-	config.SandboxID = ""
 }
 
 // JobGraphRunHooks returns the per-node hook (§ 节点 Hook) execution results for

@@ -5,8 +5,7 @@
 // by a remote file server — so a future remote-backed implementation can be
 // swapped in without touching callers.
 //
-// Scope: files + JSONL. Bash execution, web fetch, grep and other sandbox
-// runtime capabilities remain in pkg/sandbox.
+// Scope: files + JSONL. Agent runtime tools use their own execution backend.
 package fileserver
 
 import (

@@ -418,7 +418,7 @@ $LOCAL_MEMORY/
 │   ├── data/         # settings, Agent catalog, workspaces, jobs, uploads, IM, and shares
 │   └── usage-stats/  # month-sharded usage statistics
 └── var/quartet/
-    ├── state/        # sessions, schedule state, and sandbox state
+    ├── state/        # sessions and schedule state
     ├── cache/        # reconstructable caches
     └── tmp/          # process-owned temporary files
 ```
@@ -464,7 +464,7 @@ agents, including Eino, enter through the same ACP session and event pipeline.
 | `types/path` | Canonical paths for configuration, business data, and runtime state |
 | `repository` | Local persistence |
 | `services` | Auth, agent, job, graph, schedule, workspace, IM, skills, and statistics behavior |
-| `pkg` | ACP, messaging, sandbox, logging, and common infrastructure |
+| `pkg` | ACP, messaging, file storage, logging, and common infrastructure |
 | `web` | React frontend |
 | `ios` | Native SwiftUI client (Sophia) for personal LAN use |
 | `skill` | Workflow, schedule, and WeChat skills driven by `quartet-cli` |

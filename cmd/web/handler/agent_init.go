@@ -9,7 +9,7 @@ import (
 	"github.com/fanlv/quartet/types/model"
 )
 
-// createSession creates a new session with sandbox setup, used by Job runner.
+// createSession creates a new Agent session used by the Job runner.
 func (h *Handler) createSession(ctx context.Context, modelID string, agentType, workdir, wsID, jobID string) (*model.Session, error) {
 	return h.createSessionWithBinding(ctx, modelID, agentType, workdir, wsID, jobID, nil)
 }

@@ -48,6 +48,9 @@ function installFetchMock(api: MockApi) {
       if (api.failEvents) throw new Error('Failed to fetch')
       return sseStreamResponse()
     }
+    if (url.includes(`/job/${JOB_ID}/viewer-state`) && method === 'POST') {
+      return jsonResponse({ code: 0, applied: true })
+    }
     if (url.includes(`/job/${JOB_ID}/message`) && method === 'POST') {
       const body = JSON.parse(String(init?.body ?? '{}')) as PostedMessageBody
       api.postMessageBodies.push(body)

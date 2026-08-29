@@ -45,7 +45,6 @@ export interface GraphConfig {
   runConfig?: GraphRunConfig;
   workspaceId?: string;
   workdir?: string;
-  sandboxId?: string;
 }
 
 export interface GraphNode {

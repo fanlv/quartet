@@ -627,14 +627,3 @@ func WeChatOutboxDir() string {
 func WeChatOutboxTaskFile(taskID string) string {
 	return filepath.Join(WeChatOutboxDir(), safeExternalID(taskID)+".json")
 }
-
-// SandboxComposeStateDir returns
-// {LOCAL_MEMORY}/var/quartet/state/sandbox/compose/, the durable compose state
-// directory.
-func SandboxComposeStateDir() (string, error) {
-	dir, err := QuartetStateDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "sandbox", "compose"), nil
-}

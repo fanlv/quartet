@@ -83,7 +83,6 @@ type GraphConfig struct {
 	RunConfig    GraphRunConfig    `json:"runConfig,omitempty"`
 	WorkspaceID  string            `json:"workspaceId,omitempty"`
 	Workdir      string            `json:"workdir,omitempty"`
-	SandboxID    string            `json:"sandboxId,omitempty"`
 }
 
 type GraphNode struct {
