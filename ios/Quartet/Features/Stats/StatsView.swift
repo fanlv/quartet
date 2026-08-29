@@ -8,7 +8,7 @@ struct StatsView: View {
     @Environment(\.locale) private var locale
     @Environment(\.mainTabBarInset) private var mainTabBarInset
 
-    @State private var preset: StatsRangePreset = .thirtyDays
+    @State private var preset: StatsRangePreset = .sevenDays
     @State private var customFrom = Calendar.current.date(byAdding: .day, value: -29, to: Date()) ?? Date()
     @State private var customTo = Date()
     @State private var metric: StatsTrendMetric = .tokens
