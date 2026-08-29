@@ -13,9 +13,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/fanlv/quartet/pkg/messaging"
-	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/agent/catalog"
 	"github.com/fanlv/quartet/services/config"
+	imservice "github.com/fanlv/quartet/services/im"
 	jobsvc "github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/model"
 )
@@ -38,7 +38,7 @@ var _ config.SettingsService = (*fakeSettings)(nil)
 func (f *fakeSettings) GetSettings() (*model.Settings, error) {
 	return &model.Settings{}, nil
 }
-func (f *fakeSettings) SaveSettings(*model.Settings) error               { return nil }
+func (f *fakeSettings) SaveSettings(*model.Settings) error                    { return nil }
 func (f *fakeSettings) SaveTitleGenerationAgent(*model.AgentRoleConfig) error { return nil }
 func (f *fakeSettings) SaveGroupReplyAgent(*model.AgentRoleConfig) error      { return nil }
 func (f *fakeSettings) SaveIMSessionAgent(*model.IMSessionAgentConfig) error {
@@ -54,10 +54,10 @@ func (f *fakeSettings) RestoreACPEnvState(string, int64, []model.ACPEnvVarEntry,
 	return nil
 }
 func (f *fakeSettings) SaveAgentPrefs(string, model.AgentPrefs) error { return nil }
-func (f *fakeSettings) ClearAgentSettings(string) error                    { return nil }
-func (f *fakeSettings) GetACPEnvVars(string) map[string]string             { return nil }
-func (f *fakeSettings) GetACPEnvVersion(string) int64                      { return 0 }
-func (f *fakeSettings) GetLarkConfig() (string, string)                    { return "", "" }
+func (f *fakeSettings) ClearAgentSettings(string) error               { return nil }
+func (f *fakeSettings) GetACPEnvVars(string) map[string]string        { return nil }
+func (f *fakeSettings) GetACPEnvVersion(string) int64                 { return 0 }
+func (f *fakeSettings) GetLarkConfig() (string, string)               { return "", "" }
 func (f *fakeSettings) GetLarkIMSenderIDs() (string, string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -145,15 +145,18 @@ func (s *imTaskSettings) GetIMConfig() (string, *model.IMSessionAgentConfig) {
 	return s.workspaceID, s.agent
 }
 
-type imTaskMappingRepo struct {
-	mapping *repository.IMJobMapping
+type imTaskStore struct {
+	imservice.Store
+	mapping *model.IMJobMapping
 }
 
-func (r *imTaskMappingRepo) Get(string, string) (*repository.IMJobMapping, error) {
-	return r.mapping, nil
+func (s *imTaskStore) GetJobMapping(string, string) (*model.IMJobMapping, error) {
+	return s.mapping, nil
 }
 
-func (r *imTaskMappingRepo) Save(*repository.IMJobMapping) error { return nil }
+func (*imTaskStore) SaveJobMapping(*model.IMJobMapping) error { return nil }
+
+func (*imTaskStore) AppendMessage(context.Context, *model.IMMessage) error { return nil }
 
 type imTaskJobService struct {
 	jobsvc.Service
@@ -299,7 +302,7 @@ func TestBuildQueuedJobTaskWiresIMClientMessageID(t *testing.T) {
 		MessageID: "message-existing",
 		Content:   "hello from IM",
 	}
-	mapping := &repository.IMJobMapping{
+	mapping := &model.IMJobMapping{
 		Platform:    string(msg.Platform),
 		ChatID:      msg.ChatID,
 		WorkspaceID: workspaceID,
@@ -311,7 +314,7 @@ func TestBuildQueuedJobTaskWiresIMClientMessageID(t *testing.T) {
 			agentCatalog:    new(catalog.Service),
 			jobService:      &imTaskJobService{job: &model.Job{ID: jobID}},
 		},
-		mappingRepo: &imTaskMappingRepo{mapping: mapping},
+		store: &imTaskStore{mapping: mapping},
 	}
 
 	task, err := g.buildQueuedJobTask(context.Background(), msg)
@@ -335,10 +338,10 @@ func TestResolveJobRedeliveryReusesIdempotentlyCreatedJob(t *testing.T) {
 	jobs := &imTaskJobService{}
 	g := &imGateway{
 		h: &Handler{
-			workspaceService: &createJobWorkspaceService{workspace: &model.Workspace{ID: "ws-1", Workdir: workdir}},
-			jobService:       jobs,
-			recentDirsRepo:   createJobRecentDirsRepo{},
-			settingsService:  &imTaskSettings{workspaceID: "ws-1"},
+			workspaceService:  &createJobWorkspaceService{workspace: &model.Workspace{ID: "ws-1", Workdir: workdir}},
+			jobService:        jobs,
+			recentDirsService: createJobRecentDirsService{},
+			settingsService:   &imTaskSettings{workspaceID: "ws-1"},
 		},
 	}
 	config := &model.IMSessionAgentConfig{ModelID: "model-1"}

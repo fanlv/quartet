@@ -12,7 +12,6 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/tokenizer"
-	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/types/model"
 	"github.com/fanlv/quartet/types/msgextra"
 )
@@ -41,16 +40,10 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 		return
 	}
 
-	ctxMgr, err := repository.NewChatContextRepo(j.WorkspaceID, s.JobID, sessionID)
-	if err != nil {
-		httputil.InternalError(c, err.Error())
-		return
-	}
-
 	// messages.jsonl is a mirror rebuilt from ACP events (same as claude
 	// etc.), so history is projected verbatim — compression, if any,
 	// happens inside the agent subprocess and never rewrites the mirror.
-	chatMessages, err := ctxMgr.LoadAllMessages(ctx)
+	chatMessages, err := h.transcriptStore.Load(ctx, j.WorkspaceID, s.JobID, sessionID)
 	if err != nil {
 		httputil.InternalError(c, err.Error())
 		return

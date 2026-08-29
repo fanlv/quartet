@@ -12,7 +12,6 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/config"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/hertz/pkg/route"
-	"github.com/fanlv/quartet/repository"
 	jobsvc "github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/workspace"
 	"github.com/fanlv/quartet/types/model"
@@ -60,8 +59,8 @@ func (s *captureCreateJobService) CreateIdempotent(job *model.Job) (*model.Job, 
 	return s.created.DeepCopy(), false, nil
 }
 
-type createJobRecentDirsRepo struct {
-	repository.RecentDirsRepo
+type createJobRecentDirsService struct {
+	workspace.RecentDirsService
 }
 
 type createJobCall struct {
@@ -92,9 +91,9 @@ func TestCreateJobIdempotentReturnsSameJobForRepeatedCommandAction(t *testing.T)
 	workdir := t.TempDir()
 	jobService := &captureCreateJobService{}
 	h := &Handler{
-		workspaceService: &createJobWorkspaceService{workspace: &model.Workspace{ID: "ws-1", Workdir: workdir}},
-		jobService:       jobService,
-		recentDirsRepo:   createJobRecentDirsRepo{},
+		workspaceService:  &createJobWorkspaceService{workspace: &model.Workspace{ID: "ws-1", Workdir: workdir}},
+		jobService:        jobService,
+		recentDirsService: createJobRecentDirsService{},
 	}
 	req := &model.CreateJobRequest{
 		ClientMessageID: "command-client-1",
@@ -127,9 +126,9 @@ func TestJobCreateHTTPRepeatedCommandActionReturnsSameJobID(t *testing.T) {
 	workdir := t.TempDir()
 	jobService := &captureCreateJobService{}
 	h := &Handler{
-		workspaceService: &createJobWorkspaceService{workspace: &model.Workspace{ID: "ws-1", Workdir: workdir}},
-		jobService:       jobService,
-		recentDirsRepo:   createJobRecentDirsRepo{},
+		workspaceService:  &createJobWorkspaceService{workspace: &model.Workspace{ID: "ws-1", Workdir: workdir}},
+		jobService:        jobService,
+		recentDirsService: createJobRecentDirsService{},
 	}
 	engine := route.NewEngine(config.NewOptions(nil))
 	engine.POST("/api/v1/job/create", h.JobCreate)
@@ -178,9 +177,9 @@ func TestJobCreateHTTPConcurrentRepeatedCommandActionCreatesOnce(t *testing.T) {
 	workdir := t.TempDir()
 	jobs := &createJobCall{}
 	h := &Handler{
-		workspaceService: &createJobWorkspaceService{workspace: &model.Workspace{ID: "ws-1", Workdir: workdir}},
-		jobService:       jobs,
-		recentDirsRepo:   createJobRecentDirsRepo{},
+		workspaceService:  &createJobWorkspaceService{workspace: &model.Workspace{ID: "ws-1", Workdir: workdir}},
+		jobService:        jobs,
+		recentDirsService: createJobRecentDirsService{},
 	}
 	engine := route.NewEngine(config.NewOptions(nil))
 	engine.POST("/api/v1/job/create", h.JobCreate)
@@ -216,9 +215,9 @@ func TestCreateJobIdempotentRejectsSameIDWithDifferentPayload(t *testing.T) {
 	workdir := t.TempDir()
 	jobService := &captureCreateJobService{}
 	h := &Handler{
-		workspaceService: &createJobWorkspaceService{workspace: &model.Workspace{ID: "ws-1", Workdir: workdir}},
-		jobService:       jobService,
-		recentDirsRepo:   createJobRecentDirsRepo{},
+		workspaceService:  &createJobWorkspaceService{workspace: &model.Workspace{ID: "ws-1", Workdir: workdir}},
+		jobService:        jobService,
+		recentDirsService: createJobRecentDirsService{},
 	}
 	first := &model.CreateJobRequest{ClientMessageID: "command-client-1", AgentType: "claude", ModelID: "sonnet", WorkspaceID: "ws-1", Workdir: workdir}
 	if _, _, err := h.createJobIdempotent(context.Background(), first); err != nil {
@@ -231,7 +230,7 @@ func TestCreateJobIdempotentRejectsSameIDWithDifferentPayload(t *testing.T) {
 	}
 }
 
-func (createJobRecentDirsRepo) Add(context.Context, string) error { return nil }
+func (createJobRecentDirsService) Add(context.Context, string) error { return nil }
 
 func TestCreateJobPersistsInitialInteractiveConfiguration(t *testing.T) {
 	workdir := t.TempDir()
@@ -241,8 +240,8 @@ func TestCreateJobPersistsInitialInteractiveConfiguration(t *testing.T) {
 			ID:      "ws-ios",
 			Workdir: workdir,
 		}},
-		jobService:     jobService,
-		recentDirsRepo: createJobRecentDirsRepo{},
+		jobService:        jobService,
+		recentDirsService: createJobRecentDirsService{},
 	}
 	req := &model.CreateJobRequest{
 		AgentType:       "claude",

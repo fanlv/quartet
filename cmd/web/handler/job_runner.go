@@ -8,7 +8,6 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
-	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/agui"
 	"github.com/fanlv/quartet/types/model"
@@ -135,16 +134,12 @@ func (r *jobRunnerImpl) BeginShellSession(ctx context.Context, jobID, script str
 	if err != nil {
 		return "", err
 	}
-	repo, err := repository.NewChatContextRepo(r.wsID, jobID, s.ID)
-	if err != nil {
-		return "", fmt.Errorf("create shell chat context repo: %w", err)
-	}
 	userMsg := schema.UserMessage(script)
 	userMsg.Extra = map[string]any{
 		msgextra.KeyShellOutput: true,
 		msgextra.KeyStartedAt:   startedAt,
 	}
-	if err := repo.AppendMessages(ctx, []*schema.Message{userMsg}); err != nil {
+	if err := r.h.transcriptStore.Append(ctx, r.wsID, jobID, s.ID, []*schema.Message{userMsg}); err != nil {
 		return "", fmt.Errorf("append shell script message: %w", err)
 	}
 	if ss, err := r.h.getOrCreateSessionService(r.wsID, jobID); err == nil {
@@ -159,17 +154,13 @@ func (r *jobRunnerImpl) BeginShellSession(ctx context.Context, jobID, script str
 // of a shell display session previously created by BeginShellSession, completing
 // the transcript once the shell has exited.
 func (r *jobRunnerImpl) FinishShellSession(ctx context.Context, jobID, sessionID, output string, startedAt, finishedAt int64) error {
-	repo, err := repository.NewChatContextRepo(r.wsID, jobID, sessionID)
-	if err != nil {
-		return fmt.Errorf("open shell chat context repo: %w", err)
-	}
 	assistantMsg := schema.AssistantMessage(output, nil)
 	assistantMsg.Extra = map[string]any{
 		msgextra.KeyShellOutput: true,
 		msgextra.KeyStartedAt:   startedAt,
 		msgextra.KeyFinishedAt:  finishedAt,
 	}
-	if err := repo.AppendMessages(ctx, []*schema.Message{assistantMsg}); err != nil {
+	if err := r.h.transcriptStore.Append(ctx, r.wsID, jobID, sessionID, []*schema.Message{assistantMsg}); err != nil {
 		return fmt.Errorf("append shell output message: %w", err)
 	}
 	if ss, err := r.h.getOrCreateSessionService(r.wsID, jobID); err == nil {
@@ -190,15 +181,11 @@ func (r *jobRunnerImpl) FinishShellSession(ctx context.Context, jobID, sessionID
 // recorder: a failure is surfaced to the caller, which logs and falls back to
 // the agent's own in-Run persistence.
 func (r *jobRunnerImpl) RecordPromptUserMessage(ctx context.Context, jobID, sessionID, content string, startedAt int64) error {
-	repo, err := repository.NewChatContextRepo(r.wsID, jobID, sessionID)
-	if err != nil {
-		return fmt.Errorf("open prompt chat context repo: %w", err)
-	}
 	userMsg := schema.UserMessage(content)
 	userMsg.Extra = map[string]any{
 		msgextra.KeyStartedAt: startedAt,
 	}
-	if err := repo.AppendMessages(ctx, []*schema.Message{userMsg}); err != nil {
+	if err := r.h.transcriptStore.Append(ctx, r.wsID, jobID, sessionID, []*schema.Message{userMsg}); err != nil {
 		return fmt.Errorf("append prompt user message: %w", err)
 	}
 	if ss, err := r.h.getOrCreateSessionService(r.wsID, jobID); err == nil {
@@ -224,11 +211,7 @@ func (r *jobRunnerImpl) SessionLastAssistantMessage(ctx context.Context, jobID, 
 	if sessionID == "" {
 		return "", false, nil
 	}
-	repo, err := repository.NewChatContextRepo(r.wsID, jobID, sessionID)
-	if err != nil {
-		return "", false, fmt.Errorf("open clarify chat context repo: %w", err)
-	}
-	msgs, err := repo.LoadAllMessages(ctx)
+	msgs, err := r.h.transcriptStore.Load(ctx, r.wsID, jobID, sessionID)
 	if err != nil {
 		return "", false, fmt.Errorf("load clarify session messages: %w", err)
 	}

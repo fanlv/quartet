@@ -8,7 +8,6 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/messaging"
-	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/workspace"
 	"github.com/fanlv/quartet/types/agui"
@@ -60,12 +59,12 @@ func TestIMFirstMessageRedeliveryReusesJobAndRunsAgentOnce(t *testing.T) {
 		t.Fatalf("job.NewService: %v", err)
 	}
 	gateway := &imGateway{h: &Handler{
-		workspaceService: workspaces,
-		jobService:       jobs,
-		recentDirsRepo:   createJobRecentDirsRepo{},
+		workspaceService:  workspaces,
+		jobService:        jobs,
+		recentDirsService: createJobRecentDirsService{},
 	}}
 	msg := &messaging.Message{Platform: messaging.PlatformLark, ChatID: "chat-1", MessageID: "msg-1", Content: "hello"}
-	mappingWithoutJob := &repository.IMJobMapping{Platform: "lark", ChatID: "chat-1", WorkspaceID: ws.ID}
+	mappingWithoutJob := &model.IMJobMapping{Platform: "lark", ChatID: "chat-1", WorkspaceID: ws.ID}
 	config := &model.IMSessionAgentConfig{ModelID: "model-1"}
 
 	first, _, err := gateway.resolveJob(context.Background(), msg, mappingWithoutJob, config, "codex")
