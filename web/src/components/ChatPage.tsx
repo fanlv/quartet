@@ -19,6 +19,7 @@ import { slashCompletionKeyDown, useSlashCompletion } from '../utils/slashComple
 import { ScheduleEditModal } from './ScheduleEditModal';
 import { cronToHuman } from './CronInput';
 import { AgentUsageCard } from './AgentUsageCard';
+import { ClockIcon, ConfigurationIcon } from './ComposerIcons';
 import { HomeNavigation } from './HomeNavigation';
 import { MessagePresetHistoryMenu, type SentMessageHistoryItem } from './MessagePresetHistoryMenu';
 import { copyToClipboard } from '../utils/clipboard';
@@ -402,7 +403,10 @@ const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceNa
           </span>
         )}
         {modelLabel && <span className="home-job-history-row-model" title={modelLabel}>{modelLabel}</span>}
-        <span className="home-job-history-row-time">{formatJobTime(job.updatedAt, i18n.language)}</span>
+        <span className="home-job-history-row-time">
+          <ClockIcon className="home-job-history-row-time-icon" />
+          {formatJobTime(job.updatedAt, i18n.language)}
+        </span>
       </div>
       {onPin && <button
         className={`home-job-history-row-pin ${isPinned ? 'pinned' : ''}`}
@@ -1856,6 +1860,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                     className="model-tag"
                     onClick={() => setShowModelDropdown(!showModelDropdown)}
                   >
+                    <ConfigurationIcon kind="model" />
                     <span>{selectedAgent.models.availableModels.find(m => m.modelId === selectedAgent.models!.currentModelId)?.name || selectedAgent.models.currentModelId}</span>
                     <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M6 9l6 6 6-6" />
@@ -1883,6 +1888,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                     className="model-tag"
                     onClick={() => setShowModeDropdown(!showModeDropdown)}
                   >
+                    <ConfigurationIcon kind="mode" />
                     <span>{selectedAgent.modes.availableModes.find(m => m.id === selectedAgent.modes!.currentModeId)?.name || selectedAgent.modes.currentModeId}</span>
                     <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M6 9l6 6 6-6" />
@@ -1948,6 +1954,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                     className="model-tag"
                     onClick={() => setShowThoughtLevelDropdown(!showThoughtLevelDropdown)}
                   >
+                    <ConfigurationIcon kind="thought" />
                     <span>{selectedAgent.thoughtLevels.availableThoughtLevels.find(m => m.id === selectedAgent.thoughtLevels!.currentThoughtLevelId)?.name || selectedAgent.thoughtLevels.currentThoughtLevelId}</span>
                     <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M6 9l6 6 6-6" />

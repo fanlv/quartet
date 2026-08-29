@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useServerNow } from '../contexts/ServerClock';
+import { ClockIcon } from './ComposerIcons';
 import './DurationBadge.css';
 
 /**
@@ -124,7 +125,7 @@ export function DurationBadge({ startedAt, endedAt, baseMs = 0, variant = 'assis
       const displayed = Math.max(baseMs, maxShown);
       return (
         <span className={`duration-badge duration-badge--${variant} duration-badge--finished ${showIcon ? 'duration-badge--with-icon' : ''}`}>
-          {showIcon && <DurationClockIcon />}
+          {showIcon && <ClockIcon />}
           {formatDuration(displayed)}
         </span>
       );
@@ -144,17 +145,8 @@ export function DurationBadge({ startedAt, endedAt, baseMs = 0, variant = 'assis
 
   return (
     <span className={`duration-badge duration-badge--${variant} ${isRunning ? 'duration-badge--running' : 'duration-badge--finished'} ${showIcon ? 'duration-badge--with-icon' : ''}`}>
-      {showIcon && <DurationClockIcon />}
+      {showIcon && <ClockIcon />}
       {formatDuration(displayed)}
     </span>
-  );
-}
-
-function DurationClockIcon() {
-  return (
-    <svg className="duration-badge-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
   );
 }
