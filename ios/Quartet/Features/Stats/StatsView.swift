@@ -696,7 +696,7 @@ private struct StatsTrendCard: View {
             )
         }
         let value = metric == .tokens
-            ? StatsFormat.exactCount(selectedDay.tokens.total, locale: locale)
+            ? StatsFormat.count(selectedDay.tokens.total)
             : StatsFormat.trend(StatsFormat.optionalMetricValue(selectedDay, metric: metric), metric: metric)
         return String(
             format: "%@，%@".localized(in: locale),
@@ -1017,7 +1017,7 @@ private struct StatsTokenSourceRow: View {
 
             Spacer(minLength: 8)
 
-            Text(StatsFormat.exactCount(tokenCount, locale: locale))
+            Text(StatsFormat.count(tokenCount))
                 .font(.quartet(.headline, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(QuartetTheme.primaryText)
@@ -1075,7 +1075,7 @@ private struct StatsTokenDayDetail: View {
                 }
                 Spacer(minLength: 12)
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text(StatsFormat.exactCount(day.tokens.total, locale: locale))
+                    Text(StatsFormat.count(day.tokens.total))
                         .contentTransition(.numericText())
                         .font(.quartet(.headline, weight: .semibold))
                         .monospacedDigit()
@@ -1116,7 +1116,7 @@ private struct StatsTokenDayDetail: View {
 
                         Spacer(minLength: 12)
 
-                        Text(StatsFormat.exactCount(Int(max(0, entry.value)), locale: locale))
+                        Text(StatsFormat.count(Int(max(0, entry.value))))
                             .font(.quartet(.detail, weight: .semibold))
                             .monospacedDigit()
                             .foregroundStyle(QuartetTheme.primaryText)
@@ -1141,7 +1141,7 @@ private struct StatsTokenDayDetail: View {
                         Text(detail.title.localized(in: locale))
                             .font(.quartet(.compact))
                             .foregroundStyle(QuartetTheme.secondaryText)
-                        Text(StatsFormat.exactCount(detail.value, locale: locale))
+                        Text(StatsFormat.count(detail.value))
                             .font(.quartet(.detail, weight: .semibold))
                             .monospacedDigit()
                             .foregroundStyle(QuartetTheme.primaryText)
@@ -1152,29 +1152,10 @@ private struct StatsTokenDayDetail: View {
                         format: "%@，%@".localized(in: locale),
                         locale: locale,
                         detail.title.localized(in: locale),
-                        StatsFormat.exactCount(detail.value, locale: locale)
+                        StatsFormat.count(detail.value)
                     ))
                 }
             }
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("图片内容估算")
-                        .font(.quartet(.compact, weight: .medium))
-                        .foregroundStyle(QuartetTheme.secondaryText)
-                    Spacer(minLength: 8)
-                    Text(StatsFormat.exactCount(day.tokens.imageEstimate, locale: locale))
-                        .font(.quartet(.detail, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(QuartetTheme.primaryText)
-                }
-                Text("说明性数据，已包含在输入 Token 或 Quartet 估算中。")
-                    .font(.quartet(.compact))
-                    .foregroundStyle(QuartetTheme.secondaryText.opacity(0.82))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(QuartetTheme.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
 
             Text("按模型返回的缓存读取占输入总量计算；Quartet 估算的执行不参与。")
                 .font(.quartet(.compact))
@@ -1187,7 +1168,7 @@ private struct StatsTokenDayDetail: View {
             format: "%@ Token 明细，总 Token %@，缓存命中率 %@".localized(in: locale),
             locale: locale,
             day.date,
-            StatsFormat.exactCount(day.tokens.total, locale: locale),
+            StatsFormat.count(day.tokens.total),
             StatsFormat.percentage(cacheHitRate, locale: locale)
         ))
         .accessibilityIdentifier("stats-token-day-detail")
@@ -1203,7 +1184,8 @@ private struct StatsTokenDayDetail: View {
             StatsTokenDetail(id: "output", title: "输出 Token", value: day.tokens.output),
             StatsTokenDetail(id: "cached-read", title: "缓存读取", value: day.tokens.cachedRead),
             StatsTokenDetail(id: "cached-write", title: "缓存写入", value: day.tokens.cachedWrite),
-            StatsTokenDetail(id: "reasoning", title: "推理 Token", value: day.tokens.reasoning)
+            StatsTokenDetail(id: "reasoning", title: "推理 Token", value: day.tokens.reasoning),
+            StatsTokenDetail(id: "image-estimate", title: "图片估算", value: day.tokens.imageEstimate)
         ]
     }
 }
@@ -1371,10 +1353,6 @@ private enum StatsFormat {
         return value < 10_000_000
             ? String(format: "%.1fM", Double(value) / 1_000_000)
             : String(format: "%.0fM", Double(value) / 1_000_000)
-    }
-
-    static func exactCount(_ value: Int, locale: Locale = AppLanguage.currentLocale) -> String {
-        max(0, value).formatted(.number.locale(locale).grouping(.automatic))
     }
 
     // Provider APIs differ on whether input already includes cache reads and

@@ -825,6 +825,7 @@ const TOKEN_DAY_FIELDS: Array<{ field: keyof TokenTotals; labelKey: string }> = 
   { field: 'cachedRead', labelKey: 'stats.tokens.cachedRead' },
   { field: 'cachedWrite', labelKey: 'stats.tokens.cachedWrite' },
   { field: 'reasoning', labelKey: 'stats.tokens.reasoning' },
+  { field: 'imageEstimate', labelKey: 'stats.tokens.imageEstimate' },
 ];
 
 interface TrendDayEntry {
@@ -892,11 +893,6 @@ function TokenDayPanel({ day, modelEntries }: { day: DailyRow; modelEntries: Tre
             <strong className="stats-token-day-cell-value">{formatStatsCount(tokenCount(day.tokens, field))}</strong>
           </div>
         ))}
-      </div>
-      <div className="stats-token-day-subset">
-        <span>{t('stats.tokens.imageEstimateShort')}</span>
-        <strong>{formatStatsCount(tokenCount(day.tokens, 'imageEstimate'))}</strong>
-        <small>{t('stats.tokens.imageEstimateHint')}</small>
       </div>
       <div className="stats-token-day-hint">{t('stats.tokens.cacheHitRateHint')}</div>
     </section>

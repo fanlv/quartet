@@ -500,30 +500,6 @@
   line-height: 1.45;
 }
 
-.stats-token-day-subset {
-  display: grid;
-  grid-template-columns: minmax(0, auto) auto minmax(160px, 1fr);
-  align-items: baseline;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 7px 8px;
-  border-radius: 8px;
-  background: #edf3ee;
-  color: #5d6c62;
-  font-size: 10.5px;
-}
-
-.stats-token-day-subset strong {
-  color: #142019;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.stats-token-day-subset small {
-  color: #7a897f;
-  font-size: inherit;
-}
-
 .stats-token-day-section {
   margin: 10px 0 6px;
   color: #5d6c62;
@@ -809,6 +785,4 @@
   .stats-token-day-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats-token-day-summary { align-items: flex-start; }
   .stats-token-source-grid { grid-template-columns: 1fr; }
-  .stats-token-day-subset { grid-template-columns: auto 1fr; }
-  .stats-token-day-subset small { grid-column: 1 / -1; }
 }
