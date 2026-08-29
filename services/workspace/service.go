@@ -766,20 +766,6 @@ func (s *serviceImpl) RegenerateAllColors() ([]*model.Workspace, error) {
 	return result, nil
 }
 
-// FileAccessBaseRoots returns the canonical allowlist roots for workspace
-// workdirs and file RW endpoints. $HOME is always included so users can
-// browse and pick directories anywhere under their own home tree.
-func FileAccessBaseRoots() []string {
-	var roots []string
-	if lm := os.Getenv("LOCAL_MEMORY"); lm != "" {
-		roots = append(roots, lm)
-	}
-	if home := os.Getenv("HOME"); home != "" {
-		roots = append(roots, home)
-	}
-	return roots
-}
-
 // TrustedFileWorkspaceRoots returns the set of non-deleted workspace Workdirs
 // with basic valid paths, used to scope file-browsing endpoints.
 func (s *serviceImpl) TrustedFileWorkspaceRoots() []string {

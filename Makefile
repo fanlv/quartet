@@ -1,4 +1,9 @@
-.PHONY: help build build-all build-acp build-cli build-eino-cli build-web build-frontend stage-web activate-web-stage pod-install build-ios test test-web test-ios e2e e2e-ios clean run run-cli run-web run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs install-project-tools install-skill install-skill-cli install-skill-copy install-skill-run install-skill-all install-skill-list
+.PHONY: help
+.PHONY: build build-all build-cli build-eino-cli build-web build-frontend build-ios pod-install
+.PHONY: test test-go test-web lint-web e2e test-ios e2e-ios
+.PHONY: run-cli run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs
+.PHONY: install-eino-cli install-project-tools install-skill install-skill-copy install-skill-list clean
+.PHONY: stage-web activate-web-stage install-skill-cli install-skill-run
 
 CERTS_DIR := $(CURDIR)/certs
 # Serving model, derived ONCE at parse time so every target below
@@ -20,12 +25,10 @@ else
 BACKEND_PORT := 8090
 BACKEND_PROTO := http
 endif
-WEB_BINARY := $(CURDIR)/bin/quartet-web
 WEB_STAGE_DIR ?=
 BACKEND_LOG := /tmp/quartet-backend.log
 WATCHDOG_LOG := /tmp/quartet-watchdog.log
 WATCHDOG_PID := /tmp/quartet-watchdog.pid
-STOP_PROCESS_TREE := $(CURDIR)/scripts/stop-process-tree.sh
 WATCHDOG := $(CURDIR)/scripts/watchdog.sh
 FRONTEND_ENV_CHECK := $(CURDIR)/scripts/frontend-env-check.sh
 FRONTEND_DEPS := $(CURDIR)/scripts/frontend-deps.sh
@@ -53,51 +56,56 @@ SKILL_COPY_FLAG ?=
 help:
 	@printf 'Usage: make <target>\n\n'
 	@printf 'Build targets:\n'
-	@printf '  %-24s %s\n' 'build' 'Build acp, cli, and web binaries into bin/'
+	@printf '  %-24s %s\n' 'build' 'Build CLI, Eino, backend, and frontend artifacts'
 	@printf '  %-24s %s\n' 'build-all' 'Run go build ./...'
-	@printf '  %-24s %s\n' 'build-acp' 'Build bin/quartet-acp'
 	@printf '  %-24s %s\n' 'build-cli' 'Build bin/quartet-cli'
-	@printf '  %-24s %s\n' 'build-eino-cli' 'Build eino-cli and install it to INSTALL_BIN_DIR'
+	@printf '  %-24s %s\n' 'build-eino-cli' 'Build bin/eino-cli'
 	@printf '  %-24s %s\n' 'build-web' 'Build bin/quartet-web'
 	@printf '  %-24s %s\n' 'build-frontend' 'Build frontend SPA into static/'
 	@printf '  %-24s %s\n' 'pod-install' 'Install iOS CocoaPods dependencies'
 	@printf '  %-24s %s\n\n' 'build-ios' 'Build the iOS app (requires macOS + Xcode)'
 	@printf 'Test targets:\n'
-	@printf '  %-24s %s\n' 'test' 'Run Go build, frontend tests, and Playwright E2E'
+	@printf '  %-24s %s\n' 'test' 'Run Go, frontend component, and Playwright E2E tests'
+	@printf '  %-24s %s\n' 'test-go' 'Run go test ./...'
 	@printf '  %-24s %s\n' 'test-web' 'Run frontend component tests'
+	@printf '  %-24s %s\n' 'lint-web' 'Run frontend ESLint checks'
 	@printf '  %-24s %s\n' 'test-ios' 'Build the iOS app for Simulator without signing'
 	@printf '  %-24s %s\n' 'e2e-ios' 'Run native iOS UI tests in Simulator'
 	@printf '  %-24s %s\n\n' 'e2e' 'Run frontend Playwright E2E tests'
 	@printf 'Run/service targets:\n'
-	@printf '  %-24s %s\n' 'run' 'Alias for web'
 	@printf '  %-24s %s\n' 'run-cli' 'Run quartet-cli with go run'
 	@printf '  %-24s %s\n' 'run-backend' 'Run web backend with go run'
 	@printf '  %-24s %s\n' 'run-frontend' 'Run Vite dev server'
 	@printf '  %-24s %s\n' 'web' 'Build frontend/backend and start or restart web service'
 	@printf '  %-24s %s\n' 'web-status' 'Show backend and watchdog status'
 	@printf '  %-24s %s\n' 'web-logs' 'Follow backend log'
-	@printf '  %-24s %s\n' 'web-stop' 'Stop backend web service and orphan quartet-web processes'
+	@printf '  %-24s %s\n' 'web-stop' 'Stop watchdog, backend, and orphan quartet-web processes'
 	@printf '  %-24s %s\n' 'backend-stop' 'Stop backend only; watchdog untouched'
 	@printf '  %-24s %s\n' 'web-watch' 'Start detached backend watchdog'
 	@printf '  %-24s %s\n' 'web-watch-stop' 'Stop backend watchdog'
 	@printf '  %-24s %s\n\n' 'web-watch-logs' 'Follow watchdog log'
 	@printf 'Install targets:\n'
+	@printf '  %-24s %s\n' 'install-eino-cli' 'Build and install eino-cli to INSTALL_BIN_DIR'
 	@printf '  %-24s %s\n' 'install-project-tools' 'Install quartet-cli and every skill shipped by this project'
 	@printf '  %-24s %s\n' 'install-skill' 'Build/install quartet-cli and register the skill'
 	@printf '  %-24s %s\n' 'install-skill-copy' 'Install skill files by copying instead of symlinking'
 	@printf '  %-24s %s\n' 'install-skill-cli' 'Build and install quartet-cli to INSTALL_BIN_DIR'
-	@printf '  %-24s %s\n' 'install-skill-run' 'Register the skill directory with the skills CLI'
-	@printf '  %-24s %s\n' 'install-skill-all' 'Install the skill for every known skills CLI agent'
 	@printf '  %-24s %s\n\n' 'install-skill-list' 'List skills under SKILL_SOURCE without installing'
 	@printf 'Cleanup targets:\n'
-	@printf '  %-24s %s\n' 'clean' 'Remove bin/'
+	@printf '  %-24s %s\n' 'clean' 'Remove bin/ and static/'
 
 build-all:
 	@echo "Building all applications..."
 	go build ./...
 	@echo "All applications built successfully!"
 
-test: build-all test-web e2e
+build: build-cli build-eino-cli build-web build-frontend
+
+test: test-go test-web e2e
+
+test-go:
+	@echo "Running Go tests..."
+	go test ./...
 
 test-web:
 	@echo "Running web component tests..."
@@ -105,37 +113,30 @@ test-web:
 	@bash "$(FRONTEND_DEPS)" "$(CURDIR)/web"
 	@cd web && npm test
 
+lint-web:
+	@echo "Running frontend lint..."
+	@bash "$(FRONTEND_ENV_CHECK)" "$(CURDIR)/web"
+	@bash "$(FRONTEND_DEPS)" "$(CURDIR)/web"
+	@cd web && npm run lint
+
 e2e:
 	@echo "Running web E2E tests..."
 	@bash "$(FRONTEND_ENV_CHECK)" "$(CURDIR)/web"
 	@bash "$(FRONTEND_DEPS)" "$(CURDIR)/web"
 	@cd web && npm run test:e2e
 
-build:
-	@mkdir -p bin
-	@echo "Building acp..."
-	go build -o bin/quartet-acp ./cmd/acp
-	@echo "Building cli..."
-	go build -o bin/quartet-cli ./cmd/quartet-cli
-	@echo "Building web..."
-	go build -ldflags "$(WEB_LDFLAGS)" -o bin/quartet-web ./cmd/web
-	@echo "All binaries built to bin/"
-
-build-acp:
-	@mkdir -p bin
-	go build -o bin/quartet-acp ./cmd/acp
-
 build-cli:
 	@mkdir -p bin
 	go build -o bin/quartet-cli ./cmd/quartet-cli
 
-# build-eino-cli builds the standalone eino-cli ACP agent and installs it to
-# INSTALL_BIN_DIR (must be on $PATH) so the backend's probe can discover it via
-# exec.LookPath("eino-cli").
 build-eino-cli:
 	@mkdir -p bin
 	@echo "==> Building bin/eino-cli"
 	go build -o bin/eino-cli ./cmd/eino-cli
+
+# The backend discovers eino-cli through PATH. Keep installation separate from
+# compilation so build targets never mutate the user's executable directory.
+install-eino-cli: build-eino-cli
 	@echo "==> Installing eino-cli to $(INSTALL_BIN_DIR)"
 	@mkdir -p "$(INSTALL_BIN_DIR)"
 	@cp bin/eino-cli "$(INSTALL_BIN_DIR)/eino-cli"
@@ -248,9 +249,7 @@ run-frontend:
 		cd web && npm run dev; \
 	fi
 
-run: web
-
-web: 
+web:
 	@if [ -z "$$LOCAL_MEMORY" ]; then \
 		echo "❌ LOCAL_MEMORY environment variable is not set. Please set it first."; \
 		echo "   Example: export LOCAL_MEMORY=/path/to/local_memory"; \
@@ -325,25 +324,12 @@ web-watch-logs:
 	@tail -f $(WATCHDOG_LOG)
 
 web-stop:
-	@echo "🛑 Stopping web service (backend on :$(BACKEND_PORT))..."
-	@backend_pid=$$($(SUDO) lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN 2>/dev/null); \
-	backend_orphans=""; \
-	for _p in $$(pgrep -x quartet-web 2>/dev/null); do \
-		if [ "$$_p" != "$$backend_pid" ]; then backend_orphans="$$backend_orphans $$_p"; fi; \
-	done; \
-	if [ -n "$$backend_pid" ]; then \
-		echo "Stopping backend (pid: $$backend_pid)..."; \
-		$(SUDO) kill "$$backend_pid" 2>/dev/null || true; \
-	fi; \
-	if [ -n "$$backend_orphans" ]; then \
-		echo "🧹 Killing orphan quartet-web processes:$$backend_orphans"; \
-		for _p in $$backend_orphans; do $(SUDO) kill "$$_p" 2>/dev/null || true; done; \
-	fi; \
-	echo "✅ Backend stopped"
+	@$(MAKE) --no-print-directory web-watch-stop
+	@$(MAKE) --no-print-directory backend-stop
 
 backend-stop:
 	@echo "🛑 Stopping backend only (watchdog untouched)..."
-	@backend_pid=$$(lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN 2>/dev/null); \
+	@backend_pid=$$($(SUDO) lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN 2>/dev/null); \
 	backend_orphans=""; \
 	for _p in $$(pgrep -x quartet-web 2>/dev/null); do \
 		if [ "$$_p" != "$$backend_pid" ]; then \
@@ -352,26 +338,26 @@ backend-stop:
 	done; \
 	if [ -n "$$backend_pid" ]; then \
 		echo "Stopping backend (pid: $$backend_pid, port: $(BACKEND_PORT))..."; \
-		kill "$$backend_pid" 2>/dev/null || true; \
+		$(SUDO) kill "$$backend_pid" 2>/dev/null || true; \
 	else \
 		echo "ℹ️  No backend running on port $(BACKEND_PORT)"; \
 	fi; \
 	if [ -n "$$backend_orphans" ]; then \
 		echo "🧹 Killing orphan quartet-web processes:$$backend_orphans"; \
 		for _p in $$backend_orphans; do \
-			kill "$$_p" 2>/dev/null || true; \
+		$(SUDO) kill "$$_p" 2>/dev/null || true; \
 		done; \
 	fi; \
 	for _i in 1 2 3 4 5 6 7 8 9 10; do \
-		lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN >/dev/null 2>&1 || break; \
+		$(SUDO) lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN >/dev/null 2>&1 || break; \
 		sleep 1; \
 	done; \
-	if lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
+	if $(SUDO) lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
 		echo "⚠️  Backend still bound to port $(BACKEND_PORT) after SIGTERM; sending SIGKILL"; \
-		[ -n "$$backend_pid" ] && kill -9 "$$backend_pid" 2>/dev/null || true; \
+		[ -n "$$backend_pid" ] && $(SUDO) kill -9 "$$backend_pid" 2>/dev/null || true; \
 		sleep 1; \
 	fi; \
-	if lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
+	if $(SUDO) lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
 		echo "❌ Backend port $(BACKEND_PORT) is still in use"; \
 		exit 1; \
 	fi; \
@@ -400,7 +386,7 @@ web-status:
 	fi
 
 clean:
-	rm -rf bin
+	rm -rf "$(CURDIR)/bin" "$(CURDIR)/static"
 
 # install-skill installs the quartet-workflow skill: first build+install its CLI
 # onto PATH, then register the skill directory with the `skills` CLI. Override
@@ -470,10 +456,6 @@ install-skill-run:
 	@$(SKILLS_CLI) ls -g --json | python3 -c "import json, sys; name = sys.argv[1]; items = json.load(sys.stdin); matches = [item for item in items if item.get('name') == name]; \
 sys.exit('error: {} is not listed by skills ls -g'.format(name)) if not matches else None; \
 item = matches[0]; print('[ok] Skill installed: {}'.format(item.get('path', '(unknown)'))); agents = ', '.join(item.get('agents') or []); print('  Agents: {}'.format(agents or '(none)'))" "$(SKILL_NAME)"
-
-# install-skill-all installs the skill for every agent the `skills` CLI knows.
-install-skill-all:
-	@$(MAKE) --no-print-directory install-skill SKILL_AGENTS='*'
 
 # install-skill-list lists the skills discoverable under SKILL_SOURCE without
 # installing anything (useful to confirm the skill is detected).

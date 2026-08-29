@@ -2446,7 +2446,7 @@ export function GraphWorkflowPage({
                         {t('graph.editor.reset')}
                       </button>
                       {canWriteWorkflows && selectedWorkflow && (
-                        <button className="graph-danger-btn" onClick={() => { setActionsMenuOpen(false); if (guardDiscard()) setDeleteTarget(selectedWorkflow); }} disabled={editingLocked}>
+                        <button className="graph-danger-btn" data-testid="graph-delete" onClick={() => { setActionsMenuOpen(false); if (guardDiscard()) setDeleteTarget(selectedWorkflow); }} disabled={editingLocked}>
                           <GraphButtonIcon name="trash" />
                           {t('graph.editor.delete')}
                         </button>

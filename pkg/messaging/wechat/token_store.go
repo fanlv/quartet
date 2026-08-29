@@ -14,7 +14,7 @@ import (
 )
 
 // userTokensMu serializes read-modify-write operations so updates to different
-// bot partitions cannot overwrite one another. Writes still use the sandbox's
+// bot partitions cannot overwrite one another. Writes still use the file service's
 // atomic replace, so other processes see either the old or complete new file.
 var userTokensMu sync.Mutex
 

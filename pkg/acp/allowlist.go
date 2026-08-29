@@ -14,23 +14,13 @@ type RuntimeDefinition struct {
 	OverrideEnv bool
 }
 
-// allowedAgentCommands is the set of allowed ACP agent commands.
-// Populated at startup via RegisterAllowedAgentCommands.
+// allowedAgentCommands is the set of allowed ACP agent runtime keys.
+// Populated at startup via RegisterAgentRuntime.
 var (
 	allowedAgentCommands   = make(map[string]bool)
 	allowedAgentRuntimes   = make(map[string]RuntimeDefinition)
 	allowedAgentCommandsMu sync.RWMutex
 )
-
-// RegisterAllowedAgentCommands registers the set of allowed ACP agent commands.
-// Must be called at startup before any NewConn calls.
-func RegisterAllowedAgentCommands(commands []string) {
-	allowedAgentCommandsMu.Lock()
-	defer allowedAgentCommandsMu.Unlock()
-	for _, cmd := range commands {
-		allowedAgentCommands[cmd] = true
-	}
-}
 
 func RegisterAgentRuntime(key string, definition RuntimeDefinition) error {
 	key = strings.TrimSpace(key)

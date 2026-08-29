@@ -18,7 +18,7 @@ import (
 // honours ctx via ctxRWMutex, and every ChatContextRepo /
 // ChatContextManager method threads ctx through to the lock acquire,
 // so a contended lock or hung competing writer surfaces as ctx.Err()
-// within this budget. Underlying file I/O (sandbox FileRead /
+// within this budget. Underlying file I/O (FileRead /
 // JSONLAppendLine / AtomicWriteFile) is still blocking-only — once the
 // goroutine has the lock it can stall arbitrarily on a sick disk; only
 // the lock-wait phase is bounded today. 10s sized to comfortably cover
@@ -99,29 +99,4 @@ func (p *PersistErr) CapturePersistErrTo(retErr *error, prefix string) {
 	if e := p.Err(); e != nil {
 		*retErr = fmt.Errorf("%s: %w", prefix, e)
 	}
-}
-
-// FinalizeRound drains the round through onFlush with the right reason
-// (Canceled when runCtx is cancelled, Interrupted otherwise), then
-// clears the handler so any late callback into the builder between Runs
-// dispatches to nil rather than the previous Run's stale agui handler.
-//
-// Use as `defer round.FinalizeRound(builder, runCtx)`. MUST be declared
-// AFTER `defer builder.ClearOnFlush()` so the LIFO order keeps onFlush
-// installed at the moment this defer's CollectMessages drains the final
-// round — without that ordering, the last half-complete round would be
-// dropped instead of persisted.
-//
-// EmitPendingEnds runs before CollectMessages so UI end events reach the
-// handler before the tool-call accumulators are cleared. Both calls
-// share the same reason so the live placeholder tooltip matches the
-// on-disk placeholder a subsequent reload renders.
-func FinalizeRound(b *Builder, runCtx context.Context) {
-	reason := ReasonInterrupted
-	if runCtx != nil && runCtx.Err() != nil {
-		reason = ReasonCanceled
-	}
-	b.EmitPendingEnds(reason)
-	b.CollectMessages(reason)
-	b.ClearHandler()
 }

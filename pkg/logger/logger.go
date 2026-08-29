@@ -48,7 +48,7 @@ func log(ctx context.Context, level slog.Level, format string, args []any) {
 		msg = fmt.Sprintf(format, args...)
 	}
 	defaultLogger.Log(ctx, level, msg)
-	logBuffer.Append(levelName(level), sourceFromCtx(ctx), msg)
+	logBuffer.Append(levelName(level), "", msg)
 }
 
 func levelName(l slog.Level) string {

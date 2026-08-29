@@ -35,7 +35,7 @@ func captureTerminalEvent(t *testing.T, svc *serviceImpl, jobID string, fn func(
 			return nil
 		}
 		for _, e := range entries {
-			if isTerminalEvent(e.Event) {
+			if classifyEvent(e.Event).isTerminal {
 				return e.Event
 			}
 			if e.Seq > 0 {
@@ -306,7 +306,7 @@ func TestClosePanicRoundIfOpen_ClosesAndAllowsReclaim(t *testing.T) {
 		}
 		for _, e := range entries {
 			reader.Ack(e.Seq)
-			if isTerminalEvent(e.Event) {
+			if classifyEvent(e.Event).isTerminal {
 				sawTerminal = true
 			}
 		}

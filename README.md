@@ -16,7 +16,7 @@ multi-agent workflows, inspect live execution, and keep the resulting history
 on local storage.
 
 Quartet is designed for a trusted shared instance running on a personal computer
-or in a development sandbox. Multiple login accounts share the same workspaces
+or another controlled environment. Multiple login accounts share the same workspaces
 and data while roles control available capabilities. It is under active
 development, and its APIs and stored data formats may change before a stable
 release.
@@ -32,6 +32,10 @@ release.
   images, and errors in real time; preserves session history and supports
   stopping, resuming, renaming, pinning, and sharing jobs. Follow-up messages
   sent while a job is running enter a durable queue shared by Web and iOS.
+- **Quiet completion hooks** - a shared Shell hook can notify external systems
+  after graph completion or an interactive turn. Interactive notifications are
+  skipped by default while a visible Web or iOS page is already watching that
+  Job live.
 - **Workspace-aware execution** - organizes jobs around project directories,
   remembers per-workspace defaults, exposes files to the conversation, and
   shows the active Git branch.
@@ -186,6 +190,24 @@ The scheduler runs inside the Quartet backend. Keep the backend running for
 scheduled automation; `make web-watch` can monitor the service and revive it
 when its port goes down.
 
+## Completion Hooks
+
+Settings can define one default Shell hook for completion notifications and
+other side effects. Graph end nodes may opt into it, and every interactive turn
+considers it after completing, failing, or being stopped. By default, an
+interactive turn skips the hook while an authenticated Web or iOS page is
+visibly watching that Job. Hidden browser tabs, inactive or backgrounded iOS
+apps, public share readers, and internal subscribers do not count as viewers. A
+skipped notification is not queued for later; a later turn ending with no live
+viewer runs the hook normally.
+
+The script receives `QUARTET_*` context variables including the trigger source,
+Job and session identifiers, run outcome, error text, latest assistant text,
+and viewer state. It runs from the Job workdir, while its temporary script file
+is created under `$LOCAL_MEMORY/var/quartet/tmp/shell/` (or the operating
+system temp directory if `LOCAL_MEMORY` cannot be resolved). Hook output is
+diagnostic only, and hook failure never changes the task result.
+
 ## iOS Client
 
 [`ios/`](./ios) contains **Sophia**, a native SwiftUI client for the same
@@ -232,7 +254,7 @@ shared set of workspaces, jobs, and sessions.
 - **Connection management** - inspect the active endpoint and last successful
   sync, restart the web service, reconfigure the connection, or sign out and
   clear it.
-- **Background behavior** - event streams stop when the app is backgrounded and
+- **Background behavior** - event streams stop whenever the app leaves the active foreground state and
   the server snapshot is re-read on return, so the UI does not silently display
   stale progress.
 
@@ -266,7 +288,7 @@ be added alongside them.
 
 | Agent | Required CLI | ACP command used by Quartet | ACP setup |
 |---|---|---|---|
-| Eino | `eino-cli` | `eino-cli acp` | Build and install from this repository with `make build-eino-cli` |
+| Eino | `eino-cli` | `eino-cli acp` | Build and install from this repository with `make install-eino-cli` |
 | TraeCLI | `traex` | `traex acp serve` | Provided by the CLI |
 | Grok | `grok` | `grok --no-auto-update agent stdio` | Provided by the CLI |
 | OpenClaw | `openclaw` | `openclaw acp` | Provided by the CLI |
@@ -364,18 +386,25 @@ Quartet requires both `claude` and `claude-agent-acp` for Claude Code, and both
 
 | Command | Description |
 |---|---|
+| `make build` | Build CLI, Eino, backend, and frontend artifacts |
 | `make web` | Build the UI and backend, then start or restart the detached web service |
 | `make web-status` | Show backend and watchdog status |
 | `make web-logs` | Follow `/tmp/quartet-backend.log` |
-| `make web-stop` | Stop the backend and clean up orphaned `quartet-web` processes |
+| `make web-stop` | Stop the watchdog, backend, and orphaned `quartet-web` processes |
 | `make backend-stop` | Stop only the backend and leave the watchdog running |
 | `make web-watch` | Start a detached watchdog that revives the backend if its port goes down |
 | `make web-watch-stop` | Stop the watchdog without stopping the backend |
 | `make web-watch-logs` | Follow `/tmp/quartet-watchdog.log` |
 | `make build-frontend` | Rebuild the SPA into `static/` without restarting the backend |
+| `make build-web` | Build `bin/quartet-web` without restarting the service |
 | `make build-cli` | Build `bin/quartet-cli` |
-| `make build-eino-cli` | Build and install the standalone Eino ACP agent |
+| `make build-eino-cli` | Build `bin/eino-cli` |
+| `make install-eino-cli` | Build and install the standalone Eino ACP agent |
 | `make install-project-tools` | Install `quartet-cli` and all project skills |
+| `make test-go` | Run all Go tests |
+| `make test-web` | Run frontend component tests |
+| `make lint-web` | Run frontend ESLint checks |
+| `make e2e` | Run frontend Playwright tests |
 | `make build-ios` | Build the iOS app on macOS with Xcode |
 | `make test-ios` | Build the iOS app for Simulator without signing |
 | `make pod-install` | Install or refresh the iOS CocoaPods dependencies |
@@ -390,8 +419,13 @@ Quartet requires both `claude` and `claude-agent-acp` for Claude Code, and both
 | `QUARTET_CORS_ORIGINS` | No | Comma-separated cross-origin allowlist; unset means same-origin only |
 | `QUARTET_TRUSTED_PROXIES` | No | Comma-separated reverse-proxy IPs/CIDRs trusted to supply client-IP headers; defaults to loopback only; use `none` to disable |
 | `QUARTET_LOG_LEVEL` | No | Initial log level: `debug`, `info`, `warn`, or `error` |
+| `QUARTET_LOG_HTTP_BODY` | No | Log HTTP request and response bodies; disabled by default and may expose secrets |
 | `QUARTET_STATIC_DIR` | No | Built frontend directory; defaults to `static` |
 | `QUARTET_CERTS_DIR` | No | Directory containing `cert.pem` and `key.pem`; defaults to `certs` |
+| `QUARTET_MAX_ACP_AGENTS` | No | Maximum number of cached ACP agent instances |
+| `QUARTET_ACP_PROBE_CONCURRENCY` | No | Maximum concurrent ACP capability probes |
+| `QUARTET_MESSAGES_CACHE_BYTES` | No | In-memory message-history cache budget; `0` disables it |
+| `QUARTET_BASE_URL` | No | Backend URL used by `quartet-cli`; defaults to `http://127.0.0.1:8090` |
 
 Without certificates, Quartet binds to `0.0.0.0:8090` over HTTP. When both
 `cert.pem` and `key.pem` exist in the certificate directory, it enables HTTPS
@@ -420,7 +454,7 @@ $LOCAL_MEMORY/
 └── var/quartet/
     ├── state/        # sessions and schedule state
     ├── cache/        # reconstructable caches
-    └── tmp/          # process-owned temporary files
+    └── tmp/          # process-owned temporary files; hooks use tmp/shell/
 ```
 
 Writes to important records are atomic. Backing up `LOCAL_MEMORY` backs up the
@@ -499,15 +533,19 @@ make install-skill SKILL_NAME=quartet-workflow
 ## Development
 
 ```bash
+make build           # Build all application artifacts
 make build-all       # Build all Go applications
 make build-cli       # Build quartet-cli
-make build-eino-cli  # Build and install the standalone Eino ACP agent
+make build-eino-cli  # Build the standalone Eino ACP agent
+make install-eino-cli # Build and install Eino to INSTALL_BIN_DIR
 make build-frontend  # Type-check and build the React application
+make test-go          # Run all Go tests
 make test-ios        # Build the iOS Simulator target on macOS without signing
 make e2e-ios         # Run native iOS UI tests in Simulator
 make test-web        # Run frontend component tests
+make lint-web        # Run frontend ESLint checks
 make e2e             # Run Playwright end-to-end tests
-make test            # Run Go build, frontend tests, and E2E tests
+make test            # Run Go tests, frontend tests, and E2E tests
 go test ./...        # Run Go tests
 ```
 

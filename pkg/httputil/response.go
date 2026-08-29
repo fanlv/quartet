@@ -39,7 +39,7 @@ func InternalError(c *app.RequestContext, msg string) {
 
 // InternalErrorLog logs the underlying err with op context and returns the full
 // error to the client. Per the project convention (AGENTS.md: "错误信息就要全量
-// 给用户显示，不要隐藏任何错误信息") quartet is a single-user local/sandbox tool,
+// 给用户显示，不要隐藏任何错误信息") quartet runs in a trusted environment,
 // so surfacing the real error — paths included — beats forcing the user to dig
 // through backend logs.
 func InternalErrorLog(ctx context.Context, c *app.RequestContext, op string, err error) {

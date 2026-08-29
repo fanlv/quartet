@@ -421,14 +421,6 @@ func (s *serviceImpl) completeControl(runID string, handle *runControl, buf *gra
 	lifecycle.mu.Unlock()
 }
 
-func (s *serviceImpl) getControl(runID string) *runControl {
-	lifecycle := s.lifecycle(runID)
-	lifecycle.mu.Lock()
-	handle := lifecycle.handle
-	lifecycle.mu.Unlock()
-	return handle
-}
-
 // eventBuffer returns the run's in-memory event buffer, creating it on first
 // use. Called from the scheduler goroutine (runGraph entry, event publish) so a
 // live run always has a buffer to broadcast through.

@@ -3,7 +3,6 @@ package graph
 import (
 	"context"
 	"errors"
-	"strconv"
 	"sync"
 	"time"
 
@@ -373,17 +372,4 @@ func (b *graphEventBuffer) minCursorLocked() uint64 {
 		}
 	}
 	return min
-}
-
-// graphEventLineToSeq parses an SSE Last-Event-ID into a resume seq. Empty or
-// malformed yields 0 ("start at tail").
-func graphEventLineToSeq(value string) uint64 {
-	if value == "" {
-		return 0
-	}
-	seq, err := strconv.ParseUint(value, 10, 64)
-	if err != nil {
-		return 0
-	}
-	return seq
 }

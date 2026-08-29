@@ -11,7 +11,7 @@ func boolPtr(v bool) *bool {
 	return &v
 }
 
-func resetAllowedAgentCommandsForTest(t *testing.T) {
+func resetAllowedAgentCommandsForTest(t *testing.T, commands ...string) {
 	t.Helper()
 	reset := func() {
 		allowedAgentCommandsMu.Lock()
@@ -19,6 +19,11 @@ func resetAllowedAgentCommandsForTest(t *testing.T) {
 		allowedAgentCommandsMu.Unlock()
 	}
 	reset()
+	allowedAgentCommandsMu.Lock()
+	for _, command := range commands {
+		allowedAgentCommands[command] = true
+	}
+	allowedAgentCommandsMu.Unlock()
 	t.Cleanup(reset)
 }
 
@@ -154,11 +159,10 @@ func TestMatchedSystemRootBasename(t *testing.T) {
 // must be what stops them — none of these processes inherit
 // QUARTET_ACP_CHILD=1 because they were never started by quartet.
 func TestCleanupOrphanedConns_SkipsSystemTreesWithoutMarker(t *testing.T) {
-	resetAllowedAgentCommandsForTest(t)
-	RegisterAllowedAgentCommands([]string{
+	resetAllowedAgentCommandsForTest(t,
 		"coco acp serve",
 		"openclaw acp",
-	})
+	)
 
 	procs := map[int]procInfo{
 		// sshd / coco subtree — substring "coco" will match on pid 30001
@@ -210,8 +214,7 @@ func TestCleanupOrphanedConns_SkipsSystemTreesWithoutMarker(t *testing.T) {
 // A quartet-owned orphan must still be killed: marker present on every
 // node of the inherited chain, matched via keyword, root at PPID==1.
 func TestCleanupOrphanedConns_KillsMarkedOrphanTree(t *testing.T) {
-	resetAllowedAgentCommandsForTest(t)
-	RegisterAllowedAgentCommands([]string{"npx @agentclientprotocol/codex-acp"})
+	resetAllowedAgentCommandsForTest(t, "npx @agentclientprotocol/codex-acp")
 
 	procs := map[int]procInfo{
 		61915: {ppid: 1, cmdline: "sh\x00-c\x00codex-acp\x00", marker: boolPtr(true)},

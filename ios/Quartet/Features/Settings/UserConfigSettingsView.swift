@@ -131,7 +131,7 @@ struct UserConfigSettingsView: View {
                     .toggleStyle(QuartetCheckmarkToggleStyle())
                     .disabled(!canWrite)
                     .accessibilityIdentifier("user-config-end-hook-skip-watched")
-                agentSettingsHint("对话轮次结束时，如果有页面正在实时看这个任务的输出（Web 前台标签页、iOS 前台对话页、图运行页），就不执行脚本；页面关掉、切走或退到后台后才通知。图工作流终点 Hook 不受影响。")
+                agentSettingsHint("对话轮次结束时，如果有页面正在实时看这个任务的输出（Web 前台标签页、iOS 前台对话页、图运行页），就不执行脚本；已跳过的通知不会延迟补发，之后在无人查看时结束的轮次才会通知。图工作流终点 Hook 不受影响。")
             }
             agentSettingsDivider()
             VStack(alignment: .leading, spacing: 6) {

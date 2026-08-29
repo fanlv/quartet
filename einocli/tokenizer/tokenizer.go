@@ -38,16 +38,6 @@ func MessagesTokenCounter(ctx context.Context, msgs []*schema.Message) int {
 	return total
 }
 
-// MessagesImageTokenCounter counts only locally readable images and does not
-// read or populate the per-message text token cache.
-func MessagesImageTokenCounter(_ context.Context, msgs []*schema.Message) int {
-	var total int
-	for _, msg := range msgs {
-		total += messageImageTokenCount(msg)
-	}
-	return total
-}
-
 func MessageTokenCounter(ctx context.Context, msg *schema.Message) int {
 	if msg == nil {
 		return 0

@@ -529,7 +529,7 @@ func isPathAllowedForServe(filePath string) bool {
 }
 
 // isPathInAllowedRegion is the shared filesystem whitelist check used by the
-// file read/write/serve handlers for the non-sandbox path.
+// local file read/write/serve handlers.
 func isPathInAllowedRegion(filePath string) bool {
 	if filePath == "" {
 		return false
@@ -546,7 +546,7 @@ func isPathInAllowedRegion(filePath string) bool {
 	return false
 }
 
-// allowedRoots returns the filesystem roots the non-sandbox file handlers are
+// allowedRoots returns the filesystem roots the local file handlers are
 // allowed to touch. The list is derived from env vars and the workspace
 // service, so it stays in sync with the rest of the process. $HOME is always
 // included so users can pick directories anywhere under their own home tree.

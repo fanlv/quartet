@@ -593,55 +593,65 @@ func TestSplitReplyContent_UTF8Safe(t *testing.T) {
 	}
 }
 
-// TestIsAdminSender_Lark: only the exact configured admin OpenID matches.
-func TestIsAdminSender_Lark(t *testing.T) {
+// TestAdminStatus_Lark: only the exact configured admin OpenID matches.
+func TestAdminStatus_Lark(t *testing.T) {
 	fs := &fakeSettings{larkAdmin: "ou_admin"}
 	g := newTestGateway(t, fs)
 
-	if !g.isAdminSender(messaging.PlatformLark, "ou_admin") {
+	configured, isAdmin := g.adminStatus(messaging.PlatformLark, "ou_admin")
+	if !configured || !isAdmin {
 		t.Fatal("expected lark admin to match")
 	}
-	if g.isAdminSender(messaging.PlatformLark, "ou_other") {
+	configured, isAdmin = g.adminStatus(messaging.PlatformLark, "ou_other")
+	if !configured || isAdmin {
 		t.Fatal("unrelated openid should not match")
 	}
-	if g.isAdminSender(messaging.PlatformLark, "") {
+	configured, isAdmin = g.adminStatus(messaging.PlatformLark, "")
+	if configured || isAdmin {
 		t.Fatal("empty sender should not match")
 	}
 }
 
-// TestIsAdminSender_WeChat: any ID on the whitelist matches; whitespace is
+// TestAdminStatus_WeChat: any ID on the whitelist matches; whitespace is
 // trimmed.
-func TestIsAdminSender_WeChat(t *testing.T) {
+func TestAdminStatus_WeChat(t *testing.T) {
 	fs := &fakeSettings{wechatAdminIDs: []string{"@alice_1", "  @bob_2  "}}
 	g := newTestGateway(t, fs)
 
-	if !g.isAdminSender(messaging.PlatformWeChat, "@alice_1") {
+	configured, isAdmin := g.adminStatus(messaging.PlatformWeChat, "@alice_1")
+	if !configured || !isAdmin {
 		t.Fatal("expected @alice_1 to match")
 	}
-	if !g.isAdminSender(messaging.PlatformWeChat, "@bob_2") {
+	configured, isAdmin = g.adminStatus(messaging.PlatformWeChat, "@bob_2")
+	if !configured || !isAdmin {
 		t.Fatal("expected @bob_2 (after trim) to match")
 	}
-	if g.isAdminSender(messaging.PlatformWeChat, "@eve_3") {
+	configured, isAdmin = g.adminStatus(messaging.PlatformWeChat, "@eve_3")
+	if !configured || isAdmin {
 		t.Fatal("unlisted sender should not match")
 	}
 }
 
-// TestHasAdminConfigured: both platforms report based on their config.
-func TestHasAdminConfigured(t *testing.T) {
+// TestAdminStatusConfigured: both platforms report based on their config.
+func TestAdminStatusConfigured(t *testing.T) {
 	fs := &fakeSettings{}
 	g := newTestGateway(t, fs)
 
-	if g.hasAdminConfigured(messaging.PlatformLark) || g.hasAdminConfigured(messaging.PlatformWeChat) {
+	configuredLark, _ := g.adminStatus(messaging.PlatformLark, "x")
+	configuredWeChat, _ := g.adminStatus(messaging.PlatformWeChat, "x")
+	if configuredLark || configuredWeChat {
 		t.Fatal("expected all platforms un-configured initially")
 	}
 
 	fs.larkAdmin = "ou_a"
-	if !g.hasAdminConfigured(messaging.PlatformLark) {
+	configuredLark, _ = g.adminStatus(messaging.PlatformLark, "x")
+	if !configuredLark {
 		t.Fatal("expected lark configured")
 	}
 
 	fs.wechatAdminIDs = []string{"@x"}
-	if !g.hasAdminConfigured(messaging.PlatformWeChat) {
+	configuredWeChat, _ = g.adminStatus(messaging.PlatformWeChat, "x")
+	if !configuredWeChat {
 		t.Fatal("expected wechat configured")
 	}
 }

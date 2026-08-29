@@ -117,10 +117,3 @@ func (s *serviceImpl) PublishTransient(jobID string, event any) {
 		buf.PublishTransient(event)
 	}
 }
-
-// isTerminalEvent returns true for events that mark a job's final
-// transition. Buffer GC is disabled after a terminal event so refreshing
-// a finished job's page still shows the last round of chunks.
-func isTerminalEvent(event any) bool {
-	return classifyEvent(event).isTerminal
-}

@@ -19,18 +19,14 @@ import (
 )
 
 const (
-	qrCodeURL       = "https://ilinkai.weixin.qq.com/ilink/bot/get_bot_qrcode?bot_type=3"
-	qrStatusURL     = "https://ilinkai.weixin.qq.com/ilink/bot/get_qrcode_status?qrcode="
-	statusWait      = "wait"
-	statusScanned   = "scaned"
-	statusConfirmed = "confirmed"
-	statusExpired   = "expired"
+	qrCodeURL   = "https://ilinkai.weixin.qq.com/ilink/bot/get_bot_qrcode?bot_type=3"
+	qrStatusURL = "https://ilinkai.weixin.qq.com/ilink/bot/get_qrcode_status?qrcode="
 )
 
 // credentialsMu guards SaveCredentials / RemoveCredentials so concurrent
 // writers (e.g. multiple Web tabs triggering login) don't race on the same
 // file. Reads (LoadAllCredentials) don't take the lock — SaveCredentials
-// writes via sandbox atomic write, so a reader
+// writes atomically through the local file service, so a reader
 // always sees either the old file or the complete new file, never a
 // partially-written one. A corrupt file from some other cause is skipped
 // via the json.Unmarshal failure path in LoadAllCredentials.
@@ -69,57 +65,6 @@ func PollQRStatusOnce(ctx context.Context, qrcode string) (*QRStatusResponse, er
 	return &resp, nil
 }
 
-// PollQRStatus polls for QR code scan status until confirmed or expired. It
-// calls onStatus for each status change so the caller can surface progress.
-func PollQRStatus(ctx context.Context, qrcode string, onStatus func(status string)) (*Credentials, error) {
-	var lastStatus string
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-
-		resp, err := PollQRStatusOnce(ctx, qrcode)
-		if err != nil {
-			// Timeout is normal for long-poll, retry.
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			// Back off briefly on fast failures (DNS/connection refused/TLS)
-			// so we don't spin through the rate limiter flooding logs.
-			select {
-			case <-time.After(3 * time.Second):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-			continue
-		}
-
-		if onStatus != nil && resp.Status != lastStatus {
-			onStatus(resp.Status)
-			lastStatus = resp.Status
-		}
-
-		switch resp.Status {
-		case statusConfirmed:
-			return &Credentials{
-				BotToken:    resp.BotToken,
-				ILinkBotID:  resp.ILinkBotID,
-				BaseURL:     resp.BaseURL,
-				ILinkUserID: resp.ILinkUserID,
-			}, nil
-		case statusExpired:
-			return nil, fmt.Errorf("QR code expired")
-		case statusWait, statusScanned:
-			// continue polling
-		default:
-			// unknown status, continue
-		}
-	}
-}
-
 // normalizeAccountID converts raw bot ID (e.g. "@abc_123") into a filesystem-
 // safe form for use as the credentials filename.
 func normalizeAccountID(raw string) string {
@@ -136,7 +81,7 @@ func normalizeAccountID(raw string) string {
 
 // SaveCredentials saves credentials to disk under
 // {LOCAL_MEMORY}/quartet/data/wechat/accounts/{normalized_bot_id}.json (mode 0600).
-// Writes go through sandbox atomic write so a crash mid-write can't leave a
+// Writes go through an atomic file write so a crash mid-write can't leave a
 // truncated credential file that would need manual cleanup.
 func SaveCredentials(creds *Credentials) error {
 	if creds == nil {

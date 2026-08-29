@@ -62,7 +62,7 @@ test('uploads an ordinary file, sends its metadata, renders it, and restores it 
   await page.route(`**/api/v1/job/${jobID}/message-queue`, route => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, queue: { jobId: jobID, version: 0, paused: false, willContinue: false, items: [] } }),
   }))
-  await page.route(`**/api/v1/job/${jobID}/events`, route => route.fulfill({
+  await page.route(url => url.pathname === `/api/v1/job/${jobID}/events`, route => route.fulfill({
     status: 200, contentType: 'text/event-stream', body: ': ready\n\n',
   }))
   await page.route(`**/api/v1/job/${jobID}/message`, async route => {

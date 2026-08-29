@@ -35,25 +35,6 @@ type UpstreamSnapshot struct {
 
 const lastAssistantKey = reservedLastAssistant
 
-// MergeVisibleSnapshots merges the visible variable snapshots of all activated
-// upstreams into the snapshot a join instance will see.
-//
-// Rules (§3):
-//   - union of all upstream variables; different upstreams writing different
-//     variables are unioned. Same-name writes by potentially-parallel nodes are
-//     forbidden at save time (§1), so a deterministic tie-break (ascending node
-//     ID, last wins) is only a defensive fallback.
-//   - _last_assistant_msg is taken from the activated upstream with the
-//     greatest node ID (ascending sort, last position), independent of arrival
-//     order — guaranteeing the same value across reruns and crash recovery.
-//
-// Passing a single upstream degenerates to "inherit upstream snapshot".
-// Pruned upstreams must be excluded by the caller (not passed in).
-func MergeVisibleSnapshots(upstreams []UpstreamSnapshot) map[string]string {
-	merged, _ := MergeVisibleSnapshotsWithWriters(upstreams)
-	return merged
-}
-
 func MergeVisibleSnapshotsWithWriters(upstreams []UpstreamSnapshot) (map[string]string, map[string]string) {
 	merged := make(map[string]string)
 	writers := make(map[string]string)

@@ -187,9 +187,3 @@ func TestResetArchivesSessionedInstances(t *testing.T) {
 		t.Fatal("session-less loop container must NOT be archived")
 	}
 }
-
-// releaseAfter closes the gate's release channel once (guarded for re-use).
-func releaseAfter(g *gatedRunner) {
-	defer func() { _ = recover() }()
-	close(g.release)
-}

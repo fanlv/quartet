@@ -31,7 +31,7 @@ import (
 // reuses the same core helpers (createJob / prepareJobMessage) as the web HTTP
 // handlers so the IM and Web flows share identical job-creation and send-
 // message semantics. Multiple platforms coexist through the repliers map and
-// platform-aware dispatch helpers (isAdminSender / botSenderID / etc.).
+// platform-aware dispatch helpers (adminStatus / botSenderID / etc.).
 type imGateway struct {
 	h             *Handler
 	mappingRepo   repository.IMJobMappingRepo
@@ -191,8 +191,8 @@ func userErrorf(format string, args ...any) error {
 	return &userError{msg: fmt.Sprintf(format, args...)}
 }
 
-// userReplyText returns the complete error. Quartet is a single-user
-// local/sandbox application and its error contract requires the full failure,
+// userReplyText returns the complete error. Quartet runs in a trusted
+// environment and its error contract requires the full failure,
 // including wrapped repository and ACP details, to reach the user.
 func userReplyText(err error) string {
 	if err == nil {
@@ -946,9 +946,7 @@ func (g *imGateway) dispatchGroupMessage(msg *messaging.Message, botSenderID str
 }
 
 // adminStatus returns whether the platform has an admin configured, and whether
-// the given senderID matches the configured admin(s). This consolidates settings
-// reads so dispatchMessage doesn't have to call hasAdminConfigured/isAdminSender
-// separately (both of which would fetch from settings again).
+// the given senderID matches the configured admin(s).
 func (g *imGateway) adminStatus(platform messaging.Platform, senderID string) (configured bool, isAdmin bool) {
 	if g == nil || g.h == nil || g.h.settingsService == nil || senderID == "" {
 		return false, false
@@ -981,14 +979,6 @@ func (g *imGateway) adminStatus(platform messaging.Platform, senderID string) (c
 	return false, false
 }
 
-// isAdminSender reports whether senderID is on the admin whitelist for the
-// given platform. Lark uses a single admin OpenID in settings; WeChat uses a
-// multi-id whitelist populated via first-contact approval (doc §5.1).
-func (g *imGateway) isAdminSender(platform messaging.Platform, senderID string) bool {
-	_, ok := g.adminStatus(platform, senderID)
-	return ok
-}
-
 // botSenderID returns the sender ID used in group-chat @-mention checks. Only
 // Lark currently distinguishes a "sophia" bot identity; WeChat P2P does not
 // carry @ info in TextItem, so this returns empty for WeChat.
@@ -998,13 +988,6 @@ func (g *imGateway) botSenderID(platform messaging.Platform) string {
 	}
 	_, sophia := g.h.settingsService.GetLarkIMSenderIDs()
 	return strings.TrimSpace(sophia)
-}
-
-// hasAdminConfigured reports whether the platform has at least one admin
-// configured. When false, dispatchMessage drops all non-group messages.
-func (g *imGateway) hasAdminConfigured(platform messaging.Platform) bool {
-	ok, _ := g.adminStatus(platform, "x")
-	return ok
 }
 
 // logPendingContact emits one INFO line per (platform, senderID) per minute

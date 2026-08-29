@@ -425,7 +425,7 @@
       "endHookScriptPlaceholder": "# e.g. send a Lark message when a task finishes\ncurl -s \"$WEBHOOK\" -d \"$QUARTET_JOB_TITLE finished\"",
       "endHookScriptDesc": "The default side-effect shell script run when a task ends, typically to send a notification. Its output is ignored and a failure only logs, never affecting the task itself.",
       "endHookSkipWhenWatched": "Only run when nobody is watching the task live (chat)",
-      "endHookSkipWhenWatchedDesc": "When a chat round ends, skip the script if a page is watching this task's output live (a visible web tab, the iOS chat page in the foreground, the graph run page). The notification fires once the page is closed, switched away, or backgrounded. Graph End node hooks are unaffected.",
+      "endHookSkipWhenWatchedDesc": "When a chat round ends, skip the script if a page is watching this task's output live (a visible web tab, the iOS chat page in the foreground, the graph run page). Skipped notifications are not delayed; later rounds notify normally when nobody is watching. Graph End node hooks are unaffected.",
       "endHookTriggers": "Trigger points",
       "endHookTriggerGraph": "A graph workflow reaches an end node set to \"Use global default script\"",
       "endHookTriggerChat": "Every interactive chat round ends — completed / failed / stopped",

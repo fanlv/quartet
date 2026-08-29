@@ -7,19 +7,6 @@ import (
 	"time"
 )
 
-func TestCacheDirUsesRuntimeCacheSubdir(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("LOCAL_MEMORY", root)
-
-	dir, err := CacheDir()
-	if err != nil {
-		t.Fatalf("CacheDir: %v", err)
-	}
-	if want := filepath.Join(root, "var", "quartet", "cache", "im-media"); dir != want {
-		t.Fatalf("CacheDir = %q, want %q", dir, want)
-	}
-}
-
 func TestSweepCacheDirRemovesOnlyExpiredFiles(t *testing.T) {
 	root := t.TempDir()
 	oldFile := filepath.Join(root, "old.png")

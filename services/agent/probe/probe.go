@@ -98,10 +98,8 @@ func validateCatalog() {
 // installed, active built-in Agent. Historical revisions are retained in the
 // catalog and registered on demand when a session or GraphRun uses them.
 //
-// Made explicit (rather than an init()) so startup ordering is visible
-// in the entrypoint and tests wanting to exercise a subset of commands
-// can call pkgacp.RegisterAllowedAgentCommands directly without import
-// ordering tricks.
+// Made explicit (rather than an init()) so startup ordering is visible in the
+// entrypoint and tests do not depend on import ordering.
 func InitAllowedAgentCommands() {
 	validateCatalog()
 	checker := agentinstall.Checker{}
@@ -490,30 +488,6 @@ func noteProbeSuccess(command string) int {
 		return recovered
 	}
 	return 0
-}
-
-// CachedACPSessionInfo returns the in-memory selector snapshot for command
-// without triggering any probe, so /agent/list stays non-blocking. A freshly
-// probed agent becomes visible here the moment refreshACPSessionCache writes it
-// into the process cache — the throttled on-disk snapshot no longer gates
-// visibility. ok is false when nothing has been cached yet (neither seeded from
-// disk nor probed live). Returned values are deep copies callers may mutate.
-func CachedACPSessionInfo(command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState, bool) {
-	return getCachedACPSessionInfo(command)
-}
-
-func getCachedACPSessionInfo(command string) (*model.SessionModelState, *model.SessionModeState, *model.SessionThoughtLevelState, bool) {
-	acpSessionCacheMu.RLock()
-	defer acpSessionCacheMu.RUnlock()
-	cached, ok := acpSessionCache[command]
-	if !ok || cached == nil {
-		return nil, nil, nil, false
-	}
-	modelID := currentModelID(cached.models)
-	return cloneSessionModelState(cached.models),
-		cloneSessionModeState(cached.modes),
-		cloneSessionThoughtLevelState(cached.thoughtLevelsByModel[modelID]),
-		true
 }
 
 // CacheACPConfigState mirrors a successful live-session selector change into

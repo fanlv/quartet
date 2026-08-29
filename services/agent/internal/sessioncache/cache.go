@@ -321,8 +321,8 @@ func (c *Cache[T]) createOrReuseBox(createCtx context.Context, sessionID string,
 	c.mu.Lock()
 	if box, ok := c.entries[sessionID]; ok && box != nil {
 		// Someone won the race while we were creating. Drop our
-		// freshly-built entry so it doesn't leak resources (sandbox
-		// subprocess, ACP connection, ...), and return theirs. The
+		// freshly-built entry so it doesn't leak resources (subprocess, ACP
+		// connection, ...), and return theirs. The
 		// caller will acquireRef on this box in its own goroutine.
 		v := box.v
 		c.mu.Unlock()

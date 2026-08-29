@@ -1,9 +1,9 @@
 package logger
 
 import (
-	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBufferRespectsLevel(t *testing.T) {
@@ -76,25 +76,19 @@ func TestSinceCursor(t *testing.T) {
 	}
 }
 
-func TestAppendExternalAndContextSource(t *testing.T) {
+func TestAppendWithTimePreservesFrontendSource(t *testing.T) {
 	defer SetLevel("info")
 	ClearBuffer()
 	SetLevel("debug")
 
-	ctx := WithSource(context.Background(), "frontend/sse")
-	Infof(ctx, "client reconnect")
-
-	AppendExternal("error", "frontend/window.error", "Cannot read property 'foo' of undefined")
+	AppendWithTime(time.Now(), "error", "frontend/window.error", "Cannot read property 'foo' of undefined")
 
 	entries := RecentEntries(Filter{Limit: 10})
-	if len(entries) != 2 {
-		t.Fatalf("want 2 entries, got %d", len(entries))
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(entries))
 	}
 	if entries[0].Source != "frontend/window.error" {
-		t.Fatalf("AppendExternal should set source: got %q", entries[0].Source)
-	}
-	if entries[1].Source != "frontend/sse" {
-		t.Fatalf("WithSource should propagate via Infof: got %q", entries[1].Source)
+		t.Fatalf("AppendWithTime should set source: got %q", entries[0].Source)
 	}
 }
 
@@ -112,7 +106,7 @@ func TestKindFilterAppliesBeforeLimit(t *testing.T) {
 	// run of frontend entries fills the cap.
 	for i := range 50 {
 		Info("backend %d", i)
-		AppendExternal("info", "frontend/console", "frontend log")
+		AppendWithTime(time.Now(), "info", "frontend/console", "frontend log")
 	}
 
 	// Sanity check: with no kind filter and limit=20 you can easily miss

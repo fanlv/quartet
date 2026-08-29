@@ -45,22 +45,8 @@ type Client struct {
 	limiter    *rate.Limiter
 }
 
-type ClientOption func(*Client)
-
-// WithLimiter overrides the process-wide default limiter. Production callers
-// should normally keep the shared limiter so listener + replier clients for the
-// same bot cannot multiply effective QPS; tests may pass a local high-throughput
-// limiter to avoid real-time sleeps.
-func WithLimiter(l *rate.Limiter) ClientOption {
-	return func(c *Client) {
-		if l != nil {
-			c.limiter = l
-		}
-	}
-}
-
 // NewClient creates a new iLink API client bound to the given credentials.
-func NewClient(creds *Credentials, opts ...ClientOption) *Client {
+func NewClient(creds *Credentials) *Client {
 	baseURL := creds.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL
@@ -78,9 +64,6 @@ func NewClient(creds *Credentials, opts ...ClientOption) *Client {
 		httpClient: &http.Client{Timeout: 120 * time.Second},
 		wechatUIN:  generateWechatUIN(),
 		limiter:    requestLimiter,
-	}
-	for _, opt := range opts {
-		opt(c)
 	}
 	return c
 }

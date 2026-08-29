@@ -275,12 +275,6 @@ func RemovePathsStep(paths ...string) InstallStep {
 	}
 }
 
-// ProjectMakeStep builds a repository-local install step that runs make from
-// the backend process working directory.
-func ProjectMakeStep(target string) InstallStep {
-	return InstallStep{Program: "make", Args: []string{target}, Dir: ".", Display: "make " + target}
-}
-
 // GoBuildInstallStep builds the project-owned eino-cli directly. It works on
 // Windows, macOS and Linux without depending on make or cp.
 func GoBuildInstallStep() InstallStep {

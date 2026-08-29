@@ -402,24 +402,6 @@ func TestClearAgentDefaults_PersistsAndKeepsUnrelatedDefaults(t *testing.T) {
 	}
 }
 
-func TestFileAccessBaseRoots_IncludesHome(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	t.Setenv("LOCAL_MEMORY", root)
-	t.Setenv("HOME", home)
-
-	roots := FileAccessBaseRoots()
-	if len(roots) != 2 {
-		t.Fatalf("FileAccessBaseRoots() len = %d, want 2", len(roots))
-	}
-	if roots[0] != root {
-		t.Fatalf("FileAccessBaseRoots()[0] = %q, want %q", roots[0], root)
-	}
-	if roots[1] != home {
-		t.Fatalf("FileAccessBaseRoots()[1] = %q, want %q", roots[1], home)
-	}
-}
-
 func TestTrustedFileWorkspaceRoots_FiltersInvalidWorkdirs(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("LOCAL_MEMORY", root)

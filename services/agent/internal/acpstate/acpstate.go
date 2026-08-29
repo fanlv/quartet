@@ -111,19 +111,6 @@ func ThoughtLevels(resp *pkgacp.SessionResponse) *model.SessionThoughtLevelState
 	return ts
 }
 
-// ThoughtLevelConfigID returns the config option id (e.g. "reasoning_effort")
-// used to drive thought_level through the generic SetSessionConfigOption API.
-// Empty when the agent advertises no thought_level selector.
-func ThoughtLevelConfigID(resp *pkgacp.SessionResponse) string {
-	if resp == nil {
-		return ""
-	}
-	if sel := resp.ThoughtLevelConfigSelect(); sel != nil {
-		return sel.ConfigID
-	}
-	return ""
-}
-
 // ConfigState bundles all three selector lists from a single ACP session
 // response. Any subset may be nil when the response omits that selector — a
 // SetSessionMode response carries no config options at all, so callers get an

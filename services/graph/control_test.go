@@ -43,6 +43,13 @@ type graphSinkUpdate struct {
 	graphSessionID string
 }
 
+func activeControl(svc *serviceImpl, runID string) *runControl {
+	lifecycle := svc.lifecycle(runID)
+	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
+	return lifecycle.handle
+}
+
 // lifecycleBlockingRunner exposes channel checkpoints for scheduler lifecycle
 // tests. It blocks until the scheduler cancels the node context and reports
 // both entry and exit without polling or sleeps.
@@ -296,7 +303,7 @@ func TestStopRunAndWaitJoinsSchedulerFinalJobUpdate(t *testing.T) {
 		t.Fatalf("StopRunAndWait returned before final Job sink update completed: %+v", got)
 	default:
 	}
-	if svc.getControl(run.ID) == nil {
+	if activeControl(svc, run.ID) == nil {
 		t.Fatal("control handle cleared before final Job sink update completed")
 	}
 
@@ -308,7 +315,7 @@ func TestStopRunAndWaitJoinsSchedulerFinalJobUpdate(t *testing.T) {
 	if got.run == nil || got.run.Status != model.GraphRunStatusStopped {
 		t.Fatalf("StopRunAndWait run = %+v, want stopped", got.run)
 	}
-	if svc.getControl(run.ID) != nil {
+	if activeControl(svc, run.ID) != nil {
 		t.Fatal("control handle still registered after StopRunAndWait returned")
 	}
 }
@@ -348,7 +355,7 @@ func TestStopRunAndWaitImmediatelyAfterStart(t *testing.T) {
 		if got.Status != model.GraphRunStatusStopped {
 			t.Fatalf("iteration %d: status = %s, want stopped", i, got.Status)
 		}
-		if svc.getControl(run.ID) != nil {
+		if activeControl(svc, run.ID) != nil {
 			t.Fatalf("iteration %d: control handle still registered", i)
 		}
 	}
@@ -385,10 +392,10 @@ func TestDeleteRunFencesLateSchedulerRegistration(t *testing.T) {
 	// Model a ResumeRun request that resolved the terminal snapshot immediately
 	// before DeleteRun installed its fence. It must fail before writing any
 	// runtime files or launching a scheduler generation.
-	if _, err := svc.relaunchResumableRun(context.Background(), stale, stubGraphRunner{}, nil); !errors.Is(err, ErrGraphRunNotFound) {
+	if _, err := svc.relaunchResumableRunLocked(context.Background(), svc.lifecycle(stale.ID), stale, stubGraphRunner{}, nil); !errors.Is(err, ErrGraphRunNotFound) {
 		t.Fatalf("late relaunch error = %v, want ErrGraphRunNotFound", err)
 	}
-	if svc.getControl(run.ID) != nil {
+	if activeControl(svc, run.ID) != nil {
 		t.Fatal("late relaunch registered a scheduler after DeleteRun")
 	}
 	if _, err := svc.GetRunStatus(context.Background(), run.ID); !errors.Is(err, ErrGraphRunNotFound) {

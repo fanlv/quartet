@@ -364,16 +364,6 @@ func (s *serviceImpl) ContinueRun(ctx context.Context, runID string, runner Runn
 	return s.relaunchResumableRunLocked(ctx, lifecycle, run, runner, jobs)
 }
 
-// relaunchResumableRun is the shared resume kernel for ResumeRun and ContinueRun:
-// it resets the resettable terminal instances (failed/interrupted) and their
-// downstream, keeps succeeded/skipped (and awaitingInput) instances, persists the
-// post-reset state, then re-launches the scheduler in resume mode. The caller is
-// responsible for status validation; `run` is the already-loaded run.
-func (s *serviceImpl) relaunchResumableRun(ctx context.Context, run *model.GraphRun, runner Runner, jobs JobStateSink) (*model.GraphRun, error) {
-	lifecycle := s.lifecycle(run.ID)
-	return s.relaunchResumableRunLocked(ctx, lifecycle, run, runner, jobs)
-}
-
 func (s *serviceImpl) relaunchResumableRunLocked(ctx context.Context, lifecycle *runLifecycle, run *model.GraphRun, runner Runner, jobs JobStateSink) (*model.GraphRun, error) {
 	runID := run.ID
 	var handle *runControl
@@ -473,7 +463,12 @@ func (s *serviceImpl) relaunchResumableRunLocked(ctx context.Context, lifecycle 
 	if err != nil {
 		return nil, err
 	}
-	defer releaseAgentLeases()
+	leasesReleased := false
+	defer func() {
+		if !leasesReleased {
+			releaseAgentLeases()
+		}
+	}()
 
 	// Preserve the sessions of instances the reset removed so the Chat sidebar
 	// keeps listing prior-attempt conversations across the resume. A re-run that
@@ -521,7 +516,7 @@ func (s *serviceImpl) relaunchResumableRunLocked(ctx context.Context, lifecycle 
 	}
 
 	releaseAgentLeases()
-	releaseAgentLeases = func() {}
+	leasesReleased = true
 	launched = true
 	go s.runGraph(runCtx, runID, runner, jobs, true, handle)
 	return run, nil

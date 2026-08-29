@@ -78,6 +78,7 @@ certs/
 /*.diff
 /test_*.sh
 /test_*.go
+/.quartet-hook-*.sh
 /.tmp/*
 
 *.local.*

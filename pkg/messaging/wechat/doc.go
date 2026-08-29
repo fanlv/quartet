@@ -9,9 +9,9 @@
 // are ported from https://github.com/fastclaw-ai/weclaw at **v0.8.0**.
 //
 // The iLink protocol is private to Tencent and may change without notice.
-// Keep the protocol layer in sync with upstream: bump the pin when a new
-// weclaw release addresses a protocol break, and review the diff. Upstream
-// diff URL template:
+// Keep the protocol layer in sync with upstream: run scripts/update-weclaw.sh,
+// review the result, and bump the pin when a new release addresses a protocol
+// break. Upstream diff URL template:
 //
 //	https://github.com/fastclaw-ai/weclaw/compare/v0.8.0...{new-tag}
 //

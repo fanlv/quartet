@@ -56,14 +56,6 @@ func enabled(level int32) bool {
 	return level >= currentLevel.Load()
 }
 
-// DebugEnabled reports whether Debug-level output is currently on.
-// Use this to gate expensive argument construction (e.g. JSON serialization)
-// BEFORE calling Debugf — Go evaluates arguments before the callee, so the
-// level guard inside log() can't short-circuit that work.
-func DebugEnabled() bool {
-	return enabled(levelDebug)
-}
-
 func parseLevel(name string) int32 {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "debug":

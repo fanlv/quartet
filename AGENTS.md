@@ -8,30 +8,32 @@ This file documents the current architecture and development conventions for thi
 2. 重构文档里面的话，不要有代码细节，只写功能描述。
 3. 错误信息就要全量给用户显示，不要隐藏任何错误信息.
 4. services 目录下的代码，尽量不要对外暴露全局的函数。比如 func ValidateWorkdir(workdir string) error 。
-5. 当前 quartet 程序一般运行在用户的个人电脑或沙箱里的可信共享实例。账号之间不隔离工作区和业务数据，RBAC 只控制功能能力；不用考虑账号是否能访问宿主机上的资源。
+5. 当前 quartet 程序一般运行在用户的个人电脑或其他可信环境中。账号之间不隔离工作区和业务数据，RBAC 只控制功能能力；不用考虑账号是否能访问宿主机上的资源。
 
 ## Build & Run Commands
 
 ```bash
 make help                 # List Make targets and descriptions
+make build                # Build CLI, eino-cli, backend, and frontend artifacts
 make build-all            # Run go build ./...
 make build-cli            # Build bin/quartet-cli
-make build-eino-cli       # Build eino-cli and install it into INSTALL_BIN_DIR (must be on PATH)
+make build-eino-cli       # Build bin/eino-cli
 make build-web            # Build bin/quartet-web
 make build-frontend       # Type-check and build the SPA into static/; does not restart the backend
 make pod-install          # Install iOS CocoaPods dependencies
 make build-ios            # Build the iOS app on macOS with Xcode
 make test-ios             # Build the iOS Simulator target without signing
 make e2e-ios              # Run native iOS UI tests in Simulator
-make test                 # Run Go build, frontend component tests, and Playwright E2E
+make test                 # Run Go tests, frontend component tests, and Playwright E2E
+make test-go              # Run all Go tests
 make test-web             # Run frontend component tests (cd web && npm test)
+make lint-web             # Run frontend ESLint checks
 make e2e                  # Run frontend Playwright E2E tests
 make run-cli              # Run quartet-cli with go run
 make run-backend          # Run web backend only (go run ./cmd/web)
 make run-frontend         # Dev-only Vite server (5173, or 443 with certs); not used by make web
 make web                  # Build frontend/backend, then start or restart the detached backend web service
-make run                  # Alias for make web
-make web-stop             # Stop the backend web service and orphan quartet-web processes
+make web-stop             # Stop watchdog, backend, and orphan quartet-web processes
 make backend-stop         # Stop backend only; watchdog untouched
 make web-status           # Check backend and watchdog status
 make web-logs             # Follow backend log (/tmp/quartet-backend.log)
@@ -39,20 +41,18 @@ make web-watch            # Start detached watchdog; revive the backend only aft
 make web-watch-stop       # Stop the watchdog; leave a running backend untouched
 make web-watch-logs       # Follow watchdog log (/tmp/quartet-watchdog.log)
 make install-project-tools # Install quartet-cli and all three project skills
+make install-eino-cli     # Build/install eino-cli into INSTALL_BIN_DIR
 make install-skill        # Build/install quartet-cli, then register one skill selected by SKILL_NAME
 make install-skill-cli    # Only build and install quartet-cli into INSTALL_BIN_DIR
 make install-skill-run    # Only register the skill directory with the skills CLI
 make install-skill-copy   # Install skill files by copying instead of symlinking
-make install-skill-all    # Register the skill for every agent in SKILL_AGENTS
 make install-skill-list   # List skills under SKILL_SOURCE without installing
-make clean                # Remove bin/
+make clean                # Remove bin/ and static/
 ```
-
-> `make build` 和 `make build-acp` 目前仍残留在 Makefile 中（`make help` 里也还列着），但引用的 `cmd/acp` 已不存在，不能作为有效构建入口；使用 `make build-all` 或具体的 `build-cli`、`build-eino-cli`、`build-web` 目标。
 
 > `stage-web` 和 `activate-web-stage` 是「设置页重启后端」功能的内部目标，由 `services/runtime` 调用：先把候选前端与候选二进制构建到一个独立的 stage 目录，候选进程启动自检通过后才提升为线上版本，失败会回滚到当前版本。不要手工执行这两个目标。
 
-> agent 不要自己执行 `make web` 重启后端：当前 agent（ACP 子进程）跑在后端进程树之下，`make web` 会 kill 旧后端，旧后端一死，agent 这条 ACP 链会被 `Pdeathsig` 连带 SIGKILL，重启过程当场失去执行者。重启后端这一步交给用户在机器上手动执行。需要"挂掉自动拉起"时用 `make web-watch`：它 detached 在后端进程树之外，只在端口已空时才拉起服务、从不 kill 活着的进程，所以既不会误伤 agent，也能在后端宕掉后自动恢复。
+> agent 不要自己执行 `make web` 重启后端：当前 agent（ACP 子进程）跑在后端进程树之下，`make web` 会 kill 旧后端，旧后端一死，agent 这条 ACP 链会被 `Pdeathsig` 连带 SIGKILL，重启过程当场失去执行者。重启后端这一步交给用户在机器上手动执行。需要"挂掉自动拉起"时用 `make web-watch`：它 detached 在后端进程树之外，只在端口已空时才拉起服务、从不 kill 活着的进程，所以既不会误伤 agent，也能在后端宕掉后自动恢复。`make web-stop` 会同时停止 watchdog 与后端；只想停后端时使用 `make backend-stop`。
 > 修改前端后可以执行 `make build-frontend` 更新 `static/`；后端会直接提供新构建，刷新页面即可查看，无需重启后端。
 
 Frontend (from `web/`):
@@ -89,11 +89,12 @@ Go tests: `go test ./...`
 
 ### LOCAL_MEMORY Layout
 
-- `$LOCAL_MEMORY/quartet/config/` — durable configuration such as settings, prompts, Agent catalog, Graph Workflows, schedules, message presets, and authentication users/roles.
-- `$LOCAL_MEMORY/quartet/data/` — durable business data such as workspaces, Jobs, Sessions, uploads, IM records, file shares, and the WeChat outbox.
+- `$LOCAL_MEMORY/quartet/config/` — durable configuration such as prompts, Graph Workflows, schedules, message presets, and authentication users/roles.
+- `$LOCAL_MEMORY/quartet/data/` — durable settings and business data such as the Agent catalog, workspaces, Jobs, Sessions, uploads, IM records, file shares, and the WeChat outbox.
 - `$LOCAL_MEMORY/quartet/usage-stats/` — persistent monthly usage statistics, month-sharded JSON written at the current schema version only; a file at any other version is rejected rather than upgraded in place. 同一 schema 版本内的内容迁移（模型 ID 归一、工作空间名回填）在服务里就地完成，并与写入/刷盘串行。
 - `$LOCAL_MEMORY/var/quartet/state/` — durable runtime state such as authenticated sessions and schedule state.
-- `$LOCAL_MEMORY/var/quartet/cache/` and `$LOCAL_MEMORY/var/quartet/tmp/` — reconstructable cache and process-owned temporary files.
+- `$LOCAL_MEMORY/var/quartet/cache/` — reconstructable cache.
+- `$LOCAL_MEMORY/var/quartet/tmp/` — process-owned temporary files; Shell Hook scripts live under `tmp/shell/`.
 - Quartet 自有根目录和分类目录统一由 `types/path` 解析；handler 和 service 必须复用路径/仓储接口，不要硬编码 `LOCAL_MEMORY` 布局。
 
 ### Code Layering
@@ -125,6 +126,7 @@ Go tests: `go test ./...`
 - 响应压缩：JSON 响应体超过阈值时由中间件 gzip；SSE 和 body stream（文件下载）一律跳过，新增流式接口不要改成缓冲响应，否则会破坏 flush 语义。
 - 未匹配路由回落：非 API 路径回落到前端静态构建（SPA index fallback），未知 `/api` 路径返回 JSON 404；该 fallback 注册在所有具体路由之后。
 - SSE 连接模型：graph 工作流任务页面同一时刻只保留一条长连接——run live（pending/running/stepStopping）时只订阅 `/api/v1/job/:id/graph-run/events`，run 非 live（terminal/awaitingInput）时只订阅 `/api/v1/job/:id/events`；GraphRunProgress 等组件不得再开第二条流。站点当前全链路 HTTP/1.1，浏览器单域名仅约 6 条连接，SSE 占满会让 stop 等普通 POST 在 socket 池里饿死
+- 对话结束 Hook 默认只在 Job 没有可见实时查看者时执行。Web 的普通/Graph SSE 必须携带稳定 `viewerId`，并在页面可见性变化与每次重连后同步状态；公共分享流不计入 viewer。iOS 对话页只在 scene 为 active 时保持 SSE。
 
 ### agent-browser 页面鉴权
 
@@ -146,7 +148,7 @@ Go tests: `go test ./...`
 - `cmd/web` — Web 后端入口，承担 HTTP 路由注册、中间件、请求编排和服务装配。
 - `cmd/eino-cli` — 独立 eino-cli 二进制的入口；eino 能力全部抽出为该 ACP agent，quartet 只经 ACP 接入。
 - `cmd/quartet-cli` — quartet-cli 命令行入口，通过后端 HTTP API 登录并按 base URL 保存 Cookie/CSRF 会话。命令分组：`workflow`（图工作流增删改查、校验、手动运行）、`schedule`（cron 定时任务）、`workspace`（只读）、`job`（查询与停止）、`agent`（只读列出已安装 ACP agent）、`wechat`（发送主动消息、查询账号）、`auth`（登录/查看/清除会话）。
-- `einocli/` — eino-cli 的全部实现（`app` 命令层：serve/headless/prompt/replay/sessions；`runtime` 推理循环；`middlewares` 中间件链：AGENTS.md 加载、计划任务、上下文削减与总结、工具包装、sandbox 后端；`chatctx` 上下文组装；`round` 轮次管理；`store` 会话与上下文持久化；`modelbuilder` 多供应商模型构建（openai/claude/gemini/deepseek/qwen/ark/ollama）；`config` 自管配置，以及自带的 `types`/`json`/`logger`/`tokenizer`），与 quartet 后端零 import 依赖，按"日后可整体抽到独立仓库"设计。
+- `einocli/` — eino-cli 的全部实现（`app` 命令层：serve/headless/prompt/replay/sessions；`runtime` 推理循环；`middlewares` 中间件链：AGENTS.md 加载、计划任务、上下文削减与总结、工具包装、本地工具后端；`chatctx` 上下文组装；`round` 轮次管理；`store` 会话与上下文持久化；`modelbuilder` 多供应商模型构建（openai/claude/gemini/deepseek/qwen/ark/ollama）；`config` 自管配置，以及自带的 `types`/`json`/`logger`/`tokenizer`），与 quartet 后端零 import 依赖，按"日后可整体抽到独立仓库"设计。
 - `web/` — React/Vite 单页应用，提供聊天、工作区、文件浏览、Graph 编排、设置、统计、调度、Agent 管理和 IM 配置等界面。
 - `ios/` — 原生 SwiftUI 客户端，提供局域网连接与登录、Job/对话、附件、Graph 运行、定时任务和统计能力；目录内还有更具体的 `ios/AGENTS.md`（含 UI/主题/排版/弹窗等规范，改 iOS 代码前必读）。
 
@@ -168,7 +170,7 @@ Go tests: `go test ./...`
 - `services/agent/install`、`services/agent/versioncheck` — Agent 安装状态检查、受控安装/升级/卸载和版本检查。
 - `services/agent/chatctx` — Agent 聊天上下文的组装与维护。
 - `services/agent/round` — 单轮 Agent 交互的构建、刷新与生命周期管理。
-- `services/agent/probe` — Agent 安装与 ACP 能力探测、并发/冷却控制、持久化缓存及 npx 自愈。
+- `services/agent/probe` — Agent 安装与 ACP 能力探测、并发/冷却控制、持久化缓存及遗留 npx 命令的缓存自愈。
 - `services/agent/usage` — 已支持 Agent 的订阅配额与 CLI 版本读取。
 - `services/agent/internal/acpstate`、`services/agent/internal/sessioncache` — ACP 状态转换与带租约的 Agent 会话缓存。
 - `services/auth` — 初始化、登录、Cookie/CSRF 会话、用户/角色与 RBAC 权限管理（权限枚举、描述和依赖关系的唯一来源）。
@@ -197,6 +199,8 @@ Go tests: `go test ./...`
 - `pkg/tokenizer` — Token 计数。
 - `pkg/logger` — 项目统一日志（必须使用）。
 - `pkg/httputil`、`pkg/json`、`pkg/strutil`、`pkg/safe` — HTTP 响应、JSON、字符串、协程安全等通用工具。
+
+结束 Hook 的临时脚本必须写入 `$LOCAL_MEMORY/var/quartet/tmp/shell/`（无法解析 `LOCAL_MEMORY` 时回退系统临时目录），只把 Job workdir 设为脚本执行目录；禁止把 `.quartet-hook-*.sh` 写入项目目录。
 
 ### 前端结构（web/）
 

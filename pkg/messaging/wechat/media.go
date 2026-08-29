@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -24,9 +23,6 @@ import (
 
 	"github.com/google/uuid"
 )
-
-// reMarkdownImage matches markdown image syntax: ![alt](url)
-var reMarkdownImage = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)`)
 
 // Size caps for outbound CDN uploads (doc §9.1). These match WeChat's
 // client-side limits; exceeding them reliably fails upstream anyway, so we
@@ -89,19 +85,6 @@ func checkAttachmentSize(itemType, size int) error {
 // messages with their acknowledgements.
 func newClientID() string {
 	return uuid.New().String()
-}
-
-// extractImageURLs extracts image URLs from markdown text.
-func extractImageURLs(text string) []string {
-	matches := reMarkdownImage.FindAllStringSubmatch(text, -1)
-	var urls []string
-	for _, m := range matches {
-		url := strings.TrimSpace(m[1])
-		if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
-			urls = append(urls, url)
-		}
-	}
-	return urls
 }
 
 // sendMediaFromURL downloads a file from a URL and sends it as a media

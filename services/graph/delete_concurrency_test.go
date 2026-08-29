@@ -269,7 +269,7 @@ func TestStopRunAndWaitJoinsConcurrentResume(t *testing.T) {
 	default:
 		t.Fatal("StopRunAndWait returned before canceling resumed worker")
 	}
-	if svc.getControl(run.ID) != nil {
+	if activeControl(svc, run.ID) != nil {
 		t.Fatal("StopRunAndWait returned before resumed generation completed")
 	}
 }
@@ -523,7 +523,7 @@ func TestOrdinaryControlsRejectPersistedTerminalWithLiveHandle(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-sink.terminalEntered
-	if svc.getControl(run.ID) == nil {
+	if activeControl(svc, run.ID) == nil {
 		t.Fatal("fixture requires a live post-terminal handle")
 	}
 	for name, call := range map[string]func() error{
@@ -573,7 +573,7 @@ func TestQueuedVersionUpdateReturnsWhenDestructiveStopRetiresGeneration(t *testi
 	}
 	<-sink.runningEntered
 	lifecycle := svc.lifecycle(run.ID)
-	handle := svc.getControl(run.ID)
+	handle := activeControl(svc, run.ID)
 	if handle == nil {
 		t.Fatal("missing scheduler handle")
 	}

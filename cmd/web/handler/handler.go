@@ -31,7 +31,6 @@ import (
 	"github.com/fanlv/quartet/services/usagestats"
 	"github.com/fanlv/quartet/services/wechatoutbox"
 	"github.com/fanlv/quartet/services/workspace"
-	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -611,51 +610,6 @@ func (h *Handler) triggerGraphSchedule(ctx context.Context, task *model.Schedule
 
 	// Stage three: run is live; the GraphRun terminal bridge takes over.
 	return j.ID, nil
-}
-
-// resolveScheduleWorkspaceWorkdir resolves the workspace and working directory a
-// scheduled task's run should use, applying the design's fallback rules:
-//
-//   - Workspace unset → default workspace (ws-1); not a failure.
-//   - Workspace deleted out of band → fall back to ws-1 AND clear the saved
-//     workdir (it pointed into the deleted workspace and is almost certainly
-//     gone too); warn only, not a failure.
-//   - Workdir unset → backfill the workspace's default workdir; not a failure.
-//   - Workdir invalid (missing / not a dir / outside the workspace) → failure.
-//   - Fallback default workspace still missing (ensure-default failed at boot)
-//     → failure.
-//
-// Scheduled tasks live in a global store independent of the workspace directory,
-// so deleting a workspace does NOT delete its schedules — they keep firing and
-// need a valid target resolved here.
-func (h *Handler) resolveScheduleWorkspaceWorkdir(ctx context.Context, task *model.ScheduledTask) (wsID, workdir string, ws *model.Workspace, err error) {
-	wsID = task.WorkspaceID
-	workdir = task.Workdir
-	if wsID == "" {
-		wsID = consts.DefaultWorkspaceID
-	}
-	ws, ok := h.workspaceService.Get(wsID)
-	if !ok {
-		logger.Warnf(ctx, "[ScheduleTrigger] workspace %s not found for task %s, falling back to %s", wsID, task.ID, consts.DefaultWorkspaceID)
-		wsID = consts.DefaultWorkspaceID
-		workdir = ""
-		ws, ok = h.workspaceService.Get(wsID)
-		if !ok {
-			return "", "", nil, fmt.Errorf("schedule %s: default workspace %s is missing; ensure-default may have failed at startup", task.ID, consts.DefaultWorkspaceID)
-		}
-	}
-	if workdir == "" && ws != nil {
-		workdir = ws.Workdir
-	}
-	if err := validateWorkdir(workdir); err != nil {
-		return "", "", nil, fmt.Errorf("schedule %s: invalid workdir: %w", task.ID, err)
-	}
-	if ws != nil {
-		if err := ensureWorkdirWithinWorkspace(workdir, ws.Workdir); err != nil {
-			return "", "", nil, fmt.Errorf("schedule %s: %w", task.ID, err)
-		}
-	}
-	return wsID, workdir, ws, nil
 }
 
 // getOrCreateSessionService returns (or creates) the session.Service for the given jobID.

@@ -32,7 +32,7 @@ type Service struct {
 
 // NewService resolves the eino-cli binary on $PATH. A missing binary is not
 // fatal here — every method retries the lookup and returns a clear error
-// until `make build-eino-cli` (or equivalent) installs it.
+// until `make install-eino-cli` (or equivalent) installs it.
 func NewService() *Service {
 	bin, _ := exec.LookPath("eino-cli")
 	return &Service{bin: bin}
@@ -49,7 +49,7 @@ func (s *Service) resolveBin() (string, error) {
 	}
 	bin, err := exec.LookPath("eino-cli")
 	if err != nil {
-		return "", fmt.Errorf("eino-cli binary not found on $PATH; install it with `make build-eino-cli`: %w", err)
+		return "", fmt.Errorf("eino-cli binary not found on $PATH; install it with `make install-eino-cli`: %w", err)
 	}
 	s.bin = bin
 	return bin, nil

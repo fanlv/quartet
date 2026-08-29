@@ -254,7 +254,7 @@ func TestCreateJobPersistsInitialInteractiveConfiguration(t *testing.T) {
 		Workdir:         workdir,
 	}
 
-	created, err := h.createJob(context.Background(), req)
+	created, _, err := h.createJobIdempotent(context.Background(), req)
 	if err != nil {
 		t.Fatalf("createJob failed: %v", err)
 	}

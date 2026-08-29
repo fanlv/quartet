@@ -13,7 +13,7 @@ Quartet 将电脑上已经安装的 AI 编程 Agent 汇集到一个浏览器工�
 让你可以在同一套界面中进行交互式对话、编排可复用的多 Agent 工作流、观察实时执行过程，
 并将任务历史保存在本地。
 
-Quartet 面向在个人电脑或开发沙箱中运行的可信共享实例。多个登录账号共享同一套工作区和
+Quartet 面向在个人电脑或其他受控环境中运行的可信共享实例。多个登录账号共享同一套工作区和
 业务数据，并通过角色限制可用能力。项目目前仍在快速开发中，在稳定版本发布前，API 和本地
 数据格式可能会发生变化。
 
@@ -26,6 +26,8 @@ Quartet 面向在个人电脑或开发沙箱中运行的可信共享实例。多
 - **实时 Agent 对话**：实时展示回答、思考过程、工具调用、图片和完整错误信息；保存会话历史，
   支持停止、恢复、重命名、置顶和只读分享任务。任务运行期间发送的后续消息会进入 Web 与
   iOS 共享的服务端持久队列。
+- **安静的完成通知**：Graph 结束和对话轮次可以共用 Shell Hook 通知外部系统；当 Web 或 iOS
+  页面正在实时查看该 Job 时，对话通知默认跳过。
 - **面向项目的工作区**：以项目目录组织任务，记忆每个工作区的默认配置，在对话中使用文件，
   并展示当前 Git 分支。
 - **可视化 Graph 工作流**：通过画布连接 Prompt、Clarify、Shell、If/Else 和 Loop 节点，
@@ -149,6 +151,19 @@ quartet-cli workflow create --name "Code Review" \
 调度器运行在 Quartet 后端进程中，因此定时自动化要求后端保持运行。可以使用
 `make web-watch` 监控服务，并在端口不可用时自动拉起后端。
 
+## 完成 Hook
+
+可以在设置中配置一段全局默认 Shell Hook，用于任务完成通知或其他副作用。Graph 终点结点可选择
+使用它；每个交互式对话轮次在完成、失败或停止后也会判断是否执行。默认情况下，如果有已登录的
+Web 或 iOS 页面正在可见地查看该 Job，对话 Hook 会被跳过。隐藏的浏览器标签页、处于非活跃或
+后台状态的 iOS App、公共分享读者和服务端内部订阅者都不算实时查看者。被跳过的通知不会延迟
+补发；后续轮次在无人查看时结束，才会正常执行 Hook。
+
+脚本可读取触发来源、Job/Session 标识、本轮结果、错误信息、最后一条助手消息和查看状态等
+`QUARTET_*` 上下文变量。脚本以 Job workdir 为执行目录，临时脚本文件写入
+`$LOCAL_MEMORY/var/quartet/tmp/shell/`；无法解析 `LOCAL_MEMORY` 时才回退到系统临时目录。Hook
+输出只用于诊断，Hook 失败不会改变任务结果。
+
 ## iOS 客户端
 
 [`ios/`](./ios) 目录是原生 SwiftUI 客户端 **Sophia**，连接同一个 Quartet 后端，面向个人在
@@ -179,7 +194,8 @@ quartet-cli workflow create --name "Code Review" \
   流程，并配置环境变量、默认参数、收藏模型与角色分工。
 - **连接管理**：查看当前服务地址和最后成功同步时间，重启 Web 服务、重新配置连接，或退出并
   清除连接。
-- **后台行为**：应用进入后台后停止事件流，回到前台重新读取服务端快照，不会静默展示过期进度。
+- **后台行为**：应用离开活跃前台状态后停止事件流，回到前台重新读取服务端快照，不会静默展示
+  过期进度。
 
 接口错误会保留请求方法、URL、HTTP 状态和完整响应正文，并支持在应用内复制。
 
@@ -205,7 +221,7 @@ Quartet 的内置目录目前支持以下 ACP CLI。Agent 管理页面可对目�
 
 | Agent | 必需的 CLI | Quartet 使用的 ACP 命令 | ACP 接入方式 |
 |---|---|---|---|
-| Eino | `eino-cli` | `eino-cli acp` | 在本仓库执行 `make build-eino-cli` 构建并安装 |
+| Eino | `eino-cli` | `eino-cli acp` | 在本仓库执行 `make install-eino-cli` 构建并安装 |
 | TraeCLI | `traex` | `traex acp serve` | CLI 内置 |
 | Grok | `grok` | `grok --no-auto-update agent stdio` | CLI 内置 |
 | OpenClaw | `openclaw` | `openclaw acp` | CLI 内置 |
@@ -294,18 +310,25 @@ Claude Code 要求后端的 `PATH` 中同时能找到 `claude` 和 `claude-agent
 
 | 命令 | 说明 |
 |---|---|
+| `make build` | 构建 CLI、Eino、后端和前端产物 |
 | `make web` | 构建前端和后端，并启动或重启脱离终端运行的 Web 服务 |
 | `make web-status` | 查看后端与 watchdog 状态 |
 | `make web-logs` | 持续查看 `/tmp/quartet-backend.log` |
-| `make web-stop` | 停止后端并清理游离的 `quartet-web` 进程 |
+| `make web-stop` | 停止 watchdog、后端并清理游离的 `quartet-web` 进程 |
 | `make backend-stop` | 只停止后端，保留 watchdog |
 | `make web-watch` | 启动独立 watchdog，在端口不可用时拉起后端 |
 | `make web-watch-stop` | 只停止 watchdog，不停止后端 |
 | `make web-watch-logs` | 持续查看 `/tmp/quartet-watchdog.log` |
 | `make build-frontend` | 将 SPA 重新构建到 `static/`，不重启后端 |
+| `make build-web` | 构建 `bin/quartet-web`，不重启服务 |
 | `make build-cli` | 构建 `bin/quartet-cli` |
-| `make build-eino-cli` | 构建并安装独立 Eino ACP Agent |
+| `make build-eino-cli` | 构建 `bin/eino-cli` |
+| `make install-eino-cli` | 构建并安装独立 Eino ACP Agent |
 | `make install-project-tools` | 安装 `quartet-cli` 与全部项目 Skill |
+| `make test-go` | 运行全部 Go 测试 |
+| `make test-web` | 运行前端组件测试 |
+| `make lint-web` | 运行前端 ESLint 检查 |
+| `make e2e` | 运行前端 Playwright 测试 |
 | `make build-ios` | 在 macOS/Xcode 上构建 iOS 应用 |
 | `make test-ios` | 无签名构建 iOS Simulator 目标 |
 | `make pod-install` | 安装或同步 iOS CocoaPods 依赖 |
@@ -320,8 +343,13 @@ Claude Code 要求后端的 `PATH` 中同时能找到 `claude` 和 `claude-agent
 | `QUARTET_CORS_ORIGINS` | 否 | 以逗号分隔的跨域来源白名单；未设置时仅允许同源 |
 | `QUARTET_TRUSTED_PROXIES` | 否 | 可提供客户端 IP 请求头的反向代理 IP/CIDR，默认只信任 loopback；设为 `none` 可禁用 |
 | `QUARTET_LOG_LEVEL` | 否 | 初始日志级别：`debug`、`info`、`warn` 或 `error` |
+| `QUARTET_LOG_HTTP_BODY` | 否 | 记录 HTTP 请求和响应正文；默认关闭，可能暴露密钥 |
 | `QUARTET_STATIC_DIR` | 否 | 构建后的前端目录，默认为 `static` |
 | `QUARTET_CERTS_DIR` | 否 | 存放 `cert.pem` 和 `key.pem` 的目录，默认为 `certs` |
+| `QUARTET_MAX_ACP_AGENTS` | 否 | ACP Agent 实例缓存上限 |
+| `QUARTET_ACP_PROBE_CONCURRENCY` | 否 | ACP 能力探测最大并发数 |
+| `QUARTET_MESSAGES_CACHE_BYTES` | 否 | 消息历史内存缓存预算；设为 `0` 可关闭 |
+| `QUARTET_BASE_URL` | 否 | `quartet-cli` 使用的后端地址，默认 `http://127.0.0.1:8090` |
 
 没有证书时，Quartet 默认通过 HTTP 监听 `0.0.0.0:8090`。证书目录中同时存在
 `cert.pem` 和 `key.pem` 时，会启用 HTTPS 并默认监听 `0.0.0.0:443`，同时在
@@ -341,9 +369,9 @@ $LOCAL_MEMORY/
 │   ├── data/         # 设置、Agent 目录、工作区、任务、上传、IM 与分享数据
 │   └── usage-stats/  # 按月分片的用量统计
 └── var/quartet/
-    ├── state/        # 会话、定时任务与沙箱运行状态
+    ├── state/        # 会话与定时任务状态
     ├── cache/        # 可重建缓存
-    └── tmp/          # 进程临时文件
+    └── tmp/          # 进程临时文件；Hook 脚本位于 tmp/shell/
 ```
 
 重要记录采用原子写入。备份 `LOCAL_MEMORY` 即可备份整个 Quartet 实例的状态。登录账号共享工作区
@@ -385,7 +413,7 @@ HTTP handler 只负责参数校验、鉴权与服务编排，业务规则由 ser
 | `types/path` | 配置、业务数据和运行状态的统一路径规则 |
 | `repository` | 本地数据持久化 |
 | `services` | 认证、Agent、任务、Graph、调度、工作区、IM、Skill 与统计业务逻辑 |
-| `pkg` | ACP、即时通讯、沙箱、日志和通用基础设施 |
+| `pkg` | ACP、即时通讯、文件存储、日志和通用基础设施 |
 | `web` | React 前端 |
 | `ios` | 面向个人局域网使用的原生 SwiftUI 客户端（Sophia） |
 | `skill` | 由 `quartet-cli` 驱动的工作流、定时任务与微信 Skill |
@@ -417,15 +445,19 @@ make install-skill SKILL_NAME=quartet-workflow
 ## 开发
 
 ```bash
+make build           # 构建全部应用产物
 make build-all       # 构建所有 Go 应用
 make build-cli       # 构建 quartet-cli
-make build-eino-cli  # 构建并安装独立 Eino ACP Agent
+make build-eino-cli  # 构建独立 Eino ACP Agent
+make install-eino-cli # 构建并安装 Eino 到 INSTALL_BIN_DIR
 make build-frontend  # 类型检查并构建 React 应用
+make test-go          # 运行全部 Go 测试
 make test-ios        # 在 macOS 上无签名构建 iOS Simulator 目标
 make e2e-ios         # 在模拟器运行原生 iOS UI 测试
 make test-web        # 运行前端组件测试
+make lint-web        # 运行前端 ESLint 检查
 make e2e             # 运行 Playwright 端到端测试
-make test            # 运行 Go 构建、前端测试和端到端测试
+make test            # 运行 Go 测试、前端测试和端到端测试
 go test ./...        # 运行 Go 测试
 ```
 

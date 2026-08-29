@@ -126,7 +126,7 @@ func TestCache_GetOrCreate_CapacityExceeded(t *testing.T) {
 		t.Fatalf("want ErrCapacityExceeded, got %v", err)
 	}
 	// The just-built entry that couldn't be admitted must be released
-	// so its underlying resources (subprocess, sandbox, ...) don't leak.
+	// so its underlying resources (subprocess, connection, ...) don't leak.
 	if createdRef == nil || !createdRef.closed.Load() {
 		t.Fatalf("created entry must be Close()'d on rejection, closed=%v", createdRef)
 	}
@@ -176,7 +176,7 @@ func TestCache_GetOrCreate_DoubleCheckClosesLoser(t *testing.T) {
 }
 
 // TestCache_Delete_ClosesEntry ensures Delete calls Close on the removed
-// entry (otherwise subprocess / sandbox resources leak on session end).
+// entry (otherwise subprocess / connection resources leak on session end).
 func TestCache_Delete_ClosesEntry(t *testing.T) {
 	c := New[*fakeEntry](4)
 	e := newEntry("x")
@@ -261,7 +261,7 @@ func TestCache_Eviction_SkipsLeasedEntries(t *testing.T) {
 
 // TestCache_Delete_DefersCloseUntilLastRelease proves Delete does not
 // Close an entry while leases are outstanding — the close is deferred
-// to the last Release. This prevents tearing down a sandbox / ACP conn
+// to the last Release. This prevents tearing down an ACP connection
 // under a goroutine that is still using it.
 func TestCache_Delete_DefersCloseUntilLastRelease(t *testing.T) {
 	c := New[*fakeEntry](4)

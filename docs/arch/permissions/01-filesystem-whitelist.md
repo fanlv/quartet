@@ -13,8 +13,6 @@
 3. `workspaceRoots()` —— 当前所有未删除 workspace 的 `Workdir`（绝对路径），由 `services/workspace/service.go` 中的 `TrustedFileWorkspaceRoots()` 提供。
 4. `$HOME` —— 由本地文件服务解析得到，**默认始终包含**。这一项是为了让"选目录"对话框可以从家目录起步浏览，并接受用户把 workspace 落在家目录任意子树上。
 
-> `services/workspace/service.go` 还导出一个 `FileAccessBaseRoots()`，只返回 `LOCAL_MEMORY` + `$HOME`，用于 workspace 自身校验，不参与 HTTP 文件白名单。
-
 ## 2. 白名单的判定 —— `isPathInAllowedRegion`
 
 入口：`cmd/web/handler/file_rw.go` 中的 `isPathInAllowedRegion(filePath)`。

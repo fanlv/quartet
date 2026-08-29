@@ -92,7 +92,7 @@ func NewACPService() ACPService {
 // (workspace, job, session). Using sessionID alone here used to allow
 // two different jobs that happened to mint the same microsecond-precision
 // sessionID to alias to one another's cached agent — including the wrong
-// ChatContextRepo, sandbox, and ACP subprocess.
+// ChatContextRepo and ACP subprocess.
 func agentCacheKey(wsID, jobID, sessionID string) string {
 	return wsID + "/" + jobID + "/" + sessionID
 }

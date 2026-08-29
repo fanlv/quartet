@@ -228,7 +228,6 @@ function prepareLocalMemory(localMemory: string) {
     'quartet/data/user-input',
     'quartet/data/wechat',
     'var/quartet/state/schedules',
-    'var/quartet/state/sandbox/compose',
     'var/quartet/cache/im-media',
     'var/quartet/tmp/shell',
     'knowledge',

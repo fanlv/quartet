@@ -1,7 +1,6 @@
 package logger
 
 import (
-	"context"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -152,14 +151,9 @@ func RecentEntries(f Filter) []Entry { return logBuffer.Recent(f) }
 // ClearBuffer drops every buffered backend + frontend entry.
 func ClearBuffer() { logBuffer.Clear() }
 
-// AppendExternal lets callers outside this package (e.g. the /api/v1/logs
-// frontend-report endpoint) push a pre-formed entry into the same ring buffer
-// so the UI can display backend and frontend logs in one feed.
-func AppendExternal(level, source, message string) {
-	logBuffer.Append(normalizeLevel(level), source, message)
-}
-
-// AppendWithTime is like AppendExternal but preserves the caller's timestamp.
+// AppendWithTime records an externally supplied message while preserving the
+// caller's timestamp. Used when replaying frontend logs whose clock may
+// lead or lag the server.
 // Used when replaying frontend logs whose clock may lead/lag the server.
 func AppendWithTime(ts time.Time, level, source, message string) {
 	id := atomic.AddUint64(&logBuffer.nextID, 1)
@@ -177,30 +171,6 @@ func AppendWithTime(ts time.Time, level, source, message string) {
 		logBuffer.size++
 	}
 	logBuffer.mu.Unlock()
-}
-
-// ctxSourceKey is the context key used to carry a component/source hint from
-// callers. Adding a value here lets a deep call site tag its logs without
-// changing the logger API. Missing / empty source is fine — the buffer simply
-// records an empty string.
-type ctxSourceKey struct{}
-
-// WithSource returns a context that tags subsequent log entries with source.
-func WithSource(ctx context.Context, source string) context.Context {
-	if source == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, ctxSourceKey{}, source)
-}
-
-func sourceFromCtx(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	if v, ok := ctx.Value(ctxSourceKey{}).(string); ok {
-		return v
-	}
-	return ""
 }
 
 func containsFold(s, sub string) bool {

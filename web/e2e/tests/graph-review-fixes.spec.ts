@@ -2111,7 +2111,7 @@ test('graph review #27: delete confirmation cannot submit duplicate DELETE reque
     await route.continue()
   })
 
-  await page.getByRole('button', { name: /^Delete$/ }).click()
+  await page.getByTestId('graph-delete').click()
   await expect(page.locator('.delete-confirm-dialog')).toBeVisible()
   const confirm = page.locator('.delete-confirm-dialog').getByRole('button', { name: /^Delete$/ })
   const [deleteResp] = await Promise.all([
@@ -2393,7 +2393,7 @@ test('graph review #34: create/save/delete success messages survive workflow lis
   await expect(page.getByTestId('graph-clean-badge')).toBeVisible({ timeout: 10_000 })
   await expect(page.getByTestId('graph-message')).toContainText('Workflow saved.')
 
-  await page.getByRole('button', { name: /^Delete$/ }).click()
+  await page.getByTestId('graph-delete').click()
   await expect(page.locator('.delete-confirm-dialog')).toBeVisible()
   await page.locator('.delete-confirm-dialog').getByRole('button', { name: /^Delete$/ }).click()
   await expect(page.locator('.delete-confirm-dialog')).toHaveCount(0)

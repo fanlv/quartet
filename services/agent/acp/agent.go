@@ -151,7 +151,7 @@ type ACPAgent struct {
 	// Modeled as a buffered chan struct{} (capacity 1) rather than a
 	// sync.Mutex so the acquire is ctx-aware: if the previous Run's
 	// detached cleanup (which uses context.WithoutCancel) hangs on a
-	// slow disk or remote sandbox, the new Run can still observe its
+	// slow storage, the new Run can still observe its
 	// own ctx cancellation and return instead of blocking forever.
 	runSem chan struct{}
 }
@@ -962,7 +962,7 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 
 	// Surface the first persistence failure into retErr AFTER the final
 	// CollectMessages flush has run. Defers are LIFO, so this defer
-	// (declared BEFORE the FinalizeRound defer below) executes AFTER
+	// (declared BEFORE the finalization defer below) executes AFTER
 	// CollectMessages drains the final round through onFlush, ensuring we
 	// observe any failure from that final write. PersistErr.CapturePersistErrTo
 	// never overwrites an existing retErr (prompt error / cancel takes
@@ -1347,7 +1347,7 @@ const stopAndFlushTimeout = 12 * time.Second
 //  1. Cancel runCtx (and notify the ACP subprocess of cancel) so the
 //     Run loop exits ASAP.
 //  2. Wait (bounded by stopAndFlushTimeout) for Run to finish its
-//     deferred cleanup chain — that chain runs round.FinalizeRound
+//     deferred cleanup chain — that chain finalizes the current round
 //     while onFlush is still installed, so any in-flight round is
 //     persisted atomically with the cancel.
 //  3. As a safety net, run FlushPendingMessages. If Run already

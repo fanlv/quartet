@@ -34,18 +34,6 @@ func PersistentDir() (string, error) {
 	return deeppath.PersistentIMMediaDir()
 }
 
-// CacheDir returns the disposable directory for processing intermediates.
-func CacheDir() (string, error) {
-	if dir, err := deeppath.IMMediaCacheDir(); err == nil {
-		return dir, nil
-	}
-	tmpDir, err := fileserver.TempDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(tmpDir, tempCacheSubdir), nil
-}
-
 // StartCacheCleanup launches a background sweeper that removes stale IM
 // media cache files from the dedicated cache directories. It also runs one
 // immediate sweep on startup so leftovers from previous runs do not linger.

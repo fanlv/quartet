@@ -103,21 +103,6 @@ func (h *Handler) createJobIdempotent(ctx context.Context, req *model.CreateJobR
 // the HTTP handler can map them to 500 while validation errors map to 400.
 var errJobPersistFailed = errors.New("failed to persist job")
 
-// createJob validates a CreateJobRequest and persists a new Job. It also
-// triggers async title refinement and updates recent-dirs tracking. This is
-// shared between the HTTP JobCreate handler and the IM gateway so both flows
-// produce identically configured jobs.
-func (h *Handler) createJob(ctx context.Context, req *model.CreateJobRequest) (*model.Job, error) {
-	job, err := h.buildJob(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	if err := h.persistCreatedJob(ctx, job, req); err != nil {
-		return nil, err
-	}
-	return job, nil
-}
-
 func (h *Handler) buildJob(ctx context.Context, req *model.CreateJobRequest) (*model.Job, error) {
 	if req.AgentType == "" {
 		return nil, fmt.Errorf("agentType is required")

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # update-weclaw.sh — show the diff between the weclaw commit pinned in
-# pkg/wechat/doc.go and upstream HEAD for the subset of files we ported
+# pkg/messaging/wechat/doc.go and upstream HEAD for the subset of files we ported
 # (ilink/ and messaging/cdn.go / media.go / attachment.go).
 #
 # It doesn't auto-apply anything — iLink is a private Tencent protocol and
 # upstream changes may be unsafe to cherry-pick. Review the diff, then update
-# pkg/wechat/* by hand and bump the pinned tag in pkg/wechat/doc.go.
+# pkg/messaging/wechat/* by hand and bump the pinned tag in doc.go.
 #
 # Usage:
 #   scripts/update-weclaw.sh              # diff pinned -> HEAD
@@ -19,9 +19,9 @@ set -euo pipefail
 REPO_URL="${WECLAW_REPO:-https://github.com/fastclaw-ai/weclaw.git}"
 TARGET_REF="${1:-HEAD}"
 
-# Locate repo root (the directory containing pkg/wechat/doc.go).
+# Locate repo root (the directory containing pkg/messaging/wechat/doc.go).
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DOC_FILE="$REPO_ROOT/pkg/wechat/doc.go"
+DOC_FILE="$REPO_ROOT/pkg/messaging/wechat/doc.go"
 
 if [[ ! -f "$DOC_FILE" ]]; then
   echo "error: $DOC_FILE not found; is this the quartet repo root?" >&2
