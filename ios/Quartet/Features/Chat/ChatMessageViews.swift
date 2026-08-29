@@ -119,6 +119,7 @@ struct AssistantMessageCard: View {
     let message: ChatMessage
     let agentName: String
     let agentIconUrl: String?
+    @State private var showsTextSelection = false
 
     /// 与 `CodeBlockView` 同一档行距，让 shell 输出和代码块看起来是同一种“终端”文本。
     @ScaledMetric(relativeTo: .footnote) private var shellLineSpacing: CGFloat = 2.5
@@ -140,6 +141,7 @@ struct AssistantMessageCard: View {
                         }
                         Text(message.isShellOutput ? "Shell" : agentName)
                             .font(.chat(.detail, weight: .semibold))
+                            .lineLimit(1)
                         if !message.isFinished {
                             StreamingDot(color: QuartetTheme.accent)
                         }
@@ -150,6 +152,18 @@ struct AssistantMessageCard: View {
                                 .foregroundStyle(QuartetTheme.secondaryText)
                         }
                         if message.isFinished, !message.content.isEmpty {
+                            Button {
+                                showsTextSelection = true
+                            } label: {
+                                Image(systemName: "text.cursor")
+                                    .font(.chat(.detail, weight: .semibold))
+                                    .foregroundStyle(QuartetTheme.secondaryText)
+                                    .frame(width: 26, height: 26)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("选择回复文本")
+                            .accessibilityIdentifier("assistant-select-text")
+
                             CopyIconButton(text: message.content, appearance: .plain)
                         }
                     }
@@ -186,6 +200,59 @@ struct AssistantMessageCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(isPresented: $showsTextSelection) {
+            AssistantTextSelectionSheet(text: message.content)
+                .presentationDetents([.large])
+                .quartetSheetStyle()
+        }
+    }
+}
+
+private struct AssistantTextSelectionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let text: String
+
+    var body: some View {
+        NavigationStack {
+            SelectableAssistantTextView(text: text)
+                .background(QuartetTheme.canvas)
+                .quartetNavigationTitle("选择文本".localizedForApp)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("关闭") { dismiss() }
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                }
+        }
+    }
+}
+
+/// Assistant Markdown 会拆成标题、段落、列表和代码块分别渲染，SwiftUI 的选区无法跨越
+/// 这些 `Text`。专用只读文本视图保留完整原文，让用户能跨块选择任意片段，同时继续使用
+/// 系统的复制、查询和翻译菜单。
+private struct SelectableAssistantTextView: UIViewRepresentable {
+    let text: String
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = true
+        textView.alwaysBounceVertical = true
+        textView.backgroundColor = .clear
+        textView.adjustsFontForContentSizeCategory = true
+        textView.font = QuartetTypeface.uiFont(.reading, scale: .chat)
+        textView.textColor = UIColor(QuartetTheme.primaryText)
+        textView.tintColor = UIColor(QuartetTheme.accent)
+        textView.textContainerInset = UIEdgeInsets(top: 18, left: 16, bottom: 24, right: 16)
+        textView.textContainer.lineFragmentPadding = 0
+        textView.accessibilityIdentifier = "assistant-text-selection"
+        return textView
+    }
+
+    func updateUIView(_ textView: UITextView, context: Context) {
+        guard textView.text != text else { return }
+        textView.text = text
     }
 }
 
