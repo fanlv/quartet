@@ -233,10 +233,6 @@
 .stats-trend-guide { stroke: #cdd9d0; stroke-width: 1; stroke-dasharray: 3 3; }
 .stats-trend-tick { font-size: 10px; fill: #7a897f; }
 .stats-trend-hitbox { cursor: pointer; }
-.stats-trend-hitbox:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
 .stats-trend-point { transition: r 0.1s ease; }
 
 .stats-trend-legend {
