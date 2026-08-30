@@ -481,6 +481,7 @@ export function FilePreviewPage() {
   const [showSource, setShowSource] = useState(!renderedDocument);
   const [wrapText, setWrapText] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [pathCopied, setPathCopied] = useState(false);
   const [shareToken, setShareToken] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
@@ -534,6 +535,16 @@ export function FilePreviewPage() {
       setError(reason instanceof Error ? reason.stack || reason.message : String(reason));
     });
   }, [data]);
+
+  const handleCopyPath = useCallback(() => {
+    if (!path) return;
+    void copyToClipboard(path).then(() => {
+      setPathCopied(true);
+      window.setTimeout(() => setPathCopied(false), 1800);
+    }).catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.stack || reason.message : String(reason));
+    });
+  }, [path]);
 
   const handleShare = useCallback(async () => {
     if (!path || isPublic) return;
@@ -633,6 +644,11 @@ export function FilePreviewPage() {
           {data && !data.binary && (
             <button type="button" className="file-preview-button" onClick={handleCopy}>
               {copied ? '已复制' : '复制内容'}
+            </button>
+          )}
+          {data && path && (
+            <button type="button" className="file-preview-button" onClick={handleCopyPath}>
+              {pathCopied ? '已复制' : '复制路径'}
             </button>
           )}
           {canShareFiles && data && !shareToken && (

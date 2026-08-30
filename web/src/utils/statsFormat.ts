@@ -29,15 +29,21 @@ export function formatStatsDuration(ms: number): string {
 }
 
 /**
- * Format a count (turn / token / call) using K / M abbreviations once it
+ * Format a count (turn / token / call) using K / M / B abbreviations once it
  * gets large enough that the raw digits become hard to scan. Below 1k we
  * keep the exact integer.
  */
 export function formatStatsCount(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0';
   if (n < 1000) return String(Math.floor(n));
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}K`;
-  return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`;
+  if (n < 1_000_000) return formatCompactCount(n, 1_000, 'K');
+  if (n < 1_000_000_000) return formatCompactCount(n, 1_000_000, 'M');
+  return formatCompactCount(n, 1_000_000_000, 'B');
+}
+
+function formatCompactCount(n: number, divisor: number, suffix: string): string {
+  const value = (n / divisor).toFixed(1).replace(/\.0$/, '');
+  return `${value}${suffix}`;
 }
 
 /**

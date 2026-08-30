@@ -53,6 +53,14 @@
   max-width: 100%;
 }
 
+/* The global selection uses dark foreground text, which loses contrast on the
+   dark user bubble. Give every selectable descendant an inverse highlight. */
+.user-bubble::selection,
+.user-bubble *::selection {
+  color: #052e16;
+  background: #bbf7d0;
+}
+
 .user-bubble-row {
   display: flex;
   align-items: flex-end;

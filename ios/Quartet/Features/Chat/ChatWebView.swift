@@ -276,17 +276,22 @@ struct ChatWebViewPage: View {
                     Button("关闭") { dismiss() }
                 }
                 .sharedBackgroundVisibility(.hidden)
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { copyDestination() } label: {
-                        Label(
-                            copied ? "已复制" : destination.copyTarget.buttonTitle,
-                            systemImage: copied ? "checkmark" : "doc.on.doc"
-                        )
+                // 文件预览页已经在正文工具栏里提供「复制内容」和「复制路径」，
+                // 原生导航栏只保留编辑入口。普通网页没有这套正文工具栏，继续在
+                // 导航栏提供复制 URL。
+                if case .webLink = destination.copyTarget {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { copyDestination() } label: {
+                            Label(
+                                copied ? "已复制" : destination.copyTarget.buttonTitle,
+                                systemImage: copied ? "checkmark" : "doc.on.doc"
+                            )
+                        }
+                        .accessibilityLabel(copied ? destination.copyTarget.copiedAnnouncement : destination.copyTarget.buttonTitle)
+                        .accessibilityHint(copyAccessibilityHint)
                     }
-                    .accessibilityLabel(copied ? destination.copyTarget.copiedAnnouncement : destination.copyTarget.buttonTitle)
-                    .accessibilityHint(copyAccessibilityHint)
+                    .sharedBackgroundVisibility(.hidden)
                 }
-                .sharedBackgroundVisibility(.hidden)
                 if let onEdit {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { onEdit() } label: {

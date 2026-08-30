@@ -1341,13 +1341,18 @@ private enum StatsFormat {
         guard value > 0 else { return "0" }
         if value < 1_000 { return String(value) }
         if value < 1_000_000 {
-            return value < 10_000
-                ? String(format: "%.1fK", Double(value) / 1_000)
-                : String(format: "%.0fK", Double(value) / 1_000)
+            return compactCount(value, divisor: 1_000, suffix: "K")
         }
-        return value < 10_000_000
-            ? String(format: "%.1fM", Double(value) / 1_000_000)
-            : String(format: "%.0fM", Double(value) / 1_000_000)
+        if value < 1_000_000_000 {
+            return compactCount(value, divisor: 1_000_000, suffix: "M")
+        }
+        return compactCount(value, divisor: 1_000_000_000, suffix: "B")
+    }
+
+    private static func compactCount(_ value: Int, divisor: Double, suffix: String) -> String {
+        let number = String(format: "%.1f", Double(value) / divisor)
+        let trimmed = number.hasSuffix(".0") ? String(number.dropLast(2)) : number
+        return trimmed + suffix
     }
 
     // Provider APIs differ on whether input already includes cache reads and

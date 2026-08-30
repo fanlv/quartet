@@ -17,8 +17,8 @@ describe('statsFormat utils', () => {
     expect(formatStatsCount(-1)).toBe('0');
     expect(formatStatsCount(999.9)).toBe('999');
     expect(formatStatsCount(1_234)).toBe('1.2K');
-    expect(formatStatsCount(12_345)).toBe('12K');
+    expect(formatStatsCount(12_345)).toBe('12.3K');
     expect(formatStatsCount(1_234_567)).toBe('1.2M');
-    expect(formatStatsCount(12_345_678)).toBe('12M');
+    expect(formatStatsCount(12_345_678)).toBe('12.3M');
   });
 });
