@@ -2432,7 +2432,6 @@
       }
     },
     "保存" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6855,7 +6854,6 @@
       }
     },
     "已保存" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -14493,7 +14491,6 @@
       }
     },
     "编辑" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -17791,6 +17788,406 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "默认选择"
+          }
+        }
+      }
+    },
+    "当前文件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current file"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前文件"
+          }
+        }
+      }
+    },
+    "%@ · %lld 行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %lld lines"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %lld 行"
+          }
+        }
+      }
+    },
+    "当前账号缺少 file.write 权限，只能查看内容。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account lacks the file.write permission, so the content is read-only."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前账号缺少 file.write 权限，只能查看内容。"
+          }
+        }
+      }
+    },
+    "网页预览" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Web preview"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网页预览"
+          }
+        }
+      }
+    },
+    "正在保存" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saving"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在保存"
+          }
+        }
+      }
+    },
+    "把当前内容写回文件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Write the current content back to the file"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "把当前内容写回文件"
+          }
+        }
+      }
+    },
+    "切换回网页预览查看渲染后的文件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch back to the web preview to see the rendered file"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换回网页预览查看渲染后的文件"
+          }
+        }
+      }
+    },
+    "关闭后当前的修改会丢失。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Closing now loses the current changes."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭后当前的修改会丢失。"
+          }
+        }
+      }
+    },
+    "切换到网页预览会丢弃当前的修改。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switching to the web preview discards the current changes."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换到网页预览会丢弃当前的修改。"
+          }
+        }
+      }
+    },
+    "覆盖保存？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overwrite and save?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "覆盖保存？"
+          }
+        }
+      }
+    },
+    "覆盖保存" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overwrite and Save"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "覆盖保存"
+          }
+        }
+      }
+    },
+    "正在读取文件…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading file…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在读取文件…"
+          }
+        }
+      }
+    },
+    "无法在 App 内编辑" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cannot be edited in the app"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法在 App 内编辑"
+          }
+        }
+      }
+    },
+    "用网页预览打开" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in web preview"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用网页预览打开"
+          }
+        }
+      }
+    },
+    "这是二进制文件，App 内只支持编辑 UTF-8 文本文件。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is a binary file. The app can only edit UTF-8 text files."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这是二进制文件，App 内只支持编辑 UTF-8 文本文件。"
+          }
+        }
+      }
+    },
+    "文件超过 1MB，接口没有返回完整内容，改在电脑上编辑。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file is larger than 1 MB, so the API did not return its full content. Edit it on your computer instead."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件超过 1MB，接口没有返回完整内容，改在电脑上编辑。"
+          }
+        }
+      }
+    },
+    "文件读取失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading the file failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件读取失败"
+          }
+        }
+      }
+    },
+    "文件保存失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saving the file failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件保存失败"
+          }
+        }
+      }
+    },
+    "无法读取文件当前内容" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cannot read the file's current content"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取文件当前内容"
+          }
+        }
+      }
+    },
+    "文件现在无法按文本读取，可能已经被替换成二进制内容或超过 1MB。\n继续保存会用当前编辑器里的内容覆盖它。\n文件路径：\n%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file can no longer be read as text; it may have been replaced with binary content or grown past 1 MB.\nSaving anyway overwrites it with the content in the editor.\nFile path:\n%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件现在无法按文本读取，可能已经被替换成二进制内容或超过 1MB。\n继续保存会用当前编辑器里的内容覆盖它。\n文件路径：\n%@"
+          }
+        }
+      }
+    },
+    "打开之后这个文件已经被改动过。继续保存会丢掉那些改动。\n文件路径：\n%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file has changed since you opened it. Saving anyway discards those changes.\nFile path:\n%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开之后这个文件已经被改动过。继续保存会丢掉那些改动。\n文件路径：\n%@"
+          }
+        }
+      }
+    },
+    "无法确认文件当前的内容，继续保存可能覆盖别处的改动。\n%@\n\n%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file's current content could not be confirmed, so saving may overwrite changes made elsewhere.\n%@\n\n%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法确认文件当前的内容，继续保存可能覆盖别处的改动。\n%@\n\n%@"
+          }
+        }
+      }
+    },
+    "文件已保存" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File saved"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件已保存"
+          }
+        }
+      }
+    },
+    "文件内容" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File content"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件内容"
+          }
+        }
+      }
+    },
+    "在 App 内编辑这个文件的内容" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit this file's content in the app"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 App 内编辑这个文件的内容"
           }
         }
       }

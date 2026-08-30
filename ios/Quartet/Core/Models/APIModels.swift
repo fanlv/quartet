@@ -312,6 +312,23 @@ struct DirectoryListingResponse: Decodable, Sendable {
     }
 }
 
+/// `POST /api/v1/read-file` 的响应。二进制文件和超过 1MB 的文件不会返回原始内容：
+/// 后端在 `content` 里放一段说明文本，并置起 `binary` / `truncated` / `tooLarge`。
+/// 所以写回磁盘之前必须先看这几个标记，否则会把说明文本当成文件内容存进去。
+struct FileContentResponse: Decodable, Sendable {
+    let code: Int
+    let content: String
+    let size: Int64?
+    let truncated: Bool?
+    let binary: Bool?
+    let tooLarge: Bool?
+
+    /// `content` 是文件的完整 UTF-8 正文，可以安全地展示、编辑并原样写回。
+    var isCompleteText: Bool {
+        binary != true && truncated != true && tooLarge != true
+    }
+}
+
 struct ScheduleInfo: Codable, Identifiable, Hashable, Sendable {
     let id: String
     var name: String

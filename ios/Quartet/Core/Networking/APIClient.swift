@@ -225,6 +225,29 @@ struct APIClient: @unchecked Sendable {
         )
     }
 
+    func readFileContent(path: String) async throws -> FileContentResponse {
+        try await request(
+            path: "api/v1/read-file",
+            method: "POST",
+            body: ReadFileRequest(path: path),
+            validate: { response in
+                response.code == 0 ? nil : "code must equal 0; received \(response.code)"
+            }
+        )
+    }
+
+    /// 覆盖写入文本文件。后端限制正文不超过 1MB，并且拒绝非 UTF-8 的请求体。
+    func writeFileContent(path: String, content: String) async throws {
+        let _: WriteFileResponse = try await request(
+            path: "api/v1/write-file",
+            method: "POST",
+            body: WriteFileRequest(path: path, content: content),
+            validate: { response in
+                response.code == 0 ? nil : "code must equal 0; received \(response.code)"
+            }
+        )
+    }
+
     func usageStats(
         from: String?,
         to: String?,
@@ -1360,4 +1383,7 @@ private struct JobTitleRequest: Encodable, Sendable { let title: String }
 private struct JobTitleResponse: Decodable, Sendable { let title: String }
 private struct JobPinRequest: Encodable, Sendable { let pinned: Bool }
 private struct JobPinResponse: Decodable, Sendable { let pinned: Bool; let pinnedAt: Int64; let updatedAt: Int64 }
+private struct ReadFileRequest: Encodable, Sendable { let path: String }
+private struct WriteFileRequest: Encodable, Sendable { let path: String; let content: String }
+private struct WriteFileResponse: Decodable, Sendable { let code: Int }
 private struct EmptyRequest: Encodable, Sendable {}

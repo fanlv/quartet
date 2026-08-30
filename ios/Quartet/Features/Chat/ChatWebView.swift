@@ -263,6 +263,9 @@ struct ChatWebViewPage: View {
 
     let destination: ChatWebDestination
     let onError: (APIError) -> Void
+    /// 文件浏览把这颗按钮接到 App 内的文本编辑器上。聊天正文里的文件链接不传，
+    /// 保持纯预览。
+    var onEdit: (() -> Void)? = nil
 
     var body: some View {
         ChatWebView(url: destination.url, onError: onError)
@@ -284,6 +287,22 @@ struct ChatWebViewPage: View {
                     .accessibilityHint(copyAccessibilityHint)
                 }
                 .sharedBackgroundVisibility(.hidden)
+                if let onEdit {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { onEdit() } label: {
+                            Image(systemName: "square.and.pencil")
+                                .font(.quartet(.regular, weight: .semibold))
+                                .foregroundStyle(QuartetTheme.accent)
+                                .frame(width: 30, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("编辑")
+                        .accessibilityHint("在 App 内编辑这个文件的内容")
+                        .accessibilityIdentifier("file-preview-edit")
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                }
             }
             .onDisappear {
                 resetCopyFeedbackTask?.cancel()

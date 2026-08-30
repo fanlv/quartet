@@ -159,11 +159,15 @@
   white-space: nowrap;
 }
 
+/* Composer selector pills (agent / model / mode / thought level). font-size is
+   intentionally fixed at the narrowest-breakpoint value and must NOT be
+   overridden in any media query: the text should not resize while the window is
+   being resized. */
 .model-tag {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 11px;
   color: #5d6c62;
   padding: 4px 10px;
   background: #f3f7f4;
@@ -921,7 +925,6 @@
     overflow: hidden;
     flex-shrink: 1;
     min-width: 0;
-    font-size: 11px;
     padding: 3px 6px;
   }
 

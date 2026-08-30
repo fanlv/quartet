@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 /// 文件浏览 tab：导航栏按运行台的方式切换工作空间，逐级下钻工作空间目录，
-/// 点击文件复用后端的 Web 文件预览页在应用内打开，不在本地解析文件内容。
+/// 点击文件打开全屏的文件浮层——默认是后端的 Web 预览页，可切换成 App 内的文本编辑器。
 struct WorkspaceFilesView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.mainTabBarInset) private var mainTabBarInset
@@ -11,7 +11,9 @@ struct WorkspaceFilesView: View {
     @State private var workspaceID: String?
     @State private var routes: [WorkspaceDirectoryRoute] = []
     @State private var presentsWorkspaceSelector = false
-    @State private var webDestination: ChatWebDestination?
+    @State private var fileDestination: WorkspaceFileDestination?
+    /// 文件保存成功后 +1，触发导航栈里的目录列表重新读取。
+    @State private var directoryReloadToken = 0
 
     private var selectedWorkspace: WorkspaceSummary? {
         guard let workspaceID else { return nil }
@@ -58,12 +60,14 @@ struct WorkspaceFilesView: View {
         }
         .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        // 预览页是全屏 WebView：目录列表停留在原处，关闭后回到同一层目录。
-        .fullScreenCover(item: $webDestination) { destination in
+        .environment(\.workspaceDirectoryReloadToken, directoryReloadToken)
+        // 预览与编辑是同一层全屏浮层：目录列表停留在原处，关闭后回到同一层目录。
+        .fullScreenCover(item: $fileDestination) { destination in
             NavigationStack {
-                ChatWebViewPage(
+                WorkspaceFilePage(
                     destination: destination,
-                    onError: { model.present($0) }
+                    onError: { model.present($0) },
+                    onSaved: { directoryReloadToken += 1 }
                 )
             }
             .quartetSheetStyle()
@@ -175,7 +179,6 @@ struct WorkspaceFilesView: View {
     }
 
     private func openFile(_ filePath: String) {
-        let name = URL(fileURLWithPath: filePath).lastPathComponent
         do {
             let baseURL = try model.apiClient().baseURL
             guard let previewURL = ChatLinkTarget.filePreviewURL(baseURL: baseURL, path: filePath) else {
@@ -184,18 +187,14 @@ struct WorkspaceFilesView: View {
                     detail: "Quartet 服务地址或文件预览 URL 无效。\n服务地址：\n\(baseURL.absoluteString)\n文件路径：\n\(filePath)"
                 )
             }
-            webDestination = ChatWebDestination(
-                url: previewURL,
-                title: name,
-                copyTarget: .filePath(filePath)
-            )
+            fileDestination = WorkspaceFileDestination(path: filePath, previewURL: previewURL)
         } catch {
             model.present(error)
         }
     }
 }
 
-/// 从聊天页进入时使用的固定工作空间文件浏览器。它复用文件 tab 的目录与预览能力，
+/// 从聊天页进入时使用的固定工作空间文件浏览器。它复用文件 tab 的目录、预览与编辑能力，
 /// 但始终停留在当前 Job 的工作目录，避免用户再次选择工作空间。
 ///
 /// 这个浏览器本身是被聊天页用「视图形式」的 NavigationLink 推进运行台那条
@@ -207,7 +206,9 @@ struct WorkspaceDirectoryBrowserView: View {
     let workspaceTitle: String
     let workspaceRoot: String
 
-    @State private var webDestination: ChatWebDestination?
+    @State private var fileDestination: WorkspaceFileDestination?
+    /// 文件保存成功后 +1，触发已经打开的目录列表重新读取。
+    @State private var directoryReloadToken = 0
 
     private var normalizedRoot: String {
         workspaceRoot.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -243,11 +244,13 @@ struct WorkspaceDirectoryBrowserView: View {
         .background(QuartetTheme.canvas)
         .quartetNavigationTitle(workspaceTitle)
         .quartetPlainNavigationBackButton()
-        .fullScreenCover(item: $webDestination) { destination in
+        .environment(\.workspaceDirectoryReloadToken, directoryReloadToken)
+        .fullScreenCover(item: $fileDestination) { destination in
             NavigationStack {
-                ChatWebViewPage(
+                WorkspaceFilePage(
                     destination: destination,
-                    onError: { model.present($0) }
+                    onError: { model.present($0) },
+                    onSaved: { directoryReloadToken += 1 }
                 )
             }
             .quartetSheetStyle()
@@ -255,7 +258,6 @@ struct WorkspaceDirectoryBrowserView: View {
     }
 
     private func openFile(_ filePath: String) {
-        let name = URL(fileURLWithPath: filePath).lastPathComponent
         do {
             let baseURL = try model.apiClient().baseURL
             guard let previewURL = ChatLinkTarget.filePreviewURL(baseURL: baseURL, path: filePath) else {
@@ -264,11 +266,7 @@ struct WorkspaceDirectoryBrowserView: View {
                     detail: "Quartet 服务地址或文件预览 URL 无效。\n服务地址：\n\(baseURL.absoluteString)\n文件路径：\n\(filePath)"
                 )
             }
-            webDestination = ChatWebDestination(
-                url: previewURL,
-                title: name,
-                copyTarget: .filePath(filePath)
-            )
+            fileDestination = WorkspaceFileDestination(path: filePath, previewURL: previewURL)
         } catch {
             model.present(error)
         }
@@ -298,10 +296,25 @@ private enum WorkspaceDirectoryDrill {
     case view
 }
 
+/// 目录列表的重读信号。文件行上带着大小和修改时间，App 内保存过文件之后不重读，
+/// 关掉编辑器看到的还是保存前的数字。浮层里的编辑器与目录列表之间没有直接引用，
+/// 所以用环境值把这个信号下发给导航栈里已经打开的每一层目录。
+private struct WorkspaceDirectoryReloadTokenKey: EnvironmentKey {
+    static let defaultValue = 0
+}
+
+extension EnvironmentValues {
+    var workspaceDirectoryReloadToken: Int {
+        get { self[WorkspaceDirectoryReloadTokenKey.self] }
+        set { self[WorkspaceDirectoryReloadTokenKey.self] = newValue }
+    }
+}
+
 /// 单层目录列表：目录行下钻到下一层，文件行交给外层打开预览。
 private struct WorkspaceDirectoryView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.mainTabBarInset) private var mainTabBarInset
+    @Environment(\.workspaceDirectoryReloadToken) private var reloadToken
 
     let directory: String
     var drill: WorkspaceDirectoryDrill = .route
@@ -340,6 +353,9 @@ private struct WorkspaceDirectoryView: View {
         .background(QuartetTheme.canvas)
         .mainTabBarBottomInset(mainTabBarInset)
         .task(id: directory) { await load() }
+        .onChange(of: reloadToken) { _, _ in
+            Task { await load() }
+        }
     }
 
     @ViewBuilder
@@ -355,9 +371,11 @@ private struct WorkspaceDirectoryView: View {
         }
 
         if let error {
-            errorCard(error)
-                .padding(.horizontal, 18)
-                .padding(.top, 10)
+            WorkspaceBrowserErrorCard(error: error) {
+                Task { await load() }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 10)
         } else if isLoading, isEmptyDirectory {
             loadingCard
         } else if isEmptyDirectory {
@@ -454,34 +472,6 @@ private struct WorkspaceDirectoryView: View {
         .accessibilityIdentifier("files-empty")
     }
 
-    private func errorCard(_ error: PresentedError) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(error.title.localizedForApp, systemImage: "exclamationmark.triangle.fill")
-                .font(.quartet(.control, weight: .semibold))
-                .foregroundStyle(QuartetTheme.failed)
-
-            Text(error.detail)
-                .font(.quartet(.compact, design: .monospaced))
-                .foregroundStyle(QuartetTheme.primaryText)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button {
-                Task { await load() }
-            } label: {
-                Label("重试".localizedForApp, systemImage: "arrow.clockwise")
-                    .font(.quartet(.control, weight: .semibold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(QuartetTheme.accent)
-        }
-        .padding(15)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(QuartetTheme.failed.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.failed.opacity(0.22)))
-        .accessibilityIdentifier("files-error")
-    }
-
     private func load() async {
         requestGeneration += 1
         let generation = requestGeneration
@@ -536,6 +526,9 @@ private struct WorkspaceDirectoryView: View {
 /// 当前路径；进入子目录后再用一行提示浏览边界。表头保持扁平，便于滚动时固定在列表顶部。
 struct WorkspaceBrowserLocationHeader: View {
     let path: String
+    var title = "当前目录"
+    var systemImage = "folder.fill"
+    var pathKind: WorkspaceBrowserPathKind = .directory
     var workspaceRoot: String? = nil
     var workspaceRootTitle = "当前工作空间"
     var detail: String? = nil
@@ -543,12 +536,12 @@ struct WorkspaceBrowserLocationHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 7) {
-                Image(systemName: "folder.fill")
+                Image(systemName: systemImage)
                     .font(.quartet(.compact, weight: .semibold))
                     .foregroundStyle(QuartetTheme.accent)
                     .accessibilityHidden(true)
 
-                Text("当前目录".localizedForApp)
+                Text(title.localizedForApp)
                     .font(.quartet(.detail, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
 
@@ -576,7 +569,7 @@ struct WorkspaceBrowserLocationHeader: View {
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                WorkspacePathCopyButton(path: path, kind: .directory)
+                WorkspacePathCopyButton(path: path, kind: pathKind)
             }
             .padding(.leading, 16)
             .padding(.trailing, 6)
@@ -705,6 +698,39 @@ struct WorkspaceBrowserRow: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .contentShape(Rectangle())
+    }
+}
+
+/// 目录列表与文件编辑器共用的失败卡片：标题取错误摘要，正文原样保留后端返回的全文
+/// 并允许选中复制，底部提供重试。
+struct WorkspaceBrowserErrorCard: View {
+    let error: PresentedError
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(error.title.localizedForApp, systemImage: "exclamationmark.triangle.fill")
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(QuartetTheme.failed)
+
+            Text(error.detail)
+                .font(.quartet(.compact, design: .monospaced))
+                .foregroundStyle(QuartetTheme.primaryText)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button(action: onRetry) {
+                Label("重试".localizedForApp, systemImage: "arrow.clockwise")
+                    .font(.quartet(.control, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(QuartetTheme.accent)
+        }
+        .padding(15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(QuartetTheme.failed.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.failed.opacity(0.22)))
+        .accessibilityIdentifier("files-error")
     }
 }
 
