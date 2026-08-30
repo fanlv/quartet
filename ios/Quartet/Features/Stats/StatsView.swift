@@ -623,7 +623,6 @@ private struct StatsTrendCard: View {
         if let selectedDate {
             return nearestDay(to: selectedDate)
         }
-        guard metric == .tokens || metric == .cache else { return nil }
         return nearestDay(to: Calendar.current.startOfDay(for: Date()))
     }
 
