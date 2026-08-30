@@ -16,6 +16,9 @@ private struct AgentEnvTarget: Identifiable, Hashable {
     let installed: Bool
     /// ACP 启动命令。空串表示这条只是历史遗留的存储键，没有对应 Agent，也就读不到版本与用量。
     let command: String
+    /// ACP 适配器用于选择外部 CLI 的环境变量。空串表示该 Agent 不支持来源切换。
+    let cliExecutableEnv: String
+    let cliExecutable: String
 
     var id: String { envKey }
 
@@ -24,21 +27,55 @@ private struct AgentEnvTarget: Identifiable, Hashable {
         agentId: String,
         displayName: String,
         installed: Bool = true,
-        command: String = ""
+        command: String = "",
+        cliExecutableEnv: String = "",
+        cliExecutable: String = ""
     ) {
         self.envKey = envKey
         self.agentId = agentId
         self.displayName = displayName
         self.installed = installed
         self.command = command
+        self.cliExecutableEnv = cliExecutableEnv
+        self.cliExecutable = cliExecutable
     }
 }
 
-/// 与 Web 端一致的占位默认值：默认关闭，只是把常用的代理变量先摆出来。
-private let agentEnvDefaultRows: [AgentEnvRow] = [
-    AgentEnvRow(key: "http_proxy", value: "http://127.0.0.1:8890", enabled: false),
-    AgentEnvRow(key: "https_proxy", value: "http://127.0.0.1:8890", enabled: false),
-]
+private enum AgentCLISource: String {
+    case installed
+    case bundled
+    case custom
+
+    var title: String {
+        switch self {
+        case .installed: "本机安装".localizedForApp
+        case .bundled: "ACP 内置".localizedForApp
+        case .custom: "自定义路径".localizedForApp
+        }
+    }
+}
+
+/// 与 Web 端一致的占位默认值：默认关闭，只是把常用变量和 CLI 来源变量先摆出来。
+private func agentEnvDefaultRows(for target: AgentEnvTarget) -> [AgentEnvRow] {
+    var rows = [
+        AgentEnvRow(key: "http_proxy", value: "http://127.0.0.1:8890", enabled: false),
+        AgentEnvRow(key: "https_proxy", value: "http://127.0.0.1:8890", enabled: false),
+    ]
+    if !target.cliExecutableEnv.isEmpty {
+        rows.insert(AgentEnvRow(key: target.cliExecutableEnv, value: "", enabled: false), at: 0)
+    }
+    return rows
+}
+
+private func mergeCLISourceRow(_ saved: [AgentEnvRow], for target: AgentEnvTarget) -> [AgentEnvRow] {
+    guard !target.cliExecutableEnv.isEmpty,
+          !saved.contains(where: { $0.key.trimmingCharacters(in: .whitespaces) == target.cliExecutableEnv }) else {
+        return saved
+    }
+    var rows = saved
+    rows.insert(AgentEnvRow(key: target.cliExecutableEnv, value: "", enabled: false), at: 0)
+    return rows
+}
 
 @MainActor
 struct AgentEnvSettingsView: View {
@@ -55,10 +92,20 @@ struct AgentEnvSettingsView: View {
     @State private var isSaving = false
     @State private var message: AgentSettingsMessage?
     @State private var showsTargetPicker = false
+    @State private var showsCLISourcePicker = false
 
     private var canWrite: Bool { model.can("config.write") }
     private var activeTarget: AgentEnvTarget? { targets.first { $0.envKey == activeKey } }
     private var activeRows: [AgentEnvRow] { envMap[activeKey] ?? [] }
+    private var activeCLISource: AgentCLISource {
+        guard let target = activeTarget, !target.cliExecutableEnv.isEmpty,
+              let row = activeRows.first(where: {
+                  $0.key.trimmingCharacters(in: .whitespaces) == target.cliExecutableEnv
+              }), row.enabled else {
+            return .installed
+        }
+        return row.value.isEmpty ? .bundled : .custom
+    }
 
     var body: some View {
         Group {
@@ -97,6 +144,24 @@ struct AgentEnvSettingsView: View {
             .quartetSheetStyle()
             .task { await loadAgentUsageSummaries() }
         }
+        .sheet(isPresented: $showsCLISourcePicker) {
+            if let target = activeTarget, !target.cliExecutableEnv.isEmpty {
+                QuartetChoiceSheet(
+                    title: "选择 CLI 来源",
+                    choices: cliSourceChoices(for: target),
+                    selection: Binding(
+                        get: { activeCLISource.rawValue },
+                        set: { rawValue in
+                            guard let source = AgentCLISource(rawValue: rawValue) else { return }
+                            applyCLISource(source, to: target)
+                        }
+                    ),
+                    accessibilityPrefix: "agent-env-cli-source-choice"
+                )
+                .presentationDetents([.medium])
+                .quartetSheetStyle()
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -112,6 +177,9 @@ struct AgentEnvSettingsView: View {
         ScrollView {
             LazyVStack(spacing: 12) {
                 targetCard
+                if activeTarget?.cliExecutableEnv.isEmpty == false {
+                    cliSourceCard
+                }
                 variablesCard
             }
             .padding(.horizontal, 18)
@@ -231,6 +299,68 @@ struct AgentEnvSettingsView: View {
                 agentSettingsHint("当前账号没有 config.write 权限，只能查看环境变量。")
             }
         }
+    }
+
+    private var cliSourceCard: some View {
+        AgentSettingsCard("CLI 来源", systemImage: "shippingbox") {
+            agentSettingsHint("选择 ACP 适配器实际使用的 CLI。自定义命令或路径可在下方环境变量中编辑。")
+            AgentSettingsSelectionRow(
+                title: "CLI 来源",
+                value: activeCLISource.title,
+                identifier: "agent-env-cli-source"
+            ) { showsCLISourcePicker = true }
+            .disabled(!canWrite)
+            .opacity(canWrite ? 1 : 0.55)
+        }
+    }
+
+    private func cliSourceChoices(for target: AgentEnvTarget) -> [QuartetChoice] {
+        [
+            QuartetChoice(
+                id: AgentCLISource.installed.rawValue,
+                title: "本机安装",
+                detail: AppLanguage.localizedFormat("动态使用 PATH 中的 %@，升级后自动跟随新版本", target.cliExecutable)
+            ),
+            QuartetChoice(
+                id: AgentCLISource.bundled.rawValue,
+                title: "ACP 内置",
+                detail: "使用适配器自带且经过版本约束的 CLI，兼容性更稳妥"
+            ),
+            QuartetChoice(
+                id: AgentCLISource.custom.rawValue,
+                title: "自定义路径",
+                detail: AppLanguage.localizedFormat("使用下方 %@ 中填写的命令或路径", target.cliExecutableEnv)
+            ),
+        ]
+    }
+
+    private func applyCLISource(_ source: AgentCLISource, to target: AgentEnvTarget) {
+        var rows = envMap[target.envKey] ?? []
+        let index = rows.firstIndex {
+            $0.key.trimmingCharacters(in: .whitespaces) == target.cliExecutableEnv
+        }
+        let existingValue = index.map { rows[$0].value } ?? ""
+        let value: String
+        switch source {
+        case .bundled:
+            value = ""
+        case .custom where existingValue.isEmpty:
+            value = target.cliExecutable
+        case .installed, .custom:
+            value = existingValue
+        }
+        let row = AgentEnvRow(
+            key: target.cliExecutableEnv,
+            value: value,
+            enabled: source != .installed
+        )
+        if let index {
+            rows[index] = row
+        } else {
+            rows.insert(row, at: 0)
+        }
+        envMap[target.envKey] = rows
+        message = nil
     }
 
     private func variableRow(_ row: AgentEnvRow) -> some View {
@@ -367,31 +497,44 @@ struct AgentEnvSettingsView: View {
             for agent in agentList {
                 let envKey = agent.environmentKey
                 guard !resolved.contains(where: { $0.envKey == envKey }) else { continue }
-                resolved.append(AgentEnvTarget(
+                let catalogAgent = catalogByID[agent.agentId]
+                let target = AgentEnvTarget(
                     envKey: envKey,
                     agentId: agent.agentId,
                     displayName: agent.displayName.isEmpty ? agent.agentId : agent.displayName,
-                    installed: catalogByID[agent.agentId]?.installed ?? true,
-                    command: agent.available ? agent.type : ""
-                ))
+                    installed: catalogAgent?.installed ?? true,
+                    command: agent.available ? agent.type : "",
+                    cliExecutableEnv: catalogAgent?.cliExecutableEnv ?? "",
+                    cliExecutable: catalogAgent?.definition.bin ?? agent.agentId
+                )
+                resolved.append(target)
                 let entries = saved[envKey] ?? saved[agent.type]
                 if let entries, !entries.isEmpty {
-                    rows[envKey] = entries.map { AgentEnvRow(key: $0.key, value: $0.value, enabled: $0.enabled) }
+                    rows[envKey] = mergeCLISourceRow(
+                        entries.map { AgentEnvRow(key: $0.key, value: $0.value, enabled: $0.enabled) },
+                        for: target
+                    )
                 } else {
-                    rows[envKey] = agentEnvDefaultRows
+                    rows[envKey] = agentEnvDefaultRows(for: target)
                 }
             }
             // 已保存但当前列表里没有的存储键仍然要露出来，否则用户改不掉也删不掉。
             for (envKey, entries) in saved.sorted(by: { $0.key < $1.key })
             where !resolved.contains(where: { $0.envKey == envKey }) {
                 let catalogAgent = catalogByID[envKey]
-                resolved.append(AgentEnvTarget(
+                let target = AgentEnvTarget(
                     envKey: envKey,
                     agentId: catalogAgent?.agentId ?? envKey,
                     displayName: catalogAgent.flatMap { $0.displayName.isEmpty ? nil : $0.displayName } ?? envKey,
-                    installed: catalogAgent?.installed ?? false
-                ))
-                rows[envKey] = entries.map { AgentEnvRow(key: $0.key, value: $0.value, enabled: $0.enabled) }
+                    installed: catalogAgent?.installed ?? false,
+                    cliExecutableEnv: catalogAgent?.cliExecutableEnv ?? "",
+                    cliExecutable: catalogAgent?.definition.bin ?? envKey
+                )
+                resolved.append(target)
+                rows[envKey] = mergeCLISourceRow(
+                    entries.map { AgentEnvRow(key: $0.key, value: $0.value, enabled: $0.enabled) },
+                    for: target
+                )
             }
 
             targets = resolved

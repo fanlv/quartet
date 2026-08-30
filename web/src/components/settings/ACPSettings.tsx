@@ -15,22 +15,51 @@ interface AgentOption {
   env_key: string;
   display_name: string;
   installed: boolean;
+  cli_executable_env?: string;
+  cli_executable?: string;
 }
 
 interface AgentCatalogOption {
   agent_id: string;
   display_name: string;
   installed: boolean;
+  cli_executable_env?: string;
+  definition?: { bin?: string };
   historical_identifiers?: Array<{
     kind?: string;
     value?: string;
   }>;
 }
 
-const DEFAULT_ENV_VARS: EnvVar[] = [
+type CLISource = 'installed' | 'bundled' | 'custom';
+
+const BASE_DEFAULT_ENV_VARS: EnvVar[] = [
   { key: 'http_proxy', value: 'http://127.0.0.1:8890', enabled: false },
   { key: 'https_proxy', value: 'http://127.0.0.1:8890', enabled: false },
 ];
+
+function cliSourceFor(agent?: AgentOption) {
+  if (!agent?.cli_executable_env) return undefined;
+  return { envKey: agent.cli_executable_env, executable: agent.cli_executable || agent.agent_id };
+}
+
+function defaultEnvVars(agent: AgentOption): EnvVar[] {
+  const defaults = BASE_DEFAULT_ENV_VARS.map((env) => ({ ...env }));
+  const cliSource = cliSourceFor(agent);
+  if (cliSource) {
+    defaults.unshift({ key: cliSource.envKey, value: '', enabled: false });
+  }
+  return defaults;
+}
+
+function mergeDefaultEnvVars(agent: AgentOption, saved: EnvVar[]): EnvVar[] {
+  const merged = saved.map((env) => ({ ...env }));
+  const cliSource = cliSourceFor(agent);
+  if (cliSource && !merged.some((env) => env.key.trim() === cliSource.envKey)) {
+    merged.unshift({ key: cliSource.envKey, value: '', enabled: false });
+  }
+  return merged;
+}
 
 export function ACPSettings() {
   const { t } = useTranslation();
@@ -81,6 +110,12 @@ export function ACPSettings() {
         }
       }
       const acpAgents: AgentOption[] = agentList.map((a) => ({
+        ...(catalogByIdentifier.get(a.agent_id)?.cli_executable_env
+          ? { cli_executable_env: catalogByIdentifier.get(a.agent_id)?.cli_executable_env }
+          : {}),
+        ...(catalogByIdentifier.get(a.agent_id)?.definition?.bin
+          ? { cli_executable: catalogByIdentifier.get(a.agent_id)?.definition?.bin }
+          : {}),
         agent_id: a.agent_id,
         type: a.type,
         env_key: a.env_key || a.type,
@@ -99,13 +134,13 @@ export function ACPSettings() {
         const envKey = agent.env_key || agent.type;
         const vars = savedVars[envKey] || savedVars[agent.type];
         if (vars && vars.length > 0) {
-          newEnvMap[envKey] = vars.map((v) => ({
+          newEnvMap[envKey] = mergeDefaultEnvVars(agent, vars.map((v) => ({
             key: v.key,
             value: v.value,
             enabled: v.enabled,
-          }));
+          })));
         } else {
-          newEnvMap[envKey] = DEFAULT_ENV_VARS.map((v) => ({ ...v }));
+          newEnvMap[envKey] = defaultEnvVars(agent);
         }
       }
 
@@ -167,6 +202,27 @@ export function ACPSettings() {
   const handleToggle = (index: number) => {
     const updated = [...getEnvVars()];
     updated[index] = { ...updated[index], enabled: !updated[index].enabled };
+    updateEnvVars(updated);
+  };
+
+  const handleCLISourceChange = (source: CLISource) => {
+    const active = agents.find((agent) => agent.env_key === activeAgent);
+    const cliSource = cliSourceFor(active);
+    if (!cliSource) return;
+    const updated = [...getEnvVars()];
+    const index = updated.findIndex((env) => env.key.trim() === cliSource.envKey);
+    const existingValue = index >= 0 ? updated[index].value : '';
+    const next = {
+      key: cliSource.envKey,
+      value: source === 'bundled'
+        ? ''
+        : source === 'custom' && !existingValue
+          ? cliSource.executable
+          : existingValue,
+      enabled: source !== 'installed',
+    };
+    if (index >= 0) updated[index] = next;
+    else updated.unshift(next);
     updateEnvVars(updated);
   };
 
@@ -233,6 +289,17 @@ export function ACPSettings() {
   }
 
   const currentVars = getEnvVars();
+  const currentAgent = agents.find((agent) => agent.env_key === activeAgent);
+  const cliSource = cliSourceFor(currentAgent);
+  const cliSourceRadioName = `cli-source-${currentAgent?.agent_id || activeAgent}`;
+  const cliOverride = cliSource
+    ? currentVars.find((env) => env.key.trim() === cliSource.envKey)
+    : undefined;
+  const currentCLISource: CLISource = !cliOverride?.enabled
+    ? 'installed'
+    : cliOverride.value === ''
+      ? 'bundled'
+      : 'custom';
 
   return (
     <div className="account-settings">
@@ -258,6 +325,51 @@ export function ACPSettings() {
             </button>
           ))}
         </div>
+
+        {cliSource && (
+          <fieldset className="acp-cli-source">
+            <legend>{t('settings.acp.cliSource.title')}</legend>
+            <p>{t('settings.acp.cliSource.description', { executable: cliSource.executable })}</p>
+            <div className="acp-cli-source-options">
+              <label className={`acp-cli-source-option ${currentCLISource === 'installed' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name={cliSourceRadioName}
+                  checked={currentCLISource === 'installed'}
+                  onChange={() => handleCLISourceChange('installed')}
+                />
+                <span>
+                  <strong>{t('settings.acp.cliSource.installed')}</strong>
+                  <small>{t('settings.acp.cliSource.installedDesc', { executable: cliSource.executable })}</small>
+                </span>
+              </label>
+              <label className={`acp-cli-source-option ${currentCLISource === 'bundled' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name={cliSourceRadioName}
+                  checked={currentCLISource === 'bundled'}
+                  onChange={() => handleCLISourceChange('bundled')}
+                />
+                <span>
+                  <strong>{t('settings.acp.cliSource.bundled')}</strong>
+                  <small>{t('settings.acp.cliSource.bundledDesc')}</small>
+                </span>
+              </label>
+              <label className={`acp-cli-source-option ${currentCLISource === 'custom' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name={cliSourceRadioName}
+                  checked={currentCLISource === 'custom'}
+                  onChange={() => handleCLISourceChange('custom')}
+                />
+                <span>
+                  <strong>{t('settings.acp.cliSource.custom')}</strong>
+                  <small>{t('settings.acp.cliSource.customDesc', { variable: cliSource.envKey })}</small>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+        )}
 
         <div className="acp-env-list">
           {currentVars.map((env, index) => (

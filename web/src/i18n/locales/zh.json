@@ -136,6 +136,7 @@
     "imagesCount": "{{count}} 张图片",
     "switchWorkspace": "切换工作空间",
     "thinking": "AI 正在思考...",
+    "loadingEarlierMessages": "正在加载更早消息…",
     "deepThinking": "深度思考",
     "imageViewer": {
       "dialogLabel": "图片查看器",
@@ -593,7 +594,17 @@
       "addEnvVar": "+ 添加环境变量",
       "uninstalled": "已卸载",
       "activeTooltip": "已启用",
-      "inactiveTooltip": "已禁用"
+      "inactiveTooltip": "已禁用",
+      "cliSource": {
+        "title": "CLI 来源",
+        "description": "选择 ACP 适配器实际使用的 CLI。下方环境变量仍可填写自定义命令或路径。",
+        "installed": "本机安装",
+        "installedDesc": "动态使用 PATH 中的 {{executable}}，升级后自动跟随新版本",
+        "bundled": "ACP 内置",
+        "bundledDesc": "使用适配器自带且经过版本约束的 CLI，兼容性更稳妥",
+        "custom": "自定义路径",
+        "customDesc": "使用下方 {{variable}} 中填写的命令或路径"
+      }
     },
     "agentDefaults": {
       "sectionTitle": "Agent 默认与收藏",

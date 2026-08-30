@@ -3,6 +3,8 @@ package usage
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"regexp"
 	"sync"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/services/agent/probe"
+	"github.com/fanlv/quartet/services/agent/runtimeenv"
 	"github.com/fanlv/quartet/services/config"
 	"github.com/fanlv/quartet/types/model"
 )
@@ -46,7 +49,7 @@ type serviceImpl struct {
 }
 
 // NewService builds the usage service. It depends on the settings service to
-// read the Codex ACP env vars (proxy) that the ChatGPT usage request needs.
+// resolve the environment used by Codex and Claude ACP adapters.
 func NewService(settings config.SettingsService) Service {
 	return &serviceImpl{settings: settings}
 }
@@ -60,6 +63,24 @@ func acpCommandByBin(bin string) string {
 		}
 	}
 	return ""
+}
+
+func (s *serviceImpl) effectiveACPEnv(bin string) map[string]string {
+	command := acpCommandByBin(bin)
+	if command == "" {
+		return nil
+	}
+	return (runtimeenv.Resolver{}).Effective(command, s.settings.GetACPEnvVars(command))
+}
+
+func applyCommandEnv(cmd *exec.Cmd, values map[string]string) {
+	if len(values) == 0 {
+		return
+	}
+	cmd.Env = os.Environ()
+	for key, value := range values {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 }
 
 var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+`)

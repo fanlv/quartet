@@ -27,7 +27,7 @@ type UsageWindow struct {
 type CodexUsage struct {
 	Email           string       `json:"email,omitempty"`
 	PlanType        string       `json:"plan_type,omitempty"`
-	Version         string       `json:"version,omitempty"` // bundled codex CLI version, e.g. "v0.144.0"
+	Version         string       `json:"version,omitempty"` // effective Codex CLI version used by codex-acp, e.g. "v0.144.0"
 	PrimaryWindow   *UsageWindow `json:"primary_window,omitempty"`
 	SecondaryWindow *UsageWindow `json:"secondary_window,omitempty"`
 	ResetCredits    int          `json:"reset_credits"` // count of available rate-limit reset credits
@@ -51,7 +51,7 @@ type AgentVersionResponse struct {
 type ClaudeUsage struct {
 	Name      string  `json:"name,omitempty"`
 	KeySuffix string  `json:"key_suffix,omitempty"`
-	Version   string  `json:"version,omitempty"` // claude-agent-acp version, e.g. "v2.1.202"
+	Version   string  `json:"version,omitempty"` // effective Claude Code version used by claude-agent-acp, e.g. "v2.1.202"
 	TodayCost float64 `json:"today_cost"`
 	TotalCost float64 `json:"total_cost"`
 }

@@ -186,7 +186,9 @@ func (s *serviceImpl) claudeVersion(ctx context.Context) string {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	args := append(parts[1:], "--cli", "--version")
-	out, err := executil.CommandContext(cctx, parts[0], args...).Output()
+	cmd := executil.CommandContext(cctx, parts[0], args...)
+	applyCommandEnv(cmd, s.effectiveACPEnv("claude"))
+	out, err := cmd.Output()
 	if err != nil {
 		logger.Warnf(ctx, "[agent.usage] Claude version probe failed: command=%q err=%v", command, err)
 		return ""

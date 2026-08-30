@@ -145,6 +145,7 @@ func (s *Service) ListItems(ctx context.Context) ([]model.AgentCatalogItem, erro
 				DisplayName:           agent.DisplayName,
 				IconURL:               agent.IconURL,
 				Definition:            agent.RuntimeDefinition(),
+				CLIExecutableEnv:      agent.CLIExecutableEnv,
 				HistoricalIdentifiers: identifiers,
 				SupportsHeadlessPrint: agent.SupportsHeadlessPrint,
 				Deprecated:            agent.Deprecated,

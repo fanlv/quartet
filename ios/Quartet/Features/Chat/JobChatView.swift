@@ -80,6 +80,7 @@ struct JobChatView: View {
     @State private var loadingMessagePresets = false
     @State private var timelineMode: ChatTimelineMode = .following
     @State private var userIsScrollingTimeline = false
+    @State private var timelineTopIsVisible = false
     @State private var timelineBottomIsVisible = true
     @State private var visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
     @State private var pendingTimelinePrependAnchor: String?
@@ -367,7 +368,7 @@ struct JobChatView: View {
     }
 
     private func loadEarlierTimelineMessages() {
-        guard hiddenTimelineMessageCount > 0 else { return }
+        guard hiddenTimelineMessageCount > 0, pendingTimelinePrependAnchor == nil else { return }
         pendingTimelinePrependAnchor = timelineMessages.first?.id
         visibleTimelineMessageCount = min(
             chat.messages.count,
@@ -391,18 +392,18 @@ struct JobChatView: View {
                         .padding(.top, 80)
                     }
                     if hiddenTimelineMessageCount > 0 {
-                        Button {
-                            loadEarlierTimelineMessages()
-                        } label: {
-                            Label("加载更多".localizedForApp, systemImage: "chevron.up")
-                                .font(.chat(.detail, weight: .medium))
-                                .foregroundStyle(QuartetTheme.accent)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("加载更多".localizedForApp)
-                        .accessibilityIdentifier("chat-load-earlier")
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(QuartetTheme.accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .accessibilityLabel("加载更多".localizedForApp)
+                            .accessibilityIdentifier("chat-load-earlier")
+                            .onScrollVisibilityChange { isVisible in
+                                timelineTopIsVisible = isVisible
+                                guard isVisible, !timelineMode.isFollowing else { return }
+                                loadEarlierTimelineMessages()
+                            }
                     }
                     ForEach(timelineMessages) { message in
                         ChatBubble(
@@ -466,6 +467,9 @@ struct JobChatView: View {
                 userIsScrollingTimeline = isUserScrolling
                 if isUserScrolling {
                     beginTimelineBrowsing()
+                    if timelineTopIsVisible {
+                        loadEarlierTimelineMessages()
+                    }
                     return
                 }
                 if newPhase == .idle, wasUserScrolling, timelineBottomIsVisible {
@@ -477,16 +481,17 @@ struct JobChatView: View {
             }
             .onChange(of: visibleTimelineMessageCount) { _, _ in
                 guard let anchor = pendingTimelinePrependAnchor else { return }
-                pendingTimelinePrependAnchor = nil
                 // 新页已经进入这次视图树，将加载前的第一条固定在顶部，阅读位置不跳。
                 withTransaction(Transaction(animation: nil)) {
                     proxy.scrollTo(anchor, anchor: .top)
                 }
+                pendingTimelinePrependAnchor = nil
             }
             .onChange(of: route.summary.id) { _, _ in
                 pendingTimelinePrependAnchor = nil
                 timelineMode = .following
                 userIsScrollingTimeline = false
+                timelineTopIsVisible = false
                 timelineBottomIsVisible = true
                 visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
                 scrollTimelineToBottom(proxy)

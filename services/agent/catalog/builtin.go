@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	agentinstall "github.com/fanlv/quartet/services/agent/install"
+	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -31,6 +32,7 @@ type BuiltinAgent struct {
 	ACPArgs               []string
 	Command               string
 	EnvKey                string
+	CLIExecutableEnv      string
 	HistoricalIdentifiers []HistoricalIdentifier
 	DisplayName           string
 	IconURL               string
@@ -122,7 +124,7 @@ var builtinAgents = []BuiltinAgent{
 		Install: npmInstallSpec("openclaw"),
 	},
 	{
-		AgentID: "claude", Bin: "claude", ACPProgram: "claude-agent-acp", Command: "claude-agent-acp", EnvKey: "claude",
+		AgentID: "claude", Bin: "claude", ACPProgram: "claude-agent-acp", Command: "claude-agent-acp", EnvKey: "claude", CLIExecutableEnv: consts.EnvKeyClaudeCodeExecutable,
 		HistoricalIdentifiers: []HistoricalIdentifier{
 			{Kind: IdentifierKindACPCommand, Value: "npx @agentclientprotocol/claude-agent-acp"},
 		},
@@ -234,7 +236,7 @@ var builtinAgents = []BuiltinAgent{
 		},
 	},
 	{
-		AgentID: "codex", Bin: "codex", ACPProgram: "codex-acp", Command: "codex-acp", EnvKey: "codex",
+		AgentID: "codex", Bin: "codex", ACPProgram: "codex-acp", Command: "codex-acp", EnvKey: "codex", CLIExecutableEnv: consts.EnvKeyCodexPath,
 		HistoricalIdentifiers: []HistoricalIdentifier{
 			{Kind: IdentifierKindACPCommand, Value: "npx @agentclientprotocol/codex-acp"},
 			{Kind: IdentifierKindACPCommand, Value: "npx @zed-industries/codex-acp"},

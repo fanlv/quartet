@@ -224,15 +224,10 @@ func toUsageWindow(w *codexWindow) *model.UsageWindow {
 	}
 }
 
-// codexACPEnv returns the env vars configured for the Codex ACP agent. They are
-// used both by the quota HTTP client and the version probe, where CODEX_PATH can
-// override the adapter's packaged Codex dependency.
+// codexACPEnv returns the effective env for the Codex ACP agent, including the
+// runtime default that points the adapter at the installed Codex CLI.
 func (s *serviceImpl) codexACPEnv() map[string]string {
-	command := acpCommandByBin("codex")
-	if command == "" {
-		return nil
-	}
-	return s.settings.GetACPEnvVars(command)
+	return s.effectiveACPEnv("codex")
 }
 
 // codexVersionAsync runs the version probe in parallel with the usage requests.
@@ -259,12 +254,7 @@ func (s *serviceImpl) codexVersion(ctx context.Context) string {
 	defer cancel()
 	args := append(parts[1:], "cli", "-V")
 	cmd := executil.CommandContext(cctx, parts[0], args...)
-	if env := s.codexACPEnv(); len(env) > 0 {
-		cmd.Env = os.Environ()
-		for key, value := range env {
-			cmd.Env = append(cmd.Env, key+"="+value)
-		}
-	}
+	applyCommandEnv(cmd, s.codexACPEnv())
 	out, err := cmd.Output()
 	if err != nil {
 		logger.Warnf(ctx, "[agent.usage] Codex version probe failed: command=%q err=%v", command, err)

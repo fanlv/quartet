@@ -7,6 +7,150 @@
     " " : {
 
     },
+    "ACP 内置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bundled with ACP"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ACP 内置"
+          }
+        }
+      }
+    },
+    "CLI 来源" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CLI source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CLI 来源"
+          }
+        }
+      }
+    },
+    "使用下方 %@ 中填写的命令或路径" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use the command or path entered in %@ below"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用下方 %@ 中填写的命令或路径"
+          }
+        }
+      }
+    },
+    "使用适配器自带且经过版本约束的 CLI，兼容性更稳妥" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use the adapter's version-constrained CLI for safer compatibility"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用适配器自带且经过版本约束的 CLI，兼容性更稳妥"
+          }
+        }
+      }
+    },
+    "动态使用 PATH 中的 %@，升级后自动跟随新版本" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve %@ from PATH dynamically and follow upgrades automatically"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "动态使用 PATH 中的 %@，升级后自动跟随新版本"
+          }
+        }
+      }
+    },
+    "本机安装" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed on this machine"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本机安装"
+          }
+        }
+      }
+    },
+    "自定义路径" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom path"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义路径"
+          }
+        }
+      }
+    },
+    "选择 ACP 适配器实际使用的 CLI。自定义命令或路径可在下方环境变量中编辑。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which CLI the ACP adapter actually runs. Edit a custom command or path in the environment variables below."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 ACP 适配器实际使用的 CLI。自定义命令或路径可在下方环境变量中编辑。"
+          }
+        }
+      }
+    },
+    "选择 CLI 来源" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose CLI source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 CLI 来源"
+          }
+        }
+      }
+    },
     "—  前期无数据" : {
       "localizations" : {
         "en" : {

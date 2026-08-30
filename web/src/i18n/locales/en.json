@@ -136,6 +136,7 @@
     "imagesCount": "{{count}} image(s)",
     "switchWorkspace": "Switch workspace",
     "thinking": "AI is thinking...",
+    "loadingEarlierMessages": "Loading earlier messages…",
     "deepThinking": "Deep thinking",
     "imageViewer": {
       "dialogLabel": "Image viewer",
@@ -595,7 +596,17 @@
       "addEnvVar": "+ Add Environment Variable",
       "uninstalled": "Uninstalled",
       "activeTooltip": "Enabled",
-      "inactiveTooltip": "Disabled"
+      "inactiveTooltip": "Disabled",
+      "cliSource": {
+        "title": "CLI source",
+        "description": "Choose which CLI the ACP adapter actually runs. You can still enter a custom command or path below.",
+        "installed": "Installed on this machine",
+        "installedDesc": "Resolve {{executable}} from PATH dynamically and follow upgrades automatically",
+        "bundled": "Bundled with ACP",
+        "bundledDesc": "Use the adapter's version-constrained CLI for safer compatibility",
+        "custom": "Custom path",
+        "customDesc": "Use the command or path entered in {{variable}} below"
+      }
     },
     "agentDefaults": {
       "sectionTitle": "Agent Defaults & Favorites",

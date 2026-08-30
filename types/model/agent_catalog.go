@@ -74,6 +74,7 @@ type AgentCatalogItem struct {
 	DisplayName           string                   `json:"display_name"`
 	IconURL               string                   `json:"icon_url"`
 	Definition            AgentRuntimeDefinition   `json:"definition"`
+	CLIExecutableEnv      string                   `json:"cli_executable_env,omitempty"`
 	HistoricalIdentifiers []AgentCatalogIdentifier `json:"historical_identifiers,omitempty"`
 	SupportsHeadlessPrint bool                     `json:"supports_headless_print"`
 	Deprecated            bool                     `json:"deprecated"`

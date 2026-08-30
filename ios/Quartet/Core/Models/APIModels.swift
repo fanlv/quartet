@@ -2103,6 +2103,7 @@ struct AgentCatalogItem: Decodable, Identifiable, Hashable, Sendable {
     let displayName: String
     let iconUrl: String
     let definition: AgentRuntimeDefinition
+    let cliExecutableEnv: String?
     let supportsHeadlessPrint: Bool
     let deprecated: Bool
     let lifecycle: String
@@ -2160,6 +2161,7 @@ struct AgentCatalogItem: Decodable, Identifiable, Hashable, Sendable {
         case displayName = "display_name"
         case iconUrl = "icon_url"
         case definition
+        case cliExecutableEnv = "cli_executable_env"
         case supportsHeadlessPrint = "supports_headless_print"
         case deprecated
         case lifecycle
@@ -2188,6 +2190,7 @@ struct AgentCatalogItem: Decodable, Identifiable, Hashable, Sendable {
         iconUrl = try values.decodeIfPresent(String.self, forKey: .iconUrl) ?? ""
         definition = try values.decodeIfPresent(AgentRuntimeDefinition.self, forKey: .definition)
             ?? AgentRuntimeDefinition(bin: "", acpProgram: "", acpArgs: [])
+        cliExecutableEnv = try values.decodeIfPresent(String.self, forKey: .cliExecutableEnv)
         supportsHeadlessPrint = try values.decodeIfPresent(Bool.self, forKey: .supportsHeadlessPrint) ?? false
         deprecated = try values.decodeIfPresent(Bool.self, forKey: .deprecated) ?? false
         lifecycle = try values.decodeIfPresent(String.self, forKey: .lifecycle) ?? "active"
@@ -2217,7 +2220,7 @@ extension AgentCatalogItem {
         installed: Bool = true,
         source: String = "builtin"
     ) throws -> Self {
-        let object: [String: Any] = [
+        var object: [String: Any] = [
             "agent_id": agentId,
             "source": source,
             "display_name": displayName,
@@ -2236,6 +2239,11 @@ extension AgentCatalogItem {
             "availability": installed ? "available" : "not_installed",
             "refreshing": false,
         ]
+        if agentId == "codex" {
+            object["cli_executable_env"] = "CODEX_PATH"
+        } else if agentId == "claude" {
+            object["cli_executable_env"] = "CLAUDE_CODE_EXECUTABLE"
+        }
         return try JSONDecoder().decode(Self.self, from: JSONSerialization.data(withJSONObject: object))
     }
 }

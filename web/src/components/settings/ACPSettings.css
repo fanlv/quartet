@@ -47,6 +47,73 @@
   opacity: 0.78;
 }
 
+.acp-cli-source {
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px solid #d7e1da;
+  border-radius: 8px;
+  background: #f7faf8;
+}
+
+.acp-cli-source legend {
+  padding: 0 5px;
+  color: #29362d;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.acp-cli-source > p {
+  margin: 0 0 10px;
+  color: #68766d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.acp-cli-source-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.acp-cli-source-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid #d7e1da;
+  border-radius: 7px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.acp-cli-source-option.active {
+  border-color: var(--accent);
+  background: #eff8f2;
+}
+
+.acp-cli-source-option input {
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.acp-cli-source-option span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.acp-cli-source-option strong {
+  color: #29362d;
+  font-size: 13px;
+}
+
+.acp-cli-source-option small {
+  color: #68766d;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .acp-env-list {
   display: flex;
   flex-direction: column;
@@ -143,6 +210,10 @@
 
   .acp-agent-tab {
     flex-shrink: 0;
+  }
+
+  .acp-cli-source-options {
+    grid-template-columns: 1fr;
   }
 
   .acp-env-row {
