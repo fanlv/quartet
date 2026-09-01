@@ -294,6 +294,7 @@ private struct StatsKPIGrid: View {
     let periodDays: Int
 
     var body: some View {
+        let cards = self.cards
         VStack(spacing: 0) {
             if dynamicTypeSize.isAccessibilitySize {
                 ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
@@ -486,9 +487,30 @@ private struct StatsTrendCard: View {
     @Environment(\.locale) private var locale
     let report: UsageStatsReport
     @Binding var metric: StatsTrendMetric
+
+    var body: some View {
+        // 派生数据在这里算一次后按值下传：图内选中日变化只会重算内容视图，
+        // 不会再走一遍补齐日期、解析日期串和拆分模型序列的计算。
+        StatsTrendCardContent(
+            data: StatsTrendData(report: report, metric: metric, locale: locale),
+            metric: $metric
+        )
+    }
+}
+
+private struct StatsTrendCardContent: View {
+    @Environment(\.locale) private var locale
+    let data: StatsTrendData
+    @Binding var metric: StatsTrendMetric
     @State private var selectedDate: Date?
 
     var body: some View {
+        let selectedIndex = data.nearestIndex(to: selectedDate ?? Calendar.current.startOfDay(for: Date()))
+        let selectedDay = selectedIndex.map { data.days[$0] }
+        let selectedDayDate = selectedIndex.map { data.dates[$0] }
+        let selectedKey = selectedDay?.date
+        let entries = selectedKey.map { data.entries(forDateKey: $0, metric: metric) } ?? []
+
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(trendTitle.localized(in: locale))
@@ -514,13 +536,13 @@ private struct StatsTrendCard: View {
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
 
-            if !hasTrendData {
+            if !data.hasData {
                 Text((metric == .cache ? "所选范围内没有可计算缓存命中率的模型输入数据。" : "所选范围暂无数据").localized(in: locale))
                     .font(.quartet(.control))
                     .foregroundStyle(QuartetTheme.secondaryText)
                     .frame(maxWidth: .infinity, minHeight: 180)
             } else {
-                Chart(series) { line in
+                Chart(data.series) { line in
                     ForEach(line.points) { point in
                         LineMark(
                             x: .value("日期".localized(in: locale), point.date),
@@ -529,10 +551,14 @@ private struct StatsTrendCard: View {
                         )
                         .foregroundStyle(line.color)
                         .lineStyle(StrokeStyle(lineWidth: line.isTotal ? 2.7 : 1.8, lineCap: .round, lineJoin: .round))
-                        .interpolationMethod(.catmullRom)
+                        .interpolationMethod(data.interpolation)
 
-                        let isSelected = selectedDay?.date == point.dateKey
-                        if line.isTotal || metric == .cache || (isSelected && point.value > 0) {
+                        let isSelected = selectedKey == point.dateKey
+                        let alwaysMarked = line.isTotal || metric == .cache
+                        let showsPoint = data.showsAllPointMarks
+                            ? (alwaysMarked || (isSelected && point.value > 0))
+                            : (isSelected && (alwaysMarked || point.value > 0))
+                        if showsPoint {
                             PointMark(
                                 x: .value("日期".localized(in: locale), point.date),
                                 y: .value(metric.title.localized(in: locale), point.value)
@@ -542,13 +568,13 @@ private struct StatsTrendCard: View {
                         }
                     }
 
-                    if let selectedDay, let selectedDayDate = StatsFormat.date(selectedDay.date) {
+                    if let selectedDayDate {
                         RuleMark(x: .value("选中日期".localized(in: locale), selectedDayDate))
                             .foregroundStyle(QuartetTheme.secondaryText.opacity(0.55))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                     }
                 }
-                .chartXScale(domain: chartDateDomain)
+                .chartXScale(domain: data.domain)
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 5)) {
                         AxisGridLine().foregroundStyle(QuartetTheme.divider.opacity(0.45))
@@ -569,7 +595,7 @@ private struct StatsTrendCard: View {
                         }
                     }
                 }
-                .chartXSelection(value: persistentChartSelection)
+                .chartXSelection(value: chartSelection(current: selectedDayDate))
                 .modifier(StatsTrendScaleModifier(metric: metric))
                 .frame(height: 220)
                 .accessibilityElement(children: .ignore)
@@ -578,30 +604,30 @@ private struct StatsTrendCard: View {
                     locale: locale,
                     metric.title.localized(in: locale)
                 ))
-                .accessibilityValue(chartAccessibilityValue)
+                .accessibilityValue(accessibilityValue(for: selectedDay))
                 .accessibilityHint("上下轻扫以逐日浏览")
                 .accessibilityAdjustableAction { direction in
-                    adjustAccessibilitySelection(direction)
+                    adjustAccessibilitySelection(direction, from: selectedIndex)
                 }
 
                 if let selectedDay {
                     if metric == .tokens {
                         StatsTokenDayDetail(
                             day: selectedDay,
-                            modelEntries: selectedTrendEntries.filter { !$0.isTotal }
+                            modelEntries: entries.filter { !$0.isTotal }
                         )
                     } else {
                         StatsTrendDayTip(
                             date: selectedDay.date,
                             metric: metric,
-                            entries: selectedTrendEntries
+                            entries: entries
                         )
                     }
                 }
 
                 ScrollView(.horizontal) {
                     HStack(spacing: 14) {
-                        ForEach(series) { line in
+                        ForEach(data.series) { line in
                             Label {
                                 Text(line.name).lineLimit(1)
                             } icon: {
@@ -619,56 +645,17 @@ private struct StatsTrendCard: View {
         .accessibilityIdentifier("stats-trend")
     }
 
-    private var selectedDay: UsageStatsDailyRow? {
-        if let selectedDate {
-            return nearestDay(to: selectedDate)
-        }
-        return nearestDay(to: Calendar.current.startOfDay(for: Date()))
-    }
-
-    private func nearestDay(to date: Date) -> UsageStatsDailyRow? {
-        return filledDays.min { lhs, rhs in
-            abs((StatsFormat.date(lhs.date) ?? .distantPast).timeIntervalSince(date))
-                < abs((StatsFormat.date(rhs.date) ?? .distantPast).timeIntervalSince(date))
-        }
-    }
-
-    private var persistentChartSelection: Binding<Date?> {
+    private func chartSelection(current: Date?) -> Binding<Date?> {
         Binding(
-            get: { selectedDay.flatMap { StatsFormat.date($0.date) } },
+            get: { current },
             set: { value in
-                guard let value, let day = nearestDay(to: value) else { return }
-                selectedDate = StatsFormat.date(day.date)
+                // 手指在同一天内移动时不改状态，避免整卡片跟着每个触摸事件重绘。
+                guard let value, let index = data.nearestIndex(to: value) else { return }
+                let day = data.dates[index]
+                guard day != selectedDate else { return }
+                selectedDate = day
             }
         )
-    }
-
-    private var chartDateDomain: ClosedRange<Date> {
-        let dates = filledDays.compactMap { StatsFormat.date($0.date) }
-        guard let first = dates.first, let last = dates.last else {
-            let today = Calendar.current.startOfDay(for: Date())
-            return today ... Calendar.current.date(byAdding: .day, value: 1, to: today)!
-        }
-        guard first < last else {
-            let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: first) ?? first.addingTimeInterval(86_400)
-            return first ... nextDay
-        }
-        return first ... last
-    }
-
-    private var selectedTrendEntries: [StatsTrendTipEntry] {
-        guard let selectedDay else { return [] }
-        return series.compactMap { line in
-            guard let point = line.points.first(where: { $0.dateKey == selectedDay.date }) else { return nil }
-            guard line.isTotal || metric == .cache || point.value > 0 else { return nil }
-            return StatsTrendTipEntry(
-                id: line.id,
-                name: line.name,
-                value: point.value,
-                color: line.color,
-                isTotal: line.isTotal
-            )
-        }
     }
 
     private var trendTitle: String {
@@ -679,19 +666,12 @@ private struct StatsTrendCard: View {
         }
     }
 
-    private var hasTrendData: Bool {
-        if metric == .cache {
-            return series.contains { !$0.points.isEmpty }
-        }
-        return series.contains { line in line.points.contains { $0.value > 0 } }
-    }
-
-    private var chartAccessibilityValue: String {
+    private func accessibilityValue(for selectedDay: UsageStatsDailyRow?) -> String {
         guard let selectedDay else {
             return String(
                 format: "共 %lld 天".localized(in: locale),
                 locale: locale,
-                Int64(filledDays.count)
+                Int64(data.days.count)
             )
         }
         let value = metric == .tokens
@@ -705,53 +685,180 @@ private struct StatsTrendCard: View {
         )
     }
 
-    private func adjustAccessibilitySelection(_ direction: AccessibilityAdjustmentDirection) {
-        guard !filledDays.isEmpty else { return }
-        let currentIndex = selectedDay.flatMap { selected in
-            filledDays.firstIndex { $0.date == selected.date }
-        }
+    private func adjustAccessibilitySelection(
+        _ direction: AccessibilityAdjustmentDirection,
+        from currentIndex: Int?
+    ) {
+        guard !data.days.isEmpty else { return }
         let targetIndex: Int
         switch direction {
         case .increment:
-            targetIndex = min((currentIndex ?? -1) + 1, filledDays.count - 1)
+            targetIndex = min((currentIndex ?? -1) + 1, data.days.count - 1)
         case .decrement:
-            targetIndex = max((currentIndex ?? filledDays.count) - 1, 0)
+            targetIndex = max((currentIndex ?? data.days.count) - 1, 0)
         @unknown default:
             return
         }
-        selectedDate = StatsFormat.date(filledDays[targetIndex].date)
+        selectedDate = data.dates[targetIndex]
+    }
+}
+
+// 趋势图需要的全部派生数据。补齐范围内缺失的日期、解析日期串、按模型拆分
+// 序列都集中在初始化里做一次，视图只做读取，避免在图表内容闭包里对每个数据
+// 点重复做日历运算——90 天范围下这曾让页面卡住。
+private struct StatsTrendData {
+    // 与 dates 一一对应，按日期升序且已补齐范围内缺失的天。
+    let days: [UsageStatsDailyRow]
+    let dates: [Date]
+    let series: [StatsTrendSeries]
+    let domain: ClosedRange<Date>
+    let hasData: Bool
+    // 天数多时逐日圆点既拥挤又拖慢渲染，此时只画选中日的圆点。
+    let showsAllPointMarks: Bool
+    let interpolation: InterpolationMethod
+
+    // 超过这个天数就按「密集范围」处理：去掉逐日圆点，插值退化为直线。
+    private static let denseRangeLimit = 45
+    private static let totalSeriesID = "__total__"
+
+    init(report: UsageStatsReport, metric: StatsTrendMetric, locale: Locale) {
+        let calendar = Calendar.current
+        var days: [UsageStatsDailyRow] = []
+        var dates: [Date] = []
+
+        if let from = StatsFormat.date(report.range.from, calendar: calendar),
+           let to = StatsFormat.date(report.range.to, calendar: calendar),
+           from <= to {
+            let byDate = Dictionary(report.daily.map { ($0.date, $0) }, uniquingKeysWith: { _, latest in latest })
+            var current = from
+            while current <= to {
+                let key = StatsFormat.dateKey(current, calendar: calendar)
+                days.append(byDate[key] ?? .empty(date: key))
+                dates.append(current)
+                guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
+                current = next
+            }
+        } else {
+            for row in report.daily.sorted(by: { $0.date < $1.date }) {
+                guard let date = StatsFormat.date(row.date, calendar: calendar) else { continue }
+                days.append(row)
+                dates.append(date)
+            }
+        }
+
+        let series = Self.makeSeries(days: days, dates: dates, metric: metric, locale: locale)
+        self.days = days
+        self.dates = dates
+        self.series = series
+        self.domain = Self.makeDomain(dates: dates, calendar: calendar)
+        self.hasData = metric == .cache
+            ? series.contains { !$0.points.isEmpty }
+            : series.contains { line in line.points.contains { $0.value > 0 } }
+        self.showsAllPointMarks = days.count <= Self.denseRangeLimit
+        self.interpolation = days.count <= Self.denseRangeLimit ? .catmullRom : .linear
     }
 
-    private var series: [StatsTrendSeries] {
-        let days = filledDays
+    // dates 已按升序排列，二分定位最接近的一天。
+    func nearestIndex(to date: Date) -> Int? {
+        guard !dates.isEmpty else { return nil }
+        var low = 0
+        var high = dates.count - 1
+        while low < high {
+            let middle = low + (high - low) / 2
+            if dates[middle] < date {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        guard low > 0 else { return low }
+        let previousGap = abs(dates[low - 1].timeIntervalSince(date))
+        let currentGap = abs(dates[low].timeIntervalSince(date))
+        return previousGap <= currentGap ? low - 1 : low
+    }
+
+    func entries(forDateKey key: String, metric: StatsTrendMetric) -> [StatsTrendTipEntry] {
+        series.compactMap { line in
+            guard let value = line.valueByDateKey[key] else { return nil }
+            guard line.isTotal || metric == .cache || value > 0 else { return nil }
+            return StatsTrendTipEntry(
+                id: line.id,
+                name: line.name,
+                value: value,
+                color: line.color,
+                isTotal: line.isTotal
+            )
+        }
+    }
+
+    private static func makeDomain(dates: [Date], calendar: Calendar) -> ClosedRange<Date> {
+        func nextDay(after date: Date) -> Date {
+            calendar.date(byAdding: .day, value: 1, to: date) ?? date.addingTimeInterval(86_400)
+        }
+        guard let first = dates.first, let last = dates.last else {
+            let today = calendar.startOfDay(for: Date())
+            return today ... nextDay(after: today)
+        }
+        guard first < last else { return first ... nextDay(after: first) }
+        return first ... last
+    }
+
+    private static func makeSeries(
+        days: [UsageStatsDailyRow],
+        dates: [Date],
+        metric: StatsTrendMetric,
+        locale: Locale
+    ) -> [StatsTrendSeries] {
         guard !days.isEmpty else { return [] }
+
+        var totalPoints: [StatsTrendPoint] = []
+        totalPoints.reserveCapacity(days.count)
+        var totalValues = [String: Double](minimumCapacity: days.count)
+        for (index, row) in days.enumerated() {
+            guard let value = StatsFormat.optionalMetricValue(row, metric: metric) else { continue }
+            totalPoints.append(StatsTrendPoint(dateKey: row.date, date: dates[index], value: value))
+            totalValues[row.date] = value
+        }
         var result = [StatsTrendSeries(
-            id: "__total__",
+            id: totalSeriesID,
             name: "总计".localized(in: locale),
             color: QuartetTheme.accent,
             isTotal: true,
-            points: days.compactMap { row in
-                guard let date = StatsFormat.date(row.date),
-                      let value = StatsFormat.optionalMetricValue(row, metric: metric) else { return nil }
-                return StatsTrendPoint(dateKey: row.date, date: date, value: value)
-            }
+            points: totalPoints,
+            valueByDateKey: totalValues
         )]
 
-        var modelIDSet = Set(days.flatMap { row -> [String] in
-            guard let models = row.models else { return [] }
-            return models.compactMap { modelID, totals in
-                StatsFormat.optionalMetricValue(totals, metric: metric) == nil ? nil : modelID
+        // 每天已归属到具体模型的量，用来补出未归属的差额。
+        var attributed = [Double](repeating: 0, count: days.count)
+        if metric != .cache {
+            for (index, row) in days.enumerated() {
+                attributed[index] = row.models?.values.reduce(0) { partial, totals in
+                    partial + StatsFormat.metricValue(totals, metric: metric)
+                } ?? 0
             }
-        })
-        if metric != .cache, days.contains(where: { row in
-            let attributed = row.models?.values.reduce(0) { partial, totals in
-                partial + StatsFormat.metricValue(totals, metric: metric)
-            } ?? 0
-            return StatsFormat.metricValue(row, metric: metric) > attributed
+        }
+
+        var modelIDSet = Set<String>()
+        // 模型显示名按日期升序取首次出现的那个，一次遍历收齐，不用按模型反复扫全部天。
+        var modelNames: [String: String] = [:]
+        for row in days {
+            if let names = row.modelNames {
+                for (modelID, name) in names where modelNames[modelID] == nil {
+                    modelNames[modelID] = name
+                }
+            }
+            guard let models = row.models else { continue }
+            for (modelID, totals) in models
+            where StatsFormat.optionalMetricValue(totals, metric: metric) != nil {
+                modelIDSet.insert(modelID)
+            }
+        }
+        if metric != .cache, days.indices.contains(where: { index in
+            StatsFormat.metricValue(days[index], metric: metric) > attributed[index]
         }) {
             modelIDSet.insert(StatsFormat.unknownModelID)
         }
-        let modelIDs = modelIDSet.sorted()
+
         let palette: [Color] = [
             QuartetTheme.chartBlue,
             QuartetTheme.chartOrange,
@@ -761,47 +868,35 @@ private struct StatsTrendCard: View {
             QuartetTheme.chartAmber,
             QuartetTheme.chartGraphite
         ]
-        for (index, modelID) in modelIDs.enumerated() {
-            let name = days.compactMap { $0.modelNames?[modelID] }.first
-                ?? StatsFormat.modelName(modelID, locale: locale)
-            let points = days.compactMap { row -> StatsTrendPoint? in
-                guard let date = StatsFormat.date(row.date) else { return nil }
+        for (index, modelID) in modelIDSet.sorted().enumerated() {
+            let name = modelNames[modelID] ?? StatsFormat.modelName(modelID, locale: locale)
+            var points: [StatsTrendPoint] = []
+            points.reserveCapacity(days.count)
+            var values = [String: Double](minimumCapacity: days.count)
+            for (dayIndex, row) in days.enumerated() {
+                let value: Double
                 if metric == .cache {
                     guard let totals = row.models?[modelID],
-                          let value = StatsFormat.optionalMetricValue(totals, metric: metric) else { return nil }
-                    return StatsTrendPoint(dateKey: row.date, date: date, value: value)
+                          let rate = StatsFormat.optionalMetricValue(totals, metric: metric) else { continue }
+                    value = rate
+                } else {
+                    var attributedValue = row.models?[modelID].map { StatsFormat.metricValue($0, metric: metric) } ?? 0
+                    if modelID == StatsFormat.unknownModelID {
+                        attributedValue += max(0, StatsFormat.metricValue(row, metric: metric) - attributed[dayIndex])
+                    }
+                    value = attributedValue
                 }
-                var value = row.models?[modelID].map { StatsFormat.metricValue($0, metric: metric) } ?? 0
-                if modelID == StatsFormat.unknownModelID {
-                    let attributed = row.models?.values.reduce(0) { partial, totals in
-                        partial + StatsFormat.metricValue(totals, metric: metric)
-                    } ?? 0
-                    value += max(0, StatsFormat.metricValue(row, metric: metric) - attributed)
-                }
-                return StatsTrendPoint(dateKey: row.date, date: date, value: value)
+                points.append(StatsTrendPoint(dateKey: row.date, date: dates[dayIndex], value: value))
+                values[row.date] = value
             }
             result.append(StatsTrendSeries(
-                id: modelID, name: StatsFormat.modelName(name, locale: locale),
-                color: palette[index % palette.count], isTotal: false, points: points
+                id: modelID,
+                name: StatsFormat.modelName(name, locale: locale),
+                color: palette[index % palette.count],
+                isTotal: false,
+                points: points,
+                valueByDateKey: values
             ))
-        }
-        return result
-    }
-
-    private var filledDays: [UsageStatsDailyRow] {
-        guard let from = StatsFormat.date(report.range.from),
-              let to = StatsFormat.date(report.range.to),
-              from <= to else {
-            return report.daily.sorted { $0.date < $1.date }
-        }
-        let byDate = Dictionary(uniqueKeysWithValues: report.daily.map { ($0.date, $0) })
-        var result: [UsageStatsDailyRow] = []
-        var current = from
-        while current <= to {
-            let key = StatsFormat.dateKey(current)
-            result.append(byDate[key] ?? .empty(date: key))
-            guard let next = Calendar.current.date(byAdding: .day, value: 1, to: current) else { break }
-            current = next
         }
         return result
     }
@@ -826,6 +921,8 @@ private struct StatsTrendSeries: Identifiable {
     let color: Color
     let isTotal: Bool
     let points: [StatsTrendPoint]
+    // 按日期直接取值，避免为选中日在点数组里线性查找。
+    let valueByDateKey: [String: Double]
 }
 
 private struct StatsTrendPoint: Identifiable {
@@ -1395,15 +1492,16 @@ private enum StatsFormat {
         }
     }
 
-    static func dateKey(_ date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
+    // 批量转换时传入同一个 Calendar：Calendar.current 每次取值都会复制一份日历。
+    static func dateKey(_ date: Date, calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
     }
 
-    static func date(_ key: String) -> Date? {
+    static func date(_ key: String, calendar: Calendar = .current) -> Date? {
         let values = key.split(separator: "-").compactMap { Int($0) }
         guard values.count == 3 else { return nil }
-        return Calendar.current.date(from: DateComponents(year: values[0], month: values[1], day: values[2]))
+        return calendar.date(from: DateComponents(year: values[0], month: values[1], day: values[2]))
     }
 
     static func modelName(_ value: String, locale: Locale = AppLanguage.currentLocale) -> String {
