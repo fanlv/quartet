@@ -192,6 +192,31 @@ extension Font {
     }
 }
 
+/// 聊天页的布局尺度。
+///
+/// 用户气泡的宽度上限此前写死一个手机档的磅值：在 iPhone 上它比气泡行实际能给出的空间还大，
+/// 真正决定宽度的是同一行里让位给复制按钮和时间戳的挤压，所以看不出问题；但 iPad 的内容宽度
+/// 是手机的两三倍，那个上限就成了硬约束 —— 一条消息只排几个字就折行，右侧留下大片空白，
+/// 而对侧的 Agent 卡片是满宽的，两边观感完全不对等。
+///
+/// 所以宽度上限按内容宽度取比例，再夹进一对端点：下限维持手机上原有的观感，上限控制单行的
+/// 阅读长度，不让宽屏上的一行长到读起来要来回扫视。想整体调气泡宽窄只改这里的三个数字。
+enum QuartetChatMetrics {
+    /// 气泡占内容宽度的比例。余下的空间留给同一行的复制按钮、时间戳和左侧留白。
+    private static let bubbleWidthRatio: CGFloat = 0.72
+    /// 窄屏下限。这一档的实际宽度由气泡行自身的挤压决定，此处只保证不比原来更窄。
+    private static let bubbleMinWidth: CGFloat = 320
+    /// 宽屏上限，用于约束单行阅读长度。
+    private static let bubbleMaxWidth: CGFloat = 620
+
+    /// 用户侧气泡的宽度上限。`contentWidth` 是聊天时间线扣掉水平内边距后的可用宽度，
+    /// 尚未测量到（为 0）时退回下限。
+    static func userBubbleMaxWidth(contentWidth: CGFloat) -> CGFloat {
+        guard contentWidth > 0 else { return bubbleMinWidth }
+        return min(max(contentWidth * bubbleWidthRatio, bubbleMinWidth), bubbleMaxWidth)
+    }
+}
+
 /// 全 App 统一的勾选式布尔控件。视觉元素保持紧凑，但整行仍保留至少 44pt 的点击区域。
 /// 常规表单使用 `trailing` 将状态放在行尾；密集表格使用 `compact` 把标签和状态收在一起；
 /// 已有行容器的场景可使用 `bare`，只显示勾选图标。

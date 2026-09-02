@@ -30,12 +30,15 @@ struct ChatBubble: View, Equatable {
     let message: ChatMessage
     let fallbackAgentName: String
     let fallbackAgentIconUrl: String?
+    /// 时间线内容区的可用宽度。作为显式入参而不是环境值传入，让它进入 `Equatable` 比较：
+    /// 宽度只在旋转、分屏这类容器变化时才动，动了就该重排，稳定时不影响流式输出的短路。
+    let contentWidth: CGFloat
 
     var body: some View {
         Group {
             switch message.kind {
             case .user:
-                UserMessageBubble(message: message)
+                UserMessageBubble(message: message, contentWidth: contentWidth)
             case .assistant:
                 AssistantMessageCard(
                     message: message,
@@ -69,6 +72,7 @@ struct ChatBubble: View, Equatable {
 
 struct UserMessageBubble: View {
     let message: ChatMessage
+    let contentWidth: CGFloat
 
     private var displayContent: String {
         if message.content == "[image]", !message.imagePaths.isEmpty { return "" }
@@ -105,7 +109,7 @@ struct UserMessageBubble: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .frame(maxWidth: 320, alignment: .leading)
+            .frame(maxWidth: QuartetChatMetrics.userBubbleMaxWidth(contentWidth: contentWidth), alignment: .leading)
             .background(QuartetTheme.accent, in: UnevenRoundedRectangle(
                 topLeadingRadius: 17, bottomLeadingRadius: 17, bottomTrailingRadius: 5, topTrailingRadius: 17, style: .continuous
             ))
@@ -707,6 +711,7 @@ func prettyPrintedJSON(_ text: String) -> String? {
 
 struct OutboxBubble: View {
     let item: LocalOutboxItem
+    let contentWidth: CGFloat
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 8) {
@@ -732,7 +737,7 @@ struct OutboxBubble: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: 310, alignment: .leading)
+        .frame(maxWidth: QuartetChatMetrics.userBubbleMaxWidth(contentWidth: contentWidth), alignment: .leading)
         .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(item.isFailed ? QuartetTheme.failed.opacity(0.6) : QuartetTheme.onAccent.opacity(0.16), lineWidth: 1))
         .frame(maxWidth: .infinity, alignment: .trailing)

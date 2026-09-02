@@ -85,6 +85,8 @@ struct JobChatView: View {
     @State private var visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
     @State private var pendingTimelinePrependAnchor: String?
     @State private var followBottomRequests = 0
+    /// 时间线内容区的实际宽度（已扣掉列表的水平内边距），气泡按它算宽度上限。
+    @State private var timelineContentWidth: CGFloat = 0
     @State private var configuredModels: AgentModelState?
     @State private var configuredThoughtLevels: AgentThoughtLevelState?
     @State private var configuredThoughtLevelSelection: ChatAgentModelSelection?
@@ -409,13 +411,14 @@ struct JobChatView: View {
                         ChatBubble(
                             message: message,
                             fallbackAgentName: chat.agentDisplayLabel,
-                            fallbackAgentIconUrl: chat.agentDisplayIconUrl
+                            fallbackAgentIconUrl: chat.agentDisplayIconUrl,
+                            contentWidth: timelineContentWidth
                         )
                             .equatable()
                             .id(message.id)
                     }
                     ForEach(chat.timelineOutboxItems) { item in
-                        OutboxBubble(item: item)
+                        OutboxBubble(item: item, contentWidth: timelineContentWidth)
                             .id(item.id)
                     }
                     if chat.isRunning {
@@ -444,6 +447,11 @@ struct JobChatView: View {
                                 timelineMode = .following
                             }
                         }
+                }
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.width
+                } action: { width in
+                    timelineContentWidth = width
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 18)
