@@ -232,6 +232,7 @@ Quartet 的内置目录目前支持以下 ACP CLI。Agent 管理页面可对目�
 | Droid | `droid` | `droid exec --output-format acp` | CLI 内置 |
 | Kimi | `kimi` | `kimi acp` | CLI 内置 |
 | Codex | `codex` | `codex-acp` | **需要额外安装 `@agentclientprotocol/codex-acp` 包** |
+| CodeBuddy | `codebuddy` | `codebuddy --acp` | CLI 内置 |
 | Kiro | `kiro-cli` | `kiro-cli acp` | CLI 内置 |
 | OpenCode | `opencode` | `opencode acp` | CLI 内置 |
 | KiloCode | `kilocode` | `kilocode acp` | 可通过 Agent 目录使用 npm 安装 |

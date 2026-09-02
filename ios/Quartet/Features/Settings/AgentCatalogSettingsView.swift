@@ -44,7 +44,7 @@ private struct AgentCatalogActionFailure: Identifiable {
     var id: String { agentId }
 }
 
-private let prioritizedCatalogAgentIds = ["claude", "codex", "opencode", "qoderclicn"]
+private let prioritizedCatalogAgentIds = ["claude", "codex", "codebuddy", "opencode", "qoderclicn"]
 
 private func prioritizeCatalogItems(_ items: [AgentCatalogItem]) -> [AgentCatalogItem] {
     let priority = Dictionary(

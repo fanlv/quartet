@@ -299,6 +299,7 @@ be added alongside them.
 | Droid | `droid` | `droid exec --output-format acp` | Provided by the CLI |
 | Kimi | `kimi` | `kimi acp` | Provided by the CLI |
 | Codex | `codex` | `codex-acp` | **Requires the separate `@agentclientprotocol/codex-acp` package** |
+| CodeBuddy | `codebuddy` | `codebuddy --acp` | Provided by the CLI |
 | Kiro | `kiro-cli` | `kiro-cli acp` | Provided by the CLI |
 | OpenCode | `opencode` | `opencode acp` | Provided by the CLI |
 | KiloCode | `kilocode` | `kilocode acp` | Installable from the Agent catalog through npm |

@@ -158,7 +158,7 @@ const emptyCustomForm: CustomFormState = {
   environmentText: '',
 };
 
-const prioritizedCatalogAgentIds = ['claude', 'codex', 'opencode', 'qoderclicn'];
+const prioritizedCatalogAgentIds = ['claude', 'codex', 'codebuddy', 'opencode', 'qoderclicn'];
 
 function prioritizeCatalogAgents(agents: CatalogAgent[]): CatalogAgent[] {
   const priority = new Map(prioritizedCatalogAgentIds.map((agentId, index) => [agentId, index]));

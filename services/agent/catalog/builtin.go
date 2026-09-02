@@ -60,6 +60,10 @@ func (a BuiltinAgent) MigrationIdentifiers() []string {
 	return uniqueNonEmpty(values)
 }
 
+// codebuddyIconURL is inlined because the CodeBuddy brand mark is only
+// published as SVG, which the iOS client cannot decode into a UIImage.
+const codebuddyIconURL = "data:image/png;base64,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"
+
 const grokIconURL = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNSIgaGVpZ2h0PSIzMyIgdmlld0JveD0iMCAwIDM1IDMzIiBmaWxsPSJub25lIj48cGF0aCBkPSJNMTMuMjM3MSAyMS4wNDA3TDI0LjMxODYgMTIuODUwNkMyNC44NjE5IDEyLjQ0OTEgMjUuNjM4NCAxMi42MDU3IDI1Ljg5NzMgMTMuMjI5NEMyNy4yNTk3IDE2LjUxODUgMjYuNjUxIDIwLjQ3MTIgMjMuOTQwMyAyMy4xODUxQzIxLjIyOTcgMjUuODk4OSAxNy40NTgxIDI2LjQ5NDEgMTQuMDEwOCAyNS4xMzg2TDEwLjI0NDkgMjYuODg0M0MxNS42NDYzIDMwLjU4MDYgMjIuMjA1MyAyOS42NjY1IDI2LjMwNCAyNS41NjAxQzI5LjU1NTEgMjIuMzA1MSAzMC41NjIgMTcuODY4MyAyOS42MjA1IDEzLjg2NzNMMjkuNjI5IDEzLjg3NThDMjguMjYzNyA3Ljk5ODA5IDI5Ljk2NDcgNS42NDg3MSAzMy40NDkgMC44NDQ1NzZDMzMuNTMxNCAwLjczMDY2NyAzMy42MTM5IDAuNjE2NzU3IDMzLjY5NjQgMC41TDI5LjExMTMgNS4wOTA1NVY1LjA3NjMxTDEzLjIzNDMgMjEuMDQzNiIgZmlsbD0iIzAwMDAwMCIvPjxwYXRoIGQ9Ik0xMC45NTAzIDIzLjAzMTNDNy4wNzM0MyAxOS4zMjM1IDcuNzQxODUgMTMuNTg1MyAxMS4wNDk4IDEwLjI3NjNDMTMuNDk1OSA3LjgyNzIyIDE3LjUwMzYgNi44Mjc2NyAyMS4wMDIxIDguMjk3MUwyNC43NTk1IDYuNTU5OThDMjQuMDgyNiA2LjA3MDE3IDIzLjIxNSA1LjU0MzM0IDIyLjIxOTUgNS4xNzMxM0MxNy43MTk4IDMuMzE5MjYgMTIuMzMyNiA0LjI0MTkyIDguNjc0NzkgNy45MDEyNkM1LjE1NjM1IDExLjQyMzkgNC4wNDk5IDE2Ljg0MDMgNS45NDk5MiAyMS40NjIyQzcuMzY5MjQgMjQuOTE2NSA1LjA0MjU3IDI3LjM1OTggMi42OTg4NCAyOS44MjZDMS44NjgyOSAzMC43MDAyIDEuMDM0OSAzMS41NzQ1IDAuMzYzNjQgMzIuNUwxMC45NDc0IDIzLjAzNDEiIGZpbGw9IiMwMDAwMDAiLz48L3N2Zz4K"
 
 // builtinAgents defines the agents currently supported by the built-in catalog.
@@ -249,6 +253,24 @@ var builtinAgents = []BuiltinAgent{
 			),
 			"@openai/codex", "@agentclientprotocol/codex-acp",
 		),
+	},
+	{
+		AgentID: "codebuddy", Bin: "codebuddy", ACPProgram: "codebuddy", ACPArgs: []string{"--acp"}, Command: "codebuddy --acp", EnvKey: "codebuddy",
+		DisplayName: "CodeBuddy", IconURL: codebuddyIconURL, SupportsHeadlessPrint: true,
+		Install: agentinstall.InstallSpec{
+			Method:       agentinstall.InstallMethodNPM,
+			InstallSteps: agentinstall.NPMInstallFlow("@tencent-ai/codebuddy-code"),
+			// `codebuddy update` detects whether the running executable came from
+			// npm or the native installer and updates that installation in place.
+			UpgradeSteps: allPlatforms(agentinstall.CommandStep("codebuddy", "update")),
+			UninstallSteps: agentinstall.NPMOrNativeUninstallFlow(
+				[]string{"@tencent-ai/codebuddy-code"},
+				".local/bin/codebuddy", ".local/share/codebuddy",
+				"AppData/Local/codebuddy/bin",
+			),
+			VersionPackage: "@tencent-ai/codebuddy-code",
+			Instructions:   "卸载只移除 CodeBuddy 程序文件；~/.codebuddy 下的配置、凭据和会话会保留。",
+		},
 	},
 	{
 		AgentID: "kiro-cli", Bin: "kiro-cli", ACPProgram: "kiro-cli", ACPArgs: []string{"acp"}, Command: "kiro-cli acp", EnvKey: "kiro-cli",
