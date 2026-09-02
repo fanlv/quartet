@@ -42,6 +42,8 @@
 		A10000000000000000000013 /* GraphWorkflowLaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* GraphWorkflowLaunchView.swift */; };
 		A10000000000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* Assets.xcassets */; };
 		A10000000000000000000015 /* SentMessageHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* SentMessageHistoryStore.swift */; };
+		A1000000000000000000004D /* ServerBookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004D /* ServerBookmarkStore.swift */; };
+		A1000000000000000000004E /* ServerSwitcherSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004E /* ServerSwitcherSheet.swift */; };
 		A10000000000000000000016 /* ScheduledTasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* ScheduledTasksView.swift */; };
 		A10000000000000000000040 /* AgentManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000040 /* AgentManagementView.swift */; };
 		A10000000000000000000041 /* AgentCatalogSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000041 /* AgentCatalogSettingsView.swift */; };
@@ -119,6 +121,8 @@
 		A20000000000000000000014 /* GraphWorkflowLaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphWorkflowLaunchView.swift; sourceTree = "<group>"; };
 		A20000000000000000000015 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000016 /* SentMessageHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentMessageHistoryStore.swift; sourceTree = "<group>"; };
+		A2000000000000000000004D /* ServerBookmarkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerBookmarkStore.swift; sourceTree = "<group>"; };
+		A2000000000000000000004E /* ServerSwitcherSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerSwitcherSheet.swift; sourceTree = "<group>"; };
 		A20000000000000000000017 /* ScheduledTasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledTasksView.swift; sourceTree = "<group>"; };
 		AA2543BC3CD90BE5E3D203F0 /* Pods_Quartet.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Quartet.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		B20000000000000000000001 /* QuartetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuartetUITests.swift; sourceTree = "<group>"; };
@@ -318,6 +322,7 @@
 				A20000000000000000000048 /* SkillSettingsView.swift */,
 				A20000000000000000000049 /* UserConfigSettingsView.swift */,
 				A2000000000000000000004A /* WorkspaceSettingsView.swift */,
+				A2000000000000000000004E /* ServerSwitcherSheet.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -379,6 +384,7 @@
 			children = (
 				A20000000000000000000012 /* DashboardCacheStore.swift */,
 				A20000000000000000000016 /* SentMessageHistoryStore.swift */,
+				A2000000000000000000004D /* ServerBookmarkStore.swift */,
 			);
 			path = Persistence;
 			sourceTree = "<group>";
@@ -563,6 +569,8 @@
 				A10000000000000000000011 /* DashboardCacheStore.swift in Sources */,
 				A10000000000000000000012 /* StatsView.swift in Sources */,
 				A10000000000000000000015 /* SentMessageHistoryStore.swift in Sources */,
+				A1000000000000000000004D /* ServerBookmarkStore.swift in Sources */,
+				A1000000000000000000004E /* ServerSwitcherSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

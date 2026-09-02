@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var confirmsLogout = false
     @State private var confirmsRestartWeb = false
     @State private var showsRestartSuccess = false
+    @State private var showsServerSwitcher = false
 
     var body: some View {
         NavigationStack {
@@ -23,6 +24,8 @@ struct SettingsView: View {
                             connectionStatusRow
                             serviceInfoDivider
                             serverAddressRow
+                            serviceInfoDivider
+                            serverSwitchRow
                             serviceInfoDivider
                             serviceInfoRow(
                                 title: "服务端编译时间",
@@ -181,6 +184,13 @@ struct SettingsView: View {
         }
         .toolbarBackground(QuartetTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .sheet(isPresented: $showsServerSwitcher) {
+            ServerSwitcherSheet { bookmark in
+                Task { await model.switchServer(to: bookmark) }
+            }
+            .presentationDetents([.medium, .large])
+            .quartetSheetStyle()
+        }
         .alert("退出当前账号？", isPresented: $confirmsLogout) {
             Button("关闭", role: .cancel) {}
             Button("退出", role: .destructive) { model.logout() }
@@ -265,6 +275,32 @@ struct SettingsView: View {
         Divider()
             .overlay(QuartetTheme.divider)
             .padding(.leading, 16)
+    }
+
+    /// 服务器切换入口。这里只显示当前条目的备注名/主机名——完整地址已经在上一行，
+    /// 重复出现会让按地址定位的 UI 测试变成歧义查询。
+    private var serverSwitchRow: some View {
+        Button { showsServerSwitcher = true } label: {
+            HStack(spacing: 12) {
+                Text("切换服务器")
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                Spacer(minLength: 8)
+                Text(model.currentServerBookmark?.displayName ?? model.serverAddress)
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "chevron.right")
+                    .font(.quartet(.compact, weight: .bold))
+                    .foregroundStyle(QuartetTheme.secondaryText.opacity(0.7))
+            }
+            .font(.quartet(.detail))
+            .padding(.horizontal, 16)
+            .frame(minHeight: 52)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("settings-switch-server")
     }
 
     private func openServerAddress() {

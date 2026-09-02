@@ -86,10 +86,13 @@ final class AppModel: ObservableObject {
     @Published private(set) var isRestartingWeb = false
     @Published var presentedError: PresentedError?
     @Published private(set) var permissions: Set<String> = []
+    /// 本机保存的服务地址清单，供设置页和连接页快速切换后端。
+    @Published private(set) var serverBookmarks: [ServerBookmark] = []
 
     private let defaults: UserDefaults
     private let cacheStore: DashboardCacheStore
     private let sentMessageHistoryStore: SentMessageHistoryStore
+    private let serverBookmarkStore: ServerBookmarkStore
     private let uiTestScenario: String?
     private var csrfToken: String = ""
     private var resolvedServerAddress: String?
@@ -137,6 +140,7 @@ final class AppModel: ObservableObject {
         }
         self.defaults = effectiveDefaults
         sentMessageHistoryStore = SentMessageHistoryStore(defaults: effectiveDefaults)
+        serverBookmarkStore = ServerBookmarkStore(defaults: effectiveDefaults)
         self.cacheStore = detectedUITestScenario == nil
             ? cacheStore
             : DashboardCacheStore(directoryName: "QuartetUITests")
@@ -176,6 +180,16 @@ final class AppModel: ObservableObject {
         selectedWorkspaceID = effectiveDefaults.string(forKey: StorageKey.selectedWorkspaceID)
         if let timestamp = effectiveDefaults.object(forKey: StorageKey.lastSuccessfulSyncAt) as? Double {
             lastSuccessfulSyncAt = Date(timeIntervalSince1970: timestamp)
+        }
+        do {
+            serverBookmarks = try serverBookmarkStore.load()
+        } catch {
+            // 清单损坏不阻断启动：列表按空处理，但把完整原文交给用户。
+            serverBookmarks = []
+            presentedError = PresentedError(
+                title: "读取服务器清单失败",
+                detail: String(describing: error)
+            )
         }
     }
 
@@ -318,6 +332,7 @@ final class AppModel: ObservableObject {
             )
             defaults.set(username, forKey: StorageKey.username)
             defaults.set(true, forKey: StorageKey.connectionValidated)
+            recordCurrentServerBookmark()
             self.health = health
             lastSyncFailureMessage = nil
             await prepareJobCompletionNotifications()
@@ -1589,7 +1604,10 @@ final class AppModel: ObservableObject {
         Task { await leaveConnection() }
     }
 
-    private func leaveConnection(revokeServerSession: Bool = true) async {
+    private func leaveConnection(
+        revokeServerSession: Bool = true,
+        clearingSessionCookies: Bool = true
+    ) async {
         var logoutError: Error?
         if revokeServerSession, phase == .connected, !isRunningUITests {
             do {
@@ -1600,9 +1618,12 @@ final class AppModel: ObservableObject {
         }
         let generation = invalidateDashboardRequests()
         connectionGeneration &+= 1
-        clearSessionCookies(for: serverAddress)
-        if let resolvedServerAddress {
-            clearSessionCookies(for: resolvedServerAddress)
+        // 切换服务器时保留当前服务器的 Cookie：切回来时若会话仍有效就不必再输密码。
+        if clearingSessionCookies {
+            clearSessionCookies(for: serverAddress)
+            if let resolvedServerAddress {
+                clearSessionCookies(for: resolvedServerAddress)
+            }
         }
         resolvedServerAddress = StorageKey.connectionIdentity(for: serverAddress)
         hasResolvedServerAddress = false
@@ -1633,6 +1654,97 @@ final class AppModel: ObservableObject {
         if let logoutError {
             present(logoutError)
         }
+    }
+
+    // MARK: - 服务器切换
+
+    /// 当前地址对应的清单条目；清单里还没有时即时构造一条。
+    /// 地址为空或无法归一化时返回 nil——那不是一台可切换的服务器，界面不能把它当条目展示。
+    var currentServerBookmark: ServerBookmark? {
+        guard let identity = StorageKey.connectionIdentity(for: serverAddress) else { return nil }
+        if let existing = serverBookmarks.first(where: { $0.id == identity }) {
+            return existing
+        }
+        return ServerBookmark(id: identity, username: username)
+    }
+
+    /// 切到清单里的另一台后端。不撤销当前服务器的服务端会话、也不清它的 Cookie，
+    /// 切回来时会话若仍有效就能免密直连。
+    func switchServer(to bookmark: ServerBookmark) async {
+        let currentIdentity = StorageKey.connectionIdentity(for: serverAddress)
+        guard bookmark.id != currentIdentity || phase != .connected else { return }
+        guard !isRunningUITests else {
+            // 预置数据模式不做网络：只换地址和用户名，界面保持在固定数据上。
+            serverAddress = bookmark.id
+            username = bookmark.username
+            phase = .connected
+            return
+        }
+        await leaveConnection(revokeServerSession: false, clearingSessionCookies: false)
+        // 先改地址：`serverAddress` 的 didSet 会推进世代并清空用户名，之后才能回填上次登录的用户名。
+        serverAddress = bookmark.id
+        username = bookmark.username
+        defaults.set(serverAddress, forKey: StorageKey.serverAddress)
+        defaults.set(username, forKey: StorageKey.username)
+        await connect()
+    }
+
+    /// 新增或重命名一条服务器记录。地址由 `APIClient` 归一化并校验，地址重复时视为改备注名。
+    func saveServerBookmark(address: String, name: String) throws {
+        let client = try APIClient(serverAddress: address)
+        let identity = client.baseURL.absoluteString
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        var bookmarks = serverBookmarks
+        if let index = bookmarks.firstIndex(where: { $0.id == identity }) {
+            bookmarks[index].name = trimmedName
+        } else {
+            // 插到最前而不是追加：清单满了时截断丢的是末尾，追加会让刚加的这条当场消失。
+            bookmarks.insert(ServerBookmark(id: identity, name: trimmedName), at: 0)
+        }
+        try persistServerBookmarks(bookmarks)
+    }
+
+    func renameServerBookmark(id: String, name: String) throws {
+        var bookmarks = serverBookmarks
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let index = bookmarks.firstIndex(where: { $0.id == id }) {
+            bookmarks[index].name = trimmedName
+        } else {
+            // 当前地址还没落进清单（连过别的服务器后手工改了地址）时也能重命名，等于顺手把它存下来。
+            let isCurrent = id == StorageKey.connectionIdentity(for: serverAddress)
+            bookmarks.insert(
+                ServerBookmark(id: id, name: trimmedName, username: isCurrent ? username : ""),
+                at: 0
+            )
+        }
+        try persistServerBookmarks(bookmarks)
+    }
+
+    /// 删除一条记录，并清掉该服务器在本机的登录 Cookie。当前正在使用的服务器不允许删除。
+    func removeServerBookmark(id: String) throws {
+        guard id != StorageKey.connectionIdentity(for: serverAddress) else { return }
+        clearSessionCookies(for: id)
+        try persistServerBookmarks(serverBookmarks.filter { $0.id != id })
+    }
+
+    /// 连接成功后把当前地址与登录用户名写回清单，并把它排到最前。
+    private func recordCurrentServerBookmark() {
+        guard let identity = StorageKey.connectionIdentity(for: serverAddress) else { return }
+        var bookmarks = serverBookmarks
+        var bookmark = bookmarks.first(where: { $0.id == identity }) ?? ServerBookmark(id: identity)
+        bookmark.username = username
+        bookmark.lastConnectedAt = Date()
+        bookmarks.removeAll { $0.id == identity }
+        bookmarks.insert(bookmark, at: 0)
+        do {
+            try persistServerBookmarks(bookmarks)
+        } catch {
+            present(error)
+        }
+    }
+
+    private func persistServerBookmarks(_ bookmarks: [ServerBookmark]) throws {
+        serverBookmarks = try serverBookmarkStore.save(bookmarks)
     }
 
     func present(_ error: Error) {
@@ -1693,6 +1805,21 @@ final class AppModel: ObservableObject {
         hasResolvedServerAddress = true
         username = "admin"
         password = ""
+        serverBookmarks = [
+            // ID 必须是 APIClient 归一化后的 base URL（无末尾斜杠），否则匹配不上 `currentServerBookmark`。
+            ServerBookmark(
+                id: "https://quartet.example.test",
+                name: "本地工作台",
+                username: "admin",
+                lastConnectedAt: Date()
+            ),
+            ServerBookmark(
+                id: "https://quartet.backup.test",
+                name: "备用工作台",
+                username: "admin",
+                lastConnectedAt: Date(timeIntervalSinceNow: -86_400)
+            )
+        ]
         health = HealthResponse(
             status: "ok",
             time: nil,

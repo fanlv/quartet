@@ -4,6 +4,7 @@ struct ConnectionView: View {
     @EnvironmentObject private var model: AppModel
     @State private var revealsPassword = false
     @State private var confirmsHTTP = false
+    @State private var showsServerSwitcher = false
 
     private var usesPlainHTTP: Bool {
         URLComponents(string: model.serverAddress.trimmingCharacters(in: .whitespacesAndNewlines))?.scheme?.lowercased() == "http"
@@ -40,6 +41,13 @@ struct ConnectionView: View {
         } message: {
             Text("HTTP 会让登录凭证和对话内容在局域网中以明文传输。只应连接你信任的网络。")
         }
+        .sheet(isPresented: $showsServerSwitcher) {
+            ServerSwitcherSheet { bookmark in
+                Task { await model.switchServer(to: bookmark) }
+            }
+            .presentationDetents([.medium, .large])
+            .quartetSheetStyle()
+        }
     }
 
     private var brand: some View {
@@ -75,6 +83,23 @@ struct ConnectionView: View {
                     .accessibilityIdentifier("connection-server")
                     .padding(14)
                     .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
+
+                if !model.serverBookmarks.isEmpty {
+                    Button { showsServerSwitcher = true } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "server.rack")
+                            Text(AppLanguage.localizedFormat("已保存的服务器（%d）", model.serverBookmarks.count))
+                            Image(systemName: "chevron.right")
+                                .font(.quartet(.compact, weight: .bold))
+                        }
+                        .font(.quartet(.detail, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accentDeep)
+                        .frame(minHeight: 30)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("connection-saved-servers")
+                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
