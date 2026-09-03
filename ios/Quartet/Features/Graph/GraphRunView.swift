@@ -23,6 +23,17 @@ struct GraphRunView: View {
         )
     }
     private var refreshPolicy: GraphRefreshPolicy { GraphRefreshPolicy(status: status) }
+    private var workspaceName: String? {
+        appModel.workspaces.first(where: { $0.id == summary.workspaceId })?.displayName
+    }
+    private var workspaceWorkdir: String? {
+        let value = summary.workdir
+            ?? appModel.workspaces.first(where: { $0.id == summary.workspaceId })?.workdir
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
 
     var body: some View {
         ScrollView {
@@ -42,12 +53,36 @@ struct GraphRunView: View {
         .quartetNavigationTitle(summary.displayTitle)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    JobDetailView(summary: summary)
-                } label: {
-                    Image(systemName: "info.circle")
+                HStack(spacing: 0) {
+                    NavigationLink {
+                        WorkspaceDirectoryBrowserView(
+                            workspaceTitle: workspaceName ?? summary.workspaceId ?? "工作空间".localizedForApp,
+                            workspaceRoot: workspaceWorkdir ?? ""
+                        )
+                    } label: {
+                        Image(systemName: "folder")
+                            .font(.quartet(.regular, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.accent)
+                            .frame(width: 30, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("查看当前工作空间目录".localizedForApp)
+                    .accessibilityHint(workspaceWorkdir ?? "当前工作空间没有可浏览的目录。".localizedForApp)
+                    .accessibilityIdentifier("graph-workspace-files")
+
+                    NavigationLink {
+                        JobDetailView(summary: summary)
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .font(.quartet(.regular, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.accent)
+                            .frame(width: 30, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Job 详情")
                 }
-                .accessibilityLabel("Job 详情")
             }
             .sharedBackgroundVisibility(.hidden)
         }

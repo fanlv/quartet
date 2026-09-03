@@ -375,10 +375,20 @@ struct GraphWorkflowLaunchView: View {
     }
 
     private var actionBar: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 4) {
             HStack(spacing: 8) {
-                contextPill(selectedSummary?.name ?? "未选择工作流", icon: "point.3.connected.trianglepath.dotted")
-                contextPill(selectedWorkspace?.displayName ?? "未选择空间", icon: "square.stack.3d.up")
+                contextPill(
+                    selectedWorkspace?.displayName ?? "未选择空间".localizedForApp,
+                    icon: "square.stack.3d.up",
+                    accessibilityLabel: "项目，当前为\(selectedWorkspace?.displayName ?? "未选择")",
+                    identifier: "graph-summary-workspace"
+                ) { showsWorkspacePicker = true }
+                contextPill(
+                    selectedSummary?.name ?? "未选择工作流".localizedForApp,
+                    icon: "point.3.connected.trianglepath.dotted",
+                    accessibilityLabel: "Workflow，当前为\(selectedSummary?.name ?? "未选择")",
+                    identifier: "graph-summary-workflow"
+                ) { showsWorkflowPicker = true }
             }
 
             Button { Task { await start() } } label: {
@@ -400,7 +410,7 @@ struct GraphWorkflowLaunchView: View {
             .accessibilityIdentifier("graph-workflow-run")
         }
         .padding(.horizontal, 18)
-        .padding(.top, 10)
+        .padding(.top, 2)
         .padding(.bottom, 8)
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Rectangle().fill(QuartetTheme.divider).frame(height: 0.5) }
@@ -652,14 +662,39 @@ struct GraphWorkflowLaunchView: View {
         }
     }
 
-    private func contextPill(_ value: String, icon: String) -> some View {
-        Label(value, systemImage: icon)
-            .font(.quartet(.compact, weight: .medium))
+    /// 底部摘要胶囊直接复用页面上方的 Workflow 与项目选择弹窗。
+    private func contextPill(
+        _ value: String,
+        icon: String,
+        accessibilityLabel: String,
+        identifier: String,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.quartet(.detail, weight: .semibold))
+                Text(value)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.quartet(.compact, weight: .bold))
+                    .foregroundStyle(QuartetTheme.secondaryText.opacity(0.7))
+            }
+            .font(.quartet(.detail, weight: .medium))
             .foregroundStyle(QuartetTheme.secondaryText)
-            .lineLimit(1)
-            .padding(.horizontal, 9)
-            .frame(minHeight: 26)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
             .background(QuartetTheme.elevated, in: Capsule())
+        }
+        .frame(height: 44)
+        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.5 : 1)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint("点按弹出可选项列表")
+        .accessibilityIdentifier(identifier)
     }
 
     private func configurationIcon(_ name: String) -> some View {
