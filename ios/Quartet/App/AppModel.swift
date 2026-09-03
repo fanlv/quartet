@@ -215,6 +215,14 @@ final class AppModel: ObservableObject {
 
     var isRunningUITests: Bool { uiTestScenario != nil }
 
+    var seedsImageEditorUITestAttachment: Bool {
+#if DEBUG
+        uiTestScenario == "--ui-testing-image-editor"
+#else
+        false
+#endif
+    }
+
     var connectionState: ConnectionState {
         ConnectionState(
             phase: phase,

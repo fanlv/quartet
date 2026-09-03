@@ -114,8 +114,6 @@ struct ImageAttachmentEditor: View {
                 cropRect: $cropRect,
                 onCropCommitted: recordCropChange
             )
-                .accessibilityLabel("调整图片裁剪区域".localizedForApp)
-                .accessibilityHint("拖动裁剪框移动区域，拖动四角改变大小。".localizedForApp)
         } else {
             ImageMarkupCanvas(
                 image: canvasImage,
@@ -578,6 +576,19 @@ private struct ImageCropCanvas: View {
             case .bottomRight: "右下裁剪控制点"
             }
         }
+
+        var accessibilityIdentifier: String {
+            switch self {
+            case .top: "image-crop-edge-top"
+            case .left: "image-crop-edge-left"
+            case .right: "image-crop-edge-right"
+            case .bottom: "image-crop-edge-bottom"
+            case .topLeft: "image-crop-handle-top-left"
+            case .topRight: "image-crop-handle-top-right"
+            case .bottomLeft: "image-crop-handle-bottom-left"
+            case .bottomRight: "image-crop-handle-bottom-right"
+            }
+        }
     }
 
     let image: UIImage
@@ -588,7 +599,13 @@ private struct ImageCropCanvas: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let imageFrame = aspectFitFrame(contentSize: image.size, containerSize: proxy.size)
+            let controlInset = Self.handleHitSize / 2
+            let interactiveSize = CGSize(
+                width: max(1, proxy.size.width - controlInset * 2),
+                height: max(1, proxy.size.height - controlInset * 2)
+            )
+            let fittedImageFrame = aspectFitFrame(contentSize: image.size, containerSize: interactiveSize)
+            let imageFrame = fittedImageFrame.offsetBy(dx: controlInset, dy: controlInset)
             let cropFrame = denormalized(cropRect, in: imageFrame)
 
             ZStack(alignment: .topLeading) {
@@ -598,6 +615,7 @@ private struct ImageCropCanvas: View {
                     .resizable()
                     .frame(width: imageFrame.width, height: imageFrame.height)
                     .position(x: imageFrame.midX, y: imageFrame.midY)
+                    .accessibilityHidden(true)
 
                 CropShade(cutout: cropFrame)
                     .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
@@ -612,9 +630,12 @@ private struct ImageCropCanvas: View {
                 Rectangle()
                     .stroke(Color.white, lineWidth: 2)
                     .frame(width: cropFrame.width, height: cropFrame.height)
-                    .position(x: cropFrame.midX, y: cropFrame.midY)
                     .contentShape(Rectangle())
                     .gesture(moveGesture(in: imageFrame))
+                    .accessibilityLabel("调整图片裁剪区域".localizedForApp)
+                    .accessibilityHint("拖动裁剪框移动区域，拖动四角改变大小。".localizedForApp)
+                    .accessibilityIdentifier("image-crop-frame")
+                    .position(x: cropFrame.midX, y: cropFrame.midY)
 
                 ForEach(Handle.edges) { handle in
                     cropEdge(handle, cropFrame: cropFrame, imageFrame: imageFrame)
@@ -641,12 +662,13 @@ private struct ImageCropCanvas: View {
                 .overlay(Circle().stroke(QuartetTheme.accent, lineWidth: 2))
         }
         .frame(width: Self.handleHitSize, height: Self.handleHitSize)
-        .position(point)
         .contentShape(Rectangle())
         .gesture(resizeGesture(handle, in: imageFrame))
-        .zIndex(1)
         .accessibilityLabel(handle.accessibilityLabel.localizedForApp)
         .accessibilityHint("拖动以调整裁剪区域".localizedForApp)
+        .accessibilityIdentifier(handle.accessibilityIdentifier)
+        .position(point)
+        .zIndex(2)
     }
 
     private func cropEdge(_ handle: Handle, cropFrame: CGRect, imageFrame: CGRect) -> some View {
@@ -657,12 +679,13 @@ private struct ImageCropCanvas: View {
         )
         return Color.clear
             .frame(width: hitSize.width, height: hitSize.height)
-            .position(edgeHitPoint(handle, in: cropFrame))
             .contentShape(Rectangle())
             .gesture(resizeGesture(handle, in: imageFrame))
-            .zIndex(1)
             .accessibilityLabel(handle.accessibilityLabel.localizedForApp)
             .accessibilityHint("拖动以调整裁剪区域".localizedForApp)
+            .accessibilityIdentifier(handle.accessibilityIdentifier)
+            .position(edgeHitPoint(handle, in: cropFrame))
+            .zIndex(1)
     }
 
     private func moveGesture(in imageFrame: CGRect) -> some Gesture {

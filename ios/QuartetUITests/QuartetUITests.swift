@@ -476,6 +476,40 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["14 字"].waitForExistence(timeout: 2))
     }
 
+    func testImageEditorTopLeftCropHandleMovesDiagonally() {
+        app.launchArguments = ["--ui-testing-image-editor"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["new-conversation-button"].waitForExistence(timeout: 5))
+        app.buttons["new-conversation-button"].tap()
+        XCTAssertTrue(app.navigationBars["新任务"].waitForExistence(timeout: 5))
+
+        let editImage = app.buttons["编辑图片"]
+        XCTAssertTrue(editImage.waitForExistence(timeout: 5))
+        editImage.tap()
+        let cropTool = app.buttons["裁剪"]
+        XCTAssertTrue(cropTool.waitForExistence(timeout: 5))
+        cropTool.tap()
+
+        let topLeftHandle = app.otherElements["image-crop-handle-top-left"].firstMatch
+        XCTAssertTrue(topLeftHandle.waitForExistence(timeout: 3))
+        let initialFrame = topLeftHandle.frame
+        XCTAssertEqual(initialFrame.width, 68, accuracy: 1)
+        XCTAssertEqual(initialFrame.height, 68, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(initialFrame.minX, 0)
+
+        let start = topLeftHandle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let destination = app.coordinate(withNormalizedOffset: CGVector(
+            dx: (initialFrame.midX + 80) / app.frame.width,
+            dy: (initialFrame.midY + 80) / app.frame.height
+        ))
+        start.press(forDuration: 0.1, thenDragTo: destination)
+
+        let movedFrame = topLeftHandle.frame
+        XCTAssertGreaterThan(movedFrame.midX, initialFrame.midX + 50, "左上角控制点应横向跟随拖动")
+        XCTAssertGreaterThan(movedFrame.midY, initialFrame.midY + 50, "左上角控制点应纵向跟随拖动")
+    }
+
     func testNewConversationAppliesProjectAndGlobalPresets() {
         launchDashboard()
         app.buttons["new-conversation-button"].tap()

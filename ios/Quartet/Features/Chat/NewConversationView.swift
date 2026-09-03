@@ -276,6 +276,7 @@ struct NewConversationView: View {
                 }
             }
             .onAppear {
+                seedImageEditorUITestAttachmentIfNeeded()
                 guard !restoredMessageDraft else { return }
                 restoredMessageDraft = true
                 message = model.newConversationDraft
@@ -1270,6 +1271,27 @@ struct NewConversationView: View {
         selectedPhotos = []
         pendingAttachments.append(contentsOf: uploads)
         presentAttachmentFailures(failures)
+    }
+
+    private func seedImageEditorUITestAttachmentIfNeeded() {
+#if DEBUG
+        guard model.seedsImageEditorUITestAttachment, pendingAttachments.isEmpty else { return }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 1_200, height: 800), format: format).image { context in
+            UIColor(red: 0.12, green: 0.24, blue: 0.48, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 600, height: 800))
+            UIColor(red: 0.92, green: 0.58, blue: 0.18, alpha: 1).setFill()
+            context.fill(CGRect(x: 600, y: 0, width: 600, height: 800))
+        }
+        guard let data = image.jpegData(compressionQuality: 0.9) else { return }
+        pendingAttachments = [PendingUpload(
+            data: data,
+            filename: "image-editor-e2e.jpg",
+            mimeType: "image/jpeg",
+            isImage: true
+        )]
+#endif
     }
 
     private func addCameraImage(_ image: UIImage) {
