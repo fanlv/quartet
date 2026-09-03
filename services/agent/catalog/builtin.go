@@ -88,8 +88,8 @@ var builtinAgents = []BuiltinAgent{
 		Install: agentinstall.InstallSpec{
 			Method: agentinstall.InstallMethodScript,
 			InstallSteps: unixAndWindows(
-				agentinstall.UnixScriptStep("https://code.byted.org/api/tos-proxy/download/traex_install.sh", "sh"),
-				agentinstall.PowerShellScriptStep("https://code.byted.org/api/tos-proxy/download/traex_install_windows.ps1"),
+				agentinstall.UnixScriptStep("https://trae.cn/trae-cli/install_v2.sh", "sh"),
+				agentinstall.PowerShellScriptStep("https://trae.cn/trae-cli/install_v2.ps1"),
 			),
 			UpgradeSteps: allPlatforms(agentinstall.CommandStep("traex", "update", "--channel", "stable")),
 			UninstallSteps: agentinstall.PlatformSteps{
