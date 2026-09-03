@@ -66,9 +66,6 @@
   --running: #059669;
   --danger: #b62435;
   --on-danger: #ffffff;
-  --destructive-action: #8d3e47;
-  --destructive-soft: #faf4f4;
-  --destructive-border: #e2cdd0;
   --warn: #a16207;
   --info: #059669;
   --stopped: #686159;
@@ -97,17 +94,28 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
 
-  /* Agent setup: forest green owns actions; muted ochre only signals that a
-     newer version exists. Shared with the native iOS Agent directory. */
-  --agent-action: #047857;
-  --agent-action-hover: #065f46;
+  /* Agent lifecycle actions, shared with the native iOS Agent directory. */
+  --install-action: #15803d;
+  --install-action-hover: #166534;
+  --install-soft: #ecfdf3;
+  --install-border: #86d69e;
+  --on-install-action: #ffffff;
+
+  --upgrade-action: #2563eb;
+  --upgrade-action-hover: #1d4ed8;
+  --upgrade-soft: #eff6ff;
+  --upgrade-soft-strong: #dbeafe;
+  --upgrade-border: #93c5fd;
+  --on-upgrade-action: #ffffff;
+
+  --uninstall-action: #dc2626;
+  --uninstall-action-hover: #b91c1c;
+  --uninstall-soft: #fef2f2;
+  --uninstall-border: #fecaca;
+  --on-uninstall-action: #ffffff;
+
   --agent-action-disabled: var(--elevated);
-  --on-agent-action: #ffffff;
   --on-agent-action-disabled: var(--muted-2);
-  --update-text: #8a6116;
-  --update-soft: #f7f3e8;
-  --update-soft-strong: #efe7d2;
-  --update-border: #ddcfaa;
 }
 
 /* Opt-in dark theme. Tokens are defined; flip it on with
@@ -154,9 +162,6 @@
   --running: #34d399;
   --danger: #ff5364;
   --on-danger: #190205;
-  --destructive-action: #efa0a8;
-  --destructive-soft: rgba(239, 160, 168, 0.10);
-  --destructive-border: rgba(239, 160, 168, 0.30);
   --warn: #facc15;
   --info: #34d399;
   --stopped: #a39b91;
@@ -173,15 +178,27 @@
   --shadow-soft: 0 8px 24px rgba(0, 8, 3, 0.28);
   --shadow-raised: 0 18px 54px rgba(0, 8, 3, 0.42);
 
-  --agent-action: #4ade80;
-  --agent-action-hover: #22c55e;
+  --install-action: #4ade80;
+  --install-action-hover: #22c55e;
+  --install-soft: rgba(74, 222, 128, 0.12);
+  --install-border: rgba(74, 222, 128, 0.38);
+  --on-install-action: #052e16;
+
+  --upgrade-action: #60a5fa;
+  --upgrade-action-hover: #3b82f6;
+  --upgrade-soft: rgba(96, 165, 250, 0.12);
+  --upgrade-soft-strong: rgba(96, 165, 250, 0.20);
+  --upgrade-border: rgba(96, 165, 250, 0.42);
+  --on-upgrade-action: #07152e;
+
+  --uninstall-action: #f87171;
+  --uninstall-action-hover: #ef4444;
+  --uninstall-soft: rgba(248, 113, 113, 0.12);
+  --uninstall-border: rgba(248, 113, 113, 0.40);
+  --on-uninstall-action: #2b070b;
+
   --agent-action-disabled: var(--elevated);
-  --on-agent-action: #052e16;
   --on-agent-action-disabled: var(--muted-2);
-  --update-text: #dec176;
-  --update-soft: rgba(222, 193, 118, 0.10);
-  --update-soft-strong: rgba(222, 193, 118, 0.17);
-  --update-border: rgba(222, 193, 118, 0.34);
 }
 
 input,

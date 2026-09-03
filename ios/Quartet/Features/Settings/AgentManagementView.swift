@@ -194,7 +194,9 @@ struct AgentSettingsTextEditor: View {
 struct AgentSettingsMessage: Equatable {
     enum Kind {
         case info
+        case install
         case update
+        case uninstall
         case success
         case failure
     }
@@ -230,13 +232,17 @@ struct AgentSettingsMessageView: View {
     var body: some View {
         let tint: Color = switch kind {
         case .info: QuartetTheme.accent
-        case .update: QuartetTheme.softwareUpdate
+        case .install: QuartetTheme.installAction
+        case .update: QuartetTheme.upgradeAction
+        case .uninstall: QuartetTheme.uninstallAction
         case .success: QuartetTheme.success
         case .failure: QuartetTheme.failed
         }
         let icon = switch kind {
         case .info: "arrow.triangle.2.circlepath"
+        case .install: "arrow.down.circle.fill"
         case .update: "arrow.up.circle.fill"
+        case .uninstall: "trash.circle.fill"
         case .success: "checkmark.circle.fill"
         case .failure: "exclamationmark.triangle.fill"
         }

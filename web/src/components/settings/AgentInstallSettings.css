@@ -71,9 +71,9 @@
 .agent-version-count {
   padding: 2px 8px;
   border-radius: 6px;
-  color: var(--update-text);
-  background: var(--update-soft);
-  border: 1px solid var(--update-border);
+  color: var(--upgrade-action);
+  background: var(--upgrade-soft);
+  border: 1px solid var(--upgrade-border);
   font-size: 11px;
   font-weight: 600;
 }
@@ -102,16 +102,16 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  border-color: var(--agent-action);
-  color: var(--on-agent-action);
-  background: var(--agent-action);
+  border-color: var(--upgrade-action);
+  color: var(--on-upgrade-action);
+  background: var(--upgrade-action);
   font-weight: 600;
 }
 
 .agent-upgrade-all-btn:hover:not(:disabled) {
-  border-color: var(--agent-action-hover);
-  color: var(--on-agent-action);
-  background: var(--agent-action-hover);
+  border-color: var(--upgrade-action-hover);
+  color: var(--on-upgrade-action);
+  background: var(--upgrade-action-hover);
 }
 
 .agent-upgrade-all-btn:disabled {
@@ -126,10 +126,10 @@
   align-items: flex-start;
   gap: 11px;
   padding: 11px 13px;
-  border: 1px solid var(--accent-border);
+  border: 1px solid var(--upgrade-border);
   border-radius: 8px;
-  color: var(--accent-deep);
-  background: var(--accent-soft-surface);
+  color: var(--upgrade-action);
+  background: var(--upgrade-soft);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -146,7 +146,7 @@
 }
 
 .agent-batch-upgrade-progress code {
-  color: var(--accent-deep);
+  color: var(--upgrade-action);
   font-size: 11px;
   word-break: break-all;
 }
@@ -575,10 +575,10 @@
 .agent-install-btn {
   flex-shrink: 0;
   padding: 6px 16px;
-  border: 1px solid var(--agent-action);
+  border: 1px solid var(--install-action);
   border-radius: 6px;
-  background: var(--agent-action);
-  color: var(--on-agent-action);
+  background: var(--install-action);
+  color: var(--on-install-action);
   font-size: 13px;
   cursor: pointer;
   font-weight: 600;
@@ -586,8 +586,8 @@
 }
 
 .agent-install-btn:hover:not(:disabled) {
-  border-color: var(--agent-action-hover);
-  background: var(--agent-action-hover);
+  border-color: var(--install-action-hover);
+  background: var(--install-action-hover);
 }
 
 .agent-install-btn:disabled {
@@ -623,9 +623,9 @@
 }
 
 .agent-version-panel.update {
-  border-color: var(--update-border);
-  background: var(--update-soft);
-  color: var(--update-text);
+  border-color: var(--upgrade-border);
+  background: var(--upgrade-soft);
+  color: var(--upgrade-action);
 }
 
 .agent-version-panel.current {
@@ -679,8 +679,8 @@
 }
 
 .agent-version-update-badge {
-  color: var(--update-text);
-  background: var(--update-soft-strong);
+  color: var(--upgrade-action);
+  background: var(--upgrade-soft-strong);
   font-weight: 600;
 }
 
@@ -759,9 +759,9 @@
 }
 
 .agent-install-progress {
-  color: var(--accent-deep);
-  background: var(--accent-soft-surface);
-  border-color: var(--accent-border);
+  color: var(--install-action);
+  background: var(--install-soft);
+  border-color: var(--install-border);
 }
 
 .agent-install-progress > .agent-check-spinner {
@@ -785,9 +785,9 @@
 }
 
 .agent-install-progress.upgrade {
-  color: var(--accent-deep);
-  background: var(--accent-soft-surface);
-  border-color: var(--accent-border);
+  color: var(--upgrade-action);
+  background: var(--upgrade-soft);
+  border-color: var(--upgrade-border);
 }
 
 .agent-install-progress.upgrade span:last-child {
@@ -795,9 +795,9 @@
 }
 
 .agent-install-progress.uninstall {
-  color: var(--destructive-action);
-  background: var(--destructive-soft);
-  border-color: var(--destructive-border);
+  color: var(--uninstall-action);
+  background: var(--uninstall-soft);
+  border-color: var(--uninstall-border);
 }
 
 .agent-install-progress.uninstall span:last-child {
@@ -805,9 +805,21 @@
 }
 
 .agent-install-request-feedback.busy {
-  color: var(--accent-deep);
-  background: var(--accent-soft-surface);
-  border-color: var(--accent-border);
+  color: var(--install-action);
+  background: var(--install-soft);
+  border-color: var(--install-border);
+}
+
+.agent-install-request-feedback.busy.upgrade {
+  color: var(--upgrade-action);
+  background: var(--upgrade-soft);
+  border-color: var(--upgrade-border);
+}
+
+.agent-install-request-feedback.busy.uninstall {
+  color: var(--uninstall-action);
+  background: var(--uninstall-soft);
+  border-color: var(--uninstall-border);
 }
 
 .agent-install-request-feedback.error {
@@ -825,8 +837,8 @@
   flex: 0 0 20px;
   margin-top: 1px;
   border-radius: 50%;
-  color: var(--on-agent-action);
-  background: var(--agent-action);
+  color: var(--on-install-action);
+  background: var(--install-action);
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
@@ -835,6 +847,16 @@
 .agent-install-request-feedback.error .agent-install-request-icon {
   color: var(--on-danger);
   background: var(--danger);
+}
+
+.agent-install-request-feedback.busy.upgrade .agent-install-request-icon {
+  color: var(--on-upgrade-action);
+  background: var(--upgrade-action);
+}
+
+.agent-install-request-feedback.busy.uninstall .agent-install-request-icon {
+  color: var(--on-uninstall-action);
+  background: var(--uninstall-action);
 }
 
 .agent-install-request-content {
@@ -897,6 +919,24 @@
   background: var(--success-soft);
   border-color: color-mix(in srgb, var(--success) 28%, transparent);
   color: var(--success);
+}
+
+.agent-install-result.success.install {
+  color: var(--install-action);
+  background: var(--install-soft);
+  border-color: var(--install-border);
+}
+
+.agent-install-result.success.upgrade {
+  color: var(--upgrade-action);
+  background: var(--upgrade-soft);
+  border-color: var(--upgrade-border);
+}
+
+.agent-install-result.success.uninstall {
+  color: var(--uninstall-action);
+  background: var(--uninstall-soft);
+  border-color: var(--uninstall-border);
 }
 
 .agent-install-result.failure {
@@ -999,15 +1039,15 @@
 }
 
 .agent-install-card-actions .agent-upgrade-btn {
-  border-color: var(--agent-action);
-  color: var(--on-agent-action);
-  background: var(--agent-action);
+  border-color: var(--upgrade-action);
+  color: var(--on-upgrade-action);
+  background: var(--upgrade-action);
 }
 
 .agent-upgrade-btn:hover:not(:disabled) {
-  border-color: var(--agent-action-hover);
-  color: var(--on-agent-action);
-  background: var(--agent-action-hover);
+  border-color: var(--upgrade-action-hover);
+  color: var(--on-upgrade-action);
+  background: var(--upgrade-action-hover);
 }
 
 .agent-upgrade-btn:disabled {
@@ -1018,15 +1058,15 @@
 }
 
 .agent-install-card-actions .agent-uninstall-btn {
-  border-color: var(--destructive-border);
-  color: var(--destructive-action);
-  background: transparent;
+  border-color: var(--uninstall-action);
+  color: var(--on-uninstall-action);
+  background: var(--uninstall-action);
 }
 
 .agent-uninstall-btn:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--danger) 48%, var(--destructive-border));
-  color: var(--danger);
-  background: var(--destructive-soft);
+  border-color: var(--uninstall-action-hover);
+  color: var(--on-uninstall-action);
+  background: var(--uninstall-action-hover);
 }
 
 .agent-uninstall-btn:disabled {
@@ -1034,6 +1074,39 @@
   color: var(--muted-2);
   border-color: var(--border-strong);
   background: transparent;
+}
+
+.agent-install-request-actions .agent-install-retry-btn,
+.agent-install-request-actions .agent-upgrade-retry-btn,
+.agent-install-request-actions .agent-uninstall-retry-btn {
+  font-weight: 600;
+}
+
+.agent-install-request-actions .agent-install-retry-btn {
+  color: var(--on-install-action);
+  background: var(--install-action);
+}
+
+.agent-install-request-actions .agent-upgrade-retry-btn {
+  color: var(--on-upgrade-action);
+  background: var(--upgrade-action);
+}
+
+.agent-install-request-actions .agent-uninstall-retry-btn {
+  color: var(--on-uninstall-action);
+  background: var(--uninstall-action);
+}
+
+.agent-install-request-actions .agent-install-retry-btn:hover:not(:disabled) {
+  background: var(--install-action-hover);
+}
+
+.agent-install-request-actions .agent-upgrade-retry-btn:hover:not(:disabled) {
+  background: var(--upgrade-action-hover);
+}
+
+.agent-install-request-actions .agent-uninstall-retry-btn:hover:not(:disabled) {
+  background: var(--uninstall-action-hover);
 }
 
 .agent-install-method.method-custom {

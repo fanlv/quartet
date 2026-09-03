@@ -310,7 +310,7 @@ struct AgentCatalogSettingsView: View {
                 }
                 if let batchProgress {
                     AgentSettingsMessageView(
-                        kind: .info,
+                        kind: .update,
                         text: AppLanguage.localizedFormat(
                             "正在更新 %@（%d/%d）",
                             batchProgress.currentName,
@@ -395,7 +395,7 @@ struct AgentCatalogSettingsView: View {
                 if updatableCount > 0 {
                     Text(AppLanguage.localizedFormat("%d 个可更新", updatableCount))
                         .font(.quartet(.detail, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.softwareUpdate)
+                        .foregroundStyle(QuartetTheme.upgradeAction)
                 }
                 Spacer(minLength: 0)
             }
@@ -440,8 +440,8 @@ struct AgentCatalogSettingsView: View {
                             if batchProgress != nil {
                                 ProgressView().controlSize(.small).tint(
                                     upgradeAllDisabled
-                                        ? QuartetTheme.onAgentSetupActionDisabled
-                                        : QuartetTheme.onAgentSetupAction
+                                        ? QuartetTheme.onAgentActionDisabled
+                                        : QuartetTheme.onUpgradeAction
                                 )
                             }
                             Text((batchProgress == nil ? "更新全部" : "正在更新…").localizedForApp)
@@ -449,15 +449,15 @@ struct AgentCatalogSettingsView: View {
                         .font(.quartet(.control, weight: .semibold))
                         .foregroundStyle(
                             upgradeAllDisabled
-                                ? QuartetTheme.onAgentSetupActionDisabled
-                                : QuartetTheme.onAgentSetupAction
+                                ? QuartetTheme.onAgentActionDisabled
+                                : QuartetTheme.onUpgradeAction
                         )
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
                         .background(
                             upgradeAllDisabled
-                                ? QuartetTheme.agentSetupActionDisabled
-                                : QuartetTheme.agentSetupAction,
+                                ? QuartetTheme.agentActionDisabled
+                                : QuartetTheme.upgradeAction,
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous)
                         )
                     }
@@ -508,15 +508,15 @@ struct AgentCatalogSettingsView: View {
                             .font(.quartet(.control, weight: .semibold))
                             .foregroundStyle(
                                 upgradeDisabled
-                                    ? QuartetTheme.onAgentSetupActionDisabled
-                                    : QuartetTheme.onAgentSetupAction
+                                    ? QuartetTheme.onAgentActionDisabled
+                                    : QuartetTheme.onUpgradeAction
                             )
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
                             .background(
                                 upgradeDisabled
-                                    ? QuartetTheme.agentSetupActionDisabled
-                                    : QuartetTheme.agentSetupAction,
+                                    ? QuartetTheme.agentActionDisabled
+                                    : QuartetTheme.upgradeAction,
                                 in: RoundedRectangle(cornerRadius: 12, style: .continuous)
                             )
                     }
@@ -627,7 +627,7 @@ struct AgentCatalogSettingsView: View {
                 if version.updateAvailable {
                     badge(
                         version.upgradeSupported ? "可更新" : "有新版本",
-                        tint: QuartetTheme.softwareUpdate
+                        tint: QuartetTheme.upgradeAction
                     )
                 } else if version.hasKnownLatest {
                     badge("已是最新", tint: QuartetTheme.success)
@@ -712,7 +712,11 @@ struct AgentCatalogSettingsView: View {
     }
 
     private func busyIndicator(_ busy: AgentCatalogBusy) -> some View {
-        let tint = busy.action == .uninstall ? QuartetTheme.destructiveAction : QuartetTheme.agentSetupAction
+        let tint: Color = switch busy.action {
+        case .install: QuartetTheme.installAction
+        case .upgrade: QuartetTheme.upgradeAction
+        case .uninstall: QuartetTheme.uninstallAction
+        }
         return HStack(spacing: 8) {
             ProgressView().controlSize(.small).tint(tint)
             VStack(alignment: .leading, spacing: 2) {
@@ -794,7 +798,7 @@ struct AgentCatalogSettingsView: View {
 
     private func versionPanel(_ version: AgentVersionInfo, showsComponentErrors: Bool = true) -> some View {
         let tint: Color = version.updateAvailable
-            ? QuartetTheme.softwareUpdate
+            ? QuartetTheme.upgradeAction
             : version.hasKnownLatest ? QuartetTheme.success : QuartetTheme.secondaryText
         let title = version.updateAvailable
             ? "有新版本可用"
@@ -824,7 +828,7 @@ struct AgentCatalogSettingsView: View {
                 Spacer(minLength: 0)
                 Text(componentVersionText(component))
                     .font(.quartet(.detail, design: .monospaced))
-                    .foregroundStyle(component.updateAvailable ? QuartetTheme.softwareUpdate : QuartetTheme.secondaryText)
+                    .foregroundStyle(component.updateAvailable ? QuartetTheme.upgradeAction : QuartetTheme.secondaryText)
             }
             if showsError, let detail = component.error, !detail.isEmpty {
                 Text(detail)
@@ -898,7 +902,15 @@ struct AgentCatalogSettingsView: View {
     }
 
     private func resultBanner(_ result: AgentCatalogActionResult) -> some View {
-        let tint = result.ok ? QuartetTheme.success : QuartetTheme.failed
+        let tint: Color = if result.ok {
+            switch result.action {
+            case .install: QuartetTheme.installAction
+            case .upgrade: QuartetTheme.upgradeAction
+            case .uninstall: QuartetTheme.uninstallAction
+            }
+        } else {
+            QuartetTheme.failed
+        }
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: result.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
                 .font(.quartet(.control, weight: .semibold))
@@ -911,7 +923,7 @@ struct AgentCatalogSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button("查看命令输出") { present(.result(result)) }
                     .font(.quartet(.detail, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.accent)
+                    .foregroundStyle(tint)
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("agent-catalog-result-detail-\(result.agentId)")
             }
@@ -1225,7 +1237,7 @@ struct AgentCatalogSettingsView: View {
                 ? "检测到另一个安装任务正在执行，已停止剩余更新。".localizedForApp
                 : AppLanguage.localizedFormat("批量更新完成：%d 个成功，%d 个失败。", succeeded, failed)
             batchMessage = AgentSettingsMessage(
-                kind: failed == 0 && !stoppedByConflict ? .success : .failure,
+                kind: failed == 0 && !stoppedByConflict ? .update : .failure,
                 text: summary
             )
             await load(showLoading: false)
@@ -1494,7 +1506,8 @@ private struct AgentCatalogActionsSheet: View {
                     title: "安装",
                     detail: "按目录预置的安装命令执行",
                     systemImage: "arrow.down.circle.fill",
-                    tint: QuartetTheme.agentSetupAction,
+                    tint: QuartetTheme.installAction,
+                    titleColor: QuartetTheme.installAction,
                     identifier: "agent-catalog-action-install",
                     disabled: installLocked,
                     action: onInstall
@@ -1506,7 +1519,8 @@ private struct AgentCatalogActionsSheet: View {
                     title: "升级",
                     detail: upgradeDetail,
                     systemImage: "arrow.up.circle.fill",
-                    tint: QuartetTheme.agentSetupAction,
+                    tint: QuartetTheme.upgradeAction,
+                    titleColor: QuartetTheme.upgradeAction,
                     identifier: "agent-catalog-action-upgrade",
                     disabled: installLocked,
                     action: onUpgrade
@@ -1572,7 +1586,7 @@ private struct AgentCatalogActionsSheet: View {
                     title: "卸载",
                     detail: "按目录预置的卸载命令执行",
                     systemImage: "trash.fill",
-                    tint: QuartetTheme.destructiveAction,
+                    tint: QuartetTheme.uninstallAction,
                     identifier: "agent-catalog-action-uninstall",
                     disabled: installLocked,
                     isDestructive: true,
@@ -1585,7 +1599,7 @@ private struct AgentCatalogActionsSheet: View {
                     title: "删除 Agent",
                     detail: "有运行中的 Job 时会被拒绝",
                     systemImage: "trash.fill",
-                    tint: QuartetTheme.destructiveAction,
+                    tint: QuartetTheme.uninstallAction,
                     identifier: "agent-catalog-action-delete",
                     disabled: installLocked || pending,
                     isDestructive: true,
@@ -1596,7 +1610,7 @@ private struct AgentCatalogActionsSheet: View {
                     title: "强制删除 Agent",
                     detail: "先停止运行中的 Job 再删除",
                     systemImage: "exclamationmark.triangle.fill",
-                    tint: QuartetTheme.destructiveAction,
+                    tint: QuartetTheme.uninstallAction,
                     identifier: "agent-catalog-action-force-delete",
                     disabled: installLocked || pending,
                     isDestructive: true,
@@ -1609,7 +1623,7 @@ private struct AgentCatalogActionsSheet: View {
                     title: "重试强制删除",
                     detail: "上次删除没有跑完，重新执行清理",
                     systemImage: "arrow.clockwise",
-                    tint: QuartetTheme.destructiveAction,
+                    tint: QuartetTheme.uninstallAction,
                     identifier: "agent-catalog-action-retry-delete",
                     disabled: installLocked || pending,
                     isDestructive: true,
@@ -1617,8 +1631,8 @@ private struct AgentCatalogActionsSheet: View {
                 )
             }
         }
-        .background(QuartetTheme.destructiveAction.opacity(0.07), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.destructiveAction.opacity(0.18)))
+        .background(QuartetTheme.uninstallAction.opacity(0.07), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.uninstallAction.opacity(0.20)))
     }
 
     private var upgradeDetail: String {
@@ -1654,7 +1668,7 @@ private struct AgentCatalogActionsSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title.localizedForApp)
                         .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(isDestructive ? QuartetTheme.destructiveAction : (titleColor ?? QuartetTheme.primaryText))
+                        .foregroundStyle(isDestructive ? QuartetTheme.uninstallAction : (titleColor ?? QuartetTheme.primaryText))
                     Text(detail.localizedForApp)
                         .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
@@ -1680,16 +1694,20 @@ private struct AgentCatalogConfirmationSheet: View {
     let confirmation: AgentCatalogConfirmation
     let onConfirm: (AgentCatalogIntent) -> Void
 
-    private var isSoftwareUpdate: Bool {
+    private var tint: Color {
         switch confirmation.intent {
-        case .upgrade, .upgradeAll: true
-        case .uninstall, .delete: false
+        case .upgrade, .upgradeAll: QuartetTheme.upgradeAction
+        case .uninstall: QuartetTheme.uninstallAction
+        case .delete: QuartetTheme.failed
         }
     }
 
-    private var tint: Color {
-        if confirmation.destructive { return QuartetTheme.failed }
-        return isSoftwareUpdate ? QuartetTheme.agentSetupAction : QuartetTheme.accent
+    private var foreground: Color {
+        switch confirmation.intent {
+        case .upgrade, .upgradeAll: QuartetTheme.onUpgradeAction
+        case .uninstall: QuartetTheme.onUninstallAction
+        case .delete: QuartetTheme.onDanger
+        }
     }
 
     var body: some View {
@@ -1724,11 +1742,7 @@ private struct AgentCatalogConfirmationSheet: View {
                         dismiss()
                         onConfirm(confirmation.intent)
                     }
-                    .foregroundStyle(
-                        confirmation.destructive
-                            ? QuartetTheme.onDanger
-                            : (isSoftwareUpdate ? QuartetTheme.onAgentSetupAction : QuartetTheme.onAccent)
-                    )
+                    .foregroundStyle(foreground)
                     .frame(maxWidth: .infinity).frame(height: 50)
                     .background(tint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .accessibilityIdentifier("agent-catalog-confirm")
@@ -1760,7 +1774,9 @@ private struct AgentInstallResultSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     AgentSettingsMessageView(
-                        kind: ok ? .success : .failure,
+                        kind: ok
+                            ? (action == .upgrade ? .update : action == .uninstall ? .uninstall : .install)
+                            : .failure,
                         text: summary
                     )
                     ForEach(Array(result.steps.enumerated()), id: \.offset) { index, step in

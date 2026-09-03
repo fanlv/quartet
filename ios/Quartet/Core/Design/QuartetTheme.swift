@@ -20,15 +20,17 @@ enum QuartetTheme {
     static let success = dynamic(light: 0x16A34A, dark: 0x4ADE80)
     static let running = terminalGreen
     static let warning = dynamic(light: 0xA16207, dark: 0xFACC15)
-    /// Agent 升级提示使用克制的赭金色；安装和升级按钮仍归入品牌主操作。
-    static let softwareUpdate = dynamic(light: 0x8A6116, dark: 0xDEC176)
-    static let agentSetupAction = dynamic(light: 0x047857, dark: 0x4ADE80)
-    static let agentSetupActionDisabled = elevated
-    static let onAgentSetupAction = dynamic(light: 0xFFFFFF, dark: 0x052E16)
-    static let onAgentSetupActionDisabled = secondaryText
+    /// Agent 生命周期操作使用稳定的功能分色：安装绿、升级蓝、卸载红。
+    static let installAction = dynamic(light: 0x15803D, dark: 0x4ADE80)
+    static let onInstallAction = dynamic(light: 0xFFFFFF, dark: 0x052E16)
+    static let upgradeAction = dynamic(light: 0x2563EB, dark: 0x60A5FA)
+    static let onUpgradeAction = dynamic(light: 0xFFFFFF, dark: 0x07152E)
+    static let softwareUpdate = upgradeAction
+    static let uninstallAction = dynamic(light: 0xDC2626, dark: 0xF87171)
+    static let onUninstallAction = dynamic(light: 0xFFFFFF, dark: 0x2B070B)
+    static let agentActionDisabled = elevated
+    static let onAgentActionDisabled = secondaryText
     static let failed = dynamic(light: 0xB62435, dark: 0xFF5364)
-    /// 列表中的破坏性入口使用更克制的红；确认动作继续使用 `failed`。
-    static let destructiveAction = dynamic(light: 0x8D3E47, dark: 0xEFA0A8)
     static let chatStop = Color(red: 239 / 255, green: 68 / 255, blue: 68 / 255)
     static let onDanger = dynamic(light: 0xFFFFFF, dark: 0x190205)
     static let stopped = dynamic(light: 0x686159, dark: 0xA39B91)
