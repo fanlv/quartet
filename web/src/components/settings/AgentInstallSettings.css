@@ -4,6 +4,40 @@
   gap: 12px;
 }
 
+.agent-install .settings-btn:focus-visible,
+.agent-install-btn:focus-visible,
+.agent-install-result-dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.agent-install .settings-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.agent-install .settings-btn-primary:disabled {
+  cursor: not-allowed;
+  color: var(--muted-2);
+  background: var(--elevated);
+}
+
+.agent-install .settings-btn-secondary {
+  color: var(--fg);
+  border: 1px solid transparent;
+  background: var(--elevated);
+}
+
+.agent-install .settings-btn-secondary:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--elevated) 76%, var(--surface));
+}
+
+.agent-install .settings-btn-secondary:disabled {
+  cursor: not-allowed;
+  color: var(--muted-2);
+}
+
 .agent-directory-toolbar,
 .agent-directory-title,
 .agent-directory-meta,
@@ -16,6 +50,10 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--elevated));
 }
 
 .agent-directory-toolbar-title,
@@ -32,7 +70,7 @@
 
 .agent-version-count {
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: 6px;
   color: var(--update-text);
   background: var(--update-soft);
   border: 1px solid var(--update-border);
@@ -47,28 +85,40 @@
   gap: 7px;
 }
 
+.agent-directory-toolbar-actions .agent-add-btn {
+  color: var(--accent-deep);
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft-surface);
+}
+
+.agent-directory-toolbar-actions .agent-add-btn:hover:not(:disabled) {
+  color: var(--accent-deep);
+  border-color: var(--accent);
+  background: var(--accent-soft-strong);
+}
+
 .agent-upgrade-all-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  border-color: var(--update-action);
-  color: var(--update-fg);
-  background: var(--update-action);
+  border-color: var(--agent-action);
+  color: var(--on-agent-action);
+  background: var(--agent-action);
   font-weight: 600;
 }
 
 .agent-upgrade-all-btn:hover:not(:disabled) {
-  border-color: var(--update-action-hover);
-  color: var(--update-fg);
-  background: var(--update-action-hover);
+  border-color: var(--agent-action-hover);
+  color: var(--on-agent-action);
+  background: var(--agent-action-hover);
 }
 
 .agent-upgrade-all-btn:disabled {
   cursor: not-allowed;
-  color: var(--update-fg-disabled);
-  background: var(--update-action-disabled);
-  border-color: var(--update-border);
+  color: var(--on-agent-action-disabled);
+  background: var(--agent-action-disabled);
+  border-color: var(--border-strong);
 }
 
 .agent-batch-upgrade-progress {
@@ -76,10 +126,10 @@
   align-items: flex-start;
   gap: 11px;
   padding: 11px 13px;
-  border: 1px solid var(--update-border);
+  border: 1px solid var(--accent-border);
   border-radius: 8px;
-  color: var(--update-text);
-  background: var(--update-soft);
+  color: var(--accent-deep);
+  background: var(--accent-soft-surface);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -96,13 +146,13 @@
 }
 
 .agent-batch-upgrade-progress code {
-  color: var(--update-text);
+  color: var(--accent-deep);
   font-size: 11px;
   word-break: break-all;
 }
 
 .agent-directory-list {
-  border-top: 1px solid #cdd9d0;
+  border-top: 1px solid var(--border-strong);
 }
 
 .agent-directory-row {
@@ -111,7 +161,7 @@
   gap: 10px;
   align-items: start;
   padding: 12px 0;
-  border-bottom: 1px solid #cdd9d0;
+  border-bottom: 1px solid var(--border-strong);
 }
 
 .agent-directory-main {
@@ -125,7 +175,7 @@
 
 .agent-directory-title code,
 .agent-directory-meta {
-  color: #777;
+  color: var(--muted-2);
   font-size: 11px;
 }
 
@@ -137,7 +187,7 @@
 
 .agent-directory-error {
   margin: 6px 0 0;
-  color: #b42318;
+  color: var(--danger);
   font: inherit;
   font-size: 12px;
   white-space: pre-wrap;
@@ -147,7 +197,7 @@
 .agent-directory-revisions {
   margin-top: 6px;
   font-size: 12px;
-  color: #5d6c62;
+  color: var(--muted);
 }
 
 .agent-directory-revisions summary {
@@ -164,7 +214,7 @@
 
 .agent-directory-revision code {
   padding: 1px 5px;
-  background: #f3f7f4;
+  background: var(--canvas);
   border-radius: 4px;
   word-break: break-all;
 }
@@ -177,7 +227,7 @@
 
 .agent-custom-form {
   padding-top: 12px;
-  border-top: 1px solid #cdd9d0;
+  border-top: 1px solid var(--border-strong);
 }
 
 .agent-custom-checkbox {
@@ -210,7 +260,7 @@
 
 .agent-install-desc {
   font-size: 13px;
-  color: #5d6c62;
+  color: var(--muted);
   line-height: 1.5;
 }
 
@@ -218,7 +268,7 @@
 .agent-install-empty {
   padding: 24px 0;
   text-align: center;
-  color: #738077;
+  color: var(--muted-2);
   font-size: 13px;
 }
 
@@ -228,9 +278,9 @@
   gap: 12px;
   padding: 12px;
   font-size: 13px;
-  color: #c00;
-  background: #fff5f5;
-  border: 1px solid #f5c2c2;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
   border-radius: 8px;
   word-break: break-all;
   white-space: pre-wrap;
@@ -239,7 +289,7 @@
 .agent-install-retry {
   flex-shrink: 0;
   padding: 4px 12px;
-  border: 1px solid #d5dfd7;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--surface);
   cursor: pointer;
@@ -247,10 +297,16 @@
 }
 
 .agent-install-card {
-  border: 1px solid #cdd9d0;
-  border-radius: 10px;
-  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 13px 15px;
   background: var(--surface);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.agent-install-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border-strong));
+  box-shadow: var(--shadow-soft);
 }
 
 .agent-install-card-head {
@@ -297,9 +353,21 @@
   padding: 6px 16px;
   border-style: solid;
   border-width: 1px;
-  border-radius: 6px;
+  border-radius: 7px;
   font-size: 13px;
+  font-weight: 600;
   white-space: nowrap;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.agent-install-card-actions button:hover:not(:disabled),
+.agent-directory-toolbar-actions button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.agent-install-card-actions button:active:not(:disabled),
+.agent-directory-toolbar-actions button:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .agent-install-card-toggle:focus-visible {
@@ -396,25 +464,25 @@
 .agent-check-feedback.checking {
   color: var(--accent-hover);
   background: var(--accent-soft-surface);
-  border-color: #b7dfc1;
+  border-color: var(--accent-border);
 }
 
 .agent-check-feedback.success {
-  color: #166534;
-  background: #f0fdf4;
-  border-color: #bbf7d0;
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 28%, transparent);
 }
 
 .agent-check-feedback.warning {
-  color: #92400e;
-  background: #fffbeb;
-  border-color: #fde68a;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
 }
 
 .agent-check-feedback.error {
-  color: #b42318;
-  background: #fff5f5;
-  border-color: #f5c2c2;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 28%, transparent);
 }
 
 .agent-check-feedback-icon {
@@ -477,59 +545,62 @@
 .agent-install-name {
   font-size: 14px;
   font-weight: 600;
-  color: #222;
+  color: var(--fg);
 }
 
 .agent-install-method {
   font-size: 11px;
   padding: 2px 8px;
-  border-radius: 999px;
-  background: #e7eee9;
-  color: #526158;
+  border-radius: 6px;
+  background: var(--elevated);
+  color: var(--muted);
   white-space: nowrap;
 }
 
 .agent-install-method.method-npm {
-  background: #e8f0fe;
-  color: #1a56db;
+  background: var(--elevated);
+  color: var(--muted);
 }
 
 .agent-install-method.method-script {
-  background: #e6f7ee;
-  color: #18794e;
+  background: var(--elevated);
+  color: var(--muted);
 }
 
 .agent-install-method.method-manual {
-  background: #fdf0e5;
-  color: #b45309;
+  background: var(--elevated);
+  color: var(--muted);
 }
 
 .agent-install-btn {
   flex-shrink: 0;
   padding: 6px 16px;
-  border: 1px solid var(--success);
+  border: 1px solid var(--agent-action);
   border-radius: 6px;
-  background: var(--success);
-  color: var(--accent-fg);
+  background: var(--agent-action);
+  color: var(--on-agent-action);
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.15s;
+  font-weight: 600;
+  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
 .agent-install-btn:hover:not(:disabled) {
-  border-color: var(--accent-hover);
-  background: var(--accent-hover);
+  border-color: var(--agent-action-hover);
+  background: var(--agent-action-hover);
 }
 
 .agent-install-btn:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  color: var(--muted-2);
+  border-color: var(--border-strong);
+  background: var(--elevated);
 }
 
 .agent-install-card-body {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid #e1e8e3;
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -538,10 +609,10 @@
 .agent-version-panel {
   margin-top: 10px;
   padding: 9px 11px;
-  border: 1px solid #d5dfd7;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #f8fbf8;
-  color: #46564b;
+  background: color-mix(in srgb, var(--surface) 76%, var(--elevated));
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -558,9 +629,9 @@
 }
 
 .agent-version-panel.current {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-  color: #166534;
+  border-color: color-mix(in srgb, var(--success) 28%, transparent);
+  background: var(--success-soft);
+  color: var(--success);
 }
 
 .agent-version-panel-head,
@@ -603,8 +674,8 @@
 }
 
 .agent-version-kind {
-  color: #5d6c62;
-  background: rgba(148, 163, 184, 0.16);
+  color: var(--muted);
+  background: var(--elevated);
 }
 
 .agent-version-update-badge {
@@ -615,7 +686,7 @@
 
 .agent-version-component-error {
   margin: 5px 0 0;
-  color: #b42318;
+  color: var(--danger);
   font: inherit;
   font-size: 11px;
   white-space: pre-wrap;
@@ -632,13 +703,13 @@
 .agent-install-label {
   flex-shrink: 0;
   width: 96px;
-  color: #738077;
+  color: var(--muted-2);
 }
 
 .agent-install-row code {
   font-size: 12px;
-  color: #29362d;
-  background: #f6f6f6;
+  color: var(--fg);
+  background: var(--elevated);
   padding: 1px 6px;
   border-radius: 4px;
   word-break: break-all;
@@ -653,10 +724,10 @@
 
 .agent-install-instructions {
   font-size: 12px;
-  color: #526158;
+  color: var(--muted);
   line-height: 1.6;
-  background: #f8fbf8;
-  border: 1px dashed #e0e0e0;
+  background: color-mix(in srgb, var(--surface) 76%, var(--elevated));
+  border: 1px dashed var(--border-strong);
   border-radius: 6px;
   padding: 8px 10px;
   white-space: pre-wrap;
@@ -665,9 +736,9 @@
 .agent-install-request-error {
   margin-top: 10px;
   font-size: 12px;
-  color: #c00;
-  background: #fff5f5;
-  border: 1px solid #f5c2c2;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
   border-radius: 6px;
   padding: 8px 10px;
   white-space: pre-wrap;
@@ -688,9 +759,9 @@
 }
 
 .agent-install-progress {
-  color: var(--update-text);
-  background: var(--update-soft);
-  border-color: var(--update-border);
+  color: var(--accent-deep);
+  background: var(--accent-soft-surface);
+  border-color: var(--accent-border);
 }
 
 .agent-install-progress > .agent-check-spinner {
@@ -710,29 +781,39 @@
 }
 
 .agent-install-progress span:last-child {
-  color: var(--update-text);
+  color: var(--muted);
 }
 
 .agent-install-progress.upgrade {
-  color: var(--update-text);
-  background: var(--update-soft);
-  border-color: var(--update-border);
+  color: var(--accent-deep);
+  background: var(--accent-soft-surface);
+  border-color: var(--accent-border);
 }
 
 .agent-install-progress.upgrade span:last-child {
-  color: var(--update-text);
+  color: var(--muted);
+}
+
+.agent-install-progress.uninstall {
+  color: var(--destructive-action);
+  background: var(--destructive-soft);
+  border-color: var(--destructive-border);
+}
+
+.agent-install-progress.uninstall span:last-child {
+  color: var(--muted);
 }
 
 .agent-install-request-feedback.busy {
-  color: var(--update-text);
-  background: var(--update-soft);
-  border-color: var(--update-border);
+  color: var(--accent-deep);
+  background: var(--accent-soft-surface);
+  border-color: var(--accent-border);
 }
 
 .agent-install-request-feedback.error {
-  color: #9f2922;
-  background: #fff7f6;
-  border-color: #efc7c3;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 28%, transparent);
 }
 
 .agent-install-request-icon {
@@ -744,15 +825,16 @@
   flex: 0 0 20px;
   margin-top: 1px;
   border-radius: 50%;
-  color: #fff;
-  background: var(--update-action);
+  color: var(--on-agent-action);
+  background: var(--agent-action);
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
 }
 
 .agent-install-request-feedback.error .agent-install-request-icon {
-  background: #b83a32;
+  color: var(--on-danger);
+  background: var(--danger);
 }
 
 .agent-install-request-content {
@@ -762,11 +844,11 @@
 
 .agent-install-request-content p {
   margin: 1px 0 7px;
-  color: var(--update-text);
+  color: var(--muted);
 }
 
 .agent-install-request-feedback.error .agent-install-request-content p {
-  color: #805451;
+  color: var(--muted);
 }
 
 .agent-install-request-content pre {
@@ -774,7 +856,7 @@
   padding: 7px 9px;
   border-radius: 5px;
   color: inherit;
-  background: rgba(255, 255, 255, 0.62);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
   font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   white-space: pre-wrap;
   word-break: break-word;
@@ -812,21 +894,15 @@
 }
 
 .agent-install-result.success {
-  background: #f0fdf4;
-  border-color: #bbf7d0;
-  color: #166534;
-}
-
-.agent-install-result.upgrade {
-  background: var(--update-soft);
-  border-color: var(--update-border);
-  color: var(--update-text);
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 28%, transparent);
+  color: var(--success);
 }
 
 .agent-install-result.failure {
-  background: #fff5f5;
-  border-color: #f5c2c2;
-  color: #b91c1c;
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 28%, transparent);
+  color: var(--danger);
 }
 
 .agent-install-result-header {
@@ -853,13 +929,13 @@
 .agent-install-result-details {
   margin-top: 6px;
   font-weight: 400;
-  color: #444;
+  color: var(--fg);
 }
 
 .agent-install-result-details summary {
   cursor: pointer;
   font-size: 12px;
-  color: #5d6c62;
+  color: var(--muted);
   user-select: none;
 }
 
@@ -876,22 +952,22 @@
 }
 
 .agent-install-step-title code {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--elevated);
   padding: 1px 6px;
   border-radius: 4px;
   word-break: break-all;
 }
 
 .agent-install-step-meta {
-  color: #738077;
+  color: var(--muted-2);
   font-size: 11px;
 }
 
 .agent-install-output {
   margin: 4px 0 0;
   padding: 8px 10px;
-  background: #1e1e1e;
-  color: #d4d4d4;
+  background: var(--terminal-bg);
+  color: var(--terminal-text-muted);
   border-radius: 6px;
   font-size: 11px;
   line-height: 1.5;
@@ -902,8 +978,8 @@
 }
 
 .agent-install-output.error {
-  background: #2d1b1b;
-  color: #f0a8a8;
+  background: color-mix(in srgb, var(--terminal-bg) 84%, var(--danger));
+  color: color-mix(in srgb, var(--danger) 58%, white);
 }
 
 /* Unified card list */
@@ -923,44 +999,46 @@
 }
 
 .agent-install-card-actions .agent-upgrade-btn {
-  border-color: var(--update-action);
-  color: var(--update-fg);
-  background: var(--update-action);
+  border-color: var(--agent-action);
+  color: var(--on-agent-action);
+  background: var(--agent-action);
 }
 
 .agent-upgrade-btn:hover:not(:disabled) {
-  border-color: var(--update-action-hover);
-  color: var(--update-fg);
-  background: var(--update-action-hover);
+  border-color: var(--agent-action-hover);
+  color: var(--on-agent-action);
+  background: var(--agent-action-hover);
 }
 
 .agent-upgrade-btn:disabled {
   cursor: not-allowed;
-  color: var(--update-fg-disabled);
-  background: var(--update-action-disabled);
-  border-color: var(--update-border);
+  color: var(--on-agent-action-disabled);
+  background: var(--agent-action-disabled);
+  border-color: var(--border-strong);
 }
 
 .agent-install-card-actions .agent-uninstall-btn {
-  border-color: color-mix(in srgb, var(--danger) 42%, transparent);
-  color: var(--danger);
-  background: var(--danger-soft);
+  border-color: var(--destructive-border);
+  color: var(--destructive-action);
+  background: transparent;
 }
 
 .agent-uninstall-btn:hover:not(:disabled) {
-  border-color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--destructive-border));
   color: var(--danger);
-  background: color-mix(in srgb, var(--danger-soft) 82%, var(--danger));
+  background: var(--destructive-soft);
 }
 
 .agent-uninstall-btn:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  color: var(--muted-2);
+  border-color: var(--border-strong);
+  background: transparent;
 }
 
 .agent-install-method.method-custom {
-  background: #e6f7ee;
-  color: #047857;
+  background: var(--accent-soft-surface);
+  color: var(--accent-deep);
 }
 
 .agent-install-meta {
@@ -969,13 +1047,13 @@
   gap: 10px;
   flex-wrap: wrap;
   font-size: 11px;
-  color: #738077;
+  color: var(--muted-2);
 }
 
 .agent-install-rev {
   font-size: 11px;
-  color: #5d6c62;
-  background: #f6f6f6;
+  color: var(--muted);
+  background: var(--elevated);
   padding: 1px 6px;
   border-radius: 4px;
   word-break: break-all;
@@ -984,37 +1062,37 @@
 .agent-status {
   padding: 2px 8px;
   border-radius: 999px;
-  background: #e7eee9;
-  color: #526158;
+  background: var(--elevated);
+  color: var(--muted);
   white-space: nowrap;
 }
 
 .agent-status.agent-status-available {
-  background: #e6f7ee;
-  color: #18794e;
+  background: var(--success-soft);
+  color: var(--success);
 }
 
 .agent-status.agent-status-not_installed {
-  background: var(--update-soft-strong);
-  color: var(--update-text);
+  background: var(--elevated);
+  color: var(--muted);
 }
 
 .agent-status.agent-status-unavailable,
 .agent-status.agent-status-deprecated {
-  background: #fdeaea;
-  color: #b42318;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .agent-status.agent-status-pending_validation,
 .agent-status.agent-status-validating,
 .agent-status.agent-status-deleting {
-  background: #fdf0e5;
-  color: #b45309;
+  background: var(--warn-soft);
+  color: var(--warn);
 }
 
 .agent-status.agent-status-deleted {
-  background: #edf3ee;
-  color: #89968d;
+  background: var(--elevated);
+  color: var(--muted-2);
 }
 
 /* Add/edit custom agent modal */

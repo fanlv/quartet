@@ -953,7 +953,7 @@ export function AgentInstallSettings() {
     return (
       <div
         key={agentId}
-        className={`agent-install-result ${ok ? action === 'upgrade' ? 'upgrade' : 'success' : 'failure'}`}
+        className={`agent-install-result ${ok ? 'success' : 'failure'}`}
         role={ok ? 'status' : 'alert'}
         aria-live={ok ? 'polite' : 'assertive'}
       >
@@ -1086,7 +1086,7 @@ export function AgentInstallSettings() {
             {t(versionChecking ? 'settings.agents.version.checking' : 'settings.agents.version.check')}
           </button>
           <button
-            className="settings-btn settings-btn-primary"
+            className="settings-btn settings-btn-secondary agent-add-btn"
             disabled={batchUpgrade !== null || installBusy !== null || managementPending !== ''}
             onClick={() => openCustomForm()}
             data-testid="agent-add-button"
@@ -1299,7 +1299,7 @@ export function AgentInstallSettings() {
               )}
 
               {busy && installBusy && (
-                <div className={`agent-install-progress ${installBusy.action === 'upgrade' ? 'upgrade' : ''}`} role="status" aria-live="polite">
+                <div className={`agent-install-progress ${installBusy.action}`} role="status" aria-live="polite">
                   <span className="agent-check-spinner" aria-hidden="true" />
                   <div>
                     <strong>{t(`settings.agents.request.progress.${installBusy.action}`)}</strong>

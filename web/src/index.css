@@ -66,6 +66,9 @@
   --running: #059669;
   --danger: #b62435;
   --on-danger: #ffffff;
+  --destructive-action: #8d3e47;
+  --destructive-soft: #faf4f4;
+  --destructive-border: #e2cdd0;
   --warn: #a16207;
   --info: #059669;
   --stopped: #686159;
@@ -94,16 +97,17 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
 
-  /* Agent upgrades, shared with the native iOS Agent directory. */
-  --update-action: #c2410c;
-  --update-action-hover: #9a3412;
-  --update-action-disabled: #9a482a;
-  --update-fg: #ffffff;
-  --update-fg-disabled: #ffffff;
-  --update-text: #c2410c;
-  --update-soft: #fff7ed;
-  --update-soft-strong: #ffedd5;
-  --update-border: #fdba74;
+  /* Agent setup: forest green owns actions; muted ochre only signals that a
+     newer version exists. Shared with the native iOS Agent directory. */
+  --agent-action: #047857;
+  --agent-action-hover: #065f46;
+  --agent-action-disabled: var(--elevated);
+  --on-agent-action: #ffffff;
+  --on-agent-action-disabled: var(--muted-2);
+  --update-text: #8a6116;
+  --update-soft: #f7f3e8;
+  --update-soft-strong: #efe7d2;
+  --update-border: #ddcfaa;
 }
 
 /* Opt-in dark theme. Tokens are defined; flip it on with
@@ -150,6 +154,9 @@
   --running: #34d399;
   --danger: #ff5364;
   --on-danger: #190205;
+  --destructive-action: #efa0a8;
+  --destructive-soft: rgba(239, 160, 168, 0.10);
+  --destructive-border: rgba(239, 160, 168, 0.30);
   --warn: #facc15;
   --info: #34d399;
   --stopped: #a39b91;
@@ -166,15 +173,15 @@
   --shadow-soft: 0 8px 24px rgba(0, 8, 3, 0.28);
   --shadow-raised: 0 18px 54px rgba(0, 8, 3, 0.42);
 
-  --update-action: #c2410c;
-  --update-action-hover: #9a3412;
-  --update-action-disabled: #9a482a;
-  --update-fg: #ffffff;
-  --update-fg-disabled: #ffffff;
-  --update-text: #fb923c;
-  --update-soft: rgba(194, 65, 12, 0.16);
-  --update-soft-strong: rgba(194, 65, 12, 0.24);
-  --update-border: rgba(251, 146, 60, 0.55);
+  --agent-action: #4ade80;
+  --agent-action-hover: #22c55e;
+  --agent-action-disabled: var(--elevated);
+  --on-agent-action: #052e16;
+  --on-agent-action-disabled: var(--muted-2);
+  --update-text: #dec176;
+  --update-soft: rgba(222, 193, 118, 0.10);
+  --update-soft-strong: rgba(222, 193, 118, 0.17);
+  --update-border: rgba(222, 193, 118, 0.34);
 }
 
 input,
