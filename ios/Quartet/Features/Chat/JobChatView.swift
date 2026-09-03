@@ -95,6 +95,7 @@ struct JobChatView: View {
     @State private var changingACPConfiguration = false
     @State private var configurationPicker: ChatConfigurationPicker?
     @State private var gitBranch = ""
+    @State private var showsWorkspacePathTip = false
     @State private var linkOpener = ChatLinkOpener()
     @State private var webDestination: ChatWebDestination?
     @FocusState private var composerFocused: Bool
@@ -857,21 +858,52 @@ struct JobChatView: View {
     }
 
     private var workspaceFooter: some View {
-        ViewThatFits(in: .horizontal) {
-            workspaceFooterLine(path: workspaceWorkdir ?? "—")
-                .fixedSize(horizontal: true, vertical: false)
-            workspaceFooterLine(path: abbreviatedWorkspacePath)
+        Button {
+            composerFocused = false
+            showsWorkspacePathTip = true
+        } label: {
+            ViewThatFits(in: .horizontal) {
+                workspaceFooterLine(path: workspaceWorkdir ?? "—")
+                    .fixedSize(horizontal: true, vertical: false)
+                workspaceFooterLine(path: abbreviatedWorkspacePath)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(workspaceWorkdir == nil)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "工作空间，\(workspaceName ?? route.summary.workspaceId ?? "未指定")，"
                 + "目录，\(workspaceWorkdir ?? "未指定")"
                 + (gitBranch.isEmpty ? "" : "，Git 分支，\(gitBranch)")
         )
+        .accessibilityHint("轻点查看完整路径".localizedForApp)
         .accessibilityIdentifier("workspace-footer")
+        .popover(
+            isPresented: $showsWorkspacePathTip,
+            attachmentAnchor: .rect(.bounds),
+            arrowEdge: .bottom
+        ) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("完整路径".localizedForApp)
+                    .font(.chat(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Text(workspaceWorkdir ?? "—")
+                    .font(.chat(.compact, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("workspace-full-path")
+            }
+            .padding(12)
+            .frame(width: 300, alignment: .leading)
+            .background(QuartetTheme.surface)
+            .presentationCompactAdaptation(.popover)
+            .presentationBackground(QuartetTheme.surface)
+        }
     }
 
     private func workspaceFooterLine(path: String) -> some View {

@@ -6195,6 +6195,22 @@
         }
       }
     },
+    "完整路径" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full Path"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完整路径"
+          }
+        }
+      }
+    },
     "定时任务" : {
       "localizations" : {
         "en" : {
@@ -6759,6 +6775,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "工作空间"
+          }
+        }
+      }
+    },
+    "轻点查看完整路径" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap to view the full path"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "轻点查看完整路径"
           }
         }
       }
