@@ -38,6 +38,9 @@
   "app": {
     "jobMissingNotice": "Job {{jobId}} does not exist or has been deleted. Cleared the stale URL and returned to the workspace home."
   },
+  "filePreview": {
+    "outline": "Contents"
+  },
   "auth": {
     "initializeTitle": "Initialize administrator",
     "loginTitle": "Sign in to Quartet",

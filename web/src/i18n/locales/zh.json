@@ -38,6 +38,9 @@
   "app": {
     "jobMissingNotice": "Job {{jobId}} 不存在或已被删除。已清理失效 URL，并返回工作空间首页。"
   },
+  "filePreview": {
+    "outline": "目录"
+  },
   "auth": {
     "initializeTitle": "初始化管理员",
     "loginTitle": "登录 Quartet",

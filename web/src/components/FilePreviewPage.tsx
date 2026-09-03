@@ -5,6 +5,7 @@ import type { Components } from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
+import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../utils/clipboard';
 import { detectLanguage, getLanguageLabel, tokenizeLine } from '../utils/syntaxHighlight';
 import { useAuthPrincipal } from '../auth';
@@ -15,6 +16,12 @@ interface FilePreviewData {
   size: number;
   truncated: boolean;
   binary: boolean;
+}
+
+interface MarkdownOutlineItem {
+  id: string;
+  label: string;
+  depth: number;
 }
 
 type MermaidAPI = typeof import('mermaid')['default'];
@@ -242,6 +249,46 @@ function nodeText(node: ReactNode): string {
   }).join('');
 }
 
+function headingSlug(label: string): string {
+  return label
+    .normalize('NFKC')
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[^\p{Letter}\p{Number}\p{Mark}_\s-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'section';
+}
+
+function assignMarkdownHeadingIds(article: HTMLElement): MarkdownOutlineItem[] {
+  const usedIds = new Set<string>();
+  const headings = Array.from(article.querySelectorAll<HTMLHeadingElement>('h1, h2, h3, h4, h5, h6'))
+    .filter((heading) => heading.textContent?.trim());
+  const minimumLevel = headings.reduce((minimum, heading) => (
+    Math.min(minimum, Number(heading.tagName.slice(1)))
+  ), 6);
+
+  return headings.map((heading) => {
+    const label = heading.textContent?.trim() || '';
+    const level = Number(heading.tagName.slice(1));
+    const baseId = heading.id.trim() || headingSlug(label);
+    let id = baseId;
+    let duplicateIndex = 2;
+    while (usedIds.has(id)) {
+      id = `${baseId}-${duplicateIndex}`;
+      duplicateIndex += 1;
+    }
+    usedIds.add(id);
+    heading.id = id;
+
+    return {
+      id,
+      label,
+      depth: Math.min(4, Math.max(0, level - minimumLevel)),
+    };
+  });
+}
+
 function fullErrorDetail(error: unknown): string {
   if (error instanceof Error) return error.stack || `${error.name}: ${error.message}`;
   return String(error);
@@ -465,6 +512,7 @@ function MarkdownPreviewImage({ basePath, src, alt }: { basePath: string; src: s
 }
 
 export function FilePreviewPage() {
+  const { t } = useTranslation();
   const principal = useAuthPrincipal();
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const path = params.get('path')?.trim() || '';
@@ -485,6 +533,10 @@ export function FilePreviewPage() {
   const [shareToken, setShareToken] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [markdownOutline, setMarkdownOutline] = useState<MarkdownOutlineItem[]>([]);
+  const [activeHeadingId, setActiveHeadingId] = useState('');
+  const stageRef = useRef<HTMLElement>(null);
+  const markdownArticleRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!canShareFiles || !path) return;
@@ -519,6 +571,72 @@ export function FilePreviewPage() {
       });
     return () => controller.abort();
   }, [jobId, path]);
+
+  useEffect(() => {
+    if (!markdown || showSource || !data || data.binary) {
+      setMarkdownOutline([]);
+      setActiveHeadingId('');
+      return;
+    }
+
+    const article = markdownArticleRef.current;
+    const stage = stageRef.current;
+    if (!article || !stage) return;
+
+    const outline = assignMarkdownHeadingIds(article);
+    const headings = Array.from(article.querySelectorAll<HTMLHeadingElement>('h1, h2, h3, h4, h5, h6'))
+      .filter((heading) => outline.some((item) => item.id === heading.id));
+    setMarkdownOutline(outline);
+
+    if (outline.length === 0) {
+      setActiveHeadingId('');
+      return;
+    }
+
+    let animationFrame = 0;
+    const updateActiveHeading = () => {
+      animationFrame = 0;
+      const stageTop = stage.getBoundingClientRect().top;
+      const activationLine = stageTop + 36;
+      const isAtBottom = stage.scrollHeight - stage.scrollTop - stage.clientHeight < 2;
+      let activeId = outline[0].id;
+
+      if (isAtBottom) {
+        activeId = outline[outline.length - 1].id;
+      } else {
+        for (const heading of headings) {
+          if (heading.getBoundingClientRect().top > activationLine) break;
+          activeId = heading.id;
+        }
+      }
+      setActiveHeadingId((current) => current === activeId ? current : activeId);
+    };
+    const scheduleActiveHeadingUpdate = () => {
+      if (animationFrame === 0) animationFrame = window.requestAnimationFrame(updateActiveHeading);
+    };
+
+    stage.addEventListener('scroll', scheduleActiveHeadingUpdate, { passive: true });
+    window.addEventListener('resize', scheduleActiveHeadingUpdate);
+    scheduleActiveHeadingUpdate();
+
+    const rawHash = window.location.hash.slice(1);
+    let hash = rawHash;
+    try {
+      hash = decodeURIComponent(rawHash);
+    } catch {
+      // Keep a malformed hash literal instead of letting it break the preview.
+    }
+    const hashTarget = headings.find((heading) => heading.id === hash);
+    if (hashTarget) {
+      window.requestAnimationFrame(() => hashTarget.scrollIntoView({ block: 'start' }));
+    }
+
+    return () => {
+      stage.removeEventListener('scroll', scheduleActiveHeadingUpdate);
+      window.removeEventListener('resize', scheduleActiveHeadingUpdate);
+      if (animationFrame !== 0) window.cancelAnimationFrame(animationFrame);
+    };
+  }, [data, markdown, showSource]);
 
   const lineCount = data?.content ? data.content.split('\n').length : 0;
   const sourceLanguage = detectLanguage(path);
@@ -596,6 +714,21 @@ export function FilePreviewPage() {
       console.error('Failed to unshare file:', err);
     }
   }, [shareToken]);
+
+  const handleOutlineSelect = useCallback((id: string) => {
+    const article = markdownArticleRef.current;
+    if (!article) return;
+    const heading = Array.from(article.querySelectorAll<HTMLHeadingElement>('h1, h2, h3, h4, h5, h6'))
+      .find((candidate) => candidate.id === id);
+    if (!heading) return;
+
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    heading.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    setActiveHeadingId(id);
+    const url = new URL(window.location.href);
+    url.hash = id;
+    window.history.replaceState(window.history.state, '', url);
+  }, []);
 
   const markdownComponents = useMemo<Components>(() => ({
     a: ({ href, children }) => {
@@ -678,7 +811,7 @@ export function FilePreviewPage() {
         </div>
       )}
 
-      <main className={`file-preview-stage ${showSource ? 'source-mode' : html ? 'html-mode' : 'reading-mode'}`}>
+      <main ref={stageRef} className={`file-preview-stage ${showSource ? 'source-mode' : html ? 'html-mode' : 'reading-mode'}`}>
         {loading && (
           <div className="file-preview-state" role="status">
             <span className="file-preview-spinner" />
@@ -703,15 +836,43 @@ export function FilePreviewPage() {
         )}
 
         {!loading && data && !data.binary && !showSource && markdown && (
-          <article className="file-preview-document">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]}
-              components={markdownComponents}
-            >
-              {data.content}
-            </ReactMarkdown>
-          </article>
+          <div className={`file-preview-reading-layout${markdownOutline.length > 0 ? ' has-outline' : ''}`}>
+            {markdownOutline.length > 0 && (
+              <aside className="file-preview-outline" aria-label={t('filePreview.outline')}>
+                <div className="file-preview-outline-title">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+                  </svg>
+                  <span>{t('filePreview.outline')}</span>
+                </div>
+                <nav className="file-preview-outline-nav">
+                  <ol>
+                    {markdownOutline.map((item) => (
+                      <li key={item.id} className={`file-preview-outline-item depth-${item.depth}`}>
+                        <button
+                          type="button"
+                          className={activeHeadingId === item.id ? 'active' : ''}
+                          aria-current={activeHeadingId === item.id ? 'location' : undefined}
+                          onClick={() => handleOutlineSelect(item.id)}
+                        >
+                          {item.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </nav>
+              </aside>
+            )}
+            <article ref={markdownArticleRef} className="file-preview-document">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]}
+                components={markdownComponents}
+              >
+                {data.content}
+              </ReactMarkdown>
+            </article>
+          </div>
         )}
 
         {!loading && data && !data.binary && !showSource && html && (
