@@ -1068,7 +1068,6 @@
       "workflowConflict": "This workflow was changed in another tab. Reload the workflow and reapply your edits.",
       "workflowDeleted": "Workflow deleted.",
       "fixValidationFirst": "Fix validation errors before running.",
-      "runUnsavedSnapshotConfirm": "This workflow has unsaved changes. Run the current unsaved snapshot? The saved workflow must still be current; if another tab changed it, the run will be rejected.",
       "runStarted": "Run started.",
       "runStartedNoJob": "Run started but no jobId was returned.",
       "runNotEditable": "This run is no longer editable.",

@@ -1802,6 +1802,12 @@ struct GraphWorkflowResponse: Decodable, Sendable {
     let errors: [GraphValidationError]?
 }
 
+struct UpdateGraphWorkflowRequest: Encodable, Sendable {
+    let workspaceId: String
+    let config: GraphConfig
+    let updatedAt: String
+}
+
 struct GraphValidationRequest: Encodable, Sendable {
     let config: GraphConfig
 }

@@ -815,6 +815,24 @@ struct APIClient: @unchecked Sendable {
         return workflow
     }
 
+    func updateGraphWorkflow(id: String, body: UpdateGraphWorkflowRequest) async throws -> GraphWorkflow {
+        let response: GraphWorkflowResponse = try await request(
+            path: "api/v1/graph/workflow/\(id)",
+            method: "PUT",
+            body: body
+        )
+        guard let workflow = response.workflow else {
+            let validation = response.errors?.map { error in
+                [error.location, error.message].compactMap { $0 }.joined(separator: ": ")
+            }.joined(separator: "\n")
+            throw APIError(
+                summary: "工作流响应为空",
+                detail: "PUT \(endpointURL(path: "api/v1/graph/workflow/\(id)", query: []).absoluteString)\nHTTP 200\n\n\(validation?.isEmpty == false ? validation! : "响应中缺少 workflow。")"
+            )
+        }
+        return workflow
+    }
+
     func validateGraphWorkflow(config: GraphConfig) async throws -> GraphValidationResponse {
         try await request(
             path: "api/v1/graph/workflow/validate",

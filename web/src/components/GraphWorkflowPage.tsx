@@ -1395,11 +1395,11 @@ export function GraphWorkflowPage({
   }, [buildConfig, validateConfigValue]);
 
   const save = useCallback(
-    async (mode: SaveMode) => {
+    async (mode: SaveMode): Promise<GraphWorkflow | null> => {
       const trimmedName = name.trim();
       if (!trimmedName) {
         setMessage(t('graph.messages.nameRequired'));
-        return;
+        return null;
       }
       const config = buildConfig();
       const seq = saveSeqRef.current + 1;
@@ -1431,10 +1431,10 @@ export function GraphWorkflowPage({
             }
           }
           if (Array.isArray(data?.errors)) {
-            if (seq !== saveSeqRef.current || fingerprint({ name: trimmedName, description, config: buildConfigRef.current() }) !== requestFingerprint) return;
+            if (seq !== saveSeqRef.current || fingerprint({ name: trimmedName, description, config: buildConfigRef.current() }) !== requestFingerprint) return null;
             setErrors(data.errors);
             setMessage(t('graph.messages.validationErrors', { count: data.errors.length }));
-            return;
+            return null;
           }
           if (res.status === 409) {
             throw new Error((data as { msg?: string; error?: string } | null)?.msg || t('graph.messages.workflowConflict'));
@@ -1449,7 +1449,7 @@ export function GraphWorkflowPage({
         }
         const data = (await res.json()) as GraphWorkflowResponse;
         if (!data.workflow) throw new Error(t('graph.messages.workflowEmpty'));
-        if (seq !== saveSeqRef.current) return;
+        if (seq !== saveSeqRef.current) return null;
         selectedWorkflowRef.current = workflowToSummary(data.workflow);
         setWorkflows((prev) => upsertWorkflow(prev, data.workflow!));
         setSelectedId(data.workflow.id);
@@ -1468,9 +1468,11 @@ export function GraphWorkflowPage({
         }
         await loadWorkflows({ preserveMessage: true, keepSelected: true });
         setMessage(mode === 'create' ? t('graph.messages.workflowCreated') : t('graph.messages.workflowSaved'));
+        return data.workflow;
       } catch (err) {
-        if (seq !== saveSeqRef.current || fingerprint({ name: trimmedName, description, config: buildConfigRef.current() }) !== requestFingerprint) return;
+        if (seq !== saveSeqRef.current || fingerprint({ name: trimmedName, description, config: buildConfigRef.current() }) !== requestFingerprint) return null;
         setMessage(err instanceof Error ? err.message : String(err));
+        return null;
       } finally {
         if (seq === saveSeqRef.current) setSaving(false);
       }
@@ -1503,20 +1505,22 @@ export function GraphWorkflowPage({
 
   // ---- Run ----
   const startRun = useCallback(async () => {
-    // Guard against a rapid double-click: validate() + the start request are
-    // async, and without this the button (only disabled while `saving`) stays
-    // live throughout, so each extra click fires another /graph/run/start —
-    // each creating its own Graph Job. Bail if a start is already in flight.
+    // Guard the entire validate -> optional save -> start sequence so a rapid
+    // double-click cannot create duplicate Graph Jobs.
     if (startingRun) return;
     setStartingRun(true);
     try {
-      const config = await validate();
+      let config = await validate();
       if (!config) {
         setMessage(t('graph.messages.fixValidationFirst'));
         return;
       }
-      if (dirty && selectedId && !window.confirm(t('graph.messages.runUnsavedSnapshotConfirm'))) {
-        return;
+      let workflowUpdatedAt = selectedWorkflowUpdatedAt;
+      if (dirty && selectedId && canWriteWorkflows) {
+        const savedWorkflow = await save('update');
+        if (!savedWorkflow) return;
+        config = canonicalWorkflowConfig(savedWorkflow);
+        workflowUpdatedAt = savedWorkflow.updatedAt;
       }
       setMessage('');
       const res = await fetch('/api/v1/graph/run/start', {
@@ -1524,7 +1528,7 @@ export function GraphWorkflowPage({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workflowId: selectedId || undefined,
-          workflowUpdatedAt: selectedId ? selectedWorkflowUpdatedAt : undefined,
+          workflowUpdatedAt: selectedId ? workflowUpdatedAt : undefined,
           workspaceId: config.workspaceId || workspaceId,
           workdir: config.workdir || workspaceWorkdir,
           config,
@@ -1532,7 +1536,6 @@ export function GraphWorkflowPage({
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = (await res.json()) as { run?: GraphRun };
-      if (configFingerprint(buildConfigRef.current()) !== configFingerprint(config)) return;
       // A run binds a Graph-type Job; jump into the Chat page for it like the
       // normal Graph run flow does, instead of showing the run inline on the canvas.
       if (data.run?.jobId) {
@@ -1545,7 +1548,7 @@ export function GraphWorkflowPage({
     } finally {
       setStartingRun(false);
     }
-  }, [dirty, onRunStarted, selectedId, selectedWorkflowUpdatedAt, startingRun, t, validate, workspaceId, workspaceWorkdir]);
+  }, [canWriteWorkflows, dirty, onRunStarted, save, selectedId, selectedWorkflowUpdatedAt, startingRun, t, validate, workspaceId, workspaceWorkdir]);
 
   // ---- Run-time version editing (§4 运行配置与版本化编辑) ----
   // Enter an editable canvas seeded from the selected run's current effective

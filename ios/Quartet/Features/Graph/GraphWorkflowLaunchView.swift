@@ -22,6 +22,7 @@ struct GraphWorkflowLaunchView: View {
     @State private var selectedWorkflowID = ""
     @State private var workflow: GraphWorkflow?
     @State private var config: GraphConfig?
+    @State private var savedConfig: GraphConfig?
     @State private var workspaceID = ""
     @State private var agents: [AgentSummary] = []
     @State private var agentPreferences: [String: AgentPreferences] = [:]
@@ -55,6 +56,10 @@ struct GraphWorkflowLaunchView: View {
 
     private var cannotStart: Bool {
         starting || loadingWorkflow || workflow?.id != selectedWorkflowID || config == nil || selectedWorkspace == nil
+    }
+
+    private var canPersistWorkflowChanges: Bool {
+        appModel.can("workflow.write")
     }
 
     var body: some View {
@@ -97,6 +102,7 @@ struct GraphWorkflowLaunchView: View {
             guard !id.isEmpty, workflow?.id != id else { return }
             workflow = nil
             config = nil
+            savedConfig = nil
             Task { await loadWorkflow(id: id) }
         }
         .sheet(isPresented: $showsWorkflowPicker) {
@@ -213,6 +219,7 @@ struct GraphWorkflowLaunchView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(starting)
             .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
             .accessibilityLabel("工作流模板，当前为\(selectedSummary?.name ?? "未选择")")
@@ -263,6 +270,7 @@ struct GraphWorkflowLaunchView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(starting)
             .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
             .accessibilityLabel("运行空间，当前为\(selectedWorkspace?.displayName ?? "未选择")")
@@ -300,6 +308,7 @@ struct GraphWorkflowLaunchView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(starting || !canPersistWorkflowChanges)
         .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(QuartetTheme.divider))
         .accessibilityLabel("全局配置，\(globalConfigurationSummary(config))")
@@ -343,6 +352,7 @@ struct GraphWorkflowLaunchView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .disabled(starting || !canPersistWorkflowChanges)
                     .accessibilityIdentifier("graph-node-\(node.id)")
 
                     if index < config.nodes.count - 1 {
@@ -470,6 +480,7 @@ struct GraphWorkflowLaunchView: View {
                 selectedWorkflowID = ""
                 workflow = nil
                 config = nil
+                savedConfig = nil
                 return
             }
             if selectedWorkflowID == targetID {
@@ -492,14 +503,10 @@ struct GraphWorkflowLaunchView: View {
         do {
             let loaded = try await appModel.apiClient().graphWorkflow(id: id)
             guard selectedWorkflowID == id else { return }
-            var snapshot = loaded.config
-            if snapshot.workspaceId?.isEmpty != false { snapshot.workspaceId = loaded.workspaceId }
-            var variables = snapshot.variables ?? [:]
-            variables["Code"] = variables["Code"] ?? ""
-            variables["Doc"] = variables["Doc"] ?? ""
-            snapshot.variables = variables
+            let snapshot = editableConfig(for: loaded)
             workflow = loaded
             config = snapshot
+            savedConfig = snapshot
             workspaceID = preferredWorkspaceID(for: loaded, config: snapshot)
             editingNodeID = nil
             showsGlobalEditor = false
@@ -509,25 +516,31 @@ struct GraphWorkflowLaunchView: View {
             guard selectedWorkflowID == id else { return }
             workflow = nil
             config = nil
+            savedConfig = nil
             present(error)
         }
     }
 
     private func start() async {
-        guard !starting, let workflow, var executionConfig = config, let selectedWorkspace, let effectiveWorkdir else { return }
+        guard !starting, let workflow, let config, let selectedWorkspace, let effectiveWorkdir else { return }
         starting = true
         defer { starting = false }
 
-        executionConfig.workspaceId = selectedWorkspace.id
-        executionConfig.workdir = effectiveWorkdir
         do {
-            let validation = try await appModel.apiClient().validateGraphWorkflow(config: executionConfig)
+            var validationConfig = config
+            validationConfig.workspaceId = selectedWorkspace.id
+            validationConfig.workdir = effectiveWorkdir
+            let validation = try await appModel.apiClient().validateGraphWorkflow(config: validationConfig)
             guard validation.valid else {
                 throw validationError(validation.errors ?? [])
             }
+            let savedWorkflow = try await saveWorkflowIfNeeded(workflow: workflow, config: config)
+            var executionConfig = editableConfig(for: savedWorkflow)
+            executionConfig.workspaceId = selectedWorkspace.id
+            executionConfig.workdir = effectiveWorkdir
             let payload = GraphRunIntentPayload(
-                workflowID: workflow.id,
-                workflowUpdatedAt: workflow.updatedAt,
+                workflowID: savedWorkflow.id,
+                workflowUpdatedAt: savedWorkflow.updatedAt,
                 workspaceID: selectedWorkspace.id,
                 workdir: effectiveWorkdir,
                 config: executionConfig
@@ -537,8 +550,8 @@ struct GraphWorkflowLaunchView: View {
             }
             guard let startIntent else { return }
             let run = try await appModel.apiClient().startGraphRun(StartGraphRunRequest(
-                workflowId: workflow.id,
-                workflowUpdatedAt: workflow.updatedAt,
+                workflowId: savedWorkflow.id,
+                workflowUpdatedAt: savedWorkflow.updatedAt,
                 clientMessageId: startIntent.id,
                 workspaceId: selectedWorkspace.id,
                 workdir: effectiveWorkdir,
@@ -549,7 +562,7 @@ struct GraphWorkflowLaunchView: View {
             let now = Int64(Date().timeIntervalSince1970 * 1_000)
             onCreated(ChatRoute(summary: JobSummary(
                 id: run.jobId,
-                title: workflow.name,
+                title: savedWorkflow.name,
                 modelId: nil,
                 status: run.status,
                 mode: "graph",
@@ -563,6 +576,47 @@ struct GraphWorkflowLaunchView: View {
                 shareToken: nil
             )))
         } catch { present(error) }
+    }
+
+    private func saveWorkflowIfNeeded(workflow: GraphWorkflow, config: GraphConfig) async throws -> GraphWorkflow {
+        guard config != savedConfig else { return workflow }
+        let saved = try await appModel.apiClient().updateGraphWorkflow(
+            id: workflow.id,
+            body: UpdateGraphWorkflowRequest(
+                workspaceId: config.workspaceId ?? workflow.workspaceId ?? "",
+                config: config,
+                updatedAt: workflow.updatedAt
+            )
+        )
+        let snapshot = editableConfig(for: saved)
+        self.workflow = saved
+        self.config = snapshot
+        savedConfig = snapshot
+        workflows = workflows.map { summary in
+            guard summary.id == saved.id else { return summary }
+            return GraphWorkflowSummary(
+                id: saved.id,
+                workspaceId: saved.workspaceId ?? saved.config.workspaceId,
+                name: saved.name,
+                description: saved.description,
+                type: saved.type,
+                createdAt: saved.createdAt,
+                updatedAt: saved.updatedAt,
+                nodeCount: saved.config.nodes.count,
+                edgeCount: saved.config.edges.count
+            )
+        }
+        return saved
+    }
+
+    private func editableConfig(for workflow: GraphWorkflow) -> GraphConfig {
+        var snapshot = workflow.config
+        if snapshot.workspaceId?.isEmpty != false { snapshot.workspaceId = workflow.workspaceId }
+        var variables = snapshot.variables ?? [:]
+        variables["Code"] = variables["Code"] ?? ""
+        variables["Doc"] = variables["Doc"] ?? ""
+        snapshot.variables = variables
+        return snapshot
     }
 
     private func preferredWorkflowID(in workflows: [GraphWorkflowSummary]) -> String? {
@@ -592,6 +646,7 @@ struct GraphWorkflowLaunchView: View {
     private func selectWorkspace(_ workspace: WorkspaceSummary) {
         workspaceID = workspace.id
         appModel.recordGraphWorkspace(workspace.id)
+        guard canPersistWorkflowChanges else { return }
         guard var next = config else { return }
         next.workspaceId = workspace.id
         next.workdir = workspace.workdir

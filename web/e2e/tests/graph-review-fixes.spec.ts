@@ -699,7 +699,7 @@ test('graph review #4: running a saved workflow binds workflowId + workflowName'
   expect(persisted?.baseSnapshot?.workflowName).toBe(name)
 })
 
-test('graph review #4b: dirty saved workflow run prompts and executes the unsaved snapshot', async ({ page, request }) => {
+test('graph review #4b: dirty saved workflow is persisted before the run starts', async ({ page, request }) => {
   const workspace = await openGraphCanvas(page, request, 'dirty-run-snapshot')
   const name = `e2e-dirty-run-${Date.now()}`
 
@@ -717,20 +717,12 @@ test('graph review #4b: dirty saved workflow run prompts and executes the unsave
   await applyJsonConfig(page, dirtyConfig)
   await expect(page.getByTestId('graph-dirty-badge')).toBeVisible()
 
-  let promptText = ''
-  page.once('dialog', (d) => {
-    promptText = d.message()
-    void d.dismiss()
-  })
-  await page.getByTestId('graph-run').click()
-  await expect.poll(() => promptText).toContain('unsaved')
-  await expect(page).toHaveURL(/view=graph/)
-
-  page.once('dialog', (d) => void d.accept())
-  const [startResp] = await Promise.all([
+  const [saveResp, startResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes(`/api/v1/graph/workflow/${wf.id}`) && r.request().method() === 'PUT'),
     page.waitForResponse((r) => r.url().includes('/api/v1/graph/run/start') && r.request().method() === 'POST'),
     page.getByTestId('graph-run').click(),
   ])
+  expect(saveResp.ok(), `workflow save failed: ${saveResp.status()} ${await saveResp.text()}`).toBeTruthy()
   expect(startResp.ok(), `run start failed: ${startResp.status()} ${await startResp.text()}`).toBeTruthy()
   const run = (await startResp.json()).run
   expect(run?.workflowId).toBe(wf.id)
@@ -743,7 +735,7 @@ test('graph review #4b: dirty saved workflow run prompts and executes the unsave
   const persistedWf = await request.get(`/api/v1/graph/workflow/${encodeURIComponent(wf.id)}`, { headers: AUTH_HEADERS })
   expect(persistedWf.ok()).toBeTruthy()
   const persistedShell = (await persistedWf.json()).workflow?.config?.nodes?.find((n: { id?: string }) => n.id === 'shell')
-  expect(persistedShell?.config?.script).not.toBe('echo unsaved-snapshot-ran')
+  expect(persistedShell?.config?.script).toBe('echo unsaved-snapshot-ran')
 })
 
 test('graph review #57: validate and save in-flight lock editing controls', async ({ page, request }) => {
