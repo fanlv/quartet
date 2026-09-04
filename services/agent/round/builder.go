@@ -334,10 +334,16 @@ func (b *Builder) SawTokenUsage() bool {
 // since the last Reset. Used for diagnostics: if a Run completes
 // successfully but the builder is empty, the subprocess likely returned
 // a vacuous response.
+//
+// Rounds already flushed mid-run count too via completedMessages — a
+// pure-tool round (every tool_call carrying its terminal status, no
+// trailing message chunks) leaves the live accumulators empty after the
+// result-catch-up flush, yet the run did produce real output. Reset
+// clears completedMessages, so this never leaks state across runs.
 func (b *Builder) HasAccumulatedContent() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return len(b.accMessageParts) > 0 || len(b.accThoughtParts) > 0 || len(b.accToolCalls) > 0
+	return len(b.accMessageParts) > 0 || len(b.accThoughtParts) > 0 || len(b.accToolCalls) > 0 || len(b.completedMessages) > 0
 }
 
 // HasOnFlush reports whether an onFlush callback is currently installed.

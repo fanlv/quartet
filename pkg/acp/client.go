@@ -188,6 +188,31 @@ func (c *sdkClient) handleSessionUpdate(ctx context.Context, params acp.SessionN
 		if input != "" {
 			h.OnToolCallArgsSnapshot(id, input)
 		}
+		// Some ACP adapters (e.g. antigravity-acp, which syncs tool state
+		// from an upstream store) emit a single tool_call that already
+		// carries a terminal status instead of a follow-up tool_call_update.
+		// Without closing the lifecycle here the tool call stays pending in
+		// the builder forever and end_turn fails the unfinished-tools guard.
+		// Non-terminal statuses need no handler call: OnToolCall above
+		// already recorded the declaration as started. Terminal content is
+		// the tool result, not arguments.
+		if tc.Status != nil {
+			var status agentstream.ToolCallStatus
+			switch *tc.Status {
+			case acp.ToolCallStatusCompleted:
+				status = agentstream.ToolCallStatusCompleted
+			case acp.ToolCallStatusFailed:
+				status = agentstream.ToolCallStatusFailed
+			}
+			if status.IsTerminal() {
+				content := extractToolCallContent(tc.Content)
+				// Mirrors the update branch's terminal log so delivery
+				// latency for one-shot completed tool_calls is traceable too.
+				logger.Debugf(ctx, "[ACP] tool_call_terminal: sid=%s toolID=%s status=%s contentLen=%d (one-shot tool_call)",
+					sid, id, status, len(content))
+				h.OnToolCallUpdate(id, content, status)
+			}
+		}
 		return
 	}
 	if tcu, ok := u.AsToolCallUpdate(); ok {
