@@ -1006,14 +1006,57 @@ func (b *Builder) OnThoughtChunk(text string) {
 	b.logHandlerErr("OnThoughtDelta", h.OnThoughtDelta(text))
 }
 
+// toolCallDeclaredLocked reports whether this Run already declared the tool
+// call id, so OnToolCall can ignore a re-declaration.
+//
+// Some ACP adapters have no tool_call_update at all and instead re-send the
+// whole tool_call every time the upstream step changes status (antigravity-acp
+// mirrors rows from agy's trajectory store, so the same id arrives once as
+// in_progress and again as completed). Appending the id a second time would:
+//   - persist the call twice in the flushed round, because
+//     reorderToolResults maps both copies to the same real result and emits
+//     that result once per copy;
+//   - leave the second copy without arguments, since onToolCallArgs fills
+//     only the first matching entry;
+//   - skew the len(results) >= len(calls) flush gate so a finished round
+//     never flushes at its last terminal;
+//   - fire a second OnToolCallStart, double-counting the tool in usage stats.
+//
+// Two windows count as declared:
+//   - the id is still in the current round's accToolCalls;
+//   - the id was placeholdered by an eager flush and is awaiting a late
+//     terminal (recentlySuperseded). Skipping the re-declaration is what
+//     keeps the terminal on the handleLateTerminalStitchLocked path, which
+//     replaces that placeholder with the real result, instead of opening a
+//     second round that declares the same call again.
+//
+// The first declaration's title wins: it is what OnToolCallStart already sent
+// to the live UI, so adopting a later title here would desync the rendered
+// bubble label from the persisted round. Caller must hold b.mu.
+func (b *Builder) toolCallDeclaredLocked(id string) bool {
+	for _, tc := range b.accToolCalls {
+		if tc.ID == id {
+			return true
+		}
+	}
+	_, superseded := b.recentlySuperseded[id]
+	return superseded
+}
+
 // OnToolCall declares a new tool call. The assistant message (if any) and
 // reasoning segment are closed before the tool-call UI event fires.
+// Re-declarations of an id already known to this Run are ignored — see
+// toolCallDeclaredLocked.
 func (b *Builder) OnToolCall(id, title string) {
 	var endedMsg, endedThought bool
 
 	b.mu.Lock()
 	h := b.handler
 	if h == nil {
+		b.mu.Unlock()
+		return
+	}
+	if b.toolCallDeclaredLocked(id) {
 		b.mu.Unlock()
 		return
 	}
