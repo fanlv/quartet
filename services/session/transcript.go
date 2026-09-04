@@ -11,6 +11,7 @@ import (
 // adapters while keeping repository construction inside the service layer.
 type TranscriptStore interface {
 	Load(ctx context.Context, workspaceID, jobID, sessionID string) ([]*schema.Message, error)
+	LoadPage(ctx context.Context, workspaceID, jobID, sessionID string, beforeOffset, boundaryEndOffset int64, boundaryHash string, limit int) (*repository.MessagePage, error)
 	Append(ctx context.Context, workspaceID, jobID, sessionID string, messages []*schema.Message) error
 }
 
@@ -29,6 +30,17 @@ func (transcriptStore) Load(
 		return nil, err
 	}
 	return repo.LoadAllMessages(ctx)
+}
+
+func (transcriptStore) LoadPage(
+	ctx context.Context, workspaceID, jobID, sessionID string,
+	beforeOffset, boundaryEndOffset int64, boundaryHash string, limit int,
+) (*repository.MessagePage, error) {
+	repo, err := repository.NewChatContextRepo(workspaceID, jobID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return repo.LoadMessagePage(ctx, beforeOffset, boundaryEndOffset, boundaryHash, limit)
 }
 
 func (transcriptStore) Append(

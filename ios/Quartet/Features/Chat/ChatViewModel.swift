@@ -104,6 +104,13 @@ enum StreamConnectionState: Equatable {
 
 @MainActor
 final class ChatViewModel: ObservableObject {
+    private struct PrefetchedHistoryPage {
+        let sessionID: String
+        let sessionIndex: Int
+        let messages: [ChatMessage]
+        let page: MessagePageInfo
+    }
+
     @Published var messages: [ChatMessage] = []
     @Published var outbox: [LocalOutboxItem] = []
     @Published var serverQueue = MessageQueueSnapshot(jobId: "", version: 0, paused: false, pauseReason: nil, willContinue: false, active: nil, items: [])
@@ -112,6 +119,7 @@ final class ChatViewModel: ObservableObject {
     @Published private(set) var authoritativeTitleVersion = 0
     @Published var status = "pending"
     @Published var loading = true
+    @Published private(set) var hasMoreEarlierMessages = false
     @Published var sending = false
     @Published private var streamState: StreamConnectionState = .offline
     @Published var errorDetail: String?
@@ -156,6 +164,15 @@ final class ChatViewModel: ObservableObject {
     private var isProcessingOutbox = false
     private var isGraph = false
     private var graphRunLive = false
+    private var historySessionIDs: [String] = []
+    private var oldestLoadedSessionIndex = -1
+    private var historyPageInfoBySession: [String: MessagePageInfo] = [:]
+    private var prefetchedHistoryPage: PrefetchedHistoryPage?
+    private var historyPrefetchTask: Task<Void, Never>?
+    private var tokenUsageTask: Task<Void, Never>?
+    private var historyGeneration: UInt64 = 0
+
+    private static let historyPageSize = 80
 
     var isRunning: Bool { isTurnRunning }
     var expectsExecution: Bool {
@@ -258,6 +275,12 @@ final class ChatViewModel: ObservableObject {
 
     func start(route: ChatRoute, client: APIClient) async {
         stopStreaming()
+        historyGeneration &+= 1
+        historyPrefetchTask?.cancel()
+        historyPrefetchTask = nil
+        tokenUsageTask?.cancel()
+        tokenUsageTask = nil
+        prefetchedHistoryPage = nil
         let changesJob = !jobID.isEmpty && jobID != route.summary.id
         if changesJob {
             messages = []
@@ -279,6 +302,10 @@ final class ChatViewModel: ObservableObject {
             serverClockAnchor = nil
             knownQueuedItems = [:]
         }
+        historySessionIDs = []
+        oldestLoadedSessionIndex = -1
+        historyPageInfoBySession = [:]
+        hasMoreEarlierMessages = false
         self.client = client
         jobID = route.summary.id
         isGraph = route.summary.mode == "graph"
@@ -346,10 +373,14 @@ final class ChatViewModel: ObservableObject {
             }
 
             if requestedSession?.isEmpty == false, let sessionID {
+                historySessionIDs = [sessionID]
+                oldestLoadedSessionIndex = 0
                 try await loadHistory(sessionID: sessionID)
             } else if !interactiveSessions.isEmpty {
                 try await loadInteractiveHistory(sessionIDs: interactiveSessions)
             } else if let sessionID {
+                historySessionIDs = [sessionID]
+                oldestLoadedSessionIndex = 0
                 try await loadHistory(sessionID: sessionID)
             } else {
                 messages = []
@@ -581,7 +612,14 @@ final class ChatViewModel: ObservableObject {
 
     private func loadHistory(sessionID: String, preservesLiveMessages: Bool = true) async throws {
         guard let client else { return }
-        let response = try await client.sessionMessages(id: sessionID)
+        historyGeneration &+= 1
+        historyPrefetchTask?.cancel()
+        historyPrefetchTask = nil
+        prefetchedHistoryPage = nil
+        historySessionIDs = [sessionID]
+        oldestLoadedSessionIndex = 0
+        historyPageInfoBySession[sessionID] = nil
+        let response = try await client.sessionMessages(id: sessionID, limit: Self.historyPageSize)
         let agentInfo = await resolveAgentDisplayInfo(for: response)
         applySessionMetadata(response, agentInfo: agentInfo)
         let historyMessages = convertHistoryMessages(response.messages, agentInfo: agentInfo)
@@ -592,31 +630,154 @@ final class ChatViewModel: ObservableObject {
         } else {
             messages = historyMessages
         }
+        historyPageInfoBySession[sessionID] = response.page ?? MessagePageInfo(hasMoreBefore: false, beforeCursor: nil)
+        hasMoreEarlierMessages = (response.page?.hasMoreBefore == true) || oldestLoadedSessionIndex > 0
         removeEchoedOutboxItems()
         bumpScrollAnchor()
+        preloadEarlierMessages()
+        refreshSessionTokenUsage(sessionID: sessionID, generation: historyGeneration)
     }
 
     private func loadInteractiveHistory(sessionIDs: [String]) async throws {
         guard let client else { return }
-        var combined: [ChatMessage] = []
+        historyGeneration &+= 1
+        historyPrefetchTask?.cancel()
+        historyPrefetchTask = nil
+        prefetchedHistoryPage = nil
         let nonEmptySessionIDs = sessionIDs.filter { !$0.isEmpty }
-        for (index, currentSessionID) in nonEmptySessionIDs.enumerated() {
-            let response = try await client.sessionMessages(id: currentSessionID)
-            let agentInfo = await resolveAgentDisplayInfo(for: response)
-            let isLatestSession = index == nonEmptySessionIDs.count - 1
-            combined.append(contentsOf: convertHistoryMessages(
-                response.messages,
-                idPrefix: isLatestSession ? nil : currentSessionID,
-                agentInfo: agentInfo
-            ))
-            if isLatestSession {
-                applySessionMetadata(response, agentInfo: agentInfo)
-            }
-        }
+        guard let currentSessionID = nonEmptySessionIDs.last else { return }
+        historySessionIDs = nonEmptySessionIDs
+        oldestLoadedSessionIndex = nonEmptySessionIDs.count - 1
+        historyPageInfoBySession = [:]
+        let response = try await client.sessionMessages(id: currentSessionID, limit: Self.historyPageSize)
+        let agentInfo = await resolveAgentDisplayInfo(for: response)
+        let combined = convertHistoryMessages(response.messages, agentInfo: agentInfo)
+        applySessionMetadata(response, agentInfo: agentInfo)
+        historyPageInfoBySession[currentSessionID] = response.page ?? MessagePageInfo(hasMoreBefore: false, beforeCursor: nil)
         flushPendingDeltas()
         messages = combined
+        hasMoreEarlierMessages = (response.page?.hasMoreBefore == true) || oldestLoadedSessionIndex > 0
         removeEchoedOutboxItems()
         bumpScrollAnchor()
+        preloadEarlierMessages()
+        refreshSessionTokenUsage(sessionID: currentSessionID, generation: historyGeneration)
+    }
+
+    func loadEarlierMessages() async -> Int {
+        let expectedGeneration = historyGeneration
+        var collected: [ChatMessage] = []
+        while true {
+            if prefetchedHistoryPage == nil {
+                if let historyPrefetchTask {
+                    await historyPrefetchTask.value
+                } else {
+                    await ensureEarlierPagePrefetched()
+                }
+            }
+            guard let prefetched = prefetchedHistoryPage else { break }
+            guard historyGeneration == expectedGeneration else { return 0 }
+            prefetchedHistoryPage = nil
+            historyPageInfoBySession[prefetched.sessionID] = prefetched.page
+            oldestLoadedSessionIndex = prefetched.sessionIndex
+            hasMoreEarlierMessages = prefetched.page.hasMoreBefore || prefetched.sessionIndex > 0
+            collected.append(contentsOf: prefetched.messages)
+            if !prefetched.messages.isEmpty || !hasMoreEarlierMessages { break }
+        }
+        let existingIDs = Set(messages.map(\.id))
+        let uniqueEarlier = collected.filter { !existingIDs.contains($0.id) }
+        if !uniqueEarlier.isEmpty {
+            flushPendingDeltas()
+            messages = uniqueEarlier + messages
+            bumpScrollAnchor()
+        }
+        preloadEarlierMessages()
+        return uniqueEarlier.count
+    }
+
+    private func fetchEarlierPage(generation: UInt64) async throws -> PrefetchedHistoryPage? {
+        guard let client else { return nil }
+        guard oldestLoadedSessionIndex >= 0, oldestLoadedSessionIndex < historySessionIDs.count else {
+            hasMoreEarlierMessages = false
+            return nil
+        }
+
+        var index = oldestLoadedSessionIndex
+        var currentSessionID = historySessionIDs[index]
+        var pageInfo = historyPageInfoBySession[currentSessionID]
+        if pageInfo?.hasMoreBefore != true || pageInfo?.beforeCursor == nil {
+            guard index > 0 else {
+                hasMoreEarlierMessages = false
+                return nil
+            }
+            index -= 1
+            currentSessionID = historySessionIDs[index]
+            pageInfo = nil
+        }
+
+        let response = try await client.sessionMessages(
+            id: currentSessionID,
+            beforeCursor: pageInfo?.beforeCursor,
+            limit: Self.historyPageSize
+        )
+        guard historyGeneration == generation, historySessionIDs.indices.contains(index),
+              historySessionIDs[index] == currentSessionID else { return nil }
+        let agentInfo = await resolveAgentDisplayInfo(for: response)
+        guard historyGeneration == generation else { return nil }
+        let isNewestInteractiveSession = !isGraph && index == historySessionIDs.count - 1
+        let earlier = convertHistoryMessages(
+            response.messages,
+            idPrefix: isNewestInteractiveSession || isGraph ? nil : currentSessionID,
+            agentInfo: agentInfo
+        )
+        let nextPage = response.page ?? MessagePageInfo(hasMoreBefore: false, beforeCursor: nil)
+        return PrefetchedHistoryPage(
+            sessionID: currentSessionID, sessionIndex: index, messages: earlier, page: nextPage
+        )
+    }
+
+    private func ensureEarlierPagePrefetched() async {
+        guard prefetchedHistoryPage == nil, hasMoreEarlierMessages else { return }
+        let generation = historyGeneration
+        do {
+            let page = try await fetchEarlierPage(generation: generation)
+            if historyGeneration == generation {
+                prefetchedHistoryPage = page
+                if page != nil { hasMoreEarlierMessages = true }
+            }
+        } catch {
+            if historyGeneration == generation { errorDetail = errorText(error) }
+        }
+    }
+
+    private func preloadEarlierMessages() {
+        guard hasMoreEarlierMessages, prefetchedHistoryPage == nil, historyPrefetchTask == nil else { return }
+        historyPrefetchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.ensureEarlierPagePrefetched()
+            guard !Task.isCancelled else { return }
+            self.historyPrefetchTask = nil
+        }
+    }
+
+    private func refreshSessionTokenUsage(sessionID: String, generation: UInt64) {
+        guard let client else { return }
+        tokenUsageTask?.cancel()
+        tokenUsageTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(300))
+                let response = try await client.sessionTokenUsage(id: sessionID)
+                guard self.historyGeneration == generation, self.sessionID == sessionID else { return }
+                self.totalTokens = response.tokenUsage.totalTokens
+                self.tokenUsageEstimated = response.tokenUsage.estimated
+                self.tokenUsageTask = nil
+            } catch {
+                if Task.isCancelled { return }
+                guard self.historyGeneration == generation else { return }
+                self.errorDetail = self.errorText(error)
+                self.tokenUsageTask = nil
+            }
+        }
     }
 
     // Match the Web client's history projection: assistant tool-call metadata
@@ -1277,7 +1438,7 @@ final class ChatViewModel: ObservableObject {
         isTurnRunning = graphRunLive
         if preferredSessionID == nil, let latestSession = latestGraphSessionID(in: snapshot), latestSession != sessionID {
             sessionID = latestSession
-            try await loadHistory(sessionID: latestSession, preservesLiveMessages: false)
+            try await loadHistory(sessionID: latestSession, preservesLiveMessages: true)
         }
         if let error = run.lastError?.fullDetail, !error.isEmpty {
             errorDetail = error
@@ -1305,7 +1466,9 @@ final class ChatViewModel: ObservableObject {
 
     private func mergeGraphHistory(_ persisted: [ChatMessage]) {
         let persistedIDs = Set(persisted.map(\.id))
-        let inFlight = messages.filter { !persistedIDs.contains($0.id) }
+        let inFlight = messages.filter { message in
+            !persistedIDs.contains(message.id) && (message.isOptimistic || !message.isFinished || message.kind == .system)
+        }
         messages = persisted + inFlight
     }
 

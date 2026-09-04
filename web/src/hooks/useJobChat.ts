@@ -101,79 +101,46 @@ async function readHTTPError(response: Response, prefix?: string): Promise<strin
   return prefix ? `${prefix}: ${message}` : message;
 }
 
-// Execute async tasks with a concurrency limit
-async function parallelLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
-  const results: T[] = new Array(tasks.length);
-  let i = 0;
-  async function next(): Promise<void> {
-    const idx = i++;
-    if (idx >= tasks.length) return;
-    results[idx] = await tasks[idx]();
-    await next();
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, () => next()));
-  return results;
+const INITIAL_HISTORY_PAGE_SIZE = 80;
+const EARLIER_HISTORY_PAGE_SIZE = 80;
+
+interface HistoryPageInfo {
+  hasMoreBefore: boolean;
+  beforeCursor?: string;
 }
 
-// idlePrefetchSessions lazily warms a list of session histories in the
-// background at low priority. Used after the active session is loaded so the
-// remaining Graph sessions are eventually in memory (smooth tab switches)
-// without competing with the first paint for network/CPU.
-//
-// Each session is loaded one at a time, scheduled via requestIdleCallback so
-// it only runs when the browser is otherwise idle; environments without it
-// (older Safari, jsdom in tests) fall back to a short setTimeout. Before every
-// load we re-check isCancelled() so an unmounted hook / switched job stops the
-// chain promptly. A manual tab switch races ahead via the per-session
-// load-on-switch effect — that path marks the session loaded and loadOne here
-// can no-op it (the caller's loadOne already merges idempotently).
-//
-// Returns a cancel() handle the caller wires into its effect cleanup so a
-// pending idle callback is dropped immediately on job switch / unmount.
-function idlePrefetchSessions(
-  sessionIds: string[],
-  loadOne: (sid: string) => Promise<void>,
-  isCancelled: () => boolean,
-): () => void {
-  const ric: typeof requestIdleCallback | undefined =
-    typeof requestIdleCallback === 'function' ? requestIdleCallback : undefined;
-  const cic: typeof cancelIdleCallback | undefined =
-    typeof cancelIdleCallback === 'function' ? cancelIdleCallback : undefined;
-
-  let idleHandle: number | null = null;
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  let stopped = false;
-
-  const schedule = (fn: () => void) => {
-    if (ric) {
-      idleHandle = ric(fn, { timeout: 2000 });
-    } else {
-      timeoutHandle = setTimeout(fn, 50);
-    }
+interface LoadedHistoryPage {
+  messages: Message[];
+  page: HistoryPageInfo;
+  metadata: {
+    modelId: string | null;
+    type: string | null;
+    acpMode: string | null;
+    acpThoughtLevel: string | null;
   };
+}
 
-  let index = 0;
-  const step = () => {
-    if (stopped || isCancelled()) return;
-    if (index >= sessionIds.length) return;
-    const sid = sessionIds[index++];
-    void loadOne(sid)
-      .catch(() => {
-        // loadOne is expected to record its own failure (failedSessionIdsRef);
-        // swallow here so one bad session doesn't halt the prefetch chain.
-      })
-      .finally(() => {
-        if (stopped || isCancelled()) return;
-        schedule(step);
-      });
-  };
-  schedule(step);
+interface SessionHistoryPageState {
+  beforeCursor?: string;
+  hasMoreBefore: boolean;
+  tagSessionId?: string;
+}
 
-  return () => {
-    stopped = true;
-    if (idleHandle !== null && cic) cic(idleHandle);
-    if (timeoutHandle !== null) clearTimeout(timeoutHandle);
-  };
+interface PrefetchedHistoryPage {
+  sessionId: string;
+  sessionIndex: number;
+  tagSessionId?: string;
+  page: LoadedHistoryPage;
+  hasMoreAfter: boolean;
+}
+
+function mergeLatestHistoryPage(existing: Message[], latest: Message[]): Message[] {
+  const transientTail = existing.filter((message) =>
+    message.role === MessageRoleEnum.SYSTEM ||
+    message.pending === true ||
+    message.status !== MessageStatusEnum.Finished
+  );
+  return mergeMessages(transientTail, latest, { deduplicateToolCallIds: true });
 }
 
 function getLastGraphSessionId(sessions: GraphSessionEntry[]): string | null {
@@ -425,6 +392,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const [messages, setMessages] = useState<Message[]>(() => initialUserMessage ? [initialUserMessage] : []);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [hasMoreEarlierMessages, setHasMoreEarlierMessages] = useState(false);
   // Backend preparation-phase hint (subprocess launch / reconnect /
   // history replay / waiting for the first token). Set ONLY from
   // agent_phase custom events and reset at each round start. The streaming
@@ -765,7 +733,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // loadedSessionIds is committed by React. Entries live only until the request
   // settles: this deliberately deduplicates in-flight work without turning the
   // browser into a second long-lived history cache.
-  const historyLoadsInFlightRef = useRef<Map<string, Promise<Message[]>>>(new Map());
+  const historyLoadsInFlightRef = useRef<Map<string, Promise<LoadedHistoryPage>>>(new Map());
+  const historyPageStateRef = useRef<Map<string, SessionHistoryPageState>>(new Map());
+  const historySessionIdsRef = useRef<string[]>([]);
+  const oldestLoadedSessionIndexRef = useRef(-1);
+  const historyPagingSessionRef = useRef<string | null>(null);
+  const prefetchedHistoryRef = useRef<PrefetchedHistoryPage | null>(null);
+  const earlierHistoryLoadRef = useRef<Promise<PrefetchedHistoryPage | null> | null>(null);
   // Resume sequence handed back by the snapshot endpoint (job.lastEventSeq).
   // Updated whenever syncJobState fetches the snapshot and consumed by the
   // SSE connect path so reconnects after a 410 / page refresh resume from
@@ -843,6 +817,17 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     }
   }, []);
 
+  const refreshSessionTokenUsage = useCallback(async (sessionId: string, expectedJobId: string | null) => {
+    if (isPublic) return;
+    const response = await fetch(apiUrl(`/sessions/${sessionId}/token-usage`));
+    if (!response.ok) throw new Error(await readHTTPError(response, `GET /sessions/${sessionId}/token-usage`));
+    const data = await response.json();
+    if (jobIdRef.current !== expectedJobId) return;
+    if (data.tokenUsage) {
+      recordSessionTokens(sessionId, data.tokenUsage.totalTokens ?? 0, data.tokenUsage.estimated ?? true);
+    }
+  }, [apiUrl, isPublic, recordSessionTokens]);
+
   // Mirror isLoading -> ref so the SSE idle-watchdog interval can read the
   // current value without re-subscribing the SSE effect on every flip.
   useEffect(() => {
@@ -873,6 +858,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     historyHydratingRef.current = false;
     ++historyHydrationGenerationRef.current;
     pendingEventsRef.current = [];
+    historyLoadsInFlightRef.current.clear();
+    historyPageStateRef.current.clear();
+    historySessionIdsRef.current = [];
+    oldestLoadedSessionIndexRef.current = -1;
+    historyPagingSessionRef.current = null;
+    prefetchedHistoryRef.current = null;
+    earlierHistoryLoadRef.current = null;
     // Invalidate any in-flight syncJobState responses from the previous job —
     // bumping the generation ensures their stale-check fails on arrival.
     ++syncGenerationRef.current;
@@ -920,6 +912,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     setError(null);
     setIsLoading(false);
     setIsLoadingHistory(false);
+    setHasMoreEarlierMessages(false);
     // Clear round timestamps so the previous job's "total duration" badge
     // doesn't leak into the newly selected job. Both the hydration fetch
     // and the JOB_STARTED replay use `prev ?? ...`, which cannot overwrite
@@ -1490,8 +1483,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   handleEventRef.current = handleEvent;
 
   // Load history for existing job
-  const loadHistory = useCallback((sid: string, tagSessionId?: string): Promise<Message[]> => {
-    const inFlight = historyLoadsInFlightRef.current.get(sid);
+  const loadHistoryPage = useCallback((
+    sid: string,
+    tagSessionId?: string,
+    beforeCursor?: string,
+    limit = INITIAL_HISTORY_PAGE_SIZE,
+    applyPrimaryMetadata = true,
+  ): Promise<LoadedHistoryPage> => {
+    const requestKey = `${sid}\0${tagSessionId || ''}\0${beforeCursor || 'latest'}\0${limit}\0${applyPrimaryMetadata}`;
+    const inFlight = historyLoadsInFlightRef.current.get(requestKey);
     if (inFlight) return inFlight;
 
     // Read synchronously so a response landing after the user switched jobs is
@@ -1501,10 +1501,17 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     const requestJobId = jobIdRef.current;
 
     const request = (async () => {
-      const response = await fetch(apiUrl(`/sessions/${sid}/messages`));
+      const response = await fetch(apiUrl(`/sessions/${sid}/messages`, {
+        paged: 'true',
+        limit: String(limit),
+        ...(beforeCursor ? { before: beforeCursor } : {}),
+      }));
       if (!response.ok) {
-        if (response.status === 404) return [];
-        throw new Error(`Failed to load history for session ${sid} (HTTP ${response.status})`);
+        if (response.status === 404) return {
+          messages: [], page: { hasMoreBefore: false },
+          metadata: { modelId: null, type: null, acpMode: null, acpThoughtLevel: null },
+        };
+        throw new Error(await readHTTPError(response, `GET /sessions/${sid}/messages`));
       }
       const data = await response.json();
 
@@ -1531,15 +1538,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       // left their badge stuck at 0 until a live usage event arrived — i.e.
       // permanently for a finished run. Skipped when the job changed under us
       // so a late response can't paint the previous job's number.
-      if (jobIdRef.current === requestJobId) {
+      if (jobIdRef.current === requestJobId && data.tokenUsage) {
         recordSessionTokens(
           sid,
-          data.tokenUsage?.totalTokens ?? 0,
-          data.tokenUsage?.estimated ?? true,
+          data.tokenUsage.totalTokens,
+          data.tokenUsage.estimated ?? true,
         );
       }
 
-      if (!tagSessionId) {
+      if (!tagSessionId && applyPrimaryMetadata) {
         setSessionModelId(data.modelId || null);
         if (data.type) setSessionType(data.type);
         if (data.acpMode) setSessionACPMode(data.acpMode);
@@ -1619,19 +1626,162 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         }
       }
 
-      return converted;
+      const page: HistoryPageInfo = {
+        hasMoreBefore: data.page?.hasMoreBefore === true,
+        beforeCursor: typeof data.page?.beforeCursor === 'string' ? data.page.beforeCursor : undefined,
+      };
+      if (!beforeCursor && applyPrimaryMetadata && !isPublic) {
+        const refreshUsage = () => {
+          void refreshSessionTokenUsage(sid, requestJobId).catch((err) => {
+            if (jobIdRef.current === requestJobId) {
+              console.warn(`[history] token usage refresh failed for session ${sid}:`, err);
+            }
+          });
+        };
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(refreshUsage, { timeout: 3000 });
+        } else {
+          setTimeout(refreshUsage, 300);
+        }
+      }
+      return {
+        messages: converted,
+        page,
+        metadata: {
+          modelId: data.modelId || null,
+          type: data.type || null,
+          acpMode: data.acpMode || null,
+          acpThoughtLevel: data.acpThoughtLevel || null,
+        },
+      };
     })();
-    historyLoadsInFlightRef.current.set(sid, request);
+    historyLoadsInFlightRef.current.set(requestKey, request);
     const clearInFlight = () => {
       // Identity check prevents an older completion from deleting a newer
       // request installed for the same session after this one settled.
-      if (historyLoadsInFlightRef.current.get(sid) === request) {
-        historyLoadsInFlightRef.current.delete(sid);
+      if (historyLoadsInFlightRef.current.get(requestKey) === request) {
+        historyLoadsInFlightRef.current.delete(requestKey);
       }
     };
     void request.then(clearInFlight, clearInFlight);
     return request;
-  }, [apiUrl, isPublic, recordSessionTokens]);
+  }, [apiUrl, isPublic, recordSessionTokens, refreshSessionTokenUsage]);
+
+  const loadHistory = useCallback(async (
+    sid: string,
+    tagSessionId?: string,
+    resetPaging = true,
+  ): Promise<Message[]> => {
+    const page = await loadHistoryPage(sid, tagSessionId);
+    if (resetPaging && historyPagingSessionRef.current !== sid) {
+      historyPagingSessionRef.current = sid;
+      historySessionIdsRef.current = [sid];
+      oldestLoadedSessionIndexRef.current = 0;
+      prefetchedHistoryRef.current = null;
+      earlierHistoryLoadRef.current = null;
+    }
+    if (resetPaging) {
+      historyPageStateRef.current.set(sid, {
+        beforeCursor: page.page.beforeCursor,
+        hasMoreBefore: page.page.hasMoreBefore,
+        tagSessionId,
+      });
+      setHasMoreEarlierMessages(page.page.hasMoreBefore);
+    }
+    return page.messages;
+  }, [loadHistoryPage]);
+
+  // Called when the user enters the already-buffered page above the visible
+  // one. The newly fetched page is prepended but remains outside the render
+  // window, becoming the buffer for the next upward scroll.
+  const prefetchEarlierMessages = useCallback((): Promise<PrefetchedHistoryPage | null> => {
+    if (prefetchedHistoryRef.current) return Promise.resolve(prefetchedHistoryRef.current);
+    if (earlierHistoryLoadRef.current) return earlierHistoryLoadRef.current;
+
+    const request = (async () => {
+      const targetJobId = jobIdRef.current;
+      try {
+        let sessionIndex: number;
+        let sid: string | undefined;
+        let tagSessionId: string | undefined;
+        sessionIndex = oldestLoadedSessionIndexRef.current;
+        sid = historySessionIdsRef.current[sessionIndex];
+        if (!sid) {
+          setHasMoreEarlierMessages(false);
+          return null;
+        }
+
+        let state = historyPageStateRef.current.get(sid);
+        tagSessionId = state?.tagSessionId;
+        if (!state?.hasMoreBefore || !state.beforeCursor) {
+          if (sessionIndex <= 0) {
+            setHasMoreEarlierMessages(false);
+            return null;
+          }
+          sessionIndex -= 1;
+          sid = historySessionIdsRef.current[sessionIndex];
+          tagSessionId = sid;
+          state = undefined;
+        }
+
+        const page = await loadHistoryPage(
+          sid,
+          tagSessionId,
+          state?.beforeCursor,
+          EARLIER_HISTORY_PAGE_SIZE,
+          false,
+        );
+        if (jobIdRef.current !== targetJobId || historySessionIdsRef.current[sessionIndex] !== sid) {
+          return null;
+        }
+        const prefetched = {
+          sessionId: sid, sessionIndex, tagSessionId, page,
+          hasMoreAfter: page.page.hasMoreBefore || sessionIndex > 0,
+        };
+        prefetchedHistoryRef.current = prefetched;
+        setHasMoreEarlierMessages(true);
+        return prefetched;
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        if (jobIdRef.current === targetJobId) setError(detail);
+        throw err;
+      }
+    })();
+    earlierHistoryLoadRef.current = request;
+    void request.finally(() => {
+      if (earlierHistoryLoadRef.current === request) earlierHistoryLoadRef.current = null;
+    }).catch(() => {});
+    return request;
+  }, [loadHistoryPage]);
+
+  const loadEarlierMessages = useCallback(async (): Promise<number> => {
+    const targetJobId = jobIdRef.current;
+    const targetPagingSession = historyPagingSessionRef.current;
+    let prefetched = prefetchedHistoryRef.current || await prefetchEarlierMessages();
+    if (!prefetched) return 0;
+    if (jobIdRef.current !== targetJobId || historyPagingSessionRef.current !== targetPagingSession) return 0;
+    const collected: Message[] = [];
+    while (prefetched) {
+      if (prefetchedHistoryRef.current === prefetched) prefetchedHistoryRef.current = null;
+      historyPageStateRef.current.set(prefetched.sessionId, {
+        beforeCursor: prefetched.page.page.beforeCursor,
+        hasMoreBefore: prefetched.page.page.hasMoreBefore,
+        tagSessionId: prefetched.tagSessionId,
+      });
+      sessionMetaMapRef.current.set(prefetched.sessionId, prefetched.page.metadata);
+      oldestLoadedSessionIndexRef.current = prefetched.sessionIndex;
+      collected.push(...prefetched.page.messages);
+      setHasMoreEarlierMessages(prefetched.hasMoreAfter);
+      if (prefetched.page.messages.length > 0 || !prefetched.hasMoreAfter) break;
+      prefetched = await prefetchEarlierMessages();
+      if (jobIdRef.current !== targetJobId || historyPagingSessionRef.current !== targetPagingSession) return 0;
+    }
+    if (collected.length > 0) {
+      setMessages((prev) => mergeMessages(prev, collected, { deduplicateToolCallIds: true }));
+    }
+    if (prefetched?.hasMoreAfter) void prefetchEarlierMessages().catch(() => {});
+    return collected.length;
+  }, [prefetchEarlierMessages]);
 
   // Re-sync job state after SSE reconnect to recover from missed events.
   // When called during the initial connection (historyLoadedRef is still false),
@@ -1756,7 +1906,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         setGraphRunId(null);
       }
 
-      // Reload messages for all sessions to recover any missed during disconnect.
+      // Reload the newest page to recover anything missed during disconnect.
       // Skip on initial sync — the initial-load effect + buffered SSE replay
       // already handles message hydration and running this concurrently causes
       // duplicate messages when IDs between SSE and history don't match.
@@ -1770,54 +1920,44 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       const skipMessages = forceSkipMessages || isInitialSync || (metadataOnly && !isTerminal);
       console.debug(`[JobEvents] syncJobState: jobId=${id} status=${status} isInitialSync=${isInitialSync} metadataOnly=${metadataOnly} isTerminal=${isTerminal} skipMessages=${skipMessages}`);
       if (!skipMessages && job.mode !== 'graph') {
-        const sessionIds: string[] = job.sessionIds || [];
+        const sessionIds: string[] = (job.sessionIds || []).filter(Boolean);
         if (sessionIds.length > 0) {
-        const results = await parallelLimit(
-          sessionIds.map((sid) => async () => {
-            try {
-              return await loadHistory(sid, undefined);
-            } catch (err) {
-              console.warn(`[JobEvents] syncJobState: failed to load session ${sid}:`, err);
-              return [];
-            }
-          }),
-          5
-        );
-        const allMessages = results.flat();
-        // Second generation check: discard if a newer syncJobState was
-        // initiated while we were loading history (the first check only
-        // guards the snapshot fetch, not the subsequent parallel loads).
-        if (gen !== syncGenerationRef.current) {
-          console.debug(`[JobEvents] syncJobState stale after history load: gen=${gen} current=${syncGenerationRef.current}`);
-          return;
+          const newestSid = sessionIds[sessionIds.length - 1];
+          const latestPage = await loadHistoryPage(newestSid);
+          // Second generation check: discard if a newer syncJobState was
+          // initiated while the page was loading.
+          if (gen !== syncGenerationRef.current) {
+            console.debug(`[JobEvents] syncJobState stale after history load: gen=${gen} current=${syncGenerationRef.current}`);
+            return;
+          }
+          historySessionIdsRef.current = sessionIds;
+          oldestLoadedSessionIndexRef.current = sessionIds.length - 1;
+          historyPagingSessionRef.current = newestSid;
+          historyPageStateRef.current.set(newestSid, {
+            beforeCursor: latestPage.page.beforeCursor,
+            hasMoreBefore: latestPage.page.hasMoreBefore,
+          });
+          prefetchedHistoryRef.current = null;
+          if (latestPage.messages.length > 0) {
+            setMessages((prev) => mergeLatestHistoryPage(prev, latestPage.messages));
+          }
+          setHasMoreEarlierMessages(latestPage.page.hasMoreBefore || sessionIds.length > 1);
+          if (latestPage.page.hasMoreBefore || sessionIds.length > 1) {
+            void prefetchEarlierMessages().catch(() => {});
+          }
+          const newestUsage = sessionTokensRef.current.get(newestSid);
+          if (newestUsage != null) {
+            setTotalTokens(newestUsage.totalTokens);
+            setTokenUsageEstimated(newestUsage.estimated);
+          }
         }
-        if (allMessages.length > 0) {
-          setMessages((prev) => mergeMessages(prev, allMessages, { deduplicateToolCallIds: true }));
-        }
-        // These loads run concurrently, so whichever response landed last had
-        // set the badge — a coin flip between sessions. The composer always
-        // sends into the newest session, so pin the badge to that one.
-        const newestSid = sessionIds[sessionIds.length - 1];
-        const newestUsage = sessionTokensRef.current.get(newestSid);
-        if (newestUsage != null) {
-          setTotalTokens(newestUsage.totalTokens);
-          setTokenUsageEstimated(newestUsage.estimated);
-        }
-        // Sync loadedSessionIds so UI doesn't show "Loading session messages..."
-        // for sessions whose messages we just loaded.
-        setLoadedSessionIds((prev) => {
-          const next = new Set(prev);
-          for (const sid of sessionIds) next.add(sid);
-          return next;
-        });
-      }
       } // end !skipMessages
 
     } catch (err) {
       console.warn('[SSE reconnect] failed to sync job state:', err);
       throw err;
     }
-  }, [apiUrl, finalizeInFlightMessages, isPublic, loadHistory, refreshMessageQueue, seedServerClockFromResponse]);
+  }, [apiUrl, finalizeInFlightMessages, isPublic, loadHistoryPage, prefetchEarlierMessages, refreshMessageQueue, seedServerClockFromResponse]);
 
   // Keep syncJobStateRef in sync so handleEvent can call it.
   syncJobStateRef.current = syncJobState;
@@ -1950,17 +2090,23 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         return;
       }
 
-      // Interactive jobs may have multiple sessions after an Agent switch.
-      // Load all of them so no conversation history is lost.
-      const allMsgs: Message[] = [];
-      for (const sid of sessionIds) {
-        if (cancelled) return;
-        const msgs = await loadHistory(sid);
-        allMsgs.push(...msgs);
-      }
+      const newestSid = sessionIds[sessionIds.length - 1];
+      const latestPage = await loadHistoryPage(newestSid);
       if (cancelled) return;
-      setMessages((prev) => mergeMessages(prev, allMsgs, { deduplicateToolCallIds: true }));
-      console.debug(`[JobEvents][TRACE-SEQ0] reload-from-disk done jobId=${currentJobId} sessions=${sessionIds.length}`);
+      historySessionIdsRef.current = sessionIds;
+      oldestLoadedSessionIndexRef.current = sessionIds.length - 1;
+      historyPagingSessionRef.current = newestSid;
+      historyPageStateRef.current.set(newestSid, {
+        beforeCursor: latestPage.page.beforeCursor,
+        hasMoreBefore: latestPage.page.hasMoreBefore,
+      });
+      prefetchedHistoryRef.current = null;
+      setMessages((prev) => mergeLatestHistoryPage(prev, latestPage.messages));
+      setHasMoreEarlierMessages(latestPage.page.hasMoreBefore || sessionIds.length > 1);
+      if (latestPage.page.hasMoreBefore || sessionIds.length > 1) {
+        void prefetchEarlierMessages().catch(() => {});
+      }
+      console.debug(`[JobEvents][TRACE-SEQ0] reload-from-disk done jobId=${currentJobId} newestSession=${newestSid}`);
     };
 
     const attemptConnect = async (attempt: number, reloadFromDisk = false): Promise<void> => {
@@ -2158,7 +2304,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       eventSseRef.current?.disconnect();
       eventSseRef.current = null;
     };
-  }, [jobId, jobNotFound, snapshotReady, isGraph, graphRunLive, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistory, markEventStreamReady, settleEventStreamReadyWaiters, viewerParams, reportViewerVisibility]);
+  }, [jobId, jobNotFound, snapshotReady, isGraph, graphRunLive, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistoryPage, prefetchEarlierMessages, markEventStreamReady, settleEventStreamReadyWaiters, viewerParams, reportViewerVisibility]);
 
   // Report this page's visibility so the backend can tell "watching the stream"
   // from "stream left open in a hidden tab". pagehide covers the cases where a
@@ -2250,7 +2396,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       const active = activeSessionIdRef.current;
       if (!historyHydratingRef.current && active && entries.some((e) => e.sessionId === active)) {
         try {
-          const msgs = await loadHistory(active, active);
+          const msgs = await loadHistory(active, active, false);
           if (!cancelled && msgs.length > 0) {
             setMessages((prev) => mergeMessages(prev, msgs, { deduplicateToolCallIds: true }));
             setLoadedSessionIds((prev) => new Set([...prev, active]));
@@ -2734,6 +2880,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
   const clearMessages = useCallback(() => {
     setMessages([]);
+    historyPageStateRef.current.clear();
+    historySessionIdsRef.current = [];
+    oldestLoadedSessionIndexRef.current = -1;
+    historyPagingSessionRef.current = null;
+    prefetchedHistoryRef.current = null;
+    earlierHistoryLoadRef.current = null;
+    setHasMoreEarlierMessages(false);
     setError(null);
   }, []);
 
@@ -2741,15 +2894,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   useEffect(() => {
     if (!existingJobId || historyLoadedRef.current) return;
     let cancelled = false;
-    // Cancel handle for the background idle-prefetch of non-active Graph
-    // sessions; wired into this effect's cleanup so a job switch / unmount
-    // drops any pending idle callback immediately.
-    let cancelIdlePrefetch: (() => void) | null = null;
     const hydrationGeneration = ++historyHydrationGenerationRef.current;
     historyHydratingRef.current = true;
     setJobId(existingJobId);
     setIsLoadingHistory(true);
     setJobNotFound(false);
+    const hydrationGenerationRef = historyHydrationGenerationRef;
     fetch(apiUrl(`/job/${existingJobId}`))
       .then(async (res) => {
         // Critical: the backend returns 404 with a JSON error envelope
@@ -2847,60 +2997,61 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                   : entries[entries.length - 1].sessionId;
                 applyActiveSessionSelection(activeSid, activeSid === getLastGraphSessionId(entries));
 
-                const activeMessages = await loadHistory(activeSid, activeSid);
+                const activePage = await loadHistoryPage(activeSid, activeSid);
+                const activeMessages = activePage.messages;
                 if (!cancelled) {
+                  historyPageStateRef.current.set(activeSid, {
+                    beforeCursor: activePage.page.beforeCursor,
+                    hasMoreBefore: activePage.page.hasMoreBefore,
+                    tagSessionId: activeSid,
+                  });
+                  historySessionIdsRef.current = [activeSid];
+                  oldestLoadedSessionIndexRef.current = 0;
+                  historyPagingSessionRef.current = activeSid;
                   setMessages((prev) => (prev.length === 0 ? activeMessages : mergeMessages(prev, activeMessages)));
                   setLoadedSessionIds(new Set([activeSid]));
+                  setHasMoreEarlierMessages(activePage.page.hasMoreBefore);
                   setIsLoadingHistory(false);
+                  if (activePage.page.hasMoreBefore) void prefetchEarlierMessages().catch(() => {});
                 }
 
-                const remainingIds = entries.map((e) => e.sessionId).filter((sid) => sid !== activeSid);
-                if (remainingIds.length > 0 && !cancelled) {
-                  cancelIdlePrefetch = idlePrefetchSessions(
-                    remainingIds,
-                    async (sid) => {
-                      if (cancelled || loadedSessionIdsRef.current.has(sid)) return;
-                      let msgs: Message[];
-                      try {
-                        msgs = await loadHistory(sid, sid);
-                      } catch (err) {
-                        console.error(`[hydration] Failed to prefetch graph session ${sid}:`, err);
-                        failedSessionIdsRef.current = new Set([...failedSessionIdsRef.current, sid]);
-                        return;
-                      }
-                      if (cancelled) return;
-                      if (msgs.length > 0) setMessages((prev) => mergeMessages(prev, msgs));
-                      setLoadedSessionIds((prev) => new Set([...prev, sid]));
-                    },
-                    () => cancelled,
-                  );
-                }
               }
             }
           }
         } else {
           setIsGraph(false);
           setGraphRunId(null);
-          // Interactive job: load history for all sessions (may have multiple
-          // sessions when agent type was switched mid-conversation).
+          // Interactive job: load only the newest session's latest two
+          // viewport-sized pages. Older history and prior sessions are pulled
+          // backwards as the user scrolls.
           if (!cancelled && job.sessionIds?.length > 0) {
-            const allMsgs: Message[] = [];
-            for (const sid of job.sessionIds) {
-              if (cancelled) return;
-              const sessionMsgs = await loadHistory(sid);
-              allMsgs.push(...sessionMsgs);
-            }
-            if (!cancelled && allMsgs.length > 0) {
+            const sessionIds = (job.sessionIds as string[]).filter(Boolean);
+            historySessionIdsRef.current = sessionIds;
+            const newestIndex = sessionIds.length - 1;
+            oldestLoadedSessionIndexRef.current = newestIndex;
+            historyPagingSessionRef.current = sessionIds[newestIndex];
+            const latestPage = await loadHistoryPage(sessionIds[newestIndex]);
+            if (!cancelled && latestPage.messages.length > 0) {
               setMessages((prev) => {
-                if (prev.length === 0) return allMsgs;
+                if (prev.length === 0) return latestPage.messages;
                 // Reuse mergeMessages so this path gets the same id-based and
                 // semantic dedup (optimistic user messages and pure thought
                 // bubbles whose live id diverged from the persisted
                 // thought_msg_id) as every other history merge. A hand-rolled
                 // id-only filter here would miss thought bubbles and
                 // reintroduce duplicate thinking bubbles.
-                return mergeMessages(prev, allMsgs, { deduplicateToolCallIds: true });
+                return mergeMessages(prev, latestPage.messages, { deduplicateToolCallIds: true });
               });
+            }
+            if (!cancelled) {
+              historyPageStateRef.current.set(sessionIds[newestIndex], {
+                beforeCursor: latestPage.page.beforeCursor,
+                hasMoreBefore: latestPage.page.hasMoreBefore,
+              });
+              setHasMoreEarlierMessages(latestPage.page.hasMoreBefore || newestIndex > 0);
+              if (latestPage.page.hasMoreBefore || newestIndex > 0) {
+                void prefetchEarlierMessages().catch(() => {});
+              }
             }
           }
         }
@@ -2974,9 +3125,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       });
     return () => {
       cancelled = true;
-      if (cancelIdlePrefetch) cancelIdlePrefetch();
+      if (hydrationGenerationRef.current === hydrationGeneration) {
+        ++hydrationGenerationRef.current;
+      }
     };
-  }, [existingJobId, initialSessionId, apiUrl, isPublic, loadHistory, applyActiveSessionSelection, setGraphSessions, seedServerClockFromResponse, reportDisconnect, applyGraphRunStatusSnapshot]);
+  }, [existingJobId, initialSessionId, apiUrl, isPublic, loadHistory, loadHistoryPage, prefetchEarlierMessages, applyActiveSessionSelection, setGraphSessions, seedServerClockFromResponse, reportDisconnect, applyGraphRunStatusSnapshot]);
 
   // When the active Graph session changes, update session-level metadata
   // so ChatInput/MessageList reflect the session's agent/model.
@@ -2986,6 +3139,18 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // newly available metadata.
   useEffect(() => {
     if (!isGraph || !activeSessionId) return;
+    if (historyPagingSessionRef.current !== activeSessionId) {
+      historyPagingSessionRef.current = activeSessionId;
+      historySessionIdsRef.current = [activeSessionId];
+      oldestLoadedSessionIndexRef.current = 0;
+      prefetchedHistoryRef.current = null;
+      earlierHistoryLoadRef.current = null;
+    }
+    const pageState = historyPageStateRef.current.get(activeSessionId);
+    if (loadedSessionIds.has(activeSessionId)) {
+      setHasMoreEarlierMessages(pageState?.hasMoreBefore === true);
+      if (pageState?.hasMoreBefore && !prefetchedHistoryRef.current) void prefetchEarlierMessages().catch(() => {});
+    }
     // The token badge follows the selected session too. Kept outside the
     // `meta` guard below: a session can have a recorded context size before
     // (or without) metadata, and leaving the previous session's number on
@@ -3001,18 +3166,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     if (meta.type != null) setSessionType(meta.type);
     setSessionACPMode(meta.acpMode);
     setSessionACPThoughtLevel(meta.acpThoughtLevel);
-  }, [isGraph, activeSessionId, loadedSessionIds, loadHistory]);
+  }, [isGraph, activeSessionId, loadedSessionIds, prefetchEarlierMessages]);
 
-  // Load-on-switch: when the user selects a Graph session whose history
-  // has not been loaded yet, fetch it on demand. Background idle-prefetch
-  // (initial hydration) eventually warms every session, but a live graph run
-  // only prefetches the active node session — sibling node sessions (e.g. a
-  // downstream Prompt while the user is watching the Shell) are never warmed,
-  // so without this they sit on "Loading session messages..." forever until a
-  // manual refresh re-runs hydration. A short in-flight guard prevents the
-  // effect (which also re-fires on every loadedSessionIds change) from issuing
-  // duplicate fetches for the same session. Failed loads are handed to the
-  // retry-on-switch effect below via failedSessionIdsRef.
+  // Load-on-switch: Graph sessions are hydrated only when selected; preloading
+  // every node would defeat message-level pagination on large workflows. A
+  // short in-flight guard prevents duplicate requests while React commits the
+  // loaded-session set. Failed loads are handed to the retry-on-switch effect.
   const switchLoadingSessionsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!isGraph || !activeSessionId) return;
@@ -3127,6 +3286,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     allMessages: dedupedMessages,
     isLoading,
     isLoadingHistory,
+    hasMoreEarlierMessages,
     activePhase,
     error,
     titleGenerationError,
@@ -3172,6 +3332,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     continueMessageQueue,
     stopGeneration,
     clearMessages,
+    loadEarlierMessages,
     eventsReady,
     isPublic,
   };

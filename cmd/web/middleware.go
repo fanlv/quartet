@@ -186,6 +186,7 @@ var httpLogCfg = httpLogConfig{
 	},
 	skipConfigs: []*skipConfig{
 		{prefix: "/api/v1/sessions/", suffix: "/messages"},
+		{prefix: "/api/v1/sessions/", suffix: "/token-usage"},
 	},
 }
 

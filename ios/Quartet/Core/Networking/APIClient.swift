@@ -859,8 +859,19 @@ struct APIClient: @unchecked Sendable {
         return run
     }
 
-    func sessionMessages(id: String) async throws -> SessionMessagesResponse {
-        try await request(path: "api/v1/sessions/\(id)/messages")
+    func sessionMessages(id: String, beforeCursor: String? = nil, limit: Int = 80) async throws -> SessionMessagesResponse {
+        var query = [
+            URLQueryItem(name: "paged", value: "true"),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        if let beforeCursor, !beforeCursor.isEmpty {
+            query.append(URLQueryItem(name: "before", value: beforeCursor))
+        }
+        return try await request(path: "api/v1/sessions/\(id)/messages", query: query)
+    }
+
+    func sessionTokenUsage(id: String) async throws -> SessionTokenUsageResponse {
+        try await request(path: "api/v1/sessions/\(id)/token-usage")
     }
 
     func graphRunHooks(jobID: String) async throws -> GraphHookResultsResponse {
@@ -1268,8 +1279,8 @@ struct APIClient: @unchecked Sendable {
                 detail: "\(method) \(endpoint.absoluteString)\n\n服务未返回 HTTP 响应。"
             )
         }
-        let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
         guard (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
             let error = APIError(
                 summary: http.statusCode == 401 ? "登录状态已失效" : http.statusCode == 403 ? "权限不足" : "Quartet 请求失败",
                 detail: "\(method) \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)",
@@ -1285,6 +1296,7 @@ struct APIClient: @unchecked Sendable {
         do {
             let decoded = try Self.decode(Response.self, from: data)
             if let reason = validate?(decoded) {
+                let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
                 throw APIError(
                     summary: "Quartet 响应无效",
                     detail: "\(method) \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n响应校验错误：\(reason)\n\n原始响应：\n\(body)",
@@ -1295,6 +1307,7 @@ struct APIClient: @unchecked Sendable {
         } catch let error as APIError {
             throw error
         } catch {
+            let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
             throw APIError(
                 summary: "无法解析 Quartet 响应",
                 detail: "\(method) \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n解析错误：\(String(describing: error))\n\n原始响应：\n\(body)"

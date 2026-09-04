@@ -19,10 +19,12 @@ interface MessageListProps {
   shareToken?: string;
   followBottom?: boolean;
   scrollContextKey?: string;
+  hasMoreEarlier?: boolean;
+  onNeedEarlier?: () => Promise<number>;
 }
 
 const INITIAL_MESSAGE_COUNT = 80;
-const EARLIER_PAGE_SIZE = 60;
+const EARLIER_PAGE_SIZE = 80;
 const TOP_LOAD_THRESHOLD_PX = 48;
 
 interface TimelineWindowState {
@@ -35,6 +37,11 @@ interface PrependAnchor {
   top: number;
   scrollHeight: number;
   scrollTop: number;
+}
+
+function firstMessageElement(container: HTMLElement): HTMLElement | null {
+  const candidate = container.querySelector<HTMLElement>('[data-message-id]');
+  return candidate?.dataset.messageId ? candidate : null;
 }
 
 export function MessageList({
@@ -50,6 +57,8 @@ export function MessageList({
   shareToken,
   followBottom = true,
   scrollContextKey,
+  hasMoreEarlier = false,
+  onNeedEarlier,
 }: MessageListProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -110,9 +119,37 @@ export function MessageList({
 
   const loadEarlierMessages = useCallback(() => {
     const el = containerRef.current;
-    if (!el || hiddenMessageCount === 0 || pendingPrependAnchorRef.current) return;
+    if (!el || pendingPrependAnchorRef.current) return;
+    if (hiddenMessageCount === 0) {
+      if (hasMoreEarlier && onNeedEarlier) {
+        const anchor = firstMessageElement(el);
+        pendingPrependAnchorRef.current = {
+          element: anchor,
+          top: anchor?.getBoundingClientRect().top ?? 0,
+          scrollHeight: el.scrollHeight,
+          scrollTop: el.scrollTop,
+        };
+        void onNeedEarlier().then((loadedCount) => {
+          if (loadedCount <= 0) {
+            pendingPrependAnchorRef.current = null;
+            return;
+          }
+          if (browsingMessageCountRef.current != null) {
+            browsingMessageCountRef.current += loadedCount;
+          }
+          setTimelineWindow((current) => ({
+            contextKey: scrollContextKey,
+            messageCount: current.messageCount + loadedCount,
+          }));
+        }).catch(() => {
+          pendingPrependAnchorRef.current = null;
+        });
+      }
+      return;
+    }
 
-    const anchor = el.querySelector<HTMLElement>('[data-message-id]');
+    const anchor = firstMessageElement(el);
+    const willConsumeAllBufferedMessages = visibleMessageCount + EARLIER_PAGE_SIZE >= messages.length;
     pendingPrependAnchorRef.current = {
       element: anchor,
       top: anchor?.getBoundingClientRect().top ?? 0,
@@ -123,7 +160,15 @@ export function MessageList({
       contextKey: scrollContextKey,
       messageCount: Math.min(messages.length, visibleMessageCount + EARLIER_PAGE_SIZE),
     });
-  }, [hiddenMessageCount, messages.length, scrollContextKey, visibleMessageCount]);
+    if (willConsumeAllBufferedMessages && hasMoreEarlier && onNeedEarlier) {
+      void onNeedEarlier().then((loadedCount) => {
+        if (browsingMessageCountRef.current != null) {
+          browsingMessageCountRef.current += loadedCount;
+        }
+      }).catch(() => {});
+    }
+    if (willConsumeAllBufferedMessages && hasMoreEarlier) void onNeedEarlier?.();
+  }, [hasMoreEarlier, hiddenMessageCount, messages.length, onNeedEarlier, scrollContextKey, visibleMessageCount]);
 
   // Restore the viewport after prepending a page. Prefer the first existing
   // message as a real DOM anchor because message heights are variable; fall
@@ -153,6 +198,16 @@ export function MessageList({
     const el = event.currentTarget;
     const { scrollTop, scrollHeight, clientHeight } = el;
     const nearBottom = scrollHeight - scrollTop - clientHeight < 80;
+    const nearTop = scrollTop <= TOP_LOAD_THRESHOLD_PX;
+
+    if (nearTop && (hiddenMessageCount > 0 || hasMoreEarlier)) {
+      if (!userScrolledUpRef.current) {
+        userScrolledUpRef.current = true;
+        browsingMessageCountRef.current = messages.length;
+      }
+      loadEarlierMessages();
+      return;
+    }
 
     if (nearBottom) {
       if (userScrolledUpRef.current) markFollowing();
@@ -163,8 +218,7 @@ export function MessageList({
       userScrolledUpRef.current = true;
       browsingMessageCountRef.current = messages.length;
     }
-    if (scrollTop <= TOP_LOAD_THRESHOLD_PX) loadEarlierMessages();
-  }, [loadEarlierMessages, markFollowing, messages.length]);
+  }, [hasMoreEarlier, hiddenMessageCount, loadEarlierMessages, markFollowing, messages.length]);
 
   // When switching jobs/sessions, always land at the bottom once so the latest
   // content in that context is visible immediately.

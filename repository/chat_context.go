@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -63,6 +64,18 @@ type ChatContextRepo interface {
 	WithLock(ctx context.Context, fn func(tx LockedRepo) error) error
 }
 
+// PagedChatContextRepo adds UI-oriented reverse paging without forcing Agent
+// context test doubles, which only need the full-history contract, to implement
+// presentation-specific reads.
+type PagedChatContextRepo interface {
+	ChatContextRepo
+	// LoadMessagePage reads a reverse page ending immediately before
+	// beforeOffset. A zero beforeOffset starts at the current end of file.
+	// boundaryEndOffset and boundaryHash validate the first row of the page
+	// already returned to the client while still allowing tail appends.
+	LoadMessagePage(ctx context.Context, beforeOffset, boundaryEndOffset int64, boundaryHash string, limit int) (*MessagePage, error)
+}
+
 // MessagesFingerprint identifies the state of messages.jsonl for drift
 // detection. Count alone is insufficient — ReplacePlaceholderToolResult
 // rewrites a row in place without changing the count, so two distinct
@@ -76,6 +89,19 @@ type ChatContextRepo interface {
 type MessagesFingerprint struct {
 	Count int    `json:"count,omitempty"`
 	Hash  string `json:"hash,omitempty"`
+}
+
+var ErrMessagePageChanged = errors.New("message history changed while paging")
+
+type MessagePage struct {
+	Messages []*schema.Message
+	Offsets  []int64
+	// StartOffset is the cursor for the next older page. Boundary* identifies
+	// the first raw row in this page so the next request can detect a rewrite.
+	StartOffset       int64
+	BoundaryEndOffset int64
+	BoundaryHash      string
+	HasMore           bool
 }
 
 // Equal reports whether two fingerprints describe the same on-disk
@@ -167,7 +193,7 @@ type chatContextRepo struct {
 // registry in session_locks.go. Per-instance mutexes can't help here
 // because acp / shell-persist / web-reload each construct their
 // own instance for the same session.
-func NewChatContextRepo(wsID, jobID, sessionID string) (ChatContextRepo, error) {
+func NewChatContextRepo(wsID, jobID, sessionID string) (PagedChatContextRepo, error) {
 	sessionDir := path.LocalSessionDirInWorkspaceJob(wsID, jobID, sessionID)
 	sb := fileserver.NewLocal()
 	err := sb.MkDir(&model.MkDirRequest{
@@ -225,6 +251,112 @@ func (r *chatContextRepo) LoadAllMessages(ctx context.Context) ([]*schema.Messag
 	}
 	defer mu.RUnlock()
 	return r.loadAllMessagesLocked()
+}
+
+func (r *chatContextRepo) LoadMessagePage(
+	ctx context.Context, beforeOffset, boundaryEndOffset int64, boundaryHash string, limit int,
+) (*MessagePage, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("message page limit must be positive")
+	}
+	mu := sessionFileLock(r.sessionDir)
+	if err := mu.RLock(ctx); err != nil {
+		return nil, err
+	}
+	defer mu.RUnlock()
+
+	filePath := path.MessagesFilePath(r.sessionDir)
+	if boundaryEndOffset > 0 {
+		if beforeOffset >= boundaryEndOffset {
+			return nil, ErrMessagePageChanged
+		}
+		stat, statErr := r.sandbox.FileStat(&model.FileStatRequest{Path: filePath})
+		if statErr != nil {
+			return nil, fmt.Errorf("stat message history for cursor validation failed: %w", statErr)
+		}
+		if !stat.Exists || stat.IsDir || stat.Size < boundaryEndOffset {
+			return nil, ErrMessagePageChanged
+		}
+		anchor, err := r.sandbox.JSONLReadTail(&model.JSONLTailRequest{
+			File: filePath, BeforeOffset: boundaryEndOffset, Count: 1,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("validate message page cursor failed: %w", err)
+		}
+		if len(anchor.Lines) == 0 ||
+			anchor.LineOffsets[len(anchor.LineOffsets)-1] != beforeOffset ||
+			hashMessagePageLine(anchor.Lines[len(anchor.Lines)-1]) != boundaryHash {
+			return nil, ErrMessagePageChanged
+		}
+	}
+
+	tail, err := r.sandbox.JSONLReadTail(&model.JSONLTailRequest{
+		File: filePath, BeforeOffset: beforeOffset, Count: limit,
+	})
+	if err != nil {
+		if isNotFoundError(err) {
+			return &MessagePage{}, nil
+		}
+		return nil, fmt.Errorf("read message page failed: %w", err)
+	}
+	// A tool result is rendered into the assistant tool-call card that
+	// precedes it. If a nominal page starts inside that result block, extend
+	// backwards through the owning assistant row so clients never receive an
+	// orphaned half-round.
+	for tail.HasMore && firstValidMessageRole(tail.Lines) == schema.Tool {
+		earlier, readErr := r.sandbox.JSONLReadTail(&model.JSONLTailRequest{
+			File: filePath, BeforeOffset: tail.StartOffset, Count: 1,
+		})
+		if readErr != nil {
+			return nil, fmt.Errorf("extend message page boundary failed: %w", readErr)
+		}
+		if len(earlier.Lines) == 0 {
+			tail.HasMore = false
+			break
+		}
+		tail.Lines = append(earlier.Lines, tail.Lines...)
+		tail.LineOffsets = append(earlier.LineOffsets, tail.LineOffsets...)
+		tail.StartOffset = earlier.StartOffset
+		tail.HasMore = earlier.HasMore
+	}
+	messages := make([]*schema.Message, 0, len(tail.Lines))
+	offsets := make([]int64, 0, len(tail.Lines))
+	for i, line := range tail.Lines {
+		if line == "" {
+			continue
+		}
+		var msg schema.Message
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			logger.Warnf(context.Background(), "[chatContextRepo] skip invalid paged line (offset=%d len=%d): %v", tail.LineOffsets[i], len(line), err)
+			continue
+		}
+		messages = append(messages, &msg)
+		offsets = append(offsets, tail.LineOffsets[i])
+	}
+	page := &MessagePage{Messages: messages, Offsets: offsets, StartOffset: tail.StartOffset, HasMore: tail.HasMore}
+	if len(tail.Lines) > 0 {
+		page.BoundaryHash = hashMessagePageLine(tail.Lines[0])
+		page.BoundaryEndOffset = tail.EndOffset
+		if len(tail.LineOffsets) > 1 {
+			page.BoundaryEndOffset = tail.LineOffsets[1]
+		}
+	}
+	return page, nil
+}
+
+func firstValidMessageRole(lines []string) schema.RoleType {
+	for _, line := range lines {
+		var msg schema.Message
+		if json.Unmarshal([]byte(line), &msg) == nil && msg.Role != schema.System {
+			return msg.Role
+		}
+	}
+	return ""
+}
+
+func hashMessagePageLine(line string) string {
+	sum := sha256.Sum256([]byte(line))
+	return hex.EncodeToString(sum[:])
 }
 
 func (r *chatContextRepo) loadAllMessagesLocked() ([]*schema.Message, error) {

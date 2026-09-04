@@ -1239,6 +1239,16 @@ struct SessionMessagesResponse: Decodable, Sendable {
     let acpMode: String?
     let acpThoughtLevel: String?
     let agents: [String: AgentDisplayInfo]?
+    let page: MessagePageInfo?
+}
+
+struct MessagePageInfo: Decodable, Sendable {
+    let hasMoreBefore: Bool
+    let beforeCursor: String?
+}
+
+struct SessionTokenUsageResponse: Decodable, Sendable {
+    let tokenUsage: TokenUsage
 }
 
 struct TokenUsage: Decodable, Hashable, Sendable {

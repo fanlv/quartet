@@ -21,17 +21,31 @@ func chatSource(t *testing.T, relativePath string) string {
 	return string(data)
 }
 
-func TestInteractiveChatLoadsAllSessionsAndKeepsGraphTargetScoped(t *testing.T) {
+func TestInteractiveChatPagesNewestSessionAndKeepsGraphTargetScoped(t *testing.T) {
 	source := chatSource(t, "Quartet/Features/Chat/ChatViewModel.swift")
 	for _, contract := range []string{
 		"let interactiveSessions = detail.sessionIds ?? []",
 		"loadInteractiveHistory(sessionIDs: interactiveSessions)",
-		"for (index, currentSessionID) in nonEmptySessionIDs.enumerated()",
+		"guard let currentSessionID = nonEmptySessionIDs.last else { return }",
+		"historySessionIDs = nonEmptySessionIDs",
+		"func loadEarlierMessages() async",
+		"beforeCursor: pageInfo?.beforeCursor",
+		"preloadEarlierMessages()",
+		"private static let historyPageSize = 80",
 		"if requestedSession?.isEmpty == false, let sessionID",
-		"ChatMessage(history: $0, idPrefix: isLatestSession ? nil : currentSessionID)",
+		"idPrefix: isNewestInteractiveSession || isGraph ? nil : currentSessionID",
 	} {
 		if !strings.Contains(source, contract) {
 			t.Fatalf("interactive history source contract missing %q", contract)
+		}
+	}
+	client := chatSource(t, "Quartet/Core/Networking/APIClient.swift")
+	for _, contract := range []string{
+		`URLQueryItem(name: "paged", value: "true")`,
+		`URLQueryItem(name: "before", value: beforeCursor)`,
+	} {
+		if !strings.Contains(client, contract) {
+			t.Fatalf("paged history client contract missing %q", contract)
 		}
 	}
 }

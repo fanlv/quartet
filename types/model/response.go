@@ -59,6 +59,16 @@ type GetMessagesResponse struct {
 	Workdir         string           `json:"workdir,omitempty"`
 	ACPMode         string           `json:"acpMode,omitempty"`
 	ACPThoughtLevel string           `json:"acpThoughtLevel,omitempty"`
+	Page            *MessagePageInfo `json:"page,omitempty"`
+}
+
+type MessagePageInfo struct {
+	HasMoreBefore bool   `json:"hasMoreBefore"`
+	BeforeCursor  string `json:"beforeCursor,omitempty"`
+}
+
+type SessionTokenUsageResponse struct {
+	TokenUsage TokenUsage `json:"tokenUsage"`
 }
 
 // PublicGetMessagesResponse contains only the conversation and the Agent
@@ -68,6 +78,7 @@ type PublicGetMessagesResponse struct {
 	Type     string                      `json:"type,omitempty"`
 	Messages []HistoryMessage            `json:"messages"`
 	Agents   map[string]AgentDisplayInfo `json:"agents,omitempty"`
+	Page     *MessagePageInfo            `json:"page,omitempty"`
 }
 
 // AgentDisplayInfo is the minimal display projection of an Agent record,

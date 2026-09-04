@@ -2,21 +2,37 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/tokenizer"
+	"github.com/fanlv/quartet/repository"
 	"github.com/fanlv/quartet/types/model"
 	"github.com/fanlv/quartet/types/msgextra"
 )
 
+const (
+	defaultMessagePageSize = 80
+	maxMessagePageSize     = 200
+)
+
+type messagePageCursor struct {
+	BeforeOffset      int64  `json:"beforeOffset"`
+	BoundaryEndOffset int64  `json:"boundaryEndOffset"`
+	BoundaryHash      string `json:"boundaryHash"`
+}
+
 func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext) {
+	c.Header("Cache-Control", "no-store")
 	sessionID := c.Param("sessionId")
 	if sessionID == "" {
 		httputil.BadRequest(c, "sessionId is required")
@@ -40,13 +56,65 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 		return
 	}
 
-	// messages.jsonl is a mirror rebuilt from ACP events (same as claude
-	// etc.), so history is projected verbatim — compression, if any,
-	// happens inside the agent subprocess and never rewrites the mirror.
-	chatMessages, err := h.transcriptStore.Load(ctx, j.WorkspaceID, s.JobID, sessionID)
-	if err != nil {
-		httputil.InternalError(c, err.Error())
-		return
+	// The UI opts into reverse pagination with paged=true. Keeping the legacy
+	// no-query behaviour full-history avoids changing internal/debug callers in
+	// the same release while both shipped clients move to the paged contract.
+	paged := strings.EqualFold(strings.TrimSpace(string(c.Query("paged"))), "true")
+	var chatMessages []*schema.Message
+	var sourceOffsets []int64
+	var pageInfo *model.MessagePageInfo
+	if paged {
+		limit := defaultMessagePageSize
+		if raw := strings.TrimSpace(string(c.Query("limit"))); raw != "" {
+			parsed, parseErr := strconv.Atoi(raw)
+			if parseErr != nil || parsed <= 0 || parsed > maxMessagePageSize {
+				httputil.BadRequest(c, fmt.Sprintf("limit must be an integer between 1 and %d", maxMessagePageSize))
+				return
+			}
+			limit = parsed
+		}
+
+		var cursor messagePageCursor
+		if raw := strings.TrimSpace(string(c.Query("before"))); raw != "" {
+			decoded, decodeErr := base64.RawURLEncoding.DecodeString(raw)
+			if decodeErr != nil || json.Unmarshal(decoded, &cursor) != nil ||
+				cursor.BeforeOffset <= 0 || cursor.BoundaryEndOffset <= cursor.BeforeOffset || cursor.BoundaryHash == "" {
+				httputil.BadRequest(c, "invalid message page cursor")
+				return
+			}
+		}
+		page, loadErr := h.transcriptStore.LoadPage(
+			ctx, j.WorkspaceID, s.JobID, sessionID,
+			cursor.BeforeOffset, cursor.BoundaryEndOffset, cursor.BoundaryHash, limit,
+		)
+		if loadErr != nil {
+			if errors.Is(loadErr, repository.ErrMessagePageChanged) {
+				httputil.Conflict(c, loadErr.Error())
+			} else {
+				httputil.InternalError(c, loadErr.Error())
+			}
+			return
+		}
+		chatMessages = page.Messages
+		sourceOffsets = page.Offsets
+		pageInfo = &model.MessagePageInfo{HasMoreBefore: page.HasMore}
+		if page.HasMore {
+			nextCursor, marshalErr := json.Marshal(messagePageCursor{
+				BeforeOffset: page.StartOffset, BoundaryEndOffset: page.BoundaryEndOffset, BoundaryHash: page.BoundaryHash,
+			})
+			if marshalErr != nil {
+				httputil.InternalError(c, marshalErr.Error())
+				return
+			}
+			pageInfo.BeforeCursor = base64.RawURLEncoding.EncodeToString(nextCursor)
+		}
+	} else {
+		var err error
+		chatMessages, err = h.transcriptStore.Load(ctx, j.WorkspaceID, s.JobID, sessionID)
+		if err != nil {
+			httputil.InternalError(c, err.Error())
+			return
+		}
 	}
 
 	messages := make([]model.HistoryMessage, 0, len(chatMessages))
@@ -117,8 +185,12 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 			}
 		}
 
+		fallbackPosition := int64(i)
+		if len(sourceOffsets) == len(chatMessages) {
+			fallbackPosition = sourceOffsets[i]
+		}
 		historyMsg := model.HistoryMessage{
-			ID:               fmt.Sprintf("%s:msg_%d", sessionID, i),
+			ID:               fmt.Sprintf("%s:msg_%d", sessionID, fallbackPosition),
 			Role:             model.MessageRole(msg.Role),
 			Content:          content,
 			ReasoningContent: msg.ReasoningContent,
@@ -230,16 +302,21 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 		messages = append(messages, historyMsg)
 	}
 
-	tokens := tokenizer.MessagesTokenCounter(ctx, chatMessages)
+	var tokenUsage *model.TokenUsage
+	if !paged {
+		tokens := tokenizer.MessagesTokenCounter(ctx, chatMessages)
+		tokenUsage = &model.TokenUsage{TotalTokens: tokens, Estimated: true}
+	}
 
 	resp := model.GetMessagesResponse{
 		ModelID:         s.ModelID,
 		Type:            s.Type,
 		Messages:        messages,
-		TokenUsage:      &model.TokenUsage{TotalTokens: tokens, Estimated: true},
+		TokenUsage:      tokenUsage,
 		Workdir:         s.Workdir,
 		ACPMode:         s.ACPMode,
 		ACPThoughtLevel: s.ACPThoughtLevel,
+		Page:            pageInfo,
 	}
 	// Public share responses carry the minimal display projection of the
 	// Agent this session references so the read-only share page can render
@@ -249,10 +326,46 @@ func (h *Handler) GetSessionMessages(ctx context.Context, c *app.RequestContext)
 			Type:     s.Type,
 			Messages: messages,
 			Agents:   h.resolvePublicAgents(ctx, []string{s.Type}, publicJob.ID),
+			Page:     pageInfo,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// GetSessionTokenUsage keeps the full-history token scan off the paged message
+// critical path. Clients request it after the latest page is already visible.
+func (h *Handler) GetSessionTokenUsage(ctx context.Context, c *app.RequestContext) {
+	c.Header("Cache-Control", "no-store")
+	sessionID := c.Param("sessionId")
+	if sessionID == "" {
+		httputil.BadRequest(c, "sessionId is required")
+		return
+	}
+	s, _, ok := h.getSessionByID(sessionID)
+	if !ok {
+		s, ok = h.reloadSessionByID(sessionID)
+		if !ok {
+			httputil.NotFound(c, "session not found")
+			return
+		}
+	}
+	j, ok := h.jobService.Get(s.JobID)
+	if !ok {
+		httputil.NotFound(c, "job not found for session")
+		return
+	}
+	chatMessages, err := h.transcriptStore.Load(ctx, j.WorkspaceID, s.JobID, sessionID)
+	if err != nil {
+		httputil.InternalError(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, model.SessionTokenUsageResponse{
+		TokenUsage: model.TokenUsage{
+			TotalTokens: tokenizer.MessagesTokenCounter(ctx, chatMessages),
+			Estimated:   true,
+		},
+	})
 }
 
 func decodeHistoryFileAttachments(value any) []model.FileAttachment {

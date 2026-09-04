@@ -9,6 +9,7 @@
 package fileserver
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -51,6 +52,7 @@ type Storage interface {
 	FileManager
 	JSONLCountLines(req *fsmodel.JSONLCountRequest) (*fsmodel.JSONLCountResult, error)
 	JSONLReadLines(req *fsmodel.JSONLReadRequest) (*fsmodel.JSONLReadResult, error)
+	JSONLReadTail(req *fsmodel.JSONLTailRequest) (*fsmodel.JSONLTailResult, error)
 	JSONLAppendLine(req *fsmodel.JSONLAppendRequest) error
 }
 
@@ -332,6 +334,138 @@ func (a *adapter) JSONLReadLines(req *fsmodel.JSONLReadRequest) (*fsmodel.JSONLR
 	}
 	lines := append([]string(nil), r.Lines...)
 	return &fsmodel.JSONLReadResult{Lines: lines}, nil
+}
+
+// JSONLReadTail is the generic adapter fallback. The current public constructor
+// returns localAdapter, whose override below performs an actual reverse range
+// read; a future remote adapter should provide an equivalent ranged operation.
+func (a *adapter) JSONLReadTail(req *fsmodel.JSONLTailRequest) (*fsmodel.JSONLTailResult, error) {
+	if req.Count <= 0 {
+		return nil, fmt.Errorf("count must be positive")
+	}
+	read, err := a.FileRead(&fsmodel.FileReadRequest{File: req.File})
+	if err != nil {
+		return nil, err
+	}
+	if req.BeforeOffset > int64(len(read.Content)) {
+		return nil, fmt.Errorf("before offset %d exceeds file size %d", req.BeforeOffset, len(read.Content))
+	}
+	return jsonlTailFromBytes([]byte(read.Content), req.BeforeOffset, req.Count), nil
+}
+
+// JSONLReadTail reads only the suffix needed for a reverse page. A bounded
+// doubling window keeps the common case to one ReadAt while still supporting
+// unusually large individual records without imposing a line-size limit.
+func (a *localAdapter) JSONLReadTail(req *fsmodel.JSONLTailRequest) (*fsmodel.JSONLTailResult, error) {
+	return readJSONLTailFile(req.File, req.BeforeOffset, req.Count)
+}
+
+func jsonlTailFromBytes(content []byte, beforeOffset int64, count int) *fsmodel.JSONLTailResult {
+	fileSize := int64(len(content))
+	end := beforeOffset
+	if end <= 0 || end > fileSize {
+		end = fileSize
+	}
+	return jsonlTailWindow(content[:end], 0, end, fileSize, count)
+}
+
+func readJSONLTailFile(file string, beforeOffset int64, count int) (*fsmodel.JSONLTailResult, error) {
+	if count <= 0 {
+		return nil, fmt.Errorf("count must be positive")
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := info.Size()
+	end := beforeOffset
+	if end <= 0 {
+		end = fileSize
+	}
+	if end > fileSize {
+		return nil, fmt.Errorf("before offset %d exceeds file size %d", end, fileSize)
+	}
+	if end == 0 {
+		return &fsmodel.JSONLTailResult{FileSize: fileSize}, nil
+	}
+
+	window := int64(64 * 1024)
+	for {
+		start := end - window
+		if start < 0 {
+			start = 0
+		}
+		readStart := start
+		if readStart > 0 {
+			// Include the preceding byte so jsonlTailWindow can distinguish an
+			// exact line boundary from a partial first line.
+			readStart--
+		}
+		buf := make([]byte, end-readStart)
+		if _, err := f.ReadAt(buf, readStart); err != nil && err != io.EOF {
+			return nil, err
+		}
+		result := jsonlTailWindow(buf, readStart, end, fileSize, count)
+		if len(result.Lines) >= count || start == 0 {
+			return result, nil
+		}
+		window *= 2
+	}
+}
+
+func jsonlTailWindow(buf []byte, absoluteStart, end, fileSize int64, count int) *fsmodel.JSONLTailResult {
+	trimmedEnd := len(buf)
+	for trimmedEnd > 0 && (buf[trimmedEnd-1] == '\n' || buf[trimmedEnd-1] == '\r') {
+		trimmedEnd--
+	}
+
+	type lineSpan struct{ start, end int }
+	spans := make([]lineSpan, 0, count)
+	lineEnd := trimmedEnd
+	for lineEnd > 0 && len(spans) < count {
+		newline := bytes.LastIndexByte(buf[:lineEnd], '\n')
+		lineStart := newline + 1
+		if newline < 0 && absoluteStart > 0 {
+			break // the first line in this window is incomplete
+		}
+		actualEnd := lineEnd
+		if actualEnd > lineStart && buf[actualEnd-1] == '\r' {
+			actualEnd--
+		}
+		if actualEnd > lineStart {
+			spans = append(spans, lineSpan{start: lineStart, end: actualEnd})
+		}
+		if newline < 0 {
+			lineEnd = 0
+		} else {
+			lineEnd = newline
+		}
+	}
+
+	lines := make([]string, len(spans))
+	offsets := make([]int64, len(spans))
+	for i := range spans {
+		span := spans[len(spans)-1-i]
+		lines[i] = string(buf[span.start:span.end])
+		offsets[i] = absoluteStart + int64(span.start)
+	}
+	startOffset := end
+	if len(offsets) > 0 {
+		startOffset = offsets[0]
+	}
+	return &fsmodel.JSONLTailResult{
+		Lines:       lines,
+		LineOffsets: offsets,
+		StartOffset: startOffset,
+		EndOffset:   end,
+		FileSize:    fileSize,
+		HasMore:     startOffset > 0,
+	}
 }
 
 func (a *adapter) JSONLAppendLine(req *fsmodel.JSONLAppendRequest) error {

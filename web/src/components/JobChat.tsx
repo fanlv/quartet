@@ -175,6 +175,7 @@ export function JobChat(props: JobChatProps) {
     messages,
     isLoading,
     isLoadingHistory,
+    hasMoreEarlierMessages,
     activePhase,
     error,
     titleGenerationError,
@@ -209,6 +210,7 @@ export function JobChat(props: JobChatProps) {
     continueMessageQueue,
     stopGeneration,
     clearMessages,
+    loadEarlierMessages,
     eventsReady,
     getSessionMeta,
     getServerNow,
@@ -1796,6 +1798,8 @@ export function JobChat(props: JobChatProps) {
             shareToken={shareToken}
             followBottom={shouldFollowMessageListBottom}
             scrollContextKey={messageListScrollContextKey}
+            hasMoreEarlier={hasMoreEarlierMessages}
+            onNeedEarlier={loadEarlierMessages}
           />
           )}
           {acpConfigError && (

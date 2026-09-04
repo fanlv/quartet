@@ -147,6 +147,25 @@ type JSONLReadResult struct {
 	Lines []string `json:"lines"`
 }
 
+// JSONLTailRequest reads complete JSONL records immediately before a byte
+// offset. BeforeOffset <= 0 means the current end of file. Unlike
+// JSONLReadRequest this shape is suitable for reverse pagination because the
+// local implementation does not need to scan every preceding line.
+type JSONLTailRequest struct {
+	File         string `json:"file" vd:"len($)>0"`
+	BeforeOffset int64  `json:"before_offset,omitempty"`
+	Count        int    `json:"count" vd:"$>0"`
+}
+
+type JSONLTailResult struct {
+	Lines       []string `json:"lines"`
+	LineOffsets []int64  `json:"line_offsets"`
+	StartOffset int64    `json:"start_offset"`
+	EndOffset   int64    `json:"end_offset"`
+	FileSize    int64    `json:"file_size"`
+	HasMore     bool     `json:"has_more"`
+}
+
 type JSONLAppendRequest struct {
 	File       string   `json:"file" vd:"len($)>0"`
 	JSONString []string `json:"json_string" vd:"len($)>0"`

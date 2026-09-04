@@ -53,7 +53,7 @@ private enum ChatTimelineMode: Equatable {
 private enum ChatTimelineWindow {
     /// 默认非懒加载窗口有明确上限，避免长会话首次创建几百个 Markdown 视图。
     static let initialMessageCount = 80
-    static let earlierPageSize = 60
+    static let earlierPageSize = 80
 }
 
 struct JobChatView: View {
@@ -84,6 +84,7 @@ struct JobChatView: View {
     @State private var timelineBottomIsVisible = true
     @State private var visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
     @State private var pendingTimelinePrependAnchor: String?
+    @State private var earlierPageRequestInFlight = false
     @State private var followBottomRequests = 0
     /// 时间线内容区的实际宽度（已扣掉列表的水平内边距），气泡按它算宽度上限。
     @State private var timelineContentWidth: CGFloat = 0
@@ -371,12 +372,43 @@ struct JobChatView: View {
     }
 
     private func loadEarlierTimelineMessages() {
-        guard hiddenTimelineMessageCount > 0, pendingTimelinePrependAnchor == nil else { return }
-        pendingTimelinePrependAnchor = timelineMessages.first?.id
-        visibleTimelineMessageCount = min(
-            chat.messages.count,
-            visibleTimelineMessageCount + ChatTimelineWindow.earlierPageSize
-        )
+        guard pendingTimelinePrependAnchor == nil, !earlierPageRequestInFlight else { return }
+        if hiddenTimelineMessageCount > 0 {
+            let anchor = timelineMessages.first?.id
+            let revealedCount = min(hiddenTimelineMessageCount, ChatTimelineWindow.earlierPageSize)
+            pendingTimelinePrependAnchor = anchor
+            visibleTimelineMessageCount = min(
+                chat.messages.count,
+                visibleTimelineMessageCount + ChatTimelineWindow.earlierPageSize
+            )
+            if revealedCount == hiddenTimelineMessageCount, chat.hasMoreEarlierMessages {
+                earlierPageRequestInFlight = true
+                Task {
+                    let loadedCount = await chat.loadEarlierMessages()
+                    earlierPageRequestInFlight = false
+                    if loadedCount > 0, case .browsing(let anchor, let messageCount) = timelineMode {
+                        timelineMode = .browsing(anchor: anchor, messageCount: messageCount + loadedCount)
+                    }
+                }
+            }
+            return
+        }
+        guard chat.hasMoreEarlierMessages else { return }
+        let anchor = timelineMessages.first?.id
+        pendingTimelinePrependAnchor = anchor
+        earlierPageRequestInFlight = true
+        Task {
+            let loadedCount = await chat.loadEarlierMessages()
+            earlierPageRequestInFlight = false
+            guard loadedCount > 0 else {
+                pendingTimelinePrependAnchor = nil
+                return
+            }
+            if case .browsing(let anchor, let messageCount) = timelineMode {
+                timelineMode = .browsing(anchor: anchor, messageCount: messageCount + loadedCount)
+            }
+            visibleTimelineMessageCount += loadedCount
+        }
     }
 
     private var messageList: some View {
@@ -394,19 +426,25 @@ struct JobChatView: View {
                         }
                         .padding(.top, 80)
                     }
-                    if hiddenTimelineMessageCount > 0 {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(QuartetTheme.accent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .accessibilityLabel("加载更多".localizedForApp)
-                            .accessibilityIdentifier("chat-load-earlier")
-                            .onScrollVisibilityChange { isVisible in
-                                timelineTopIsVisible = isVisible
-                                guard isVisible, !timelineMode.isFollowing else { return }
-                                loadEarlierTimelineMessages()
+                    if hiddenTimelineMessageCount > 0 || chat.hasMoreEarlierMessages {
+                        Group {
+                            if hiddenTimelineMessageCount > 0 {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(QuartetTheme.accent)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .accessibilityLabel("加载更多".localizedForApp)
+                                    .accessibilityIdentifier("chat-load-earlier")
+                            } else {
+                                Color.clear.frame(height: 1)
                             }
+                        }
+                        .onScrollVisibilityChange { isVisible in
+                            timelineTopIsVisible = isVisible
+                            guard isVisible, !timelineMode.isFollowing else { return }
+                            loadEarlierTimelineMessages()
+                        }
                     }
                     ForEach(timelineMessages) { message in
                         ChatBubble(
@@ -498,6 +536,7 @@ struct JobChatView: View {
             }
             .onChange(of: route.summary.id) { _, _ in
                 pendingTimelinePrependAnchor = nil
+                earlierPageRequestInFlight = false
                 timelineMode = .following
                 userIsScrollingTimeline = false
                 timelineTopIsVisible = false

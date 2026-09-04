@@ -111,6 +111,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 
 	sessions := api.Group("/sessions")
 	sessions.GET("/:sessionId/messages", permit(auth.PermissionJobRead), h.GetSessionMessages)
+	sessions.GET("/:sessionId/token-usage", permit(auth.PermissionJobRead), h.GetSessionTokenUsage)
 
 	prompt := api.Group("/prompt")
 	prompt.POST("/get", permit(auth.PermissionConfigRead), h.GetPrompt)
