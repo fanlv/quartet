@@ -620,6 +620,60 @@ final class QuartetUITests: XCTestCase {
         XCTAssertFalse(app.buttons["复制"].exists && app.buttons["关闭"].exists)
     }
 
+    func testLiveBackendMessagePagination() throws {
+        let env = ProcessInfo.processInfo.environment
+        let server = env["QUARTET_SERVER"] ?? "http://127.0.0.1:8090/"
+        let user = env["QUARTET_USER"] ?? "fanlv"
+        let pass = env["QUARTET_PASS"] ?? "fanlv1988."
+
+        app.launch()
+
+        let serverField = app.textFields["connection-server"]
+        if serverField.waitForExistence(timeout: 5) {
+            serverField.tap()
+            serverField.clearAndTypeText(ProcessInfo.processInfo.environment["QUARTET_SERVER"] ?? "http://127.0.0.1:8090/")
+
+            let userField = app.textFields["connection-username"]
+            userField.tap()
+            userField.clearAndTypeText(ProcessInfo.processInfo.environment["QUARTET_USER"] ?? "fanlv")
+
+            let passField = app.secureTextFields["connection-password"]
+            passField.tap()
+            passField.typeText(ProcessInfo.processInfo.environment["QUARTET_PASS"] ?? "fanlv1988.")
+
+            app.buttons["connection-submit"].tap()
+            let httpConfirm = app.buttons["继续连接"]
+            if httpConfirm.waitForExistence(timeout: 4) {
+                httpConfirm.tap()
+            }
+        }
+
+        XCTAssertTrue(app.buttons["main-tab-0"].waitForExistence(timeout: 20))
+
+        let targetJob = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "node")
+        ).firstMatch
+        XCTAssertTrue(targetJob.waitForExistence(timeout: 10), "Target node job not found in dashboard")
+        targetJob.tap()
+
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 15))
+
+        let earliestMessage = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "我来帮你排查")
+        ).firstMatch
+
+        XCTAssertFalse(earliestMessage.exists, "The earliest message should not be visible before pagination")
+
+        // Scroll up to trigger automatic loading of earlier messages
+        for _ in 0..<20 {
+            if earliestMessage.exists { break }
+            app.swipeDown()
+            Thread.sleep(forTimeInterval: 0.4)
+        }
+
+        XCTAssertTrue(earliestMessage.waitForExistence(timeout: 10), "Earliest page messages were not automatically loaded after scrolling up")
+    }
+
     func testLiveBackendScheduledTaskCRUD() throws {
         #if !LIVE_SCHEDULE_E2E
             throw XCTSkip("Set QUARTET_LIVE_E2E=1 to run against the configured real backend.")
@@ -791,6 +845,9 @@ private extension XCUIElement {
             application.menuItems["全选"].tap()
         } else if application.menuItems["Select All"].waitForExistence(timeout: 1) {
             application.menuItems["Select All"].tap()
+        } else if let stringVal = value as? String, !stringVal.isEmpty {
+            let deleteString = String(repeating: XCUIKeyboardKey.delete.rawValue, count: max(stringVal.count, 40))
+            typeText(deleteString)
         }
         typeText(text)
     }
@@ -877,6 +934,9 @@ final class QuartetScreenshotCapture: XCTestCase {
     }
 
     func testCaptureReadmeScreenshots() throws {
+        guard ProcessInfo.processInfo.environment["QUARTET_CAPTURE_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set QUARTET_CAPTURE_SCREENSHOTS=1 to run screenshot capture.")
+        }
         let env = ProcessInfo.processInfo.environment
         let server = env["QUARTET_SHOT_SERVER"] ?? "http://127.0.0.1:8090/"
         let user = env["QUARTET_SHOT_USER"] ?? "demo"
@@ -1018,6 +1078,9 @@ final class QuartetScreenshotCapture: XCTestCase {
     /// Short follow-up pass for the root tabs. Assumes the app already holds a
     /// stored connection from a previous capture run.
     func testCaptureTabScreenshots() throws {
+        guard ProcessInfo.processInfo.environment["QUARTET_CAPTURE_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set QUARTET_CAPTURE_SCREENSHOTS=1 to run screenshot capture.")
+        }
         continueAfterFailure = true
         app.launch()
 
