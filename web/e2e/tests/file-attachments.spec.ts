@@ -70,7 +70,7 @@ test('uploads an ordinary file, sends its metadata, renders it, and restores it 
     historyVisible = true
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, status: 'started' }) })
   })
-  await page.route(`**/api/v1/sessions/${sessionID}/messages`, route => route.fulfill({
+  await page.route(url => url.pathname === `/api/v1/sessions/${sessionID}/messages`, route => route.fulfill({
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ modelId: 'e2e-model', type: 'e2e-agent', workdir: '/tmp', messages: [{ id: 'attachment-message', role: 'user', content: '检查这个文件', fileAttachments: [historyAttachment], startedAt: Date.now() }] }),
   }))

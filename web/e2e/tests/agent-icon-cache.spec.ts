@@ -46,10 +46,12 @@ test.describe('agent icon rendering', () => {
       if (imgCount > 0) {
         const src = await img.getAttribute('src')
         expect(src).toBeTruthy()
-        // The src should be either a proxy URL or a direct URL
+        // The src may be a proxy URL, a direct URL, or an inlined image.
+        // Built-in agents whose upstream only publishes SVG use data images
+        // so clients that cannot decode SVG still receive a usable icon.
         expect(
-          src!.startsWith('/api/v1/icon') || src!.startsWith('http'),
-          `img src should be a proxy or http URL, got: ${src}`
+          src!.startsWith('/api/v1/icon') || src!.startsWith('http') || src!.startsWith('data:image/'),
+          `img src should be a proxy, http, or data image URL, got: ${src}`
         ).toBeTruthy()
 
         // Wait for the image to load (proxy may need time for the first fetch)
@@ -87,8 +89,8 @@ test.describe('agent icon rendering', () => {
       const src = await tagImg.getAttribute('src')
       expect(src).toBeTruthy()
       expect(
-        src!.startsWith('/api/v1/icon') || src!.startsWith('http'),
-        `tag img src should be a proxy or http URL, got: ${src}`
+        src!.startsWith('/api/v1/icon') || src!.startsWith('http') || src!.startsWith('data:image/'),
+        `tag img src should be a proxy, http, or data image URL, got: ${src}`
       ).toBeTruthy()
 
       await expect.poll(async () => {

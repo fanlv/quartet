@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import { createServer } from 'node:net'
 import path from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
@@ -64,7 +65,7 @@ import { e2eAuthHeaders, e2ePassword, e2eUsername } from '../fixtures/e2e-enviro
 //   #53 run/start without workflowId and config returns 400 without creating a Job
 //   #54 cross-workspace save keeps the open workflow in update/delete mode
 //   #55 graph-run control action reason is honored
-//   #56 dirty snapshot run explains and enforces the workflow version lock
+//   #56 dirty run stops when its pre-run save detects a workflow version conflict
 //   #57 validate/save in-flight locks editing controls
 //   #58 full-page run-version edit locks globals/run config
 //   #59 canvas connect-by-click blocks invalid edges before save
@@ -130,6 +131,25 @@ async function waitForHTTP(url: string, timeoutMs: number) {
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
   throw new Error(`Timed out waiting for ${url}: ${lastError}`)
+}
+
+async function findAvailableLoopbackPort(): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const server = createServer()
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      if (!address || typeof address === 'string') {
+        server.close()
+        reject(new Error('failed to allocate a loopback port for the replay backend'))
+        return
+      }
+      server.close((err) => {
+        if (err) reject(err)
+        else resolve(address.port)
+      })
+    })
+  })
 }
 
 async function readSSEUntil(
@@ -554,7 +574,7 @@ test('graph review #39: JSON draft dirty guard covers Back, New, and selecting a
     backDialog = d.message()
     void d.dismiss()
   })
-  await page.getByRole('button', { name: 'Back' }).click()
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
   await expect.poll(() => backDialog).toContain('unsaved')
   await expect(page.getByTestId('graph-json-textarea')).toBeVisible()
 
@@ -800,7 +820,7 @@ test('graph review #57: validate and save in-flight lock editing controls', asyn
   await expect(page.locator('.react-flow__edge[data-id="edge-shell-end"]')).toBeVisible()
 })
 
-test('graph review #56: dirty snapshot run rejects stale source workflow after confirm', async ({ page, request }) => {
+test('graph review #56: dirty run stops when persisting against a stale source workflow', async ({ page, request }) => {
   const workspace = await openGraphCanvas(page, request, 'dirty-run-stale-source')
   const name = `e2e-dirty-run-stale-${Date.now()}`
 
@@ -824,18 +844,17 @@ test('graph review #56: dirty snapshot run rejects stale source workflow after c
   expect(newer.ok(), `workflow update failed: ${newer.status()} ${await newer.text()}`).toBeTruthy()
   const before = await countGraphJobs(request, workspace.workspaceId)
 
-  let promptText = ''
-  page.once('dialog', (d) => {
-    promptText = d.message()
-    void d.accept()
+  let startRequests = 0
+  page.on('request', (req) => {
+    if (req.url().includes('/api/v1/graph/run/start') && req.method() === 'POST') startRequests += 1
   })
-  const [startResp] = await Promise.all([
-    page.waitForResponse((r) => r.url().includes('/api/v1/graph/run/start') && r.request().method() === 'POST'),
+  const [saveResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes(`/api/v1/graph/workflow/${wf.id}`) && r.request().method() === 'PUT'),
     page.getByTestId('graph-run').click(),
   ])
-  await expect.poll(() => promptText).toContain('saved workflow must still be current')
-  expect(startResp.status(), `expected stale workflowUpdatedAt 409, got ${startResp.status()}: ${await startResp.text()}`).toBe(409)
+  expect(saveResp.status(), `expected stale workflow update 409, got ${saveResp.status()}: ${await saveResp.text()}`).toBe(409)
   await expect(page.getByTestId('graph-message')).toContainText('graph workflow has been modified', { timeout: 10_000 })
+  expect(startRequests).toBe(0)
   expect(await countGraphJobs(request, workspace.workspaceId)).toBe(before)
 })
 
@@ -1275,7 +1294,7 @@ test('graph review #5: leaving with unsaved changes prompts a confirm', async ({
     dialogSeen = true
     void d.dismiss()
   })
-  await page.getByRole('button', { name: 'Back' }).click()
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
   await expect.poll(() => dialogSeen).toBe(true)
   // Dismissed: still on the graph page (canvas visible, did not navigate away).
   await expect(page.getByTestId('graph-node-start')).toBeVisible()
@@ -1928,7 +1947,7 @@ test('graph review #23b: corrupted event log surfaces through disk replay SSE er
   const eventsFile = path.join(runInfo.localMemory, 'quartet', 'data', 'workspaces', workspace.workspaceId, 'jobs', run.jobId, 'graph_run', 'events.jsonl')
   await fs.writeFile(eventsFile, '{"type":"log"\n', 'utf8')
 
-  const replayPort = 18191
+  const replayPort = await findAvailableLoopbackPort()
   const replayBackend = await startReplayBackend(runInfo, replayPort)
   try {
     const stream = await readSSEUntil(

@@ -121,7 +121,9 @@ describe('useJobList loadMore vs polling', () => {
     // pollCount stays frozen here — that guard is precisely why the claimed
     // "poll invalidates the append" race cannot happen.)
     const pollsBefore = pollCount
-    await new Promise((r) => setTimeout(r, 120))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 120))
+    })
 
     // Resolve the append — it must land despite the concurrent polling.
     await act(async () => {
@@ -135,7 +137,9 @@ describe('useJobList loadMore vs polling', () => {
     // After the append settles, the poller is still alive (fetch count grows
     // again) and the merged list is not clobbered by subsequent first-page
     // polls (j3/j4 are past the first page and must survive).
-    await new Promise((r) => setTimeout(r, 100))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 100))
+    })
     expect(pollCount).toBeGreaterThan(pollsBefore)
     expect(result.current.jobs.map((j) => j.id)).toEqual(['j1', 'j2', 'j3', 'j4'])
   })

@@ -103,6 +103,7 @@ beforeEach(async () => {
     removeEventListener: vi.fn(),
     dispatchEvent: vi.fn(),
   })))
+  vi.stubGlobal('scrollTo', vi.fn())
 
   localStorage.clear()
   sessionStorage.clear()
