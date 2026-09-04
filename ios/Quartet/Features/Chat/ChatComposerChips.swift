@@ -21,10 +21,16 @@ struct ComposerMetadataChip: View {
         self.accessibilityLabel = accessibilityLabel
     }
 
+    private var resolvedSystemIcon: String? {
+        guard let icon else { return nil }
+        return UIImage(systemName: icon) == nil ? "questionmark.square.dashed" : icon
+    }
+
     var body: some View {
         HStack(spacing: 5) {
-            if let icon {
+            if let icon = resolvedSystemIcon {
                 Image(systemName: icon)
+                    .id(icon)
                     .font(.chat(.detail, weight: .semibold))
             } else {
                 AgentIdentityIcon(iconUrl: agentIconUrl)

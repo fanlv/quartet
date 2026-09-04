@@ -32,14 +32,13 @@ function toImagePreviewUrl(path: string): string {
 
 function TokenUsageSourceIcon({ estimated }: { estimated: boolean }) {
   return estimated ? (
-    <svg className="token-usage-source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="4" y="2.5" width="16" height="19" rx="2" />
-      <path d="M8 6.5h8v3H8zM8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" />
+    <svg className="token-usage-source-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="13" rx="2" />
+      <path d="M8 21h8M12 17v4" />
     </svg>
   ) : (
-    <svg className="token-usage-source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="m7 9 3 3-3 3M13 15h4" />
+    <svg className="token-usage-source-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6.5 18h11a3.5 3.5 0 0 0 .4-6.98A6 6 0 0 0 6.55 8.8 4.5 4.5 0 0 0 6.5 18Z" />
     </svg>
   );
 }
@@ -1121,7 +1120,7 @@ export function ChatInput({
               title={t(tokenUsageEstimated ? 'chat.tokenUsageLocalHint' : 'chat.tokenUsageVendorHint')}
               aria-label={t(tokenUsageEstimated ? 'chat.tokenUsageLocalLabel' : 'chat.tokenUsageVendorLabel', { count: totalTokens })}
             >
-              <TokenUsageSourceIcon estimated={tokenUsageEstimated} />
+              <TokenUsageSourceIcon key={tokenUsageEstimated ? 'estimated' : 'reported'} estimated={tokenUsageEstimated} />
               <span>Tokens: {formatTokenCount(totalTokens)}</span>
             </span>
             {/* Duration badge:

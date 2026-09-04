@@ -551,9 +551,11 @@
 }
 
 .token-usage-source-icon {
+  display: block;
   width: 13px;
   height: 13px;
   flex: 0 0 auto;
+  color: #5d6c62;
 }
 
 .chat-input-actions {

@@ -203,7 +203,7 @@ final class ChatViewModel: ObservableObject {
     var modeIDForDisplay: String? { displayValue(modeID) }
     var thoughtLevelIDForDisplay: String? { displayValue(thoughtLevelID) }
     var tokenCountLabel: String { "Tokens: \(Self.compactCount(totalTokens))" }
-    var tokenCountSourceIcon: String { tokenUsageEstimated ? "calculator" : "terminal" }
+    var tokenCountSourceIcon: String { tokenUsageEstimated ? "desktopcomputer" : "cloud" }
     var tokenCountAccessibilityLabel: String {
         String(
             format: "Token 数量 %lld，%@".localizedForApp,
