@@ -32,6 +32,11 @@ PORT="${2:?usage: $0 <repo_root> <port> <sudo> <proto>}"
 SUDO="${3:-}"
 PROTO="${4:-http}"
 
+# TEMP: reproduce the agy "end_turn with unfinished tool call(s)" failure with
+# verbose ACP logs (tool_call / tool_call_update ground truth). Revert to the
+# Info default once the diagnosis is done.
+export QUARTET_LOG_LEVEL=debug
+
 BACKEND_LOG=/tmp/quartet-backend.log
 RESTART_LOG=/tmp/quartet-restart.log
 STOP_TREE="$REPO/scripts/stop-process-tree.sh"

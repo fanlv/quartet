@@ -20,6 +20,12 @@ PREVIOUS_BINARY="$STAGE/previous-quartet-web"
 RELEASE_ID="$$"
 BACKUP_BINARY="$STAGE/active-path-quartet-web.$RELEASE_ID"
 BACKUP_STATIC="$STAGE/previous-static.$RELEASE_ID"
+
+# TEMP: reproduce the agy "end_turn with unfinished tool call(s)" failure with
+# verbose ACP logs (tool_call / tool_call_update ground truth). Revert to the
+# Info default once the diagnosis is done.
+export QUARTET_LOG_LEVEL=debug
+
 RUN_PREFIX="$SUDO"
 [ -n "$RUN_PREFIX" ] && RUN_PREFIX="$SUDO -E"
 
