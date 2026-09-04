@@ -20,7 +20,7 @@ import {
 } from '../types';
 import { SSEClient } from '../utils/sse-client';
 import { GraphSSEClient } from '../utils/graph-sse-client';
-import { mergeMessages } from '../utils/mergeMessages';
+import { mergeLatestHistoryPage, mergeMessages } from '../utils/mergeMessages';
 import { markAgentDisplayUnknown, primeAgentDisplays } from '../utils/agentDisplay';
 import { translateGraphEvent } from '../utils/translateGraphEvent';
 import { backendPhaseKind, type ChatPhase } from '../utils/chatPhase';
@@ -132,15 +132,6 @@ interface PrefetchedHistoryPage {
   tagSessionId?: string;
   page: LoadedHistoryPage;
   hasMoreAfter: boolean;
-}
-
-function mergeLatestHistoryPage(existing: Message[], latest: Message[]): Message[] {
-  const transientTail = existing.filter((message) =>
-    message.role === MessageRoleEnum.SYSTEM ||
-    message.pending === true ||
-    message.status !== MessageStatusEnum.Finished
-  );
-  return mergeMessages(transientTail, latest, { deduplicateToolCallIds: true });
 }
 
 function getLastGraphSessionId(sessions: GraphSessionEntry[]): string | null {
@@ -629,6 +620,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
   // Per-session agent metadata (populated during loadHistory for Graph sessions)
   const sessionMetaMapRef = useRef<Map<string, { modelId: string | null; type: string | null; acpMode: string | null; acpThoughtLevel: string | null }>>(new Map());
+  // Stable identity on purpose: consumers put this in effect dependency lists
+  // (JobChat resolves historical Agent references from it). A fresh closure per
+  // render re-fires those effects on every render, and one of them fetches —
+  // which re-renders — so an unresolvable Agent reference turned into an
+  // endless resolve loop against the backend.
+  const getSessionMeta = useCallback(
+    (sessionId: string) => sessionMetaMapRef.current.get(sessionId) ?? null,
+    [],
+  );
 
   // Per-session context size in tokens, keyed by session id. The composer
   // badge must show the size of the session the user is looking at — the
@@ -1777,11 +1777,51 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       if (jobIdRef.current !== targetJobId || historyPagingSessionRef.current !== targetPagingSession) return 0;
     }
     if (collected.length > 0) {
-      setMessages((prev) => mergeMessages(prev, collected, { deduplicateToolCallIds: true }));
+      // No toolCallId dedup on this path: an older page can only re-declare a
+      // tool call id that is already rendered when the agent reuses ids across
+      // rounds (`call_1`, `call_2`, …), and dropping the *newer* bubble for an
+      // older namesake would delete it from the visible tail. Genuine overlap
+      // is already covered by id dedup — a tool message's id IS its toolCallId
+      // on every path that creates one.
+      setMessages((prev) => mergeMessages(prev, collected));
     }
     if (prefetched?.hasMoreAfter) void prefetchEarlierMessages().catch(() => {});
     return collected.length;
   }, [prefetchEarlierMessages]);
+
+  // Records the paging state after a newest-page reload (reconnect recovery,
+  // idle-watchdog resync, 410 rebuild) and reports whether earlier history is
+  // still reachable.
+  //
+  // The cursor is only adopted when this session is not already being paged
+  // backwards. mergeLatestHistoryPage keeps the earlier pages the user
+  // scrolled in, so rewinding the cursor to the newest page would make the
+  // next upward scroll re-fetch history that is already on screen — and leave
+  // hasMoreEarlier describing the wrong end of the list.
+  const adoptLatestPageState = useCallback((
+    sessionIds: string[],
+    newestSid: string,
+    latestPage: LoadedHistoryPage,
+  ): boolean => {
+    historySessionIdsRef.current = sessionIds;
+    const alreadyPagingThisSession = historyPagingSessionRef.current === newestSid
+      && historyPageStateRef.current.has(newestSid);
+    if (!alreadyPagingThisSession) {
+      oldestLoadedSessionIndexRef.current = sessionIds.length - 1;
+      historyPagingSessionRef.current = newestSid;
+      historyPageStateRef.current.set(newestSid, {
+        beforeCursor: latestPage.page.beforeCursor,
+        hasMoreBefore: latestPage.page.hasMoreBefore,
+      });
+      prefetchedHistoryRef.current = null;
+    }
+    const oldestSid = sessionIds[oldestLoadedSessionIndexRef.current];
+    const oldestState = oldestSid ? historyPageStateRef.current.get(oldestSid) : undefined;
+    const hasMore = (oldestState?.hasMoreBefore ?? latestPage.page.hasMoreBefore)
+      || oldestLoadedSessionIndexRef.current > 0;
+    setHasMoreEarlierMessages(hasMore);
+    return hasMore;
+  }, []);
 
   // Re-sync job state after SSE reconnect to recover from missed events.
   // When called during the initial connection (historyLoadedRef is still false),
@@ -1930,19 +1970,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             console.debug(`[JobEvents] syncJobState stale after history load: gen=${gen} current=${syncGenerationRef.current}`);
             return;
           }
-          historySessionIdsRef.current = sessionIds;
-          oldestLoadedSessionIndexRef.current = sessionIds.length - 1;
-          historyPagingSessionRef.current = newestSid;
-          historyPageStateRef.current.set(newestSid, {
-            beforeCursor: latestPage.page.beforeCursor,
-            hasMoreBefore: latestPage.page.hasMoreBefore,
-          });
-          prefetchedHistoryRef.current = null;
-          if (latestPage.messages.length > 0) {
-            setMessages((prev) => mergeLatestHistoryPage(prev, latestPage.messages));
-          }
-          setHasMoreEarlierMessages(latestPage.page.hasMoreBefore || sessionIds.length > 1);
-          if (latestPage.page.hasMoreBefore || sessionIds.length > 1) {
+          const hasMore = adoptLatestPageState(sessionIds, newestSid, latestPage);
+          setMessages((prev) => mergeLatestHistoryPage(prev, latestPage.messages));
+          if (hasMore) {
             void prefetchEarlierMessages().catch(() => {});
           }
           const newestUsage = sessionTokensRef.current.get(newestSid);
@@ -1957,7 +1987,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       console.warn('[SSE reconnect] failed to sync job state:', err);
       throw err;
     }
-  }, [apiUrl, finalizeInFlightMessages, isPublic, loadHistoryPage, prefetchEarlierMessages, refreshMessageQueue, seedServerClockFromResponse]);
+  }, [apiUrl, adoptLatestPageState, finalizeInFlightMessages, isPublic, loadHistoryPage, prefetchEarlierMessages, refreshMessageQueue, seedServerClockFromResponse]);
 
   // Keep syncJobStateRef in sync so handleEvent can call it.
   syncJobStateRef.current = syncJobState;
@@ -2093,17 +2123,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       const newestSid = sessionIds[sessionIds.length - 1];
       const latestPage = await loadHistoryPage(newestSid);
       if (cancelled) return;
-      historySessionIdsRef.current = sessionIds;
-      oldestLoadedSessionIndexRef.current = sessionIds.length - 1;
-      historyPagingSessionRef.current = newestSid;
-      historyPageStateRef.current.set(newestSid, {
-        beforeCursor: latestPage.page.beforeCursor,
-        hasMoreBefore: latestPage.page.hasMoreBefore,
-      });
-      prefetchedHistoryRef.current = null;
+      const hasMore = adoptLatestPageState(sessionIds, newestSid, latestPage);
       setMessages((prev) => mergeLatestHistoryPage(prev, latestPage.messages));
-      setHasMoreEarlierMessages(latestPage.page.hasMoreBefore || sessionIds.length > 1);
-      if (latestPage.page.hasMoreBefore || sessionIds.length > 1) {
+      if (hasMore) {
         void prefetchEarlierMessages().catch(() => {});
       }
       console.debug(`[JobEvents][TRACE-SEQ0] reload-from-disk done jobId=${currentJobId} newestSession=${newestSid}`);
@@ -2219,10 +2241,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           reportViewerVisibility(
             typeof document === 'undefined' || document.visibilityState === 'visible',
           );
-          // Only sync metadata (title, status, progress, lastEventSeq).
-          // SSE resumes from lastEventId so no events are lost; full
-          // message reload would race with live SSE events and cause
-          // visual duplication of old messages.
+          // Sync metadata (title, status, progress, lastEventSeq). SSE resumes
+          // from lastEventId, so a running job loses no events and its messages
+          // are left untouched. A terminal job still reloads the newest page:
+          // that is the recovery path for terminal events missed while the
+          // connection was down, and mergeLatestHistoryPage splices the page
+          // into the list instead of replacing it.
           if (!hasPendingRunStart) {
             console.debug(`[JobEvents] onReconnect: syncing metadata for jobId=${currentJobId}`);
             void syncJobState(currentJobId, true).catch((err) => {
@@ -2304,7 +2328,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       eventSseRef.current?.disconnect();
       eventSseRef.current = null;
     };
-  }, [jobId, jobNotFound, snapshotReady, isGraph, graphRunLive, sseReconnectSeq, apiUrl, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistoryPage, prefetchEarlierMessages, markEventStreamReady, settleEventStreamReadyWaiters, viewerParams, reportViewerVisibility]);
+  }, [jobId, jobNotFound, snapshotReady, isGraph, graphRunLive, sseReconnectSeq, apiUrl, adoptLatestPageState, syncJobState, reportDisconnect, reportReconnect, seedServerClockFromResponse, initialSessionId, loadHistoryPage, prefetchEarlierMessages, markEventStreamReady, settleEventStreamReadyWaiters, viewerParams, reportViewerVisibility]);
 
   // Report this page's visibility so the backend can tell "watching the stream"
   // from "stream left open in a hidden tab". pagehide covers the cases where a
@@ -3320,7 +3344,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     endedSessionIds,
     loadedSessionIds,
     // Session metadata resolver (maps sessionId -> { modelId, type, acpMode })
-    getSessionMeta: (sessionId: string) => sessionMetaMapRef.current.get(sessionId) ?? null,
+    getSessionMeta,
     // Actions
     sendMessage,
     queueMessage,

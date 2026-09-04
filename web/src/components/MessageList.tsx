@@ -139,7 +139,9 @@ export function MessageList({
           }
           setTimelineWindow((current) => ({
             contextKey: scrollContextKey,
-            messageCount: current.messageCount + loadedCount,
+            messageCount: (current.contextKey === scrollContextKey
+              ? current.messageCount
+              : INITIAL_MESSAGE_COUNT) + loadedCount,
           }));
         }).catch(() => {
           pendingPrependAnchorRef.current = null;
@@ -167,7 +169,6 @@ export function MessageList({
         }
       }).catch(() => {});
     }
-    if (willConsumeAllBufferedMessages && hasMoreEarlier) void onNeedEarlier?.();
   }, [hasMoreEarlier, hiddenMessageCount, messages.length, onNeedEarlier, scrollContextKey, visibleMessageCount]);
 
   // Restore the viewport after prepending a page. Prefer the first existing
@@ -200,15 +201,10 @@ export function MessageList({
     const nearBottom = scrollHeight - scrollTop - clientHeight < 80;
     const nearTop = scrollTop <= TOP_LOAD_THRESHOLD_PX;
 
-    if (nearTop && (hiddenMessageCount > 0 || hasMoreEarlier)) {
-      if (!userScrolledUpRef.current) {
-        userScrolledUpRef.current = true;
-        browsingMessageCountRef.current = messages.length;
-      }
-      loadEarlierMessages();
-      return;
-    }
-
+    // Bottom is checked first on purpose: on a list only slightly taller than
+    // the viewport both ends are "near", and treating that as browsing latches
+    // userScrolledUp for good — follow-the-bottom then stays off and every new
+    // message (including the one the user just sent) lands below the fold.
     if (nearBottom) {
       if (userScrolledUpRef.current) markFollowing();
       return;
@@ -218,6 +214,7 @@ export function MessageList({
       userScrolledUpRef.current = true;
       browsingMessageCountRef.current = messages.length;
     }
+    if (nearTop && (hiddenMessageCount > 0 || hasMoreEarlier)) loadEarlierMessages();
   }, [hasMoreEarlier, hiddenMessageCount, loadEarlierMessages, markFollowing, messages.length]);
 
   // When switching jobs/sessions, always land at the bottom once so the latest

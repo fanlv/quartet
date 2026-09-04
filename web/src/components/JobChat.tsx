@@ -717,6 +717,12 @@ export function JobChat(props: JobChatProps) {
   // Schedule resolution for every historical Agent reference visible on this
   // page that the current agent list cannot resolve. Share mode never calls
   // the private endpoint — its cache is primed by the public payloads.
+  //
+  // Not forced: this effect re-runs on every `messages` change (i.e. every SSE
+  // delta), and forcing would re-POST each time — whose completion notifies
+  // the display cache, re-renders, and runs the effect again. The
+  // catalog-changed handler above is the path that must bypass the cache, and
+  // it already invalidates the affected ids before asking.
   useEffect(() => {
     if (shareToken) return;
     const listed = new Set(agents.map((a) => a.type));
@@ -731,7 +737,7 @@ export function JobChat(props: JobChatProps) {
       const type = getSessionMeta(activeSessionId)?.type;
       if (type && !listed.has(type)) refs.push(type);
     }
-    ensureAgentDisplays(refs, true);
+    ensureAgentDisplays(refs);
   }, [shareToken, agents, sessionType, messages, activeSessionId, getSessionMeta]);
 
   // Execution entries for a session whose Agent was deleted — or can no

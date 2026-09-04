@@ -23,6 +23,17 @@ export const e2eLegacyFirstModelJobID = 'job-e2e-legacy-first-model'
 export const e2eLegacyFirstModelID = 'e2e-legacy-first-model'
 export const e2eInterruptedRunningJobID = 'job-e2e-interrupted-running'
 
+// A transcript long enough that the newest history page (80 records) cannot
+// reach the opening question. The chat page must be able to page backwards to
+// it, and must keep it on screen across a reconnect-triggered newest-page
+// reload. Marker texts are unique so the specs can assert on exact copies.
+export const e2ePagedHistoryJobID = 'job-e2e-paged-history'
+export const e2ePagedHistorySessionID = 'session-e2e-paged-history'
+export const e2ePagedHistoryFirstQuestion = 'E2E-PAGED-FIRST-QUESTION'
+export const e2ePagedHistoryFirstAnswer = 'E2E-PAGED-FIRST-ANSWER'
+export const e2ePagedHistoryLastAnswer = 'E2E-PAGED-LAST-ANSWER'
+export const e2ePagedHistoryRecordCount = 200
+
 const backendPort = Number(process.env.QUARTET_E2E_BACKEND_PORT || 18090)
 const frontendPort = Number(process.env.VITE_E2E_PORT || 5174)
 const backendURL = process.env.VITE_E2E_BACKEND_URL || `http://127.0.0.1:${backendPort}`
@@ -338,6 +349,64 @@ function seedLegacyFirstModelIDFixture(localMemory: string) {
   }
 }
 
+// Seeds an interactive job whose transcript is several history pages long.
+// The opening question sits far enough from the tail that the first page the
+// chat page loads cannot contain it, so the spec can exercise backwards paging
+// and then assert the paged-in history survives a newest-page reload.
+function seedPagedHistoryJobFixture(localMemory: string) {
+  const now = new Date().toISOString()
+  const startedAt = Date.now() - e2ePagedHistoryRecordCount * 1000
+  const jobDir = path.join(localMemory, 'quartet', 'data', 'workspaces', 'ws-1', 'jobs', e2ePagedHistoryJobID)
+  const jobMetaDir = path.join(jobDir, '.meta')
+  fs.mkdirSync(jobMetaDir, { recursive: true })
+  fs.writeFileSync(path.join(jobMetaDir, 'job.json'), `${JSON.stringify({
+    id: e2ePagedHistoryJobID,
+    title: 'E2E Paged History Job',
+    createdAt: now,
+    updatedAt: now,
+    mode: 'interactive',
+    workspaceId: 'ws-1',
+    status: 'completed',
+    lastRunOutcome: 'completed',
+    sessionIds: [e2ePagedHistorySessionID],
+    progress: {},
+  }, null, 2)}\n`)
+
+  const sessionMetaDir = path.join(jobDir, 'sessions', e2ePagedHistorySessionID, '.meta')
+  fs.mkdirSync(sessionMetaDir, { recursive: true })
+  fs.writeFileSync(path.join(sessionMetaDir, 'meta.json'), `${JSON.stringify({
+    id: e2ePagedHistorySessionID,
+    title: 'E2E Paged History Session',
+    created_at: now,
+    updated_at: now,
+    type: e2eAgentType,
+    job_id: e2ePagedHistoryJobID,
+    workspace_id: 'ws-1',
+  }, null, 2)}\n`)
+
+  // Plain user/assistant pairs only: tool rows would let the server extend a
+  // page boundary backwards, which makes the page contents less predictable.
+  const records: string[] = []
+  const push = (role: 'user' | 'assistant', content: string, index: number) => {
+    records.push(JSON.stringify({
+      role,
+      content,
+      extra: {
+        msg_id: `${e2ePagedHistorySessionID}-seed-${index}`,
+        started_at: startedAt + index * 1000,
+        finished_at: startedAt + index * 1000 + 500,
+      },
+    }))
+  }
+  push('user', e2ePagedHistoryFirstQuestion, 0)
+  push('assistant', e2ePagedHistoryFirstAnswer, 1)
+  for (let i = 2; i < e2ePagedHistoryRecordCount - 1; i++) {
+    push(i % 2 === 0 ? 'user' : 'assistant', `E2E-PAGED-FILLER-${i}`, i)
+  }
+  push('assistant', e2ePagedHistoryLastAnswer, e2ePagedHistoryRecordCount - 1)
+  fs.writeFileSync(path.join(sessionMetaDir, 'messages.jsonl'), `${records.join('\n')}\n`)
+}
+
 function seedInterruptedRunningJobFixture(localMemory: string) {
   const now = new Date().toISOString()
   const jobMetaDir = path.join(localMemory, 'quartet', 'data', 'workspaces', 'ws-1', 'jobs', e2eInterruptedRunningJobID, '.meta')
@@ -427,6 +496,7 @@ async function globalSetup() {
   seedAgentConfig(localMemory)
   seedLegacyFirstModelIDFixture(localMemory)
   seedInterruptedRunningJobFixture(localMemory)
+  seedPagedHistoryJobFixture(localMemory)
 
   fs.writeFileSync(path.join(runDir, 'env.json'), `${JSON.stringify({
     backendURL,

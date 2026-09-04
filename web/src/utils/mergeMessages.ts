@@ -1,4 +1,4 @@
-import { MessageRoleEnum } from '../types/protocol';
+import { MessageRoleEnum, MessageStatusEnum } from '../types/protocol';
 import type { AssistantMessage, Message, ToolMessage } from '../types/message';
 
 /**
@@ -33,6 +33,64 @@ export interface MergeOptions {
 }
 
 /**
+ * Lookup sets describing what an incoming (history) batch already covers, so
+ * a live message can be recognised as superseded even when the two sides
+ * disagree on the id. Shared by every merge path so the semantic dedup rules
+ * live in exactly one place.
+ */
+interface SupersedeIndex {
+  ids: Set<string>;
+  clientMessageIds: Set<string>;
+  thoughtKeys: Set<string>;
+  toolCallIds?: Set<string>;
+}
+
+function buildSupersedeIndex(incoming: Message[], options?: MergeOptions): SupersedeIndex {
+  const index: SupersedeIndex = {
+    ids: new Set(incoming.map((m) => m.id)),
+    // Only drop optimistic user messages when history has the confirmed
+    // version. Without this check, a freshly-sent message (not yet persisted
+    // by the backend) would be dropped during a syncJobState reload race.
+    clientMessageIds: new Set(),
+    // Keyed by (sessionId, thinkingContent) so a live thought bubble whose id
+    // no longer matches its persisted thought_msg_id is dropped in favour of
+    // the history version.
+    thoughtKeys: new Set(),
+    toolCallIds: options?.deduplicateToolCallIds ? new Set() : undefined,
+  };
+  for (const hm of incoming) {
+    if (hm.role === MessageRoleEnum.USER && hm.clientMessageId) {
+      index.clientMessageIds.add(hm.clientMessageId);
+    }
+    if (hm.sessionId && isPureThoughtBubble(hm)) {
+      index.thoughtKeys.add(thoughtKey(hm.sessionId, hm.thinkingContent ?? ''));
+    }
+    if (index.toolCallIds && hm.role === MessageRoleEnum.TOOL) {
+      index.toolCallIds.add((hm as ToolMessage).toolCallId);
+    }
+  }
+  return index;
+}
+
+function isSuperseded(message: Message, index: SupersedeIndex): boolean {
+  if (index.ids.has(message.id)) return true;
+  if (message.role === MessageRoleEnum.USER && message.clientMessageId
+    && index.clientMessageIds.has(message.clientMessageId)) return true;
+  if (message.sessionId && isPureThoughtBubble(message)
+    && index.thoughtKeys.has(thoughtKey(message.sessionId, message.thinkingContent ?? ''))) return true;
+  if (index.toolCallIds && message.role === MessageRoleEnum.TOOL
+    && index.toolCallIds.has((message as ToolMessage).toolCallId)) return true;
+  return false;
+}
+
+/** Prefers the existing copy while it is still accumulating streaming deltas. */
+function preferLongerContent(historyMessage: Message, existingById: Map<string, Message>): Message {
+  const em = existingById.get(historyMessage.id);
+  if (em && (em.content?.length ?? 0) > (historyMessage.content?.length ?? 0)) return em;
+  return historyMessage;
+}
+
+/**
  * Merges incoming (history) messages with existing (SSE/live) messages.
  *
  * Core algorithm:
@@ -42,7 +100,10 @@ export interface MergeOptions {
  *    are duplicates: optimistic user messages, or (optionally) tool
  *    messages with matching toolCallId.
  *
- * Returns [...merged_incoming, ...filtered_existing_only].
+ * Returns [...merged_incoming, ...filtered_existing_only]. That ordering only
+ * makes sense when `incoming` covers the front of the timeline — a complete
+ * history, or an earlier page being prepended. Use mergeLatestHistoryPage when
+ * `incoming` is the newest page instead.
  *
  * The result is guaranteed unique-by-id (first occurrence wins). Step 3 only
  * dedups existing-only against incoming, so a duplicate id *within* incoming
@@ -59,70 +120,97 @@ export function mergeMessages(
   if (existing.length === 0) return dedupeById(incoming, 'incoming');
   if (incoming.length === 0) return dedupeById(existing, 'existing');
 
-  const existingMap = new Map(existing.map((m) => [m.id, m]));
+  const existingById = new Map(existing.map((m) => [m.id, m]));
+  const merged = incoming.map((hm) => preferLongerContent(hm, existingById));
 
-  // Step 1: For each incoming message, prefer existing version if it has
-  // longer content (i.e. streaming is still in progress).
-  const merged = incoming.map((hm) => {
-    const em = existingMap.get(hm.id);
-    if (em && (em.content?.length ?? 0) > (hm.content?.length ?? 0)) {
-      return em;
-    }
-    return hm;
-  });
-
-  // Step 2: Build lookup sets for dedup.
-  const incomingIds = new Set(incoming.map((m) => m.id));
-
-  // Build a set of clientMessageIds present in incoming history so we only
-  // drop optimistic user messages when a confirmed version truly exists.
-  const incomingClientMessageIds = new Set<string>();
-  for (const hm of incoming) {
-    if (hm.role === MessageRoleEnum.USER && hm.clientMessageId) {
-      incomingClientMessageIds.add(hm.clientMessageId);
-    }
-  }
-
-  // Build a set of (sessionId, thinkingContent) for pure thought bubbles
-  // present in history, so a live thought bubble whose id no longer matches
-  // its persisted thought_msg_id is dropped in favour of the history version.
-  const historyThoughtKeys = new Set<string>();
-  for (const hm of incoming) {
-    if (hm.sessionId && isPureThoughtBubble(hm)) {
-      historyThoughtKeys.add(thoughtKey(hm.sessionId, hm.thinkingContent ?? ''));
-    }
-  }
-
-  let historyToolCallIds: Set<string> | undefined;
-  if (options?.deduplicateToolCallIds) {
-    historyToolCallIds = new Set<string>();
-    for (const hm of incoming) {
-      if (hm.role === MessageRoleEnum.TOOL) {
-        historyToolCallIds.add((hm as ToolMessage).toolCallId);
-      }
-    }
-  }
-
-  // Step 3: Filter existing-only messages, removing duplicates.
-  const existingOnly = existing.filter((m) => {
-    if (incomingIds.has(m.id)) return false;
-    // Drop optimistic user messages only when history has the confirmed version.
-    // Without this check, a freshly-sent message (not yet persisted by the
-    // backend) would be dropped during a syncJobState reload race.
-    if (m.role === MessageRoleEnum.USER && m.clientMessageId && incomingClientMessageIds.has(m.clientMessageId)) return false;
-    // Drop a live thought bubble whose equivalent (same sessionId +
-    // thinkingContent) already exists in history under a different id.
-    if (m.sessionId && isPureThoughtBubble(m)) {
-      if (historyThoughtKeys.has(thoughtKey(m.sessionId, m.thinkingContent ?? ''))) return false;
-    }
-    // Optionally drop tool messages whose toolCallId is covered by history
-    if (historyToolCallIds && m.role === MessageRoleEnum.TOOL) {
-      if (historyToolCallIds.has((m as ToolMessage).toolCallId)) return false;
-    }
-    return true;
-  });
+  const index = buildSupersedeIndex(incoming, options);
+  const existingOnly = existing.filter((m) => !isSuperseded(m, index));
 
   return dedupeById([...merged, ...existingOnly], 'merge');
+}
+
+/**
+ * A "transient" message is a live artefact of the current round rather than
+ * settled history: a system/command bubble (never persisted), an optimistic
+ * user message still waiting for its RUN_STARTED confirmation, or a bubble
+ * that is still streaming.
+ */
+function isTransient(message: Message): boolean {
+  return message.role === MessageRoleEnum.SYSTEM
+    || message.pending === true
+    || message.status !== MessageStatusEnum.Finished;
+}
+
+/**
+ * Reconciles the newest history page into the in-memory message list.
+ *
+ * `latest` is only the tail page of the transcript, so it describes the end of
+ * the timeline and says nothing about anything before it. Everything the page
+ * does not cover lives only in `existing` and must stay IN FRONT of the page:
+ * earlier pages the user scrolled in, and — on a turn long enough to push it
+ * out of the newest page — the user message that started the round.
+ *
+ * The list is therefore spliced, not rebuilt. The page acts as the spine for
+ * the region it covers: its messages are laid down in page order, and live
+ * messages the page does not carry are kept anchored between the same
+ * neighbours they had before, instead of being swept to the end of the list
+ * (which is how an older bubble ends up rendered below the newest message).
+ *
+ *     [ existing before the page ] [ page, with live messages in place ]
+ *
+ * Inside the covered region a settled message the page does not carry is
+ * dropped: one persisted assistant row can collapse several streamed bubbles
+ * and only the last streaming id survives into history, so keeping the
+ * pre-collapse bubbles would render their text twice. Transient messages
+ * (system/command bubbles, unconfirmed optimistic user messages, still
+ * streaming bubbles) are not on disk yet and are kept.
+ *
+ * When the page shares no id with the list at all, the settled prefix is
+ * treated as older history (a long turn can push the whole list out of the
+ * newest page) and only the trailing transient run is kept behind the page.
+ */
+export function mergeLatestHistoryPage(existing: Message[], latest: Message[]): Message[] {
+  if (existing.length === 0) return dedupeById(latest, 'latest-page');
+  if (latest.length === 0) return dedupeById(existing, 'existing');
+
+  const pagePositionById = new Map<string, number>();
+  latest.forEach((message, position) => {
+    if (!pagePositionById.has(message.id)) pagePositionById.set(message.id, position);
+  });
+
+  const spineStart = existing.findIndex((message) => pagePositionById.has(message.id));
+  if (spineStart < 0) {
+    let tailStart = existing.length;
+    while (tailStart > 0 && isTransient(existing[tailStart - 1])) tailStart--;
+    return dedupeById([
+      ...existing.slice(0, tailStart),
+      ...mergeMessages(existing.slice(tailStart), latest, { deduplicateToolCallIds: true }),
+    ], 'latest-page');
+  }
+
+  const index = buildSupersedeIndex(latest, { deduplicateToolCallIds: true });
+  const existingById = new Map(existing.map((message) => [message.id, message]));
+  const out = existing.slice(0, spineStart);
+  let pageCursor = 0;
+  const layPageThrough = (position: number) => {
+    while (pageCursor <= position) {
+      out.push(preferLongerContent(latest[pageCursor], existingById));
+      pageCursor++;
+    }
+  };
+
+  for (let i = spineStart; i < existing.length; i++) {
+    const message = existing[i];
+    const position = pagePositionById.get(message.id);
+    if (position !== undefined) {
+      layPageThrough(position);
+      continue;
+    }
+    if (!isSuperseded(message, index) && isTransient(message)) out.push(message);
+  }
+  layPageThrough(latest.length - 1);
+
+  return dedupeById(out, 'latest-page');
 }
 
 /**

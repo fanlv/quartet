@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeMessages } from './mergeMessages';
+import { mergeLatestHistoryPage, mergeMessages } from './mergeMessages';
 import type { Message, ToolMessage } from '../types/message';
 import { MessageRoleEnum, MessageStatusEnum, ToolCallStatusEnum } from '../types/protocol';
 
@@ -109,5 +109,92 @@ describe('mergeMessages', () => {
     });
 
     expect(mergeMessages([liveAnswer], [historyThought])).toEqual([historyThought, liveAnswer]);
+  });
+});
+
+describe('mergeLatestHistoryPage', () => {
+  it('keeps messages the newest page does not cover in front of it', () => {
+    // The user replied and the turn produced enough records to push both the
+    // previous answer and the user message out of the newest page. A reload
+    // that only kept the page would erase them from the conversation.
+    const olderAnswer = baseMessage('assistant-old', MessageRoleEnum.ASSISTANT, 'previous answer');
+    const userMessage = baseMessage('client-1', MessageRoleEnum.USER, 'new question');
+    const pageHead = baseMessage('tool-run-1', MessageRoleEnum.ASSISTANT, 'working on it');
+    const pageTail = baseMessage('tool-run-2', MessageRoleEnum.ASSISTANT, 'still working');
+
+    const merged = mergeLatestHistoryPage(
+      [olderAnswer, userMessage, pageHead],
+      [pageHead, pageTail],
+    );
+
+    expect(merged).toEqual([olderAnswer, userMessage, pageHead, pageTail]);
+  });
+
+  it('keeps settled messages in front when the page overlaps nothing in memory', () => {
+    const olderAnswer = baseMessage('assistant-old', MessageRoleEnum.ASSISTANT, 'previous answer');
+    const userMessage = baseMessage('client-1', MessageRoleEnum.USER, 'new question');
+    const streaming = baseMessage('assistant-live', MessageRoleEnum.ASSISTANT, 'partial', {
+      status: MessageStatusEnum.Started,
+    });
+    const pageOnly = baseMessage('assistant-page', MessageRoleEnum.ASSISTANT, 'persisted answer');
+
+    const merged = mergeLatestHistoryPage([olderAnswer, userMessage, streaming], [pageOnly]);
+
+    // Settled history stays in front of the page; the still-streaming bubble
+    // is a live artefact and belongs after it.
+    expect(merged).toEqual([olderAnswer, userMessage, pageOnly, streaming]);
+  });
+
+  it('drops settled live bubbles inside the region the page covers', () => {
+    // One persisted assistant row can collapse several streamed bubbles, so
+    // the pre-collapse bubble must not survive next to the persisted row —
+    // its text would render twice.
+    const userMessage = baseMessage('client-1', MessageRoleEnum.USER, 'question');
+    const firstChunk = baseMessage('stream-1', MessageRoleEnum.ASSISTANT, 'part one ');
+    const collapsed = baseMessage('stream-2', MessageRoleEnum.ASSISTANT, 'part one part two');
+
+    const merged = mergeLatestHistoryPage(
+      [userMessage, firstChunk, baseMessage('stream-2', MessageRoleEnum.ASSISTANT, 'part two')],
+      [userMessage, collapsed],
+    );
+
+    expect(merged).toEqual([userMessage, collapsed]);
+  });
+
+  it('keeps an unconfirmed optimistic user message the page has not persisted yet', () => {
+    const answer = baseMessage('assistant-1', MessageRoleEnum.ASSISTANT, 'answer');
+    const optimistic = baseMessage('client-2', MessageRoleEnum.USER, 'just sent', {
+      clientMessageId: 'client-2',
+      pending: true,
+    });
+
+    expect(mergeLatestHistoryPage([answer, optimistic], [answer])).toEqual([answer, optimistic]);
+  });
+
+  it('keeps a transient bubble anchored between its neighbours instead of sweeping it to the end', () => {
+    // A slash-command bubble is never persisted, so the newest page cannot
+    // carry it. Appending it after the page put an older bubble below the
+    // newest user message — the duplicate-looking bubble users reported.
+    const firstQuestion = baseMessage('user-1', MessageRoleEnum.USER, 'first question');
+    const firstAnswer = baseMessage('assistant-1', MessageRoleEnum.ASSISTANT, 'first answer');
+    const commandBubble = baseMessage('cmd-1', MessageRoleEnum.SYSTEM, '/help output');
+    const secondQuestion = baseMessage('user-2', MessageRoleEnum.USER, 'second question');
+    const secondAnswer = baseMessage('assistant-2', MessageRoleEnum.ASSISTANT, 'second answer');
+
+    const merged = mergeLatestHistoryPage(
+      [firstQuestion, firstAnswer, commandBubble, secondQuestion, secondAnswer],
+      [firstQuestion, firstAnswer, secondQuestion, secondAnswer],
+    );
+
+    expect(merged).toEqual([firstQuestion, firstAnswer, commandBubble, secondQuestion, secondAnswer]);
+  });
+
+  it('leaves the list untouched when the newest page is empty', () => {
+    const existing = [
+      baseMessage('assistant-1', MessageRoleEnum.ASSISTANT, 'answer'),
+      baseMessage('client-1', MessageRoleEnum.USER, 'question'),
+    ];
+
+    expect(mergeLatestHistoryPage(existing, [])).toBe(existing);
   });
 });
