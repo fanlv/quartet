@@ -4,6 +4,7 @@ import {
   e2ePagedHistoryFirstQuestion,
   e2ePagedHistoryJobID,
   e2ePagedHistoryLastAnswer,
+  e2ePagedHistoryRecordCount,
   e2ePagedHistorySessionID,
 } from '../fixtures/e2e-environment'
 
@@ -223,4 +224,34 @@ test('the running message stays above the loaded window instead of below its rep
   const idsAfterPaging = await renderedMessageIDs(page)
   expect(idsAfterPaging[0]).toBe(runningQueueActiveID)
   expect(new Set(idsAfterPaging).size).toBe(idsAfterPaging.length)
+})
+
+// Scrolling up must never leave the user stalled at the top of what is loaded,
+// and a page that arrives while they read must not push content they were
+// already looking at into the un-rendered region above the window.
+test('keeps two pages buffered and never un-renders the top while paging back', async ({ page }) => {
+  test.setTimeout(180_000)
+  await openPagedHistoryJob(page)
+
+  // Two pages are buffered right after the first paint, without the user
+  // having to reach the top.
+  await expect.poll(async () => (await renderedMessageIDs(page)).length, {
+    timeout: 30_000,
+    message: 'the second page was never primed',
+  }).toBeGreaterThan(120)
+
+  const list = page.getByTestId('message-list')
+  const firstQuestion = page.getByText(e2ePagedHistoryFirstQuestion, { exact: true })
+  await expect.poll(async () => {
+    await list.evaluate((el) => { el.scrollTop = 0 })
+    await page.waitForTimeout(200)
+    return await firstQuestion.count()
+  }, { timeout: 40_000, message: 'backwards paging never reached the opening question' }).toBeGreaterThan(0)
+
+  // The whole transcript is loaded now: nothing may be hidden above the top,
+  // which is what silently dropped the opening exchange out of the render.
+  const ids = await renderedMessageIDs(page)
+  expect(ids[0]).toBe(`${e2ePagedHistorySessionID}-seed-0`)
+  expect(ids).toHaveLength(e2ePagedHistoryRecordCount)
+  await expect(page.getByTestId('message-history-loader')).toHaveCount(0)
 })

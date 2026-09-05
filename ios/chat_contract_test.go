@@ -401,3 +401,31 @@ func TestPinnedRoundHeadIsAlwaysRenderedAndNeverUsedAsThePrependAnchor(t *testin
 		t.Fatal("prepend anchor must skip pinned round heads")
 	}
 }
+
+// Backwards paging must not park a prepended page above the render window, and
+// must not make the user hit the very top before the next page is fetched.
+func TestBackwardsPagingKeepsTwoPagesBufferedAndRendersEveryLoadedRecord(t *testing.T) {
+	view := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
+	for _, contract := range []string{
+		// Two pages buffered after the first paint, without a prepend anchor so
+		// the follow-the-bottom anchoring is not disturbed.
+		"private func primeEarlierTimelineBuffer() {",
+		"guard timelineMode.isFollowing, pendingTimelinePrependAnchor == nil, !earlierPageRequestInFlight else { return }",
+		"await chat.start(route: route, client: client)\n                primeEarlierTimelineBuffer()",
+		// One page from the top is the fetch trigger, not the top itself.
+		"private var earlierBufferSentinelIndex: Int?",
+		"let index = pinnedRoundHeadCount + ChatTimelineWindow.earlierPageSize",
+		"if index == earlierBufferSentinelIndex {",
+	} {
+		if !strings.Contains(view, contract) {
+			t.Fatalf("earlier-page buffering contract missing %q", contract)
+		}
+	}
+	// Both prepend paths must widen the window by what they added. The reveal
+	// branch used to skip it, which parked the whole new page above the window -
+	// and that region is the TOP of the list, so it un-rendered what the user was
+	// reading. Three sites: prime, reveal-chained fetch, direct fetch.
+	if got := strings.Count(view, "visibleTimelineMessageCount += loadedCount"); got != 3 {
+		t.Fatalf("every prepend must widen the render window: got %d sites, want 3", got)
+	}
+}

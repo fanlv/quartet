@@ -158,6 +158,7 @@ struct JobChatView: View {
             do {
                 let client = try appModel.apiClient()
                 await chat.start(route: route, client: client)
+                primeEarlierTimelineBuffer()
             } catch {
                 appModel.present(error)
             }
@@ -191,6 +192,7 @@ struct JobChatView: View {
                 Task {
                     do {
                         await chat.start(route: route, client: try appModel.apiClient())
+                        primeEarlierTimelineBuffer()
                     } catch {
                         appModel.present(error)
                     }
@@ -352,6 +354,15 @@ struct JobChatView: View {
         timelineMessages.first(where: { !$0.isRoundHeadPinned })?.id
     }
 
+    /// 渲染列表里距顶部一页的位置。用户滚到这里就该取下一页；只有不足一页可度量时
+    /// 返回 nil，那种情况由顶部哨兵兜住。
+    private var earlierBufferSentinelIndex: Int? {
+        let index = pinnedRoundHeadCount + ChatTimelineWindow.earlierPageSize
+        let renderedCount = pinnedRoundHeadCount
+            + min(effectiveTimelineMessageCount, max(0, chat.messages.count - pinnedRoundHeadCount))
+        return index < renderedCount ? index : nil
+    }
+
     /// 浏览期间追加到尾部的新消息不占用原窗口配额，否则 `suffix` 会同时从顶部移除一条，
     /// 让用户正在看的位置跳动。把增量加入有效窗口后，窗口起点保持不变。
     private var effectiveTimelineMessageCount: Int {
@@ -390,6 +401,27 @@ struct JobChatView: View {
         scrollTimelineToBottom(proxy)
     }
 
+    /// 首屏之后把缓冲补到两页。
+    ///
+    /// 首帧仍只渲染一页（非懒加载容器的工作量上限就是为此设的），但只有一页时窗口
+    /// 之上没有任何东西可度量，「到顶前一页就取下一页」在第一次上滚时无从触发。这里
+    /// 消费的是模型已经在后台预取好的那一页，不额外发请求；且不设 prepend 锚点，
+    /// 让跟随态的底部锚定继续生效，补页不会把视口从底部拽走。
+    private func primeEarlierTimelineBuffer() {
+        guard timelineMode.isFollowing, pendingTimelinePrependAnchor == nil, !earlierPageRequestInFlight else { return }
+        if hiddenTimelineMessageCount > 0 {
+            visibleTimelineMessageCount = chat.messages.count
+        }
+        guard chat.hasMoreEarlierMessages else { return }
+        earlierPageRequestInFlight = true
+        Task {
+            let loadedCount = await chat.loadEarlierMessages()
+            earlierPageRequestInFlight = false
+            guard loadedCount > 0 else { return }
+            visibleTimelineMessageCount += loadedCount
+        }
+    }
+
     private func loadEarlierTimelineMessages() {
         guard pendingTimelinePrependAnchor == nil, !earlierPageRequestInFlight else { return }
         if hiddenTimelineMessageCount > 0 {
@@ -408,10 +440,15 @@ struct JobChatView: View {
                     if loadedCount > 0, case .browsing(let anchor, let messageCount) = timelineMode {
                         timelineMode = .browsing(anchor: anchor, messageCount: messageCount + loadedCount)
                     }
+                    // 必须按新增条数扩窗，和另一条取页分支一致。否则整页新数据落进
+                    // 窗口之外的隐藏区，而隐藏区就在列表顶部——用户刚刚还在看的那条
+                    // （代表窗口之上那条消息的轮首占位）会当场从渲染里消失。
+                    visibleTimelineMessageCount += loadedCount
                 }
             }
             return
         }
+
         guard chat.hasMoreEarlierMessages else { return }
         let anchor = timelinePrependAnchorID
         pendingTimelinePrependAnchor = anchor
@@ -465,7 +502,17 @@ struct JobChatView: View {
                             loadEarlierTimelineMessages()
                         }
                     }
-                    ForEach(timelineMessages) { message in
+                    ForEach(Array(timelineMessages.enumerated()), id: \.element.id) { index, message in
+                        if index == earlierBufferSentinelIndex {
+                            // 距顶部一页的哨兵：滚到这里就说明用户已经进入最上面那一页，
+                            // 此时取下一页，而不是等他滚到最顶再干等一次网络往返。
+                            Color.clear
+                                .frame(height: 1)
+                                .onScrollVisibilityChange { isVisible in
+                                    guard isVisible, !timelineMode.isFollowing else { return }
+                                    loadEarlierTimelineMessages()
+                                }
+                        }
                         ChatBubble(
                             message: message,
                             fallbackAgentName: chat.agentDisplayLabel,

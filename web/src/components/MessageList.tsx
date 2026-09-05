@@ -133,6 +133,34 @@ export function MessageList({
     });
   }, [markFollowing, scrollContextKey, scrollToBottom, visibleMessageCount]);
 
+  // Every prepend must widen the render window by what it added, otherwise the
+  // new page lands in the hidden region — which sits at the TOP of the list, so
+  // it silently un-renders whatever the user was reading up there.
+  const growWindowBy = useCallback((loadedCount: number) => {
+    if (loadedCount <= 0) return;
+    setTimelineWindow((current) => ({
+      contextKey: scrollContextKey,
+      messageCount: (current.contextKey === scrollContextKey
+        ? current.messageCount
+        : INITIAL_MESSAGE_COUNT) + loadedCount,
+    }));
+  }, [scrollContextKey]);
+
+  // The message one page below the top of what is loaded. Reaching it means the
+  // user has scrolled into the topmost loaded page and the next one should be
+  // fetched NOW — waiting until they hit the very top makes them stall there on
+  // every page. Null when less than a page is loaded above the newest one:
+  // there is nothing to measure against, so any upward scroll is the signal.
+  const earlierBufferSentinelId = messages.length - pinnedHeadCount > EARLIER_PAGE_SIZE
+    ? messages[pinnedHeadCount + EARLIER_PAGE_SIZE].id
+    : null;
+  const hasScrolledIntoTopLoadedPage = useCallback((el: HTMLElement) => {
+    if (!earlierBufferSentinelId) return true;
+    const sentinel = el.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(earlierBufferSentinelId)}"]`);
+    if (!sentinel) return false;
+    return sentinel.getBoundingClientRect().top <= el.getBoundingClientRect().bottom;
+  }, [earlierBufferSentinelId]);
+
   const loadEarlierMessages = useCallback(() => {
     const el = containerRef.current;
     if (!el || pendingPrependAnchorRef.current) return;
@@ -153,12 +181,7 @@ export function MessageList({
           if (browsingMessageCountRef.current != null) {
             browsingMessageCountRef.current += loadedCount;
           }
-          setTimelineWindow((current) => ({
-            contextKey: scrollContextKey,
-            messageCount: (current.contextKey === scrollContextKey
-              ? current.messageCount
-              : INITIAL_MESSAGE_COUNT) + loadedCount,
-          }));
+          growWindowBy(loadedCount);
         }).catch(() => {
           pendingPrependAnchorRef.current = null;
         });
@@ -183,9 +206,15 @@ export function MessageList({
         if (browsingMessageCountRef.current != null) {
           browsingMessageCountRef.current += loadedCount;
         }
+        // Grow the window by what was prepended, exactly like the other fetch
+        // path. Without this the whole new page lands in the hidden region —
+        // and that region is at the TOP of the list, so content the user was
+        // already looking at (the round head standing in for a message above
+        // the window) silently drops out of the render.
+        growWindowBy(loadedCount);
       }).catch(() => {});
     }
-  }, [hasMoreEarlier, hiddenMessageCount, messages.length, onNeedEarlier, scrollContextKey, visibleMessageCount]);
+  }, [growWindowBy, hasMoreEarlier, hiddenMessageCount, messages.length, onNeedEarlier, scrollContextKey, visibleMessageCount]);
 
   // Restore the viewport after prepending a page. Prefer the first existing
   // message as a real DOM anchor because message heights are variable; fall
@@ -230,8 +259,23 @@ export function MessageList({
       userScrolledUpRef.current = true;
       browsingMessageCountRef.current = messages.length;
     }
-    if (nearTop && (hiddenMessageCount > 0 || hasMoreEarlier)) loadEarlierMessages();
-  }, [hasMoreEarlier, hiddenMessageCount, loadEarlierMessages, markFollowing, messages.length]);
+    if ((nearTop || hasScrolledIntoTopLoadedPage(el)) && (hiddenMessageCount > 0 || hasMoreEarlier)) {
+      loadEarlierMessages();
+    }
+  }, [hasMoreEarlier, hasScrolledIntoTopLoadedPage, hiddenMessageCount, loadEarlierMessages, markFollowing, messages.length]);
+
+  // Prime the conversation to two pages. The first paint deliberately renders
+  // one page only, but a single page leaves nothing above the viewport to
+  // measure against, so "fetch the next page before the user reaches the top"
+  // cannot work on the first scroll up. Runs once per conversation, after the
+  // first paint, and consumes the page the hook already prefetched — so it adds
+  // no request, only makes the buffer visible.
+  const primedContextRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (primedContextRef.current === scrollContextKey || messages.length === 0) return;
+    primedContextRef.current = scrollContextKey;
+    if (hasMoreEarlier || hiddenMessageCount > 0) loadEarlierMessages();
+  }, [hasMoreEarlier, hiddenMessageCount, loadEarlierMessages, messages.length, scrollContextKey]);
 
   // When switching jobs/sessions, always land at the bottom once so the latest
   // content in that context is visible immediately.
