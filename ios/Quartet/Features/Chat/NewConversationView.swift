@@ -154,7 +154,6 @@ struct NewConversationView: View {
     @State private var showsMessageLibrary = false
     @State private var showsWorkspacePicker = false
     @State private var picker: NewConversationPicker?
-    @State private var focusesComposerAfterMessageLibrary = false
     @State private var showsAdvancedOptions = false
     @State private var loading = true
     @State private var creating = false
@@ -353,22 +352,14 @@ struct NewConversationView: View {
                 )
                 .quartetSheetStyle()
             }
-            .sheet(isPresented: $showsMessageLibrary, onDismiss: {
-                if focusesComposerAfterMessageLibrary {
-                    focusesComposerAfterMessageLibrary = false
-                    composerFocused = true
-                }
-            }) {
+            .sheet(isPresented: $showsMessageLibrary) {
                 MessagePresetHistorySheet(
                     currentMessage: $message,
                     projectPresets: projectMessagePresets,
                     globalPresets: globalMessagePresets,
                     history: sentMessageHistory,
                     errors: messagePresetLoadErrors,
-                    loading: loadingMessagePresets,
-                    onApplied: { source in
-                        focusesComposerAfterMessageLibrary = source == .history
-                    }
+                    loading: loadingMessagePresets
                 )
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()
@@ -1561,11 +1552,6 @@ struct WorkspaceLaunchPicker: View {
     }
 }
 
-enum MessageLibrarySelectionSource: Equatable {
-    case preset
-    case history
-}
-
 struct MessagePresetHistorySheet: View {
     @Binding var currentMessage: String
     let projectPresets: [MessagePreset]
@@ -1573,7 +1559,6 @@ struct MessagePresetHistorySheet: View {
     let history: [SentMessageHistoryItem]
     let errors: [String]
     let loading: Bool
-    let onApplied: (MessageLibrarySelectionSource) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var pendingPreset: MessagePreset?
@@ -1712,13 +1697,11 @@ struct MessagePresetHistorySheet: View {
         } else {
             currentMessage = preset.content
         }
-        onApplied(.preset)
         dismiss()
     }
 
     private func applyHistory(_ item: SentMessageHistoryItem) {
         currentMessage = item.content
-        onApplied(.history)
         dismiss()
     }
 

@@ -73,7 +73,6 @@ struct JobChatView: View {
     @State private var showsCameraPicker = false
     @State private var showsDocumentPicker = false
     @State private var showsMessageLibrary = false
-    @State private var focusesComposerAfterMessageLibrary = false
     @State private var sentMessageHistory: [SentMessageHistoryItem] = []
     @State private var projectMessagePresets: [MessagePreset] = []
     @State private var globalMessagePresets: [MessagePreset] = []
@@ -287,22 +286,14 @@ struct JobChatView: View {
             )
             .quartetSheetStyle()
         }
-        .sheet(isPresented: $showsMessageLibrary, onDismiss: {
-            if focusesComposerAfterMessageLibrary {
-                focusesComposerAfterMessageLibrary = false
-                composerFocused = true
-            }
-        }) {
+        .sheet(isPresented: $showsMessageLibrary) {
             MessagePresetHistorySheet(
                 currentMessage: $draft,
                 projectPresets: projectMessagePresets,
                 globalPresets: globalMessagePresets,
                 history: sentMessageHistory,
                 errors: messagePresetLoadErrors,
-                loading: loadingMessagePresets,
-                onApplied: { source in
-                    focusesComposerAfterMessageLibrary = source == .history
-                }
+                loading: loadingMessagePresets
             )
             .presentationDetents([.medium, .large])
             .quartetSheetStyle()
