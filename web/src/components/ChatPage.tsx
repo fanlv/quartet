@@ -36,6 +36,7 @@ import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { showToast } from '../utils/toast';
 import { fetchAvailableAgentList } from '../api/agents';
+import { useLocalTextDraft } from '../hooks/useLocalTextDraft';
 
 type LocalSentMessage = SentMessageHistoryItem;
 
@@ -442,7 +443,10 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   const canWriteFiles = principal?.permissions.includes('file.write') ?? false;
   const { connected } = useConnectionStatus();
   const { t, i18n } = useTranslation();
-  const [input, setInput] = useState('');
+  const localDraftStorageKey = principal
+    ? `quartet:composer_draft:home:${encodeURIComponent(principal.user.id)}:${encodeURIComponent(workspaceId || 'default')}`
+    : null;
+  const [input, setInput, clearInputDraft] = useLocalTextDraft(localDraftStorageKey);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [acpConfigError, setAcpConfigError] = useState<string | null>(null);
@@ -1125,6 +1129,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     });
     setHistoryItems(nextHistory);
 
+    clearInputDraft();
     onStartChat(
       contentToSend,
       selectedAgent.models?.currentModelId || selectedAgent.model_id,
@@ -1135,7 +1140,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
       selectedAgent.modes?.currentModeId,
       selectedAgent.thoughtLevels?.currentThoughtLevelId,
     );
-    setInput('');
     setPickedImageUrls([]);
     setPickedFileAttachments([]);
     clearAttachments();

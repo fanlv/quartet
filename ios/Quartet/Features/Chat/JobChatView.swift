@@ -63,6 +63,7 @@ struct JobChatView: View {
     let route: ChatRoute
 
     @State private var draft = ""
+    @State private var restoredPersistentDraftJobID: String?
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var showsPhotoPicker = false
     @State private var pendingAttachments: [PendingUpload] = []
@@ -150,6 +151,16 @@ struct JobChatView: View {
             .sharedBackgroundVisibility(.hidden)
         }
         .quartetPlainNavigationBackButton()
+        .onAppear {
+            restorePersistentDraft()
+        }
+        .onChange(of: route.summary.id) { _, _ in
+            restorePersistentDraft()
+        }
+        .onChange(of: draft) { _, content in
+            guard restoredPersistentDraftJobID == route.summary.id else { return }
+            appModel.saveJobConversationDraft(content, jobID: route.summary.id)
+        }
         .task(id: route.summary.id) {
             if appModel.isRunningUITests {
                 chat.startUITestPreview(route: route)
@@ -1387,14 +1398,20 @@ struct JobChatView: View {
         } catch {
             appModel.present(error)
         }
-        if chat.enqueueDraft(text: text, attachments: pendingAttachments) != nil {
-            appModel.beginOptimisticJobExecution(id: route.summary.id, fallback: route.summary)
-        }
+        guard chat.enqueueDraft(text: text, attachments: pendingAttachments) != nil else { return }
+        appModel.beginOptimisticJobExecution(id: route.summary.id, fallback: route.summary)
+        appModel.clearJobConversationDraft(jobID: route.summary.id)
         // 发送就是“我不看历史了”，恢复跟随并回到底部。
         followBottomRequests &+= 1
         draft = ""
         pendingAttachments = []
         selectedPhotos = []
+    }
+
+    private func restorePersistentDraft() {
+        let jobID = route.summary.id
+        draft = appModel.jobConversationDraft(jobID: jobID)
+        restoredPersistentDraftJobID = jobID
     }
 
     private func loadSentMessageHistory() {

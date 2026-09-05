@@ -1864,6 +1864,7 @@ export function JobChat(props: JobChatProps) {
             readOnly={!canExecuteJobs}
             placeholder={activeAgentBlockHint ?? (isGraph && !(activeSessionId && endedSessionIds.has(activeSessionId)) ? 'Graph workflow run' : !canExecuteJobs ? 'Read-only mode' : undefined)}
             localHistoryKey={`${workspaceId || 'default'}`}
+            localDraftKey={principal ? `user:${encodeURIComponent(principal.user.id)}:job:${encodeURIComponent(jobId || existingJobId)}` : undefined}
             totalTokens={totalTokens}
             tokenUsageEstimated={tokenUsageEstimated}
             roundStartedAt={interactiveAccumulatedMs > 0 ? undefined : roundStartedAt}

@@ -1401,6 +1401,39 @@ final class AppModel: ObservableObject {
         )
     }
 
+    func jobConversationDraft(jobID: String) -> String {
+        defaults.string(
+            forKey: StorageKey.jobConversationDraft(
+                for: serverAddress,
+                username: username,
+                jobID: jobID
+            )
+        ) ?? ""
+    }
+
+    func saveJobConversationDraft(_ content: String, jobID: String) {
+        let key = StorageKey.jobConversationDraft(
+            for: serverAddress,
+            username: username,
+            jobID: jobID
+        )
+        if content.isEmpty {
+            defaults.removeObject(forKey: key)
+        } else {
+            defaults.set(content, forKey: key)
+        }
+    }
+
+    func clearJobConversationDraft(jobID: String) {
+        defaults.removeObject(
+            forKey: StorageKey.jobConversationDraft(
+                for: serverAddress,
+                username: username,
+                jobID: jobID
+            )
+        )
+    }
+
     /// Graph 启动页记住的运行空间，和聊天页的最近发送空间分开：两条流程的空间选择互不影响。
     var lastGraphWorkspaceID: String? {
         defaults.string(forKey: StorageKey.lastGraphWorkspaceID(for: serverAddress))
@@ -2563,6 +2596,13 @@ final class AppModel: ObservableObject {
             let scope = "\(server)|\(username)"
             let encodedScope = Data(scope.utf8).base64EncodedString()
             return "quartet.newConversationDraft.\(encodedScope)"
+        }
+
+        static func jobConversationDraft(for serverAddress: String, username: String, jobID: String) -> String {
+            let server = connectionIdentity(for: serverAddress) ?? serverAddress
+            let scope = "\(server)|\(username)|\(jobID)"
+            let encodedScope = Data(scope.utf8).base64EncodedString()
+            return "quartet.jobConversationDraft.\(encodedScope)"
         }
 
         static func lastGraphWorkspaceID(for serverAddress: String) -> String {

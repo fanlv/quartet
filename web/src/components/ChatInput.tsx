@@ -23,6 +23,7 @@ import { splitFavoriteModels } from '../utils/agentPrefs';
 import { DurationBadge } from './DurationBadge';
 import { ConfigurationIcon } from './ComposerIcons';
 import { MessagePresetHistoryMenu, type SentMessageHistoryItem } from './MessagePresetHistoryMenu';
+import { useLocalTextDraft } from '../hooks/useLocalTextDraft';
 import './ChatInput.css';
 
 function toImagePreviewUrl(path: string): string {
@@ -196,6 +197,8 @@ interface ChatInputProps {
   canQueueWhileRunning?: boolean;
   /** localStorage key scope for sent-message history. */
   localHistoryKey?: string;
+  /** localStorage key scope for the unsubmitted text draft. */
+  localDraftKey?: string;
 }
 
 /** Check if there's an active @mention being typed at cursor position */
@@ -245,9 +248,11 @@ export function ChatInput({
   onContinueMessageQueue,
   canQueueWhileRunning = false,
   localHistoryKey,
+  localDraftKey,
 }: ChatInputProps) {
   const { t } = useTranslation();
-  const [input, setInput] = useState('');
+  const localDraftStorageKey = localDraftKey ? `quartet:composer_draft:${localDraftKey}` : null;
+  const [input, setInput, clearInputDraft] = useLocalTextDraft(localDraftStorageKey);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
@@ -447,7 +452,7 @@ export function ChatInput({
     } else {
       onSend(contentToSend, imageUrls.length > 0 ? imageUrls : undefined);
     }
-    setInput('');
+    clearInputDraft();
     setPickedImageUrls([]);
     setPickedFileAttachments([]);
     clearAttachments();
