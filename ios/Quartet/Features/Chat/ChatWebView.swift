@@ -59,6 +59,13 @@ enum ChatLinkTarget {
     }
 
     static func fileTarget(from url: URL) -> String? {
+        if url.isFileURL {
+            let host = url.host?.lowercased() ?? ""
+            guard host.isEmpty || host == "localhost" else { return nil }
+            let path = url.path.trimmingCharacters(in: .whitespacesAndNewlines)
+            return path.isEmpty ? nil : path
+        }
+
         guard url.scheme?.lowercased() == fileScheme,
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return nil

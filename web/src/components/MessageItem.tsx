@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 import { Message, UserMessage, AssistantMessage, ToolMessage, SystemMessage, MessageRoleEnum, MessageStatusEnum, ToolCallStatusEnum, type CommandSystemMessageEvent, type FileAttachment } from '../types';
@@ -134,6 +134,34 @@ function isLocalFileTarget(target: string): boolean {
   // bare relative with file extension (e.g. src/foo.go, foo.ts:10)
   if (/^[\w][\w./_-]*\.[a-zA-Z]+/.test(clean)) return true;
   return false;
+}
+
+function localFileTargetFromUrl(target: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(target);
+  } catch {
+    return null;
+  }
+  if (url.protocol.toLowerCase() !== 'file:') return null;
+  const host = url.hostname.toLowerCase();
+  if (host && host !== 'localhost') return null;
+
+  let filePath: string;
+  try {
+    filePath = decodeURIComponent(url.pathname);
+  } catch {
+    return null;
+  }
+  if (!filePath.startsWith('/')) return null;
+
+  const lineSuffix = /^#L\d+(?:-L?\d+)?(?:C\d+)?$/.test(url.hash) ? url.hash : '';
+  return filePath + lineSuffix;
+}
+
+function messageMarkdownUrlTransform(url: string, key: string): string {
+  if (key === 'href' && localFileTargetFromUrl(url) !== null) return url;
+  return defaultUrlTransform(url);
 }
 
 function parseLocalFileTarget(target: string): { filePath: string; line?: number; endLine?: number; column?: number } {
@@ -1212,10 +1240,11 @@ const MD_COMPONENTS: Components = {
   ),
   a: ({ href, children }) => {
     const url = String(href || '').replace(/\\\//g, '/');
-    if (isLocalFileTarget(url)) {
-      const filePath = normalizeLocalFileTarget(url);
-      const { line, endLine } = parseLocalFileTarget(url);
-      const fileName = extractLinkText(children) || extractFileName(url);
+    const localTarget = localFileTargetFromUrl(url) ?? (isLocalFileTarget(url) ? url : null);
+    if (localTarget) {
+      const filePath = normalizeLocalFileTarget(localTarget);
+      const { line, endLine } = parseLocalFileTarget(localTarget);
+      const fileName = extractLinkText(children) || extractFileName(localTarget);
       return <FileChip filePath={filePath} fileName={fileName} rawText={url} line={line} endLine={endLine} />;
     }
     if (!isSafeLinkUrl(url)) return <span>{children}</span>;
@@ -1260,7 +1289,7 @@ const MD_COMPONENTS: Components = {
 
 function renderMarkdown(content: string): React.ReactElement {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS} urlTransform={messageMarkdownUrlTransform}>
       {content}
     </ReactMarkdown>
   );
