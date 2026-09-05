@@ -366,7 +366,9 @@ struct NewConversationView: View {
                     history: sentMessageHistory,
                     errors: messagePresetLoadErrors,
                     loading: loadingMessagePresets,
-                    onApplied: { focusesComposerAfterMessageLibrary = true }
+                    onApplied: { source in
+                        focusesComposerAfterMessageLibrary = source == .history
+                    }
                 )
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()
@@ -1559,6 +1561,11 @@ struct WorkspaceLaunchPicker: View {
     }
 }
 
+enum MessageLibrarySelectionSource: Equatable {
+    case preset
+    case history
+}
+
 struct MessagePresetHistorySheet: View {
     @Binding var currentMessage: String
     let projectPresets: [MessagePreset]
@@ -1566,7 +1573,7 @@ struct MessagePresetHistorySheet: View {
     let history: [SentMessageHistoryItem]
     let errors: [String]
     let loading: Bool
-    let onApplied: () -> Void
+    let onApplied: (MessageLibrarySelectionSource) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var pendingPreset: MessagePreset?
@@ -1705,13 +1712,13 @@ struct MessagePresetHistorySheet: View {
         } else {
             currentMessage = preset.content
         }
-        onApplied()
+        onApplied(.preset)
         dismiss()
     }
 
     private func applyHistory(_ item: SentMessageHistoryItem) {
         currentMessage = item.content
-        onApplied()
+        onApplied(.history)
         dismiss()
     }
 

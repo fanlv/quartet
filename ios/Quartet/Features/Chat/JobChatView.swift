@@ -300,7 +300,9 @@ struct JobChatView: View {
                 history: sentMessageHistory,
                 errors: messagePresetLoadErrors,
                 loading: loadingMessagePresets,
-                onApplied: { focusesComposerAfterMessageLibrary = true }
+                onApplied: { source in
+                    focusesComposerAfterMessageLibrary = source == .history
+                }
             )
             .presentationDetents([.medium, .large])
             .quartetSheetStyle()
