@@ -65,31 +65,32 @@
   box-shadow: var(--shadow-raised);
 }
 
-/* Home dashboard: native grouped lists on the page canvas. */
+/* Home dashboard: keep the dense, edge-to-edge workspace layout. The
+   schedule and history areas are page sections, not inset cards. */
 #root .home-content {
-  --home-dashboard-gap: 12px;
-  max-width: 1220px;
-  padding: var(--home-dashboard-gap) 28px 18px;
-  gap: var(--home-dashboard-gap);
+  max-width: none;
+  padding: 8px 24px 24px;
+  gap: 0;
 }
 
 #root :is(.home-schedule-section, .home-job-list) {
   margin: 0;
-  padding: 8px 12px 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-card);
-  background: var(--surface);
-  box-shadow: 0 2px 10px rgba(20, 32, 25, 0.025);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 #root .home-job-list {
   padding-top: 0;
+  border-top: 1px solid var(--border);
 }
 
 #root :is(.home-schedule-header, .home-job-list-header) {
   min-height: 42px;
   padding: 7px 4px 9px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--canvas) 92%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--divider, var(--border-strong)) 72%, transparent);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -97,7 +98,7 @@
 
 #root :is(.home-schedule-title-row, .home-schedule-title, .home-job-list-title) {
   color: var(--fg);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
@@ -108,6 +109,7 @@
   color: var(--muted);
   background: var(--elevated);
   border-radius: 7px;
+  font-size: 9px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -121,8 +123,8 @@
 }
 
 #root :is(.home-schedule-list, .home-job-history-rows) {
-  gap: 3px 12px;
-  padding-top: 5px;
+  gap: 1px 12px;
+  padding-top: 3px;
 }
 
 #root :is(.home-schedule-list, .home-job-history-rows) > :nth-child(2n) {
@@ -132,10 +134,18 @@
 }
 
 #root :is(.home-schedule-row, .home-job-history-row) {
-  min-height: 42px;
-  padding-block: 7px;
-  border-radius: 11px;
+  min-height: 39px;
+  padding-block: 5px;
+  border-radius: 9px;
   transition: background var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+}
+
+#root .home-job-history-body {
+  gap: 5px;
+}
+
+#root .home-job-day-group {
+  gap: 1px;
 }
 
 #root :is(.home-schedule-row, .home-job-history-row):hover {
@@ -150,7 +160,7 @@
 #root .home-job-day-divider {
   top: 42px;
   padding: 9px 5px 6px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--canvas) 92%, transparent);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -161,17 +171,32 @@
 
 #root :is(.home-job-history-row-title, .home-schedule-row-title) {
   color: var(--fg);
-  font-size: 14px;
+  font-size: 12px;
 }
 
 #root :is(.home-job-history-row-model, .home-job-history-row-status, .home-job-history-row-ws) {
   border-radius: 7px;
+  font-size: 9px;
 }
 
-/* Composer: same inset card treatment used by the native chat composer. */
+#root :is(
+  .home-schedule-row-cron,
+  .home-schedule-row-next,
+  .home-schedule-row-last,
+  .home-job-history-row-time,
+  .home-job-filter-label,
+  .home-job-day-divider-text,
+  .home-job-day-divider-count,
+  .home-job-day-divider-stats
+) {
+  font-size: 9.5px;
+}
+
+/* The composer remains a distinct input surface, but follows the full-width
+   home sections instead of the narrower chat-page measure. */
 #root .home-input-container {
-  max-width: 1220px;
-  padding: 0 28px 24px;
+  max-width: none;
+  padding: 0 24px 24px;
 }
 
 #root .chat-input-container {
@@ -199,6 +224,14 @@
   caret-color: var(--fg);
   font-size: 15px;
   line-height: 1.6;
+}
+
+#root :is(.home-input, .home-input-backdrop) {
+  font-size: 13px;
+}
+
+#root .home-input::placeholder {
+  font-size: 13px;
 }
 
 #root :is(.home-input-backdrop, .chat-input-backdrop) {
@@ -245,13 +278,18 @@
   max-width: 1220px;
 }
 
+#root .chatbot-container :is(.header-logo-text, .header-title-input) {
+  font-size: 13px;
+}
+
 #root .message-list {
-  padding-top: 28px;
+  padding-top: 20px;
   scrollbar-color: color-mix(in srgb, var(--muted) 24%, transparent) transparent;
 }
 
 #root .message-item {
-  margin-bottom: 18px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 #root .user-message .message-content {
@@ -262,6 +300,7 @@
   color: var(--accent-fg);
   background: var(--accent);
   border-radius: 17px 17px 5px 17px;
+  padding: 9px 13px;
   box-shadow: 0 5px 15px color-mix(in srgb, var(--accent) 13%, transparent);
 }
 
@@ -270,18 +309,54 @@
   background: var(--surface);
   border-color: var(--border-strong);
   border-radius: var(--radius-card);
+  padding: 12px 16px;
   box-shadow: 0 4px 16px rgba(20, 32, 25, 0.04);
 }
 
 #root .assistant-bubble-header {
   color: var(--accent);
   border-bottom-color: var(--border);
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  font-size: 12px;
 }
 
 #root :is(.markdown-content, .thinking-content) {
   color: var(--fg);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+#root .markdown-content p {
+  margin-bottom: 8px;
+}
+
+#root :is(.markdown-content ul, .markdown-content ol) {
+  margin-bottom: 10px;
+}
+
+#root .markdown-content li {
+  margin-block: 3px;
+}
+
+#root .markdown-heading {
+  margin-bottom: 10px;
+}
+
+#root .markdown-h1 {
+  font-size: 21px;
+}
+
+#root .markdown-h2 {
+  font-size: 18px;
+}
+
+#root .markdown-h3 {
+  font-size: 16px;
+}
+
+#root :is(.markdown-h4, .markdown-h5, .markdown-h6) {
   font-size: 14px;
-  line-height: 1.75;
 }
 
 #root .user-bubble .markdown-content {
@@ -304,6 +379,14 @@
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--accent) 24%, var(--border-strong));
   border-radius: 13px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+#root .thinking-header {
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
 }
 
 #root .tool-call-card {
@@ -315,6 +398,28 @@
 
 #root :is(.tool-call-header, .assistant-bubble-actions) {
   border-color: var(--border);
+}
+
+#root .tool-call-header {
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+#root .tool-name {
+  font-size: 12px;
+}
+
+#root .tool-section {
+  padding: 12px;
+}
+
+#root :is(.tool-code, .tool-param-block-value, .shell-content) {
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+#root :is(.message-timestamp, .user-send-status) {
+  font-size: 10px;
 }
 
 /* Settings behave like a native sheet with grouped cards. */
@@ -551,14 +656,13 @@
   }
 
   #root .home-content {
-    --home-dashboard-gap: 10px;
-    padding: var(--home-dashboard-gap) 12px 10px;
-    gap: var(--home-dashboard-gap);
+    padding: 6px 12px 10px;
+    gap: 0;
   }
 
   #root :is(.home-schedule-section, .home-job-list) {
-    padding-inline: 8px;
-    border-radius: 14px;
+    padding-inline: 0;
+    border-radius: 0;
   }
 
   #root .home-input-container {
