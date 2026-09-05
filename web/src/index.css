@@ -1,3 +1,51 @@
+@font-face {
+  font-family: 'Noto Sans SC';
+  src: url('../../ios/Quartet/Resources/Fonts/NotoSansSC-Regular.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Sans SC';
+  src: url('../../ios/Quartet/Resources/Fonts/NotoSansSC-Medium.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Sans SC';
+  src: url('../../ios/Quartet/Resources/Fonts/NotoSansSC-Medium.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Sans SC';
+  src: url('../../ios/Quartet/Resources/Fonts/NotoSansSC-Bold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Sans SC';
+  src: url('../../ios/Quartet/Resources/Fonts/NotoSansSC-Bold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Sans SC';
+  src: url('../../ios/Quartet/Resources/Fonts/NotoSansSC-Bold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -5,11 +53,11 @@
 }
 
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-    'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
-    'Noto Color Emoji';
-  font-size: 14px;
-  line-height: 1.5;
+  --font-sans: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'SFMono-Regular', 'SF Mono', 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.55;
   font-weight: 400;
   color-scheme: light;
   color: #142019;
@@ -82,7 +130,16 @@
 
   /* Shadows carry the same cool green tint as the surfaces. */
   --shadow-soft: 0 8px 24px rgba(20, 32, 25, 0.08);
-  --shadow-raised: 0 18px 54px rgba(20, 32, 25, 0.16);
+  --shadow-raised: 0 22px 60px rgba(20, 32, 25, 0.13);
+
+  /* Shared geometry and motion mirror the continuous native surfaces. */
+  --radius-control: 10px;
+  --radius-card: 16px;
+  --radius-sheet: 20px;
+  --control-height: 42px;
+  --motion-fast: 140ms;
+  --motion-base: 220ms;
+  --ease-out: cubic-bezier(0.2, 0.75, 0.25, 1);
 
   /* Compatibility aliases used by the authentication shell. */
   --color-bg: var(--canvas);
@@ -203,8 +260,9 @@
 
 input,
 textarea,
-select {
-  font-size: 14px;
+select,
+button {
+  font-size: 15px;
   font-family: inherit;
 }
 
@@ -218,13 +276,42 @@ body {
   background: var(--canvas);
 }
 
+button,
+a,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font-weight: 500;
+}
+
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']) {
+  touch-action: manipulation;
+}
+
 ::selection {
   color: var(--fg);
   background: var(--accent-soft-strong);
 }
 
 :where(button, a, input, textarea, select, [tabindex]):focus-visible {
-  outline-color: var(--accent);
+  outline: 3px solid var(--accent-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 html,

@@ -8,7 +8,9 @@
   align-items: flex-start;
   justify-content: center;
   padding: max(24px, env(safe-area-inset-top, 0px) + 24px) 16px max(24px, env(safe-area-inset-bottom, 0px) + 24px);
-  background: var(--color-bg, #0f1419);
+  background:
+    radial-gradient(circle at 50% 34%, var(--accent-soft) 0, transparent 28rem),
+    var(--color-bg, #f3f7f4);
   color: var(--color-fg, #f0f7f2);
   z-index: 9999;
   overflow-y: auto;
@@ -21,30 +23,35 @@
   width: min(420px, 100%);
   margin-block: auto;
   background: var(--color-bg-card, #0f1712);
-  border: 1px solid var(--color-border, #30363d);
-  border-radius: 14px;
-  padding: 36px 32px 28px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-radius: var(--radius-sheet);
+  padding: 42px 38px 34px;
   box-shadow: var(--shadow-raised);
   text-align: center;
 }
 
 .auth-gate-title {
-  margin: 0 0 8px;
-  font-size: 20px;
-  font-weight: 600;
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .auth-gate-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 72px;
-  height: 72px;
-  margin: 0 auto 18px;
-  border-radius: 18px;
-  background: var(--color-bg-input, #040704);
-  border: 1px solid var(--color-border, #30363d);
-  color: var(--color-accent, #62ff98);
+  width: 68px;
+  height: 68px;
+  margin: 0 auto 22px;
+  border-radius: 19px 19px 7px 19px;
+  background: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent-deep) 34%, transparent);
+  color: var(--accent-fg);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 22%, transparent);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
 }
 
 .auth-gate-desc {
@@ -79,8 +86,8 @@
 .auth-gate-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin: 22px 0 14px;
 }
 
 .auth-gate-form .auth-gate-btn {
@@ -90,18 +97,22 @@
 .auth-gate-input {
   flex: 1;
   min-width: 0;
-  padding: 8px 12px;
-  font-size: 14px;
-  background: var(--color-bg-input, #040704);
-  border: 1px solid var(--color-border, #30363d);
-  border-radius: 6px;
+  min-height: var(--control-height);
+  padding: 10px 13px;
+  font-size: 15px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
   color: inherit;
   outline: none;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), background var(--motion-fast);
   scroll-margin-block: 24px;
 }
 
 .auth-gate-input:focus {
   border-color: var(--color-accent, #62ff98);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
 .auth-gate-actions {
@@ -115,12 +126,13 @@
 }
 
 .auth-gate-btn {
-  padding: 8px 16px;
-  font-size: 14px;
-  border-radius: 6px;
+  min-height: var(--control-height);
+  padding: 9px 16px;
+  font-size: 15px;
+  border-radius: var(--radius-control);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--motion-fast), border-color var(--motion-fast), transform var(--motion-fast), box-shadow var(--motion-fast);
 }
 
 .auth-gate-btn:disabled {
@@ -130,11 +142,17 @@
 
 .auth-gate-btn-primary {
   background: var(--color-accent, #16a34a);
-  color: #fff;
+  color: var(--accent-fg);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .auth-gate-btn-primary:hover:not(:disabled) {
   background: var(--color-accent-hover, #047857);
+  transform: translateY(-1px);
+}
+
+.auth-gate-btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.995);
 }
 
 .auth-gate-btn-secondary {
@@ -154,7 +172,7 @@
   }
 
   .auth-gate-card {
-    padding: 24px 20px 20px;
+    padding: 30px 22px 24px;
   }
 
   .auth-gate-icon {
@@ -188,7 +206,6 @@
 
 @media (prefers-color-scheme: light) {
   .auth-gate {
-    background: var(--canvas);
     color: var(--fg);
   }
   .auth-gate-card {
@@ -197,9 +214,5 @@
   }
   .auth-gate-input {
     background: var(--surface);
-  }
-  .auth-gate-icon {
-    background: var(--accent-soft);
-    border-color: var(--accent-border);
   }
 }

@@ -1,0 +1,611 @@
+/*
+ * Web expression of the native Quartet visual language. QuartetTheme.swift
+ * remains the color and type reference; this layer consolidates the legacy
+ * component styles without changing component behavior or page structure.
+ */
+
+#root :is(.home-page, .chatbot-container, .graph-page, .stats-page) {
+  color: var(--fg);
+  background: var(--canvas);
+}
+
+#root :is(.chatbot-header, .graph-page-header) {
+  min-height: 60px;
+  padding: calc(env(safe-area-inset-top) + 11px) 24px 11px;
+  background: color-mix(in srgb, var(--canvas) 90%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--border-strong) 76%, transparent);
+  box-shadow: none;
+  backdrop-filter: saturate(130%) blur(20px);
+  -webkit-backdrop-filter: saturate(130%) blur(20px);
+}
+
+#root :is(.header-logo, .header-logo-text, .graph-editor-title) {
+  color: var(--fg);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+#root :is(
+  .back-button,
+  .header-settings-btn,
+  .header-filebrowser-btn,
+  .graph-sidebar-icon-btn,
+  .graph-session-sidebar-toggle
+) {
+  width: 38px;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  background: transparent;
+  transition: color var(--motion-fast), background var(--motion-fast), border-color var(--motion-fast), transform var(--motion-fast);
+}
+
+#root :is(
+  .back-button,
+  .header-settings-btn,
+  .header-filebrowser-btn,
+  .graph-sidebar-icon-btn,
+  .graph-session-sidebar-toggle
+):hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--elevated);
+  border-color: var(--border);
+}
+
+#root :is(button, [role='button']):active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
+}
+
+#root :is(.header-joblist-menu, .header-more-menu, .model-dropdown, .settings-model-dropdown, .home-job-ws-filter-dropdown) {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-raised);
+}
+
+/* Home dashboard: native grouped lists on the page canvas. */
+#root .home-content {
+  --home-dashboard-gap: 12px;
+  max-width: 1220px;
+  padding: var(--home-dashboard-gap) 28px 18px;
+  gap: var(--home-dashboard-gap);
+}
+
+#root :is(.home-schedule-section, .home-job-list) {
+  margin: 0;
+  padding: 8px 12px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: 0 2px 10px rgba(20, 32, 25, 0.025);
+}
+
+#root .home-job-list {
+  padding-top: 0;
+}
+
+#root :is(.home-schedule-header, .home-job-list-header) {
+  min-height: 42px;
+  padding: 7px 4px 9px;
+  background: var(--surface);
+  border-bottom: 1px solid color-mix(in srgb, var(--divider, var(--border-strong)) 72%, transparent);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#root :is(.home-schedule-title-row, .home-schedule-title, .home-job-list-title) {
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+#root :is(.home-schedule-count, .home-job-list-count) {
+  height: 22px;
+  color: var(--muted);
+  background: var(--elevated);
+  border-radius: 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+#root .home-schedule-add-btn {
+  height: 30px;
+  padding-inline: 10px;
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-strong));
+  border-radius: 9px;
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+}
+
+#root :is(.home-schedule-list, .home-job-history-rows) {
+  gap: 3px 12px;
+  padding-top: 5px;
+}
+
+#root :is(.home-schedule-list, .home-job-history-rows) > :nth-child(2n) {
+  border-left-color: color-mix(in srgb, var(--border-strong) 55%, transparent);
+  margin-left: -6px;
+  padding-left: 14px;
+}
+
+#root :is(.home-schedule-row, .home-job-history-row) {
+  min-height: 42px;
+  padding-block: 7px;
+  border-radius: 11px;
+  transition: background var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+}
+
+#root :is(.home-schedule-row, .home-job-history-row):hover {
+  background: var(--elevated);
+  box-shadow: none;
+}
+
+#root :is(.home-schedule-row, .home-job-history-row).running {
+  background: var(--accent-soft);
+}
+
+#root .home-job-day-divider {
+  top: 42px;
+  padding: 9px 5px 6px;
+  background: var(--surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#root :is(.home-job-history-row-icon, .home-schedule-row-last-icon) {
+  background: var(--elevated);
+}
+
+#root :is(.home-job-history-row-title, .home-schedule-row-title) {
+  color: var(--fg);
+  font-size: 14px;
+}
+
+#root :is(.home-job-history-row-model, .home-job-history-row-status, .home-job-history-row-ws) {
+  border-radius: 7px;
+}
+
+/* Composer: same inset card treatment used by the native chat composer. */
+#root .home-input-container {
+  max-width: 1220px;
+  padding: 0 28px 24px;
+}
+
+#root .chat-input-container {
+  max-width: 1220px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 8px 22px 24px 28px;
+}
+
+#root :is(.home-input-wrapper, .chat-input-wrapper) {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: 0 8px 24px rgba(20, 32, 25, 0.055);
+  transition: border-color var(--motion-base), box-shadow var(--motion-base), transform var(--motion-base);
+}
+
+#root :is(.home-input-wrapper, .chat-input-wrapper):focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 10px 30px rgba(20, 32, 25, 0.075), 0 0 0 3px var(--accent-ring);
+}
+
+#root :is(.home-input, .chat-input, .home-input-backdrop, .chat-input-backdrop) {
+  color: transparent;
+  caret-color: var(--fg);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+#root :is(.home-input-backdrop, .chat-input-backdrop) {
+  color: var(--fg);
+}
+
+/* The textarea normally stays transparent because the backdrop paints its
+   committed value. During IME composition the backdrop is hidden so iOS can
+   display the uncommitted text directly; keep this selector at least as
+   specific as the native-theme rule above. */
+#root .chat-input-editor.composing :is(.home-input, .chat-input) {
+  color: var(--fg);
+  -webkit-text-fill-color: var(--fg);
+}
+
+#root :is(.home-input-footer, .chat-input-footer) {
+  border-top-color: var(--border);
+}
+
+#root .model-tag {
+  min-height: 30px;
+  padding: 5px 9px;
+  color: var(--muted);
+  background: var(--elevated);
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+#root .model-tag:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--elevated) 76%, var(--accent-soft));
+  border-color: var(--border-strong);
+}
+
+#root :is(.home-send-btn, .chat-send-btn) {
+  border-radius: 11px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  box-shadow: 0 7px 16px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* Conversation timeline and message hierarchy. */
+#root .chatbot-main {
+  max-width: 1220px;
+}
+
+#root .message-list {
+  padding-top: 28px;
+  scrollbar-color: color-mix(in srgb, var(--muted) 24%, transparent) transparent;
+}
+
+#root .message-item {
+  margin-bottom: 18px;
+}
+
+#root .user-message .message-content {
+  max-width: 76%;
+}
+
+#root .user-bubble {
+  color: var(--accent-fg);
+  background: var(--accent);
+  border-radius: 17px 17px 5px 17px;
+  box-shadow: 0 5px 15px color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+#root .assistant-bubble {
+  color: var(--fg);
+  background: var(--surface);
+  border-color: var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: 0 4px 16px rgba(20, 32, 25, 0.04);
+}
+
+#root .assistant-bubble-header {
+  color: var(--accent);
+  border-bottom-color: var(--border);
+}
+
+#root :is(.markdown-content, .thinking-content) {
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+#root .user-bubble .markdown-content {
+  color: var(--accent-fg);
+}
+
+#root .markdown-heading {
+  color: var(--fg);
+  letter-spacing: -0.015em;
+}
+
+#root :is(.inline-code, .markdown-code-block) {
+  color: var(--fg);
+  background: var(--canvas);
+  border-color: var(--border-strong);
+  font-family: var(--font-mono);
+}
+
+#root .thinking-block {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border-strong));
+  border-radius: 13px;
+}
+
+#root .tool-call-card {
+  color: var(--fg);
+  background: var(--surface);
+  border-color: var(--border-strong);
+  border-radius: var(--radius-control);
+}
+
+#root :is(.tool-call-header, .assistant-bubble-actions) {
+  border-color: var(--border);
+}
+
+/* Settings behave like a native sheet with grouped cards. */
+#root .settings-overlay {
+  padding: 24px;
+  background: rgba(7, 13, 9, 0.34);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+#root .settings-modal {
+  max-width: min(94vw, 1240px);
+  max-height: min(88dvh, 820px);
+  color: var(--fg);
+  background: var(--canvas);
+  border-color: color-mix(in srgb, var(--border-strong) 82%, transparent);
+  border-radius: var(--radius-sheet);
+  box-shadow: var(--shadow-raised);
+}
+
+#root .settings-header {
+  min-height: 62px;
+  padding: 14px 22px;
+  background: var(--surface);
+  border-bottom-color: var(--border-strong);
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+}
+
+#root .settings-title {
+  color: var(--fg);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+#root .settings-close-btn {
+  width: 38px;
+  height: 38px;
+  color: var(--muted);
+  border-radius: var(--radius-control);
+}
+
+#root .settings-close-btn:hover {
+  color: var(--fg);
+  background: var(--elevated);
+}
+
+#root .settings-nav {
+  width: 218px;
+  padding: 18px 12px;
+  color: var(--muted);
+  background: var(--canvas);
+  border-right-color: var(--border-strong);
+}
+
+#root .settings-nav-item {
+  min-height: 44px;
+  border-radius: 11px;
+  color: var(--muted);
+}
+
+#root .settings-nav-item:hover {
+  color: var(--fg);
+  background: var(--elevated);
+}
+
+#root .settings-nav-item.active {
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+}
+
+#root .settings-content {
+  padding: 26px;
+  background: var(--canvas);
+}
+
+#root .settings-subtabs {
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--elevated);
+}
+
+#root .settings-subtab {
+  min-height: 34px;
+  color: var(--muted);
+  border-radius: 8px;
+}
+
+#root .settings-subtab.active {
+  color: var(--accent-deep);
+  background: var(--surface);
+  box-shadow: 0 1px 4px rgba(20, 32, 25, 0.10);
+}
+
+#root .settings-section {
+  margin-bottom: 18px;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+}
+
+#root :is(.settings-section-title, .settings-label, .settings-switch-title) {
+  color: var(--fg);
+}
+
+#root .settings-section-title {
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+
+#root :is(.settings-section-desc, .settings-switch-desc) {
+  color: var(--muted);
+}
+
+#root :is(.settings-input, .settings-select) {
+  min-height: var(--control-height);
+  color: var(--fg);
+  background: var(--canvas);
+  border-color: var(--border-strong);
+  border-radius: var(--radius-control);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), background var(--motion-fast);
+}
+
+#root :is(.settings-input, .settings-select):focus {
+  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+#root .settings-btn {
+  min-height: 40px;
+  border-radius: var(--radius-control);
+}
+
+#root .settings-btn-primary {
+  color: var(--accent-fg);
+  background: var(--accent);
+}
+
+#root .settings-btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+#root .settings-btn-secondary {
+  color: var(--fg);
+  background: var(--elevated);
+}
+
+/* Statistics and graph pages use the same canvas / surface hierarchy. */
+#root .stats-page {
+  padding: 20px;
+}
+
+#root .stats-shell {
+  max-width: 1220px;
+  background: var(--canvas);
+  border-color: transparent;
+  border-radius: var(--radius-card);
+  box-shadow: none;
+}
+
+#root .stats-header {
+  min-height: 58px;
+  padding: 13px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+}
+
+#root .stats-body {
+  padding: 16px 0 0;
+}
+
+#root :is(.stats-kpi-card, .stats-card) {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: 0 2px 10px rgba(20, 32, 25, 0.025);
+}
+
+#root :is(.stats-title, .stats-kpi-value, .stats-card-title) {
+  color: var(--fg);
+}
+
+#root .stats-kpi-value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+#root .stats-segmented {
+  padding: 3px;
+  border-color: var(--border);
+  border-radius: 9px;
+  background: var(--elevated);
+}
+
+#root .stats-segmented-btn {
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+}
+
+#root .stats-segmented-btn.active {
+  color: var(--accent-deep);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(20, 32, 25, 0.11);
+}
+
+#root .graph-page-main {
+  gap: 16px;
+  padding: 16px;
+  background: var(--canvas);
+}
+
+#root :is(.graph-sidebar, .graph-editor) {
+  color: var(--fg);
+  background: var(--surface);
+  border-color: var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: 0 2px 10px rgba(20, 32, 25, 0.025);
+}
+
+#root :is(.graph-sidebar-top, .graph-editor-head) {
+  border-bottom-color: var(--border);
+}
+
+@media (max-width: 768px) {
+  #root :is(.chatbot-header, .graph-page-header) {
+    min-height: 54px;
+    padding-inline: 12px;
+  }
+
+  #root .home-content {
+    --home-dashboard-gap: 10px;
+    padding: var(--home-dashboard-gap) 12px 10px;
+    gap: var(--home-dashboard-gap);
+  }
+
+  #root :is(.home-schedule-section, .home-job-list) {
+    padding-inline: 8px;
+    border-radius: 14px;
+  }
+
+  #root .home-input-container {
+    padding: 0 12px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  #root .chat-input-container {
+    padding: 8px 6px calc(12px + env(safe-area-inset-bottom)) 12px;
+  }
+
+  #root .user-message .message-content {
+    max-width: 88%;
+  }
+
+  #root .settings-overlay {
+    padding: 0;
+  }
+
+  #root .settings-modal {
+    max-width: 100vw;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+
+  #root .settings-header {
+    border-radius: 0;
+  }
+
+  #root .settings-nav {
+    width: 100%;
+    padding: 7px 8px;
+  }
+
+  #root .settings-nav-item {
+    min-height: 40px;
+  }
+
+  #root .settings-content {
+    padding: 12px;
+  }
+
+  #root .settings-section {
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  #root .stats-page {
+    padding: 10px;
+  }
+}
